@@ -18,7 +18,7 @@ mod world;
 
 pub use battle::Missile;
 pub use rng::Rng;
-pub use terrain::{Terrain, Tile};
+pub use terrain::{Terrain, WallStage};
 pub use world::{Command, Layer, Order, Player, Rules, SpawnError, Unit, UnitId, World, WorldError};
 
 /// Map pixels per tile.

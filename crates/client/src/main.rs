@@ -75,6 +75,13 @@ struct Selection {
     drag_from: Option<Vec2>,
 }
 
+/// The terrain picture and what redraws its tiles.
+#[derive(Resource)]
+struct TerrainArt {
+    image: Handle<Image>,
+    tileset: tidewater_formats::tileset::Tileset,
+}
+
 /// Facing frames per (unit type, owner).
 #[derive(Resource)]
 struct Art(HashMap<(u8, u8), Vec<Handle<Image>>>);
@@ -237,6 +244,7 @@ fn main() -> Result<()> {
                 select,
                 order,
                 sync_sprites,
+                redraw_terrain,
                 draw_selection,
                 draw_hud,
                 quit_on_escape,
@@ -323,10 +331,16 @@ fn setup(
         }),
         Transform::from_translation(world(look.x, look.y, 0.0)),
     ));
+    // Kept on the CPU side too, so tiles that change in play can be redrawn.
+    let terrain = images.add(image_with(scene.terrain, RenderAssetUsages::default()));
     commands.spawn((
-        Sprite::from_image(images.add(image(scene.terrain))),
+        Sprite::from_image(terrain.clone()),
         Transform::from_translation(world(size.0.x / 2.0, size.0.y / 2.0, 0.0)),
     ));
+    commands.insert_resource(TerrainArt {
+        image: terrain,
+        tileset: scene.tileset,
+    });
     let art: HashMap<_, Vec<_>> = scene
         .art
         .into_iter()
@@ -352,6 +366,34 @@ fn setup(
 fn tick(mut sim: ResMut<Sim>) {
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
+}
+
+/// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture and the minimap.
+fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut<Assets<Image>>, mut hud: ResMut<Hud>) {
+    let changed = std::mem::take(&mut sim.world.terrain.redraw);
+    if changed.is_empty() {
+        return;
+    }
+    let Some(mut img) = images.get_mut(&art.image) else {
+        return;
+    };
+    let width = img.width() as usize;
+    let Some(data) = img.data.as_mut() else { return };
+    let map_w = sim.world.terrain.width as usize;
+    let t = TILE_PX as usize;
+    for (x, y) in changed {
+        let Some(m) = sim.world.terrain.tile(x, y) else {
+            continue;
+        };
+        let pic = scene::tile_picture(&art.tileset, m as usize);
+        for row in 0..t {
+            let at = ((y as usize * t + row) * width + x as usize * t) * 4;
+            data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);
+        }
+        if let Some(c) = hud.tiles.get_mut(y as usize * map_w + x as usize) {
+            *c = hud::tile_colours(&pic, TILE_PX as u32)[0];
+        }
+    }
 }
 
 /// Draw depth: buildings under ground units under ships under aircraft; lower on screen draws in front.

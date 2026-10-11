@@ -11,7 +11,7 @@ use crate::battle::Missile;
 use crate::combat::Upgrades;
 use crate::rng::Rng;
 use crate::slots::{self, Slots};
-use crate::terrain::{Terrain, Tile};
+use crate::terrain::{Terrain, bits, mask};
 use crate::{TILE_PX, path};
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +40,21 @@ pub enum Layer {
     Sea,
     Air,
 }
+
+impl Layer {
+    /// The movement-word bits that block this layer (occupancy spec, "Movement layers and blocking masks").
+    pub fn mask(self) -> u16 {
+        match self {
+            Layer::Land => mask::LAND,
+            Layer::Sea => mask::SEA,
+            Layer::Air => mask::AIR,
+        }
+    }
+}
+
+/// Unit types that occupy tiles in their own way (occupancy spec, "Run-time marks"), in the PUD unit numbering.
+const OIL_PATCH: u8 = 0x5d;
+const CIRCLE_OF_POWER: u8 = 0x65;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
@@ -208,18 +223,16 @@ pub struct World {
     pub missiles: Vec<Option<Missile>>,
     pub slots: Slots,
     slot_of: BTreeMap<UnitId, u16>,
-    /// Damage counter of each wall tile.
-    pub(crate) wall_damage: Vec<u8>,
     next_id: u32,
-    /// Per layer, the unit standing on (or moving into or out of) each tile.
-    pub(crate) occupancy: [Vec<Option<UnitId>>; 3],
+    /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
+    /// buildings share the ground plane.
+    pub(crate) occupancy: [Vec<Option<UnitId>>; 2],
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
     match l {
-        Layer::Land => 0,
-        Layer::Sea => 1,
-        Layer::Air => 2,
+        Layer::Land | Layer::Sea => 0,
+        Layer::Air => 1,
     }
 }
 
@@ -266,7 +279,6 @@ impl World {
             scripts,
             stride,
             units: Vec::new(),
-            wall_damage: vec![0; n],
             next_id: 1,
         }
     }
@@ -288,7 +300,15 @@ impl World {
                 want,
             });
         }
-        let terrain = Terrain::from_map(tileset, &pud.tiles, pud.width, pud.height);
+        let terrain = Terrain::from_map(
+            tileset,
+            &pud.tiles,
+            pud.movement().as_deref(),
+            pud.regions().as_deref(),
+            pud.width,
+            pud.height,
+            pud.section(b"OILM").is_some(),
+        );
         let mut w = World::new(terrain, stats, scripts, seed);
         for (i, p) in w.players.iter_mut().enumerate() {
             let (g, l, o) = pud.start_resources(i);
@@ -400,14 +420,45 @@ impl World {
         Ok(id)
     }
 
+    /// Sets (`v` is the unit) or clears (`None`) the unit's occupancy marks at `tile` (occupancy spec, "Run-time
+    /// marks"). A mobile unit marks the one tile with the ground-unit or air-unit bit, and clearing zeroes the pointer
+    /// only if it names this unit. A building marks its footprint; clearing zeroes every footprint pointer. An oil patch
+    /// marks nothing, and a circle of power only forbids building on its footprint.
     pub(crate) fn mark(&mut self, unit: &Unit, tile: (i32, i32), v: Option<UnitId>) {
-        let w = self.terrain.width as i32;
-        let occ = &mut self.occupancy[layer_index(unit.layer)];
+        if !unit.building {
+            let (plane, bit) = match unit.layer {
+                Layer::Air => (1, bits::AIR_UNIT),
+                _ => (0, bits::UNIT),
+            };
+            let Some(n) = self.terrain.at(tile.0, tile.1) else {
+                return;
+            };
+            match v {
+                Some(_) => self.terrain.words[n] |= bit,
+                None => self.terrain.words[n] &= !bit,
+            }
+            let p = &mut self.occupancy[plane][n];
+            if v.is_some() || *p == Some(unit.id) {
+                *p = v;
+            }
+            return;
+        }
         for dy in 0..unit.size.1 as i32 {
             for dx in 0..unit.size.0 as i32 {
-                let (x, y) = (tile.0 + dx, tile.1 + dy);
-                if self.terrain.contains(x, y) {
-                    occ[(y * w + x) as usize] = v;
+                let Some(n) = self.terrain.at(tile.0 + dx, tile.1 + dy) else {
+                    continue;
+                };
+                match (unit.kind, v) {
+                    (OIL_PATCH, _) | (CIRCLE_OF_POWER, None) => {}
+                    (CIRCLE_OF_POWER, Some(_)) => self.terrain.words[n] |= bits::NO_BUILD,
+                    (_, Some(_)) => {
+                        self.terrain.words[n] |= bits::BUILDING;
+                        self.occupancy[0][n] = v;
+                    }
+                    (_, None) => {
+                        self.terrain.words[n] &= !bits::BUILDING;
+                        self.occupancy[0][n] = None;
+                    }
                 }
             }
         }
@@ -415,20 +466,23 @@ impl World {
 
     /// The unit occupying a tile on a layer.
     pub fn occupant(&self, layer: Layer, x: i32, y: i32) -> Option<UnitId> {
-        if !self.terrain.contains(x, y) {
-            return None;
-        }
-        self.occupancy[layer_index(layer)][(y * self.terrain.width as i32 + x) as usize]
+        let n = self.terrain.at(x, y)?;
+        self.occupancy[layer_index(layer)][n]
     }
 
+    /// Whether a unit of `layer` may enter the tile as far as the terrain and buildings go: its movement word against
+    /// the layer's mask, leaving out the unit marks of tiles a unit stands on (the callers judge units by pointer).
+    /// Marks without a unit, such as the map's "cave" and "space" values, still block.
     fn terrain_allows(&self, layer: Layer, x: i32, y: i32) -> bool {
-        let t = self.terrain.get(x, y);
-        self.terrain.contains(x, y)
-            && match layer {
-                Layer::Land => t.has(Tile::LAND),
-                Layer::Sea => t.has(Tile::SEA),
-                Layer::Air => true,
-            }
+        let Some(n) = self.terrain.at(x, y) else { return false };
+        let mut word = self.terrain.words[n];
+        if self.occupancy[0][n].is_some() {
+            word &= !bits::UNIT;
+        }
+        if self.occupancy[1][n].is_some() {
+            word &= !bits::AIR_UNIT;
+        }
+        word & layer.mask() == 0
     }
 
     pub fn unit(&self, id: UnitId) -> Option<&Unit> {
@@ -689,7 +743,7 @@ impl World {
         self.units.hash(&mut h);
         self.missiles.hash(&mut h);
         self.slots.hash(&mut h);
-        self.wall_damage.hash(&mut h);
+        self.terrain.hash(&mut h);
         h.finish()
     }
 }
@@ -711,6 +765,7 @@ pub(crate) mod tests {
             groups: vec![g(0x01, 0x606), g(0x40, 0x202)],
             megatiles: vec![[0; 16]],
             minitiles: vec![0; 64],
+            changes: None,
         }
     }
 
@@ -804,7 +859,12 @@ pub(crate) mod tests {
         let tiles = (0..64)
             .map(|i| if i % 8 == 4 && i / 8 < 6 { 0x10 } else { 0x00 })
             .collect::<Vec<u16>>();
-        let mut w = World::new(Terrain::from_map(&tileset(), &tiles, 8, 8), stats(), scripts(), 0);
+        let mut w = World::new(
+            Terrain::from_map(&tileset(), &tiles, None, None, 8, 8, false),
+            stats(),
+            scripts(),
+            0,
+        );
         w.spawn(0, 0, (0, 0), 0).unwrap();
         w
     }
@@ -904,6 +964,33 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn occupancy_marks_and_pointers() {
+        let mut w = world();
+        assert_eq!(w.terrain.word(0, 0), 0x0101);
+        let b = w.spawn(0x3a, 0, (5, 6), 0).unwrap();
+        for (x, y) in [(5, 6), (6, 6), (5, 7), (6, 7)] {
+            assert_eq!((w.terrain.word(x, y), w.occupant(Layer::Sea, x, y)), (0x0801, Some(b)));
+        }
+        let f = w.spawn(2, 0, (2, 6), 0).unwrap();
+        assert_eq!(w.terrain.word(2, 6), 0x0201);
+        assert_eq!(
+            (w.occupant(Layer::Air, 2, 6), w.occupant(Layer::Land, 2, 6)),
+            (Some(f), None)
+        );
+        // A second ground unit leaving a shared tile clears the mark for both, but leaves the other's pointer.
+        let mut other = w.unit(UnitId(1)).unwrap().clone();
+        other.id = UnitId(99);
+        w.mark(&other, (0, 0), None);
+        assert_eq!(
+            (w.terrain.word(0, 0), w.occupant(Layer::Land, 0, 0)),
+            (0x0001, Some(UnitId(1)))
+        );
+        let bu = w.unit(b).unwrap().clone();
+        w.mark(&bu, (5, 6), None);
+        assert_eq!((w.terrain.word(6, 7), w.occupant(Layer::Land, 6, 7)), (0x0001, None));
+    }
+
+    #[test]
     fn strides_come_from_the_move_scripts() {
         let w = world();
         assert_eq!((w.stride[0], w.stride[2]), (1, 2));
@@ -937,6 +1024,7 @@ pub(crate) mod tests {
         run(&mut w, 8);
         assert_eq!(at(&w), (48, 16));
         assert_eq!(w.occupant(Layer::Land, 0, 0), None);
+        assert_eq!((w.terrain.word(0, 0), w.terrain.word(1, 0)), (0x0001, 0x0101));
     }
 
     #[test]

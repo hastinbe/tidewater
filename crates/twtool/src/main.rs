@@ -114,6 +114,17 @@ enum Cmd {
         #[arg(long)]
         install: PathBuf,
     },
+    /// Fell trees in a field of one forest shape (forest table row `row`) using each tileset's change tables, and
+    /// print the forest table row of every tile after each felling (`..` for cleared ground).
+    Fell {
+        #[arg(long)]
+        install: PathBuf,
+        #[arg(long, default_value_t = 24)]
+        row: u16,
+        /// Tiles to fell in turn, as `x,y` on a 9 x 9 field.
+        #[arg(default_values_t = ["4,4".to_string(), "4,3".to_string()])]
+        at: Vec<String>,
+    },
     /// Summarise an archive's block table: how many blocks, how many in use.
     MpqInfo { archive: PathBuf },
 }
@@ -259,6 +270,7 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Scripts { install } => scripts(&install)?,
+        Cmd::Fell { install, row, at } => fell(&install, row, &at)?,
         Cmd::Upgrades { install, map } => upgrades(&install, map.as_deref())?,
         Cmd::Strings { install, name } => {
             let mut inst = Install::open(&install)?;
@@ -527,6 +539,7 @@ fn sim(
         .filter(|(_, k)| *k > 0)
         .collect();
     println!("kills by player: {kills:?}");
+    println!("tiles reshaped: {}", w.terrain.redraw.len());
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
     Ok(())
 }
@@ -579,6 +592,42 @@ fn scripts(install: &std::path::Path) -> Result<()> {
             col(anim::ATTACK, 1, true),
             col(anim::ATTACK, -1, true)
         );
+    }
+    Ok(())
+}
+
+fn fell(install: &std::path::Path, row: u16, at: &[String]) -> Result<()> {
+    use tidewater_sim::terrain::{bits, region};
+    let mut inst = Install::open(install)?;
+    for era in [Era::Forest, Era::Winter, Era::Wasteland, Era::Swamp] {
+        let ts = inst.tileset(era)?;
+        let base = 16 + ts.changes.as_ref().map_or(0, |c| c.wall.rows as u16) - 1;
+        let n = 81;
+        let mut t = tidewater_sim::Terrain::new(
+            9,
+            9,
+            vec![base + row - 1; n],
+            vec![bits::OBSTACLE | bits::LAND; n],
+            vec![region::FOREST; n],
+            std::sync::Arc::new(ts.changes.clone().unwrap_or_default()),
+        );
+        println!("{}", Install::tileset_name(era));
+        for xy in at {
+            let (x, y) = xy
+                .split_once(',')
+                .ok_or_else(|| anyhow::anyhow!("expected x,y, got {xy}"))?;
+            t.fell(x.trim().parse()?, y.trim().parse()?, region::LAND_AREA);
+            println!("  fell {xy}");
+            for y in 0..9 {
+                let cells: Vec<String> = (0..9)
+                    .map(|x| match t.word(x, y) & bits::OBSTACLE {
+                        0 => "..".to_string(),
+                        _ => format!("{:2}", t.tile(x, y).unwrap_or(0) + 1 - base),
+                    })
+                    .collect();
+                println!("    {}", cells.join(" "));
+            }
+        }
     }
     Ok(())
 }

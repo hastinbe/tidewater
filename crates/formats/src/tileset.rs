@@ -11,6 +11,11 @@
 //!   per variant), then 4 u16 corner terrain codes and a u16 flags word.
 //!
 //! A map tile number `t` (the PUD `MTXM` value) therefore draws megatile `groups[t >> 4].megatiles[t & 15]`.
+//!
+//! The wall, forest and rock change tables (`n?_wall.bin`, `n?_tree.bin`, `n?_rock.bin` beside them) follow the
+//! reviewed occupancy spec (`docs/specs/movement/occupancy.md`, "Wall, forest and rock tables"): a u16 column count, a
+//! u16 row count, then the rows of u16 entries. Row 0 numbers the columns. The row counts differ between tilesets
+//! (the forest table has 41 rows in Forest, 38 in Swamp and 36 in Iceland and XSwamp), so they are read, not assumed.
 
 use thiserror::Error;
 
@@ -24,6 +29,51 @@ pub enum TilesetError {
     },
     #[error("palette has {0} bytes, expected 768")]
     BadPalette(usize),
+    #[error("change table of {len} bytes doesn't hold its {columns} x {rows} entries")]
+    BadTable { len: usize, columns: usize, rows: usize },
+}
+
+/// A wall, forest or rock change table.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ChangeTable {
+    pub columns: usize,
+    pub rows: usize,
+    pub entries: Vec<u16>,
+}
+
+impl ChangeTable {
+    pub fn parse(data: &[u8]) -> Result<Self, TilesetError> {
+        let w: Vec<u16> = u16s(data).collect();
+        let (columns, rows) = match w.as_slice() {
+            [c, r, ..] => (*c as usize, *r as usize),
+            _ => (0, 0),
+        };
+        if w.len() < 2 || w.len() - 2 != columns * rows {
+            return Err(TilesetError::BadTable {
+                len: data.len(),
+                columns,
+                rows,
+            });
+        }
+        Ok(Self {
+            columns,
+            rows,
+            entries: w[2..].to_vec(),
+        })
+    }
+
+    /// The entry at `row`, `column`, if the table has it.
+    pub fn get(&self, row: usize, column: usize) -> Option<u16> {
+        (row < self.rows && column < self.columns).then(|| self.entries[row * self.columns + column])
+    }
+}
+
+/// The three change tables of a tileset.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ChangeTables {
+    pub wall: ChangeTable,
+    pub forest: ChangeTable,
+    pub rock: ChangeTable,
 }
 
 /// A 256-colour palette in 8-bit RGB.
@@ -61,6 +111,8 @@ pub struct Tileset {
     pub megatiles: Vec<[u16; 16]>,
     /// 64 bytes per minitile.
     pub minitiles: Vec<u8>,
+    /// The wall, forest and rock change tables, when loaded.
+    pub changes: Option<ChangeTables>,
 }
 
 fn u16s(b: &[u8]) -> impl Iterator<Item = u16> + '_ {
@@ -101,6 +153,7 @@ impl Tileset {
             groups,
             megatiles,
             minitiles: vr4.to_vec(),
+            changes: None,
         })
     }
 
@@ -180,5 +233,13 @@ mod tests {
         t.draw_megatile(1, &mut out, 32);
         assert_eq!(out[7], 9);
         assert_eq!(out[0], 0);
+    }
+
+    #[test]
+    fn change_tables() {
+        let b: Vec<u8> = [2u16, 2, 0, 1, 1, 0x25].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let t = ChangeTable::parse(&b).unwrap();
+        assert_eq!((t.get(1, 1), t.get(2, 0)), (Some(0x25), None));
+        assert!(ChangeTable::parse(&b[..10]).is_err());
     }
 }

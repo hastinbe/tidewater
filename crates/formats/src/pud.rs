@@ -152,6 +152,21 @@ impl Pud {
         String::from_utf8_lossy(&d[..end]).into_owned()
     }
 
+    /// The movement words (`SQM `), one per tile, if the section is present and complete.
+    pub fn movement(&self) -> Option<Vec<u16>> {
+        self.tile_words(b"SQM ")
+    }
+
+    /// The region map (`REGM`), one value per tile, if the section is present and complete.
+    pub fn regions(&self) -> Option<Vec<u16>> {
+        self.tile_words(b"REGM")
+    }
+
+    fn tile_words(&self, tag: &[u8; 4]) -> Option<Vec<u16>> {
+        let w = u16s(self.section(tag)?);
+        (w.len() >= self.width as usize * self.height as usize).then_some(w)
+    }
+
     /// Starting resources for player `p` (`SGLD`, `SLBR`, `SOIL`), as (gold, lumber, oil).
     pub fn start_resources(&self, p: usize) -> (u16, u16, u16) {
         let get = |t: &[u8; 4]| self.section(t).map(u16s).and_then(|v| v.get(p).copied()).unwrap_or(0);

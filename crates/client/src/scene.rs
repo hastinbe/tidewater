@@ -9,7 +9,7 @@ use tidewater_formats::install::Install;
 use tidewater_formats::pud::{Era, Pud};
 use tidewater_formats::script::Scripts;
 use tidewater_formats::sprites::unit_sheet_candidates;
-use tidewater_formats::tileset::{Palette, TILE};
+use tidewater_formats::tileset::{Palette, TILE, Tileset};
 use tidewater_formats::udta::UnitTable;
 use tidewater_sim::World;
 
@@ -34,6 +34,8 @@ pub struct Scene {
     pub tile_colours: Vec<[u8; 3]>,
     /// The era's palette, which the interface art uses too.
     pub palette: Palette,
+    /// For redrawing tiles whose shape changes in play.
+    pub tileset: Tileset,
     pub art: HashMap<(u8, u8), UnitArt>,
     pub world: World,
     /// The player the local user controls (the first `OWNR` slot marked human).
@@ -102,6 +104,19 @@ fn frame_picture(grp: &Grp, frame: usize, pal: &Palette, owner: u8) -> Picture {
     }
 }
 
+/// One megatile as a `TILE` x `TILE` picture.
+pub fn tile_picture(ts: &Tileset, megatile: usize) -> Picture {
+    let mut px = vec![0u8; TILE * TILE];
+    if megatile < ts.megatiles.len() {
+        ts.draw_megatile(megatile, &mut px, TILE);
+    }
+    Picture {
+        width: TILE as u32,
+        height: TILE as u32,
+        rgba: to_rgba(&px, &ts.palette, false, None),
+    }
+}
+
 pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
     let data = if std::path::Path::new(map).is_file() {
         std::fs::read(map).with_context(|| format!("reading {map}"))?
@@ -152,6 +167,7 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         tile_colours: crate::hud::tile_colours(&terrain, TILE as u32),
         terrain,
         palette: ts.palette.clone(),
+        tileset: ts,
         art,
         world,
         human,

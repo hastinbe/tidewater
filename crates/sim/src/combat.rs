@@ -120,12 +120,6 @@ pub fn splash_roll(rng: &mut Rng, stored: u8, d: i32, armour: u32) -> Option<u8>
     Some((h + rng.draw() % (h + 1)) as u8)
 }
 
-/// A wall tile's damage counter after a hit, and whether the wall is destroyed.
-pub fn wall_hit(counter: u8, damage: u8) -> (u8, bool) {
-    let c = counter.saturating_add((damage / 4).max(1));
-    (c, c > 19)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,9 +206,6 @@ mod tests {
         assert_eq!(splash_roll(&mut r, 80, 43, 2), None);
         assert_eq!(splash_roll(&mut r, 5, 30, 2), None);
         assert_eq!(r.state, before, "no draw for a miss");
-        assert_eq!(wall_hit(0, 110), (27, true));
-        assert_eq!(wall_hit(0, 27), (6, false));
-        assert_eq!(wall_hit(19, 0), (20, true));
     }
 
     #[test]

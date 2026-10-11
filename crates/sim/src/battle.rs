@@ -7,7 +7,6 @@ use tidewater_formats::script::anim;
 use crate::TILE_PX;
 use crate::combat::{self, missile};
 use crate::slots;
-use crate::terrain::Tile;
 use crate::world::{Layer, Order, Unit, UnitId, Walk, World, centre, facing};
 
 /// Placeholder flight speed in pixels per cycle (an open question in the combat spec).
@@ -241,17 +240,7 @@ impl World {
     }
 
     fn hit_wall(&mut self, tile: (i32, i32), damage: u8) {
-        let (x, y) = tile;
-        if !self.terrain.contains(x, y) || !self.terrain.get(x, y).has(Tile::WALL) {
-            return;
-        }
-        let n = (y * self.terrain.width as i32 + x) as usize;
-        let (c, destroyed) = combat::wall_hit(self.wall_damage[n], damage);
-        self.wall_damage[n] = c;
-        if destroyed {
-            self.terrain.destroy_wall(x, y);
-            self.wall_damage[n] = 0;
-        }
+        self.terrain.hit_wall(tile.0, tile.1, damage as u32);
     }
 }
 

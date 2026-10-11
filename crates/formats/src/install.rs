@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::mpq::{Archive, ArchiveSet, MpqError};
 use crate::pud::Era;
-use crate::tileset::{Tileset, TilesetError};
+use crate::tileset::{ChangeTable, ChangeTables, Tileset, TilesetError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstallError {
@@ -75,7 +75,24 @@ impl Install {
         let lower = n.to_ascii_lowercase();
         let mut f = |ext: &str| self.read(&format!("Art\\bgs\\{n}\\{lower}.{ext}"));
         let (ppl, cv4, vx4, vr4) = (f("ppl")?, f("cv4")?, f("vx4")?, f("vr4")?);
-        Ok(Tileset::parse(&ppl, &cv4, &vx4, &vr4)?)
+        let mut ts = Tileset::parse(&ppl, &cv4, &vx4, &vr4)?;
+        // The change tables are named after the tileset's first letter, except XSwamp's.
+        let letter = if n == "XSwamp" {
+            'x'
+        } else {
+            lower.as_bytes()[0] as char
+        };
+        let mut table = |kind: &str| -> Result<ChangeTable, InstallError> {
+            Ok(ChangeTable::parse(
+                &self.read(&format!("Art\\bgs\\{n}\\n{letter}_{kind}.bin"))?,
+            )?)
+        };
+        ts.changes = Some(ChangeTables {
+            wall: table("wall")?,
+            forest: table("tree")?,
+            rock: table("rock")?,
+        });
+        Ok(ts)
     }
 }
 
