@@ -37,7 +37,8 @@ enum Cmd {
         map: String,
         out: PathBuf,
     },
-    /// Render every frame of a GRP sprite sheet into one PNG, using an era's palette.
+    /// Render every frame of a GRP sprite sheet into one PNG, using an era's palette. `name` is a path on disk or a
+    /// name inside the install's archives.
     RenderGrp {
         #[arg(long)]
         install: PathBuf,
@@ -46,7 +47,7 @@ enum Cmd {
         #[arg(long, default_value = "forest")]
         era: String,
     },
-    /// Draw frame 0 of each GRP named on stdin into one grid, printing `cell<TAB>name`.
+    /// Draw frame 0 of each GRP named on stdin (paths on disk or archive names) into one grid, printing `cell<TAB>name`.
     GrpSheet {
         #[arg(long)]
         install: PathBuf,
@@ -243,13 +244,18 @@ fn parse_era(s: &str) -> Result<Era> {
     })
 }
 
+/// Reads `name` from disk if it is an existing file, otherwise from the installation's archives.
+fn read_file_or_entry(inst: &mut Install, name: &str) -> Result<Vec<u8>> {
+    if std::path::Path::new(name).is_file() {
+        Ok(std::fs::read(name)?)
+    } else {
+        Ok(inst.read(name)?)
+    }
+}
+
 fn render_map(install: &std::path::Path, map: &str, out: &std::path::Path) -> Result<()> {
     let mut inst = Install::open(install)?;
-    let data = if std::path::Path::new(map).is_file() {
-        std::fs::read(map)?
-    } else {
-        inst.read(map)?
-    };
+    let data = read_file_or_entry(&mut inst, map)?;
     let pud = Pud::parse(&data)?;
     let ts = inst.tileset(pud.era)?;
     let (w, h) = (pud.width as usize, pud.height as usize);
@@ -268,7 +274,7 @@ fn render_map(install: &std::path::Path, map: &str, out: &std::path::Path) -> Re
 
 fn render_grp(install: &std::path::Path, name: &str, out: &std::path::Path, era: &str) -> Result<()> {
     let mut inst = Install::open(install)?;
-    let grp = Grp::parse(&inst.read(name)?)?;
+    let grp = Grp::parse(&read_file_or_entry(&mut inst, name)?)?;
     let pal = inst.tileset(parse_era(era)?)?.palette;
     let (cw, ch) = (grp.width as usize, grp.height as usize);
     let cols = 10usize.min(grp.frames.len().max(1));
@@ -296,11 +302,7 @@ fn grp_sheet(install: &std::path::Path, out: &std::path::Path, era: &str, cols: 
     let mut grps = Vec::new();
     for name in std::io::stdin().lines() {
         let name = name?;
-        match inst
-            .read(name.trim())
-            .map_err(anyhow::Error::from)
-            .and_then(|d| Ok(Grp::parse(&d)?))
-        {
+        match read_file_or_entry(&mut inst, name.trim()).and_then(|d| Ok(Grp::parse(&d)?)) {
             Ok(g) if !g.frames.is_empty() => grps.push((name, g)),
             Ok(_) => eprintln!("{name}: no frames"),
             Err(e) => eprintln!("{name}: {e}"),
