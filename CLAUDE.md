@@ -17,8 +17,8 @@ before writing any code, and follow it exactly.
 
 ## Layout
 
-- `crates/formats`: readers for the installation's data (MPQ archives, PUD maps, tilesets, GRP sprites, unit and upgrade tables, map restrictions).
-- `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `grp-sheet`, `units`, `upgrades`, `sim`).
+- `crates/formats`: readers for the installation's data (MPQ archives, PUD maps, tilesets, GRP sprites, PCX images, unit and upgrade tables, map restrictions).
+- `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `grp-sheet`, `units`, `upgrades`, `sim`).
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the Bevy game client (`tidewater` binary).
 - `docs/specs/`: reviewed behaviour specifications, the only source for engine behaviour.

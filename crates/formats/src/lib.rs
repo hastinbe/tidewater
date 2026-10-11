@@ -7,6 +7,7 @@ pub mod grp;
 pub mod install;
 pub mod mpq;
 mod mpq_codec;
+pub mod pcx;
 pub mod pud;
 pub mod sprites;
 pub mod tileset;

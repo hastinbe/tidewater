@@ -47,6 +47,16 @@ enum Cmd {
         #[arg(long, default_value = "forest")]
         era: String,
     },
+    /// Render a PCX image to a PNG with its own palette, or an era's palette if it has none. `name` is a path on disk
+    /// or a name inside the install's archives.
+    RenderPcx {
+        #[arg(long)]
+        install: PathBuf,
+        name: String,
+        out: PathBuf,
+        #[arg(long, default_value = "forest")]
+        era: String,
+    },
     /// Draw frame 0 of each GRP named on stdin (paths on disk or archive names) into one grid, printing `cell<TAB>name`.
     GrpSheet {
         #[arg(long)]
@@ -175,6 +185,21 @@ fn main() -> Result<()> {
             out,
             era,
         } => render_grp(&install, &name, &out, &era)?,
+        Cmd::RenderPcx {
+            install,
+            name,
+            out,
+            era,
+        } => {
+            let mut inst = Install::open(&install)?;
+            let img = tidewater_formats::pcx::Pcx::parse(&read_file_or_entry(&mut inst, &name)?)?;
+            let pal = match img.palette {
+                Some(p) => p,
+                None => inst.tileset(parse_era(&era)?)?.palette,
+            };
+            println!("{}x{}", img.width, img.height);
+            write_png(&out, img.width as usize, img.height as usize, &img.pixels, &pal, false)?;
+        }
         Cmd::GrpSheet {
             install,
             out,
