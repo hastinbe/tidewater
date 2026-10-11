@@ -95,6 +95,13 @@ enum Cmd {
         /// A path on disk or a name inside the install's archives.
         map: Option<String>,
     },
+    /// Print a string table (`*.tbl`) as `index<TAB>text`, with control bytes escaped. `name` is a path on disk or a
+    /// name inside the install's archives.
+    Strings {
+        #[arg(long)]
+        install: PathBuf,
+        name: String,
+    },
     /// Summarise an archive's block table: how many blocks, how many in use.
     MpqInfo { archive: PathBuf },
 }
@@ -238,6 +245,14 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Upgrades { install, map } => upgrades(&install, map.as_deref())?,
+        Cmd::Strings { install, name } => {
+            let mut inst = Install::open(&install)?;
+            let t = tidewater_formats::tbl::StringTable::parse(&read_file_or_entry(&mut inst, &name)?)?;
+            for i in 0..t.0.len() {
+                let text = t.text(i).expect("index in range");
+                println!("{i}\t{}", text.escape_debug());
+            }
+        }
         Cmd::MpqInfo { archive } => {
             let a = Archive::open(&archive)?;
             let used = a

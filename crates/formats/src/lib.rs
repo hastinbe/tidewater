@@ -10,6 +10,7 @@ mod mpq_codec;
 pub mod pcx;
 pub mod pud;
 pub mod sprites;
+pub mod tbl;
 pub mod tileset;
 pub mod udta;
 pub mod ugrd;
