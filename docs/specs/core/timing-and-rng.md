@@ -6,6 +6,8 @@
 - **Changes:** 2026-10-11, round-2 errata: the setup-shuffle generator also picks sound variants during play. The
   open question on unit slot order is answered by `core/unit-slots.md`; the construction pass is placed in phase 4
   as `economy/build-train.md` states.
+  2026-10-11, round-3 errata: going idle makes no draw; the `(r AND 15) + 44` wait belongs to computer players' idle
+  workers; fleeing makes 2 draws.
 
 ## Behaviour
 
@@ -110,7 +112,8 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | Non-splash missile launched | units | 0 to 3 | Damage roll at launch (none when the damage total is 0), then 2 scatter draws for missiles fired by a unit's attack (not by guard towers) (combat spec) |
 | Splash missile launched by a unit | units | 2 | Target scatter (combat spec) |
 | Splash missile lands | missiles | 1 per unit hit | Damage roll for each unit in the blast (combat spec) |
-| Unit goes idle | units | 1 | Idle wait of `(r AND 15) + 44` cycles before it looks again |
+| Computer player's idle worker finds no job (no harvest, build or repair) | units | 1 | Wait of `(r AND 15) + 44` cycles, 44 to 59, before it looks again (the routine is to be specified with the AI) |
+| Unit flees from its attacker | units | 2 | Flee tile offset `(r mod 8) − 2`, x first, then y (`orders/orders.md`, "Fleeing") |
 | Critter wandering, ship bobbing | units | 1 or more | Cosmetic movement that is still simulated |
 | Area spells (blizzard, death and decay, whirlwind) | units or missiles | per effect | Where each strike lands |
 | Computer player decisions | computer players | varies | AI choices |
