@@ -31,6 +31,9 @@ struct Args {
     /// Development aid: order all of your units to tile `X,Y` at the start.
     #[arg(long, value_parser = parse_tile)]
     demo_move: Option<(i32, i32)>,
+    /// Development aid: send every player's units against the nearest enemy within 16 tiles at the start.
+    #[arg(long)]
+    demo_fight: bool,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -99,6 +102,28 @@ fn main() -> Result<()> {
             units,
             to,
         }]);
+    }
+    if args.demo_fight {
+        let w = &scene.world;
+        let orders: Vec<Command> = w
+            .units
+            .iter()
+            .filter_map(|me| {
+                let foe = w
+                    .units
+                    .iter()
+                    .filter(|t| w.can_attack(me, t.id))
+                    .map(|t| ((t.tile.0 - me.tile.0).abs().max((t.tile.1 - me.tile.1).abs()), t.id))
+                    .filter(|&(d, _)| d <= 16)
+                    .min()?;
+                Some(Command::Attack {
+                    player: me.owner,
+                    units: vec![me.id],
+                    target: foe.1,
+                })
+            })
+            .collect();
+        scene.world.step(&orders);
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
     App::new()
@@ -210,13 +235,20 @@ fn depth(u: &tidewater_sim::Unit) -> f32 {
 }
 
 fn sync_sprites(
+    mut commands: Commands,
     sim: Option<Res<Sim>>,
     art: Option<Res<Art>>,
-    mut q: Query<(&UnitSprite, &mut Sprite, &mut Transform)>,
+    mut q: Query<(Entity, &UnitSprite, &mut Sprite, &mut Transform)>,
 ) {
     let (Some(sim), Some(art)) = (sim, art) else { return };
-    for (us, mut sprite, mut tf) in &mut q {
-        let Some(u) = sim.world.unit(us.0) else { continue };
+    for (e, us, mut sprite, mut tf) in &mut q {
+        let Some(u) = sim.world.unit(us.0) else {
+            commands.entity(e).despawn();
+            continue;
+        };
+        if u.dying {
+            sprite.color = Color::srgba(0.6, 0.6, 0.6, 0.6);
+        }
         tf.translation = world(u.pos.0 as f32, u.pos.1 as f32, depth(u));
         let Some(frames) = art.0.get(&(u.kind, u.owner)) else {
             continue;
@@ -261,16 +293,8 @@ fn select(
     let mine = |u: &&tidewater_sim::Unit| u.owner == sim.human && !u.building;
     let picked: Vec<UnitId> = if (hi - lo).length() < 4.0 {
         // A click: the unit whose footprint contains the point.
-        sim.world
-            .units
-            .iter()
-            .filter(|u| {
-                let (x, y) = ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX));
-                x >= u.tile.0 && y >= u.tile.1 && x < u.tile.0 + u.size.0 as i32 && y < u.tile.1 + u.size.1 as i32
-            })
-            .take(1)
-            .map(|u| u.id)
-            .collect()
+        let tile = ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX));
+        unit_at(&sim.world, tile).into_iter().collect()
     } else {
         sim.world
             .units
@@ -317,11 +341,39 @@ fn order(
     }
     let Some(at) = cursor_map(window, cam) else { return };
     let to = ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX));
-    sim.pending.push(Command::Move {
-        player: human,
-        units,
-        to,
+    // Right-clicking an enemy attacks it if any selected unit can; otherwise it's a move.
+    let foe = unit_at(&sim.world, to).filter(|&t| {
+        units
+            .iter()
+            .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_attack(u, t)))
     });
+    let c = match foe {
+        Some(target) => Command::Attack {
+            player: human,
+            units,
+            target,
+        },
+        None => Command::Move {
+            player: human,
+            units,
+            to,
+        },
+    };
+    sim.pending.push(c);
+}
+
+/// The living unit whose footprint covers a tile.
+fn unit_at(w: &tidewater_sim::World, (x, y): (i32, i32)) -> Option<UnitId> {
+    w.units
+        .iter()
+        .find(|u| {
+            u.alive()
+                && x >= u.tile.0
+                && y >= u.tile.1
+                && x < u.tile.0 + u.size.0 as i32
+                && y < u.tile.1 + u.size.1 as i32
+        })
+        .map(|u| u.id)
 }
 
 fn draw_selection(
@@ -333,6 +385,15 @@ fn draw_selection(
 ) {
     let Some(sim) = sim else { return };
     let green = Color::srgb(0.2, 0.9, 0.2);
+    // Missiles have no sprites yet: draw each as a small square.
+    for m in &sim.world.missiles {
+        let c = if m.splash {
+            Color::srgb(1.0, 0.5, 0.1)
+        } else {
+            Color::srgb(1.0, 1.0, 0.6)
+        };
+        gizmos.rect_2d(Vec2::new(m.pos.0 as f32, -(m.pos.1 as f32)), Vec2::splat(4.0), c);
+    }
     for &id in &sel.units {
         let Some(u) = sim.world.unit(id) else { continue };
         let size = Vec2::new(u.size.0 as f32, u.size.1 as f32) * TILE_PX as f32;

@@ -26,6 +26,8 @@ pub struct Effects {
     pub dx: i32,
     pub dy: i32,
     pub neutral: bool,
+    /// A halt instruction ran.
+    pub halted: bool,
 }
 
 /// Inputs that adjust waits.
@@ -81,7 +83,10 @@ impl Script {
                     fx.step_done = true;
                 }
                 Op::Wait(n) => self.wait = n,
-                Op::Halt => self.wait = 0,
+                Op::Halt => {
+                    self.wait = 0;
+                    fx.halted = true;
+                }
                 Op::Jump(to) => self.pc = to,
                 Op::Frame(f) => self.frame = f,
                 Op::Move(d) | Op::MoveFrame(d, _) => {

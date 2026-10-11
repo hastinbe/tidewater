@@ -83,6 +83,13 @@ impl Terrain {
             Tile(0)
         }
     }
+
+    /// Turns a destroyed wall into open ground.
+    pub fn destroy_wall(&mut self, x: i32, y: i32) {
+        if self.contains(x, y) {
+            self.tiles[(y * self.width as i32 + x) as usize] = Tile(Tile::LAND);
+        }
+    }
 }
 
 #[cfg(test)]

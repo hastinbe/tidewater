@@ -7,12 +7,15 @@
 //! placeholder of our own design and says so; constants that a spec will replace live in [`Rules`].
 
 pub mod anim;
+mod battle;
+pub mod combat;
 pub mod path;
 pub mod rng;
 pub mod terrain;
 pub mod timing;
 mod world;
 
+pub use battle::Missile;
 pub use rng::Rng;
 pub use terrain::{Terrain, Tile};
 pub use world::{Command, Layer, Order, Player, Rules, Unit, UnitId, World, WorldError};

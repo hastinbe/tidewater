@@ -67,23 +67,26 @@ enum Cmd {
         #[arg(long, default_value_t = 8)]
         cols: usize,
     },
-    /// Run a map headless: order player `player`'s units to `x,y`, step `ticks` ticks, print where units ended up
-    /// and the state hash.
+    /// Run a map headless: order player `player`'s units to `x,y` (or, with `--fight`, against the nearest enemy),
+    /// step `ticks` ticks, print where units ended up and the state hash.
     Sim {
         #[arg(long)]
         install: PathBuf,
         map: String,
         #[arg(long, default_value_t = 0)]
         player: u8,
-        #[arg(long)]
+        #[arg(long, default_value_t = 0)]
         x: i32,
-        #[arg(long)]
+        #[arg(long, default_value_t = 0)]
         y: i32,
         #[arg(long, default_value_t = 600)]
         ticks: u32,
         /// Random number generator seed.
         #[arg(long, default_value_t = 0)]
         seed: u32,
+        /// Instead of moving, send each unit against the nearest enemy unit.
+        #[arg(long)]
+        fight: bool,
     },
     /// Print the unit stats table (`rez\\unitdata.dat`) as TSV.
     Units {
@@ -230,7 +233,8 @@ fn main() -> Result<()> {
             y,
             ticks,
             seed,
-        } => sim(&install, &map, player, (x, y), ticks, seed)?,
+            fight,
+        } => sim(&install, &map, player, (x, y), ticks, seed, fight)?,
         Cmd::Units { install } => {
             let mut inst = Install::open(&install)?;
             let t = tidewater_formats::udta::UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?;
@@ -438,7 +442,15 @@ fn grp_sheet(install: &std::path::Path, out: &std::path::Path, era: &str, cols: 
     write_png(out, stride, rows * cell, &px, &pal, false)
 }
 
-fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: u32, seed: u32) -> Result<()> {
+fn sim(
+    install: &std::path::Path,
+    map: &str,
+    player: u8,
+    to: (i32, i32),
+    ticks: u32,
+    seed: u32,
+    fight: bool,
+) -> Result<()> {
     use tidewater_formats::udta::UnitTable;
     use tidewater_sim::{Command, World};
     let mut inst = Install::open(install)?;
@@ -462,27 +474,59 @@ fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: 
         .map(|u| u.id)
         .collect();
     let before: Vec<_> = units.iter().map(|&id| w.unit(id).map(|u| u.tile)).collect();
-    w.step(&[Command::Move {
-        player,
-        units: units.clone(),
-        to,
-    }]);
+    let orders: Vec<Command> = if fight {
+        units
+            .iter()
+            .filter_map(|&id| {
+                let me = w.unit(id)?;
+                let foe = w
+                    .units
+                    .iter()
+                    .filter(|t| w.can_attack(me, t.id))
+                    .min_by_key(|t| (t.tile.0 - me.tile.0).abs().max((t.tile.1 - me.tile.1).abs()))?;
+                Some(Command::Attack {
+                    player,
+                    units: vec![id],
+                    target: foe.id,
+                })
+            })
+            .collect()
+    } else {
+        vec![Command::Move {
+            player,
+            units: units.clone(),
+            to,
+        }]
+    };
+    w.step(&orders);
     let start = std::time::Instant::now();
     for _ in 1..ticks {
         w.step(&[]);
     }
     let took = start.elapsed();
     for (id, b) in units.iter().zip(before) {
-        let u = w.unit(*id).expect("unit");
+        let Some(u) = w.unit(*id) else {
+            println!("unit {:>3}: died", id.0);
+            continue;
+        };
         println!(
-            "unit {:>3} kind {:#04x}: {:?} -> {:?} {:?}",
+            "unit {:>3} kind {:#04x}: {:?} -> {:?} hp {} {:?}",
             id.0,
             u.kind,
             b.unwrap_or_default(),
             u.tile,
+            u.hp,
             u.order
         );
     }
+    let kills: Vec<_> = w
+        .players
+        .iter()
+        .map(|p| p.kills)
+        .enumerate()
+        .filter(|(_, k)| *k > 0)
+        .collect();
+    println!("kills by player: {kills:?}");
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
     Ok(())
 }

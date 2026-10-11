@@ -5,7 +5,9 @@ use tidewater_formats::script::{Scripts, anim};
 use tidewater_formats::tileset::Tileset;
 use tidewater_formats::udta::{UnitStats, UnitTable, flags};
 
-use crate::anim::{Modifiers, Script};
+use crate::anim::{Effects, Modifiers, Script};
+use crate::battle::Missile;
+use crate::combat::Upgrades;
 use crate::rng::Rng;
 use crate::terrain::{Terrain, Tile};
 use crate::{TILE_PX, path};
@@ -28,16 +30,11 @@ pub enum Layer {
     Air,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
     Idle,
-    Move {
-        goal: (i32, i32),
-        /// Remaining tiles, next first.
-        path: Vec<(i32, i32)>,
-        /// Ticks spent waiting for a blocked tile.
-        wait: u16,
-    },
+    Move { goal: (i32, i32) },
+    Attack { target: UnitId },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -67,11 +64,27 @@ pub struct Unit {
     pub variation: u8,
     /// Cycles before an idle unit looks around again.
     pub idle_wait: u16,
+    /// Remaining tiles of the current route, next first, and the goal it was planned for.
+    pub path: Vec<(i32, i32)>,
+    pub path_goal: Option<(i32, i32)>,
+    /// Cycles spent waiting for a blocked tile.
+    pub blocked: u16,
+    /// Spell timers; running while above 0.
+    pub bloodlust: u16,
+    pub unholy_armor: u16,
+    /// The last unit that attacked this one.
+    pub attacked_by: Option<UnitId>,
+    /// Playing its death animation; it no longer occupies tiles.
+    pub dying: bool,
 }
 
 impl Unit {
     pub fn is_moving(&self) -> bool {
         self.from.is_some()
+    }
+
+    pub fn alive(&self) -> bool {
+        !self.dying
     }
 }
 
@@ -83,6 +96,16 @@ pub struct Player {
     /// Race from the map's `SIDE` section: 0 human, 1 orc, 2 neutral.
     pub race: u8,
     pub start: Option<(i32, i32)>,
+    pub upgrades: Upgrades,
+    pub kills: u32,
+}
+
+/// Result of one [`World::walk`] decision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Walk {
+    Arrived,
+    Waiting,
+    Stepping,
 }
 
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
@@ -134,6 +157,11 @@ pub enum Command {
         player: u8,
         units: Vec<UnitId>,
     },
+    Attack {
+        player: u8,
+        units: Vec<UnitId>,
+        target: UnitId,
+    },
 }
 
 pub const PLAYERS: usize = 16;
@@ -151,12 +179,15 @@ pub struct World {
     pub stride: Vec<u8>,
     /// Sorted by id.
     pub units: Vec<Unit>,
+    pub missiles: Vec<Missile>,
+    /// Damage counter of each wall tile.
+    pub(crate) wall_damage: Vec<u8>,
     next_id: u32,
     /// Per layer, the unit standing on (or moving into or out of) each tile.
-    occupancy: [Vec<Option<UnitId>>; 3],
+    pub(crate) occupancy: [Vec<Option<UnitId>>; 3],
 }
 
-fn layer_index(l: Layer) -> usize {
+pub(crate) fn layer_index(l: Layer) -> usize {
     match l {
         Layer::Land => 0,
         Layer::Sea => 1,
@@ -164,14 +195,14 @@ fn layer_index(l: Layer) -> usize {
     }
 }
 
-fn centre(tile: (i32, i32), size: (u8, u8)) -> (i32, i32) {
+pub(crate) fn centre(tile: (i32, i32), size: (u8, u8)) -> (i32, i32) {
     (
         tile.0 * TILE_PX + size.0 as i32 * TILE_PX / 2,
         tile.1 * TILE_PX + size.1 as i32 * TILE_PX / 2,
     )
 }
 
-fn facing(dx: i32, dy: i32) -> u8 {
+pub(crate) fn facing(dx: i32, dy: i32) -> u8 {
     match (dx.signum(), dy.signum()) {
         (0, -1) => 0,
         (1, -1) => 1,
@@ -203,6 +234,8 @@ impl World {
             scripts,
             stride,
             units: Vec::new(),
+            missiles: Vec::new(),
+            wall_damage: vec![0; n],
             next_id: 1,
         }
     }
@@ -232,7 +265,7 @@ impl World {
                 lumber: l as u32,
                 oil: o as u32,
                 race: pud.sides().get(i).copied().unwrap_or(2),
-                start: None,
+                ..Default::default()
             };
         }
         for u in &pud.units {
@@ -252,7 +285,7 @@ impl World {
         Ok(w)
     }
 
-    fn stats_of(&self, kind: u8) -> UnitStats {
+    pub(crate) fn stats_of(&self, kind: u8) -> UnitStats {
         self.stats.0.get(kind as usize).copied().unwrap_or_default()
     }
 
@@ -298,13 +331,20 @@ impl World {
             haste: 0,
             variation,
             idle_wait: 0,
+            path: Vec::new(),
+            path_goal: None,
+            blocked: 0,
+            bloodlust: 0,
+            unholy_armor: 0,
+            attacked_by: None,
+            dying: false,
         };
         self.mark(&unit, unit.tile, Some(id));
         self.units.push(unit);
         id
     }
 
-    fn mark(&mut self, unit: &Unit, tile: (i32, i32), v: Option<UnitId>) {
+    pub(crate) fn mark(&mut self, unit: &Unit, tile: (i32, i32), v: Option<UnitId>) {
         let w = self.terrain.width as i32;
         let occ = &mut self.occupancy[layer_index(unit.layer)];
         for dy in 0..unit.size.1 as i32 {
@@ -342,12 +382,13 @@ impl World {
             .map(|i| &self.units[i])
     }
 
-    fn index(&self, id: UnitId) -> Option<usize> {
+    pub(crate) fn index(&self, id: UnitId) -> Option<usize> {
         self.units.binary_search_by_key(&id, |u| u.id).ok()
     }
 
-    /// Runs one cycle: applies `commands` in order, then updates every unit in id order (phase 4 of the
-    /// timing-and-rng spec; unit slot order is a placeholder until its spec lands).
+    /// Runs one cycle: applies `commands` in order, then phase 4 of the timing-and-rng spec: every unit in id order
+    /// (unit slot order is a placeholder until its spec lands), then every missile. Units whose death animation has
+    /// finished are removed at the end.
     pub fn step(&mut self, commands: &[Command]) {
         for c in commands {
             self.apply(c);
@@ -355,46 +396,58 @@ impl World {
         for i in 0..self.units.len() {
             self.advance(i);
         }
+        self.advance_missiles();
+        self.units.retain(|u| !(u.dying && u.script.anim == anim::NONE));
         self.tick += 1;
     }
 
     fn apply(&mut self, c: &Command) {
         let (player, units) = match c {
-            Command::Move { player, units, .. } | Command::Stop { player, units } => (*player, units),
+            Command::Move { player, units, .. }
+            | Command::Stop { player, units }
+            | Command::Attack { player, units, .. } => (*player, units),
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
             let u = &self.units[i];
-            if u.owner != player || u.building || self.stride_of(u.kind) == 0 {
+            if u.owner != player || u.dying || u.building || self.stride_of(u.kind) == 0 {
                 continue;
             }
-            match c {
-                Command::Move { to, .. } => {
-                    let path = self.plan(u, *to, false);
-                    self.units[i].order = Order::Move {
-                        goal: *to,
-                        path,
-                        wait: 0,
-                    };
+            let order = match *c {
+                Command::Move { to, .. } => Order::Move { goal: to },
+                Command::Stop { .. } => {
+                    self.go_idle(i);
+                    continue;
                 }
-                Command::Stop { .. } => self.go_idle(i),
-            }
+                Command::Attack { target, .. } => {
+                    if !self.can_attack(u, target) {
+                        continue;
+                    }
+                    Order::Attack { target }
+                }
+            };
+            let u = &mut self.units[i];
+            u.order = order;
+            u.path_goal = None;
+            u.blocked = 0;
         }
     }
 
-    fn stride_of(&self, kind: u8) -> i32 {
+    pub(crate) fn stride_of(&self, kind: u8) -> i32 {
         self.stride.get(kind as usize).copied().unwrap_or(0) as i32
     }
 
     /// Ends the unit's order, with the idle draw (timing-and-rng spec, "Unit goes idle").
-    fn go_idle(&mut self, i: usize) {
+    pub(crate) fn go_idle(&mut self, i: usize) {
         let wait = (self.rng.draw() & 15) as u16 + 44;
         let u = &mut self.units[i];
         u.order = Order::Idle;
         u.idle_wait = wait;
+        u.path.clear();
+        u.path_goal = None;
     }
 
-    fn start_anim(&mut self, i: usize, a: u8) {
+    pub(crate) fn start_anim(&mut self, i: usize, a: u8) {
         let u = &mut self.units[i];
         let pc = self.scripts.unit(u.kind, a).unwrap_or(0);
         u.script.start(a, pc);
@@ -441,15 +494,28 @@ impl World {
         if fx.neutral {
             u.owner = 15;
         }
-        self.order(i, fx.step_done);
+        if u.dying {
+            // Death scripts play their frames, then loop on "step done" (data inspection); corpses are a later spec.
+            if fx.halted || fx.step_done {
+                // Marks the unit for removal at the end of the cycle.
+                u.script.anim = anim::NONE;
+            }
+            return;
+        }
+        self.order(i, fx);
     }
 
-    /// The move order's reaction to the script (a placeholder until the movement spec): while the move animation
-    /// runs, each "step done" signal ends the step under way and claims the next tile; a unit standing still starts
-    /// the move animation once its next tile is free.
-    fn order(&mut self, i: usize, step_done: bool) {
-        let moving = self.units[i].script.anim == anim::MOVE;
-        if moving && !step_done {
+    /// The order logic's reaction to the script (a placeholder until the movement and order specs). The move and
+    /// attack animations run uninterrupted between "step done" signals; at each signal, or every cycle while standing
+    /// still, the order decides what to do next.
+    fn order(&mut self, i: usize, fx: Effects) {
+        let playing = self.units[i].script.anim;
+        if playing == anim::ATTACK {
+            for _ in 0..fx.strikes {
+                self.strike(i);
+            }
+        }
+        if matches!(playing, anim::MOVE | anim::ATTACK) && !fx.step_done {
             return;
         }
         if let Some(from) = self.units[i].from.take() {
@@ -458,48 +524,70 @@ impl World {
             self.mark(&unit, from, None);
             self.mark(&unit, unit.tile, Some(unit.id));
         }
+        match self.units[i].order {
+            Order::Idle => {
+                if matches!(playing, anim::MOVE | anim::ATTACK) {
+                    self.start_anim(i, anim::STILL);
+                }
+            }
+            Order::Move { goal } => {
+                if self.walk(i, goal) == Walk::Arrived {
+                    self.go_idle(i);
+                    self.start_anim(i, anim::STILL);
+                }
+            }
+            Order::Attack { target } => self.attack_order(i, target),
+        }
+    }
+
+    /// Takes the next step towards `goal`: claims the next tile at a "step done" signal, or starts the move
+    /// animation from standing.
+    pub(crate) fn walk(&mut self, i: usize, goal: (i32, i32)) -> Walk {
+        let moving = self.units[i].script.anim == anim::MOVE;
+        if self.units[i].path_goal != Some(goal) {
+            let path = self.plan(&self.units[i], goal, false);
+            let u = &mut self.units[i];
+            u.path = path;
+            u.path_goal = Some(goal);
+        }
         let u = &self.units[i];
-        let Order::Move { goal, path, wait } = &u.order else {
+        let Some(&next) = u.path.first() else {
             if moving {
                 self.start_anim(i, anim::STILL);
             }
-            return;
+            return Walk::Arrived;
         };
-        let Some(&next) = path.first() else {
-            self.go_idle(i);
-            self.start_anim(i, anim::STILL);
-            return;
-        };
-        let (goal, wait) = (*goal, *wait);
         let blocked = self.occupant(u.layer, next.0, next.1).is_some_and(|o| o != u.id)
             || !self.terrain_allows(u.layer, next.0, next.1);
         if blocked {
+            let patient = u.blocked < self.rules.patience;
             if moving {
                 self.start_anim(i, anim::STILL);
             }
-            if wait >= self.rules.patience {
+            if !patient {
                 let path = self.plan(&self.units[i], goal, true);
-                self.units[i].order = Order::Move { goal, path, wait: 0 };
-            } else if let Order::Move { wait, .. } = &mut self.units[i].order {
-                *wait += 1;
+                let u = &mut self.units[i];
+                u.path = path;
+                u.blocked = 0;
+            } else {
+                self.units[i].blocked += 1;
             }
-            return;
+            return Walk::Waiting;
         }
         if !moving {
             // The move script opens with "step done", which claims the tile on the next cycle.
             self.start_anim(i, anim::MOVE);
-            return;
+            return Walk::Stepping;
         }
         let unit = self.units[i].clone();
         let u = &mut self.units[i];
         u.facing = facing(next.0 - u.tile.0, next.1 - u.tile.1);
         u.from = Some(u.tile);
         u.tile = next;
-        if let Order::Move { path, wait, .. } = &mut u.order {
-            path.remove(0);
-            *wait = 0;
-        }
+        u.path.remove(0);
+        u.blocked = 0;
         self.mark(&unit, next, Some(unit.id));
+        Walk::Stepping
     }
 
     /// FNV-1a over everything that defines the game state. Equal hashes on two machines mean they are in sync.
@@ -521,12 +609,14 @@ impl World {
         self.players.hash(&mut h);
         self.rng.hash(&mut h);
         self.units.hash(&mut h);
+        self.missiles.hash(&mut h);
+        self.wall_damage.hash(&mut h);
         h.finish()
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tidewater_formats::tileset::{Palette, TileGroup};
 
@@ -547,10 +637,35 @@ mod tests {
 
     fn stats() -> UnitTable {
         let mut t = vec![UnitStats::default(); 110];
+        // A footman-like melee unit, an archer-like shooter (type 8) and a catapult-like splash thrower (type 5).
         t[0] = UnitStats {
             hit_points: 60,
             size: (1, 1),
-            flags: flags::LAND,
+            flags: flags::LAND | flags::CAN_ATTACK,
+            basic_damage: 6,
+            piercing_damage: 3,
+            armor: 2,
+            attack_range: 1,
+            missile: crate::combat::missile::NONE,
+            ..Default::default()
+        };
+        t[8] = UnitStats {
+            hit_points: 40,
+            size: (1, 1),
+            flags: flags::LAND | flags::CAN_ATTACK,
+            basic_damage: 3,
+            piercing_damage: 6,
+            attack_range: 4,
+            missile: 0x0f,
+            ..Default::default()
+        };
+        t[5] = UnitStats {
+            hit_points: 110,
+            size: (1, 1),
+            flags: flags::LAND | flags::CAN_ATTACK | 4,
+            basic_damage: 80,
+            attack_range: 8,
+            missile: crate::combat::missile::CATAPULT,
             ..Default::default()
         };
         t[2] = UnitStats {
@@ -569,7 +684,7 @@ mod tests {
     }
 
     /// Synthetic scripts: every type halts in place, and its move loop covers 32 px in 8 cycles; type 2 moves
-    /// 64 px per loop.
+    /// 64 px per loop. Attacks strike on cycle 12 and every 25 cycles after; death takes 6 cycles.
     pub(crate) fn scripts() -> Arc<Scripts> {
         use tidewater_formats::script::{MISSILE_KINDS, UNIT_TYPES};
         let mut b = vec![0u8; 512];
@@ -579,9 +694,18 @@ mod tests {
         }
         for (table, mv) in [(300, 350), (320, 400)] {
             for a in 0..7 {
-                put(&mut b, table + a * 2, if a == 3 { mv } else { 340 });
+                let at = match a {
+                    1 => 480,
+                    3 => mv,
+                    4 => 460,
+                    _ => 340,
+                };
+                put(&mut b, table + a * 2, at);
             }
         }
+        b[460..467].copy_from_slice(&[0, 1, 10, 11, 1, 14, 3]);
+        put(&mut b, 467, 460);
+        b[480..485].copy_from_slice(&[4, 1, 1, 5, 2]);
         b[340..343].copy_from_slice(&[2, 3, 0]);
         put(&mut b, 342, 340);
         for (at, op) in [(350usize, 5u8), (400, 13)] {
@@ -597,7 +721,7 @@ mod tests {
     }
 
     /// An 8x8 ground map with a water column at x = 4 for y < 6.
-    fn world() -> World {
+    pub(crate) fn world() -> World {
         let tiles = (0..64)
             .map(|i| if i % 8 == 4 && i / 8 < 6 { 0x10 } else { 0x00 })
             .collect::<Vec<u16>>();
@@ -606,7 +730,7 @@ mod tests {
         w
     }
 
-    fn run(w: &mut World, ticks: u32) {
+    pub(crate) fn run(w: &mut World, ticks: u32) {
         for _ in 0..ticks {
             w.step(&[]);
         }
