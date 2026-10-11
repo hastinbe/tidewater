@@ -6,6 +6,7 @@ use tidewater_formats::script::anim;
 
 use crate::TILE_PX;
 use crate::combat::{self, missile};
+use crate::slots;
 use crate::terrain::Tile;
 use crate::world::{Layer, Order, Unit, UnitId, Walk, World, centre, facing};
 
@@ -113,7 +114,7 @@ impl World {
         }
         let length = (to.0 - from.0).abs().max((to.1 - from.1).abs());
         let length = length.max(min_flight.unwrap_or(0) as i32 * TILE_PX);
-        self.missiles.push(Missile {
+        let missile = Missile {
             kind: s.missile,
             attacker,
             target: Some(target),
@@ -125,7 +126,16 @@ impl World {
             damage,
             splash: min_flight.is_some(),
             hits_air: s.missile == missile::SMALL_CANNON && hits_air,
-        });
+        };
+        // Unit-slots spec, "Effect slots": the lowest free slot after the permanent entries; none free, no missile.
+        if let Some(e) = self
+            .missiles
+            .iter_mut()
+            .skip(slots::PERMANENT_EFFECTS)
+            .find(|e| e.is_none())
+        {
+            *e = Some(missile);
+        }
     }
 
     /// Applies damage from `attacker` to the unit at index `ti`.
@@ -164,10 +174,10 @@ impl World {
         self.start_anim(ti, anim::DEATH);
     }
 
-    /// Moves every missile one cycle and lands those that arrive.
+    /// Moves every missile one cycle, in effect slot order, landing each as it arrives.
     pub(crate) fn advance_missiles(&mut self) {
-        let mut landed = Vec::new();
-        for (n, m) in self.missiles.iter_mut().enumerate() {
+        for n in 0..self.missiles.len() {
+            let Some(m) = &mut self.missiles[n] else { continue };
             m.elapsed += 1;
             let k = m.elapsed.min(m.flight) as i32;
             let f = m.flight as i32;
@@ -175,13 +185,11 @@ impl World {
                 m.from.0 + (m.to.0 - m.from.0) * k / f,
                 m.from.1 + (m.to.1 - m.from.1) * k / f,
             );
-            if m.elapsed >= m.flight {
-                landed.push(n);
+            if m.elapsed >= m.flight
+                && let Some(m) = self.missiles[n].take()
+            {
+                self.land(m);
             }
-        }
-        for n in landed.iter().rev() {
-            let m = self.missiles.remove(*n);
-            self.land(m);
         }
     }
 
@@ -259,7 +267,7 @@ mod tests {
     #[test]
     fn melee_fight_to_the_death() {
         let mut w = world();
-        let foe = w.spawn(0, 1, (1, 0), 0);
+        let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
         attack(&mut w, 0, vec![UnitId(1)], foe);
         run(&mut w, 40);
         let hp = w.unit(foe).unwrap().hp;
@@ -269,12 +277,17 @@ mod tests {
         assert_eq!(w.occupant(Layer::Land, 1, 0), None);
         assert_eq!(w.players[0].kills, 1);
         assert_eq!(w.unit(UnitId(1)).unwrap().order, Order::Idle);
+        // Unit-slots spec: the released slot is the first one reused, under a new id.
+        let slot = 1600 - 2;
+        let next = w.spawn(0, 1, (5, 7), 0).unwrap();
+        assert_eq!((w.unit(next).unwrap().slot, next), (slot, UnitId(3)));
+        assert_eq!(w.slots.len(crate::slots::NEUTRAL), 0);
     }
 
     #[test]
     fn chases_out_of_range_targets() {
         let mut w = world();
-        let foe = w.spawn(0, 1, (0, 5), 0);
+        let foe = w.spawn(0, 1, (0, 5), 0).unwrap();
         attack(&mut w, 0, vec![UnitId(1)], foe);
         run(&mut w, 100);
         let me = w.unit(UnitId(1)).unwrap();
@@ -285,13 +298,13 @@ mod tests {
     #[test]
     fn arrows_fly_and_hit() {
         let mut w = world();
-        let archer = w.spawn(8, 0, (0, 7), 0);
-        let foe = w.spawn(0, 1, (3, 7), 0);
+        let archer = w.spawn(8, 0, (0, 7), 0).unwrap();
+        let foe = w.spawn(0, 1, (3, 7), 0).unwrap();
         attack(&mut w, 0, vec![archer], foe);
         let mut saw_missile = false;
         for _ in 0..40 {
             w.step(&[]);
-            saw_missile |= !w.missiles.is_empty();
+            saw_missile |= w.missiles.iter().any(Option::is_some);
         }
         assert!(saw_missile);
         assert_eq!(w.unit(archer).unwrap().tile, (0, 7), "in range, so it stays put");
@@ -301,9 +314,9 @@ mod tests {
     #[test]
     fn splash_hits_friends_but_not_the_thrower() {
         let mut w = world();
-        let cat = w.spawn(5, 0, (0, 7), 0);
-        let foe = w.spawn(0, 1, (5, 7), 0);
-        let friend = w.spawn(0, 0, (6, 7), 0);
+        let cat = w.spawn(5, 0, (0, 7), 0).unwrap();
+        let foe = w.spawn(0, 1, (5, 7), 0).unwrap();
+        let friend = w.spawn(0, 0, (6, 7), 0).unwrap();
         attack(&mut w, 0, vec![cat], foe);
         // Strike on cycle 13, then 160 px of flight at 5 px a cycle.
         run(&mut w, 13 + 32 + 2);
@@ -316,7 +329,7 @@ mod tests {
     fn same_battle_same_hash() {
         let go = || {
             let mut w = world();
-            let foe = w.spawn(8, 1, (2, 2), 0);
+            let foe = w.spawn(8, 1, (2, 2), 0).unwrap();
             attack(&mut w, 0, vec![UnitId(1)], foe);
             run(&mut w, 300);
             w.state_hash()

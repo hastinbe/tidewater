@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use tidewater_formats::pud::Pud;
@@ -9,6 +10,7 @@ use crate::anim::{Effects, Modifiers, Script};
 use crate::battle::Missile;
 use crate::combat::Upgrades;
 use crate::rng::Rng;
+use crate::slots::{self, Slots};
 use crate::terrain::{Terrain, Tile};
 use crate::{TILE_PX, path};
 
@@ -18,7 +20,16 @@ pub enum WorldError {
     BadMap { got: usize, want: usize },
 }
 
-/// Stable unit handle; never reused within a game.
+/// Why a unit couldn't be created (unit-slots spec, "Creating a unit").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SpawnError {
+    #[error("too many units")]
+    TooMany,
+    #[error("can't place the unit there")]
+    CantPlace,
+}
+
+/// Stable unit handle: the unit's creation number, never reused within a game. Slots are reused; ids aren't.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UnitId(pub u32);
 
@@ -40,6 +51,8 @@ pub enum Order {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Unit {
     pub id: UnitId,
+    /// Place in the unit table; units update in ascending slot order.
+    pub slot: u16,
     pub kind: u8,
     pub owner: u8,
     /// Top-left tile of the footprint (the destination tile while moving).
@@ -76,6 +89,8 @@ pub struct Unit {
     pub attacked_by: Option<UnitId>,
     /// Playing its death animation; it no longer occupies tiles.
     pub dying: bool,
+    /// Given to the neutral owner after dying; its slot is released at its next "step done".
+    pub removing: bool,
 }
 
 impl Unit {
@@ -100,6 +115,9 @@ pub struct Player {
     pub kills: u32,
 }
 
+/// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
+const RELEASED: u8 = 0xff;
+
 /// Result of one [`World::walk`] decision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Walk {
@@ -113,11 +131,18 @@ pub(crate) enum Walk {
 pub struct Rules {
     /// Cycles a unit waits for a blocked tile before searching a new path.
     pub patience: u16,
+    /// Unit and effect table sizes (unit-slots spec): Enhanced unless set otherwise.
+    pub unit_slots: usize,
+    pub effect_slots: usize,
 }
 
 impl Default for Rules {
     fn default() -> Self {
-        Self { patience: 10 }
+        Self {
+            patience: 10,
+            unit_slots: slots::ENHANCED_SLOTS,
+            effect_slots: slots::ENHANCED_EFFECTS,
+        }
     }
 }
 
@@ -177,9 +202,12 @@ pub struct World {
     pub scripts: Arc<Scripts>,
     /// Per unit type, from [`move_stride`].
     pub stride: Vec<u8>,
-    /// Sorted by id.
+    /// Live units, sorted by slot.
     pub units: Vec<Unit>,
-    pub missiles: Vec<Missile>,
+    /// The effect table: missiles by effect slot. The first slots hold the permanent effects and stay `None` here.
+    pub missiles: Vec<Option<Missile>>,
+    pub slots: Slots,
+    slot_of: BTreeMap<UnitId, u16>,
     /// Damage counter of each wall tile.
     pub(crate) wall_damage: Vec<u8>,
     next_id: u32,
@@ -223,25 +251,29 @@ impl World {
         let stride = (0..tidewater_formats::script::UNIT_TYPES as u8)
             .map(|k| move_stride(&scripts, k))
             .collect();
+        let rules = Rules::default();
         World {
             tick: 0,
             occupancy: std::array::from_fn(|_| vec![None; n]),
             terrain,
             stats,
-            rules: Rules::default(),
+            slots: Slots::new(rules.unit_slots),
+            slot_of: BTreeMap::new(),
+            missiles: vec![None; rules.effect_slots],
+            rules,
             players: [Player::default(); PLAYERS],
             rng: Rng::new(seed),
             scripts,
             stride,
             units: Vec::new(),
-            missiles: Vec::new(),
             wall_damage: vec![0; n],
             next_id: 1,
         }
     }
 
     /// Builds the starting state of a map. Start locations become [`Player::start`], not units. Map units are created
-    /// in map order, each making its creation draws.
+    /// in map order, each making its creation draws; units of players marked "nobody" are skipped (unit-slots spec,
+    /// "Starting a map"). Converting a unit to its owner's race isn't done yet.
     pub fn from_pud(
         pud: &Pud,
         tileset: &Tileset,
@@ -269,6 +301,9 @@ impl World {
             };
         }
         for u in &pud.units {
+            if pud.owners().get(u.owner as usize) == Some(&3) {
+                continue;
+            }
             if matches!(u.kind, 0x5e | 0x5f) {
                 if let Some(p) = w.players.get_mut(u.owner as usize) {
                     p.start = Some((u.x as i32, u.y as i32));
@@ -280,7 +315,8 @@ impl World {
             } else {
                 0
             };
-            w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources);
+            // A unit that can't be created is left out, as the game does.
+            let _ = w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources);
         }
         Ok(w)
     }
@@ -289,9 +325,11 @@ impl World {
         self.stats.0.get(kind as usize).copied().unwrap_or_default()
     }
 
-    /// Creates a unit with full hit points, making the creation draws (timing-and-rng spec, "Draw sites"): a mobile
-    /// unit's facing, a building's variation value, then extra cycles on the first animation wait. Returns its id.
-    pub fn spawn(&mut self, kind: u8, owner: u8, tile: (i32, i32), resources: u32) -> UnitId {
+    /// Creates a unit with full hit points in the front free slot (unit-slots spec), making the creation draws
+    /// (timing-and-rng spec, "Draw sites"): a mobile unit's facing, a building's variation value, then extra cycles on
+    /// the first animation wait. Ships and flyers are aligned to even tiles. Placement only checks the map bounds
+    /// until the placement spec lands. Returns its id.
+    pub fn spawn(&mut self, kind: u8, owner: u8, tile: (i32, i32), resources: u32) -> Result<UnitId, SpawnError> {
         let s = self.stats_of(kind);
         let building = s.flags & flags::BUILDING != 0;
         let layer = if s.flags & flags::AIR != 0 {
@@ -302,6 +340,20 @@ impl World {
             Layer::Land
         };
         let size = (s.size.0.clamp(1, 8) as u8, s.size.1.clamp(1, 8) as u8);
+        let slot = self.slots.take(owner).map_err(|_| SpawnError::TooMany)?;
+        let tile = if self.stride_of(kind) == 2 {
+            (tile.0 & !1, tile.1 & !1)
+        } else {
+            tile
+        };
+        let fits = self.terrain.contains(tile.0, tile.1)
+            && self
+                .terrain
+                .contains(tile.0 + size.0 as i32 - 1, tile.1 + size.1 as i32 - 1);
+        if !fits {
+            self.slots.release(slot, owner);
+            return Err(SpawnError::CantPlace);
+        }
         let id = UnitId(self.next_id);
         self.next_id += 1;
         let (mut facing, mut variation) = (4, 0);
@@ -315,6 +367,7 @@ impl World {
         script.wait += (self.rng.draw() & 7) as u8;
         let unit = Unit {
             id,
+            slot,
             kind,
             owner,
             tile,
@@ -338,10 +391,13 @@ impl World {
             unholy_armor: 0,
             attacked_by: None,
             dying: false,
+            removing: false,
         };
         self.mark(&unit, unit.tile, Some(id));
-        self.units.push(unit);
-        id
+        let at = self.units.partition_point(|u| u.slot < slot);
+        self.units.insert(at, unit);
+        self.slot_of.insert(id, slot);
+        Ok(id)
     }
 
     pub(crate) fn mark(&mut self, unit: &Unit, tile: (i32, i32), v: Option<UnitId>) {
@@ -376,19 +432,23 @@ impl World {
     }
 
     pub fn unit(&self, id: UnitId) -> Option<&Unit> {
-        self.units
-            .binary_search_by_key(&id, |u| u.id)
-            .ok()
-            .map(|i| &self.units[i])
+        self.index(id).map(|i| &self.units[i])
     }
 
     pub(crate) fn index(&self, id: UnitId) -> Option<usize> {
-        self.units.binary_search_by_key(&id, |u| u.id).ok()
+        let slot = *self.slot_of.get(&id)?;
+        self.units.binary_search_by_key(&slot, |u| u.slot).ok()
     }
 
-    /// Runs one cycle: applies `commands` in order, then phase 4 of the timing-and-rng spec: every unit in id order
-    /// (unit slot order is a placeholder until its spec lands), then every missile. Units whose death animation has
-    /// finished are removed at the end.
+    /// Moves a unit to another owner's list (unit-slots spec, "Changing owner"); the cap isn't checked.
+    pub(crate) fn change_owner(&mut self, i: usize, to: u8) {
+        let u = &mut self.units[i];
+        self.slots.change_owner(u.slot, u.owner, to);
+        u.owner = to;
+    }
+
+    /// Runs one cycle: applies `commands` in order, then phase 4 of the timing-and-rng spec: every unit in ascending
+    /// slot order, then every missile in effect slot order. Units whose slots were released leave the table at the end.
     pub fn step(&mut self, commands: &[Command]) {
         for c in commands {
             self.apply(c);
@@ -397,7 +457,16 @@ impl World {
             self.advance(i);
         }
         self.advance_missiles();
-        self.units.retain(|u| !(u.dying && u.script.anim == anim::NONE));
+        let gone: Vec<UnitId> = self
+            .units
+            .iter()
+            .filter(|u| u.script.anim == RELEASED)
+            .map(|u| u.id)
+            .collect();
+        for id in gone {
+            self.slot_of.remove(&id);
+        }
+        self.units.retain(|u| u.script.anim != RELEASED);
         self.tick += 1;
     }
 
@@ -491,15 +560,24 @@ impl World {
         let fx = u.script.update(scripts.bytes(), u.facing, m);
         u.pos.0 += fx.dx;
         u.pos.1 += fx.dy;
+        let (dying, removing) = (u.dying, u.removing);
         if fx.neutral {
-            u.owner = 15;
+            self.change_owner(i, slots::NEUTRAL);
         }
-        if u.dying {
-            // Death scripts play their frames, then loop on "step done" (data inspection); corpses are a later spec.
-            if fx.halted || fx.step_done {
-                // Marks the unit for removal at the end of the cycle.
-                u.script.anim = anim::NONE;
+        if dying && (fx.halted || fx.step_done) {
+            // Unit-slots spec, "Death, corpses and release": at the death animation's step done the unit (corpses and
+            // ruins are a later spec) goes to the neutral owner with the "remove" order, which releases its slot at the
+            // next step done. Release order decides slot reuse, so the free list is updated now.
+            if removing {
+                let u = &self.units[i];
+                self.slots.release(u.slot, u.owner);
+                self.units[i].script.anim = RELEASED;
+            } else {
+                self.change_owner(i, slots::NEUTRAL);
+                self.units[i].removing = true;
             }
+        }
+        if dying {
             return;
         }
         self.order(i, fx);
@@ -610,6 +688,7 @@ impl World {
         self.rng.hash(&mut h);
         self.units.hash(&mut h);
         self.missiles.hash(&mut h);
+        self.slots.hash(&mut h);
         self.wall_damage.hash(&mut h);
         h.finish()
     }
@@ -726,7 +805,7 @@ pub(crate) mod tests {
             .map(|i| if i % 8 == 4 && i / 8 < 6 { 0x10 } else { 0x00 })
             .collect::<Vec<u16>>();
         let mut w = World::new(Terrain::from_map(&tileset(), &tiles, 8, 8), stats(), scripts(), 0);
-        w.spawn(0, 0, (0, 0), 0);
+        w.spawn(0, 0, (0, 0), 0).unwrap();
         w
     }
 
@@ -768,7 +847,7 @@ pub(crate) mod tests {
     fn units_never_share_a_tile() {
         let mut w = world();
         for x in 0..3 {
-            w.spawn(0, 0, (x, 7), 0);
+            w.spawn(0, 0, (x, 7), 0).unwrap();
         }
         let all: Vec<_> = w.units.iter().map(|u| u.id).collect();
         w.step(&[Command::Move {
@@ -807,6 +886,24 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn updates_run_in_reverse_creation_order() {
+        let mut w = world();
+        let a = w.spawn(0, 0, (0, 7), 0).unwrap();
+        let b = w.spawn(0, 0, (1, 7), 0).unwrap();
+        let order: Vec<_> = w.units.iter().map(|u| (u.slot, u.id)).collect();
+        assert_eq!(order, [(1597, b), (1598, a), (1599, UnitId(1))]);
+    }
+
+    #[test]
+    fn spawn_failures() {
+        let mut w = world();
+        assert_eq!(w.spawn(0, 0, (8, 0), 0), Err(SpawnError::CantPlace));
+        assert_eq!(w.spawn(0x3a, 0, (7, 7), 0), Err(SpawnError::CantPlace));
+        assert_eq!(w.slots.len(0), 1, "a failed placement returns the slot");
+        assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((2, 2)));
+    }
+
+    #[test]
     fn strides_come_from_the_move_scripts() {
         let w = world();
         assert_eq!((w.stride[0], w.stride[2]), (1, 2));
@@ -819,7 +916,7 @@ pub(crate) mod tests {
         let u = w.unit(UnitId(1)).unwrap();
         assert_eq!((u.facing, u.script.wait), (0, 3));
         let mut w = world();
-        let b = w.spawn(0x3a, 0, (6, 6), 0);
+        let b = w.spawn(0x3a, 0, (6, 6), 0).unwrap();
         assert_eq!(w.unit(b).unwrap().variation, (130 % 6) as u8);
         assert_eq!(w.unit(b).unwrap().script.wait, 1 + (10982 & 7) as u8);
     }
@@ -845,7 +942,7 @@ pub(crate) mod tests {
     #[test]
     fn flyers_move_two_tiles_per_step() {
         let mut w = world();
-        let f = w.spawn(2, 0, (0, 2), 0);
+        let f = w.spawn(2, 0, (0, 2), 0).unwrap();
         w.step(&[Command::Move {
             player: 0,
             units: vec![f],
@@ -861,7 +958,7 @@ pub(crate) mod tests {
     #[test]
     fn buildings_block_paths() {
         let mut w = world();
-        w.spawn(0x3a, 0, (1, 0), 0);
+        w.spawn(0x3a, 0, (1, 0), 0).unwrap();
         w.step(&[Command::Move {
             player: 0,
             units: vec![UnitId(1)],

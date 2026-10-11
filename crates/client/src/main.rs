@@ -531,7 +531,7 @@ fn draw_selection(
     let Some(sim) = sim else { return };
     let green = Color::srgb(0.2, 0.9, 0.2);
     // Missiles have no sprites yet: draw each as a small square.
-    for m in &sim.world.missiles {
+    for m in sim.world.missiles.iter().flatten() {
         let c = if m.splash {
             Color::srgb(1.0, 0.5, 0.1)
         } else {

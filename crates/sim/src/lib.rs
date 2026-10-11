@@ -11,6 +11,7 @@ mod battle;
 pub mod combat;
 pub mod path;
 pub mod rng;
+pub mod slots;
 pub mod terrain;
 pub mod timing;
 mod world;
@@ -18,7 +19,7 @@ mod world;
 pub use battle::Missile;
 pub use rng::Rng;
 pub use terrain::{Terrain, Tile};
-pub use world::{Command, Layer, Order, Player, Rules, Unit, UnitId, World, WorldError};
+pub use world::{Command, Layer, Order, Player, Rules, SpawnError, Unit, UnitId, World, WorldError};
 
 /// Map pixels per tile.
 pub const TILE_PX: i32 = 32;
