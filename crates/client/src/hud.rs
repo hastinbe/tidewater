@@ -64,6 +64,8 @@ pub struct Layout {
     pub info: Rect,
     pub buttons: Rect,
     pub top: Rect,
+    /// The bottom bar, where messages go.
+    pub bottom: Rect,
 }
 
 impl Layout {
@@ -80,6 +82,7 @@ impl Layout {
             info: Rect::new(0, y_info, p.panel_w, p.panel_h[2]),
             buttons: Rect::new(0, y_buttons, p.panel_w, p.panel_h[3]),
             top: Rect::new(p.panel_w as i32, 0, vw, p.bar),
+            bottom: Rect::new(p.panel_w as i32, (ch.max(p.bar) - p.bar) as i32, vw, p.bar),
         }
     }
 }
@@ -168,6 +171,10 @@ pub struct View<'a> {
     pub lumber: u32,
     pub oil: u32,
     pub selected: &'a [Selected],
+    /// Food (used, supply), shown with a single selected farm or hall.
+    pub food: Option<(u32, u32)>,
+    /// The latest message for the player.
+    pub status: Option<&'a str>,
     pub dots: &'a [Dot],
     /// The map view in tiles: left, top, right, bottom.
     pub view: (f32, f32, f32, f32),
@@ -517,6 +524,10 @@ impl HudArt {
             x += slot;
         }
 
+        if let Some(msg) = v.status {
+            text(&mut pic, &self.font, l.bottom.x + 4, l.bottom.y + 1, msg);
+        }
+
         // Selection.
         let info = l.info;
         match v.selected {
@@ -535,6 +546,10 @@ impl HudArt {
                 let hp = format!("{}/{}", s.hp, s.max_hp);
                 let tw = self.font.width(hp.as_bytes()) as i32;
                 text(&mut pic, &self.font, ix + (46 - tw) / 2, iy + 38 + 8, &hp);
+                if let Some((used, supply)) = v.food {
+                    let line = format!("Food: {used} / {supply}");
+                    text(&mut pic, &self.font, info.x + 12, iy + 76, &line);
+                }
             }
             many => {
                 for (i, s) in many.iter().take(9).enumerate() {
@@ -618,6 +633,7 @@ mod tests {
         assert_eq!(l.info, Rect::new(0, 160, 176, 176));
         assert_eq!(l.buttons, Rect::new(0, 336, 176, 144));
         assert_eq!(l.top, Rect::new(176, 0, 448, 16));
+        assert_eq!(l.bottom, Rect::new(176, 464, 448, 16));
         assert!(l.viewport.contains(176.0, 16.0));
         assert!(!l.viewport.contains(175.9, 100.0));
         assert!(!l.viewport.contains(624.0, 100.0));

@@ -19,6 +19,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use clap::Parser;
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
+use tidewater_sim::economy::{Event, Shortage, kind};
 use tidewater_sim::{Command, TILE_PX, UnitId, World};
 
 #[derive(Parser)]
@@ -66,6 +67,28 @@ struct Sim {
     /// Commands collected since the last tick.
     pending: Vec<Command>,
     human: u8,
+    /// The message in the bottom bar and the ticks it has left.
+    message: Option<(String, u32)>,
+}
+
+/// How long a message stays up: five seconds of game time.
+const MESSAGE_TICKS: u32 = 5 * 25;
+
+/// Our wording for a message to the player, if the event is theirs.
+fn message(e: &Event, human: u8) -> Option<String> {
+    match *e {
+        Event::CantAfford { player, shortage } if player == human => Some(
+            match shortage {
+                Shortage::Food => "Not enough food: build more farms",
+                Shortage::Gold => "Not enough gold",
+                Shortage::Lumber => "Not enough lumber",
+                Shortage::Oil => "Not enough oil",
+            }
+            .to_string(),
+        ),
+        Event::NoRoom { player, .. } if player == human => Some("No room to place the unit".to_string()),
+        _ => None,
+    }
 }
 
 #[derive(Resource, Default)]
@@ -360,12 +383,23 @@ fn setup(
         world: scene.world,
         pending: Vec::new(),
         human: scene.human,
+        message: None,
     });
 }
 
 fn tick(mut sim: ResMut<Sim>) {
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
+    let human = sim.human;
+    let events = std::mem::take(&mut sim.world.events);
+    if let Some(m) = events.iter().rev().find_map(|e| message(e, human)) {
+        sim.message = Some((m, MESSAGE_TICKS));
+    } else if let Some((_, left)) = &mut sim.message {
+        *left -= 1;
+        if *left == 0 {
+            sim.message = None;
+        }
+    }
 }
 
 /// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture and the minimap.
@@ -746,6 +780,12 @@ fn draw_hud(
         })
         .collect();
     let me = &sim.world.players[sim.human as usize];
+    let food = match selected.as_slice() {
+        [s] if s.owner == sim.human && (matches!(s.kind, kind::FARM | kind::PIG_FARM) || kind::is_hall(s.kind)) => {
+            Some((sim.world.food_used(sim.human), sim.world.food_supply(sim.human)))
+        }
+        _ => None,
+    };
     let pic = hud.art.draw(
         &hud.frame,
         &layout,
@@ -756,6 +796,8 @@ fn draw_hud(
             lumber: me.lumber,
             oil: me.oil,
             selected: &selected,
+            food,
+            status: sim.message.as_ref().map(|(m, _)| m.as_str()),
             dots: &dots,
             view,
         },
