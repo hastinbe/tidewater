@@ -13,7 +13,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 png = "0.18"
-bevy = "0.19"
+bevy = "0.20"
 tidewater-formats = { path = "crates/formats" }
 tidewater-sim = { path = "crates/sim" }
 
