@@ -77,6 +77,14 @@ enum Cmd {
         #[arg(long)]
         install: PathBuf,
     },
+    /// Print the upgrade table as TSV: a map's `UGRD` section if it has its own data, else `rez\\upgrades.dat`.
+    /// With a map that has an `ALOW` section, also print its per-player masks.
+    Upgrades {
+        #[arg(long)]
+        install: PathBuf,
+        /// A path on disk or a name inside the install's archives.
+        map: Option<String>,
+    },
     /// Summarise an archive's block table: how many blocks, how many in use.
     MpqInfo { archive: PathBuf },
 }
@@ -204,6 +212,7 @@ fn main() -> Result<()> {
                 );
             }
         }
+        Cmd::Upgrades { install, map } => upgrades(&install, map.as_deref())?,
         Cmd::MpqInfo { archive } => {
             let a = Archive::open(&archive)?;
             let used = a
@@ -251,6 +260,51 @@ fn read_file_or_entry(inst: &mut Install, name: &str) -> Result<Vec<u8>> {
     } else {
         Ok(inst.read(name)?)
     }
+}
+
+fn upgrades(install: &std::path::Path, map: Option<&str>) -> Result<()> {
+    use tidewater_formats::alow::Restrictions;
+    use tidewater_formats::ugrd::{NAMES, UpgradeTable};
+    let mut inst = Install::open(install)?;
+    let pud = map
+        .map(|m| Ok::<_, anyhow::Error>(Pud::parse(&read_file_or_entry(&mut inst, m)?)?))
+        .transpose()?;
+    let from_map = match pud.as_ref().and_then(|p| p.section(b"UGRD")) {
+        Some(s) => UpgradeTable::from_ugrd(s)?,
+        None => None,
+    };
+    let table = match from_map {
+        Some(t) => {
+            eprintln!("upgrades from the map's UGRD section");
+            t
+        }
+        None => UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?,
+    };
+    println!("id\tname\ttime\tgold\twood\toil\ticon\tgroup\taffect");
+    for (i, u) in table.0.iter().enumerate() {
+        println!(
+            "{i:#04x}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:#010x}",
+            NAMES[i], u.time, u.gold, u.lumber, u.oil, u.icon, u.group, u.affect
+        );
+    }
+    if let Some(s) = pud.as_ref().and_then(|p| p.section(b"ALOW")) {
+        let r = Restrictions::parse(s)?;
+        println!(
+            "\nplayer\tunits\tspells_start\tspells_allowed\tspells_researching\tupgrades_allowed\tupgrades_researching"
+        );
+        for p in 0..r.units.len() {
+            println!(
+                "{p}\t{:#010x}\t{:#010x}\t{:#010x}\t{:#010x}\t{:#010x}\t{:#010x}",
+                r.units[p],
+                r.spells_start[p],
+                r.spells_allowed[p],
+                r.spells_researching[p],
+                r.upgrades_allowed[p],
+                r.upgrades_researching[p]
+            );
+        }
+    }
+    Ok(())
 }
 
 fn render_map(install: &std::path::Path, map: &str, out: &std::path::Path) -> Result<()> {
