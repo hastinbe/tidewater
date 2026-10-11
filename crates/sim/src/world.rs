@@ -648,30 +648,54 @@ impl World {
         u.script.start(a, pc);
     }
 
-    /// A path for `u` to `goal`. With `avoid_units`, tiles held by other units count as blocked. Units that move two
-    /// tiles per step plan on the grid of tiles with their own tile's parity (a placeholder until the movement spec).
-    fn plan(&self, u: &Unit, goal: (i32, i32), avoid_units: bool) -> Vec<(i32, i32)> {
+    /// Whether the path search treats a ground unit on a tile as free (pathfinding spec, "Units seen by the
+    /// search"). Alliances aren't modelled yet, so only the unit's own player counts as allied, and "has no attacker"
+    /// reads as "was never attacked" until the movement spec defines it.
+    fn ignored_by_search(&self, u: &Unit, other: UnitId) -> bool {
+        let Some(o) = self.unit(other) else { return true };
+        if o.id == u.id {
+            return true;
+        }
+        if o.layer == Layer::Air {
+            return false;
+        }
+        let s = self.stats_of(u.kind);
+        let fighter = s.flags & (flags::PEON | flags::TANKER | flags::CASTER) == 0;
+        if matches!(u.order, Order::Attack { .. }) && u.attacked_by.is_none() && fighter && o.owner != u.owner {
+            return true;
+        }
+        o.owner == u.owner && o.is_moving() && o.blocked == 0
+    }
+
+    /// Up to 20 tiles of route from `u` toward `goal` (pathfinding spec). Empty means no path.
+    fn plan(&self, u: &Unit, goal: (i32, i32)) -> Vec<(i32, i32)> {
         let s = self.stride_of(u.kind).max(1);
-        let (px, py) = (u.tile.0.rem_euclid(s), u.tile.1.rem_euclid(s));
         let (w, h) = (self.terrain.width as i32, self.terrain.height as i32);
-        let (cw, ch) = ((w - px + s - 1) / s, (h - py + s - 1) / s);
-        let tile = move |c: (i32, i32)| (c.0 * s + px, c.1 * s + py);
-        let start = ((u.tile.0 - px) / s, (u.tile.1 - py) / s);
-        let goal = (
-            ((goal.0 - px + s / 2) / s).clamp(0, cw - 1),
-            ((goal.1 - py + s / 2) / s).clamp(0, ch - 1),
-        );
-        path::find(cw, ch, start, goal, |x, y| {
-            let (x, y) = tile((x, y));
-            self.terrain_allows(u.layer, x, y)
-                && match self.occupant(u.layer, x, y) {
-                    None => true,
-                    Some(o) => o == u.id || (!avoid_units && !self.unit(o).is_some_and(|b| b.building)),
-                }
-        })
-        .into_iter()
-        .map(tile)
-        .collect()
+        let req = path::Request {
+            enhanced: self.rules.enhanced,
+            ..path::Request::to_tile(w, h, u.tile, goal, s)
+        };
+        struct Search<'a>(&'a World, &'a Unit);
+        impl path::Map for Search<'_> {
+            fn blocked(&self, x: i32, y: i32) -> bool {
+                let (w, u) = (self.0, self.1);
+                !w.terrain_allows(u.layer, x, y)
+                    || w.occupant(u.layer, x, y).is_some_and(|o| !w.ignored_by_search(u, o))
+            }
+            fn blocked_strict(&self, x: i32, y: i32) -> bool {
+                let (w, u) = (self.0, self.1);
+                !w.terrain_allows(u.layer, x, y) || w.occupant(u.layer, x, y).is_some_and(|o| o != u.id)
+            }
+        }
+        let mut at = u.tile;
+        path::search(&req, &Search(self, u))
+            .into_iter()
+            .map(|d| {
+                let v = path::DIRECTIONS[d as usize];
+                at = (at.0 + v.0 * s, at.1 + v.1 * s);
+                at
+            })
+            .collect()
     }
 
     /// Phase 4 for one unit: advance its animation script, then its order.
@@ -751,8 +775,13 @@ impl World {
     /// animation from standing.
     pub(crate) fn walk(&mut self, i: usize, goal: (i32, i32)) -> Walk {
         let moving = self.units[i].script.anim == anim::MOVE;
-        if self.units[i].path_goal != Some(goal) {
-            let path = self.plan(&self.units[i], goal, false);
+        // A new goal, or steps run out short of it: search again (pathfinding spec: long journeys are many short
+        // searches). An empty result gives up the move.
+        let s = self.stride_of(self.units[i].kind).max(1);
+        let target = if s == 2 { (goal.0 & !1, goal.1 & !1) } else { goal };
+        let u = &self.units[i];
+        if u.path_goal != Some(goal) || (u.path.is_empty() && u.tile != target) {
+            let path = self.plan(&self.units[i], goal);
             let u = &mut self.units[i];
             u.path = path;
             u.path_goal = Some(goal);
@@ -772,7 +801,7 @@ impl World {
                 self.start_anim(i, anim::STILL);
             }
             if !patient {
-                let path = self.plan(&self.units[i], goal, true);
+                let path = self.plan(&self.units[i], goal);
                 let u = &mut self.units[i];
                 u.path = path;
                 u.blocked = 0;
