@@ -4,6 +4,7 @@
 - **Sources:** inspection of `Rez\script.bin` from the game data, with its instruction meanings established by static
   study of the 2.02 program (research notes under `research/notes/`). Timings below are computed from the data. Not
   yet confirmed against the running game.
+- **Changes:** 2026-10-11, round-2 errata: when an animation's first instruction runs depends on how it was started.
 
 ## Behaviour
 
@@ -23,8 +24,17 @@ Each unit holds a **script position**, a **wait counter** (8 bits), its current 
 **frame**.
 
 - **Starting an animation** looks up the script for (unit type, animation number), points the position at its first
-  instruction and sets the wait counter to 1. So the first instruction runs on the unit's next update. When a unit is
-  created, its first wait is lengthened by a random 0 to 7 cycles (see the timing-and-rng spec).
+  instruction and sets the wait counter to 1. When the first instruction runs depends on how the animation was
+  started:
+
+  | Situation | First instruction runs |
+  | --- | --- |
+  | Ordinary start (wait 1) | On the unit's next update |
+  | A pending order takes over | The wait is overwritten with 3, so on the third cycle after the takeover. The 3 is not adjusted for haste or slow |
+  | A new unit is created | The wait is 1 plus a random 0 to 7 cycles (see the timing-and-rng spec) |
+  | Switch to the move animation to take a step, or back to the order's own animation on arrival | In the same cycle |
+
+  The movement spec (`movement/movement.md`, "Which first wait applies when") uses the same table.
 - **Each cycle,** during the unit update phase, the wait counter decreases by 1. If it is still above 0, nothing else
   happens this cycle. When it reaches 0, instructions run one after another until one of them sets a new wait.
 - **The "step done" signal:** the instruction that marks the end of a step (see the table) sets the wait to 1 and
