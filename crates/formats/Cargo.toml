@@ -1,0 +1,12 @@
+[package]
+name = "tidewater-formats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+explode = "0.1"
+
+[lints]
+workspace = true
