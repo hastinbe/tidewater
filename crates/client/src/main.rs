@@ -84,7 +84,7 @@ fn main() -> Result<()> {
         scene.human,
         scene.description
     );
-    let hz = scene.world.rules.ticks_per_second as f64;
+    let hz = 1000.0 / tidewater_sim::timing::ENHANCED_MS[tidewater_sim::timing::NORMAL as usize] as f64;
     let mut scene = scene;
     if let Some(to) = args.demo_move {
         let units = scene

@@ -81,6 +81,9 @@ enum Cmd {
         y: i32,
         #[arg(long, default_value_t = 600)]
         ticks: u32,
+        /// Random number generator seed.
+        #[arg(long, default_value_t = 0)]
+        seed: u32,
     },
     /// Print the unit stats table (`rez\\unitdata.dat`) as TSV.
     Units {
@@ -101,6 +104,12 @@ enum Cmd {
         #[arg(long)]
         install: PathBuf,
         name: String,
+    },
+    /// Measure each unit type's move and attack scripts (`rez\\script.bin`) as TSV: move loop and distance, first
+    /// strike and attack loop, each at normal speed, hasted and slowed.
+    Scripts {
+        #[arg(long)]
+        install: PathBuf,
     },
     /// Summarise an archive's block table: how many blocks, how many in use.
     MpqInfo { archive: PathBuf },
@@ -220,7 +229,8 @@ fn main() -> Result<()> {
             x,
             y,
             ticks,
-        } => sim(&install, &map, player, (x, y), ticks)?,
+            seed,
+        } => sim(&install, &map, player, (x, y), ticks, seed)?,
         Cmd::Units { install } => {
             let mut inst = Install::open(&install)?;
             let t = tidewater_formats::udta::UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?;
@@ -244,6 +254,7 @@ fn main() -> Result<()> {
                 );
             }
         }
+        Cmd::Scripts { install } => scripts(&install)?,
         Cmd::Upgrades { install, map } => upgrades(&install, map.as_deref())?,
         Cmd::Strings { install, name } => {
             let mut inst = Install::open(&install)?;
@@ -427,7 +438,7 @@ fn grp_sheet(install: &std::path::Path, out: &std::path::Path, era: &str, cols: 
     write_png(out, stride, rows * cell, &px, &pal, false)
 }
 
-fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: u32) -> Result<()> {
+fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: u32, seed: u32) -> Result<()> {
     use tidewater_formats::udta::UnitTable;
     use tidewater_sim::{Command, World};
     let mut inst = Install::open(install)?;
@@ -442,7 +453,8 @@ fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: 
         Some(t) => t,
         None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
     };
-    let mut w = World::from_pud(&pud, &ts, stats)?;
+    let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
+    let mut w = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
     let units: Vec<_> = w
         .units
         .iter()
@@ -472,5 +484,57 @@ fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: 
         );
     }
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
+    Ok(())
+}
+
+/// One run of a unit's animation: (cycles between the first two events, pixels moved between them, cycle of the first).
+fn measure(
+    scripts: &tidewater_formats::script::Scripts,
+    kind: u8,
+    anim: u8,
+    haste: i16,
+    strike: bool,
+) -> Option<String> {
+    use tidewater_sim::anim::{Modifiers, Script};
+    let pc = scripts.unit(kind, anim)?;
+    let mut s = Script::default();
+    s.start(anim, pc);
+    let (mut events, mut moved) = (vec![], 0);
+    for cycle in 1..=2000 {
+        let fx = s.update(scripts.bytes(), 2, Modifiers { haste, carrying: false });
+        if events.len() == 1 {
+            moved += fx.dx;
+        }
+        if (strike && fx.strikes > 0) || (!strike && fx.step_done) {
+            events.push(cycle);
+            if events.len() == 2 {
+                return Some(if strike {
+                    format!("{}/{}", events[0], events[1] - events[0])
+                } else {
+                    format!("{}/{}px", events[1] - events[0], moved)
+                });
+            }
+        }
+    }
+    Some("-".into())
+}
+
+fn scripts(install: &std::path::Path) -> Result<()> {
+    use tidewater_formats::script::{Scripts, anim};
+    let mut inst = Install::open(install)?;
+    let s = Scripts::parse(inst.read("rez\\script.bin")?)?;
+    println!("id\tmove\tmove_haste\tmove_slow\tstrike/loop\thaste\tslow");
+    for kind in 0..tidewater_formats::script::UNIT_TYPES as u8 {
+        let col = |a, h, st| measure(&s, kind, a, h, st).unwrap_or_default();
+        println!(
+            "{kind:#04x}\t{}\t{}\t{}\t{}\t{}\t{}",
+            col(anim::MOVE, 0, false),
+            col(anim::MOVE, 1, false),
+            col(anim::MOVE, -1, false),
+            col(anim::ATTACK, 0, true),
+            col(anim::ATTACK, 1, true),
+            col(anim::ATTACK, -1, true)
+        );
+    }
     Ok(())
 }

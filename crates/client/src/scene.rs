@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use tidewater_formats::grp::Grp;
 use tidewater_formats::install::Install;
 use tidewater_formats::pud::{Era, Pud};
+use tidewater_formats::script::Scripts;
 use tidewater_formats::sprites::unit_sheet_candidates;
 use tidewater_formats::tileset::{Palette, TILE};
 use tidewater_formats::udta::UnitTable;
@@ -116,7 +117,12 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         Some(t) => t,
         None => UnitTable::from_table(&install.read("rez\\unitdata.dat")?)?,
     };
-    let world = World::from_pud(&pud, &ts, stats)?;
+    let scripts = Scripts::parse(install.read("rez\\script.bin")?)?;
+    // Single player seeds with the time in whole seconds (timing-and-rng spec, "Seeding").
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as u32);
+    let world = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
 
     let mut sheets: HashMap<u8, Option<Grp>> = HashMap::new();
     let mut art = HashMap::new();

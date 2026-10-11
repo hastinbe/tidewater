@@ -9,6 +9,7 @@ pub mod mpq;
 mod mpq_codec;
 pub mod pcx;
 pub mod pud;
+pub mod script;
 pub mod sprites;
 pub mod tbl;
 pub mod tileset;
