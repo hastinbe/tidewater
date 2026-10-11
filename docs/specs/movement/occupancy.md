@@ -4,6 +4,7 @@
 - **Sources:** static study of the 2.02 program, plus the tileset data files that ship with the game (the per-tileset
   conversion table and the wall, forest and rock tables named below). The test vectors that use tileset data use the
   Forest tileset. Not yet confirmed against the running game.
+- **Changes:** 2026-10-11, round-3 errata: the search-mask note now says which player kinds drop bit 0x04, and when.
 
 ## Behaviour
 
@@ -87,8 +88,11 @@ land at a shore.
 - **Shared ground layer:** land units and ships share the ground-unit mark, so they block each other on tiles both
   can use, such as bridges.
 - **Air units ignore terrain.** Only other air units and the "cave" and "space" values block them.
-- **Computer-controlled units** drop bit 0x04 from the mask the path search uses (see `pathfinding.md`). Every tile
-  that carries bit 0x04 also carries 0x80, so this does not open a path.
+- **Units of players that aren't human-controlled** (computer, passive computer and rescue players, and neutral or
+  empty slots) drop bit 0x04 from the mask the path search uses, but only while the unit is not invisible and has no
+  attacker (see `pathfinding.md`, "Edge cases at the start"). Every tile that carries bit 0x04 also carries 0x80, so
+  this does not open a path. The rule that makes a blocked unit attack a wall (`movement.md`) applies to computer
+  players only.
 - **Units the search may treat as free:** the rules are in `pathfinding.md` ("Units seen by the search").
 
 ### Building placement masks
