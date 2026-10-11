@@ -1,14 +1,18 @@
 //! Tidewater client. Loads a PUD from the user's installation, runs the simulation at its fixed tick rate and draws it.
 //!
 //! Controls: left click or drag selects your units, right click orders them to move, S stops them. Arrow keys / WASD
-//! pan, mouse wheel or +/- zoom, Escape quits.
+//! pan, mouse wheel or +/- zoom, Escape quits. On the minimap, left click or drag moves the view and right click
+//! orders a move there.
 
+mod hud;
 mod scene;
 
 use std::path::PathBuf;
 
 use anyhow::Result;
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::RenderLayers;
+use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -28,12 +32,18 @@ struct Args {
     /// Initial zoom: world pixels per screen pixel (2 shows twice as much map).
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
+    /// Interface scale: window pixels per interface pixel (2 shows the original 640x480 layout in the default window).
+    #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=8))]
+    ui_scale: u32,
     /// Development aid: order all of your units to tile `X,Y` at the start.
     #[arg(long, value_parser = parse_tile)]
     demo_move: Option<(i32, i32)>,
     /// Development aid: send every player's units against the nearest enemy within 16 tiles at the start.
     #[arg(long)]
     demo_fight: bool,
+    /// Development aid: select your first N units at the start and centre the view on them.
+    #[arg(long)]
+    demo_select: Option<usize>,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -76,6 +86,56 @@ struct UnitSprite(UnitId);
 #[derive(Resource)]
 struct StartZoom(f32);
 
+/// The interface: its art, current layout and the picture it draws into.
+#[derive(Resource)]
+struct Hud {
+    art: hud::HudArt,
+    /// Window pixels per interface pixel.
+    scale: u32,
+    layout: Option<hud::Layout>,
+    frame: scene::Picture,
+    image: Handle<Image>,
+    tiles: Vec<[u8; 3]>,
+    /// Map size in tiles.
+    map: (u32, u32),
+}
+
+impl Hud {
+    /// The cursor in interface pixels.
+    fn cursor(&self, window: &Window) -> Option<Vec2> {
+        window.cursor_position().map(|p| p / self.scale as f32)
+    }
+
+    /// Whether the cursor is over the map view (and not the interface).
+    fn over_map(&self, window: &Window) -> bool {
+        match (self.layout, self.cursor(window)) {
+            (Some(l), Some(p)) => l.viewport.contains(p.x, p.y),
+            _ => false,
+        }
+    }
+
+    /// The map tile under the cursor if it is over the minimap.
+    fn minimap_tile(&self, window: &Window) -> Option<Vec2> {
+        let (l, p) = (self.layout?, self.cursor(window)?);
+        l.minimap.contains(p.x, p.y).then(|| {
+            let t = hud::Minimap {
+                rect: l.minimap,
+                map: self.map,
+            }
+            .tile_at((p.x, p.y));
+            Vec2::new(t.0, t.1)
+        })
+    }
+}
+
+#[derive(Component)]
+struct MapCamera;
+
+#[derive(Component)]
+struct HudSprite;
+
+const HUD_LAYER: usize = 1;
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let mut install = Install::open(&args.install)?;
@@ -87,6 +147,8 @@ fn main() -> Result<()> {
         scene.human,
         scene.description
     );
+    let race = scene.world.players[scene.human as usize].race;
+    let hud_art = hud::HudArt::load(&mut install, scene.era, race, &scene.palette)?;
     let hz = 1000.0 / tidewater_sim::timing::ENHANCED_MS[tidewater_sim::timing::NORMAL as usize] as f64;
     let mut scene = scene;
     if let Some(to) = args.demo_move {
@@ -126,11 +188,22 @@ fn main() -> Result<()> {
         scene.world.step(&orders);
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
+    let mut selection = Selection::default();
+    if let Some(n) = args.demo_select {
+        selection.units = scene
+            .world
+            .units
+            .iter()
+            .filter(|u| u.owner == scene.human)
+            .take(n)
+            .map(|u| u.id)
+            .collect();
+    }
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
                 title: format!("Tidewater — {}", args.map),
-                resolution: (1280, 800).into(),
+                resolution: (640 * args.ui_scale, 480 * args.ui_scale).into(),
                 ..default()
             }),
             ..default()
@@ -138,26 +211,47 @@ fn main() -> Result<()> {
         .insert_resource(Loaded(Some(scene)))
         .insert_resource(MapSize(size))
         .insert_resource(StartZoom(args.zoom))
+        .insert_resource(Hud {
+            art: hud_art,
+            scale: args.ui_scale,
+            layout: None,
+            frame: scene::Picture {
+                width: 1,
+                height: 1,
+                rgba: vec![0; 4],
+            },
+            image: Handle::default(),
+            tiles: Vec::new(),
+            map: (0, 0),
+        })
         .insert_resource(Time::<Fixed>::from_hz(hz))
-        .init_resource::<Selection>()
+        .insert_resource(selection)
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
         .add_systems(
             Update,
             (
+                hud_layout,
+                minimap_input,
                 pan_and_zoom,
                 select,
                 order,
                 sync_sprites,
                 draw_selection,
+                draw_hud,
                 quit_on_escape,
-            ),
+            )
+                .chain(),
         )
         .run();
     Ok(())
 }
 
 fn image(p: scene::Picture) -> Image {
+    image_with(p, RenderAssetUsages::RENDER_WORLD)
+}
+
+fn image_with(p: scene::Picture, usage: RenderAssetUsages) -> Image {
     Image::new(
         Extent3d {
             width: p.width,
@@ -167,7 +261,7 @@ fn image(p: scene::Picture) -> Image {
         TextureDimension::D2,
         p.rgba,
         TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
+        usage,
     )
 }
 
@@ -182,15 +276,52 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     size: Res<MapSize>,
     zoom: Res<StartZoom>,
+    mut hud: ResMut<Hud>,
+    sel: Res<Selection>,
 ) {
     let scene = loaded.0.take().expect("scene loaded once");
+    // Start the view on the selection if there is one, else the map centre.
+    let look = sel
+        .units
+        .first()
+        .and_then(|&id| scene.world.unit(id))
+        .map_or(size.0 / 2.0, |u| Vec2::new(u.pos.0 as f32, u.pos.1 as f32));
+    hud.tiles = scene.tile_colours.clone();
+    hud.map = (
+        scene.terrain.width / TILE_PX as u32,
+        scene.terrain.height / TILE_PX as u32,
+    );
+    hud.image = images.add(image_with(
+        scene::Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![0; 4],
+        },
+        RenderAssetUsages::default(),
+    ));
     commands.spawn((
         Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        RenderLayers::layer(HUD_LAYER),
+    ));
+    commands.spawn((
+        Sprite::from_image(hud.image.clone()),
+        Transform::default(),
+        RenderLayers::layer(HUD_LAYER),
+        HudSprite,
+    ));
+    commands.spawn((
+        Camera2d,
+        MapCamera,
         Projection::Orthographic(OrthographicProjection {
             scale: zoom.0,
             ..OrthographicProjection::default_2d()
         }),
-        Transform::from_translation(world(size.0.x / 2.0, size.0.y / 2.0, 0.0)),
+        Transform::from_translation(world(look.x, look.y, 0.0)),
     ));
     commands.spawn((
         Sprite::from_image(images.add(image(scene.terrain))),
@@ -274,15 +405,16 @@ fn cursor_map(window: &Window, cam: (&Camera, &GlobalTransform)) -> Option<Vec2>
 fn select(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform)>,
+    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     sim: Option<Res<Sim>>,
     mut sel: ResMut<Selection>,
+    hud: Res<Hud>,
 ) {
     let (Some(sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
         return;
     };
     let Some(at) = cursor_map(window, cam) else { return };
-    if buttons.just_pressed(MouseButton::Left) {
+    if buttons.just_pressed(MouseButton::Left) && hud.over_map(window) {
         sel.drag_from = Some(at);
     }
     if !buttons.just_released(MouseButton::Left) {
@@ -315,9 +447,10 @@ fn order(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform)>,
+    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     sim: Option<ResMut<Sim>>,
     sel: Res<Selection>,
+    hud: Res<Hud>,
 ) {
     let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
         return;
@@ -339,13 +472,25 @@ fn order(
     if !buttons.just_pressed(MouseButton::Right) {
         return;
     }
-    let Some(at) = cursor_map(window, cam) else { return };
-    let to = ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX));
-    // Right-clicking an enemy attacks it if any selected unit can; otherwise it's a move.
+    // A right click on the minimap moves there; on the map view, an enemy under the cursor is attacked if any
+    // selected unit can, and anything else is a move.
+    let (to, on_map) = if let Some(t) = hud.minimap_tile(window) {
+        let max = (hud.map.0 as i32 - 1, hud.map.1 as i32 - 1);
+        (((t.x as i32).min(max.0), (t.y as i32).min(max.1)), false)
+    } else if hud.over_map(window) {
+        let Some(at) = cursor_map(window, cam) else { return };
+        (
+            ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX)),
+            true,
+        )
+    } else {
+        return;
+    };
     let foe = unit_at(&sim.world, to).filter(|&t| {
-        units
-            .iter()
-            .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_attack(u, t)))
+        on_map
+            && units
+                .iter()
+                .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_attack(u, t)))
     });
     let c = match foe {
         Some(target) => Command::Attack {
@@ -381,7 +526,7 @@ fn draw_selection(
     sim: Option<Res<Sim>>,
     sel: Res<Selection>,
     windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform)>,
+    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
 ) {
     let Some(sim) = sim else { return };
     let green = Color::srgb(0.2, 0.9, 0.2);
@@ -412,7 +557,7 @@ fn pan_and_zoom(
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
     size: Res<MapSize>,
-    mut cam: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
+    mut cam: Query<(&mut Transform, &mut Projection), With<MapCamera>>,
 ) {
     let Ok((mut tf, mut proj)) = cam.single_mut() else {
         return;
@@ -449,5 +594,131 @@ fn pan_and_zoom(
 fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
     if keys.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
+    }
+}
+
+/// Fits the interface to the window: rebuilds the frame picture when the size changes and keeps the map camera's
+/// viewport on the map view.
+fn hud_layout(
+    windows: Query<&Window>,
+    mut hud: ResMut<Hud>,
+    mut map_cam: Query<&mut Camera, With<MapCamera>>,
+    mut sprite: Query<&mut Transform, With<HudSprite>>,
+) {
+    let (Ok(window), Ok(mut cam), Ok(mut tf)) = (windows.single(), map_cam.single_mut(), sprite.single_mut()) else {
+        return;
+    };
+    let s = hud.scale;
+    let (ww, wh) = (window.width(), window.height());
+    let canvas = (
+        (ww / s as f32).ceil().max(1.0) as u32,
+        (wh / s as f32).ceil().max(1.0) as u32,
+    );
+    if hud.layout.is_some_and(|l| l.canvas == canvas) {
+        return;
+    }
+    let layout = hud.art.layout(canvas);
+    hud.frame = hud.art.frame(&layout);
+    hud.layout = Some(layout);
+    // Canvas pixel (0, 0) at the window's top-left corner; the HUD camera looks at the window centre.
+    let size = Vec2::new(canvas.0 as f32, canvas.1 as f32) * s as f32;
+    tf.translation = Vec3::new((size.x - ww) / 2.0, (wh - size.y) / 2.0, 0.0);
+    tf.scale = Vec3::new(s as f32, s as f32, 1.0);
+    let k = window.scale_factor() * s as f32;
+    let phys = window.physical_size();
+    let v = layout.viewport;
+    let pos = UVec2::new((v.x as f32 * k) as u32, (v.y as f32 * k) as u32).min(phys.saturating_sub(UVec2::ONE));
+    let size = UVec2::new((v.w as f32 * k) as u32, (v.h as f32 * k) as u32)
+        .min(phys - pos)
+        .max(UVec2::ONE);
+    cam.viewport = Some(Viewport {
+        physical_position: pos,
+        physical_size: size,
+        ..default()
+    });
+}
+
+/// Left click or drag on the minimap centres the map view there.
+fn minimap_input(
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    hud: Res<Hud>,
+    sel: Res<Selection>,
+    mut cam: Query<&mut Transform, With<MapCamera>>,
+) {
+    let (Ok(window), Ok(mut tf)) = (windows.single(), cam.single_mut()) else {
+        return;
+    };
+    if !buttons.pressed(MouseButton::Left) || sel.drag_from.is_some() {
+        return;
+    }
+    if let Some(t) = hud.minimap_tile(window) {
+        let p = t * TILE_PX as f32;
+        tf.translation.x = p.x;
+        tf.translation.y = -p.y;
+    }
+}
+
+fn draw_hud(
+    sim: Option<Res<Sim>>,
+    sel: Res<Selection>,
+    hud: Res<Hud>,
+    mut images: ResMut<Assets<Image>>,
+    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+) {
+    let (Some(sim), Some(layout), Ok((camera, tf, proj))) = (sim, hud.layout, cam.single()) else {
+        return;
+    };
+    let zoom = match proj {
+        Projection::Orthographic(o) => o.scale,
+        _ => 1.0,
+    };
+    let half = camera.logical_viewport_size().unwrap_or(Vec2::ONE) * zoom / 2.0;
+    let centre = Vec2::new(tf.translation.x, -tf.translation.y);
+    let t = TILE_PX as f32;
+    let view = (
+        (centre.x - half.x) / t,
+        (centre.y - half.y) / t,
+        (centre.x + half.x) / t,
+        (centre.y + half.y) / t,
+    );
+    let dots: Vec<hud::Dot> = sim
+        .world
+        .units
+        .iter()
+        .map(|u| hud::Dot {
+            tile: u.tile,
+            size: u.size,
+            owner: u.owner,
+        })
+        .collect();
+    let selected: Vec<hud::Selected> = sel
+        .units
+        .iter()
+        .filter_map(|&id| sim.world.unit(id))
+        .map(|u| hud::Selected {
+            kind: u.kind,
+            owner: u.owner,
+            hp: u.hp,
+            max_hp: sim.world.stats.0.get(u.kind as usize).map_or(u.hp, |s| s.hit_points),
+        })
+        .collect();
+    let me = &sim.world.players[sim.human as usize];
+    let pic = hud.art.draw(
+        &hud.frame,
+        &layout,
+        &hud.tiles,
+        hud.map,
+        &hud::View {
+            gold: me.gold,
+            lumber: me.lumber,
+            oil: me.oil,
+            selected: &selected,
+            dots: &dots,
+            view,
+        },
+    );
+    if let Some(mut img) = images.get_mut(&hud.image) {
+        *img = image_with(pic, RenderAssetUsages::default());
     }
 }

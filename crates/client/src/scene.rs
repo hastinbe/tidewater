@@ -30,6 +30,10 @@ pub struct Scene {
     pub era: Era,
     pub description: String,
     pub terrain: Picture,
+    /// Average colour of each map tile, row by row (for the minimap).
+    pub tile_colours: Vec<[u8; 3]>,
+    /// The era's palette, which the interface art uses too.
+    pub palette: Palette,
     pub art: HashMap<(u8, u8), UnitArt>,
     pub world: World,
     /// The player the local user controls (the first `OWNR` slot marked human).
@@ -58,14 +62,14 @@ const PLAYER_COLOURS: [[u8; 3]; 8] = [
     [252, 252, 72],
 ];
 
-fn team_colour(owner: u8, shade: u8) -> [u8; 3] {
+pub fn team_colour(owner: u8, shade: u8) -> [u8; 3] {
     let base = PLAYER_COLOURS[(owner as usize) % PLAYER_COLOURS.len()];
     // Shades step down by roughly a fifth, matching the look of the shipped red ramp.
     let k = [1.0, 0.78, 0.58, 0.40][shade as usize];
     base.map(|c| (c as f32 * k) as u8)
 }
 
-fn to_rgba(idx: &[u8], pal: &Palette, transparent0: bool, owner: Option<u8>) -> Vec<u8> {
+pub fn to_rgba(idx: &[u8], pal: &Palette, transparent0: bool, owner: Option<u8>) -> Vec<u8> {
     let mut out = Vec::with_capacity(idx.len() * 4);
     for &i in idx {
         let c = match owner {
@@ -145,7 +149,9 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
     Ok(Scene {
         era: pud.era,
         description: pud.description(),
+        tile_colours: crate::hud::tile_colours(&terrain, TILE as u32),
         terrain,
+        palette: ts.palette.clone(),
         art,
         world,
         human,
