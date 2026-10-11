@@ -15,6 +15,7 @@ thiserror = "2"
 png = "0.18"
 bevy = "0.19"
 tidewater-formats = { path = "crates/formats" }
+tidewater-sim = { path = "crates/sim" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

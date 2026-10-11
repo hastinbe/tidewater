@@ -9,6 +9,7 @@ anyhow.workspace = true
 clap.workspace = true
 png.workspace = true
 tidewater-formats.workspace = true
+tidewater-sim.workspace = true
 
 
 [lints]

@@ -1,0 +1,12 @@
+[package]
+name = "tidewater-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tidewater-formats.workspace = true
+
+[lints]
+workspace = true

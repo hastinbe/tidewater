@@ -5069,6 +5069,7 @@ dependencies = [
  "bevy",
  "clap",
  "tidewater-formats",
+ "tidewater-sim",
 ]
 
 [[package]]
@@ -5077,6 +5078,14 @@ version = "0.1.0"
 dependencies = [
  "explode",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "tidewater-sim"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+ "tidewater-formats",
 ]
 
 [[package]]
@@ -5275,6 +5284,7 @@ dependencies = [
  "clap",
  "png",
  "tidewater-formats",
+ "tidewater-sim",
 ]
 
 [[package]]

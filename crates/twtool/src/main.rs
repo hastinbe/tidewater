@@ -56,6 +56,21 @@ enum Cmd {
         #[arg(long, default_value_t = 8)]
         cols: usize,
     },
+    /// Run a map headless: order player `player`'s units to `x,y`, step `ticks` ticks, print where units ended up
+    /// and the state hash.
+    Sim {
+        #[arg(long)]
+        install: PathBuf,
+        map: String,
+        #[arg(long, default_value_t = 0)]
+        player: u8,
+        #[arg(long)]
+        x: i32,
+        #[arg(long)]
+        y: i32,
+        #[arg(long, default_value_t = 600)]
+        ticks: u32,
+    },
     /// Print the unit stats table (`rez\\unitdata.dat`) as TSV.
     Units {
         #[arg(long)]
@@ -157,6 +172,14 @@ fn main() -> Result<()> {
             era,
             cols,
         } => grp_sheet(&install, &out, &era, cols)?,
+        Cmd::Sim {
+            install,
+            map,
+            player,
+            x,
+            y,
+            ticks,
+        } => sim(&install, &map, player, (x, y), ticks)?,
         Cmd::Units { install } => {
             let mut inst = Install::open(&install)?;
             let t = tidewater_formats::udta::UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?;
@@ -306,4 +329,52 @@ fn grp_sheet(install: &std::path::Path, out: &std::path::Path, era: &str, cols: 
         }
     }
     write_png(out, stride, rows * cell, &px, &pal, false)
+}
+
+fn sim(install: &std::path::Path, map: &str, player: u8, to: (i32, i32), ticks: u32) -> Result<()> {
+    use tidewater_formats::udta::UnitTable;
+    use tidewater_sim::{Command, World};
+    let mut inst = Install::open(install)?;
+    let data = if std::path::Path::new(map).is_file() {
+        std::fs::read(map)?
+    } else {
+        inst.read(map)?
+    };
+    let pud = Pud::parse(&data)?;
+    let ts = inst.tileset(pud.era)?;
+    let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
+        Some(t) => t,
+        None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
+    };
+    let mut w = World::from_pud(&pud, &ts, stats)?;
+    let units: Vec<_> = w
+        .units
+        .iter()
+        .filter(|u| u.owner == player && !u.building)
+        .map(|u| u.id)
+        .collect();
+    let before: Vec<_> = units.iter().map(|&id| w.unit(id).map(|u| u.tile)).collect();
+    w.step(&[Command::Move {
+        player,
+        units: units.clone(),
+        to,
+    }]);
+    let start = std::time::Instant::now();
+    for _ in 1..ticks {
+        w.step(&[]);
+    }
+    let took = start.elapsed();
+    for (id, b) in units.iter().zip(before) {
+        let u = w.unit(*id).expect("unit");
+        println!(
+            "unit {:>3} kind {:#04x}: {:?} -> {:?} {:?}",
+            id.0,
+            u.kind,
+            b.unwrap_or_default(),
+            u.tile,
+            u.order
+        );
+    }
+    println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
+    Ok(())
 }

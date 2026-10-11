@@ -4,7 +4,8 @@ A clean-room reimplementation of the *Warcraft II: Battle.net Edition* engine in
 including *Beyond the Dark Portal*. It contains no game data: you need your own copy of the game (for example from
 GOG), and Tidewater reads its files at run time.
 
-Status: early. The data readers work and the client shows a map with its terrain and units.
+Status: early. The data readers work; the client shows a map and you can select units and move them. Game rules
+beyond movement are not implemented yet.
 
 ```sh
 cargo run --release -p tidewater-client -- --install <game directory> <map.pud>

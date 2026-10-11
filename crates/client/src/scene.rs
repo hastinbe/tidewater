@@ -1,5 +1,5 @@
-//! Turns a map file into ready-to-upload RGBA images: the terrain and one picture per placed unit. No Bevy types here,
-//! so this stays testable and reusable by a headless renderer.
+//! Turns a map file into the starting [`World`] plus ready-to-upload RGBA images: the terrain and, per unit type and
+//! owner, the frames the client shows. No Bevy types here, so this stays testable and reusable by a headless renderer.
 
 use std::collections::HashMap;
 
@@ -9,7 +9,8 @@ use tidewater_formats::install::Install;
 use tidewater_formats::pud::{Era, Pud};
 use tidewater_formats::sprites::unit_sheet_candidates;
 use tidewater_formats::tileset::{Palette, TILE};
-use tidewater_formats::udta::{UnitTable, flags};
+use tidewater_formats::udta::UnitTable;
+use tidewater_sim::World;
 
 /// An RGBA8 picture.
 pub struct Picture {
@@ -18,22 +19,28 @@ pub struct Picture {
     pub rgba: Vec<u8>,
 }
 
-/// A unit to draw, centred on `center` (map pixels, y down).
-pub struct UnitSprite {
-    pub center: (f32, f32),
-    /// Key into [`Scene::pictures`].
-    pub picture: (String, usize, u8),
-    /// Draw order: buildings under units, air on top.
-    pub layer: f32,
+/// Pictures for one unit type and owner.
+pub struct UnitArt {
+    /// Frames 0..=4 face N, NE, E, SE, S; the other facings mirror NE, E and SE. Buildings have one frame.
+    pub facings: Vec<Picture>,
 }
 
 pub struct Scene {
     pub era: Era,
     pub description: String,
     pub terrain: Picture,
-    /// (sheet, frame, owner) -> picture.
-    pub pictures: HashMap<(String, usize, u8), Picture>,
-    pub units: Vec<UnitSprite>,
+    pub art: HashMap<(u8, u8), UnitArt>,
+    pub world: World,
+    /// The player the local user controls (the first `OWNR` slot marked human).
+    pub human: u8,
+}
+
+/// The frame and horizontal flip that show `facing` (0 north, clockwise in eighths).
+pub fn facing_frame(facing: u8) -> (usize, bool) {
+    match facing & 7 {
+        f @ 0..=4 => (f as usize, false),
+        f => ((8 - f) as usize, true),
+    }
 }
 
 /// Indices 208..=211 are the team colour ramp (red in the shipped palette). Other players get a design-choice ramp of
@@ -105,58 +112,51 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         height: (h * TILE) as u32,
         rgba: to_rgba(&px, &ts.palette, false, None),
     };
-
     let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
         Some(t) => t,
         None => UnitTable::from_table(&install.read("rez\\unitdata.dat")?)?,
     };
+    let world = World::from_pud(&pud, &ts, stats)?;
 
-    let mut sheets: HashMap<u8, Option<(String, Grp)>> = HashMap::new();
-    let mut pictures = HashMap::new();
-    let mut units = Vec::new();
-    for u in &pud.units {
+    let mut sheets: HashMap<u8, Option<Grp>> = HashMap::new();
+    let mut art = HashMap::new();
+    for u in &world.units {
         let sheet = sheets.entry(u.kind).or_insert_with(|| {
             unit_sheet_candidates(u.kind, pud.era).into_iter().find_map(|name| {
                 let g = Grp::parse(&install.read(&name).ok()?).ok()?;
-                (!g.frames.is_empty()).then_some((name, g))
+                (!g.frames.is_empty()).then_some(g)
             })
         });
-        let Some((name, grp)) = sheet else { continue };
-        let st = stats.0.get(u.kind as usize).copied().unwrap_or_default();
-        let building = st.flags & flags::BUILDING != 0 || st.size.0 > 1;
-        // Units face south (frame 4 of the first facing group); buildings show their finished frame.
-        let frame = if building || grp.frames.len() < 5 { 0 } else { 4 };
-        let key = (name.clone(), frame, u.owner);
-        pictures
-            .entry(key.clone())
-            .or_insert_with(|| frame_picture(grp, frame, &ts.palette, u.owner));
-        let (sw, sh) = (st.size.0.max(1) as f32, st.size.1.max(1) as f32);
-        let t = TILE as f32;
-        let layer = if building {
-            1.0
-        } else if st.flags & flags::AIR != 0 {
-            3.0
-        } else {
-            2.0
-        };
-        units.push(UnitSprite {
-            center: ((u.x as f32 + sw / 2.0) * t, (u.y as f32 + sh / 2.0) * t),
-            picture: key,
-            layer,
+        let Some(grp) = sheet else { continue };
+        art.entry((u.kind, u.owner)).or_insert_with(|| {
+            let n = if u.building || grp.frames.len() < 5 { 1 } else { 5 };
+            UnitArt {
+                facings: (0..n).map(|f| frame_picture(grp, f, &ts.palette, u.owner)).collect(),
+            }
         });
     }
+    let human = pud.owners().iter().position(|&o| o == 5).unwrap_or(0) as u8;
     Ok(Scene {
         era: pud.era,
         description: pud.description(),
         terrain,
-        pictures,
-        units,
+        art,
+        world,
+        human,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn facings_mirror_the_west_side() {
+        assert_eq!(facing_frame(0), (0, false));
+        assert_eq!(facing_frame(4), (4, false));
+        assert_eq!(facing_frame(5), (3, true));
+        assert_eq!(facing_frame(7), (1, true));
+    }
 
     #[test]
     fn team_colours_only_touch_the_ramp() {
