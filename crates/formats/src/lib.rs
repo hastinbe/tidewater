@@ -3,12 +3,14 @@
 //! Every format detail is cited in the module that uses it. Nothing here is derived from the original program's code.
 
 pub mod alow;
+pub mod fnt;
 pub mod grp;
 pub mod install;
 pub mod mpq;
 mod mpq_codec;
 pub mod pcx;
 pub mod pud;
+pub mod raw;
 pub mod script;
 pub mod sprites;
 pub mod tbl;
