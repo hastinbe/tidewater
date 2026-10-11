@@ -6,11 +6,19 @@
 //! - Unit sheets hold 5 facings (N, NE, E, SE, S) per animation step; the other three are mirrored.
 //! - Building sheets hold 2 frames: 0 complete, 1 under construction. Sheets with a `1`/`2` suffix (`oplat`, `ref`,
 //!   `ship`, `found`) are the construction site and the finished building.
-//! - Era variants are separate files with a prefix and sometimes a shorter stem: `s_` winter, `x_` swamp (the
-//!   expansion's tileset), `l_` wasteland, e.g. `invent.grp` / `s_inv.grp` / `x_inv.grp`. The prefix-to-era pairing
-//!   is inferred from the gold mine variants and still needs a visual check per era.
-//! - Heroes, paladins, ogre-mages, rangers and berserkers have no sheet among the resolved names; they fall back to
-//!   their base unit's sheet until their files are identified among the unnamed archive blocks.
+//! - Era variants are separate files with a prefix and sometimes a shorter stem, e.g. `invent.grp` / `s_inv.grp` /
+//!   `x_inv.grp`. The prefixes are `s_` winter, `l_` wasteland and `x_` swamp (the expansion's tileset). Checked by
+//!   rendering each variant with every era's palette next to maps of that era: `s_` sheets show snow only under the
+//!   winter palette; `l_` sheets (farm, lumber mill, oil platform, gold mine) swap grass for the wasteland's bare
+//!   ground and draw water in the wasteland's dark blue; `x_` sheets add vines, dark rock and the swamp's green
+//!   water.
+//! - Not every sheet has every variant: wasteland has the fewest (`l_farm`, `l_lmill`, `l_oplat*`, `l_sub`,
+//!   `l_mine`, `l_patch`, `l_gate`, `l_dwall`, `l_blddth`). A missing variant falls back to the base sheet.
+//! - `Other\rock.grp` (with `s_rock`, `x_rock`) is the runestone; `Other\rune.grp` is the small rune marker of the
+//!   Runes spell, not a building.
+//! - Heroes, paladins, ogre-mages, rangers and berserkers have no sheet of their own: probing several thousand
+//!   candidate names found none, and every unnamed archive block shaped like a sheet turned out to be something
+//!   else. They use their base unit's sheet.
 //! - Walls (types 0x67, 0x68) are map tiles, not sprites.
 
 use crate::pud::Era;
@@ -99,7 +107,7 @@ fn sheet(kind: u8) -> Option<Sheet> {
         0x63 => (O, "towerc", None),
         0x64 => (X, "vcircle", Some("vcir")),
         0x65 => (X, "gate", None),
-        0x66 => (X, "rune", None),
+        0x66 => (X, "rock", None),
         _ => return None,
     })
 }
@@ -159,5 +167,17 @@ mod tests {
             ["Art\\Unit\\Human\\grunt.grp"]
         );
         assert!(unit_sheet_candidates(0x67, Era::Forest).is_empty());
+    }
+
+    #[test]
+    fn wasteland_and_swamp_prefixes() {
+        assert_eq!(
+            unit_sheet_candidates(0x3a, Era::Wasteland),
+            ["Art\\Unit\\Human\\l_farm.grp", "Art\\Unit\\Human\\farm.grp"]
+        );
+        assert_eq!(
+            unit_sheet_candidates(0x66, Era::Swamp),
+            ["Art\\Unit\\Other\\x_rock.grp", "Art\\Unit\\Other\\rock.grp"]
+        );
     }
 }
