@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), unit statistics from
   `unitdata.dat` and the PUD `UDTA` layout (`pudspec.txt`), and attack timing measured from `Rez\script.bin`. Not yet
   confirmed against the running game.
+- **Changes:** 2026-10-11, round-2 errata: wall damage advances one stage per counter overflow; target-acquisition
+  distance measure added; demolition blast terrain effects now in `movement/occupancy.md`.
 
 ## Behaviour
 
@@ -96,8 +98,12 @@ scatter, then the vertical scatter.
 When a splash missile lands with stored damage D at its impact pixel:
 
 1. **Walls.** The wall on the impact tile takes D, and the walls on the four orthogonal neighbour tiles take
-   `floor(D / 4)`. Each wall tile keeps a damage counter. A hit adds `max(1, floor(damage / 4))`, and the wall is
-   destroyed once the counter goes above 19.
+   `floor(D / 4)`. Each wall tile keeps a damage counter from 0 to 19. Damage reaches the wall as a single byte, so
+   values of 256 or more wrap first. A hit adds `max(1, floor((damage mod 256) / 4))`. If the new counter would
+   exceed 19, the wall **advances one stage** (intact, then damaged, then rubble) and the counter goes back to 0; the
+   excess is lost. An intact wall therefore needs two overflows to become rubble. When a tile becomes rubble, each
+   orthogonal neighbour that is still intact advances to damaged. The full rule is in `movement/occupancy.md`,
+   "Walls".
 2. **Units.** The unit on the impact tile is considered first. Then every ground-layer unit in the 7 × 7 tiles centred
    on the impact tile is considered. Air units are considered only when a small-cannon missile was fired at an air
    unit. Each unit is hit at most once per impact. The firing unit is never hit. **Friendly units are hit too.**
@@ -159,7 +165,11 @@ and the loop length is given only as the script's period.
 - Rangers get +1 range once Longbow is researched, and berserkers get +1 once Lighter Axes is researched. No other
   upgrade changes range.
 - The Ranger Scouting and Berserker Scouting upgrades change those units' sight, not their range.
-- Which distance measure is used (edge to edge or centre to centre, and the metric) is not yet specified.
+- **Target acquisition** measures distance as the larger of the horizontal and vertical tile distances from the
+  searcher's tile to a reference tile of the target: a mobile target's own tile, or for a building its nearest edge
+  column or row, or its middle one (the exact rule is in `orders/orders.md`, "Automatic target acquisition"). The
+  acquisition range check and minimum-range check use this measure. Whether a strike in progress uses the same
+  measure is still open.
 
 ## Data
 
@@ -224,7 +234,7 @@ These are the default `unitdata.dat` values.
 | Catapult (80/0, no upgrades) splash, footman 10 px from impact | v = 80 − 2 = 78, h = 39, damage 39 to 78 |
 | Same, footman 30 px from impact | base 20, v = 18, h = 9, damage 9 to 18 |
 | Same, footman 43 px from impact | not hit, no draw |
-| Catapult with siege 2 (basic 110) splash on a wall tile | centre wall takes 110 (counter +27), each neighbour wall takes 27 (counter +6) |
+| Catapult with siege 2 (basic 110) splash on an intact wall tile with counter 0 | centre wall takes 110 (+27): it becomes damaged with counter 0, not destroyed. Each neighbour wall takes 27 (counter +6) |
 | Splash base 5 at 30 px (quarter = 1) on armour 2 | v < 1, not hit, no draw |
 | Arrow fired by a unit | draws: damage (if T > 0), then x scatter, then y scatter; each scatter is (r AND 7) − 3 |
 | Footman attacking continuously, no spells | hits on cycles 11, 36, 61, … of the attack |
@@ -232,15 +242,16 @@ These are the default `unitdata.dat` values.
 
 ## Open questions
 
-- The exact attack-range distance measure, and whether range is checked again at the strike point.
+- Whether a strike in progress uses the acquisition distance measure, and whether range is checked again at the
+  strike point.
 - When towers fire relative to their 60- and 151-cycle scripts, and whether a tower's shot is always a missile.
 - The scan order of the 7 × 7 splash block. This affects draw order when several units are hit.
-- How the counter-based wall damage maps to a visible damaged state.
 - What a missile's flight time is in cycles. The research points to `ceil(flight length / 5)` cycles, about 5 px per
   cycle, but this isn't confirmed.
 - A computer-player rule may shorten the minimum flight distance to 2 tiles when certain target tiles are involved.
   Not yet understood.
 - Spell damage (fireball, death coil, blizzard, death and decay, whirlwind, flame shield, exorcism, runes) is covered
   separately. Runes deal a flat 50.
-- Demolition squads and sappers: their blast is a separate behaviour, still to be specified.
+- Demolition squads and sappers: the terrain part of their blast (rock, forest and walls) is specified in
+  `movement/occupancy.md`, "Rock". The damage to units on the 8 neighbouring tiles is still to be specified.
 - What the extra upgrade line with 10 per level is used for.
