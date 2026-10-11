@@ -91,8 +91,6 @@ pub struct Unit {
     pub haste: i16,
     /// A building's stored `r mod 6` creation value (timing-and-rng spec; its use is not yet known).
     pub variation: u8,
-    /// Cycles before an idle unit looks around again.
-    pub idle_wait: u16,
     /// Remaining tiles of the current route, next first, and the goal it was planned for.
     pub path: Vec<(i32, i32)>,
     pub path_goal: Option<(i32, i32)>,
@@ -438,7 +436,6 @@ impl World {
             script,
             haste: 0,
             variation,
-            idle_wait: 0,
             path: Vec::new(),
             path_goal: None,
             blocked: 0,
@@ -637,12 +634,10 @@ impl World {
         self.stride.get(kind as usize).copied().unwrap_or(0) as i32
     }
 
-    /// Ends the unit's order, with the idle draw (timing-and-rng spec, "Unit goes idle").
+    /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec, round-3 errata).
     pub(crate) fn go_idle(&mut self, i: usize) {
-        let wait = (self.rng.draw() & 15) as u16 + 44;
         let u = &mut self.units[i];
         u.order = Order::Idle;
-        u.idle_wait = wait;
         u.path.clear();
         u.path_goal = None;
     }
@@ -683,7 +678,6 @@ impl World {
     fn advance(&mut self, i: usize) {
         let scripts = Arc::clone(&self.scripts);
         let u = &mut self.units[i];
-        u.idle_wait = u.idle_wait.saturating_sub(1);
         let m = Modifiers {
             haste: u.haste,
             carrying: false,
