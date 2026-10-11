@@ -158,8 +158,21 @@ impl World {
         self.kill(ti);
     }
 
-    fn kill(&mut self, ti: usize) {
+    pub(crate) fn kill(&mut self, ti: usize) {
         let unit = self.units[ti].clone();
+        let p = &mut self.players[unit.owner as usize];
+        if unit.construction.is_some() {
+            p.under_construction -= 1;
+        }
+        if let Some(crate::economy::Job {
+            kind: crate::economy::JobKind::Train(_),
+            ..
+        }) = unit.job
+        {
+            p.in_training -= 1;
+        }
+        self.units[ti].construction = None;
+        self.units[ti].job = None;
         if let Some(from) = unit.from {
             self.mark(&unit, from, None);
         }

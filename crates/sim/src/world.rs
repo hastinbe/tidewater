@@ -9,6 +9,7 @@ use tidewater_formats::udta::{UnitStats, UnitTable, flags};
 use crate::anim::{Effects, Modifiers, Script};
 use crate::battle::Missile;
 use crate::combat::Upgrades;
+use crate::economy::{Construction, Event, Job, JobKind};
 use crate::rng::Rng;
 use crate::slots::{self, Slots};
 use crate::terrain::{Terrain, bits, mask};
@@ -106,6 +107,10 @@ pub struct Unit {
     pub dying: bool,
     /// Given to the neutral owner after dying; its slot is released at its next "step done".
     pub removing: bool,
+    /// Set while a building is under construction.
+    pub construction: Option<Construction>,
+    /// A building's training or upgrade job.
+    pub job: Option<Job>,
 }
 
 impl Unit {
@@ -128,6 +133,10 @@ pub struct Player {
     pub start: Option<(i32, i32)>,
     pub upgrades: Upgrades,
     pub kills: u32,
+    /// Whether the player has ever had a completed town hall, keep or castle (build-train spec, "fast first hall").
+    pub had_hall: bool,
+    pub under_construction: u16,
+    pub in_training: u16,
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
@@ -149,6 +158,10 @@ pub struct Rules {
     /// Unit and effect table sizes (unit-slots spec): Enhanced unless set otherwise.
     pub unit_slots: usize,
     pub effect_slots: usize,
+    /// Enhanced rather than Classic mode, and a multiplayer game.
+    pub enhanced: bool,
+    pub multiplayer: bool,
+    pub build_speed_cheat: bool,
 }
 
 impl Default for Rules {
@@ -157,6 +170,9 @@ impl Default for Rules {
             patience: 10,
             unit_slots: slots::ENHANCED_SLOTS,
             effect_slots: slots::ENHANCED_EFFECTS,
+            enhanced: true,
+            multiplayer: false,
+            build_speed_cheat: false,
         }
     }
 }
@@ -202,6 +218,23 @@ pub enum Command {
         units: Vec<UnitId>,
         target: UnitId,
     },
+    /// Start training a unit at a building. Whether the building makes that unit isn't checked yet.
+    Train {
+        player: u8,
+        building: UnitId,
+        kind: u8,
+    },
+    /// Start upgrading a building to another type. Whether `to` is an upgrade of it isn't checked yet.
+    Upgrade {
+        player: u8,
+        building: UnitId,
+        to: u8,
+    },
+    /// Cancel a building's job, or the building if it is under construction.
+    Cancel {
+        player: u8,
+        unit: UnitId,
+    },
 }
 
 pub const PLAYERS: usize = 16;
@@ -223,6 +256,8 @@ pub struct World {
     pub missiles: Vec<Option<Missile>>,
     pub slots: Slots,
     slot_of: BTreeMap<UnitId, u16>,
+    /// Messages for the player, drained by the client. Not game state.
+    pub events: Vec<Event>,
     next_id: u32,
     /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
     /// buildings share the ground plane.
@@ -272,6 +307,7 @@ impl World {
             stats,
             slots: Slots::new(rules.unit_slots),
             slot_of: BTreeMap::new(),
+            events: Vec::new(),
             missiles: vec![None; rules.effect_slots],
             rules,
             players: [Player::default(); PLAYERS],
@@ -336,7 +372,12 @@ impl World {
                 0
             };
             // A unit that can't be created is left out, as the game does.
-            let _ = w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources);
+            if w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources).is_ok()
+                && crate::economy::kind::is_hall(u.kind)
+                && let Some(p) = w.players.get_mut(u.owner as usize)
+            {
+                p.had_hall = true;
+            }
         }
         Ok(w)
     }
@@ -352,13 +393,7 @@ impl World {
     pub fn spawn(&mut self, kind: u8, owner: u8, tile: (i32, i32), resources: u32) -> Result<UnitId, SpawnError> {
         let s = self.stats_of(kind);
         let building = s.flags & flags::BUILDING != 0;
-        let layer = if s.flags & flags::AIR != 0 {
-            Layer::Air
-        } else if s.flags & flags::SEA != 0 || (building && s.flags & flags::OIL_PATCH != 0) {
-            Layer::Sea
-        } else {
-            Layer::Land
-        };
+        let layer = self.layer_of(kind);
         let size = (s.size.0.clamp(1, 8) as u8, s.size.1.clamp(1, 8) as u8);
         let slot = self.slots.take(owner).map_err(|_| SpawnError::TooMany)?;
         let tile = if self.stride_of(kind) == 2 {
@@ -412,6 +447,8 @@ impl World {
             attacked_by: None,
             dying: false,
             removing: false,
+            construction: None,
+            job: None,
         };
         self.mark(&unit, unit.tile, Some(id));
         let at = self.units.partition_point(|u| u.slot < slot);
@@ -424,6 +461,17 @@ impl World {
     /// marks"). A mobile unit marks the one tile with the ground-unit or air-unit bit, and clearing zeroes the pointer
     /// only if it names this unit. A building marks its footprint; clearing zeroes every footprint pointer. An oil patch
     /// marks nothing, and a circle of power only forbids building on its footprint.
+    pub(crate) fn layer_of(&self, kind: u8) -> Layer {
+        let s = self.stats_of(kind);
+        if s.flags & flags::AIR != 0 {
+            Layer::Air
+        } else if s.flags & flags::SEA != 0 || (s.flags & flags::BUILDING != 0 && s.flags & flags::OIL_PATCH != 0) {
+            Layer::Sea
+        } else {
+            Layer::Land
+        }
+    }
+
     pub(crate) fn mark(&mut self, unit: &Unit, tile: (i32, i32), v: Option<UnitId>) {
         if !unit.building {
             let (plane, bit) = match unit.layer {
@@ -473,7 +521,7 @@ impl World {
     /// Whether a unit of `layer` may enter the tile as far as the terrain and buildings go: its movement word against
     /// the layer's mask, leaving out the unit marks of tiles a unit stands on (the callers judge units by pointer).
     /// Marks without a unit, such as the map's "cave" and "space" values, still block.
-    fn terrain_allows(&self, layer: Layer, x: i32, y: i32) -> bool {
+    pub(crate) fn terrain_allows(&self, layer: Layer, x: i32, y: i32) -> bool {
         let Some(n) = self.terrain.at(x, y) else { return false };
         let mut word = self.terrain.words[n];
         if self.occupancy[0][n].is_some() {
@@ -511,6 +559,11 @@ impl World {
             self.advance(i);
         }
         self.advance_missiles();
+        for i in 0..self.units.len() {
+            if self.units[i].construction.is_some() {
+                self.construct(i);
+            }
+        }
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -529,6 +582,17 @@ impl World {
             Command::Move { player, units, .. }
             | Command::Stop { player, units }
             | Command::Attack { player, units, .. } => (*player, units),
+            &Command::Train {
+                player,
+                building: id,
+                kind,
+            } => return self.building_command(player, id, Some(JobKind::Train(kind))),
+            &Command::Upgrade {
+                player,
+                building: id,
+                to,
+            } => return self.building_command(player, id, Some(JobKind::Upgrade(to))),
+            &Command::Cancel { player, unit } => return self.building_command(player, unit, None),
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -548,11 +612,24 @@ impl World {
                     }
                     Order::Attack { target }
                 }
+                Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } => continue,
             };
             let u = &mut self.units[i];
             u.order = order;
             u.path_goal = None;
             u.blocked = 0;
+        }
+    }
+
+    /// A job for (or, with `None`, a cancel at) one of the player's buildings.
+    fn building_command(&mut self, player: u8, id: UnitId, job: Option<JobKind>) {
+        let Some(i) = self.index(id) else { return };
+        if self.units[i].owner != player {
+            return;
+        }
+        match job {
+            Some(j) => self.start_job(i, j),
+            None => self.cancel(i),
         }
     }
 
@@ -632,6 +709,10 @@ impl World {
             }
         }
         if dying {
+            return;
+        }
+        if self.units[i].building {
+            self.work(i, fx.step_done);
             return;
         }
         self.order(i, fx);
@@ -808,12 +889,14 @@ pub(crate) mod tests {
             flags: flags::AIR,
             ..Default::default()
         };
-        t[0x3a] = UnitStats {
-            hit_points: 400,
-            size: (2, 2),
-            flags: flags::BUILDING,
-            ..Default::default()
-        };
+        for k in [0x3a, 0x3e, 0x4a, 0x58] {
+            t[k] = UnitStats {
+                hit_points: 400,
+                size: (2, 2),
+                flags: flags::BUILDING,
+                ..Default::default()
+            };
+        }
         UnitTable(t)
     }
 
@@ -842,6 +925,18 @@ pub(crate) mod tests {
         b[480..485].copy_from_slice(&[4, 1, 1, 5, 2]);
         b[340..343].copy_from_slice(&[2, 3, 0]);
         put(&mut b, 342, 340);
+        // Buildings (types 0x3e, 0x4a and 0x58): still is a "step done" every 5 cycles; work waits 10, then goes still.
+        for k in [0x3e, 0x4a, 0x58] {
+            put(&mut b, k * 2, 490);
+        }
+        for (a, at) in [340, 480, 343, 340, 340, 504, 343].into_iter().enumerate() {
+            put(&mut b, 490 + a * 2, at);
+        }
+        b[343..346].copy_from_slice(&[0, 1, 4]);
+        b[346] = 3;
+        put(&mut b, 347, 343);
+        b[504..507].copy_from_slice(&[1, 10, 3]);
+        put(&mut b, 507, 343);
         for (at, op) in [(350usize, 5u8), (400, 13)] {
             let mut code = vec![0];
             for _ in 0..7 {
