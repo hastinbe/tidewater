@@ -3,6 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), game data (`gluAll.tbl` speed
   names, `multmode.bin` mode names), and arithmetic checks of the generator. Not yet confirmed against the running game.
+- **Changes:** 2026-10-11, round-2 errata: the setup-shuffle generator also picks sound variants during play. The
+  open question on unit slot order is answered by `core/unit-slots.md`; the construction pass is placed in phase 4
+  as `economy/build-train.md` states.
 
 ## Behaviour
 
@@ -50,13 +53,14 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
 2. **Computer players.** Each computer-controlled player runs one step of its AI script.
 3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1, so the first refresh
    happens in cycle 1. On a refresh cycle each unit's sight is re-applied to the fog during phase 4.
-4. **Units.** Every unit is updated in slot order:
+4. **Units.** Every unit is updated in slot order (`core/unit-slots.md`):
    - its sight is re-applied if this is a refresh cycle;
    - its per-unit countdowns are advanced;
    - its animation script is advanced (see the animation-scripts spec);
    - its current order is advanced.
    
-   Then all **missiles** are advanced. Then the **timers pass** runs over units: spell durations, regeneration, mana,
+   Then all **missiles** are advanced. Then the **construction pass** advances buildings under construction
+   (`economy/build-train.md`). Then the **timers pass** runs over units: spell durations, regeneration, mana,
    decay of summoned units, and runes.
 5. **Visibility** for the local player is recomputed.
 6. **Minimap** is refreshed every 40 cycles.
@@ -89,7 +93,9 @@ Let the state `s` be an unsigned 32-bit integer.
   only by interface and sound effects, which must not touch the simulation generator.
 
 **Setup shuffles:** shuffling start positions and player colours at game setup uses a separate generator with the
-common recurrence `t ← t × 1103515245 + 12345`. That generator is never used during play.
+common recurrence `t ← t × 1103515245 + 12345`. Shuffles happen only at game setup. During play the same generator
+picks sound variants, for example one of four chop sounds each time a worker chops (`economy/harvest.md`, "Lumber").
+No simulation decision found so far draws from it, so the simulation generator's sequence is unaffected.
 
 ### What draws random numbers
 
@@ -190,8 +196,6 @@ Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step f
 - On a reset, whether the cycles due that frame still run before the deadline moves to now, or the reset replaces them.
   The two choices differ by up to 3 cycles of latency, which is invisible to players but matters for exact replays.
 - Whether the Classic three-cycle pattern restarts at the first phase after a speed change.
-- Which order unit slots are allocated and reused in. This decides the unit update order in phase 4, and so the draw
-  order. It needs its own spec.
 - Exact draw counts for each area spell and for critter and ship idle motion.
 - What the building creation value `r mod 6` is used for.
 - Whether "cycle 1" for the first fog refresh means the cycle counter's value 1 or the first cycle run (counter value 0),
