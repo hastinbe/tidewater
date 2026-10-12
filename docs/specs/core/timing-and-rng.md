@@ -15,6 +15,8 @@
   reloaded to 200 without being lowered in that cycle), not every 200.
   2026-10-11, round-8 errata: the draw table gains rows for missile flight steps (all kinds, and the gryphon hammer
   and dragon breath); the area-spells row is replaced by a row pointing to `spells/spells.md`, "Random draws".
+  2026-10-12, round-19 errata (reviewer addition): the launch rows exclude cannon towers as well as guard towers, and
+  a shot that finds no free effect slot makes no draws.
 
 ## Behaviour
 
@@ -124,8 +126,8 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | Building created | where created | 1 | A stored value `r mod 6` (variation; use not yet known) |
 | Any unit created | where created | 1 | Adds `r AND 7` cycles to the first animation wait. This draw always comes last of the creation draws. |
 | Melee hit lands | units | 0 or 1 | Damage roll (combat spec); no draw when the damage total is 0 |
-| Non-splash missile launched | units | 0 to 3 | Damage roll at launch (none when the damage total is 0), then 2 scatter draws for missiles fired by a unit's attack (not by guard towers) (combat spec) |
-| Splash missile launched by a unit | units | 2 | Target scatter (combat spec) |
+| Non-splash missile launched | units | 0 to 3 | Damage roll at launch (none when the damage total is 0), then 2 scatter draws for missiles fired by a unit's attack (not by towers, guard or cannon). None at all if no effect slot is free for the missile (combat spec) |
+| Splash missile launched by a unit's attack (not by a tower) | units | 0 or 2 | Target scatter; none if no effect slot is free for the missile (combat spec) |
 | Splash missile lands | missiles | 1 per unit hit | Damage roll for each unit in the blast (combat spec) |
 | Computer player's idle worker finds no job (no harvest, build or repair) | units | 1 | Wait of `(r AND 15) + 44` cycles, 44 to 59, before it looks again (the routine is to be specified with the AI) |
 | Unit flees from its attacker | units | 2 | Flee tile offset `(r mod 8) − 2`, x first, then y (`orders/orders.md`, "Fleeing") |
