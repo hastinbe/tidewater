@@ -234,6 +234,8 @@ pub struct Unit {
     /// Playing its death animation; it no longer occupies tiles.
     pub dying: bool,
     /// Given to the neutral owner after dying; its slot is released at its next "step done".
+    /// A dead body, wreck or ruin decaying (corpses spec); still `dying`.
+    pub remains: bool,
     pub removing: bool,
     /// Set while a building is under construction.
     pub construction: Option<Construction>,
@@ -555,8 +557,6 @@ pub struct World {
     pub(crate) ylist: Vec<UnitId>,
     /// The runes on the map, 50 slots shared by all players (spells spec, "Runes on the map").
     pub runes: Vec<Option<crate::spells::Rune>>,
-    /// Dead bodies, a minimal stand-in until the corpses spec lands (see `spells.rs`).
-    pub bodies: Vec<crate::spells::Body>,
     /// Set while the map's units are being created: they get no decay countdown (spells spec, "Summoned units").
     pub(crate) loading: bool,
 }
@@ -611,7 +611,6 @@ impl World {
             units: Vec::new(),
             ylist: Vec::new(),
             runes: vec![None; crate::spells::RUNE_SLOTS],
-            bodies: Vec::new(),
             loading: false,
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
@@ -776,6 +775,7 @@ impl World {
             attacked_by: None,
             dying: false,
             removing: false,
+            remains: false,
             construction: None,
             job: None,
             // Spells spec, "Timers": every newly created caster starts with 85 mana and its counter at 40.
@@ -1042,23 +1042,12 @@ impl World {
         let fx = u.script.update(scripts.bytes(), u.facing, m);
         u.pos.0 += fx.dx;
         u.pos.1 += fx.dy;
-        let (dying, removing) = (u.dying, u.removing);
-        if fx.neutral {
+        let dying = u.dying;
+        if fx.neutral && self.units[i].owner != slots::NEUTRAL {
             self.change_owner(i, slots::NEUTRAL);
         }
-        if dying && (fx.halted || fx.step_done) {
-            // Unit-slots spec, "Death, corpses and release": at the death animation's step done the unit (corpses and
-            // ruins are a later spec) goes to the neutral owner with the "remove" order, which releases its slot at the
-            // next step done. Release order decides slot reuse, so the free list is updated now.
-            if removing {
-                let u = &self.units[i];
-                self.slots.release(u.slot, u.owner);
-                self.units[i].script.anim = RELEASED;
-            } else {
-                self.leave_body(i);
-                self.change_owner(i, slots::NEUTRAL);
-                self.units[i].removing = true;
-            }
+        if dying {
+            self.dead_update(i, fx);
         }
         if dying {
             return;
@@ -1098,7 +1087,6 @@ impl World {
         self.ylist.hash(&mut h);
         self.missiles.hash(&mut h);
         self.runes.hash(&mut h);
-        self.bodies.hash(&mut h);
         self.vision.countdown.hash(&mut h);
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
@@ -1188,7 +1176,7 @@ pub(crate) mod tests {
     /// 64 px per loop. Attacks strike on cycle 12 and every 25 cycles after; death takes 6 cycles.
     pub(crate) fn scripts() -> Arc<Scripts> {
         use tidewater_formats::script::{MISSILE_KINDS, UNIT_TYPES};
-        let mut b = vec![0u8; 512];
+        let mut b = vec![0u8; 640];
         let put = |b: &mut Vec<u8>, at: usize, v: u16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
         for i in 0..UNIT_TYPES + MISSILE_KINDS {
             put(&mut b, i * 2, if i == 2 { 320 } else { 300 });
@@ -1200,6 +1188,7 @@ pub(crate) mod tests {
                     2 => 343,
                     3 => mv,
                     4 => 460,
+                    0 => 520,
                     _ => 340,
                 };
                 put(&mut b, table + a * 2, at);
@@ -1214,7 +1203,7 @@ pub(crate) mod tests {
         for k in 58..100 {
             put(&mut b, k * 2, 490);
         }
-        for (a, at) in [340, 480, 343, 340, 340, 504, 343].into_iter().enumerate() {
+        for (a, at) in [520, 480, 343, 340, 340, 504, 343].into_iter().enumerate() {
             put(&mut b, 490 + a * 2, at);
         }
         b[343..346].copy_from_slice(&[0, 1, 4]);
@@ -1231,6 +1220,16 @@ pub(crate) mod tests {
             code.extend((at as u16).to_le_bytes());
             b[at..at + code.len()].copy_from_slice(&code);
         }
+        // Every type's remove animation: halt, halt, step done (corpses spec).
+        b[520..524].copy_from_slice(&[2, 2, 0, 2]);
+        // Remains (types 0x69 to 0x6D), every decay animation: frame 0, wait 10, neutral, wait 10, step done.
+        for k in 0x69..=0x6d {
+            put(&mut b, k * 2, 540);
+        }
+        for a in 0..7 {
+            put(&mut b, 540 + a * 2, if (1..=5).contains(&a) { 560 } else { 520 });
+        }
+        b[560..569].copy_from_slice(&[4, 0, 1, 10, 15, 1, 10, 0, 2]);
         Arc::new(Scripts::parse(b).unwrap())
     }
 

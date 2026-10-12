@@ -280,13 +280,16 @@ impl World {
         u.remembered = None;
         u.path.clear();
         self.start_anim(ti, anim::DEATH);
-        self.kill_passengers(ti);
+        if self.kill_remains(ti) {
+            self.kill_passengers(ti);
+        }
         // A dead unit is forgotten as an attacker (movement spec, "Blocked rules").
         for o in &mut self.units {
             if o.attacked_by == Some(unit.id) {
                 o.attacked_by = None;
             }
         }
+        self.leave_oil(ti);
     }
 
     /// Moves every missile one cycle, in effect slot order, landing each as it arrives.
@@ -391,8 +394,8 @@ mod tests {
         run(&mut w, 40);
         let hp = w.unit(foe).unwrap().hp;
         assert!((60 - 2 * 8..60).contains(&hp), "one or two hits of 4 to 8, got {hp}");
-        run(&mut w, 600);
-        assert!(w.unit(foe).is_none(), "removed after its death animation");
+        run(&mut w, 800);
+        assert!(w.unit(foe).is_none(), "removed after its body decays");
         assert_eq!(w.occupant(Layer::Land, 1, 0), None);
         assert_eq!(w.players[0].kills, 1);
         assert_eq!(w.unit(UnitId(1)).unwrap().order, Order::Idle);

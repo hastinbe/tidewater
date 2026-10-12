@@ -12,6 +12,7 @@ pub mod anim;
 mod battle;
 mod build;
 pub mod combat;
+pub mod corpses;
 pub mod economy;
 mod harvest;
 mod movement;

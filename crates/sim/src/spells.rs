@@ -3,8 +3,8 @@
 //! Covered: the spell orders 38 to 56 (command, approach, strike), the five unit timers and the timers pass (mana,
 //! berserker regeneration, decay, runes), the creation rules for summoned units, and every effect in flight.
 //!
-//! Not covered: which spells a player may cast (research is in `tech.rs`; the button bar is a later spec), the
-//! corpses spec (see [`Body`]) and sound.
+//! Not covered: which spells a player may cast (research is in `tech.rs`; the button bar is a later spec) and sound.
+//! Dead bodies are the remains of `corpses.rs`.
 
 use crate::TILE_PX;
 use crate::combat;
@@ -103,18 +103,6 @@ fn radius(spell: u8) -> Option<i32> {
 pub struct Rune {
     pub tile: (i32, i32),
     pub life: u16,
-}
-
-/// A dead body. The corpses spec is still in review, so this is the least the spells need: where a unit died, and its
-/// "used" mark, which stops raise dead taking it.
-// TODO(corpses): bodies never decay yet, and every non-building unit leaves one; the corpses spec will say which
-// types leave a body, how long it lasts and how it uses the effect and unit slots.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Body {
-    /// The slot the dead unit held, which orders the raise-dead scan.
-    pub slot: u16,
-    pub tile: (i32, i32),
-    pub used: bool,
 }
 
 /// A flying effect's straight-line rule (spec, "How flying effects move").
@@ -622,6 +610,11 @@ impl World {
 
     // ----- effects: creation ---------------------------------------------------------------------------------
 
+    /// The cosmetic explosion of a unit with the explode flag (corpses spec, "Units with the explode flag").
+    pub(crate) fn explosion(&mut self, unit: UnitId, pos: (i32, i32)) {
+        self.new_fx(kind::EXPLOSION, unit, None, pos, 0, Fx::Cosmetic);
+    }
+
     /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full.
     fn new_fx(
         &mut self,
@@ -752,23 +745,24 @@ impl World {
     }
 
     fn raise_dead(&mut self, caster: UnitId, t: (i32, i32)) {
-        let mut order: Vec<usize> = (0..self.bodies.len()).collect();
-        order.sort_by_key(|&b| self.bodies[b].slot);
-        for b in order {
+        for b in self.raisable_bodies() {
             let Some(i) = self.index(caster) else { return };
             if self.units[i].mana < 50 {
                 break;
             }
-            let body = self.bodies[b];
-            let (dx, dy) = (body.tile.0 - t.0, body.tile.1 - t.1);
-            if body.used || dx * dx + dy * dy > 36 {
+            let Some(tile) = self.unit(b).map(|u| u.tile) else {
+                continue;
+            };
+            let (dx, dy) = (tile.0 - t.0, tile.1 - t.1);
+            if dx * dx + dy * dy > 36 {
                 continue;
             }
             let owner = self.units[i].owner;
-            if let Ok(s) = self.spawn(unit::SKELETON, owner, body.tile, 0) {
+            if let Ok(s) = self.spawn(unit::SKELETON, owner, tile, 0) {
                 let si = self.index(s).expect("just created");
                 self.blink(si);
-                self.bodies[b].used = true;
+                let bi = self.index(b).expect("still there");
+                self.units[bi].used = true;
             }
             if let Some(i) = self.index(caster) {
                 self.units[i].mana -= 50;
@@ -859,18 +853,6 @@ impl World {
     }
 
     // ----- the timers pass -----------------------------------------------------------------------------------
-
-    /// A dead unit's body (see [`Body`]).
-    pub(crate) fn leave_body(&mut self, i: usize) {
-        let u = &self.units[i];
-        if !u.building {
-            self.bodies.push(Body {
-                slot: u.slot,
-                tile: u.tile,
-                used: u.used,
-            });
-        }
-    }
 
     /// The timers pass at the end of phase 4 (spec, "Timers" and "Runes on the map").
     pub(crate) fn timers_pass(&mut self) {
@@ -1774,9 +1756,9 @@ mod tests {
             (1, slots::NEUTRAL, (6, 5))
         );
         // The body keeps the used mark, and raise dead skips it.
-        run(&mut w, 600);
-        assert!(w.unit(f).is_none());
-        assert_eq!(w.bodies.iter().map(|b| b.used).collect::<Vec<_>>(), [true]);
+        run(&mut w, 8);
+        let u = w.unit(f).unwrap();
+        assert!(u.remains && u.used && u.kind == crate::corpses::DEAD_BODY);
         strike(&mut w, p, RAISE_DEAD, None, (6, 5));
         assert!(w.units.iter().all(|u| u.kind != unit::SKELETON));
     }
@@ -1937,21 +1919,22 @@ mod tests {
         assert_eq!(w.runes[0], None);
     }
 
-    fn body(w: &mut World, slot: u16, tile: (i32, i32)) {
-        w.bodies.push(Body {
-            slot,
-            tile,
-            used: false,
-        });
+    /// A footman of player 1 killed at `tile` and left as a fresh body.
+    fn body(w: &mut World, tile: (i32, i32)) -> UnitId {
+        let f = w.spawn(0, 1, tile, 0).unwrap();
+        let i = w.index(f).unwrap();
+        w.kill(i);
+        while !w.unit(f).unwrap().remains {
+            w.step(&[]);
+        }
+        f
     }
 
     #[test]
     fn raise_dead_vectors() {
         let mut w = lab(32);
         let p = caster(&mut w, MAGE, (5, 5), 120);
-        body(&mut w, 1, (12, 10));
-        body(&mut w, 2, (15, 10));
-        body(&mut w, 3, (17, 10));
+        let bodies = [(12, 10), (15, 10), (17, 10)].map(|t| body(&mut w, t));
         let before = w.rng.state;
         strike(&mut w, p, RAISE_DEAD, None, (10, 10));
         let skeletons: Vec<_> = w
@@ -1963,7 +1946,7 @@ mod tests {
         assert_eq!(skeletons.len(), 2);
         assert!(skeletons.contains(&((12, 10), 0)) && skeletons.contains(&((15, 10), 0)));
         assert_eq!(mana(&w, p), 20);
-        assert_eq!(w.bodies.iter().map(|b| b.used).collect::<Vec<_>>(), [true, true, false]);
+        assert_eq!(bodies.map(|b| w.unit(b).unwrap().used), [true, true, false]);
         assert_eq!(w.rng, advanced(before, 2), "one creation draw per skeleton");
         assert_eq!(fx_of_kind(&w, 0x16), 2);
         // Used bodies are not raised again.
@@ -1977,11 +1960,10 @@ mod tests {
         w.slots = slots::Slots::new(3);
         let p = caster(&mut w, MAGE, (5, 5), 60);
         w.spawn(0, 0, (1, 1), 0).unwrap();
-        w.spawn(0, 0, (2, 1), 0).unwrap();
-        body(&mut w, 1, (10, 10));
+        let b = body(&mut w, (10, 10));
         strike(&mut w, p, RAISE_DEAD, None, (10, 10));
         assert!(w.units.iter().all(|u| u.kind != unit::SKELETON));
-        assert_eq!((mana(&w, p), w.bodies[0].used), (10, false));
+        assert_eq!((mana(&w, p), w.unit(b).unwrap().used), (10, false));
     }
 
     #[test]
@@ -1990,10 +1972,10 @@ mod tests {
         let f = w.spawn(0, 1, (7, 7), 0).unwrap();
         let i = w.index(f).unwrap();
         w.kill(i);
-        assert!(w.bodies.is_empty(), "not until the death animation ends");
-        run(&mut w, 600);
-        assert_eq!(w.bodies.len(), 1);
-        assert_eq!((w.bodies[0].tile, w.bodies[0].used), ((7, 7), false));
+        assert!(w.raisable_bodies().is_empty(), "not until the death animation ends");
+        run(&mut w, 8);
+        assert_eq!(w.raisable_bodies(), [f]);
+        assert_eq!(w.unit(f).unwrap().tile, (7, 7));
     }
 
     /// Death coil victims: footmen of player 1 with the given hit points at tiles on row 9, left to right.

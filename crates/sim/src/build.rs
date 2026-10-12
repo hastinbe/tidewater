@@ -304,7 +304,7 @@ mod tests {
         );
         assert_eq!(w.terrain.word(8, 8) & 0xff, 0x95);
         let piece = w.units.iter().find(|u| u.kind == kind::HUMAN_WALL).unwrap();
-        assert!(piece.dying && piece.construction.is_none());
+        assert!(piece.dying && piece.used && piece.construction.is_none());
         assert_eq!(w.players[0].under_construction, 0);
         let u = w.unit(p).unwrap();
         assert!(!u.inside && u.order == Order::Idle);

@@ -309,11 +309,12 @@ impl World {
     }
 
     /// A finished wall piece becomes terrain (walls spec, "Completion: the piece becomes terrain"): it is killed as a
-    /// building (wall pieces have no death explosion), then its tile turns to wall in the owner's race style and joins
-    /// its neighbours. Until corpses land, a dying unit leaves nothing, which is what the used mark gives it.
+    /// building (wall pieces have no death explosion) and gets the used mark, so it leaves no ruin; then its tile turns
+    /// to wall in the owner's race style and joins its neighbours.
     fn wall_completed(&mut self, i: usize) {
         let (owner, tile) = (self.units[i].owner as usize, self.units[i].tile);
         self.kill(i);
+        self.units[i].used = true;
         let p = &self.players[owner];
         let (orc, human) = (p.race == 1, p.controller == crate::ai::controller::HUMAN);
         self.terrain.build_wall(tile.0, tile.1, orc, human);
