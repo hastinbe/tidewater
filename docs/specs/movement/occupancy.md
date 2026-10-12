@@ -5,6 +5,7 @@
   conversion table and the wall, forest and rock tables named below). The test vectors that use tileset data use the
   Forest tileset. Not yet confirmed against the running game.
 - **Changes:** 2026-10-11, round-3 errata: the search-mask note now says which player kinds drop bit 0x04, and when.
+  2026-10-12, round-13 errata: "Rock" step 4 now points to the blast's damage rules.
   2026-10-11, round-3 errata: "Units not on the map" now says what entering a transport, mine, depot, platform or
   construction site, and coming out, do to the marks and pointers (open question closed). The forest and rock table
   bases are read from each tileset's table headers instead of fixed row counts (41 forest rows is Forest only).
@@ -207,8 +208,8 @@ tile (x, y) runs these steps in order:
    forest 3 × 3 update centred on it, exactly as if it had been felled.
 3. **Walls:** each of the 8 neighbours of (x, y) that is a wall advances one stage, then, if it is still a wall,
    one more. Every wall next to the blast becomes rubble.
-4. **Units:** the blast damages units on the 8 neighbouring tiles, and then the demolition unit dies. This damage is
-   to be specified with the other blast effects in the combat specs.
+4. **Units:** the ground occupants of the 8 neighbouring tiles take the blast damage, and then the demolition unit
+   dies (`combat/attack-ground-demolish.md`, "The blast").
 
 Each step sees the changes made by the steps and positions before it. A position whose tile an earlier position
 already cleared is skipped.
