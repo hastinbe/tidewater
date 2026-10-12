@@ -15,7 +15,9 @@
 //! notices and the status bar follow `ui/messages.md` (`messages`).
 
 mod cheats;
+mod campaign;
 mod fog;
+mod frontend;
 mod hud;
 mod info;
 mod messages;
@@ -25,6 +27,7 @@ mod panel;
 mod scene;
 mod screen;
 mod sound;
+mod video;
 mod view;
 
 use std::path::PathBuf;
@@ -49,8 +52,20 @@ struct Args {
     /// Warcraft II: Battle.net Edition installation directory.
     #[arg(long, env = "TIDEWATER_INSTALL")]
     install: PathBuf,
-    /// A .pud file path, or a name inside the archives.
-    map: String,
+    /// A .pud file path, or a name inside the archives; it starts at once. Without one the program starts with its
+    /// startup videos and title (`docs/specs/game/campaign-flow.md`).
+    map: Option<String>,
+    /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `mission:E`, `act:E`,
+    /// `briefing:E`, `score-victory:E` or `score-defeat:E` (synthetic statistics), `ending:E`, `credits:tod`,
+    /// `credits:bdp` or `video:N`, with E a mission entry (0 to 51).
+    #[arg(long)]
+    goto: Option<String>,
+    /// Don't play the intro video at startup (the "play the intro" preference bit cleared).
+    #[arg(long)]
+    no_intro: bool,
+    /// Development aid: the game ends at once with `victory` or `defeat` (to see the dialog and the score screen).
+    #[arg(long, value_parser = ["victory", "defeat"])]
+    demo_outcome: Option<String>,
     /// Game setup options: `campaign:ENTRY`, or `custom` with choices such as
     /// `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`.
     /// By default a campaign map starts as its campaign mission and any other map as a custom game.
@@ -297,6 +312,135 @@ const HUD_LAYER: usize = 1;
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let install = Install::open(&args.install)?;
+    let mut front = frontend::Front::load(install)?;
+    let mut flow = frontend::Flow::default();
+    // The map given on the command line starts at once; otherwise the startup sequence ("Startup") or a screen
+    // named by `--goto`.
+    let steps = match (&args.map, &args.goto) {
+        (Some(map), _) => vec![frontend::Step::Play {
+            map: map.clone(),
+            setup: args.setup,
+        }],
+        (None, Some(g)) => {
+            let steps = frontend::goto_steps(g).map_err(anyhow::Error::msg)?;
+            if let Some((what, e)) = g.split_once(':')
+                && what.starts_with("score-")
+            {
+                let e: u8 = e.parse()?;
+                frontend::synthetic_score(&mut flow, &mut front, e, what == "score-victory");
+            }
+            steps
+        }
+        (None, None) => frontend::startup_steps(false, false, !args.no_intro),
+    };
+    flow.steps = steps.into();
+    let title = args
+        .map
+        .as_deref()
+        .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
+    let ui_scale = args.ui_scale;
+    App::new()
+        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
+            primary_window: Some(Window {
+                title,
+                resolution: (640 * ui_scale, 480 * ui_scale).into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        .init_state::<frontend::AppState>()
+        .insert_resource(front)
+        .insert_resource(flow)
+        .insert_resource(Opts(args))
+        .add_plugins(frontend::plugin)
+        .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
+        .add_systems(OnExit(frontend::AppState::Game), end_game)
+        .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
+        .add_systems(
+            Update,
+            (
+                hud_layout,
+                scroll_view,
+                panel_input,
+                info_input,
+                keys_input,
+                mouse_input,
+                pan_and_zoom,
+                play_sounds,
+                update_messages,
+                redraw_terrain,
+                draw_view,
+                draw_placement,
+                update_info,
+                draw_hud,
+                quit_on_escape,
+            )
+                .chain()
+                .run_if(frontend::game_running),
+        )
+        .run();
+    Ok(())
+}
+
+/// The command line, kept for starting games.
+#[derive(Resource)]
+struct Opts(Args);
+
+/// Loads the game the flow asks for and inserts the game screen's resources (`setup` then spawns its entities). A
+/// map that fails to load goes back to the main menu.
+fn start_game(world: &mut bevy::prelude::World) {
+    let Some((map, setup)) = world.resource_mut::<frontend::Flow>().pending.take() else {
+        return;
+    };
+    if let Err(e) = load_game(world, &map, setup) {
+        eprintln!("can't start {map}: {e:#}");
+        world.insert_resource(Loaded(None));
+        frontend::to_main_menu(&mut world.resource_mut::<frontend::Flow>());
+        world
+            .resource_mut::<NextState<frontend::AppState>>()
+            .set(frontend::AppState::Boot);
+    }
+}
+
+/// The game options `load_game` reads from the command line.
+struct GameArgs {
+    install: PathBuf,
+    map: String,
+    setup: Option<tidewater_sim::setup::Setup>,
+    zoom: f32,
+    ui_scale: u32,
+    demo_move: Option<(i32, i32)>,
+    demo_fight: bool,
+    demo_select: Option<usize>,
+    demo_type: Option<u8>,
+    demo_place: Option<u8>,
+    demo_site: Option<(i32, i32)>,
+    second_mouse_style: bool,
+    mouse_scroll_speed: u8,
+    key_scroll_speed: u8,
+    demo_outcome: Option<bool>,
+}
+
+fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewater_sim::setup::Setup>) -> Result<()> {
+    let a = &world.resource::<Opts>().0;
+    let args = GameArgs {
+        install: a.install.clone(),
+        map: map.to_string(),
+        setup,
+        zoom: a.zoom,
+        ui_scale: a.ui_scale,
+        demo_move: a.demo_move,
+        demo_fight: a.demo_fight,
+        demo_select: a.demo_select,
+        demo_type: a.demo_type,
+        demo_place: a.demo_place,
+        demo_site: a.demo_site,
+        second_mouse_style: a.second_mouse_style,
+        mouse_scroll_speed: a.mouse_scroll_speed,
+        key_scroll_speed: a.key_scroll_speed,
+        demo_outcome: a.demo_outcome.as_deref().map(|o| o == "victory"),
+    };
     let mut install = Install::open(&args.install)?;
     let options = args
         .setup
@@ -327,6 +471,14 @@ fn main() -> Result<()> {
             units,
             to,
         }]);
+    }
+    if let Some(v) = args.demo_outcome {
+        let h = scene.human as usize;
+        scene.world.players[h].result = Some(if v {
+            tidewater_sim::victory::Outcome::Victory
+        } else {
+            tidewater_sim::victory::Outcome::Defeat
+        });
     }
     if args.demo_fight {
         let w = &scene.world;
@@ -398,67 +550,69 @@ fn main() -> Result<()> {
         history: Some(messages::History::new(scene.world.start.view)),
         ..default()
     };
-    App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
-            primary_window: Some(Window {
-                title: format!("Tidewater — {}", args.map),
-                resolution: (640 * args.ui_scale, 480 * args.ui_scale).into(),
-                ..default()
-            }),
-            primary_cursor_options: Some(bevy::window::CursorOptions {
-                visible: !own_pointer,
-                ..default()
-            }),
-            ..default()
-        }))
-        .insert_resource(Loaded(Some(scene)))
-        .insert_resource(MapSize(size))
-        .insert_resource(StartZoom(args.zoom))
-        .insert_resource(Hud {
-            art: hud_art,
-            scale: args.ui_scale,
-            layout: None,
-            frame: scene::Picture {
-                width: 1,
-                height: 1,
-                rgba: vec![0; 4],
-            },
-            image: Handle::default(),
-            map: (0, 0),
-            minimap: minimap::Minimap::new(0),
-        })
-        .insert_resource(Time::<Fixed>::from_hz(hz))
-        .insert_resource(selection)
-        .insert_resource(view_art)
-        .insert_resource(speaker)
-        .insert_resource(panel_ui)
-        .insert_resource(screen_ui)
-        .init_resource::<InfoPanel>()
-        .add_systems(Startup, setup)
-        .add_systems(FixedUpdate, tick)
-        .add_systems(
-            Update,
-            (
-                hud_layout,
-                scroll_view,
-                panel_input,
-                info_input,
-                keys_input,
-                mouse_input,
-                pan_and_zoom,
-                play_sounds,
-                update_messages,
-                redraw_terrain,
-                draw_view,
-                draw_placement,
-                update_info,
-                draw_hud,
-                quit_on_escape,
-            )
-                .chain(),
-        )
-        .run();
+    // The flow's record of the game: its kind, the campaign total and the starting controllers (score screen).
+    {
+        let mut flow = world.resource_mut::<frontend::Flow>();
+        let kind = match options.game {
+            tidewater_sim::setup::Game::Campaign { entry } => campaign::GameKind::Campaign(entry),
+            _ => campaign::GameKind::Custom,
+        };
+        flow.game = Some(kind);
+        flow.total.start_game(kind);
+        for (i, p) in scene.world.players.iter().take(8).enumerate() {
+            flow.start_controllers[i] = p.controller;
+        }
+    }
+    let mut q =
+        world.query_filtered::<(&mut Window, &mut bevy::window::CursorOptions), With<bevy::window::PrimaryWindow>>();
+    for (mut w, mut c) in q.iter_mut(world) {
+        w.title = format!("Tidewater — {}", args.map);
+        c.visible = !own_pointer;
+    }
+    world.insert_resource(Loaded(Some(scene)));
+    world.insert_resource(MapSize(size));
+    world.insert_resource(StartZoom(args.zoom));
+    world.insert_resource(Hud {
+        art: hud_art,
+        scale: args.ui_scale,
+        layout: None,
+        frame: scene::Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![0; 4],
+        },
+        image: Handle::default(),
+        map: (0, 0),
+        minimap: minimap::Minimap::new(0),
+    });
+    world.insert_resource(Time::<Fixed>::from_hz(hz));
+    world.insert_resource(selection);
+    world.insert_resource(view_art);
+    world.insert_resource(speaker);
+    world.insert_resource(panel_ui);
+    world.insert_resource(screen_ui);
+    world.insert_resource(InfoPanel::default());
     Ok(())
+}
+
+/// The game screen's entities: everything drawn or heard that isn't the front end's.
+type GameEntities<'w, 's> = Query<
+    'w,
+    's,
+    Entity,
+    (
+        Or<(With<Sprite>, With<Camera>, With<AudioPlayer>)>,
+        Without<frontend::Persist>,
+    ),
+>;
+
+/// Leaving the game screen: its entities go (not the front end's camera, pictures or music) and so does the game.
+fn end_game(mut commands: Commands, q: GameEntities) {
+    for e in &q {
+        commands.entity(e).despawn();
+    }
+    commands.remove_resource::<Sim>();
+    commands.remove_resource::<Loaded>();
 }
 
 fn image_with(p: scene::Picture, usage: RenderAssetUsages) -> Image {
@@ -489,7 +643,7 @@ fn setup(
     mut hud: ResMut<Hud>,
     sel: Res<Selection>,
 ) {
-    let scene = loaded.0.take().expect("scene loaded once");
+    let Some(scene) = loaded.0.take() else { return };
     // Start the view on the selection if there is one, else on game setup's starting view: its top-left tile, with
     // the original 14-tile view's centre in the middle of the window (setup spec, "After the units").
     let (vx, vy) = scene.world.start.view;

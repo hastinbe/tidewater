@@ -148,6 +148,8 @@ impl World {
         p.converted = p.converted.wrapping_add(1);
         // 3. The owner; the order stays.
         self.change_owner(i, to);
+        // Campaign-flow spec, "Statistics": the old owner's count went down.
+        self.count_lost(from, self.units[i].building);
         let unit = self.units[i].id;
         self.events.push(Event::OwnerChanged { unit, from, to });
         // 4. Enhanced mode's conversions.
@@ -372,6 +374,8 @@ mod tests {
         assert_eq!(w.players[0].rescued, 0);
         assert_eq!(w.rescuable_counts(), (1, 0));
         assert_eq!(w.players[0].converted, 1);
+        // Campaign-flow spec, "Statistics": the old owner lost a unit.
+        assert_eq!(w.players[RESCUE as usize].units_lost, 1);
         assert!(w.events.contains(&Event::OwnerChanged {
             unit: f,
             from: RESCUE,

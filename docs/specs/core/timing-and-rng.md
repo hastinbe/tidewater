@@ -18,6 +18,7 @@
   2026-10-12, round-19 errata (reviewer addition): the launch rows exclude cannon towers as well as guard towers, and
   a shot that finds no free effect slot makes no draws.
   2026-10-12: the setup-shuffle generator also picks a non-campaign game's music track (`ui/music.md`).
+  2026-10-12: the game-saved draw happens only for saves in an Enhanced game in a network session (`game/save-load.md`).
 
 ## Behaviour
 
@@ -139,7 +140,7 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | Spell effects | units or missiles | as `spells/spells.md`, "Random draws", lists | Scatter, start offsets, wander, splash damage |
 | Computer player decisions | computer players | varies | AI choices |
 | Cheat entered in multiplayer with cheats disabled | when processed | 1 | Discarded |
-| Game saved | when processed | 1 | Discarded |
+| Game saved, Enhanced game in a network session (`game/save-load.md`) | when processed | 1 | Discarded; other saves make no draw |
 
 A replay or desync check must reproduce the last two rows too, even though they look like no-ops.
 
