@@ -6,7 +6,8 @@
   unit flags, "can target" values and `UNIT` section in the public PUD specification text. Not yet confirmed against
   the running game.
 - **Changes:** 2026-10-12, round-14 errata: the ferry gather vector corrected (units after the 6th counted one are
-  not visited), and a mixed-areas vector added.
+  not visited), and a mixed-areas vector added. 2026-10-12, round-17 errata: the caster spell step is now
+  specified in `ai/caster-ai.md`.
 
 ## Behaviour
 
@@ -14,7 +15,7 @@ This spec covers what a computer-controlled player does with its fighting units:
 map, when and where it attacks, how each unit holds its post or attacks, how transports ferry units to other land
 areas, and how nearby units answer a call for help. The slots the script writes are in `ai/ai-scripts.md`. Workers
 and tankers are in `ai/worker-ai.md`. Training and research are in `ai/training-research.md`. Spell casting by
-computer units is **not** covered (see Open questions).
+computer units is in `ai/caster-ai.md`.
 
 "Computer player" means a player whose controller is "computer" (`ai/ai-scripts.md`). "Human player" means a player
 whose controller is "human". Unit flags are the PUD flag bits (0 land, 1 air, 3 sea, 5 building, 8 worker/peon,
@@ -265,8 +266,8 @@ max + 8 can wrap past 127. Test vectors below show both cases.
 ### Running goals (pass B)
 
 After the base boxes, every unit slot is visited in slot order (`core/unit-slots.md`). A unit is handled if its owner
-is a computer player, it is not gone and its goal kind is not none. Casters (flag bit 17) first run the computer
-spell logic (not covered); if that acts, the goal is skipped this pass. Then the goal's rule runs.
+is a computer player, it is not gone and its goal kind is not none. Casters (flag bit 17) first run the spell
+step of `ai/caster-ai.md`; if that acts, the goal is skipped this pass. Then the goal's rule runs.
 
 "Idle" below means the unit's order is 2 (`orders/orders.md`). "React range" is the type's react range (computer)
 from the unit data, and the **leash** is floor(react range / 2) + 4.
@@ -507,7 +508,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Computer footman V hit by an enemy archer; 3 idle computer grunts within 13 tiles | All 3 get command 12 against the archer |
 | Human footman V hit; an idle human footman 3 tiles away | Outside R = 2: it doesn't answer (the acquisition search may still react) |
 | Human unit hit by a guard tower | The tower is not recorded as its attacker; no call for help |
-| Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1), and the post choice's off-map case (2) |
+| Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1), the post choice's off-map case (2), and the caster spell step's random search (1 to 10 per random try; `ai/caster-ai.md`) |
 
 ## Open questions
 
@@ -521,8 +522,6 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 - **Land picker coordinate swap.** The block's row index feeds the point's x and its column its y. Default: keep the
   swap; it only changes which far block is chosen.
 - **Strength denominator.** Every unit's strength divides by the grunt's maximum HP, not its own. Default: keep it.
-- **Caster AI.** Casters run a spell-choice step before their goal each pass; this is a separate spec. Default until
-  then: casters behave as described here, without casting.
 - **Units converted during a mission.** A campaign event that changes units' owner gives non-held units a first goal
   under a mission flag. Not traced in detail. Default: units that change owner keep their goal.
 - **Escort quirk.** Escort rounds read slot 0x0F of player 0, 1, 2, … in turn rather than the transport owner's.
