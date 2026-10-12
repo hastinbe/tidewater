@@ -12,6 +12,7 @@
 - **Changes:** 2026-10-12: the main-view fog drawing is now in `ui/map-drawing.md`, which closes that open question
   and answers when the minimap's "seen" marker is set. The hidden-from rule now names the right states: dead, removed
   or inside something (a dying unit isn't hidden from everyone), as in the research notes.
+- **Changes:** 2026-10-12: the fog-off cheat is named: the `showpath` developer word (`game/cheats.md`).
 
 ## Behaviour
 
@@ -226,8 +227,9 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
   seen once stays visible. When the option is switched off during play, the visible map is set equal to the explored
   map. The "seen" bits are then cleared for every player, except the local player's (or its shared-vision set's)
   bits on unexplored tiles.
-- **A cheat code** turns fog off in single-player games. It clears the option, makes the visible map fully clear and
-  clears all "seen" bits.
+- **A cheat** turns fog off in single-player games: the `showpath` developer word, when it turns its flag on during
+  a game (`game/cheats.md`, "Word codes"). It clears the option, makes the visible map fully clear and clears all
+  "seen" bits.
 - **The reveal-map cheat** makes nothing hidden and draws the whole minimap. It doesn't change the maps.
 
 ## Data
