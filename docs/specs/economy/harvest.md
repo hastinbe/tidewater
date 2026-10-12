@@ -17,6 +17,9 @@
   2026-10-12, round-39 errata: a unit with the peon flag in order 23 (either gather mode) whose route search finds no
   route runs the nearest-tree search and is given a new harvest command to the tree found; `human5` and `orc8` vectors;
   open question on its untraced details.
+  2026-10-12, round-40 errata: a unit coming out with a build order aims the ring search at the site's top-left tile;
+  only the peon flag runs the no-route tree search, so tankers go idle; round-40 vectors; open question on the exit aim
+  for other orders.
 
 ## Behaviour
 
@@ -105,8 +108,9 @@ When the 150-cycle wait ends and the inside order's logic runs:
 6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search
    of `movement/placement.md` (limit 12). The search's source is sized as for a town hall (4 × 4) if the goods were
    just delivered to a gold-accepting depot, and as for a gold mine (3 × 3) otherwise, placed at the building's
-   top-left tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. If no tile is
-   found, the unit dies.
+   top-left tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. For a
+   **build** order (a computer player's job), the tile it is heading for is the site's **top-left tile**, not the
+   build walk's goal tile. If no tile is found, the unit dies.
 
 The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
 over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
@@ -157,8 +161,9 @@ worker heading for a mine does this too.
   takes over in the same update: attack animation (4), wait 3. Its logic next runs 3 cycles later.
 - While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
 - **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
-- Tankers have the peon flag too, so they make the same search; with the land rules of the tree search it should
-  normally find nothing for them (see open questions).
+- Only the peon flag (type flags bit 8) counts. Tankers have the tanker flag (bit 9) and not the peon flag in the
+  unit data, so they don't make this search: a tanker in order 23 with no route goes idle as in "No route" of
+  `orders/orders.md`.
 
 ### Finding the nearest tree
 
@@ -301,6 +306,16 @@ gold, storage for wood, storage for oil, building.
 | `human5-10000`: computer worker 1567 (type 0x03, owner 5) walks from (107, 43) toward gold mine 1555 at (100, 54), in gold mode with the mine as its target. At n = 119, at (105, 48), its route search finds no route | n = 119: order 23, animation 4, wait 3, target null (a lumber harvest command). n = 122: the same. n = 125: it steps east to (106, 48), facing 2, animation 3 |
 | `orc8`: lumber worker 1499 at (123, 92); no route from n = 754 | Order 23, animation 4, wait 3 at n = 754, 757 and every 3 cycles to n = 1993; it steps north at n = 1996 |
 | A worker in order 23 with no route and no tree within 6 rings | Idle as in "No route" (`orders/orders.md`) |
+| A tanker in order 23 whose route search finds no route (static study and unit data only) | Idle (order 2, wait 1); no tree search |
+
+### Round-40 vectors (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| `xhuman2-10000`, n = 1113: computer peon 1592 (owner 0) comes out of 1585 with a build order for a site with top-left (26, 20) | Tile (24, 17), order 2, wait 25, facing 3, target null |
+| `orc4-20000`, n = 10595: computer peasant 1540 (type 0x02) comes out of 1577 with a build order | Tile (9, 11), order 2, wait 25, facing 1 |
+| `human7-10000`, n = 7444: peon 1582 (type 0x03, owner 5) comes out of 1594 with a build order | Tile (71, 5), wait 25, facing 3 |
+| `xorc3-10000`, n = 2964: peon 1471 (owner 3) comes out of 1589 with a build order | Tile (34, 9), wait 25, facing 7 |
 
 ## Open questions
 
@@ -310,6 +325,8 @@ gold, storage for wood, storage for oil, building.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
-- **No route details.** Untraced: a tanker in order 23 with no route (the static study runs the tree search for it
-  too); whether the idle after "no tree found" is pending or immediate; and whether the computer's job counts change
-  when a miner becomes a lumber worker this way (the static study shows no count change on this path).
+- **No route details.** Untraced: whether the idle after "no tree found" is pending or immediate; and whether the
+  computer's job counts change when a miner becomes a lumber worker this way (the static study shows no count change
+  on this path).
+- **Exit aim for other orders.** Only build orders given at the exit are traced for the aim of "Coming out", step 6;
+  the aim for other orders the AI gives there wasn't checked.
