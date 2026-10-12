@@ -1149,10 +1149,51 @@ mod tests {
     }
 
     #[test]
+    fn a_move_command_ends_a_remembered_attack_move() {
+        // Round-36 vector (the xhuman10 hero): command 8, then a move; the move arrives at idle (still animation,
+        // wait 3) and stays idle, because the move command cleared the remembered attack-move.
+        let mut w = map();
+        w.rules.enhanced = true;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.step(&[Command::AttackMove {
+            player: 0,
+            units: vec![f],
+            to: (15, 9),
+        }]);
+        for _ in 0..10 {
+            w.step(&[]);
+        }
+        assert!(w.units[i].remembered.is_some());
+        w.step(&[Command::Move {
+            player: 0,
+            units: vec![f],
+            to: (8, 2),
+        }]);
+        assert_eq!(w.units[i].remembered, None);
+        let mut arrived = false;
+        for _ in 0..200 {
+            w.step(&[]);
+            let u = &w.units[i];
+            if u.order == Order::Idle && u.pending.is_none() {
+                assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived);
+        for _ in 0..60 {
+            w.step(&[]);
+        }
+        assert_eq!((w.units[i].order, w.units[i].resume), (Order::Idle, 0));
+    }
+
+    #[test]
     fn arriving_resumes_a_remembered_attack_move_but_no_route_does_not() {
-        // Orders spec vectors (static study): a footman on a remembered attack-move to a tile 10 tiles away is moved
-        // 2 tiles aside and arrives: the attack-move is given again (countdown 20), taking over in the same update.
-        // If the move finds no route: immediate idle, nothing resumed.
+        // The resume rule for arrivals (no command in between, so the remembered order is still set): a footman on a
+        // remembered attack-move to a tile 10 tiles away is moved 2 tiles aside and arrives: the attack-move is given
+        // again (countdown 20), taking over in the same update. If the move finds no route: immediate idle, nothing
+        // resumed.
         for walled in [false, true] {
             let mut w = map();
             w.rules.enhanced = true;

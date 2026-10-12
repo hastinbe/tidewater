@@ -258,6 +258,24 @@ mod tests {
     }
 
     #[test]
+    fn a_killed_mage_keeps_its_mana_while_dying_and_removed() {
+        // Round-36 vector (xhuman10-r36a): mage 1481 with 89 mana is killed; mana 89 throughout, no gain while it
+        // dies, and its emptied slot (owner 15, order 0) still shows 89.
+        let mut w = field(16, 16);
+        let m = w.spawn(MAGE, 1, (5, 5), 0).unwrap();
+        let i = w.index(m).unwrap();
+        w.units[i].mana = 89;
+        kill(&mut w, m);
+        for _ in 0..500 {
+            let Some(u) = w.unit(m) else { break };
+            assert_eq!(u.mana, 89);
+            run(&mut w, 1);
+        }
+        let u = w.unit(m).unwrap();
+        assert!(u.removing && u.owner == slots::NEUTRAL);
+    }
+
+    #[test]
     fn a_mage_leaves_nothing_and_its_slot_goes_513_cycles_later() {
         let mut w = field(16, 16);
         let m = w.spawn(MAGE, 1, (5, 5), 0).unwrap();
