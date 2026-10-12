@@ -731,7 +731,7 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
             u.look.0
         } else {
             Some(tidewater_sim::minimap::Picture {
-                kind: u.kind,
+                kind: u.picture(),
                 frame: u.script.frame,
                 facing: u.facing,
             })
@@ -776,7 +776,7 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
             (a, b, col)
         });
         let air = u.layer == Layer::Air;
-        let sheet = Sheet::Unit(u.kind);
+        let sheet = Sheet::Unit(u.picture());
         let bob = u.bob.value as i32;
         let sprite =
             sheet_frame(u.building, u.facing, u.script.frame, art.frames(sheet)).map(|(frame, mirrored)| Op::Sprite {

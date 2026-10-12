@@ -20,7 +20,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
-use tidewater_formats::udta::flags;
 use tidewater_sim::{Order, Unit, UnitId, World};
 
 /// Unit fields in report order; `slot` is the key and isn't listed. The four timers are flattened.
@@ -53,8 +52,6 @@ pub const EFFECT_FIELDS: [&str; 8] = ["kind", "x", "y", "dest_x", "dest_y", "tar
 
 /// Types that carry `trips` (trace format, "Unit fields"): the oil platforms, the gold mine and the oil patch.
 const TRIP_TYPES: [u8; 4] = [0x56, 0x57, 0x5c, 0x5d];
-/// The berserker, which counts regeneration cycles in its mana byte once its player has the upgrade (spells spec).
-const BERSERKER: u8 = 0x13;
 /// Effect slots 0 to 2 hold the permanent effects (unit-slots spec, "Starting a map", step 3).
 const PERMANENT_EFFECTS: u16 = 3;
 /// Onsets listed in the summary.
@@ -746,9 +743,6 @@ fn order_target(o: Order) -> Option<UnitId> {
 }
 
 fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {
-    let stats = w.stats.0.get(u.kind as usize).copied().unwrap_or_default();
-    let caster = stats.flags & flags::CASTER != 0;
-    let berserker = u.kind == BERSERKER && w.players.get(u.owner as usize).is_some_and(|p| p.upgrades.marksmanship);
     UNIT_FIELDS
         .iter()
         .map(|&f| match f {
@@ -761,16 +755,14 @@ fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {
             "ty" => Cell::Int(u.tile.1 as i64),
             "hp" => Cell::Int(u.hp as i64),
             "order" => order_cell(u),
-            // Timing-and-rng spec, "What draws random numbers": only a mobile unit's facing is defined at creation.
-            "facing" if u.building => {
-                Cell::Skip("buildings (no spec gives a building's facing; ours is a placeholder)")
-            }
+            // Unit-slots spec, "Creating a unit", step 3: facing 0, then drawn for mobile units only.
             "facing" => Cell::Int(u.facing as i64),
             "anim" => Cell::Int(u.script.anim as i64),
             "frame" => Cell::Int(u.script.frame as i64),
             "wait" => Cell::Int(u.script.wait as i64),
-            "mana" if caster || berserker => Cell::Int(u.mana as i64),
-            "mana" => Cell::Skip("only spellcasters and regenerating berserkers (no spec defines it for other types)"),
+            // Unit-slots spec, open question "Mana byte after a type change, and on corpses and ruins".
+            "mana" if u.remains => Cell::Skip("corpses and ruins (no spec gives their mana byte)"),
+            "mana" => Cell::Int(u.mana as i64),
             "target" => target_cell(w, u),
             "trips" if TRIP_TYPES.contains(&u.kind) => Cell::Int(u.resources as i64),
             "trips" => Cell::Null,
@@ -1181,7 +1173,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use tidewater_formats::script::Scripts;
-    use tidewater_formats::udta::{UnitStats, UnitTable};
+    use tidewater_formats::udta::{UnitStats, UnitTable, flags};
 
     /// A synthetic world: an open 8 × 8 map, a land unit type 0 whose every animation waits 5 cycles and then signals
     /// "step done", and three units of type 0.

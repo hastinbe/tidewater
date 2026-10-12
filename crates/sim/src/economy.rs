@@ -40,6 +40,8 @@ pub mod kind {
 const FOOD_CAP: u32 = 200;
 /// Construction passes per step.
 const PASS_STEP: u32 = 12;
+/// The shown construction progress (out of 255) from which the second construction-site frame shows ("Look").
+const LOOK_STAGE: u8 = 64;
 /// The first wait of a job taking over, not adjusted for haste or slow (animation-scripts spec, "Running a script").
 const TAKEOVER_WAIT: u8 = 3;
 
@@ -291,6 +293,8 @@ impl World {
             return;
         }
         if c.passes == total {
+            // Shown as full: the mana byte keeps the shown progress (step 6).
+            self.show_construction(i);
             return;
         }
         c.steps += 1;
@@ -302,7 +306,18 @@ impl World {
             u.hp = m;
             c.passes = total;
         }
+        self.show_construction(i);
         self.construction_sound(i);
+    }
+
+    /// Step 6, "Look": the shown progress goes into the mana byte, and the frame is 0 below 64/255 and 1 from there.
+    fn show_construction(&mut self, i: usize) {
+        let Some(p) = self.construction_progress(self.units[i].id) else {
+            return;
+        };
+        let u = &mut self.units[i];
+        u.mana = p;
+        u.script.frame = u8::from(p >= LOOK_STAGE);
     }
 
     /// Construction progress as a fraction of 255: the larger of passes over the total and hit points over M.
@@ -317,6 +332,9 @@ impl World {
     fn complete(&mut self, i: usize) {
         let u = &mut self.units[i];
         u.construction = None;
+        // "Completion": the frame and the mana byte go back to 0.
+        u.script.frame = 0;
+        u.mana = 0;
         let (owner, k) = (u.owner as usize, u.kind);
         self.start_anim(i, anim::STILL);
         let p = &mut self.players[owner];
@@ -415,13 +433,20 @@ impl World {
             JobKind::Spell(n) => self.players[owner as usize].spells_researching |= self.upgrade_entry(n).affect,
             JobKind::Upgrade(_) => {}
         }
-        self.units[i].job = Some(Job {
+        let u = &mut self.units[i];
+        u.job = Some(Job {
             kind: job,
             steps,
             progress: 0,
             running: false,
             paid,
         });
+        // "Starting": the mana byte shows 1, and a building upgrade shows frame 1 of the new type's picture
+        // ([`crate::world::Unit::picture`]).
+        u.mana = 1;
+        if matches!(job, JobKind::Upgrade(_)) {
+            u.script.frame = 1;
+        }
         true
     }
 
@@ -445,6 +470,8 @@ impl World {
             } else {
                 job.progress + 1
             };
+            // "Progress": the mana byte holds the shown progress, floor(counter × 255 / total).
+            u.mana = (job.progress as u32 * 255 / job.steps as u32) as u8;
             return;
         }
         let job = *job;
@@ -452,7 +479,13 @@ impl World {
     }
 
     fn end_job(&mut self, i: usize, job: Job) {
-        self.units[i].job = None;
+        // "Ending": the mana byte goes back to 0, and a building upgrade's frame to 0.
+        let u = &mut self.units[i];
+        u.job = None;
+        u.mana = 0;
+        if matches!(job.kind, JobKind::Upgrade(_)) {
+            u.script.frame = 0;
+        }
         if job.running {
             self.start_anim(i, anim::STILL);
         }
@@ -873,6 +906,107 @@ mod tests {
         run(&mut w, 40);
         let u = w.unit(hall).unwrap();
         assert_eq!((u.kind, u.hp), (kind::KEEP, 1200));
+    }
+
+    #[test]
+    fn the_mana_byte_shows_a_jobs_progress() {
+        // Build-train spec, round-33 vector (Human04 great hall 1550 trains a peon, total 90): 1 from the payment, then
+        // floor(counter × 255 / 90) after each run (2, 5, 8, ... 252, 255), and 0 when the unit appears. Frame 0
+        // throughout.
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[2].build_time = 45;
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 2,
+        }]);
+        let look = |w: &World| {
+            let u = w.unit(hall).unwrap();
+            (u.mana, u.script.frame)
+        };
+        assert_eq!(look(&w), (1, 0));
+        let n = w.units.len();
+        let mut shown = vec![1];
+        while w.units.len() == n {
+            w.step(&[]);
+            let (mana, frame) = look(&w);
+            assert_eq!(frame, 0);
+            if shown.last() != Some(&mana) {
+                shown.push(mana);
+            }
+        }
+        let expected: Vec<u8> = [1]
+            .into_iter()
+            .chain((1..=90).map(|k| (k * 255 / 90) as u8))
+            .chain([0])
+            .collect();
+        assert_eq!(&shown[..8], [1, 2, 5, 8, 11, 14, 17, 19]);
+        assert_eq!(shown, expected);
+    }
+
+    #[test]
+    fn construction_keeps_its_shown_progress_and_look() {
+        // Build-train spec, round-33 vector (orc4 farm 1534): the mana byte holds the shown progress at every step,
+        // the frame is 1 from 64/255, and completion sets both back to 0.
+        let (mut w, _) = town();
+        w.stats.0[0x3e].hit_points = 400;
+        w.stats.0[0x3e].build_time = 100;
+        let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
+        let look = |w: &World| {
+            let u = w.unit(b).unwrap();
+            (u.mana, u.script.frame)
+        };
+        assert_eq!(look(&w), (0, 0));
+        let mut crossed = false;
+        for pass in 1..1212 {
+            w.step(&[]);
+            let (mana, frame) = look(&w);
+            if pass % 12 == 0 {
+                assert_eq!(Some(mana), w.construction_progress(b), "pass {pass}");
+            }
+            assert_eq!(frame, u8::from(mana >= 64), "pass {pass}");
+            crossed |= frame == 1;
+        }
+        assert!(crossed);
+        assert_eq!(look(&w), (255, 1));
+        w.step(&[]);
+        assert_eq!(w.unit(b).unwrap().construction, None);
+        assert_eq!(look(&w), (0, 0));
+    }
+
+    #[test]
+    fn a_building_upgrade_shows_frame_1_of_the_new_picture() {
+        // Build-train spec, round-33 vector (xhuman4 tower 1423): frame 1 from the upgrade's start through order 37,
+        // frame 0 when the type changes. A cancelled upgrade goes back to frame 0 and the old picture.
+        for cancel in [false, true] {
+            let (mut w, hall) = town();
+            w.rules.enforce_requirements = false;
+            w.stats.0[kind::KEEP as usize].build_time = 20;
+            w.step(&[Command::Upgrade {
+                player: 0,
+                building: hall,
+                to: kind::KEEP,
+            }]);
+            let u = w.unit(hall).unwrap();
+            assert_eq!((u.kind, u.picture(), u.script.frame, u.mana), (HALL, kind::KEEP, 1, 1));
+            run(&mut w, 30);
+            let u = w.unit(hall).unwrap();
+            assert!(u.job.is_some_and(|j| j.running));
+            assert_eq!((u.kind, u.picture(), u.script.frame), (HALL, kind::KEEP, 1));
+            if cancel {
+                w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            } else {
+                run(&mut w, 300);
+            }
+            let u = w.unit(hall).unwrap();
+            let kind = if cancel { HALL } else { kind::KEEP };
+            assert_eq!(
+                (u.job, u.kind, u.picture(), u.script.frame, u.mana),
+                (None, kind, kind, 0, 0),
+                "cancel {cancel}"
+            );
+        }
     }
 
     #[test]

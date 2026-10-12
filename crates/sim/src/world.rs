@@ -250,8 +250,10 @@ pub struct Unit {
     pub construction: Option<Construction>,
     /// A building's training or upgrade job.
     pub job: Option<Job>,
-    /// Mana, and its regeneration counter (spells spec, "Timers"). A berserker counts its regeneration cycles in
-    /// `mana`.
+    /// The mana byte, and its regeneration counter (spells spec, "Timers"). It starts at the type's "magic" value
+    /// (unit-slots spec, "Creating a unit", step 3). A berserker counts its regeneration cycles in it, a decaying unit
+    /// its decay periods left, and a building its shown construction or job progress on a 0 to 255 scale
+    /// (build-train spec).
     pub mana: u8,
     pub mana_counter: u8,
     /// Invisibility spell timer; the unit is invisible while above 0 (the vision rules read it).
@@ -264,8 +266,7 @@ pub struct Unit {
     pub marks: u8,
     /// Created during play with a decay rate: it decays (spells spec, "Summoned units and decay").
     pub decays: bool,
-    /// Decay periods left before the unit starts losing hit points, and the cycles left in the current period.
-    pub decay_period: u8,
+    /// The cycles left in the current decay period; the periods left are in [`Unit::mana`].
     pub decay_count: u8,
     /// Players 0 to 7 that can see this unit at all (bit p), recomputed in phase 1 (vision spec, "Detection").
     pub detected_by: u8,
@@ -315,6 +316,19 @@ impl Unit {
 
     pub fn alive(&self) -> bool {
         !self.dying
+    }
+
+    /// The unit type whose picture draws this unit: during a building upgrade, the new type's, while the type stays
+    /// the old one (build-train spec, "Starting"). Which frame of it the upgrade's frame 1 shows is that spec's open
+    /// question "Upgrade picture"; we draw frame 1.
+    pub fn picture(&self) -> u8 {
+        match self.job {
+            Some(crate::economy::Job {
+                kind: crate::economy::JobKind::Upgrade(to),
+                ..
+            }) => to,
+            _ => self.kind,
+        }
     }
 
     /// Alive and not inside a building: something other units can target.
@@ -898,9 +912,11 @@ impl World {
         }
         let id = UnitId(self.next_id);
         self.next_id += 1;
-        let (mut facing, mut variation) = (4, 0);
+        // Unit-slots spec, "Creating a unit", step 3: facing 0; only mobile units then draw one.
+        let (mut facing, mut variation) = (0, 0);
         // Spells spec, "Summoned units and decay": a decaying type created during play makes no facing draw.
         let decays = s.decay_rate != 0 && !self.loading && !building;
+        let caster = s.flags & flags::CASTER != 0 && !building;
         if building {
             variation = (self.rng.draw() % 6) as u8;
         } else if !decays {
@@ -948,15 +964,22 @@ impl World {
             remains: false,
             construction: None,
             job: None,
-            // Spells spec, "Timers": every newly created caster starts with 85 mana and its counter at 40.
-            mana: if s.flags & flags::CASTER != 0 { 85 } else { 0 },
-            mana_counter: if s.flags & flags::CASTER != 0 { 40 } else { 0 },
+            // Unit-slots spec, "Creating a unit", step 3: the type's "magic" value, then the spells spec's rules: a
+            // unit that decays gets 255 (its decay periods), and a caster that isn't a building 85 with its counter
+            // at 40.
+            mana: if caster {
+                85
+            } else if decays {
+                255
+            } else {
+                u8::from(s.magic)
+            },
+            mana_counter: if caster { 40 } else { 0 },
             invisibility: 0,
             flame_shield: 0,
             used: false,
             marks: 0,
             decays,
-            decay_period: if decays { 255 } else { 0 },
             decay_count: if decays { s.decay_rate } else { 0 },
             detected_by: 0xff,
             hidden_from: 0,
@@ -1703,6 +1726,44 @@ pub(crate) mod tests {
         w.stats.0[0x3a].hit_points = 25500;
         let mine = w.spawn(0x3a, 0, (2, 2), 0).unwrap();
         assert_eq!((w.unit(patch).unwrap().hp, w.unit(mine).unwrap().hp), (1, 25500));
+    }
+
+    #[test]
+    fn a_new_units_facing_and_mana_byte() {
+        // Unit-slots spec, "Creating a unit", step 3 (round-33 errata): facing 0, drawn only for mobile units; the mana
+        // byte is the type's "magic" value, 255 for a unit that decays and 85 for a caster that isn't a building.
+        let mut w = field(16, 16);
+        w.stats.0[0x3a].flags |= flags::CASTER;
+        let b = w.spawn(0x3a, 0, (5, 5), 0).unwrap();
+        assert_eq!(w.unit(b).unwrap().mana, 0, "a building gets no caster's mana");
+        w.stats.0[0x3a].flags &= !flags::CASTER;
+        run(&mut w, 50);
+        let u = w.unit(b).unwrap();
+        assert_eq!((u.facing, u.mana), (0, 0), "a building never turns");
+        // Mobile units draw their facing: the critters of the Human04 vector show facings 1 to 7.
+        let facings: std::collections::BTreeSet<u8> = (0..16)
+            .map(|n| {
+                let id = w.spawn(0, 1, (n % 8, 10 + n / 8), 0).unwrap();
+                let u = w.unit(id).unwrap();
+                assert_eq!(u.mana, 0);
+                u.facing
+            })
+            .collect();
+        assert!(facings.len() > 1, "{facings:?}");
+        w.stats.0[0].magic = true;
+        let m = w.spawn(0, 1, (0, 14), 0).unwrap();
+        assert_eq!(w.unit(m).unwrap().mana, 1);
+        w.stats.0[0].flags |= flags::CASTER;
+        let c = w.spawn(0, 1, (1, 14), 0).unwrap();
+        assert_eq!(w.unit(c).unwrap().mana, 85);
+        // A decaying type: 255 during play, its "magic" value while the map loads.
+        w.stats.0[8].decay_rate = 3;
+        let d = w.spawn(8, 1, (2, 14), 0).unwrap();
+        let u = w.unit(d).unwrap();
+        assert_eq!((u.facing, u.mana), (0, 255), "no facing draw for a summoned unit");
+        w.loading = true;
+        let l = w.spawn(8, 1, (3, 14), 0).unwrap();
+        assert_eq!(w.unit(l).unwrap().mana, 0);
     }
 
     #[test]

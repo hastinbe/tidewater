@@ -1,21 +1,14 @@
 //! Runs `twtool oracle` on real traces of the original game (`docs/specs/oracle/trace-format.md`), when they are on
 //! this machine: set `TIDEWATER_ORACLE_TRACES` to the directory holding the trace files and `TIDEWATER_INSTALL` to the
-//! game's installation. Without both, the test does nothing. Both traces must match. Human04 is compared without the
-//! sprite frame: no spec gives the gold mine's "active" look as a frame, nor the frame a take-over leaves.
+//! game's installation. Without both, the test does nothing. Both traces must match on every field.
 
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Trace file, map, campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering) and
-/// fields left out.
-const TRACES: [(&str, &str, u8, &[&str]); 2] = [
-    ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[]),
-    (
-        "human04-3000.jsonl.gz",
-        "Campaign\\Human\\Human04.pud",
-        6,
-        &["--fields=-unit.frame"],
-    ),
+/// Trace file, map and campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering).
+const TRACES: [(&str, &str, u8); 2] = [
+    ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0),
+    ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6),
 ];
 
 #[test]
@@ -28,7 +21,7 @@ fn compares_real_traces_when_present() {
         return;
     };
     let mut ran = 0;
-    for (file, map, entry, fields) in TRACES {
+    for (file, map, entry) in TRACES {
         let trace = PathBuf::from(&dir).join(file);
         if !trace.is_file() {
             eprintln!("skipped {file}: not found");
@@ -40,7 +33,6 @@ fn compares_real_traces_when_present() {
                 .arg("--install")
                 .arg(&install)
                 .args(["--map", map, "--entry", &entry.to_string()])
-                .args(fields)
                 .args(extra)
                 .arg(&trace)
                 .output()

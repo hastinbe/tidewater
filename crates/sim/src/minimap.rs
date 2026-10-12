@@ -131,7 +131,7 @@ impl World {
         let me = bit(self.vision.local);
         for u in self.units.iter_mut().filter(|u| u.building && u.hidden_from & me == 0) {
             u.look = Look(Some(Picture {
-                kind: u.kind,
+                kind: u.picture(),
                 frame: u.script.frame,
                 facing: u.facing,
             }));
