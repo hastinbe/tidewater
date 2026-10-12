@@ -77,6 +77,9 @@ pub struct Victory {
     pub countdown: u32,
     /// `None` until a campaign mission starts: the custom-scenario or multiplayer rule, by [`crate::Rules`].
     pub rule: Option<Rule>,
+    /// The campaign mission table entry being played, set by [`World::start_campaign`]; `None` in a custom scenario
+    /// or a network game. The damage spec's Dark Portal case reads it.
+    pub campaign: Option<u8>,
     /// The local player has an outcome; no more checks run.
     pub over: bool,
 }
@@ -86,6 +89,7 @@ impl Default for Victory {
         Victory {
             countdown: 1,
             rule: None,
+            campaign: None,
             over: false,
         }
     }
@@ -247,6 +251,7 @@ impl World {
         use mode::*;
         let rule = mission_rule(entry);
         self.victory.rule = Some(rule);
+        self.victory.campaign = Some(entry);
         let Rule::Mission { mode, required } = rule else {
             return;
         };

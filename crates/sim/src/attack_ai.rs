@@ -8,8 +8,6 @@
 //! - A "gold store" is a unit with flag bit 12 that is not gone (complete or not).
 //! - The ferry's "last passenger in slot order" is the last filled passenger slot of the transport; a passenger
 //!   without a goal tile lands at the transport's own tile.
-//! - The ferry's gather step keeps assigning candidates after 6 have been told to board (the spec's test vector:
-//!   the 7th and 8th are assigned, with no command).
 //! - Command 4 with a target unit moves toward that unit's tile at the time of the command (order 4 keeps a tile).
 //! - The weights are computed from the world's unit and animation data (the map's own unit data when it has some).
 //! - Spell casting by computer units is not covered (spec, open question "Caster AI"): casters run their goal.
@@ -1156,9 +1154,13 @@ impl World {
             any = true;
             let area = u.goal.area;
             self.units[k].goal.transport = Some(tid);
-            if area == *trip.get_or_insert(area) && count < FERRY_LOAD {
+            if area == *trip.get_or_insert(area) {
                 self.smart_move(k, Some(tid), here);
                 count += 1;
+                // When 6 have been counted the walk stops: later units keep their assigned transport.
+                if count == FERRY_LOAD {
+                    break;
+                }
             }
         }
         if !any && let Some(s) = self.nearest_store(owner, ti) {
@@ -2041,29 +2043,63 @@ mod tests {
         (w, t)
     }
 
-    #[test]
-    fn a_transport_gathers_six_and_assigns_the_rest() {
-        let (mut w, t) = harbour();
+    /// Eight grunts of player 1 that need a ferry to (60, 10), in player 1's list order.
+    fn ferry_grunts(w: &mut World) -> Vec<UnitId> {
         let grunts: Vec<UnitId> = (0..8)
             .map(|k| {
-                let g = spawn(&mut w, GRUNT, 1, (10 + k, 10));
-                w.set_goal(ix(&w, g), GoalKind::Attack, Some((60, 10)));
+                let g = spawn(w, GRUNT, 1, (10 + k, 10));
+                w.set_goal(ix(w, g), GoalKind::Attack, Some((60, 10)));
                 g
             })
             .collect();
-        assert!(grunts.iter().all(|&g| at(&w, g).goal.needs_ferry));
-        w.run_goals();
-        let list: Vec<UnitId> = w
-            .list_of(1)
+        assert!(grunts.iter().all(|&g| at(w, g).goal.needs_ferry));
+        w.list_of(1)
             .into_iter()
             .map(|i| w.units[i].id)
             .filter(|g| grunts.contains(g))
-            .collect();
+            .collect()
+    }
+
+    fn boards(w: &World, g: UnitId, t: UnitId) -> bool {
+        matches!(at(w, g).pending, Some(Order::Board { transport }) if transport == t)
+    }
+
+    #[test]
+    fn a_transport_gathers_six_and_stops() {
+        let (mut w, t) = harbour();
+        let list = ferry_grunts(&mut w);
+        w.run_goals();
+        // The first 6 in list order are assigned and told to board; the walk stops there, so the other 2 keep their
+        // old assignment (none).
         for (n, g) in list.iter().enumerate() {
             let u = at(&w, *g);
-            assert_eq!(u.goal.transport, Some(t));
-            let boards = matches!(u.pending, Some(Order::Board { transport }) if transport == t);
-            assert_eq!(boards, n < 6, "unit {n}: {:?}", u.pending);
+            assert_eq!(u.goal.transport, (n < 6).then_some(t), "unit {n}");
+            assert_eq!(boards(&w, *g, t), n < 6, "unit {n}: {:?}", u.pending);
+        }
+    }
+
+    #[test]
+    fn a_transport_gathers_for_the_first_candidates_area_only() {
+        let (mut w, t) = harbour();
+        // The land east of the water is split: area A (region 3) north of y 32, area B (region 4) south of it.
+        for y in 32..64usize {
+            for x in 54..64usize {
+                w.terrain.regions[y * 64 + x] = 4;
+            }
+        }
+        let list = ferry_grunts(&mut w);
+        // The first in list order is bound for area B; the other 7 for area A.
+        let first = ix(&w, list[0]);
+        w.set_goal(first, GoalKind::Attack, Some((60, 40)));
+        assert_eq!((at(&w, list[0]).goal.area, at(&w, list[1]).goal.area), (4, 3));
+        w.run_goals();
+        // The first fixes the trip area B and boards (count 1). The 7 area-A grunts are all assigned with no command:
+        // only 1 was counted, so the walk goes on to the end of the list.
+        assert_eq!(at(&w, list[0]).goal.transport, Some(t));
+        assert!(boards(&w, list[0], t));
+        for (n, g) in list.iter().enumerate().skip(1) {
+            assert_eq!(at(&w, *g).goal.transport, Some(t), "unit {n}");
+            assert!(!boards(&w, *g, t), "unit {n}: no command");
         }
     }
 
@@ -2224,6 +2260,38 @@ mod tests {
         assert_eq!(at(&w, farm).attacked_by, Some(a));
         run(&mut w, 300);
         assert_eq!(at(&w, farm).attacked_by, None);
+    }
+
+    #[test]
+    fn resting_orders_14_and_33_forget_the_attacker_37_and_59_keep_it() {
+        use crate::economy::{Job, JobKind};
+        use crate::rescue::CIRCLE_OF_POWER;
+        let mut w = game();
+        w.stats.0[CIRCLE_OF_POWER as usize] = building(2, 0);
+        let a = spawn(&mut w, FOOTMAN, 0, (50, 50));
+        // Order 33 for every owner: a human farm forgets too.
+        let human_farm = spawn(&mut w, FARM, 0, (20, 20));
+        // Order 14: a tower.
+        let tower = spawn(&mut w, TOWER, 1, (30, 30));
+        // Order 37: a building training a unit.
+        let hall = spawn(&mut w, TOWN_HALL, 1, (10, 30));
+        um(&mut w, hall).job = Some(Job {
+            kind: JobKind::Train(PEASANT),
+            steps: u16::MAX,
+            progress: 0,
+            running: true,
+            paid: Default::default(),
+        });
+        // Order 59: the circle of power.
+        let circle = spawn(&mut w, CIRCLE_OF_POWER, 1, (40, 10));
+        for b in [human_farm, tower, hall, circle] {
+            um(&mut w, b).attacked_by = Some(a);
+        }
+        run(&mut w, 300);
+        assert_eq!(at(&w, human_farm).attacked_by, None, "order 33");
+        assert_eq!(at(&w, tower).attacked_by, None, "order 14");
+        assert_eq!(at(&w, hall).attacked_by, Some(a), "order 37");
+        assert_eq!(at(&w, circle).attacked_by, Some(a), "order 59");
     }
 
     #[test]

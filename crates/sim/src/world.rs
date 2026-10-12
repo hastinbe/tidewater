@@ -1146,12 +1146,13 @@ impl World {
             if self.is_watching_tower(i) {
                 self.tower(i, fx);
             } else {
-                // Order 33's logic runs at a "step done" with no job; a job's take-over replaces it.
-                let resting = fx.step_done && self.units[i].job.is_none();
+                // Order 33's logic runs at a "step done" with no job; a job's take-over (order 37) replaces it. The
+                // circle of power rests in order 59 instead. Orders 37 and 59 keep the attacker.
+                let resting = fx.step_done && self.units[i].job.is_none() && self.units[i].kind != CIRCLE_OF_POWER;
                 self.work(i, fx.step_done);
                 if resting {
-                    // Order 33's attacker handling, read as the orders spec's "reaction" ("Reacting to an
-                    // attacker"): a building forgets its attacker, so its next hit calls for help again.
+                    // Orders spec, row 33: each time its logic runs it first forgets the building's attacker (for
+                    // every owner), so later hits call for help again.
                     self.units[i].attacked_by = None;
                     self.building_think_tick(i);
                 }

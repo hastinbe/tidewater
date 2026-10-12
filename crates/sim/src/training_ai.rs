@@ -6,7 +6,8 @@
 //!
 //! Our readings where the spec leaves room:
 //! - Order 33's logic runs at each "step done" of a building with no job (`World::advance`); the step done at which a
-//!   newly started job takes over runs the job instead.
+//!   newly started job takes over runs the job instead. It first forgets the building's attacker, then thinks. The
+//!   circle of power rests in order 59, so it neither forgets its attacker nor thinks.
 //! - "In progress" for the two-level upgrades and the ranger line tests the fixed bits of the buttons
 //!   (`ui/command-buttons.md`, "Upgrade and research buttons"); for spells it tests the upgrade data's "affects"
 //!   bits, as "known" does.

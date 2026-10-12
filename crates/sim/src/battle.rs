@@ -1,8 +1,8 @@
 //! Attacks, missiles and death. Spec: `docs/specs/combat/damage.md`, "How an attack delivers damage", "Missile
-//! flight", "Applying damage" and "Splash on impact". Missiles fly by the line rule of `spells/spells.md` ("How
-//! flying effects move"), which `spells.rs` implements as `Line`. The attack order's chase-and-face behaviour and the
-//! range measure are placeholders of our own until their specs land, and the cosmetic cannon smoke isn't simulated
-//! (the spec doesn't name its effect kind).
+//! flight", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by the line rule of
+//! `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack order's
+//! chase-and-face behaviour and the range measure are placeholders of our own until their specs land, and the
+//! cosmetic cannon smoke isn't simulated (the spec doesn't name its effect kind).
 
 use tidewater_formats::script::anim;
 
@@ -24,6 +24,11 @@ const BREATH_LONG_DAMAGE: u8 = 40;
 
 /// The neutral player; it neither attacks nor is attacked.
 const NEUTRAL: u8 = 15;
+
+/// The Dark Portal special case (damage spec, "Applying damage"): the unit types and campaign mission table entries.
+const DARK_PORTAL: u8 = 0x65;
+const KHADGAR: u8 = 0x18;
+const PORTAL_ENTRIES: [u8; 3] = [32, 34, 50];
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Missile {
@@ -273,11 +278,11 @@ impl World {
 
     /// Applies damage from `attacker` to the unit at index `ti`.
     pub(crate) fn damage(&mut self, ti: usize, d: u8, attacker: UnitId) {
-        let t = &mut self.units[ti];
-        if t.dying {
+        if self.units[ti].dying || self.portal_ignores(ti, attacker) {
             return;
         }
         // Damage spec: a target with the used mark gets no notification and no damage.
+        let t = &self.units[ti];
         if t.used || t.inside {
             return;
         }
@@ -297,6 +302,16 @@ impl World {
             self.players[owner].kills += 1;
         }
         self.kill(ti);
+    }
+
+    /// The damage spec's Dark Portal case: in a single-player campaign game on campaign entries 32, 34 and 50, a hit
+    /// on the Dark Portal does nothing, not even the notification, unless the attacker is Khadgar. Our reading: an
+    /// attacker that is no longer in the unit table (a missile whose shooter has gone) is not Khadgar.
+    fn portal_ignores(&self, ti: usize, attacker: UnitId) -> bool {
+        !self.rules.multiplayer
+            && self.victory.campaign.is_some_and(|e| PORTAL_ENTRIES.contains(&e))
+            && self.units[ti].kind == DARK_PORTAL
+            && self.unit(attacker).is_none_or(|a| a.kind != KHADGAR)
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
@@ -914,5 +929,58 @@ mod tests {
         assert_eq!(drawn(start, w.rng), 37);
         assert!((20..=28).contains(&(60 - w.unit(a).unwrap().hp)));
         assert!((8..=16).contains(&(60 - w.unit(b).unwrap().hp)));
+    }
+
+    // ----- the Dark Portal case (damage spec, "Applying damage") ----------------------------------------------
+
+    /// A field with a Dark Portal (type 0x65) of player 1, a footman and Khadgar (type 0x18) of player 0, and the
+    /// campaign entry and game kind given. Returns the world, the portal, the footman and Khadgar.
+    fn portal_world(campaign: Option<u8>, multiplayer: bool) -> (World, UnitId, UnitId, UnitId) {
+        let mut w = field(16, 16);
+        w.stats.0[0x65] = UnitStats {
+            hit_points: 1000,
+            size: (2, 2),
+            flags: flags::BUILDING,
+            ..Default::default()
+        };
+        w.stats.0[0x18] = w.stats.0[FOOTMAN as usize];
+        w.victory.campaign = campaign;
+        w.rules.multiplayer = multiplayer;
+        let portal = w.spawn(0x65, 1, (8, 8), 0).unwrap();
+        let foot = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+        let khadgar = w.spawn(0x18, 0, (3, 2), 0).unwrap();
+        (w, portal, foot, khadgar)
+    }
+
+    fn hit(w: &mut World, target: UnitId, attacker: UnitId) -> (u16, Option<UnitId>) {
+        let ti = w.index(target).unwrap();
+        w.damage(ti, 10, attacker);
+        let t = w.unit(target).unwrap();
+        (t.hp, t.attacked_by)
+    }
+
+    #[test]
+    fn the_dark_portal_takes_hits_only_from_khadgar_on_three_campaign_entries() {
+        for entry in [32, 34, 50] {
+            let (mut w, portal, foot, khadgar) = portal_world(Some(entry), false);
+            assert_eq!(
+                hit(&mut w, portal, foot),
+                (1000, None),
+                "entry {entry}: nothing, not even the notification"
+            );
+            assert_eq!(
+                hit(&mut w, portal, khadgar).0,
+                990,
+                "entry {entry}: Khadgar's hit counts"
+            );
+        }
+        // Other entries, custom scenarios and network games: an ordinary hit.
+        for (campaign, multiplayer) in [(Some(33), false), (Some(4), false), (None, false), (Some(32), true)] {
+            let (mut w, portal, foot, _) = portal_world(campaign, multiplayer);
+            assert_eq!(hit(&mut w, portal, foot).0, 990, "{campaign:?}, network {multiplayer}");
+        }
+        // Only type 0x65 is protected.
+        let (mut w, _, foot, khadgar) = portal_world(Some(32), false);
+        assert_eq!(hit(&mut w, khadgar, foot).0, 50);
     }
 }
