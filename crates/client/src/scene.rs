@@ -91,29 +91,8 @@ pub fn to_rgba(idx: &[u8], pal: &Palette, transparent0: bool, owner: Option<u8>)
     out
 }
 
-/// One frame placed in its sheet's full cell, so every frame of a sheet shares a centre.
-pub fn frame_picture(grp: &Grp, frame: usize, pal: &Palette, owner: u8) -> Picture {
-    let (w, h) = (grp.width as usize, grp.height as usize);
-    let mut idx = vec![0u8; w * h];
-    let f = &grp.frames[frame];
-    for y in 0..f.height as usize {
-        for x in 0..f.width as usize {
-            let (dx, dy) = (f.x as usize + x, f.y as usize + y);
-            let v = f.pixels[y * f.width as usize + x];
-            if v != 0 && dx < w && dy < h {
-                idx[dy * w + dx] = v;
-            }
-        }
-    }
-    Picture {
-        width: w as u32,
-        height: h as u32,
-        rgba: to_rgba(&idx, pal, true, Some(owner)),
-    }
-}
-
-/// Whether map pixel `p` falls on a non-transparent pixel of sheet frame `frame`, drawn as `frame_picture` lays it
-/// out, centred on `centre` and flipped across if `flip` (as the client draws unit sprites). Used by the click rules'
+/// Whether map pixel `p` falls on a non-transparent pixel of sheet frame `frame` placed in its sheet's full cell,
+/// centred on `centre` and flipped across if `flip` (as `view` draws unit sprites). Used by the click rules'
 /// pixel test (spec `ui/selecting-and-commanding.md`, "Selecting").
 pub fn opaque(grp: &Grp, frame: usize, flip: bool, centre: (i32, i32), p: (i32, i32)) -> bool {
     let Some(f) = grp.frames.get(frame) else {

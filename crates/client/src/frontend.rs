@@ -109,6 +109,9 @@ pub struct Flow {
     pub score: Option<ScoreData>,
     /// A game the flow asks to start.
     pub pending: Option<(String, Option<Setup>)>,
+    /// The skip setting: the act screen, the briefing and the score screen are skipped. The `noglues` developer word
+    /// turns it on (`game/cheats.md`, not implemented yet); it lasts across games.
+    pub skip_screens: bool,
 }
 
 /// The installation, fonts and tables the screens use, and audio sources by name.
@@ -210,7 +213,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
                         setup: None,
                     },
                 ];
-                if !cf::screens_skipped(ctrl, false)
+                if !cf::screens_skipped(ctrl, flow.skip_screens)
                     && let Some(a) = flow.memory.act_to_show(e)
                 {
                     then.insert(0, Step::Act(a));
@@ -220,12 +223,19 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
                 }
                 continue;
             }
-            Step::Act(_) | Step::Briefing(_) if cf::screens_skipped(ctrl, false) => continue,
+            Step::Act(_) | Step::Briefing(_) if cf::screens_skipped(ctrl, flow.skip_screens) => continue,
             Step::Act(_) => AppState::Act,
             Step::Briefing(_) => AppState::Briefing,
             Step::Play { map, setup } => {
                 flow.pending = Some((map.clone(), *setup));
                 AppState::Game
+            }
+            Step::Score if flow.skip_screens => {
+                if let Some(s) = flow.score.clone() {
+                    let then = after_score(flow, &s);
+                    flow.steps.push_front(then);
+                }
+                continue;
             }
             Step::Score => AppState::Score,
             &Step::Ending { bdp, race } => {
@@ -394,11 +404,25 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
     })
 }
 
-/// The startup steps ("Startup"): the videos, the title and the main menu.
-pub fn startup_steps(ctrl: bool, play_intro: bool) -> Vec<Step> {
+/// What follows the score screen ("After the score screen"); a defeat puts the campaign total back first.
+fn after_score(flow: &mut Flow, s: &ScoreData) -> Step {
+    match cf::after_score(s.game, s.victory) {
+        Next::Mission(e) => Step::Mission(e),
+        Next::Replay(e) => {
+            flow.total.defeat();
+            Step::Mission(e)
+        }
+        Next::Ending { bdp, race } => Step::Ending { bdp, race },
+        Next::MainMenu | Next::Multiplayer => Step::MainMenu,
+    }
+}
+
+/// The startup steps ("Startup"): the videos, the title and the main menu. `skip_videos` is the setting the `title`
+/// developer word turns on (`game/cheats.md`).
+pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Step> {
     let (videos, _cleared) = cf::startup_videos(cf::StartupInput {
         ctrl,
-        skip_videos: false,
+        skip_videos,
         movies: true,
         play_intro,
     });
@@ -1081,7 +1105,8 @@ fn run_new_campaign(
             flow.game = None;
             let mut v = VecDeque::new();
             if c.bdp() {
-                let movies = front.install.contains(&cf::video_path(cf::video::BDP_INTRO));
+                // Open question default: the movie archive is always available (a missing video is skipped).
+                let movies = true;
                 match cf::bdp_intro(movies, ctrl) {
                     Err(()) => v.push_back(Step::MainMenu),
                     Ok(video) => v.extend(video.map(Step::Video)),
@@ -1614,15 +1639,7 @@ fn run_score(
     };
     let press = pressed(&keys, &mouse);
     if press && sc.finished {
-        let next_step = match cf::after_score(s.game, s.victory) {
-            Next::Mission(e) => Step::Mission(e),
-            Next::Replay(e) => {
-                flow.total.defeat();
-                Step::Mission(e)
-            }
-            Next::Ending { bdp, race } => Step::Ending { bdp, race },
-            Next::MainMenu | Next::Multiplayer => Step::MainMenu,
-        };
+        let next_step = after_score(&mut flow, &s);
         flow.steps = VecDeque::from([next_step]);
         go_on(&mut flow, &front, &keys, &mut next, &mut exit);
         return;
@@ -1844,10 +1861,11 @@ mod tests {
     #[test]
     fn startup_steps_follow_ctrl() {
         assert_eq!(
-            startup_steps(false, true),
+            startup_steps(false, false, true),
             [Step::Video(0), Step::Video(1), Step::Title, Step::MainMenu]
         );
-        assert_eq!(startup_steps(true, true), [Step::MainMenu]);
+        assert_eq!(startup_steps(true, false, true), [Step::MainMenu]);
+        assert_eq!(startup_steps(false, true, true), [Step::Title, Step::MainMenu]);
     }
 
     #[test]

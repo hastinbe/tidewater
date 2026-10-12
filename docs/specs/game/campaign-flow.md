@@ -4,6 +4,11 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 20 (campaign flow)"),
   the game's string tables and dialog files in the `Rez` folder, and the file names of the videos, pictures, speech
   and music. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: restarting a mission from the game menu is now described (`ui/game-menu.md`): it replays
+  the mission through the act screen check and the briefing, with no score screen.
+- **Changes:** 2026-10-12: the skip-setting open question is closed by `game/cheats.md`: the developer words `noglues`
+  (act screen, briefing and score screen) and `title` (startup videos) turn the two settings on and off, and both
+  survive into later games.
 
 ## Behaviour
 
@@ -25,7 +30,8 @@ Game text is given by string table and entry number, counting from 1.
   playback).
 - **Ctrl held:** the Ctrl key is down at the moment of the check. Several steps are skipped while it is held.
 - **Skip setting:** a setting that, when on, skips the act screen, the briefing and the score screen. What turns it
-  on wasn't found (see the open questions). It is off in a normal game.
+  on is the `noglues` developer word, typed or given when the program starts (`game/cheats.md`, "Word codes"). It
+  is off in a normal game and, once on, stays on across games.
 
 ### Videos
 
@@ -237,6 +243,9 @@ adds nothing.
 Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
 because its act was the last shown.
 
+**Restart.** Restarting the scenario from the game menu (`ui/game-menu.md`, "Ending the scenario") replays the same
+mission the same way, with no score screen: the flow goes straight back to "Starting a mission".
+
 ### Endings
 
 - **ToD ending.** A video, then the finale dialog. Which video plays wasn't traced (see the open questions); by
@@ -322,9 +331,6 @@ because its act was the last shown.
 
 ## Open questions
 
-- **Skip setting.** What turns on the setting that skips the act screen, briefing and score screen, and the second
-  setting that skips the startup videos, wasn't found. Both live with the cheat flags; they may be cheats or
-  command-line options. Default: both off.
 - **BDP intro without the movie archive.** The program checks for the movie archive (on the original CD) before the
   BDP intro and returns to the main menu when it is missing. How the GOG release satisfies this check wasn't
   checked. Default: the archive is always available.
@@ -339,4 +345,6 @@ because its act was the last shown.
 - **Multiplayer score screen.** Which players are listed and how in a multiplayer game is left to a later spec.
 - **Ending videos.** The endings' video calls weren't traced. Default: by file name, `HVict_M` / `OVict_M` for the
   ToD endings and `HVicX_M` / `OrcX_M` for the BDP endings, played before the finale dialog.
+- **Campaign total on restart.** Whether a restart from the game menu puts the campaign total back to its value at
+  the start of the mission, as a defeat does, wasn't traced. Default: yes.
 - **Title music.** Track 22 is the same file as the orc briefing track. This wasn't checked by ear.

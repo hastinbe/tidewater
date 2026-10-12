@@ -8,6 +8,7 @@
 
 pub mod acquire;
 pub mod ai;
+mod ai_start;
 pub mod anim;
 pub mod attack_ai;
 mod battle;
@@ -45,7 +46,9 @@ mod world;
 pub use battle::Missile;
 pub use rng::Rng;
 pub use terrain::{Terrain, WallStage};
-pub use world::{Command, Gather, Layer, Order, Player, Rules, Source, SpawnError, Unit, UnitId, World, WorldError};
+pub use world::{
+    Command, Gather, Layer, Order, Player, RELEASED, Rules, Source, SpawnError, Unit, UnitId, World, WorldError,
+};
 
 /// Map pixels per tile.
 pub const TILE_PX: i32 = 32;

@@ -293,6 +293,9 @@ pub struct Unit {
     pub colour: u8,
     /// The minimap's attack mark (minimap spec, "Attack mark"); not game state.
     pub attack_mark: crate::minimap::Mark,
+    /// A building's remembered look for the local player (map-drawing spec, "Buildings and remembered buildings");
+    /// display state, not game state.
+    pub look: crate::minimap::Look,
 }
 
 impl Unit {
@@ -382,7 +385,7 @@ pub struct Player {
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
-pub(crate) const RELEASED: u8 = 0xff;
+pub const RELEASED: u8 = 0xff;
 
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -944,6 +947,7 @@ impl World {
             held: false,
             colour: owner,
             attack_mark: Default::default(),
+            look: Default::default(),
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);
@@ -1085,6 +1089,7 @@ impl World {
         self.timers_pass();
         self.sort_vertical();
         self.unit_visibility();
+        self.remember_looks();
         self.forget_seen_buildings();
         self.flash_pass();
         self.victory_phase();

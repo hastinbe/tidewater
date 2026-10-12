@@ -44,8 +44,21 @@ mod kind {
     pub const CANNON_EXPLOSION: u8 = 0x1a;
 }
 
-/// The total of the waits W of a cosmetic effect's script (spec, "Cosmetic effects"): it is removed during its update
-/// W + 1 cycles after its first update.
+/// The total of the waits A in an effect kind's start animation (spec, "When a new effect first runs"): the effect's
+/// start step, which restarts its script and starts its picture showing, comes A cycles after its first update.
+pub(crate) fn start_cycles(k: u8) -> u16 {
+    match k {
+        0x15 | 0x16 | 0x17 | 0x1a | 0x1c => 1,
+        0x0b => 2,
+        0x04 | 0x13 | 0x14 => 5,
+        0x05 | 0x19 => 11,
+        0x06 => 18,
+        _ => 0,
+    }
+}
+
+/// The total of the waits W of a cosmetic effect's restarted script (spec, "Cosmetic effects"): it is removed during
+/// its update A + 1 + W cycles after its first update.
 fn cosmetic_waits(k: u8) -> u16 {
     match k {
         kind::RUNE => 15,
@@ -206,8 +219,8 @@ pub enum Fx {
         count: u8,
         ended: bool,
     },
-    /// Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A: play their script once and are removed at its step done, W + 1
-    /// cycles after the first update (`cosmetic_waits`).
+    /// Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A: play their script once and are removed at its step done, A + 1 + W
+    /// cycles after the first update (`start_cycles`, `cosmetic_waits`).
     Cosmetic,
     /// Kinds 8 and 9: one flight step, then a touch on a wall.
     Wisp,
@@ -1075,11 +1088,11 @@ impl World {
             // Attack missiles are updated by `battle.rs`.
             Fx::Shot { .. } | Fx::Breath { .. } => true,
             Fx::Cosmetic => {
-                // Sounds spec, "Missile impacts": the impact effects' explosion plays at their first update.
-                if age == 0 && matches!(m.kind, kind::BALLISTA_IMPACT | kind::CANNON_EXPLOSION) {
+                // Sounds spec, "Missile impacts": the impact effects' explosion plays at their start step.
+                if age == start_cycles(m.kind) && matches!(m.kind, kind::BALLISTA_IMPACT | kind::CANNON_EXPLOSION) {
                     self.sound_at_px(m.pos, Sound::Explode);
                 }
-                age <= cosmetic_waits(m.kind) || self.gone(n)
+                age < start_cycles(m.kind) + 1 + cosmetic_waits(m.kind) || self.gone(n)
             }
             Fx::Wisp => match age {
                 0 => true,
@@ -2429,18 +2442,28 @@ mod tests {
     }
 
     #[test]
-    fn cosmetic_effects_are_removed_in_cycle_u_plus_1_plus_w() {
-        for (k, waits) in [(0x0b, 15), (0x15, 12), (0x16, 18), (0x17, 48), (0x19, 12), (0x1a, 12)] {
+    fn cosmetic_effects_are_removed_in_cycle_u_plus_a_plus_1_plus_w() {
+        // (kind, A, W) from the spec's table: removal in U + A + 1 + W.
+        for (k, a, waits) in [
+            (0x0b, 2, 15),
+            (0x15, 1, 12),
+            (0x16, 1, 18),
+            (0x17, 1, 48),
+            (0x19, 11, 12),
+            (0x1a, 1, 12),
+        ] {
             let mut w = lab(32);
             let n = w.new_fx(k, UnitId(0), None, (40, 40), 0, Fx::Cosmetic).unwrap();
             assert_eq!(n, slots::PERMANENT_EFFECTS, "the lowest free slot");
             let rng = w.rng;
-            // Cycle U, the first update, then U + 1 to U + W: still there.
-            for _ in 0..=waits {
+            assert!(!w.missiles[n].as_ref().unwrap().showing(), "not showing when made");
+            // Cycle U, the first update, then U + 1 to U + A + W: still there; showing from the start step U + A.
+            for i in 0..=a + waits {
                 w.advance_missiles();
-                assert!(w.missiles[n].is_some(), "kind {k:#x}");
+                let m = w.missiles[n].as_ref().expect("still there");
+                assert_eq!(m.showing(), i >= a, "kind {k:#x}, update {i}");
             }
-            // Removed during its update in cycle U + 1 + W; the slot is free for the next effect.
+            // Removed during its update in cycle U + A + 1 + W; the slot is free for the next effect.
             w.advance_missiles();
             assert!(w.missiles[n].is_none(), "kind {k:#x}");
             assert_eq!(w.rng, rng, "no draws");
@@ -2449,9 +2472,89 @@ mod tests {
     }
 
     #[test]
+    fn start_animation_waits_follow_the_spec_table() {
+        for (k, a) in [(0x00, 0), (0x02, 0), (0x0c, 0), (0x12, 0), (0x18, 0), (0x1b, 0)] {
+            assert_eq!(start_cycles(k), a, "kind {k:#x}");
+        }
+        for k in [0x15, 0x16, 0x17, 0x1a, 0x1c] {
+            assert_eq!(start_cycles(k), 1, "kind {k:#x}");
+        }
+        assert_eq!(start_cycles(0x0b), 2);
+        for k in [0x04, 0x13, 0x14] {
+            assert_eq!(start_cycles(k), 5, "kind {k:#x}");
+        }
+        assert_eq!((start_cycles(0x05), start_cycles(0x19)), (11, 11));
+        assert_eq!(start_cycles(0x06), 18);
+    }
+
+    #[test]
+    fn the_ground_marker_shows_after_the_updates_of_u_plus_1_to_u_plus_13() {
+        let mut w = lab(32);
+        // The marker is a permanent effect that the client re-makes; here only its showing rule is checked, so it is
+        // updated by hand and kept in its slot.
+        let n = w.new_fx(0x1c, UnitId(0), None, (40, 40), 0, Fx::Cosmetic).unwrap();
+        let mut m = w.missiles[n].clone().unwrap();
+        assert!(!m.showing(), "not drawn when made");
+        m.elapsed = 1;
+        assert!(!m.showing(), "not drawn after U");
+        for i in 1..=13 {
+            m.elapsed = 1 + i;
+            assert!(m.showing(), "drawn after U + {i}");
+        }
+    }
+
+    #[test]
+    fn a_spell_marker_made_in_cycle_c_shows_from_c_plus_1_and_goes_in_c_plus_20() {
+        let mut w = lab(32);
+        let id = w.spawn(0, 0, (5, 5), 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.blink(i);
+        let n = slots::PERMANENT_EFFECTS;
+        for c in 0..=20 {
+            w.advance_missiles();
+            match w.missiles[n].as_ref() {
+                Some(m) => assert_eq!(m.showing(), c >= 1, "update in C + {c}"),
+                None => assert_eq!(c, 20, "removed in C + 20"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_rune_marker_made_in_the_timers_pass_of_cycle_c_goes_in_c_plus_19() {
+        let mut w = lab(32);
+        // A rune one update from making its marker; nothing stands on it.
+        w.runes[0] = Some(Rune {
+            tile: (10, 10),
+            life: 2,
+        });
+        let mut made = None;
+        for c in 0..40 {
+            w.step(&[]);
+            let marker = w.missiles.iter().flatten().find(|m| m.kind == 0x0b);
+            match (made, marker) {
+                (None, Some(m)) => {
+                    assert_eq!(m.elapsed, 0, "first update in the next cycle");
+                    made = Some(c);
+                }
+                (Some(m0), Some(m)) => {
+                    assert_eq!(m.elapsed as i32, c - m0, "updates since");
+                    // Start step in C + 3: shown after the update of C + 3.
+                    assert_eq!(m.showing(), c - m0 >= 3, "cycle C + {}", c - m0);
+                }
+                (Some(m0), None) => {
+                    assert_eq!(c - m0, 19, "removed in C + 19");
+                    return;
+                }
+                (None, None) => {}
+            }
+        }
+        panic!("no rune marker seen ended");
+    }
+
+    #[test]
     fn rune_explosion_runs_from_the_next_cycle() {
         // Spec, "When a new effect first runs": an effect made in the timers pass first runs in the next cycle, so
-        // the rune's explosion (kind 0x17) is gone 50 cycles after the one it was made in.
+        // the rune's explosion (kind 0x17) is gone 51 cycles after the one it was made in.
         let mut w = lab(32);
         let p = caster(&mut w, MAGE, (5, 5), 255);
         strike(&mut w, p, RUNES, None, (10, 10));
@@ -2463,7 +2566,7 @@ mod tests {
             match made {
                 None if live => made = Some(c),
                 Some(m) if !live => {
-                    assert_eq!(c - m, 50);
+                    assert_eq!(c - m, 51);
                     return;
                 }
                 _ => {}

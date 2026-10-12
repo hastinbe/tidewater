@@ -171,27 +171,57 @@ impl World {
             }
             Spacing::None => {}
         }
-        // 5. Blocked: the builder's own ground mark and, for a human player, marks on tiles it doesn't see are ignored.
-        let m = building_mask(s.flags);
-        let human = owner.is_some_and(|p| self.human_controlled(p));
-        let own_tile = b
-            .filter(|u| self.stats_of(u.kind).flags & (flags::PEON | flags::TANKER) != 0)
-            .map(|u| u.tile);
-        let blocked = tiles().any(|(x, y)| {
-            let mut w = self.terrain.word(x, y);
-            if human && owner.is_some_and(|p| self.vision.unseen_by(p, x, y)) {
-                w &= !MARKS;
-            }
-            if own_tile == Some((x, y)) {
-                w &= !bits::UNIT;
-            }
-            w & m != 0
-        });
-        if blocked {
+        // 5. Blocked.
+        if tiles().any(|t| self.tile_blocked(kind, t, builder)) {
             SiteCheck::Blocked
         } else {
             SiteCheck::Allowed
         }
+    }
+
+    /// Whether one site tile carries a bit of building `kind`'s placement mask ("Blocked"): the builder's own ground
+    /// mark and, for a human player, marks on tiles it doesn't see are ignored.
+    fn tile_blocked(&self, kind: u8, (x, y): (i32, i32), builder: UnitId) -> bool {
+        let m = building_mask(self.stats_of(kind).flags);
+        let b = self.unit(builder);
+        let owner = b.map(|u| u.owner);
+        let human = owner.is_some_and(|p| self.human_controlled(p));
+        let own_tile = b
+            .filter(|u| self.stats_of(u.kind).flags & (flags::PEON | flags::TANKER) != 0)
+            .map(|u| u.tile);
+        let mut w = self.terrain.word(x, y);
+        if human && owner.is_some_and(|p| self.vision.unseen_by(p, x, y)) {
+            w &= !MARKS;
+        }
+        if own_tile == Some((x, y)) {
+            w &= !bits::UNIT;
+        }
+        w & m != 0
+    }
+
+    /// The placement image's bad tiles, row by row over the footprint (map-drawing spec, "Placement image"): every
+    /// tile when the outcome is off the map, no shore, too close to a mine or oil, or no oil patch; otherwise each
+    /// tile that is unexplored (as in the "Unexplored" check) or blocked.
+    pub fn bad_site_tiles(&self, kind: u8, site: (i32, i32), builder: UnitId) -> Vec<bool> {
+        let s = self.stats_of(kind);
+        let size = (s.size.0 as i32, s.size.1 as i32);
+        let n = (size.0 * size.1).max(0) as usize;
+        let all_bad = matches!(
+            self.check_site(kind, site, builder),
+            SiteCheck::OffMap
+                | SiteCheck::NoShore
+                | SiteCheck::TooCloseToMine
+                | SiteCheck::TooCloseToOil
+                | SiteCheck::NoOilPatch
+        );
+        if all_bad {
+            return vec![true; n];
+        }
+        let fogged = self.unit(builder).is_some_and(|u| u.owner == self.vision.local) && !self.rules.reveal_map;
+        (0..size.1)
+            .flat_map(|dy| (0..size.0).map(move |dx| (site.0 + dx, site.1 + dy)))
+            .map(|t| (fogged && self.vision.unexplored(t.0, t.1)) || self.tile_blocked(kind, t, builder))
+            .collect()
     }
 }
 
@@ -257,6 +287,27 @@ mod tests {
                     .set_bits(x, y, bits::WATER | if x == x0 { bits::SHORE } else { 0 });
             }
         }
+    }
+
+    #[test]
+    fn placement_image_tiles() {
+        // Map-drawing vectors: a farm with a tree on one site tile; a shipyard on dry land far from water.
+        let (mut w, p) = town();
+        w.terrain.set_bits(11, 10, bits::OBSTACLE);
+        assert_eq!(w.bad_site_tiles(FARM, (10, 10), p), [false, true, false, false]);
+        assert_eq!(w.bad_site_tiles(SHIPYARD, (10, 10), p), [true; 9]);
+        // Off the map: every tile.
+        assert_eq!(w.bad_site_tiles(FARM, (31, 10), p), [true; 4]);
+        // Unexplored tiles are bad for the local player's builder without the cheat.
+        w.rules.reveal_map = false;
+        w.reveal(0, (19, 19), 1);
+        let bad = w.bad_site_tiles(FARM, (20, 20), p);
+        let unexplored: Vec<bool> = [(20, 20), (21, 20), (20, 21), (21, 21)]
+            .iter()
+            .map(|&(x, y)| w.vision.unexplored(x, y))
+            .collect();
+        assert_eq!(bad, unexplored);
+        assert!(bad.contains(&true) && bad.contains(&false), "{bad:?}");
     }
 
     #[test]

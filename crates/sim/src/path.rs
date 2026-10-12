@@ -26,6 +26,8 @@ pub struct Request {
     pub height: i32,
     pub start: (i32, i32),
     pub goal: (i32, i32),
+    /// The goal before rounding to even coordinates (equal to `goal` for one-tile movers): P is measured to it.
+    pub raw_goal: (i32, i32),
     /// Tiles per step: 1, or 2 for ships and flyers.
     pub stride: i32,
     /// The goal zone as an inclusive rectangle (x0, y0, x1, y1): 3 x 3 around a tile goal, or a target's footprint
@@ -37,12 +39,14 @@ pub struct Request {
 impl Request {
     /// A request for a tile goal, its goal zone the 3 x 3 tiles around it.
     pub fn to_tile(width: i32, height: i32, start: (i32, i32), goal: (i32, i32), stride: i32) -> Self {
+        let raw_goal = goal;
         let goal = if stride == 2 { (goal.0 & !1, goal.1 & !1) } else { goal };
         Self {
             width,
             height,
             start,
             goal,
+            raw_goal,
             stride,
             zone: (goal.0 - 1, goal.1 - 1, goal.0 + 1, goal.1 + 1),
             enhanced: true,
@@ -193,6 +197,22 @@ fn minor(a: (i32, i32), b: (i32, i32)) -> i32 {
     (a.0 - b.0).abs().min((a.1 - b.1).abs())
 }
 
+/// Step 4's progress check for a walk from the start to `end` (not equal to it): the progress value, or `None` when
+/// the walk is rejected. P (`end`) is measured to the goal before rounding, S to the rounded goal; the goal zone
+/// plays no part.
+fn progress(req: &Request, end: (i32, i32)) -> Option<i32> {
+    let (s, g) = (req.start, req.goal);
+    let (de, ds) = (chebyshev(end, req.raw_goal), chebyshev(s, g));
+    if de < ds {
+        Some(de)
+    } else if de > ds {
+        None
+    } else {
+        let m = minor(end, req.raw_goal);
+        (m != 0 && m < minor(s, g)).then_some(m)
+    }
+}
+
 /// One wall-following walk with turn sense `p` (step 3), judged and shortened (step 4). Returns the route's steps
 /// and its score.
 fn walk(
@@ -246,22 +266,10 @@ fn walk(
         first = turn(d, -2);
     }
     let end = end?;
-    let (s, g) = (req.start, req.goal);
-    if end == s {
+    if end == req.start {
         return None;
     }
-    let (de, ds) = (chebyshev(end, g), chebyshev(s, g));
-    let progress = if de < ds {
-        de
-    } else if de > ds {
-        return None;
-    } else {
-        let m = minor(end, g);
-        if m == 0 || m >= minor(s, g) {
-            return None;
-        }
-        m
-    };
+    let progress = progress(req, end)?;
     let steps = shorten(req, map, steps)?;
     let score = steps.len() as i32 + progress;
     Some((steps, score))
@@ -366,5 +374,27 @@ mod tests {
         let req = Request::to_tile(10, 10, (4, 4), (9, 9), 1);
         let open = |_: i32, _: i32| false;
         assert_eq!(shorten(&req, &open, vec![N, E, SW, SE]), Some(vec![SE]));
+    }
+
+    #[test]
+    fn progress_ignores_the_goal_zone() {
+        // A one-tile mover at S = (35, 4), G = (38, 5): P = (37, 9) is inside a widened hall zone but farther
+        // from G than S (4 against 3): rejected.
+        let mut req = Request::to_tile(64, 64, (35, 4), (38, 5), 1);
+        req.zone = (36, 3, 41, 10);
+        assert!(req.in_zone((37, 9)));
+        assert_eq!(progress(&req, (37, 9)), None);
+    }
+
+    #[test]
+    fn two_tile_movers_measure_p_to_the_unrounded_goal() {
+        // S = (10, 10), ordered tile (13, 11): G = (12, 10), S's distance 2. P = (12, 12) is 1 from (13, 11).
+        let req = Request::to_tile(64, 64, (10, 10), (13, 11), 2);
+        assert_eq!(req.goal, (12, 10));
+        assert_eq!(progress(&req, (12, 12)), Some(1));
+        // Measured to the rounded G it would be equal (2) with minor-axis distance 0: a one-tile request there
+        // rejects it.
+        let rounded = Request::to_tile(64, 64, (10, 10), (12, 10), 1);
+        assert_eq!(progress(&rounded, (12, 12)), None);
     }
 }

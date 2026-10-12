@@ -62,6 +62,15 @@ pub struct Missile {
     pub fx: Fx,
 }
 
+impl Missile {
+    /// Whether the effect's picture is drawn (map-drawing spec, "Effects"): from its start step on, which comes
+    /// `start_cycles` cycles after its first update. A plain missile shows after its first update, a spell marker
+    /// after the update one cycle later.
+    pub fn showing(&self) -> bool {
+        self.elapsed > crate::spells::start_cycles(self.kind)
+    }
+}
+
 /// Tiles between two footprints along the larger axis: 1 for neighbours, diagonal included.
 fn gap(a: &Unit, b: &Unit) -> i32 {
     let axis = |a0: i32, aw: u8, b0: i32, bw: u8| (b0 - (a0 + aw as i32 - 1)).max(a0 - (b0 + bw as i32 - 1)).max(0);
@@ -358,7 +367,6 @@ impl World {
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
-        self.remember_building(ti);
         self.death_sound(ti);
         let unit = self.units[ti].clone();
         if !self.loading {
@@ -1045,6 +1053,15 @@ mod tests {
     use crate::sound::Sound;
 
     /// A missile of `kind` whose next update is its impact, at `pos`.
+    #[test]
+    fn an_effect_shows_from_its_first_update() {
+        let mut m = landing(missile::BALLISTA, 0, (100, 100));
+        m.elapsed = 0;
+        assert!(!m.showing());
+        m.elapsed = 1;
+        assert!(m.showing());
+    }
+
     fn landing(kind: u8, damage: u8, pos: (i32, i32)) -> crate::Missile {
         crate::Missile {
             kind,
@@ -1108,7 +1125,7 @@ mod tests {
     }
 
     #[test]
-    fn catapult_rock_impact_effect_takes_a_later_slot_and_runs_at_once() {
+    fn catapult_rock_impact_effect_takes_a_later_slot_and_sounds_a_cycle_after_its_first_update() {
         let mut w = range();
         let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
         // Slots 0 to 2 are the permanent effects; the rock is in slot 3, slot 4 is in use and slot 5 is free.
@@ -1123,14 +1140,18 @@ mod tests {
             fx.elapsed, 1,
             "slot 5 comes after slot 3: its first update is in the same cycle"
         );
-        // The rock's impact cue has no file (sounds spec); the effect's explosion follows at its tile.
-        assert_eq!(cues, [impact(missile::CATAPULT, true), Sound::Explode]);
-        let place = w.sounds.cues[1].place;
+        assert!(!fx.showing(), "not showing before its start step");
+        // The rock's impact cue has no file (sounds spec); the effect's explosion follows at its tile, at the start
+        // step one cycle after the first update.
+        assert_eq!(cues, [impact(missile::CATAPULT, true)]);
+        assert_eq!(update_cues(&mut w), [Sound::Explode]);
+        assert!(w.missiles[5].as_ref().unwrap().showing(), "showing from the start step");
+        let place = w.sounds.cues[0].place;
         assert!(
             matches!(place, Some(crate::sound::Place::Tile { tile: (5, 7), .. })),
             "at its tile"
         );
-        // Removed during its update in cycle U + 13: 12 cycles of waits after the restart.
+        // Removed during its update in cycle U + 14: 12 cycles of waits after the restart in U + 1.
         for _ in 0..12 {
             assert!(update_cues(&mut w).is_empty(), "no further sound");
             assert!(w.missiles[5].is_some());
@@ -1146,7 +1167,12 @@ mod tests {
         let cues = update_cues(&mut w);
         assert!(w.missiles[3].is_none());
         assert_eq!(w.missiles[4].as_ref().map(|m| m.kind), Some(0x15));
-        assert_eq!(cues, [impact(missile::BALLISTA, false), Sound::Explode]);
+        assert_eq!(cues, [impact(missile::BALLISTA, false)]);
+        assert_eq!(
+            update_cues(&mut w),
+            [Sound::Explode],
+            "at its start step, a cycle later"
+        );
     }
 
     #[test]
@@ -1162,17 +1188,21 @@ mod tests {
         let fx = w.missiles[3].as_ref().unwrap();
         assert_eq!((fx.kind, fx.elapsed), (0x1a, 0), "not updated yet");
         assert_eq!(cues, [impact(missile::BIG_CANNON, true)]);
+        assert!(
+            update_cues(&mut w).is_empty(),
+            "its first update, in the next cycle: no sound yet"
+        );
         assert_eq!(
             update_cues(&mut w),
             [Sound::Explode],
-            "its explosion at its first update"
+            "its explosion at its start step, a cycle after the first update"
         );
         for _ in 0..12 {
             w.advance_missiles();
         }
         assert!(w.missiles[3].is_some());
         w.advance_missiles();
-        assert!(w.missiles[3].is_none(), "removed in cycle U + 13");
+        assert!(w.missiles[3].is_none(), "removed in cycle U + 14");
     }
 
     #[test]
@@ -1196,12 +1226,12 @@ mod tests {
         let cues = update_cues(&mut w);
         assert_eq!(cues, [impact(missile::SUBMARINE, true)]);
         assert_eq!(w.missiles[4].as_ref().map(|m| m.kind), Some(0x17));
-        for _ in 0..48 {
+        for _ in 0..49 {
             assert!(update_cues(&mut w).is_empty());
             assert!(w.missiles[4].is_some());
         }
         w.advance_missiles();
-        assert!(w.missiles[4].is_none(), "removed in cycle U + 49");
+        assert!(w.missiles[4].is_none(), "removed in cycle U + 50");
     }
 
     #[test]
@@ -1339,7 +1369,7 @@ mod tests {
     }
 
     #[test]
-    fn a_ships_cannon_is_followed_by_smoke_that_lasts_to_c_plus_13() {
+    fn a_ships_cannon_is_followed_by_smoke_that_lasts_to_c_plus_24() {
         let mut w = ships();
         let ship = spawn_at(&mut w, BATTLESHIP, 0, (0, 7), (16, 240));
         let foe = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
@@ -1360,13 +1390,14 @@ mod tests {
             ((16, 240), 0),
             "the shooter's centre, no first update yet"
         );
-        // Updates at C to C + 12 keep it; the one at C + 13 removes it.
-        for cycle in 0..13 {
+        // Updates at C to C + 23 keep it (its start animation waits 11 cycles); the one at C + 24 removes it.
+        for cycle in 0..24 {
             w.advance_missiles();
-            assert!(w.missiles[base + 4].is_some(), "alive at C + {cycle}");
+            let smoke = w.missiles[base + 4].as_ref().expect("alive");
+            assert_eq!(smoke.showing(), cycle >= 11, "showing from C + 11, at C + {cycle}");
         }
         w.advance_missiles();
-        assert!(w.missiles[base + 4].is_none(), "removed in C + 13");
+        assert!(w.missiles[base + 4].is_none(), "removed in C + 24");
     }
 
     #[test]
@@ -1429,7 +1460,7 @@ mod tests {
         let smoke = crate::Missile {
             kind: 0x19,
             fx: crate::spells::Fx::Cosmetic,
-            elapsed: 13,
+            elapsed: 24,
             ..landing(missile::ARROW, 0, (0, 0))
         };
         w.missiles[base] = Some(smoke);

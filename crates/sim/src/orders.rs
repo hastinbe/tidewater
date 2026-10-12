@@ -734,6 +734,12 @@ impl World {
         if u.present() { u.pos.1 } else { acquire::OUT_OF_LIST_Y }
     }
 
+    /// The vertical list, which is also the map view's draw list (map-drawing spec, "The draw list"): pixel y
+    /// ascending, re-sorted once per cycle, with dying, dead and inside units at the front.
+    pub fn draw_list(&self) -> &[UnitId] {
+        &self.ylist
+    }
+
     /// The once-per-cycle sort at the end of phase 4.
     pub(crate) fn sort_vertical(&mut self) {
         let mut list = std::mem::take(&mut self.ylist);
@@ -1057,6 +1063,30 @@ mod tests {
         let ys = |w: &World| w.ylist.iter().map(|id| w.unit(*id).unwrap().pos.1).collect::<Vec<_>>();
         assert_eq!(ys(&w), [32, 96, 192]);
         assert_eq!(w.ylist.len(), ids.len());
+    }
+
+    #[test]
+    fn draw_list_vectors() {
+        // Map-drawing spec, "Test vectors": a unit at y 320 is drawn before (under) one at y 352.
+        let mut w = map();
+        let b = w.spawn(FOOTMAN, 1, (4, 11), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 0, (4, 10), 0).unwrap();
+        assert_eq!(w.draw_list(), [a, b]);
+        // Two units at the same y, A before B; a new unit C at that y goes in front of both.
+        let mut w = map();
+        let a = w.spawn(FOOTMAN, 0, (2, 5), 0).unwrap();
+        let b = w.spawn(FOOTMAN, 0, (4, 5), 0).unwrap();
+        let ab = w.draw_list().to_vec();
+        let c = w.spawn(FOOTMAN, 0, (6, 5), 0).unwrap();
+        let mut want = vec![c];
+        want.extend(ab.iter().copied());
+        assert!(ab.contains(&a) && ab.contains(&b));
+        assert_eq!(w.draw_list(), want);
+        // A dying unit sorts first, under every other unit.
+        let i = at(&w, b);
+        w.units[i].dying = true;
+        w.sort_vertical();
+        assert_eq!(w.draw_list()[0], b);
     }
 
     #[test]

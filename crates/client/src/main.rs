@@ -27,6 +27,7 @@ mod scene;
 mod screen;
 mod sound;
 mod video;
+mod view;
 
 use std::path::PathBuf;
 
@@ -224,10 +225,8 @@ struct Selection {
     minimap_held: bool,
     remembered: mouse::Remembered,
     groups: mouse::GroupKeys,
-    /// The right-click target's flash: unit, palette colour, cycles left.
-    flash: Option<(UnitId, u8, u32)>,
-    /// The ground marker (effect 0x1C): map pixel and cycles left.
-    marker: Option<((i32, i32), u32)>,
+    /// The ground marker (effect slot 2), counted in game cycles.
+    marker: Option<view::Marker>,
 }
 
 impl Selection {
@@ -253,29 +252,17 @@ struct TerrainArt {
     tileset: tidewater_formats::tileset::Tileset,
 }
 
-/// Unit sprites: each type's sheet, and the pictures made from it so far per (type, owner, sheet frame).
+/// The map view's sprite files, palette and fog shapes (`view`, `fog`).
 #[derive(Resource)]
 struct Art {
-    sheets: HashMap<u8, tidewater_formats::grp::Grp>,
+    view: view::Art,
     palette: tidewater_formats::tileset::Palette,
-    made: HashMap<(u8, u8, usize), Handle<Image>>,
+    shapes: fog::Shapes,
 }
 
-impl Art {
-    /// The picture of sheet frame `f` of `kind` in `owner`'s colours, made on first use.
-    fn picture(&mut self, images: &mut Assets<Image>, kind: u8, owner: u8, f: usize) -> Option<Handle<Image>> {
-        let grp = self.sheets.get(&kind)?;
-        let h = self
-            .made
-            .entry((kind, owner, f))
-            .or_insert_with(|| images.add(image(scene::frame_picture(grp, f, &self.palette, owner))));
-        Some(h.clone())
-    }
-}
-
-/// Links a sprite entity to its unit.
+/// The sprite showing the map view's picture (`view::draw`) over the terrain.
 #[derive(Component)]
-struct UnitSprite(UnitId);
+struct ViewSprite;
 
 #[derive(Resource)]
 struct StartZoom(f32);
@@ -310,15 +297,9 @@ impl Hud {
     }
 }
 
-/// The fog overlay picture (one texel per quarter tile) and the sim state it was last drawn from.
-#[derive(Resource)]
-struct FogArt {
-    image: Handle<Image>,
-    drawn: Option<(u32, bool)>,
-}
-
-/// Above every unit (ground 1 to 4 plus a fraction for rows).
-const FOG_Z: f32 = 20.0;
+/// The map view's picture over the terrain, and the placement image over that.
+const VIEW_Z: f32 = 10.0;
+const PLACE_Z: f32 = 11.0;
 
 #[derive(Component)]
 struct MapCamera;
@@ -350,7 +331,7 @@ fn main() -> Result<()> {
             }
             steps
         }
-        (None, None) => frontend::startup_steps(false, !args.no_intro),
+        (None, None) => frontend::startup_steps(false, false, !args.no_intro),
     };
     flow.steps = steps.into();
     let title = args
@@ -387,11 +368,9 @@ fn main() -> Result<()> {
                 pan_and_zoom,
                 play_sounds,
                 update_messages,
-                sync_sprites,
                 redraw_terrain,
-                redraw_fog,
-                draw_selection,
-                draw_ghost,
+                draw_view,
+                draw_placement,
                 update_info,
                 draw_hud,
                 quit_on_escape,
@@ -523,6 +502,11 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         scene.world.step(&orders);
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
+    let view_art = Art {
+        view: view::Art::load(&mut install, std::mem::take(&mut scene.sheets)),
+        palette: scene.palette.clone(),
+        shapes: fog::Shapes::from_vr4(&scene.tileset.minitiles),
+    };
     let speaker = Speaker {
         director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         install,
@@ -602,6 +586,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     });
     world.insert_resource(Time::<Fixed>::from_hz(hz));
     world.insert_resource(selection);
+    world.insert_resource(view_art);
     world.insert_resource(speaker);
     world.insert_resource(panel_ui);
     world.insert_resource(screen_ui);
@@ -627,10 +612,6 @@ fn end_game(mut commands: Commands, q: GameEntities) {
     }
     commands.remove_resource::<Sim>();
     commands.remove_resource::<Loaded>();
-}
-
-fn image(p: scene::Picture) -> Image {
-    image_with(p, RenderAssetUsages::RENDER_WORLD)
 }
 
 fn image_with(p: scene::Picture, usage: RenderAssetUsages) -> Image {
@@ -717,31 +698,22 @@ fn setup(
         image: terrain,
         tileset: scene.tileset,
     });
-    let (map_w, map_h) = (scene.world.terrain.width as u32, scene.world.terrain.height as u32);
-    let fog = images.add(image_with(
-        scene::Picture {
-            width: map_w * 2,
-            height: map_h * 2,
-            rgba: [0, 0, 0, 255].repeat((map_w * map_h * 4) as usize),
-        },
-        RenderAssetUsages::default(),
-    ));
+    // The map view's picture, redrawn every frame for the part of the map in view (`draw_view`).
+    let blank = || {
+        image_with(
+            scene::Picture {
+                width: 1,
+                height: 1,
+                rgba: vec![0; 4],
+            },
+            RenderAssetUsages::default(),
+        )
+    };
     commands.spawn((
-        Sprite {
-            custom_size: Some(size.0),
-            ..Sprite::from_image(fog.clone())
-        },
-        Transform::from_translation(world(size.0.x / 2.0, size.0.y / 2.0, FOG_Z)),
+        Sprite::from_image(images.add(blank())),
+        Transform::from_translation(world(0.0, 0.0, VIEW_Z)),
+        ViewSprite,
     ));
-    commands.insert_resource(FogArt {
-        image: fog,
-        drawn: None,
-    });
-    commands.insert_resource(Art {
-        sheets: scene.sheets,
-        palette: scene.palette.clone(),
-        made: HashMap::new(),
-    });
     // A selection made at the start (`--demo-select`) becomes the synced selection on the first cycle.
     let pending = if sel.units.is_empty() {
         Vec::new()
@@ -764,7 +736,12 @@ fn setup(
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
     });
-    commands.spawn((Sprite::default(), Transform::default(), Visibility::Hidden, Ghost));
+    commands.spawn((
+        Sprite::from_image(images.add(blank())),
+        Transform::default(),
+        Visibility::Hidden,
+        Ghost,
+    ));
 }
 
 /// The fixed timestep for the game speed (timing spec): Enhanced rules use the speed's cycle time, Classic rules the
@@ -816,8 +793,12 @@ fn tick(
     let present = |id: UnitId| w.unit(id).is_some_and(|u| u.present());
     sel.units.retain(|&id| present(id));
     sel.remembered.retain(present);
-    sel.flash = sel.flash.filter(|f| f.2 > 1).map(|(u, c, n)| (u, c, n - 1));
-    sel.marker = sel.marker.filter(|m| m.1 > 1).map(|(p, n)| (p, n - 1));
+    // The ground marker's update in this cycle (map-drawing spec, "Overlays").
+    if let Some(m) = sel.marker.as_mut()
+        && !m.update()
+    {
+        sel.marker = None;
+    }
     let human = sim.human;
     let events = std::mem::take(&mut sim.world.events);
     // A unit that changed owner by rescue leaves the selection (rescue spec, "Owner change").
@@ -861,82 +842,81 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
     }
 }
 
-/// Redraws the fog overlay when the sim's explored or visible map has changed.
-fn redraw_fog(sim: Option<Res<Sim>>, fog: Option<ResMut<FogArt>>, mut images: ResMut<Assets<Image>>) {
-    let (Some(sim), Some(mut fog)) = (sim, fog) else { return };
-    let v = &sim.world.vision;
-    let key = (v.generation, sim.world.rules.reveal_map);
-    if fog.drawn == Some(key) {
-        return;
-    }
-    let Some(mut img) = images.get_mut(&fog.image) else {
-        return;
-    };
-    let (explored, visible) = fog::maps(&sim.world);
-    let px = fog::overlay(explored, visible, v.width, v.height, key.1);
-    if let Some(data) = img.data.as_mut() {
-        data.copy_from_slice(&px);
-        fog.drawn = Some(key);
-    }
+/// The map pixels in view, clipped to the map: left, top, right and bottom (exclusive).
+fn view_px(camera: &Camera, tf: &Transform, proj: &Projection, map: (i32, i32)) -> (i32, i32, i32, i32) {
+    let (l, t, r, b) = view_tiles(camera, tf, proj);
+    let p = TILE_PX as f32;
+    (
+        ((l * p).floor() as i32).clamp(0, map.0),
+        ((t * p).floor() as i32).clamp(0, map.1),
+        ((r * p).ceil() as i32).clamp(0, map.0),
+        ((b * p).ceil() as i32).clamp(0, map.1),
+    )
 }
 
-/// Draw depth: buildings under ground units under ships under aircraft; lower on screen draws in front.
-fn depth(u: &tidewater_sim::Unit) -> f32 {
-    let layer = match (u.building, u.layer) {
-        (true, _) => 1.0,
-        (_, tidewater_sim::Layer::Land) => 2.0,
-        (_, tidewater_sim::Layer::Sea) => 3.0,
-        (_, tidewater_sim::Layer::Air) => 4.0,
-    };
-    layer + u.centre_px().1 as f32 * 1e-5
+/// Puts a picture into a sprite's image and sizes the sprite to it.
+fn show_picture(images: &mut Assets<Image>, sprite: &mut Sprite, width: i32, height: i32, rgba: Vec<u8>) {
+    let (w, h) = (width.max(1) as u32, height.max(1) as u32);
+    let rgba = if width > 0 && height > 0 { rgba } else { vec![0; 4] };
+    if let Some(mut img) = images.get_mut(&sprite.image) {
+        *img = image_with(
+            scene::Picture {
+                width: w,
+                height: h,
+                rgba,
+            },
+            RenderAssetUsages::default(),
+        );
+    }
+    sprite.custom_size = Some(Vec2::new(w as f32, h as f32));
 }
 
-fn sync_sprites(
-    mut commands: Commands,
-    sim: Option<Res<Sim>>,
-    art: Option<ResMut<Art>>,
+/// Draws the map view over the terrain (`view`, spec `ui/map-drawing.md`) every frame, for the part of the map in
+/// view: buildings and ghosts, the unit passes, effects, fog, the ground marker and the selection rectangle.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn draw_view(
+    sim: Option<ResMut<Sim>>,
+    art: Option<Res<Art>>,
+    sel: Res<Selection>,
+    ui: Res<PanelUi>,
+    windows: Query<&Window>,
+    cams: Query<(&Camera, &Transform, &Projection, &GlobalTransform), With<MapCamera>>,
     mut images: ResMut<Assets<Image>>,
-    mut q: Query<(Entity, &UnitSprite, &mut Sprite, &mut Transform, &mut Visibility)>,
+    mut shown: Query<(&mut Sprite, &mut Transform), (With<ViewSprite>, Without<MapCamera>)>,
 ) {
-    let (Some(sim), Some(mut art)) = (sim, art) else { return };
-    let mut drawn = std::collections::HashSet::new();
-    for (e, us, mut sprite, mut tf, mut vis) in &mut q {
-        let Some(u) = sim.world.unit(us.0) else {
-            commands.entity(e).despawn();
-            continue;
-        };
-        drawn.insert(u.id);
-        // Units the local player can't see aren't drawn (vision spec, "Unit visibility").
-        let shown = if fog::unit_shown(&sim.world, u) {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        vis.set_if_neq(shown);
-        // Units inside mines, platforms, depots and transports aren't drawn.
-        sprite.color = if u.inside { Color::NONE } else { Color::WHITE };
-        tf.translation = world(u.centre_px().0 as f32, u.centre_px().1 as f32, depth(u));
-        let Some(frames) = art.sheets.get(&u.kind).map(|g| g.frames.len()) else {
-            sprite.color = Color::NONE;
-            continue;
-        };
-        let (f, flip) = scene::sprite_frame(u, frames);
-        if let Some(h) = art.picture(&mut images, u.kind, u.owner, f)
-            && sprite.image != h
-        {
-            sprite.image = h;
+    let (Some(mut sim), Some(art)) = (sim, art) else { return };
+    let (Ok((camera, tf, proj, gtf)), Ok((mut sprite, mut at))) = (cams.single(), shown.single_mut()) else {
+        return;
+    };
+    let v = &sim.world.vision;
+    let map = (v.width as i32 * TILE_PX, v.height as i32 * TILE_PX);
+    let (l, t, r, b) = view_px(camera, tf, proj, map);
+    let mut canvas = view::Canvas::new(l, t, r - l, b - t);
+    let drag = match (sel.drag_from, windows.single()) {
+        (Some(from), Ok(window)) => cursor_map(window, (camera, gtf)).map(|p| (px(from), px(p))),
+        _ => None,
+    };
+    let local = view::Local {
+        selected: &sel.units,
+        placing: matches!(ui.mode, panel::Mode::Place(_)),
+        marker: sel.marker,
+        drag,
+    };
+    let (frame, stop) = view::frame(&sim.world, &art.view, &canvas, &local);
+    // A flashing unit that is gone or not detected stops flashing at once ("Boxes").
+    for id in stop {
+        if let Some(u) = sim.world.units.iter_mut().find(|u| u.id == id) {
+            u.flash = tidewater_sim::rescue::Flash(0);
         }
-        sprite.flip_x = flip;
     }
-    // Units created during play get a sprite; the next run places it.
-    for u in sim.world.units.iter().filter(|u| !drawn.contains(&u.id)) {
-        commands.spawn((
-            Sprite::default(),
-            Transform::default(),
-            Visibility::Hidden,
-            UnitSprite(u.id),
-        ));
-    }
+    view::draw(&mut canvas, &frame, &art.view, &art.shapes);
+    let rgba = canvas.rgba(&art.palette);
+    show_picture(&mut images, &mut sprite, canvas.width, canvas.height, rgba);
+    at.translation = world(
+        l as f32 + canvas.width.max(1) as f32 / 2.0,
+        t as f32 + canvas.height.max(1) as f32 / 2.0,
+        VIEW_Z,
+    );
 }
 
 /// The map tile holding a point in map pixels.
@@ -944,42 +924,47 @@ fn pointer_tile(at: Vec2) -> (i32, i32) {
     ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX))
 }
 
-/// The building being placed, drawn over its site (spec `ui/placing-buildings.md`, "The site"; the site stays put
-/// while the pointer is off the map view). Our choice: the type's first frame in the owner's colours, half
-/// transparent, above the fog.
-fn draw_ghost(
+/// The placement image (map-drawing spec, "Placement image"): the building's frame 0 in the local player's colours,
+/// with the site check's good and bad tiles as a checkerboard, its top-left on the site's top-left tile. Shown only
+/// while the pointer is over the map view (or at the `--demo-site` tile).
+#[allow(clippy::too_many_arguments)]
+fn draw_placement(
     sim: Option<Res<Sim>>,
-    art: Option<ResMut<Art>>,
+    art: Option<Res<Art>>,
     mut images: ResMut<Assets<Image>>,
     ui: Res<PanelUi>,
     sel: Res<Selection>,
+    hud: Res<Hud>,
+    windows: Query<&Window>,
     mut ghost: Query<(&mut Sprite, &mut Transform, &mut Visibility), With<Ghost>>,
 ) {
     let Ok((mut sprite, mut tf, mut vis)) = ghost.single_mut() else {
         return;
     };
-    let (Some(sim), Some(mut art)) = (sim, art) else { return };
-    let pointer = ui.site.or(ui.demo_pointer);
+    let (Some(sim), Some(art)) = (sim, art) else { return };
+    let over = windows.single().is_ok_and(|w| hud.over_map(w));
+    let pointer = ui.site.filter(|_| over).or(ui.demo_pointer);
     let builder = sel.units.first().and_then(|&id| sim.world.unit(id));
     let (panel::Mode::Place(kind), Some(tile), Some(b)) = (ui.mode, pointer, builder) else {
         vis.set_if_neq(Visibility::Hidden);
         return;
     };
-    let Some(h) = art.picture(&mut images, kind, b.owner, 0) else {
-        vis.set_if_neq(Visibility::Hidden);
-        return;
-    };
-    let size = sim.world.stats.0.get(kind as usize).map_or((1, 1), |s| s.size);
-    let site = sim.world.site_at(kind, tile);
-    let c = (
-        (site.0 * TILE_PX) as f32 + (size.0 as i32 * TILE_PX) as f32 / 2.0,
-        (site.1 * TILE_PX) as f32 + (size.1 as i32 * TILE_PX) as f32 / 2.0,
-    );
-    tf.translation = world(c.0, c.1, FOG_Z + 1.0);
-    if sprite.image != h {
-        sprite.image = h;
+    let size = panel::WorldState {
+        world: &sim.world,
+        local: sim.human,
     }
-    sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.6);
+    .footprint(kind);
+    let site = sim.world.site_at(kind, tile);
+    let bad = sim.world.bad_site_tiles(kind, site, b.id);
+    let base = view::base_of(&sim.world, sim.human);
+    let pic = view::placement_image(art.view.units.get(&kind), base, size, &bad);
+    let rgba = pic.rgba(&art.palette);
+    show_picture(&mut images, &mut sprite, pic.width, pic.height, rgba);
+    tf.translation = world(
+        (site.0 * TILE_PX) as f32 + pic.width as f32 / 2.0,
+        (site.1 * TILE_PX) as f32 + pic.height as f32 / 2.0,
+        PLACE_Z,
+    );
     vis.set_if_neq(Visibility::Inherited);
 }
 
@@ -987,77 +972,6 @@ fn draw_ghost(
 fn cursor_map(window: &Window, cam: (&Camera, &GlobalTransform)) -> Option<Vec2> {
     let p = cam.0.viewport_to_world_2d(cam.1, window.cursor_position()?).ok()?;
     Some(Vec2::new(p.x, -p.y))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_selection(
-    mut gizmos: Gizmos,
-    sim: Option<Res<Sim>>,
-    sel: Res<Selection>,
-    windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
-    ui: Res<PanelUi>,
-    art: Option<Res<Art>>,
-) {
-    let Some(sim) = sim else { return };
-    // Placing a building: its footprint on the site.
-    if let (panel::Mode::Place(kind), Some(tile)) = (ui.mode, ui.site) {
-        let st = panel::WorldState {
-            world: &sim.world,
-            local: sim.human,
-        };
-        let (w, h) = st.footprint(kind);
-        let size = Vec2::new(w as f32, h as f32) * TILE_PX as f32;
-        let site = sim.world.site_at(kind, tile);
-        let c = Vec2::new(site.0 as f32, site.1 as f32) * TILE_PX as f32 + size / 2.0;
-        gizmos.rect_2d(Vec2::new(c.x, -c.y), size, Color::srgb(0.9, 0.9, 0.2));
-    }
-    let green = Color::srgb(0.2, 0.9, 0.2);
-    // Missiles have no sprites yet: draw each as a small square.
-    for m in sim.world.missiles.iter().flatten() {
-        let c = if m.splash {
-            Color::srgb(1.0, 0.5, 0.1)
-        } else {
-            Color::srgb(1.0, 1.0, 0.6)
-        };
-        gizmos.rect_2d(Vec2::new(m.pos.0 as f32, -(m.pos.1 as f32)), Vec2::splat(4.0), c);
-    }
-    for &id in &sel.units {
-        let Some(u) = sim.world.unit(id) else { continue };
-        let size = Vec2::new(u.size.0 as f32, u.size.1 as f32) * TILE_PX as f32;
-        gizmos.rect_2d(
-            Vec2::new(u.centre_px().0 as f32, -(u.centre_px().1 as f32)),
-            size,
-            green,
-        );
-    }
-    // Command feedback: the target's selection box flashes in its palette colour; the marker (effect 0x1C, drawn as
-    // our own shrinking ring until effects have sprites) shows a ground click.
-    let palette = |n: u8| {
-        let c = art.as_ref().map_or([255, 255, 255], |a| a.palette.0[n as usize]);
-        Color::srgb_u8(c[0], c[1], c[2])
-    };
-    if let Some((id, colour, left)) = sel.flash
-        && (left / 4) % 2 == 0
-        && let Some(u) = sim.world.unit(id)
-    {
-        let size = Vec2::new(u.size.0 as f32, u.size.1 as f32) * TILE_PX as f32;
-        gizmos.rect_2d(
-            Vec2::new(u.centre_px().0 as f32, -(u.centre_px().1 as f32)),
-            size + 2.0,
-            palette(colour),
-        );
-    }
-    if let Some((p, left)) = sel.marker {
-        let r = 2.0 + left as f32 / 3.0;
-        gizmos.circle_2d(Vec2::new(p.0 as f32, -(p.1 as f32)), r, green);
-    }
-    if let (Some(from), Ok(window), Ok(cam)) = (sel.drag_from, windows.single(), cams.single())
-        && let Some(at) = cursor_map(window, cam)
-    {
-        let c = (from + at) / 2.0;
-        gizmos.rect_2d(Vec2::new(c.x, -c.y), (at - from).abs(), green);
-    }
 }
 
 fn pan_and_zoom(
@@ -1315,7 +1229,7 @@ fn with_board<R>(
         let (Some(u), Some(art)) = (world.unit(c.id), art) else {
             return false;
         };
-        art.sheets.get(&u.kind).is_some_and(|g| {
+        art.view.units.get(&u.kind).is_some_and(|g| {
             let (f, flip) = scene::sprite_frame(u, g.frames.len());
             scene::opaque(g, f, flip, u.centre_px(), p)
         })
@@ -1328,11 +1242,16 @@ fn px(p: Vec2) -> (i32, i32) {
     (p.x.floor() as i32, p.y.floor() as i32)
 }
 
-/// Starts the feedback of a command: the target flashes in its colour, or the marker shows where the click was.
-fn feedback(sel: &mut Selection, target: Option<(UnitId, u8)>, at: (i32, i32)) {
+/// Starts the feedback of a command: the target's box flashes (its countdown, drawn by the box rule of
+/// `view::box_colour`), or the ground marker shows where the click was.
+fn feedback(sim: &mut Sim, sel: &mut Selection, target: Option<(UnitId, u8)>, at: (i32, i32)) {
     match target {
-        Some((t, colour)) => sel.flash = Some((t, colour, mouse::FLASH_CYCLES)),
-        None => sel.marker = Some((at, mouse::FLASH_CYCLES)),
+        Some((t, _)) => {
+            if let Some(u) = sim.world.units.iter_mut().find(|u| u.id == t) {
+                u.flash = tidewater_sim::rescue::Flash(mouse::FLASH_CYCLES as u8);
+            }
+        }
+        None => sel.marker = Some(view::Marker::new(at)),
     }
 }
 
@@ -1370,7 +1289,7 @@ fn right_click(
     });
     sim.world.acknowledge(sel.units[0]);
     let mark = at.map_or((tile.0 * TILE_PX + 8, tile.1 * TILE_PX + 8), px);
-    feedback(sel, target, mark);
+    feedback(sim, sel, target, mark);
 }
 
 /// A target-mode click: the mode's command at the clicked unit or tile (`at` is `None` on the minimap), then the
@@ -1393,7 +1312,7 @@ fn target_click(
         sim.pending.push(c);
         sim.world.acknowledge(primary);
         let mark = at.map_or((tile.0 * TILE_PX + 8, tile.1 * TILE_PX + 8), px);
-        feedback(sel, hit, mark);
+        feedback(sim, sel, hit, mark);
     }
 }
 

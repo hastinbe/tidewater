@@ -17,6 +17,7 @@
   and dragon breath); the area-spells row is replaced by a row pointing to `spells/spells.md`, "Random draws".
   2026-10-12, round-19 errata (reviewer addition): the launch rows exclude cannon towers as well as guard towers, and
   a shot that finds no free effect slot makes no draws.
+  2026-10-12: the setup-shuffle generator also picks a non-campaign game's music track (`ui/music.md`).
 
 ## Behaviour
 
@@ -111,10 +112,11 @@ Let the state `s` be an unsigned 32-bit integer.
 - The same seed also seeds the platform C library's generator. The simulation never draws from that one; it is used
   only by interface and sound effects, which must not touch the simulation generator.
 
-**Setup shuffles:** shuffling start positions and player colours at game setup uses a separate generator with the
-common recurrence `t ← t × 1103515245 + 12345`. Shuffles happen only at game setup. During play the same generator
-picks sound variants, for example one of four chop sounds each time a worker chops (`economy/harvest.md`, "Lumber").
-No simulation decision found so far draws from it, so the simulation generator's sequence is unaffected.
+**Setup shuffles:** shuffling start positions and player colours at game setup uses a separate generator with the common
+recurrence `t ← t × 1103515245 + 12345`. Shuffles happen only at game setup. During play the same generator picks sound
+variants, for example one of four chop sounds each time a worker chops (`economy/harvest.md`, "Lumber"), and the music
+track of a game that isn't a campaign mission, at game start and when the disco cheat is turned off (`ui/music.md`). No
+simulation decision found so far draws from it, so the simulation generator's sequence is unaffected.
 
 ### What draws random numbers
 

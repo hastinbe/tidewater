@@ -6,9 +6,11 @@
 //! entry into a table index. No Bevy types here.
 //!
 //! Defaults for the spec's open questions:
-//! - The skip setting and the setting that skips the startup videos are off.
-//! - The movie archive counts as available when the install has the BDP intro video; the startup intro plays when
-//!   the "play the intro" bit is set, which is every start (it isn't stored; `--no-intro` clears it).
+//! - The skip setting and the setting that skips the startup videos are off: the developer words that turn them on
+//!   (`game/cheats.md`) aren't implemented yet.
+//! - The movie archive is always available (a video the install lacks is skipped); the startup intro plays when the
+//!   "play the intro" bit is set, which is every start (it isn't stored; `--no-intro` clears it).
+//! - Ctrl isn't read at startup (the window doesn't exist yet), only at the later checks.
 //! - The title and act screen tick is the normal game speed's cycle (40 ms).
 //! - The ending videos are `HVict_M` / `OVict_M` (ToD) and `HVicX_M` / `OrcX_M` (BDP), before the finale.
 //! - A type change doesn't count as a building lost; gathered resources are deliveries (`tidewater_sim`).

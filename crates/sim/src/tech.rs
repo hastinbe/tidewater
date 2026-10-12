@@ -125,7 +125,7 @@ pub fn researcher(n: u8) -> Option<u8> {
 
 /// The level line (an upgrade group) that the level check of upgrade `n` (0 to 23) reads. The lines are fixed by
 /// upgrade number, not read from the upgrade data: weapons, missiles, shields, ship cannons, ship armour, siege.
-fn fixed_line(n: u8) -> usize {
+pub(crate) fn fixed_line(n: u8) -> usize {
     [1, 0, 2, 3, 4, 6][(n / 4) as usize]
 }
 
