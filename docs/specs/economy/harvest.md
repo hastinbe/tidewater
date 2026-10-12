@@ -6,6 +6,7 @@
 - **Changes:** 2026-10-11, round-3 errata: the free tile for coming out is found by the ring search of
   `movement/placement.md` (limit 12, aimed at the tile the unit is heading for); a unit that finds no tile dies. The
   open question is closed.
+  2026-10-11, round-5 errata: the AI hand-off on coming out (order 26, step 3) is for computer players only.
 
 ## Behaviour
 
@@ -77,8 +78,8 @@ When the 150-cycle wait ends and the inside order's logic runs:
 1. The unit becomes idle (order 2) at once.
 2. If it is carrying, its return-to source exists, and that source is a gold mine or oil platform, the source's
    occupant count goes down by 1. When it reaches 0, the "active" look ends.
-3. A **computer-controlled** unit hands control to the AI here (a later spec). If the AI gives it an order, steps 4
-   and 5 are skipped.
+3. A **computer player's** unit (`orders/orders.md`, "Terms") hands control to the AI here (a later spec). If the AI
+   gives it an order, steps 4 and 5 are skipped. Every other player's unit goes straight on to steps 4 and 5.
 4. If it is **carrying**, it looks for the nearest depot (below) and moves there in order 24 (return goods). If there
    is none, it stays idle.
 5. Otherwise, if it has a **return-to source**, it forgets it and heads back there with a harvest command (so a
