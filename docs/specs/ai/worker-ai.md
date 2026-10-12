@@ -9,6 +9,8 @@
 - **Changes:** 2026-10-12, round-22 errata: the job choice's tree search reaches radius 2k + 1 < floor(3N / 4); a gold
   store under construction can be the site-search centre; map-placed buildings get no keep-clear mark; a carrying
   worker with no path is given command 24 to the same depot again.
+- **Changes:** 2026-10-12, round-36 errata: a computer player's building marks the first open entry of its own type when
+  it is created (map load or construction start); the game-start tower, keep and castle cases are removed.
 
 ## Behaviour
 
@@ -102,8 +104,11 @@ stopping at an 0xFF entry. For each entry:
 
 **Done marks.** Each entry can be marked done:
 
-- When a building of a computer player is **completed**, the first entry that is not done and has the same type (after
-  the race change) is marked done.
+- When a building of a computer player is **created**, the first entry that is not done and has the same type (after
+  the race change) is marked done. "Created" covers the buildings the map places (at load, before the first cycle)
+  and a construction site placed in play, so the mark comes when construction starts, not when it ends. There are no
+  special cases: a guard or cannon tower marks a guard or cannon tower entry, never the scout-tower entry (0x40), and
+  a keep or castle marks a keep or castle entry, never 0x98, 0x99 or a town hall entry.
 - When a building of a computer player is **destroyed**, the first entry in list order that is done and whose type
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
@@ -112,10 +117,6 @@ stopping at an 0xFF entry. For each entry:
   and 0x86 to 0x8F when the upgrade line has already reached the level the code asks for; codes 0x82 to 0x85 when
   the item is already researched; and codes 0x90 to 0x97 when the player already knows the human or the orc item of
   the code (its spells-known bit; Data, "Spell bits for done marks at game start").
-- At the start of a game, the buildings the map places mark entries too: a guard or cannon tower marks the first
-  entry 0x40 (scout tower) that isn't done; a keep marks every 0x98 entry and the first 0x4A (town hall) entry that
-  isn't done; a castle marks every 0x98 and 0x99 entry and the first 0x4A entry that isn't done; any other building
-  marks the first entry of its type that isn't done.
 
 Nothing else marks an entry done or clears its mark. In particular nothing marks a research entry done because the
 player can't research it.
@@ -339,7 +340,9 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Computer tanker, depot, no platform, oil patch 7 tiles from the depot, platform affordable | Builds an oil platform on that patch, paid at once |
 | Computer player, build list 0x93, 0x90, 0x91, 0x94; limit 7; a temple, no altar; raise dead already researched | Every scan skips 0x93 (done), sets the request for 0x90 and ends. The requests for 0x91 and 0x94 are never set, so the temple never researches haste |
 | Same list; the player gets an altar and ogre-mage research starts | 0x90 marked done; the next scan reaches 0x91 |
-| Map gives a computer player a castle; build list 0x4A, 0x98, 0x99, 0x4A | At game start entries 1 and 2 (0x98, 0x99) and entry 0 (the first 0x4A) are marked done; entry 3 is not |
+| Map gives a computer player a castle; build list 0x4A, 0x98, 0x99, 0x4A (static study only) | No entry is marked by the castle (a castle entry would be) |
+| `xorc12-ogre-mage-180` (oracle trace), player 3 (human computer): the map gives it a town hall, two barracks, a lumber mill, a blacksmith, two mage towers, three guard towers, three cannon towers and eleven farms; its build list starts town hall, barracks, lumber mill, blacksmith, scout tower, barracks, 0x98 | Entries 0, 1, 2, 3 and 5 are done at n = 1; entry 4 (scout tower) stays open. n = 4: peasant 1540 takes order 28 for a scout tower; player 3's gold 4000 to 3450 and lumber 3000 to 2800 |
+| Computer player whose map gives it a keep; build list starts 0x4A, 0x98 (static study only) | Neither entry is marked by the keep (a keep entry would be) |
 | Spells known at game start 0x4020 (the setup default); build list 0x90 | Not marked done (bit 20 isn't set) |
 | 128 × 128 map; a computer worker comes out of its town hall (top-left (12, 71)) and lumber is wanted; the nearest reachable forest is 20 tiles away | The job choice finds it (radius 20 ≤ 47) and gives command 23 |
 | Same, on a 32 × 32 map, nearest reachable forest 12 tiles from the depot's top-left | Not found (largest radius 11); the worker tries gold |
@@ -359,9 +362,8 @@ An entry is marked done at the start of a game when either bit of its code is se
 - The general placement check adds rules for the site (beyond the masks) that are in `movement/placement.md`; their
   interaction with the border option is assumed to use the unbordered footprint.
 - The all-out attack started by losing buildings is not specified here (it belongs to the attack AI).
-- Whether the game-start marks for placed buildings compare entries after a race change, as completion does, and so
-  whether a stronghold and a fortress mark entries as a keep and a castle do, wasn't traced. Default: the same race
-  change as on completion, with the orc halls and towers treated like the human ones.
+- That a construction site placed in play marks its entry when construction starts (not when it ends) comes from
+  the static study only; no trace shows it yet.
 - A worker inside a depot starts the job choice's tree search from the depot's top-left tile and uses that tile's
   region value. This assumes region values ignore buildings, as `movement/occupancy.md` implies; not checked
   separately.
