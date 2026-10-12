@@ -28,6 +28,9 @@
   2026-10-12, round-37 errata: a dying unit keeps its HP and target, and the killer forgets its target at once; an
   attack cooldown (attack loop + 1) exists and delays the first strike after a target switch; towers fire once per loop
   from their order logic.
+  2026-10-12, round-39 errata: impact effects are created with only kind and position set (destination (0, 0), no
+  target, no shooter, damage 0); a hammer or breath splash needs a free effect slot (none: no splash, sound or effect)
+  and creates a kind 0x17 explosion there; `orc09-repair` and `xorc10` vectors.
 
 ## Behaviour
 
@@ -170,6 +173,8 @@ hit or splash, a cosmetic effect is created at the missile's final pixel positio
 - It takes the lowest free effect slot. If there is none, no effect is made. The missile's own slot is freed only
   after this, so the effect never reuses the missile's slot.
 - Its first update follows `spells/spells.md`, "When a new effect first runs" (it is created by another effect).
+- It is created with only its kind and position set: destination (0, 0), no target, no shooter, damage 0
+  (`spells/spells.md`, "Cosmetic effects"). Nothing is copied from the missile.
 - It changes nothing in the game. It holds its slot until its script's step done, counted from its start step, one cycle
   after its first update (`spells/spells.md`, "When a new effect first runs"): for kind 0x15, six frames with a wait of
   2 each (12 cycles); for kind 0x1A, four frames with a wait of 3 each (12 cycles); for kind 0x17, sixteen frames with a
@@ -203,8 +208,13 @@ remaining distance goes down by the amount moved. It keeps falling below 0, and 
 point. Every step that leaves the remaining distance below 50 is **counted**:
 
 - if the count has already passed the **limit**, the missile ends on this step (after moving);
-- otherwise the count goes up by 1, and when the new count is a multiple of 8 the missile **splashes** at its
-position.
+- otherwise the count goes up by 1, and when the new count is a multiple of 8 the missile **splashes** at its position,
+  if an effect slot is free. The lowest free effect slot is found first; if there is none, nothing more happens on this
+  step: no splash, no sound and no effect. Otherwise the explosion sound (`misc\explode`) plays at the missile's tile,
+  the splash below is applied (its draws included), and a cosmetic **explosion** (kind 0x17) is created in the slot
+  found, at the missile's pixel position, with its other fields zero (`spells/spells.md`, "Cosmetic effects"). It
+  changes nothing in the game, is removed in U + 50, and its first update follows `spells/spells.md`, "When a new effect
+  first runs" (it is created by another effect).
 
 The limit is 25, or 40 if the stored damage is exactly 40. So with the default data (stored damage 8 to 16) the
 count runs 1 to 26, splashes come on counts 8, 16 and 24, and the missile ends on the step after count 26. One
@@ -411,6 +421,9 @@ target's centre):
 | Same, step 30 (C + 30) | Step draw, move to 204 px; count 26 is past 25, so it ends |
 | Same, C + 31 | A takes the stored 12, with no draw |
 | Same, totals | Draws: 3 at launch, 30 step draws, 4 splash draws = 37. A takes 20 to 28 in all, and B 8 to 16 |
+| Same, each of the three splash steps, with an effect slot free | `misc\explode` at the hammer's tile, the splash, then a kind 0x17 explosion at the hammer's pixel position in the lowest free effect slot, with zero fields |
+| A hammer reaches count 8 while every effect slot is in use (static study only) | No splash damage, no draws for hits, no sound, no explosion; the hammer flies on and the count keeps going |
+| `xorc10` (oracle trace), n = 329: the breath of dragon 1562 (type 0x2B; missile in effect slot 3) splashes at pixel (978, 950) | Effect slot 5: kind 0x17 at (978, 950), destination (0, 0), target null, shooter null, damage 0. Units hit: 1513 (40 to 36 HP), 1519 (40 to 27) and 1520 (60 to 58) |
 
 Impact effects:
 
@@ -421,6 +434,7 @@ Impact effects:
 | A battleship's big cannon lands; slot 3 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 3. Slot 3 comes before slot 6, so its first update is in the next cycle and its start step, with `misc\explode`, in the cycle after that |
 | A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
 | A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
+| `orc09-repair-600` (oracle trace), n = 65: the catapult rock of catapult 1494 (in effect slot 3 at n = 64) lands | Effect slot 4: kind 0x15 at (1072, 2768), the rock's final position; destination (0, 0), target null, shooter null, damage 0 |
 
 Cannon smoke and launch slots:
 
