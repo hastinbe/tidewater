@@ -68,9 +68,61 @@ pub fn flee_offset(r: u32, k: i32, two_tile: bool) -> i32 {
     (r % 8) as i32 - 2 + if two_tile { 8 } else { 4 } * k
 }
 
+/// "The halving search" (round-40 errata): the first and last entries (positions in `rows`, the tile rows of the list
+/// after its skipped front entries) that the target search visits for the rows `top` to `bottom`, or `None` when it
+/// visits nothing. The rows are only nearly sorted, so this can differ from an exact partition.
+pub fn row_range(rows: &[i32], top: i32, bottom: i32) -> Option<(usize, usize)> {
+    let (&first_row, &last_row) = (rows.first()?, rows.last()?);
+    if top > last_row || bottom < first_row {
+        return None;
+    }
+    let n = rows.len();
+    let (mut lo, mut hi) = (0, n - 1);
+    let first = loop {
+        let mid = (lo + hi) / 2;
+        let above = rows[mid] < top;
+        if lo == hi || (above && rows.get(mid + 1).is_some_and(|&r| r >= top)) {
+            break if above { mid + 1 } else { mid };
+        }
+        if above {
+            lo = (lo + hi).div_ceil(2);
+        } else {
+            hi = (lo + hi - 1) / 2;
+        }
+    };
+    let (mut lo, mut hi) = (0, n - 1);
+    let last = loop {
+        let mid = (lo + hi) / 2;
+        let below = rows[mid] > bottom;
+        if lo == hi || (below && mid > 0 && rows[mid - 1] <= bottom) {
+            break if below { mid.checked_sub(1)? } else { mid };
+        }
+        if below {
+            hi = (lo + hi - 1) / 2;
+        } else {
+            lo = (lo + hi).div_ceil(2);
+        }
+    };
+    if first > last || rows.get(first).is_none_or(|&r| r > bottom) {
+        return None;
+    }
+    Some((first, last))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_halving_search_vector() {
+        // Orders spec, round-40 vector: rows 1, 2, 5, 5, 6, top row 3, bottom row 5.
+        assert_eq!(row_range(&[1, 2, 5, 5, 6], 3, 5), Some((2, 3)));
+        assert_eq!(row_range(&[1, 2, 5, 5, 6], 7, 9), None);
+        assert_eq!(row_range(&[4, 5], 0, 3), None);
+        assert_eq!(row_range(&[], 0, 3), None);
+        // Nearly sorted: a row-3 entry among row-4 entries is still visited.
+        assert_eq!(row_range(&[1, 4, 3, 4, 4, 9], 2, 4), Some((1, 4)));
+    }
 
     #[test]
     fn one_pass_moves_an_entry_up_to_second_place() {

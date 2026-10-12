@@ -106,6 +106,30 @@ impl World {
         }
         let u = &self.units[i];
         let t = self.unit(target).expect("checked above");
+        if self.within_strike_reach(u, t) {
+            let (uc, tc) = (u.centre_px(), t.centre_px());
+            let b = facing_tile_of(t);
+            self.units[i].path.clear();
+            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
+            return;
+        }
+        let g = self.strike_goal(u, t);
+        match self.move_toward(i, g) {
+            // Orders spec, "No route" (round-40 errata, `xhuman4` axe thrower 1490 at n = 5): order 12 whose fallback
+            // search found nothing new (its run started with that search) goes idle at once, and its idle logic runs
+            // in the same update.
+            Walk::NoPath if matches!(self.units[i].order, Order::Chase { .. }) => self.idle_at_once(i),
+            Walk::NoPath | Walk::Arrived => {
+                self.go_idle(i);
+                self.switch_anim(i, anim::STILL);
+            }
+            Walk::Stepping | Walk::Blocked => {}
+        }
+    }
+
+    /// The goal of a walk toward an attack target: the target's tile or, for a building, the footprint tile of the
+    /// building goal rule, with the attack range as the radius.
+    fn strike_goal(&self, u: &Unit, t: &Unit) -> Goal {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
         let goal = if t.building { building_goal(u.tile, t) } else { t.tile };
@@ -115,22 +139,23 @@ impl World {
             t.tile.0 + t.size.0 as i32,
             t.tile.1 + t.size.1 as i32,
         );
-        if gap(u, t) <= reach {
-            let (uc, tc) = (u.centre_px(), t.centre_px());
-            let b = facing_tile_of(t);
-            self.units[i].path.clear();
-            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
-            return;
-        }
-        let g = Goal {
+        Goal {
             tile: goal,
             radius: reach,
             range: true,
             zone: Some(zone),
-        };
-        if matches!(self.move_toward(i, g), Walk::NoPath | Walk::Arrived) {
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
+        }
+    }
+
+    /// Orders spec, "Attack-move (Enhanced)" (round-40 errata): a unit in order 10 that picked a target heads for it
+    /// until order 12 takes over at its next step done. Our reading: with no route it goes idle as order 10 does
+    /// ("No route"), and once there it waits for the take-over.
+    pub(crate) fn head_for(&mut self, i: usize, target: UnitId) {
+        let Some(t) = self.unit(target) else { return };
+        let g = self.strike_goal(&self.units[i], t);
+        if self.move_toward(i, g) == Walk::NoPath {
+            self.units[i].attacked_by = None;
+            self.idle_at_once(i);
         }
     }
 
@@ -442,7 +467,31 @@ impl World {
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
+        self.kill_as(ti, true);
+    }
+
+    /// [`World::kill`]; `explodes: false` leaves out a building's explosion (our oil patch removal under a new
+    /// platform, which isn't a destruction).
+    pub(crate) fn kill_as(&mut self, ti: usize, explodes: bool) {
         self.death_sound(ti);
+        // Unit-slots spec, "Death, corpses and release" (round-40 errata, `human5` barracks 1529 at n = 1595): a
+        // building other than a wall piece or one with the used mark makes a cosmetic explosion (kind 0x17) at its
+        // centre, 8 px up, in the lowest free effect slot, right after its death sound.
+        let u = &self.units[ti];
+        if explodes
+            && u.building
+            && !u.used
+            && !matches!(
+                u.kind,
+                crate::economy::kind::HUMAN_WALL | crate::economy::kind::ORC_WALL
+            )
+        {
+            let pos = (
+                u.tile.0 * TILE_PX + u.size.0 as i32 * TILE_PX / 2,
+                u.tile.1 * TILE_PX + u.size.1 as i32 * TILE_PX / 2 - 8,
+            );
+            self.splash_explosion(pos);
+        }
         let unit = self.units[ti].clone();
         if !self.loading {
             self.count_lost(unit.owner, unit.building);
@@ -717,6 +766,39 @@ mod tests {
         let p = &w.players[0];
         assert_eq!((p.kills, p.razings, p.score), (0, 1, 100));
         assert_eq!(w.players[1].buildings_lost, 1);
+    }
+
+    /// Unit-slots spec, "Death, corpses and release" (round-40 errata): a destroyed building makes an explosion
+    /// (kind 0x17) at its centre, 8 px up; a wall piece or a building with the used mark makes none.
+    #[test]
+    fn a_destroyed_building_explodes_at_its_centre() {
+        for (kind, used, explodes) in [
+            (0x3b, false, true),
+            (0x3b, true, false),
+            (crate::economy::kind::HUMAN_WALL, false, false),
+        ] {
+            let mut w = world();
+            let b = w.spawn(kind, 1, (5, 5), 0).unwrap();
+            let i = w.index(b).unwrap();
+            w.units[i].building = true;
+            w.units[i].used = used;
+            w.units[i].hp = 10;
+            let size = w.units[i].size;
+            w.damage(i, 255, UnitId(1));
+            let fx: Vec<_> = w
+                .missiles
+                .iter()
+                .flatten()
+                .filter(|m| m.kind == 0x17)
+                .map(|m| m.pos)
+                .collect();
+            let centre = (5 * 32 + size.0 as i32 * 16, 5 * 32 + size.1 as i32 * 16 - 8);
+            assert_eq!(
+                fx,
+                if explodes { vec![centre] } else { vec![] },
+                "kind {kind:#x}, used {used}"
+            );
+        }
     }
 
     /// Damage spec, "Applying damage", the 5-HP vector and `human01-basics` n = 288: a target with 5 HP taking 5

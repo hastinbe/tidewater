@@ -118,14 +118,14 @@ impl World {
         // Spawning keeps the units sorted by slot, so the builder's index may have moved.
         let i = self.index(u.id).expect("the builder is alive");
         let Some(b) = placed else {
-            let size = self.stats_of(kind).size;
-            let on_site =
-                (0..size.0 as i32).contains(&(u.tile.0 - site.0)) && (0..size.1 as i32).contains(&(u.tile.1 - site.1));
-            if !on_site {
-                self.mark(&u, u.tile, Some(u.id));
-            }
+            // Round-40 errata (`xhuman2`, peon 1562 at n = 85): the worker's tile stays marked as occupied by it, and
+            // idle takes over in the same update (still animation, wait 3), not as an immediate order.
+            self.mark(&u, u.tile, Some(u.id));
             self.events.push(Event::CantPlace { player: u.owner, kind });
-            self.give_back_and_stop(i, kind);
+            if self.computer_player(u.owner) {
+                self.refund(u.owner, c);
+            }
+            self.take_over(i, Order::Idle);
             return;
         };
         if let Some(Some(p)) = patch
@@ -137,7 +137,7 @@ impl World {
                 self.units[bi].resources = trips;
             }
             let pi = self.index(p).expect("the patch is alive");
-            self.kill(pi);
+            self.kill_as(pi, false);
         }
         if pays_now {
             self.pay(u.owner, c);
@@ -443,11 +443,11 @@ mod tests {
         assert_eq!(w.unit(p).unwrap().order, Order::Idle);
         assert_eq!(farm_at(&w, (8, 8)), None);
         assert_eq!(w.players[0].gold, 1000);
-        // The builder stands on the site's top-left tile, a footprint tile, so its mark isn't put back
-        // (occupancy spec, "Entering a construction site").
+        // The failed worker goes idle in the same update with wait 3, and its tile stays marked even on the site's
+        // footprint (round-40 errata).
         let u = w.unit(p).unwrap();
         assert_eq!(u.tile, (8, 8));
-        assert_eq!(w.terrain.word(8, 8) & bits::UNIT, 0);
+        assert_ne!(w.terrain.word(8, 8) & bits::UNIT, 0);
         assert!(w.events.iter().any(|e| matches!(e, Event::CantPlace { player: 0, .. })));
     }
 

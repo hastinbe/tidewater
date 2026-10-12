@@ -1011,10 +1011,12 @@ impl World {
         }
         let owner = u.owner;
         let list = self.list_of(owner);
+        // Round-40 errata (`xorc7` destroyer 1423 at n = 953 and 1002): tankers inside a building or platform are
+        // skipped, so the first tanker outside anchors the patrol; with none, the anchor is the unit's own tile.
         let tanker = list
             .iter()
             .copied()
-            .find(|&k| self.unit_flags(&self.units[k]) & flags::TANKER != 0);
+            .find(|&k| self.unit_flags(&self.units[k]) & flags::TANKER != 0 && !self.units[k].inside);
         let depot = tanker
             .and_then(|k| self.nearest_depot(&self.units[k]))
             .and_then(|d| self.unit(d));
@@ -1340,6 +1342,8 @@ impl World {
             let _ = self.command_order(i, &c);
         }
         self.units[i].remembered = None;
+        // Transports spec, "Land and shore targets" (round-40 errata): they run for every command to a transport.
+        let goal = self.transport_goal(i, goal);
         self.command(i, Order::MoveAttack { goal });
     }
 

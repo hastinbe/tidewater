@@ -1165,10 +1165,12 @@ impl World {
                 line.step(&mut m.pos, speed);
                 if line.remaining < 50 {
                     *count += 1;
-                    if matches!(*count, 8 | 16 | 24 | 32 | 40) {
+                    // Round-40 errata: each splash follows the hammer and breath rule. It needs a free effect slot (with
+                    // none, no splash or explosion on that step), and the explosion has only kind and position set.
+                    if matches!(*count, 8 | 16 | 24 | 32 | 40) && self.free_fx_slot().is_some() {
                         let pos = m.pos;
                         self.fx_splash(pos, m.damage, owner);
-                        self.new_fx(kind::EXPLOSION, owner, None, pos, 0, Fx::Cosmetic);
+                        self.splash_explosion(pos);
                     }
                 }
                 true

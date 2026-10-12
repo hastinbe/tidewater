@@ -154,8 +154,7 @@ impl World {
     /// another region for a unit that doesn't fly) is pulled back toward the unit. The line's k steps (one tile each,
     /// even for a two-tile mover) are subtracted from the goal in their order, first step first, and the first k − 1
     /// tiles so made are tested: at the first usable one the goal becomes the tile tested just before it (the goal
-    /// itself for the first). With none usable the goal is kept, or for a transport becomes the unit's tile plus the
-    /// line's last step (round-39 errata).
+    /// itself for the first). With none usable the goal is kept, for transports too (round-40 errata).
     pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
         let u = &self.units[i];
         let mask = u.layer.mask() & !(bits::UNIT | bits::AIR_UNIT);
@@ -179,13 +178,7 @@ impl World {
             }
             before = t;
         }
-        match steps.last() {
-            Some(&d) if self.is_transport(u) => {
-                let v = path::DIRECTIONS[d as usize];
-                (u.tile.0 + v.0, u.tile.1 + v.1)
-            }
-            _ => g,
-        }
+        g
     }
 
     /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec, round-3 errata).
@@ -652,9 +645,10 @@ mod tests {
     }
 
     /// Pathfinding spec, the k − 1 vector: from (0, 0) to (0, 3) with (0, 1) to (0, 3) all unusable, only (0, 2) and
-    /// (0, 1) are tested; none is usable, so the goal is kept, or for a transport becomes (0, 0) + S = (0, 1).
+    /// (0, 1) are tested; none is usable, so the goal is kept, for a transport too (round-40 errata: the fallback to
+    /// the unit's tile plus the last step belongs to the transport's own pull-back).
     #[test]
-    fn the_pull_back_tests_k_minus_1_tiles_and_a_transport_falls_back_to_the_first_tile() {
+    fn the_pull_back_tests_k_minus_1_tiles_and_keeps_the_goal() {
         let mut w = field(20, 20);
         for y in 1..=3 {
             w.terrain.set_bits(0, y, bits::OBSTACLE);
@@ -663,7 +657,7 @@ mod tests {
         let i = w.index(f).unwrap();
         assert_eq!(w.pull_back(i, (0, 3)), (0, 3));
         w.stats.0[0].flags |= flags::TRANSPORT;
-        assert_eq!(w.pull_back(i, (0, 3)), (0, 1));
+        assert_eq!(w.pull_back(i, (0, 3)), (0, 3));
     }
 
     /// Movement spec, "Blocked rules", and the pathfinding vector: a spell command (orders 38 to 56) with blocked

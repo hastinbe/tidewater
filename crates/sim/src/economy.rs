@@ -526,6 +526,11 @@ impl World {
                 let b = &mut self.units[i];
                 b.kind = k;
                 b.hp = (b.hp as i32 + new as i32 - old as i32).max(1) as u16;
+                // Round-40 errata (`human06-tech`, building 1516 at n = 578): a tower gets order 14, which takes over
+                // in the same update (attack animation, wait 3).
+                if self.stats_of(k).flags & flags::TOWER != 0 {
+                    self.take_over(i, crate::world::Order::TowerWatch { target: None });
+                }
                 if self.rules.enhanced {
                     self.work_complete(i);
                 }

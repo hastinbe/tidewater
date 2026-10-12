@@ -109,6 +109,33 @@ impl World {
         .unwrap_or(k)
     }
 
+    /// "Land and shore targets": for a target tile `g` with the land or shore-water bit, the target unit is dropped
+    /// and, for a transport on open water, the tile is pulled back to shore. Round-40 errata: this runs for every
+    /// command given to a transport, not only the smart move and unload.
+    pub(crate) fn land_and_shore(
+        &self,
+        i: usize,
+        g: (i32, i32),
+        target: Option<UnitId>,
+    ) -> ((i32, i32), Option<UnitId>) {
+        let s = self.units[i].tile;
+        if !self.terrain.contains(g.0, g.1) || self.terrain.word(g.0, g.1) & (bits::LAND | bits::SHORE) == 0 {
+            return (g, target);
+        }
+        let g = if self.open_water(s) { self.shore_target(s, g) } else { g };
+        (g, None)
+    }
+
+    /// The goal tile of a command other than the smart move and unload: [`World::land_and_shore`] for a transport,
+    /// the tile itself for any other unit.
+    pub(crate) fn transport_goal(&self, i: usize, to: (i32, i32)) -> (i32, i32) {
+        if self.is_transport(&self.units[i]) {
+            self.land_and_shore(i, to, None).0
+        } else {
+            to
+        }
+    }
+
     /// A smart move (or, with `unload`, command 29) given to a transport ("Commands given to a transport").
     pub(crate) fn transport_command(
         &mut self,
@@ -117,16 +144,9 @@ impl World {
         tile: (i32, i32),
         unload: bool,
     ) -> Order {
-        let mut g = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
-        let mut target = target;
+        let g = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
         let s = self.units[i].tile;
-        // "Land and shore targets": the target unit is dropped and, from open water, the tile pulled back to shore.
-        if self.terrain.contains(g.0, g.1) && self.terrain.word(g.0, g.1) & (bits::LAND | bits::SHORE) != 0 {
-            target = None;
-            if self.open_water(s) {
-                g = self.shore_target(s, g);
-            }
-        }
+        let (g, target) = self.land_and_shore(i, g, target);
         let u = &mut self.units[i];
         u.ship.target = target;
         u.ship.target_tile = g;

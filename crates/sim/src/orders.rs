@@ -124,13 +124,18 @@ impl World {
     pub(crate) fn command_order(&mut self, i: usize, c: &Command) -> Option<Order> {
         let u = &self.units[i];
         let enhanced = self.rules.enhanced;
+        // Transports spec, "Land and shore targets" (round-40 errata): every command given to a transport runs them.
+        let shore = |to: (i32, i32)| self.transport_goal(i, to);
         let remember = match *c {
-            Command::Patrol { to, .. } => Some(Remembered::Patrol { to, back: u.tile }),
-            Command::AttackMove { to, .. } => Some(Remembered::AttackMove { goal: to }),
+            Command::Patrol { to, .. } => Some(Remembered::Patrol {
+                to: shore(to),
+                back: u.tile,
+            }),
+            Command::AttackMove { to, .. } => Some(Remembered::AttackMove { goal: shore(to) }),
             _ => None,
         };
         let order = match *c {
-            Command::Move { to, .. } => Order::Move { goal: to },
+            Command::Move { to, .. } => Order::Move { goal: shore(to) },
             Command::Stop { .. } => Order::Idle,
             Command::Attack { target, .. } => {
                 if !self.can_attack(u, target) {
@@ -138,8 +143,11 @@ impl World {
                 }
                 Order::Attack { target }
             }
-            Command::AttackMove { to, .. } => Order::AttackMove { goal: to },
-            Command::Patrol { to, .. } => Order::Patrol { to, back: u.tile },
+            Command::AttackMove { to, .. } => Order::AttackMove { goal: shore(to) },
+            Command::Patrol { to, .. } => Order::Patrol {
+                to: shore(to),
+                back: u.tile,
+            },
             Command::StandGround { .. } => Order::StandGround,
             Command::AttackGround { tile, .. } => self.attack_ground_command(i, tile),
             Command::Demolish { target, tile, .. } => self.demolish_command(i, target, tile),
@@ -272,6 +280,14 @@ impl World {
         self.take_over(i, o);
     }
 
+    /// "No route": idle as an immediate order, and the idle logic runs in the same update, straight after.
+    pub(crate) fn idle_at_once(&mut self, i: usize) {
+        self.stop(i);
+        if self.units[i].order == Order::Idle {
+            self.run_order(i);
+        }
+    }
+
     /// An immediate order other than idle.
     fn immediately(&mut self, i: usize, o: Order) {
         self.release_tree(i);
@@ -339,15 +355,20 @@ impl World {
         // and its next logic run loses it as any other attacker does. That spec leaves this run open; in
         // `human01-basics` footman 1593 kills at n = 575 and its next run, at n = 591, gives order 2 with wait 3.
         let forgot = self.units[i].forgot.take() == Some(o);
-        if let Some(t) = target_of(o)
-            && (forgot || !self.holds(self.units[i].owner, t))
-        {
+        let lost = target_of(o).is_some_and(|t| forgot || !self.holds(self.units[i].owner, t));
+        // Round-40 errata: order 12 runs its target search first, and only if it finds nothing new is the target lost.
+        let chase = matches!(o, Order::Chase { .. });
+        if lost && !chase {
             self.lose_target(i);
             return true;
         }
         if let Some(kind) = self.acquires(o)
             && self.acquire(i, kind)
         {
+            return true;
+        }
+        if lost {
+            self.lose_target(i);
             return true;
         }
         match o {
@@ -375,10 +396,7 @@ impl World {
                     // No route: idle as an immediate order, so the idle logic runs in the same update, straight after.
                     Walk::NoPath => {
                         self.units[i].attacked_by = None;
-                        self.stop(i);
-                        if self.units[i].order == Order::Idle {
-                            self.run_order(i);
-                        }
+                        self.idle_at_once(i);
                     }
                     Walk::Stepping | Walk::Blocked => {}
                 }
@@ -396,12 +414,7 @@ impl World {
                 }
                 // "No route" (round-39 errata, `human10` and `xorc7`): an immediate idle whose idle logic runs in the
                 // same update, straight after.
-                Walk::NoPath => {
-                    self.stop(i);
-                    if self.units[i].order == Order::Idle {
-                        self.run_order(i);
-                    }
-                }
+                Walk::NoPath => self.idle_at_once(i),
                 Walk::Stepping | Walk::Blocked => {}
             },
             Order::Follow { target } | Order::Guard { target } => {
@@ -476,7 +489,9 @@ impl World {
                 self.units[i].order = Order::StandGround;
                 self.give(i, Order::StandGround);
             }
-            _ => self.give(i, Order::Idle),
+            // Round-40 errata (`xhuman4` axe thrower 1437, n = 6): order 16 forgets the target and idle takes over in
+            // the same update (still animation, wait 3); the attacker is kept.
+            _ => self.idle_now(i),
         }
     }
 
@@ -554,11 +569,15 @@ impl World {
         {
             return false;
         }
-        // Mages attack by themselves only targets that can't attack, or non-combat units.
-        if s.flags & flags::MAGE_LIKE != 0 && tf & flags::CAN_ATTACK != 0 && !self.non_combat(t) {
-            return false;
-        }
         true
+    }
+
+    /// "Special cases" (round-40 errata): mages score every candidate like any other unit, and the rule is applied to
+    /// the chosen target. A target that can attack and isn't a non-combat unit makes them acquire nothing.
+    fn mage_refuses(&self, u: &Unit, t: &Unit) -> bool {
+        self.flags_of_unit(u) & flags::MAGE_LIKE != 0
+            && self.flags_of_unit(t) & flags::CAN_ATTACK != 0
+            && !self.non_combat(t)
     }
 
     /// The target search ("Automatic target acquisition"). `seed` starts as the best candidate; `tower` uses the
@@ -578,13 +597,15 @@ impl World {
         let extra = tower as i32;
         let (x0, y0, x1, y1) = (u.tile.0 - r, u.tile.1 - r, u.tile.0 + r + extra, u.tile.1 + r + extra);
         let mut best: Option<(i32, UnitId)> = seed.and_then(|a| self.unit(a)).map(|a| (self.score(u, a), a.id));
-        let row = |id: &UnitId| self.unit(*id).map_or(i32::MIN, |t| t.tile.1);
         let gone = |id: &UnitId| self.unit(*id).is_none_or(|t| !t.present());
         let front = self.ylist.iter().take_while(|id| gone(id)).count();
         let list = &self.ylist[front..];
-        let lo = list.partition_point(|id| row(id) < (y0 - SEARCH_ABOVE).max(0));
-        let hi = list.partition_point(|id| row(id) <= y1);
-        for id in list.get(lo..hi.max(lo)).unwrap_or(&[]) {
+        let rows: Vec<i32> = list
+            .iter()
+            .map(|id| self.unit(*id).map_or(i32::MIN, |t| t.tile.1))
+            .collect();
+        let range = acquire::row_range(&rows, (y0 - SEARCH_ABOVE).max(0), y1);
+        for id in range.map_or(&[][..], |(lo, hi)| &list[lo..=hi]) {
             let Some(t) = self.unit(*id) else { continue };
             let inside =
                 t.tile.0 <= x1 && t.tile.0 + t.size.0 as i32 > x0 && t.tile.1 <= y1 && t.tile.1 + t.size.1 as i32 > y0;
@@ -596,7 +617,11 @@ impl World {
                 best = Some((sc, t.id));
             }
         }
-        best.map(|(_, id)| id)
+        let best = best.map(|(_, id)| id)?;
+        if self.unit(best).is_some_and(|t| self.mage_refuses(u, t)) {
+            return None;
+        }
+        Some(best)
     }
 
     /// The order a chosen target gives ("Resulting order").
@@ -649,20 +674,33 @@ impl World {
             return false;
         }
         let o = self.resulting(i, kind, best);
-        // "Same-update take-over" (round-39 errata, `orc02` n = 570): in order 12 a new target out of reach replaces
-        // the old one at once and the order's logic carries on in the same update with it, so the unit keeps heading
-        // for it: no strike, turn or wait of 3. Our reading for a new target in reach: the strike decision and the
-        // restart with wait 3 of "Attack timing (cooldown)" (damage spec), as `orc02` archer 1584 at n = 343 and
-        // `human01-basics` footman 1591 at n = 473 show.
-        if let (Order::Chase { .. }, Order::Chase { target }) = (u.order, o)
-            && self.unit(target).is_some_and(|t| !self.within_strike_reach(u, t))
+        let t = self.unit(best).expect("found by the search");
+        // "Attacking without moving" (round-40 errata, `xhuman2` footman 1548 at n = 34): order 16 doesn't switch to a
+        // new target out of range; the target is forgotten and idle takes over in the same update, attacker kept.
+        if matches!(u.order, Order::IdleReact { .. }) && !self.in_range(u, t) {
+            self.idle_now(i);
+            return true;
+        }
+        let reach = self.within_strike_reach(u, t);
+        // Round-40 errata, "Automatic target acquisition": in order 12 a new target out of reach, with the old target
+        // still held, is given as a command. The target changes at once, the route is dropped and the blocked counter
+        // cleared; order 12 takes over at the next step done (`orc02` footman 1582, n = 570 to 586; `xhuman4`
+        // footman 1497, n = 66). Our reading: the order's logic carries on in this update with the new target, as
+        // the round-39 traces show (the unit keeps heading for it).
+        if let (Order::Chase { target: old }, Order::Chase { target }) = (u.order, o)
+            && !reach
+            && self.holds(u.owner, old)
         {
-            let u = &mut self.units[i];
-            u.order = o;
-            u.path.clear();
-            u.blocked = 0;
-            u.commanded = false;
+            self.units[i].order = o;
+            self.command(i, o);
             self.attack_order(i, target);
+            return true;
+        }
+        // Enhanced attack-move (`xorc01-death-knight` ogre 1488, n = 718): the same command, but the order stays 10
+        // until the next step done and its logic carries on heading for the new target.
+        if let (Order::AttackMove { .. }, Order::Chase { target }) = (u.order, o) {
+            self.command(i, o);
+            self.head_for(i, target);
             return true;
         }
         if matches!(
@@ -757,7 +795,15 @@ impl World {
         if two {
             to = (to.0 & !1, to.1 & !1);
         }
+        // Round-40 errata (`xorc10` footman 1520 at n = 333, `human12` zeppelin 1503 at n = 5668): a unit that isn't in
+        // its move animation takes the move in the same update (wait 3); one in its move animation keeps it pending.
+        // Our reading: the take-over starts the move order's own animation, the still one, as any take-over does.
         self.give(i, Order::Move { goal: to });
+        if self.units[i].script.anim != anim::MOVE
+            && let Some(o) = self.units[i].pending.take()
+        {
+            self.take_over(i, o);
+        }
         self.units[i].attacked_by = None;
         true
     }
@@ -1538,9 +1584,11 @@ mod tests {
         w.units[ai].facing = 2;
         w.units[i].attacked_by = Some(a);
         assert!(w.flee(i));
-        let Some(Order::Move { goal }) = w.units[i].pending else {
-            panic!("expected a move, got {:?}", w.units[i].pending)
+        // The move takes over in the same update (round-40 errata).
+        let Order::Move { goal } = w.units[i].order else {
+            panic!("expected a move, got {:?}", w.units[i].order)
         };
+        assert_eq!(w.units[i].pending, None);
         // (r mod 8) - 2 + 4 east, (r mod 8) - 2 vertically.
         assert!((12..=19).contains(&goal.0) && (8..=15).contains(&goal.1), "{goal:?}");
         assert_eq!(w.units[i].attacked_by, None);

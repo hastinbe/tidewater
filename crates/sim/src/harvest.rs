@@ -214,12 +214,13 @@ impl World {
     /// "Lumber", "No route" (round-39 errata): a unit with the peon flag in order 23, in either gather mode, whose
     /// route search finds no route looks for the nearest tree from its own tile and is given a new harvest command to
     /// it, which takes over in the same update; with no tree (or without the flag) it goes idle. `human5-10000`
-    /// worker 1567 at n = 119 and `orc8-10000` worker 1499 from n = 754.
+    /// worker 1567 at n = 119 and `orc8-10000` worker 1499 from n = 754. Round-40 errata: only the peon flag counts, so
+    /// a tanker goes idle as in "No route" of the orders spec (an immediate idle whose idle logic runs at once).
     fn no_route(&mut self, i: usize) {
         if self.flags_of(self.units[i].kind) & flags::PEON != 0 {
             self.next_tree(i);
         } else {
-            self.idle(i);
+            self.idle_at_once(i);
         }
     }
 
@@ -440,6 +441,8 @@ impl World {
             Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| d.tile),
             Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile),
             Some(Order::Harvest { tree, .. }) => Some(tree),
+            // Round-40 errata: a build order aims at the site's top-left tile, not the build walk's goal tile.
+            Some(Order::Build { site, .. }) => Some(site),
             _ => None,
         };
         let at = self.units[i].tile;
