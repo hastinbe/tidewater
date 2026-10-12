@@ -6,6 +6,7 @@
   the running game, except the `SIDE` races (oracle traces, round 31).
 - **Changes:** 2026-10-12, round-31 errata: the map's `SIDE` race is used as it is for all 16 slots; slots 8 to 15
   are not set to neutral.
+- **Changes:** 2026-10-12, round-35 errata: trace vectors confirm the starting alliances (no change to the rules).
 
 ## Behaviour
 
@@ -318,6 +319,8 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | Mission mode K, circles of power listed at (10, 10) then (40, 40) | The circle's region is the region value at (40, 40) |
 | Code 6 slot after the units | Passive computer, its units keep the rescuable mark |
 | Human01 and Human04 (oracle traces), `SIDE` = 1, then 0 fourteen times, then 2 | Races: orc (slot 0), human (slots 1 to 14), neutral (slot 15) |
+| Campaign; slot 4 has code 6; its units are rescued into the local player's slot during the second start-up cycle (`human10` oracle trace: 1501 and 1505, owner 4 to 6, the local player, at n = 2) | The rescued units never pick the remaining slot-4 units (such as 1507) as targets: both directions are allied |
+| The start-up cases of the round-35 long traces (`human5`, `human7`, `orc8`, `xhuman2`, `xorc7`): units next to code-6 or code-7 units, or computer next to computer | No acquisition between them in the first 400 cycles; `human5` slot 1531 (owner 5, computer) does acquire 1529 (owner 0, code 7) at n = 6, since code 7 is allied with the local player only |
 
 ## Open questions
 
