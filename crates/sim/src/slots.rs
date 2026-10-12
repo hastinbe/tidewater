@@ -22,7 +22,7 @@ pub enum SlotError {
 }
 
 /// The owner lists, the free list among them. Each list is ordered most recently added first.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Slots {
     n: usize,
     lists: [VecDeque<u16>; 16],

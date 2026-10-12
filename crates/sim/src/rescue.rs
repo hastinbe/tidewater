@@ -46,7 +46,7 @@ pub mod flash_colour {
 
 /// The flash countdown of a unit ("Flash"). It depends on the local player, so it doesn't take part in the state
 /// hash: its `Hash` writes nothing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Flash(pub u8);
 
 impl std::hash::Hash for Flash {
@@ -55,7 +55,7 @@ impl std::hash::Hash for Flash {
 
 /// The frozen state of a unit ("Frozen units"). Nothing sets it yet: the commands that freeze and release a worker
 /// haven't been identified (open question).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Freeze {
     #[default]
     None,

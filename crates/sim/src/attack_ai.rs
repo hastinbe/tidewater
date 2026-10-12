@@ -51,7 +51,7 @@ mod t {
 }
 
 /// A unit's goal kind ("Unit goals").
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum GoalKind {
     #[default]
     None = 0,
@@ -66,7 +66,7 @@ pub enum GoalKind {
 
 /// A unit's goal: kind, goal tile, goal land area and the needs-a-ferry mark with its assigned transport. The held
 /// mark is [`Unit::held`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Goal {
     pub kind: GoalKind,
     pub tile: Option<(i32, i32)>,
@@ -76,7 +76,7 @@ pub struct Goal {
 }
 
 /// A threat-map block's terrain kind.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum BlockKind {
     Land,
     Water,
@@ -85,7 +85,7 @@ pub enum BlockKind {
 }
 
 /// One 8 x 8 block of the threat map.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Block {
     pub kind: BlockKind,
     pub dominant: Option<u8>,
@@ -94,7 +94,7 @@ pub struct Block {
 }
 
 /// A player's base box, kept as signed 8-bit values ("The base box").
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BaseBox {
     pub min_x: i8,
     pub min_y: i8,
@@ -152,7 +152,7 @@ pub fn base_box(width: u16, buildings: &[(i32, i32)]) -> BaseBox {
 }
 
 /// The army state kept per game: the pass counter, the threat map, the base boxes and the base-edge side counters.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Army {
     pub countdown: u32,
     /// Blocks per row (map width / 8); rows from the top.

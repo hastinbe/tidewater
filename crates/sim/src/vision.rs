@@ -64,7 +64,7 @@ pub enum Map {
 }
 
 /// Fog state. Display maps are for the local player only; `seen` is per player.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Vision {
     pub width: usize,
     pub height: usize,

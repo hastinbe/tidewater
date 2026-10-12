@@ -12,6 +12,7 @@ mod ai_start;
 pub mod anim;
 pub mod attack_ai;
 mod battle;
+mod bigarray;
 mod build;
 pub mod caster_ai;
 pub mod cheats;
@@ -48,7 +49,8 @@ pub use battle::Missile;
 pub use rng::Rng;
 pub use terrain::{Terrain, WallStage};
 pub use world::{
-    Command, Gather, Layer, Order, Player, RELEASED, Rules, Source, SpawnError, Unit, UnitId, World, WorldError,
+    Command, Gather, Layer, Order, Player, RELEASED, RestoreError, Rules, Source, SpawnError, Unit, UnitId, World,
+    WorldError,
 };
 
 /// Map pixels per tile.

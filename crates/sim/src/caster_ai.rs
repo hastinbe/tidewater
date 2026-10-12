@@ -42,7 +42,7 @@ pub mod mark {
 
 /// What a released unit slot still holds for the random search: its last occupant's type, tile and target marks.
 /// Its owner is 14 and it carries no used mark.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Stale {
     pub kind: u8,
     pub tile: (i32, i32),

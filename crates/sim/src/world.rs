@@ -41,11 +41,11 @@ pub enum SpawnError {
 }
 
 /// Stable unit handle: the unit's creation number, never reused within a game. Slots are reused; ids aren't.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UnitId(pub u32);
 
 /// Which occupancy plane a unit lives on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Layer {
     Land,
     Sea,
@@ -68,7 +68,7 @@ const OIL_PATCH: u8 = 0x5d;
 use crate::rescue::CIRCLE_OF_POWER;
 
 /// A unit's order (orders spec, "The order list"); the spec's number is given on each.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
     /// 2: stop / idle.
     Idle,
@@ -146,7 +146,7 @@ pub enum Order {
 }
 
 /// What a transport stores when given a command (transports spec, "What the transport stores"), and how it moves.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Ship {
     pub target: Option<UnitId>,
     pub target_tile: (i32, i32),
@@ -163,7 +163,7 @@ pub struct Ship {
 pub const PASSENGER_SLOTS: usize = 6;
 
 /// What a worker gathers (harvest spec, "Gather mode and carried goods"). Tankers always gather oil.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Gather {
     #[default]
     None,
@@ -173,20 +173,20 @@ pub enum Gather {
 
 /// A patrol or attack-move remembered in Enhanced mode, to resume after a fight (orders spec, "Resuming patrol and
 /// attack-move").
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Remembered {
     Patrol { to: (i32, i32), back: (i32, i32) },
     AttackMove { goal: (i32, i32) },
 }
 
 /// Where a unit goes back to after delivering.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Source {
     Unit(UnitId),
     Tree((i32, i32)),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Unit {
     pub id: UnitId,
     /// Place in the unit table; units update in ascending slot order.
@@ -321,7 +321,7 @@ impl Unit {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Player {
     pub gold: u32,
     pub lumber: u32,
@@ -388,7 +388,7 @@ pub struct Player {
 pub const RELEASED: u8 = 0xff;
 
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rules {
     /// Unit and effect table sizes (unit-slots spec): Enhanced unless set otherwise.
     pub unit_slots: usize,
@@ -696,6 +696,9 @@ pub struct World {
     /// The cheat flags (cheats spec); hashed once any is on.
     pub cheats: crate::cheats::Cheats,
 }
+
+mod save;
+pub use save::RestoreError;
 
 pub(crate) fn layer_index(l: Layer) -> usize {
     match l {

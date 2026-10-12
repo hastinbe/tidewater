@@ -43,7 +43,7 @@ const WORKERS: [u8; 4] = [0x02, 0x03, 0x10, 0x11];
 const SHIPYARDS: [u8; 2] = [0x48, 0x49];
 
 /// One player's script state ("Per-player state").
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AiPlayer {
     /// Cycles left before the script runs again. `u32::MAX` with no script also never runs.
     pub wait: u32,
@@ -51,6 +51,7 @@ pub struct AiPlayer {
     pub pos: Option<u32>,
     /// Slots by number. Kept apart from the wait counter and position, so a script writing slots 0 to 8 or above
     /// 0x22 (an open question in the spec; no shipped script does) only changes slots.
+    #[serde(with = "crate::bigarray")]
     pub slots: [u8; 256],
     pub build_list: u16,
     pub second_list: u16,
@@ -60,6 +61,7 @@ pub struct AiPlayer {
     pub repairers: u16,
     pub miners: u16,
     pub lumberjacks: u16,
+    #[serde(with = "crate::bigarray")]
     pub in_progress: [u8; 128],
     pub done: u64,
     pub research_requests: u128,
