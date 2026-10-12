@@ -414,6 +414,7 @@ fn main() -> Result<()> {
         .add_plugins(gamemenu::plugin)
         .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
         .add_systems(OnExit(frontend::AppState::Game), end_game)
+        .add_systems(Update, stop_clock.run_if(in_state(frontend::AppState::Game)))
         .add_plugins(cheats::plugin)
         .add_plugins(chat::plugin)
         .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
@@ -701,6 +702,14 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         let (x, y) = r.body.client.screen;
         world.insert_resource(savegame::ResumeLook(Vec2::new(x as f32, y as f32)));
     }
+    // The game clock starts now, from a loaded game's saved reading (Classic saves have none: 0).
+    let (clock, pauses) = savegame::clock_and_pauses(
+        resume.as_ref().and_then(|r| r.body.client.clock_ms),
+        resume.as_ref().and_then(|r| r.body.client.pause_counts),
+        std::time::Instant::now(),
+    );
+    world.insert_resource(clock);
+    world.insert_resource(pauses);
     world.insert_resource(cycling);
     world.insert_resource(Loaded(Some(scene)));
     world.insert_resource(MapSize(size));
@@ -739,6 +748,15 @@ type GameEntities<'w, 's> = Query<
     ),
 >;
 
+/// The game clock stops when the game ends (`savegame::GameClock`).
+fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>) {
+    if let (Some(sim), Some(mut clock)) = (sim, clock)
+        && sim.world.victory.over
+    {
+        clock.stop(std::time::Instant::now());
+    }
+}
+
 /// Leaving the game screen: its entities go (not the front end's camera, pictures or music) and so does the game.
 fn end_game(mut commands: Commands, q: GameEntities) {
     for e in &q {
@@ -746,6 +764,8 @@ fn end_game(mut commands: Commands, q: GameEntities) {
     }
     commands.remove_resource::<Sim>();
     commands.remove_resource::<Loaded>();
+    commands.remove_resource::<savegame::GameClock>();
+    commands.remove_resource::<savegame::PauseCounts>();
 }
 
 fn image_with(p: scene::Picture, usage: RenderAssetUsages) -> Image {
