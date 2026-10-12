@@ -3,6 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and the public PUD
   specification text (UNIT section and unit data flags). Not yet confirmed against the running game.
+- **Changes:** 2026-10-11, round-3 errata: the free tile for coming out is found by the ring search of
+  `movement/placement.md` (limit 12, aimed at the tile the unit is heading for); a unit that finds no tile dies. The
+  open question is closed.
 
 ## Behaviour
 
@@ -80,9 +83,11 @@ When the 150-cycle wait ends and the inside order's logic runs:
    is none, it stays idle.
 5. Otherwise, if it has a **return-to source**, it forgets it and heads back there with a harvest command (so a
    worker that just delivered goes straight back to its mine or tree).
-6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building. The search for that tile
-   is sized as for a town hall (4 × 4) if the goods were just delivered to a gold-accepting depot, and as for a gold
-   mine (3 × 3) otherwise.
+6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search
+   of `movement/placement.md` (limit 12). The search's source is sized as for a town hall (4 × 4) if the goods were
+   just delivered to a gold-accepting depot, and as for a gold mine (3 × 3) otherwise, placed at the building's
+   top-left tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. If no tile is
+   found, the unit dies.
 
 ### Lumber
 
@@ -224,7 +229,6 @@ gold, storage for wood, storage for oil, building.
 
 ## Open questions
 
-- Exactly how the free tile for coming out is chosen around the building (search order and range).
 - How the AI routines for computer-controlled workers and tankers decide at the mine and depot.
 - The "active" mine look: whether its two states (mine and platform) matter beyond the graphics.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
