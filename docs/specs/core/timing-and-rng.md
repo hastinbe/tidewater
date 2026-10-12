@@ -21,6 +21,8 @@
   2026-10-12: the game-saved draw happens only for saves in an Enhanced game in a network session (`game/save-load.md`).
   2026-10-12, round-30 errata: the draw table gains the idle look-around and bob rows (replacing "critter wandering,
   ship bobbing"); the two start-up cycles run before the deadline and counter are reset, as full cycles with draws.
+  2026-10-12, round-31 errata: the draw table gains a creation row for a computer land unit's post choice
+  (`ai/attack-ai.md`), which comes before the first-wait draw.
 
 ## Behaviour
 
@@ -130,6 +132,7 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | --- | --- | --- | --- |
 | Unit created (mobile, except summoned units created during play) | where created | 1 | Initial facing = `r AND 7` |
 | Building created | where created | 1 | A stored value `r mod 6` (variation; use not yet known) |
+| Computer player's mobile land unit created, post choice off the map | where created | 2 | Post near the unit, x then y (`ai/attack-ai.md`, "Unit goals"); before the next row's draw |
 | Any unit created | where created | 1 | Adds `r AND 7` cycles to the first animation wait. This draw always comes last of the creation draws. |
 | Melee hit lands | units | 0 or 1 | Damage roll (combat spec); no draw when the damage total is 0 |
 | Non-splash missile launched | units | 0 to 3 | Damage roll at launch (none when the damage total is 0), then 2 scatter draws for missiles fired by a unit's attack (not by towers, guard or cannon). None at all if no effect slot is free for the missile (combat spec) |
