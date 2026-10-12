@@ -89,7 +89,7 @@ While the game is **paused**, only key presses are handled; mouse buttons do not
 | Placement mode | place the building | end placement mode | move the view | move the view |
 
 The **mouse style** is a preference (the Preferences dialog's two-way choice); the first style is the one with
-right-click commands. "Move the view" on the minimap belongs to a later spec (see also `vision/fog.md`, "The
+right-click commands. "Move the view" on the minimap is in `ui/minimap.md` (see also `vision/fog.md`, "The
 minimap").
 
 ### Selecting with the left button
@@ -365,7 +365,7 @@ The mission objectives dialog has no key.
 each player has a limited number of pauses: pausing uses one, and a player with none left can't pause.
 
 **Preferences dialog** settings used here and elsewhere: the mouse style; fog of war on or off (not changeable
-in multiplayer; `vision/fog.md`); minimap terrain on or off (a later spec); colour cycling.
+in multiplayer; `vision/fog.md`); minimap terrain on or off (`ui/minimap.md`); colour cycling.
 
 ## Data
 

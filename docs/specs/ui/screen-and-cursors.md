@@ -12,7 +12,7 @@
 This spec covers the in-game screen at 640 × 480: where each part sits, the top resource bar, the two buttons above
 the minimap, how the view scrolls (screen edge and keys, with their speeds), and which pointer shape shows when.
 What the panels contain is in `ui/info-panel.md` and `ui/command-buttons.md`. Mouse clicks are in
-`ui/selecting-and-commanding.md`. The minimap and the message line are in later specs.
+`ui/selecting-and-commanding.md`. The minimap is in `ui/minimap.md` and the message line in `ui/messages.md`.
 
 "Enhanced rules" and "Classic rules" are the rule sets of `core/timing-and-rng.md`. The **local race** is the local
 player's race; several pictures have a human and an orc version (`h_…` and `o_…`), chosen by it.
@@ -138,7 +138,7 @@ The directions of all held keys are added up; on each axis only the sign of the 
 
 At speed 6 the view moves 2 tiles about every 20 ms.
 
-Other things move the view too: the minimap (a later spec), control groups and Ctrl/Alt+C
+Other things move the view too: the minimap (`ui/minimap.md`), control groups and Ctrl/Alt+C
 (`ui/selecting-and-commanding.md`), and the saved view positions F2 to F4 (Shift+F2 to F4 save them). Under both
 rule sets all three saved positions start as the view at the start of the game.
 

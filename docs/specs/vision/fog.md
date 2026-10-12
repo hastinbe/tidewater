@@ -5,6 +5,8 @@
   public PUD specification text (`~/repos/war2-data/pudspec.txt`). The sight shapes were checked by expanding the
   program's shape data into quarter tiles and comparing them with the rule below; they match for every sight value.
   Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: the open question on the minimap column pattern for maps smaller than 128 × 128 is
+  closed by `ui/minimap.md`: the alternation is by minimap pixel column on every map size.
 
 ## Behaviour
 
@@ -208,7 +210,8 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
 
 - **Terrain:** a minimap pixel shows the terrain colour when its tile is fully clear (code 0) in the map it samples,
   and black otherwise. On a 128 × 128 map, even pixel columns sample the explored map and odd columns sample the
-  visible map. So explored but fogged ground shows as every other column black.
+  visible map. So explored but fogged ground shows as every other column black. On smaller maps the alternation is
+  still by minimap pixel column, at the pixel's tile (`ui/minimap.md`, "Fog and the terrain option").
 - With the reveal-map cheat on, all terrain is shown.
 
 ### Fog-of-war option and cheat
@@ -278,6 +281,5 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
   state) is a rendering topic and is not covered.
 - The direction step used for a worker entering a building (rule 3 under "When sight is applied") was read from a
   direction table and not checked against the game.
-- On minimaps smaller than 128 × 128 the column-alternation pattern is scaled; the exact pattern is not specified.
 - Whether a passive player's units are ever hidden-from-checked in a way that matters (passive players don't
   attack).

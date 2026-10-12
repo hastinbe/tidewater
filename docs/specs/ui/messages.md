@@ -141,7 +141,7 @@ is marked during demo playback.
 The minimap is redrawn every 40 game cycles. In a redraw, a marked unit that is drawn on the minimap is drawn in
 palette colour 3 instead of its usual colour, and its mark is then cleared. So an attacked unit shows in colour 3 for
 one redraw period (40 cycles) after the hit. A unit under steady attack keeps getting marked and stays in colour 3.
-Which units the minimap draws and their usual colours are in a later spec.
+Which units the minimap draws and their usual colours are in `ui/minimap.md`.
 
 ### Event history (Enhanced rules)
 
