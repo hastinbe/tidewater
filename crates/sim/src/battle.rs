@@ -6,8 +6,9 @@ use tidewater_formats::script::anim;
 
 use crate::TILE_PX;
 use crate::combat::{self, missile};
+use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::slots;
-use crate::world::{Layer, Order, Unit, UnitId, Walk, World, centre, facing};
+use crate::world::{Layer, Order, Unit, UnitId, World, facing};
 
 /// Placeholder flight speed in pixels per cycle (an open question in the combat spec).
 pub const MISSILE_SPEED: i32 = 5;
@@ -54,51 +55,115 @@ impl World {
             && (t.layer != Layer::Air || s.missile != missile::NONE)
     }
 
+    /// Attack order at a "step done": attack when the target is within range, otherwise move toward it (movement
+    /// spec, "Arriving": the radius is the attack range, measured to the target's tile or, for a building, to the
+    /// footprint tile picked by the building goal rule, re-read at every check).
     pub(crate) fn attack_order(&mut self, i: usize, target: UnitId) {
-        let playing = self.units[i].script.anim;
         let target_ok = self.unit(target).is_some_and(|t| t.alive());
         if !target_ok || !self.can_attack(&self.units[i], target) {
             self.go_idle(i);
-            self.start_anim(i, anim::STILL);
+            self.switch_anim(i, anim::STILL);
             return;
         }
         let u = &self.units[i];
         let t = self.unit(target).expect("checked above");
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
+        let goal = if t.building { building_goal(u.tile, t) } else { t.tile };
+        let zone = (
+            t.tile.0 - 1,
+            t.tile.1 - 1,
+            t.tile.0 + t.size.0 as i32,
+            t.tile.1 + t.size.1 as i32,
+        );
         if gap(u, t) <= reach {
-            let (dx, dy) = (t.pos.0 - u.pos.0, t.pos.1 - u.pos.1);
-            let f = facing(dx, dy);
-            if playing != anim::ATTACK {
-                self.units[i].facing = f;
-                self.start_anim(i, anim::ATTACK);
-            }
+            let (uc, tc) = (u.centre_px(), t.centre_px());
+            self.units[i].path.clear();
+            self.face_and_strike(i, (tc.0 - uc.0, tc.1 - uc.1));
             return;
         }
-        let goal = t.tile;
-        if self.walk(i, goal) == Walk::Arrived {
-            // Nowhere closer to go: give up.
+        let g = Goal {
+            tile: goal,
+            radius: reach,
+            range: true,
+            zone: Some(zone),
+        };
+        if matches!(self.move_toward(i, g), Walk::NoPath | Walk::Arrived) {
             self.go_idle(i);
-            self.start_anim(i, anim::STILL);
+            self.switch_anim(i, anim::STILL);
+        }
+    }
+
+    /// Attack on a wall tile (order 11, from blocked row A). Our own minimal version until the orders spec lands:
+    /// approach within attack range, then strike the tile until the wall is gone.
+    pub(crate) fn attack_wall_order(&mut self, i: usize, tile: (i32, i32)) {
+        let is_wall = self
+            .terrain
+            .wall_stage(tile.0, tile.1)
+            .is_some_and(|w| w != crate::WallStage::Rubble);
+        if !is_wall {
+            self.go_idle(i);
+            self.switch_anim(i, anim::STILL);
+            return;
+        }
+        let u = &self.units[i];
+        let up = self.players[u.owner as usize].upgrades;
+        let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
+        if chebyshev(u.tile, tile) <= reach {
+            let (dx, dy) = (tile.0 - u.tile.0, tile.1 - u.tile.1);
+            self.units[i].path.clear();
+            self.face_and_strike(i, (dx, dy));
+            return;
+        }
+        let g = Goal {
+            tile,
+            radius: reach,
+            range: true,
+            zone: None,
+        };
+        if matches!(self.move_toward(i, g), Walk::NoPath | Walk::Arrived) {
+            self.go_idle(i);
+            self.switch_anim(i, anim::STILL);
+        }
+    }
+
+    /// Turns toward the target and plays the attack animation, starting it in the same cycle if needed.
+    fn face_and_strike(&mut self, i: usize, d: (i32, i32)) {
+        if self.units[i].script.anim != anim::ATTACK {
+            self.units[i].facing = facing(d.0, d.1);
+            self.switch_anim(i, anim::ATTACK);
         }
     }
 
     /// The strike point of the attack script: a melee hit or a missile launch.
     pub(crate) fn strike(&mut self, i: usize) {
-        let Order::Attack { target } = self.units[i].order else {
-            return;
+        let (ti, to) = match self.units[i].order {
+            Order::Attack { target } => {
+                let Some(ti) = self.index(target).filter(|&ti| self.units[ti].alive()) else {
+                    return;
+                };
+                (Some(ti), self.units[ti].centre_px())
+            }
+            Order::AttackWall { tile } => (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2)),
+            _ => return,
         };
-        let Some(ti) = self.index(target).filter(|&ti| self.units[ti].alive()) else {
-            return;
-        };
-        let (a, t) = (&self.units[i], &self.units[ti]);
+        let a = &self.units[i];
         let s = self.stats_of(a.kind);
         let (basic, pierce) = combat::attack(a.kind, &s, &self.players[a.owner as usize].upgrades, a.bloodlust > 0);
-        let armour = combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades);
-        let (attacker, from, to, hits_air) = (a.id, a.pos, t.pos, t.layer == Layer::Air);
+        let armour = ti.map_or(0, |ti| {
+            let t = &self.units[ti];
+            combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades)
+        });
+        let hits_air = ti.is_some_and(|ti| self.units[ti].layer == Layer::Air);
+        let target = ti.map(|ti| self.units[ti].id);
+        let (attacker, from) = (a.id, a.centre_px());
         if s.missile == missile::NONE {
             let d = combat::roll(&mut self.rng, basic, pierce, armour);
-            self.damage(ti, d, attacker);
+            match ti {
+                Some(ti) => self.damage(ti, d, attacker),
+                // A melee hit on a wall: the spec doesn't cover it yet, so the rolled damage goes to the wall.
+                None => self.hit_wall((to.0.div_euclid(TILE_PX), to.1.div_euclid(TILE_PX)), d),
+            }
             return;
         }
         let min_flight = combat::splash(s.missile);
@@ -116,7 +181,7 @@ impl World {
         let missile = Missile {
             kind: s.missile,
             attacker,
-            target: Some(target),
+            target,
             from,
             to,
             pos: from,
@@ -143,7 +208,13 @@ impl World {
         if t.dying {
             return;
         }
-        t.attacked_by = Some(attacker);
+        // Movement spec, "Blocked rules": for human players, attacks by buildings aren't recorded.
+        let by_building = self.unit(attacker).is_some_and(|a| a.building);
+        let owner = self.units[ti].owner;
+        if !(by_building && self.human_controlled(owner)) {
+            self.units[ti].attacked_by = Some(attacker);
+        }
+        let t = &mut self.units[ti];
         if t.unholy_armor > 0 || d == 0 {
             return;
         }
@@ -173,17 +244,20 @@ impl World {
         }
         self.units[ti].construction = None;
         self.units[ti].job = None;
-        if let Some(from) = unit.from {
-            self.mark(&unit, from, None);
-        }
         self.mark(&unit, unit.tile, None);
         let u = &mut self.units[ti];
         u.hp = 0;
         u.dying = true;
-        u.from = None;
         u.order = Order::Idle;
-        u.pos = centre(u.tile, u.size);
+        u.pending = None;
+        u.path.clear();
         self.start_anim(ti, anim::DEATH);
+        // A dead unit is forgotten as an attacker (movement spec, "Blocked rules").
+        for o in &mut self.units {
+            if o.attacked_by == Some(unit.id) {
+                o.attacked_by = None;
+            }
+        }
     }
 
     /// Moves every missile one cycle, in effect slot order, landing each as it arrives.
@@ -207,8 +281,14 @@ impl World {
 
     fn land(&mut self, m: Missile) {
         if !m.splash {
-            if let Some(ti) = m.target.and_then(|t| self.index(t)) {
-                self.damage(ti, m.damage, m.attacker);
+            match m.target {
+                Some(t) => {
+                    if let Some(ti) = self.index(t) {
+                        self.damage(ti, m.damage, m.attacker);
+                    }
+                }
+                // Aimed at a tile with no unit: the wall there takes it (damage spec).
+                None => self.hit_wall((m.to.0.div_euclid(TILE_PX), m.to.1.div_euclid(TILE_PX)), m.damage),
             }
             return;
         }
@@ -244,7 +324,8 @@ impl World {
             if t.dying {
                 continue;
             }
-            let d = (t.pos.0 - m.to.0).abs().max((t.pos.1 - m.to.1).abs());
+            let c = t.centre_px();
+            let d = (c.0 - m.to.0).abs().max((c.1 - m.to.1).abs());
             let armour = combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades);
             if let Some(dmg) = combat::splash_roll(&mut self.rng, m.damage, d, armour) {
                 self.damage(ti, dmg, m.attacker);
@@ -320,8 +401,8 @@ mod tests {
         let foe = w.spawn(0, 1, (5, 7), 0).unwrap();
         let friend = w.spawn(0, 0, (6, 7), 0).unwrap();
         attack(&mut w, 0, vec![cat], foe);
-        // Strike on cycle 13, then 160 px of flight at 5 px a cycle.
-        run(&mut w, 13 + 32 + 2);
+        // The order takes over at the next still boundary, then the strike and 160 px of flight at 5 px a cycle.
+        run(&mut w, 100);
         assert!(w.unit(foe).is_none_or(|u| u.hp < 60));
         assert!(w.unit(friend).is_none_or(|u| u.hp < 60), "friendly fire");
         assert_eq!(w.unit(cat).unwrap().hp, 110);

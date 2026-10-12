@@ -11,6 +11,7 @@ pub mod anim;
 mod battle;
 pub mod combat;
 pub mod economy;
+mod movement;
 pub mod path;
 pub mod rng;
 pub mod slots;

@@ -7,15 +7,15 @@ use tidewater_formats::script::{Scripts, anim};
 use tidewater_formats::tileset::Tileset;
 use tidewater_formats::udta::{UnitStats, UnitTable, flags};
 
+use crate::TILE_PX;
 use crate::ai::{AiPlayer, SCRIPT_PLAYERS};
-use crate::anim::{Effects, Modifiers, Script};
+use crate::anim::{Modifiers, Script};
 use crate::battle::Missile;
 use crate::combat::Upgrades;
 use crate::economy::{Construction, Event, Job, JobKind};
 use crate::rng::Rng;
 use crate::slots::{self, Slots};
 use crate::terrain::{Terrain, bits, mask};
-use crate::{TILE_PX, path};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -62,8 +62,16 @@ const CIRCLE_OF_POWER: u8 = 0x65;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
     Idle,
-    Move { goal: (i32, i32) },
-    Attack { target: UnitId },
+    Move {
+        goal: (i32, i32),
+    },
+    Attack {
+        target: UnitId,
+    },
+    /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
+    AttackWall {
+        tile: (i32, i32),
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -73,11 +81,9 @@ pub struct Unit {
     pub slot: u16,
     pub kind: u8,
     pub owner: u8,
-    /// Top-left tile of the footprint (the destination tile while moving).
+    /// Top-left tile of the footprint; while stepping, already the destination tile (movement spec).
     pub tile: (i32, i32),
-    /// Tile being left while moving; it stays reserved until the unit arrives.
-    pub from: Option<(i32, i32)>,
-    /// Centre in map pixels.
+    /// Map pixel of the footprint's top-left corner: tile × 32 at rest, carried across by the move animation.
     pub pos: (i32, i32),
     /// 0 north, clockwise in eighths.
     pub facing: u8,
@@ -93,11 +99,12 @@ pub struct Unit {
     pub haste: i16,
     /// A building's stored `r mod 6` creation value (timing-and-rng spec; its use is not yet known).
     pub variation: u8,
-    /// Remaining tiles of the current route, next first, and the goal it was planned for.
+    /// Cached route of up to 20 steps, as the tiles they reach, next first.
     pub path: Vec<(i32, i32)>,
-    pub path_goal: Option<(i32, i32)>,
-    /// Cycles spent waiting for a blocked tile.
+    /// Blocked counter, 0 to 15 (movement spec, "Blocked rules").
     pub blocked: u16,
+    /// A new order waiting for the next "step done" to take over.
+    pub pending: Option<Order>,
     /// Spell timers; running while above 0.
     pub bloodlust: u16,
     pub unholy_armor: u16,
@@ -115,7 +122,15 @@ pub struct Unit {
 
 impl Unit {
     pub fn is_moving(&self) -> bool {
-        self.from.is_some()
+        self.script.anim == anim::MOVE
+    }
+
+    /// The footprint's centre in map pixels, where missiles start and aim (damage spec).
+    pub fn centre_px(&self) -> (i32, i32) {
+        (
+            self.pos.0 + self.size.0 as i32 * TILE_PX / 2,
+            self.pos.1 + self.size.1 as i32 * TILE_PX / 2,
+        )
     }
 
     pub fn alive(&self) -> bool {
@@ -146,19 +161,9 @@ pub struct Player {
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
 const RELEASED: u8 = 0xff;
 
-/// Result of one [`World::walk`] decision.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Walk {
-    Arrived,
-    Waiting,
-    Stepping,
-}
-
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rules {
-    /// Cycles a unit waits for a blocked tile before searching a new path.
-    pub patience: u16,
     /// Unit and effect table sizes (unit-slots spec): Enhanced unless set otherwise.
     pub unit_slots: usize,
     pub effect_slots: usize,
@@ -171,7 +176,6 @@ pub struct Rules {
 impl Default for Rules {
     fn default() -> Self {
         Self {
-            patience: 10,
             unit_slots: slots::ENHANCED_SLOTS,
             effect_slots: slots::ENHANCED_EFFECTS,
             enhanced: true,
@@ -276,13 +280,6 @@ pub(crate) fn layer_index(l: Layer) -> usize {
         Layer::Land | Layer::Sea => 0,
         Layer::Air => 1,
     }
-}
-
-pub(crate) fn centre(tile: (i32, i32), size: (u8, u8)) -> (i32, i32) {
-    (
-        tile.0 * TILE_PX + size.0 as i32 * TILE_PX / 2,
-        tile.1 * TILE_PX + size.1 as i32 * TILE_PX / 2,
-    )
 }
 
 pub(crate) fn facing(dx: i32, dy: i32) -> u8 {
@@ -437,8 +434,7 @@ impl World {
             kind,
             owner,
             tile,
-            from: None,
-            pos: centre(tile, size),
+            pos: (tile.0 * TILE_PX, tile.1 * TILE_PX),
             facing,
             hp: s.hit_points,
             layer,
@@ -450,8 +446,8 @@ impl World {
             haste: 0,
             variation,
             path: Vec::new(),
-            path_goal: None,
             blocked: 0,
+            pending: None,
             bloodlust: 0,
             unholy_armor: 0,
             attacked_by: None,
@@ -613,10 +609,7 @@ impl World {
             }
             let order = match *c {
                 Command::Move { to, .. } => Order::Move { goal: to },
-                Command::Stop { .. } => {
-                    self.go_idle(i);
-                    continue;
-                }
+                Command::Stop { .. } => Order::Idle,
                 Command::Attack { target, .. } => {
                     if !self.can_attack(u, target) {
                         continue;
@@ -625,10 +618,7 @@ impl World {
                 }
                 Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } => continue,
             };
-            let u = &mut self.units[i];
-            u.order = order;
-            u.path_goal = None;
-            u.blocked = 0;
+            self.give(i, order);
         }
     }
 
@@ -646,70 +636,6 @@ impl World {
 
     pub(crate) fn stride_of(&self, kind: u8) -> i32 {
         self.stride.get(kind as usize).copied().unwrap_or(0) as i32
-    }
-
-    /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec, round-3 errata).
-    pub(crate) fn go_idle(&mut self, i: usize) {
-        let u = &mut self.units[i];
-        u.order = Order::Idle;
-        u.path.clear();
-        u.path_goal = None;
-    }
-
-    pub(crate) fn start_anim(&mut self, i: usize, a: u8) {
-        let u = &mut self.units[i];
-        let pc = self.scripts.unit(u.kind, a).unwrap_or(0);
-        u.script.start(a, pc);
-    }
-
-    /// Whether the path search treats a ground unit on a tile as free (pathfinding spec, "Units seen by the
-    /// search"). Alliances aren't modelled yet, so only the unit's own player counts as allied, and "has no attacker"
-    /// reads as "was never attacked" until the movement spec defines it.
-    fn ignored_by_search(&self, u: &Unit, other: UnitId) -> bool {
-        let Some(o) = self.unit(other) else { return true };
-        if o.id == u.id {
-            return true;
-        }
-        if o.layer == Layer::Air {
-            return false;
-        }
-        let s = self.stats_of(u.kind);
-        let fighter = s.flags & (flags::PEON | flags::TANKER | flags::CASTER) == 0;
-        if matches!(u.order, Order::Attack { .. }) && u.attacked_by.is_none() && fighter && o.owner != u.owner {
-            return true;
-        }
-        o.owner == u.owner && o.is_moving() && o.blocked == 0
-    }
-
-    /// Up to 20 tiles of route from `u` toward `goal` (pathfinding spec). Empty means no path.
-    fn plan(&self, u: &Unit, goal: (i32, i32)) -> Vec<(i32, i32)> {
-        let s = self.stride_of(u.kind).max(1);
-        let (w, h) = (self.terrain.width as i32, self.terrain.height as i32);
-        let req = path::Request {
-            enhanced: self.rules.enhanced,
-            ..path::Request::to_tile(w, h, u.tile, goal, s)
-        };
-        struct Search<'a>(&'a World, &'a Unit);
-        impl path::Map for Search<'_> {
-            fn blocked(&self, x: i32, y: i32) -> bool {
-                let (w, u) = (self.0, self.1);
-                !w.terrain_allows(u.layer, x, y)
-                    || w.occupant(u.layer, x, y).is_some_and(|o| !w.ignored_by_search(u, o))
-            }
-            fn blocked_strict(&self, x: i32, y: i32) -> bool {
-                let (w, u) = (self.0, self.1);
-                !w.terrain_allows(u.layer, x, y) || w.occupant(u.layer, x, y).is_some_and(|o| o != u.id)
-            }
-        }
-        let mut at = u.tile;
-        path::search(&req, &Search(self, u))
-            .into_iter()
-            .map(|d| {
-                let v = path::DIRECTIONS[d as usize];
-                at = (at.0 + v.0 * s, at.1 + v.1 * s);
-                at
-            })
-            .collect()
     }
 
     /// Phase 4 for one unit: advance its animation script, then its order.
@@ -748,96 +674,6 @@ impl World {
             return;
         }
         self.order(i, fx);
-    }
-
-    /// The order logic's reaction to the script (a placeholder until the movement and order specs). The move and
-    /// attack animations run uninterrupted between "step done" signals; at each signal, or every cycle while standing
-    /// still, the order decides what to do next.
-    fn order(&mut self, i: usize, fx: Effects) {
-        let playing = self.units[i].script.anim;
-        if playing == anim::ATTACK {
-            for _ in 0..fx.strikes {
-                self.strike(i);
-            }
-        }
-        if matches!(playing, anim::MOVE | anim::ATTACK) && !fx.step_done {
-            return;
-        }
-        if let Some(from) = self.units[i].from.take() {
-            let unit = self.units[i].clone();
-            self.units[i].pos = centre(unit.tile, unit.size);
-            self.mark(&unit, from, None);
-            self.mark(&unit, unit.tile, Some(unit.id));
-        }
-        match self.units[i].order {
-            Order::Idle => {
-                if matches!(playing, anim::MOVE | anim::ATTACK) {
-                    self.start_anim(i, anim::STILL);
-                }
-            }
-            Order::Move { goal } => {
-                if self.walk(i, goal) == Walk::Arrived {
-                    self.go_idle(i);
-                    self.start_anim(i, anim::STILL);
-                }
-            }
-            Order::Attack { target } => self.attack_order(i, target),
-        }
-    }
-
-    /// Takes the next step towards `goal`: claims the next tile at a "step done" signal, or starts the move
-    /// animation from standing.
-    pub(crate) fn walk(&mut self, i: usize, goal: (i32, i32)) -> Walk {
-        let moving = self.units[i].script.anim == anim::MOVE;
-        // A new goal, or steps run out short of it: search again (pathfinding spec: long journeys are many short
-        // searches). An empty result gives up the move.
-        let s = self.stride_of(self.units[i].kind).max(1);
-        let target = if s == 2 { (goal.0 & !1, goal.1 & !1) } else { goal };
-        let u = &self.units[i];
-        if u.path_goal != Some(goal) || (u.path.is_empty() && u.tile != target) {
-            let path = self.plan(&self.units[i], goal);
-            let u = &mut self.units[i];
-            u.path = path;
-            u.path_goal = Some(goal);
-        }
-        let u = &self.units[i];
-        let Some(&next) = u.path.first() else {
-            if moving {
-                self.start_anim(i, anim::STILL);
-            }
-            return Walk::Arrived;
-        };
-        let blocked = self.occupant(u.layer, next.0, next.1).is_some_and(|o| o != u.id)
-            || !self.terrain_allows(u.layer, next.0, next.1);
-        if blocked {
-            let patient = u.blocked < self.rules.patience;
-            if moving {
-                self.start_anim(i, anim::STILL);
-            }
-            if !patient {
-                let path = self.plan(&self.units[i], goal);
-                let u = &mut self.units[i];
-                u.path = path;
-                u.blocked = 0;
-            } else {
-                self.units[i].blocked += 1;
-            }
-            return Walk::Waiting;
-        }
-        if !moving {
-            // The move script opens with "step done", which claims the tile on the next cycle.
-            self.start_anim(i, anim::MOVE);
-            return Walk::Stepping;
-        }
-        let unit = self.units[i].clone();
-        let u = &mut self.units[i];
-        u.facing = facing(next.0 - u.tile.0, next.1 - u.tile.1);
-        u.from = Some(u.tile);
-        u.tile = next;
-        u.path.remove(0);
-        u.blocked = 0;
-        self.mark(&unit, next, Some(unit.id));
-        Walk::Stepping
     }
 
     /// FNV-1a over everything that defines the game state. Equal hashes on two machines mean they are in sync.
@@ -951,6 +787,7 @@ pub(crate) mod tests {
             for a in 0..7 {
                 let at = match a {
                     1 => 480,
+                    2 => 343,
                     3 => mv,
                     4 => 460,
                     _ => 340,
@@ -1002,6 +839,17 @@ pub(crate) mod tests {
         w
     }
 
+    /// An open ground map of `w` x `h` tiles with no units.
+    pub(crate) fn field(w: u16, h: u16) -> World {
+        let tiles = vec![0u16; w as usize * h as usize];
+        World::new(
+            Terrain::from_map(&tileset(), &tiles, None, None, w, h, false),
+            stats(),
+            scripts(),
+            0,
+        )
+    }
+
     pub(crate) fn run(w: &mut World, ticks: u32) {
         for _ in 0..ticks {
             w.step(&[]);
@@ -1019,7 +867,7 @@ pub(crate) mod tests {
         run(&mut w, 400);
         let u = w.unit(UnitId(1)).unwrap();
         assert_eq!(u.tile, (7, 0));
-        assert_eq!(u.pos, (7 * 32 + 16, 16));
+        assert_eq!(u.pos, (7 * 32, 0));
         assert_eq!(u.order, Order::Idle);
         assert_eq!(w.occupant(Layer::Land, 7, 0), Some(UnitId(1)));
         assert_eq!(w.occupant(Layer::Land, 0, 0), None);
@@ -1149,15 +997,22 @@ pub(crate) mod tests {
             units: vec![UnitId(1)],
             to: (3, 0),
         }]);
-        // Start the move animation; one cycle later "step done" claims (1, 0); the loop then takes 8 cycles.
+        // The pending order takes over at the still loop's "step done" (cycle 3, the creation wait), and the move
+        // animation's first instruction runs 3 cycles later: the tile changes then, while the pixel position is still
+        // on the old tile. The step's loop takes 8 cycles and carries the pixel position across.
         let at = |w: &World| w.unit(UnitId(1)).unwrap().pos;
+        let tile = |w: &World| w.unit(UnitId(1)).unwrap().tile;
+        run(&mut w, 4);
+        assert_eq!(tile(&w), (0, 0));
         run(&mut w, 1);
-        assert_eq!(w.unit(UnitId(1)).unwrap().tile, (1, 0));
-        assert_eq!(at(&w), (16, 16));
-        run(&mut w, 8);
-        assert_eq!(at(&w), (48, 16));
+        assert_eq!(tile(&w), (1, 0));
+        assert_eq!(at(&w), (0, 0));
         assert_eq!(w.occupant(Layer::Land, 0, 0), None);
         assert_eq!((w.terrain.word(0, 0), w.terrain.word(1, 0)), (0x0001, 0x0101));
+        run(&mut w, 7);
+        assert_eq!((tile(&w), at(&w)), ((1, 0), (28, 0)));
+        run(&mut w, 1);
+        assert_eq!((tile(&w), at(&w)), ((2, 0), (32, 0)));
     }
 
     #[test]
@@ -1169,11 +1024,17 @@ pub(crate) mod tests {
             units: vec![f],
             to: (6, 2),
         }]);
-        run(&mut w, 2);
+        // The first step lands two tiles over.
+        for _ in 0..20 {
+            if w.unit(f).unwrap().tile != (0, 2) {
+                break;
+            }
+            w.step(&[]);
+        }
         assert_eq!(w.unit(f).unwrap().tile, (2, 2));
         run(&mut w, 100);
         let u = w.unit(f).unwrap();
-        assert_eq!((u.tile, u.pos), ((6, 2), (6 * 32 + 16, 2 * 32 + 16)));
+        assert_eq!((u.tile, u.pos), ((6, 2), (6 * 32, 2 * 32)));
     }
 
     #[test]

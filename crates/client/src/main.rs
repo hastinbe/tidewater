@@ -316,7 +316,9 @@ fn setup(
         .units
         .first()
         .and_then(|&id| scene.world.unit(id))
-        .map_or(size.0 / 2.0, |u| Vec2::new(u.pos.0 as f32, u.pos.1 as f32));
+        .map_or(size.0 / 2.0, |u| {
+            Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32)
+        });
     hud.tiles = scene.tile_colours.clone();
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
@@ -438,7 +440,7 @@ fn depth(u: &tidewater_sim::Unit) -> f32 {
         (_, tidewater_sim::Layer::Sea) => 3.0,
         (_, tidewater_sim::Layer::Air) => 4.0,
     };
-    layer + u.pos.1 as f32 * 1e-5
+    layer + u.centre_px().1 as f32 * 1e-5
 }
 
 fn sync_sprites(
@@ -456,7 +458,7 @@ fn sync_sprites(
         if u.dying {
             sprite.color = Color::srgba(0.6, 0.6, 0.6, 0.6);
         }
-        tf.translation = world(u.pos.0 as f32, u.pos.1 as f32, depth(u));
+        tf.translation = world(u.centre_px().0 as f32, u.centre_px().1 as f32, depth(u));
         let Some(frames) = art.0.get(&(u.kind, u.owner)) else {
             continue;
         };
@@ -509,7 +511,7 @@ fn select(
             .iter()
             .filter(mine)
             .filter(|u| {
-                let p = Vec2::new(u.pos.0 as f32, u.pos.1 as f32);
+                let p = Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32);
                 p.cmpge(lo).all() && p.cmple(hi).all()
             })
             .take(9)
@@ -618,7 +620,11 @@ fn draw_selection(
     for &id in &sel.units {
         let Some(u) = sim.world.unit(id) else { continue };
         let size = Vec2::new(u.size.0 as f32, u.size.1 as f32) * TILE_PX as f32;
-        gizmos.rect_2d(Vec2::new(u.pos.0 as f32, -(u.pos.1 as f32)), size, green);
+        gizmos.rect_2d(
+            Vec2::new(u.centre_px().0 as f32, -(u.centre_px().1 as f32)),
+            size,
+            green,
+        );
     }
     if let (Some(from), Ok(window), Ok(cam)) = (sel.drag_from, windows.single(), cams.single())
         && let Some(at) = cursor_map(window, cam)
