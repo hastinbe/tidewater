@@ -5,6 +5,7 @@
   `Rez\script.bin` (decoded with the instruction set of `core/animation-scripts.md`), the default unit data
   (`Rez\unitdata.dat`) and the unit flags in the public PUD specification text. Not yet confirmed against the running
   game.
+- **Changes:** 2026-10-11, round-8 errata: the fireball's count goes on to 41 and it ends on the step after count 41.
 
 ## Behaviour
 
@@ -233,7 +234,8 @@ floor(D / 4) (`movement/occupancy.md`, "Walls").
 **Fireball.** Launched from the caster's centre toward the target tile's centre with stored damage **40**. On each
 step it makes one draw (discarded), then moves 12 px, or 6 px if its remaining distance is already below 50. Once
 its remaining distance is below 50 it counts its steps: on counts 8, 16, 24, 32 and 40 it **splashes** (damage 40)
-at its position and makes a cosmetic explosion (kind 0x17); on the step after count 40 it ends. It flies on past the
+at its position and makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash), and on the step
+after count 41 it ends. It flies on past the
 target point, so the first explosion lands near the point and the next four follow every 48 px along the same line
 beyond it. When it ends, it touches a wall on its final tile with damage 40.
 
@@ -375,7 +377,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Death coil, no candidates | 100 mana spent; nothing else |
 | Blizzard, caster with 60 mana, channelled | Two strikes (60 → 35 → 10); at the third strike 10 < 25, so the caster becomes idle. 10 chains, 110 shards in all |
 | One blizzard shard lands 10 px from a footman | 5 to 10 damage (armour ignored) |
-| Fireball cast at a point 200 px east of the caster's centre | Steps of 12 px until the remaining distance drops below 50 (13 steps: 200 → 44). Then 6-px steps; counts 1, 2, … from that step. Explosions on counts 8, 16, 24, 32 and 40, at remaining distances 2, −46, −94, −142 and −190 (east of the point by that many px). Ends on the next step |
+| Fireball cast at a point 200 px east of the caster's centre | Steps of 12 px until the remaining distance drops below 50 (13 steps: 200 → 44). Then 6-px steps; counts 1, 2, … from that step. Explosions on counts 8, 16, 24, 32 and 40 (steps 20, 28, 36, 44 and 52), at remaining distances 2, −46, −94, −142 and −190 (east of the point by that many px). Count 41 on step 53, and it ends on step 54 (still moving 6 px): 54 step draws |
 | Eye of Kilrogg | Created next to the caster. Killed on its 828th timers pass |
 | Skeleton raised | Killed on its 26400th timers pass |
 | Caster at 254 mana | 255 after its counter next reaches 0; then no more gains |
