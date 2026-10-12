@@ -19,6 +19,9 @@
   top-left plus (1, 1); shore rule for shore buildings), recomputed each time order 28's logic runs.
   2026-10-12, round-39 errata: a builder let out of a finished building faces the building (top-left + (1, 1)) before it
   becomes idle, with trace vectors for SE, NE, E and N exits; new open question on exit facing at cancel or destroy.
+  2026-10-12, round-40 errata: a failed placement on arrival makes idle take over in the same update (wait 3) and leaves
+  the worker's tile marked; an upgraded tower's order 14 takes over in the same update; `xhuman2` and `human06-tech`
+  vectors.
 
 ## Behaviour
 
@@ -73,7 +76,8 @@ the placement check ignores the worker's own tile (below), so that doesn't stop 
   passive and neutral players don't build.
 - The site is then checked for placement (`movement/occupancy.md`, placement masks). The worker's own tile doesn't
   block it. A failure shows a placement message. For a computer player the cost is given back, and the worker becomes
-  idle.
+  idle: idle **takes over in the same update** (order 2, still animation, wait 3; `orders/orders.md`, "Same-update
+  take-over"), not as an immediate order, and the worker's tile stays marked as occupied by it.
 - On success, the building is created under construction (below), the cost of a player that pays on arrival is
   taken, and the worker **goes inside** the building, in order 22, the same way a worker enters a mine
   (`economy/harvest.md`, step 2 of "Entering").
@@ -184,7 +188,7 @@ cancelled, sets the frame back to 0 (cancelled: the old picture returns). Then:
 | Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
 | Research a spell | The spell becomes known, if its "being researched" bits are still set (`economy/tech-tree.md`) | Full refund, on the same condition |
 | Upgrade | The level in its line goes up by 1, on the same condition | Full refund, on the same condition |
-| Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M). Towers get order 14 | Full refund |
+| Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M). Towers get order 14, which takes over in the same update (animation 4, wait 3) | Full refund |
 
 In every case the "units in training" count (for training) goes back down.
 
@@ -239,6 +243,8 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `orc09-naval` (oracle trace), n = 249: builder 1587 let out at (80, 7) from a farm with top-left (81, 6) | dx 2, dy 0 to (82, 7): facing 2 (E) |
 | `xhuman2` (oracle trace), n = 3438: builder 1588 let out at (21, 4) from a tower (type 0x41) with top-left (20, 2) | dx 0, dy −1 to (21, 3): facing 0 (N) |
 | `orc09-naval` (oracle trace), n = 468: tanker 1473 let out of a finished building, set to order 25 | keeps its facing |
+| `xhuman2` (oracle trace), n = 85: computer peon 1562 (type 0x03, owner 5) at (65, 59) in order 28 arrives and the site check fails | Order 2, animation 2, wait 3; its tile stays marked (ogre 1549 is blocked by it at n = 113). n = 88: order 28 again (the computer gives the job again) |
+| `human06-tech` (oracle trace), n = 578: building 1516 at (72, 4) finishes its upgrade from type 0x40 to 0x60 | The same record: type 0x60, order 14, animation 4, wait 3 |
 
 ## Open questions
 
