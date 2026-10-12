@@ -417,11 +417,12 @@ impl World {
         }
     }
 
-    /// Phase 5: each unit's hidden-from set ("Unit visibility").
+    /// Phase 5: each unit's hidden-from set ("Unit visibility"). A unit that is dead, removed or inside something is
+    /// hidden from everyone; a dying one (its death animation, a body or a ruin) is not, so the map view can draw it.
     pub(crate) fn unit_visibility(&mut self) {
         for i in 0..self.units.len() {
             let u = &self.units[i];
-            let hidden = if Self::is_dead(u) || u.inside {
+            let hidden = if u.removing || u.script.anim == RELEASED || u.inside {
                 0xff
             } else if self.rules.reveal_map {
                 0
@@ -861,6 +862,25 @@ mod tests {
         w.rules.reveal_map = true;
         w.step(&[]);
         assert_eq!(w.unit(g).unwrap().hidden_from, 0);
+    }
+
+    #[test]
+    fn dying_units_follow_the_fog_but_removed_ones_are_hidden_from_everyone() {
+        let mut w = map();
+        let g = w.spawn(FOOTMAN, 2, (10, 10), 0).unwrap();
+        w.reveal(0, (10, 10), 1);
+        let i = w.index(g).unwrap();
+        w.units[i].dying = true;
+        w.unit_visibility();
+        assert_eq!(w.units[i].hidden_from & 1, 0, "a dying unit in sight is not hidden");
+        assert_ne!(
+            w.units[i].hidden_from & (1 << 4),
+            0,
+            "but still hidden from an empty slot"
+        );
+        w.units[i].removing = true;
+        w.unit_visibility();
+        assert_eq!(w.units[i].hidden_from, 0xff, "removed: hidden from everyone");
     }
 
     #[test]
