@@ -21,7 +21,7 @@ before writing any code, and follow it exactly.
   and uncompressed), PCX images, raw interface pictures and cursors (`raw`), fonts (`fnt`), Smacker video (`smk`), string tables, unit and
   upgrade tables, map restrictions).
 - `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
-  `strings`, `sim`).
+  `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game).
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the Bevy game client (`tidewater` binary). `scene.rs` builds the map and unit images, `hud.rs`
   lays out and draws the interface (frame, minimap, resources, selection, command buttons) into one picture, `panel.rs` holds the command panel's button sets and rules, `info.rs` the unit information panel's rules; all are Bevy-free.
