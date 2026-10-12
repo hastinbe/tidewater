@@ -184,7 +184,7 @@ fn table(install: &mut Install, name: &str) -> Option<StringTable> {
 }
 
 /// A table entry (1-based), or an empty string.
-fn entry_text(install: &mut Install, name: &str, entry: u16) -> String {
+pub(crate) fn entry_text(install: &mut Install, name: &str, entry: u16) -> String {
     table(install, name)
         .and_then(|t| t.text(cf::text_index(entry)))
         .unwrap_or_default()
@@ -267,7 +267,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
 }
 
 /// Goes on to the next step.
-fn go_on(
+pub(crate) fn go_on(
     flow: &mut Flow,
     front: &Front,
     keys: &ButtonInput<KeyCode>,
@@ -285,7 +285,6 @@ fn go_on(
 
 /// The game menu's restart ("Restart"): the campaign total goes back as on a defeat and the flow goes to "Starting a
 /// mission" again, with no score screen. Returns the state to set.
-#[allow(dead_code, reason = "the game menu's restart calls it")]
 pub fn restart(flow: &mut Flow) {
     flow.total.restart();
     flow.steps.clear();
@@ -447,7 +446,7 @@ pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Ste
 pub struct Persist;
 
 #[derive(Component)]
-struct FrontCamera;
+pub(crate) struct FrontCamera;
 
 /// A front-end picture layer: 0 the background, 1 the overlay drawn over it.
 #[derive(Component)]
@@ -462,9 +461,13 @@ pub struct OutcomeDialog {
     image: Handle<Image>,
 }
 
-/// Whether the game screen runs (not while the outcome dialog is up).
-pub fn game_running(state: Res<State<AppState>>, dialog: Option<Res<OutcomeDialog>>) -> bool {
-    *state.get() == AppState::Game && dialog.is_none()
+/// Whether the game screen runs (not while the outcome dialog or, in single player, a game menu is up).
+pub fn game_running(
+    state: Res<State<AppState>>,
+    dialog: Option<Res<OutcomeDialog>>,
+    menu: Option<Res<crate::gamemenu::GameMenu>>,
+) -> bool {
+    *state.get() == AppState::Game && dialog.is_none() && menu.is_none()
 }
 
 pub fn plugin(app: &mut App) {
@@ -561,7 +564,7 @@ fn dup(p: &Picture) -> Picture {
     }
 }
 
-fn blank() -> Picture {
+pub(crate) fn blank() -> Picture {
     Picture {
         width: W,
         height: H,
@@ -569,7 +572,7 @@ fn blank() -> Picture {
     }
 }
 
-fn rgba_image(p: Picture) -> Image {
+pub(crate) fn rgba_image(p: Picture) -> Image {
     Image::new(
         bevy::render::render_resource::Extent3d {
             width: p.width,
@@ -607,7 +610,7 @@ fn spawn_layer(
     h
 }
 
-fn set_image(images: &mut Assets<Image>, h: &Handle<Image>, p: Picture) {
+pub(crate) fn set_image(images: &mut Assets<Image>, h: &Handle<Image>, p: Picture) {
     if let Some(mut img) = images.get_mut(h) {
         *img = rgba_image(p);
     }
@@ -646,7 +649,7 @@ fn pressed(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> boo
 }
 
 /// The pointer in screen pixels (640x480).
-fn pointer(
+pub(crate) fn pointer(
     window: &Query<&Window, With<PrimaryWindow>>,
     cam: &Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
 ) -> Option<Vec2> {
@@ -656,7 +659,7 @@ fn pointer(
     Some(Vec2::new(p.x + W as f32 / 2.0, H as f32 / 2.0 - p.y))
 }
 
-fn centred(dst: &mut Picture, font: &Font, y: i32, s: &str) {
+pub(crate) fn centred(dst: &mut Picture, font: &Font, y: i32, s: &str) {
     let w = font.width(s.as_bytes()) as i32;
     hud::text(dst, font, (dst.width as i32 - w) / 2, y, s);
 }
@@ -666,7 +669,7 @@ fn measure(font: &Font) -> impl Fn(&str) -> u32 + '_ {
 }
 
 /// A button: an outlined box with its label centred.
-fn button(dst: &mut Picture, font: &Font, r: Rect, label: &str, hot: bool) {
+pub(crate) fn button(dst: &mut Picture, font: &Font, r: Rect, label: &str, hot: bool) {
     hud::fill(dst, r, if hot { [70, 60, 30] } else { [36, 32, 24] });
     hud::outline(dst, r, [180, 160, 100]);
     let w = font.width(label.as_bytes()) as i32;
