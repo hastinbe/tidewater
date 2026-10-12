@@ -10,6 +10,9 @@
   2026-10-12, round-35 errata: attack-type orders for the search are those with the "acquires" mark (plus order 10 in
   Enhanced mode); orders 9 and 11 aren't; the target gets no special treatment. New trace vectors (a stored path kept
   while the target moves; a route into a moving ally refused at the step).
+  2026-10-12, round-36 errata: the line counts in tiles for two-tile movers too; the goal pull-back's orders, walk and
+  kept tile; a unit with a command whose pending order hasn't taken over counts as about to move. Two open questions
+  closed, trace vectors added.
 
 ## Behaviour
 
@@ -52,8 +55,12 @@ when either of these holds:
    has no attacker (see `movement.md`); and it is not a worker, tanker, demolition unit or spell-caster type. Orders
    9 (attack a unit) and 11 (attack a wall) are **not** attack-type. Then **units of non-allied players are
    ignored**, the target included: the path goes through enemies, and the unit fights whatever it meets.
-2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player). It is
-   currently moving or about to move, its blocked counter is 0, and it is not inside something. Then it is ignored.
+2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player); it is in
+   its move animation (3), **or** it has been given a command whose pending order hasn't taken over yet; its blocked
+   counter is 0; and one further state mark is clear (assumed to be "not inside something"; see "Open questions").
+   Then it is ignored. The pending-command mark is set when a command stores a pending order and cleared when that
+   order takes over, or when an order is set at once. This applies to the search only: row F of the blocked rules
+   (`movement.md`) tests the move animation alone.
 
 In every other case the unit blocks the search, the target included: the target gets no special treatment, and the
 goal zone (Step 1) only ends the walks, it doesn't make any tile free. Air units always block other air units. These
@@ -84,6 +91,9 @@ Walk from S toward G with the line rule below, one step vector at a time.
   - move 1 along the major axis;
   - set `e ← e − m`; if `e < 1`, also move 1 along the minor axis and set `e ← e + M`.
   - Movement on an axis is in the + direction when that axis's delta is ≥ 0, and − otherwise.
+- `dx` and `dy` are always differences in **tiles**, for two-tile movers too (G is already rounded down to even);
+  `M`, `m` and the starting `e` come from them. Only the step length differs: a two-tile mover moves 2 tiles on each
+  axis it steps along, and `e` still changes by `m` per step. Halving the deltas gives different routes.
 
 ### Step 3: walk around the obstacle
 
@@ -165,12 +175,22 @@ corner that touches the unit's region, if one exists. Regions come from the map'
 
 ### Goal pulled back
 
-For some orders, and for transports heading to a shore, a goal tile that the unit can't stand on is moved before the
-search. "Can't stand on" means blocked terrain or buildings for the unit's layer, ignoring units, or a different
-region for non-flying units. The goal is walked back along the line toward the unit until a usable tile is found.
-For a transport sent to a land or shore-water tile from open water, `orders/transports.md` ("Land and shore targets")
-gives the full rule: the kept tile is the one just before the first usable tile, on the goal's side. For other
-orders, which of the two neighbouring tiles is kept is still open.
+Every command runs this when the order it gives is one of **0 to 16, 18 to 29, 31 to 37 and 57 to 60**, whoever
+gives it (a human or a computer player). Orders 17, 30 and 38 to 56 (the spells) don't use it. It works on the goal
+tile the command stores, and the same step clears the unit's blocked counter (`movement.md`):
+
+1. A tile is **usable** when it has none of the terrain or building bits of the unit's movement mask (units are
+   ignored) and, for a unit that isn't an air unit, its region is the unit's own region.
+2. If the goal is usable, it is kept as it is.
+3. Otherwise, take the tiles of the line rule (Step 2) from the unit's tile to the goal, **one tile per step even for
+   a two-tile mover**, and walk them backwards from the goal toward the unit.
+4. At the first usable tile, the goal becomes the tile just before it on the goal's side: the last tile that isn't
+   usable. So the new goal is still unusable; it is the unusable tile nearest the usable ground.
+5. If the walk reaches the unit's own tile without finding a usable tile, the goal is kept as it is.
+
+The search then aims at this stored goal, rounded down to even for a two-tile mover; the arrival test uses the stored
+goal, not rounded, with the radius rules of `movement.md`. A transport sent to a land or shore-water tile from open
+water follows the same rule, with the additions of `orders/transports.md` ("Land and shore targets").
 
 ## Data
 
@@ -223,12 +243,20 @@ units on the map.
 | `xorc01-death-coil` (oracle trace): grunt 1497 on (72, 79), order 10 since n = 353. At n = 356 the line's first tile (71, 79) holds ogre 1496 (order 10 since n = 354, still animation): blocked. Ally death knight 1491 on (71, 80) is in its move animation; (71, 78) and (70, 79) are free | Left walk (p = −1): south-west to (71, 80) (the moving death knight is ignored), north-west to (70, 79), and it succeeds there because (70, 78) is a line tile. The pair (SW, NW) is "two of W" through (71, 79), which is occupied, so no change: 2 steps, P's distance 12, score 14. Right walk (p = +1): north-west to (71, 78), succeeds there: 1 step, distance 13, score 14. The tie keeps the left walk |
 | Same, the step at n = 356 | The first step, south-west, is onto the death knight's tile: refused (`movement/movement.md`, row I). Record n = 356: order 10, animation 3, wait 1, tile (72, 79), facing 6 |
 | Same, n = 357 | Ogre 1496 has moved on to (70, 79) earlier in the same cycle, so the new line's first tile (71, 79) is free: the grunt steps west, tile (71, 79), facing 6 |
+| `human12` (oracle trace): zeppelin 1559 (type 0x29, two-tile) at (92, 14), roam goal (87, 1) | G = (86, 0); tile deltas (−6, −14): M 14, m 6, e 7. Steps N, NW, N, NW, N, NW: (92, 12) at n = 9, (90, 10) at 29, (90, 8) at 49, (88, 6) at 69, (88, 4) at 89, (86, 2) at 109; 1 tile from (87, 1) on both axes, so arrived (radius 0 + 1, air); idle at n = 129 |
+| Same, deltas halved to (−3, −7) (wrong) | NW first |
+| `xorc7` (oracle trace): submarine 1493 (type 0x26, two-tile) at (36, 64), sea patrol to (6, 18), the top-left tile of a shipyard covering (6..8, 18..20) | Walking back: (6, 18), (7, 19), (7, 20) are shipyard tiles, (8, 21) is water in its region, so the goal is (7, 20) and the search aims at (6, 20). The first 20 steps: NW, N, NW, NW, N, NW, NW, N, NW, NW, NW, N, NW, NW, N, NW, NW, N, NW, NW |
+| Same shipyard, a submarine at (58, 4) | Walk (6, 18), (7, 18), then (8, 17), water: goal (7, 18) |
+| Footman ordered onto a tile of its own region with no building | Goal unchanged |
+| Footman ordered onto an island tile (another region) with sea between (static study only) | The goal becomes the tile just before the first tile of its own region on the walk back (a water tile) |
+| `orc4` (oracle trace): computer footman 1538 on (9, 12), order 3, route north into (9, 11). At n = 3246 peasant 1540 (same owner) comes out of a mine onto (9, 11): order 2, wait 25, with a harvest command pending (it takes over at n = 3271) | Each new search ignores the peasant, so the route stays north and the step is refused: n = 3252 to 3257 tile (9, 12), wait 1 (row I); n = 3258 wait 15 (row D). At n = 3273 the peasant's order has taken over, its tile blocks the search, and the footman steps to (10, 11), facing 1 |
+| Same, but the peasant has no pending command (static study only) | The search sees it: the route goes round at the first new search |
 
 ## Open questions
 
-- Which tile is kept when a goal is pulled back, for orders other than the transport's (`orders/transports.md`).
-  Default: the same rule.
-- Which orders use the "goal pulled back" rule. Transports do.
+- **Pull-back with a target unit.** For a command with a target unit the search aims at the target, so the
+  pulled-back goal matters only to the arrival test; no trace shows whether that ever differs.
 - Whether two-tile movers' start tiles are always even.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
-- The exact meanings of "about to move" and "inside something" in the moving-ally rule.
+- **The moving-ally rule's last condition.** A state mark must be clear; what sets it isn't identified, and no
+  trace has shown it set. "Not inside something" is a guess.

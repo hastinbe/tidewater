@@ -20,6 +20,9 @@
   watching tower stays in its attack animation and searches once per loop; the Enhanced resume applies to every pending
   idle, arrival included, and never to an immediate idle; the no-route attack fallbacks never apply to orders 3, 4, 5
   and 10.
+  2026-10-12, round-36 errata: order 30's radius 3 is used (ordinary steps until within 3 tiles, then the landing
+  logic); patrol arrival takes over with wait 3 and steps 3 cycles later; round 35's resume vector replaced (a command
+  clears the remembered order).
 
 ## Behaviour
 
@@ -109,7 +112,7 @@ Columns:
 | 27 | Repair (`economy/repair.md`) | 4 | 1 | yes | no |
 | 28 | Go to a site and build | 2 | 0 | yes | no |
 | 29 | Transport unloading (`orders/transports.md`) | 2 | always | no | no |
-| 30 | Transport landing (`orders/transports.md`) | 6 | 0 in effect (3 in the order data, unused; see the note below the table) | yes | no |
+| 30 | Transport landing (`orders/transports.md`) | 6 | 3, no +1 (see the note below the table) | yes | no |
 | 31 | Transport pushing off from the shore (`orders/transports.md`) | 6 | always | no | no |
 | 32 | Transport docked at the shore, or idle on an odd tile (`orders/transports.md`). No logic: it waits. (The order is marked as acquiring, but its logic never runs a search) | 2 | 0 | no | no |
 | 33 | Building's resting order (every building except towers and the circle of power, complete or under construction; see `economy/build-train.md`). Each time its logic runs, it first forgets the building's attacker (the reaction rule, for every owner), so later hits call for help again | 2 | always | no | no |
@@ -121,9 +124,11 @@ Columns:
 | 38 to 56 | Spells (table below) | 4 | per spell | yes | no |
 | 59 | Circle of power's resting order | 2 | 0 | — | — |
 
-**Order 30's radius.** The order data lists 3 for order 30, but nothing uses that value: a landing transport's
-arrival is checked against radius 0 with no +1, so it arrives only on its exact goal tile (`movement/movement.md`,
-"The +1", and `orders/transports.md`, "Landing"). An implementation can store 0.
+**Order 30's radius.** The general movement logic uses radius 3 for order 30, with no +1: until the transport is
+within 3 tiles of its goal on both axes it moves with ordinary steps (sea class, two-tile mover, move animation 3),
+and the landing logic doesn't run. Within 3 tiles the arrival switch starts the order's own animation (6) and the
+landing logic of `orders/transports.md` runs; from then on it does the moving, with its own exact arrival test
+(radius 0).
 
 Orders that count as **stationary or followable** (used by the follow rules below): 2, 3, 4, 5, 6, 7 and 10.
 
@@ -269,7 +274,9 @@ something, or in order 25):
 If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
 set as usual.
 
-So a unit that broke off a patrol or attack-move to fight goes back to it once the fight is over. The countdown stops
+So a unit that broke off a patrol or attack-move to fight goes back to it once the fight is over. Every command a
+unit takes in Enhanced mode first clears its remembered order (`ui/selecting-and-commanding.md`), and only commands
+5 and 8 set it again, so a move command ends a remembered attack-move: the move arrives at idle. The countdown stops
 it from re-issuing every cycle when the move can't progress.
 
 ### Arriving and losing the target
@@ -284,7 +291,9 @@ it from re-issuing every cycle when the move can't progress.
   logic runs in the same update, straight after; a computer worker's job choice or a critter's wander can follow
   in that update too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to
   orders 3, 4, 5 and 10. This rests on the static study only; no trace shows it yet.
-- **Order 5 (patrol):** on arrival the unit swaps ends and moves again.
+- **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
+  other end. The new patrol takes over in the same update (still animation, wait 3); the first step comes at its next
+  logic run, 3 cycles later.
 - **Order 18:** on arrival (in range) it becomes order 17 and attacks the ground.
 
 **Orders aimed at a unit** (follow, attack and similar) check their target every time their logic runs. The target
@@ -662,7 +671,10 @@ Distances are in tiles; scores as defined above.
 | Human footman in order 34, transport 5 tiles away on the shore, not landing | Gets a smart move again: stays in order 34; the transport is told to come |
 | Computer grunt in order 34, same | Gets command 4 on the transport: order 4 at the next step boundary; it is no longer boarding |
 | Passive computer player's grunt in order 34, same | Gets a smart move, as the human footman: stays in order 34 |
-| Transport landing (order 30), goal 2 tiles away on both axes | Not arrived: radius 0, not 3 |
+| Transport landing (order 30), goal 2 tiles away on both axes | The general test (radius 3) is met, so the landing logic runs; its own test (radius 0) isn't, so it steps on |
+| Transport landing (order 30), goal 5 tiles away | An ordinary two-tile step, move animation 3; the landing logic doesn't run |
+| `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8 (animation 6, wait 3), goal (72, 29) | n = 11 (4 and 5 tiles away): two-tile step north-east to (70, 32), animation 3. n = 43 (within 3): animation 6, one-tile step to (71, 31) (the goal is odd); n = 59 (72, 30); n = 75 (72, 29) |
+| `xorc10-dragons` (oracle trace): computer destroyer 1483 (type 0x1E) at (124, 74); its patrol takes over at n = 4 (wait 3), heading for its own tile | n = 7: arrived; the new patrol takes over: tile (124, 74), animation 2, wait 3. n = 10: tile (122, 74), facing 6, animation 3. Destroyer 1484 does the same |
 | Unit entries with pixel y 100, 200, 50 in list order (none dying or inside) | after one sort: 100, 50, 200 (the third entry can't pass the first in one pass); after the next cycle's sort: 50, 100, 200 |
 | Footman guarding (order 7) a peasant that starts harvesting (order 23) | the footman is given a move to its own tile and stops |
 | Footman following (order 6, nothing pending) a peasant that is harvesting, arrives within 1 tile | idle (order 2) |
@@ -747,8 +759,8 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xhuman4`, slot 1435 (type 0x09), enemy 1444 in reach from the start | n = 1: order 2, animation 2, wait 1 (no acquisition in the first start-up cycle); n = 2: wait 4; n = 6: order 16, animation 4, wait 3, target 1444 |
 | `human12`, slot 1480 (type 0x63), no enemy in range | n = 1: order 14, animation 4, wait 3; n = 4: logic runs, finds nothing; n = 5: animation 4, wait 150; next logic run at n = 155 (wait 150 again at n = 156) |
 | `xorc3`, slot 1506 (type 0x61), no enemy in range | n = 4: logic runs, finds nothing; n = 5: animation 4, wait 59; next run at n = 64 |
-| Enhanced (static study only): a footman on a remembered attack-move to a tile 10 tiles away is ordered to move 2 tiles aside, countdown 0, and arrives | Instead of idle, the attack-move is given again (countdown 20), taking over in the same update |
-| Same, but the move finds no route | Immediate idle; the attack-move is not resumed in that update |
+| Enhanced (`xhuman10` capture, round 36): hero 1463 (type 0x14) on (107, 98) gets command 8 on tile (113, 106) in turn 42, then a move to (111, 101) in turn 62 | Order 10 at n = 43; order 3 at n = 78; arrives at n = 113: order 2, animation 2, wait 3, and stays idle (the move command cleared the remembered attack-move) |
+| Enhanced (static study only): a unit on an attack-move acquires an enemy on the way and kills it; countdown 0; the target tile more than 1 tile away | The attack-move is given again instead of the pending idle (countdown 20) |
 
 ## Open questions
 

@@ -17,6 +17,8 @@
   named by cycle counter value (99, 199, … in Enhanced).
 - **Changes:** 2026-10-12, round-35 errata: a new unit is hidden from everyone until the next visibility pass, so no
   target search succeeds in the first start-up cycle.
+- **Changes:** 2026-10-12, round-36 errata: added the `xhuman10-spells` vector for the first start-up cycle (no rule
+  change).
 
 ## Behaviour
 
@@ -284,6 +286,7 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 | Human archer searching for a target; the only enemy in range is hidden from its owner | No target found |
 | Human player places a farm whose site includes an unexplored tile | Refused |
 | Human player places a farm on explored but unseen tiles where an enemy unit stands | The enemy unit doesn't block the placement |
+| `xhuman10-spells-700` (oracle trace), computer player 2's grunt 1475, axe thrower 1496 and ogres 1538 and 1543; player 1's units in range | n = 1: order 2, animation 2, wait 1, no target (everything is hidden in the first start-up cycle); n = 2: wait 4; n = 6: order 12, animation 4, wait 3, targets 1492, 1492, 1536 and 1542 |
 
 ## Open questions
 
