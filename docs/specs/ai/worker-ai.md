@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the AI script file
   `Rez\ai.bin` and the unit data `Rez\unitdata.dat` in the game data, and the `ALOW` bit list and unit flags in the
   public PUD specification text. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-21 errata: build-list step 2 makes no other test, so an entry the player can never
+  research blocks the rest of the list; the done marks now list every way an entry is marked or cleared.
 
 ## Behaviour
 
@@ -81,7 +83,10 @@ stopping at an 0xFF entry. For each entry:
 
 1. **Done** entries (below) are skipped.
 2. An entry of **0x80 or more** marks that research item as requested for the player and ends the scan. (The request
-   is handled by the computer player's building logic, not covered here.)
+   is handled by the computer player's building logic, `ai/training-research.md`.) No other test is made: not whether
+   the player has the building that does the research or can ever get one, nor whether the map allows the item, its
+   prerequisites are met or it is already known. An entry the player can never research therefore blocks every later
+   entry for the rest of the game.
 3. The entry is a building type, with its race changed to the worker's race. If the map doesn't allow that type
    (`ALOW` unit bits), its prerequisites aren't met, or the player can't afford it, the **scan ends** with no job.
 4. If one of that type is already in progress, the entry is **skipped**.
@@ -97,8 +102,18 @@ stopping at an 0xFF entry. For each entry:
 - When a building of a computer player is **destroyed**, the first entry in list order that is done and whose type
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
-- Entries of 0x80 or more are marked done when the research starts, and at the start of a game those whose upgrade is
-  already at the level they ask for are marked done.
+- Entries of 0x80 or more are marked done when the research or building upgrade starts (`ai/training-research.md`).
+- At the start of a game, entries of 0x80 or more for what the player already has are marked done: codes 0x80, 0x81
+  and 0x86 to 0x8F when the upgrade line has already reached the level the code asks for; codes 0x82 to 0x85 when
+  the item is already researched; and codes 0x90 to 0x97 when the player already knows the human or the orc item of
+  the code (its spells-known bit; Data, "Spell bits for done marks at game start").
+- At the start of a game, the buildings the map places mark entries too: a guard or cannon tower marks the first
+  entry 0x40 (scout tower) that isn't done; a keep marks every 0x98 entry and the first 0x4A (town hall) entry that
+  isn't done; a castle marks every 0x98 and 0x99 entry and the first 0x4A entry that isn't done; any other building
+  marks the first entry of its type that isn't done.
+
+Nothing else marks an entry done or clears its mark. In particular nothing marks a research entry done because the
+player can't research it.
 
 So the list works like a wish list: each entry stands for one building, and a lost building is replaced.
 
@@ -251,6 +266,22 @@ only custom unit data creates):
 | 15 | stables / ogre mound, lumber mills |
 | 0 | gold mine, oil patch, start locations, circle of power, dark portal |
 
+### Spell bits for done marks at game start
+
+An entry is marked done at the start of a game when either bit of its code is set in the player's spells-known word
+(`economy/tech-tree.md`).
+
+| Code | Bits (human, orc) |
+| --- | --- |
+| 0x90 | 20 (the same bit for both) |
+| 0x91 | 1, 11 |
+| 0x92 | 3, 18 |
+| 0x93 | 4, 13 |
+| 0x94 | 6, 16 |
+| 0x95 | 7, 15 |
+| 0x96 | 8, 17 |
+| 0x97 | 9, 19 |
+
 ## Test vectors
 
 | Input | Expected |
@@ -289,6 +320,10 @@ only custom unit data creates):
 | Computer tanker, empty, an oil refinery touching its water, two platforms with oil: P1 depot 6 and tanker 10, P2 depot 9 and tanker 2 | P1: 6 + 5 = 11, P2: 9 + 1 = 10: P2 |
 | Computer tanker, no oil depot touches its water | Nothing; no wait |
 | Computer tanker, depot, no platform, oil patch 7 tiles from the depot, platform affordable | Builds an oil platform on that patch, paid at once |
+| Computer player, build list 0x93, 0x90, 0x91, 0x94; limit 7; a temple, no altar; raise dead already researched | Every scan skips 0x93 (done), sets the request for 0x90 and ends. The requests for 0x91 and 0x94 are never set, so the temple never researches haste |
+| Same list; the player gets an altar and ogre-mage research starts | 0x90 marked done; the next scan reaches 0x91 |
+| Map gives a computer player a castle; build list 0x4A, 0x98, 0x99, 0x4A | At game start entries 1 and 2 (0x98, 0x99) and entry 0 (the first 0x4A) are marked done; entry 3 is not |
+| Spells known at game start 0x4020 (the setup default); build list 0x90 | Not marked done (bit 20 isn't set) |
 
 ## Open questions
 
@@ -303,3 +338,6 @@ only custom unit data creates):
   interaction with the border option is assumed to use the unbordered footprint.
 - The all-out attack started by losing buildings is not specified here (it belongs to the attack AI).
 - The other AI work run every 50 cycles (`ai/ai-scripts.md`) may also send workers; not covered here.
+- Whether the game-start marks for placed buildings compare entries after a race change, as completion does, and so
+  whether a stronghold and a fortress mark entries as a keep and a castle do, wasn't traced. Default: the same race
+  change as on completion, with the orc halls and towers treated like the human ones.
