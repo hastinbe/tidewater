@@ -15,6 +15,8 @@
   apply only while enforced; two open questions now point to `economy/tech-tree.md`.
   2026-10-12, round-33 errata: the shown progress of construction and of jobs is kept in the building's mana byte;
   the construction look and a building upgrade are frames (0 and 1).
+  2026-10-12, round-35 errata: the build walk's goal is the building goal rule on the planned footprint (oil platform:
+  top-left plus (1, 1); shore rule for shore buildings), recomputed each time order 28's logic runs.
 
 ## Behaviour
 
@@ -50,7 +52,17 @@ Research and upgrades check gold, lumber and oil only.
 
 ### Placing a building
 
-A worker ordered to build goes to the site in order 28 (arrival radius 0).
+A worker ordered to build goes to the site in order 28 (arrival radius 0), with no target unit. Its goal is a tile
+of the planned footprint, worked out from the planned building's type and top-left tile and the worker's current tile
+as if the building already stood there:
+
+- a building placed on an oil patch (an oil platform): the top-left tile plus (1, 1);
+- a shore building: the shore rule of `movement/pathfinding.md` ("Building goal rule");
+- any other building: the building goal rule of `movement/pathfinding.md` on the planned footprint.
+
+The goal is worked out when the order is given and again each time order 28's logic runs, so a walk that ends
+without arriving starts again from where the worker stands. The worker arrives when it **stands on** the goal tile;
+the placement check ignores the worker's own tile (below), so that doesn't stop the building.
 
 - **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker
   sets out.
@@ -211,6 +223,9 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | Human04 (oracle trace), great hall slot 1550 trains a peon (total 90) | Mana 1 from n = 21 (the payment). After the runs at n = 39, 44, 49, …: 2, 5, 8, 11, 14, 17, 19, … 252, 255 (n = 484); 0 at n = 489, when the peon appears. Frame 0 throughout |
 | orc4 (oracle trace), farm slot 1534 under construction | Mana 27 at n = 10714, rising with hit points (41 at 10786); 64 and frame 1 at n = 10906; frame 1 to completion; frame 0 and mana 0 at n = 11914 (hit points 400) |
 | xhuman4 (oracle trace), tower slot 1423 (type 0x41) | Frame 0 at completion (n = 821), frame 1 from the building-upgrade start (n = 832) through order 37, frame 0 when it becomes type 0x61 (n = 2250) |
+| `human01-basics` (oracle trace): peasant 1596 on (14, 9) is told to build a barracks (type 60, 3 × 3) at top-left (5, 8) | Goal (7, 9): x = 7 because 14 ≥ 7; y = 8 + 1 because 9 lies inside 8 to 10. Order 28 takes over at n = 19 (wait 3); the peasant walks west along row 9, one tile every 16 cycles: (13, 9) at n = 22, (12, 9) at 38, (10, 9) at 70, (7, 9) at 118. At n = 134 the barracks is placed at (5, 8) and the peasant is inside it (order 22, wait 150) |
+| A worker at (2, 2) told to build a 2 × 2 farm at (5, 5) | Goal (5, 5) |
+| A worker at (6, 9) told to build a 3 × 3 building at (5, 5) | Goal (6, 7): x = 5 + 1 (6 lies between 5 and 7), y = 7 (9 ≥ 7) |
 
 ## Open questions
 
