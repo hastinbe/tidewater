@@ -16,6 +16,9 @@
   2026-10-12, round-14 errata: the Dark Portal special case is defined (game kind, campaign entries, types).
   2026-10-12, round-15 errata: new paragraph "Impact effects" (the effect each missile kind leaves at its impact, its
   slot and its lifetime).
+  2026-10-12, round-19 errata: cannon smoke is made only by destroyers, battleships and juggernaughts (never towers),
+  at the missile's start point, in the lowest free effect slot after the missile's; a shot with no free effect slot
+  creates nothing and draws nothing; cannon towers, like guard towers, fire without aim scatter.
 
 ## Behaviour
 
@@ -98,14 +101,20 @@ An attacking unit plays its **attack script** (see "Attack timing" below). At th
     launch for the damage.
   - **Aim scatter:** after the damage is set, every missile launched by a unit's attack script makes two more draws.
     The first moves the aim point `(r AND 7) − 3` pixels horizontally and the second does the same vertically, so each
-    offset is from −3 to +4. Guard towers fire without this scatter.
+    offset is from −3 to +4. Towers (guard and cannon) fire without this scatter.
   - **Flight length:** a missile's flight is at least its minimum flight distance (table below). It is measured as the
     larger of the horizontal and vertical pixel distance.
-  - **Cannon smoke:** a big or small cannon shot also spawns a cosmetic effect at the muzzle. It doesn't draw random
-    numbers.
+  - **Cannon smoke:** a big or small cannon missile launched by a unit's attack (destroyers, battleships and
+    juggernaughts in the default data; never towers) is followed by a cosmetic effect of kind 0x19 at the missile's
+    start point (the attacker's centre, not moved by the aim scatter), facing 0. It is created after the missile,
+    damage and scatter are set, in the lowest free effect slot left, so its slot is after the missile's. With no slot
+    left there is no smoke, and the missile still flies. Like the missile, it gets its first update in the strike
+    cycle C (`spells/spells.md`, "When a new effect first runs"). It plays four frames with a wait of 3 each and is
+    removed in cycle C + 13. It makes no sound and draws no random numbers.
 
 Draws for one ranged shot, in order: one damage draw (non-splash only, and only if `T > 0`), then the horizontal
-scatter, then the vertical scatter.
+scatter, then the vertical scatter. If no effect slot is free for the missile, the shot creates nothing (no missile
+and no smoke) and makes no draws at all.
 
 ### Missile flight
 
@@ -115,8 +124,8 @@ kind in the table below steps every cycle.
 
 **Flight length D.** D is the larger of the horizontal and vertical pixel distances from the missile's start (the
 attacker's centre) to its aim point **after** the aim scatter. If D is below the kind's minimum flight distance,
-D becomes that minimum. The aim point isn't moved, so the missile then flies on past it. Guard towers' shots use the
-same rule without the scatter and without the wall exception below.
+D becomes that minimum. The aim point isn't moved, so the missile then flies on past it. Shots by towers (guard and
+cannon) use the same rule without the scatter and without the wall exception below.
 
 **Computer players' wall exception.** If the minimum is more than 2 tiles (catapult rock, ballista bolt), the
 attacker belongs to a computer-controlled player, and the attack's target tile carries a wall flag (0x04 or 0x08
@@ -372,6 +381,19 @@ Impact effects:
 | A battleship's big cannon lands; slot 1 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 1. Slot 1 comes before slot 6, so its first update, and its `misc\explode`, are in the next cycle |
 | A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
 | A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
+
+Cannon smoke and launch slots:
+
+| Input | Expected |
+| --- | --- |
+| A battleship strikes in cycle C; effect slots 0 to 2 in use, 3 and up free | Missile in slot 3, smoke (kind 0x19) in slot 4 at the battleship's centre, facing 0. Both first update in C; the smoke is removed in C + 13 |
+| A destroyer strikes; slots 0 and 2 in use, 1 and 3 free | Missile in slot 1, smoke in slot 3 |
+| A destroyer strikes; only one effect slot free | Missile in that slot; no smoke; the two scatter draws as usual (the small cannon is a splash missile, so no damage draw) |
+| A juggernaught strikes; no effect slot free | Nothing created; no draws for this shot |
+| An archer strikes; no effect slot free | Nothing created; no damage draw and no scatter draws |
+| A human cannon tower fires at a ship | Small cannon missile, no scatter draws, no smoke; cannon sound |
+| A catapult or ballista strikes | Missile and scatter as usual; no smoke |
+| Smoke updated and removed in cycle C + 13; later in that cycle a higher-slot effect creates a new effect | The new effect may take the smoke's old slot |
 
 ## Open questions
 
