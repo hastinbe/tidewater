@@ -166,8 +166,11 @@ impl World {
             return self.cast_strike(i);
         }
         let (ti, to) = match (order, crate::orders::target_of(order)) {
-            (Order::AttackWall { tile }, _) => (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2)),
-            (Order::Follow { .. } | Order::Guard { .. }, _) | (_, None) => return,
+            (Order::AttackWall { tile } | Order::AttackGround { tile }, _) => {
+                (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2))
+            }
+            // A demolisher plays the attack animation on its way but never strikes (attack-ground-demolish spec).
+            (Order::Follow { .. } | Order::Guard { .. } | Order::Demolish { .. }, _) | (_, None) => return,
             (_, Some(target)) => {
                 let Some(ti) = self.index(target).filter(|&ti| self.units[ti].present()) else {
                     return;

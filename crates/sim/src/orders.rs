@@ -1,8 +1,9 @@
 //! Commands, immediate orders, target acquisition, reactions and fleeing. Spec: `docs/specs/orders/orders.md`.
 //!
-//! Transports and boarding are in `transport.rs`. Not yet here: attacking the ground (17, 18), demolition (19 to 21), spells,
-//! the computer players' worker and tanker routines (they skip the search, as the spec says, and do nothing instead),
-//! and alliances (only a unit's own player counts as allied).
+//! Transports and boarding are in `transport.rs`, attacking the ground (17, 18) and demolition (19 to 21) in
+//! `ground.rs`. Not yet here: spells, the computer players' worker and tanker routines (they skip the search, as
+//! the spec says, and do nothing instead), alliances (only a unit's own player counts as allied), and the Enhanced
+//! demolition unit that turns a found target into a demolish ("Special cases").
 //!
 //! Our own choice: a player command other than patrol and attack-move clears the remembered order, so a unit sent
 //! elsewhere doesn't go back to its old patrol.
@@ -55,8 +56,11 @@ pub(crate) fn order_anim(o: Order) -> u8 {
         | Order::IdleReact { .. }
         | Order::Harvest { .. }
         | Order::Repair { .. }
-        | Order::Cast { .. } => anim::ATTACK,
-        Order::Enter { .. } => anim::MOVE,
+        | Order::Cast { .. }
+        | Order::AttackGround { .. }
+        | Order::Demolish { .. }
+        | Order::DemolishAt { .. } => anim::ATTACK,
+        Order::Enter { .. } | Order::AttackGroundMove { .. } => anim::MOVE,
         Order::Land { .. } | Order::PushOff => anim::WORK_B,
         _ => anim::STILL,
     }
@@ -71,7 +75,7 @@ pub(crate) fn target_of(o: Order) -> Option<UnitId> {
         | Order::Chase { target }
         | Order::AttackInPlace { target }
         | Order::IdleReact { target } => Some(target),
-        Order::TowerWatch { target } => target,
+        Order::TowerWatch { target } | Order::Demolish { at: target, .. } => target,
         _ => None,
     }
 }
@@ -135,6 +139,8 @@ impl World {
             Command::AttackMove { to, .. } => Order::AttackMove { goal: to },
             Command::Patrol { to, .. } => Order::Patrol { to, back: u.tile },
             Command::StandGround { .. } => Order::StandGround,
+            Command::AttackGround { tile, .. } => self.attack_ground_command(i, tile),
+            Command::Demolish { target, tile, .. } => self.demolish_command(i, target, tile),
             Command::Smart { target, tile, .. } => self.smart(i, target, tile)?,
             Command::Repair { target, .. } => {
                 if !self.is_worker(u) {
@@ -347,6 +353,9 @@ impl World {
             }
             Order::Attack { target } | Order::Chase { target } => self.attack_order(i, target),
             Order::AttackInPlace { target } | Order::IdleReact { target } => self.attack_in_place(i, target),
+            Order::AttackGround { tile } => self.attack_ground(i, tile),
+            Order::AttackGroundMove { tile } => self.attack_ground_move(i, tile),
+            Order::Demolish { .. } | Order::DemolishAt { .. } => self.demolish(i, o),
             _ => return false,
         }
         true

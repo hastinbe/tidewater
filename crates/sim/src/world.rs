@@ -112,6 +112,14 @@ pub enum Order {
     Inside { building: UnitId, hall_sized: bool },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
     AttackWall { tile: (i32, i32) },
+    /// 17: attack the ground at `tile` (attack-ground-demolish spec).
+    AttackGround { tile: (i32, i32) },
+    /// 18: move into range of `tile`, then attack the ground there.
+    AttackGroundMove { tile: (i32, i32) },
+    /// 20: demolish at unit `at`, or at the obstacle `tile` when `at` is `None`.
+    Demolish { at: Option<UnitId>, tile: (i32, i32) },
+    /// 21: demolish at a location.
+    DemolishAt { tile: (i32, i32) },
     /// 29: a transport putting its passengers ashore (transports spec).
     Unload,
     /// 30: a transport sailing to the shore-water tile `goal` in the landing class.
@@ -510,6 +518,19 @@ pub enum Command {
         player: u8,
         unit: UnitId,
         kind: u8,
+        tile: (i32, i32),
+    },
+    /// Command 17: attack the ground at `tile` (attack-ground-demolish spec).
+    AttackGround {
+        player: u8,
+        units: Vec<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Command 19: demolish at `target`, or at `tile` when there is none.
+    Demolish {
+        player: u8,
+        units: Vec<UnitId>,
+        target: Option<UnitId>,
         tile: (i32, i32),
     },
     /// Command 29: a transport unloads at `tile` (transports spec).
@@ -993,6 +1014,8 @@ impl World {
             | Command::AttackMove { player, units, .. }
             | Command::Patrol { player, units, .. }
             | Command::Unload { player, units, .. }
+            | Command::AttackGround { player, units, .. }
+            | Command::Demolish { player, units, .. }
             | Command::StandGround { player, units } => (*player, units),
             &Command::Train {
                 player,

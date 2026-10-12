@@ -15,6 +15,7 @@ mod build;
 pub mod combat;
 pub mod corpses;
 pub mod economy;
+mod ground;
 mod harvest;
 mod movement;
 mod orders;
