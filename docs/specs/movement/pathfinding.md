@@ -6,6 +6,7 @@
   game.
 - **Changes:** 2026-10-12, round-22 errata: for two-tile movers the progress check measures P to the unrounded goal;
   the goal zone plays no part in it.
+  2026-10-12, round-31 errata: for transports the kept tile of a goal pull-back is defined in `orders/transports.md`.
 
 ## Behaviour
 
@@ -162,7 +163,9 @@ corner that touches the unit's region, if one exists. Regions come from the map'
 For some orders, and for transports heading to a shore, a goal tile that the unit can't stand on is moved before the
 search. "Can't stand on" means blocked terrain or buildings for the unit's layer, ignoring units, or a different
 region for non-flying units. The goal is walked back along the line toward the unit until a usable tile is found.
-Which of the two neighbouring tiles is kept is still open.
+For a transport sent to a land or shore-water tile from open water, `orders/transports.md` ("Land and shore targets")
+gives the full rule: the kept tile is the one just before the first usable tile, on the goal's side. For other
+orders, which of the two neighbouring tiles is kept is still open.
 
 ## Data
 
@@ -212,7 +215,8 @@ units on the map.
 
 ## Open questions
 
-- Which tile is kept when a goal is pulled back.
+- Which tile is kept when a goal is pulled back, for orders other than the transport's (`orders/transports.md`).
+  Default: the same rule.
 - Which orders use the "goal pulled back" rule. Transports do.
 - Whether two-tile movers' start tiles are always even.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
