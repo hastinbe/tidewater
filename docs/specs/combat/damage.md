@@ -23,6 +23,8 @@
   (`core/unit-slots.md`).
 - **Changes:** 2026-10-12, round-23 errata: the Dark Portal special case names its three maps, and the two other
   shipped maps with a Dark Portal are noted as unprotected; four test vectors added.
+- **Changes:** 2026-10-12, round-24 errata: the cannon smoke starts 11 cycles after its first update and is removed in
+  C + 24; an impact effect's slot time and its sound count from its start step, one cycle after its first update.
 
 ## Behaviour
 
@@ -113,9 +115,9 @@ An attacking unit plays its **attack script** (see "Attack timing" below). At th
     juggernaughts in the default data; never towers) is followed by a cosmetic effect of kind 0x19 at the missile's
     start point (the attacker's centre, not moved by the aim scatter), facing 0. It is created after the missile,
     damage and scatter are set, in the lowest free effect slot left, so its slot is after the missile's. With no slot
-    left there is no smoke, and the missile still flies. Like the missile, it gets its first update in the strike
-    cycle C (`spells/spells.md`, "When a new effect first runs"). It plays four frames with a wait of 3 each and is
-    removed in cycle C + 13. It makes no sound and draws no random numbers.
+    left there is no smoke, and the missile still flies. Like the missile, it gets its first update in the strike cycle
+    C (`spells/spells.md`, "When a new effect first runs"). Its start animation waits 11 cycles; it then plays four
+    frames with a wait of 3 each and is removed in cycle C + 24. It makes no sound and draws no random numbers.
 
 Draws for one ranged shot, in order: one damage draw (non-splash only, and only if `T > 0`), then the horizontal
 scatter, then the vertical scatter. If no effect slot is free for the missile, the shot creates nothing (no missile
@@ -160,10 +162,11 @@ hit or splash, a cosmetic effect is created at the missile's final pixel positio
 - It takes the lowest free effect slot. If there is none, no effect is made. The missile's own slot is freed only
   after this, so the effect never reuses the missile's slot.
 - Its first update follows `spells/spells.md`, "When a new effect first runs" (it is created by another effect).
-- It changes nothing in the game. It holds its slot until its script's step done, counted from the effect's
-  restart at its first update: for kind 0x15, six frames with a wait of 2 each (12 cycles); for kind 0x1A, four
-  frames with a wait of 3 each (12 cycles); for kind 0x17, sixteen frames with a wait of 3 each (48 cycles; the
-  cosmetic effect of `spells/spells.md`, "Cosmetic effects").
+- It changes nothing in the game. It holds its slot until its script's step done, counted from its start step, one cycle
+  after its first update (`spells/spells.md`, "When a new effect first runs"): for kind 0x15, six frames with a wait of
+  2 each (12 cycles); for kind 0x1A, four frames with a wait of 3 each (12 cycles); for kind 0x17, sixteen frames with a
+  wait of 3 each (48 cycles; the cosmetic effect of `spells/spells.md`, "Cosmetic effects"). So 0x15 and 0x1A are
+  removed in U + 14 and 0x17 in U + 50, with U the first update.
 
 **Draws.** Each flight step makes one draw, at the end of the step and after the move, including the landing
 step. The draw is discarded. The catapult rock and the small cannon make one **more** draw on every step,
@@ -381,9 +384,9 @@ Impact effects:
 
 | Input | Expected |
 | --- | --- |
-| A catapult rock lands and splashes; effect slots 0 to 4 in use, slot 5 free; the rock is in slot 3 | No impact sound; the splash; a kind 0x15 effect in slot 5 at the rock's position; the rock's slot 3 is freed. Slot 5 comes after slot 3, so the effect's first update is in the same cycle: `misc\explode` plays at its tile. It is freed after 12 cycles of waits |
-| A ballista bolt with stored damage 0 lands | No impact sound (damaging only); the kind 0x15 effect is still made, and plays `misc\explode` at its first update |
-| A battleship's big cannon lands; slot 3 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 3. Slot 3 comes before slot 6, so its first update, and its `misc\explode`, are in the next cycle |
+| A catapult rock lands and splashes; effect slots 0 to 4 in use, slot 5 free; the rock is in slot 3 | No impact sound; the splash; a kind 0x15 effect in slot 5 at the rock's position; the rock's slot 3 is freed. Slot 5 comes after slot 3, so the effect's first update is in the impact cycle, and its start step, with `misc\explode` at its tile, one cycle later. It is removed 14 cycles after the impact |
+| A ballista bolt with stored damage 0 lands | No impact sound (damaging only); the kind 0x15 effect is still made, and plays `misc\explode` at its start step, one cycle after its first update |
+| A battleship's big cannon lands; slot 3 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 3. Slot 3 comes before slot 6, so its first update is in the next cycle and its start step, with `misc\explode`, in the cycle after that |
 | A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
 | A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
 
@@ -391,14 +394,14 @@ Cannon smoke and launch slots:
 
 | Input | Expected |
 | --- | --- |
-| A battleship strikes in cycle C; effect slots 0 to 2 in use, 3 and up free | Missile in slot 3, smoke (kind 0x19) in slot 4 at the battleship's centre, facing 0. Both first update in C; the smoke is removed in C + 13 |
+| A battleship strikes in cycle C; effect slots 0 to 2 in use, 3 and up free | Missile in slot 3, smoke (kind 0x19) in slot 4 at the battleship's centre, facing 0. Both first update in C; the smoke is removed in C + 24 |
 | A destroyer strikes; slots 3 and 5 in use, 4 and 6 free | Missile in slot 4, smoke in slot 6 |
 | A destroyer strikes; only one effect slot free | Missile in that slot; no smoke; the two scatter draws as usual (the small cannon is a splash missile, so no damage draw) |
 | A juggernaught strikes; no effect slot free | Nothing created; no draws for this shot |
 | An archer strikes; no effect slot free | Nothing created; no damage draw and no scatter draws |
 | A human cannon tower fires at a ship | Small cannon missile, no scatter draws, no smoke; cannon sound |
 | A catapult or ballista strikes | Missile and scatter as usual; no smoke |
-| Smoke updated and removed in cycle C + 13; later in that cycle a higher-slot effect creates a new effect | The new effect may take the smoke's old slot |
+| Smoke updated and removed in cycle C + 24; later in that cycle a higher-slot effect creates a new effect | The new effect may take the smoke's old slot |
 | *Beyond the Dark Portal* human mission 12 (entry 50), single player, a knight hits the Dark Portal | Nothing: no damage, no notification |
 | Same, Khadgar (type 0x18) hits it | Damage applied as usual |
 | *Beyond the Dark Portal* orc mission 12 (entry 51), a grunt hits the Dark Portal | Damage applied as usual |
