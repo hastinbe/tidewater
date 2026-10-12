@@ -18,7 +18,7 @@ use tidewater_formats::raw::RawImage;
 use tidewater_formats::tbl::StringTable;
 use tidewater_formats::tileset::Palette;
 
-use crate::scene::{Picture, team_colour, to_rgba};
+use crate::scene::{Picture, to_rgba};
 
 /// A rectangle in canvas pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -87,7 +87,9 @@ impl Layout {
     }
 }
 
-/// Maps between minimap pixels and map tiles. The map is scaled to fit the minimap and centred in it.
+/// Maps between minimap pixels and map tiles for the current mouse input, which scales the map to fit the minimap and
+/// centres it. The spec's mapping is [`crate::minimap::view_for_press`] and [`crate::minimap::tile_for_press`], which
+/// the input rewrite takes over.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Minimap {
     pub rect: Rect,
@@ -118,42 +120,6 @@ impl Minimap {
             ((p.1 - oy) / s).clamp(0.0, self.map.1 as f32),
         )
     }
-
-    /// The canvas point of tile position `t`.
-    pub fn canvas_at(&self, t: (f32, f32)) -> (f32, f32) {
-        let (ox, oy, s) = (self.origin().0, self.origin().1, self.scale());
-        (ox + t.0 * s, oy + t.1 * s)
-    }
-}
-
-/// The average colour of each tile of a terrain picture `tiles_w * tiles_h` tiles of `tile` pixels.
-pub fn tile_colours(terrain: &Picture, tile: u32) -> Vec<[u8; 3]> {
-    let (tw, th) = (terrain.width / tile, terrain.height / tile);
-    let mut out = Vec::with_capacity((tw * th) as usize);
-    for ty in 0..th {
-        for tx in 0..tw {
-            let mut sum = [0u32; 3];
-            for y in 0..tile {
-                let row = ((ty * tile + y) * terrain.width + tx * tile) as usize * 4;
-                for x in 0..tile as usize {
-                    for (c, s) in sum.iter_mut().enumerate() {
-                        *s += terrain.rgba[row + x * 4 + c] as u32;
-                    }
-                }
-            }
-            let n = tile * tile;
-            out.push(sum.map(|s| (s / n) as u8));
-        }
-    }
-    out
-}
-
-/// A unit as the minimap shows it.
-#[derive(Clone, Copy, Debug)]
-pub struct Dot {
-    pub tile: (i32, i32),
-    pub size: (u8, u8),
-    pub owner: u8,
 }
 
 /// A unit in the information panel's grid: its type, owner and health.
@@ -188,11 +154,8 @@ pub struct View<'a> {
     pub info: InfoView<'a>,
     /// The latest message for the player.
     pub status: Option<&'a str>,
-    pub dots: &'a [Dot],
-    /// The explored and visible maps' fogged quarters per tile, if fog hides terrain.
-    pub fog: Option<(&'a [u8], &'a [u8])>,
-    /// The map view in tiles: left, top, right, bottom.
-    pub view: (f32, f32, f32, f32),
+    /// The last minimap picture drawn: 128 × 128 palette indices (see [`crate::minimap`]).
+    pub minimap: &'a [u8],
     /// The command panel's shown buttons: slot and icon frame (see [`crate::panel`]).
     pub buttons: &'a [(u8, u16)],
 }
@@ -390,8 +353,13 @@ impl HudArt {
         let font = Font::parse(&install.read("Art\\font10x.fnt")?).context("font10x.fnt")?;
         let names = StringTable::parse(&install.read("rez\\stat_txt.tbl")?).context("stat_txt.tbl")?;
 
-        // The minimap goes where the minimap box is transparent black (index 0).
-        let hole = bounds_of(&left[1], 0).unwrap_or(Rect::new(24, 2, 128, 128));
+        // The minimap is x 24 to 151, y 26 to 153 on the screen, 2 pixels below the minimap box's top (screen spec).
+        let hole = Rect::new(
+            crate::minimap::ORIGIN.0,
+            2,
+            crate::minimap::SIZE as u32,
+            crate::minimap::SIZE as u32,
+        );
         let info_h = frames.height as u32;
         let pieces = Pieces {
             panel_w: left[0].width as u32,
@@ -580,20 +548,20 @@ impl HudArt {
     }
 
     /// The whole interface: `frame` plus the minimap, resources and selection.
-    pub fn draw(&self, frame: &Picture, l: &Layout, tiles: &[[u8; 3]], map: (u32, u32), v: &View) -> Picture {
+    pub fn draw(&self, frame: &Picture, l: &Layout, v: &View) -> Picture {
         let mut pic = Picture {
             width: frame.width,
             height: frame.height,
             rgba: frame.rgba.clone(),
         };
-        draw_minimap(
-            &mut pic,
-            &Minimap { rect: l.minimap, map },
-            tiles,
-            v.fog,
-            v.dots,
-            v.view,
-        );
+        let mini = Picture {
+            width: crate::minimap::SIZE as u32,
+            height: crate::minimap::SIZE as u32,
+            rgba: to_rgba(v.minimap, &self.pal, false, None),
+        };
+        if v.minimap.len() == crate::minimap::SIZE * crate::minimap::SIZE {
+            blit(&mut pic, l.minimap.x, l.minimap.y, &mini);
+        }
 
         // Resources, right-aligned in the top bar.
         let slot = 84;
@@ -635,68 +603,6 @@ impl HudArt {
     }
 }
 
-/// The bounding box of the pixels of index `v`.
-fn bounds_of(r: &RawImage, v: u8) -> Option<Rect> {
-    let (w, h) = (r.width as usize, r.height as usize);
-    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
-    for y in 0..h {
-        for x in 0..w {
-            if r.pixels[y * w + x] == v {
-                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
-            }
-        }
-    }
-    (x0 != usize::MAX).then(|| Rect::new(x0 as i32, y0 as i32, (x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32))
-}
-
-/// Draws the terrain, unit dots and the map-view rectangle into the minimap area. With `fog` (the explored and visible
-/// maps), terrain shows only where the map a pixel column samples is clear (see [`crate::fog`]).
-pub fn draw_minimap(
-    pic: &mut Picture,
-    m: &Minimap,
-    tiles: &[[u8; 3]],
-    fog: Option<(&[u8], &[u8])>,
-    dots: &[Dot],
-    view: (f32, f32, f32, f32),
-) {
-    let s = m.scale();
-    let (mw, mh) = m.map;
-    fill(pic, m.rect, [0, 0, 0]);
-    let (ox, oy) = m.canvas_at((0.0, 0.0));
-    let (w, h) = ((mw as f32 * s).round() as i32, (mh as f32 * s).round() as i32);
-    for py in 0..h {
-        let ty = (((py as f32 + 0.5) / s) as u32).min(mh.saturating_sub(1));
-        for px in 0..w {
-            let tx = (((px as f32 + 0.5) / s) as u32).min(mw.saturating_sub(1));
-            let n = (ty * mw + tx) as usize;
-            if fog.is_some_and(|(e, v)| !crate::fog::minimap_terrain_shown(e, v, px, n)) {
-                continue;
-            }
-            if let Some(&c) = tiles.get(n) {
-                fill(pic, Rect::new(ox as i32 + px, oy as i32 + py, 1, 1), c);
-            }
-        }
-    }
-    for d in dots {
-        let (x, y) = m.canvas_at((d.tile.0 as f32, d.tile.1 as f32));
-        let size = |n: u8| ((n as f32 * s).round() as u32).max(1);
-        fill(
-            pic,
-            Rect::new(x as i32, y as i32, size(d.size.0), size(d.size.1)),
-            team_colour(d.owner, 0),
-        );
-    }
-    let (x0, y0) = m.canvas_at((view.0.max(0.0), view.1.max(0.0)));
-    let (x1, y1) = m.canvas_at((view.2.min(mw as f32), view.3.min(mh as f32)));
-    let r = Rect::new(
-        x0 as i32,
-        y0 as i32,
-        ((x1 - x0) as u32).max(1),
-        ((y1 - y0) as u32).max(1),
-    );
-    outline(pic, r, [252, 252, 252]);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -706,7 +612,7 @@ mod tests {
             panel_w: 176,
             panel_h: [24, 136, 176, 144],
             bar: 16,
-            hole: Rect::new(25, 3, 126, 126),
+            hole: Rect::new(24, 2, 128, 128),
         }
     }
 
@@ -714,7 +620,7 @@ mod tests {
     fn layout_of_the_original_screen() {
         let l = Layout::new((640, 480), &pieces());
         assert_eq!(l.viewport, Rect::new(176, 16, 448, 448));
-        assert_eq!(l.minimap, Rect::new(25, 27, 126, 126));
+        assert_eq!(l.minimap, Rect::new(24, 26, 128, 128));
         assert_eq!(l.info, Rect::new(0, 160, 176, 176));
         assert_eq!(l.buttons, Rect::new(0, 336, 176, 144));
         assert_eq!(l.top, Rect::new(176, 0, 448, 16));
@@ -732,56 +638,11 @@ mod tests {
         };
         assert_eq!(m.scale(), 2.0);
         // 64 pixels tall, centred vertically: top at 20 + 32.
-        assert_eq!(m.canvas_at((0.0, 0.0)), (10.0, 52.0));
+        assert_eq!(m.origin(), (10.0, 52.0));
         assert_eq!(m.tile_at((10.0 + 20.0, 52.0 + 8.0)), (10.0, 4.0));
         // Outside the map clamps to its edge.
         assert_eq!(m.tile_at((0.0, 0.0)), (0.0, 0.0));
         assert_eq!(m.tile_at((500.0, 500.0)), (64.0, 32.0));
-    }
-
-    #[test]
-    fn tile_colours_average_each_tile() {
-        // Two 2x2 tiles side by side: left all 10, right alternating 0 and 100.
-        let mut rgba = Vec::new();
-        for _ in 0..2 {
-            for v in [10, 10, 0, 100] {
-                rgba.extend([v, v, v, 255]);
-            }
-        }
-        let pic = Picture {
-            width: 4,
-            height: 2,
-            rgba,
-        };
-        assert_eq!(tile_colours(&pic, 2), vec![[10; 3], [50; 3]]);
-    }
-
-    #[test]
-    fn minimap_draws_terrain_dots_and_view() {
-        let mut pic = Picture {
-            width: 8,
-            height: 8,
-            rgba: vec![0; 256],
-        };
-        let m = Minimap {
-            rect: Rect::new(0, 0, 8, 8),
-            map: (4, 4),
-        };
-        let tiles = vec![[1, 2, 3]; 16];
-        let dots = [Dot {
-            tile: (3, 3),
-            size: (1, 1),
-            owner: 1,
-        }];
-        draw_minimap(&mut pic, &m, &tiles, None, &dots, (0.0, 0.0, 2.0, 2.0));
-        let at = |x: u32, y: u32| &pic.rgba[((y * 8 + x) * 4) as usize..((y * 8 + x) * 4 + 3) as usize];
-        assert_eq!(at(5, 1), &[1, 2, 3]);
-        assert_eq!(at(7, 7), &team_colour(1, 0));
-        assert_eq!(at(6, 6), &team_colour(1, 0));
-        // The view outline covers tiles 0..2, i.e. pixels 0..4.
-        assert_eq!(at(0, 0), &[252, 252, 252]);
-        assert_eq!(at(3, 2), &[252, 252, 252]);
-        assert_eq!(at(2, 2), &[1, 2, 3]);
     }
 
     #[test]

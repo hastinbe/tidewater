@@ -24,11 +24,9 @@ pub struct Scene {
     pub era: Era,
     pub description: String,
     pub terrain: Picture,
-    /// Average colour of each map tile, row by row (for the minimap).
-    pub tile_colours: Vec<[u8; 3]>,
     /// The era's palette, which the interface art uses too.
     pub palette: Palette,
-    /// For redrawing tiles whose shape changes in play.
+    /// For redrawing tiles whose shape changes in play, and for the minimap's terrain.
     pub tileset: Tileset,
     /// Each unit type's sprite sheet, for the types that have one.
     pub sheets: HashMap<u8, Grp>,
@@ -189,7 +187,6 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
     Ok(Scene {
         era: pud.era,
         description: pud.description(),
-        tile_colours: crate::hud::tile_colours(&terrain, TILE as u32),
         terrain,
         palette: ts.palette.clone(),
         tileset: ts,

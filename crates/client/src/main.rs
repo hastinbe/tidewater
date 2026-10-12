@@ -15,6 +15,7 @@
 mod fog;
 mod hud;
 mod info;
+mod minimap;
 mod mouse;
 mod panel;
 mod scene;
@@ -277,9 +278,10 @@ struct Hud {
     layout: Option<hud::Layout>,
     frame: scene::Picture,
     image: Handle<Image>,
-    tiles: Vec<[u8; 3]>,
     /// Map size in tiles.
     map: (u32, u32),
+    /// The minimap: its redraw countdown, terrain picture and last picture (`minimap`).
+    minimap: minimap::Minimap,
 }
 
 impl Hud {
@@ -440,8 +442,8 @@ fn main() -> Result<()> {
                 rgba: vec![0; 4],
             },
             image: Handle::default(),
-            tiles: Vec::new(),
             map: (0, 0),
+            minimap: minimap::Minimap::new(0),
         })
         .insert_resource(Time::<Fixed>::from_hz(hz))
         .insert_resource(selection)
@@ -524,11 +526,11 @@ fn setup(
         .map_or(size.0 / 2.0, |u| {
             Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32)
         });
-    hud.tiles = scene.tile_colours.clone();
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
         scene.terrain.height / TILE_PX as u32,
     );
+    hud.minimap = minimap::Minimap::new(hud.map.0);
     hud.image = images.add(image_with(
         scene::Picture {
             width: 1,
@@ -629,7 +631,14 @@ fn cycle_secs(enhanced: bool, speed: u8) -> f64 {
     ms / 1000.0
 }
 
-fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>, mut time: ResMut<Time<Fixed>>) {
+fn tick(
+    mut sim: ResMut<Sim>,
+    mut sel: ResMut<Selection>,
+    mut time: ResMut<Time<Fixed>>,
+    mut hud: ResMut<Hud>,
+    art: Option<Res<TerrainArt>>,
+    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+) {
     // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
     // spec's one-passenger rule (open question there: assumed to be that request). The sim has no command for it, so
     // its one-passenger unload runs here, between ticks, for transports the local player owns.
@@ -644,6 +653,13 @@ fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>, mut time: ResMut<Time<
     let step = std::time::Duration::from_secs_f64(cycle_secs(sim.world.rules.enhanced, sim.world.speed));
     if time.timestep() != step {
         time.set_timestep(step);
+    }
+    // Minimap spec, "When it is redrawn": the countdown runs in the game cycle, after the units are updated.
+    if let (Some(art), Ok((camera, tf, proj))) = (art, cam.single()) {
+        let (l, t, r, b) = view_tiles(camera, tf, proj);
+        let at = (l.floor().max(0.0) as i32, t.floor().max(0.0) as i32);
+        let size = ((r - l).round().max(1.0) as i32, (b - t).round().max(1.0) as i32);
+        hud.minimap.cycle(&mut sim.world, &art.tileset, at, size, true);
     }
     // A lost unit (dying, or gone inside) leaves the local selection and the remembered groups (corpses spec;
     // selecting spec, "Two selections").
@@ -671,8 +687,9 @@ fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>, mut time: ResMut<Time<
     }
 }
 
-/// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture and the minimap.
-fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut<Assets<Image>>, mut hud: ResMut<Hud>) {
+/// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture. The minimap catches up at
+/// its next terrain rebuild (`minimap`).
+fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut<Assets<Image>>) {
     let changed = std::mem::take(&mut sim.world.terrain.redraw);
     if changed.is_empty() {
         return;
@@ -682,7 +699,6 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
     };
     let width = img.width() as usize;
     let Some(data) = img.data.as_mut() else { return };
-    let map_w = sim.world.terrain.width as usize;
     let t = TILE_PX as usize;
     for (x, y) in changed {
         let Some(m) = sim.world.terrain.tile(x, y) else {
@@ -692,9 +708,6 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
         for row in 0..t {
             let at = ((y as usize * t + row) * width + x as usize * t) * 4;
             data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);
-        }
-        if let Some(c) = hud.tiles.get_mut(y as usize * map_w + x as usize) {
-            *c = hud::tile_colours(&pic, TILE_PX as u32)[0];
         }
     }
 }
@@ -1714,23 +1727,10 @@ fn draw_hud(
     ui: Res<PanelUi>,
     info_panel: Res<InfoPanel>,
     mut images: ResMut<Assets<Image>>,
-    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
 ) {
-    let (Some(sim), Some(layout), Ok((camera, tf, proj))) = (sim, hud.layout, cam.single()) else {
+    let (Some(sim), Some(layout)) = (sim, hud.layout) else {
         return;
     };
-    let view = view_tiles(camera, tf, proj);
-    let dots: Vec<hud::Dot> = sim
-        .world
-        .units
-        .iter()
-        .filter(|u| sim.world.on_minimap(u))
-        .map(|u| hud::Dot {
-            tile: u.tile,
-            size: u.size,
-            owner: u.owner,
-        })
-        .collect();
     let icons = info_panel.slots.map(|s| {
         let u = sim.world.unit(s?)?;
         Some(hud::Icon {
@@ -1760,8 +1760,6 @@ fn draw_hud(
     let pic = hud.art.draw(
         &hud.frame,
         &layout,
-        &hud.tiles,
-        hud.map,
         &hud::View {
             gold: me.gold,
             lumber: me.lumber,
@@ -1780,9 +1778,7 @@ fn draw_hud(
                 // Our wording: the pause notice isn't specified.
                 .or(sim.world.paused.then_some("Paused"))
                 .or(sim.message.as_ref().map(|(m, _)| m.as_str())),
-            dots: &dots,
-            fog: (!sim.world.rules.reveal_map).then(|| fog::maps(&sim.world)),
-            view,
+            minimap: &hud.minimap.pixels,
             buttons: &buttons,
         },
     );
