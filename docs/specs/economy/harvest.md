@@ -120,6 +120,7 @@ simulation generator (see `core/timing-and-rng.md` and `ERRATA-round2.md`).
 ### Finding the nearest tree
 
 The search works outward in square **rings** around the worker's tile, of radius 1, 2, … up to 6.
+The computer job choice runs the same search with a larger limit (`ai/worker-ai.md`, "Harvest").
 
 - Within a ring, tiles are visited clockwise, starting at the top-left corner: along the top row to the right, down
   the right column, along the bottom row to the left, then up the left column. Tiles off the map are skipped.

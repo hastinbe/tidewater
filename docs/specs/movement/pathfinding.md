@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`). The test vectors come from
   a small research model of the rules below, kept in this repo's scratch area. Not yet confirmed against the running
   game.
+- **Changes:** 2026-10-12, round-22 errata: for two-tile movers the progress check measures P to the unrounded goal;
+  the goal zone plays no part in it.
 
 ## Behaviour
 
@@ -108,6 +110,11 @@ The route found runs from S along the line to T, then along the walk to the end 
   - if it is farther, the walk is rejected;
   - if the distance is equal, the progress value is P's **minor-axis** distance, provided it is smaller than S's.
     Otherwise the walk is rejected. A minor-axis distance of 0 is also a rejection.
+
+  For a two-tile mover, P's distance is measured to the goal before it was rounded to even coordinates (the ordered
+  tile, or for a target building the "Building goal rule" tile picked from S), while S's distance uses the rounded G.
+  For other units the two are the same. The goal zone plays no part in this check: a walk that ends inside the goal
+  zone is still rejected when P is farther from G than S.
 - **Shortening:** improve the route from S to P in **passes**. A pass walks the route from S, looking at pairs of
   consecutive steps (a, b), with a leaving the current tile. It looks each pair up in the table below:
   - A **direction** entry replaces the two steps with one step in that direction. No passability check is made, so
@@ -200,6 +207,8 @@ units on the map.
 | Enhanced mode, S = G | no path |
 | Shortening only (open ground): route N, E, SW, SE from S | Pass 1: (N, E) merges to NE; the pass resumes at (SW, SE), which becomes S, S. Pass 2: (NE, S) merges to E; the pass resumes after it and has no pair left. Pass 3: (E, S) merges to SE. Result: one step, SE. (Re-checking the merged step at once would meet (NE, SW), a reverse, and reject the walk.) |
 | Footman with an attack order; the only route passes an enemy footman | the search goes through the enemy's tile; the actual step is then blocked and the unit fights it |
+| One-tile mover at S = (35, 4), G = (38, 5) (a 4 × 4 hall's tile); a walk ends at P = (37, 9), inside the goal zone | S's distance 3, P's 4: rejected |
+| Two-tile mover at S = (10, 10), ordered tile (13, 11) | G = (12, 10); S's distance 2. A walk ending at P = (12, 12) has distance 1 to (13, 11): accepted with progress value 1. (Measured to the rounded G it would be 2, equal, with minor-axis distance 0: rejected) |
 
 ## Open questions
 

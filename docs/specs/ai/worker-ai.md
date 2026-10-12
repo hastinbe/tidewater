@@ -6,6 +6,9 @@
   public PUD specification text. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-21 errata: build-list step 2 makes no other test, so an entry the player can never
   research blocks the rest of the list; the done marks now list every way an entry is marked or cleared.
+- **Changes:** 2026-10-12, round-22 errata: the job choice's tree search reaches radius 2k + 1 < floor(3N / 4); a gold
+  store under construction can be the site-search centre; map-placed buildings get no keep-clear mark; a carrying
+  worker with no path is given command 24 to the same depot again.
 
 ## Behaviour
 
@@ -41,7 +44,9 @@ The job choice runs for a unit of a **computer-controlled** player:
 3. **Depot.** The nearest reachable depot is found as in `economy/harvest.md` ("Finding the nearest depot"): a
    completed building of the player in the worker's region that stores gold, or stores wood while the worker is in
    lumber mode. On a tie the candidate latest in the list wins.
-4. **Carrying goods, depot found:** command 24 (return goods) to it. Done.
+4. **Carrying goods, depot found:** command 24 (return goods) to it. Done. If the worker then gets no path, its order
+   ends (`movement/movement.md`, "Paths") and the choice runs again. Nothing marks the depot as unreachable and there
+   is no wait, so it gets command 24 to the same depot again.
 5. **No depot found:**
    - **New town hall**, tried only if the map allows the player town halls (`ALOW` unit bit 26). Each player has a
      **hall cooldown**. If it is not 0, it goes down by 1 and no hall is tried. Otherwise no hall is tried if one is
@@ -158,7 +163,10 @@ matches:
 | otherwise (G ≥ 1000, L < 500) | floor(3 (W + 1) / 4) |
 
 1. **Lumber** if lumberjacks < T: the worker switches to lumber mode and the tree search of `economy/harvest.md`
-   ("Finding the nearest tree") runs. If a tree is found: command 23 on it, lumberjacks +1. Done. If no tree is
+   ("Finding the nearest tree") runs from the worker's tile, but with a larger limit: rings of radius k are searched
+   while 2k + 1 < floor(3N / 4), N being the map size (radius 47 on a 128 × 128 map). A worker coming out of a depot
+   is still inside it, so the search starts from the depot's top-left tile (`economy/harvest.md`, "Entering a mine,
+   platform or depot"). If a tree is found: command 23 on it, lumberjacks +1. Done. If no tree is
    found, the worker goes on to gold.
 2. **Gold** otherwise, and also when the tree search found nothing: the worker switches to gold mode and finds the
    nearest depot as in step 3. Then, among gold mines that have trips left and stand in the worker's region, it takes
@@ -167,11 +175,16 @@ matches:
    that mine, miners +1, and a **keep-clear line** is marked from the depot to the mine (below).
 3. If there is no depot or no mine, lumber is tried as in 1 (whatever T is).
 
+The job choice is the only place where a computer worker is given a lumber job; the 50-cycle AI routines don't
+assign workers.
+
 ### Keep-clear marks and site search
 
 **Keep-clear mark:** a per-tile mark that the computer players put on planned building sites and mining paths. It is
 the run-time tile mark 0x0400 in the tile flags of `movement/occupancy.md`. The computer's site search refuses tiles with it, so its buildings leave paths and a ring of
 space. It isn't in the movement or ordinary placement masks, so it doesn't affect movement or human placement.
+Buildings placed by the map get no keep-clear mark. Marks come only from the computer's own building jobs and its
+keep-clear lines.
 
 **Keep-clear line.** With the depot's top-left tile (dx, dy) and the mine's top-left tile (mx, my):
 
@@ -188,7 +201,7 @@ space. It isn't in the movement or ordinary placement masks, so it doesn't affec
 
 | Family | Centre | Step s |
 | --- | --- | --- |
-| Most buildings | the player's nearest completed gold-storing building in the worker's region (strictly nearest, so the earliest wins ties); the worker's tile if none | 6 |
+| Most buildings | the top-left tile of the player's nearest gold-storing building, complete or not, in the worker's region (strictly nearest, so the earliest wins ties); the worker's tile if none | 6 |
 | Farm | as above | 2 |
 | Foundry, refinery | as above; no site if the player has no completed shipyard | 1 |
 | Shipyard | the nearest town hall (any tier); the water region of the oil patch nearest to it is noted, and the footprint must contain a tile of that region | 1 |
@@ -198,6 +211,9 @@ The search visits square **rings** of radius k·s around the centre, for k = 1, 
 its top-left corner (right along the top, down the right side, left along the bottom, up the left side), in steps of
 s; corners are visited twice. It continues while (2k + 1)·s < max(cx, N − cx, cy, N − cy) − 1, where (cx, cy) is the
 centre and N the map size. If a ring has no position in the worker's region, the search fails.
+
+Only the first try of a new town hall when no depot is found ("Worker", step 5) uses the border; every other search
+uses the plain footprint.
 
 A position (x, y) is accepted if:
 
@@ -248,6 +264,7 @@ only custom unit data creates):
 | Low-stock repair rule | gold < 200 and lumber < 100: gold-storing buildings only |
 | Lumber targets | table above (thresholds 500, 1000, 2000 gold/lumber, 5 workers) |
 | Site steps | 6 most buildings, 2 farm, 1 shore buildings and halls |
+| Job-choice tree search | rings while 2k + 1 < floor(3N / 4): largest radius 11, 23, 35, 47 for N = 32, 64, 96, 128 |
 | Computer placement masks | 0x0DDE land, 0x0D11 shore |
 | Keep-clear bit | 0x0400 |
 | New-mine search | mines with ≥ 50 trips; no gold store in (−5, −5) to (+7, +7); site within 10 tiles; nearest site wins |
@@ -324,6 +341,11 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Same list; the player gets an altar and ogre-mage research starts | 0x90 marked done; the next scan reaches 0x91 |
 | Map gives a computer player a castle; build list 0x4A, 0x98, 0x99, 0x4A | At game start entries 1 and 2 (0x98, 0x99) and entry 0 (the first 0x4A) are marked done; entry 3 is not |
 | Spells known at game start 0x4020 (the setup default); build list 0x90 | Not marked done (bit 20 isn't set) |
+| 128 × 128 map; a computer worker comes out of its town hall (top-left (12, 71)) and lumber is wanted; the nearest reachable forest is 20 tiles away | The job choice finds it (radius 20 ≤ 47) and gives command 23 |
+| Same, on a 32 × 32 map, nearest reachable forest 12 tiles from the depot's top-left | Not found (largest radius 11); the worker tries gold |
+| Computer player with only a town hall under construction; a worker looks for a farm site | The search centres on the unfinished hall's top-left tile |
+| Map-placed town hall at game start | No keep-clear mark on or around it |
+| Computer peon carrying wood gets command 24 to its hall and the path search returns no steps | Its order ends; the next job choice gives command 24 to the same hall again, with no wait |
 
 ## Open questions
 
@@ -337,7 +359,9 @@ An entry is marked done at the start of a game when either bit of its code is se
 - The general placement check adds rules for the site (beyond the masks) that are in `movement/placement.md`; their
   interaction with the border option is assumed to use the unbordered footprint.
 - The all-out attack started by losing buildings is not specified here (it belongs to the attack AI).
-- The other AI work run every 50 cycles (`ai/ai-scripts.md`) may also send workers; not covered here.
 - Whether the game-start marks for placed buildings compare entries after a race change, as completion does, and so
   whether a stronghold and a fortress mark entries as a keep and a castle do, wasn't traced. Default: the same race
   change as on completion, with the orc halls and towers treated like the human ones.
+- A worker inside a depot starts the job choice's tree search from the depot's top-left tile and uses that tile's
+  region value. This assumes region values ignore buildings, as `movement/occupancy.md` implies; not checked
+  separately.
