@@ -8,6 +8,7 @@
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::{UnitStats, flags};
 
+use crate::placement::{LIMIT_OUT, Source};
 use crate::world::{SpawnError, UnitId, World};
 
 /// Unit types by their PUD numbers (public PUD specification).
@@ -381,23 +382,14 @@ impl World {
         self.kill(i);
     }
 
-    /// A placeholder until the free-tile rule is approved: the first tile, ring by ring outward from the building's
-    /// footprint (up to 12 tiles), each ring scanned row by row from the top-left, where a unit of type `k` fits.
+    /// The tile a unit of type `k` comes out on: the ring search of the placement spec around the building's
+    /// footprint, aimed at its own top-left tile, so the first tile tried is the one west of that corner. Builders
+    /// leaving a finished, cancelled or destroyed site would use the same call, but this simulation doesn't model
+    /// builders inside sites yet.
+    // TODO: place the builder out of a finished, cancelled or destroyed site once builders are modelled.
     fn free_tile_near(&self, b: &crate::world::Unit, k: u8) -> Option<(i32, i32)> {
-        let layer = self.layer_of(k);
-        let (x0, y0) = b.tile;
-        let (x1, y1) = (x0 + b.size.0 as i32 - 1, y0 + b.size.1 as i32 - 1);
-        for r in 1..=12 {
-            for y in y0 - r..=y1 + r {
-                for x in x0 - r..=x1 + r {
-                    let on_ring = x == x0 - r || x == x1 + r || y == y0 - r || y == y1 + r;
-                    if on_ring && self.occupant(layer, x, y).is_none() && self.terrain_allows(layer, x, y) {
-                        return Some((x, y));
-                    }
-                }
-            }
-        }
-        None
+        let src = Source::new(b.tile.0, b.tile.1, b.size.0 as i32, b.size.1 as i32);
+        self.find_place(k, src, b.tile, LIMIT_OUT)
     }
 }
 
@@ -609,5 +601,55 @@ mod tests {
         run(&mut w, 40);
         let u = w.unit(hall).unwrap();
         assert_eq!((u.kind, u.hp), (kind::KEEP, 1200));
+    }
+
+    #[test]
+    fn a_trained_unit_comes_out_west_of_the_hall() {
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[0].build_time = 1;
+        w.stats.0[0].gold = 40;
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 0,
+        }]);
+        run(&mut w, 200);
+        let u = w
+            .units
+            .iter()
+            .find(|u| u.kind == 0 && u.slot != 0)
+            .expect("trained unit");
+        assert_eq!(u.tile, (4, 6));
+    }
+
+    #[test]
+    fn a_trained_unit_with_no_room_is_refunded() {
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[0].build_time = 1;
+        w.stats.0[0].gold = 40;
+        // Everything within reach blocks land units.
+        for n in 0..w.terrain.words.len() {
+            if w.occupancy[0][n].is_none() {
+                w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+            }
+        }
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 0,
+        }]);
+        assert_eq!(w.players[0].gold, 9_600);
+        let n = w.units.len();
+        run(&mut w, 200);
+        assert_eq!(w.units.len(), n);
+        assert_eq!(w.players[0].gold, 10_000);
+        assert_eq!(w.players[0].in_training, 0);
+        assert!(
+            w.events
+                .iter()
+                .any(|e| matches!(e, Event::NoRoom { player: 0, kind: 0 }))
+        );
     }
 }
