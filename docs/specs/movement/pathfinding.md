@@ -20,6 +20,9 @@
   2026-10-12, round-39 errata: the goal pull-back subtracts the line's steps from the goal in their order (the run
   mirrored from the goal end) and tests k − 1 tiles; the transport case is stated here; `orc8` vectors added and the
   `xorc7` and `human10` vectors restated in the new terms (same results).
+  2026-10-12, round-40 errata: the no-usable-tile fallback to the unit's tile plus the last step belongs to the
+  transport's own pull-back in `orders/transports.md` (any command to a transport on open water with a land or shore-
+  water target); the ordinary pull-back keeps the goal for transports too.
 
 ## Behaviour
 
@@ -206,8 +209,10 @@ tile the command stores (the command also clears the unit's blocked counter, for
    subtractions are tested; the last would give the unit's own tile, which is never tested.
 4. At the first usable tile, the goal becomes the tile tested just before it (the goal itself if the first tile
    tested is usable). So the new goal is still unusable unless it is the goal itself.
-5. If none of the k − 1 tiles is usable, the goal is kept as it is. When the pull-back is run for a transport
-   (`orders/transports.md`), the goal becomes the unit's tile plus the line's **last** step instead.
+5. If none of the k − 1 tiles is usable, the goal is kept as it is, for transports too. The transport's own
+   pull-back in `orders/transports.md` ("Land and shore targets") is a separate step with its own fallback (the
+   unit's tile plus the line's **last** step). It runs for any command given to a transport on open water whose
+   target tile is land or shore water.
 
 The tested tiles are the line's own tiles in reverse when the line has a single direction, and also when its steps
 are symmetric. They differ when a diagonal step is not in the middle of the run.
@@ -276,7 +281,7 @@ units on the map.
 | `orc8` (oracle trace), n = 591: computer worker 1505 inside its hall, unit tile (123, 96), is sent to harvest the tree at (124, 90). Line steps N, N, NE, N, N, N. Church 1503 (type 0x3E, 3 × 3) at (124, 91); (124, 90) and (125, 90) forest | Tested: (124, 91) building, (124, 92) building, (123, 93) usable. Stored goal **(124, 92)**. The worker comes out facing 0 (N), toward (124, 92) |
 | Same command, the line's own tiles walked backwards (wrong) | Would test (124, 91), (124, 92), (124, 93), (123, 94): goal (124, 93), facing 1. Differs from the trace |
 | `orc8`, n = 667: worker 1505 at (123, 93), re-aimed at the tree (124, 90). Line steps NE, N, N | First tested: (124, 90) − NE = (123, 91), usable. Goal kept: **(124, 90)**. n = 670 it steps N; from n = 702 it chops from (123, 91), facing 1 |
-| Unit at (0, 0), goal (0, 3), line steps S, S, S; (0, 3), (0, 2) and (0, 1) all unusable | Tested (0, 2) and (0, 1) only (k − 1 = 2). None usable: goal kept (0, 3); when run for a transport, (0, 0) + S = (0, 1) |
+| Unit at (0, 0), goal (0, 3), line steps S, S, S; (0, 3), (0, 2) and (0, 1) all unusable | Tested (0, 2) and (0, 1) only (k − 1 = 2). None usable: goal kept (0, 3). In the transport's own pull-back (`orders/transports.md`), (0, 0) + S = (0, 1) |
 | `orc4` (oracle trace): computer footman 1538 on (9, 12), order 3, route north into (9, 11). At n = 3246 peasant 1540 (same owner) comes out of a mine onto (9, 11): order 2, wait 25, with a harvest command pending (it takes over at n = 3271) | Each new search ignores the peasant, so the route stays north and the step is refused: n = 3252 to 3257 tile (9, 12), wait 1 (row I); n = 3258 wait 15 (row D). At n = 3273 the peasant's order has taken over, its tile blocks the search, and the footman steps to (10, 11), facing 1 |
 | Same, but the peasant has no pending command (static study only) | The search sees it: the route goes round at the first new search |
 | `orc4-20000` (oracle trace): computer peasant 1578 (type 0x02) idle on (6, 6), given lumber at n = 6808 (order 23, animation 4, wait 3, taken over: no pending order); search at n = 6811 toward (4, 3) | The line's first step NW onto (5, 5) (worker 1539) is blocked, so T = S. Left walk: W to (5, 6); from there N, NW, W, SW, S, SE (footman 1585 on (6, 7)) and E (S itself, which blocks) are blocked, NE onto (6, 5) is free, and C's neighbour N, (5, 5), is a line tile: the walk succeeds at (5, 6). Route W; equal distance 3, minor-axis 1 against 2, so progress 1, score 2: used at once. Trace: W to (5, 6) at n = 6811, NE to (6, 5) at 6827, NW to (5, 4) at 6843 |
