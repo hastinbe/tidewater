@@ -1,13 +1,13 @@
 //! Build-list done marks made before play (reviewed specs `docs/specs/ai/worker-ai.md`, "Done marks", and
 //! `docs/specs/ai/training-research.md`, "Research requests and done marks").
 //!
-//! Research entries (0x80 or more) are marked done for what the player already has, and the buildings the map places
-//! mark their entries as a completion would, with the keep and castle (and the guard and cannon towers) marking the
-//! entries of the buildings they stand for. Nothing else marks an entry: in particular no research entry is marked
-//! because the player can never research it.
+//! Research entries (0x80 or more) are marked done for what the player already has, and each building the map places
+//! marks the first open entry of its own type, as any creation does (round 36: there are no tower, keep or castle
+//! cases). Nothing else marks an entry: in particular no research entry is marked because the player can never
+//! research it.
 
 use crate::economy::JobKind;
-use crate::tech::{building as b, fixed_line};
+use crate::tech::fixed_line;
 use crate::training_ai::{ranger_line, research_item};
 use crate::worker_ai::for_race;
 use crate::world::World;
@@ -15,13 +15,6 @@ use crate::world::World;
 /// The spells-known bits of codes 0x90 to 0x97 for a human and an orc player ("Spell bits for done marks at game
 /// start").
 const SPELL_BITS: [(u32, u32); 8] = [(20, 20), (1, 11), (3, 18), (4, 13), (6, 16), (7, 15), (8, 17), (9, 19)];
-
-/// The scout tower entry (0x40) and the town hall entry (0x4A) of a build list.
-const SCOUT_TOWER: u8 = 0x40;
-const TOWN_HALL: u8 = 0x4a;
-/// The hall upgrade entries.
-const KEEP_CODE: u8 = 0x98;
-const CASTLE_CODE: u8 = 0x99;
 
 impl World {
     /// Whether research entry `code` of player `p` is already done at the start of a game.
@@ -67,31 +60,16 @@ impl World {
                 self.ai[p].done |= 1 << n;
             }
         }
+        // Round 36: every building the map places marks the first open entry of its own type, as any creation does;
+        // there are no tower, keep or castle cases.
         let placed: Vec<u8> = self
             .units
             .iter()
-            .filter(|u| u.owner as usize == p && u.building && !u.dying && u.construction.is_none())
+            .filter(|u| u.owner as usize == p && u.building && !u.dying)
             .map(|u| u.kind)
             .collect();
         for k in placed {
-            match k {
-                b::HUMAN_GUARD_TOWER | b::ORC_GUARD_TOWER | b::HUMAN_CANNON_TOWER | b::ORC_CANNON_TOWER => {
-                    self.mark_first(p, &list, |e| e & !1 == SCOUT_TOWER);
-                }
-                b::KEEP | b::STRONGHOLD | b::CASTLE | b::FORTRESS => {
-                    for (n, &e) in list.iter().enumerate() {
-                        if e == 0xff {
-                            break;
-                        }
-                        let castle = k & !1 == b::CASTLE;
-                        if e == KEEP_CODE || (castle && e == CASTLE_CODE) {
-                            self.ai[p].done |= 1 << n;
-                        }
-                    }
-                    self.mark_first(p, &list, |e| e & !1 == TOWN_HALL);
-                }
-                _ => self.mark_first(p, &list, |e| e < 0x80 && for_race(e, k & 1) == k),
-            }
+            self.mark_first(p, &list, |e| e < 0x80 && for_race(e, k & 1) == k);
         }
     }
 }

@@ -381,12 +381,14 @@ impl World {
             }
             Order::Patrol { to, back } => match self.move_toward(i, Goal::tile(to, 0)) {
                 Walk::Arrived => {
-                    let swapped = Order::Patrol { to: back, back: to };
-                    self.units[i].order = swapped;
+                    // "Arriving and losing the target": a patrol to the other end, with the tile it stands on as the new
+                    // other end, takes over in the same update (still animation, wait 3); it steps at its next run.
+                    let here = self.units[i].tile;
+                    let swapped = Order::Patrol { to: back, back: here };
                     if let Some(Remembered::Patrol { .. }) = self.units[i].remembered {
-                        self.units[i].remembered = Some(Remembered::Patrol { to: back, back: to });
+                        self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
                     }
-                    self.move_toward(i, Goal::tile(back, 0));
+                    self.take_over(i, swapped);
                 }
                 Walk::NoPath => self.stop(i),
                 Walk::Stepping | Walk::Blocked => {}
@@ -1181,6 +1183,51 @@ mod tests {
                 assert_eq!(got.2, RESUME_ATTACK_MOVE);
             }
         }
+    }
+
+    #[test]
+    fn a_patrol_arrival_takes_over_and_steps_three_cycles_later() {
+        // The xorc10 vector: on arrival the unit is given a patrol to its other end, with its own tile as the new
+        // other end; it takes over in the same update (still animation, wait 3) and steps at its next run.
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+        let i = at(&w, f);
+        w.take_over(
+            i,
+            Order::Patrol {
+                to: (5, 2),
+                back: (2, 2),
+            },
+        );
+        let mut n = 0;
+        while order_of(&w, f)
+            == (Order::Patrol {
+                to: (5, 2),
+                back: (2, 2),
+            })
+        {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 100);
+        }
+        let u = w.unit(f).unwrap();
+        assert_eq!(
+            u.order,
+            Order::Patrol {
+                to: (2, 2),
+                back: u.tile
+            }
+        );
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+        let here = u.tile;
+        w.step(&[]);
+        w.step(&[]);
+        let u = w.unit(f).unwrap();
+        assert_eq!((u.tile, u.script.anim), (here, anim::STILL));
+        // The step starts at the next run and takes the next tile at once.
+        w.step(&[]);
+        let u = w.unit(f).unwrap();
+        assert_eq!((u.tile, u.script.anim), ((here.0 - 1, 2), anim::MOVE));
     }
 
     #[test]

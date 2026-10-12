@@ -1,6 +1,6 @@
 use super::*;
 use crate::ai::{BUILD_LIMIT, controller};
-use crate::tech::RANGER_TRAINING_LINE;
+use crate::tech::{RANGER_TRAINING_LINE, building as b};
 use crate::world::tests::field;
 use std::sync::Arc;
 use tidewater_formats::aibin::AiFile;
@@ -94,39 +94,52 @@ fn the_setup_default_spells_mark_nothing() {
 }
 
 #[test]
-fn a_castle_marks_both_hall_upgrades_and_the_first_hall() {
-    let list = [0x4a, 0x98, 0x99, 0x4a];
-    assert_eq!(done(&list, |w| put(w, b::CASTLE, 0)), 0b0111);
+fn halls_and_towers_mark_only_entries_of_their_own_type() {
+    // Round-36 vectors: a castle or a keep marks no 0x98, 0x99 or town hall entry; a tower never the scout tower.
+    assert_eq!(done(&[0x4a, 0x98, 0x99, 0x4a], |w| put(w, b::CASTLE, 0)), 0);
+    assert_eq!(done(&[0x4a, 0x98], |w| put(w, b::KEEP, 0)), 0);
+    assert_eq!(done(&[0x4a, b::KEEP], |w| put(w, b::KEEP, 0)), 0b10);
+    assert_eq!(done(&[0x40, 0x60], |w| put(w, b::HUMAN_GUARD_TOWER, 0)), 0b10);
+    assert_eq!(done(&[0x40, 0x63], |w| put(w, b::ORC_CANNON_TOWER, 0)), 0b10);
 }
 
 #[test]
-fn a_keep_marks_0x98_and_the_first_hall_only() {
-    let list = [0x4a, 0x98, 0x99, 0x4a];
-    assert_eq!(done(&list, |w| put(w, b::KEEP, 0)), 0b0011);
-    // The first hall entry that isn't done: a second keep marks the next one.
-    assert_eq!(done(&list, |w| (0..2).for_each(|n| put(w, b::KEEP, n))), 0b1011);
-    // Stronghold and fortress follow the open question's default.
-    assert_eq!(done(&list, |w| put(w, b::STRONGHOLD, 0)), 0b0011);
-    assert_eq!(done(&list, |w| put(w, b::FORTRESS, 0)), 0b0111);
+fn the_xorc12_build_list_vector() {
+    // xorc12-ogre-mage, player 3: the map's buildings mark entries 0, 1, 2, 3 and 5; the scout tower (4) stays open.
+    let list = [
+        b::TOWN_HALL,
+        b::HUMAN_BARRACKS,
+        b::ELVEN_LUMBER_MILL,
+        b::HUMAN_BLACKSMITH,
+        b::HUMAN_SCOUT_TOWER,
+        b::HUMAN_BARRACKS,
+        0x98,
+    ];
+    let mut kinds = vec![
+        b::TOWN_HALL,
+        b::HUMAN_BARRACKS,
+        b::HUMAN_BARRACKS,
+        b::ELVEN_LUMBER_MILL,
+        b::HUMAN_BLACKSMITH,
+        b::MAGE_TOWER,
+        b::MAGE_TOWER,
+    ];
+    kinds.extend([b::HUMAN_GUARD_TOWER; 3]);
+    kinds.extend([b::HUMAN_CANNON_TOWER; 3]);
+    kinds.extend([0x3a; 11]);
+    let got = done(&list, |w| {
+        for (n, &k) in kinds.iter().enumerate() {
+            put(w, k, n as i32);
+        }
+    });
+    assert_eq!(got, 0b10_1111);
 }
 
 #[test]
-fn towers_mark_the_scout_tower_entry() {
-    let list = [0x40, 0x3c, 0x40];
-    for k in [
-        b::HUMAN_GUARD_TOWER,
-        b::ORC_GUARD_TOWER,
-        b::HUMAN_CANNON_TOWER,
-        b::ORC_CANNON_TOWER,
-    ] {
-        assert_eq!(done(&list, |w| put(w, k, 0)), 0b001, "type {k}");
-    }
-    assert_eq!(
-        done(&list, |w| (0..2).for_each(|n| put(w, b::HUMAN_GUARD_TOWER, n))),
-        0b101
-    );
-    // A tower marks no entry of its own type.
-    assert_eq!(done(&[0x60, 0x62], |w| put(w, b::HUMAN_GUARD_TOWER, 0)), 0);
+fn a_construction_site_marks_its_entry_when_construction_starts() {
+    let mut w = world(&[b::HUMAN_BARRACKS, b::HUMAN_BARRACKS]);
+    w.place_building(b::HUMAN_BARRACKS, P as u8, (4, 4)).unwrap();
+    assert_eq!(w.ai[P].done, 0b01);
 }
 
 #[test]
@@ -158,7 +171,7 @@ fn players_that_are_not_computers_are_left_alone() {
 #[test]
 fn start_ai_makes_the_marks_before_the_first_scan() {
     let mut w = world(&[0x4a, 0x98]);
-    put(&mut w, b::KEEP, 0);
+    put(&mut w, b::TOWN_HALL, 0);
     let file = w.ai_file.clone().unwrap();
     // A script file whose record 0 points at the same lists.
     let mut d = file.data.clone();
@@ -167,7 +180,7 @@ fn start_ai_makes_the_marks_before_the_first_scan() {
     d.extend([0x00, 0x01, 0x00, 0x02, 0, 0, 0, 0, 0, 0, 0, 0]);
     w.players[P].ai_script = 0;
     w.start_ai(Arc::new(AiFile::parse(d).unwrap()));
-    assert_eq!(w.ai[P].done, 0b11);
+    assert_eq!(w.ai[P].done, 0b01);
 }
 
 #[test]

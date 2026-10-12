@@ -203,9 +203,19 @@ impl World {
 
     /// Order 30 ("Landing").
     fn landing(&mut self, i: usize, goal: (i32, i32)) {
+        // Orders spec, "Order 30's radius": farther than 3 tiles the transport takes ordinary two-tile steps (move
+        // animation); within 3 the arrival switch starts animation 6 and the landing logic runs.
+        let far = chebyshev(self.units[i].tile, goal) > 3;
+        let came_within = {
+            let u = &self.units[i];
+            !far && !u.ship.landing && u.script.anim == anim::MOVE
+        };
+        if came_within {
+            self.start_anim(i, anim::WORK_B);
+        }
         let u = &mut self.units[i];
-        u.ship.landing = true;
-        u.ship.one_tile = !(even(u.tile) && even(goal));
+        u.ship.landing = !far;
+        u.ship.one_tile = !far && !(even(u.tile) && even(goal));
         // Step 2: a two-tile mover starts its move animation and runs it at once; a one-tile mover keeps animation 6.
         let restart = !u.ship.one_tile;
         match self.move_toward_as(i, Goal::tile(goal, 0), restart) {
@@ -510,6 +520,33 @@ mod tests {
     }
 
     #[test]
+    fn a_far_landing_takes_ordinary_two_tile_steps_until_within_3() {
+        // The human12-transport vector mirrored: from (36, 14) to the shore tile (32, 9) (4 and 5 tiles away) the first step is an
+        // ordinary two-tile step north-west in the move animation; within 3 tiles animation 6 carries one-tile steps.
+        let mut w = sea(31);
+        let i = ship(&mut w, (36, 14), Order::Idle);
+        let id = w.units[i].id;
+        let goal = (32, 9);
+        w.give(i, Order::Land { goal });
+        let mut tiles = vec![(36, 14)];
+        for _ in 0..400 {
+            w.step(&[]);
+            let u = w.unit(id).unwrap();
+            if u.tile != *tiles.last().unwrap() {
+                let far = chebyshev(*tiles.last().unwrap(), goal) > 3;
+                let want = if far { anim::MOVE } else { anim::WORK_B };
+                assert_eq!(u.script.anim, want, "step to {:?}", u.tile);
+                tiles.push(u.tile);
+            }
+            if u.pending.is_none() && !matches!(u.order, Order::Land { .. }) {
+                break;
+            }
+        }
+        assert_eq!(tiles[1], (34, 12), "{tiles:?}");
+        assert_eq!(*tiles.last().unwrap(), goal, "{tiles:?}");
+    }
+
+    #[test]
     fn landing_on_one_tile_steps_keeps_animation_6() {
         // Transports spec, round-33 vector (Human04 transport 1543, landing at (70, 87) from (68, 88)): the goal has an
         // odd coordinate, so the steps are one-tile steps carried by animation 6, the order's own; then order 32. A
@@ -529,9 +566,15 @@ mod tests {
                 }
                 landing = now;
                 if u.tile != tile {
+                    // Round 36: farther than 3 tiles the steps are ordinary two-tile steps.
+                    let want = if chebyshev(tile, goal) > 3 {
+                        anim::MOVE
+                    } else {
+                        steps_anim
+                    };
                     tile = u.tile;
                     stepped += 1;
-                    assert_eq!(u.script.anim, steps_anim, "{goal:?} at {tile:?}");
+                    assert_eq!(u.script.anim, want, "{goal:?} at {tile:?}");
                 }
             }
             let u = w.unit(id).unwrap();

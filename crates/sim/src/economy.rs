@@ -272,6 +272,9 @@ impl World {
             ..Default::default()
         });
         self.players[owner as usize].under_construction += 1;
+        // Worker-ai spec, "Done marks" (round 36): a computer player's building marks its entry when it is created,
+        // so a construction site marks it when construction starts.
+        self.mark_build_list(owner, kind, true);
         Ok(id)
     }
 
@@ -343,7 +346,6 @@ impl World {
             p.had_hall = true;
         }
         self.release_builders(i, true);
-        self.mark_build_list(owner as u8, k, true);
         if matches!(k, kind::HUMAN_WALL | kind::ORC_WALL) {
             self.wall_completed(i);
         }
