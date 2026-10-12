@@ -4,6 +4,7 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 26 (music; gap 10)" and
   its addendum) and the music files from `Install.mpq` (`Music\*.WAV`, measured for format and length). Not yet
   confirmed against the running game.
+- **Changes:** 2026-10-12: the disco cheat's typing now cites `game/cheats.md`.
 
 ## Behaviour
 
@@ -110,7 +111,7 @@ The disco cheat toggles track 25 (`DISCOWC.WAV`, looped) as the game's track:
 - Either way, if music is playing, all sound fades and the new track starts (if not started). If music isn't
   playing, only the game's track changes and is heard the next time it starts.
 
-How the cheat is typed is a separate spec (cheats).
+How the cheat is typed is in `game/cheats.md`.
 
 ### End of a track
 
