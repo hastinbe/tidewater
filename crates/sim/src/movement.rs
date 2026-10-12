@@ -65,17 +65,22 @@ pub(crate) fn chebyshev(a: (i32, i32), b: (i32, i32)) -> i32 {
 
 /// The footprint tile a unit at `from` aims for on a building (pathfinding spec, "Building goal rule").
 pub(crate) fn building_goal(from: (i32, i32), b: &Unit) -> (i32, i32) {
-    let axis = |u: i32, lo: i32, size: u8| {
-        let hi = lo + size as i32 - 1;
+    footprint_goal(from, b.tile, (b.size.0 as i32, b.size.1 as i32))
+}
+
+/// The "Building goal rule" for a footprint of `size` tiles with its top-left tile at `tl`.
+pub(crate) fn footprint_goal(from: (i32, i32), tl: (i32, i32), size: (i32, i32)) -> (i32, i32) {
+    let axis = |u: i32, lo: i32, size: i32| {
+        let hi = lo + size - 1;
         if u <= lo {
             lo
         } else if u >= hi {
             hi
         } else {
-            lo + size as i32 / 2
+            lo + size / 2
         }
     };
-    (axis(from.0, b.tile.0, b.size.0), axis(from.1, b.tile.1, b.size.1))
+    (axis(from.0, tl.0, size.0), axis(from.1, tl.1, size.1))
 }
 
 impl World {

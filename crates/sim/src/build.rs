@@ -14,14 +14,17 @@ use tidewater_formats::udta::flags;
 
 use crate::TILE_PX;
 use crate::economy::{Event, cost};
-use crate::movement::{Goal, Walk};
+use crate::movement::{Goal, Walk, footprint_goal};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::site::building_mask;
 use crate::terrain::bits;
 use crate::world::{Gather, Order, UnitId, World};
 
-/// Order 22's wait.
+/// Order 22's wait at each run.
 const INSIDE_SITE_WAIT: u8 = 255;
+/// The wait on going inside the site, as on entering a mine (`economy/harvest.md`, "Entering"; the human01-basics
+/// oracle trace: wait 150 at n = 134).
+const ENTER_SITE_WAIT: u8 = 150;
 /// The oil patch type (public PUD specification).
 const OIL_PATCH: u8 = 0x5d;
 
@@ -44,9 +47,43 @@ impl World {
         Some(Order::Build { kind, site })
     }
 
-    /// Order 28.
+    /// The build walk's goal ("Placing a building"): a tile of the planned footprint, worked out from the worker's
+    /// current tile as if the building already stood at `site`. An oil platform is aimed at its top-left tile plus
+    /// (1, 1); any other building by the building goal rule (pathfinding spec), with the shore rule for a shore
+    /// building.
+    pub(crate) fn build_goal(&self, i: usize, kind: u8, site: (i32, i32)) -> (i32, i32) {
+        let s = self.stats_of(kind);
+        if s.flags & flags::OIL_SOURCE != 0 {
+            return (site.0 + 1, site.1 + 1);
+        }
+        let u = &self.units[i];
+        let size = (s.size.0 as i32, s.size.1 as i32);
+        let goal = footprint_goal(u.tile, site, size);
+        // Pathfinding spec, "Building goal rule": a land unit heading to a shore building in a different land region
+        // aims at a footprint corner in its own region, if there is one. Our reading: the goal tile's region decides,
+        // and the corners are tried top-left, top-right, bottom-left, bottom-right.
+        if s.flags & flags::SHORE_BUILDING != 0 && u.layer == crate::world::Layer::Land {
+            let mine = self.terrain.region(u.tile.0, u.tile.1);
+            if self.terrain.region(goal.0, goal.1) != mine {
+                let (x1, y1) = (site.0 + size.0 - 1, site.1 + size.1 - 1);
+                if let Some(c) = [site, (x1, site.1), (site.0, y1), (x1, y1)]
+                    .into_iter()
+                    .find(|c| self.terrain.region(c.0, c.1) == mine)
+                {
+                    return c;
+                }
+            }
+        }
+        goal
+    }
+
+    /// Order 28: walk to the build goal, worked out again on each run, and build on standing on it (arrival radius
+    /// 0; a land unit building a shore building gets the movement spec's +1).
     pub(crate) fn build_order(&mut self, i: usize, kind: u8, site: (i32, i32)) {
-        match self.move_toward(i, Goal::tile(site, 0)) {
+        let goal = self.build_goal(i, kind, site);
+        let shore =
+            self.stats_of(kind).flags & flags::SHORE_BUILDING != 0 && self.units[i].layer == crate::world::Layer::Land;
+        match self.move_toward(i, Goal::tile(goal, shore as i32)) {
             Walk::Arrived => self.raise(i, kind, site),
             Walk::NoPath => self.give_back_and_stop(i, kind),
             Walk::Stepping | Walk::Blocked => {}
@@ -112,7 +149,7 @@ impl World {
         u.path.clear();
         u.order = Order::InsideSite { building: b };
         self.start_anim(i, anim::STILL);
-        self.units[i].script.wait = INSIDE_SITE_WAIT;
+        self.units[i].script.wait = ENTER_SITE_WAIT;
     }
 
     /// The placement check of the occupancy spec for a building of type `kind` with its top-left tile at `site`, made
@@ -281,6 +318,54 @@ mod tests {
         // The ring search starts west of the top-left tile.
         assert_eq!(u.tile, (7, 8));
         assert_eq!(w.occupant(crate::Layer::Land, 7, 8), Some(p));
+    }
+
+    /// Build-train spec, "Placing a building", test vectors: the build walk's goal is the building goal rule on the
+    /// planned footprint.
+    #[test]
+    fn the_build_walk_aims_at_a_footprint_tile() {
+        let (mut w, p) = town();
+        w.stats.0[kind::FARM as usize].size = (2, 2);
+        let barracks = 60;
+        w.stats.0[barracks as usize] = w.stats.0[kind::FARM as usize];
+        w.stats.0[barracks as usize].size = (3, 3);
+        let i = w.index(p).unwrap();
+        assert_eq!(w.build_goal(i, kind::FARM, (5, 5)), (5, 5));
+        w.units[i].tile = (6, 9);
+        assert_eq!(w.build_goal(i, barracks, (5, 5)), (6, 7));
+        // human01-basics: peasant 1596 on (14, 9), a barracks at (5, 8).
+        w.units[i].tile = (14, 9);
+        assert_eq!(w.build_goal(i, barracks, (5, 8)), (7, 9));
+        // An oil platform: top-left plus (1, 1), wherever the builder is.
+        let platform = 0x56;
+        w.stats.0[platform as usize] = w.stats.0[barracks as usize];
+        w.stats.0[platform as usize].flags |= flags::OIL_SOURCE;
+        assert_eq!(w.build_goal(i, platform, (5, 8)), (6, 9));
+    }
+
+    /// The same, walked: the peasant stands on the goal tile when the building is placed (human01-basics: (7, 9),
+    /// the barracks at (5, 8), the peasant inside with wait 150).
+    #[test]
+    fn the_builder_arrives_on_the_goal_tile_and_goes_inside_with_wait_150() {
+        let (mut w, p) = town();
+        w.stats.0[kind::FARM as usize].size = (3, 3);
+        let i = w.index(p).unwrap();
+        w.units[i].tile = (14, 9);
+        w.units[i].pos = (14 * 32, 9 * 32);
+        build(&mut w, 0, p, (5, 8));
+        let mut before = None;
+        for _ in 0..400 {
+            let u = w.unit(p).unwrap();
+            if u.inside {
+                break;
+            }
+            before = Some(u.tile);
+            w.step(&[]);
+        }
+        assert_eq!(before, Some((7, 9)));
+        let u = w.unit(p).unwrap();
+        assert!(matches!(u.order, Order::InsideSite { .. }));
+        assert_eq!(u.script.wait, 150);
     }
 
     #[test]
