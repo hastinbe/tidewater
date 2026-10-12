@@ -218,8 +218,8 @@ impl World {
     }
 
     /// An immediate order 2 ("Pending orders and immediate orders"): set at once, the pending order cleared, the
-    /// still animation started with a wait of 1, a reserved tree released; then, in Enhanced mode, a remembered patrol
-    /// or attack-move may be resumed.
+    /// still animation started with a wait of 1, a reserved tree released. It never resumes a remembered patrol or
+    /// attack-move, and keeps it.
     pub(crate) fn stop(&mut self, i: usize) {
         self.release_tree(i);
         let u = &mut self.units[i];
@@ -240,24 +240,35 @@ impl World {
                 u.ship.one_tile = false;
             } else {
                 u.order = Order::Docked;
-                return;
             }
         }
+    }
+
+    /// "Resuming patrol and attack-move" (Enhanced only): when idle is about to become the unit's pending order, the
+    /// remembered order to give instead, with the countdown set. `None` keeps the idle. An immediate idle never comes
+    /// here.
+    pub(crate) fn resumed(&mut self, i: usize) -> Option<Order> {
         let u = &self.units[i];
         if !self.rules.enhanced || u.resume > 0 {
-            return;
+            return None;
         }
         match u.remembered {
             Some(Remembered::Patrol { to, back }) => {
                 self.units[i].resume = RESUME_PATROL;
-                self.give(i, Order::Patrol { to, back });
+                Some(Order::Patrol { to, back })
             }
             Some(Remembered::AttackMove { goal }) if chebyshev(u.tile, goal) > 1 => {
                 self.units[i].resume = RESUME_ATTACK_MOVE;
-                self.give(i, Order::AttackMove { goal });
+                Some(Order::AttackMove { goal })
             }
-            _ => {}
+            _ => None,
         }
+    }
+
+    /// A pending idle that takes over in the same update (arriving, losing the target), or the resumed order.
+    pub(crate) fn idle_now(&mut self, i: usize) {
+        let o = self.resumed(i).unwrap_or(Order::Idle);
+        self.take_over(i, o);
     }
 
     /// An immediate order other than idle.
@@ -294,6 +305,9 @@ impl World {
             self.immediately(i, o);
         } else if matches!(self.units[i].order, Order::AttackInPlace { .. }) {
             self.immediately(i, Order::StandGround);
+        } else if let Some(o) = self.resumed(i) {
+            // "Resuming patrol and attack-move": losing the target is one of the places idle becomes pending.
+            self.take_over(i, o);
         } else {
             self.stop(i);
         }
@@ -350,7 +364,7 @@ impl World {
                     // at the next step done.
                     Walk::Arrived => {
                         self.units[i].attacked_by = None;
-                        self.take_over(i, Order::Idle);
+                        self.idle_now(i);
                     }
                     // No route: idle as an immediate order, so the idle logic runs in the same update, straight after.
                     Walk::NoPath => {
@@ -1109,10 +1123,17 @@ mod tests {
         };
         assert_eq!(w.command_order(i, &c), Some(Order::AttackMove { goal: (15, 5) }));
         assert_eq!(w.units[i].remembered, Some(Remembered::AttackMove { goal: (15, 5) }));
-        // Killing a target short of the goal and going idle re-issues it.
+        // An immediate idle never resumes, and keeps the remembered order.
         w.stop(i);
+        assert_eq!((w.units[i].order, w.units[i].resume), (Order::Idle, 0));
+        assert_eq!(w.units[i].remembered, Some(Remembered::AttackMove { goal: (15, 5) }));
+        // A pending idle (here from losing a target in order 16) becomes the attack-move.
+        w.give(i, Order::Idle);
         assert_eq!(w.units[i].resume, RESUME_ATTACK_MOVE);
         assert_eq!(w.units[i].pending, Some(Order::AttackMove { goal: (15, 5) }));
+        // The countdown is running: the next pending idle stays idle.
+        w.give(i, Order::Idle);
+        assert_eq!(w.units[i].pending, Some(Order::Idle));
         // A plain move forgets it.
         let c = Command::Move {
             player: 0,
@@ -1121,6 +1142,58 @@ mod tests {
         };
         w.command_order(i, &c);
         assert_eq!(w.units[i].remembered, None);
+    }
+
+    #[test]
+    fn arriving_resumes_a_remembered_attack_move_but_no_route_does_not() {
+        // Orders spec vectors (static study): a footman on a remembered attack-move to a tile 10 tiles away is moved
+        // 2 tiles aside and arrives: the attack-move is given again (countdown 20), taking over in the same update.
+        // If the move finds no route: immediate idle, nothing resumed.
+        for walled in [false, true] {
+            let mut w = map();
+            w.rules.enhanced = true;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let i = at(&w, f);
+            w.units[i].remembered = Some(Remembered::AttackMove { goal: (15, 5) });
+            if walled {
+                for (x, y) in [(4, 6), (5, 6), (6, 6), (4, 8), (5, 8), (6, 8), (4, 7), (6, 7)] {
+                    w.terrain.set_bits(x, y, 0x80);
+                }
+            }
+            w.take_over(i, Order::Move { goal: (5, 7) });
+            let mut seen = None;
+            for _ in 0..100 {
+                w.step(&[]);
+                let u = &w.units[i];
+                if u.order != (Order::Move { goal: (5, 7) }) {
+                    seen = Some((u.order, u.pending, u.resume, u.script.wait));
+                    break;
+                }
+            }
+            let got = seen.expect("the move ends");
+            if walled {
+                assert_eq!(got, (Order::Idle, None, 0, 1));
+                assert_eq!(w.units[i].remembered, Some(Remembered::AttackMove { goal: (15, 5) }));
+            } else {
+                assert_eq!(got.0, Order::AttackMove { goal: (15, 5) });
+                assert_eq!(got.2, RESUME_ATTACK_MOVE);
+            }
+        }
+    }
+
+    #[test]
+    fn moves_that_attack_on_the_way_use_the_still_animation() {
+        // Orders spec, the order list: orders 3, 4, 5 and 10 use animation 2, so the attack-type fallbacks (only
+        // for animation-4 orders) never apply to them.
+        let goal = (1, 1);
+        for o in [
+            Order::Move { goal },
+            Order::MoveAttack { goal },
+            Order::Patrol { to: goal, back: goal },
+            Order::AttackMove { goal },
+        ] {
+            assert_eq!(order_anim(o), anim::STILL, "{o:?}");
+        }
     }
 
     #[test]
@@ -1189,6 +1262,25 @@ mod tests {
         let fi = at(&w, f);
         w.units[fi].tile = (13, 13);
         assert_eq!(w.search(i, None, true), None);
+    }
+
+    #[test]
+    fn a_tower_finding_nothing_stays_in_its_attack_animation() {
+        // "Order 14 (towers)" and the human12 / xorc3 vectors: with no enemy in range each run finds nothing and
+        // changes nothing; the tower keeps order 14 and animation 4.
+        let mut w = map();
+        let t = w.spawn(TOWER, 0, (5, 5), 0).unwrap();
+        w.spawn(FOOTMAN, 1, (20, 20), 0).unwrap();
+        // Order 14 is pending until the tower's first step done.
+        while order_of(&w, t) == Order::Idle {
+            w.step(&[]);
+        }
+        for _ in 0..60 {
+            w.step(&[]);
+            let u = w.unit(t).unwrap();
+            assert_eq!(u.order, Order::TowerWatch { target: None });
+            assert_eq!(u.script.anim, anim::ATTACK);
+        }
     }
 
     #[test]

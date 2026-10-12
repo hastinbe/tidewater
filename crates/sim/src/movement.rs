@@ -109,6 +109,11 @@ impl World {
         if self.units[i].dying || inside {
             return;
         }
+        // Orders spec, "Resuming patrol and attack-move": a pending idle may become the remembered order.
+        let order = match order {
+            Order::Idle => self.resumed(i).unwrap_or(Order::Idle),
+            o => o,
+        };
         self.units[i].pending = Some(order);
     }
 
