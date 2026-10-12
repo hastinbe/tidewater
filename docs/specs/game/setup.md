@@ -3,7 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-12)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 19 (game setup)"),
   the public PUD specification text (section layouts, unit type ids) and the shipped maps. Not yet confirmed against
-  the running game.
+  the running game, except the `SIDE` races (oracle traces, round 31).
+- **Changes:** 2026-10-12, round-31 errata: the map's `SIDE` race is used as it is for all 16 slots; slots 8 to 15
+  are not set to neutral.
 
 ## Behaviour
 
@@ -82,7 +84,7 @@ keeps a position in the table, starting at the first entry:
 | `DIM ` | Both words are read, but only the **second** (the height) is kept. The map is always square, with that size as both width and height. The map's tile sections are read as rows of that size |
 | `UDTA`, `UGRD` | The first word is "use default". When it is 0 the section replaces the unit data or upgrade data. Otherwise, or when the section is absent, the game reloads its own data files (`rez\unitdata.dat`, `rez\upgrades.dat`), so nothing from an earlier map carries over |
 | `ALOW` | Length 0: nothing changes. Length 384: the six per-player words for all 16 slots, in the PUD order |
-| `SIDE` | One race per slot: 0 human, 1 orc, anything else neutral. Slots 8 to 15 are then set to neutral (2), whatever the map says |
+| `SIDE` | One race per slot, for all 16 slots: 0 human, 1 orc, anything else neutral. The map's value is used as it is. In a multiplayer game, a slot taken by a player in the lobby keeps the race chosen there instead, unless that race is neutral |
 | `SGLD`, `SLBR`, `SOIL` | Each slot's starting gold, lumber and oil (16-bit values) |
 | `AIPL` | Each slot's AI script number (`ai/ai-scripts.md`, "Which script a player runs") |
 | `MTXM`, `SQM `, `REGM` | The tile, movement and region maps, copied as they are (up to 128 × 128 words) |
@@ -315,6 +317,7 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | Mission entry 48 started as a campaign map | Orc sound set |
 | Mission mode K, circles of power listed at (10, 10) then (40, 40) | The circle's region is the region value at (40, 40) |
 | Code 6 slot after the units | Passive computer, its units keep the rescuable mark |
+| Human01 and Human04 (oracle traces), `SIDE` = 1, then 0 fourteen times, then 2 | Races: orc (slot 0), human (slots 1 to 14), neutral (slot 15) |
 
 ## Open questions
 
