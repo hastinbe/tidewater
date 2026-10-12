@@ -331,6 +331,7 @@ impl World {
         }
         let hero = self.stats_of(u.kind).flags & flags::HERO != 0;
         self.units[i].rescuable = false;
+        self.capture_sound(i, to);
         let mut add = 1;
         if hero && self.required() & HERO_RESCUE != 0 {
             add += HERO_RESCUE;

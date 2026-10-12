@@ -2,7 +2,6 @@
 //!
 //! Not yet here:
 //! - The AI hand-off of computer players' units coming out (ai spec to come); their units carry on as anyone else's.
-//! - The chop sound draw (no audio yet; it uses the setup-shuffle generator, so the game state doesn't depend on it).
 //! - Oil platforms built on patches.
 //!
 //! Our own reading: a unit that arrives at its mine, platform or depot starts order 25 in the same decision, rather
@@ -447,6 +446,8 @@ impl World {
                     chopping: true,
                 };
                 u.path.clear();
+                // Sounds spec, "Workers chopping": each chop's sound is played by the chop animation.
+                self.pend_chop(i);
                 self.switch_anim(i, anim::ATTACK);
             } else {
                 self.next_tree(i);
@@ -464,6 +465,7 @@ impl World {
             } else {
                 1
             };
+            self.pend_chop(i);
             return;
         }
         let area = self.terrain.region(here.0, here.1).unwrap_or(region::LAND_AREA);

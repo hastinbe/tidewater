@@ -559,6 +559,8 @@ pub struct World {
     pub runes: Vec<Option<crate::spells::Rune>>,
     /// Set while the map's units are being created: they get no decay countdown (spells spec, "Summoned units").
     pub(crate) loading: bool,
+    /// Sound cues and the interface state behind them (sounds spec). Not game state: left out of the hash.
+    pub sounds: crate::sound::Sounds,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -612,6 +614,7 @@ impl World {
             ylist: Vec::new(),
             runes: vec![None; crate::spells::RUNE_SLOTS],
             loading: false,
+            sounds: Default::default(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
@@ -940,6 +943,7 @@ impl World {
             self.slot_of.remove(&id);
         }
         self.units.retain(|u| u.script.anim != RELEASED);
+        self.sound_tick();
         self.tick += 1;
     }
 
@@ -1043,6 +1047,9 @@ impl World {
         u.pos.0 += fx.dx;
         u.pos.1 += fx.dy;
         let dying = u.dying;
+        if fx.sound {
+            self.play_pending(i);
+        }
         if fx.neutral && self.units[i].owner != slots::NEUTRAL {
             self.change_owner(i, slots::NEUTRAL);
         }

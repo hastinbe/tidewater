@@ -12,6 +12,7 @@ use crate::economy::Event;
 use crate::movement::{Goal, Walk, chebyshev};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::slots;
+use crate::sound::Sound;
 use crate::world::{Layer, Order, UnitId, World};
 use tidewater_formats::udta::flags;
 
@@ -428,6 +429,7 @@ impl World {
                 if !self.begin(i, 70, true) {
                     return;
                 }
+                self.spell_sound(spell, None, tile);
                 self.holy_vision(owner, tile);
             }
             HEALING => {
@@ -443,11 +445,13 @@ impl World {
                     return;
                 }
                 self.units[t].hp += heal;
+                self.spell_sound(spell, Some(t), tile);
                 self.units[i].mana -= (6 * heal) as u8;
                 self.wisp(kind::HEALING, t);
             }
             EXORCISM => {
                 self.finish_cast(i, true);
+                self.spell_sound(spell, None, tile);
                 self.exorcism(i, tile);
             }
             FLAME_SHIELD => {
@@ -459,6 +463,7 @@ impl World {
                 if !self.pay_mana(i, 80) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 self.units[t].flame_shield = 500;
                 let (from, to) = (self.units[i].centre_px(), self.units[t].centre_px());
                 self.new_fx(
@@ -488,6 +493,7 @@ impl World {
                 if !self.begin(i, 50, true) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 let h = &mut self.units[t].haste;
                 *h = if *h < 0 { -1000 } else { h.saturating_sub(1000) };
                 self.blink(t);
@@ -497,6 +503,7 @@ impl World {
                 if !self.begin(i, 200, true) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 self.units[t].invisibility = 2000;
                 self.blink(t);
             }
@@ -505,6 +512,7 @@ impl World {
                 if !self.begin(i, 200, true) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 let at = self.units[t].tile;
                 self.units[t].used = true;
                 self.kill(t);
@@ -518,6 +526,7 @@ impl World {
                     return;
                 }
                 self.finish_cast(i, false);
+                self.spell_sound(spell, None, tile);
                 let c = centre_of_tile(tile);
                 for _ in 0..5 {
                     let x = c.0 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
@@ -529,6 +538,7 @@ impl World {
                 if !self.begin(i, 70, true) {
                     return;
                 }
+                self.cue_plain(Sound::Spell(spell));
                 let u = &self.units[i];
                 let src = Source::new(u.tile.0, u.tile.1, u.size.0 as i32, u.size.1 as i32);
                 let at = u.tile;
@@ -547,23 +557,27 @@ impl World {
                 if !self.begin(i, 50, true) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 self.units[t].bloodlust = 1000;
                 self.blink(t);
             }
             RAISE_DEAD => {
                 self.finish_cast(i, true);
+                self.spell_sound(spell, None, tile);
                 self.raise_dead(caster, tile);
             }
             DEATH_COIL => {
                 if !self.begin(i, 100, true) {
                     return;
                 }
+                self.spell_sound(spell, None, tile);
                 self.death_coil(i, tile);
             }
             WHIRLWIND => {
                 if !self.begin(i, 100, true) {
                     return;
                 }
+                self.spell_sound(spell, None, tile);
                 let c = centre_of_tile(tile);
                 let x = c.0 + (self.rng.draw() & 127) as i32 - 64;
                 let y = c.1 + (self.rng.draw() & 127) as i32 - 64;
@@ -579,6 +593,7 @@ impl World {
                 if !self.begin(i, 50, true) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 let h = &mut self.units[t].haste;
                 *h = if *h > 0 { 1000 } else { h.saturating_add(1000) };
                 self.blink(t);
@@ -588,6 +603,7 @@ impl World {
                 if !self.begin(i, 100, true) {
                     return;
                 }
+                self.spell_sound(spell, Some(t), tile);
                 let u = &mut self.units[t];
                 u.unholy_armor = 500;
                 if u.hp >= 2 {
@@ -599,6 +615,7 @@ impl World {
                 if !self.begin(i, 200, true) {
                     return;
                 }
+                self.spell_sound(spell, None, tile);
                 let refund = (5 - self.place_runes(tile)) * 40;
                 let m = &mut self.units[i].mana;
                 *m = (*m as u32 + refund).min(255) as u8;
@@ -608,6 +625,7 @@ impl World {
                     return;
                 }
                 self.finish_cast(i, false);
+                self.spell_sound(spell, None, tile);
                 let c = centre_of_tile(tile);
                 for _ in 0..5 {
                     let x = c.0 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
@@ -616,6 +634,15 @@ impl World {
                 }
             }
             _ => self.idle_pending(i),
+        }
+    }
+
+    /// A spell's sound when it takes effect (sounds spec, "Spells"): placed on the target unit `t`, else at the target
+    /// tile. Open question "Spell sound placement": we take the target, as the default says.
+    fn spell_sound(&mut self, spell: u8, t: Option<usize>, tile: (i32, i32)) {
+        match t {
+            Some(t) => self.sound_on(t, Sound::Spell(spell)),
+            None => self.sound_at_tile(tile, Sound::Spell(spell)),
         }
     }
 
@@ -931,6 +958,7 @@ impl World {
             let hit = self.occupant(Layer::Land, rune.tile.0, rune.tile.1);
             if let Some(ui) = hit.and_then(|id| self.index(id)) {
                 self.runes[r] = None;
+                self.sound_at_tile(rune.tile, Sound::Explode);
                 self.new_fx(
                     kind::EXPLOSION,
                     UnitId(0),
@@ -1023,6 +1051,8 @@ impl World {
                 self.rng.draw();
                 if line.remaining <= 0 {
                     if let Some(t) = m.target.filter(|&t| self.unit(t).is_some_and(|u| u.present())) {
+                        // Sounds spec, "Other explosions": the bolt arrives and makes its flames.
+                        self.sound_at_px(m.pos, Sound::Explode);
                         for (point, life) in FLAMES {
                             let c = self.unit(t).expect("checked").centre_px();
                             let p = FLAME_PATH[point as usize];

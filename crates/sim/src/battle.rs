@@ -148,6 +148,11 @@ impl World {
 
     /// Turns toward the target and plays the attack animation, starting it in the same cycle if needed.
     pub(crate) fn face_and_strike(&mut self, i: usize, d: (i32, i32)) {
+        // Sounds spec, "Attacks": each turn to strike makes the type's attack sound pending. Our reading: casting
+        // (which also turns to the target) doesn't.
+        if !matches!(self.units[i].order, Order::Cast { .. }) {
+            self.pend_attack(i);
+        }
         if self.units[i].script.anim != anim::ATTACK {
             self.units[i].facing = facing(d.0, d.1);
             self.switch_anim(i, anim::ATTACK);
@@ -176,6 +181,9 @@ impl World {
         };
         // Spells spec, "Timers": a unit's attack strike ends its own invisibility.
         self.units[i].invisibility = 0;
+        if self.units[i].building {
+            self.tower_fire_sound(i);
+        }
         let a = &self.units[i];
         let s = self.stats_of(a.kind);
         let (basic, pierce) = combat::attack(a.kind, &s, &self.players[a.owner as usize].upgrades, a.bloodlust > 0);
@@ -278,6 +286,7 @@ impl World {
         }
         if t.hp > d as u16 {
             t.hp -= d as u16;
+            self.under_attack(ti);
             return;
         }
         if let Some(a) = self.unit(attacker) {
@@ -288,6 +297,7 @@ impl World {
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
+        self.death_sound(ti);
         let unit = self.units[ti].clone();
         let p = &mut self.players[unit.owner as usize];
         if unit.construction.is_some() {
@@ -421,12 +431,19 @@ impl World {
         let (pos, damage, attacker) = (m.pos, m.damage, m.attacker);
         self.missiles[n] = Some(m);
         if splash {
+            // Sounds spec, open question "Hammer and breath splash": we play the explosion on each splash.
+            self.sound_at_px(pos, crate::sound::Sound::Explode);
             self.fx_splash(pos, damage, attacker);
         }
     }
 
     /// The impact, at the missile's final position.
     fn land(&mut self, m: Missile) {
+        let sound = crate::sound::Sound::Impact {
+            kind: m.kind,
+            damaging: m.damage != 0,
+        };
+        self.sound_at_px(m.pos, sound);
         if !m.splash {
             match m.target {
                 Some(t) => {

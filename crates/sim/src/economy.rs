@@ -280,6 +280,7 @@ impl World {
             u.hp = m;
             c.passes = total;
         }
+        self.construction_sound(i);
     }
 
     /// Construction progress as a fraction of 255: the larger of passes over the total and hit points over M.
@@ -433,6 +434,9 @@ impl World {
                     .free_tile_near(&u, k)
                     .ok_or(SpawnError::CantPlace)
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
+                if let Ok(id) = placed {
+                    self.ready_sound(id);
+                }
                 if placed.is_err() {
                     self.refund(u.owner, job.paid);
                     self.events.push(Event::NoRoom {
@@ -446,6 +450,9 @@ impl World {
                 let b = &mut self.units[i];
                 b.kind = k;
                 b.hp = (b.hp as i32 + new as i32 - old as i32).max(1) as u16;
+                if self.rules.enhanced {
+                    self.work_complete(i);
+                }
             }
             JobKind::Research(_) | JobKind::Spell(_) => self.end_research(i, job.kind, true),
         }
@@ -490,6 +497,7 @@ impl World {
         }
         if self.rules.enhanced {
             self.events.push(Event::ResearchDone { player: owner, tile });
+            self.work_complete(i);
         }
     }
 

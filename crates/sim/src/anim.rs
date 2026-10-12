@@ -28,6 +28,8 @@ pub struct Effects {
     pub neutral: bool,
     /// A halt instruction ran.
     pub halted: bool,
+    /// A play-sound instruction ran (sounds spec, "Attacks").
+    pub sound: bool,
 }
 
 /// Inputs that adjust waits.
@@ -103,7 +105,8 @@ impl Script {
                 Op::WaitCarry(n) => self.wait = adjust(n.wrapping_add(m.carrying as u8), true, true),
                 Op::Strike => fx.strikes += 1,
                 Op::Neutral => fx.neutral = true,
-                Op::Sound | Op::Nop(_) => {}
+                Op::Sound => fx.sound = true,
+                Op::Nop(_) => {}
             }
             if let Op::MoveFrame(_, f) | Op::Move2Frame(_, f) = op {
                 self.frame = f;

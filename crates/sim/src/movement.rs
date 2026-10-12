@@ -133,6 +133,9 @@ impl World {
         let fx = u.script.update(scripts.bytes(), u.facing, m);
         u.pos.0 += fx.dx;
         u.pos.1 += fx.dy;
+        if fx.sound {
+            self.play_pending(i);
+        }
     }
 
     /// The order logic, run when the unit's animation signals "step done".
@@ -233,6 +236,12 @@ impl World {
         self.apply_unit_sight(i);
         if unit.script.anim != anim::MOVE {
             self.switch_anim(i, anim::MOVE);
+        }
+        // Sounds spec, "Docking": a transport moving onto a shore-water tile.
+        if self.stats_of(unit.kind).flags & tidewater_formats::udta::flags::TRANSPORT != 0
+            && self.terrain.word(next.0, next.1) & crate::terrain::bits::SHORE != 0
+        {
+            self.sound_on(i, crate::sound::Sound::Dock);
         }
         Walk::Stepping
     }

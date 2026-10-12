@@ -201,6 +201,9 @@ impl World {
                     self.start_anim(k, anim::STILL);
                     self.units[k].script.wait = 1;
                     self.apply_unit_sight(k);
+                    if finished {
+                        self.work_complete(k);
+                    }
                 }
                 None => self.kill(k),
             }
