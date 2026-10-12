@@ -10,7 +10,7 @@
   2026-10-12, round-35 errata: attack-type orders for the search are those with the "acquires" mark (plus order 10 in
   Enhanced mode); orders 9 and 11 aren't; the target gets no special treatment. New trace vectors (a stored path kept
   while the target moves; a route into a moving ally refused at the step).
-  2026-10-12, round-35 errata: the line counts in tiles for two-tile movers too; the goal pull-back's orders, walk and
+  2026-10-12, round-36 errata: the line counts in tiles for two-tile movers too; the goal pull-back's orders, walk and
   kept tile; a unit with a command whose pending order hasn't taken over counts as about to move. Two open questions
   closed, trace vectors added.
 
