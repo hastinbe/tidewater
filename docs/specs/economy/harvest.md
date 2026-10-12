@@ -2,11 +2,16 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and the public PUD
-  specification text (UNIT section and unit data flags). Not yet confirmed against the running game.
+  specification text (UNIT section and unit data flags). Not yet confirmed against the running game, except the
+  points of the round-33 errata (oracle traces Human04 and orc4).
 - **Changes:** 2026-10-11, round-3 errata: the free tile for coming out is found by the ring search of
   `movement/placement.md` (limit 12, aimed at the tile the unit is heading for); a unit that finds no tile dies. The
   open question is closed.
   2026-10-11, round-5 errata: the AI hand-off on coming out (order 26, step 3) is for computer players only.
+  2026-10-12, round-33 errata: the "active" look is the building's frame (1 for a gold mine, 2 for an oil platform);
+  felling sets the worker's frame to 0 and its return takes over in the same update; entering aims at the
+  building's top-left tile + (1, 1); the command given on coming out waits for the 25-cycle wait. The open question
+  on the active look is closed.
 
 ## Behaviour
 
@@ -53,7 +58,7 @@ While in order 23 with a target mine or platform:
 Order 25 can't be interrupted by new orders (see `orders/orders.md`).
 
 1. **First time the order's logic runs:**
-   - The unit turns to face the building.
+   - The unit turns to face the tile one in from the building's top-left corner (top-left tile + (1, 1)).
    - It is taken off the occupancy marks.
    - A **land worker** moves one tile in that direction, playing its move animation; the order's logic runs again
      when that move loop ends.
@@ -65,7 +70,9 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
    - If the building is a depot that accepts what it carries, the goods are **delivered** (below), and nothing else
      happens.
    - Otherwise (a mine or platform):
-     - the building's occupant count goes up by 1, and the building shows its "active" look;
+     - the building's occupant count goes up by 1. If its frame is 0, the frame becomes 1 for a gold mine (type
+       0x5C) and 2 for any other building (an oil platform): its "active" look. Otherwise the frame doesn't change.
+       Every building starts with frame 0 and an occupant count of 0, and a depot's frame never changes here;
      - if the building has trips left, the unit is now **carrying**, and the building loses one trip. If that was the
        last trip, the building **collapses** (below). Otherwise the building becomes the unit's return-to source.
 3. **If the building is gone** when the logic runs: a unit that already stepped in (step 1 done) **dies**; otherwise it
@@ -77,7 +84,9 @@ When the 150-cycle wait ends and the inside order's logic runs:
 
 1. The unit becomes idle (order 2) at once.
 2. If it is carrying, its return-to source exists, and that source is a gold mine or oil platform, the source's
-   occupant count goes down by 1. When it reaches 0, the "active" look ends.
+   occupant count goes down by 1: if the count is 0 it counts as 1, and when it reaches 0 the source's frame
+   becomes 0 (the "active" look ends). Both frame changes happen at the moment of going in or coming out, in that
+   unit's update.
 3. A **computer player's** unit (`orders/orders.md`, "Terms") hands control to the AI here (a later spec). If the AI
    gives it an order, steps 4 and 5 are skipped. Every other player's unit goes straight on to steps 4 and 5.
 4. If it is **carrying**, it looks for the nearest depot (below) and moves there in order 24 (return goods). If there
@@ -89,6 +98,9 @@ When the 150-cycle wait ends and the inside order's logic runs:
    just delivered to a gold-accepting depot, and as for a gold mine (3 × 3) otherwise, placed at the building's
    top-left tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. If no tile is
    found, the unit dies.
+
+The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
+over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
 
 ### Lumber
 
@@ -106,7 +118,9 @@ While in order 23 in lumber mode, each time the order's logic runs:
 3. **Chopping**, and the tree tile is still reserved:
    - While the counter is below **50**, it goes up by 1. A cheat sets it straight to 50.
    - When the counter is already 50, the tree is **felled** (`movement/occupancy.md` gives the map changes). The
-     worker is now carrying lumber, and it heads for the nearest depot in order 24 (idle if there is none).
+     worker is now carrying lumber (its graphic changes to the carrying one) and its frame is set to 0. It is given
+     a return command to the nearest depot (order 24), or becomes idle if there is none, and that order takes over
+     in the same update: order 24, its still animation, wait 3 (`orders/orders.md`, "Same-update take-over").
 4. **Chopping, but the tile is no longer reserved:** the reservation is dropped, and the worker looks for the nearest
    tree from its own tile, as in step 2.
 
@@ -229,10 +243,22 @@ gold, storage for wood, storage for oil, building.
 | Peasant walks into a gold mine | one move loop to step in (16 cycles, or 22 if carrying), then 150 cycles inside |
 | Mine destroyed while a worker is stepping in | the worker dies |
 
+### Round-33 vectors (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| Human04, gold mine slot 1559, worked by peons 1548, 1530 and 1529 | Frame 1 on n = 108 to 257, 660 to 809, 1112 to 1361, 1587 to 1913, 2139 to 2288, 2316 to 2465, 2691 to 2840, and from 2868 on; frame 0 at all other records |
+| Same mine, n = 1112 to 1914 | In: 1530 at 1112 (count 1, frame 1), 1548 at 1212 (2). Out: 1530 at 1262 (1), 1548 at 1362 (0, frame 0). In: 1529 at 1587 (1, frame 1), 1530 at 1664 (2). Out: 1529 at 1737 (1). In: 1548 at 1764 (2). Out: 1530 at 1814 (1), 1548 at 1914 (0, frame 0) |
+| Human04, great hall slot 1550; peons go in at n = 399, 951, 1403, 1503 and later | Frame stays 0 |
+| orc4, oil platform slot 1596 (type 0x56) | Frame 2 on n = 11796 to 11945, 14334 to 14483, 16872 to 17021 and 19410 to 19559 (one tanker visit of 150 cycles each); frame 0 otherwise |
+| Human04, peon 1531 chopping at (75, 79) | n = 1912: order 23, animation 4, frame 25, wait 1. n = 1913: order 24, animation 2, frame 0, wait 3, target the lumber mill (slot 1560). It starts walking at n = 1916 (animation 3, wait 1) |
+| Human04, peon 1531 returning lumber, at (76, 78); lumber mill slot 1560, top-left (77, 77) | Order 25 takes over at n = 1938. First run at n = 1941: facing 2 (east, toward (78, 78); facing the top-left tile would be 1), tile (77, 78). Goes in at n = 1963: order 26, wait 150, tile (77, 77) |
+| Human04, peon 1548 at (87, 80), gold mine 1559, top-left (88, 77) | Order 25 takes over at n = 89; the first run (n = 92) faces 1 (toward (89, 78)) and steps to (88, 79); goes in at n = 108, tile (88, 77) |
+| Human04, peon 1548 (computer) comes out of mine 1559 carrying gold | n = 258: order 2, wait 25, tile (87, 79), target the great hall (slot 1550). n = 282: wait 1. n = 283: order 24, animation 2, wait 3 |
+
 ## Open questions
 
 - How the AI routines for computer-controlled workers and tankers decide at the mine and depot.
-- The "active" mine look: whether its two states (mine and platform) matter beyond the graphics.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
