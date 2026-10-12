@@ -6,6 +6,7 @@
 - **Changes:** 2026-10-12, round-10 errata: a hit records its attacker only under the rules of `ai/attack-ai.md`
   ("Call for help"), and the first live attacker is kept, so the attacker is not always the last unit that hit.
   2026-10-12, round-13 errata: command 17 gives order 17 at once when the target tile is in the unit's own region.
+  2026-10-12, round-14 errata: orders 33 and 14 forget the building's attacker each time their logic runs.
 
 ## Behaviour
 
@@ -79,7 +80,7 @@ Columns:
 | 11 | Attack a wall tile | 4 | attack range | yes | no |
 | 12 | Chase and attack a found target | 4 | attack range | yes | yes |
 | 13 | Stand ground | 2 | always | no | yes |
-| 14 | Tower watching (towers' resting order) | 4 | attack range | no | yes |
+| 14 | Tower watching (towers' resting order). Each time its logic runs, it forgets the tower's attacker | 4 | attack range | no | yes |
 | 15 | Attack a found target without moving | 4 | attack range | no | yes |
 | 16 | Idle unit's reaction: attack without moving | 4 | attack range | no | yes, idle |
 | 17 | Attack the ground | 4 | attack range | yes | no |
@@ -98,7 +99,7 @@ Columns:
 | 30 | Transport landing (`orders/transports.md`) | 6 | 0 in effect (3 in the order data, unused; see the note below the table) | yes | no |
 | 31 | Transport pushing off from the shore (`orders/transports.md`) | 6 | always | no | no |
 | 32 | Transport docked at the shore, or idle on an odd tile (`orders/transports.md`). No logic: it waits. (The order is marked as acquiring, but its logic never runs a search) | 2 | 0 | no | no |
-| 33 | Building's resting order (every building except towers and the circle of power, complete or under construction; see `economy/build-train.md`) | 2 | always | no | no |
+| 33 | Building's resting order (every building except towers and the circle of power, complete or under construction; see `economy/build-train.md`). Each time its logic runs, it first forgets the building's attacker (the reaction rule, for every owner), so later hits call for help again | 2 | always | no | no |
 | 34 | Board a transport | 2 | 1 | yes | no |
 | 35, 40, 58, 60 | No logic (do nothing) | 2 | — | — | — |
 | 36 | Passenger inside a transport (`orders/transports.md`). No logic | 2 | always | — | — |
