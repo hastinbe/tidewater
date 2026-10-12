@@ -97,7 +97,11 @@ impl World {
     /// Gives a unit a new order: it waits as the pending order until the next "step done".
     pub(crate) fn give(&mut self, i: usize, order: Order) {
         // Orders 25 and 26 can't be interrupted (harvest spec, "Entering"), and dying units take no orders.
-        if self.units[i].dying || matches!(self.units[i].order, Order::Enter { .. } | Order::Inside { .. }) {
+        let inside = matches!(
+            self.units[i].order,
+            Order::Enter { .. } | Order::Inside { .. } | Order::Aboard { .. }
+        );
+        if self.units[i].dying || inside {
             return;
         }
         self.units[i].pending = Some(order);
@@ -148,7 +152,7 @@ impl World {
             self.take_over(i, o);
             return;
         }
-        if self.run_order(i) {
+        if self.run_order(i) || self.run_transport(i) {
             return;
         }
         match self.units[i].order {
@@ -175,10 +179,11 @@ impl World {
         self.units[i].script.wait = TAKEOVER_WAIT;
     }
 
-    /// Arrival radius after the +1 (movement spec, "The +1"). Orders 28, 30 and 31 aren't modelled yet, so every sea
-    /// or air unit gets it.
+    /// Arrival radius after the +1 (movement spec, "The +1"): sea and air units get it, except in orders 30 and 31.
+    /// Order 28 isn't modelled yet.
     fn arrival_radius(&self, u: &Unit, g: &Goal) -> i32 {
-        let bonus = !g.range && matches!(u.layer, Layer::Sea | Layer::Air);
+        let docking = matches!(u.order, Order::Land { .. } | Order::PushOff);
+        let bonus = !g.range && !docking && matches!(u.layer, Layer::Sea | Layer::Air);
         g.radius + bonus as i32
     }
 
@@ -292,7 +297,11 @@ impl World {
 
     /// Up to 20 tiles of route from `u` toward `g` (pathfinding spec). Empty means no path.
     pub(crate) fn plan(&self, u: &Unit, g: Goal) -> Vec<(i32, i32)> {
-        let s = self.stride_of(u.kind).max(1);
+        let s = if u.ship.one_tile {
+            1
+        } else {
+            self.stride_of(u.kind).max(1)
+        };
         let (w, h) = (self.terrain.width as i32, self.terrain.height as i32);
         let mut req = path::Request {
             enhanced: self.rules.enhanced,
@@ -303,7 +312,12 @@ impl World {
         }
         // Units of players that aren't human-controlled drop bit 0x04 from their mask, unless invisible or attacked.
         let drop_wall = !self.human_controlled(u.owner) && u.attacked_by.is_none();
-        let mask = u.layer.mask() & if drop_wall { !HUMAN_WALL } else { !0 };
+        let class = if u.ship.landing {
+            crate::terrain::mask::LANDING
+        } else {
+            u.layer.mask()
+        };
+        let mask = class & if drop_wall { !HUMAN_WALL } else { !0 };
         struct Search<'a> {
             w: &'a World,
             u: &'a Unit,

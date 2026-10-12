@@ -22,6 +22,7 @@ pub mod rng;
 pub mod slots;
 pub mod terrain;
 pub mod timing;
+mod transport;
 pub mod vision;
 mod world;
 

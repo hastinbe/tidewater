@@ -86,7 +86,7 @@ impl<F: Fn(i32, i32) -> bool> Map for F {
 
 /// The straight line from `start` toward `goal` in step units ("Line rule"): the direction of each step, until the
 /// goal is reached.
-fn line(start: (i32, i32), goal: (i32, i32), stride: i32) -> Vec<u8> {
+pub(crate) fn line(start: (i32, i32), goal: (i32, i32), stride: i32) -> Vec<u8> {
     let (dx, dy) = ((goal.0 - start.0) / stride, (goal.1 - start.1) / stride);
     let (major, minor) = (dx.abs().max(dy.abs()), dx.abs().min(dy.abs()));
     let x_major = dx.abs() >= dy.abs();

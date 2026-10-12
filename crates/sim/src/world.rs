@@ -106,7 +106,36 @@ pub enum Order {
     Inside { building: UnitId, hall_sized: bool },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
     AttackWall { tile: (i32, i32) },
+    /// 29: a transport putting its passengers ashore (transports spec).
+    Unload,
+    /// 30: a transport sailing to the shore-water tile `goal` in the landing class.
+    Land { goal: (i32, i32) },
+    /// 31: a transport leaving the shore for open water.
+    PushOff,
+    /// 32: a transport docked at the shore.
+    Docked,
+    /// 34: a land unit heading for a transport to board it.
+    Board { transport: UnitId },
+    /// 36: a passenger aboard a transport.
+    Aboard { transport: UnitId },
 }
+
+/// What a transport stores when given a command (transports spec, "What the transport stores"), and how it moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Ship {
+    pub target: Option<UnitId>,
+    pub target_tile: (i32, i32),
+    /// The target tile as it was when the command was given; never changed afterwards.
+    pub dest: (i32, i32),
+    pub unload: bool,
+    /// Moving in the landing class rather than the sea class.
+    pub landing: bool,
+    /// Moving one tile per step rather than two.
+    pub one_tile: bool,
+}
+
+/// Passenger slots of a transport.
+pub const PASSENGER_SLOTS: usize = 6;
 
 /// What a worker gathers (harvest spec, "Gather mode and carried goods"). Tankers always gather oil.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -175,6 +204,9 @@ pub struct Unit {
     pub pending: Option<Order>,
     /// Enhanced mode's remembered patrol or attack-move, and the countdown before it may be resumed.
     pub remembered: Option<Remembered>,
+    /// Transports only.
+    pub ship: Ship,
+    pub passengers: [Option<UnitId>; PASSENGER_SLOTS],
     pub resume: u8,
     /// Repair runs on this unit not yet paid for (repair spec: one payment per 2 runs, whoever repairs).
     pub repair_runs: u8,
@@ -376,6 +408,12 @@ pub enum Command {
     StandGround {
         player: u8,
         units: Vec<UnitId>,
+    },
+    /// Command 29: a transport unloads at `tile` (transports spec).
+    Unload {
+        player: u8,
+        units: Vec<UnitId>,
+        tile: (i32, i32),
     },
     /// Cancel a building's job, or the building if it is under construction.
     Cancel {
@@ -601,6 +639,8 @@ impl World {
             blocked: 0,
             pending: None,
             remembered: None,
+            ship: Ship::default(),
+            passengers: [None; PASSENGER_SLOTS],
             resume: 0,
             repair_runs: 0,
             bloodlust: 0,
@@ -764,6 +804,7 @@ impl World {
             | Command::Smart { player, units, .. }
             | Command::AttackMove { player, units, .. }
             | Command::Patrol { player, units, .. }
+            | Command::Unload { player, units, .. }
             | Command::StandGround { player, units } => (*player, units),
             &Command::Train {
                 player,

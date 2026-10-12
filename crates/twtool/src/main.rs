@@ -119,6 +119,14 @@ enum Cmd {
         #[arg(long)]
         install: PathBuf,
     },
+    /// List one unit type's animation script (`rez\\script.bin`) instruction by instruction, up to its first halt or
+    /// backward jump. `kind` is the PUD unit number, `anim` the animation (1 death, 2 still, 3 move, 4 attack, 5, 6).
+    ScriptOps {
+        #[arg(long)]
+        install: PathBuf,
+        kind: u8,
+        anim: u8,
+    },
     /// Fell trees in a field of one forest shape (forest table row `row`) using each tileset's change tables, and
     /// print the forest table row of every tile after each felling (`..` for cleared ground).
     Fell {
@@ -283,6 +291,7 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Scripts { install } => scripts(&install)?,
+        Cmd::ScriptOps { install, kind, anim } => script_ops(&install, kind, anim)?,
         Cmd::Fell { install, row, at } => fell(&install, row, &at)?,
         Cmd::Upgrades { install, map } => upgrades(&install, map.as_deref())?,
         Cmd::Strings { install, name } => {
@@ -666,6 +675,26 @@ fn scripts(install: &std::path::Path) -> Result<()> {
             col(anim::ATTACK, 1, true),
             col(anim::ATTACK, -1, true)
         );
+    }
+    Ok(())
+}
+
+fn script_ops(install: &std::path::Path, kind: u8, anim: u8) -> Result<()> {
+    use tidewater_formats::script::{Op, Scripts};
+    let mut inst = Install::open(install)?;
+    let s = Scripts::parse(inst.read("rez\\script.bin")?)?;
+    let mut pc = s
+        .unit(kind, anim)
+        .ok_or_else(|| anyhow::anyhow!("no animation {anim} for type {kind:#04x}"))?;
+    for _ in 0..200 {
+        let op = s.decode(pc).ok_or_else(|| anyhow::anyhow!("bad instruction at {pc}"))?;
+        println!("{pc}\t{op:?}");
+        match op {
+            Op::Halt => break,
+            Op::Jump(to) if to <= pc => break,
+            Op::Jump(to) => pc = to,
+            _ => pc += op.size() as u16,
+        }
     }
     Ok(())
 }

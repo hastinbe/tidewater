@@ -253,7 +253,9 @@ impl World {
         }
         self.units[ti].construction = None;
         self.units[ti].job = None;
-        self.mark(&unit, unit.tile, None);
+        if !unit.inside {
+            self.mark(&unit, unit.tile, None);
+        }
         let u = &mut self.units[ti];
         u.hp = 0;
         u.dying = true;
@@ -261,6 +263,7 @@ impl World {
         u.pending = None;
         u.path.clear();
         self.start_anim(ti, anim::DEATH);
+        self.kill_passengers(ti);
         // A dead unit is forgotten as an attacker (movement spec, "Blocked rules").
         for o in &mut self.units {
             if o.attacked_by == Some(unit.id) {

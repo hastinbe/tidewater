@@ -1,6 +1,6 @@
 //! Commands, immediate orders, target acquisition, reactions and fleeing. Spec: `docs/specs/orders/orders.md`.
 //!
-//! Not yet here: transports and boarding (order 34), attacking the ground (17, 18), demolition (19 to 21), spells,
+//! Transports and boarding are in `transport.rs`. Not yet here: attacking the ground (17, 18), demolition (19 to 21), spells,
 //! the computer players' worker and tanker routines (they skip the search, as the spec says, and do nothing instead),
 //! and alliances (only a unit's own player counts as allied).
 //!
@@ -56,6 +56,7 @@ pub(crate) fn order_anim(o: Order) -> u8 {
         | Order::Harvest { .. }
         | Order::Repair { .. } => anim::ATTACK,
         Order::Enter { .. } => anim::MOVE,
+        Order::Land { .. } | Order::PushOff => anim::WORK_B,
         _ => anim::STILL,
     }
 }
@@ -142,6 +143,12 @@ impl World {
             }
             Command::Harvest { target, tile, .. } => self.harvest_command(i, target, tile)?,
             Command::ReturnGoods { .. } => self.return_command(i)?,
+            Command::Unload { tile, .. } => {
+                if !self.is_transport(u) {
+                    return None;
+                }
+                self.transport_command(i, None, tile, true)
+            }
             Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } => return None,
         };
         self.units[i].remembered = if enhanced { remember } else { None };
@@ -161,6 +168,15 @@ impl World {
         let target = target
             .or_else(|| self.occupant(u.layer, tile.0, tile.1))
             .filter(|&t| t != u.id);
+        if self.is_transport(u) {
+            return Some(self.transport_command(i, target, tile, false));
+        }
+        if let Some(t) = target
+            && self.boards(u, t)
+        {
+            return Some(self.board_command(i, t));
+        }
+        let u = &self.units[i];
         if let Some(t) = target
             && self.can_return_to(u, t)
         {
@@ -230,7 +246,7 @@ impl World {
     }
 
     /// Whether a target is still good for an order aimed at it: valid and detected by the owner. Fog doesn't matter.
-    fn holds(&self, owner: u8, t: UnitId) -> bool {
+    pub(crate) fn holds(&self, owner: u8, t: UnitId) -> bool {
         self.unit(t).is_some_and(|t| t.present() && Self::detected(t, owner))
     }
 
