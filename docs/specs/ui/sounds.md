@@ -14,6 +14,8 @@
   creation; a table of the sounds each missile impact makes in all.
   2026-10-12, round-16 errata: the error sound's one trigger (a failed building placement click) and the placement
   sound; both are plain sounds.
+- **Changes:** 2026-10-12, round-24 errata: the impact effects' sound plays at the effect's start step, one cycle after
+  its first update.
 
 ## Behaviour
 
@@ -269,12 +271,13 @@ off screen. "If damaging" means the sound plays only when the missile carries da
 | 0x0E ballista bolt | `misc\explode`, if damaging |
 | 0x0F arrow, 0x10 axe | `misc\bowhit`, if damaging |
 | 0x07 big cannon, 0x11 submarine missile, 0x12 turtle missile | `misc\explode` |
-| 0x15 ballista impact, 0x1A cannon tower explosion | `misc\explode`, at the effect's first update, with no damage condition (`combat/damage.md`, "Impact effects") |
+| 0x15 ballista impact, 0x1A cannon tower explosion | `misc\explode`, at the effect's start step (`spells/spells.md`, "When a new effect first runs"), with no damage condition (`combat/damage.md`, "Impact effects") |
 | All other kinds | none |
 
-The impact effects' sound plays at the effect's tile, audible off screen, at its first update, which is in the same
-cycle as the impact or the next (`spells/spells.md`, "When a new effect first runs"). Kind 0x17, the effect left by
-submarine and turtle missiles, makes no sound of its own. So each impact sounds like this:
+The impact effects' sound plays at the effect's tile, audible off screen, at its start step, one cycle after its first
+update: the cycle after the impact, or the one after that when the effect's slot comes before the missile's
+(`spells/spells.md`, "When a new effect first runs"). Kind 0x17, the effect left by submarine and turtle missiles, makes
+no sound of its own. So each impact sounds like this:
 
 | Missile | Impact sound | Effect sound | In all |
 | --- | --- | --- | --- |
