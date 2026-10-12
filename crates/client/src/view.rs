@@ -21,7 +21,7 @@
 //! unpacked) and the effect files by effect kind from the spec's "Data" table.
 //!
 //! Defaults and placeholders where the specs stop:
-//! - **Bob offset:** the sim has no bob value yet, so every unit is drawn with b = 0.
+//! - **Bob offset:** b is the unit's bob value (0 or 1), flipped by the sim at each bob draw of a ship or flier.
 //! - **Effect frames:** the sim has no animation state for effects yet, so an effect draws frame number 0 in the
 //!   facing column of its flight direction (from its start to its aim point; north for one that doesn't move).
 //! - **Building fires and the ground marker** are drawn by the client: the fires' shared animation steps one frame
@@ -777,7 +777,7 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
         });
         let air = u.layer == Layer::Air;
         let sheet = Sheet::Unit(u.kind);
-        let bob = 0;
+        let bob = u.bob.value as i32;
         let sprite =
             sheet_frame(u.building, u.facing, u.script.frame, art.frames(sheet)).map(|(frame, mirrored)| Op::Sprite {
                 sheet,

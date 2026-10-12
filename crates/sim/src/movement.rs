@@ -176,7 +176,7 @@ impl World {
 
     /// A pending order replaces the current one: its animation starts with a first wait of 3 and nothing else
     /// happens this cycle (movement spec, "When decisions are made").
-    fn take_over(&mut self, i: usize, o: Order) {
+    pub(crate) fn take_over(&mut self, i: usize, o: Order) {
         self.release_tree(i);
         // Orders spec, "Taking over": a return with no depot looks one up, or becomes idle.
         let o = match o {

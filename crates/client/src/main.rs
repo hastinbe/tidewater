@@ -502,6 +502,9 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
             .world
             .restore(&r.body.world, savegame::reseed())
             .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
+    } else {
+        // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
+        scene.world.start_up();
     }
     world.insert_resource(savegame::GameOrigin {
         map: args.map.clone(),

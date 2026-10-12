@@ -1,7 +1,7 @@
 //! Runs `twtool oracle` on real traces of the original game (`docs/specs/oracle/trace-format.md`), when they are on
 //! this machine: set `TIDEWATER_ORACLE_TRACES` to the directory holding the trace files and `TIDEWATER_INSTALL` to the
-//! game's installation. Without both, the test does nothing. The traces are expected to diverge for now, so the test
-//! only checks that the comparer runs and reports.
+//! game's installation. Without both, the test does nothing. Human01 must match; the others are expected to diverge
+//! for now, so for them the test only checks that the comparer runs and reports.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -47,6 +47,10 @@ fn compares_real_traces_when_present() {
                 out.status
             );
             assert!(stdout.contains("divergence"), "{file}: no verdict\n{stdout}");
+            // Human01 (no input: idle look-around draws only) matches the whole trace.
+            if file.starts_with("human01") {
+                assert_eq!(out.status.code(), Some(0), "{file} {extra:?} diverges\n{stdout}");
+            }
             ran += 1;
         }
     }

@@ -2278,6 +2278,8 @@ mod tests {
     fn whirlwind_vectors() {
         let mut w = lab(32);
         let p = caster(&mut w, MAGE, (9, 18), 255);
+        // Flag bit 2 keeps the idle caster from making look-around draws, so only the whirlwind draws.
+        w.stats.0[MAGE as usize].flags |= flags::EXPLODE_WHEN_KILLED;
         w.rng = Rng::new(state_for(127, &[100, 10]));
         let start = w.rng.state;
         strike(&mut w, p, WHIRLWIND, None, (10, 20));
