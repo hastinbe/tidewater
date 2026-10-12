@@ -11,6 +11,9 @@
   worker with no path is given command 24 to the same depot again.
 - **Changes:** 2026-10-12, round-36 errata: a computer player's building marks the first open entry of its own type when
   it is created (map load or construction start); the game-start tower, keep and castle cases are removed.
+- **Changes:** 2026-10-12, round-38 errata: a computer player's building gets a keep-clear mark by type when it is
+  created, map buildings included (this replaces round 22's "no mark"); the keep-clear rectangle's edge rules, including
+  the skew at the right edge.
 
 ## Behaviour
 
@@ -184,8 +187,44 @@ assign workers.
 **Keep-clear mark:** a per-tile mark that the computer players put on planned building sites and mining paths. It is
 the run-time tile mark 0x0400 in the tile flags of `movement/occupancy.md`. The computer's site search refuses tiles with it, so its buildings leave paths and a ring of
 space. It isn't in the movement or ordinary placement masks, so it doesn't affect movement or human placement.
-Buildings placed by the map get no keep-clear mark. Marks come only from the computer's own building jobs and its
-keep-clear lines.
+
+**Creation marks.** When a building is created for a computer player (the player kind of blocked rows A and B,
+`movement/movement.md`, "Player kinds"; so an active rescue player too), whether the map places it at load or it is
+started in play, it is marked by its type. Human players, passive computer players and the neutral player get no
+creation marks.
+
+| Types | Mark |
+| --- | --- |
+| Barracks, church and altar, stables and ogre mound, inventor and alchemist, aviary and roost, town hall and great hall, lumber mills, mage tower and temple, blacksmiths, keep and stronghold, castle and fortress (0x3C to 0x3F, 0x42 to 0x47, 0x4A to 0x4D, 0x50 to 0x53, 0x58 to 0x5B) | The keep-clear rectangle with the border around the footprint (below) |
+| Shipyards, foundries, refineries (0x48, 0x49, 0x4E, 0x4F, 0x54, 0x55) | Every tile whose movement flags include 0x0002 (shore water, `movement/occupancy.md`) in the 13 × 13 square from (x − 6, y − 6), with (x, y) the building's top-left |
+| Farms, scout towers, oil platforms, guard and cannon towers, gold mines, oil patches and every other type | Nothing |
+
+The shore square is clipped like this: if x − 6 is below 0, the square starts at column 0 and loses that many
+columns, and the same for rows. If its start plus its width reaches the map size N, its width becomes N − 1 − start,
+so column N − 1 is never marked; the same for rows. The shore square's rows don't skew.
+
+The creation mark is made at the same moment as the build list's done mark ("Done marks"). A building created
+complete keeps the mark on its own tiles: the clearing in the job-undone table applies only to a building job. For a
+site started in play by the computer's own job, the job has already marked the rectangle, so only a shore building's
+square adds anything. Other marks come from the computer's building jobs and its keep-clear lines.
+
+**Keep-clear rectangle.** Every keep-clear rectangle (the hall, farm and build-list jobs, and the creation marks) is
+marked the same way, from a top-left (x, y) and a size s:
+
+- **With the border:** (x, y) is the footprint's top-left minus 1 on each axis, except that a coordinate that is
+  already 0 stays 0; s is the width + 2 either way. So at the left or top map edge the mark reaches 2 tiles past the
+  footprint on the far side.
+- **Without the border** (farms): (x, y) is the footprint's top-left, and s is the width.
+- **Clipping at the right and bottom:** the width marked is s, or N − 1 − x if x + s ≥ N. The height is s, or
+  N − 1 − y if y + s ≥ N. So column N − 1 and row N − 1 are never marked.
+- **The skew:** each row after the first starts s − (width marked) tiles further left than the row above. When the
+  width isn't clipped that is 0 and the rows line up. When it is, the rows shift left step by step. Tiles are counted
+  in rows across the whole map, so a row that would start before column 0 continues at the right end of the map row
+  above it. Clipping at the bottom doesn't skew.
+
+For example, the bordered rectangle of a 3 × 3 building at (93, 23) on a 96 × 96 map starts at (92, 22) with size
+5, width cut to 3, and marks (92 to 94, 22), (90 to 92, 23), (88 to 90, 24), (86 to 88, 25) and (84 to 86, 26): none
+of the building's own tiles.
 
 **Keep-clear line.** With the depot's top-left tile (dx, dy) and the mine's top-left tile (mx, my):
 
@@ -347,7 +386,18 @@ An entry is marked done at the start of a game when either bit of its code is se
 | 128 × 128 map; a computer worker comes out of its town hall (top-left (12, 71)) and lumber is wanted; the nearest reachable forest is 20 tiles away | The job choice finds it (radius 20 ≤ 47) and gives command 23 |
 | Same, on a 32 × 32 map, nearest reachable forest 12 tiles from the depot's top-left | Not found (largest radius 11); the worker tries gold |
 | Computer player with only a town hall under construction; a worker looks for a farm site | The search centres on the unfinished hall's top-left tile |
-| Map-placed town hall at game start | No keep-clear mark on or around it |
+| Computer player's town hall (4 × 4) placed by the map at (85, 2), 96 × 96 map | Keep-clear on x 84 to 89, y 1 to 6, footprint included |
+| Computer player's church (3 × 3) placed by the map at (80, 0) | Keep-clear on x 79 to 83, y 0 to 4 (the top edge keeps the size) |
+| Computer player's farm placed by the map | No keep-clear mark |
+| Human player's barracks placed by the map | No keep-clear mark |
+| `orc09` setup (map dump at n = 0): computer player 0's shipyard at (84, 63) | The 22 shore-water tiles in x 78 to 90, y 57 to 69 are marked; nothing else from it |
+| `orc09`, `human12` and `human10` setup map dumps (n = 0) | Every keep-clear bit matches the creation marks of the computer players' map buildings: 325, 334 and 236 tiles, no difference |
+| `orc09-repair-600` (oracle trace) n = 2: computer peasant 1587 (type 0x02) on (89, 4) is told to build a farm; town hall 1592 at (85, 2), church 1597 at (80, 0), both from the map | The farm search (centre (85, 2), step 2) refuses all of ring 1 and ring 2 up to (83, 6), which touches (84, 6); the site is (81, 6). Without the creation marks (83, 0) would be taken. n = 5: (90, 5), facing 3. Farm 1473 appears at (81, 6) at n = 149 |
+| Bordered rectangle, footprint 3 × 3 at (93, 23), N = 96 | Marked (92–94, 22), (90–92, 23), (88–90, 24), (86–88, 25), (84–86, 26) (the `orc09` stables, as in the dump) |
+| `human12` setup: troll lumber mill (3 × 3) at (125, 12), N = 128 | Rows (124–126, 11), (122–124, 12), (120–122, 13), (118–120, 14), (116–118, 15); none of its own tiles, as in the dump |
+| Bordered rectangle, footprint 3 × 3 at (0, 0) | Marked x 0 to 4, y 0 to 4 |
+| Bordered rectangle, footprint 2 × 2 at (10, 10), N = 64 | Marked x 9 to 12, y 9 to 12 (no clipping) |
+| Farm rectangle (no border), footprint 2 × 2 at (62, 5), N = 64 | Marked (62, 5) and (61, 6) only: the width is cut to 1, and the second row starts 1 tile further left |
 | Computer peon carrying wood gets command 24 to its hall and the path search returns no steps | Its order ends; the next job choice gives command 24 to the same hall again, with no wait |
 
 ## Open questions
@@ -364,6 +414,13 @@ An entry is marked done at the start of a game when either bit of its code is se
 - The all-out attack started by losing buildings is not specified here (it belongs to the attack AI).
 - That a construction site placed in play marks its entry when construction starts (not when it ends) comes from
   the static study only; no trace shows it yet.
+- Creation marks by type: the setup dumps confirm the rectangle for town hall, keep, barracks, church, stables,
+  inventor, lumber mill and blacksmith, the shore mark for shipyard, foundry and refinery, and no mark for farms,
+  scout towers and guard towers. The other types' marks (aviaries, roosts, mage towers, temples, castles, oil
+  platforms and the rest) come from the static study only.
+- That a computer site started in play gets the creation mark too (so a shore building adds its shore mark) is from
+  the static study only.
+- Whether clearing a keep-clear footprint (the job-undone table) has the same right-edge skew wasn't checked.
 - A worker inside a depot starts the job choice's tree search from the depot's top-left tile and uses that tile's
   region value. This assumes region values ignore buildings, as `movement/occupancy.md` implies; not checked
   separately.
