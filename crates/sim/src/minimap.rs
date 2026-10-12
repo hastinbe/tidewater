@@ -1,19 +1,20 @@
 //! The minimap's state on the simulation side. Specs: `docs/specs/ui/minimap.md` ("Units and buildings", "Attack
-//! mark") and `docs/specs/ui/messages.md` ("Attacks on the minimap").
+//! mark"), `docs/specs/ui/messages.md` ("Attacks on the minimap") and `docs/specs/ui/map-drawing.md` ("Buildings and
+//! remembered buildings").
 //!
 //! - **The attack mark** ([`Mark`], on each [`Unit`](crate::Unit)): set by every hit that takes hit points from one of
 //!   the local player's units without killing it, outside demo playback. The client's minimap redraw reads it and
 //!   clears it.
-//! - **Remembered buildings** ([`Memory`]): up to 25 copies of buildings that the local player had seen and that were
-//!   removed while hidden from it. A copy goes once it is no longer hidden from the local player.
+//! - **Remembered looks** ([`Look`], on each building): the picture and frame the local player last saw. Set in
+//!   phase 5 for every building that isn't hidden from the local player, in the map view or not (the map-drawing
+//!   spec's default). A building that carries one counts as seen.
+//! - **Remembered buildings** ([`Memory`], the "ghosts"): up to 25 copies of buildings that left play (their "remove"
+//!   order started) while hidden from the local player, after being seen, unless the remembered look is an excluded
+//!   ruin. A copy goes once its footprint is no longer hidden from the local player (the spec's default for a ghost's
+//!   hidden set).
 //!
-//! Both depend on who the local player is, so they are display state, not game state: neither takes part in
-//! [`World::state_hash`]. They are still updated deterministically inside [`World::step`].
-//!
-//! Defaults for the spec's open questions: every building can be copied (the per-building value that excludes some
-//! isn't decoded); a building is "removed" when it is killed (its death starts); a copy's "no longer hidden" test is
-//! the unit-visibility rule (`vision/fog.md`, "Unit visibility") applied to its footprint, run in phase 5 after the
-//! units' own test; every copy is drawn.
+//! All of it depends on who the local player is, so it is display state, not game state: none of it takes part in
+//! [`World::state_hash`]. It is still updated deterministically inside [`World::step`].
 
 use crate::vision::bit;
 use crate::world::World;
@@ -29,7 +30,30 @@ impl std::hash::Hash for Mark {
     fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
 }
 
-/// A copy of a building where it stood: what the minimap needs to draw its dot.
+/// A picture and frame number: the unit type whose sprite draws it (a construction site or a ruin is its own type
+/// here), the animation frame and the facing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Picture {
+    pub kind: u8,
+    pub frame: u8,
+    pub facing: u8,
+}
+
+/// A building's remembered look; `None` while never seen. Its `Hash` writes nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Look(pub Option<Picture>);
+
+impl std::hash::Hash for Look {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+
+/// Ruin types whose remembered look leaves no ghost: widths 2 to 4 in Classic mode, 1 to 4 in Enhanced mode.
+pub fn excluded_ruin(kind: u8, enhanced: bool) -> bool {
+    let first = if enhanced { 0x6a } else { 0x6b };
+    (first..=0x6d).contains(&kind)
+}
+
+/// A copy of a building where it stood (a ghost): what the minimap and the map view need to draw it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Remembered {
     pub kind: u8,
@@ -38,6 +62,8 @@ pub struct Remembered {
     /// Top-left tile of the footprint.
     pub tile: (i32, i32),
     pub size: (u8, u8),
+    /// The remembered look it is drawn with in the map view.
+    pub look: Picture,
 }
 
 /// The remembered buildings: [`COPIES`] slots, drawn in slot order.
@@ -81,11 +107,12 @@ impl World {
         }
     }
 
-    /// Called as unit `i` is killed: a building the local player has seen that is hidden from it is copied, while a
-    /// slot is free ("Remembered buildings").
+    /// Called as unit `i` leaves play (its "remove" order starts): a building that is hidden from the local player,
+    /// was seen, and whose remembered look isn't an excluded ruin is copied into the first free ghost record.
     pub(crate) fn remember_building(&mut self, i: usize) {
         let u = &self.units[i];
-        if !u.building || u.hidden_from & bit(self.vision.local) == 0 || !self.building_seen(u) {
+        let Some(look) = u.look.0 else { return };
+        if !u.building || u.hidden_from & bit(self.vision.local) == 0 || excluded_ruin(look.kind, self.rules.enhanced) {
             return;
         }
         let copy = Remembered {
@@ -93,8 +120,22 @@ impl World {
             colour: u.colour,
             tile: u.tile,
             size: u.size,
+            look,
         };
         self.remembered.keep(copy);
+    }
+
+    /// Phase 5, after the units' visibility: every building not hidden from the local player remembers its current
+    /// picture and frame.
+    pub(crate) fn remember_looks(&mut self) {
+        let me = bit(self.vision.local);
+        for u in self.units.iter_mut().filter(|u| u.building && u.hidden_from & me == 0) {
+            u.look = Look(Some(Picture {
+                kind: u.kind,
+                frame: u.script.frame,
+                facing: u.facing,
+            }));
+        }
     }
 
     /// The units and buildings the minimap draws, in drawing order ("Units and buildings"): player 15 first and
@@ -155,13 +196,39 @@ mod tests {
         w.index(id).unwrap()
     }
 
-    /// A farm of player 1 that player 0 has explored but no longer sees, as at the end of a cycle.
+    /// A farm of player 1 that player 0 has seen (it has a remembered look) but no longer sees, as at the end of a
+    /// cycle.
     fn seen_hidden_farm(w: &mut World, tile: (i32, i32)) -> UnitId {
         let f = w.spawn(FARM, 1, tile, 0).unwrap();
         w.reveal(0, (tile.0 + 1, tile.1 + 1), 1);
+        w.unit_visibility();
+        w.remember_looks();
         w.vision.seen.fill(0xff);
         w.unit_visibility();
+        w.remember_looks();
         f
+    }
+
+    /// Kills unit `id` and starts its "remove" order, where it leaves play.
+    fn remove(w: &mut World, id: UnitId) {
+        let i = at(w, id);
+        w.kill(i);
+        let i = at(w, id);
+        w.start_removal(i);
+    }
+
+    fn copy(tile: (i32, i32)) -> Remembered {
+        Remembered {
+            kind: FARM,
+            colour: 1,
+            tile,
+            size: (2, 2),
+            look: Picture {
+                kind: FARM,
+                frame: 0,
+                facing: 0,
+            },
+        }
     }
 
     #[test]
@@ -204,12 +271,8 @@ mod tests {
         let b = a.clone();
         let i = at(&a, id);
         a.units[i].attack_mark = Mark(true);
-        a.remembered.keep(Remembered {
-            kind: FARM,
-            colour: 1,
-            tile: (1, 1),
-            size: (2, 2),
-        });
+        a.remembered.keep(copy((1, 1)));
+        a.units[i].look = Look(Some(copy((1, 1)).look));
         assert_eq!(a.state_hash(), b.state_hash());
     }
 
@@ -218,27 +281,18 @@ mod tests {
         let mut w = world();
         // Three copies already in use.
         for n in 0..3 {
-            w.remembered.keep(Remembered {
-                kind: FARM,
-                colour: 1,
-                tile: (40 + n * 3, 40),
-                size: (2, 2),
-            });
+            w.remembered.keep(copy((40 + n * 3, 40)));
         }
         let f = seen_hidden_farm(&mut w, (10, 10));
         let i = at(&w, f);
         assert_ne!(w.units[i].hidden_from & 1, 0);
         w.kill(i);
-        assert_eq!(w.remembered.len(), 4);
-        assert_eq!(
-            w.remembered.slots[3],
-            Some(Remembered {
-                kind: FARM,
-                colour: 1,
-                tile: (10, 10),
-                size: (2, 2)
-            })
-        );
+        assert_eq!(w.remembered.len(), 3, "not when it is killed");
+        let i = at(&w, f);
+        w.start_removal(i);
+        assert_eq!(w.remembered.len(), 4, "but when it leaves play");
+        let c = w.remembered.slots[3].unwrap();
+        assert_eq!((c.kind, c.tile, c.look.kind), (FARM, (10, 10), FARM));
         // Kept while still hidden.
         w.forget_seen_buildings();
         assert_eq!(w.remembered.len(), 4);
@@ -253,16 +307,10 @@ mod tests {
     fn no_copy_when_every_slot_is_in_use() {
         let mut w = world();
         for n in 0..COPIES as i32 {
-            w.remembered.keep(Remembered {
-                kind: FARM,
-                colour: 1,
-                tile: (n * 2, 50),
-                size: (2, 2),
-            });
+            w.remembered.keep(copy((n * 2, 50)));
         }
         let f = seen_hidden_farm(&mut w, (10, 10));
-        let i = at(&w, f);
-        w.kill(i);
+        remove(&mut w, f);
         assert_eq!(w.remembered.len(), COPIES);
         assert!(w.remembered.copies().all(|c| c.tile != (10, 10)));
     }
@@ -273,18 +321,21 @@ mod tests {
         // Never explored.
         let f = w.spawn(FARM, 1, (20, 20), 0).unwrap();
         w.unit_visibility();
-        w.kill(at(&w, f));
+        w.remember_looks();
+        remove(&mut w, f);
         // Seen now: not hidden.
         let g = w.spawn(FARM, 1, (30, 30), 0).unwrap();
         w.reveal(0, (31, 31), 1);
         w.unit_visibility();
-        w.kill(at(&w, g));
+        w.remember_looks();
+        remove(&mut w, g);
         // A unit, not a building.
         let u = w.spawn(FOOTMAN, 1, (40, 40), 0).unwrap();
         w.reveal(0, (40, 40), 1);
+        w.unit_visibility();
         w.vision.seen.fill(0xff);
         w.unit_visibility();
-        w.kill(at(&w, u));
+        remove(&mut w, u);
         assert!(w.remembered.is_empty());
     }
 
@@ -311,10 +362,83 @@ mod tests {
     fn copies_go_when_the_whole_map_is_revealed() {
         let mut w = world();
         let f = seen_hidden_farm(&mut w, (10, 10));
-        w.kill(at(&w, f));
+        remove(&mut w, f);
         assert_eq!(w.remembered.len(), 1);
         w.rules.reveal_map = true;
         run(&mut w, 1);
         assert!(w.remembered.is_empty());
+    }
+
+    #[test]
+    fn a_building_seen_under_construction_keeps_that_look_in_fog() {
+        // Map-drawing vector: an enemy farm seen under construction, then fogged, completes out of sight.
+        let mut w = world();
+        let f = seen_hidden_farm(&mut w, (10, 10));
+        let i = at(&w, f);
+        let seen = w.units[i].look.0.unwrap();
+        assert_eq!(seen.kind, FARM);
+        w.units[i].script.frame = seen.frame + 1;
+        w.remember_looks();
+        assert_eq!(w.units[i].look.0, Some(seen), "hidden: the look stays as it was");
+        w.rules.reveal_map = true;
+        w.unit_visibility();
+        w.remember_looks();
+        assert_eq!(
+            w.units[i].look.0.unwrap().frame,
+            seen.frame + 1,
+            "seen again: the look follows"
+        );
+    }
+
+    #[test]
+    fn a_ghost_stays_until_its_site_is_seen_again() {
+        // Map-drawing vector: an enemy barracks destroyed out of sight, after being seen.
+        let mut w = world();
+        let f = seen_hidden_farm(&mut w, (10, 10));
+        remove(&mut w, f);
+        assert_eq!(w.remembered.len(), 1);
+        w.forget_seen_buildings();
+        assert_eq!(w.remembered.len(), 1);
+        w.reveal(0, (11, 11), 1);
+        w.forget_seen_buildings();
+        assert!(w.remembered.is_empty());
+    }
+
+    #[test]
+    fn a_ruin_last_seen_leaves_no_ghost_except_a_small_classic_one() {
+        for (enhanced, width, ghost) in [(true, 1, false), (false, 1, true), (false, 2, false), (true, 4, false)] {
+            let mut w = world();
+            w.rules.enhanced = enhanced;
+            let f = seen_hidden_farm(&mut w, (10, 10));
+            let i = at(&w, f);
+            w.units[i].look.0.as_mut().unwrap().kind = 0x6a + width - 1;
+            w.start_removal(i);
+            assert_eq!(w.remembered.len() == 1, ghost, "enhanced {enhanced}, width {width}");
+        }
+        assert!(excluded_ruin(0x6b, false) && !excluded_ruin(0x6a, false) && excluded_ruin(0x6a, true));
+    }
+
+    #[test]
+    fn twenty_six_hidden_buildings_leave_twenty_five_ghosts() {
+        let mut w = world();
+        let farms: Vec<UnitId> = (0..26)
+            .map(|n| seen_hidden_farm(&mut w, (2 + (n % 13) * 3, 2 + (n / 13) * 20)))
+            .collect();
+        for f in farms {
+            remove(&mut w, f);
+        }
+        assert_eq!(w.remembered.len(), COPIES);
+    }
+
+    #[test]
+    fn the_seen_marker_is_the_remembered_look() {
+        let mut w = world();
+        let f = w.spawn(FARM, 1, (20, 20), 0).unwrap();
+        w.reveal(0, (21, 21), 1);
+        w.unit_visibility();
+        let i = at(&w, f);
+        assert!(!w.on_minimap(&w.units[i]), "explored but no look yet");
+        w.remember_looks();
+        assert!(w.on_minimap(&w.units[i]));
     }
 }

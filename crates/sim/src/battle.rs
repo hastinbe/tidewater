@@ -56,6 +56,15 @@ pub struct Missile {
     pub fx: Fx,
 }
 
+impl Missile {
+    /// Whether the effect's slot is **showing**, so the map view draws it (map-drawing spec, "Effects": an effect
+    /// shows from its start step, `spells/spells.md`, "When a new effect first runs"). Until the sim tracks the start
+    /// step, an effect shows from its first update.
+    pub fn showing(&self) -> bool {
+        self.elapsed >= 1
+    }
+}
+
 /// Tiles between two footprints along the larger axis: 1 for neighbours, diagonal included.
 fn gap(a: &Unit, b: &Unit) -> i32 {
     let axis = |a0: i32, aw: u8, b0: i32, bw: u8| (b0 - (a0 + aw as i32 - 1)).max(a0 - (b0 + bw as i32 - 1)).max(0);
@@ -324,7 +333,6 @@ impl World {
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
-        self.remember_building(ti);
         self.death_sound(ti);
         let unit = self.units[ti].clone();
         let p = &mut self.players[unit.owner as usize];
@@ -954,6 +962,15 @@ mod tests {
     use crate::sound::Sound;
 
     /// A missile of `kind` whose next update is its impact, at `pos`.
+    #[test]
+    fn an_effect_shows_from_its_first_update() {
+        let mut m = landing(missile::BALLISTA, 0, (100, 100));
+        m.elapsed = 0;
+        assert!(!m.showing());
+        m.elapsed = 1;
+        assert!(m.showing());
+    }
+
     fn landing(kind: u8, damage: u8, pos: (i32, i32)) -> crate::Missile {
         crate::Missile {
             kind,

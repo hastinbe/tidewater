@@ -482,8 +482,7 @@ impl World {
     }
 
     /// Whether the minimap draws a unit for the local player: a unit that is not hidden from it and is detected by
-    /// it; a building once seen. PLACEHOLDER: the spec's "seen" marker for buildings is an open question, so a
-    /// building counts as seen when any tile of its footprint is explored.
+    /// it; a building once seen (it has a remembered look).
     /// Minimap spec, "Units and buildings": dying, removed and inside units are skipped.
     pub fn on_minimap(&self, u: &Unit) -> bool {
         let p = self.vision.local;
@@ -496,10 +495,10 @@ impl World {
         self.rules.reveal_map || self.building_seen(u)
     }
 
-    /// The marker that the local player has seen a building (PLACEHOLDER, see [`World::on_minimap`]).
+    /// The marker that the local player has seen a building: its remembered look is set (map-drawing spec,
+    /// "Buildings and remembered buildings").
     pub(crate) fn building_seen(&self, u: &Unit) -> bool {
-        (0..u.size.1 as i32)
-            .any(|dy| (0..u.size.0 as i32).any(|dx| !self.vision.unexplored(u.tile.0 + dx, u.tile.1 + dy)))
+        u.look.0.is_some()
     }
 }
 
@@ -947,6 +946,7 @@ mod tests {
         w.reveal(0, (50, 50), 1);
         w.reveal(0, (41, 41), 1);
         w.unit_visibility();
+        w.remember_looks();
         assert!(w.on_minimap(w.unit(u).unwrap()) && w.on_minimap(w.unit(b).unwrap()));
         // The building stays once seen; the unit goes with the next refresh.
         run(&mut w, 99);
