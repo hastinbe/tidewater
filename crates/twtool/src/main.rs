@@ -1,6 +1,7 @@
 //! `twtool`: inspect and convert data from a user-supplied installation.
 
 mod oracle;
+mod replay;
 
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -395,6 +396,7 @@ fn main() -> Result<()> {
                 max_cycles,
                 filter: fields.as_deref().map(oracle::Filter::parse).unwrap_or_default(),
                 seed,
+                input: Vec::new(),
             };
             if !oracle_cmd(&install, &map, entry, &trace, opts)? {
                 std::process::exit(1);
@@ -939,6 +941,7 @@ fn oracle_cmd(
         .or(header.clock)
         .ok_or_else(|| anyhow::anyhow!("the trace used the real clock; give --seed"))?;
     opts.seed = Some(seed);
+    opts.input = header.input.clone();
     let mut inst = Install::open(install)?;
     let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
     let mut setup = match entry {
