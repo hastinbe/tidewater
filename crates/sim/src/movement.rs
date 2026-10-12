@@ -391,9 +391,8 @@ impl World {
     /// search"): enemies are those of non-allied players, and moving allies include the unit's own player.
     fn ignored_by_search(&self, u: &Unit, other: UnitId) -> bool {
         let Some(o) = self.unit(other) else { return true };
-        if o.id == u.id {
-            return true;
-        }
+        // The searcher's own tile is no exception (round-38 errata): it is free only under the moving-ally case
+        // below; `orc4-20000` peasant 1578 at n = 6811, just taken over (wait 3, not moving), blocks its own walk.
         if o.layer == Layer::Air {
             return false;
         }
@@ -639,6 +638,27 @@ mod tests {
         w.units[i].blocked = 5;
         w.give(i, Order::Idle);
         assert_eq!(w.units[i].blocked, 0);
+    }
+
+    /// Pathfinding spec, round-38 errata, the `orc4-20000` vectors: the searcher's own tile is free only under the
+    /// moving-ally case (in its move animation with blocked counter 0, or with a command pending).
+    #[test]
+    fn the_searchers_own_tile_follows_the_unit_rules() {
+        let mut w = field(12, 12);
+        let p = w.spawn(0, 0, (6, 6), 0).unwrap();
+        let i = w.index(p).unwrap();
+        let free = |w: &World| w.ignored_by_search(&w.units[i], p);
+        w.units[i].order = Order::Move { goal: (4, 3) };
+        w.units[i].script.anim = anim::ATTACK;
+        assert!(!free(&w), "just taken over, not moving: it blocks");
+        w.units[i].script.anim = anim::MOVE;
+        assert!(free(&w), "in its move animation with counter 0");
+        w.units[i].blocked = 2;
+        assert!(!free(&w), "counter 2");
+        w.units[i].blocked = 0;
+        w.units[i].script.anim = anim::STILL;
+        w.command(i, Order::Move { goal: (1, 1) });
+        assert!(free(&w), "a command pending");
     }
 
     #[test]

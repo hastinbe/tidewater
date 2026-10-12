@@ -51,6 +51,13 @@ impl World {
         if !self.computer_player(p as u8) {
             return;
         }
+        // Worker-ai spec, "Creation marks" (round 38): the map's buildings get their keep-clear marks by type.
+        let mine: Vec<usize> = (0..self.units.len())
+            .filter(|&i| self.units[i].owner as usize == p && self.units[i].building && !self.units[i].dying)
+            .collect();
+        for &i in &mine {
+            self.creation_mark(i);
+        }
         let list = self.build_list(p);
         for (n, &e) in list.iter().enumerate() {
             if e == 0xff {
@@ -62,13 +69,8 @@ impl World {
         }
         // Round 36: every building the map places marks the first open entry of its own type, as any creation does;
         // there are no tower, keep or castle cases.
-        let placed: Vec<u8> = self
-            .units
-            .iter()
-            .filter(|u| u.owner as usize == p && u.building && !u.dying)
-            .map(|u| u.kind)
-            .collect();
-        for k in placed {
+        for i in mine {
+            let k = self.units[i].kind;
             self.mark_first(p, &list, |e| e < 0x80 && for_race(e, k & 1) == k);
         }
     }

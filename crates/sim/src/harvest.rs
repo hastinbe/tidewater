@@ -117,9 +117,12 @@ impl World {
             let u = &mut self.units[i];
             u.chop = 0;
             u.gather = if mine.is_some() { Gather::Gold } else { Gather::Lumber };
+            // A lumber worker's tree tile is the command's goal after the pull-back ("Starting to harvest", round-38
+            // errata), whoever gives the command; `human12-7000` peon 1572: tree (105, 0) becomes (104, 1).
+            let tree = if mine.is_some() { tile } else { self.pull_back(i, tile) };
             Order::Harvest {
                 source: mine.map(|(id, ..)| id),
-                tree: tile,
+                tree,
                 chopping: false,
             }
         } else {
@@ -509,20 +512,24 @@ impl World {
         self.take_over(i, Order::ReturnGoods { depot: None });
     }
 
-    /// Sends a worker to the nearest tree from its own tile, or makes it idle.
+    /// Sends a worker to the nearest tree from its own tile, or makes it idle. "Lumber", round-38 errata: the new aim
+    /// is a new harvest command to that tile, which takes over in the same update (order 23, its attack animation,
+    /// wait 3) without running its logic; `human12-7000` peon 1572 at n = 215 and `human5-10000` peasant 1512 at
+    /// n = 39.
     fn next_tree(&mut self, i: usize) {
-        match self.nearest_tree(self.units[i].tile) {
-            Some(t) => {
-                self.units[i].order = Order::Harvest {
-                    source: None,
-                    tree: t,
-                    chopping: false,
-                };
+        if let Order::Harvest { chopping, .. } = &mut self.units[i].order {
+            *chopping = false;
+        }
+        let Some(t) = self.nearest_tree(self.units[i].tile) else {
+            return self.idle(i);
+        };
+        match self.harvest_command(i, None, t) {
+            Some(o) => {
                 self.units[i].path.clear();
-                if self.move_toward(i, Goal::tile(t, RADIUS)) == Walk::NoPath {
-                    self.idle(i);
-                } else if self.units[i].script.anim == anim::ATTACK {
-                    self.switch_anim(i, anim::STILL);
+                self.give(i, o);
+                if let Some(o) = self.units[i].pending.take() {
+                    self.units[i].commanded = false;
+                    self.take_over(i, o);
                 }
             }
             None => self.idle(i),
@@ -804,6 +811,59 @@ mod tests {
         }
         let u = w.unit(p).unwrap();
         assert!(matches!(u.order, Order::Harvest { tree: (12, 8), .. }), "{:?}", u.order);
+    }
+
+    /// "Starting to harvest", round-38 errata: the tree tile is the command's goal after the pull-back, a forest tile
+    /// nearer the worker or even a building tile (as `human12-7000` peon 1572's (104, 1), a farm's).
+    #[test]
+    fn the_tree_tile_is_the_pulled_back_goal() {
+        let mut w = land();
+        forest(&mut w, 11, 10);
+        forest(&mut w, 12, 10);
+        let p = w.spawn(0, 0, (2, 10), 0).unwrap();
+        let i = w.index(p).unwrap();
+        let tree = |o: Option<Order>| match o {
+            Some(Order::Harvest { source: None, tree, .. }) => tree,
+            o => panic!("{o:?}"),
+        };
+        assert_eq!(tree(w.harvest_command(i, None, (12, 10))), (11, 10));
+        let mut w = land();
+        forest(&mut w, 12, 10);
+        w.spawn(kind::FARM, 0, (10, 9), 0).unwrap();
+        let p = w.spawn(0, 0, (2, 10), 0).unwrap();
+        let i = w.index(p).unwrap();
+        assert_eq!(tree(w.harvest_command(i, None, (12, 10))), (10, 10), "a farm tile");
+    }
+
+    /// "Lumber", round-38 errata, and the `human12-7000` vector (n = 215): a worker by a tree tile that isn't forest
+    /// is given a new harvest command to the nearest tree, which takes over in the same update: order 23, attack
+    /// animation, wait 3, blocked counter 0, no route yet.
+    #[test]
+    fn a_new_aim_is_a_harvest_command_taking_over_at_once() {
+        let mut w = land();
+        forest(&mut w, 12, 7);
+        let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+        let i = w.index(p).unwrap();
+        w.units[i].gather = Gather::Lumber;
+        w.units[i].blocked = 2;
+        w.units[i].order = Order::Harvest {
+            source: None,
+            tree: (10, 8),
+            chopping: false,
+        };
+        w.harvest_order(i, None, (10, 8), false);
+        let u = &w.units[i];
+        let want = Order::Harvest {
+            source: None,
+            tree: (12, 7),
+            chopping: false,
+        };
+        assert_eq!((u.order, u.pending, u.commanded), (want, None, false));
+        assert_eq!(
+            (u.script.anim, u.script.wait, u.blocked, u.tile),
+            (anim::ATTACK, 3, 0, (10, 9))
+        );
+        assert!(u.path.is_empty());
     }
 
     #[test]

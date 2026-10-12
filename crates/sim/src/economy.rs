@@ -275,6 +275,8 @@ impl World {
         // Worker-ai spec, "Done marks" (round 36): a computer player's building marks its entry when it is created,
         // so a construction site marks it when construction starts.
         self.mark_build_list(owner, kind, true);
+        // "Creation marks" (round 38), made with the done mark.
+        self.creation_mark(i);
         Ok(id)
     }
 

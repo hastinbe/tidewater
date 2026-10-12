@@ -239,16 +239,76 @@ impl World {
         }
     }
 
-    /// Sets or clears the keep-clear mark on a footprint of `w` x `w` tiles, or with the border (w + 2) x (w + 2)
-    /// from one tile up and left (from the site itself on a map edge).
+    /// Sets or clears a keep-clear rectangle ("Keep-clear rectangle", round-38 errata) for a footprint of `w` x `w`
+    /// tiles at `site`. With the border it starts one tile up and left (a coordinate already 0 stays 0) with size
+    /// w + 2; without, at the site with size w. The width is cut to N - 1 - x where x + s reaches N, the height the
+    /// same, and each row after the first starts s - (width marked) tiles further left, counted in map rows.
     fn keep_clear(&mut self, site: (i32, i32), w: i32, border: bool, set: bool) {
-        let (x0, y0, x1, y1) = footprint(site, w, border);
-        for y in y0..y1 {
-            for x in x0..x1 {
-                if set {
+        let (n, m) = (self.terrain.width as i32, self.terrain.height as i32);
+        let (x, y, s) = if border {
+            ((site.0 - 1).max(0), (site.1 - 1).max(0), w + 2)
+        } else {
+            (site.0, site.1, w)
+        };
+        let wide = if x + s >= n { n - 1 - x } else { s };
+        let high = if y + s >= m { m - 1 - y } else { s };
+        let mut start = y * n + x;
+        for _ in 0..high {
+            for c in 0..wide {
+                let at = start + c;
+                if at >= 0 {
+                    self.keep_clear_tile(at % n, at / n, set);
+                }
+            }
+            start += n - (s - wide);
+        }
+    }
+
+    fn keep_clear_tile(&mut self, x: i32, y: i32, set: bool) {
+        if set {
+            self.terrain.set_bits(x, y, KEEP_CLEAR);
+        } else {
+            self.terrain.clear_bits(x, y, KEEP_CLEAR);
+        }
+    }
+
+    /// "Creation marks" (round-38 errata): a building created for a computer player, by the map or in play, gets
+    /// the bordered keep-clear rectangle or the shore square by its type; other types and other players get nothing.
+    pub(crate) fn creation_mark(&mut self, i: usize) {
+        let u = &self.units[i];
+        if !self.computer_player(u.owner) {
+            return;
+        }
+        let (k, site) = (u.kind, u.tile);
+        match k {
+            0x3c..=0x3f | 0x42..=0x47 | 0x4a..=0x4d | 0x50..=0x53 | 0x58..=0x5b => {
+                let w = self.stats_of(k).size.0 as i32;
+                self.keep_clear(site, w, true, true);
+            }
+            0x48 | 0x49 | 0x4e | 0x4f | 0x54 | 0x55 => self.shore_mark(site),
+            _ => {}
+        }
+    }
+
+    /// The shore square of a shipyard, foundry or refinery: every shore tile (movement flag 0x0002) in the 13 x 13
+    /// square from (x - 6, y - 6), clipped at 0 and so that column and row N - 1 are never marked; no skew.
+    fn shore_mark(&mut self, site: (i32, i32)) {
+        let span = |start: i32, n: i32| {
+            let (mut a, mut len) = (start, 13);
+            if a < 0 {
+                len += a;
+                a = 0;
+            }
+            if a + len >= n {
+                len = n - 1 - a;
+            }
+            a..a + len
+        };
+        let (n, m) = (self.terrain.width as i32, self.terrain.height as i32);
+        for y in span(site.1 - 6, m) {
+            for x in span(site.0 - 6, n) {
+                if self.terrain.word(x, y) & bits::SHORE != 0 {
                     self.terrain.set_bits(x, y, KEEP_CLEAR);
-                } else {
-                    self.terrain.clear_bits(x, y, KEEP_CLEAR);
                 }
             }
         }
@@ -1121,21 +1181,114 @@ mod tests {
         assert_eq!((s.centre, s.step), ((14, 14), 6));
     }
 
+    /// The keep-clear tiles of the whole map, row by row.
+    fn marked(w: &World) -> Vec<(i32, i32)> {
+        let (n, m) = (w.terrain.width as i32, w.terrain.height as i32);
+        (0..m)
+            .flat_map(|y| (0..n).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.keep_clear_at(x, y))
+            .collect()
+    }
+
+    fn rect(x: std::ops::RangeInclusive<i32>, y: std::ops::RangeInclusive<i32>) -> Vec<(i32, i32)> {
+        y.flat_map(|y| x.clone().map(move |x| (x, y))).collect()
+    }
+
+    /// "Keep-clear rectangle" vectors (round-38 errata): the border, the clipping at the right and bottom edges and
+    /// the skew of the rows after a clipped first row.
     #[test]
-    fn map_placed_halls_get_no_keep_clear_mark() {
-        let (mut w, _) = town();
+    fn keep_clear_rectangle_vectors() {
+        let rows = |r: &[(i32, i32, i32)]| -> Vec<(i32, i32)> {
+            r.iter()
+                .flat_map(|&(x0, x1, y)| (x0..=x1).map(move |x| (x, y)))
+                .collect()
+        };
+        let mut w = field(96, 96);
+        w.keep_clear((93, 23), 3, true, true);
+        let want = rows(&[(92, 94, 22), (90, 92, 23), (88, 90, 24), (86, 88, 25), (84, 86, 26)]);
+        assert_eq!(marked(&w), want, "the orc09 stables");
+        // Clearing the same rectangle clears exactly those tiles.
+        w.keep_clear((93, 23), 3, true, false);
+        assert!(marked(&w).is_empty());
+
+        let mut w = field(128, 128);
+        w.keep_clear((125, 12), 3, true, true);
+        let want = rows(&[
+            (124, 126, 11),
+            (122, 124, 12),
+            (120, 122, 13),
+            (118, 120, 14),
+            (116, 118, 15),
+        ]);
+        assert_eq!(marked(&w), want, "the human12 troll lumber mill");
+
+        let mut w = field(64, 64);
+        w.keep_clear((0, 0), 3, true, true);
+        assert_eq!(marked(&w), rect(0..=4, 0..=4));
+        let mut w = field(64, 64);
+        w.keep_clear((10, 10), 2, true, true);
+        assert_eq!(marked(&w), rect(9..=12, 9..=12));
+        let mut w = field(64, 64);
+        w.keep_clear((62, 5), 2, false, true);
+        assert_eq!(
+            marked(&w),
+            [(62, 5), (61, 6)],
+            "a farm: width 1, the second row 1 tile further left"
+        );
+    }
+
+    /// "Creation marks" (round-38 errata): a computer player's map buildings are marked by type at game start; a
+    /// farm and a human player's barracks are not.
+    #[test]
+    fn map_buildings_of_a_computer_player_get_creation_marks() {
+        let mut w = field(96, 96);
+        w.players[1].controller = controller::COMPUTER;
+        w.players[0].controller = controller::HUMAN;
+        w.stats.0[t::TOWN_HALL as usize] = building(1200, 4, flags::GOLD_STORAGE, 45);
+        w.stats.0[0x42] = building(700, 3, 0, 35);
+        w.stats.0[t::FARM as usize] = building(400, 2, 0, 45);
+        w.stats.0[BARRACKS as usize] = building(800, 3, 0, 35);
+        w.spawn(t::TOWN_HALL, 1, (85, 2), 0).unwrap();
+        w.spawn(0x42, 1, (80, 0), 0).unwrap();
+        w.spawn(t::FARM, 1, (40, 40), 0).unwrap();
+        w.spawn(BARRACKS, 0, (20, 60), 0).unwrap();
         with_list(&mut w, &[0xff]);
-        for y in 0..64 {
-            for x in 0..64 {
-                assert!(!w.keep_clear_at(x, y), "({x}, {y})");
-            }
-        }
+        w.mark_game_start(0);
         w.mark_game_start(1);
-        for y in 0..64 {
-            for x in 0..64 {
-                assert!(!w.keep_clear_at(x, y), "({x}, {y})");
-            }
+        let mut want = rect(84..=89, 1..=6);
+        want.extend(rect(79..=83, 0..=4));
+        want.sort_by_key(|&(x, y)| (y, x));
+        want.dedup();
+        assert_eq!(
+            marked(&w),
+            want,
+            "the hall with its border, the church keeping its size on the top edge"
+        );
+    }
+
+    /// The `orc09` shipyard vector: a shore building marks every shore tile of the 13 x 13 square from (x - 6, y - 6)
+    /// and nothing else; the square is clipped so column and row N - 1 are never marked.
+    #[test]
+    fn a_shore_building_marks_the_shore_tiles_around_it() {
+        let mut w = field(96, 96);
+        w.players[1].controller = controller::COMPUTER;
+        w.stats.0[t::SHIPYARD as usize] = building(1100, 3, 0, 20);
+        for (x, y) in [(78, 57), (90, 69), (77, 57), (91, 63), (84, 70), (80, 60)] {
+            w.terrain.set_bits(x, y, bits::SHORE);
         }
+        let id = w.spawn(t::SHIPYARD, 1, (84, 63), 0).unwrap();
+        w.creation_mark(w.index(id).unwrap());
+        assert_eq!(marked(&w), [(78, 57), (80, 60), (90, 69)]);
+
+        let mut w = field(64, 64);
+        w.players[1].controller = controller::COMPUTER;
+        w.stats.0[t::SHIPYARD as usize] = building(1100, 3, 0, 20);
+        for (x, y) in [(0, 55), (62, 63), (63, 63), (62, 62), (63, 62)] {
+            w.terrain.set_bits(x, y, bits::SHORE);
+        }
+        let id = w.spawn(t::SHIPYARD, 1, (60, 60), 0).unwrap();
+        w.creation_mark(w.index(id).unwrap());
+        assert_eq!(marked(&w), [(62, 62)], "column and row 63 are never marked");
     }
 
     #[test]
