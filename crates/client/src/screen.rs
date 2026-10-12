@@ -171,8 +171,8 @@ pub fn menu_button_at(p: (f32, f32), pause: bool) -> Option<MenuButton> {
 pub const STEP: i32 = 2;
 /// The least time between ticks of one tick clock, in milliseconds.
 pub const TICK_MS: u64 = 20;
-/// Our default scroll speeds (open question).
-pub const DEFAULT_SPEED: u8 = 3;
+/// The default scroll speeds (`ui/game-menu.md`, "Stored settings").
+pub const DEFAULT_SPEED: u8 = 4;
 
 /// The countdown reload W for a speed setting 0 to 6.
 pub fn wait(speed: u8) -> u8 {
