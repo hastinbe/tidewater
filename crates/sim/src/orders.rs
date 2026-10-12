@@ -437,8 +437,9 @@ impl World {
         let u = &self.units[i];
         if self.in_range(u, t) {
             let (uc, tc) = (u.centre_px(), t.centre_px());
+            let b = crate::world::facing_tile_of(t);
             self.units[i].path.clear();
-            self.face_and_strike(i, (tc.0 - uc.0, tc.1 - uc.1));
+            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
             return;
         }
         match u.order {
@@ -748,7 +749,8 @@ impl World {
         // With no target the tower "does nothing until its next run": it keeps whatever animation it plays.
         if let Some(t) = found.and_then(|t| self.unit(t)) {
             let (uc, tc) = (self.units[i].centre_px(), t.centre_px());
-            self.face_and_strike(i, (tc.0 - uc.0, tc.1 - uc.1));
+            let b = crate::world::facing_tile_of(t);
+            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
         }
     }
 

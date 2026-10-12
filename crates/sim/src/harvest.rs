@@ -12,7 +12,7 @@ use tidewater_formats::udta::flags;
 use crate::economy::kind;
 use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::terrain::{mask, region};
-use crate::world::{Gather, Layer, Order, Source, Unit, UnitId, World, facing};
+use crate::world::{Gather, Layer, Order, Source, Unit, UnitId, World};
 use crate::{TILE_PX, placement, slots};
 
 /// One load of gold, lumber or oil.
@@ -252,7 +252,7 @@ impl World {
             let u = self.units[i].clone();
             self.mark(&u, u.tile, None);
             let u = &mut self.units[i];
-            u.facing = facing(aim.0 - u.tile.0, aim.1 - u.tile.1);
+            u.facing = crate::world::face_tile(u.tile, aim);
             u.path.clear();
             u.order = Order::Enter {
                 building,
@@ -441,7 +441,7 @@ impl World {
         u.tile = tile;
         u.pos = (tile.0 * TILE_PX, tile.1 * TILE_PX);
         if let Some(f) = face.filter(|&f| f != tile) {
-            u.facing = facing(f.0 - tile.0, f.1 - tile.1);
+            u.facing = crate::world::face_tile(tile, f);
         }
         // Steps 3 to 5: the order given is pending; the unit stays idle (order 2) until its next step done, when the
         // order takes over with a wait of 3 (Human04 trace: order 2 with the depot as target, then order 24 after the
@@ -468,7 +468,7 @@ impl World {
             if self.terrain.reserve(tree.0, tree.1) {
                 let u = &mut self.units[i];
                 u.chop = 0;
-                u.facing = facing(tree.0 - here.0, tree.1 - here.1);
+                u.facing = crate::world::face_tile(here, tree);
                 u.return_to = Some(Source::Tree(tree));
                 u.order = Order::Harvest {
                     source: None,

@@ -16,7 +16,7 @@ use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::slots;
 use crate::spells::{Fx, Line};
 use crate::terrain::bits;
-use crate::world::{Layer, Order, Unit, UnitId, World, facing};
+use crate::world::{Layer, Order, Unit, UnitId, World, face_tile, facing, facing_tile_of};
 
 /// The gryphon hammer and dragon breath count their steps near the aim point from this remaining distance.
 const BREATH_NEAR: i32 = 50;
@@ -117,8 +117,9 @@ impl World {
         );
         if gap(u, t) <= reach {
             let (uc, tc) = (u.centre_px(), t.centre_px());
+            let b = facing_tile_of(t);
             self.units[i].path.clear();
-            self.face_and_strike(i, (tc.0 - uc.0, tc.1 - uc.1));
+            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
             return;
         }
         let g = Goal {
@@ -151,7 +152,7 @@ impl World {
         if chebyshev(u.tile, tile) <= reach {
             let (dx, dy) = (tile.0 - u.tile.0, tile.1 - u.tile.1);
             self.units[i].path.clear();
-            self.face_and_strike(i, (dx, dy));
+            self.face_and_strike(i, tile, (dx, dy));
             return;
         }
         let g = Goal {
@@ -166,15 +167,24 @@ impl World {
         }
     }
 
-    /// Turns toward the target and plays the attack animation, starting it in the same cycle if needed.
-    pub(crate) fn face_and_strike(&mut self, i: usize, d: (i32, i32)) {
+    /// Turns toward the target and plays the attack animation, starting it in the same cycle if needed. The facing
+    /// comes from "Facing a tile" (animation-scripts spec) toward tile `b`; ships use their own rule, which no spec
+    /// describes yet, so they keep ours: the direction of the pixel delta `d`.
+    pub(crate) fn face_and_strike(&mut self, i: usize, b: (i32, i32), d: (i32, i32)) {
         // Sounds spec, "Attacks": each turn to strike makes the type's attack sound pending. Our reading: casting
         // (which also turns to the target) doesn't.
         if !matches!(self.units[i].order, Order::Cast { .. }) {
             self.pend_attack(i);
         }
+        let u = &self.units[i];
+        if u.layer == Layer::Sea {
+            if u.script.anim != anim::ATTACK {
+                self.units[i].facing = facing(d.0, d.1);
+            }
+        } else {
+            self.units[i].facing = face_tile(u.tile, b);
+        }
         if self.units[i].script.anim != anim::ATTACK {
-            self.units[i].facing = facing(d.0, d.1);
             self.switch_anim(i, anim::ATTACK);
         }
     }

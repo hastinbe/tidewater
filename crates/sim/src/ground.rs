@@ -65,8 +65,12 @@ impl World {
             // It turns to the tile on every run, even when the attack animation is already playing.
             let u = &mut self.units[i];
             u.path.clear();
-            u.facing = facing(d.0, d.1);
-            self.face_and_strike(i, d);
+            u.facing = if u.layer == Layer::Sea {
+                facing(d.0, d.1)
+            } else {
+                crate::world::face_tile(u.tile, tile)
+            };
+            self.face_and_strike(i, tile, d);
             return;
         }
         let g = Goal {

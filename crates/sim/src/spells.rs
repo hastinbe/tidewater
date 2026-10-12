@@ -398,9 +398,9 @@ impl World {
                 self.cast_idle(i);
                 return true;
             };
-            (t.tile, t.centre_px())
+            (t.tile, (crate::world::facing_tile_of(t), t.centre_px()))
         } else {
-            (tile, centre_of_tile(tile))
+            (tile, (tile, centre_of_tile(tile)))
         };
         if let Some(r) = radius(spell) {
             match self.move_toward(i, Goal::tile(goal, r)) {
@@ -413,7 +413,8 @@ impl World {
             }
         }
         let c = self.units[i].centre_px();
-        self.face_and_strike(i, (aim.0 - c.0, aim.1 - c.1));
+        let (b, aim) = aim;
+        self.face_and_strike(i, b, (aim.0 - c.0, aim.1 - c.1));
         true
     }
 

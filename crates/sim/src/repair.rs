@@ -9,7 +9,7 @@ use tidewater_formats::udta::flags;
 
 use crate::economy::{Event, Shortage};
 use crate::movement::{Goal, Walk, building_goal, chebyshev};
-use crate::world::{Order, Unit, UnitId, World, facing};
+use crate::world::{Order, Unit, UnitId, World};
 
 /// Hit points one run adds.
 const HP_PER_RUN: u16 = 4;
@@ -104,7 +104,7 @@ impl World {
         } else {
             t.tile
         };
-        let f = facing(aim.0 - u.tile.0, aim.1 - u.tile.1);
+        let f = crate::world::face_tile(u.tile, aim);
         let t = &mut self.units[ti];
         t.hp = (t.hp + HP_PER_RUN).min(max);
         t.repair_runs += 1;

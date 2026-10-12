@@ -723,6 +723,41 @@ pub(crate) fn layer_index(l: Layer) -> usize {
     }
 }
 
+/// Animation-scripts spec, "Facing a tile": the facing from tile `a` toward tile `b`. A straight facing unless the
+/// smaller distance is at least half the larger one (rounded down, and at least 1); a unit facing its own tile faces
+/// east.
+pub(crate) fn face_tile(a: (i32, i32), b: (i32, i32)) -> u8 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let (ax, ay) = (dx.abs(), dy.abs());
+    let diagonal = |dx: i32, dy: i32| match (dx >= 0, dy >= 0) {
+        (true, false) => 1,
+        (true, true) => 3,
+        (false, true) => 5,
+        (false, false) => 7,
+    };
+    if ax < ay {
+        if ax < (ay / 2).max(1) {
+            if dy < 0 { 0 } else { 4 }
+        } else {
+            diagonal(dx, dy)
+        }
+    } else if ay < (ax / 2).max(1) {
+        if dx < 0 { 6 } else { 2 }
+    } else {
+        diagonal(dx, dy)
+    }
+}
+
+/// The tile B that "Facing a tile" aims at for a target unit: a building's top-left tile plus (1, 1), any other unit's
+/// own (claimed) tile.
+pub(crate) fn facing_tile_of(t: &Unit) -> (i32, i32) {
+    if t.building {
+        (t.tile.0 + 1, t.tile.1 + 1)
+    } else {
+        t.tile
+    }
+}
+
 pub(crate) fn facing(dx: i32, dy: i32) -> u8 {
     match (dx.signum(), dy.signum()) {
         (0, -1) => 0,
@@ -1597,6 +1632,43 @@ pub(crate) mod tests {
         for _ in 0..ticks {
             w.step(&[]);
         }
+    }
+
+    /// Animation-scripts spec, "Facing a tile", test vectors.
+    #[test]
+    fn facing_a_tile() {
+        for (a, b, f) in [
+            ((76, 78), (78, 78), 2),
+            ((87, 80), (89, 78), 1),
+            ((0, 0), (3, 1), 3),
+            ((0, 0), (4, 1), 2),
+            ((0, 0), (-2, -5), 7),
+            ((0, 0), (-2, -6), 0),
+            ((5, 5), (5, 5), 2),
+            // orc4 slot 1584 on (9, 12) facing gold mine 1599 (top-left (12, 1), so B = (13, 2)): north.
+            ((9, 12), (13, 2), 0),
+            // human01-basics footman 1598 on (26, 10) striking grunt 1592, which has claimed (26, 11): south.
+            ((26, 10), (26, 11), 4),
+        ] {
+            assert_eq!(face_tile(a, b), f, "{a:?} -> {b:?}");
+        }
+    }
+
+    /// The same rule for a strike: a footman faces a building at its top-left tile plus (1, 1), whatever animation
+    /// it is already playing.
+    #[test]
+    fn a_strike_faces_a_building_at_its_top_left_plus_one() {
+        let mut w = field(32, 32);
+        let f = w.spawn(0, 0, (9, 12), 0).unwrap();
+        let farm = w.spawn(0x3a, 1, (12, 1), 0).unwrap();
+        let i = w.index(f).unwrap();
+        let b = facing_tile_of(w.unit(farm).unwrap());
+        assert_eq!(b, (13, 2));
+        w.face_and_strike(i, b, (100, -300));
+        assert_eq!((w.units[i].facing, w.units[i].script.anim), (0, 4));
+        w.units[i].tile = (20, 6);
+        w.face_and_strike(i, b, (0, 0));
+        assert_eq!(w.units[i].facing, 7, "turns again while in animation 4");
     }
 
     #[test]
