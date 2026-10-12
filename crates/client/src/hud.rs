@@ -3,11 +3,11 @@
 //!
 //! Art comes from the installation (formats in the formats crate's `raw`, `grp` and `fnt` modules): the frame pieces
 //! `Art\{h,o}_{top,btm,rgt,lft0,lft1,lft2}.bmp` and the info box `Art\{h,o}frame.grp` per race, the resource icons
-//! `Art\icons.grp`, the unit icons `Art\unit\Portrait\*port*.grp` per era, the font `Art\font10x.fnt` and the unit
-//! names in `rez\stat_txt.tbl` (string `kind + 1`). Pieces are placed as the 640x480 screen shows them: a 176-pixel
-//! panel on the left, 16-pixel bars above, below and to the right of the map view. Larger canvases repeat the bars
-//! and extend the panel. Positions inside the panel (icon, name, health bar, resource slots) and the text colours are
-//! our own choices that follow the look of the game. No Bevy types here.
+//! `Art\icons.grp`, the unit icons `Art\unit\Portrait\*port*.grp` per era, the font `Art\font10x.fnt` and the
+//! strings in `rez\stat_txt.tbl`. Pieces are placed as the 640x480 screen shows them: a 176-pixel panel on the left,
+//! 16-pixel bars above, below and to the right of the map view. Larger canvases repeat the bars and extend the panel.
+//! The information panel follows `docs/specs/ui/info-panel.md` (layout and rules in [`crate::info`]); the resource
+//! slots, button frames and text colours are our own choices that follow the look of the game. No Bevy types here.
 
 use anyhow::{Context, Result, bail};
 use tidewater_formats::fnt::Font;
@@ -156,13 +156,28 @@ pub struct Dot {
     pub owner: u8,
 }
 
-/// A selected unit as the info box shows it.
+/// A unit in the information panel's grid: its type, owner and health.
 #[derive(Clone, Copy, Debug)]
-pub struct Selected {
+pub struct Icon {
     pub kind: u8,
     pub owner: u8,
     pub hp: u16,
+    /// The type's maximum hit points.
     pub max_hp: u16,
+}
+
+/// What the information panel shows (see [`crate::info`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InfoView<'a> {
+    /// Background frame 0 to 3.
+    pub frame: u8,
+    pub slots: [Option<Icon>; 9],
+    /// The slot whose icon is held down.
+    pub pressed: Option<usize>,
+    /// The text for one selected unit.
+    pub content: Option<&'a crate::info::Content>,
+    /// The local player, whose colour the production icon takes.
+    pub local: u8,
 }
 
 /// The changing state the interface shows.
@@ -170,9 +185,7 @@ pub struct View<'a> {
     pub gold: u32,
     pub lumber: u32,
     pub oil: u32,
-    pub selected: &'a [Selected],
-    /// Food (used, supply), shown with a single selected farm or hall.
-    pub food: Option<(u32, u32)>,
+    pub info: InfoView<'a>,
     /// The latest message for the player.
     pub status: Option<&'a str>,
     pub dots: &'a [Dot],
@@ -245,8 +258,26 @@ const TEXT: [[u8; 3]; 8] = [
     [0, 0, 0],
 ];
 
+/// The font's alternate colour (colour code 4), used for bonuses: a yellow face. Our own choice; the spec names the
+/// code, not its colours.
+const TEXT_ALT: [[u8; 3]; 8] = [
+    [0, 0, 0],
+    [252, 224, 64],
+    [220, 188, 48],
+    [180, 152, 36],
+    [140, 116, 24],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+];
+
 /// Draws `text` with its top-left at `(x, y)` and returns its width.
 pub fn text(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str) -> u32 {
+    text_in(dst, font, x, y, s, &TEXT)
+}
+
+/// Draws `text` in the given shade colours.
+fn text_in(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str, colours: &[[u8; 3]; 8]) -> u32 {
     let mut pen = x;
     for c in s.bytes() {
         if let Some(g) = font.glyph(c) {
@@ -259,7 +290,7 @@ pub fn text(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str) -> u32 {
                     let (dx, dy) = (pen + g.x as i32 + gx, y + g.y as i32 + gy);
                     if dx >= 0 && dy >= 0 && (dx as u32) < dst.width && (dy as u32) < dst.height {
                         let d = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
-                        let col = TEXT[shade as usize];
+                        let col = colours[shade as usize];
                         dst.rgba[d..d + 4].copy_from_slice(&[col[0], col[1], col[2], 255]);
                     }
                 }
@@ -270,22 +301,15 @@ pub fn text(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str) -> u32 {
     (pen - x) as u32
 }
 
-/// Splits `s` into at most two lines that each fit `max` pixels where possible, breaking at a space.
-pub fn wrap2(font: &Font, s: &str, max: u32) -> Vec<String> {
-    if font.width(s.as_bytes()) <= max {
-        return vec![s.to_string()];
-    }
-    // The last space that leaves a fitting first line, else the first space.
-    let spaces: Vec<usize> = s.match_indices(' ').map(|(i, _)| i).collect();
-    let cut = spaces
-        .iter()
-        .rev()
-        .find(|&&i| font.width(&s.as_bytes()[..i]) <= max)
-        .or(spaces.first());
-    match cut {
-        Some(&i) => vec![s[..i].to_string(), s[i + 1..].to_string()],
-        None => vec![s.to_string()],
-    }
+/// Draws `s` centred in `r`, vertically too.
+fn text_centred(dst: &mut Picture, font: &Font, r: Rect, s: &str) {
+    let w = font.width(s.as_bytes()) as i32;
+    text(dst, font, r.x + (r.w as i32 - w) / 2, text_top(font, r), s);
+}
+
+/// The text top that centres a line of `font` in `r`.
+fn text_top(font: &Font, r: Rect) -> i32 {
+    r.y + (r.h as i32 - font.height as i32) / 2
 }
 
 fn indexed(width: u32, height: u32, idx: &[u8], pal: &Palette, transparent0: bool, owner: Option<u8>) -> Picture {
@@ -305,30 +329,6 @@ fn frame_picture(f: &Frame, pal: &Palette, owner: Option<u8>) -> Picture {
     indexed(w, f.height as u32, &f.pixels, pal, true, owner)
 }
 
-/// The unit icon frame (in the era's `portrait` sheet) of each unit type, found by looking at the sheet. Heroes
-/// without a recognisable portrait use their base unit's icon. `None` for unused types and start locations.
-pub fn unit_icon(kind: u8) -> Option<u16> {
-    #[rustfmt::skip]
-    const ICONS: [i16; 104] = [
-        // 0-19: footman, grunt, peasant, peon, ballista, catapult, knight, ogre, archer, axethrower, mage,
-        // death knight, paladin, ogre-mage, dwarves, sappers, attack peasant, attack peon, ranger, berserker
-        2, 3, 0, 1, 16, 17, 8, 9, 4, 5, 14, 15, 10, 11, 12, 13, 0, 1, 6, 7,
-        // 20-39: Alleria, Teron, Kurdran, Dentarg, Khadgar, Grom, tankers, transports, destroyers, battleship,
-        // juggernaught, -, Deathwing, -, -, submarine, turtle
-        187, 15, 30, 11, 14, 3, 18, 19, 20, 21, 22, 23, 24, 25, -1, 192, -1, -1, 26, 27,
-        // 40-57: flying machine, zeppelin, gryphon rider, dragon, Turalyon, eye of Kilrogg, Danath, Korgath, -,
-        // Cho'gall, Lothar, Gul'dan, Uther, Zuljin, -, skeleton, daemon, critter
-        28, 29, 30, 31, 8, 111, 2, 3, -1, 194, 8, 15, 10, 5, -1, 114, 37, 115,
-        // 58-79: farms, barracks, church, altar, towers, stables, mound, inventor, alchemist, aviary, roost,
-        // shipyards, halls, lumber mills, foundries
-        38, 39, 42, 43, 62, 63, 60, 61, 56, 57, 58, 59, 72, 73, 48, 49, 40, 41, 44, 45, 50, 51,
-        // 80-103: mage tower, temple, blacksmiths, refineries, platforms, keep, stronghold, castle, fortress, mine,
-        // oil patch, start locations, guard towers, cannon towers, circle, portal, runestone, wall
-        64, 65, 46, 47, 52, 53, 54, 55, 68, 69, 70, 71, 74, 79, -1, -1, 75, 77, 76, 78, 81, 80, 82, 92,
-    ];
-    ICONS.get(kind as usize).and_then(|&i| u16::try_from(i).ok())
-}
-
 // --- the art ------------------------------------------------------------------------------------------------------
 
 pub struct HudArt {
@@ -338,16 +338,21 @@ pub struct HudArt {
     right: Picture,
     /// Menu strip, minimap box, button area.
     left: [Picture; 3],
-    /// Info box: plain, framed.
-    info: [Picture; 2],
+    /// The information panel's background frames 0 to 3 (see [`crate::info::frame`]).
+    info: [Picture; 4],
     menu_button: Option<Picture>,
     /// Gold, lumber, oil.
     resources: Vec<Picture>,
     icons: Grp,
     font: Font,
+    /// A smaller font for the hit point text, if the install has one.
+    small: Option<Font>,
     names: StringTable,
     pub pieces: Pieces,
 }
+
+/// Candidate names of a smaller font, tried in order.
+const SMALL_FONT: [&str; 1] = ["Art\\font6.fnt"];
 
 /// The unit icon sheet of an era.
 fn portrait_sheet(era: Era) -> &'static str {
@@ -404,14 +409,15 @@ impl HudArt {
             bottom: raw_picture(&bottom, pal),
             right: raw_picture(&right, pal),
             left: left.map(|r| raw_picture(&r, pal)),
-            info: [
-                frame_picture(&frames.frames[0], pal, None),
-                frame_picture(&frames.frames[1], pal, None),
-            ],
+            // A sheet with fewer than four frames repeats its last one.
+            info: [0, 1, 2, 3].map(|n| frame_picture(&frames.frames[n.min(frames.frames.len() - 1)], pal, None)),
             menu_button,
             resources: res.frames.iter().take(3).map(|f| frame_picture(f, pal, None)).collect(),
             icons,
             font,
+            small: SMALL_FONT
+                .iter()
+                .find_map(|n| install.read(n).ok().and_then(|d| Font::parse(&d).ok())),
             names,
             pal: pal.clone(),
             pieces,
@@ -425,11 +431,6 @@ impl HudArt {
     /// String `n` of `stat_txt.tbl`, counting from 1 as the specs do.
     pub fn string(&self, n: u16) -> String {
         self.names.text((n as usize).wrapping_sub(1)).unwrap_or_default()
-    }
-
-    /// The unit type's name from the game's own table.
-    pub fn name(&self, kind: u8) -> String {
-        self.names.text(kind as usize + 1).unwrap_or_default()
     }
 
     /// The parts that only change with the canvas size; the map view is left transparent.
@@ -475,38 +476,103 @@ impl HudArt {
         pic
     }
 
-    fn icon(&self, kind: u8, owner: u8) -> Option<Picture> {
-        let f = self.icons.frames.get(unit_icon(kind)? as usize)?;
-        Some(frame_picture(f, &self.pal, Some(owner)))
+    /// Draws icon frame `n` of the era's icon set in `owner`'s colour inside a button frame, with its top-left at
+    /// `(x, y)`. The frame is our own drawing (a dark box with a gold edge), as the command buttons use.
+    fn button(&self, pic: &mut Picture, x: i32, y: i32, n: u16, owner: u8) {
+        let Some(f) = self.icons.frames.get(n as usize) else {
+            return;
+        };
+        let p = frame_picture(f, &self.pal, Some(owner));
+        let r = Rect::new(x - 2, y - 2, p.width + 4, p.height + 4);
+        fill(pic, r, [24, 24, 24]);
+        blit(pic, x, y, &p);
+        outline(pic, r, [140, 120, 60]);
     }
 
-    /// Draws an icon with a bevelled border and its health bar below.
-    fn icon_box(&self, pic: &mut Picture, x: i32, y: i32, s: &Selected) {
-        let (w, h) = (46u32, 38u32);
-        fill(pic, Rect::new(x - 2, y - 2, w + 4, h + 4), [24, 24, 24]);
-        outline(pic, Rect::new(x - 2, y - 2, w + 4, h + 4), [140, 120, 60]);
-        if let Some(icon) = self.icon(s.kind, s.owner) {
-            blit(pic, x, y, &icon);
+    /// A palette colour of the era.
+    fn colour(&self, n: u8) -> [u8; 3] {
+        self.pal.0[n as usize]
+    }
+
+    /// Draws the information panel with its top-left corner at `o` (spec `ui/info-panel.md`).
+    fn draw_info(&self, pic: &mut Picture, o: (i32, i32), v: &InfoView) {
+        use crate::info;
+        let at = |r: Rect| Rect::new(o.0 + r.x, o.1 + r.y, r.w, r.h);
+        blit(pic, o.0, o.1, &self.info[(v.frame as usize).min(3)]);
+        // Open question: the background colour of the health bar strip and the mana bar's inner outline is assumed
+        // black.
+        let background = [0, 0, 0];
+        for (n, slot) in v.slots.iter().enumerate() {
+            let Some(s) = slot else { continue };
+            let r = at(info::slot_rect(n));
+            let d = if v.pressed == Some(n) { 5 } else { 4 };
+            if let Some(i) = info::icon(s.kind) {
+                self.button(pic, r.x + d, r.y + d, i, s.owner);
+            }
+            fill(pic, Rect::new(r.x, r.y + 46, 54, 7), background);
+            let (filled, c) = info::health_bar(s.hp, s.max_hp);
+            fill(pic, Rect::new(r.x + 2, r.y + 46, 50, 5), self.colour(99));
+            fill(pic, Rect::new(r.x + 2, r.y + 46, filled, 5), self.colour(c));
         }
-        let bar = Rect::new(x, y + h as i32 + 3, w, 3);
-        fill(pic, bar, [0, 0, 0]);
-        let frac = if s.max_hp == 0 {
-            1.0
-        } else {
-            (s.hp as f32 / s.max_hp as f32).clamp(0.0, 1.0)
-        };
-        let colour = if frac > 0.5 {
-            [0, 200, 0]
-        } else if frac > 0.25 {
-            [220, 200, 0]
-        } else {
-            [200, 0, 0]
-        };
-        fill(
-            pic,
-            Rect::new(bar.x, bar.y, (w as f32 * frac).round() as u32, bar.h),
-            colour,
-        );
+        let Some(c) = v.content else { return };
+        let font = &self.font;
+        if let Some(n) = c.name {
+            let (l1, l2) = info::name_lines(&self.string(n), &|b| font.width(b));
+            text_centred(pic, font, at(info::NAME[0]), &l1);
+            text_centred(pic, font, at(info::NAME[1]), &l2);
+        }
+        if let Some(n) = c.level {
+            text_centred(pic, font, at(info::LEVEL), &format!("{} {n}", self.string(411)));
+        }
+        if let Some((hp, max)) = c.hp {
+            // Open question: the hit point text's style probably selects a smaller font; the small font is used
+            // when the install has it.
+            let small = self.small.as_ref().unwrap_or(font);
+            text_centred(pic, small, at(info::HP), &format!("{hp}/{max}"));
+        }
+        for (n, row) in c.rows.iter().enumerate() {
+            let Some(row) = row else { continue };
+            // Open question: labels are right-aligned in their area; values start at its left edge.
+            let lr = at(info::label_rect(n));
+            let label = self.string(row.label);
+            let w = font.width(label.as_bytes()) as i32;
+            text(pic, font, lr.x + lr.w as i32 - w, text_top(font, lr), &label);
+            if c.production.is_some() {
+                continue;
+            }
+            let vr = at(info::value_rect(n));
+            match &row.value {
+                info::Value::Empty => {}
+                info::Value::Text(spans) => {
+                    let mut x = vr.x;
+                    for s in spans {
+                        let colours = if s.alt { &TEXT_ALT } else { &TEXT };
+                        x += text_in(pic, font, x, text_top(font, vr), &s.text, colours) as i32;
+                    }
+                }
+                info::Value::Mana(m) => {
+                    outline(pic, vr, self.colour(246));
+                    outline(pic, Rect::new(vr.x + 1, vr.y + 1, vr.w - 2, vr.h - 2), background);
+                    let bar = at(info::MANA_BAR);
+                    fill(pic, bar, self.colour(99));
+                    fill(
+                        pic,
+                        Rect::new(bar.x, bar.y, info::mana_fill(*m), bar.h),
+                        self.colour(186),
+                    );
+                    text_centred(pic, font, bar, &m.to_string());
+                }
+            }
+        }
+        if let Some(i) = c.production {
+            let r = at(info::PRODUCTION);
+            self.button(pic, r.x + 4, r.y + 4, i, v.local);
+        }
+        if let Some(p) = c.progress {
+            let r = at(info::PROGRESS);
+            fill(pic, Rect::new(r.x, r.y, info::progress_fill(p), r.h), self.colour(149));
+            text_centred(pic, font, r, &self.string(434));
+        }
     }
 
     /// The whole interface: `frame` plus the minimap, resources and selection.
@@ -560,36 +626,7 @@ impl HudArt {
             outline(&mut pic, r, [140, 120, 60]);
         }
 
-        // Selection.
-        let info = l.info;
-        match v.selected {
-            [] => {}
-            [s] => {
-                let (ix, iy) = (info.x + 12, info.y + 12);
-                self.icon_box(&mut pic, ix, iy, s);
-                let name = self.name(s.kind);
-                let tx = ix + 46 + 8;
-                for (i, line) in wrap2(&self.font, &name, info.w - (tx - info.x) as u32 - 8)
-                    .iter()
-                    .enumerate()
-                {
-                    text(&mut pic, &self.font, tx, iy + 2 + i as i32 * 13, line);
-                }
-                let hp = format!("{}/{}", s.hp, s.max_hp);
-                let tw = self.font.width(hp.as_bytes()) as i32;
-                text(&mut pic, &self.font, ix + (46 - tw) / 2, iy + 38 + 8, &hp);
-                if let Some((used, supply)) = v.food {
-                    let line = format!("Food: {used} / {supply}");
-                    text(&mut pic, &self.font, info.x + 12, iy + 76, &line);
-                }
-            }
-            many => {
-                for (i, s) in many.iter().take(9).enumerate() {
-                    let (c, r) = ((i % 3) as i32, (i / 3) as i32);
-                    self.icon_box(&mut pic, info.x + 10 + c * 54, info.y + 10 + r * 52, s);
-                }
-            }
-        }
+        self.draw_info(&mut pic, (l.info.x, l.info.y), &v.info);
         pic
     }
 }
@@ -762,32 +799,23 @@ mod tests {
     }
 
     #[test]
-    fn icons_cover_the_trainable_units() {
-        assert_eq!(unit_icon(0), Some(2));
-        assert_eq!(unit_icon(2), Some(0));
-        assert_eq!(unit_icon(74), Some(40));
-        assert_eq!(unit_icon(94), None);
-        assert_eq!(unit_icon(200), None);
-        for kind in (0..20).chain(26..34).chain(38..44).chain(58..94) {
-            assert!(unit_icon(kind).is_some(), "type {kind}");
-        }
-    }
-
-    #[test]
-    fn long_names_wrap_at_a_space() {
-        // A font where every character is 4 pixels wide (3 + 1 spacing).
+    fn panel_names_split_in_a_real_font() {
+        // A font where every character is 8 pixels wide (7 + 1 spacing).
         let mut d = b"FONT".to_vec();
-        d.extend([b'a', b'z', 3, 1]);
+        d.extend([b'a', b'z', 7, 1]);
         let first = 8 + 26 * 4;
         for i in 0..26u32 {
-            d.extend((first as u32 + i * 7).to_le_bytes());
+            d.extend((first as u32 + i * 11).to_le_bytes());
         }
         for _ in 0..26 {
-            d.extend([3, 1, 0, 0, 1, 1, 1]);
+            d.extend([7, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1]);
         }
         let font = Font::parse(&d).unwrap();
-        assert_eq!(wrap2(&font, "ab cd", 40), vec!["ab cd"]);
-        assert_eq!(wrap2(&font, "ab cd ef", 22), vec!["ab cd", "ef"]);
-        assert_eq!(wrap2(&font, "abcdefgh", 8), vec!["abcdefgh"]);
+        let width = |b: &[u8]| font.width(b);
+        // 13 characters, 104 px: one line.
+        let lines = crate::info::name_lines("abcdefghijklm", &width);
+        assert_eq!(lines, (String::new(), "abcdefghijklm".to_string()));
+        let lines = crate::info::name_lines("abcdef ghijklmnop", &width);
+        assert_eq!(lines, ("abcdef".to_string(), "ghijklmnop".to_string()));
     }
 }

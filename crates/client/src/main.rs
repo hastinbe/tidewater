@@ -8,6 +8,7 @@
 
 mod fog;
 mod hud;
+mod info;
 mod panel;
 mod scene;
 mod sound;
@@ -25,7 +26,7 @@ use clap::Parser;
 use panel::PanelState;
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
-use tidewater_sim::economy::{Event, Shortage, kind};
+use tidewater_sim::economy::{Event, Shortage};
 use tidewater_sim::victory::Outcome;
 use tidewater_sim::{Command, TILE_PX, UnitId, World};
 
@@ -52,6 +53,9 @@ struct Args {
     /// Development aid: select your first N units at the start and centre the view on them.
     #[arg(long)]
     demo_select: Option<usize>,
+    /// Development aid: with `--demo-select`, select only units of this type number (any owner).
+    #[arg(long)]
+    demo_type: Option<u8>,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -76,6 +80,8 @@ struct Sim {
     human: u8,
     /// The message in the bottom bar and the ticks it has left.
     message: Option<(String, u32)>,
+    /// Passengers to put ashore one at a time (transport, place 0 to 5), from clicks on the information panel.
+    unload_one: Vec<(UnitId, usize)>,
 }
 
 /// Plays the sim's sound cues (`sound.rs`, spec `docs/specs/ui/sounds.md`): reads the files from the install on first
@@ -137,6 +143,26 @@ struct PanelUi {
     tooltip: Option<String>,
     /// The selection the mode belongs to; a different selection ends the mode.
     last_sel: Vec<UnitId>,
+}
+
+/// The information panel's state (`info`, spec `ui/info-panel.md`).
+#[derive(Resource, Default)]
+struct InfoPanel {
+    /// The grid: which unit each slot shows.
+    slots: info::Slots,
+    /// The selection the grid was last built for.
+    built_for: Vec<UnitId>,
+    frame: u8,
+    /// The text for one selected unit, rebuilt when the selection changes or a change check fires.
+    content: Option<info::Content>,
+    /// The values the change checks last saw.
+    watched: Option<Vec<u32>>,
+    /// The slot whose icon is held down.
+    pressed: Option<usize>,
+    /// The name of the unit under the cursor, for the status line.
+    hover: Option<String>,
+    /// Speed per unit type, worked out once from the animation scripts.
+    speeds: Vec<u8>,
 }
 
 #[derive(Resource, Default)]
@@ -307,7 +333,10 @@ fn main() -> Result<()> {
             .world
             .units
             .iter()
-            .filter(|u| u.owner == scene.human)
+            .filter(|u| match args.demo_type {
+                Some(t) => u.kind == t,
+                None => u.owner == scene.human,
+            })
             .take(n)
             .map(|u| u.id)
             .collect();
@@ -341,6 +370,7 @@ fn main() -> Result<()> {
         .insert_resource(selection)
         .insert_resource(speaker)
         .init_resource::<PanelUi>()
+        .init_resource::<InfoPanel>()
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
         .add_systems(
@@ -349,6 +379,7 @@ fn main() -> Result<()> {
                 hud_layout,
                 minimap_input,
                 panel_input,
+                info_input,
                 pan_and_zoom,
                 select,
                 order,
@@ -357,6 +388,7 @@ fn main() -> Result<()> {
                 redraw_terrain,
                 redraw_fog,
                 draw_selection,
+                update_info,
                 draw_hud,
                 quit_on_escape,
             )
@@ -492,10 +524,20 @@ fn setup(
         pending: Vec::new(),
         human: scene.human,
         message: None,
+        unload_one: Vec::new(),
     });
 }
 
 fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
+    // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
+    // spec's one-passenger rule (open question there: assumed to be that request). The sim has no command for it, so
+    // its one-passenger unload runs here, between ticks, for transports the local player owns.
+    for (t, place) in std::mem::take(&mut sim.unload_one) {
+        let human = sim.human;
+        if let Some(i) = sim.world.units.iter().position(|u| u.id == t && u.owner == human) {
+            sim.world.unload_one(i, place);
+        }
+    }
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
     // A dying unit is deselected (corpses spec).
@@ -1163,11 +1205,125 @@ fn play_sounds(
     }
 }
 
+/// The information panel's icons: pointing names the unit on the status line, a released click selects, removes,
+/// unloads or centres the view (`info::click`).
+#[allow(clippy::too_many_arguments)]
+fn info_input(
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window>,
+    sim: Option<ResMut<Sim>>,
+    mut sel: ResMut<Selection>,
+    hud: Res<Hud>,
+    mut ui: ResMut<PanelUi>,
+    mut panel: ResMut<InfoPanel>,
+    mut cam: Query<&mut Transform, With<MapCamera>>,
+) {
+    panel.hover = None;
+    let (Some(mut sim), Ok(window), Some(l)) = (sim, windows.single(), hud.layout) else {
+        return;
+    };
+    let slot = hud
+        .cursor(window)
+        .and_then(|c| info::slot_at((c.x - l.info.x as f32, c.y - l.info.y as f32)))
+        .filter(|&n| panel.slots[n].is_some());
+    let slots = panel.slots;
+    let unit = |n: usize| slots[n].and_then(|id| sim.world.unit(id));
+    panel.hover = slot
+        .and_then(&unit)
+        .and_then(|u| info::name_entry(u.kind))
+        .map(|e| hud.art.string(e));
+    if buttons.just_pressed(MouseButton::Left) && slot.is_some() && !ui.consumed {
+        panel.pressed = slot;
+        ui.consumed = true;
+    }
+    if !buttons.just_released(MouseButton::Left) {
+        return;
+    }
+    let Some(n) = panel.pressed.take().filter(|&n| slot == Some(n)) else {
+        return;
+    };
+    ui.consumed = true;
+    let one = (sel.units.len() == 1).then(|| unit(0)).flatten();
+    let transport = one.is_some_and(|u| {
+        sim.world
+            .stats
+            .0
+            .get(u.kind as usize)
+            .is_some_and(|s| s.flags & tidewater_formats::udta::flags::TRANSPORT != 0)
+    });
+    let centre_ok = one.is_some_and(|u| u.owner == sim.human || u.invisibility == 0);
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    match info::click(&slots, n, sel.units.len(), shift, transport, centre_ok) {
+        info::Click::SelectOnly(id) => sel.units = vec![id],
+        info::Click::Remove(id) => sel.units.retain(|&u| u != id),
+        info::Click::Unload { transport, place } => sim.unload_one.push((transport, place)),
+        info::Click::Centre(id) => {
+            if let (Some(u), Ok(mut tf)) = (sim.world.unit(id), cam.single_mut()) {
+                let (x, y) = u.centre_px();
+                tf.translation.x = x as f32;
+                tf.translation.y = -(y as f32);
+            }
+        }
+        info::Click::Nothing => {}
+    }
+}
+
+/// Rebuilds the information panel when the selection changes (two-pass slot assignment, the selection put in slot
+/// order so its first unit is the primary unit) and its text when a change check fires (`info::watch`). The icons
+/// and health bars are drawn from the sim every frame, which redraws each icon when its hit points change.
+fn update_info(sim: Option<Res<Sim>>, mut sel: ResMut<Selection>, mut panel: ResMut<InfoPanel>) {
+    let Some(sim) = sim else { return };
+    let w = &sim.world;
+    if panel.speeds.is_empty() {
+        panel.speeds = info::speeds(&w.scripts, &w.stats.0);
+    }
+    let rebuild = sel.units != panel.built_for;
+    if rebuild {
+        let slots = info::assign(&panel.slots, &sel.units);
+        sel.units = info::in_slot_order(&slots);
+        panel.slots = slots;
+        panel.built_for = sel.units.clone();
+    }
+    let one = match sel.units.as_slice() {
+        [id] => info::facts(w, *id, sim.human),
+        _ => None,
+    };
+    // An own transport shows its passengers in slots 3 to 8.
+    if let (Some(s), [id]) = (one, sel.units.as_slice())
+        && s.own
+        && let Some(u) = w.unit(*id)
+        && w.stats
+            .0
+            .get(u.kind as usize)
+            .is_some_and(|t| t.flags & tidewater_formats::udta::flags::TRANSPORT != 0)
+    {
+        info::with_passengers(&mut panel.slots, &u.passengers);
+    }
+    // The checks run only while exactly one unit is selected.
+    let watched = one.and_then(|_| info::watch(w, &panel.slots, sim.human));
+    if !rebuild && (watched.is_none() || watched == panel.watched) {
+        return;
+    }
+    panel.watched = watched;
+    panel.frame = info::frame(one.as_ref());
+    panel.content = one.map(|s| {
+        let o = w.unit(sel.units[0]).map_or(sim.human, |u| u.owner);
+        let tables = info::Tables {
+            stats: &w.stats.0,
+            upgrades: &w.upgrade_data,
+            speeds: &panel.speeds,
+        };
+        info::content(&s, &info::owner_facts(w, o), &tables)
+    });
+}
+
 fn draw_hud(
     sim: Option<Res<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
     ui: Res<PanelUi>,
+    info_panel: Res<InfoPanel>,
     mut images: ResMut<Assets<Image>>,
     cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
 ) {
@@ -1186,24 +1342,21 @@ fn draw_hud(
             owner: u.owner,
         })
         .collect();
-    let selected: Vec<hud::Selected> = sel
-        .units
-        .iter()
-        .filter_map(|&id| sim.world.unit(id))
-        .map(|u| hud::Selected {
+    let icons = info_panel.slots.map(|s| {
+        let u = sim.world.unit(s?)?;
+        Some(hud::Icon {
             kind: u.kind,
             owner: u.owner,
             hp: u.hp,
-            max_hp: sim.world.stats.0.get(u.kind as usize).map_or(u.hp, |s| s.hit_points),
+            max_hp: sim
+                .world
+                .stats
+                .0
+                .get(u.kind as usize)
+                .map_or(1, |s| s.hit_points.max(1)),
         })
-        .collect();
+    });
     let me = &sim.world.players[sim.human as usize];
-    let food = match selected.as_slice() {
-        [s] if s.owner == sim.human && (matches!(s.kind, kind::FARM | kind::PIG_FARM) || kind::is_hall(s.kind)) => {
-            Some((sim.world.food_used(sim.human), sim.world.food_supply(sim.human)))
-        }
-        _ => None,
-    };
     let state = panel::WorldState {
         world: &sim.world,
         local: sim.human,
@@ -1224,9 +1377,18 @@ fn draw_hud(
             gold: me.gold,
             lumber: me.lumber,
             oil: me.oil,
-            selected: &selected,
-            food,
-            status: ui.tooltip.as_deref().or(sim.message.as_ref().map(|(m, _)| m.as_str())),
+            info: hud::InfoView {
+                frame: info_panel.frame,
+                slots: icons,
+                pressed: info_panel.pressed,
+                content: info_panel.content.as_ref(),
+                local: sim.human,
+            },
+            status: ui
+                .tooltip
+                .as_deref()
+                .or(info_panel.hover.as_deref())
+                .or(sim.message.as_ref().map(|(m, _)| m.as_str())),
             dots: &dots,
             fog: (!sim.world.rules.reveal_map).then(|| fog::maps(&sim.world)),
             view,
