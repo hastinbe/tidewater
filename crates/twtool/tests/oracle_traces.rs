@@ -4,33 +4,34 @@
 //! limit.
 //!
 //! The format-2 traces carry the player's commands in their `turn` records, which the oracle replays. They must match
-//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i):
+//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i). The
+//! gaps below are what the specs don't yet explain; none has been researched:
 //!
-//! - **human01-basics**, n = 70: a worker walking to a build site heads for a footprint tile, where the specs give the
-//!   ordered tile as the goal (`movement/pathfinding.md`, "Inputs"; `economy/build-train.md`, "Placing a
-//!   building").
-//! - **orc02-***, n = 294: a unit chasing in order 12 follows a straight line through its target's tile, as if
-//!   order 12 were an attack-type order (`movement/pathfinding.md`, "Units seen by the search", which names only
-//!   "attack").
-//! - **xorc01-death-coil**, n = 356: a grunt on an attack-move steps to a different tile than ours; not yet
-//!   researched.
-//! - **xhuman10-***, n = 1 (only the setup record is checked): in the first start-up cycle, idle units of computer
-//!   player 2 acquire targets in our run (order 12) but stay idle in the game's, which acquires them only at their
-//!   next step done (n = 6). Their idle logic runs on both sides (the draws match); no spec says why the first run
-//!   doesn't acquire (`orders/orders.md`, "Automatic target acquisition").
-//! - **xorc01-death-knight**, n = 26: a death knight casting haste on a unit in its animation 4 doesn't turn to face
-//!   it; facing toward a target from a pixel delta is a known gap (`spells/spells.md` only turns point spells).
-//! - **xorc12-ogre-mage**, n = 4: computer player 3's worker builds a scout tower (build list entry 4), which our
-//!   game-start done marks have already marked done because of the map's guard and cannon towers, as
-//!   `ai/worker-ai.md` ("Build list", done marks) says.
-//! - **xorc10-dragons**, n = 7: a computer destroyer on a sea patrol starts at its anchor, its own tile. On arriving
-//!   there it swaps ends; the game waits for the next step done (3 cycles) before it moves, ours moves at once.
-//!   `orders/orders.md` ("Arriving and losing the target", order 5) says only that it swaps ends and moves again.
-//! - **orc09-***, n = 5, and **human06-tech**, n = 46: a worker walking to a build site (order 28) steps to a
-//!   different tile; the walk goal of a build order is a known gap (see human01-basics).
-//! - **human12-***, n = 11: a computer transport landing (order 30) from an even tile toward an odd goal tile takes
-//!   a two-tile step first, then one-tile steps; `orders/transports.md` ("Landing (order 30)", step 2) says it moves
-//!   as a two-tile unit only while both tiles are even.
+//! - **human01-basics**, n = 287: at n = 288 a footman dies (order 1) and ours shows hp 0 where the game shows 2,
+//!   with its attacker still recorded on the dying side; the hp left by a killing blow is unexplained.
+//! - **orc02-***, n = 345: an axe thrower (slot 1584, order 12) gets wait 63 at n = 346 in the game, 1 in ours: a
+//!   long attack-cycle wait no spec gives.
+//! - **xorc01-death-coil**, n = 355: a grunt on an attack-move (order 10) waits 15 in its move animation in ours (a
+//!   blocked wait) but steps on in the game (wait 1).
+//! - **xhuman10-***, n = 4: at n = 5 the local human player's guard and cannon towers (slots 1468 and 1501, order
+//!   14) acquire enemy grunts 4 to 6 tiles away in ours but find nothing in the game, which then gives them the
+//!   "nothing found" waits (59 and 150). The grunts look seen by that player under `vision/fog.md`; why they are
+//!   hidden is open.
+//! - **xorc01-death-knight**, n = 36, and **xorc12-ogre-mage**, n = 35: an effect of kind 0x16 made in the next
+//!   cycle stands 5 and 1 pixels off ours, and the game records no destination and no shooter for it.
+//! - **xorc10-dragons**, n = 7: a worker walking to a build site (order 28) steps to a different tile; the walk goal
+//!   of a build order is a known gap.
+//! - **orc09-***, n = 4, and **human06-tech**, n = 69: the same build-site walk (order 28).
+//! - **human12-*** (transport, demolition and the 7000-cycle run), n = 134: a peasant harvesting (order 23) steps
+//!   east where the game steps north-east.
+//! - **orc4**, n = 6810: a peon harvesting (order 23) steps to (6, 5) where the game steps to (5, 6).
+//! - **human10**, n = 6803: a computer ship (slot 1483) is idle in ours but patrolling (order 5) in the game.
+//! - **xorc7**, n = 441: a computer unit (slot 1594, type 0x1A, order 24) heading for its target steps to a tile two
+//!   rows short of the game's.
+//! - **human5**, n = 38: a peasant harvesting (order 23) reaches its tree one step later than in the game.
+//!
+//! The other long traces (human7, orc8, xhuman2, xhuman4, xorc3) diverge in their first ten cycles, mostly in the
+//! same build-site walks and first acquisitions, so they aren't run.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -39,7 +40,7 @@ use std::process::Command;
 /// fields left out, and the last cycle that must match (`None`: the whole trace).
 type Trace = (&'static str, &'static str, u8, &'static [&'static str], Option<u32>);
 
-const TRACES: [Trace; 17] = [
+const TRACES: [Trace; 22] = [
     ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
     (
@@ -47,28 +48,28 @@ const TRACES: [Trace; 17] = [
         "Campaign\\Human\\Human01.pud",
         0,
         &[],
-        Some(69),
+        Some(287),
     ),
     (
         "orc02-assault-3000.jsonl.gz",
         "Campaign\\Orc\\Orc02.pud",
         3,
         &[],
-        Some(293),
+        Some(345),
     ),
     (
         "orc02-victory-7639.jsonl.gz",
         "Campaign\\Orc\\Orc02.pud",
         3,
         &[],
-        Some(293),
+        Some(345),
     ),
     (
         "orc02-defeat-4021.jsonl.gz",
         "Campaign\\Orc\\Orc02.pud",
         3,
         &[],
-        Some(293),
+        Some(345),
     ),
     (
         "xorc01-death-coil-2500.jsonl.gz",
@@ -82,35 +83,35 @@ const TRACES: [Trace; 17] = [
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(0),
+        Some(4),
     ),
     (
         "xhuman10-blizzard-600.jsonl.gz",
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(0),
+        Some(4),
     ),
     (
         "xorc01-death-knight-2100.jsonl.gz",
         "Campaign\\XOrc\\2XOrc01.pud",
         29,
         &[],
-        Some(25),
+        Some(36),
     ),
     (
         "xorc12-ogre-mage-180.jsonl.gz",
         "Campaign\\XOrc\\2XOrc12.pud",
         51,
         &[],
-        Some(3),
+        Some(35),
     ),
     (
         "xorc10-dragons-800.jsonl.gz",
         "Campaign\\XOrc\\2XOrc10.pud",
         47,
         &[],
-        Some(6),
+        Some(7),
     ),
     (
         "orc09-naval-1500.jsonl.gz",
@@ -131,21 +132,44 @@ const TRACES: [Trace; 17] = [
         "Campaign\\Human\\Human12.pud",
         22,
         &[],
-        Some(10),
+        Some(134),
     ),
     (
         "human12-demolition-450.jsonl.gz",
         "Campaign\\Human\\Human12.pud",
         22,
         &[],
-        Some(10),
+        Some(134),
     ),
     (
         "human06-tech-650.jsonl.gz",
         "Campaign\\Human\\Human06.pud",
         10,
         &[],
-        Some(45),
+        Some(69),
+    ),
+    (
+        "human12-7000.jsonl.gz",
+        "Campaign\\Human\\Human12.pud",
+        22,
+        &[],
+        Some(134),
+    ),
+    ("orc4-20000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], Some(6810)),
+    (
+        "human10-10000.jsonl.gz",
+        "Campaign\\Human\\Human10.pud",
+        18,
+        &[],
+        Some(6803),
+    ),
+    ("xorc7-7000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], Some(441)),
+    (
+        "human5-10000.jsonl.gz",
+        "Campaign\\Human\\Human05.pud",
+        8,
+        &[],
+        Some(38),
     ),
 ];
 
