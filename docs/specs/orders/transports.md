@@ -17,6 +17,7 @@
   2026-10-12, round-39 errata: a passenger put ashore becomes an immediate idle whose idle logic runs at its own update
   later in the cycle, and keeps its facing (new open question); order 32 takes over for the transport in the same update
   (wait 3); `human12-transport` unloading vectors.
+  2026-10-12, round-40 errata: "Land and shore targets" runs for every command given to a transport.
 
 ## Behaviour
 
@@ -54,7 +55,8 @@ copy of the target tile made at that moment. Later steps may change the target t
 they never change the destination, which is what "its destination tile" means below.
 
 **Land and shore targets.** After those are recorded, if the target tile has the land bit (0x01) or the shore-water
-bit (0x02), three more steps run before the rules below:
+bit (0x02), three more steps run before the rules below. They run for every command given to a transport, not only
+the smart move and unload:
 
 1. The **target unit is dropped**. The command goes on with no target unit.
 2. If the transport stands on **open water** (bit 0x40), its target tile is adjusted. Otherwise it is left as it is.
