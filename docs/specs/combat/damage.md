@@ -6,6 +6,8 @@
   confirmed against the running game.
 - **Changes:** 2026-10-11, round-2 errata: wall damage advances one stage per counter overflow; target-acquisition
   distance measure added; demolition blast terrain effects now in `movement/occupancy.md`.
+  2026-10-11, round-3 errata: the 7 × 7 splash scan order is row by row from the top, left to right, with a tile's
+  ground-layer unit before its air-layer unit (open question closed).
 
 ## Behaviour
 
@@ -119,8 +121,9 @@ When a splash missile lands with stored damage D at its impact pixel:
    kept to its low 8 bits. Only `v = 255` can reach 256, and that wraps to 0 damage. It is then applied as in
    "Applying damage".
 
-Units are processed in the order found, so draws are made in that order: the impact-tile unit first, then the scan in
-tile order. The scan order within the 7 × 7 block is still an open question.
+Units are processed in the order found, so draws are made in that order: the impact-tile unit first, then the 7 × 7
+block **row by row from the top, each row left to right**. When air units are included, each tile's ground-layer unit
+comes before its air-layer unit. A unit already considered (the impact-tile unit) isn't considered again.
 
 ### Attack timing (cooldown)
 
@@ -245,7 +248,6 @@ These are the default `unitdata.dat` values.
 - Whether a strike in progress uses the acquisition distance measure, and whether range is checked again at the
   strike point.
 - When towers fire relative to their 60- and 151-cycle scripts, and whether a tower's shot is always a missile.
-- The scan order of the 7 × 7 splash block. This affects draw order when several units are hit.
 - What a missile's flight time is in cycles. The research points to `ceil(flight length / 5)` cycles, about 5 px per
   cycle, but this isn't confirmed.
 - A computer-player rule may shorten the minimum flight distance to 2 tiles when certain target tiles are involved.
