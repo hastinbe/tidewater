@@ -25,6 +25,10 @@ before writing any code, and follow it exactly.
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the Bevy game client (`tidewater` binary). `scene.rs` builds the map and unit images, `hud.rs`
   lays out and draws the interface (frame, minimap, resources, selection, command buttons) into one picture, `panel.rs` holds the command panel's button sets and rules, `info.rs` the unit information panel's rules; all are Bevy-free.
+  `campaign.rs` holds the campaign flow's rules and `video.rs` the Smacker playback helpers (both Bevy-free);
+  `frontend.rs` runs the screens around a game (videos, title, menu, act screens, briefings, the outcome dialogs,
+  the score screen, endings, credits) as app states, and the game screen's systems run only in `AppState::Game`.
+  `--goto SCREEN` opens a flow screen directly for development.
 - `docs/specs/`: reviewed behaviour specifications, the only source for engine behaviour.
 
 ## Workflow

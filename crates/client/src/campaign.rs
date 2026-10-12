@@ -7,10 +7,19 @@
 //!
 //! Defaults for the spec's open questions:
 //! - The skip setting and the setting that skips the startup videos are off.
-//! - The movie archive is always available, so the BDP intro always plays (unless Ctrl is held).
+//! - The movie archive counts as available when the install has the BDP intro video; the startup intro plays when
+//!   the "play the intro" bit is set, which is every start (it isn't stored; `--no-intro` clears it).
+//! - The title and act screen tick is the normal game speed's cycle (40 ms).
 //! - The ending videos are `HVict_M` / `OVict_M` (ToD) and `HVicX_M` / `OrcX_M` (BDP), before the finale.
 //! - A type change doesn't count as a building lost; gathered resources are deliveries (`tidewater_sim`).
+//! - A restart from the game menu puts the campaign total back as a defeat does.
+//! - No cheats can be entered yet, so the rank is never the cheat rank in play.
 //! - The multiplayer score screen isn't covered; only the single-player rows are built.
+
+#![allow(
+    dead_code,
+    reason = "the spec's tables are kept whole; the dialog files, multiplayer and the game menu use the rest"
+)]
 
 use tidewater_sim::World;
 use tidewater_sim::ai::controller;
@@ -1058,7 +1067,7 @@ mod tests {
         assert_eq!(narration_parts(29), 3, "BDP orc 1 has three");
         assert_eq!(narration_parts(30), 2, "BDP human 2 has two");
         let total: u32 = (0..52).map(|e| narration_parts(e) as u32).sum();
-        assert_eq!(total, 5 + 18 + 9 + 10 + 0 + 16 + 12 + 1 + 14 + 12);
+        assert_eq!(total, 23 + 19 + 28 + 27, "ToD human, ToD orc, BDP human, BDP orc");
     }
 
     /// Test vector: narration parts of 10,000 and 5,000 ms.
