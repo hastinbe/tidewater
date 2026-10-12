@@ -110,7 +110,7 @@ impl World {
 
     /// The placement check of the occupancy spec for a building of type `kind` with its top-left tile at `site`.
     /// `Some(patch)` if it passes, with the oil patch an oil platform is placed on.
-    fn site_ok(&self, kind: u8, site: (i32, i32)) -> Option<Option<UnitId>> {
+    pub(crate) fn site_ok(&self, kind: u8, site: (i32, i32)) -> Option<Option<UnitId>> {
         let s = self.stats_of(kind);
         let platform = s.flags & flags::OIL_SOURCE != 0;
         let shore = s.flags & flags::SHORE_BUILDING != 0;

@@ -621,6 +621,27 @@ fn sim(
                 s.wait,
                 wanted.join(" ")
             );
+            let q = &w.players[p];
+            let mine = |b: bool| {
+                w.units
+                    .iter()
+                    .filter(|u| u.owner as usize == p && u.building == b && !u.dying)
+                    .count()
+            };
+            println!(
+                "  controller {} units {} buildings {} gold {} lumber {} gathered {:?}; miners {} lumberjacks {} repairers {} \
+                 build-list done {:#x}",
+                q.controller,
+                mine(false),
+                mine(true),
+                q.gold,
+                q.lumber,
+                q.gathered,
+                s.miners,
+                s.lumberjacks,
+                s.repairers,
+                s.done
+            );
         }
     }
     println!("explored tiles (player 0): {}", w.vision.explored_tiles());

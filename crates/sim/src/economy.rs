@@ -300,6 +300,7 @@ impl World {
             p.had_hall = true;
         }
         self.release_builders(i, true);
+        self.mark_build_list(owner as u8, k, true);
     }
 
     /// The upgrade data entry of upgrade number `n`.

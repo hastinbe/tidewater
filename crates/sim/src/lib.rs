@@ -27,6 +27,7 @@ pub mod timing;
 mod transport;
 pub mod victory;
 pub mod vision;
+pub mod worker_ai;
 mod world;
 
 pub use battle::Missile;

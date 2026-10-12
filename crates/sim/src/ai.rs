@@ -50,6 +50,15 @@ pub struct AiPlayer {
     pub slots: [u8; 256],
     pub build_list: u16,
     pub second_list: u16,
+    /// Worker AI bookkeeping (worker-ai spec): the hall cooldown, workers per job, buildings in progress by type,
+    /// the build list's done marks (bit n for entry n) and research requests (bit e - 0x80).
+    pub hall_cooldown: u8,
+    pub repairers: u16,
+    pub miners: u16,
+    pub lumberjacks: u16,
+    pub in_progress: [u8; 128],
+    pub done: u64,
+    pub research_requests: u128,
 }
 
 impl Default for AiPlayer {
@@ -60,6 +69,13 @@ impl Default for AiPlayer {
             slots: [0; 256],
             build_list: 0,
             second_list: 0,
+            hall_cooldown: 0,
+            repairers: 0,
+            miners: 0,
+            lumberjacks: 0,
+            in_progress: [0; 128],
+            done: 0,
+            research_requests: 0,
         }
     }
 }

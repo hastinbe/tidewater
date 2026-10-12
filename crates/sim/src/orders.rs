@@ -312,6 +312,9 @@ impl World {
                 if self.units[i].script.anim != anim::STILL {
                     self.switch_anim(i, anim::STILL);
                 }
+                if o == Order::Idle && self.chooses_jobs(i) {
+                    self.idle_choice(i);
+                }
             }
             Order::Move { goal } | Order::MoveAttack { goal } | Order::AttackMove { goal } => {
                 if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && self.react(i) {

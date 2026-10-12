@@ -375,8 +375,19 @@ impl World {
                 b.occupants = b.occupants.saturating_sub(1);
             }
         }
+        // A computer worker chooses its job here; a job given skips the usual return (worker-ai spec).
+        let chosen = if self.chooses_jobs(i) {
+            match self.worker_choice(i) {
+                crate::worker_ai::Choice::Order(o) => Some(o),
+                _ => None,
+            }
+        } else {
+            None
+        };
         // Where the unit heads decides which side it comes out on.
-        let next = if self.units[i].carrying {
+        let next = if chosen.is_some() {
+            chosen
+        } else if self.units[i].carrying {
             self.nearest_depot(&self.units[i])
                 .map(|d| Order::ReturnGoods { depot: Some(d) })
         } else {

@@ -258,7 +258,10 @@ impl World {
         }
         if unit.building {
             self.release_builders(ti, false);
+            self.mark_build_list(unit.owner, unit.kind, false);
         }
+        // A computer worker's job is released when it dies (worker-ai spec).
+        self.release_job(ti);
         let u = &mut self.units[ti];
         u.hp = 0;
         u.dying = true;

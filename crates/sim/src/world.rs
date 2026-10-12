@@ -245,6 +245,8 @@ pub struct Unit {
     pub hidden_from: u8,
     /// The rescuable mark: the unit counts as rescuable (victory spec, "Terms").
     pub rescuable: bool,
+    /// A computer worker's job, for the worker AI's bookkeeping.
+    pub ai_job: crate::worker_ai::AiJob,
 }
 
 impl Unit {
@@ -741,6 +743,7 @@ impl World {
             invisibility: 0,
             detected_by: 0xff,
             hidden_from: 0,
+            ai_job: Default::default(),
             rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
         };
         self.mark(&unit, unit.tile, Some(id));
