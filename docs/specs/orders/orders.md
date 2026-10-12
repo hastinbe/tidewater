@@ -16,6 +16,10 @@
   no idle logic in that update); a move with no route goes idle as an immediate order and runs the idle logic at
   once (static study only). More same-update take-overs confirmed; coming out of a building is the exception. The
   open question "Idle logic after a move" is closed.
+  2026-10-12, round-35 errata: an idle unit's acquired order takes over in the same update (wait 3, animation 4); a
+  watching tower stays in its attack animation and searches once per loop; the Enhanced resume applies to every pending
+  idle, arrival included, and never to an immediate idle; the no-route attack fallbacks never apply to orders 3, 4, 5
+  and 10.
 
 ## Behaviour
 
@@ -229,7 +233,8 @@ runs at the next step done of its animation. Only a step done with no pending or
 **Same-update take-over.** A command that this run gives the unit itself can take over at once, in the same update,
 without running its logic. The traces confirm it for the critter's wander, a computer worker's job choice from idle,
 going idle on arriving at the end of a move ("Arriving and losing the target"), a harvest or return order that
-reaches its building (order 25: wait 3, animation 3) and felling a tree (`economy/harvest.md`). Coming out of a
+reaches its building (order 25: wait 3, animation 3), felling a tree (`economy/harvest.md`) and the order an idle
+unit's target search gives (12, 15 or 16; "Automatic target acquisition"). Coming out of a
 building is the exception: the order given then stays pending through a 25-cycle wait (`economy/harvest.md`,
 "Coming out").
 
@@ -249,13 +254,20 @@ Orders 0 and 1 also wipe the remembered order (Enhanced, below).
 In Enhanced mode a unit can **remember** a patrol (both ends) or an attack-move (the target tile), set by commands 5
 and 8. Each unit also has a **resume countdown**, which goes down by 1 every cycle until it reaches 0.
 
-When such a unit is set to order 2 (idle) and its countdown is 0:
+When idle (order 2) is made such a unit's **pending** order (on arriving, on losing its target, and wherever else
+idle becomes pending) and its countdown is 0, the remembered order may be given instead of the idle; it takes over in
+the same update, as the pending idle would have. An immediate idle (dying, giving up, no route) never resumes, and
+keeps the remembered order. Nothing happens for a unit for which a pending order can't be set (dying, dead, inside
+something, or in order 25):
 
 | Remembered | Result |
 | --- | --- |
 | Patrol | It is sent back toward the patrol end it was heading for, and the countdown is set to **40** |
 | Attack-move, with the target tile more than 1 tile away (either axis) | The attack-move is given again, and the countdown is set to **20** |
 | Attack-move, already within 1 tile | It stays idle (the attack-move is complete) |
+
+If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
+set as usual.
 
 So a unit that broke off a patrol or attack-move to fight goes back to it once the fight is over. The countdown stops
 it from re-issuing every cycle when the move can't progress.
@@ -270,7 +282,8 @@ it from re-issuing every cycle when the move can't progress.
   (the harvest tree search, arrived after all, boarding, the attack-type fallbacks), the unit becomes idle as an
   **immediate** order (order 2, pending order cleared, still animation, wait 1). Its order is now 2, so the idle
   logic runs in the same update, straight after; a computer worker's job choice or a critter's wander can follow
-  in that update too. This rests on the static study only; no trace shows it yet.
+  in that update too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to
+  orders 3, 4, 5 and 10. This rests on the static study only; no trace shows it yet.
 - **Order 5 (patrol):** on arrival the unit swaps ends and moves again.
 - **Order 18:** on arrival (in range) it becomes order 17 and attacks the ground.
 
@@ -313,6 +326,11 @@ its attacker and runs the target search of "Automatic target acquisition" with t
 its **attack range** (even for a computer player), and the search does **not** start with the attacker as the best
 candidate. If the search finds a target, the tower fires at it in that run; if not, it does nothing until its next
 run. So a target that walks out of range is simply not found again, and the tower fires at whatever is best in range.
+
+Either way the tower stays in its attack animation (4), which order 14 starts and never changes: finding nothing
+doesn't make it idle or start its still animation. A tower's attack animation is a "step done" followed by one long
+wait, so the tower looks for a target once per loop: in the default data every 151 cycles for type 0x63 (orc cannon
+tower, wait 150) and every 60 for type 0x61 (orc guard tower, wait 59).
 
 **Friendly-fire check (orders 12, 15 and 16).** A unit whose type can attack the ground (unit flag bit 14 in the PUD
 specification; in the default unit data: ballista, catapult, battleship and juggernaught) checks, before each
@@ -402,6 +420,10 @@ vertical order wins.
 | An idle-type order (2, 7, 16) | 12 (chase) whenever the unit has an attacker; otherwise 16 (attack without moving) | 12 whenever the unit has an attacker; otherwise 12 if the target is a building or can attack, else 16 |
 | A moving order (4, 5, 10, 12) | 12 | 12 |
 | Anything else (13, 14, 15) | 15 | 15 |
+
+When the searching unit's order is idle-type, the resulting order is given as a pending order that takes over in the
+same update ("Same-update take-over"): attack animation, wait 3, and its logic first runs at that animation's next
+step done.
 
 Order 32 (docked transport) carries the idle-type mark in the order data too, but its logic does nothing, and the
 reaction in "Reacting to an attacker" gives order 12 without this table. So a unit in order 32 never reaches this
@@ -719,6 +741,14 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Human04, peon 1548, harvest order 23, reaches the mine | n = 89: order 25, animation 3, wait 3 |
 | Human04, peons 1548 and 1531, return order 24, reach the depot | Order 25, animation 3, wait 3 at n = 374 (1548, great hall) and n = 1938 (1531, lumber mill) |
 | A land unit given a move to a tile it can't reach, where the route search finds nothing (static study only) | In the update where the search fails: order 2, wait 1, and the idle logic runs at once (for a critter, its wander can start in the same update) |
+| `xhuman4`, slot 1490 (type 0x09), idle, finds 1518 at its first step done | n = 2: order 12, animation 4, wait 3, target 1518; n = 3: animation 4, wait 2 |
+| `xhuman4`, slot 1505 (type 0x01), the same | n = 2: order 12, animation 4, wait 3; n = 5: first chase step, animation 3 |
+| `human5`, slot 1531 (owner 5, computer), idle, finds 1529 | n = 6: order 12, animation 4, wait 3, target 1529; it strikes from where it stands (still animation 4 at n = 30) |
+| `xhuman4`, slot 1435 (type 0x09), enemy 1444 in reach from the start | n = 1: order 2, animation 2, wait 1 (no acquisition in the first start-up cycle); n = 2: wait 4; n = 6: order 16, animation 4, wait 3, target 1444 |
+| `human12`, slot 1480 (type 0x63), no enemy in range | n = 1: order 14, animation 4, wait 3; n = 4: logic runs, finds nothing; n = 5: animation 4, wait 150; next logic run at n = 155 (wait 150 again at n = 156) |
+| `xorc3`, slot 1506 (type 0x61), no enemy in range | n = 4: logic runs, finds nothing; n = 5: animation 4, wait 59; next run at n = 64 |
+| Enhanced (static study only): a footman on a remembered attack-move to a tile 10 tiles away is ordered to move 2 tiles aside, countdown 0, and arrives | Instead of idle, the attack-move is given again (countdown 20), taking over in the same update |
+| Same, but the move finds no route | Immediate idle; the attack-move is not resumed in that update |
 
 ## Open questions
 
