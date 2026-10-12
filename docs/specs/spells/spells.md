@@ -8,6 +8,9 @@
 - **Changes:** 2026-10-11, round-8 errata: the fireball's count goes on to 41 and it ends on the step after count 41.
   2026-10-12, round-16 errata: the cosmetic effects' lifetimes (each plays its script once; removed in cycle
   U + 1 + W).
+- **Changes:** 2026-10-12, round-24 errata: a new effect starts at its start step, A cycles after its first update
+  (per-kind table); the cosmetic effects are removed in cycle U + A + 1 + W (cannon smoke U + 24, not U + 13); the
+  open question on each kind's own script is closed. Kinds 0x13 and 0x14 are the building fires made at map start.
 
 ## Behaviour
 
@@ -270,21 +273,21 @@ goal at its position plus ((r & 127) − 64) px on x and on y (2 draws). It last
 new goal equal to its position is never reached, so it then drifts east until it ends.
 
 **Cosmetic effects.** Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A change nothing but slot use, and draw no random
-number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's
-step done. Its first update ("When a new effect first runs") is in cycle U and restarts its script with a wait of 1;
-it is removed during its update in cycle **U + 1 + W**, where W is the total of the script's waits. From that update
-on, its slot is free for any effect created later.
+number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's step
+done. Its first update ("When a new effect first runs") is in cycle U. Its start step comes A cycles later and restarts
+its script with a wait of 1; it is removed during its update in cycle **U + A + 1 + W**, where W is the total of the
+restarted script's waits. From that update on, its slot is free for any effect created later.
 
-| Kind | Use | Script | W (cycles) | Removed in cycle |
-| --- | --- | --- | --- | --- |
-| 0x0B | rune marker | six frames with waits 3, 2, 3, 2, 3, 2 | 15 | U + 16 |
-| 0x16 | spell marker (holy vision, slow, invisibility and others) | six frames with a wait of 3 each | 18 | U + 19 |
-| 0x17 | explosion | sixteen frames with a wait of 3 each | 48 | U + 49 |
-| 0x19 | cannon smoke (`combat/damage.md`) | four frames with a wait of 3 each | 12 | U + 13 |
-| 0x15, 0x1A | impact effects (`combat/damage.md`, "Impact effects") | as given there | 12 | U + 13 |
+| Kind | Use | Script | A (cycles) | W (cycles) | Removed in cycle |
+| --- | --- | --- | --- | --- | --- |
+| 0x0B | rune marker | six frames with waits 3, 2, 3, 2, 3, 2 | 2 | 15 | U + 18 |
+| 0x16 | spell marker (holy vision, slow, invisibility and others) | six frames with a wait of 3 each | 1 | 18 | U + 20 |
+| 0x17 | explosion | sixteen frames with a wait of 3 each | 1 | 48 | U + 50 |
+| 0x19 | cannon smoke (`combat/damage.md`) | four frames with a wait of 3 each | 11 | 12 | U + 24 |
+| 0x15, 0x1A | impact effects (`combat/damage.md`, "Impact effects") | as given there | 1 | 12 | U + 14 |
 
-Kinds 0x13 and 0x14 would also be removed at step done, but their scripts loop and never reach one. Nothing found
-creates them.
+Kinds 0x13 and 0x14 would also be removed at step done, but their scripts loop and never reach one. Only the map
+start creates them: they are the building fires in effect slots 0 and 1 (`core/unit-slots.md`, `ui/map-drawing.md`).
 
 Kinds
 8 (exorcism) and 9 (healing) are not quite cosmetic: they start at the unit's pixel position plus (floor(w / 2),
@@ -302,8 +305,24 @@ effect slot.
   slot, otherwise in the next cycle.
 - An effect created in the timers pass (rune effects) gets its first update in the next cycle.
 
-The first update only starts the effect; its first **step** comes one cycle later (the cloud's own timing is given
-above, counted from its first update). So a fireball cast at cycle C makes its first step and first draw at C + 1.
+The effect starts at its **start step**: in its first update if its kind's start animation has no wait, otherwise A
+cycles later (table below). The start step puts the effect into its started state, so its picture shows from then on
+(`ui/map-drawing.md`), and restarts its script with the kind's next animation and a wait of 1. Its first **step** comes
+one cycle after the start step at the earliest (the cloud's own timing is given above, counted from its first update).
+So a fireball cast at cycle C (A = 0) makes its first step and first draw at C + 1.
+
+| Kinds | A (cycles) |
+| --- | --- |
+| 0x00 to 0x03, 0x07 to 0x0A, 0x0C to 0x12, 0x18, 0x1B | 0 |
+| 0x15, 0x16, 0x17, 0x1A, 0x1C | 1 |
+| 0x0B | 2 |
+| 0x04, 0x13, 0x14 | 5 |
+| 0x05, 0x19 | 11 |
+| 0x06 | 18 (waits 3, 2, 3, 2, 3, 2, 3) |
+
+A is the total of the waits in the kind's start animation (animation 0 of its script). All missiles have A = 0. The
+blizzard shard's initial wait of 12 cycles and the death and decay cloud's first step at cycle 18 (above) already
+include their start animations.
 
 ### Random draws
 
@@ -416,13 +435,13 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Raise dead with 120 mana over two unused bodies | 2 draws (one per skeleton), each body gets the used mark and still decays normally |
 | Blizzard strike | 20 draws at the strike, before any shard flies |
 | Fireball cast at cycle C | First update at C; first step and first draw at C + 1 |
+| A spell puts a spell marker (0x16) on a unit in cycle C | First update in C; start step and showing from C + 1; removed in C + 20 |
+| Runes cast: a rune marker (0x0B) made in the timers pass of cycle C | First update in C + 1; start step in C + 3; removed in C + 19 |
 
 ## Open questions
 
 - Confirm the death coil order of equal-HP candidates in the running game: two 30-HP victims and one 5-HP victim
   should split the budget as the vector says (the second-found 30-HP victim gets its full 30).
-- Every effect's first step is taken to come one cycle after its first update (default). This was checked for the
-  starting rule all effects share, not for each kind's own script.
 - Units created while the map loads don't get the decay countdown. What happens to a decaying type placed in the map
   (for example a skeleton in a PUD) is not settled. Default: it never decays.
 - A unit that would be killed by decay is spared in one case: a global setting is on and the unit carries a state
