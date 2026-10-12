@@ -12,6 +12,10 @@
   vectors; a unit is created in order 2 and its first order, if different, is pending until its first step done.
   2026-10-12, round-31 errata: a take-over replaces that step done's logic run; the new order's logic first runs at
   its animation's next step done.
+  2026-10-12, round-33 errata: a move that arrives goes idle through a pending order (same-update take-over, wait 3,
+  no idle logic in that update); a move with no route goes idle as an immediate order and runs the idle logic at
+  once (static study only). More same-update take-overs confirmed; coming out of a building is the exception. The
+  open question "Idle logic after a move" is closed.
 
 ## Behaviour
 
@@ -220,11 +224,17 @@ animation starts with a first wait of 3 cycles).
 - a tree the unit had reserved is released (see `occupancy.md`).
 
 The take-over replaces the logic run of that step done: the new order's logic doesn't run in that update, and first
-runs at the next step done of its animation. Only a step done with no pending order runs the order's logic. A command
-that this run gives the unit itself can take over at once, in the same update, without running its logic: the
-critter's wander and a computer worker's job choice from idle both do (oracle traces).
+runs at the next step done of its animation. Only a step done with no pending order runs the order's logic.
 
-**Immediate orders** (used for going idle, dying and giving up): the order is set at once, the pending order is
+**Same-update take-over.** A command that this run gives the unit itself can take over at once, in the same update,
+without running its logic. The traces confirm it for the critter's wander, a computer worker's job choice from idle,
+going idle on arriving at the end of a move ("Arriving and losing the target"), a harvest or return order that
+reaches its building (order 25: wait 3, animation 3) and felling a tree (`economy/harvest.md`). Coming out of a
+building is the exception: the order given then stays pending through a 25-cycle wait (`economy/harvest.md`,
+"Coming out").
+
+**Immediate orders** (used for dying, giving up and a move with no route; a move that arrives goes idle through a
+pending order instead): the order is set at once, the pending order is
 cleared, the order's animation starts with a wait of 1, and any reserved tree is released. When the immediate order
 is 2 (idle):
 
@@ -252,7 +262,15 @@ it from re-issuing every cycle when the move can't progress.
 
 ### Arriving and losing the target
 
-- **Orders 3, 4 and 10:** on arrival the unit becomes idle (order 2) and forgets its attacker.
+- **Orders 3, 4 and 10:** on arrival the unit forgets its attacker, and idle (order 2) becomes its pending order and
+  takes over in the same update (still animation, wait 3). The idle logic doesn't run in that update; it first runs
+  at the still animation's next step done, 3 cycles later. (Before that, at the step done, the arrival switch of
+  `core/animation-scripts.md` runs the order's own animation at once, and then the order's logic runs.)
+- **No route:** if the route search finds nothing and none of the special cases of `movement/movement.md` applies
+  (the harvest tree search, arrived after all, boarding, the attack-type fallbacks), the unit becomes idle as an
+  **immediate** order (order 2, pending order cleared, still animation, wait 1). Its order is now 2, so the idle
+  logic runs in the same update, straight after; a computer worker's job choice or a critter's wander can follow
+  in that update too. This rests on the static study only; no trace shows it yet.
 - **Order 5 (patrol):** on arrival the unit swaps ends and moves again.
 - **Order 18:** on arrival (in range) it becomes order 17 and attacks the ground.
 
@@ -435,8 +453,9 @@ random draws (`core/timing-and-rng.md`), so it decides the draw sequence of ever
 - A newly created unit starts in order 2 with a wait of 1 + (r AND 7) from its creation draw (`core/unit-slots.md`).
   It draws at its first step done, unless a pending first order takes over then ("Orders given when a unit is
   created"): a building or gold mine makes no look-around.
-- When a critter's move (order 3) ends and it goes idle, the idle logic also runs in that same update, so it draws
-  then. Whether every unit does the same is in "Open questions".
+- When a move (order 3) arrives, idle takes over with a wait of 3, and the idle logic (and its draw) first runs 3
+  cycles later ("Arriving and losing the target"). A move that finds no route goes idle at once and draws in that
+  same update.
 
 **Where in the cycle.** The draw is in phase 4 (units), during the unit's own update, so units draw in ascending slot
 order (`core/unit-slots.md`).
@@ -695,6 +714,11 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Same hall, the peon appears at n = 489 (463 cycles after n = 26) | Order 33 takes over at once with wait 3. Its logic runs at n = 492, 497, 502; it thinks at the third run, n = 502 (gold −400), and order 37 takes over at n = 507. The next peon appears at n = 970; then payment at n = 983, take-over at n = 988 and peon at n = 1451 |
 | Human04 peon (slot 1548, computer, created with wait 6) | First step done at n = 6: idle logic, then the worker job choice (`ai/worker-ai.md`) picks gold mine 1559, the only mine in its region, with the great hall 1550 as depot. At the end of n = 6: order 23, target 1559, wait 3 |
 | Human01 gold mine (slot 1589, wait 1 at setup) and farm (slot 1594, wait 2 at setup) | The mine: order 33 with wait 3 at n = 1. The farm: wait 1 at n = 1, order 33 with wait 3 at n = 2. Each then has a step done every 5 cycles |
+| Human04, critter slot 1579, moving (order 3) to tile (58, 43) | n = 57: order 3, animation 3, wait 1. n = 58 (reaches (58, 43)): order 2, animation 2, wait 3; no idle logic. n = 61: first idle logic run; the critter wanders (order 3 takes over at once: wait 3, animation 2). n = 64: the move logic runs, animation 3, wait 1, facing 5 |
+| Human04, critter slot 1580, moving to (63, 43) | n = 58: order 2, animation 2, wait 3. n = 61: idle logic, no wander (wait 1 at n = 61 and 62) |
+| Human04, peon 1548, harvest order 23, reaches the mine | n = 89: order 25, animation 3, wait 3 |
+| Human04, peons 1548 and 1531, return order 24, reach the depot | Order 25, animation 3, wait 3 at n = 374 (1548, great hall) and n = 1938 (1531, lumber mill) |
+| A land unit given a move to a tile it can't reach, where the route search finds nothing (static study only) | In the update where the search fails: order 2, wait 1, and the idle logic runs at once (for a critter, its wander can start in the same update) |
 
 ## Open questions
 
@@ -709,10 +733,10 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - Which unit types count as "two-tile movers" for the flee rounding (expected: sea units and air units).
 - The player-kind splits in "Terms" rest on the mapping of map owner codes to player kinds, which
   `movement/movement.md` still lists as open for rescue players.
-- **Idle logic after a move.** The traces show critters running the idle logic (and drawing) in the update where
-  their move ends. Whether every unit does the same wasn't checked. Default: yes.
+- **No route, traced.** The immediate idle of a move that finds no route, with its idle logic in the same update,
+  rests on the static study alone.
 - **Untraced look-around cases.** Fliers and catapults at rest, orders 7 and 13, and a critter whose wander target is
   clamped back to its own tile don't occur in the traces; those rules rest on the static study alone.
-- **Same-update take-over.** The order logic signals when a command it gave should take over at once. Only the
-  critter's wander and the computer worker's job choice from idle are confirmed. Default: every command a unit's own
-  order logic gives it takes over in the same update.
+- **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
+  confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
+  command a unit's own order logic gives it takes over in the same update.
