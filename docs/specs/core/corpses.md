@@ -7,6 +7,7 @@
 - **Changes:** 2026-10-12, round-35 errata: bodies and ruins keep the dead unit's mana byte (oracle traces, static study
   for non-zero values).
 - **Changes:** 2026-10-12, round-36 errata: the static dead-mage vector is replaced by a traced one (no rule change).
+- **Changes:** 2026-10-12, round-37 errata: the dead-mage vector names the folder its trace is in.
 
 ## Behaviour
 
@@ -163,7 +164,7 @@ Cycle numbers count updates of the unit: update 1 is its first update after it i
 | A slowed footman dies | The body's decay timing is unchanged (plain waits) |
 | `orc02-assault-3000` (oracle trace), slot 1588 (type 0x40), destroyed | Ruin type 0x6B at n = 843, mana 0 |
 | 30 conversions to bodies and ruins in the `orc02-assault`, `orc02-victory` and `human06-attack-wave` traces | Mana 0 before and after every one |
-| `xhuman10-r36a-700` (oracle trace): player 1's mage 1481 (type 0x0A, no corpse kind) has 89 mana; it is killed and is in order 1 from n = 197 to n = 232 | Mana 89 throughout; no gain at n = 200. From n = 233 to n = 700 the slot shows owner 15, order 0, animation 0 and mana 89 |
+| `research/oracle-round36/xhuman10-r36a-700.jsonl.gz` (oracle trace): player 1's mage 1481 (type 0x0A, no corpse kind) has 89 mana; it is killed and is in order 1 from n = 197 to n = 232 | Mana 89 throughout; no gain at n = 200. From n = 233 to n = 700 the slot shows owner 15, order 0, animation 0 and mana 89 |
 
 ## Open questions
 
