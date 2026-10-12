@@ -4,6 +4,9 @@
 - **Sources:** static study of the 2.02 program (research notes, "Round 16 (error sound, building placement)"), the
   default `Rez\unitdata.dat`, and the campaign and custom maps shipped with the game (for where oil patches lie).
   Sound names come from the game's sound list. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: the pointer-tile open question is closed by `ui/screen-and-cursors.md` ("Placement"):
+  the site is the tile under the pointer's hot spot, not centred, and it updates only while the pointer is in the
+  map view.
 
 ## Behaviour
 
@@ -15,11 +18,12 @@ Strings are entries of `stat_txt.tbl`, counting from 1, as in `ui/command-button
 
 ### The site
 
-While placement mode is on, the site's top-left tile follows the pointer. For a building whose movement layer is
-**sea** in the unit data (in the default data: the two oil platforms), the site moves onto odd coordinates. Each
-coordinate c of the pointer's tile becomes **(c with bit 0 set) − 2**, and becomes 1 if that is negative. So pointer
-columns 2 and 3 both give column 1, and 4 and 5 both give 3. (Oil patches in the shipped maps all lie on odd
-coordinates, so a platform site can line up with them.) Every other building's site is the pointer's tile.
+While placement mode is on, the site's top-left tile follows the pointer: it is the tile under the pointer's hot spot,
+updated only while the pointer is inside the map view (`ui/screen-and-cursors.md`, "Placement"). For a building whose
+movement layer is **sea** in the unit data (in the default data: the two oil platforms), the site moves onto odd
+coordinates. Each coordinate c of the pointer's tile becomes **(c with bit 0 set) − 2**, and becomes 1 if that is
+negative. So pointer columns 2 and 3 both give column 1, and 4 and 5 both give 3. (Oil patches in the shipped maps all
+lie on odd coordinates, so a platform site can line up with them.) Every other building's site is the pointer's tile.
 
 ### The site check
 
@@ -113,9 +117,6 @@ oil patch 2 × 2.
 
 ## Open questions
 
-- **The pointer tile.** The site is computed from the tile under the pointer's hot spot. Whether placement mode moves
-  the hot spot (for example to the centre of the building) wasn't traced. Default: the tile under the pointer is
-  the site's top-left tile, before the sea-layer rule.
 - **A setup-time switch.** The unexplored test is also skipped while one game-setup step runs. It is never on when the
   player can click, so it has no known effect.
 - **Other error sounds.** No other use of the error sound was found, including clicks on an invalid target in target
