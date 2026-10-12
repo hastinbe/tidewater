@@ -11,6 +11,8 @@
   2026-10-11, round-3 errata: phase 1 corrected. An invisible unit is detected by its owner only (Classic) or its
   owner's shared-vision set (Enhanced), not by allies as such; submarine detection needs a complete detector and is
   shared through shared vision in Enhanced mode.
+  2026-10-11, round-7 errata: the victory check runs every 201 cycles, first at cycle 2 (its countdown is
+  reloaded to 200 without being lowered in that cycle), not every 200.
 
 ## Behaviour
 
@@ -78,7 +80,7 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
 5. **Visibility** for the local player is recomputed.
 6. **Minimap** is refreshed every 40 cycles.
 7. **Fog** bookkeeping for the cycle is closed.
-8. **Victory and defeat** are checked every 200 cycles.
+8. **Victory and defeat** are checked every 201 cycles, first on the second cycle (`game/victory.md`).
 9. The **cycle counter** increases by 1. This also happens on paused cycles (see the scheduler, rule 4).
 
 ### Random number generator
@@ -171,7 +173,7 @@ Each row is the pattern of lengths for three cycles in a row; the pattern then r
 | --- | --- |
 | Fog refresh | 100 (Enhanced), 101 (Classic); first at cycle 1 |
 | Minimap refresh | 40 |
-| Victory check | 200 |
+| Victory check | 201; first at cycle 2 |
 | Mana regeneration (+1, max 255) | 40 |
 | Berserker regeneration (+1 HP) | 240 |
 
