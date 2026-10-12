@@ -14,6 +14,9 @@
   animation is started and run at once.
   2026-10-12, round-36 errata: the landing logic runs only within 3 tiles of the goal; farther out the transport takes
   ordinary two-tile steps.
+  2026-10-12, round-39 errata: a passenger put ashore becomes an immediate idle whose idle logic runs at its own update
+  later in the cycle, and keeps its facing (new open question); order 32 takes over for the transport in the same update
+  (wait 3); `human12-transport` unloading vectors.
 
 ## Behaviour
 
@@ -146,7 +149,8 @@ and re-runs the ring search before every step, now aimed at the tile it found la
 ### Unloading (order 29)
 
 When the order's logic runs, if the transport stands on shore water, its passengers are put ashore **from slot 6
-down to slot 1**. Then the transport becomes order 32 (docked). If it isn't on shore water, it just becomes order 32.
+down to slot 1**. Then order 32 (docked) takes over in the same update, as a pending order does: still animation,
+wait 3. It doesn't wait for a later step. If it isn't on shore water, it just becomes order 32.
 
 **One passenger** is put ashore like this, and only while the transport's order is 29 or 32:
 
@@ -156,7 +160,11 @@ down to slot 1**. Then the transport becomes order 32 (docked). If it isn't on s
 2. If no tile passes, the passenger stays aboard.
 3. Otherwise the passenger's tile position becomes the found tile and its pixel position that tile × 32, and it is
    entered there: the tile gets the ground-unit mark (0x0100) and its ground-unit pointer names the passenger. It is
-   shown, faces its target, becomes idle (order 2), and its slot becomes empty.
+   shown and becomes idle as an **immediate** order (order 2, pending order cleared, still animation, wait 1, target
+   cleared; `orders/orders.md`, "No route"), but its idle logic isn't run here. Its own update comes later in the
+   same cycle (after the transport's in update order) and runs as normal, so its look-around draw is made then, and
+   its wait shows 1 at the end of the cycle. It keeps its facing (static study; see open questions). Its slot
+   becomes empty.
 
 The same one-passenger rule is used to unload a single passenger outside order 29 (by the player's interface and by
 computer players).
@@ -239,6 +247,9 @@ computer players).
 | Human04 (oracle trace), transport slot 1543, landing at (70, 87) from (68, 88) | n = 1: order 30, animation 6, wait 3. Steps to (69, 87) at n = 4 and (70, 87) at n = 20, still animation 6 (the goal has odd y, so one-tile steps). n = 36: order 32, animation 2 |
 | Human04 n = 1 (oracle trace): transport (slot 1543) at (68, 88), open water, region 0. Smart move with the great hall (slot 1550) as the target unit, G = (81, 84), land | Target unit dropped. The line from (68, 88) to (81, 84) has M = 13, m = 4, and the walk back passes (81, 84), (80, 84), (79, 85), (78, 85), (77, 85), (76, 86), (75, 86), (74, 86), (73, 87), (72, 87), (71, 87), (70, 87), (69, 88). The first usable tile is (69, 88) (open water, region 0), so K = (70, 87). (70, 87) is shore water, with no bit of 0x0901 and the same region value as (81, 84), so the target tile and destination are (70, 87): order 30, wait 3 at n = 1. It steps to (69, 87) at n = 4 and (70, 87) at n = 20, and docks at n = 36: order 32 |
 | Same transport at n = 51, docked on (70, 87) (shore water); the same smart move | Target unit dropped. It isn't on open water, so G stays (81, 84). First rule (S shore water, same region, land first): order 32, target tile S. It stays docked; the same happens every 50 cycles |
+| `human12-transport` (oracle trace): transport 1428 (type 0x1C) arrives at (16, 120) on shore water at n = 533 carrying demolition squads 1430, 1431, 1433 and 1434 (type 0x0E) | n = 534: the four squads at (18, 120), (18, 119), (16, 119) and (17, 119), order 2, wait 1, target null, each with its facing from boarding. 1428: order 32, wait 3 |
+| Same cycle, draws | 12 draws. The squads' look-around draws (values 25617, 7919, 24438 and 18033) come before critter 1566's draw (22974, no wander) |
+| Same cycle, with each passenger's idle logic run at the unload (wrong) | 9 draws; the critter gets 25617, a wander. Differs from the trace |
 | `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8, goal (72, 29) | n = 11 (4 and 5 tiles away): ordinary two-tile step north-east to (70, 32), animation 3. n = 43 (within 3 tiles): animation 6, the landing logic steps one tile north-east to (71, 31); n = 59 (72, 30); n = 75 (72, 29) |
 
 ## Open questions
@@ -247,3 +258,6 @@ computer players).
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity and the exact sound rules.
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
+- **Passenger facing.** The static study shows no turn when a passenger is put ashore (an earlier text said it faces
+  its target). The `human12-transport` passengers keep their boarding facing, which doesn't settle it. A trace where a
+  passenger's target differs from its boarding facing would. Default: no turn.
