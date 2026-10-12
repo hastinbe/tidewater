@@ -88,16 +88,18 @@ impl<F: Fn(i32, i32) -> bool> Map for F {
     }
 }
 
-/// The straight line from `start` toward `goal` in step units ("Line rule"): the direction of each step, until the
-/// goal is reached.
+/// The straight line from `start` toward `goal` ("Line rule"): the direction of each step, until the goal is reached.
+/// The deltas, M, m and the error term are in tiles even for a two-tile mover; each step moves one step vector, so a
+/// two-tile mover reaches the goal after M / 2 steps.
 pub(crate) fn line(start: (i32, i32), goal: (i32, i32), stride: i32) -> Vec<u8> {
-    let (dx, dy) = ((goal.0 - start.0) / stride, (goal.1 - start.1) / stride);
+    let (dx, dy) = (goal.0 - start.0, goal.1 - start.1);
     let (major, minor) = (dx.abs().max(dy.abs()), dx.abs().min(dy.abs()));
     let x_major = dx.abs() >= dy.abs();
     let (sx, sy) = (if dx >= 0 { 1 } else { -1 }, if dy >= 0 { 1 } else { -1 });
     let mut e = (major / 2).max(1);
-    let mut out = Vec::with_capacity(major as usize);
-    for _ in 0..major {
+    let steps = major / stride;
+    let mut out = Vec::with_capacity(steps as usize);
+    for _ in 0..steps {
         let (mut mx, mut my) = if x_major { (sx, 0) } else { (0, sy) };
         e -= minor;
         if e < 1 {
@@ -349,6 +351,17 @@ mod tests {
         want.push(SE);
         want.extend([E; 7]);
         assert_eq!(run(30, 10, &[], (0, 0), (25, 3)), want);
+    }
+
+    #[test]
+    fn two_tile_lines_count_the_error_in_tiles() {
+        // "Line rule": dx and dy are G − S in tiles, and each step moves one step vector. From (92, 14) to the even
+        // goal (86, 0): M = 14, m = 6, e = 7. Step 1: e = 1, no minor move (N); step 2: e = −5, NW, e = 9; and so on.
+        // Counting in step units (M = 7, m = 3, e = 3) would give NW first.
+        const NW: u8 = 7;
+        assert_eq!(line((92, 14), (86, 0), 2), [N, NW, N, NW, N, NW, N]);
+        // A one-tile line is unchanged.
+        assert_eq!(line((0, 0), (5, 2), 1), [SE, E, E, SE, E]);
     }
 
     #[test]
