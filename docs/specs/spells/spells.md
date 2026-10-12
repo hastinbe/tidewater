@@ -11,6 +11,7 @@
 - **Changes:** 2026-10-12, round-24 errata: a new effect starts at its start step, A cycles after its first update
   (per-kind table); the cosmetic effects are removed in cycle U + A + 1 + W (cannon smoke U + 24, not U + 13); the
   open question on each kind's own script is closed. Kinds 0x13 and 0x14 are the building fires made at map start.
+  2026-10-12, round-30 errata: a test vector confirms the building fires' start step in the running game.
 
 ## Behaviour
 
@@ -437,6 +438,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Fireball cast at cycle C | First update at C; first step and first draw at C + 1 |
 | A spell puts a spell marker (0x16) on a unit in cycle C | First update in C; start step and showing from C + 1; removed in C + 20 |
 | Runes cast: a rune marker (0x0B) made in the timers pass of cycle C | First update in C + 1; start step in C + 3; removed in C + 19 |
+| Map start, oracle trace Human01: the building fires in effect slots 0 and 1 | First update in the first start-up cycle; start step 5 cycles later, in the 4th normal cycle; never removed |
 
 ## Open questions
 
