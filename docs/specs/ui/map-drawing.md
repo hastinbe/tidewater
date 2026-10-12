@@ -6,6 +6,7 @@
   tileset files `Art\bgs\*\*.vx4` / `*.vr4` (the fog shapes). Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-24 errata: the effect sprite file of each kind (Data), and when a new effect starts
   showing (its start step); the ground marker shows for 13 cycles each time it is made.
+  2026-10-12, round-30 errata: the bob value's source is now `orders/orders.md`, "Idle look-around".
 
 ## Behaviour
 
@@ -124,8 +125,8 @@ For each remaining entry, in this order:
 3. **A building:** its box (if any) is drawn over the building, which is already in the background. Then its fire
    (below), if it has one.
 
-**Bob offset.** Every unit is drawn b pixels higher than its position, where b is its bob value (the "misc
-animation" toggle that makes ships rock). For most units b is 0.
+**Bob offset.** Every unit is drawn b pixels higher than its position, where b is its bob value (0 or 1; it flips at
+each bob draw of a ship or flier at rest, `orders/orders.md`, "Idle look-around"). For every other unit b stays 0.
 
 **Colour.** A unit's sprite pixels with palette indices 208 to 211 (the team-colour ramp) are drawn as indices
 base, base + 1, base + 2 and base + 3. The base comes from the unit's colour player (`ui/minimap.md`):
