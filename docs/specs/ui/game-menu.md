@@ -7,6 +7,8 @@
   `restart.bin`, `cstcnfrm.bin`, `chatrtrn.bin`, `surrendr.bin`, `quitdraw.bin`, `quit2mnu.bin`, `quit.bin`) and the
   tables `Rez\objctivs.tbl` and `Rez\network.tbl`. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12: the colour-cycling checkbox now points to `ui/palette-effects.md`.
+  2026-10-12: the save and load dialogs now cite `game/save-load.md`; Load is missing only in a network session, and
+  only Enhanced saved games keep the pause counts.
 
 ## Behaviour
 
@@ -19,9 +21,9 @@ This spec covers the menus a player opens during a game, plus pause and the play
 - pause;
 - the settings kept between runs.
 
-The keys that open these are listed in `ui/selecting-and-commanding.md` ("Keys"). The save and load dialogs are a
-later spec. Table entries are numbered from 1: "network entry n" is entry n of `Rez\network.tbl`. Dialog controls are
-named by their control id in the dialog file.
+The keys that open these are listed in `ui/selecting-and-commanding.md` ("Keys"). The save and load dialogs are in
+`game/save-load.md`. Table entries are numbered from 1: "network entry n" is entry n of `Rez\network.tbl`. Dialog
+controls are named by their control id in the dialog file.
 
 ### Menus and the game clock
 
@@ -48,8 +50,8 @@ Opened by its key or the menu button. The file is `bgamemnu.bin` when the game r
 | Control | Function | Key in the menu | Opens |
 | --- | --- | --- | --- |
 | −3 | Return to the game | Esc | Closes the menu |
-| 1 | Save | F11 | The save dialog (later spec) |
-| 2 | Load (single player only) | F12 | The load dialog (later spec) |
+| 1 | Save | F11 | The save dialog (`game/save-load.md`) |
+| 2 | Load (not in a network session) | F12 | The load dialog (`game/save-load.md`) |
 | 3 | Options | F5 | The options menu |
 | 4 | Help | F1 | The help menu |
 | 5 | Objectives | O | The objectives screen |
@@ -196,7 +198,7 @@ Pause and resume are synced commands (`ui/selecting-and-commanding.md`), in sing
   player's name and the pauses that player has left after this one.
 
 A paused game runs no game cycles (`core/timing-and-rng.md`, for what the clock does). The pause button changes to the
-resume button (`ui/screen-and-cursors.md`). Saved games keep each player's pause count.
+resume button (`ui/screen-and-cursors.md`). Enhanced saved games keep each player's pause count (`game/save-load.md`).
 
 **Greyscale while paused.** When the game pauses, the whole palette is shown in grey. Each colour becomes a grey of
 level floor(77 × red / 256) + floor(151 × green / 256) + floor(28 × blue / 256). Each term is rounded down on its
