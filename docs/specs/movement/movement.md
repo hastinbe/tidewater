@@ -5,6 +5,8 @@
   computed from `Rez\script.bin` (see `specs/core/animation-scripts.md`). The path search is in `pathfinding.md`
   and tile blocking is in `occupancy.md`. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12: the open question on how owner codes map to player kinds is closed by `game/setup.md`.
+- **Changes:** 2026-10-12, round-35 errata: the corridor vector uses order 12, since order 9 isn't attack-type for the
+  path search; a vector for order 9 is added.
 
 ## Behaviour
 
@@ -190,7 +192,8 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | Footman moving diagonally 3 tiles north-east | 3 diagonal steps of 16 cycles; each step moves +32 px x and −32 px y |
 | Unit given a new order mid-step | finishes the current step; the new order takes over at the next step boundary |
 | Footman (human player, no attacker) on a move order in a corridor one tile wide; the next tile holds an enemy catapult standing ground (it can't fire at an adjacent unit, so the footman never gets an attacker) | block 1 (row I): path dropped. Next cycle the search sees the catapult: the line is blocked at its first tile and both walks fail or are rejected, so the result is empty and the move order ends (idle) |
-| Footman (human player, no attacker) with an attack order (order 9) on an enemy beyond such a catapult, in a corridor one tile wide | The search ignores the catapult (attack-type order, non-allied unit), so it keeps returning a path through it, and each step is blocked. Blocks 1 to 7: row I, searches again next cycle; blocks 8 to 14: row D, waits 15 cycles each; block 15: row C, "stand still", counter 0 |
+| Footman (human player, no attacker) chasing a found target (order 12) beyond such a catapult, in a corridor one tile wide | The search ignores the catapult (attack-type order, non-allied unit), so it keeps returning a path through it, and each step is blocked. Blocks 1 to 7: row I, searches again next cycle; blocks 8 to 14: row D, waits 15 cycles each; block 15: row C, "stand still", counter 0 |
+| The same footman with an attack order on that enemy (order 9, not attack-type; `movement/pathfinding.md`) | The search sees the catapult, as for the move order: the route is blocked at its first tile and both walks fail or are rejected |
 | Footman attacking a 4 × 4 town hall whose footprint is (10, 10) to (13, 13), starting at (6, 11), nothing else in the way | Goal (10, 12) (west edge, middle row; a footprint tile). The straight line (`pathfinding.md`) is blocked at the goal itself, with T = (9, 12); the walk from T goes north to (9, 11), inside the goal zone. After shortening the path is (7, 11), (8, 11), (9, 11). At (9, 11) the re-picked goal is still (10, 12), at distance 1 on both axes, so it stops and attacks there after 3 steps |
 | Same, but a route around exists | block 1: searches again next cycle and walks round the blocker; the counter stays at 1 for the rest of the order |
 | Footman blocked by an allied footman walking away (next step not onto it) | waits 15 cycles, keeps its path; counter +1 |
