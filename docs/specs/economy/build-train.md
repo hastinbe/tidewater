@@ -9,6 +9,9 @@
   repair rates and costs now point to `economy/repair.md`. Both open questions are closed.
   2026-10-11, round-4 errata: building payment splits computer players (pay when the AI decides) from every other
   player (pay on arrival), replacing "computer-controlled" and "human-controlled".
+  2026-10-11, round-6 errata: research jobs aren't checked against "known" or "being researched" at the command;
+  finishing or cancelling research depends on the "being researched" bits (new upgrade row); training requirements
+  apply only while enforced; two open questions now point to `economy/tech-tree.md`.
 
 ## Behaviour
 
@@ -126,8 +129,8 @@ A completed building that isn't already working can start **one** job at a time.
 
 | Job | Valid when | Time (progress steps) | Paid |
 | --- | --- | --- | --- |
-| Train a unit | the unit type is made by this building type (a keep or castle trains what a town hall does) and its requirements are met | 2 × the unit's build time | unit costs × 10 |
-| Research a spell | not already being researched by this player | 2 × the upgrade time | upgrade costs |
+| Train a unit | the unit type is made by this building type (a keep or castle trains what a town hall does) and, while requirements are enforced, its requirements are met (`economy/tech-tree.md`) | 2 × the unit's build time | unit costs × 10 |
+| Research a spell | this building type researches it (`economy/tech-tree.md`); the command doesn't check whether it is known or being researched | 2 × the upgrade time | upgrade costs |
 | Weapon, armour or similar upgrade | made by this building type; for two-level upgrades, the player is at the right level | 2 × the upgrade time | upgrade costs |
 | Upgrade the building (town hall to keep, keep to castle, scout tower to guard or cannon tower, and the orc versions) | the target type is an upgrade of this building type | 2 × the new type's build time | new type's costs × 10 |
 
@@ -150,7 +153,8 @@ cycles after the command.
 | Job | Finished | Cancelled |
 | --- | --- | --- |
 | Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
-| Research a spell | The spell becomes known | Full refund |
+| Research a spell | The spell becomes known, if its "being researched" bits are still set (`economy/tech-tree.md`) | Full refund, on the same condition |
+| Upgrade | The level in its line goes up by 1, on the same condition | Full refund, on the same condition |
 | Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M). Towers get order 14 | Full refund |
 
 In every case the "units in training" count (for training) goes back down.
@@ -196,8 +200,7 @@ The values of M and T in these vectors are examples, not quoted from the game da
 
 ## Open questions
 
-- The exact requirement rules per unit type (which upgrades or buildings each needs), and the flag that turns them
-  off.
+The requirement rules, the setting that turns them off and the research jobs' effects are in `economy/tech-tree.md`.
+
 - Whether eyes of Kilrogg and other summoned units count as food in use.
 - What the working order's logic does with a building that is destroyed mid-job (no refund is expected).
-- The research jobs' effects in detail (each upgrade's bonus is in `combat/damage.md`; spells are a later spec).
