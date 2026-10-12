@@ -95,8 +95,14 @@ enum Cmd {
         #[arg(long)]
         install: PathBuf,
         map: String,
-        #[arg(long, default_value_t = 0)]
-        player: u8,
+        /// The player whose units get the orders; the local player by default.
+        #[arg(long)]
+        player: Option<u8>,
+        /// Game setup options: `campaign:ENTRY`, or `custom` with choices such as
+        /// `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`.
+        /// By default a campaign map starts as its campaign mission and any other map as a custom game.
+        #[arg(long, value_parser = tidewater_sim::setup::Setup::parse)]
+        setup: Option<tidewater_sim::setup::Setup>,
         #[arg(long, default_value_t = 0)]
         x: i32,
         #[arg(long, default_value_t = 0)]
@@ -291,6 +297,7 @@ fn main() -> Result<()> {
             y,
             ticks,
             seed,
+            setup,
             fight,
             harvest,
         } => {
@@ -299,7 +306,8 @@ fn main() -> Result<()> {
                 (_, true) => SimMode::Harvest,
                 _ => SimMode::Move,
             };
-            sim(&install, &map, player, (x, y), ticks, seed, mode)?
+            let setup = setup.unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&map));
+            sim(&install, &map, &setup, player, (x, y), ticks, seed, mode)?
         }
         Cmd::Units { install } => {
             let mut inst = Install::open(&install)?;
@@ -600,10 +608,12 @@ enum SimMode {
     Harvest,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sim(
     install: &std::path::Path,
     map: &str,
-    player: u8,
+    setup: &tidewater_sim::setup::Setup,
+    player: Option<u8>,
     to: (i32, i32),
     ticks: u32,
     seed: u32,
@@ -618,18 +628,27 @@ fn sim(
         inst.read(map)?
     };
     let pud = Pud::parse(&data)?;
-    let ts = inst.tileset(pud.era)?;
+    let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
+    let ts = inst.tileset(start.era)?;
     let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
         Some(t) => t,
         None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
     };
     let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
     let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?;
-    let mut w = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), seed)?;
+    let mut w = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), &start)?;
     let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
     w.start_ai(std::sync::Arc::new(ai));
-    // The display maps follow the local player, which the smoke check takes to be player 0.
-    w.vision.local = 0;
+    let player = player.unwrap_or(start.local);
+    println!(
+        "setup {:?}: local player {}, race setting {}, view {:?}, {} sounds, controllers {:?}",
+        setup.game,
+        start.local,
+        start.race_setting,
+        w.start.view,
+        if w.start.orc_sounds { "orc" } else { "human" },
+        w.players.iter().map(|p| p.controller).collect::<Vec<_>>()
+    );
     let units: Vec<_> = w
         .units
         .iter()

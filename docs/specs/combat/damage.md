@@ -21,6 +21,8 @@
   creates nothing and draws nothing; cannon towers, like guard towers, fire without aim scatter.
 - **Changes:** 2026-10-12, round-20 errata: two test vectors renumbered so effect slots 0 to 2 stay in use
   (`core/unit-slots.md`).
+- **Changes:** 2026-10-12, round-23 errata: the Dark Portal special case names its three maps, and the two other
+  shipped maps with a Dark Portal are noted as unprotected; four test vectors added.
 
 ## Behaviour
 
@@ -79,8 +81,9 @@ When damage D from an attacker reaches a target:
 - Nothing happens if the target is already dying or has been removed.
 - **Dark Portal special case:** in a single-player campaign game (not a network game, not a custom scenario) on
   campaign entries 32, 34 and 50 (`game/victory.md`, "Mission rules"), a hit on a type 0x65 (Dark Portal) does
-  nothing, not even the notification, unless the attacker is type 0x18 (Khadgar). Which shipped map files these
-  entries are, and whether each holds a Dark Portal, hasn't been checked; keying on the campaign entry is enough.
+  nothing, not even the notification, unless the attacker is type 0x18 (Khadgar). These are *Beyond the Dark Portal*
+  human missions 3, 4 and 12 (`2XHum03`, `2XHum04`, `2XHum12`), each of which places one neutral Dark Portal. The
+  portals placed by `2XOrc12` and `Human14` aren't protected.
 - Nothing happens if the target has the used mark (`core/corpses.md`), for example a passenger inside a transport.
 - Otherwise the target is first **notified that it was attacked**, even if D is 0 (`ai/attack-ai.md`, "Call for
   help": which attacker is recorded, and who comes to help). The under-attack alert is a separate step
@@ -396,6 +399,10 @@ Cannon smoke and launch slots:
 | A human cannon tower fires at a ship | Small cannon missile, no scatter draws, no smoke; cannon sound |
 | A catapult or ballista strikes | Missile and scatter as usual; no smoke |
 | Smoke updated and removed in cycle C + 13; later in that cycle a higher-slot effect creates a new effect | The new effect may take the smoke's old slot |
+| *Beyond the Dark Portal* human mission 12 (entry 50), single player, a knight hits the Dark Portal | Nothing: no damage, no notification |
+| Same, Khadgar (type 0x18) hits it | Damage applied as usual |
+| *Beyond the Dark Portal* orc mission 12 (entry 51), a grunt hits the Dark Portal | Damage applied as usual |
+| `2XHum12` played as a custom scenario | Damage applied as usual (the check needs a campaign game) |
 
 ## Open questions
 

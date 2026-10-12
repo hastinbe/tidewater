@@ -31,7 +31,7 @@ pub struct Scene {
     /// Each unit type's sprite sheet, for the types that have one.
     pub sheets: HashMap<u8, Grp>,
     pub world: World,
-    /// The player the local user controls (the first `OWNR` slot marked human).
+    /// The player the local user controls (game setup's local player).
     pub human: u8,
     /// The game's seed, which also starts the sound-variant generator (`client::sound`).
     pub seed: u32,
@@ -145,14 +145,21 @@ pub fn tile_picture(ts: &Tileset, megatile: usize) -> Picture {
     }
 }
 
-pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
+/// Loads `map` and starts a game on it with the options `setup` (`docs/specs/game/setup.md`).
+pub fn load(install: &mut Install, map: &str, setup: &tidewater_sim::setup::Setup) -> Result<Scene> {
     let data = if std::path::Path::new(map).is_file() {
         std::fs::read(map).with_context(|| format!("reading {map}"))?
     } else {
         install.read(map)?
     };
     let pud = Pud::parse(&data)?;
-    let ts = install.tileset(pud.era)?;
+    // Single player seeds with the time in whole seconds (timing-and-rng spec, "Seeding"); slot setup draws from it.
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as u32);
+    let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
+    let era = start.era;
+    let ts = install.tileset(era)?;
     let (w, h) = (pud.width as usize, pud.height as usize);
     let (px, _) = ts.draw_map(&pud.tiles, w, h);
     let terrain = Picture {
@@ -166,26 +173,21 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
     };
     let scripts = Scripts::parse(install.read("rez\\script.bin")?)?;
     let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&install.read("rez\\upgrades.dat")?)?;
-    // Single player seeds with the time in whole seconds (timing-and-rng spec, "Seeding").
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as u32);
-    let mut world = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), seed)?;
+    let mut world = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), &start)?;
     let ai = tidewater_formats::aibin::AiFile::parse(install.read("rez\\ai.bin")?)?;
     world.start_ai(std::sync::Arc::new(ai));
 
     let sheets = (0..tidewater_formats::script::UNIT_TYPES as u8)
         .filter_map(|k| {
-            unit_sheet_candidates(k, pud.era).into_iter().find_map(|name| {
+            unit_sheet_candidates(k, era).into_iter().find_map(|name| {
                 let g = Grp::parse(&install.read(&name).ok()?).ok()?;
                 (!g.frames.is_empty()).then_some((k, g))
             })
         })
         .collect();
-    let human = pud.owners().iter().position(|&o| o == 5).unwrap_or(0) as u8;
-    world.vision.local = human;
+    let human = start.local;
     Ok(Scene {
-        era: pud.era,
+        era,
         description: pud.description(),
         terrain,
         palette: ts.palette.clone(),

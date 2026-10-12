@@ -174,12 +174,21 @@ pub struct Sounds {
     pub cooldown: u16,
     /// The latest event location (a unit ready or under attack), for the interface.
     pub last_event: Option<(i32, i32)>,
+    /// Every event location since the client last drained them (a unit ready, work complete or an under-attack
+    /// sound), for the event history of `docs/specs/ui/messages.md`.
+    pub events: Vec<(i32, i32)>,
     /// Quiet counters above 0, by unit.
     quiet: BTreeMap<UnitId, u8>,
     pending: BTreeMap<UnitId, Pending>,
 }
 
 impl Sounds {
+    /// A new latest event location.
+    fn event_at(&mut self, tile: (i32, i32)) {
+        self.last_event = Some(tile);
+        self.events.push(tile);
+    }
+
     /// A unit's quiet counter.
     pub fn quiet(&self, id: UnitId) -> u8 {
         self.quiet.get(&id).copied().unwrap_or(0)
@@ -361,7 +370,7 @@ impl World {
         }
         self.sounds.help_timer = HELP_TIMER;
         self.cue(Sound::Help { building }, None);
-        self.sounds.last_event = Some(c);
+        self.sounds.event_at(c);
     }
 
     /// "Unit ready": a trained unit was placed.
@@ -372,7 +381,7 @@ impl World {
         }
         let (kind, tile) = (u.kind, u.tile);
         self.cue(Sound::Ready { kind }, None);
-        self.sounds.last_event = Some(tile);
+        self.sounds.event_at(tile);
     }
 
     /// "Work complete" for unit `i` (a worker out of a finished building, or in Enhanced rules a building whose
@@ -380,8 +389,10 @@ impl World {
     pub(crate) fn work_complete(&mut self, i: usize) {
         let u = &self.units[i];
         if u.owner == self.local() {
-            let peasant = u.kind == PEASANT;
+            let (peasant, tile) = (u.kind == PEASANT, u.tile);
             self.cue(Sound::WorkComplete { peasant }, None);
+            // Messages spec, "Event history": work complete is an event too.
+            self.sounds.events.push(tile);
         }
     }
 
@@ -745,6 +756,7 @@ mod tests {
         assert_eq!(help, [(Sound::Help { building: false }, None)]);
         assert_eq!(w.sounds.help_timer, HELP_TIMER);
         assert_eq!(w.sounds.last_event, Some((20, 20)));
+        assert_eq!(w.sounds.events, [(20, 20)]);
         for id in [f, near, foe] {
             assert_eq!(w.sounds.quiet(id), QUIET);
         }

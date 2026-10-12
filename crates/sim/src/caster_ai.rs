@@ -158,7 +158,8 @@ struct Try<'a> {
 
 impl World {
     /// The alliance table: a player counts itself and the neutral owner (15) as allied, and the players its alliance
-    /// bits name. Owner 14 (free slots) counts as allied only with itself.
+    /// bits name. Owner 14 (free slots) counts as allied only with itself. Game setup's table already sets the neutral
+    /// bit for every player, but worlds not built from a map start with no alliance bits, so the neutral case stays.
     fn alliance(&self, a: u8, b: u8) -> bool {
         b == slots::NEUTRAL || self.allied(a, b)
     }

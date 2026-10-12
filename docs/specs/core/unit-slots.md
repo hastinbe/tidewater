@@ -7,6 +7,8 @@
   shore water.
 - **Changes:** 2026-10-12, round-20 errata: the three permanent effects are never freed, so effects made during play
   take slot 3 or higher.
+- **Changes:** 2026-10-12: the open question on what the three permanent effects show is closed by
+  `ui/map-drawing.md`: slot 0 is the light building fire, slot 1 the heavy building fire and slot 2 the ground marker.
 
 ## Behaviour
 
@@ -39,7 +41,8 @@ Every unit slot belongs to exactly one owner list at all times.
    list starts with slot N − 1 and ends with slot 0.
 3. The effect table is cleared. Three permanent effect entries are created at once, so they take effect slots 0, 1
    and 2. None of the three is ever freed: two loop forever, and the third is only ever replaced in place. So effects
-   made during play always take slot 3 or higher.
+   made during play always take slot 3 or higher. Slots 0 and 1 are the light and heavy building fires, and slot 2 is
+   the ground marker (`ui/map-drawing.md`).
 4. The map's units are created in the order the map file lists them (see "Creating a unit").
    - Units of an owner that is not playing are skipped.
    - Start-location markers are normally not created (they set the starting view instead).
@@ -150,6 +153,5 @@ no effect is created. A released effect slot is simply marked unused.
 - How many cycles a corpse and a ruin last, and the decay stages between them (bones, crater and so on).
 - The exact rule for which ruin type a building becomes (it depends on the building's width, and on water for
   shore buildings).
-- What the three permanent effects at map start show on screen.
 - Whether a player with only corpses left in their list still counts towards P (it appears so, since corpses keep their
   owner until removed).

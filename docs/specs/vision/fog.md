@@ -9,6 +9,9 @@
   closed by `ui/minimap.md`: the alternation is by minimap pixel column on every map size.
 - **Changes:** 2026-10-12: the open question on whether the shared-vision set contains the player itself is
   closed by `game/setup.md`: game setup puts each player in its own set.
+- **Changes:** 2026-10-12: the main-view fog drawing is now in `ui/map-drawing.md`, which closes that open question
+  and answers when the minimap's "seen" marker is set. The hidden-from rule now names the right states: dead, removed
+  or inside something (a dying unit isn't hidden from everyone), as in the research notes.
 
 ## Behaviour
 
@@ -70,7 +73,8 @@ needs the mapping:
 | 16 | all | fully fogged |
 
 TL, TR, BL and BR are top-left, top-right, bottom-left and bottom-right. A code 0 tile in the explored map that is
-code 16 in the visible map is explored but fogged; the main view greys it (the shading itself is a rendering topic).
+code 16 in the visible map is explored but fogged; the main view covers it with a black checkerboard
+(`ui/map-drawing.md`, "Fog").
 
 ### The "seen" map
 
@@ -179,8 +183,8 @@ In Enhanced mode the set is then widened: every player in the shared-vision set 
 
 ### Unit visibility (phase 5)
 
-Each cycle, each unit gets a **hidden-from** set of players. A unit that is dead, dying or inside something is hidden
-from everyone. Otherwise, for each player p:
+Each cycle, each unit gets a **hidden-from** set of players. A unit that is dead, removed or inside something is
+hidden from everyone. Otherwise, for each player p:
 
 | Player p | The unit is hidden from p when |
 | --- | --- |
@@ -275,10 +279,10 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 - Which unit types have the "can see submarine" flag in the default unit data.
 - Sight values above 9 in custom unit data: the program has no area for them (the behaviour is undefined; assume
   maps never use them).
-- The marker that keeps a building drawn on the minimap after it was seen: when it is set and cleared. It is reset for
-  buildings whose whole footprint is unexplored when the reveal-map cheat is switched.
-- The main-view drawing of fogged areas (the grey shading, and whether enemy buildings in fog show their last-seen
-  state) is a rendering topic and is not covered.
+- The marker that keeps a building drawn on the minimap after it was seen is the building's remembered look in
+  `ui/map-drawing.md`, set whenever the building isn't hidden from the local player. Whether that also happens while
+  the building is off the map view is open there. It is reset for buildings whose whole footprint is unexplored when
+  the reveal-map cheat is switched.
 - The direction step used for a worker entering a building (rule 3 under "When sight is applied") was read from a
   direction table and not checked against the game.
 - Whether a passive player's units are ever hidden-from-checked in a way that matters (passive players don't

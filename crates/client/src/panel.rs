@@ -8,7 +8,7 @@
 //!
 //! Our reading of the spec where it is open is marked "Our reading:" at the place it applies.
 
-use tidewater_sim::economy::{self, Shortage};
+use tidewater_sim::economy;
 use tidewater_sim::{Command, Order, UnitId, World};
 
 use crate::hud::Rect;
@@ -1005,34 +1005,28 @@ fn act_name(a: Act) -> &'static str {
     }
 }
 
-/// The tooltip of a shown button: its text, then the cost its cost kind asks for.
-pub fn tooltip(en: &Entry, label: &Label, s: &impl PanelState) -> String {
-    let mut out = if label.text.is_empty() {
+/// The tooltip of a shown button: its text (the costs go to the status bar's cost items, [`costs`]).
+pub fn tooltip(en: &Entry, label: &Label) -> String {
+    if label.text.is_empty() {
         act_name(en.act).to_string()
     } else {
         label.text.clone()
-    };
+    }
+}
+
+/// A shown button's costs for the status bar (messages spec, "The status bar"): the cost kind, the gold, lumber and
+/// oil costs (unit data for kind 1, upgrade data for kind 2) and the spell's button mana cost (kind 3).
+pub fn costs(en: &Entry, label: &Label, s: &impl PanelState) -> (u8, Cost, u32) {
     let cost = match (label.cost_kind, en.act) {
-        (1, Act::Build(k) | Act::Train(k) | Act::Become(k)) => Some(s.kind_cost(k)),
-        (2, Act::Research(n)) => Some(s.upgrade_cost(n)),
-        _ => None,
+        (1, Act::Build(k) | Act::Train(k) | Act::Become(k)) => s.kind_cost(k),
+        (2, Act::Research(n)) => s.upgrade_cost(n),
+        _ => [0; 3],
     };
-    if let Some(c) = cost {
-        let parts: Vec<String> = [("gold", c[0]), ("lumber", c[1]), ("oil", c[2])]
-            .iter()
-            .filter(|(_, n)| *n > 0)
-            .map(|(name, n)| format!("{name} {n}"))
-            .collect();
-        if !parts.is_empty() {
-            out.push_str(&format!(" ({})", parts.join(", ")));
-        }
-    }
-    if let (3, Act::Cast(n)) = (label.cost_kind, en.act)
-        && let Some(m) = button_mana(n)
-    {
-        out.push_str(&format!(" (mana {m})"));
-    }
-    out
+    let mana = match (label.cost_kind, en.act) {
+        (3, Act::Cast(n)) => button_mana(n).unwrap_or(0) as u32,
+        _ => 0,
+    };
+    (label.cost_kind, cost, mana)
 }
 
 // --- what a button does -------------------------------------------------------------------------------------------
@@ -1313,12 +1307,7 @@ impl PanelState for WorldState<'_> {
         self.world
             .can_afford(self.local, cost, needs_food)
             .err()
-            .map(|s| match s {
-                Shortage::Food => 438,
-                Shortage::Gold => 439,
-                Shortage::Lumber => 440,
-                Shortage::Oil => 441,
-            })
+            .map(crate::messages::shortage_entry)
     }
 
     fn has_depot(&self, id: UnitId) -> bool {
@@ -1792,13 +1781,15 @@ mod tests {
     }
 
     #[test]
-    fn tooltips_add_costs() {
+    fn tooltips_and_costs() {
         let s = Fake::all();
         let train = &H_BARRACKS[0];
         let l = parse_label("f\u{1}TRAIN FOOTMAN");
-        assert_eq!(tooltip(train, &l, &s), "TRAIN FOOTMAN (gold 400)");
+        assert_eq!(tooltip(train, &l), "TRAIN FOOTMAN");
+        assert_eq!(costs(train, &l, &s), (1, [400, 0, 0], 0));
         let l = parse_label("s");
-        assert_eq!(tooltip(&MAGE_PART[1], &l, &s), "Stop");
+        assert_eq!(tooltip(&MAGE_PART[1], &l), "Stop");
+        assert_eq!(costs(&MAGE_PART[1], &l, &s), (0, [0; 3], 0));
     }
 
     #[test]
