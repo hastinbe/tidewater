@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the AI script file
   `Rez\ai.bin` in the game data (decoded with the format below), the unit flags in the game's unit data and the AI
   list and `AIPL` section in the public PUD specification text. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-10 errata: units left out of the army counts are held units (map-placed, `UNIT` data
+  value with a non-zero low byte), not rescuable ones; slots 0x09 to 0x12 filled in.
 
 ## Behaviour
 
@@ -100,11 +102,14 @@ Multi-byte values are little-endian.
 Comparisons are unsigned. The products are of two bytes, so up to 65025.
 
 **Workers** are units of types 0x02, 0x03, 0x10 and 0x11 (peasant, peon and both attack versions). The count includes
-rescuable units.
+held units (below).
 
-**Army** counts are kept per player for every unit that exists, is complete and is **not rescuable**. The unit's type
-flags decide which army it is in (the PUD flag bits: 0 land, 1 air, 2 explodes, 3 sea, 4 critter, 8 peon, 19 can
-attack). Only units with at least one of bits 0 to 4 and with bit 19 count. Of those:
+**Army** counts are kept per player for every unit that exists, is complete and is **not held**. A **held** unit is
+one placed by the map's `UNIT` section whose 16-bit data value has a non-zero low byte (the public PUD text calls this
+field "0 passive, 1 active"; gold mines and oil patches use it for their amount and never get the mark). The mark is
+set when the map is loaded. It is not the rescuable mark of rescue-owned units, which doesn't affect any count here.
+The unit's type flags decide which army it is in (the PUD flag bits: 0 land, 1 air, 2 explodes, 3 sea, 4 critter, 8
+peon, 19 can attack). Only units with at least one of bits 0 to 4 and with bit 19 count. Of those:
 
 | Army | Rule, first match |
 | --- | --- |
@@ -124,8 +129,7 @@ Workers (peon flag), tankers, transports, flying machines, zeppelins, critters, 
 (including towers, which have none of bits 0 to 4) are in no army. The attack peasant and attack peon are in the land
 army and also count as workers.
 
-A unit is taken out of the army counts when it is made rescuable at map load. (That a rescued unit joins them
-again is assumed, not traced.)
+A held unit is taken out of the army counts when the map is loaded. The worker count still includes it.
 
 ### Slots
 
@@ -134,10 +138,11 @@ this table records what is known so far.
 
 | Slot | Use | Known from |
 | --- | --- | --- |
-| 0x09 to 0x0C | Attack control (not yet traced). Scripts set 0x09 to 1 just after an army condition is met | Script patterns |
-| 0x0D, 0x0E | Land army size test: condition 4 compares with their product | Conditions |
-| 0x0F, 0x10 | Sea army size test (condition 5) | Conditions |
-| 0x11, 0x12 | Air army size test (condition 6) | Conditions |
+| 0x09, 0x0A, 0x0B | Land, sea and air attack-wave triggers (the attack AI, in a later spec). Scripts set 0x09 to 1 just after an army condition is met | Script patterns; the AI work every 50 cycles |
+| 0x0C | Switches the ferry's landing-spot search (the attack AI). Set to 1 for every player when the game starts | The AI work every 50 cycles; game start |
+| 0x0D, 0x0E | Land army size test: condition 4 compares with their product. Also the land wave's size and repeat count | Conditions; attack waves |
+| 0x0F, 0x10 | Sea army size test (condition 5). Also the sea wave's size and repeat count | Conditions; attack waves |
+| 0x11, 0x12 | Air army size test (condition 6). Also the air wave's size and repeat count | Conditions; attack waves |
 | 0x13 | Wanted workers; also condition 3's threshold | Conditions, training |
 | 0x14 | Wanted footmen / grunts | Training |
 | 0x15 | Wanted archers / axe throwers (rangers / berserkers once upgraded) | Training |
@@ -192,7 +197,7 @@ condition 0 never does. Wait counts range from 300 to 65535.
 | Human player 0 with script 0 | Script runs at game start until its first pause, and never again |
 | Computer player 9 (above 7) | No script |
 | Condition 4 with slot 0x0D = 0 | Always true (product 0) |
-| Land army counts: 2 footmen, 1 peasant, 1 guard tower, 1 rescuable grunt, 1 flying machine | Land army 2; workers 1; sea 0; air 0 |
+| Land army counts: 2 footmen, 1 peasant, 1 guard tower, 1 held grunt, 1 flying machine | Land army 2; workers 1; sea 0; air 0 |
 | Attack peon owned by *p* | Counts as a worker and in the land army |
 | Condition 7, player 1 (computer, no workers of its own) allied with player 2 only; player 2 has peasants; no other player has workers | False |
 | Same, but player 3 (not allied) gets a peon | True |
@@ -208,6 +213,7 @@ condition 0 never does. Wait counts range from 300 to 65535.
   table includes the player itself.
 - Writing slots 0 to 8 or 0x23 and above would overwrite the wait counter, position or list offsets. No shipped
   script does this; what a reimplementation should do with such a script is open.
-- The meaning of slots 0x09 to 0x0C, 0x1F and 0x21, the second list, and build-list values from 0x80 up.
+- The meaning of slots 0x1F and 0x21, the second list, and build-list values from 0x80 up.
+- Whether anything clears the held mark after map load. None was found. Default: the mark stays for the unit's life.
 - The training, building and attack logic that reads the slots, and the AI work run every 50 cycles in the same
   phase (starting with the first cycle), are not yet specified.
