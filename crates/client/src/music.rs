@@ -20,8 +20,7 @@
 //!
 //! Not yet here: the fade when the program exits, the attract demo start, a custom game starting from the
 //! custom-scenario screen and entering Battle.net (their screens do not exist yet); the sound dialog (it calls
-//! `Jukebox::set_volume`); the disco cheat's typing (the toggle itself is [`Music::disco`]); a saved game's track (it
-//! should be saved with the game); blocking fades (see above).
+//! `Jukebox::set_volume`); blocking fades (see above).
 //!
 //! Our choice for the campaign flow: the briefing's track is closed at once when the game screen opens, so the game's
 //! own track plays rather than the briefing's carrying on (the spec's "only if not started" would let it).
@@ -369,6 +368,11 @@ impl Music {
         self.bump = entry.is_some_and(|e| e < TIDES_ENTRIES);
     }
 
+    /// The track after the campaign bump.
+    fn bumped(&self, t: u8) -> u8 {
+        if self.bump && (t == 0 || t == 6) { t + 1 } else { t }
+    }
+
     fn close(&mut self, out: &mut Vec<Action>) {
         if self.open.take().is_some() {
             out.push(Action::Stop);
@@ -384,7 +388,7 @@ impl Music {
             self.close(out);
             return;
         };
-        let t = if self.bump && (t == 0 || t == 6) { t + 1 } else { t };
+        let t = self.bumped(t);
         self.current = Some(t);
         if carry_on && self.open_track() == Some(t) {
             return;
@@ -498,6 +502,8 @@ impl Music {
         let actions = if self.playing() {
             self.fade_stop(true, Some(track))
         } else {
+            // Only the game's track changes; it is heard the next time the music starts (a volume change).
+            self.current = Some(self.bumped(track));
             Vec::new()
         };
         (track, actions)
@@ -986,6 +992,7 @@ mod tests {
         let mut quiet = Music::new(100);
         let (track, a) = quiet.disco(true, 4);
         assert_eq!((track, a), (DISCO, vec![]));
+        assert_eq!(quiet.current(), Some(DISCO), "heard the next time the music starts");
     }
 
     #[test]

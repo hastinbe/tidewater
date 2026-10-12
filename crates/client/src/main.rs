@@ -15,6 +15,7 @@
 //! notices and the status bar follow `ui/messages.md` (`messages`).
 
 mod campaign;
+mod chat;
 mod cheats;
 mod fog;
 mod frontend;
@@ -26,7 +27,7 @@ mod menu;
 mod messages;
 mod minimap;
 mod mouse;
-#[allow(dead_code)] // the disco toggle and the sound dialog's calls are not wired yet
+#[allow(dead_code)] // the spec's track table and fade helpers are kept whole; some screens don't use them yet
 mod music;
 mod palette;
 mod panel;
@@ -37,6 +38,7 @@ mod savegame;
 mod saves;
 mod scene;
 mod screen;
+mod screenshot;
 mod sound;
 mod video;
 mod view;
@@ -114,12 +116,16 @@ struct Args {
     /// The Preferences dialog's second mouse style: right click centres the view instead of giving a command.
     #[arg(long)]
     second_mouse_style: bool,
-    /// The speed dialog's mouse scroll speed, 0 to 6 (fastest).
-    #[arg(long, default_value_t = screen::DEFAULT_SPEED, value_parser = clap::value_parser!(u8).range(0..=6))]
-    mouse_scroll_speed: u8,
-    /// The speed dialog's key scroll speed, 0 to 6 (fastest).
-    #[arg(long, default_value_t = screen::DEFAULT_SPEED, value_parser = clap::value_parser!(u8).range(0..=6))]
-    key_scroll_speed: u8,
+    /// The speed dialog's mouse scroll speed, 0 to 6 (fastest). Without it, the stored setting.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
+    mouse_scroll_speed: Option<u8>,
+    /// The speed dialog's key scroll speed, 0 to 6 (fastest). Without it, the stored setting.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
+    key_scroll_speed: Option<u8>,
+    /// The settings file, read at start and written when the program exits normally. Without it, `settings.txt` in
+    /// the `--save-dir` folder if one is given, else in Tidewater's own user data directory.
+    #[arg(long)]
+    settings: Option<PathBuf>,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -277,6 +283,14 @@ struct Cycling {
     started: std::time::Instant,
     /// Per megatile, the palette entries it uses; filled on first use.
     used: Option<Vec<palette::Entries>>,
+    /// The palette the screen shows now (`palette::shown`): the pictures are converted with it.
+    shown: tidewater_formats::tileset::Palette,
+    /// When the game start's fade-in began (ms on `started`'s clock).
+    fade_start: Option<u64>,
+    /// Frames the screenshot flash still shows the negative (`screenshot`).
+    flash: u8,
+    /// The effects in force this frame.
+    effects: palette::Effects,
 }
 
 /// The map view's sprite files, palette and fog shapes (`view`, `fog`).
@@ -361,7 +375,11 @@ fn main() -> Result<()> {
         (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
     };
     flow.steps = steps.into();
-    let stored = gamemenu::Stored(prefs::Prefs::from_args(
+    let settings = args
+        .settings
+        .clone()
+        .unwrap_or_else(|| saves::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
+    let stored = gamemenu::Stored(prefs::Prefs::load(&settings).with_args(
         args.mouse_scroll_speed,
         args.key_scroll_speed,
         args.second_mouse_style,
@@ -372,6 +390,7 @@ fn main() -> Result<()> {
         .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
     let ui_scale = args.ui_scale;
     let save_dir = args.save_dir.clone();
+    let shot_dir = args.save_dir.clone();
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
@@ -388,12 +407,18 @@ fn main() -> Result<()> {
         )))
         .insert_resource(flow)
         .insert_resource(stored)
+        .insert_resource(SettingsFile(settings))
+        .add_systems(Last, store_settings)
         .insert_resource(Opts(args))
         .add_plugins(frontend::plugin)
         .add_plugins(gamemenu::plugin)
         .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
         .add_systems(OnExit(frontend::AppState::Game), end_game)
+        .add_systems(Update, stop_clock.run_if(in_state(frontend::AppState::Game)))
         .add_plugins(cheats::plugin)
+        .add_plugins(chat::plugin)
+        .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
+        .add_plugins(screenshot::plugin)
         .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
         .add_systems(
             Update,
@@ -429,6 +454,19 @@ fn main() -> Result<()> {
         )
         .run();
     Ok(())
+}
+
+/// Where the stored settings live (`prefs`).
+#[derive(Resource)]
+struct SettingsFile(PathBuf);
+
+/// "Saving": the settings are written when the program exits normally, not on an error exit.
+fn store_settings(mut exits: MessageReader<AppExit>, file: Res<SettingsFile>, stored: Res<gamemenu::Stored>) {
+    if exits.read().any(|e| *e == AppExit::Success)
+        && let Err(e) = stored.0.store(&file.0)
+    {
+        eprintln!("can't write the settings to {}: {e}", file.0.display());
+    }
 }
 
 /// The command line, kept for starting games.
@@ -485,8 +523,8 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         demo_place: a.demo_place,
         demo_site: a.demo_site,
         second_mouse_style: a.second_mouse_style,
-        mouse_scroll_speed: a.mouse_scroll_speed,
-        key_scroll_speed: a.key_scroll_speed,
+        mouse_scroll_speed: a.mouse_scroll_speed.unwrap_or(screen::DEFAULT_SPEED),
+        key_scroll_speed: a.key_scroll_speed.unwrap_or(screen::DEFAULT_SPEED),
         demo_outcome: a.demo_outcome.as_deref().map(|o| o == "victory"),
     };
     let mut install = Install::open(&args.install)?;
@@ -579,6 +617,10 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         },
         started: std::time::Instant::now(),
         used: None,
+        shown: scene.palette.clone(),
+        fade_start: None,
+        flash: 0,
+        effects: palette::Effects::default(),
     };
     let mut speaker = Speaker {
         director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
@@ -660,6 +702,14 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         let (x, y) = r.body.client.screen;
         world.insert_resource(savegame::ResumeLook(Vec2::new(x as f32, y as f32)));
     }
+    // The game clock starts now, from a loaded game's saved reading (Classic saves have none: 0).
+    let (clock, pauses) = savegame::clock_and_pauses(
+        resume.as_ref().and_then(|r| r.body.client.clock_ms),
+        resume.as_ref().and_then(|r| r.body.client.pause_counts),
+        std::time::Instant::now(),
+    );
+    world.insert_resource(clock);
+    world.insert_resource(pauses);
     world.insert_resource(cycling);
     world.insert_resource(Loaded(Some(scene)));
     world.insert_resource(MapSize(size));
@@ -698,6 +748,15 @@ type GameEntities<'w, 's> = Query<
     ),
 >;
 
+/// The game clock stops when the game ends (`savegame::GameClock`).
+fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>) {
+    if let (Some(sim), Some(mut clock)) = (sim, clock)
+        && sim.world.victory.over
+    {
+        clock.stop(std::time::Instant::now());
+    }
+}
+
 /// Leaving the game screen: its entities go (not the front end's camera, pictures or music) and so does the game.
 fn end_game(mut commands: Commands, q: GameEntities) {
     for e in &q {
@@ -705,6 +764,8 @@ fn end_game(mut commands: Commands, q: GameEntities) {
     }
     commands.remove_resource::<Sim>();
     commands.remove_resource::<Loaded>();
+    commands.remove_resource::<savegame::GameClock>();
+    commands.remove_resource::<savegame::PauseCounts>();
 }
 
 fn image_with(p: scene::Picture, usage: RenderAssetUsages) -> Image {
@@ -923,8 +984,9 @@ fn tick(
     sim.counter.update(real);
 }
 
-/// Steps the colour cycles (`palette`, spec `ui/palette-effects.md`) and applies the cycled palette: the map view,
-/// the interface and the terrain tiles that use the changed entries all convert with it from here on.
+/// Steps the colour cycles (`palette`, spec `ui/palette-effects.md`) and applies the palette the screen shows (the
+/// cycled one, grey while paused, negative during the screenshot flash, faded at the game's start): the map view, the
+/// interface and the terrain tiles that use a changed entry all convert with it from here on.
 #[allow(clippy::too_many_arguments)]
 fn cycle_palette(
     sim: Option<Res<Sim>>,
@@ -950,13 +1012,28 @@ fn cycle_palette(
     let now = cycling.started.elapsed().as_millis() as u64;
     let placing = matches!(ui.mode, panel::Mode::Place(_));
     let turned = cycling.state.frame(now, gate, placing);
-    if turned == 0 {
+    let fade_start = *cycling.fade_start.get_or_insert(now);
+    let fade_t = now.saturating_sub(fade_start).min(palette::fades::GAME_START_IN as u64) as u32;
+    let effects = palette::Effects {
+        paused: sim.world.paused,
+        negative: cycling.flash > 0,
+        fade_in: (fade_t < palette::fades::GAME_START_IN).then_some((fade_t, palette::fades::GAME_START_IN)),
+    };
+    cycling.flash = cycling.flash.saturating_sub(1);
+    cycling.effects = effects;
+    let shown = palette::shown(cycling.state.palette(), effects);
+    let changed = palette::Entries::changed(&cycling.shown, &shown);
+    if turned != 0 {
+        // The interface draws with the cycled palette; `draw_hud` puts the effects over its whole picture, as it has
+        // colours of its own besides palette entries.
+        hud.art.set_palette(cycling.state.palette());
+    }
+    if changed.is_empty() {
         return;
     }
-    art.palette = cycling.state.palette().clone();
-    hud.art.set_palette(cycling.state.palette());
-    // Redraw the terrain tiles that use an entry a turn changed (water and coast).
-    let changed = cycling.state.cycler().entries_of(turned);
+    cycling.shown = shown;
+    art.palette = cycling.shown.clone();
+    // Redraw the terrain tiles that use a changed entry (water and coast for a cycle; all of them for the greyscale).
     let ts = &terrain.tileset;
     let used = cycling.used.take().unwrap_or_else(|| {
         (0..ts.megatiles.len())
@@ -980,7 +1057,7 @@ fn cycle_palette(
                     if !used.get(m as usize).is_some_and(|u| u.intersects(&changed)) {
                         continue;
                     }
-                    let pic = scene::tile_picture(ts, m as usize, cycling.state.palette());
+                    let pic = scene::tile_picture(ts, m as usize, &cycling.shown);
                     for row in 0..t {
                         let at = ((y as usize * t + row) * width + x as usize * t) * 4;
                         data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);
@@ -1014,7 +1091,7 @@ fn redraw_terrain(
         let Some(m) = sim.world.terrain.tile(x, y) else {
             continue;
         };
-        let pic = scene::tile_picture(&art.tileset, m as usize, cycling.state.palette());
+        let pic = scene::tile_picture(&art.tileset, m as usize, &cycling.shown);
         for row in 0..t {
             let at = ((y as usize * t + row) * width + x as usize * t) * 4;
             data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);
@@ -1761,7 +1838,7 @@ fn keys_input(
     }
     let (sim, sel) = (&mut *sim, &mut *sel);
     let human = sim.human;
-    // Messages spec, "Event history": the space key (no chat line yet to take it).
+    // Messages spec, "Event history": the space key (an open chat line takes it first, `chat`).
     if keys.just_pressed(KeyCode::Space)
         && let Some(h) = &mut scr.history
     {
@@ -1777,7 +1854,7 @@ fn keys_input(
         alt: keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]),
     };
     for &k in keys.get_just_pressed() {
-        // The client plays one human player and has no chat line yet.
+        // The client plays one human player; while the chat line is open, `chat` has taken the typing keys already.
         let Some(a) = game_key(k).and_then(|key| mouse::key_action(key, m, false, sim.world.rules.enhanced, false))
         else {
             continue;
@@ -2182,6 +2259,7 @@ fn update_messages(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_hud(
     sim: Option<Res<Sim>>,
     sel: Res<Selection>,
@@ -2189,6 +2267,7 @@ fn draw_hud(
     ui: Res<PanelUi>,
     info_panel: Res<InfoPanel>,
     scr: Res<ScreenUi>,
+    cycling: Res<Cycling>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let (Some(sim), Some(layout)) = (sim, hud.layout) else {
@@ -2245,6 +2324,8 @@ fn draw_hud(
             buttons: &buttons,
         },
     );
+    let mut pic = pic;
+    palette::apply(&mut pic.rgba, cycling.effects);
     if let Some(mut img) = images.get_mut(&hud.image) {
         *img = image_with(pic, RenderAssetUsages::default());
     }

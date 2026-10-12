@@ -108,7 +108,7 @@ pub struct ClientState {
     pub memory: Memory,
     pub start_controllers: [u8; 8],
     /// The game clock in milliseconds and each player's pause count. Enhanced saves only; the simulation doesn't hold
-    /// them, so whoever keeps them fills these in (`None` while nothing does).
+    /// them: `savegame::GameClock` and `savegame::PauseCounts` do.
     pub clock_ms: Option<u32>,
     pub pause_counts: Option<[u8; 16]>,
 }
