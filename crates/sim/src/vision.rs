@@ -314,7 +314,7 @@ impl World {
         self.reveal(owner, c, 3);
     }
 
-    /// Phase 3. Returns whether this is a fog refresh cycle (the first cycle, then every 100, or 101 in Classic). On a
+    /// Phase 3. Returns whether this is a fog refresh cycle (the first start-up cycle, then every 100, or 101 in Classic). On a
     /// refresh with the option on, the visible map and every "seen" bit are fogged again.
     pub(crate) fn fog_refresh(&mut self) -> bool {
         self.vision.countdown = self.vision.countdown.saturating_sub(1);
@@ -701,6 +701,82 @@ mod tests {
             assert_eq!(w.vision.code(Map::Explored, 20, 20), 0);
             run(&mut w, 300);
             assert_eq!(w.vision.code(Map::Visible, 20, 20), want);
+        }
+    }
+
+    /// Core timing spec, "Test vectors" (Human01 run): the refresh runs in the first start-up cycle (record n = 1),
+    /// then at counter 99, 199, ... (records 101, 201, ...), and in no other cycle.
+    #[test]
+    fn refresh_runs_in_the_first_start_up_cycle_then_at_counters_99_199() {
+        let mut w = map();
+        w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+        let mut records = Vec::new();
+        for n in 1..=2 {
+            if w.vision.countdown == 1 {
+                records.push(n);
+            }
+            w.step(&[]);
+        }
+        assert_eq!(records, [1]);
+        w.end_start_up();
+        let mut counters = Vec::new();
+        for _ in 0..700 {
+            let due = w.vision.countdown == 1;
+            w.step(&[]);
+            if due {
+                counters.push(w.tick);
+            }
+        }
+        assert_eq!(counters, [99, 199, 299, 399, 499, 599, 699]);
+        // As trace records (n = counter + 2): 101, 201, ... 601, 701.
+        assert_eq!(
+            counters.iter().map(|c| c + 2).collect::<Vec<_>>()[..6],
+            [101, 201, 301, 401, 501, 601]
+        );
+    }
+
+    /// Classic: period 101, so the refreshes are at counter 100, 201, 302 (from the period; no Classic run traced).
+    #[test]
+    fn classic_refresh_runs_at_counters_100_201_302() {
+        let mut w = map();
+        w.rules.enhanced = false;
+        w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+        w.step(&[]);
+        w.step(&[]);
+        w.end_start_up();
+        let mut counters = Vec::new();
+        for _ in 0..350 {
+            let due = w.vision.countdown == 1;
+            w.step(&[]);
+            if due {
+                counters.push(w.tick);
+            }
+        }
+        assert_eq!(counters, [100, 201, 302]);
+    }
+
+    /// Fog vector, named by counter: a scout leaves in the cycle ending at counter 50; the area stays visible until
+    /// the refresh at counter 99; the area stays explored.
+    #[test]
+    fn scout_vector_by_counter_visible_until_the_refresh_at_99() {
+        for fog in [true, false] {
+            let mut w = map();
+            w.rules.fog_of_war = fog;
+            let id = w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+            w.start_up();
+            run(&mut w, 49);
+            let i = w.index(id).unwrap();
+            w.units[i].tile = (40, 40);
+            run(&mut w, 1);
+            assert_eq!(w.tick, 50);
+            run(&mut w, 48);
+            assert_eq!(w.tick, 98);
+            assert_eq!(w.vision.code(Map::Visible, 20, 20), 0, "still visible at counter 98");
+            run(&mut w, 1);
+            assert_eq!(w.tick, 99);
+            let want = if fog { 16 } else { 0 };
+            assert_eq!(w.vision.code(Map::Visible, 20, 20), want, "fogged by the refresh at 99");
+            assert_eq!(w.vision.code(Map::Explored, 20, 20), 0);
         }
     }
 

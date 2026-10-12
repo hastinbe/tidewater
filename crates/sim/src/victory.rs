@@ -823,6 +823,108 @@ mod tests {
         assert_eq!(checks, [2, 203, 404, 605]);
     }
 
+    /// Core timing spec, scheduler rule 1, and game/victory, "When the check runs": the countdown counts the two
+    /// start-up cycles, so the check runs in the second start-up cycle, then at counter 201, 402, 603.
+    #[test]
+    fn checks_run_in_the_second_start_up_cycle_then_at_counters_201_402_603() {
+        let mut w = world(16, 16);
+        w.spawn(0x00, 0, (2, 2), 0).unwrap();
+        w.spawn(0x00, 1, (20, 20), 0).unwrap();
+        let (mut records, mut counters) = (Vec::new(), Vec::new());
+        for n in 1..=2 {
+            let before = w.victory.countdown;
+            w.step(&[]);
+            if before == 0 {
+                records.push(n);
+            }
+        }
+        assert_eq!(records, [2], "the check runs in the second start-up cycle only");
+        w.end_start_up();
+        for _ in 0..700 {
+            let before = w.victory.countdown;
+            w.step(&[]);
+            if before == 0 {
+                counters.push(w.tick);
+            }
+        }
+        assert_eq!(counters, [201, 402, 603]);
+        assert_eq!(w.victory.countdown, 200 - (700 - 603), "reloaded to 200 at 603");
+    }
+
+    /// Runs normal cycles until the cycle counter reaches `c` (call `start_up` first).
+    fn run_to_counter(w: &mut World, c: u32) {
+        while w.tick < c {
+            w.step(&[]);
+        }
+    }
+
+    #[test]
+    fn counter_vectors_destroy_all_found_at_603_and_shown_at_804() {
+        let mut w = world(16, 16);
+        w.spawn(0x00, 0, (2, 2), 0).unwrap();
+        let foe = w.spawn(0x3a, 1, (10, 10), 0).unwrap();
+        w.start_up();
+        run_to_counter(&mut w, 500);
+        let i = w.index(foe).unwrap();
+        w.units[i].dying = true;
+        run_to_counter(&mut w, 602);
+        assert_eq!(w.victory.rule, None);
+        run_to_counter(&mut w, 603);
+        assert_eq!(w.victory.rule, Some(Rule::Outcome(Outcome::Victory)));
+        run_to_counter(&mut w, 803);
+        assert!(outcomes(&w).is_empty());
+        run_to_counter(&mut w, 804);
+        assert_eq!(outcomes(&w), [(0, Outcome::Victory)]);
+    }
+
+    #[test]
+    fn counter_vectors_training_until_700_found_at_804_and_shown_at_1005() {
+        let mut w = world(16, 16);
+        w.spawn(0x00, 0, (2, 2), 0).unwrap();
+        let foe = w.spawn(0x3a, 1, (10, 10), 0).unwrap();
+        w.players[0].in_training = 1;
+        w.start_up();
+        run_to_counter(&mut w, 500);
+        let i = w.index(foe).unwrap();
+        w.units[i].dying = true;
+        run_to_counter(&mut w, 603);
+        assert_eq!(w.victory.rule, None, "training blocks the 603 check");
+        run_to_counter(&mut w, 700);
+        w.players[0].in_training = 0;
+        run_to_counter(&mut w, 803);
+        assert_eq!(w.victory.rule, None);
+        run_to_counter(&mut w, 804);
+        assert_eq!(w.victory.rule, Some(Rule::Outcome(Outcome::Victory)));
+        run_to_counter(&mut w, 1004);
+        assert!(outcomes(&w).is_empty());
+        run_to_counter(&mut w, 1005);
+        assert_eq!(outcomes(&w), [(0, Outcome::Victory)]);
+    }
+
+    #[test]
+    fn counter_vectors_fourth_farm_at_300_found_at_402_and_shown_at_603() {
+        let mut w = world(24, 24);
+        w.victory.rule = Some(mission_rule(0));
+        w.spawn(0x00, 0, (1, 1), 0).unwrap();
+        w.spawn(0x3c, 0, (4, 1), 0).unwrap();
+        for x in 0..3 {
+            w.spawn(0x3a, 0, (4 + 3 * x, 8), 0).unwrap();
+        }
+        w.start_up();
+        run_to_counter(&mut w, 300);
+        assert_eq!(w.victory.rule, Some(mission_rule(0)), "no result at the 201 check");
+        // The fourth farm completes in cycle 300.
+        w.spawn(0x3a, 0, (13, 8), 0).unwrap();
+        run_to_counter(&mut w, 401);
+        assert_eq!(w.victory.rule, Some(mission_rule(0)));
+        run_to_counter(&mut w, 402);
+        assert_eq!(w.victory.rule, Some(Rule::Outcome(Outcome::Victory)));
+        run_to_counter(&mut w, 602);
+        assert!(outcomes(&w).is_empty());
+        run_to_counter(&mut w, 603);
+        assert_eq!(outcomes(&w), [(0, Outcome::Victory)]);
+    }
+
     #[test]
     fn entries_interleave_races_and_campaigns() {
         assert_eq!(mission_entry(false, false, 8), 14);
