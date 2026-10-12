@@ -12,6 +12,8 @@
   `ui/map-drawing.md`: slot 0 is the light building fire, slot 1 the heavy building fire and slot 2 the ground marker.
 - **Changes:** 2026-10-12, round-31 errata: a new unit's hit points are its type's value, or 1 if that is 0; the AI's
   first-goal rule runs during creation, before the extra first-wait draw.
+- **Changes:** 2026-10-12, round-33 errata: a new unit's facing is 0 (only mobile units then draw one) and its mana
+  byte starts at its type's "magic" value.
 
 ## Behaviour
 
@@ -66,6 +68,13 @@ Every unit slot belongs to exactly one owner list at all times.
    The counter isn't reused. Its hit points are set to its type's hit points from the unit data, or to 1 if that
    value is 0 (in the default data: types 0x22, 0x30, 0x36, 0x5D oil patch, 0x5E, 0x5F and 0x64). A unit under
    construction starts from this value too; `economy/build-train.md` then sets its hit points as it builds.
+   Its facing is 0, and its mana byte is its type's "magic" value from the unit data (in the default data 1 for
+   types 0x0A, 0x0B, 0x15, 0x17, 0x18 and 0x33, and 0 for every other type, the paladin and ogre-mage included).
+   The decay and caster rules of `spells/spells.md` then apply: a unit with a decay rate created during play gets
+   255, and a caster that isn't a building gets 85. Only mobile units then draw a facing (step 5); buildings and
+   other units that aren't mobile keep facing 0, and nothing in normal play changes it. So in the default data a
+   unit that can't cast has mana 0 unless it is a summoned unit, a berserker with regeneration
+   (`spells/spells.md`) or a building under construction or working on a job (`economy/build-train.md`).
 4. **Placement:**
    - The position is aligned to the tile grid: 32 pixels for most units, and 64 pixels (an even tile) for ships and
      flying units.
@@ -157,9 +166,14 @@ no effect is created. A released effect slot is simply marked unused.
 | Game saved and reloaded, then two units die and two are created | the new units take the two released slots, most recently released first |
 | Human04 setup (oracle trace), the three oil patches (type 0x5D) in slots 1572, 1597 and 1599 | hit points 1 each |
 | Human04 setup (oracle trace), the gold mine (type 0x5C) in slot 1559 | hit points 25500, the type's value (its trips, 700, come from the map) |
+| Every building in the Human04, Human01, human12, orc8 and xorc7 traces, at every record | Facing 0 |
+| Every unit in those traces whose type isn't a building and has "magic" 0 | Mana 0 at every record |
+| Human04 at setup: the 16 critters (type 0x39), peons, footmen and grunts | Facings drawn (the critters show facings 1 to 7); mana 0 |
 
 ## Open questions
 
+- **Mana byte after a type change, and on corpses and ruins.** Not checked. Default: a type change sets it from the
+  new type as at creation; a corpse or ruin keeps whatever the corpse rules set, or 0.
 - How many cycles a corpse and a ruin last, and the decay stages between them (bones, crater and so on).
 - The exact rule for which ruin type a building becomes (it depends on the building's width, and on water for
   shore buildings).
