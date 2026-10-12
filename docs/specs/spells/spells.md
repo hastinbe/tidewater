@@ -16,6 +16,9 @@
   flag starts its counter at 0.
   2026-10-12, round-37 errata: a kind 0x16 marker on a unit is placed from the type's box size (as for kinds 8 and 9),
   with no destination, target or shooter.
+  2026-10-12, round-39 errata: every cosmetic effect (kinds 0x0B, 0x15, 0x16, 0x17, 0x19, 0x1A and 0x1C) is created with
+  only its kind and position set (destination (0, 0), no target, no shooter, damage 0), not only kind 0x16; `xorc12`
+  rune vector.
 
 ## Behaviour
 
@@ -295,10 +298,14 @@ restarted script's waits. From that update on, its slot is free for any effect c
 | 0x19 | cannon smoke (`combat/damage.md`) | four frames with a wait of 3 each | 11 | 12 | U + 24 |
 | 0x15, 0x1A | impact effects (`combat/damage.md`, "Impact effects") | as given there | 1 | 12 | U + 14 |
 
+Every cosmetic effect (kinds 0x0B, 0x15, 0x16, 0x17, 0x19, 0x1A and 0x1C) is created with only its kind and position
+set: its destination is (0, 0), and it has no target, no shooter and damage 0, whoever creates it (a rune trap's
+marker, a rune that goes off, a missile's impact effect, a cannon's smoke, a spell marker, an explosion). Nothing is
+copied from the missile or the caster that makes it.
+
 A kind 0x16 marker "on the target" (slow, invisibility, bloodlust, haste, unholy armour) is placed at the unit's pixel
-position plus (floor(w / 2), floor(h / 2) − 4), with w × h the unit type's box size, as for kinds 8 and 9 below. Its
-destination is (0, 0), and it has no target, no shooter and damage 0. Holy vision and polymorph keep their own
-positions.
+position plus (floor(w / 2), floor(h / 2) − 4), with w × h the unit type's box size, as for kinds 8 and 9 below. Holy
+vision and polymorph keep their own positions.
 
 Kinds 0x13 and 0x14 would also be removed at step done, but their scripts loop and never reach one. Only the map
 start creates them: they are the building fires in effect slots 0 and 1 (`core/unit-slots.md`, `ui/map-drawing.md`).
@@ -452,6 +459,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | A spell puts a spell marker (0x16) on a unit in cycle C | First update in C; start step and showing from C + 1; removed in C + 20 |
 | `xorc01-death-knight-2100` (oracle trace), n = 37: haste on ogre 1488 (type 0x07, box 42 × 42) at pixel (2848, 2944) | Effect kind 0x16 at (2869, 2961), destination (0, 0), target null, shooter null, damage 0 |
 | `xorc12-ogre-mage-180` (oracle trace), n = 36: bloodlust on ogre 1547 (type 0x07) at pixel (3712, 288) | Effect kind 0x16 at (3733, 305), destination (0, 0), target null, shooter null |
+| `xorc12-ogre-mage-180` (oracle trace), n = 77: runes are cast; five rune markers (kind 0x0B) are created | Effect slots 3 to 7 at (3600, 432), (3600, 400), (3632, 432), (3600, 464) and (3568, 432); each with destination (0, 0), target null, shooter null, damage 0 |
 | Runes cast: a rune marker (0x0B) made in the timers pass of cycle C | First update in C + 1; start step in C + 3; removed in C + 19 |
 | Map start, oracle trace Human01: the building fires in effect slots 0 and 1 | First update in the first start-up cycle; start step 5 cycles later, in the 4th normal cycle; never removed |
 | Custom unit data gives a farm the caster flag and magic 0; the farm is placed by the map | Mana 0 until its 256th timers pass, then 1; +1 every 40 passes after that, up to 255 |
