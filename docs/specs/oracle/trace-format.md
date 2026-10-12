@@ -10,6 +10,8 @@
   out commands, their `commands` list, and when a handed-over command runs.
   2026-10-12: the `cheat` command kind (still version 2); input lists are in ascending order of `n`, so the Orc02
   vector with a late hand-over is replaced by a Human06 queue vector.
+  2026-10-12, round-35 errata: the Human12 select that no scenario gave is the capture harness's late click, not the
+  game's own command.
 
 ## Behaviour
 
@@ -122,8 +124,11 @@ and `kind`.
 A command whose conditions fail (a unit not owned by the player, a builder that isn't a worker, too little gold) is
 still listed: it was carried out and did nothing.
 
-`commands` lists every command carried out in the turn, not only the scenario's. The game can queue one by itself:
-in a Human12 test run, a `select` of one building of the local player, which the scenario never gave, ran in turn 71.
+`commands` lists every command carried out in the turn, not only the scenario's. In the Human12 captures the
+harness's last click on the briefing's Continue button can land on the map after the game has started; it selects the
+building under the pointer and is carried out as an ordinary `select` (turn 70 in `human12-demolition-450`, 74 in
+`human12-transport-650`; the turn depends on wall-clock time, so it moves from run to run). It takes its turn's
+place in the queue like any command.
 A comparer applies these like any other command.
 
 ### Cheat commands
@@ -224,7 +229,7 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
 | Human01: the build in turn 14 | Worker 1596 is in order 28 from `cycle` n = 19, and in order 22 with target 1587 (the new barracks) from n = 134 |
 | Human01: a select of 1587 and a job `"train"` 0 with `n` = 5300 | `turn` n = 5302 lists the job; barracks 1587's `mana` is 1 in that record (`economy/build-train.md`) |
 | Human06 (`human06-tech-650`): a cheat entry with `n` = 10, then six entries (select, build, select, build, select, job) with `n` = 20 | The cheat runs in `turn` n = 11; the six run in `turn` n = 21 to 26, one per turn |
-| Every input trace in `oracle/traces/` (15 as of 2026-10-12) | Each `input` entry runs in turn T(i) of "When a command runs"; no `turn` record lists more than one command. The two Human12 traces also list one `select` the game queued itself (`human12-demolition-450`: turn 70; `human12-transport-650`: turn 74) |
+| Every input trace in `oracle/traces/` (15 as of 2026-10-12) | Each `input` entry runs in turn T(i) of "When a command runs"; no `turn` record lists more than one command. The two Human12 traces also list the harness's stray `select` (`human12-demolition-450`: turn 70; `human12-transport-650`: turn 74) |
 | Human06: `input` entry `n` 10, `player` 1, `kind` `"cheat"`, `add` `["make it so", "glittering prizes"]`; header `cheats` `["tigerlily"]` | `turn` n = 11 lists `{"player":1,"kind":"cheat","cheats":["make it so","glittering prizes","tigerlily"]}` and nothing else. `rng` is the same as in `cycle` n = 11 |
 | Human06, the same cheat | Gold in `cycle` n = 11: 1000 for every player but player 5 (500). In `turn` n = 11: +10000 gold, +5000 lumber and +5000 oil for each of the 16 players (player 5: 10500 gold) |
 | Human06, the farm (type 58) whose build ran in turn 22, under build speed | Created at n = 78 with 43 hit points; 400 hit points and shown progress 255 at n = 177; frame 0 and `mana` 0 (complete) at n = 178 |
@@ -236,8 +241,8 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
 
 - **Other speeds.** Input traces so far all run at speed 8, where a command turn follows every cycle. At slower
   speeds the turns may be further apart; the trace's `turn` records stay authoritative.
-- **Commands the game queues by itself:** what made the game queue the select seen in Human12 isn't known yet, nor
-  whether such a command takes a place in the same queue ahead of the harness's entries.
+- **Commands the game queues by itself:** none has been seen; the Human12 select was the harness's own click
+  (found in round 35).
 - **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios
   are single player for now.
 - **Other kinds** (cancel, alliances, speed, transports) aren't described yet; add them when a scenario needs them.
