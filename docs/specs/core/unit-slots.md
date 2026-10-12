@@ -16,6 +16,8 @@
   byte starts at its type's "magic" value.
 - **Changes:** 2026-10-12, round-35 errata: a new unit starts hidden from every player until the next visibility pass,
   so no target search finds it before then; bodies and ruins keep the mana byte (open question narrowed).
+- **Changes:** 2026-10-12, round-39 errata: no kill, by damage or outright, changes a unit's HP; `human12-demolition`
+  vector.
 
 ## Behaviour
 
@@ -108,7 +110,10 @@ When a unit is killed, it keeps its slot. The game:
 - clears the unit off the occupancy marks;
 - releases any tree it had reserved;
 - kills any units inside it (transports, and buildings holding units);
-- sets its order to "dying", which plays its death animation.
+- sets its order to "dying", which plays its death animation;
+- leaves its HP as it is: no kill, whether by damage or outright, changes a unit's HP (`combat/damage.md`). This
+  covers the killing blow, a demolisher killed after its blast, a passenger killed with its transport, a builder
+  with no exit tile and every other outright kill. The HP shows unchanged through the death animation.
 
 When the death animation reaches its step-done signal, one of three things happens:
 
@@ -174,6 +179,8 @@ no effect is created. A released effect slot is simply marked unused.
 | Every unit in those traces whose type isn't a building, can't cast and has "magic" 0 | Mana 0 at every record |
 | Human04 at setup: the 16 critters (type 0x39), peons, footmen and grunts | Facings drawn (the critters show facings 1 to 7); mana 0 |
 | `xhuman4` (oracle trace): slots 1435, 1489, 1506 and 1516 have an enemy in reach from the start | No acquisition in the first start-up cycle (n = 1: order 2); every unit is still hidden from every player there |
+| `human12-demolition` (oracle trace), n = 239: demolition squad 1430 (type 0x0E) with 40 HP reaches (29, 100) and blasts | 1430: order 1, animation 1, HP **40** at n = 239 and until its slot is released |
+| A transport carrying a unit with 60 HP is killed (static study only) | The passenger is killed at the same moment and keeps 60 HP |
 
 ## Open questions
 
