@@ -528,7 +528,11 @@ impl HudArt {
             // Open question: the hit point text's style probably selects a smaller font; the small font is used
             // when the install has it.
             let small = self.small.as_ref().unwrap_or(font);
-            text_centred(pic, small, at(info::HP), &format!("{hp}/{max}"));
+            // Ours: "1200/1200" is wider than the area, so the centred text is kept inside the panel's frame.
+            let (r, s) = (at(info::HP), format!("{hp}/{max}"));
+            let w = small.width(s.as_bytes()) as i32;
+            let left = (r.x + (r.w as i32 - w) / 2).max(o.0 + 3);
+            text(pic, small, left, text_top(small, r), &s);
         }
         for (n, row) in c.rows.iter().enumerate() {
             let Some(row) = row else { continue };
