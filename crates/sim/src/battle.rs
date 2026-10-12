@@ -8,6 +8,7 @@ use crate::TILE_PX;
 use crate::combat::{self, missile};
 use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::slots;
+use crate::spells::Fx;
 use crate::world::{Layer, Order, Unit, UnitId, World, facing};
 
 /// Placeholder flight speed in pixels per cycle (an open question in the combat spec).
@@ -34,6 +35,9 @@ pub struct Missile {
     pub splash: bool,
     /// A small-cannon shot at an air unit also splashes air units.
     pub hits_air: bool,
+    /// What a spell effect does (spells spec, "Spell effects in flight"). For these, `kind` is the effect kind of that
+    /// spec, `attacker` the effect's owner, `damage` its stored damage and `elapsed` the cycles since its first update.
+    pub fx: Fx,
 }
 
 /// Tiles between two footprints along the larger axis: 1 for neighbours, diagonal included.
@@ -142,6 +146,9 @@ impl World {
     /// The strike point of the attack script: a melee hit or a missile launch.
     pub(crate) fn strike(&mut self, i: usize) {
         let order = self.units[i].order;
+        if let Order::Cast { .. } = order {
+            return self.cast_strike(i);
+        }
         let (ti, to) = match (order, crate::orders::target_of(order)) {
             (Order::AttackWall { tile }, _) => (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2)),
             (Order::Follow { .. } | Order::Guard { .. }, _) | (_, None) => return,
@@ -156,6 +163,8 @@ impl World {
                 (Some(ti), self.units[ti].centre_px())
             }
         };
+        // Spells spec, "Timers": a unit's attack strike ends its own invisibility.
+        self.units[i].invisibility = 0;
         let a = &self.units[i];
         let s = self.stats_of(a.kind);
         let (basic, pierce) = combat::attack(a.kind, &s, &self.players[a.owner as usize].upgrades, a.bloodlust > 0);
@@ -199,6 +208,7 @@ impl World {
             damage,
             splash: min_flight.is_some(),
             hits_air: s.missile == missile::SMALL_CANNON && hits_air,
+            fx: Fx::Plain,
         };
         // Unit-slots spec, "Effect slots": the lowest free slot after the permanent entries; none free, no missile.
         if let Some(e) = self
@@ -283,6 +293,10 @@ impl World {
     pub(crate) fn advance_missiles(&mut self) {
         for n in 0..self.missiles.len() {
             let Some(m) = &mut self.missiles[n] else { continue };
+            if m.fx != Fx::Plain {
+                self.step_fx(n);
+                continue;
+            }
             m.elapsed += 1;
             let k = m.elapsed.min(m.flight) as i32;
             let f = m.flight as i32;
@@ -352,7 +366,7 @@ impl World {
         }
     }
 
-    fn hit_wall(&mut self, tile: (i32, i32), damage: u8) {
+    pub(crate) fn hit_wall(&mut self, tile: (i32, i32), damage: u8) {
         self.terrain.hit_wall(tile.0, tile.1, damage as u32);
     }
 }

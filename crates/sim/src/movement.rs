@@ -152,7 +152,7 @@ impl World {
             self.take_over(i, o);
             return;
         }
-        if self.run_order(i) || self.run_transport(i) {
+        if self.run_order(i) || self.run_transport(i) || self.run_spell(i) {
             return;
         }
         let order = self.units[i].order;

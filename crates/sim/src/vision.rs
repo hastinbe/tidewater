@@ -79,6 +79,9 @@ pub struct Vision {
     /// Bumped whenever the explored or visible map changes, so a renderer can skip unchanged ticks.
     pub generation: u32,
     started: bool,
+    /// Cycles until the next fog refresh (timing spec, phase 3): it starts at 1, so the first refresh is in the first
+    /// cycle, and holy vision resets it.
+    pub(crate) countdown: u32,
 }
 
 impl Vision {
@@ -94,6 +97,7 @@ impl Vision {
             seen: vec![0xff; n],
             generation: 0,
             started: false,
+            countdown: 1,
         }
     }
 
@@ -313,10 +317,11 @@ impl World {
     /// Phase 3. Returns whether this is a fog refresh cycle (the first cycle, then every 100, or 101 in Classic). On a
     /// refresh with the option on, the visible map and every "seen" bit are fogged again.
     pub(crate) fn fog_refresh(&mut self) -> bool {
-        let refresh = self.tick.is_multiple_of(self.refresh_period());
-        if !refresh {
+        self.vision.countdown = self.vision.countdown.saturating_sub(1);
+        if self.vision.countdown > 0 {
             return false;
         }
+        self.vision.countdown = self.refresh_period();
         let fog = self.rules.fog_of_war;
         let v = &mut self.vision;
         v.previous_visible.clone_from(&v.visible);

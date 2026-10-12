@@ -128,6 +128,12 @@ pub enum Order {
     Build { kind: u8, site: (i32, i32) },
     /// 22: a worker inside the building it is constructing.
     InsideSite { building: UnitId },
+    /// Orders 38 to 56: casting `spell` (the order number) at a unit or, for the point spells, at `tile` (spells spec).
+    Cast {
+        spell: u8,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
 }
 
 /// What a transport stores when given a command (transports spec, "What the transport stores"), and how it moves.
@@ -233,12 +239,21 @@ pub struct Unit {
     pub construction: Option<Construction>,
     /// A building's training or upgrade job.
     pub job: Option<Job>,
-    /// Mana, and its regeneration counter (set when a unit converts to a caster; regeneration is a later spec).
+    /// Mana, and its regeneration counter (spells spec, "Timers"). A berserker counts its regeneration cycles in
+    /// `mana`.
     pub mana: u8,
     pub mana_counter: u8,
-    /// Invisibility spell timer; the unit is invisible while above 0. Nothing casts the spell yet (placeholder until
-    /// the spell specs land); the vision rules read it.
+    /// Invisibility spell timer; the unit is invisible while above 0 (the vision rules read it).
     pub invisibility: u16,
+    /// Flame-shield timer: only blocks a second flame shield (spells spec, "Timers").
+    pub flame_shield: u16,
+    /// The per-unit "used" mark (spells spec, polymorph): a dead body that keeps it can't be raised.
+    pub used: bool,
+    /// Created during play with a decay rate: it decays (spells spec, "Summoned units and decay").
+    pub decays: bool,
+    /// Decay periods left before the unit starts losing hit points, and the cycles left in the current period.
+    pub decay_period: u8,
+    pub decay_count: u8,
     /// Players 0 to 7 that can see this unit at all (bit p), recomputed in phase 1 (vision spec, "Detection").
     pub detected_by: u8,
     /// Players 0 to 7 the fog hides this unit from (bit p), recomputed in phase 5 (vision spec, "Unit visibility").
@@ -343,6 +358,8 @@ pub struct Rules {
     pub instant_victory: bool,
     pub instant_defeat: bool,
     pub disable_victory: bool,
+    /// The all-spells cheat (spells spec, "Giving the order"): a spell command first sets the caster's mana to 255.
+    pub all_spells_cheat: bool,
 }
 
 impl Default for Rules {
@@ -359,6 +376,7 @@ impl Default for Rules {
             instant_victory: false,
             instant_defeat: false,
             disable_victory: false,
+            all_spells_cheat: false,
         }
     }
 }
@@ -488,6 +506,15 @@ pub enum Command {
         player: u8,
         unit: UnitId,
     },
+    /// A spell command (spells spec, "Giving the order"): `spell` is the spell's order number, 38 to 56. Unit spells
+    /// need `target`; point spells use `tile` only.
+    Cast {
+        player: u8,
+        unit: UnitId,
+        spell: u8,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
 }
 
 pub const PLAYERS: usize = 16;
@@ -526,6 +553,12 @@ pub struct World {
     pub(crate) occupancy: [Vec<Option<UnitId>>; 2],
     /// Every unit in vertical order, re-sorted once per cycle (orders spec, "Vertical order").
     pub(crate) ylist: Vec<UnitId>,
+    /// The runes on the map, 50 slots shared by all players (spells spec, "Runes on the map").
+    pub runes: Vec<Option<crate::spells::Rune>>,
+    /// Dead bodies, a minimal stand-in until the corpses spec lands (see `spells.rs`).
+    pub bodies: Vec<crate::spells::Body>,
+    /// Set while the map's units are being created: they get no decay countdown (spells spec, "Summoned units").
+    pub(crate) loading: bool,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -577,6 +610,9 @@ impl World {
             stride,
             units: Vec::new(),
             ylist: Vec::new(),
+            runes: vec![None; crate::spells::RUNE_SLOTS],
+            bodies: Vec::new(),
+            loading: false,
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
@@ -636,6 +672,7 @@ impl World {
                 ..Default::default()
             };
         }
+        w.loading = true;
         for u in &pud.units {
             if pud.owners().get(u.owner as usize) == Some(&3) {
                 continue;
@@ -659,6 +696,7 @@ impl World {
                 p.had_hall = true;
             }
         }
+        w.loading = false;
         Ok(w)
     }
 
@@ -692,9 +730,11 @@ impl World {
         let id = UnitId(self.next_id);
         self.next_id += 1;
         let (mut facing, mut variation) = (4, 0);
+        // Spells spec, "Summoned units and decay": a decaying type created during play makes no facing draw.
+        let decays = s.decay_rate != 0 && !self.loading && !building;
         if building {
             variation = (self.rng.draw() % 6) as u8;
-        } else {
+        } else if !decays {
             facing = (self.rng.draw() & 7) as u8;
         }
         let mut script = Script::default();
@@ -738,9 +778,15 @@ impl World {
             removing: false,
             construction: None,
             job: None,
-            mana: 0,
-            mana_counter: 0,
+            // Spells spec, "Timers": every newly created caster starts with 85 mana and its counter at 40.
+            mana: if s.flags & flags::CASTER != 0 { 85 } else { 0 },
+            mana_counter: if s.flags & flags::CASTER != 0 { 40 } else { 0 },
             invisibility: 0,
+            flame_shield: 0,
+            used: false,
+            decays,
+            decay_period: if decays { 255 } else { 0 },
+            decay_count: if decays { s.decay_rate } else { 0 },
             detected_by: 0xff,
             hidden_from: 0,
             ai_job: Default::default(),
@@ -868,6 +914,7 @@ impl World {
                 self.construct(i);
             }
         }
+        self.timers_pass();
         self.sort_vertical();
         self.unit_visibility();
         self.victory_phase();
@@ -921,6 +968,13 @@ impl World {
                 spell,
             } => return self.building_command(player, id, Some(JobKind::Spell(spell))),
             &Command::Cancel { player, unit } => return self.building_command(player, unit, None),
+            &Command::Cast {
+                player,
+                unit,
+                spell,
+                target,
+                tile,
+            } => return self.cast_command(player, unit, spell, target, tile),
             &Command::Build {
                 player,
                 unit,
@@ -992,6 +1046,7 @@ impl World {
                 self.slots.release(u.slot, u.owner);
                 self.units[i].script.anim = RELEASED;
             } else {
+                self.leave_body(i);
                 self.change_owner(i, slots::NEUTRAL);
                 self.units[i].removing = true;
             }
@@ -1033,6 +1088,9 @@ impl World {
         self.units.hash(&mut h);
         self.ylist.hash(&mut h);
         self.missiles.hash(&mut h);
+        self.runes.hash(&mut h);
+        self.bodies.hash(&mut h);
+        self.vision.countdown.hash(&mut h);
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
         self.ai.hash(&mut h);

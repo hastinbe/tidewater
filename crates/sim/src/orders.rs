@@ -54,7 +54,8 @@ pub(crate) fn order_anim(o: Order) -> u8 {
         | Order::AttackInPlace { .. }
         | Order::IdleReact { .. }
         | Order::Harvest { .. }
-        | Order::Repair { .. } => anim::ATTACK,
+        | Order::Repair { .. }
+        | Order::Cast { .. } => anim::ATTACK,
         Order::Enter { .. } => anim::MOVE,
         Order::Land { .. } | Order::PushOff => anim::WORK_B,
         _ => anim::STILL,
@@ -154,6 +155,7 @@ impl World {
             | Command::Research { .. }
             | Command::Spell { .. }
             | Command::Cancel { .. }
+            | Command::Cast { .. }
             | Command::Build { .. } => return None,
         };
         self.units[i].remembered = if enhanced { remember } else { None };
