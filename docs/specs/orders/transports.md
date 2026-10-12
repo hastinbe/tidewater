@@ -12,6 +12,8 @@
   unit and, from open water, pulls the target tile back to shore water); the open question on it is closed.
   2026-10-12, round-33 errata: landing and pushing off keep animation 6 on one-tile steps; on two-tile steps the move
   animation is started and run at once.
+  2026-10-12, round-35 errata: the landing logic runs only within 3 tiles of the goal; farther out the transport takes
+  ordinary two-tile steps.
 
 ## Behaviour
 
@@ -89,14 +91,17 @@ region ends the walk with "land first". A tile with the open-water bit ends it w
 
 ### Landing (order 30)
 
+This logic runs only when the transport is within 3 tiles of its goal on both axes. Farther out it moves with
+ordinary steps (sea class, two-tile mover, move animation 3; `orders/orders.md`, "Order 30's radius").
+
 Each time the order's logic runs:
 
 1. The transport switches to the **landing class**.
 2. It moves as a two-tile unit (even tiles) only while both its tile and its goal tile are even. Otherwise it moves
    as a one-tile unit. As a two-tile mover it starts its move animation (3) and runs it at once (the first
    instructions run in the same cycle); as a one-tile mover its animation isn't changed, so it keeps its own
-   animation (6, started when the order took over), which carries the one-tile steps. Landing moves through this
-   order's own logic, so the general "switch to the move animation to take a step" doesn't apply to it.
+   animation (6, started when the order took over, or by the arrival switch when it came within 3 tiles), which
+   carries the one-tile steps.
 3. **Arrival** is reaching the goal tile exactly. The sea-unit +1 on the radius doesn't apply to order 30.
 4. When it **arrives**: if it has a pending order, that takes over. Otherwise it becomes order 29 if it is marked
    unload on arrival, else order 32. The unload-on-arrival mark is cleared either way.
@@ -234,6 +239,7 @@ computer players).
 | Human04 (oracle trace), transport slot 1543, landing at (70, 87) from (68, 88) | n = 1: order 30, animation 6, wait 3. Steps to (69, 87) at n = 4 and (70, 87) at n = 20, still animation 6 (the goal has odd y, so one-tile steps). n = 36: order 32, animation 2 |
 | Human04 n = 1 (oracle trace): transport (slot 1543) at (68, 88), open water, region 0. Smart move with the great hall (slot 1550) as the target unit, G = (81, 84), land | Target unit dropped. The line from (68, 88) to (81, 84) has M = 13, m = 4, and the walk back passes (81, 84), (80, 84), (79, 85), (78, 85), (77, 85), (76, 86), (75, 86), (74, 86), (73, 87), (72, 87), (71, 87), (70, 87), (69, 88). The first usable tile is (69, 88) (open water, region 0), so K = (70, 87). (70, 87) is shore water, with no bit of 0x0901 and the same region value as (81, 84), so the target tile and destination are (70, 87): order 30, wait 3 at n = 1. It steps to (69, 87) at n = 4 and (70, 87) at n = 20, and docks at n = 36: order 32 |
 | Same transport at n = 51, docked on (70, 87) (shore water); the same smart move | Target unit dropped. It isn't on open water, so G stays (81, 84). First rule (S shore water, same region, land first): order 32, target tile S. It stays docked; the same happens every 50 cycles |
+| `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8, goal (72, 29) | n = 11 (4 and 5 tiles away): ordinary two-tile step north-east to (70, 32), animation 3. n = 43 (within 3 tiles): animation 6, the landing logic steps one tile north-east to (71, 31); n = 59 (72, 30); n = 75 (72, 29) |
 
 ## Open questions
 
