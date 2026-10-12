@@ -734,6 +734,12 @@ impl World {
         if u.present() { u.pos.1 } else { acquire::OUT_OF_LIST_Y }
     }
 
+    /// The vertical list, which is also the map view's draw list (map-drawing spec, "The draw list"): pixel y
+    /// ascending, re-sorted once per cycle, with dying, dead and inside units at the front.
+    pub fn draw_list(&self) -> &[UnitId] {
+        &self.ylist
+    }
+
     /// The once-per-cycle sort at the end of phase 4.
     pub(crate) fn sort_vertical(&mut self) {
         let mut list = std::mem::take(&mut self.ylist);
