@@ -734,8 +734,11 @@ mod tests {
         w
     }
 
+    /// Spawns a unit and runs the units' visibility (a new unit is hidden from everyone until then).
     fn put(w: &mut World, kind: u8, owner: u8, tile: (i32, i32)) -> UnitId {
-        w.spawn(kind, owner, tile, 0).unwrap()
+        let id = w.spawn(kind, owner, tile, 0).unwrap();
+        w.unit_visibility();
+        id
     }
 
     fn caster(w: &mut World, kind: u8, tile: (i32, i32), mana: u8) -> UnitId {

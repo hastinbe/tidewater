@@ -1471,9 +1471,12 @@ mod tests {
         w
     }
 
-    /// Spawns a unit. Unit indices move as units are added (new slots sort first), so tests hold ids.
+    /// Spawns a unit and runs the units' visibility, as if a visibility pass had run since (a new unit is hidden
+    /// from everyone until then). Unit indices move as units are added (new slots sort first), so tests hold ids.
     fn spawn(w: &mut World, kind: u8, owner: u8, tile: (i32, i32)) -> UnitId {
-        w.spawn(kind, owner, tile, 0).unwrap()
+        let id = w.spawn(kind, owner, tile, 0).unwrap();
+        w.unit_visibility();
+        id
     }
 
     fn ix(w: &World, id: UnitId) -> usize {

@@ -705,9 +705,16 @@ mod tests {
         let cat = w.spawn(5, 0, (0, 7), 0).unwrap();
         let foe = w.spawn(0, 1, (5, 7), 0).unwrap();
         let friend = w.spawn(0, 0, (6, 7), 0).unwrap();
+        w.unit_visibility();
         attack(&mut w, 0, vec![cat], foe);
-        // The order takes over at the next still boundary, then the strike and 160 px of flight at 5 px a cycle.
-        run(&mut w, 100);
+        // The order takes over at the next still boundary, then the strike and 160 px of flight at 5 px a cycle. Stop
+        // at the first landing: a surviving foe then fights back.
+        for _ in 0..100 {
+            if w.unit(foe).is_none_or(|u| u.hp < 60) {
+                break;
+            }
+            run(&mut w, 1);
+        }
         assert!(w.unit(foe).is_none_or(|u| u.hp < 60));
         assert!(w.unit(friend).is_none_or(|u| u.hp < 60), "friendly fire");
         assert_eq!(w.unit(cat).unwrap().hp, 110);

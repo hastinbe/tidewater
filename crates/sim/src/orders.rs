@@ -498,7 +498,10 @@ impl World {
         if t.owner == u.owner || t.owner == slots::NEUTRAL || self.allied(u.owner, t.owner) || !t.present() {
             return false;
         }
-        if !Self::detected(t, u.owner) || !self.visible_to(u.owner, t.id) {
+        // A new unit is hidden from everyone until the next visibility pass (unit-slots spec, "Creating a unit"), but
+        // the posts that the attack AI's first goals choose while the map loads still find the map's enemies (the
+        // xhuman4 and xhuman2 oracle traces), so the fog part of the check is left out while loading.
+        if !Self::detected(t, u.owner) || (!self.loading && !self.visible_to(u.owner, t.id)) {
             return false;
         }
         if !self.can_target_kind(u, t) {
@@ -881,6 +884,35 @@ mod tests {
         );
     }
 
+    /// Unit-slots spec, "Creating a unit"; fog spec, "Unit visibility"; vector `xhuman4` slots 1435 and others: a new
+    /// unit is hidden from everyone, computers included, until the next visibility pass, so units with an enemy in
+    /// reach from the start acquire nothing in the first cycle.
+    #[test]
+    fn a_new_unit_is_hidden_from_everyone_until_the_next_visibility_pass() {
+        let mut w = map();
+        let human = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let computer = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+        for id in [human, computer] {
+            assert_eq!(w.unit(id).unwrap().hidden_from, 0xff);
+            assert_eq!(w.search(at(&w, id), None, false), None);
+            let i = at(&w, id);
+            w.units[i].script.wait = 1;
+        }
+        w.step(&[]);
+        for id in [human, computer] {
+            let u = w.unit(id).unwrap();
+            assert_eq!(
+                (u.order, u.pending),
+                (Order::Idle, None),
+                "no acquisition in the first cycle"
+            );
+        }
+        // After the pass both are candidates, and the next searches find them.
+        assert_eq!(w.search(at(&w, computer), None, false), Some(human));
+        run(&mut w, 30);
+        assert!(matches!(order_of(&w, computer), Order::Chase { target } if target == human));
+    }
+
     #[test]
     fn hidden_enemies_are_not_candidates() {
         let mut w = map();
@@ -1028,6 +1060,8 @@ mod tests {
         }
         let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
         let g = w.spawn(FOOTMAN, 0, (5, 3), 0).unwrap();
+        // New units are hidden from everyone until a visibility pass.
+        w.unit_visibility();
         let i = at(&w, f);
         w.units[i].order = Order::Move { goal: (15, 15) };
         w.units[i].script.wait = 1;

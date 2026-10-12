@@ -980,7 +980,9 @@ impl World {
             decays,
             decay_count: if decays { s.decay_rate } else { 0 },
             detected_by: 0xff,
-            hidden_from: 0,
+            // Unit-slots spec, "Creating a unit": hidden from every player, computers included, until the next
+            // visibility pass (fog spec, "Unit visibility"), so no target search finds it before then.
+            hidden_from: 0xff,
             ai_job: Default::default(),
             goal: Default::default(),
             think: 0,
