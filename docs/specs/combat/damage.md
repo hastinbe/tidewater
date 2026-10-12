@@ -25,6 +25,9 @@
   shipped maps with a Dark Portal are noted as unprotected; four test vectors added.
 - **Changes:** 2026-10-12, round-24 errata: the cannon smoke starts 11 cycles after its first update and is removed in
   C + 24; an impact effect's slot time and its sound count from its start step, one cycle after its first update.
+  2026-10-12, round-37 errata: a dying unit keeps its HP and target, and the killer forgets its target at once; an
+  attack cooldown (attack loop + 1) exists and delays the first strike after a target switch; towers fire once per loop
+  from their order logic.
 
 ## Behaviour
 
@@ -91,7 +94,12 @@ When damage D from an attacker reaches a target:
   help": which attacker is recorded, and who comes to help). The under-attack alert is a separate step
   (`ui/sounds.md`, "Ready, work complete and under attack").
 - If the target's unholy-armour timer is running, or D is 0, it takes no damage.
-- If the target's HP ≤ D, it dies and the kill is credited to the attacker's owner. Otherwise its HP drops by D.
+- If the target's HP ≤ D, it dies and the kill is credited to the attacker's owner. Its HP is **not** lowered: it
+  keeps its HP from before the blow, and its target, through the death animation. Then, if the attacker is a unit
+  (not a building), the attacker at once forgets its target, and the unit it is attacking for its command, if that
+  unit is now dying, gone or not detected by the attacker's player. The attacker's order doesn't change in that step.
+  Other units attacking the same target aren't touched; each forgets it on its own next logic run
+  (`orders/orders.md`, "Arriving and losing the target"). Otherwise the target's HP drops by D.
 
 ### How an attack delivers damage
 
@@ -242,10 +250,24 @@ comes before its air-layer unit. A unit already considered (the impact-tile unit
 
 ### Attack timing (cooldown)
 
-There is no separate cooldown statistic. The **rate of fire is the length of the attack script loop** in
-`Rez\script.bin`, and damage happens at the script's strike point inside that loop. A unit that keeps attacking repeats
-the loop. Between loops it may re-evaluate its target and order. Each script's "wait" steps scale with haste and
-slow:
+Each unit has an attack **cooldown**, a count of cycles. When a unit decides to strike, it turns to face its target
+(except ships, `orders/orders.md`) and its cooldown is set to its type's **attack loop + 1** (the loop column of the
+table below): 26 for footmen and the other melee units, 66 for archers and axe throwers, 41 for mages and death
+knights, 201 for ballistas and catapults, and so on. The cooldown counts down by 1 every cycle while it is above 0,
+for every unit except transports. Buildings have none.
+
+Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a
+flyer: if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first
+frame, the unit waits for the cooldown left, and the run ends. Otherwise the order goes on (range checks, friendly
+fire and so on). When the logic runs at a step done, the wait is 1 at that moment. So in steady fire nothing is
+delayed: the next strike decision comes one loop later with 1 cycle left, and a wait of 1 isn't less than 1. After a
+target switch, though, the new attack starts with most of a cooldown still to run: the run that acquires the new
+target reaches the strike decision and starts the cooldown, the order given again restarts the animation with wait
+3, and 3 cycles later the unit waits for the rest.
+
+The **rate of fire is the length of the attack script loop** in `Rez\script.bin`, and damage happens at the script's
+strike point inside that loop. A unit that keeps attacking repeats the loop. Between loops it may re-evaluate its target
+and order. Each script's "wait" steps scale with haste and slow:
 
 - Haste halves the wait, rounding down, with a minimum of 1.
 - Slow doubles the wait, kept to 8 bits.
@@ -274,8 +296,9 @@ the first cycle of the attack as 1. "Loop" is the number of cycles between strik
 | Guard tower (either side) | see note | 60 |
 | Cannon tower (either side) | see note | 151 |
 
-Towers have no strike point in their scripts. They fire from their attack behaviour on a schedule not yet confirmed,
-and the loop length is given only as the script's period.
+Towers have no strike point in their scripts. A tower fires from its order's logic (`orders/orders.md`, "Order 14
+(towers)"), which runs at the step done that starts each loop, so a tower shoots at most once per loop: every 60
+cycles for a guard tower and every 151 for a cannon tower. Towers don't use the cooldown.
 
 ### Range
 
@@ -349,7 +372,16 @@ These are the default `unitdata.dat` values.
 | Unit with basic 2, piercing 0 hits armour 2 | T = 0, damage 0, no draw made |
 | Basic 1, piercing 0 hits armour 0 | T = 1, h = 1, damage 1 + (r mod 2): 1 or 2 |
 | Unholy-armoured target takes any hit | HP unchanged; it is still notified it was attacked |
-| Target with 5 HP takes 5 damage | dies (HP ≤ damage) |
+| Target with 5 HP takes 5 damage | Dies (HP ≤ damage); its HP stays **5** during the death animation and its target is kept |
+| `human01-basics-9500` (oracle trace), n = 288: footman 1592 (HP 2 since n = 276) is killed by footman 1597; footman 1598 also attacks it | 1592: order 1, animation 1, HP 2, target 1598. 1597: target null, still order 9. 1598: target 1592 |
+| Same, n = 291 | 1598 forgets 1592 on its own logic run: order 2, wait 3 |
+| `orc02-assault-3000` (oracle trace), archer 1584 (type 0x08, cooldown 66) at (47, 28), n = 343 | Takes target 1578: animation 4, wait 3; cooldown set to 66 |
+| Same, n = 346 | Cooldown left 63 > wait 1: attack animation restarted, frame 0, wait 63 |
+| Same, n = 409 to 412 and n = 475 to 478 | New targets 1573 and 1564, each with wait 3 then wait 63 |
+| Same, n = 541 to 562 | Cooldown run out: facing 1 at n = 541; frame 25 (n = 542), frame 30 (n = 552), frame 0 with wait 44 (n = 562) |
+| Archer firing at the same target without a break | One strike every 65 cycles (frame 25 at n = 706 and n = 771 in the same trace); the cooldown never restarts the animation |
+| `orc02-assault-3000`, footman 1582 (type 0x00, cooldown 26), n = 376 and n = 402 | New targets 1578 and 1576: wait 3, then wait 23 at n = 379 and n = 405 |
+| `xhuman10-spells-700` (oracle trace), guard tower 1468 and cannon tower 1501 (order 14 from n = 2) | Shots at n = 5; then 1468 every 60 cycles (n = 65, 125, 185, …) and 1501 every 151 (n = 156, 307) while targets are in range |
 | Catapult (80/0, no upgrades) splash, footman 10 px from impact | v = 80 − 2 = 78, h = 39, damage 39 to 78 |
 | Same, footman 30 px from impact | base 20, v = 18, h = 9, damage 9 to 18 |
 | Same, footman 43 px from impact | not hit, no draw |
@@ -411,7 +443,13 @@ Cannon smoke and launch slots:
 
 - Whether a strike in progress uses the acquisition distance measure, and whether range is checked again at the
   strike point.
-- When towers fire relative to their 60- and 151-cycle scripts, and whether a tower's shot is always a missile.
+- Whether a tower's shot is always a missile.
+- Whether haste or slow change the cooldown value set, or how fast it counts down. If they don't, a hasted unit's
+  attack rate is held to the normal loop.
+- The wait of 1 when the logic runs at a step done fits every observation, including steady fire with a period of
+  exactly one loop, but hasn't been seen directly.
+- What a killer whose target was forgotten at the kill does on its next logic run. In `human01-basics` footman 1597
+  stays in order 9 with no target until a new command arrives at n = 302.
 - Spell damage (fireball, death coil, blizzard, death and decay, whirlwind, flame shield, exorcism, runes) is covered
   separately. Runes deal a flat 50.
 - Demolition squads and sappers: the terrain part of their blast (rock, forest and walls) is specified in
