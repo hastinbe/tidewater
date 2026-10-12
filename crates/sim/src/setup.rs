@@ -826,6 +826,25 @@ mod tests {
     }
 
     #[test]
+    fn trace_start_up_alliances() {
+        // Round-35 vectors. human10: slot 4 has code 6 and its units are rescued into the local player's slot; the
+        // rescued units and the remaining slot-4 units are allied both ways. human5: a computer slot and a code-7
+        // slot are not allied (code 7 is allied with the local player only), so the computer unit acquires.
+        let m = Map {
+            owners: owners([7, 2, 5, 3, 6, 2, 3, 3]),
+            ..Default::default()
+        };
+        let s = Start::choose(&pud(&m), &Setup::parse("campaign:0").unwrap(), 0).unwrap();
+        let t = s.alliances();
+        let allied = |a: usize, b: usize| t[a] & (1 << b) != 0;
+        let local = 2;
+        assert!(allied(local, 4) && allied(4, local));
+        assert!(allied(local, 0) && allied(0, local));
+        assert!(!allied(5, 0) && !allied(0, 5));
+        assert!(!allied(1, 0) && !allied(0, 1));
+    }
+
+    #[test]
     fn other_owner_codes() {
         let m = Map {
             owners: owners([5, 0, 1, 9, 3, 3, 3, 3]),

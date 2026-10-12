@@ -241,6 +241,23 @@ mod tests {
     }
 
     #[test]
+    fn bodies_keep_the_mana_byte_through_their_decay() {
+        // Spec, "What a dead unit becomes": neither change touches the mana byte, and the timers pass skips remains
+        // (vector: a unit with 120 mana is killed; its body shows 120 throughout its decay).
+        let mut w = field(16, 16);
+        let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+        let i = w.index(f).unwrap();
+        w.units[i].mana = 120;
+        w.units[i].decays = true;
+        kill(&mut w, f);
+        until_remains(&mut w, f);
+        for _ in 0..20 {
+            assert_eq!(w.unit(f).unwrap().mana, 120);
+            run(&mut w, 1);
+        }
+    }
+
+    #[test]
     fn a_mage_leaves_nothing_and_its_slot_goes_513_cycles_later() {
         let mut w = field(16, 16);
         let m = w.spawn(MAGE, 1, (5, 5), 0).unwrap();

@@ -976,7 +976,7 @@ impl World {
         self.advance_runes();
         for i in 0..self.units.len() {
             let u = &self.units[i];
-            if u.dying || u.removing || u.script.anim == crate::world::RELEASED {
+            if u.dying || u.removing || u.remains || u.script.anim == crate::world::RELEASED {
                 continue;
             }
             let (kind, owner) = (u.kind, u.owner);
@@ -1007,7 +1007,7 @@ impl World {
             u.haste -= u.haste.signum();
             if s.flags & flags::CASTER != 0 {
                 if u.mana < 255 {
-                    u.mana_counter = u.mana_counter.saturating_sub(1);
+                    u.mana_counter = u.mana_counter.wrapping_sub(1);
                     if u.mana_counter == 0 {
                         u.mana_counter = 40;
                         u.mana += 1;
@@ -1452,6 +1452,31 @@ mod tests {
         assert_eq!(mana(&w, m), 86);
         run(&mut w, 40);
         assert_eq!(mana(&w, m), 87);
+    }
+
+    #[test]
+    fn a_building_with_the_caster_flag_gains_mana_from_its_256th_pass() {
+        // Spec vector (round-35 errata): custom data gives a farm the caster flag and magic 0. It starts at its
+        // "magic" value with its counter at 0, which wraps to 255 on the first pass: mana 0 until the 256th pass,
+        // then +1 every 40 passes.
+        let mut w = lab(16);
+        const FARM: u8 = 0x3a;
+        w.stats.0[FARM as usize] = UnitStats {
+            size: (2, 2),
+            box_size: (64, 64),
+            hit_points: 400,
+            flags: flags::BUILDING | flags::CASTER,
+            magic: false,
+            ..Default::default()
+        };
+        let f = w.spawn(FARM, 0, (4, 4), 0).unwrap();
+        assert_eq!((mana(&w, f), w.unit(f).unwrap().mana_counter), (0, 0));
+        run(&mut w, 255);
+        assert_eq!(mana(&w, f), 0);
+        run(&mut w, 1);
+        assert_eq!(mana(&w, f), 1);
+        run(&mut w, 40);
+        assert_eq!(mana(&w, f), 2);
     }
 
     #[test]

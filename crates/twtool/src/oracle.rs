@@ -67,7 +67,8 @@ const MAX_STEPS: u32 = 1 << 20;
 pub enum Cell {
     Int(i64),
     Null,
-    /// Not compared, for the reason given (listed once in the report).
+    /// Not compared, for the reason given (listed once in the report). No field is skipped at present.
+    #[allow(dead_code)]
     Skip(&'static str),
 }
 
@@ -795,8 +796,6 @@ fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {
             "anim" => Cell::Int(u.script.anim as i64),
             "frame" => Cell::Int(u.script.frame as i64),
             "wait" => Cell::Int(u.script.wait as i64),
-            // Unit-slots spec, open question "Mana byte after a type change, and on corpses and ruins".
-            "mana" if u.remains => Cell::Skip("corpses and ruins (no spec gives their mana byte)"),
             "mana" => Cell::Int(u.mana as i64),
             "target" => target_cell(w, u),
             "trips" if TRIP_TYPES.contains(&u.kind) => Cell::Int(u.resources as i64),
