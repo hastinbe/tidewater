@@ -26,6 +26,7 @@
   2026-10-12, round-37 errata: a killer forgets its dead target at once and other attackers on their next run; the
   strike decision tests the attack cooldown; a firing tower stores no target and doesn't turn; the round-36 capture
   reference names its folder.
+  2026-10-12, round-38 errata: a lumber worker's own new aim is added to the confirmed same-update take-overs.
 
 ## Behaviour
 
@@ -240,11 +241,11 @@ runs at the next step done of its animation. Only a step done with no pending or
 
 **Same-update take-over.** A command that this run gives the unit itself can take over at once, in the same update,
 without running its logic. The traces confirm it for the critter's wander, a computer worker's job choice from idle,
-going idle on arriving at the end of a move ("Arriving and losing the target"), a harvest or return order that
-reaches its building (order 25: wait 3, animation 3), felling a tree (`economy/harvest.md`) and the order an idle
-unit's target search gives (12, 15 or 16; "Automatic target acquisition"). Coming out of a
-building is the exception: the order given then stays pending through a 25-cycle wait (`economy/harvest.md`,
-"Coming out").
+going idle on arriving at the end of a move ("Arriving and losing the target"), a harvest or return order that reaches
+its building (order 25: wait 3, animation 3), felling a tree (`economy/harvest.md`), a lumber worker's own new aim (a
+new harvest command: order 23, animation 4, wait 3; `economy/harvest.md`, "Lumber") and the order an idle unit's target
+search gives (12, 15 or 16; "Automatic target acquisition"). Coming out of a building is the exception: the order given
+then stays pending through a 25-cycle wait (`economy/harvest.md`, "Coming out").
 
 **Immediate orders** (used for dying, giving up and a move with no route; a move that arrives goes idle through a
 pending order instead): the order is set at once, the pending order is

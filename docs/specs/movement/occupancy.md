@@ -10,6 +10,7 @@
   bases are read from each tileset's table headers instead of fixed row counts (41 forest rows is Forest only).
   2026-10-11, round-7 errata: the run-time marks table lists 0x0400, the computer players' keep-clear mark.
   2026-10-12, round-13 errata: "Rock" step 4 now points to the blast's damage rules.
+  2026-10-12, round-38 errata: the keep-clear mark's description includes the creation marks of `ai/worker-ai.md`.
 
 ## Behaviour
 
@@ -61,7 +62,7 @@ Old maps that still contain an `OILM` section have bit 0x04 converted to 0x08 wh
 | --- | --- |
 | 0x0100 | A ground-layer unit (land unit or ship) stands here. The game also keeps a pointer to that unit for the tile |
 | 0x0200 | An air unit is here. The game keeps a separate air-unit pointer for the tile |
-| 0x0400 | Keep-clear mark set by computer players on planned building sites and mining paths. Only their own site search tests it (`ai/worker-ai.md`); it is in no movement mask and no ordinary placement mask |
+| 0x0400 | Keep-clear mark set by computer players on planned building sites, around their buildings as they are created (map buildings included) and on mining paths. Only their own site search tests it (`ai/worker-ai.md`); it is in no movement mask and no ordinary placement mask |
 | 0x0800 | Part of a building's footprint. The game sets the ground-unit pointer of each footprint tile to the building |
 | 0x2000, 0x8000 | Temporary marks made by the path search. The search clears them again |
 

@@ -12,6 +12,8 @@
   felling sets the worker's frame to 0 and its return takes over in the same update; entering aims at the
   building's top-left tile + (1, 1); the command given on coming out waits for the 25-cycle wait. The open question
   on the active look is closed.
+  2026-10-12, round-38 errata: the tree tile is the pulled-back goal of the harvest command, and every new aim of a
+  lumber worker is a new harvest command that takes over in the same update.
 
 ## Behaviour
 
@@ -37,7 +39,10 @@ A harvest command (from a smart move on a harvestable target, or the harvest but
    - The gather mode is cleared.
    - If the target (the unit named by the command, or else the ground unit standing on the target tile) is a **gold
      mine** and the worker is **not carrying** anything, the mode becomes **gold** and the mine is the target.
-   - Otherwise the mode becomes **lumber**, and the target tile is kept as the tree to cut, with no target unit.
+   - Otherwise the mode becomes **lumber**, and the command's goal tile, after the pull-back of
+     `movement/pathfinding.md` ("Goal pulled back"), is kept as the tree to cut, with no target unit. The pull-back
+     runs whoever gives the command (a player, the computer job choice, or the order itself, below), so the tree tile
+     is usually a forest tile nearer the worker, and it need not be a forest tile at all: it can be a building tile.
 3. **Tanker:** if the target is an **oil platform of the tanker's own side** and the tanker isn't carrying, the
    platform becomes the target. Otherwise the target unit is cleared.
 4. The order becomes 23 (harvest).
@@ -123,6 +128,14 @@ While in order 23 in lumber mode, each time the order's logic runs:
      in the same update: order 24, its still animation, wait 3 (`orders/orders.md`, "Same-update take-over").
 4. **Chopping, but the tile is no longer reserved:** the reservation is dropped, and the worker looks for the nearest
    tree from its own tile, as in step 2.
+
+Whenever these steps send the worker to a tile (step 1, and the nearest tree of steps 2 and 4), they don't just move
+it: they give it a **new harvest command** to that tile, as a player would. So "Starting to harvest" runs again, the
+goal is pulled back again and becomes the tree tile, the blocked counter is cleared (`movement/movement.md`), and
+order 23 takes over **in the same update** with its attack animation (4) and a wait of 3, without running its logic
+(`orders/orders.md`, "Same-update take-over"). The logic first runs at that animation's next step done, 3 cycles
+later, and the worker then searches for a route and starts walking. If the nearest-tree search finds nothing, the
+worker becomes idle at once, as before.
 
 The order's logic runs once per loop of the chop animation (the attack animation, 25 cycles per loop for workers;
 see `core/animation-scripts.md`). The tree falls on the 51st run after chopping started: 1 run to start, 50 to
@@ -256,8 +269,19 @@ gold, storage for wood, storage for oil, building.
 | Human04, peon 1548 at (87, 80), gold mine 1559, top-left (88, 77) | Order 25 takes over at n = 89; the first run (n = 92) faces 1 (toward (89, 78)) and steps to (88, 79); goes in at n = 108, tile (88, 77) |
 | Human04, peon 1548 (computer) comes out of mine 1559 carrying gold | n = 258: order 2, wait 25, tile (87, 79), target the great hall (slot 1550). n = 282: wait 1. n = 283: order 24, animation 2, wait 3 |
 
+### Round-38 vectors (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| `human12-7000`, computer peon 1572 (type 0x03) on (91, 11) given lumber at n = 4, tree (105, 0); the farm at (104, 1) makes (104, 1) unusable, (103, 2) is usable | Tree tile and goal (104, 1). Route NE, NE, NE, E, E, E, NE, N: (92, 10) at n = 7, (93, 9) at 23, (94, 8) at 39, (95, 8) at 55, (96, 8) at 71, (97, 8) at 87, (98, 7) at 103, (98, 6) at 119; the route has run out at n = 135 and a new search (line only) gives NE to (99, 5) |
+| Same worker arrives at (103, 1) (n = 199); (104, 1) isn't forest | n = 215: order 23, animation 4, wait 3, same tile (a new harvest command to (105, 0), the nearest tree from (103, 1)). n = 218: (104, 0), animation 3. n = 234: animation 4, facing 2, chopping (105, 0). n = 1509: order 24 |
+| `human5-10000`, computer peasant 1512 (type 0x02) on (34, 105) given lumber at n = 4, tree (29, 107), pulled back to (31, 106) | Route SW, SW: (33, 106) at n = 7, (32, 107) at 23. n = 39: animation 4, wait 3 (the new aim at (29, 107)). n = 42: SW to (31, 108) |
+| Lumber worker arrives next to its tree tile; the tile was cut meanwhile; a tree 2 rings away | Same-update take-over: order 23, animation 4, wait 3; its route starts 3 cycles later |
+
 ## Open questions
 
+- Step 1's new harvest command (not yet there) is from the static study only: in the traces the order's logic runs
+  on arrival, when the worker is already within 1 tile.
 - How the AI routines for computer-controlled workers and tankers decide at the mine and depot.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
