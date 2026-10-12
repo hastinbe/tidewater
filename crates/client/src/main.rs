@@ -20,6 +20,7 @@ mod info;
 mod messages;
 mod minimap;
 mod mouse;
+mod music;
 mod panel;
 mod scene;
 mod screen;
@@ -130,6 +131,8 @@ struct Speaker {
     sources: HashMap<String, Option<Handle<AudioSource>>>,
     /// Ctrl+S turned the sounds off.
     muted: bool,
+    /// The music (`music.rs`, spec `docs/specs/ui/music.md`).
+    jukebox: Jukebox,
 }
 
 /// The command panel's input state (see `panel`).
@@ -369,12 +372,17 @@ fn main() -> Result<()> {
         scene.world.step(&orders);
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
-    let speaker = Speaker {
+    let mut speaker = Speaker {
         director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         install,
         sources: HashMap::new(),
         muted: false,
+        jukebox: Jukebox::default(),
     };
+    let orc = scene.world.start.orc_sounds;
+    speaker
+        .jukebox
+        .start_game(orc, options.campaign(), &mut speaker.director.shuffle);
     let mut selection = Selection::default();
     if let Some(n) = args.demo_select {
         selection.units = scene
@@ -448,6 +456,7 @@ fn main() -> Result<()> {
         .init_resource::<InfoPanel>()
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
+        .add_systems(Update, play_music)
         .add_systems(
             Update,
             (
@@ -1570,6 +1579,7 @@ fn keys_input(
                 }
             }
             mouse::KeyAction::ToggleSounds => speaker.muted = !speaker.muted,
+            mouse::KeyAction::ToggleMusic => speaker.jukebox.toggle_mute(),
             mouse::KeyAction::Quit | mouse::KeyAction::QuitDialog => {
                 exit.write(AppExit::Success);
             }
@@ -1993,6 +2003,125 @@ fn draw_hud(
     );
     if let Some(mut img) = images.get_mut(&hud.image) {
         *img = image_with(pic, RenderAssetUsages::default());
+    }
+}
+
+/// The music state machine and the Bevy side of its player.
+#[derive(Default)]
+struct Jukebox {
+    music: music::Music,
+    /// Actions to apply on the next frame (from starts and key presses).
+    pending: Vec<music::Action>,
+    /// The entity playing the open track.
+    player: Option<Entity>,
+    /// Bytes of audio in the open track's file.
+    length: u32,
+    /// The attenuation the music asks for, and the one last given to the sink.
+    atten: i32,
+    applied: Option<i32>,
+    /// Frame time not yet handed to the music, below a millisecond.
+    carry: std::time::Duration,
+}
+
+impl Jukebox {
+    /// A game starts (music spec, "Where tracks start" and "The game's track"): the game's track plays if no music has
+    /// started. The track is drawn after the map has loaded, from the setup-shuffle generator.
+    fn start_game(&mut self, orc: bool, campaign: Option<u8>, shuffle: &mut sound::Shuffle) {
+        let m = &mut self.music;
+        m.set_campaign(campaign);
+        m.apply_volume(m.volume());
+        let track = music::game_track(orc, campaign, false, shuffle);
+        let actions = m.start_game(track);
+        self.pending.extend(actions);
+    }
+
+    /// Ctrl+M (music spec, "Volume").
+    fn toggle_mute(&mut self) {
+        let actions = self.music.toggle_mute();
+        self.pending.extend(actions);
+    }
+}
+
+/// Marks the entity that plays the music.
+#[derive(Component)]
+struct MusicPlayer;
+
+/// Runs the music (`music.rs`) each frame and applies what it asks for: loads a file from the install's `Music`
+/// folder, sets its loudness, seeks to a loop point and stops it.
+fn play_music(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    mut speaker: ResMut<Speaker>,
+    mut sources: ResMut<Assets<AudioSource>>,
+    mut sinks: Query<&mut AudioSink, With<MusicPlayer>>,
+) {
+    let sp = &mut *speaker;
+    let jb = &mut sp.jukebox;
+    jb.carry += time.delta();
+    let ms = jb.carry.as_millis() as u32;
+    jb.carry -= std::time::Duration::from_millis(ms as u64);
+    let playback = jb.player.and_then(|e| sinks.get(e).ok()).and_then(|sink| {
+        let length = jb.length;
+        let bytes = (sink.position().as_secs_f64() * music::BYTES_PER_SECOND as f64) as u32;
+        (length > 0).then_some(music::Playback {
+            position: if sink.empty() { length } else { bytes },
+            length,
+        })
+    });
+    let mut actions = std::mem::take(&mut jb.pending);
+    actions.extend(jb.music.update(ms, playback));
+    for action in actions {
+        match action {
+            music::Action::Stop => {
+                if let Some(e) = jb.player.take() {
+                    commands.entity(e).despawn();
+                }
+            }
+            music::Action::Load {
+                track,
+                looped,
+                attenuation,
+                ..
+            } => {
+                if let Some(e) = jb.player.take() {
+                    commands.entity(e).despawn();
+                }
+                jb.atten = attenuation;
+                jb.applied = Some(attenuation);
+                jb.length = 0;
+                // Our choice: the whole file is read at once; a file the install lacks leaves the music silent.
+                let Ok(bytes) = sp.install.read(&music::path(track)) else {
+                    continue;
+                };
+                jb.length = music::wav_data_len(&bytes).unwrap_or(0);
+                let settings = if looped {
+                    PlaybackSettings::LOOP
+                } else {
+                    PlaybackSettings::ONCE
+                };
+                let volume = bevy::audio::Volume::Decibels(music::decibels(attenuation));
+                let h = sources.add(AudioSource { bytes: bytes.into() });
+                jb.player = Some(
+                    commands
+                        .spawn((AudioPlayer(h), settings.with_volume(volume), MusicPlayer))
+                        .id(),
+                );
+            }
+            music::Action::SetAttenuation(a) => jb.atten = a,
+            music::Action::SeekLoop { frame } => {
+                if let Some(mut sink) = jb.player.and_then(|e| sinks.get_mut(e).ok()) {
+                    let _ = sink.try_seek(std::time::Duration::from_secs_f64(frame as f64 / 22_050.0));
+                }
+            }
+            // The sound effects aren't cut yet (the fades of all sound belong to screens that don't exist yet).
+            music::Action::CutEffects => {}
+        }
+    }
+    if jb.applied != Some(jb.atten)
+        && let Some(mut sink) = jb.player.and_then(|e| sinks.get_mut(e).ok())
+    {
+        sink.set_volume(bevy::audio::Volume::Decibels(music::decibels(jb.atten)));
+        jb.applied = Some(jb.atten);
     }
 }
 
