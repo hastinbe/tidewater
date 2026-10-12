@@ -18,9 +18,11 @@ mod campaign;
 mod cheats;
 mod fog;
 mod frontend;
+mod gamemenu;
 mod hud;
 mod info;
 mod jukebox;
+mod menu;
 mod messages;
 mod minimap;
 mod mouse;
@@ -28,6 +30,7 @@ mod mouse;
 mod music;
 mod palette;
 mod panel;
+mod prefs;
 mod scene;
 mod screen;
 mod sound;
@@ -161,6 +164,8 @@ struct PanelUi {
     consumed: bool,
     /// Escape was used by the panel this frame and must not quit.
     escape_used: bool,
+    /// The menu button was pressed (`gamemenu` opens the game menu).
+    menu_requested: bool,
     /// The tooltip of the button under the cursor, with its cost kind, gold, lumber and oil costs and mana cost.
     tooltip: Option<(String, (u8, panel::Cost, u32))>,
     /// The selection a build menu belongs to; a different selection returns the panel from it.
@@ -348,6 +353,11 @@ fn main() -> Result<()> {
         (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
     };
     flow.steps = steps.into();
+    let stored = gamemenu::Stored(prefs::Prefs::from_args(
+        args.mouse_scroll_speed,
+        args.key_scroll_speed,
+        args.second_mouse_style,
+    ));
     let title = args
         .map
         .as_deref()
@@ -365,34 +375,45 @@ fn main() -> Result<()> {
         .init_state::<frontend::AppState>()
         .insert_resource(front)
         .insert_resource(flow)
+        .insert_resource(stored)
         .insert_resource(Opts(args))
         .add_plugins(frontend::plugin)
+        .add_plugins(gamemenu::plugin)
         .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
         .add_systems(OnExit(frontend::AppState::Game), end_game)
         .add_plugins(cheats::plugin)
         .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
         .add_systems(
             Update,
+            // Input and game-time systems stop while a menu or outcome dialog is open; drawing goes on, so the map and
+            // panels stay drawn under the dialog.
             (
                 hud_layout,
-                scroll_view,
-                panel_input,
-                info_input,
-                keys_input,
-                mouse_input,
-                pan_and_zoom,
-                play_sounds,
-                update_messages,
-                cycle_palette,
-                redraw_terrain,
-                draw_view,
-                draw_placement,
-                update_info,
-                draw_hud,
-                quit_on_escape,
+                (
+                    scroll_view,
+                    panel_input,
+                    info_input,
+                    keys_input,
+                    mouse_input,
+                    pan_and_zoom,
+                    play_sounds,
+                    update_messages,
+                )
+                    .chain()
+                    .run_if(frontend::game_running),
+                (
+                    cycle_palette,
+                    redraw_terrain,
+                    draw_view,
+                    draw_placement,
+                    update_info,
+                    draw_hud,
+                )
+                    .chain(),
+                quit_on_escape.run_if(frontend::game_running),
             )
                 .chain()
-                .run_if(frontend::game_running),
+                .run_if(in_state(frontend::AppState::Game)),
         )
         .run();
     Ok(())
@@ -795,6 +816,7 @@ fn tick(
     art: Option<Res<TerrainArt>>,
     cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
     mut cheat_queue: ResMut<cheats::Queue>,
+    stored: Res<gamemenu::Stored>,
 ) {
     // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
     // spec's one-passenger rule (open question there: assumed to be that request). The sim has no command for it, so
@@ -816,7 +838,8 @@ fn tick(
         let (l, t, r, b) = view_tiles(camera, tf, proj);
         let at = (l.floor().max(0.0) as i32, t.floor().max(0.0) as i32);
         let size = ((r - l).round().max(1.0) as i32, (b - t).round().max(1.0) as i32);
-        hud.minimap.cycle(&mut sim.world, &art.tileset, at, size, true);
+        hud.minimap
+            .cycle(&mut sim.world, &art.tileset, at, size, stored.0.minimap_terrain);
     }
     // A lost unit (dying, or gone inside) leaves the local selection and the remembered groups (corpses spec;
     // selecting spec, "Two selections").
@@ -861,6 +884,8 @@ fn cycle_palette(
     mut cycling: ResMut<Cycling>,
     mut hud: ResMut<Hud>,
     ui: Res<PanelUi>,
+    stored: Res<gamemenu::Stored>,
+    menu: Option<Res<gamemenu::GameMenu>>,
     windows: Query<&Window>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -868,9 +893,9 @@ fn cycle_palette(
         return;
     };
     let gate = palette::Gate {
-        preference: true, // TODO: the colour-cycling preference (game-menu spec) isn't built yet.
+        preference: stored.0.colour_cycling(),
         paused: sim.world.paused,
-        menu_open: false, // TODO: no game menu yet.
+        menu_open: menu.is_some(),
         focused: windows.single().is_ok_and(|w| w.focused),
     };
     let now = cycling.started.elapsed().as_millis() as u64;
@@ -1227,7 +1252,7 @@ fn panel_input(
     };
     // Screen spec: at a scrolling edge, clicks on the panel do nothing.
     let pressed = buttons.just_pressed(MouseButton::Left) && scr.edge == (0, 0);
-    // The menu and pause buttons (screen spec, "Menu buttons"); the game menu isn't built yet.
+    // The menu and pause buttons (screen spec, "Menu buttons").
     if pressed
         && let Some(c) = hud.cursor(window)
         && let Some(b) = screen::menu_button_at((c.x, c.y), pause_button(&sim))
@@ -1235,6 +1260,8 @@ fn panel_input(
         if b == screen::MenuButton::Pause {
             let player = sim.human;
             sim.pending.push(Command::Pause { player });
+        } else {
+            ui.menu_requested = true;
         }
         ui.consumed = true;
         return;
@@ -1663,7 +1690,7 @@ fn game_key(k: KeyCode) -> Option<mouse::Key> {
 }
 
 /// The in-game keys (`mouse::key_action`, spec `ui/selecting-and-commanding.md`, "Keys" and "Control groups"). The
-/// dialogs and menus they open aren't built yet, so those keys do nothing.
+/// ones that open menus and dialogs, and Ctrl+S, are handled by `gamemenu`.
 #[allow(clippy::too_many_arguments)]
 fn keys_input(
     keys: Res<ButtonInput<KeyCode>>,
@@ -1671,13 +1698,11 @@ fn keys_input(
     sim: Option<ResMut<Sim>>,
     art: Option<Res<Art>>,
     mut sel: ResMut<Selection>,
-    mut speaker: ResMut<Speaker>,
-    mut music: ResMut<jukebox::Jukebox>,
+    mut stored: ResMut<gamemenu::Stored>,
     ui: Res<PanelUi>,
     hud: Res<Hud>,
     mut scr: ResMut<ScreenUi>,
     mut cams: Query<(&Camera, &mut Transform, &Projection), With<MapCamera>>,
-    mut exit: MessageWriter<AppExit>,
 ) {
     let (Some(mut sim), Ok((camera, mut tf, proj))) = (sim, cams.single_mut()) else {
         return;
@@ -1749,10 +1774,9 @@ fn keys_input(
                     centre_view(&mut tf, Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32));
                 }
             }
-            mouse::KeyAction::ToggleSounds => speaker.muted = !speaker.muted,
-            mouse::KeyAction::ToggleMusic => music.toggle_mute(),
-            mouse::KeyAction::Quit | mouse::KeyAction::QuitDialog => {
-                exit.write(AppExit::Success);
+            // Game-menu spec, Ctrl+M: the stored music volume swaps with 0; `sync_settings` passes it to the music.
+            mouse::KeyAction::ToggleMusic => {
+                stored.0.toggle_music();
             }
             mouse::KeyAction::GotoView(n) => {
                 let geom = view_geom(camera, &tf, proj, hud.map);
