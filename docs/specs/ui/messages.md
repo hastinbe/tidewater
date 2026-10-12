@@ -7,6 +7,7 @@
 - **Changes:** 2026-10-12: the pause-notice open question is closed by `ui/game-menu.md` ("Pause"): the notices
   appear only in Enhanced multiplayer; entry 86 is filled in with the player's name and the pauses left, entry 87
   with the player's name.
+  2026-10-12: colour 3 alternating between green and red during a game is noted, citing `ui/palette-effects.md`.
 
 ## Behaviour
 
@@ -144,6 +145,7 @@ is marked during demo playback.
 The minimap is redrawn every 40 game cycles. In a redraw, a marked unit that is drawn on the minimap is drawn in
 palette colour 3 instead of its usual colour, and its mark is then cleared. So an attacked unit shows in colour 3 for
 one redraw period (40 cycles) after the hit. A unit under steady attack keeps getting marked and stays in colour 3.
+During a game colour 3 alternates between pure green and pure red (`ui/palette-effects.md`, "Cycles per era").
 Which units the minimap draws and their usual colours are in `ui/minimap.md`.
 
 ### Event history (Enhanced rules)
