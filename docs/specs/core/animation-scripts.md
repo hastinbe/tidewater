@@ -3,8 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** inspection of `Rez\script.bin` from the game data, with its instruction meanings established by static
   study of the 2.02 program (research notes under `research/notes/`). Timings below are computed from the data. Not
-  yet confirmed against the running game.
+  yet confirmed against the running game, except the frame rules of the round-33 errata (oracle trace Human04).
 - **Changes:** 2026-10-11, round-2 errata: when an animation's first instruction runs depends on how it was started.
+  2026-10-12, round-33 errata: starting an animation never changes the frame; the events that do are listed.
 
 ## Behaviour
 
@@ -35,6 +36,13 @@ Each unit holds a **script position**, a **wait counter** (8 bits), its current 
   | Switch to the move animation to take a step, or back to the order's own animation on arrival | In the same cycle |
 
   The movement spec (`movement/movement.md`, "Which first wait applies when") uses the same table.
+
+  Starting an animation, in any of these ways or as an immediate order, sets the script position and the wait and
+  **never changes the frame**. The frame changes only when the script runs a frame instruction (including the
+  instructions run at once by the table's last row), or on these events: a worker fells a tree (frame 0,
+  `economy/harvest.md`); a unit goes into or comes out of a gold mine or oil platform (that building's frame,
+  `economy/harvest.md`); a building's construction look changes, or a building upgrade starts or ends
+  (`economy/build-train.md`). So a unit keeps the frame its last animation left until one of these happens.
 - **Each cycle,** during the unit update phase, the wait counter decreases by 1. If it is still above 0, nothing else
   happens this cycle. When it reaches 0, instructions run one after another until one of them sets a new wait.
 - **The "step done" signal:** the instruction that marks the end of a step (see the table) sets the wait to 1 and
@@ -170,6 +178,9 @@ instructions and signal "step done" only every two tiles.
 | Carry wait 2, carrying and hasted | floor(3 / 2) = 1 |
 | Halt, then no new animation | the unit's next instruction runs 256 cycles later |
 | Opcode 20 | skipped as a one-byte no-op |
+| Human04 (oracle trace), peon 1531 fells its tree at n = 1913 | Frame 25 at n = 1912, 0 at n = 1913 (the felling, not the take-over) |
+| Human04, peon 1548 reaches the mine at n = 89 | n = 88: order 23, animation 3, frame 20. n = 89: order 25, animation 3, frame 0, wait 3 (the arrival switch ran the order's own animation; the take-over kept that frame) |
+| Human04, peon 1548 returning gold, order 25 takes over at n = 374 | Frame 0 at n = 374 to 380 (left by the arrival switch), then 5, 10, 0, 15, 20 as the move script runs; order 26 at n = 399 with frame 0 |
 
 ## Open questions
 
