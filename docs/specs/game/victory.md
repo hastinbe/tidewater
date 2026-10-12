@@ -2,12 +2,15 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and the unit type numbers
-  and flags in the public PUD specification text. Not yet confirmed against the running game.
+  and flags in the public PUD specification text. Not yet confirmed against the running game, except when the check
+  runs (a research-side run of Human01 that logs each check, round 32).
 - **Changes:** 2026-10-12, round-12 errata: the rescued count goes up only when a rescuable unit reaches a circle of
   power (`game/rescue.md`); modes W and Z lower L's rescued count when they make a hero rescuable (flagged open
   question).
 - **Changes:** 2026-10-12: the open question on whether a player is allied with itself is closed by `game/setup.md`:
   the alliance table starts with every player allied with itself.
+- **Changes:** 2026-10-12, round-32 errata: the countdown counts the two start-up cycles, so the check runs in the
+  second start-up cycle and then at cycle counter 201, 402, 603, …; the vectors name cycles by the counter.
 
 ## Behaviour
 
@@ -29,8 +32,10 @@ All rules are evaluated for the **local player**, written L below.
 - Each cycle in phase 8 the countdown is tested and then lowered by 1. If the value tested was 0, it is instead
   set to **200** (not lowered in that cycle) and the check runs.
 - So after a check the countdown takes 200 cycles to come down from 200 to 0, and the next check runs on the cycle
-  after that: the period is **201** cycles. The first check runs on the **second** cycle of the game (cycle 1 lowers
-  1 to 0, cycle 2 finds 0), then at cycles 203, 404, 605, …
+  after that: the period is **201** cycles. The countdown counts every cycle, the two start-up cycles included
+  (`core/timing-and-rng.md`, "Scheduler", rule 1). The first start-up cycle lowers it from 1 to 0, so the first
+  check runs in the **second start-up cycle**. Then it runs every 201 cycles: in the normal cycles that end with the
+  cycle counter at 201, 402, 603, and so on.
 - The fog refresh countdown of `core/timing-and-rng.md` works differently: when it is found at 0 it is reloaded and
   lowered in the same cycle, so its reload value (100 or 101) is its period. The victory countdown's reload value,
   200, is one less than its period. `core/timing-and-rng.md` gives the same period.
@@ -230,7 +235,7 @@ conversions keep the rescuable mark.
 
 | Item | Value |
 | --- | --- |
-| Check interval | every 201 cycles; first on the second cycle |
+| Check interval | every 201 cycles; first in the second start-up cycle, then at cycle counter 201, 402, … |
 | Demo playback end | after 1,400 cycles |
 | Gold needed to survive without units | 400 |
 | Hero bit in rescue counts | 0x1000 |
@@ -240,8 +245,8 @@ conversions keep the rescuable mark.
 
 | Input | Expected |
 | --- | --- |
-| Custom scenario. The last enemy building dies in cycle 500; L has 3 footmen, nothing in training or construction | Checks run at cycles 2, 203, 404, 605, …: victory is found at 605 and the victory screen appears at 806 |
-| Same, but L is training a peasant until cycle 700 | Victory found at the first check after training ends (806), screen at 1007 |
+| Custom scenario. Cycles are named by the cycle counter. The last enemy building dies in cycle 500; L has 3 footmen, nothing in training or construction | Checks run in the second start-up cycle, then at counter 201, 402, 603, …: victory is found at 603 and the victory screen appears at 804 |
+| Same, but L is training a peasant until cycle 700 | Victory found at the first check after training ends (804), screen at 1005 |
 | Custom scenario; enemies have only a zeppelin and a transport left | Victory (they don't count) |
 | Custom scenario; an allied computer player still has units | No victory |
 | L has no units, only a farm, nothing training | Defeat |
@@ -261,8 +266,9 @@ conversions keep the rescuable mark.
 | Human mission 8 of *Tides of Darkness* | Entry 14, mode D |
 | Orc mission 1 of *Beyond the Dark Portal* | Entry 29, mode L |
 | Entry 0 (mode A). L has 1 barracks and 3 complete farms, and a fourth farm under construction | No result (only complete farms count) |
-| Same, the fourth farm completes in cycle 300 | Victory found at the check at cycle 404; the victory screen appears at 605 |
+| Same, the fourth farm completes in cycle 300 (counter value) | Victory found at the check at counter 402; the victory screen appears at 603 |
 | Entry 36 (mode Y). L has 2 shipyards; no other player has one | No result |
+| Human01, Enhanced, no input, 700 cycles (research-side run; trace numbering of `oracle/trace-format.md`) | The check runs in trace records n = 2, 203, 404, 605 (the second start-up cycle, then counter 201, 402, 603) and in no other record |
 | Same, L completes a third shipyard | Victory at the next check |
 | Entry 14 (mode D) starts; player 4 has 5 peasants, all with the rescuable mark | Player 4 has 5 attack peasants and no rescuable units; L and player 4 are not allied either way |
 | Entry 44 (mode AB) starts; player 4 has a runestone at 5000 HP | It has 400 HP |
