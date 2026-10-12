@@ -8,6 +8,9 @@
   as `economy/build-train.md` states.
   2026-10-11, round-3 errata: going idle makes no draw; the `(r AND 15) + 44` wait belongs to computer players' idle
   workers; fleeing makes 2 draws.
+  2026-10-11, round-3 errata: phase 1 corrected. An invisible unit is detected by its owner only (Classic) or its
+  owner's shared-vision set (Enhanced), not by allies as such; submarine detection needs a complete detector and is
+  shared through shared vision in Enhanced mode.
 
 ## Behaviour
 
@@ -50,8 +53,16 @@ The scheduler keeps a **deadline** in milliseconds on the system tick clock.
 
 Each cycle does the following, in this order. Later specs refer to these as **phases**.
 
-1. **Detection.** Every submarine starts the cycle hidden from enemies. It becomes visible to a player who has a
-   submarine-detecting unit within 6 tiles on both axes. Invisible units stay visible to their owner and allies.
+1. **Detection.** Each unit's set of detecting players is worked out again:
+   - An **invisible** unit (Invisibility timer running) is detected only by its owner in Classic mode. In Enhanced
+     mode it is detected by its owner's shared-vision set (nobody, if the owner isn't one of players 0 to 7).
+     Alliance alone doesn't count.
+   - A **submarine** is detected by its owner and by every player that has a living submarine-detecting unit within
+     6 tiles on both axes. In Enhanced mode that unit must also be complete, and detection is also shared through
+     shared vision.
+   - Every other unit is detected by everyone.
+
+   The full rule is in `vision/fog.md`, "Detection (phase 1)".
 2. **Computer players.** Each computer-controlled player runs one step of its AI script.
 3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1, so the first refresh
    happens in cycle 1. On a refresh cycle each unit's sight is re-applied to the fog during phase 4.
