@@ -15,6 +15,8 @@
 - **Changes:** 2026-10-12: the fog-off cheat is named: the `showpath` developer word (`game/cheats.md`).
 - **Changes:** 2026-10-12, round-32 errata: the first fog refresh is in the first start-up cycle, and later ones are
   named by cycle counter value (99, 199, … in Enhanced).
+- **Changes:** 2026-10-12, round-35 errata: a new unit is hidden from everyone until the next visibility pass, so no
+  target search succeeds in the first start-up cycle.
 
 ## Behaviour
 
@@ -199,6 +201,11 @@ hidden from everyone. Otherwise, for each player p:
 The footprint is the unit's type size in tiles, placed at the tile containing its top-left **pixel** (so a moving unit
 counts from where it is drawn, not from the tile it has claimed). Parts outside the map are ignored. With the
 reveal-map cheat on, nothing is hidden from anyone.
+
+A new unit starts hidden from everyone (`core/unit-slots.md`, "Creating a unit") until the next visibility pass.
+The units update before the first visibility pass of the first start-up cycle, so no automatic target search can
+succeed in that cycle; the first that can are in the second start-up cycle. A unit created in play is likewise not a
+candidate for searches made earlier in its cycle than the visibility pass (static study only).
 
 Because computer players never apply sight, their "seen" bits are always set, but that doesn't matter: computer
 players treat every unit as not hidden. Passive players never apply sight, so with the fog-of-war option on every unit
