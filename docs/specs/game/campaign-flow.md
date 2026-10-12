@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 20 (campaign flow)"),
   the game's string tables and dialog files in the `Rez` folder, and the file names of the videos, pictures, speech
   and music. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: restarting a mission from the game menu is now described (`ui/game-menu.md`): it replays
+  the mission through the act screen check and the briefing, with no score screen.
 
 ## Behaviour
 
@@ -237,6 +239,9 @@ adds nothing.
 Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
 because its act was the last shown.
 
+**Restart.** Restarting the scenario from the game menu (`ui/game-menu.md`, "Ending the scenario") replays the same
+mission the same way, with no score screen: the flow goes straight back to "Starting a mission".
+
 ### Endings
 
 - **ToD ending.** A video, then the finale dialog. Which video plays wasn't traced (see the open questions); by
@@ -339,4 +344,6 @@ because its act was the last shown.
 - **Multiplayer score screen.** Which players are listed and how in a multiplayer game is left to a later spec.
 - **Ending videos.** The endings' video calls weren't traced. Default: by file name, `HVict_M` / `OVict_M` for the
   ToD endings and `HVicX_M` / `OrcX_M` for the BDP endings, played before the finale dialog.
+- **Campaign total on restart.** Whether a restart from the game menu puts the campaign total back to its value at
+  the start of the mission, as a defeat does, wasn't traced. Default: yes.
 - **Title music.** Track 22 is the same file as the orc briefing track. This wasn't checked by ear.
