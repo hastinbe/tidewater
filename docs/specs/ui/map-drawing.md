@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 21 (drawing)"), the
   sprite files under `Art\Unit\Other\` (`shadow.grp`, `charms.grp`, `ltfire.grp`, `hvfire.grp`, `blackx.grp`), and the
   tileset files `Art\bgs\*\*.vx4` / `*.vr4` (the fog shapes). Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-24 errata: the effect sprite file of each kind (Data), and when a new effect starts
+  showing (its start step); the ground marker shows for 13 cycles each time it is made.
 
 ## Behaviour
 
@@ -234,9 +236,10 @@ player's "seen" bits (`vision/fog.md`, "The "seen" map"). This test is separate 
 covers the effect anyway where the fog is drawn.
 
 An effect is drawn only while its slot is **showing**: neither free nor in the state a new effect is given when it is
-made (see the open questions).
+made. An effect starts showing at its start step (`spells/spells.md`, "When a new effect first runs"), so it is first
+drawn after that update.
 
-Each effect kind has its own sprite file (see the open questions). The frame is the column for the effect's facing plus
+Each effect kind has its own sprite file (Data). The frame is the column for the effect's facing plus
 its frame number, as for units, and mirrored the same way.
 
 ### Fog
@@ -277,7 +280,10 @@ After the fog:
 2. **The ground marker:** the permanent effect in slot 2 (`blackx.grp`), shown where a command without a target was
    given (`ui/selecting-and-commanding.md`). Its slot is never freed, so it is drawn only while the slot is showing
    (as in "Effects"), with no fog test, at its position, frame = facing column + frame number. When its animation
-   ends, the slot goes back to the state of a newly made effect, and the marker stops showing.
+   ends, the slot goes back to the state of a newly made effect, and the marker stops showing. Each time the marker
+   is made again it shows from the cycle after its first update for 13 cycles: with its first update in cycle U, it
+   is drawn after the updates of U + 1 to U + 13 and hidden from the update in U + 14 (1 cycle of start animation,
+   then the restart's wait of 1 and 12 cycles of waits).
 3. **The selection rectangle:** while the left button is held after a press on the map
    (`ui/selecting-and-commanding.md`), a 1-pixel outline in colour 250 from the press point to the pointer, both
    corners included. It disappears when the button is released.
@@ -319,6 +325,21 @@ footprint (32 × width by 32 × height pixels) follows the pointer.
 | Placement checkerboard | colour 150 good, 10 bad, on pixels with (x + y) odd |
 | Selection rectangle | colour 250 |
 
+**Effect sprites by effect kind** (all under `Art\Unit\Other\`):
+
+| Kind | File | Kind | File | Kind | File |
+| --- | --- | --- | --- | --- | --- |
+| 0x00 | `lightng.grp` | 0x0A | `dkatak.grp` | 0x14 | `hvfire.grp` |
+| 0x01 | `hammer.grp` | 0x0B | `rune.grp` | 0x15 | `cathit.grp` |
+| 0x02 | `fireball.grp` | 0x0C | `phoon.grp` | 0x16 | `sparkle.grp` |
+| 0x03 | `fireball.grp` | 0x0D | `stone.grp` | 0x17 | `boom.grp` |
+| 0x04 | `ltfire.grp` | 0x0E | `bolt.grp` | 0x18 | `cannon.grp` |
+| 0x05 | `blizzard.grp` | 0x0F | `arrow.grp` | 0x19 | `canfire.grp` |
+| 0x06 | `rot.grp` | 0x10 | `axe.grp` | 0x1A | `canboom.grp` |
+| 0x07 | `hbattle.grp` | 0x11 | `torpedo.grp` | 0x1B | `fire.grp` |
+| 0x08 | `exorcism.grp` | 0x12 | `torpedo.grp` | 0x1C | `blackx.grp` |
+| 0x09 | `heal.grp` | 0x13 | `ltfire.grp` | | |
+
 ## Test vectors
 
 | Situation | Result |
@@ -344,7 +365,7 @@ footprint (32 × width by 32 × height pixels) follows the pointer.
 | Tile with v = 16, e = 0 | Black on even pixels; terrain shows on odd pixels |
 | Tile with v = 16, e = 16 | All black |
 | Tile with v = 2 (top half fogged), e = 0 | Shape 2's non-zero pixels on the even pixels only |
-| Reveal-map cheat on | No fog drawn; every effect drawn |
+| Reveal-map cheat on | No fog drawn; every showing effect drawn |
 | Enemy farm seen under construction, then fogged; it completes out of sight | Still drawn as the construction site |
 | Enemy barracks destroyed out of sight, after being seen | A ghost stays until its footprint is seen again, then disappears |
 | Same, Enhanced mode, a 1 × 1 ruin was the last thing seen there | No ghost |
@@ -352,6 +373,8 @@ footprint (32 × width by 32 × height pixels) follows the pointer.
 | Placing a farm; one site tile has a tree | That tile's odd pixels in colour 10; the other three tiles in 150 |
 | Placing a shipyard on dry land far from water (no shore) | All 9 tiles in colour 10 |
 | Command with no target given at a ground pixel | The ground marker is drawn there, over the fog and the message lines |
+| The ground marker's first update is in cycle U | Not drawn after U; drawn after U + 1 to U + 13; hidden from the update in U + 14 |
+| A ballista impact effect, drawn | `Art\Unit\Other\cathit.grp` |
 
 ## Open questions
 
@@ -366,12 +389,6 @@ footprint (32 × width by 32 × height pixels) follows the pointer.
   spec.
 - **Shadow frames.** Only frame 2 of `shadow.grp` (the largest, 23 × 23) is used. Frames 0 and 1 are not used by the
   map view; whether anything else uses them wasn't checked.
-- **Effect sprite files.** Each effect kind (29 kinds, 0x00 to 0x1C) has its own sprite file under
-  `Art\Unit\Other\`, from a table in the program. The kind-to-file table isn't in the research notes yet, so it
-  isn't given here. Known so far: 0x13 is `ltfire.grp`, 0x14 is `hvfire.grp` and 0x1C is `blackx.grp`.
-- **Effect slot states.** A new effect is made in a state that isn't "showing", and the step that makes it showing
-  wasn't traced. Default: an effect shows from its first update. The ground marker's slot goes
-  back to the new-effect state at the end of its animation; how long that takes is in the animation data.
 - **Building states in the background.** Which states keep a building out of the background drawing wasn't traced.
   Default: as in the unit passes, a building that is dead, removed or inside something isn't drawn; a dying one
   (a ruin) is.
