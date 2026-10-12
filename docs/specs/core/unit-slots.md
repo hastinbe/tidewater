@@ -3,6 +3,8 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`). Not yet confirmed against the
   running game.
+- **Changes:** 2026-10-11, round-8 errata: only flag-bit-10 units (the transports), not all ships, get no corpse on
+  shore water.
 
 ## Behaviour
 
@@ -85,7 +87,7 @@ When the death animation reaches its step-done signal, one of three things happe
 
 | Unit | What happens |
 | --- | --- |
-| Mobile unit whose type has a corpse | It becomes a **corpse** unit in the same slot, and the corpse animation plays. A ship that sinks on shore water gets no corpse. |
+| Mobile unit whose type has a corpse | It becomes a **corpse** unit in the same slot, and the corpse animation plays. A unit whose type has flag bit 10 (the transports in the default data) and that stands on shore water at its death step done gets no corpse; other ships leave one (the corpses spec, still in review, has the full rule). |
 | Building | Its footprint marks are cleared, and it becomes a **ruin** unit sized by the building's width, in the same slot |
 | Anything else, or a corpse or ruin whose time is over | Its order becomes "remove", and it is moved to the neutral owner (15) |
 
