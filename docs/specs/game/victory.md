@@ -3,6 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and the unit type numbers
   and flags in the public PUD specification text. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-12 errata: the rescued count goes up only when a rescuable unit reaches a circle of
+  power (`game/rescue.md`); modes W and Z lower L's rescued count when they make a hero rescuable (flagged open
+  question).
 
 ## Behaviour
 
@@ -50,10 +53,12 @@ games the outcome happens within the check.
 - **Production buildings:** complete barracks, shipyards, town halls, great halls, keeps, strongholds, castles,
   fortresses, guard towers and cannon towers (both races). Scout towers don't count.
 - **Gold:** the player's gold stock.
-- **Rescuable units:** units on the map that can still be rescued (the PUD "rescue" ownership; touching them hands
-  them over). The game counts them, and separately counts the rescuable **heroes** (type flag bit 23).
-- **Rescued count of a player:** goes up by 1 for each unit the player rescues. If the mission's required count has
-  bit 0x1000 set, rescuing a hero adds a further 0x1000.
+- **Rescuable units:** units on the map that have the rescuable mark, whoever owns them. Units of rescue players have
+  it from the start; joining a human player (`game/rescue.md`) keeps it, and reaching a circle of power removes it.
+  The game counts them, and separately counts the rescuable **heroes** (type flag bit 23).
+- **Rescued count of a player:** an unsigned 16-bit value. It goes up by 1 for each of the player's rescuable units
+  that reaches a circle of power (`game/rescue.md`). If the mission's required count has bit 0x1000 set, a hero adds
+  a further 0x1000.
 - **Dead (for a hero):** dying, dead or removed.
 - **Finding a hero:** the unit slots are searched in slot order (`core/unit-slots.md`) for units of the named types,
   whoever owns them.
@@ -182,10 +187,10 @@ condition replaces an earlier result. "Victory" and "defeat" below mean the outc
 | T | If the standard part gave a result, stop. Defeat when neither player 15 nor L has a dark portal. Otherwise destroy-all check: its victory counts only if L has a dark portal; otherwise the check goes on |
 | U | Defeat if any of Danath, Turalyon and Alleria found is dead, or fewer than 3 of them are found. Then the rescue test of step 3 with required 3 (which can replace that defeat with victory) |
 | V | Defeat unless Danath is found and alive. Then destroy-all check |
-| W | Defeat unless Turalyon is found and alive. When no player other than L and player 4 has a keep, stronghold, castle or fortress: Turalyon is made rescuable (if he isn't already) and the mission switches to the rescue rule (required 1) |
+| W | Defeat unless Turalyon is found and alive. When no player other than L and player 4 has a keep, stronghold, castle or fortress: Turalyon is made rescuable (if he isn't already) and the mission switches to the rescue rule (required 1). Making a hero rescuable this way (only a hero without the mark) also lowers L's rescued count by 1 (unsigned 16-bit, so 0 becomes 65535). The rescue test first runs at the next check |
 | X | No result while any player other than L and player 7 is in (multiplayer sense). Then victory if L has a castle or fortress; otherwise the check goes on |
 | Y | Victory when L has at least 3 shipyards and no other player has a shipyard |
-| Z | Defeat unless two units among Turalyon and Danath are found and both alive. No result while player 4 is in. Then both are made rescuable and the mission switches to the rescue rule (required 2) |
+| Z | Defeat unless two units among Turalyon and Danath are found and both alive. No result while player 4 is in. Then both are made rescuable and the mission switches to the rescue rule (required 2). Making a hero rescuable this way (only a hero without the mark) also lowers L's rescued count by 1 (unsigned 16-bit, so 0 becomes 65535). The rescue test first runs at the next check |
 | AA | Defeat unless Alleria, Khadgar and Kurdan (three found) are all alive. Victory when no living Deathwing exists and no other player has a gryphon aviary or dragon roost |
 | AB | Victory when player 5 has no castle or fortress and player 4 has no runestone |
 | AC | Defeat unless Danath, Khadgar, Turalyon and Alleria (four found) are all alive. Then destroy-all check. Then victory when no other player has 400 gold or more |
@@ -263,9 +268,11 @@ conversions keep the rescuable mark.
 
 ## Open questions
 
-- What "made rescuable" in modes W and Z means in play: the heroes belong to L, so how they are then "rescued" (for
-  example by reaching a circle of power) is unknown. Default: they count as rescuable units in the rescue test, and
-  the test passes only through L's rescued count.
+- **Flagged: modes W and Z.** Taken literally, the count drop gives victory at the next check when L's count was 0,
+  and defeat if the hero reaches a circle of power first (with nothing else marked). The heroes are rescued like any
+  other rescuable unit L owns, by reaching a circle of power (`game/rescue.md`). Whether the shipped missions (32
+  for W, 38 for Z) really play this way, and whether the rescued counts are reset between missions (no reset was
+  found at mission start), hasn't been confirmed in play. Default: the literal behaviour.
 - The allied-victory setting's source (assumed: the diplomacy screen's allied-victory box).
 - Whether a player is always allied with itself, which step 6 needs. Default: yes.
 - The exact result codes reported to the network ("game ended" when nobody has a result) are not specified.

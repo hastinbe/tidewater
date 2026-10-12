@@ -8,6 +8,8 @@
   - the type list in the public PUD specification text.
 
   Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-12 errata: the rescue and capture triggers are now known (`game/rescue.md`); the
+  open question on them is closed.
 
 ## Behaviour
 
@@ -280,8 +282,10 @@ ticks.
 **Docking.** When a transport (flag bit 10) moves onto a shore-water tile, `misc\dock` plays on it. It is a placed
 sound, audible off screen.
 
-**Rescue and capture.** `misc\hrescue` (orc set: `misc\orescue`) and `misc\hcapture` (orc set: `misc\ocapture`) play
-when units of a rescuable player join a human-controlled player. The exact triggers are an open question.
+**Rescue and capture.** `misc\hcapture` (orc set: `misc\ocapture`) plays on a rescuable unit when it joins a
+human-controlled player, only for the unit that was touched, not for the rest of its side that follows it.
+`misc\hrescue` (orc set: `misc\orescue`) plays on a circle of power for each rescuable unit it rescues. Both are placed
+sounds, audible off screen (`game/rescue.md`).
 
 ### Spells
 
@@ -475,11 +479,8 @@ selection cooldown has expired, and r is the setup-shuffle draw.
   kill would at that point.
 - **3-D sound option.** The dialog's 3-D sound option isn't consulted by any of the paths above. Default: it changes
   nothing here.
-- **Hammer and breath splash, rescue and capture.** The moment the flying hammer and dragon breath play
-  `misc\explode` hasn't been pinned to a step. Default: on each splash. The rescue and capture sounds are tied to the
-  rescue of units and buildings, but which one plays for which case isn't confirmed. Default: `capture` when a
-  rescued building or unit changes owner and the change announces itself, `rescue` when a rescuing unit finds
-  rescuable units next to it.
+- **Hammer and breath splash.** The moment the flying hammer and dragon breath play `misc\explode` hasn't been
+  pinned to a step. Default: on each splash.
 - **Unused files.** `spells\iokilrog`, `spells\thunder`, `spells\spell` and `misc\fist` aren't referenced by any
   event found. Default: unused.
 - **Spell sound placement.** Which unit or tile each spell's sound is placed on (caster or target) isn't recorded per
