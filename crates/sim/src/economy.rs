@@ -390,9 +390,7 @@ impl World {
 
     /// The tile a unit of type `k` comes out on: the ring search of the placement spec around the building's
     /// footprint, aimed at its own top-left tile, so the first tile tried is the one west of that corner. Builders
-    /// leaving a finished, cancelled or destroyed site would use the same call, but this simulation doesn't model
-    /// builders inside sites yet.
-    // TODO: place the builder out of a finished, cancelled or destroyed site once builders are modelled.
+    /// leaving a site use the same search (`build.rs`).
     fn free_tile_near(&self, b: &crate::world::Unit, k: u8) -> Option<(i32, i32)> {
         let src = Source::new(b.tile.0, b.tile.1, b.size.0 as i32, b.size.1 as i32);
         self.find_place(k, src, b.tile, LIMIT_OUT)
