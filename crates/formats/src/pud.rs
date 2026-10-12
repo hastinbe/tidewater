@@ -35,7 +35,7 @@ pub enum PudError {
 }
 
 /// The four terrains (the `ERA`/`ERAX` section).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Era {
     Forest,
     Winter,

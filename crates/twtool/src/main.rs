@@ -629,16 +629,20 @@ fn sim(
     };
     let pud = Pud::parse(&data)?;
     let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
-    let ts = inst.tileset(start.era)?;
-    let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
-        Some(t) => t,
-        None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
+    let mut build = || -> Result<World> {
+        let ts = inst.tileset(start.era)?;
+        let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
+            Some(t) => t,
+            None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
+        };
+        let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
+        let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?;
+        let mut w = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), &start)?;
+        let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
+        w.start_ai(std::sync::Arc::new(ai));
+        Ok(w)
     };
-    let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
-    let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?;
-    let mut w = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), &start)?;
-    let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
-    w.start_ai(std::sync::Arc::new(ai));
+    let mut w = build()?;
     let player = player.unwrap_or(start.local);
     println!(
         "setup {:?}: local player {}, race setting {}, view {:?}, {} sounds, controllers {:?}",
@@ -841,6 +845,27 @@ fn sim(
     );
     println!("explored tiles (player 0): {}", w.vision.explored_tiles());
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
+    // Save and load round trip: a world built afresh from the map and given the saved state must match this one
+    // cycle by cycle, once both generators are reseeded alike.
+    w.prepare_save();
+    let bytes = w.save_state();
+    let mut loaded = build()?;
+    loaded.restore(&bytes, seed ^ 0x5eed)?;
+    w.rng = tidewater_sim::Rng::new(seed ^ 0x5eed);
+    anyhow::ensure!(
+        w.state_hash() == loaded.state_hash(),
+        "state differs right after a load ({} bytes saved)",
+        bytes.len()
+    );
+    for t in 0..100 {
+        w.step(&[]);
+        loaded.step(&[]);
+        anyhow::ensure!(
+            w.state_hash() == loaded.state_hash(),
+            "state differs {t} cycles after a load"
+        );
+    }
+    println!("save/load round trip ok ({} bytes)", bytes.len());
     Ok(())
 }
 

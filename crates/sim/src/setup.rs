@@ -61,7 +61,7 @@ pub mod race {
 }
 
 /// The resources choice of a custom game.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Resources {
     #[default]
     MapDefault,
@@ -73,7 +73,7 @@ pub enum Resources {
 }
 
 /// The terrain choice of a custom game.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TerrainChoice {
     #[default]
     MapDefault,
@@ -83,7 +83,7 @@ pub enum TerrainChoice {
 }
 
 /// The custom-scenario screen's choices ("Custom choices").
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Custom {
     /// The local player's race: `None` is "map default", else [`race::HUMAN`] or [`race::ORC`].
     pub race: Option<u8>,
@@ -112,7 +112,7 @@ impl Default for Custom {
 }
 
 /// How the map was started.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Game {
     /// A campaign map, with its mission table entry (`game/victory.md`, "Mission rules").
     Campaign {
@@ -123,7 +123,7 @@ pub enum Game {
 
 /// The options a new single-player game starts with. The default is a custom game with every choice at "map
 /// default", under Enhanced rules.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Setup {
     pub game: Game,
     /// Enhanced rather than Classic rules (single player is Enhanced, `core/timing-and-rng.md`).

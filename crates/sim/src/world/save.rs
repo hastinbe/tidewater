@@ -11,8 +11,9 @@
 //! *template* world from the same map and set-up ([`World::from_pud`] then `start_ai`), and [`World::restore`] puts the
 //! stored fields over it. Not stored either, because they aren't game state: the message and sound queues, spell
 //! counts, the start-view record. The selection and control groups are stored: the spec's open question "Selection and
-//! groups" defaults to "the selection is empty and groups are kept only if they're part of the units' state", and the
-//! synced selection and groups are part of the world here, so they are kept as they are (a choice recorded here).
+//! groups" defaults to "the selection is empty and groups are kept only if they're part of the units' state". The
+//! control groups are part of the world here, so they are stored and kept; the selected units are not kept (a choice
+//! recorded here).
 //!
 //! **Afresh on load.** The generator is not stored; [`World::restore`] takes the seed to start it from (the caller
 //! passes the time in seconds, as for a new game, `core/timing-and-rng.md` "Seeding"). The cheat flags are not stored;
@@ -169,6 +170,11 @@ impl World {
         self.start_cheats(kept);
         self.events.clear();
         self.loading = false;
+        // The selection starts empty after a load; the control groups stay (spec open question "Selection and
+        // groups").
+        for sel in &mut self.selections {
+            sel.places = Default::default();
+        }
         if !self.rules.enhanced {
             self.tick = 0;
             for p in &mut self.players {
