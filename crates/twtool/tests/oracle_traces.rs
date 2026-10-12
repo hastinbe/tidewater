@@ -7,27 +7,26 @@
 //! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i). The
 //! gaps below are what the specs don't yet explain; none has been researched:
 //!
-//! - **human01-basics**, n = 287: at n = 288 a footman dies (order 1) and ours shows hp 0 where the game shows 2,
-//!   with its attacker still recorded on the dying side; the hp left by a killing blow is unexplained.
-//! - **orc02-***, n = 345: an axe thrower (slot 1584, order 12) gets wait 63 at n = 346 in the game, 1 in ours: a
-//!   long attack-cycle wait no spec gives.
-//! - **xorc01-death-coil**, n = 355: a grunt on an attack-move (order 10) waits 15 in its move animation in ours (a
-//!   blocked wait) but steps on in the game (wait 1).
-//! - **xhuman10-***, n = 4: at n = 5 the local human player's guard and cannon towers (slots 1468 and 1501, order
-//!   14) acquire enemy grunts 4 to 6 tiles away in ours but find nothing in the game, which then gives them the
-//!   "nothing found" waits (59 and 150). The grunts look seen by that player under `vision/fog.md`; why they are
-//!   hidden is open.
-//! - **xorc01-death-knight**, n = 36, and **xorc12-ogre-mage**, n = 35: an effect of kind 0x16 made in the next
-//!   cycle stands 5 and 1 pixels off ours, and the game records no destination and no shooter for it.
+//! - **human01-basics**, n = 575: at n = 576 the game draws twice from the generator where ours draws once.
+//! - **orc02-***, n = 545: at n = 546 a grunt attacking on the move (slot 1578, order 9) records tile (58, 20),
+//!   facing 1 and wait 15 in the game (a blocked wait), and tile (59, 20), facing 2 and wait 1 in ours.
+//! - **xorc01-death-coil**, n = 717: an ogre (slot 1496) on an attack-move records order 10 on tile (56, 73) in the
+//!   game, and order 12 on (57, 74) in ours, with the same pixel and target.
+//! - **xhuman10-***, n = 15: at n = 16 a cannon tower's impact effect (kind 0x1A) has destination (0, 0) and no
+//!   shooter in the game; no spec gives an impact effect's destination or shooter.
+//! - **xorc01-death-knight**, n = 437: an ogre on an attack-move (slot 1489, order 10) records tile (67, 77) in the
+//!   game and (68, 78) in ours, at the same pixel.
+//! - **xorc12-ogre-mage**, n = 76: at n = 77 a runes marker (kind 0x0B) has destination (0, 0) in the game; no spec
+//!   gives it.
 //! - **xorc10-dragons**, n = 7: a worker walking to a build site (order 28) steps to a different tile; the walk goal
 //!   of a build order is a known gap.
 //! - **orc09-***, n = 4, and **human06-tech**, n = 69: the same build-site walk (order 28).
 //! - **human12-*** (transport, demolition and the 7000-cycle run), n = 134: a peasant harvesting (order 23) steps
 //!   east where the game steps north-east.
 //! - **orc4**, n = 6810: a peon harvesting (order 23) steps to (6, 5) where the game steps to (5, 6).
-//! - **human10**, n = 6803: a computer ship (slot 1483) is idle in ours but patrolling (order 5) in the game.
-//! - **xorc7**, n = 441: a computer unit (slot 1594, type 0x1A, order 24) heading for its target steps to a tile two
-//!   rows short of the game's.
+//! - **human10**, n = 6906: at n = 6907 the game draws once more from the generator, and two idle units (slots 1534
+//!   and 1552) face one step round from ours.
+//! - **xorc7**, n = 805: at n = 806 the game draws 10 times from the generator, ours 9.
 //! - **human5**, n = 38: a peasant harvesting (order 23) reaches its tree one step later than in the game.
 //!
 //! The other long traces (human7, orc8, xhuman2, xhuman4, xorc3) diverge in their first ten cycles, mostly in the
@@ -48,63 +47,63 @@ const TRACES: [Trace; 22] = [
         "Campaign\\Human\\Human01.pud",
         0,
         &[],
-        Some(287),
+        Some(575),
     ),
     (
         "orc02-assault-3000.jsonl.gz",
         "Campaign\\Orc\\Orc02.pud",
         3,
         &[],
-        Some(345),
+        Some(545),
     ),
     (
         "orc02-victory-7639.jsonl.gz",
         "Campaign\\Orc\\Orc02.pud",
         3,
         &[],
-        Some(345),
+        Some(545),
     ),
     (
         "orc02-defeat-4021.jsonl.gz",
         "Campaign\\Orc\\Orc02.pud",
         3,
         &[],
-        Some(345),
+        Some(545),
     ),
     (
         "xorc01-death-coil-2500.jsonl.gz",
         "Campaign\\XOrc\\2XOrc01.pud",
         29,
         &[],
-        Some(355),
+        Some(717),
     ),
     (
         "xhuman10-spells-700.jsonl.gz",
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(4),
+        Some(15),
     ),
     (
         "xhuman10-blizzard-600.jsonl.gz",
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(4),
+        Some(15),
     ),
     (
         "xorc01-death-knight-2100.jsonl.gz",
         "Campaign\\XOrc\\2XOrc01.pud",
         29,
         &[],
-        Some(36),
+        Some(437),
     ),
     (
         "xorc12-ogre-mage-180.jsonl.gz",
         "Campaign\\XOrc\\2XOrc12.pud",
         51,
         &[],
-        Some(35),
+        Some(76),
     ),
     (
         "xorc10-dragons-800.jsonl.gz",
@@ -161,9 +160,9 @@ const TRACES: [Trace; 22] = [
         "Campaign\\Human\\Human10.pud",
         18,
         &[],
-        Some(6803),
+        Some(6906),
     ),
-    ("xorc7-7000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], Some(441)),
+    ("xorc7-7000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], Some(805)),
     (
         "human5-10000.jsonl.gz",
         "Campaign\\Human\\Human05.pud",
