@@ -4,6 +4,7 @@
 //! pan, mouse wheel or +/- zoom, Escape quits. On the minimap, left click or drag moves the view and right click
 //! orders a move there.
 
+mod fog;
 mod hud;
 mod scene;
 
@@ -165,6 +166,16 @@ impl Hud {
     }
 }
 
+/// The fog overlay picture (one texel per quarter tile) and the sim state it was last drawn from.
+#[derive(Resource)]
+struct FogArt {
+    image: Handle<Image>,
+    drawn: Option<(u32, bool)>,
+}
+
+/// Above every unit (ground 1 to 4 plus a fraction for rows).
+const FOG_Z: f32 = 20.0;
+
 #[derive(Component)]
 struct MapCamera;
 
@@ -275,6 +286,7 @@ fn main() -> Result<()> {
                 order,
                 sync_sprites,
                 redraw_terrain,
+                redraw_fog,
                 draw_selection,
                 draw_hud,
                 quit_on_escape,
@@ -373,6 +385,26 @@ fn setup(
         image: terrain,
         tileset: scene.tileset,
     });
+    let (map_w, map_h) = (scene.world.terrain.width as u32, scene.world.terrain.height as u32);
+    let fog = images.add(image_with(
+        scene::Picture {
+            width: map_w * 2,
+            height: map_h * 2,
+            rgba: [0, 0, 0, 255].repeat((map_w * map_h * 4) as usize),
+        },
+        RenderAssetUsages::default(),
+    ));
+    commands.spawn((
+        Sprite {
+            custom_size: Some(size.0),
+            ..Sprite::from_image(fog.clone())
+        },
+        Transform::from_translation(world(size.0.x / 2.0, size.0.y / 2.0, FOG_Z)),
+    ));
+    commands.insert_resource(FogArt {
+        image: fog,
+        drawn: None,
+    });
     let art: HashMap<_, Vec<_>> = scene
         .art
         .into_iter()
@@ -439,6 +471,25 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
     }
 }
 
+/// Redraws the fog overlay when the sim's explored or visible map has changed.
+fn redraw_fog(sim: Option<Res<Sim>>, fog: Option<ResMut<FogArt>>, mut images: ResMut<Assets<Image>>) {
+    let (Some(sim), Some(mut fog)) = (sim, fog) else { return };
+    let v = &sim.world.vision;
+    let key = (v.generation, sim.world.rules.reveal_map);
+    if fog.drawn == Some(key) {
+        return;
+    }
+    let Some(mut img) = images.get_mut(&fog.image) else {
+        return;
+    };
+    let (explored, visible) = fog::maps(&sim.world);
+    let px = fog::overlay(explored, visible, v.width, v.height, key.1);
+    if let Some(data) = img.data.as_mut() {
+        data.copy_from_slice(&px);
+        fog.drawn = Some(key);
+    }
+}
+
 /// Draw depth: buildings under ground units under ships under aircraft; lower on screen draws in front.
 fn depth(u: &tidewater_sim::Unit) -> f32 {
     let layer = match (u.building, u.layer) {
@@ -454,14 +505,21 @@ fn sync_sprites(
     mut commands: Commands,
     sim: Option<Res<Sim>>,
     art: Option<Res<Art>>,
-    mut q: Query<(Entity, &UnitSprite, &mut Sprite, &mut Transform)>,
+    mut q: Query<(Entity, &UnitSprite, &mut Sprite, &mut Transform, &mut Visibility)>,
 ) {
     let (Some(sim), Some(art)) = (sim, art) else { return };
-    for (e, us, mut sprite, mut tf) in &mut q {
+    for (e, us, mut sprite, mut tf, mut vis) in &mut q {
         let Some(u) = sim.world.unit(us.0) else {
             commands.entity(e).despawn();
             continue;
         };
+        // Units the local player can't see aren't drawn (vision spec, "Unit visibility").
+        let shown = if fog::unit_shown(&sim.world, u) {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        vis.set_if_neq(shown);
         if u.dying {
             sprite.color = Color::srgba(0.6, 0.6, 0.6, 0.6);
         }
@@ -811,6 +869,7 @@ fn draw_hud(
         .world
         .units
         .iter()
+        .filter(|u| sim.world.on_minimap(u))
         .map(|u| hud::Dot {
             tile: u.tile,
             size: u.size,
@@ -848,6 +907,7 @@ fn draw_hud(
             food,
             status: sim.message.as_ref().map(|(m, _)| m.as_str()),
             dots: &dots,
+            fog: (!sim.world.rules.reveal_map).then(|| fog::maps(&sim.world)),
             view,
         },
     );

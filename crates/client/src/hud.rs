@@ -176,6 +176,8 @@ pub struct View<'a> {
     /// The latest message for the player.
     pub status: Option<&'a str>,
     pub dots: &'a [Dot],
+    /// The explored and visible maps' fogged quarters per tile, if fog hides terrain.
+    pub fog: Option<(&'a [u8], &'a [u8])>,
     /// The map view in tiles: left, top, right, bottom.
     pub view: (f32, f32, f32, f32),
 }
@@ -507,7 +509,14 @@ impl HudArt {
             height: frame.height,
             rgba: frame.rgba.clone(),
         };
-        draw_minimap(&mut pic, &Minimap { rect: l.minimap, map }, tiles, v.dots, v.view);
+        draw_minimap(
+            &mut pic,
+            &Minimap { rect: l.minimap, map },
+            tiles,
+            v.fog,
+            v.dots,
+            v.view,
+        );
 
         // Resources, right-aligned in the top bar.
         let slot = 84;
@@ -576,8 +585,16 @@ fn bounds_of(r: &RawImage, v: u8) -> Option<Rect> {
     (x0 != usize::MAX).then(|| Rect::new(x0 as i32, y0 as i32, (x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32))
 }
 
-/// Draws the terrain, unit dots and the map-view rectangle into the minimap area.
-pub fn draw_minimap(pic: &mut Picture, m: &Minimap, tiles: &[[u8; 3]], dots: &[Dot], view: (f32, f32, f32, f32)) {
+/// Draws the terrain, unit dots and the map-view rectangle into the minimap area. With `fog` (the explored and visible
+/// maps), terrain shows only where the map a pixel column samples is clear (see [`crate::fog`]).
+pub fn draw_minimap(
+    pic: &mut Picture,
+    m: &Minimap,
+    tiles: &[[u8; 3]],
+    fog: Option<(&[u8], &[u8])>,
+    dots: &[Dot],
+    view: (f32, f32, f32, f32),
+) {
     let s = m.scale();
     let (mw, mh) = m.map;
     fill(pic, m.rect, [0, 0, 0]);
@@ -587,7 +604,11 @@ pub fn draw_minimap(pic: &mut Picture, m: &Minimap, tiles: &[[u8; 3]], dots: &[D
         let ty = (((py as f32 + 0.5) / s) as u32).min(mh.saturating_sub(1));
         for px in 0..w {
             let tx = (((px as f32 + 0.5) / s) as u32).min(mw.saturating_sub(1));
-            if let Some(&c) = tiles.get((ty * mw + tx) as usize) {
+            let n = (ty * mw + tx) as usize;
+            if fog.is_some_and(|(e, v)| !crate::fog::minimap_terrain_shown(e, v, px, n)) {
+                continue;
+            }
+            if let Some(&c) = tiles.get(n) {
                 fill(pic, Rect::new(ox as i32 + px, oy as i32 + py, 1, 1), c);
             }
         }
@@ -688,7 +709,7 @@ mod tests {
             size: (1, 1),
             owner: 1,
         }];
-        draw_minimap(&mut pic, &m, &tiles, &dots, (0.0, 0.0, 2.0, 2.0));
+        draw_minimap(&mut pic, &m, &tiles, None, &dots, (0.0, 0.0, 2.0, 2.0));
         let at = |x: u32, y: u32| &pic.rgba[((y * 8 + x) * 4) as usize..((y * 8 + x) * 4 + 3) as usize];
         assert_eq!(at(5, 1), &[1, 2, 3]);
         assert_eq!(at(7, 7), &team_colour(1, 0));

@@ -163,6 +163,7 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         });
     }
     let human = pud.owners().iter().position(|&o| o == 5).unwrap_or(0) as u8;
+    world.vision.local = human;
     Ok(Scene {
         era: pud.era,
         description: pud.description(),
