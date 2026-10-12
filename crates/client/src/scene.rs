@@ -114,6 +114,26 @@ pub fn frame_picture(grp: &Grp, frame: usize, pal: &Palette, owner: u8) -> Pictu
     }
 }
 
+/// Whether map pixel `p` falls on a non-transparent pixel of sheet frame `frame`, drawn as `frame_picture` lays it
+/// out, centred on `centre` and flipped across if `flip` (as the client draws unit sprites). Used by the click rules'
+/// pixel test (spec `ui/selecting-and-commanding.md`, "Selecting").
+pub fn opaque(grp: &Grp, frame: usize, flip: bool, centre: (i32, i32), p: (i32, i32)) -> bool {
+    let Some(f) = grp.frames.get(frame) else {
+        return false;
+    };
+    let (w, h) = (grp.width as i32, grp.height as i32);
+    let mut cx = p.0 - (centre.0 - w / 2);
+    let cy = p.1 - (centre.1 - h / 2);
+    if flip {
+        cx = w - 1 - cx;
+    }
+    let (x, y) = (cx - f.x as i32, cy - f.y as i32);
+    if x < 0 || y < 0 || x >= f.width as i32 || y >= f.height as i32 {
+        return false;
+    }
+    f.pixels[(y * f.width as i32 + x) as usize] != 0
+}
+
 /// One megatile as a `TILE` x `TILE` picture.
 pub fn tile_picture(ts: &Tileset, megatile: usize) -> Picture {
     let mut px = vec![0u8; TILE * TILE];
@@ -203,5 +223,28 @@ mod tests {
         assert_eq!(&rgba[8..12], &[0, 60, 192, 255]);
         // Player 0 keeps the palette's own red.
         assert_eq!(&to_rgba(&[208], &pal, true, Some(0))[0..3], &[164, 0, 0]);
+    }
+
+    #[test]
+    fn opaque_pixels() {
+        // A 4 x 4 cell with a 2 x 1 frame at (2, 1): pixel (2, 1) set, (3, 1) clear.
+        let grp = Grp {
+            width: 4,
+            height: 4,
+            frames: vec![tidewater_formats::grp::Frame {
+                x: 2,
+                y: 1,
+                width: 2,
+                height: 1,
+                pixels: vec![5, 0],
+            }],
+        };
+        // Centred on (10, 10): the cell's top-left is (8, 8).
+        assert!(opaque(&grp, 0, false, (10, 10), (10, 9)));
+        assert!(!opaque(&grp, 0, false, (10, 10), (11, 9)));
+        assert!(!opaque(&grp, 0, false, (10, 10), (10, 10)));
+        // Flipped: cell column 1 shows column 2.
+        assert!(opaque(&grp, 0, true, (10, 10), (9, 9)));
+        assert!(!opaque(&grp, 1, false, (10, 10), (10, 9)), "no such frame");
     }
 }
