@@ -18,6 +18,8 @@
   so no target search finds it before then; bodies and ruins keep the mana byte (open question narrowed).
 - **Changes:** 2026-10-12, round-39 errata: no kill, by damage or outright, changes a unit's HP; `human12-demolition`
   vector.
+- **Changes:** 2026-10-12, round-40 errata: a killed building makes a kind-0x17 explosion at its centre, 8 px up, in the
+  lowest free effect slot (not walls or a building with the used mark); `human5` and `xhuman2` vectors.
 
 ## Behaviour
 
@@ -113,7 +115,14 @@ When a unit is killed, it keeps its slot. The game:
 - sets its order to "dying", which plays its death animation;
 - leaves its HP as it is: no kill, whether by damage or outright, changes a unit's HP (`combat/damage.md`). This
   covers the killing blow, a demolisher killed after its blast, a passenger killed with its transport, a builder
-  with no exit tile and every other outright kill. The HP shows unchanged through the death animation.
+  with no exit tile and every other outright kill. The HP shows unchanged through the death animation;
+- for a **building**, right after its death sound (`ui/sounds.md`, "A building killed"), creates a cosmetic
+  **explosion** (kind 0x17) in the lowest free effect slot, with only kind and position set (`spells/spells.md`,
+  "Cosmetic effects"). Its position is the building's centre in pixels (its top-left tile × 32 plus half its size
+  in pixels), moved 8 px up. Wall pieces make none, and neither does a building with the used mark
+  (`core/corpses.md`; from the static study, not traced). If no effect slot is free, no explosion is made. When a
+  missile kills the building, the explosion comes before the missile's own impact effect, which takes the next free
+  slot (`combat/damage.md`, "Impact effects").
 
 When the death animation reaches its step-done signal, one of three things happens:
 
@@ -181,6 +190,9 @@ no effect is created. A released effect slot is simply marked unused.
 | `xhuman4` (oracle trace): slots 1435, 1489, 1506 and 1516 have an enemy in reach from the start | No acquisition in the first start-up cycle (n = 1: order 2); every unit is still hidden from every player there |
 | `human12-demolition` (oracle trace), n = 239: demolition squad 1430 (type 0x0E) with 40 HP reaches (29, 100) and blasts | 1430: order 1, animation 1, HP **40** at n = 239 and until its slot is released |
 | A transport carrying a unit with 60 HP is killed (static study only) | The passenger is killed at the same moment and keeps 60 HP |
+| `human5-10000` (oracle trace), n = 1595: barracks 1529 (type 0x3C, 3 × 3 at (46, 92)) destroyed by an axe from 1534; effect slots 0 to 2 in use, the axe in slot 4 | Effect slot 3: kind 0x17 at (1520, 2984) ((1472 + 48, 2944 + 48 − 8)), destination (0, 0), target null, shooter null, damage 0 |
+| `xhuman2-10000` (oracle trace), n = 514: guard tower 1546 (type 0x60, 2 × 2 at (56, 69)) destroyed by a catapult rock from 1556 in effect slot 4; slots 0 to 2 in use | Effect slot 3: kind 0x17 at (1824, 2232) ((1792 + 32, 2208 + 32 − 8)), zero fields; the rock's impact effect (kind 0x15) in slot 5 |
+| A wall piece destroyed (static study only) | No explosion |
 
 ## Open questions
 
