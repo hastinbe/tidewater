@@ -143,7 +143,7 @@ pub fn lumber_target(g: u32, l: u32, w: u32) -> u32 {
 
 /// The building type an entry or type `k` names for race `race` (the type's lowest bit).
 /// Walls are the exception: human 0x67, orc 0x68.
-fn for_race(k: u8, race: u8) -> u8 {
+pub(crate) fn for_race(k: u8, race: u8) -> u8 {
     if matches!(k, t::WALL | t::ORC_WALL) {
         t::WALL + race
     } else {

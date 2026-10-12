@@ -148,7 +148,7 @@ fn two_level_bit(n: u8) -> u32 {
 }
 
 /// The ranger line of codes 0x82 to 0x85: its level line and its fixed "being researched" bit.
-fn ranger_line(code: u8) -> (usize, u32) {
+pub(crate) fn ranger_line(code: u8) -> (usize, u32) {
     match code {
         0x82 => (RANGER_TRAINING_LINE, 1 << 16),
         0x83 => (10, 1 << 19),

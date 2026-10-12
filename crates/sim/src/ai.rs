@@ -105,6 +105,7 @@ impl World {
                 s.pos = Some(r.start as u32);
             }
             self.ai[p] = s;
+            self.mark_game_start(p);
             self.run_script(p);
             // Attack-ai spec, "Slots": set after the opening run, so an opening write is overwritten.
             self.ai[p].slots[FERRY_SEARCH] = 1;

@@ -8,6 +8,7 @@
 
 pub mod acquire;
 pub mod ai;
+mod ai_start;
 pub mod anim;
 pub mod attack_ai;
 mod battle;
