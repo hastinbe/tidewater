@@ -1,5 +1,5 @@
 //! Damage arithmetic. Spec: `docs/specs/combat/damage.md`, "Effective attack values", "Damage roll" and "Splash on
-//! impact".
+//! impact", and the per-kind table of "Missile flight".
 
 use tidewater_formats::udta::{UnitStats, flags};
 
@@ -15,10 +15,19 @@ pub mod kind {
 
 /// Missile weapon values (UDTA missile byte) with special meaning.
 pub mod missile {
+    pub const LIGHTNING: u8 = 0x00;
+    pub const GRYPHON_HAMMER: u8 = 0x01;
+    pub const DRAGON_BREATH: u8 = 0x02;
     pub const BIG_CANNON: u8 = 0x07;
+    pub const TOUCH_OF_DEATH: u8 = 0x0a;
     pub const CATAPULT: u8 = 0x0d;
     pub const BALLISTA: u8 = 0x0e;
+    pub const ARROW: u8 = 0x0f;
+    pub const AXE: u8 = 0x10;
+    pub const SUBMARINE: u8 = 0x11;
+    pub const TURTLE: u8 = 0x12;
     pub const SMALL_CANNON: u8 = 0x18;
+    pub const DEMON_FIRE: u8 = 0x1b;
     pub const NONE: u8 = 0x1d;
 }
 
@@ -32,6 +41,45 @@ pub fn splash(m: u8) -> Option<u8> {
         missile::CATAPULT | missile::BALLISTA => Some(3),
         _ => None,
     }
+}
+
+/// How a missile kind flies (spec, "Missile flight", table).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Flight {
+    /// Pixels per flight step.
+    pub speed: i32,
+    /// Whether every step makes one more discarded draw while the travel is still short of the aim point.
+    pub extra_draw: bool,
+    /// Cycles from the landing step to the impact.
+    pub delay: u16,
+}
+
+/// The flight table. The gryphon hammer and dragon breath have their own rule and are not in it.
+pub fn flight(m: u8) -> Flight {
+    let (speed, extra_draw, delay) = match m {
+        missile::LIGHTNING => (16, false, 11),
+        missile::BIG_CANNON => (12, false, 1),
+        missile::TOUCH_OF_DEATH => (12, false, 16),
+        missile::CATAPULT => (8, true, 5),
+        missile::BALLISTA => (8, false, 1),
+        missile::ARROW | missile::AXE => (12, false, 1),
+        missile::SUBMARINE | missile::TURTLE => (16, false, 1),
+        missile::SMALL_CANNON => (16, true, 1),
+        missile::DEMON_FIRE => (12, false, 5),
+        // Our reading: a kind the table doesn't list ("and others") flies like an arrow.
+        _ => (12, false, 1),
+    };
+    Flight {
+        speed,
+        extra_draw,
+        delay,
+    }
+}
+
+/// The number of flight steps for a flight length `d` at `speed`: the step on which the remaining distance goes below
+/// 0 is the last, so `floor(d / speed) + 1`.
+pub fn flight_steps(d: i32, speed: i32) -> i32 {
+    d / speed + 1
 }
 
 /// A player's upgrade levels (0 to 2) and researched abilities.

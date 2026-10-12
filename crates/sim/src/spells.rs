@@ -166,8 +166,19 @@ impl Line {
 /// What a spell effect does each time it is updated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Fx {
-    /// An ordinary attack missile (`battle.rs`).
-    Plain,
+    /// An ordinary attack missile in flight (`battle.rs`, damage spec "Missile flight"). `length` is the flight length
+    /// D with the minimum applied; the line's remaining distance counts down from it.
+    Shot {
+        line: Line,
+        length: i32,
+    },
+    /// A gryphon hammer or dragon breath (`battle.rs`): `count` is the number of counted steps, `ended` is set on the
+    /// end step, and the final hit comes on the next update.
+    Breath {
+        line: Line,
+        count: u8,
+        ended: bool,
+    },
     /// Kinds 0x0B, 0x16 and 0x17: removed at the first step.
     Cosmetic,
     /// Kinds 8 and 9: one flight step, then a touch on a wall.
@@ -966,7 +977,8 @@ impl World {
     fn fx_update(&mut self, n: usize, m: &mut crate::battle::Missile, age: u16) -> bool {
         let owner = m.attacker;
         match &mut m.fx {
-            Fx::Plain => true,
+            // Attack missiles are updated by `battle.rs`.
+            Fx::Shot { .. } | Fx::Breath { .. } => true,
             Fx::Cosmetic => age == 0 || self.gone(n),
             Fx::Wisp => match age {
                 0 => true,
@@ -1119,7 +1131,7 @@ impl World {
 
     /// The splash rule of the damage spec for spell effects (spec, "Splash"): armour is ignored, air units are
     /// scanned too, and the effect's owner is never hit.
-    fn fx_splash(&mut self, pos: (i32, i32), stored: u8, owner: UnitId) {
+    pub(crate) fn fx_splash(&mut self, pos: (i32, i32), stored: u8, owner: UnitId) {
         let tile = tile_of(pos);
         self.hit_wall(tile, stored);
         for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {

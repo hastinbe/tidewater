@@ -1,6 +1,8 @@
-//! Attacks, missiles and death. Spec: `docs/specs/combat/damage.md`, "How an attack delivers damage", "Applying
-//! damage" and "Splash on impact". The attack order's chase-and-face behaviour, the range measure, missile flight
-//! speed and the splash scan order are placeholders of our own until their specs land.
+//! Attacks, missiles and death. Spec: `docs/specs/combat/damage.md`, "How an attack delivers damage", "Missile
+//! flight", "Applying damage" and "Splash on impact". Missiles fly by the line rule of `spells/spells.md` ("How
+//! flying effects move"), which `spells.rs` implements as `Line`. The attack order's chase-and-face behaviour and the
+//! range measure are placeholders of our own until their specs land, and the cosmetic cannon smoke isn't simulated
+//! (the spec doesn't name its effect kind).
 
 use tidewater_formats::script::anim;
 
@@ -8,11 +10,17 @@ use crate::TILE_PX;
 use crate::combat::{self, missile};
 use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::slots;
-use crate::spells::Fx;
+use crate::spells::{Fx, Line};
+use crate::terrain::bits;
 use crate::world::{Layer, Order, Unit, UnitId, World, facing};
 
-/// Placeholder flight speed in pixels per cycle (an open question in the combat spec).
-pub const MISSILE_SPEED: i32 = 5;
+/// The gryphon hammer and dragon breath count their steps near the aim point from this remaining distance.
+const BREATH_NEAR: i32 = 50;
+/// A breath missile ends on the step after its count passes this limit, or `BREATH_LONG_LIMIT` when its stored damage
+/// is exactly `BREATH_LONG_DAMAGE`.
+const BREATH_LIMIT: u8 = 25;
+const BREATH_LONG_LIMIT: u8 = 40;
+const BREATH_LONG_DAMAGE: u8 = 40;
 
 /// The neutral player; it neither attacks nor is attacked.
 const NEUTRAL: u8 = 15;
@@ -28,7 +36,10 @@ pub struct Missile {
     pub to: (i32, i32),
     /// Current position in map pixels.
     pub pos: (i32, i32),
+    /// Number of flight steps N of a plain missile (the last one is the landing step); 0 for a breath missile, whose
+    /// end is decided step by step.
     pub flight: u16,
+    /// Updates made so far: the first one only starts the missile, so it has made `elapsed - 1` flight steps.
     pub elapsed: u16,
     /// Rolled damage, or the stored maximum for a splash missile.
     pub damage: u8,
@@ -174,7 +185,7 @@ impl World {
         });
         let hits_air = ti.is_some_and(|ti| self.units[ti].layer == Layer::Air);
         let target = ti.map(|ti| self.units[ti].id);
-        let (attacker, from) = (a.id, a.centre_px());
+        let (attacker, from, owner) = (a.id, a.centre_px(), a.owner);
         if s.missile == missile::NONE {
             let d = combat::roll(&mut self.rng, basic, pierce, armour);
             match ti {
@@ -189,13 +200,41 @@ impl World {
             Some(_) => (basic + pierce).min(255) as u8,
             None => combat::roll(&mut self.rng, basic, pierce, armour),
         };
+        // Guard towers fire without the aim scatter and without the computer players' wall exception.
+        let tower = s.flags & tidewater_formats::udta::flags::TOWER != 0;
+        let aim_tile = (to.0.div_euclid(TILE_PX), to.1.div_euclid(TILE_PX));
         let mut to = to;
-        if s.flags & tidewater_formats::udta::flags::TOWER == 0 {
+        if !tower {
             to.0 += (self.rng.draw() & 7) as i32 - 3;
             to.1 += (self.rng.draw() & 7) as i32 - 3;
         }
-        let length = (to.0 - from.0).abs().max((to.1 - from.1).abs());
-        let length = length.max(min_flight.unwrap_or(0) as i32 * TILE_PX);
+        // Our reading: "the attack's target tile" is the tile of the aim point before the scatter.
+        let mut minimum = min_flight.unwrap_or(0) as i32 * TILE_PX;
+        if !tower
+            && minimum > 2 * TILE_PX
+            && self.computer_player(owner)
+            && self.terrain.word(aim_tile.0, aim_tile.1) & (bits::HUMAN_WALL | bits::COMPUTER_WALL) != 0
+        {
+            minimum = 2 * TILE_PX;
+        }
+        let mut line = Line::new(from, to);
+        let breath = matches!(s.missile, missile::GRYPHON_HAMMER | missile::DRAGON_BREATH);
+        let (fx, flight) = if breath {
+            // The gryphon hammer and dragon breath have no minimum flight distance.
+            (
+                Fx::Breath {
+                    line,
+                    count: 0,
+                    ended: false,
+                },
+                0,
+            )
+        } else {
+            let length = line.remaining.max(minimum);
+            line.remaining = length;
+            let steps = combat::flight_steps(length, combat::flight(s.missile).speed);
+            (Fx::Shot { line, length }, steps as u16)
+        };
         let missile = Missile {
             kind: s.missile,
             attacker,
@@ -203,12 +242,12 @@ impl World {
             from,
             to,
             pos: from,
-            flight: ((length + MISSILE_SPEED - 1) / MISSILE_SPEED).max(1) as u16,
+            flight,
             elapsed: 0,
             damage,
             splash: min_flight.is_some(),
             hits_air: s.missile == missile::SMALL_CANNON && hits_air,
-            fx: Fx::Plain,
+            fx,
         };
         // Unit-slots spec, "Effect slots": the lowest free slot after the permanent entries; none free, no missile.
         if let Some(e) = self
@@ -292,29 +331,101 @@ impl World {
         self.leave_oil(ti);
     }
 
-    /// Moves every missile one cycle, in effect slot order, landing each as it arrives.
+    /// Updates every missile once, in effect slot order. Plain missiles and breath missiles are updated here, spell
+    /// effects in `step_fx`.
     pub(crate) fn advance_missiles(&mut self) {
         for n in 0..self.missiles.len() {
-            let Some(m) = &mut self.missiles[n] else { continue };
-            if m.fx != Fx::Plain {
-                self.step_fx(n);
-                continue;
-            }
-            m.elapsed += 1;
-            let k = m.elapsed.min(m.flight) as i32;
-            let f = m.flight as i32;
-            m.pos = (
-                m.from.0 + (m.to.0 - m.from.0) * k / f,
-                m.from.1 + (m.to.1 - m.from.1) * k / f,
-            );
-            if m.elapsed >= m.flight
-                && let Some(m) = self.missiles[n].take()
-            {
-                self.land(m);
+            let Some(m) = &self.missiles[n] else { continue };
+            match m.fx {
+                Fx::Shot { .. } => self.step_shot(n),
+                Fx::Breath { .. } => self.step_breath(n),
+                _ => self.step_fx(n),
             }
         }
     }
 
+    /// One update of a plain missile (damage spec, "Missile flight"). The first update only starts it. Updates 1 to N
+    /// are flight steps, each ending with a discarded draw (two for the catapult rock and small cannon while the travel
+    /// is short of the aim point, rounded up to 5 px). The impact comes `delay` cycles after update N.
+    fn step_shot(&mut self, n: usize) {
+        let Some(mut m) = self.missiles[n].clone() else { return };
+        let age = m.elapsed;
+        m.elapsed = m.elapsed.saturating_add(1);
+        let Fx::Shot { mut line, length } = m.fx else { return };
+        let f = combat::flight(m.kind);
+        if age == 0 {
+            self.missiles[n] = Some(m);
+        } else if age <= m.flight {
+            line.step(&mut m.pos, f.speed);
+            m.fx = Fx::Shot { line, length };
+            debug_assert!(
+                age < m.flight || line.remaining < 0,
+                "the landing step is the one below 0"
+            );
+            self.rng.draw();
+            if f.extra_draw && (age as i32) * f.speed < (length + 4) / 5 * 5 {
+                self.rng.draw();
+            }
+            self.missiles[n] = Some(m);
+        } else if age == m.flight + f.delay {
+            self.missiles[n] = None;
+            self.land(m);
+        } else {
+            self.missiles[n] = Some(m);
+        }
+    }
+
+    /// One update of a gryphon hammer or dragon breath (damage spec, "Gryphon hammer and dragon breath"): a draw at
+    /// the start of each step, a move of 12 px (6 once the remaining distance is below 50), and a count of the steps
+    /// that end below 50, with a splash on every eighth.
+    fn step_breath(&mut self, n: usize) {
+        let Some(mut m) = self.missiles[n].clone() else { return };
+        let age = m.elapsed;
+        m.elapsed = m.elapsed.saturating_add(1);
+        let Fx::Breath {
+            mut line,
+            mut count,
+            ended,
+        } = m.fx
+        else {
+            return;
+        };
+        if age == 0 {
+            self.missiles[n] = Some(m);
+            return;
+        }
+        if ended {
+            // One cycle after the end step the stored damage lands, as for a non-splash missile.
+            self.missiles[n] = None;
+            self.land(m);
+            return;
+        }
+        self.rng.draw();
+        line.step(&mut m.pos, if line.remaining < BREATH_NEAR { 6 } else { 12 });
+        let mut ended = false;
+        let mut splash = false;
+        if line.remaining < BREATH_NEAR {
+            let limit = if m.damage == BREATH_LONG_DAMAGE {
+                BREATH_LONG_LIMIT
+            } else {
+                BREATH_LIMIT
+            };
+            if count > limit {
+                ended = true;
+            } else {
+                count += 1;
+                splash = count % 8 == 0;
+            }
+        }
+        m.fx = Fx::Breath { line, count, ended };
+        let (pos, damage, attacker) = (m.pos, m.damage, m.attacker);
+        self.missiles[n] = Some(m);
+        if splash {
+            self.fx_splash(pos, damage, attacker);
+        }
+    }
+
+    /// The impact, at the missile's final position.
     fn land(&mut self, m: Missile) {
         if !m.splash {
             match m.target {
@@ -324,11 +435,11 @@ impl World {
                     }
                 }
                 // Aimed at a tile with no unit: the wall there takes it (damage spec).
-                None => self.hit_wall((m.to.0.div_euclid(TILE_PX), m.to.1.div_euclid(TILE_PX)), m.damage),
+                None => self.hit_wall((m.pos.0.div_euclid(TILE_PX), m.pos.1.div_euclid(TILE_PX)), m.damage),
             }
             return;
         }
-        let tile = (m.to.0.div_euclid(TILE_PX), m.to.1.div_euclid(TILE_PX));
+        let tile = (m.pos.0.div_euclid(TILE_PX), m.pos.1.div_euclid(TILE_PX));
         self.hit_wall(tile, m.damage);
         for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
             self.hit_wall((tile.0 + dx, tile.1 + dy), m.damage / 4);
@@ -361,7 +472,7 @@ impl World {
                 continue;
             }
             let c = t.centre_px();
-            let d = (c.0 - m.to.0).abs().max((c.1 - m.to.1).abs());
+            let d = (c.0 - m.pos.0).abs().max((c.1 - m.pos.1).abs());
             let armour = combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades);
             if let Some(dmg) = combat::splash_roll(&mut self.rng, m.damage, d, armour) {
                 self.damage(ti, dmg, m.attacker);
@@ -457,5 +568,327 @@ mod tests {
             w.state_hash()
         };
         assert_eq!(go(), go());
+    }
+
+    // ----- missile flight (damage spec, "Missile flight" test vectors) ---------------------------------------
+
+    use crate::ai::controller;
+    use crate::combat::missile;
+    use crate::world::tests::field;
+    use crate::{Rng, World};
+    use tidewater_formats::udta::{UnitStats, flags};
+
+    const FOOTMAN: u8 = 0;
+    const CATAPULT: u8 = 5;
+    const BALLISTA: u8 = 6;
+    const MAGE: u8 = 7;
+    const ARCHER: u8 = 8;
+    const GRYPHON: u8 = 9;
+    const TOWER: u8 = 10;
+
+    /// An open map with the shooters of these tests added to the synthetic unit table.
+    fn range() -> World {
+        let mut w = field(16, 16);
+        let shooter = |m: u8, basic: u8, pierce: u8| UnitStats {
+            hit_points: 100,
+            size: (1, 1),
+            flags: flags::LAND | flags::CAN_ATTACK,
+            basic_damage: basic,
+            piercing_damage: pierce,
+            attack_range: 8,
+            missile: m,
+            can_target: 3,
+            ..Default::default()
+        };
+        w.stats.0[BALLISTA as usize] = shooter(missile::BALLISTA, 80, 0);
+        w.stats.0[MAGE as usize] = shooter(missile::LIGHTNING, 0, 10);
+        w.stats.0[GRYPHON as usize] = shooter(missile::GRYPHON_HAMMER, 0, 16);
+        w.stats.0[TOWER as usize] = UnitStats {
+            flags: flags::LAND | flags::CAN_ATTACK | flags::TOWER,
+            ..shooter(missile::ARROW, 4, 12)
+        };
+        w
+    }
+
+    /// A generator whose next draws satisfy `want` (draw index, test).
+    fn seed_with(want: &[(usize, &dyn Fn(u32) -> bool)]) -> Rng {
+        let n = want.iter().map(|w| w.0 + 1).max().unwrap();
+        (0u32..)
+            .map(Rng::new)
+            .find(|start| {
+                let mut r = *start;
+                let d: Vec<u32> = (0..n).map(|_| r.draw()).collect();
+                want.iter().all(|(i, f)| f(d[*i]))
+            })
+            .unwrap()
+    }
+
+    /// Both scatter draws give an offset of 0, the first after `before` other draws.
+    fn no_scatter(before: usize) -> Rng {
+        seed_with(&[(before, &|r| r & 7 == 3), (before + 1, &|r| r & 7 == 3)])
+    }
+
+    /// The number of draws from state `from` to state `to`.
+    fn drawn(from: Rng, to: Rng) -> u32 {
+        let mut r = from;
+        let mut n = 0;
+        while r != to {
+            r.draw();
+            n += 1;
+            assert!(n < 10_000);
+        }
+        n
+    }
+
+    /// Spawns a unit and puts its centre at the given pixel position (its tile stays the spawn tile).
+    fn spawn_at(w: &mut World, kind: u8, owner: u8, tile: (i32, i32), centre: (i32, i32)) -> UnitId {
+        let id = w.spawn(kind, owner, tile, 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.units[i].pos = (centre.0 - 16, centre.1 - 16);
+        id
+    }
+
+    /// The strike of `shooter` on a unit or, with `None`, on the wall tile `wall`: cycle C of the flight vectors.
+    fn launch(w: &mut World, shooter: UnitId, target: Option<UnitId>, wall: (i32, i32)) {
+        let i = w.index(shooter).unwrap();
+        w.units[i].order = match target {
+            Some(target) => Order::Attack { target },
+            None => Order::AttackWall { tile: wall },
+        };
+        w.strike(i);
+    }
+
+    /// Updates the missiles `n` times (the cycles C, C + 1, ...), returning the draws each update made.
+    fn fly(w: &mut World, n: usize) -> Vec<u32> {
+        (0..n)
+            .map(|_| {
+                let before = w.rng;
+                w.advance_missiles();
+                drawn(before, w.rng)
+            })
+            .collect()
+    }
+
+    fn live(w: &World) -> Option<&crate::Missile> {
+        w.missiles.iter().flatten().next()
+    }
+
+    #[test]
+    fn arrow_at_100_px() {
+        let mut w = range();
+        let archer = spawn_at(&mut w, ARCHER, 0, (0, 7), (16, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        // Scatter of +4 on x and 0 on y makes the 96 px distance 100.
+        w.rng = seed_with(&[(1, &|r| r & 7 == 7), (2, &|r| r & 7 == 3)]);
+        let start = w.rng;
+        launch(&mut w, archer, Some(foe), (0, 0));
+        assert_eq!(drawn(start, w.rng), 3, "damage, x scatter, y scatter");
+        let m = live(&w).unwrap();
+        assert_eq!((m.flight, m.to), (9, (116, 240)));
+        // C only starts the missile; C + 1 to C + 9 make one draw each, and the landing step ends 108 px out.
+        assert_eq!(fly(&mut w, 10), [0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(live(&w).unwrap().pos, (16 + 108, 240));
+        assert_eq!(w.unit(foe).unwrap().hp, 60, "the impact comes a cycle later");
+        // C + 10: the stored damage lands, with no draw of its own.
+        assert_eq!(fly(&mut w, 1), [0]);
+        assert!(live(&w).is_none());
+        assert!(w.unit(foe).unwrap().hp < 60);
+        assert_eq!(drawn(start, w.rng), 12, "12 draws in all");
+    }
+
+    #[test]
+    fn catapult_rock_at_160_px() {
+        let mut w = range();
+        let cat = spawn_at(&mut w, CATAPULT, 0, (0, 7), (16, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
+        w.rng = no_scatter(0);
+        let start = w.rng;
+        launch(&mut w, cat, Some(foe), (0, 0));
+        assert_eq!(
+            drawn(start, w.rng),
+            2,
+            "no damage draw for a splash missile, then the scatter"
+        );
+        assert_eq!(live(&w).unwrap().flight, 21);
+        // Steps 1 to 19 make 2 draws (travel 8 to 152 is below 160), steps 20 and 21 make 1.
+        let per_cycle = fly(&mut w, 22);
+        let mut want = vec![0];
+        want.extend([2; 19]);
+        want.extend([1, 1]);
+        assert_eq!(per_cycle, want);
+        assert_eq!(per_cycle.iter().sum::<u32>(), 40);
+        assert_eq!(live(&w).unwrap().pos, (16 + 168, 240), "landing at C + 21, 168 px out");
+        assert_eq!(w.unit(foe).unwrap().hp, 60);
+        // The splash is at C + 26: nothing until then, then one draw for the one unit hit.
+        assert_eq!(fly(&mut w, 4), [0, 0, 0, 0]);
+        assert!(live(&w).is_some());
+        assert_eq!(fly(&mut w, 1), [1]);
+        assert!(live(&w).is_none());
+        assert!(w.unit(foe).unwrap().hp < 60);
+    }
+
+    #[test]
+    fn catapult_rock_at_103_px_draws_twice_on_every_step() {
+        let mut w = range();
+        let cat = spawn_at(&mut w, CATAPULT, 0, (2, 7), (73, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
+        w.rng = no_scatter(0);
+        launch(&mut w, cat, Some(foe), (0, 0));
+        assert_eq!(live(&w).unwrap().flight, 13, "N = 13, 104 px");
+        // 5 * ceil(103 / 5) = 105: even the landing step (travel 104) makes 2 draws.
+        let per_cycle = fly(&mut w, 14);
+        assert_eq!(per_cycle[0], 0);
+        assert!(per_cycle[1..].iter().all(|&n| n == 2));
+        assert_eq!(per_cycle.iter().sum::<u32>(), 26);
+    }
+
+    #[test]
+    fn ballista_bolt_at_100_px() {
+        let mut w = range();
+        let bal = spawn_at(&mut w, BALLISTA, 0, (2, 7), (76, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
+        w.rng = no_scatter(0);
+        launch(&mut w, bal, Some(foe), (0, 0));
+        assert_eq!(live(&w).unwrap().flight, 13);
+        let per_cycle = fly(&mut w, 14);
+        assert_eq!(per_cycle.iter().sum::<u32>(), 13, "13 flight draws, none extra");
+        assert_eq!(live(&w).unwrap().pos, (76 + 104, 240), "landing at C + 13, 104 px out");
+        assert_eq!(fly(&mut w, 1), [1], "the splash at C + 14 hits the footman");
+        assert!(live(&w).is_none());
+    }
+
+    #[test]
+    fn lightning_at_100_px() {
+        let mut w = range();
+        let mage = spawn_at(&mut w, MAGE, 0, (0, 7), (16, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        w.rng = seed_with(&[(1, &|r| r & 7 == 7), (2, &|r| r & 7 == 3)]);
+        launch(&mut w, mage, Some(foe), (0, 0));
+        assert_eq!(live(&w).unwrap().flight, 7);
+        let start = w.rng;
+        let per_cycle = fly(&mut w, 8);
+        assert_eq!(per_cycle.iter().sum::<u32>(), 7);
+        assert_eq!(live(&w).unwrap().pos, (16 + 112, 240), "landing at C + 7, 112 px out");
+        // The hit is 11 cycles after the landing step, at C + 18.
+        for _ in 0..10 {
+            assert_eq!(fly(&mut w, 1), [0]);
+            assert_eq!(w.unit(foe).unwrap().hp, 60);
+        }
+        assert_eq!(fly(&mut w, 1), [0]);
+        assert!(live(&w).is_none());
+        assert!(w.unit(foe).unwrap().hp < 60);
+        assert_eq!(drawn(start, w.rng), 7);
+    }
+
+    #[test]
+    fn catapult_attacking_a_wall_tile_human_and_computer() {
+        for (computer, steps, out) in [(false, 13, 104), (true, 9, 72)] {
+            let mut w = range();
+            w.players[0].controller = if computer {
+                controller::COMPUTER
+            } else {
+                controller::HUMAN
+            };
+            w.terrain.build_wall(5, 7, false, !computer);
+            // 70 px from the wall tile's centre, so the human minimum of 96 px applies.
+            let cat = spawn_at(&mut w, CATAPULT, 0, (2, 7), (106, 240));
+            w.rng = no_scatter(0);
+            launch(&mut w, cat, None, (5, 7));
+            assert_eq!(live(&w).unwrap().flight, steps, "computer: {computer}");
+            fly(&mut w, steps as usize + 1);
+            assert_eq!(live(&w).unwrap().pos, (106 + out, 240), "computer: {computer}");
+        }
+    }
+
+    #[test]
+    fn the_wall_exception_needs_a_wall_and_no_tower() {
+        let build = |kind: u8, wall: bool| {
+            let mut w = range();
+            w.players[0].controller = controller::COMPUTER;
+            if wall {
+                w.terrain.build_wall(5, 7, false, false);
+            }
+            let shooter = spawn_at(&mut w, kind, 0, (2, 7), (106, 240));
+            w.rng = no_scatter(0);
+            launch(&mut w, shooter, None, (5, 7));
+            live(&w).unwrap().flight
+        };
+        assert_eq!(build(CATAPULT, false), 13, "no wall on the tile");
+        assert_eq!(build(BALLISTA, true), 9, "a ballista bolt has a 3-tile minimum too");
+        // A tower's shot gets no exception and no scatter.
+        let mut w = range();
+        w.stats.0[TOWER as usize].missile = missile::BALLISTA;
+        w.players[0].controller = controller::COMPUTER;
+        w.terrain.build_wall(5, 7, false, false);
+        let tower = spawn_at(&mut w, TOWER, 0, (2, 7), (106, 240));
+        let start = w.rng;
+        launch(&mut w, tower, None, (5, 7));
+        assert_eq!(
+            drawn(start, w.rng),
+            0,
+            "no damage draw for a splash missile and no scatter"
+        );
+        let m = live(&w).unwrap();
+        assert_eq!((m.to, m.flight), ((176, 240), 13));
+    }
+
+    #[test]
+    fn guard_tower_arrows_are_not_scattered() {
+        let mut w = range();
+        let tower = spawn_at(&mut w, TOWER, 0, (0, 7), (16, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        let start = w.rng;
+        launch(&mut w, tower, Some(foe), (0, 0));
+        assert_eq!(drawn(start, w.rng), 1, "only the damage draw");
+        assert_eq!(live(&w).unwrap().to, (112, 240));
+    }
+
+    #[test]
+    fn gryphon_hammer_splashes_along_its_path() {
+        let mut w = range();
+        let gryphon = spawn_at(&mut w, GRYPHON, 0, (0, 7), (16, 240));
+        let a = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        let b = spawn_at(&mut w, FOOTMAN, 1, (3, 8), (112, 260));
+        w.rng = seed_with(&[(0, &|r| r % 9 == 4), (1, &|r| r & 7 == 3), (2, &|r| r & 7 == 3)]);
+        let start = w.rng;
+        launch(&mut w, gryphon, Some(a), (0, 0));
+        assert_eq!(drawn(start, w.rng), 3);
+        let m = live(&w).unwrap();
+        assert_eq!((m.damage, m.to), (12, (112, 240)), "stored damage 8 + 4");
+        // Update k is cycle C + k, and step k is update k.
+        let mut per_cycle = vec![];
+        let mut out = vec![];
+        for _ in 0..31 {
+            per_cycle.push(fly(&mut w, 1)[0]);
+            out.push(live(&w).unwrap().pos.0 - 16);
+        }
+        // Steps 1 to 4 move 12 px (48 px out, remaining 48: count 1), then 6 px a step.
+        assert_eq!(out[..5], [0, 12, 24, 36, 48]);
+        assert_eq!(out[5], 54);
+        assert_eq!(out[11], 90, "step 11 is count 8");
+        assert_eq!(out[19], 138, "step 19 is count 16");
+        assert_eq!(out[27], 186, "step 27 is count 24");
+        assert_eq!(out[30], 204, "step 30 moves, then ends");
+        // One draw per step, plus splash draws on steps 11 (A and B) and 19 (A and B); step 27 hits nobody.
+        for (k, n) in per_cycle.iter().enumerate() {
+            let want = match k {
+                0 => 0,
+                11 | 19 => 3,
+                _ => 1,
+            };
+            assert_eq!(*n, want, "step {k}");
+        }
+        let (hp_a, hp_b) = (w.unit(a).unwrap().hp, w.unit(b).unwrap().hp);
+        assert!((60 - hp_a) >= 8 && (60 - hp_b) >= 8, "both took the first splash");
+        assert!(live(&w).is_some(), "the end step is C + 30; the hit comes at C + 31");
+        // C + 31: A takes the stored 12 with no draw.
+        assert_eq!(fly(&mut w, 1), [0]);
+        assert!(live(&w).is_none());
+        assert_eq!(w.unit(a).unwrap().hp, hp_a - 12);
+        assert_eq!(w.unit(b).unwrap().hp, hp_b);
+        // 3 launch draws + 30 step draws + 4 splash draws; A lost 20 to 28 in all, B 8 to 16.
+        assert_eq!(drawn(start, w.rng), 37);
+        assert!((20..=28).contains(&(60 - w.unit(a).unwrap().hp)));
+        assert!((8..=16).contains(&(60 - w.unit(b).unwrap().hp)));
     }
 }
