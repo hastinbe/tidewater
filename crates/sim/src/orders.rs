@@ -162,7 +162,14 @@ impl World {
             | Command::Spell { .. }
             | Command::Cancel { .. }
             | Command::Cast { .. }
-            | Command::Build { .. } => return None,
+            | Command::Build { .. }
+            | Command::Select { .. }
+            | Command::RightClick { .. }
+            | Command::Issue { .. }
+            | Command::SetGroup { .. }
+            | Command::RecallGroup { .. }
+            | Command::Speed { .. }
+            | Command::Pause { .. } => return None,
         };
         self.units[i].remembered = if enhanced { remember } else { None };
         Some(order)

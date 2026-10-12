@@ -555,6 +555,45 @@ pub enum Command {
         target: Option<UnitId>,
         tile: (i32, i32),
     },
+    /// Replaces the player's synced selection with up to 9 units (selecting-and-commanding spec, "Two selections").
+    Select {
+        player: u8,
+        units: Vec<UnitId>,
+    },
+    /// The right-click command for the player's synced selection: each unit picks a command by its type's right-click
+    /// action ("What a right-click command does").
+    RightClick {
+        player: u8,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Command `command` (numbered as in the orders spec) from target mode, the command buttons or the keys, for the
+    /// units of the player's synced selection that pass the command filter ("Which units take part in a command").
+    Issue {
+        player: u8,
+        command: u8,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Fills control group `group` from the player's synced selection ("Control groups").
+    SetGroup {
+        player: u8,
+        group: u8,
+    },
+    /// Tidies control group `group` and makes its units the player's synced selection.
+    RecallGroup {
+        player: u8,
+        group: u8,
+    },
+    /// Game speed one step up (`faster`) or down ("Keys").
+    Speed {
+        player: u8,
+        faster: bool,
+    },
+    /// Pause or resume.
+    Pause {
+        player: u8,
+    },
 }
 
 pub const PLAYERS: usize = 16;
@@ -607,6 +646,11 @@ pub struct World {
     pub(crate) stale: BTreeMap<u16, crate::caster_ai::Stale>,
     /// Spell counts for inspection tools. Not game state: left out of the hash.
     pub casts: crate::caster_ai::CastCounts,
+    /// Each player's synced selection and control groups (selecting-and-commanding spec).
+    pub selections: [crate::select::PlayerSelection; PLAYERS],
+    /// The game speed, 0 to 8 (timing-and-rng spec, the 9 levels), and whether the game is paused.
+    pub speed: u8,
+    pub paused: bool,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -665,6 +709,9 @@ impl World {
             sounds: Default::default(),
             stale: BTreeMap::new(),
             casts: Default::default(),
+            selections: Default::default(),
+            speed: crate::timing::NORMAL,
+            paused: false,
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
@@ -977,6 +1024,11 @@ impl World {
         for c in commands {
             self.apply(c);
         }
+        // Timing-and-rng spec, scheduler rule 4: a paused cycle changes no game state, but the counter still counts.
+        if self.paused {
+            self.tick += 1;
+            return;
+        }
         self.detection();
         self.step_ai();
         self.army_pass();
@@ -998,6 +1050,7 @@ impl World {
         self.unit_visibility();
         self.flash_pass();
         self.victory_phase();
+        self.prune_selections();
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -1016,6 +1069,9 @@ impl World {
     }
 
     fn apply(&mut self, c: &Command) {
+        if self.selection_command(c) {
+            return;
+        }
         let (player, units) = match c {
             Command::Move { player, units, .. }
             | Command::Stop { player, units }
@@ -1075,6 +1131,13 @@ impl World {
                 }
                 return;
             }
+            Command::Select { .. }
+            | Command::RightClick { .. }
+            | Command::Issue { .. }
+            | Command::SetGroup { .. }
+            | Command::RecallGroup { .. }
+            | Command::Speed { .. }
+            | Command::Pause { .. } => return,
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -1204,6 +1267,9 @@ impl World {
         self.ai.hash(&mut h);
         self.army.hash(&mut h);
         self.victory.hash(&mut h);
+        self.selections.hash(&mut h);
+        self.speed.hash(&mut h);
+        self.paused.hash(&mut h);
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);
         h.finish()
