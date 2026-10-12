@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and the animation data in
   `Rez\script.bin` (decoded with the instruction set of `core/animation-scripts.md`). Not yet confirmed against the
   running game.
+- **Changes:** 2026-10-12, round-35 errata: bodies and ruins keep the dead unit's mana byte (oracle traces, static study
+  for non-zero values).
 
 ## Behaviour
 
@@ -81,6 +83,9 @@ When a unit becomes a dead body:
 
 A ruin is marked complete, its facing is set to 0, it is deselected and it starts the decay animation for its kind.
 
+Neither change touches the mana byte or its counter: the body or ruin keeps the value the unit had at the end of its
+death animation. The timers pass skips dying units and remains, so a dead caster's mana doesn't grow.
+
 ### Random draws and creation numbers
 
 - Turning a dead unit into a body, or a dead building into a ruin, makes **no draws** and takes **no new creation
@@ -155,6 +160,9 @@ Cycle numbers count updates of the unit: update 1 is its first update after it i
 | Polymorphed footman | Its death animation plays, then a human body with the used mark; it decays on the normal timetable and can't be raised |
 | Body raised by raise dead | Gets the used mark; keeps decaying and is removed on its normal timetable |
 | A slowed footman dies | The body's decay timing is unchanged (plain waits) |
+| `orc02-assault-3000` (oracle trace), slot 1588 (type 0x40), destroyed | Ruin type 0x6B at n = 843, mana 0 |
+| 30 conversions to bodies and ruins in the `orc02-assault`, `orc02-victory` and `human06-attack-wave` traces | Mana 0 before and after every one |
+| A mage with 120 mana is killed (static study only) | Its body shows mana 120 throughout its decay |
 
 ## Open questions
 
