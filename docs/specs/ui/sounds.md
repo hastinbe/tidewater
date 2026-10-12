@@ -10,6 +10,8 @@
   Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-12 errata: the rescue and capture triggers are now known (`game/rescue.md`); the
   open question on them is closed.
+  2026-10-12, round-15 errata: the impact effects' explosion sound plays at the effect's first update, not at its
+  creation; a table of the sounds each missile impact makes in all.
 
 ## Behaviour
 
@@ -264,8 +266,20 @@ off screen. "If damaging" means the sound plays only when the missile carries da
 | 0x0E ballista bolt | `misc\explode`, if damaging |
 | 0x0F arrow, 0x10 axe | `misc\bowhit`, if damaging |
 | 0x07 big cannon, 0x11 submarine missile, 0x12 turtle missile | `misc\explode` |
-| 0x15 ballista impact, 0x1A cannon tower explosion | `misc\explode`, when the effect is created |
+| 0x15 ballista impact, 0x1A cannon tower explosion | `misc\explode`, at the effect's first update, with no damage condition (`combat/damage.md`, "Impact effects") |
 | All other kinds | none |
+
+The impact effects' sound plays at the effect's tile, audible off screen, at its first update, which is in the same
+cycle as the impact or the next (`spells/spells.md`, "When a new effect first runs"). Kind 0x17, the effect left by
+submarine and turtle missiles, makes no sound of its own. So each impact sounds like this:
+
+| Missile | Impact sound | Effect sound | In all |
+| --- | --- | --- | --- |
+| Catapult rock | none | `misc\explode` | 1 |
+| Ballista bolt | `misc\explode` if damaging | `misc\explode` | 1 or 2 |
+| Big cannon | `misc\explode` | `misc\explode` | 2 |
+| Small cannon | none | `misc\explode` | 1 |
+| Submarine and turtle missiles | `misc\explode` | none | 1 |
 
 **Other explosions.** `misc\explode` also plays at a tile, audible off screen, when:
 
