@@ -314,7 +314,7 @@ impl World {
     }
 
     /// Whether the path search treats a ground unit on a tile as free (pathfinding spec, "Units seen by the
-    /// search"). Alliances aren't modelled yet, so only the unit's own player counts as allied.
+    /// search"): enemies are those of non-allied players, and moving allies include the unit's own player.
     fn ignored_by_search(&self, u: &Unit, other: UnitId) -> bool {
         let Some(o) = self.unit(other) else { return true };
         if o.id == u.id {
@@ -326,10 +326,11 @@ impl World {
         let s = self.stats_of(u.kind);
         let fighter = s.flags & (flags::PEON | flags::TANKER | flags::CASTER) == 0;
         let attack_type = matches!(u.order, Order::Attack { .. } | Order::AttackWall { .. });
-        if attack_type && u.attacked_by.is_none() && fighter && o.owner != u.owner {
+        let allied = self.allied(u.owner, o.owner);
+        if attack_type && u.attacked_by.is_none() && fighter && !allied {
             return true;
         }
-        o.owner == u.owner && o.script.anim == anim::MOVE && o.blocked == 0
+        allied && o.script.anim == anim::MOVE && o.blocked == 0
     }
 
     /// Up to 20 tiles of route from `u` toward `g` (pathfinding spec). Empty means no path.
@@ -438,6 +439,25 @@ mod tests {
             w.step(&[]);
         }
         panic!("condition not met in {max} cycles");
+    }
+
+    #[test]
+    fn the_search_treats_allies_as_allies() {
+        // Pathfinding spec, "Units seen by the search": an attacking unit ignores units of non-allied players only,
+        // and a moving unit of an allied player is ignored like one of the searcher's own.
+        let mut w = field(12, 4);
+        w.players[0].allies = 1 << 1;
+        let a = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let ally = w.spawn(0, 1, (3, 1), 0).unwrap();
+        let enemy = w.spawn(0, 2, (5, 1), 0).unwrap();
+        let i = w.units.iter().position(|u| u.id == a).unwrap();
+        w.units[i].order = Order::Attack { target: enemy };
+        let u = w.units[i].clone();
+        assert!(w.ignored_by_search(&u, enemy));
+        assert!(!w.ignored_by_search(&u, ally));
+        let j = w.units.iter().position(|u| u.id == ally).unwrap();
+        w.units[j].script.anim = anim::MOVE;
+        assert!(w.ignored_by_search(&u, ally));
     }
 
     #[test]

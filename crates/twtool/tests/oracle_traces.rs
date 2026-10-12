@@ -1,14 +1,65 @@
 //! Runs `twtool oracle` on real traces of the original game (`docs/specs/oracle/trace-format.md`), when they are on
 //! this machine: set `TIDEWATER_ORACLE_TRACES` to the directory holding the trace files and `TIDEWATER_INSTALL` to the
-//! game's installation. Without both, the test does nothing. Both traces must match on every field.
+//! game's installation. Without both, the test does nothing. Each trace must match on every field up to its
+//! limit.
+//!
+//! The format-2 traces carry the player's commands in their `turn` records, which the oracle replays. They must match
+//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i):
+//!
+//! - **human01-basics**, n = 70: a worker walking to a build site heads for a footprint tile, where the specs give the
+//!   ordered tile as the goal (`movement/pathfinding.md`, "Inputs"; `economy/build-train.md`, "Placing a
+//!   building").
+//! - **orc02-***, n = 294: a unit chasing in order 12 follows a straight line through its target's tile, as if
+//!   order 12 were an attack-type order (`movement/pathfinding.md`, "Units seen by the search", which names only
+//!   "attack").
+//! - **xorc01-death-coil**, n = 356: a grunt on an attack-move steps to a different tile than ours; not yet
+//!   researched.
 
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Trace file, map and campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering).
-const TRACES: [(&str, &str, u8); 2] = [
-    ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0),
-    ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6),
+/// Trace file, map, campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering),
+/// fields left out, and the last cycle that must match (`None`: the whole trace).
+type Trace = (&'static str, &'static str, u8, &'static [&'static str], Option<u32>);
+
+const TRACES: [Trace; 7] = [
+    ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    (
+        "human01-basics-9500.jsonl.gz",
+        "Campaign\\Human\\Human01.pud",
+        0,
+        &[],
+        Some(69),
+    ),
+    (
+        "orc02-assault-3000.jsonl.gz",
+        "Campaign\\Orc\\Orc02.pud",
+        3,
+        &[],
+        Some(293),
+    ),
+    (
+        "orc02-victory-7639.jsonl.gz",
+        "Campaign\\Orc\\Orc02.pud",
+        3,
+        &[],
+        Some(293),
+    ),
+    (
+        "orc02-defeat-4021.jsonl.gz",
+        "Campaign\\Orc\\Orc02.pud",
+        3,
+        &[],
+        Some(293),
+    ),
+    (
+        "xorc01-death-coil-2500.jsonl.gz",
+        "Campaign\\XOrc\\2XOrc01.pud",
+        29,
+        &[],
+        Some(355),
+    ),
 ];
 
 #[test]
@@ -21,19 +72,24 @@ fn compares_real_traces_when_present() {
         return;
     };
     let mut ran = 0;
-    for (file, map, entry) in TRACES {
+    for (file, map, entry, fields, limit) in TRACES {
         let trace = PathBuf::from(&dir).join(file);
         if !trace.is_file() {
             eprintln!("skipped {file}: not found");
             continue;
         }
-        for extra in [&[][..], &["--keep-going", "--resync-rng", "--max-cycles", "300"][..]] {
+        let max = limit.map(|l| l.to_string());
+        let short = limit.unwrap_or(300).min(300).to_string();
+        let whole: Vec<&str> = max.iter().flat_map(|m| ["--max-cycles", m.as_str()]).collect();
+        let resync = vec!["--keep-going", "--resync-rng", "--max-cycles", short.as_str()];
+        for extra in [whole, resync] {
             let out = Command::new(env!("CARGO_BIN_EXE_twtool"))
                 .arg("oracle")
                 .arg("--install")
                 .arg(&install)
                 .args(["--map", map, "--entry", &entry.to_string()])
-                .args(extra)
+                .args(fields)
+                .args(&extra)
                 .arg(&trace)
                 .output()
                 .expect("twtool runs");
@@ -47,6 +103,10 @@ fn compares_real_traces_when_present() {
             );
             assert!(stdout.contains("divergence"), "{file}: no verdict\n{stdout}");
             assert_eq!(out.status.code(), Some(0), "{file} {extra:?} diverges\n{stdout}");
+            assert!(
+                !stdout.contains("input timing disagrees") && !stdout.contains("not from the input"),
+                "{file}: the turn records and the input disagree\n{stdout}"
+            );
             ran += 1;
         }
     }

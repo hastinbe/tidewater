@@ -1,9 +1,10 @@
 //! `twtool oracle`: runs our simulation alongside a per-cycle trace of the original game and reports where the two
 //! first differ.
 //!
-//! The trace format is `docs/specs/oracle/trace-format.md` (format version 1): JSON Lines, optionally gzip-compressed,
-//! a header line and then one record per simulated cycle (`setup`, `startup`, `cycle`, `turn`), compared by `n` and
-//! `kind` in file order. The fields mean what the specs that format cites say: `core/unit-slots.md` (unit and effect
+//! The trace format is `docs/specs/oracle/trace-format.md` (format versions 1 and 2): JSON Lines, optionally
+//! gzip-compressed, a header line and then one record per simulated cycle (`setup`, `startup`, `cycle`, `turn`),
+//! compared by `n` and `kind` in file order. A version 2 `turn` record lists the commands carried out in it; they are
+//! applied to our world in that turn before it is compared (see [`crate::replay`]). The fields mean what the specs that format cites say: `core/unit-slots.md` (unit and effect
 //! slots, creation numbers, owners, the three permanent effects), `core/timing-and-rng.md` (the generator's state and
 //! step), `core/animation-scripts.md` (pixel positions, animation, frame and wait), `orders/orders.md` ("The order
 //! list"), `economy/harvest.md` (trips) and `spells/spells.md` (mana and timers).
@@ -21,6 +22,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tidewater_sim::{Order, Unit, UnitId, World};
+
+use crate::replay::{self, Entry};
 
 /// Unit fields in report order; `slot` is the key and isn't listed. The four timers are flattened.
 pub const UNIT_FIELDS: [&str; 20] = [
@@ -124,6 +127,10 @@ pub struct Header {
     pub cheats: Vec<String>,
     pub unit_slots: usize,
     pub effect_slots: usize,
+    /// Format version, 1 or 2.
+    pub version: u8,
+    /// The scenario's commands in file order (version 2; empty for version 1).
+    pub input: Vec<Entry>,
 }
 
 fn strings(v: &Value, key: &str) -> Vec<String> {
@@ -146,9 +153,17 @@ impl Header {
             bail!("not a tidewater oracle trace (header `format`)");
         }
         let version = int(&v, "version")?;
-        if version != 1 {
-            bail!("trace format version {version}; this comparer reads version 1");
+        if !(1..=2).contains(&version) {
+            bail!("trace format version {version}; this comparer reads versions 1 and 2");
         }
+        let input = v
+            .get("input")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .map(|(i, e)| Entry::parse(e).with_context(|| format!("header input entry {}", i + 1)))
+            .collect::<Result<Vec<_>>>()?;
         let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         Ok(Header {
             scenario: text("scenario"),
@@ -164,15 +179,17 @@ impl Header {
             cheats: strings(&v, "cheats"),
             unit_slots: int(&v, "unit_slots")? as usize,
             effect_slots: int(&v, "effect_slots")? as usize,
+            version: version as u8,
+            input,
         })
     }
 
     /// The header as one JSON line (for synthetic traces).
     #[cfg(test)]
     pub fn to_json(&self) -> String {
-        serde_json::json!({
+        let mut v = serde_json::json!({
             "format": "tidewater-oracle-trace",
-            "version": 1,
+            "version": self.version,
             "scenario": self.scenario,
             "launch": self.launch,
             "clock": self.clock,
@@ -186,8 +203,11 @@ impl Header {
             "cheats": self.cheats,
             "unit_slots": self.unit_slots,
             "effect_slots": self.effect_slots,
-        })
-        .to_string()
+        });
+        if self.version >= 2 {
+            v["input"] = Value::Array(self.input.iter().map(Entry::to_json).collect());
+        }
+        v.to_string()
     }
 }
 
@@ -204,6 +224,8 @@ pub struct Record {
     pub units: BTreeMap<u16, Vec<Cell>>,
     /// Effect fields by slot, in [`EFFECT_FIELDS`] order.
     pub effects: BTreeMap<u16, Vec<Cell>>,
+    /// `turn` records of format version 2: the commands carried out in the turn, in order.
+    pub commands: Vec<Entry>,
 }
 
 const RESOURCES: [&str; 3] = ["gold", "lumber", "oil"];
@@ -260,6 +282,13 @@ impl Record {
             resources: RESOURCES.map(list),
             units,
             effects,
+            commands: v
+                .get("commands")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|c| Entry::parse(c).with_context(|| format!("record n={n}: a command")))
+                .collect::<Result<_>>()?,
         })
     }
 
@@ -326,6 +355,12 @@ impl Record {
             })
             .collect();
         o.insert("effects".into(), Value::Array(effects));
+        if !self.commands.is_empty() {
+            o.insert(
+                "commands".into(),
+                Value::Array(self.commands.iter().map(Entry::to_json).collect()),
+            );
+        }
         Value::Object(o).to_string()
     }
 }
@@ -811,6 +846,7 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         resources: [res(|p| p.gold), res(|p| p.lumber), res(|p| p.oil)],
         units,
         effects,
+        commands: Vec::new(),
     }
 }
 
@@ -877,6 +913,8 @@ pub struct Options {
     pub filter: Filter,
     /// The seed, to count the draws before the setup record.
     pub seed: Option<u32>,
+    /// The header's `input`, to check each entry's turn against T(i) (trace format, "When a command runs").
+    pub input: Vec<Entry>,
 }
 
 /// Per field: records that differed, first and last `n`.
@@ -913,6 +951,10 @@ pub struct Summary {
     /// Each place and field when it starts differing (it didn't differ in the previous record), in order.
     pub onsets: Vec<(u64, String, Diff)>,
     pub skipped: BTreeSet<String>,
+    /// Commands from `turn` records applied to our world.
+    pub replayed: usize,
+    /// The input checked against the turns that ran it.
+    pub timing: replay::Timing,
 }
 
 /// Context lines for a record's differences: draw counts for an rng difference, and both sides of each unit or
@@ -982,15 +1024,19 @@ fn print_record(out: &mut dyn Write, title: &str, theirs: &Record, diffs: &[Diff
 }
 
 /// Steps `w` through the trace's records and compares each, printing the first divergence (and, with `--keep-going`
-/// or `--resync-rng`, carrying on as the options say). Setup and turn records are compared without stepping: no
-/// commands are replayed yet (the format's open question "Command turns").
+/// or `--resync-rng`, carrying on as the options say). Setup and turn records are compared without stepping; a turn
+/// record's commands are applied first, in the order it lists them (trace format, "When a command runs": the turn
+/// records are the authoritative timing).
 pub fn run(
     w: &mut World,
     records: impl Iterator<Item = Result<Record>>,
     opts: &Options,
     out: &mut dyn Write,
 ) -> Result<Summary> {
-    let mut s = Summary::default();
+    let mut s = Summary {
+        timing: replay::Timing::new(&opts.input),
+        ..Default::default()
+    };
     let seed = opts.seed.unwrap_or(w.rng.state);
     let mut prev = (seed, seed);
     let mut last_n: Option<u64> = None;
@@ -1004,7 +1050,17 @@ pub fn run(
             break;
         }
         match theirs.kind.as_str() {
-            "setup" | "turn" => {}
+            "setup" => {}
+            "turn" => {
+                // One at a time: a build or job acts on the synced selection as the commands before it left it.
+                for c in &theirs.commands {
+                    if let Some(cmd) = replay::sim_command(w, c) {
+                        w.turn(std::slice::from_ref(&cmd));
+                    }
+                    s.replayed += 1;
+                }
+                s.timing.turn(theirs.n, &theirs.commands);
+            }
             "startup" | "cycle" => {
                 if let Some(l) = last_n
                     && theirs.n != l + 1
@@ -1090,7 +1146,35 @@ pub fn run(
         }
         prev = (theirs.rng, w.rng.state);
     }
+    s.timing.finish(s.last_n.unwrap_or(0));
     Ok(s)
+}
+
+/// The replay lines of the summary: commands applied, and the input checked against T(i). A line starting
+/// "input timing disagrees" marks a disagreement between the input and the turn records.
+fn print_replay(out: &mut dyn Write, s: &Summary) -> Result<()> {
+    let t = &s.timing;
+    if s.replayed == 0 && t.is_empty() {
+        return Ok(());
+    }
+    writeln!(out, "replayed {} commands from turn records", s.replayed)?;
+    if !t.is_empty() {
+        let last = s.last_n.unwrap_or(0);
+        writeln!(
+            out,
+            "input timing: {} entries ran in turn T(i), {} disagree, {} due after n={last}",
+            t.on_time,
+            t.disagree.len(),
+            t.not_reached(last)
+        )?;
+    }
+    for d in &t.disagree {
+        writeln!(out, "  input timing disagrees: {d}")?;
+    }
+    for e in &t.extra {
+        writeln!(out, "  not from the input: {e}")?;
+    }
+    Ok(())
 }
 
 /// Prints the summary: counts, the first divergence of each category, the fields that differed and what wasn't
@@ -1159,6 +1243,7 @@ pub fn print_summary(out: &mut dyn Write, s: &Summary) -> Result<()> {
             writeln!(out, "  n={n:<5} {kind:<8} {d}")?;
         }
     }
+    print_replay(out, s)?;
     if !s.skipped.is_empty() {
         writeln!(out, "not compared:")?;
         for k in &s.skipped {
@@ -1220,6 +1305,7 @@ mod tests {
             map_size: 8,
             unit_slots: 1600,
             effect_slots: 400,
+            version: 1,
             ..Default::default()
         }
     }
@@ -1275,6 +1361,76 @@ mod tests {
             assert_eq!(back, r);
         }
         assert_eq!(Header::parse(&header().to_json()).unwrap(), header());
+    }
+
+    #[test]
+    fn format_2_turn_records_are_replayed_and_timed() {
+        // A select handed over after record 2 runs in turn 3 (T = H + 1); a move by the same player handed over at
+        // the same time runs one turn later (trace format, "When a command runs").
+        // The synthetic scripts have no move animation; a stride lets the type take a move command.
+        let movable = || {
+            let mut w = world(7);
+            w.stride = vec![1; 110];
+            w
+        };
+        let mut w = movable();
+        let unit = w.units.iter().find(|u| u.owner == 0).unwrap().clone();
+        let entry = |n: Option<u64>, v: Value| {
+            let mut e = Entry::parse(&v).unwrap();
+            e.n = n;
+            e
+        };
+        let select = serde_json::json!({"player": 0, "kind": "select", "units": [unit.slot]});
+        let mv = serde_json::json!({"player": 0, "kind": "command", "command": 3, "tile": [4, 1]});
+        let mut out = vec![snapshot(&w, 0, "setup")];
+        for n in 1..=8u64 {
+            w.step(&[]);
+            out.push(snapshot(&w, n, if n <= 2 { "startup" } else { "cycle" }));
+            let ran = match n {
+                3 => Some(&select),
+                4 => Some(&mv),
+                _ => None,
+            };
+            if let Some(v) = ran {
+                let e = entry(None, v.clone());
+                w.turn(&[replay::sim_command(&w, &e).unwrap()]);
+                let mut r = snapshot(&w, n, "turn");
+                r.commands = vec![e];
+                out.push(r);
+            }
+        }
+        let moved = w.unit(unit.id).unwrap();
+        assert!(
+            moved.order != unit.order || moved.pending.is_some(),
+            "the move reached the unit"
+        );
+        let h = Header {
+            version: 2,
+            input: vec![entry(Some(2), select), entry(Some(2), mv)],
+            ..header()
+        };
+        let mut t = h.to_json() + "\n";
+        for r in &out {
+            t += &r.to_json();
+            t += "\n";
+        }
+        let (back, records) = read(reader(std::io::Cursor::new(t.into_bytes())).unwrap()).unwrap();
+        assert_eq!(back, h);
+        let opts = Options {
+            input: back.input.clone(),
+            ..Options::default()
+        };
+        let mut w = movable();
+        let mut text = Vec::new();
+        let s = run(&mut w, records, &opts, &mut text).unwrap();
+        print_summary(&mut text, &s).unwrap();
+        let text = String::from_utf8(text).unwrap();
+        assert_eq!((s.diverged, s.replayed), (0, 2), "{text}");
+        assert!(
+            text.contains("input timing: 2 entries ran in turn T(i), 0 disagree"),
+            "{text}"
+        );
+        assert_eq!(w.selection(0), vec![unit.id]);
     }
 
     #[test]

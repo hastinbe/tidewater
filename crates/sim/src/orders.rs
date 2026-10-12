@@ -2,7 +2,8 @@
 //!
 //! Transports and boarding are in `transport.rs`, attacking the ground (17, 18) and demolition (19 to 21) in
 //! `ground.rs`. Not yet here: spells, the computer players' worker and tanker routines (they skip the search, as
-//! the spec says, and do nothing instead), alliances (only a unit's own player counts as allied), and the Enhanced
+//! the spec says, and do nothing instead), alliances outside target acquisition (there only the owner's entry of the
+//! alliance table is read), and the Enhanced
 //! demolition unit that turns a found target into a demolish ("Special cases").
 //!
 //! Our own choice: a player command other than patrol and attack-move clears the remembered order, so a unit sent
@@ -492,7 +493,9 @@ impl World {
     pub(crate) fn candidate(&self, u: &Unit, t: &Unit, order: Order) -> bool {
         let s = self.stats_of(u.kind);
         let tf = self.flags_of_unit(t);
-        if t.owner == u.owner || t.owner == slots::NEUTRAL || !t.present() {
+        // "Its owner is allied to the searcher's owner, or is the searcher's owner", by the searcher's owner's entry
+        // of the alliance table (setup spec, "Starting alliances and shared vision").
+        if t.owner == u.owner || t.owner == slots::NEUTRAL || self.allied(u.owner, t.owner) || !t.present() {
             return false;
         }
         if !Self::detected(t, u.owner) || !self.visible_to(u.owner, t.id) {
@@ -613,7 +616,9 @@ impl World {
             return false;
         }
         let o = self.resulting(i, kind, best);
-        self.immediately(i, o);
+        // Orders spec, "Same-update take-over": a command the unit's own logic gives it takes over at once ("Taking
+        // over": the animation starts with a wait of 3).
+        self.take_over(i, o);
         true
     }
 
@@ -737,16 +742,10 @@ impl World {
             None
         };
         self.units[i].order = Order::TowerWatch { target: found };
-        match found.and_then(|t| self.unit(t)) {
-            Some(t) => {
-                let (uc, tc) = (self.units[i].centre_px(), t.centre_px());
-                self.face_and_strike(i, (tc.0 - uc.0, tc.1 - uc.1));
-            }
-            None => {
-                if self.units[i].script.anim != anim::STILL {
-                    self.switch_anim(i, anim::STILL);
-                }
-            }
+        // With no target the tower "does nothing until its next run": it keeps whatever animation it plays.
+        if let Some(t) = found.and_then(|t| self.unit(t)) {
+            let (uc, tc) = (self.units[i].centre_px(), t.centre_px());
+            self.face_and_strike(i, (tc.0 - uc.0, tc.1 - uc.1));
         }
     }
 
@@ -855,6 +854,31 @@ mod tests {
         let p = w.spawn(PEASANT, 0, (6, 5), 0).unwrap();
         run(&mut w, 30);
         assert_eq!(order_of(&w, f), Order::IdleReact { target: p });
+    }
+
+    /// Orders spec, "A candidate is skipped if": its owner is allied to the searcher's owner. Setup spec: a passive
+    /// rescue player is allied with every slot, so two passive players' units side by side don't react.
+    #[test]
+    fn allied_units_are_not_candidates() {
+        let mut w = map();
+        w.players[3].controller = controller::PASSIVE;
+        w.players[2].allies = u16::MAX;
+        w.players[3].allies = 1 << 2 | 1 << 3;
+        let a = w.spawn(FOOTMAN, 2, (5, 5), 0).unwrap();
+        let b = w.spawn(FOOTMAN, 3, (6, 5), 0).unwrap();
+        run(&mut w, 30);
+        assert_eq!((order_of(&w, a), order_of(&w, b)), (Order::Idle, Order::Idle));
+        // The human and computer pair of `idle_reaction_by_player_kind`, allied both ways, don't react either.
+        let mut w = map();
+        w.players[0].allies = 0b11;
+        w.players[1].allies = 0b11;
+        let human = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let computer = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+        run(&mut w, 30);
+        assert_eq!(
+            (order_of(&w, human), order_of(&w, computer)),
+            (Order::Idle, Order::Idle)
+        );
     }
 
     #[test]
