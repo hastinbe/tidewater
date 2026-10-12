@@ -16,7 +16,7 @@ use tidewater_formats::udta::flags;
 use crate::economy::cost;
 use crate::orders::distance;
 use crate::slots;
-use crate::terrain::bits;
+use crate::terrain::{bits, region};
 use crate::world::{Gather, Order, Unit, UnitId, World};
 
 /// The keep-clear tile mark (occupancy spec, "Run-time marks").
@@ -378,7 +378,7 @@ impl World {
                 self.new_mine_site(i, kind)
             } else {
                 self.family_search(i, kind)
-                    .and_then(|s| self.site_search(i, kind, s, !farm))
+                    .and_then(|s| self.site_search(i, kind, s, false))
             };
             if let Some(site) = site {
                 return self.start_building(i, kind, site, !farm);
@@ -414,7 +414,7 @@ impl World {
         }
     }
 
-    /// The nearest of the player's completed gold-storing buildings in the worker's region, strictly nearest.
+    /// The nearest of the player's gold-storing buildings, complete or not, in the worker's region, strictly nearest.
     fn nearest_gold_store(&self, i: usize) -> Option<(i32, i32)> {
         let u = &self.units[i];
         let region = self.terrain.region(u.tile.0, u.tile.1);
@@ -422,7 +422,6 @@ impl World {
         for b in self.owned(u.owner) {
             if b.building
                 && !b.dying
-                && b.construction.is_none()
                 && self.stats_of(b.kind).flags & flags::GOLD_STORAGE != 0
                 && self.terrain.region(b.tile.0, b.tile.1) == region
             {
@@ -584,7 +583,7 @@ impl World {
                 step: 1,
                 water: None,
             };
-            let Some(site) = self.site_search(i, hall, s, true) else {
+            let Some(site) = self.site_search(i, hall, s, false) else {
                 continue;
             };
             let d = distance(site, m);
@@ -691,7 +690,10 @@ impl World {
 
     fn try_lumber(&mut self, i: usize) -> Option<Order> {
         self.units[i].gather = Gather::Lumber;
-        let tree = self.nearest_tree(self.units[i].tile)?;
+        // Rings of radius k while 2k + 1 < floor(3N / 4), from the worker's tile (the depot's top-left tile while
+        // the worker is still inside it).
+        let rings = (self.terrain.width as i32 * 3 / 4 - 2) / 2;
+        let tree = self.nearest_tree_within(self.units[i].tile, rings)?;
         let o = self.harvest_command(i, None, tree)?;
         let p = self.units[i].owner as usize;
         self.ai[p].lumberjacks += 1;
@@ -1005,5 +1007,136 @@ mod tests {
         assert_eq!(for_race(0x3b, 0), 0x3a);
         assert_eq!(for_race(t::WALL, 1), t::ORC_WALL);
         assert_eq!(for_race(t::ORC_WALL, 0), t::WALL);
+    }
+
+    /// A computer player 1 on an `n` x `n` land field with one peasant at `at`; returns the world and the peasant.
+    fn lumber_field(n: u16, at: (i32, i32)) -> (World, usize) {
+        let mut w = field(n, n);
+        w.players[1].controller = controller::COMPUTER;
+        w.stats.0[PEASANT as usize] = UnitStats {
+            hit_points: 30,
+            size: (1, 1),
+            flags: flags::LAND | flags::PEON,
+            ..Default::default()
+        };
+        let id = w.spawn(PEASANT, 1, at, 0).unwrap();
+        let i = w.index(id).unwrap();
+        (w, i)
+    }
+
+    fn tree(w: &mut World, x: i32, y: i32) {
+        let n = w.terrain.at(x, y).unwrap();
+        w.terrain.regions[n] = region::FOREST;
+        w.terrain.words[n] |= bits::OBSTACLE;
+    }
+
+    #[test]
+    fn the_job_choice_finds_a_forest_up_to_radius_47_on_a_128_map() {
+        // A worker coming out of a town hall whose top-left is (12, 70): it is still at that tile.
+        let (mut w, i) = lumber_field(128, (12, 70));
+        assert_eq!(w.units[i].tile, (12, 70));
+        tree(&mut w, 32, 70);
+        assert!(matches!(w.try_lumber(i), Some(Order::Harvest { tree: (32, 70), .. })));
+        assert_eq!(w.ai[1].lumberjacks, 1);
+        // The edge of the limit: radius 47 is found, 48 is not.
+        let (mut w, i) = lumber_field(128, (12, 70));
+        tree(&mut w, 12 + 48, 70);
+        assert_eq!(w.try_lumber(i), None);
+        let (mut w, i) = lumber_field(128, (12, 70));
+        tree(&mut w, 12 + 47, 70);
+        assert!(w.try_lumber(i).is_some());
+    }
+
+    #[test]
+    fn the_job_choice_reaches_radius_11_on_a_32_map() {
+        let (mut w, i) = lumber_field(32, (4, 4));
+        tree(&mut w, 16, 4);
+        assert_eq!(w.try_lumber(i), None, "radius 12 is out of reach");
+        let (mut w, i) = lumber_field(32, (4, 4));
+        tree(&mut w, 15, 4);
+        assert!(w.try_lumber(i).is_some());
+        // The order 23 search keeps radius 6.
+        let (mut w, _) = lumber_field(32, (4, 4));
+        tree(&mut w, 10, 4);
+        assert_eq!(w.nearest_tree((4, 4)), Some((10, 4)));
+        let (mut w, _) = lumber_field(32, (4, 4));
+        tree(&mut w, 11, 4);
+        assert_eq!(w.nearest_tree((4, 4)), None);
+    }
+
+    #[test]
+    fn the_ring_limit_per_map_size() {
+        for (n, largest) in [(32, 11), (64, 23), (96, 35), (128, 47)] {
+            let (mut w, i) = lumber_field(n, (0, 0));
+            tree(&mut w, largest + 1, 0);
+            assert_eq!(w.try_lumber(i), None, "N = {n}, radius {}", largest + 1);
+            tree(&mut w, largest, 0);
+            // The nearer tree is found now.
+            assert!(w.try_lumber(i).is_some(), "N = {n}, radius {largest}");
+        }
+    }
+
+    #[test]
+    fn an_unfinished_gold_store_is_the_site_search_centre() {
+        let (mut w, hall) = town();
+        let n = w.index(hall).unwrap();
+        w.units[n].construction = Some(Default::default());
+        let i = peasants(&mut w, 1)[0];
+        let s = w.family_search(i, t::FARM).unwrap();
+        assert_eq!((s.centre, s.step), ((14, 14), 2));
+        let s = w.family_search(i, BARRACKS).unwrap();
+        assert_eq!((s.centre, s.step), ((14, 14), 6));
+    }
+
+    #[test]
+    fn map_placed_halls_get_no_keep_clear_mark() {
+        let (mut w, _) = town();
+        with_list(&mut w, &[0xff]);
+        for y in 0..64 {
+            for x in 0..64 {
+                assert!(!w.keep_clear_at(x, y), "({x}, {y})");
+            }
+        }
+        w.mark_game_start(1);
+        for y in 0..64 {
+            for x in 0..64 {
+                assert!(!w.keep_clear_at(x, y), "({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn a_carrier_with_no_path_is_sent_to_the_same_depot_again_without_waiting() {
+        let (mut w, hall) = town();
+        let (x, y) = (30, 30);
+        let id = w.spawn(PEASANT, 1, (x, y), 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.stride[PEASANT as usize] = 1;
+        assert_eq!(w.units[i].tile, (x, y));
+        w.units[i].carrying = true;
+        w.units[i].gather = Gather::Gold;
+        // Walled in by obstacles; the hall is in the same region.
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if (dx, dy) != (0, 0) {
+                    let n = w.terrain.at(x + dx, y + dy).unwrap();
+                    w.terrain.words[n] |= bits::OBSTACLE;
+                }
+            }
+        }
+        let gold = w.players[1].gold;
+        let mut gave = 0;
+        for _ in 0..60 {
+            w.step(&[]);
+            let u = w.unit(id).unwrap();
+            if u.order == (Order::ReturnGoods { depot: Some(hall) }) {
+                gave += 1;
+            }
+            assert!(u.script.wait < 44, "no wait: {}", u.script.wait);
+            assert_eq!(u.tile, (x, y));
+        }
+        assert!(gave > 5, "command 24 given again and again: {gave}");
+        assert_eq!(w.players[1].gold, gold);
+        assert_eq!(w.ai[1].hall_cooldown, 0);
     }
 }

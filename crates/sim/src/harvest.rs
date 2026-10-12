@@ -501,8 +501,14 @@ impl World {
 
     /// "Finding the nearest tree".
     pub(crate) fn nearest_tree(&self, from: (i32, i32)) -> Option<(i32, i32)> {
+        self.nearest_tree_within(from, TREE_RINGS)
+    }
+
+    /// The same search with rings of radius 1 to `rings` (the computer job choice's larger limit, worker-ai spec,
+    /// "Harvest").
+    pub(crate) fn nearest_tree_within(&self, from: (i32, i32), rings: i32) -> Option<(i32, i32)> {
         let a = self.terrain.region(from.0, from.1)?;
-        for r in 1..=TREE_RINGS {
+        for r in 1..=rings {
             let mut reachable = false;
             for (x, y) in ring(from, r) {
                 let Some(v) = self.terrain.region(x, y) else { continue };
