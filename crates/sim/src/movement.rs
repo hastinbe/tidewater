@@ -205,6 +205,13 @@ impl World {
 
     /// One movement decision toward `g`: arrive, step, or apply the blocked rules.
     pub(crate) fn move_toward(&mut self, i: usize, g: Goal) -> Walk {
+        self.move_toward_as(i, g, false)
+    }
+
+    /// [`World::move_toward`]; with `restart`, a step starts the move animation and runs it at once even if it is
+    /// already playing (a two-tile transport landing or pushing off, transports spec, "Landing" step 2 and "Pushing
+    /// off" step 4).
+    pub(crate) fn move_toward_as(&mut self, i: usize, g: Goal, restart: bool) -> Walk {
         let u = &self.units[i];
         if chebyshev(u.tile, g.tile) <= self.arrival_radius(u, &g) {
             self.units[i].path.clear();
@@ -242,7 +249,7 @@ impl World {
         self.apply_unit_sight(i);
         // A transport moving as a one-tile unit keeps its order's animation (6 for orders 30 and 31): only a two-tile
         // mover starts the move animation (transports spec, "Landing" step 2 and "Pushing off" step 4).
-        if unit.script.anim != anim::MOVE && !unit.ship.one_tile {
+        if (restart || unit.script.anim != anim::MOVE) && !unit.ship.one_tile {
             self.switch_anim(i, anim::MOVE);
         }
         // Sounds spec, "Docking": a transport moving onto a shore-water tile.

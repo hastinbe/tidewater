@@ -1016,8 +1016,9 @@ impl World {
                 u.decay_count = u.decay_count.saturating_sub(1);
                 if u.decay_count == 0 {
                     u.decay_count = s.decay_rate;
-                    if u.decay_period > 0 {
-                        u.decay_period -= 1;
+                    // The decay periods left are kept in the mana byte (unit-slots spec, "Creating a unit").
+                    if u.mana > 0 {
+                        u.mana -= 1;
                     } else if u.hp >= 5 {
                         u.hp -= 5;
                     } else {
@@ -1476,7 +1477,7 @@ mod tests {
     fn summoned_units_decay_on_the_spec_timetable() {
         let mut w = lab(16);
         let eye = w.spawn(unit::EYE, 0, (2, 2), 0).unwrap();
-        assert_eq!(w.unit(eye).unwrap().decay_period, 255);
+        assert_eq!(w.unit(eye).unwrap().mana, 255);
         run(&mut w, 827);
         assert!(w.unit(eye).unwrap().alive());
         // 255 periods, then 20 losses of 5 hit points: the unit is still alive at 0 hit points.

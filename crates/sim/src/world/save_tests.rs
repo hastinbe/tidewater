@@ -145,3 +145,19 @@ fn saving_with_the_map_revealed_resets_looks_on_unexplored_ground() {
     let dark = (0..2).all(|dy| (0..2).all(|dx| a.vision.unexplored(tx + dx, ty + dy)));
     assert_eq!(a.units[b].look.0.is_none(), dark);
 }
+
+#[test]
+fn building_looks_and_progress_bytes_come_back() {
+    // The round-33 state lives in fields every save keeps: a mine's "active" frame and occupant count, and a
+    // building's progress in its mana byte.
+    let mut a = battle();
+    let farm = a.units.iter().position(|u| u.kind == 0x3a).unwrap();
+    a.units[farm].script.frame = 1;
+    a.units[farm].occupants = 2;
+    a.units[farm].mana = 37;
+    let bytes = a.save_state();
+    let mut b = field(16, 16);
+    b.restore(&bytes, 1).unwrap();
+    let u = &b.units[farm];
+    assert_eq!((u.script.frame, u.occupants, u.mana), (1, 2, 37));
+}

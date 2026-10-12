@@ -123,6 +123,18 @@ impl Script {
 mod tests {
     use super::*;
 
+    #[test]
+    fn starting_an_animation_keeps_the_frame() {
+        // Animation-scripts spec, round-33 errata: starting an animation sets the position and the wait, never the
+        // frame (Human04 peon 1548 at n = 89: the take-over to order 25 keeps frame 0 left by the arrival switch).
+        let mut s = Script {
+            frame: 20,
+            ..Default::default()
+        };
+        s.start(3, 7);
+        assert_eq!((s.anim, s.pc, s.wait, s.frame), (3, 7, 1, 20));
+    }
+
     /// A synthetic footman-style move loop: step done, then 12 moves with the spec's per-cycle steps and waits.
     fn move_loop() -> Vec<u8> {
         let steps = [3, 3, 3, 2, 3, 2, 3, 3, 3, 2, 3, 2];

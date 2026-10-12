@@ -25,8 +25,9 @@ use tidewater_sim::setup::Setup;
 use crate::campaign::{CampaignTotal, GameKind, Memory};
 
 pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
-/// The layout version; raise it whenever the stored world or the structs below change.
-pub const VERSION: u16 = 1;
+/// The layout version; raise it whenever the stored world or the structs below change. Version 2: a unit's decay
+/// periods moved into its mana byte (the separate counter is gone).
+pub const VERSION: u16 = 2;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").

@@ -343,22 +343,23 @@ impl World {
                     return true;
                 }
                 let walk = self.move_toward(i, Goal::tile(goal, 0));
-                // A move (order 3) that arrives goes idle as a same-update take-over (orders spec, open question
-                // "Same-update take-over", default: every command a unit's own order logic gives it): order 2 with
-                // wait 3 and no idle logic run in that update. The Human04 trace shows this for critters (n = 58).
-                if matches!(walk, Walk::Arrived) && matches!(o, Order::Move { .. }) {
-                    self.units[i].attacked_by = None;
-                    self.take_over(i, Order::Idle);
-                    return true;
-                }
-                if matches!(walk, Walk::Arrived | Walk::NoPath) {
-                    self.units[i].attacked_by = None;
-                    self.stop(i);
-                    // "Idle look-around": when a move (order 3) gives up, the idle logic runs in the same update (the
-                    // spec's open question "Idle logic after a move", default: every unit).
-                    if matches!(o, Order::Move { .. }) && self.units[i].order == Order::Idle {
-                        self.run_order(i);
+                match walk {
+                    // "Arriving and losing the target": the unit forgets its attacker, and idle becomes its pending
+                    // order and takes over in the same update (still animation, wait 3); the idle logic first runs
+                    // at the next step done.
+                    Walk::Arrived => {
+                        self.units[i].attacked_by = None;
+                        self.take_over(i, Order::Idle);
                     }
+                    // No route: idle as an immediate order, so the idle logic runs in the same update, straight after.
+                    Walk::NoPath => {
+                        self.units[i].attacked_by = None;
+                        self.stop(i);
+                        if self.units[i].order == Order::Idle {
+                            self.run_order(i);
+                        }
+                    }
+                    Walk::Stepping | Walk::Blocked => {}
                 }
             }
             Order::Patrol { to, back } => match self.move_toward(i, Goal::tile(to, 0)) {
@@ -938,6 +939,86 @@ mod tests {
             }
         }
         assert!(arrived);
+    }
+
+    #[test]
+    fn take_overs_and_immediate_orders_keep_the_frame() {
+        // Animation-scripts spec, round-33 errata: no way of starting an animation changes the frame (Human04 peon
+        // 1548 returning gold: frame 0 from the arrival switch kept through order 25's take-over at n = 374).
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].script.frame = 15;
+        w.take_over(i, Order::Move { goal: (9, 9) });
+        assert_eq!((w.units[i].script.frame, w.units[i].script.wait), (15, 3));
+        w.stop(i);
+        assert_eq!((w.units[i].script.frame, w.units[i].script.wait), (15, 1));
+    }
+
+    #[test]
+    fn orders_4_and_10_also_go_idle_through_a_same_update_take_over() {
+        // Orders spec, "Arriving and losing the target": orders 3, 4 and 10 forget the attacker on arrival (the
+        // Human04 critters' order 3 test above), and idle takes over in the same update (still animation, wait 3).
+        for o in [
+            Order::Move { goal: (7, 5) },
+            Order::MoveAttack { goal: (7, 5) },
+            Order::AttackMove { goal: (7, 5) },
+        ] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let i = at(&w, f);
+            w.give(i, o);
+            let (mut moving, mut arrived) = (false, false);
+            for _ in 0..200 {
+                w.step(&[]);
+                let u = w.unit(f).unwrap();
+                moving |= u.order == o;
+                if moving && u.order == Order::Idle {
+                    assert_eq!(
+                        (u.tile, u.pending, u.script.anim, u.script.wait, u.attacked_by),
+                        ((7, 5), None, anim::STILL, 3, None),
+                        "{o:?}"
+                    );
+                    arrived = true;
+                    break;
+                }
+            }
+            assert!(arrived, "{o:?}");
+        }
+    }
+
+    #[test]
+    fn a_move_with_no_route_goes_idle_at_once_and_runs_the_idle_logic() {
+        // Orders spec, "Arriving and losing the target", no route (static study vector): order 2 as an immediate order
+        // and the idle logic in the same update. Here the idle logic of a computer player's unit (reaction range 6)
+        // acquires the enemy two tiles away at once.
+        let mut w = map();
+        // Walls all round the unit: no route leads out.
+        for y in 4..=6 {
+            for x in 4..=6 {
+                if (x, y) != (5, 5) {
+                    let n = w.terrain.at(x, y).unwrap();
+                    w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+                }
+            }
+        }
+        let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 0, (5, 3), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].order = Order::Move { goal: (15, 15) };
+        w.units[i].script.wait = 1;
+        // The move's logic runs at its next step done; it never reaches idle with the take-over's wait of 3.
+        let mut after = None;
+        for _ in 0..20 {
+            w.step(&[]);
+            let u = w.unit(f).unwrap();
+            if !matches!(u.order, Order::Move { .. }) {
+                after = Some(u.order);
+                break;
+            }
+        }
+        let o = after.expect("the move ends");
+        assert!(matches!(target_of(o), Some(t) if t == g), "{o:?}");
     }
 
     #[test]

@@ -3,8 +3,8 @@
 //! Not yet here:
 //! - The AI hand-off of computer players' units coming out (ai spec to come); their units carry on as anyone else's.
 //!
-//! Our own reading: a unit that arrives at its mine, platform or depot starts order 25 in the same decision, rather
-//! than waiting for another step done.
+//! A unit that arrives at its mine, platform or depot starts order 25 in the same decision, rather than waiting for
+//! another step done (orders spec, "Same-update take-over", confirmed by the round-33 errata).
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -30,6 +30,8 @@ const RADIUS: i32 = 1;
 const TRIPS_PER_MAP_UNIT: u32 = 25;
 const TRIPS_FOR_ZERO: u32 = 120 * TRIPS_PER_MAP_UNIT;
 
+/// The gold mine, whose "active" look is frame 1 (any other source shows frame 2).
+const MINE: u8 = 0x5c;
 const LUMBER_MILL: u8 = 0x4c;
 const TROLL_LUMBER_MILL: u8 = 0x4d;
 const REFINERY: u8 = 0x54;
@@ -302,8 +304,13 @@ impl World {
         if accepts {
             self.deliver(i, owner, tanker);
         } else if source {
+            // "Entering", step 2: the "active" look is the building's frame, 1 for a gold mine and 2 for an oil
+            // platform, set only from frame 0.
             let m = &mut self.units[bi];
             m.occupants = m.occupants.saturating_add(1);
+            if m.script.frame == 0 {
+                m.script.frame = if m.kind == MINE { 1 } else { 2 };
+            }
             if m.resources > 0 {
                 m.resources -= 1;
                 let last = m.resources == 0;
@@ -377,8 +384,12 @@ impl World {
                 && self.units[i].return_to == Some(Source::Unit(building))
                 && self.flags_of(self.units[bi].kind) & (flags::MINE | flags::OIL_SOURCE) != 0;
             if carrying_from_source {
+                // A count of 0 counts as 1; reaching 0 ends the "active" look.
                 let b = &mut self.units[bi];
-                b.occupants = b.occupants.saturating_sub(1);
+                b.occupants = b.occupants.max(1) - 1;
+                if b.occupants == 0 {
+                    b.script.frame = 0;
+                }
             }
         }
         // A computer worker chooses its job here; a job given skips the usual return (worker-ai spec).
@@ -432,14 +443,11 @@ impl World {
         if let Some(f) = face.filter(|&f| f != tile) {
             u.facing = facing(f.0 - tile.0, f.1 - tile.1);
         }
-        if chosen.is_some() {
-            // Step 3: the AI's choice is a command, so it is pending; the unit stays idle (order 2) until its next
-            // step done (Human04 trace: order 2 with the depot as target, then order 24 after the 25-cycle wait).
-            u.order = Order::Idle;
-            u.pending = chosen;
-        } else {
-            u.order = next.unwrap_or(Order::Idle);
-        }
+        // Steps 3 to 5: the order given is pending; the unit stays idle (order 2) until its next step done, when the
+        // order takes over with a wait of 3 (Human04 trace: order 2 with the depot as target, then order 24 after the
+        // 25-cycle wait).
+        u.order = Order::Idle;
+        u.pending = next;
         let u = u.clone();
         self.mark(&u, tile, Some(u.id));
         self.start_anim(i, anim::STILL);
@@ -492,11 +500,11 @@ impl World {
         }
         let area = self.terrain.region(here.0, here.1).unwrap_or(region::LAND_AREA);
         self.terrain.fell(tree.0, tree.1, area);
+        // The worker carries lumber and its frame is set to 0; the return (or idle, with no depot) takes over in the
+        // same update (orders spec, "Same-update take-over"). Taking over looks up the nearest depot.
         self.units[i].carrying = true;
-        match self.nearest_depot(&self.units[i]) {
-            Some(d) => self.take_over(i, Order::ReturnGoods { depot: Some(d) }),
-            None => self.idle(i),
-        }
+        self.units[i].script.frame = 0;
+        self.take_over(i, Order::ReturnGoods { depot: None });
     }
 
     /// Sends a worker to the nearest tree from its own tile, or makes it idle.
@@ -618,8 +626,6 @@ mod tests {
     use crate::terrain::bits;
     use crate::world::tests::field;
 
-    const MINE: u8 = 0x5c;
-
     /// A 24 x 24 field with a worker type (0), a 3 x 3 gold mine type, and halls and lumber mills that store goods.
     fn land() -> World {
         let mut w = field(24, 24);
@@ -690,7 +696,10 @@ mod tests {
             .unwrap();
         assert!((149..170).contains(&out), "{out}");
         assert_eq!(w.unit(mine).unwrap().occupants, 0);
-        assert_eq!(w.unit(peasant).unwrap().order, Order::ReturnGoods { depot: Some(hall) });
+        assert_eq!(
+            w.unit(peasant).unwrap().pending,
+            Some(Order::ReturnGoods { depot: Some(hall) })
+        );
         // It comes out on the hall's side of the mine.
         assert_eq!(w.unit(peasant).unwrap().tile.0, 13);
         for _ in 0..600 {
@@ -836,16 +845,212 @@ mod tests {
         }
         let pi = w.index(p).unwrap();
         w.units[pi].chop = 50;
+        // Harvest and animation-scripts specs, round-33 vectors (peon 1531): frame 25 before the felling, 0 after.
         let felled = (0..100).find(|_| {
+            let pi = w.index(p).unwrap();
+            w.units[pi].script.frame = 25;
             w.step(&[]);
             w.unit(p).unwrap().carrying
         });
         assert!(felled.is_some());
         let u = w.unit(p).unwrap();
         assert_eq!(
-            (u.order, u.pending, u.script.anim, u.script.wait, u.tile),
-            (Order::ReturnGoods { depot: Some(hall) }, None, anim::STILL, 3, (10, 9))
+            (u.order, u.pending, u.script.anim, u.script.frame, u.script.wait, u.tile),
+            (
+                Order::ReturnGoods { depot: Some(hall) },
+                None,
+                anim::STILL,
+                0,
+                3,
+                (10, 9)
+            )
         );
+    }
+
+    #[test]
+    fn felling_with_no_depot_takes_over_idle_in_the_same_update() {
+        let mut w = land();
+        forest(&mut w, 10, 8);
+        let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+        harvest(&mut w, vec![p], None, (10, 8));
+        for _ in 0..30 {
+            w.step(&[]);
+        }
+        let pi = w.index(p).unwrap();
+        w.units[pi].chop = 50;
+        assert!((0..100).any(|_| {
+            w.step(&[]);
+            w.unit(p).unwrap().carrying
+        }));
+        let u = w.unit(p).unwrap();
+        assert_eq!(
+            (u.order, u.pending, u.script.anim, u.script.frame, u.script.wait),
+            (Order::Idle, None, anim::STILL, 0, 3)
+        );
+    }
+
+    /// Puts worker `p` (gold, as from mine `mine`) into building `b` ("Entering", step 2).
+    fn go_in_now(w: &mut World, p: UnitId, b: UnitId) {
+        let (pi, bi) = (w.index(p).unwrap(), w.index(b).unwrap());
+        w.units[pi].gather = Gather::Gold;
+        w.go_in(pi, bi);
+    }
+
+    /// Lets worker `p` out of `b` ("Coming out").
+    fn come_out_now(w: &mut World, p: UnitId, b: UnitId) {
+        let pi = w.index(p).unwrap();
+        w.come_out(pi, b, false);
+    }
+
+    /// The mine's occupant count and frame.
+    fn mine_look(w: &World, m: UnitId) -> (u8, u8) {
+        let m = w.unit(m).unwrap();
+        (m.occupants, m.script.frame)
+    }
+
+    #[test]
+    fn a_gold_mine_shows_frame_1_while_workers_are_inside() {
+        // Harvest spec, round-33 vectors: Human04 mine 1559, n = 1112 to 1914, with peons 1530 (a), 1548 (b) and 1529
+        // (c).
+        let mut w = land();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+        let [a, b, c] = [(12, 4), (12, 6), (12, 8)].map(|t| w.spawn(0, 0, t, 0).unwrap());
+        assert_eq!(mine_look(&w, mine), (0, 0));
+        let steps: [(bool, UnitId, (u8, u8)); 10] = [
+            (true, a, (1, 1)),
+            (true, b, (2, 1)),
+            (false, a, (1, 1)),
+            (false, b, (0, 0)),
+            (true, c, (1, 1)),
+            (true, a, (2, 1)),
+            (false, c, (1, 1)),
+            (true, b, (2, 1)),
+            (false, a, (1, 1)),
+            (false, b, (0, 0)),
+        ];
+        for (n, (going_in, p, look)) in steps.into_iter().enumerate() {
+            if going_in {
+                go_in_now(&mut w, p, mine);
+            } else {
+                come_out_now(&mut w, p, mine);
+            }
+            assert_eq!(mine_look(&w, mine), look, "step {n}");
+        }
+    }
+
+    #[test]
+    fn a_count_of_0_counts_as_1_when_coming_out() {
+        let mut w = land();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+        let p = w.spawn(0, 0, (12, 4), 0).unwrap();
+        go_in_now(&mut w, p, mine);
+        let mi = w.index(mine).unwrap();
+        w.units[mi].occupants = 0;
+        come_out_now(&mut w, p, mine);
+        assert_eq!(mine_look(&w, mine), (0, 0));
+    }
+
+    #[test]
+    fn a_frame_already_set_is_kept_on_going_in() {
+        // "If its frame is 0 ... Otherwise the frame doesn't change."
+        let mut w = land();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        let p = w.spawn(0, 0, (12, 4), 0).unwrap();
+        let mi = w.index(mine).unwrap();
+        w.units[mi].script.frame = 3;
+        go_in_now(&mut w, p, mine);
+        assert_eq!(mine_look(&w, mine), (1, 3));
+    }
+
+    #[test]
+    fn a_depot_never_changes_frame() {
+        // Harvest spec, round-33 vectors: Human04 great hall 1550, peons going in carrying gold.
+        let mut w = land();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+        let p = w.spawn(0, 0, (7, 4), 0).unwrap();
+        for _ in 0..3 {
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            go_in_now(&mut w, p, hall);
+            assert_eq!(mine_look(&w, hall), (0, 0));
+            come_out_now(&mut w, p, hall);
+            assert_eq!(mine_look(&w, hall), (0, 0));
+        }
+    }
+
+    #[test]
+    fn an_oil_platform_shows_frame_2_while_a_tanker_is_inside() {
+        // Harvest spec, round-33 vectors: orc4 platform 1596 (type 0x56), frame 2 for one tanker visit of 150 cycles.
+        const PLATFORM: u8 = 0x56;
+        const TANKER: u8 = 9;
+        let mut w = land();
+        w.stats.0[PLATFORM as usize] = tidewater_formats::udta::UnitStats {
+            hit_points: 5000,
+            size: (3, 3),
+            flags: flags::BUILDING | flags::OIL_SOURCE,
+            ..Default::default()
+        };
+        w.stats.0[TANKER as usize] = tidewater_formats::udta::UnitStats {
+            hit_points: 90,
+            size: (1, 1),
+            flags: flags::LAND | flags::TANKER,
+            ..Default::default()
+        };
+        let platform = w.spawn(PLATFORM, 0, (14, 4), 100).unwrap();
+        let t = w.spawn(TANKER, 0, (12, 4), 0).unwrap();
+        let (ti, pi) = (w.index(t).unwrap(), w.index(platform).unwrap());
+        w.go_in(ti, pi);
+        assert!(w.unit(t).unwrap().carrying);
+        assert_eq!(mine_look(&w, platform), (1, 2));
+        let ti = w.index(t).unwrap();
+        w.come_out(ti, platform, false);
+        assert_eq!(mine_look(&w, platform), (0, 0));
+    }
+
+    #[test]
+    fn entering_aims_at_the_top_left_tile_plus_1_1() {
+        // Harvest spec, round-33 vectors, moved: peon 1531 at (76, 78) going into the lumber mill at (77, 77) faces
+        // east (2), toward (78, 78), and steps to (77, 78); peon 1548 at (87, 80) going into the mine at (88, 77) faces
+        // 1, toward (89, 78), and steps to (88, 79).
+        for (b, at, facing, to) in [(LUMBER_MILL, (11, 10), 2, (11, 11)), (MINE, (14, 7), 1, (14, 9))] {
+            let mut w = land();
+            let building = w.spawn(b, 0, at, 100).unwrap();
+            let start = if b == MINE { (13, 10) } else { (10, 11) };
+            let p = w.spawn(0, 0, start, 0).unwrap();
+            let pi = w.index(p).unwrap();
+            w.enter_order(pi, building, false);
+            let u = &w.units[pi];
+            assert_eq!((u.facing, u.tile), (facing, to), "{b:#x}");
+        }
+    }
+
+    #[test]
+    fn the_order_given_on_coming_out_waits_for_the_25_cycle_wait() {
+        // Harvest spec, "Coming out" (Human04 peon 1548): order 2 with the return pending through the 25-cycle wait,
+        // then order 24 takes over with a wait of 3. The same holds for a person's units.
+        let mut w = land();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+        let p = w.spawn(0, 0, (12, 4), 0).unwrap();
+        go_in_now(&mut w, p, mine);
+        come_out_now(&mut w, p, mine);
+        let u = w.unit(p).unwrap();
+        let ret = Order::ReturnGoods { depot: Some(hall) };
+        assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, Some(ret), 25));
+        let mut took_over = None;
+        for n in 1..=40 {
+            w.step(&[]);
+            let u = w.unit(p).unwrap();
+            if u.order == ret {
+                took_over = Some((n, u.script.anim, u.script.wait));
+                break;
+            }
+        }
+        let (n, a, wait) = took_over.expect("the return takes over");
+        assert!(n >= 25, "{n}");
+        assert_eq!((a, wait), (anim::STILL, 3));
     }
 
     #[test]

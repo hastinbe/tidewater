@@ -206,7 +206,9 @@ impl World {
         let u = &mut self.units[i];
         u.ship.landing = true;
         u.ship.one_tile = !(even(u.tile) && even(goal));
-        match self.move_toward(i, Goal::tile(goal, 0)) {
+        // Step 2: a two-tile mover starts its move animation and runs it at once; a one-tile mover keeps animation 6.
+        let restart = !u.ship.one_tile;
+        match self.move_toward_as(i, Goal::tile(goal, 0), restart) {
             Walk::Arrived => {
                 let u = &mut self.units[i];
                 let next = if u.ship.unload { Order::Unload } else { Order::Docked };
@@ -270,11 +272,12 @@ impl World {
         {
             self.units[i].attacked_by = None;
         }
+        // Step 4: on an even tile, a two-tile mover whose move animation is started and run at once with the step; on
+        // an odd tile the transport keeps animation 6, the order's own.
         if even(tile) {
             self.units[i].ship.one_tile = false;
-            self.start_anim(i, anim::MOVE);
         }
-        if matches!(self.move_toward(i, Goal::tile(to, 0)), Walk::NoPath) {
+        if matches!(self.move_toward_as(i, Goal::tile(to, 0), even(tile)), Walk::NoPath) {
             self.dock(i);
         }
     }
@@ -504,6 +507,37 @@ mod tests {
         seen.pop();
         assert_eq!(seen, [(20, 20), (21, 21), (22, 21), (23, 21), (24, 22)]);
         assert!(w.land_first((20, 20), (25, 22)));
+    }
+
+    #[test]
+    fn landing_on_one_tile_steps_keeps_animation_6() {
+        // Transports spec, round-33 vector (Human04 transport 1543, landing at (70, 87) from (68, 88)): the goal has an
+        // odd coordinate, so the steps are one-tile steps carried by animation 6, the order's own; then order 32. A
+        // two-tile landing starts the move animation instead.
+        for (goal, steps_anim) in [((21, 11), anim::WORK_B), ((22, 10), anim::MOVE)] {
+            let mut w = sea(20);
+            let i = ship(&mut w, (26, 12), Order::Idle);
+            let id = w.units[i].id;
+            w.give(i, Order::Land { goal });
+            let (mut tile, mut stepped, mut landing) = ((26, 12), 0, false);
+            for _ in 0..300 {
+                w.step(&[]);
+                let u = w.unit(id).unwrap();
+                let now = matches!(u.order, Order::Land { .. });
+                if landing && !now {
+                    break;
+                }
+                landing = now;
+                if u.tile != tile {
+                    tile = u.tile;
+                    stepped += 1;
+                    assert_eq!(u.script.anim, steps_anim, "{goal:?} at {tile:?}");
+                }
+            }
+            let u = w.unit(id).unwrap();
+            assert!(stepped >= 2, "{goal:?}: {stepped} steps, {:?} at {:?}", u.order, u.tile);
+            assert_eq!((u.order, u.tile), (Order::Docked, goal));
+        }
     }
 
     #[test]
