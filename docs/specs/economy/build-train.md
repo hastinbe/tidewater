@@ -17,6 +17,8 @@
   the construction look and a building upgrade are frames (0 and 1).
   2026-10-12, round-35 errata: the build walk's goal is the building goal rule on the planned footprint (oil platform:
   top-left plus (1, 1); shore rule for shore buildings), recomputed each time order 28's logic runs.
+  2026-10-12, round-39 errata: a builder let out of a finished building faces the building (top-left + (1, 1)) before it
+  becomes idle, with trace vectors for SE, NE, E and N exits; new open question on exit facing at cancel or destroy.
 
 ## Behaviour
 
@@ -122,9 +124,13 @@ completes 12 passes later, with its hit points still below M.
   Then:
   - a **tanker** (the builder of an oil platform) is set to order 25, so it starts collecting oil from the new
     platform at once;
-  - any other unit is placed on a free tile around the building and becomes idle. The tile is found by the ring
-    search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile; the
-    number of rings depends on the building's size). If no tile is found, it **dies**.
+  - any other unit is placed on a free tile around the building, faces the building ("Facing a tile",
+    `core/animation-scripts.md`, with B the building's top-left tile + (1, 1)) and becomes idle: order 2, still
+    animation, wait 1, target cleared. The tile is found by the ring search of `movement/placement.md` (limit 12,
+    starting from the tile west of the building's top-left tile; the number of rings depends on the building's size).
+    If no tile is found, it **dies**. From the tile west of the top-left tile the builder faces SE (3); other exit
+    tiles give other facings by the same rule. A tanker set to order 25 doesn't turn. Only completion is confirmed
+    by traces; whether a builder let out of a cancelled or destroyed site also turns is an open question.
 - A completed **wall** piece (human or orc) is removed as a unit and becomes wall terrain (`movement/occupancy.md`,
   "Walls").
 
@@ -226,6 +232,13 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `human01-basics` (oracle trace): peasant 1596 on (14, 9) is told to build a barracks (type 60, 3 × 3) at top-left (5, 8) | Goal (7, 9): x = 7 because 14 ≥ 7; y = 8 + 1 because 9 lies inside 8 to 10. Order 28 takes over at n = 19 (wait 3); the peasant walks west along row 9, one tile every 16 cycles: (13, 9) at n = 22, (12, 9) at 38, (10, 9) at 70, (7, 9) at 118. At n = 134 the barracks is placed at (5, 8) and the peasant is inside it (order 22, wait 150) |
 | A worker at (2, 2) told to build a 2 × 2 farm at (5, 5) | Goal (5, 5) |
 | A worker at (6, 9) told to build a 3 × 3 building at (5, 5) | Goal (6, 7): x = 5 + 1 (6 lies between 5 and 7), y = 7 (9 ≥ 7) |
+| `human06-tech` (oracle trace), n = 178: farm 1521 (type 0x3A, top-left (76, 5)) completes; builder 1586 | 1586 at (75, 5), facing 3 (SE, toward (77, 6)), order 2, wait 1, target null |
+| `human7` (oracle trace), n = 1251: farm 1465 (type 0x3B, top-left (63, 2)) completes; builder 1582 | 1582 at (62, 2), facing 3, order 2, wait 1, target null |
+| `xorc3` (oracle trace), n = 1295: farm 1475 (type 0x3B, top-left (27, 113)) completes; builder 1482 | 1482 at (26, 113), facing 3, order 2, wait 1, target null |
+| `human06-tech` (oracle trace), n = 202: builder 1528 let out at (16, 82) from a farm with top-left (17, 80) | dx 2, dy −1 to (18, 81): facing 1 (NE) |
+| `orc09-naval` (oracle trace), n = 249: builder 1587 let out at (80, 7) from a farm with top-left (81, 6) | dx 2, dy 0 to (82, 7): facing 2 (E) |
+| `xhuman2` (oracle trace), n = 3438: builder 1588 let out at (21, 4) from a tower (type 0x41) with top-left (20, 2) | dx 0, dy −1 to (21, 3): facing 0 (N) |
+| `orc09-naval` (oracle trace), n = 468: tanker 1473 let out of a finished building, set to order 25 | keeps its facing |
 
 ## Open questions
 
@@ -235,3 +248,5 @@ The requirement rules, the setting that turns them off and the research jobs' ef
 - What the working order's logic does with a building that is destroyed mid-job (no refund is expected).
 - **Upgrade picture.** Which frame of the new type's graphics a building upgrade shows with frame 1 (a construction
   stage of the new type, or something else) wasn't checked. Default: frame 1 of the new type's picture.
+- **Exit facing on cancel or destroy.** A builder let out at completion faces the building. Whether one let out of a
+  cancelled or destroyed site also turns wasn't checked. Default: it turns the same way.
