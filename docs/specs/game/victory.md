@@ -6,6 +6,8 @@
 - **Changes:** 2026-10-12, round-12 errata: the rescued count goes up only when a rescuable unit reaches a circle of
   power (`game/rescue.md`); modes W and Z lower L's rescued count when they make a hero rescuable (flagged open
   question).
+- **Changes:** 2026-10-12: the open question on whether a player is allied with itself is closed by `game/setup.md`:
+  the alliance table starts with every player allied with itself.
 
 ## Behaviour
 
@@ -104,8 +106,8 @@ Consequences worth testing:
 4. If any **computer** player is in, **no result**.
 5. If exactly one human player is in (L), **victory**.
 6. If several human players are in: every one of them must have the allied-victory setting on, and each pair of them
-   must be allied both ways (the test also takes each player paired with itself). Otherwise **no result**. If they
-   are, **victory** for all.
+   must be allied both ways (the test also takes each player paired with itself, which game setup makes allied;
+   `game/setup.md`). Otherwise **no result**. If they are, **victory** for all.
 7. **Victory:** in a network game, if no player has a result yet, every used slot gets the "game ended" result.
    L's result becomes victory if it has none. The victory screen is shown.
 
@@ -274,7 +276,6 @@ conversions keep the rescuable mark.
   for W, 38 for Z) really play this way, and whether the rescued counts are reset between missions (no reset was
   found at mission start), hasn't been confirmed in play. Default: the literal behaviour.
 - The allied-victory setting's source (assumed: the diplomacy screen's allied-victory box).
-- Whether a player is always allied with itself, which step 6 needs. Default: yes.
 - The exact result codes reported to the network ("game ended" when nobody has a result) are not specified.
 - Whether passive and rescue players' units should block destroy-all victory in custom scenarios (they do in the
   program, by the rule above).
