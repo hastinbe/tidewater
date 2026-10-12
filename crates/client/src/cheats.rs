@@ -1,5 +1,4 @@
-//! Typed cheat lines on the client side. Spec: `docs/specs/game/cheats.md`, "Entering a cheat during a game". No Bevy
-//! types here.
+//! Cheats on the client side. Spec: `docs/specs/game/cheats.md`.
 //!
 //! [`submit`] checks a line the player typed before it would go out as chat ([`tidewater_sim::cheats::interpret`]) and
 //! says what the caller must do next ([`Outcome`]). The client has no chat line yet, so nothing calls it; when the
@@ -8,12 +7,20 @@
 //! Defaults: cheats are enabled unless the world's [`Rules::cheats_disabled`](tidewater_sim::Rules) says a multiplayer
 //! lobby turned them off (it is off by default, and has no effect in single player).
 //!
-//! TODO (campaign flow is being built in `main.rs`): carry out [`Outcome::SelectMission`] (end the game and start the
-//! mission with its act screen and briefing), `Event::Finale` (campaign ending) and `Event::Disco` (music track), and
-//! apply the local settings of [`Outcome::Local`] and [`Outcome::Developer`].
+//! The flow glue ([`plugin`]): the kept flags (mission select, `title`, `noglues`) live in the `Flow` between games
+//! and start the next world's flags; `noglues` and `title` toggle `Flow::skip_screens` and `Flow::skip_videos`; the
+//! finale event and a chosen mission (`Queue::mission`) leave the game for the campaign flow without a score screen.
+//!
+//! TODO: `Event::Disco` (music track, no music player yet) and the local settings of [`Outcome::Local`] and
+//! [`Outcome::Developer`] (sync check, demo speed, profiling, info and memory displays, colour cycling); command-line
+//! words (`cheats::from_arguments`) are not read because the command line is parsed by `clap`.
 
+use bevy::prelude::*;
 use tidewater_sim::cheats::{self, Context, Flags, Line, MissionSelect, Word};
+use tidewater_sim::economy::Event;
 use tidewater_sim::{Command, Rules};
+
+use crate::frontend::{self, AppState, Flow, Front, Step};
 
 /// What to do with a typed line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,7 +30,7 @@ pub enum Outcome {
     Chat,
     /// A cheat command was queued; the line is used up.
     Sent,
-    /// Queued like [`Outcome::Sent`], and a mission was chosen: end the game and start it (TODO).
+    /// Queued like [`Outcome::Sent`], and a mission was chosen: end the game and start it (put it in [`Queue::mission`]).
     SelectMission(MissionSelect),
     /// Queued like [`Outcome::Sent`], and a local-only setting (sync check, demo speed, profiling) toggles on this
     /// machine at once.
@@ -58,6 +65,79 @@ pub fn submit(rules: &Rules, flags: Flags, player: u8, line: &str, pending: &mut
     }
 }
 
+/// Cheat outcomes for the flow, filled by `tick` and the chat line and read by [`run`].
+#[derive(Resource, Default)]
+pub struct Queue {
+    /// The finale cheat fired: `bdp` says which ending.
+    finale: Option<bool>,
+    /// Mission select chose a mission.
+    pub mission: Option<MissionSelect>,
+}
+
+impl Queue {
+    /// Keeps the cheat events of one cycle.
+    pub fn take_events(&mut self, events: &[Event]) {
+        for e in events {
+            if let Event::Finale { beyond } = *e {
+                self.finale = Some(beyond);
+            }
+        }
+    }
+}
+
+pub fn plugin(app: &mut App) {
+    app.init_resource::<Queue>()
+        .add_systems(Update, run.run_if(in_state(AppState::Game)));
+}
+
+/// Starts the world's flags from the flow, keeps the flow's settings in step with the world's flags, and leaves the
+/// game for a finale or a chosen mission.
+fn run(
+    sim: Option<ResMut<crate::Sim>>,
+    mut queue: ResMut<Queue>,
+    mut flow: ResMut<Flow>,
+    front: Res<Front>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut next: ResMut<NextState<AppState>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(mut sim) = sim else { return };
+    if sim.is_added() {
+        // "Flags across games": a new game starts with the three kept flags only.
+        let kept = flow.cheat_flags.for_new_game();
+        sim.world.start_cheats(kept);
+    }
+    sync_flow(&mut flow, sim.world.cheats.flags);
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let steps = if let Some(m) = queue.mission.take() {
+        // The game ends with no score screen and the mission starts with its act screen and briefing.
+        vec![Step::Mission(m.entry)]
+    } else if let Some(bdp) = queue.finale.take() {
+        // An ending, not a victory: no score screen.
+        vec![Step::Ending {
+            bdp,
+            race: sim.world.players[sim.human as usize].race,
+        }]
+    } else {
+        return;
+    };
+    flow.steps = steps.into();
+    match frontend::advance(&mut flow, &front.install, ctrl) {
+        Some(s) => next.set(s),
+        None => {
+            exit.write(AppExit::Success);
+        }
+    }
+}
+
+/// The flow's settings follow the world's flags: `noglues` is "skip the act screen, briefing and score screens" and
+/// `title` is "skip the startup videos".
+fn sync_flow(flow: &mut Flow, flags: Flags) {
+    flow.cheat_flags = flags;
+    flow.skip_screens = flags.has(cheats::flag::NO_GLUES);
+    flow.skip_videos = flags.has(cheats::flag::SKIP_TITLE);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +166,16 @@ mod tests {
             Outcome::Local(Word::NetProf)
         );
         assert_eq!(pending.len(), 2);
+    }
+
+    #[test]
+    fn the_flow_follows_the_flags() {
+        let mut flow = Flow::default();
+        sync_flow(&mut flow, Flags(cheats::flag::NO_GLUES | cheats::flag::MISSION_SELECT));
+        assert!(flow.skip_screens && !flow.skip_videos);
+        assert_eq!(flow.cheat_flags.for_new_game(), flow.cheat_flags);
+        sync_flow(&mut flow, Flags(cheats::flag::SKIP_TITLE));
+        assert!(!flow.skip_screens && flow.skip_videos);
     }
 
     #[test]
