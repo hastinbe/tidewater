@@ -463,9 +463,11 @@ fn setup(
     });
 }
 
-fn tick(mut sim: ResMut<Sim>) {
+fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
+    // A dying unit is deselected (corpses spec).
+    sel.units.retain(|&id| sim.world.unit(id).is_some_and(|u| !u.dying));
     let human = sim.human;
     let events = std::mem::take(&mut sim.world.events);
     if let Some(m) = events.iter().rev().find_map(|e| message(e, human)) {
