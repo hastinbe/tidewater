@@ -6,6 +6,7 @@
   `OptionsPlat.bin`, `helpmenu.bin`, `snd_dlg.bin`, `spd_dlg.bin`, `intrface.bin`, `objctdlg.bin`, `abrtmenu.bin`,
   `restart.bin`, `cstcnfrm.bin`, `chatrtrn.bin`, `surrendr.bin`, `quitdraw.bin`, `quit2mnu.bin`, `quit.bin`) and the
   tables `Rez\objctivs.tbl` and `Rez\network.tbl`. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: the colour-cycling checkbox now points to `ui/palette-effects.md`.
 
 ## Behaviour
 
@@ -123,7 +124,7 @@ once, about five ticks after the first change. How long a dialog tick is wasn't 
 | Radio 5 or 4 | Mouse style | 5 is the first style (right-click commands; bit 0x800 set), 4 the second (`ui/selecting-and-commanding.md`) |
 | Radio 1 or 2 | Fog of war on or off | Disabled in multiplayer. If fog was on when the dialog opened and is off when it closes, the map's visibility is rebuilt as for fog off at that moment (`vision/fog.md`). Nothing happens while the dialog is still open |
 | Radio 7 or 8 | Minimap terrain on or off | `ui/minimap.md`, "Fog and the terrain option" |
-| Checkbox 9 | Colour cycling | bit 0x40. Palette cycling is a later spec |
+| Checkbox 9 | Colour cycling | bit 0x40. Palette cycling is in `ui/palette-effects.md` |
 
 ### The objectives screen
 
