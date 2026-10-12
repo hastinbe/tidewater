@@ -13,6 +13,8 @@
   shared through shared vision in Enhanced mode.
   2026-10-11, round-7 errata: the victory check runs every 201 cycles, first at cycle 2 (its countdown is
   reloaded to 200 without being lowered in that cycle), not every 200.
+  2026-10-11, round-8 errata: the draw table gains rows for missile flight steps (all kinds, and the gryphon hammer
+  and dragon breath); the area-spells row is replaced by a row pointing to `spells/spells.md`, "Random draws".
 
 ## Behaviour
 
@@ -128,7 +130,9 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | Computer player's idle worker finds no job (no harvest, build or repair) | units | 1 | Wait of `(r AND 15) + 44` cycles, 44 to 59, before it looks again (the routine is to be specified with the AI) |
 | Unit flees from its attacker | units | 2 | Flee tile offset `(r mod 8) − 2`, x first, then y (`orders/orders.md`, "Fleeing") |
 | Critter wandering, ship bobbing | units | 1 or more | Cosmetic movement that is still simulated |
-| Area spells (blizzard, death and decay, whirlwind) | units or missiles | per effect | Where each strike lands |
+| Missile flight step (unit attacks and towers; all kinds except hammer and breath) | missiles | 1 at the end of the step, landing step included; catapult rock and small cannon: 1 more while their travel is below 5 × ceil(D / 5) (combat spec) | Discarded |
+| Gryphon hammer or dragon breath step | missiles | 1 at the start of the step, then 1 per unit hit by a splash on that step (combat spec) | Discarded; splash damage |
+| Spell effects | units or missiles | as `spells/spells.md`, "Random draws", lists | Scatter, start offsets, wander, splash damage |
 | Computer player decisions | computer players | varies | AI choices |
 | Cheat entered in multiplayer with cheats disabled | when processed | 1 | Discarded |
 | Game saved | when processed | 1 | Discarded |
