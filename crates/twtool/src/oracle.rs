@@ -1433,6 +1433,82 @@ mod tests {
         assert_eq!(w.selection(0), vec![unit.id]);
     }
 
+    /// Trace format, "Cheat commands", the Human06 vectors: the cheat's `turn` record already holds the resources for
+    /// all 16 players and draws nothing; afterwards build speed and mission select stay on, the one-shot resources flag
+    /// is dropped, and the mission counts as cheated for the local player.
+    #[test]
+    fn cheat_turns_are_replayed() {
+        use tidewater_sim::cheats::flag;
+        let cheat = serde_json::json!({"player": 1, "kind": "cheat",
+            "cheats": ["make it so", "glittering prizes", "tigerlily"]});
+        let e = Entry::parse(&cheat).unwrap();
+        let start = |w: &mut World| {
+            w.vision.local = 1;
+            w.start_cheats(tidewater_sim::cheats::Flags(flag::MISSION_SELECT));
+            for p in &mut w.players {
+                p.gold = 1000;
+            }
+            w.players[5].gold = 500;
+        };
+        let mut w = world(7);
+        start(&mut w);
+        let mut out = vec![snapshot(&w, 0, "setup")];
+        for n in 1..=5u64 {
+            w.step(&[]);
+            out.push(snapshot(&w, n, if n <= 2 { "startup" } else { "cycle" }));
+            if n == 3 {
+                let mut r = snapshot(&w, n, "turn");
+                for p in 0..16 {
+                    let gold = if p == 5 { 10_500 } else { 11_000 };
+                    r.resources[0][p] = Cell::Int(gold);
+                    r.resources[1][p] = Cell::Int(5_000);
+                    r.resources[2][p] = Cell::Int(5_000);
+                }
+                r.commands = vec![e.clone()];
+                out.push(r);
+                // The turn's state, built by hand above, is what the cheat gives.
+                w.turn(&[replay::sim_command(&w, &e).unwrap()]);
+            }
+        }
+        let h = Header {
+            version: 2,
+            input: vec![Entry {
+                n: Some(2),
+                ..Entry::parse(
+                    &serde_json::json!({"player": 1, "kind": "cheat", "add": ["make it so", "glittering prizes"]}),
+                )
+                .unwrap()
+            }],
+            ..header()
+        };
+        let mut t = h.to_json() + "\n";
+        for r in &out {
+            t += &r.to_json();
+            t += "\n";
+        }
+        let (back, records) = read(reader(std::io::Cursor::new(t.into_bytes())).unwrap()).unwrap();
+        let opts = Options {
+            input: back.input.clone(),
+            ..Options::default()
+        };
+        let mut w = world(7);
+        start(&mut w);
+        let mut text = Vec::new();
+        let s = run(&mut w, records, &opts, &mut text).unwrap();
+        print_summary(&mut text, &s).unwrap();
+        let text = String::from_utf8(text).unwrap();
+        assert_eq!((s.diverged, s.replayed), (0, 1), "{text}");
+        assert!(
+            text.contains("input timing: 1 entries ran in turn T(i), 0 disagree"),
+            "{text}"
+        );
+        assert_eq!(
+            w.cheats.flags,
+            tidewater_sim::cheats::Flags(flag::BUILD_SPEED | flag::MISSION_SELECT)
+        );
+        assert!(w.cheats.used && w.rules.build_speed_cheat);
+    }
+
     #[test]
     fn identical_trace_has_no_divergence() {
         let (s, out) = run_text(text(&trace(20)), &Options::default());
