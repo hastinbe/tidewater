@@ -31,6 +31,7 @@
   2026-10-12, round-39 errata: impact effects are created with only kind and position set (destination (0, 0), no
   target, no shooter, damage 0); a hammer or breath splash needs a free effect slot (none: no splash, sound or effect)
   and creates a kind 0x17 explosion there; `orc09-repair` and `xorc10` vectors.
+  2026-10-12, round-40 errata: a building destroyed by a missile makes its explosion before the missile's impact effect.
 
 ## Behaviour
 
@@ -175,6 +176,8 @@ hit or splash, a cosmetic effect is created at the missile's final pixel positio
 - Its first update follows `spells/spells.md`, "When a new effect first runs" (it is created by another effect).
 - It is created with only its kind and position set: destination (0, 0), no target, no shooter, damage 0
   (`spells/spells.md`, "Cosmetic effects"). Nothing is copied from the missile.
+- If the hit destroys a building, the building's own explosion (`core/unit-slots.md`, "Death, corpses and release")
+  is created first, so the impact effect takes the next free slot.
 - It changes nothing in the game. It holds its slot until its script's step done, counted from its start step, one cycle
   after its first update (`spells/spells.md`, "When a new effect first runs"): for kind 0x15, six frames with a wait of
   2 each (12 cycles); for kind 0x1A, four frames with a wait of 3 each (12 cycles); for kind 0x17, sixteen frames with a
