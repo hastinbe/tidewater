@@ -394,7 +394,14 @@ impl World {
                     }
                     self.take_over(i, swapped);
                 }
-                Walk::NoPath => self.stop(i),
+                // "No route" (round-39 errata, `human10` and `xorc7`): an immediate idle whose idle logic runs in the
+                // same update, straight after.
+                Walk::NoPath => {
+                    self.stop(i);
+                    if self.units[i].order == Order::Idle {
+                        self.run_order(i);
+                    }
+                }
                 Walk::Stepping | Walk::Blocked => {}
             },
             Order::Follow { target } | Order::Guard { target } => {
@@ -642,6 +649,22 @@ impl World {
             return false;
         }
         let o = self.resulting(i, kind, best);
+        // "Same-update take-over" (round-39 errata, `orc02` n = 570): in order 12 a new target out of reach replaces
+        // the old one at once and the order's logic carries on in the same update with it, so the unit keeps heading
+        // for it: no strike, turn or wait of 3. Our reading for a new target in reach: the strike decision and the
+        // restart with wait 3 of "Attack timing (cooldown)" (damage spec), as `orc02` archer 1584 at n = 343 and
+        // `human01-basics` footman 1591 at n = 473 show.
+        if let (Order::Chase { .. }, Order::Chase { target }) = (u.order, o)
+            && self.unit(target).is_some_and(|t| !self.within_strike_reach(u, t))
+        {
+            let u = &mut self.units[i];
+            u.order = o;
+            u.path.clear();
+            u.blocked = 0;
+            u.commanded = false;
+            self.attack_order(i, target);
+            return true;
+        }
         if matches!(
             u.order,
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
@@ -1091,13 +1114,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_move_with_no_route_goes_idle_at_once_and_runs_the_idle_logic() {
-        // Orders spec, "Arriving and losing the target", no route (static study vector): order 2 as an immediate order
-        // and the idle logic in the same update. Here the idle logic of a computer player's unit (reaction range 6)
-        // acquires the enemy two tiles away at once.
+    /// Walls all round (5, 5): no route leads out.
+    fn walled_in() -> World {
         let mut w = map();
-        // Walls all round the unit: no route leads out.
         for y in 4..=6 {
             for x in 4..=6 {
                 if (x, y) != (5, 5) {
@@ -1106,6 +1125,15 @@ mod tests {
                 }
             }
         }
+        w
+    }
+
+    #[test]
+    fn a_move_with_no_route_goes_idle_at_once_and_runs_the_idle_logic() {
+        // Orders spec, "Arriving and losing the target", no route (static study vector): order 2 as an immediate order
+        // and the idle logic in the same update. Here the idle logic of a computer player's unit (reaction range 6)
+        // acquires the enemy two tiles away at once.
+        let mut w = walled_in();
         let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
         let g = w.spawn(FOOTMAN, 0, (5, 3), 0).unwrap();
         // New units are hidden from everyone until a visibility pass.
@@ -1125,6 +1153,25 @@ mod tests {
         }
         let o = after.expect("the move ends");
         assert!(matches!(target_of(o), Some(t) if t == g), "{o:?}");
+    }
+
+    /// Orders spec, no route, the round-39 patrol vectors (`human10-10000` n = 6868 and 6907, `xorc7-7000` n = 806):
+    /// a patrol that finds no route becomes an immediate idle (order 2, wait 1), and the idle logic's look-around runs
+    /// in the same update (here a turn draw).
+    #[test]
+    fn a_patrol_with_no_route_goes_idle_at_once_and_runs_the_idle_logic() {
+        let mut w = walled_in();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].order = Order::Patrol {
+            to: (15, 15),
+            back: (5, 5),
+        };
+        let before = w.rng.state;
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 1));
+        assert_ne!(w.rng.state, before, "the look-around drew in the same update");
     }
 
     #[test]
@@ -1345,6 +1392,38 @@ mod tests {
         // Order 12 (chase) rather than 16, as the footman has an attacker.
         assert!(w.acquire(i, Acquires::Idle));
         assert_eq!(order_of(&w, f), Order::Chase { target: g });
+    }
+
+    /// Orders spec, "Same-update take-over" (round-39 errata), the `orc02` n = 570 vector and the static-study one: a
+    /// unit in order 12 that acquires another target takes it at once. Out of reach its logic carries on in the same
+    /// update and it keeps walking (a step, the move animation, no wait of 3); in reach it turns to strike, and (our
+    /// reading of `orc02` n = 343) the attack animation restarts with wait 3.
+    #[test]
+    fn a_target_switch_in_order_12_carries_on_in_the_same_update() {
+        for (foe_tile, reach) in [((5, 8), false), ((5, 6), true)] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 1, (20, 20), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, foe_tile, 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let i = at(&w, f);
+            w.units[i].pending = None;
+            w.units[i].order = Order::Chase { target: old };
+            w.units[i].facing = 0;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!(u.order, Order::Chase { target: g }, "{foe_tile:?}");
+            if reach {
+                assert_eq!(
+                    (u.tile, u.facing, u.script.anim, u.script.wait),
+                    ((5, 5), 4, anim::ATTACK, 3)
+                );
+            } else {
+                assert_eq!((u.tile, u.facing, u.script.anim), ((5, 6), 4, anim::MOVE));
+                assert_ne!(u.script.wait, 3, "no take-over wait");
+            }
+        }
     }
 
     #[test]

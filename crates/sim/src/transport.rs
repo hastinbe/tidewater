@@ -301,14 +301,17 @@ impl World {
         self.switch_anim(i, anim::STILL);
     }
 
-    /// Order 29 ("Unloading"): every passenger from slot 6 down to slot 1, then docked.
+    /// Order 29 ("Unloading"): every passenger from slot 6 down to slot 1, then order 32 takes over in the same update
+    /// as a pending order does (still animation, wait 3; round-39 errata). Off shore water it just becomes order 32.
     fn unload(&mut self, i: usize) {
-        if self.shore_water(self.units[i].tile) {
-            for slot in (0..self.units[i].passengers.len()).rev() {
-                self.unload_one(i, slot);
-            }
+        if !self.shore_water(self.units[i].tile) {
+            self.dock(i);
+            return;
         }
-        self.dock(i);
+        for slot in (0..self.units[i].passengers.len()).rev() {
+            self.unload_one(i, slot);
+        }
+        self.take_over(i, Order::Docked);
     }
 
     /// Puts the passenger in `slot` ashore, if the transport is unloading or docked and a tile is free.
@@ -331,10 +334,13 @@ impl World {
         u.inside = false;
         u.order = Order::Idle;
         u.pending = None;
+        u.commanded = false;
         u.path.clear();
         let unit = self.units[pi].clone();
         self.mark(&unit, to, Some(unit.id));
-        self.switch_anim(pi, anim::STILL);
+        // An immediate idle (round-39 errata): still animation with a wait of 1, no turn, and the idle logic not run
+        // here. The passenger's own update, later in the cycle, runs it.
+        self.start_anim(pi, anim::STILL);
         self.apply_unit_sight(pi);
         self.units[i].passengers[slot] = None;
     }
@@ -743,6 +749,48 @@ mod tests {
         }
     }
 
+    /// Transports spec, "Unloading (order 29)", the round-39 `human12-transport` vectors: each passenger put ashore is
+    /// an immediate idle (order 2, no pending order, still animation, wait 1) that keeps its facing and hasn't run its
+    /// idle logic yet (no draw), and order 32 takes over for the transport in the same update with wait 3.
+    #[test]
+    fn unloading_makes_immediate_idles_and_order_32_takes_over() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (20, 10), Order::Unload);
+        let tid = w.units[t].id;
+        let mut ids = Vec::new();
+        for (slot, facing) in [(0, 5u8), (3, 2)] {
+            let p = w.spawn(FOOTMAN, 0, (2, slot as i32 * 2), 0).unwrap();
+            let pi = w.index(p).unwrap();
+            let unit = w.units[pi].clone();
+            w.mark(&unit, unit.tile, None);
+            let u = &mut w.units[pi];
+            u.inside = true;
+            u.facing = facing;
+            u.order = Order::Aboard { transport: tid };
+            u.pending = Some(Order::Idle);
+            let ti = w.index(tid).unwrap();
+            w.units[ti].passengers[slot] = Some(p);
+            ids.push((p, facing));
+        }
+        let rng = w.rng.state;
+        let ti = w.index(tid).unwrap();
+        w.unload(ti);
+        let tr = &w.units[ti];
+        assert_eq!(
+            (tr.order, tr.script.anim, tr.script.wait),
+            (Order::Docked, anim::STILL, 3)
+        );
+        for (p, facing) in ids {
+            let u = w.unit(p).unwrap();
+            assert!(!u.inside);
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.facing),
+                (Order::Idle, None, anim::STILL, 1, facing)
+            );
+        }
+        assert_eq!(w.rng.state, rng, "no idle logic runs at the unload");
+    }
+
     #[test]
     fn boarding_and_dying_aboard() {
         let mut w = sea(20);
@@ -768,10 +816,15 @@ mod tests {
         assert_eq!(u.order, Order::Aboard { transport: tid });
         assert_eq!(w.unit(tid).unwrap().passengers[0], Some(f));
         assert_eq!(w.occupant(Layer::Land, 19, 10), None);
-        // The transport dies, and the passenger with it.
+        // The transport dies, and the passenger with it; neither's HP changes (unit-slots spec, round-39 errata).
+        let fi = w.index(f).unwrap();
+        w.units[fi].hp = 60;
         let ti = w.index(tid).unwrap();
+        let hp = w.units[ti].hp;
         w.kill(ti);
-        assert!(w.unit(f).unwrap().dying);
+        assert_eq!(w.unit(tid).unwrap().hp, hp);
+        let u = w.unit(f).unwrap();
+        assert_eq!((u.dying, u.hp), (true, 60));
     }
 
     #[test]

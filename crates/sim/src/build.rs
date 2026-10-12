@@ -18,7 +18,7 @@ use crate::movement::{Goal, Walk, footprint_goal};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::site::building_mask;
 use crate::terrain::bits;
-use crate::world::{Gather, Order, UnitId, World};
+use crate::world::{Gather, Order, UnitId, World, face_tile};
 
 /// Order 22's wait at each run.
 const INSIDE_SITE_WAIT: u8 = 255;
@@ -235,6 +235,9 @@ impl World {
                     u.inside = false;
                     u.order = Order::Idle;
                     u.pending = None;
+                    // "Completion" (round-39 errata): the builder faces the building, B its top-left tile + (1, 1).
+                    // Only completion is traced; the open question's default turns it on cancel and destroy too.
+                    u.facing = face_tile(to, (b.tile.0 + 1, b.tile.1 + 1));
                     let unit = self.units[k].clone();
                     self.mark(&unit, to, Some(unit.id));
                     self.start_anim(k, anim::STILL);
@@ -318,6 +321,24 @@ mod tests {
         // The ring search starts west of the top-left tile.
         assert_eq!(u.tile, (7, 8));
         assert_eq!(w.occupant(crate::Layer::Land, 7, 8), Some(p));
+        // Round-39 errata (`human06-tech` n = 178 and the like): it faces SE (3), toward (9, 9), as an immediate idle.
+        assert_eq!((u.facing, u.script.anim, u.pending), (3, anim::STILL, None));
+    }
+
+    /// Build-train spec, the round-39 exit-facing vectors: a builder let out faces the building's top-left + (1, 1).
+    #[test]
+    fn a_builder_let_out_faces_the_building() {
+        // (exit tile, building's top-left, facing)
+        for (exit, tl, want) in [
+            ((75, 5), (76, 5), 3),
+            ((62, 2), (63, 2), 3),
+            ((26, 113), (27, 113), 3),
+            ((16, 82), (17, 80), 1),
+            ((80, 7), (81, 6), 2),
+            ((21, 4), (20, 2), 0),
+        ] {
+            assert_eq!(face_tile(exit, (tl.0 + 1, tl.1 + 1)), want, "{exit:?} from {tl:?}");
+        }
     }
 
     /// Build-train spec, "Placing a building", test vectors: the build walk's goal is the building goal rule on the
@@ -444,5 +465,7 @@ mod tests {
         w.step(&[Command::Cancel { player: 0, unit: farm }]);
         let u = w.unit(p).unwrap();
         assert!(!u.inside && u.order == Order::Idle);
+        // The open question's default: it faces the building as at completion.
+        assert_eq!((u.tile, u.facing), ((7, 8), 3));
     }
 }

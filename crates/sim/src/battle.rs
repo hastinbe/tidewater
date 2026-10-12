@@ -384,9 +384,7 @@ impl World {
             self.credit_kill(a.owner, ti);
         }
         // Damage spec, "Applying damage": the killing blow doesn't lower the HP, and the target keeps its target.
-        let hp = self.units[ti].hp;
         self.kill(ti);
-        self.units[ti].hp = hp;
         self.forget_kill(attacker, self.units[ti].id);
     }
 
@@ -473,7 +471,7 @@ impl World {
         self.release_job(ti);
         let u = &mut self.units[ti];
         u.dying_target = u.pending.and_then(Order::target).or_else(|| u.order.target());
-        u.hp = 0;
+        // Unit-slots spec, "Death, corpses and release": no kill, by damage or outright, changes the HP.
         u.dying = true;
         u.order = Order::Idle;
         u.pending = None;
@@ -586,10 +584,12 @@ impl World {
         m.fx = Fx::Breath { line, count, ended };
         let (pos, damage, attacker) = (m.pos, m.damage, m.attacker);
         self.missiles[n] = Some(m);
-        if splash {
-            // Sounds spec, open question "Hammer and breath splash": we play the explosion on each splash.
+        // Damage spec (round-39 errata): a splash needs a free effect slot; with none, no splash, sound or effect.
+        // Otherwise the explosion sound, the splash, then a cosmetic explosion (kind 0x17) in the lowest free slot.
+        if splash && self.free_fx_slot().is_some() {
             self.sound_at_px(pos, crate::sound::Sound::Explode);
             self.fx_splash(pos, damage, attacker);
+            self.splash_explosion(pos);
         }
     }
 
@@ -1186,12 +1186,14 @@ mod tests {
         assert_eq!(drawn(start, w.rng), 3);
         let m = live(&w).unwrap();
         assert_eq!((m.damage, m.to), (12, (112, 240)), "stored damage 8 + 4");
+        let h = crate::slots::PERMANENT_EFFECTS;
+        let hammer = |w: &World| w.missiles[h].clone();
         // Update k is cycle C + k, and step k is update k.
         let mut per_cycle = vec![];
         let mut out = vec![];
         for _ in 0..31 {
             per_cycle.push(fly(&mut w, 1)[0]);
-            out.push(live(&w).unwrap().pos.0 - 16);
+            out.push(hammer(&w).unwrap().pos.0 - 16);
         }
         // Steps 1 to 4 move 12 px (48 px out, remaining 48: count 1), then 6 px a step.
         assert_eq!(out[..5], [0, 12, 24, 36, 48]);
@@ -1211,16 +1213,57 @@ mod tests {
         }
         let (hp_a, hp_b) = (w.unit(a).unwrap().hp, w.unit(b).unwrap().hp);
         assert!((60 - hp_a) >= 8 && (60 - hp_b) >= 8, "both took the first splash");
-        assert!(live(&w).is_some(), "the end step is C + 30; the hit comes at C + 31");
+        assert!(hammer(&w).is_some(), "the end step is C + 30; the hit comes at C + 31");
         // C + 31: A takes the stored 12 with no draw.
         assert_eq!(fly(&mut w, 1), [0]);
-        assert!(live(&w).is_none());
+        assert!(hammer(&w).is_none());
         assert_eq!(w.unit(a).unwrap().hp, hp_a - 12);
         assert_eq!(w.unit(b).unwrap().hp, hp_b);
         // 3 launch draws + 30 step draws + 4 splash draws; A lost 20 to 28 in all, B 8 to 16.
         assert_eq!(drawn(start, w.rng), 37);
         assert!((20..=28).contains(&(60 - w.unit(a).unwrap().hp)));
         assert!((8..=16).contains(&(60 - w.unit(b).unwrap().hp)));
+    }
+
+    /// Damage spec, "Missile flight" (round-39 errata): each hammer splash with a free effect slot plays the
+    /// explosion sound, applies the splash and creates a kind 0x17 explosion at the hammer's position, with zero
+    /// fields, in the lowest free slot. With every slot in use there is no splash, no sound and no explosion.
+    #[test]
+    fn a_hammer_splash_makes_an_explosion_and_needs_a_free_slot() {
+        for full in [false, true] {
+            let mut w = range();
+            let gryphon = spawn_at(&mut w, GRYPHON, 0, (0, 7), (16, 240));
+            let a = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+            launch(&mut w, gryphon, Some(a), (0, 0));
+            let h = crate::slots::PERMANENT_EFFECTS;
+            if full {
+                for m in w.missiles.iter_mut().skip(h + 1) {
+                    *m = Some(filler());
+                }
+            }
+            // Steps 1 to 10, then step 11 (count 8) splashes.
+            fly(&mut w, 11);
+            w.sounds.cues.clear();
+            let before = w.rng;
+            fly(&mut w, 1);
+            let pos = w.missiles[h].as_ref().unwrap().pos;
+            let cues: Vec<Sound> = w.sounds.cues.iter().map(|c| c.sound).collect();
+            if full {
+                assert_eq!(drawn(before, w.rng), 1, "the step's draw only");
+                assert!(!cues.contains(&Sound::Explode));
+                assert_eq!(w.unit(a).unwrap().hp, 60);
+                assert!(w.missiles.iter().skip(h + 1).all(|m| m.as_ref().unwrap().kind == 0x16));
+                continue;
+            }
+            assert_eq!(drawn(before, w.rng), 2, "the step's draw and one for A");
+            assert!(cues.contains(&Sound::Explode));
+            assert!(w.unit(a).unwrap().hp < 60);
+            let e = w.missiles[h + 1].as_ref().expect("the explosion");
+            assert_eq!(
+                (e.kind, e.pos, e.to, e.target, e.attacker, e.damage),
+                (0x17, pos, (0, 0), None, UnitId(0), 0)
+            );
+        }
     }
 
     // ----- impact effects (damage spec, "Impact effects"; sounds spec, "Missile impacts") -----------------------

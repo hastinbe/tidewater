@@ -590,7 +590,7 @@ impl World {
                     continue;
                 }
                 in_region = true;
-                if self.site_accepted(k, (x, y), border, s.water) {
+                if self.site_accepted(i, k, (x, y), border, s.water) {
                     return Some((x, y));
                 }
             }
@@ -602,7 +602,10 @@ impl World {
         None
     }
 
-    fn site_accepted(&self, k: u8, site: (i32, i32), border: bool, water: Option<u16>) -> bool {
+    /// Whether the site search accepts a position. The last test is the full site check of `ui/placing-buildings.md` (round-39 errata),
+    /// with worker `i` as the builder: a computer worker is never the local player's, so neither the "unexplored"
+    /// outcome nor the fog exception applies.
+    fn site_accepted(&self, i: usize, k: u8, site: (i32, i32), border: bool, water: Option<u16>) -> bool {
         let st = self.stats_of(k);
         let w = st.size.0 as i32;
         let (x0, y0, x1, y1) = footprint(site, w, border);
@@ -619,7 +622,7 @@ impl World {
         let wet = water.is_none_or(|r| {
             (site.1..site.1 + w).any(|y| (site.0..site.0 + w).any(|x| self.terrain.region(x, y) == Some(r)))
         });
-        clear && wet && self.site_ok(k, site).is_some()
+        clear && wet && self.check_site(k, site, self.units[i].id) == crate::site::SiteCheck::Allowed
     }
 
     /// "New-mine search": the mine whose site is nearest it (at most 10 tiles), earliest on ties.
@@ -1179,6 +1182,19 @@ mod tests {
         assert_eq!((s.centre, s.step), ((14, 14), 2));
         let s = w.family_search(i, BARRACKS).unwrap();
         assert_eq!((s.centre, s.step), ((14, 14), 6));
+    }
+
+    /// "Accepting a position", the round-39 `xhuman10` vectors moved 40 rows up: with a gold mine at (40, 33), a 4 x 4
+    /// hall site at (43, 32) is too close to it (distance 3) and refused; (40, 39) is not too close and accepted.
+    #[test]
+    fn the_site_search_refuses_a_hall_too_close_to_a_mine() {
+        let (mut w, _) = town();
+        w.spawn(t::GOLD_MINE, slots::NEUTRAL, (40, 33), 0).unwrap();
+        let i = peasants(&mut w, 1)[0];
+        assert!(!w.site_accepted(i, t::TOWN_HALL, (43, 32), false, None));
+        assert!(w.site_accepted(i, t::TOWN_HALL, (40, 39), false, None));
+        // A farm keeps no distance from a mine.
+        assert!(w.site_accepted(i, t::FARM, (43, 32), false, None));
     }
 
     /// The keep-clear tiles of the whole map, row by row.

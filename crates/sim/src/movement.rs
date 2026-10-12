@@ -151,8 +151,11 @@ impl World {
     }
 
     /// "Goal pulled back": a goal tile the unit can't stand on (terrain or building bits of its mask, units ignored;
-    /// another region for a unit that doesn't fly) becomes the last unusable tile met when walking the line's tiles
-    /// back from the goal toward the unit. Kept as it is if usable, or if no tile on the way is.
+    /// another region for a unit that doesn't fly) is pulled back toward the unit. The line's k steps (one tile each,
+    /// even for a two-tile mover) are subtracted from the goal in their order, first step first, and the first k − 1
+    /// tiles so made are tested: at the first usable one the goal becomes the tile tested just before it (the goal
+    /// itself for the first). With none usable the goal is kept, or for a transport becomes the unit's tile plus the
+    /// line's last step (round-39 errata).
     pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
         let u = &self.units[i];
         let mask = u.layer.mask() & !(bits::UNIT | bits::AIR_UNIT);
@@ -166,16 +169,21 @@ impl World {
         if usable(g) {
             return g;
         }
-        let mut tiles = vec![u.tile];
-        for d in path::line(u.tile, g, 1) {
+        let steps = path::line(u.tile, g, 1);
+        let mut before = g;
+        for &d in steps.iter().take(steps.len().saturating_sub(1)) {
             let v = path::DIRECTIONS[d as usize];
-            let p = *tiles.last().expect("start");
-            tiles.push((p.0 + v.0, p.1 + v.1));
+            let t = (before.0 - v.0, before.1 - v.1);
+            if usable(t) {
+                return before;
+            }
+            before = t;
         }
-        // Walk back from the goal; the unit's own tile ends the walk.
-        let back: Vec<_> = tiles[1..].iter().rev().copied().collect();
-        match back.iter().position(|&t| usable(t)) {
-            Some(n) if n > 0 => back[n - 1],
+        match steps.last() {
+            Some(&d) if self.is_transport(u) => {
+                let v = path::DIRECTIONS[d as usize];
+                (u.tile.0 + v.0, u.tile.1 + v.1)
+            }
             _ => g,
         }
     }
@@ -614,6 +622,48 @@ mod tests {
                 (Some(Order::Move { goal: want }), 0, true)
             );
         }
+    }
+
+    /// Pathfinding spec, "Goal pulled back", the `orc8` vectors (round-39 errata): the line's steps are subtracted
+    /// from the goal first step first. From (123, 96) to the tree (124, 90) the steps are N, N, NE, N, N, N; with a
+    /// 3 x 3 church at (124, 91) the tested tiles are (124, 91) and (124, 92), buildings, then (123, 93), usable: goal
+    /// (124, 92), not the (124, 93) that walking the line's own tiles back would give. From (123, 93) (steps NE, N,
+    /// N) the first tested tile (123, 91) is usable, so the goal is kept.
+    #[test]
+    fn the_pull_back_subtracts_the_lines_steps_first_step_first() {
+        let mut w = field(130, 100);
+        w.stats.0[0x4a].size = (3, 3);
+        w.stats.0[0x4a].flags |= flags::BUILDING;
+        w.spawn(0x4a, 1, (124, 91), 0).unwrap();
+        w.terrain.set_bits(124, 90, bits::OBSTACLE);
+        w.terrain.set_bits(125, 90, bits::OBSTACLE);
+        let f = w.spawn(0, 0, (123, 96), 0).unwrap();
+        let i = w.index(f).unwrap();
+        assert_eq!(
+            path::line((123, 96), (124, 90), 1),
+            vec![0, 0, 1, 0, 0, 0],
+            "N, N, NE, N, N, N"
+        );
+        assert_eq!(w.pull_back(i, (124, 90)), (124, 92));
+        let unit = w.units[i].clone();
+        w.mark(&unit, unit.tile, None);
+        w.units[i].tile = (123, 93);
+        assert_eq!(w.pull_back(i, (124, 90)), (124, 90));
+    }
+
+    /// Pathfinding spec, the k − 1 vector: from (0, 0) to (0, 3) with (0, 1) to (0, 3) all unusable, only (0, 2) and
+    /// (0, 1) are tested; none is usable, so the goal is kept, or for a transport becomes (0, 0) + S = (0, 1).
+    #[test]
+    fn the_pull_back_tests_k_minus_1_tiles_and_a_transport_falls_back_to_the_first_tile() {
+        let mut w = field(20, 20);
+        for y in 1..=3 {
+            w.terrain.set_bits(0, y, bits::OBSTACLE);
+        }
+        let f = w.spawn(0, 0, (0, 0), 0).unwrap();
+        let i = w.index(f).unwrap();
+        assert_eq!(w.pull_back(i, (0, 3)), (0, 3));
+        w.stats.0[0].flags |= flags::TRANSPORT;
+        assert_eq!(w.pull_back(i, (0, 3)), (0, 1));
     }
 
     /// Movement spec, "Blocked rules", and the pathfinding vector: a spell command (orders 38 to 56) with blocked

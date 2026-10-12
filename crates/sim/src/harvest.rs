@@ -170,7 +170,7 @@ impl World {
         let Some(si) = self.index(s).filter(|&si| self.units[si].present()) else {
             return self.idle(i);
         };
-        if !self.walk_to_building(i, si) {
+        if !self.walk_to_building(i, si, true) {
             return;
         }
         if self.units[si].construction.is_some() {
@@ -187,9 +187,9 @@ impl World {
         );
     }
 
-    /// Moves toward building `bi` (arrival radius 1). Returns whether the unit has arrived; a unit with no path goes
-    /// idle.
-    fn walk_to_building(&mut self, i: usize, bi: usize) -> bool {
+    /// Moves toward building `bi` (arrival radius 1). Returns whether the unit has arrived. A unit with no path goes
+    /// idle or, in order 23 (`harvesting`), looks for the nearest tree ("No route").
+    fn walk_to_building(&mut self, i: usize, bi: usize, harvesting: bool) -> bool {
         let b = &self.units[bi];
         let g = Goal {
             tile: building_goal(self.units[i].tile, b),
@@ -200,10 +200,26 @@ impl World {
         match self.move_toward(i, g) {
             Walk::Arrived => true,
             Walk::NoPath => {
-                self.idle(i);
+                if harvesting {
+                    self.no_route(i);
+                } else {
+                    self.idle(i);
+                }
                 false
             }
             Walk::Stepping | Walk::Blocked => false,
+        }
+    }
+
+    /// "Lumber", "No route" (round-39 errata): a unit with the peon flag in order 23, in either gather mode, whose
+    /// route search finds no route looks for the nearest tree from its own tile and is given a new harvest command to
+    /// it, which takes over in the same update; with no tree (or without the flag) it goes idle. `human5-10000`
+    /// worker 1567 at n = 119 and `orc8-10000` worker 1499 from n = 754.
+    fn no_route(&mut self, i: usize) {
+        if self.flags_of(self.units[i].kind) & flags::PEON != 0 {
+            self.next_tree(i);
+        } else {
+            self.idle(i);
         }
     }
 
@@ -222,7 +238,7 @@ impl World {
                 None => return self.idle(i),
             },
         };
-        if !self.walk_to_building(i, di) {
+        if !self.walk_to_building(i, di, false) {
             return;
         }
         if self.units[di].construction.is_some() {
@@ -464,7 +480,7 @@ impl World {
         let here = self.units[i].tile;
         if chebyshev(here, tree) > RADIUS {
             if self.move_toward(i, Goal::tile(tree, RADIUS)) == Walk::NoPath {
-                self.idle(i);
+                self.no_route(i);
             }
             return;
         }
@@ -864,6 +880,46 @@ mod tests {
             (anim::ATTACK, 3, 0, (10, 9))
         );
         assert!(u.path.is_empty());
+    }
+
+    /// "Lumber", "No route" (round-39 errata), the `human5-10000` worker 1567 vector at n = 119: a worker in gold mode
+    /// heading for a mine it has no route to looks for the nearest tree and is given a lumber harvest command to it,
+    /// which takes over in the same update (attack animation, wait 3, no target). With no tree it goes idle.
+    #[test]
+    fn a_worker_with_no_route_looks_for_the_nearest_tree() {
+        for with_tree in [true, false] {
+            let mut w = land();
+            // (10, 10) walled round; the tree at (11, 10) is part of the wall.
+            for (x, y) in ring((10, 10), 1) {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.words[n] |= bits::OBSTACLE;
+            }
+            if with_tree {
+                forest(&mut w, 11, 10);
+            }
+            let mine = w.spawn(MINE, 15, (18, 10), 2).unwrap();
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            let i = w.index(p).unwrap();
+            w.units[i].gather = Gather::Gold;
+            w.units[i].order = Order::Harvest {
+                source: Some(mine),
+                tree: (18, 10),
+                chopping: false,
+            };
+            w.harvest_order(i, Some(mine), (18, 10), false);
+            let u = &w.units[i];
+            if !with_tree {
+                assert_eq!(u.order, Order::Idle);
+                continue;
+            }
+            let want = Order::Harvest {
+                source: None,
+                tree: (11, 10),
+                chopping: false,
+            };
+            assert_eq!((u.order, u.pending, u.gather), (want, None, Gather::Lumber));
+            assert_eq!((u.script.anim, u.script.wait, u.tile), (anim::ATTACK, 3, (10, 10)));
+        }
     }
 
     #[test]

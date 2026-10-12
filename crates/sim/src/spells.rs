@@ -70,6 +70,20 @@ fn cosmetic_waits(k: u8) -> u16 {
     }
 }
 
+/// The cosmetic effect kinds (spec, "Cosmetic effects"): created with only their kind and position set.
+pub(crate) fn is_cosmetic(k: u8) -> bool {
+    matches!(
+        k,
+        kind::RUNE
+            | kind::BALLISTA_IMPACT
+            | kind::BLINK
+            | kind::EXPLOSION
+            | kind::CANNON_SMOKE
+            | kind::CANNON_EXPLOSION
+            | 0x1c
+    )
+}
+
 /// The effect a missile kind leaves at its impact (damage spec, "Impact effects").
 pub(crate) fn impact_effect(missile: u8) -> Option<u8> {
     match missile {
@@ -732,8 +746,10 @@ impl World {
         self.new_fx(kind::CANNON_SMOKE, owner, None, pos, 0, Fx::Cosmetic);
     }
 
-    /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full.
-    fn new_fx(
+    /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full. A
+    /// cosmetic kind is created with only its kind and position set (spec, "Cosmetic effects", round-39 errata):
+    /// destination (0, 0), no target, no shooter, damage 0, whatever its creator passes.
+    pub(crate) fn new_fx(
         &mut self,
         kind: u8,
         owner: UnitId,
@@ -742,12 +758,17 @@ impl World {
         damage: u8,
         fx: Fx,
     ) -> Option<usize> {
+        let (owner, target, damage, from, to) = if is_cosmetic(kind) {
+            (UnitId(0), None, 0, (0, 0), (0, 0))
+        } else {
+            (owner, target, damage, pos, pos)
+        };
         let m = crate::battle::Missile {
             kind,
             attacker: owner,
             target,
-            from: pos,
-            to: pos,
+            from,
+            to,
             pos,
             flight: 0,
             elapsed: 0,
@@ -756,15 +777,24 @@ impl World {
             hits_air: false,
             fx,
         };
-        let n = self
-            .missiles
+        let n = self.free_fx_slot()?;
+        self.missiles[n] = Some(m);
+        Some(n)
+    }
+
+    /// The lowest free effect slot after the permanent ones.
+    pub(crate) fn free_fx_slot(&self) -> Option<usize> {
+        self.missiles
             .iter()
             .enumerate()
             .skip(slots::PERMANENT_EFFECTS)
             .find(|(_, e)| e.is_none())
-            .map(|(n, _)| n)?;
-        self.missiles[n] = Some(m);
-        Some(n)
+            .map(|(n, _)| n)
+    }
+
+    /// The cosmetic explosion (kind 0x17) of a hammer or breath splash (damage spec, "Missile flight", gryphon hammer and dragon breath), at `pos`.
+    pub(crate) fn splash_explosion(&mut self, pos: (i32, i32)) {
+        self.new_fx(kind::EXPLOSION, UnitId(0), None, pos, 0, Fx::Cosmetic);
     }
 
     /// A spell marker (kind 0x16) on the target of slow, invisibility, bloodlust, haste or unholy armour (spec,
@@ -774,12 +804,7 @@ impl World {
         let u = &self.units[t];
         let b = self.stats_of(u.kind).box_size;
         let pos = (u.pos.0 + b.0 as i32 / 2, u.pos.1 + b.1 as i32 / 2 - 4);
-        if let Some(n) = self.new_fx(kind::BLINK, UnitId(0), None, pos, 0, Fx::Cosmetic)
-            && let Some(m) = self.missiles[n].as_mut()
-        {
-            m.from = (0, 0);
-            m.to = (0, 0);
-        }
+        self.new_fx(kind::BLINK, UnitId(0), None, pos, 0, Fx::Cosmetic);
     }
 
     /// A cosmetic effect of kind 0x16 on a unit raised as a skeleton (whether it is placed as [`World::marker_on`]
@@ -2538,6 +2563,47 @@ mod tests {
             assert_eq!(w.rng, rng, "no draws");
             assert_eq!(w.new_fx(0x16, UnitId(0), None, (0, 0), 0, Fx::Cosmetic), Some(n));
         }
+    }
+
+    /// Spells spec, "Cosmetic effects" (round-39 errata), with the `orc09-repair-600` n = 65 impact (kind 0x15 at
+    /// (1072, 2768)) and the `xorc12-ogre-mage-180` n = 77 rune markers: every cosmetic kind is created with only its
+    /// kind and position set, whoever creates it and whatever it passes.
+    #[test]
+    fn cosmetic_effects_keep_only_kind_and_position() {
+        let mut w = lab(32);
+        let shooter = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let target = Some(shooter);
+        for k in [0x0b, 0x15, 0x16, 0x17, 0x19, 0x1a, 0x1c] {
+            let n = w.new_fx(k, shooter, target, (1072, 2768), 9, Fx::Cosmetic).unwrap();
+            let m = w.missiles[n].take().unwrap();
+            assert_eq!(
+                (m.kind, m.pos, m.to, m.target, m.attacker, m.damage),
+                (k, (1072, 2768), (0, 0), None, UnitId(0), 0),
+                "kind {k:#x}"
+            );
+        }
+        // The creators that name a unit: a missile's impact effect, a cannon's smoke and an explosion.
+        w.impact_fx(0x0d, shooter, (1072, 2768));
+        w.cannon_smoke(shooter, (10, 10));
+        w.explosion(shooter, (20, 20));
+        let made: Vec<_> = w
+            .missiles
+            .iter()
+            .flatten()
+            .map(|m| (m.kind, m.to, m.attacker))
+            .collect();
+        assert_eq!(
+            made,
+            [
+                (0x15, (0, 0), UnitId(0)),
+                (0x19, (0, 0), UnitId(0)),
+                (0x17, (0, 0), UnitId(0))
+            ]
+        );
+        // A spell effect in flight keeps its fields.
+        let n = w.new_fx(2, shooter, None, (16, 16), 40, Fx::Cosmetic).unwrap();
+        let m = w.missiles[n].as_ref().unwrap();
+        assert_eq!((m.attacker, m.damage, m.to), (shooter, 40, (16, 16)));
     }
 
     #[test]
