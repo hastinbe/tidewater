@@ -515,6 +515,12 @@ impl World {
         })
     }
 
+    /// Whether a depot takes what unit `id` carries (the command panel's return-goods test; harvest spec, "Finding
+    /// the nearest depot").
+    pub fn has_depot_for(&self, id: UnitId) -> bool {
+        self.unit(id).is_some_and(|u| self.nearest_depot(u).is_some())
+    }
+
     /// "Finding the nearest depot": the owner's list in order, a later tie winning.
     pub(crate) fn nearest_depot(&self, u: &Unit) -> Option<UnitId> {
         let tanker = self.is_tanker(u);
