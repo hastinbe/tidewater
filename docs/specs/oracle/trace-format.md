@@ -6,6 +6,8 @@
   row; nothing here is copied from the program.
 - **Changes:** 2026-10-12: first version (format version 1).
   2026-10-12: a cheat flag with no name in `game/cheats.md` is written as `"unnamed N"`, never as a raw value.
+  2026-10-12: format version 2 (input scenarios): the header's `input` field, `turn` records for turns that carried
+  out commands, their `commands` list, and when a handed-over command runs.
 
 ## Behaviour
 
@@ -28,7 +30,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `setup` | Once, after the map is loaded, the players are set up and every map unit is created, before any cycle runs. | 0 |
 | `startup` | After each of the two cycles that run at once during start-up (`core/timing-and-rng.md`, "Scheduler", rule 1). These cycles don't advance the cycle counter. | 1, 2 |
 | `cycle` | After every normal cycle that did simulation work. | 3, 4, … |
-| `turn` | After a command turn (commands from the queue were carried out between cycles), only when the turn drew random numbers. A turn without draws gets no record. | the `n` of the cycle before it |
+| `turn` | After a command turn (commands from the queue were carried out between cycles), only when the turn drew random numbers or carried out at least one command. Any other turn gets no record. | the `n` of the cycle before it |
 
 - `n` counts simulated cycles from the start of the game, start-up cycles included. A `turn` record shares its `n`
   with the `cycle` record before it, so compare records by `n` and `kind` together, in file order.
@@ -41,7 +43,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 
 | Field | Meaning |
 | --- | --- |
-| `format`, `version` | `"tidewater-oracle-trace"`, `1` |
+| `format`, `version` | `"tidewater-oracle-trace"`, `2` (see "Format versions") |
 | `program` | The program and its file hash |
 | `scenario` | Free text: the map and what input was given |
 | `launch` | Free text: how the game was started (command line, clicks) |
@@ -55,6 +57,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `races` | 16 entries: `"human"`, `"orc"` or `"neutral"` |
 | `cheats` | The cheat flags on at setup, by their phrase or word as in `game/cheats.md` (for example `"tigerlily"`, mission select, which the launch uses; `"title"`, `"noglues"`); the two notices without a phrase are `"notice A"` and `"notice B"`; any other flag (none is known to be set by anything) is `"unnamed N"`, with N a number from 0 to 31 that only tells such flags apart; empty when none |
 | `unit_slots`, `effect_slots` | Table sizes (`core/unit-slots.md`, "Table sizes") |
+| `input` | The scenario's commands as given to the harness, in file order; an empty list when there is no input. Each entry has `n` (see "When a command runs"), `player` (always the local player) and the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used) |
 
 ### Record fields
 
@@ -66,6 +69,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `gold`, `lumber`, `oil` | 16 entries each, the stock of each player number |
 | `units` | Every unit-table slot not on the free list, in ascending slot order (below) |
 | `effects` | Every effect-table slot in use, in ascending slot order (below) |
+| `commands` | `turn` records only, present when the turn carried out commands: each command, in the order it ran ("Commands") |
 
 ### Unit fields
 
@@ -99,14 +103,73 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `target`, `shooter` | Unit slots, or `null` |
 | `damage` | The damage value stored on the missile (`combat/damage.md`) |
 
+### Commands
+
+Each entry of a `turn` record's `commands` list is one command the game carried out in that turn, and has `player`
+and `kind`.
+
+| `kind` | Fields | Meaning |
+| --- | --- | --- |
+| `select` | `units` | Replaces the player's **synced selection** (`ui/selecting-and-commanding.md`, "Two selections") with these unit slots, in this order (at most 9) |
+| `command` | `command`, `tile`, `target` | Gives command number `command` (`orders/orders.md`, "Commands"; a spell by its spell order number, 38 to 56) to the units of the player's synced selection, as in `ui/selecting-and-commanding.md`, "Which units take part in a command": the list of handled commands, the selection filter and the formation offset. `tile` is `[x, y]`; `target` is a unit slot or `null` |
+| `build` | `type`, `tile` | The first unit of the player's synced selection, if its type is its race's worker, is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
+| `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/tech-tree.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
+| `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
+
+A command whose conditions fail (a unit not owned by the player, a builder that isn't a worker, too little gold) is
+still listed: it was carried out and did nothing.
+
+`commands` lists every command carried out in the turn, not only the scenario's. The game can queue one by itself:
+in a Human12 test run, a `select` of one building of the local player, which the scenario never gave, ran in turn 71.
+A comparer applies these like any other command.
+
+### When a command runs
+
+Handing a command to the game is not running it. The harness hands the header's `input` entries to the game **in
+file order**, at the stop after a `cycle` record: an entry is handed over after record H, the largest `n` among it
+and the entries before it. An entry whose `n` is smaller than an earlier entry's is therefore handed over late, not
+early.
+
+The game keeps handed-over commands in a queue and carries out at most one per human-controlled player in each
+command turn, first in, first out. At speed 8 a command turn follows every cycle. For one player, entry i (counting
+from 1, in file order) then runs in the turn with n = T(i), where T(i) is the larger of H(i) + 1 and T(i − 1) + 1,
+with T(0) = 0. So a select and a command handed over together run in two consecutive turns.
+
+The `turn` records' `commands` are the authoritative timing: a comparer applies each command in the turn where the
+trace lists it, and uses the rule above only to predict that turn or to drive its own simulation without a trace.
+
+### Format versions
+
+| # | Where | Version 1 | Version 2 |
+| --- | --- | --- | --- |
+| 1 | Header `version` | `1` | `2` |
+| 2 | Header | — | Field `input` |
+| 3 | `turn` record, when written | Only when the turn drew random numbers | When the turn drew random numbers or carried out at least one command |
+| 4 | `turn` record fields | The record fields | The record fields and, when commands ran, `commands` |
+
+Every version 1 field keeps its meaning. A version 2 trace without input is identical to a version 1 trace apart
+from `version` and an empty `input`.
+
+**Scenario files.** The harness's input lists in `oracle/` ("Input scenarios") are our own command lists and contain
+nothing from the program, so they may be used as test input like the traces. Their line format isn't part of this
+spec; use the header's `input`, which is.
+
 ## Data
 
 ### Example (one unit shown, numbers abridged)
 
 ```json
-{"format":"tidewater-oracle-trace","version":1,"scenario":"campaign mission 'human1', no input","clock":946684800,"speed":8,"enhanced":true,"era":1,"map_size":32,"local_player":1,"controllers":["computer","human","nobody","…"],"races":["orc","human","human","…"],"cheats":["tigerlily"],"unit_slots":1600,"effect_slots":400}
+{"format":"tidewater-oracle-trace","version":2,"scenario":"campaign mission 'human1', no input","clock":946684800,"speed":8,"enhanced":true,"era":1,"map_size":32,"local_player":1,"controllers":["computer","human","nobody","…"],"races":["orc","human","human","…"],"cheats":["tigerlily"],"unit_slots":1600,"effect_slots":400,"input":[]}
 {"n":0,"kind":"setup","rng":4116580520,"gold":[1000,1000,…],"lumber":[…],"oil":[…],"units":[{"slot":1588,"serial":12,"type":1,"owner":0,"x":640,"y":992,"tx":20,"ty":31,"hp":60,"order":2,"facing":7,"anim":2,"frame":0,"wait":7,"mana":0,"target":null}],"effects":[{"slot":0,"kind":19,"x":0,"y":0,"dest":[0,0],"target":null,"shooter":null,"damage":0},…]}
 {"n":3,"kind":"cycle","counter":1,"rng":…,"units":[…],"effects":[…]}
+```
+
+The header of a run with input, and the first two `turn` records (fields abridged):
+
+```json
+{"format":"tidewater-oracle-trace","version":2,"scenario":"campaign mission 'human1', input from human01-basics.txt",…,"input":[{"n":10,"player":1,"kind":"select","units":[1593,1597,1598]},{"n":10,"player":1,"kind":"command","command":8,"target":1592},…]}
+{"n":11,"kind":"turn","commands":[{"player":1,"kind":"select","units":[1593,1597,1598]}],"rng":…,"units":[…],"effects":[…]}
+{"n":12,"kind":"turn","commands":[{"player":1,"kind":"command","command":8,"tile":[29,14],"target":1592}],"rng":…,"units":[…],"effects":[…]}
 ```
 
 ## Test vectors
@@ -119,10 +182,28 @@ These come from the first oracle trace (Human01, no input; the header's `launch`
 | Same, the first two records after setup | `startup` n = 1 (0 draws), `startup` n = 2 (1 draw); then `cycle` n = 3 with `counter` 1 |
 | Same, cycles n = 3 to 2000 | Draws per cycle repeat 1, 2, 1, 1, 3, 3196 in all (8 per 5 cycles: each of the 8 idle mobile units draws once per 5 cycles; this idle draw isn't yet in `core/timing-and-rng.md`'s draw table) |
 
+These come from `oracle/traces/human01-basics-9500.jsonl.gz` (Human01, Enhanced, speed 8, clock 946684800, local
+player 1) and `oracle/traces/orc02-victory-7639.jsonl.gz` (Orc02, local player 0).
+
+| Input | Expected |
+| --- | --- |
+| Human01: a select of 1593, 1597, 1598 and command 8 on unit 1592, then a select of 1596 and a build of type 60 at (5, 8), all with `n` = 10 | `turn` n = 11 lists the select, 12 the command, 13 the second select, 14 the build: one per turn, in file order |
+| Human01: the command 8 entry gives only the target unit | `turn` n = 12 lists `tile` [29, 14], unit 1592's tile |
+| Human01: the build in turn 14 | Worker 1596 is in order 28 from `cycle` n = 19, and in order 22 with target 1587 (the new barracks) from n = 134 |
+| Human01: a select of 1587 and a job `"train"` 0 with `n` = 5300 | `turn` n = 5302 lists the job; barracks 1587's `mana` is 1 in that record (`economy/build-train.md`) |
+| Orc02: entries 1 to 18 (file order) end with a select and a command 8 with `n` = 5050; entries 19 to 26 follow, with `n` = 4000, 4000, 4350, 4350, 4700, 4700, 5050, 5050 | All eight are handed over after record 5050 and run in `turn` n = 5053 to 5060, one per turn |
+| Each of the five input traces in `oracle/traces/` (Human01 basics; Orc02 assault, defeat and victory; XOrc01 death coil) | Each `input` entry runs in turn T(i) of "When a command runs"; no `turn` record lists more than one command |
+
 ## Open questions
 
-- Command turns: the format records a turn only when it draws. Input scenarios will need the commands themselves
-  (who, what, which units, target) in the turn record; to be added with the first input scenario.
+- **Other speeds.** Input traces so far all run at speed 8, where a command turn follows every cycle. At slower
+  speeds the turns may be further apart; the trace's `turn` records stay authoritative.
+- **Commands the game queues by itself:** what made the game queue the select seen in Human12 isn't known yet, nor
+  whether such a command takes a place in the same queue ahead of the harness's entries.
+- **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios
+  are single player for now.
+- **Other kinds** (cancel, alliances, speed, cheats, transports) aren't described yet; add them when a scenario needs
+  them.
 - Fog of war, the map's tiles (trees cut, walls) and the AI state aren't recorded yet.
 - **Scenario identity.** `scenario` and `launch` are free text, so a comparer can't yet set up the scenario from the
   header alone. Default: each comparer test names its scenario (campaign entry or map file) itself; a structured
