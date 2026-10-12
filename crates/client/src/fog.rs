@@ -1,83 +1,155 @@
-//! Fog of war as the client shows it (vision spec, "The fog maps"; the minimap is in `crate::minimap`). The sim owns the maps; this turns
-//! them into a quarter-tile overlay picture and decides which units to draw. No Bevy types here.
+//! Fog of war as the map view draws it (`docs/specs/ui/map-drawing.md`, "Fog"; the maps themselves are the sim's,
+//! `vision/fog.md`, "The fog maps"; the minimap is in `crate::minimap`). No Bevy types here.
 //!
-//! The shading is our own design (the spec leaves it to rendering): unexplored quarters are black, explored quarters
-//! that are not visible are darkened.
+//! Each tile in view gets the picture for its visible-map code v and explored-map code e: black, a black
+//! checkerboard on the even pixels, or the fog shapes of the tileset. Shape c (1 to 15) is bytes 1024·c to
+//! 1024·c + 1023 of the tileset's `.vr4` file, read as one 32 × 32 block as the spec says.
 
-use tidewater_sim::vision::{Map, bit, quarter};
-use tidewater_sim::{Unit, World};
+use crate::view::Canvas;
 
-/// Opacity of the darkening over explored but not visible ground.
-pub const DIM: u8 = 120;
+/// The fog colour.
+pub const BLACK: u8 = 0;
+/// The code of a wholly fogged tile, and of a tile with no fog.
+pub const ALL: u8 = 16;
+pub const NONE: u8 = 0;
 
-/// The overlay picture: two texels per tile on each axis, one per quarter tile, black with a per-texel opacity.
-/// `explored` and `visible` hold each tile's fogged quarters, row by row (`World::vision.flags`). With `reveal` (the
-/// reveal-map cheat) nothing is covered.
-pub fn overlay(explored: &[u8], visible: &[u8], width: usize, height: usize, reveal: bool) -> Vec<u8> {
-    let w2 = width * 2;
-    let mut out = vec![0u8; w2 * height * 2 * 4];
-    if reveal {
-        return out;
+/// The fog shapes 0 to 15 (0 is never drawn).
+#[derive(Clone, Debug)]
+pub struct Shapes(Vec<[u8; 1024]>);
+
+impl Shapes {
+    /// The shapes from a tileset's `.vr4` bytes; missing bytes read as 0 (transparent).
+    pub fn from_vr4(vr4: &[u8]) -> Self {
+        Shapes(
+            (0..16)
+                .map(|c| {
+                    let mut s = [0u8; 1024];
+                    for (i, b) in s.iter_mut().enumerate() {
+                        *b = vr4.get(1024 * c + i).copied().unwrap_or(0);
+                    }
+                    s
+                })
+                .collect(),
+        )
     }
-    for ty in 0..height {
-        for tx in 0..width {
-            let (e, v) = (explored[ty * width + tx], visible[ty * width + tx]);
-            for (flag, qx, qy) in [
-                (quarter::TL, 0, 0),
-                (quarter::TR, 1, 0),
-                (quarter::BL, 0, 1),
-                (quarter::BR, 1, 1),
-            ] {
-                let alpha = if e & flag != 0 {
-                    255
-                } else if v & flag != 0 {
-                    DIM
-                } else {
-                    0
-                };
-                out[((ty * 2 + qy) * w2 + tx * 2 + qx) * 4 + 3] = alpha;
+
+    /// Shape c's non-zero pixel at (x, y) in the tile; `None` where it is transparent or the code has no shape.
+    fn at(&self, c: u8, x: usize, y: usize) -> Option<u8> {
+        (1..=15)
+            .contains(&c)
+            .then(|| self.0[c as usize][y * 32 + x])
+            .filter(|&p| p != 0)
+    }
+}
+
+/// What one pixel of a tile gets ("Checkerboard"); `None` leaves it as it is. Pixels where (x + y) is even are the
+/// "even pixels".
+pub fn tile_pixel(v: u8, e: u8, shapes: &Shapes, x: usize, y: usize) -> Option<u8> {
+    let even = (x + y).is_multiple_of(2);
+    let shape = |c: u8| shapes.at(c, x, y);
+    match (v, e) {
+        (NONE, _) => None,
+        (ALL, ALL) => Some(BLACK),
+        (ALL, NONE) => even.then_some(BLACK),
+        (ALL, e) => {
+            if even {
+                Some(BLACK)
+            } else {
+                shape(e)
+            }
+        }
+        (v, NONE) => even.then(|| shape(v)).flatten(),
+        (v, e) if e == v => shape(e),
+        // S(v) on the even pixels, then all of S(e) over it (none for e = 16).
+        (v, e) => shape(e).or_else(|| even.then(|| shape(v)).flatten()),
+    }
+}
+
+/// Draws the fog over the tiles the canvas covers. `codes` holds (v, e) per map tile, row by row, `width` tiles wide.
+pub fn draw(canvas: &mut Canvas, width: usize, codes: &[(u8, u8)], shapes: &Shapes) {
+    if width == 0 {
+        return;
+    }
+    let height = codes.len() / width;
+    let (tx0, ty0) = (canvas.left.div_euclid(32).max(0), canvas.top.div_euclid(32).max(0));
+    let tx1 = ((canvas.left + canvas.width + 31) / 32).min(width as i32);
+    let ty1 = ((canvas.top + canvas.height + 31) / 32).min(height as i32);
+    for ty in ty0..ty1 {
+        for tx in tx0..tx1 {
+            let (v, e) = codes[ty as usize * width + tx as usize];
+            if v == NONE {
+                continue;
+            }
+            for y in 0..32 {
+                for x in 0..32 {
+                    if let Some(c) = tile_pixel(v, e, shapes, x, y) {
+                        canvas.put(tx * 32 + x as i32, ty * 32 + y as i32, c);
+                    }
+                }
             }
         }
     }
-    out
-}
-
-/// Whether the local player's view draws a unit. Its own units always show. Another unit shows when it is detected and
-/// not hidden from the local player; a building also shows once any tile of it has been explored, since buildings stay
-/// where they were seen (the original's last-seen drawing is an open question in the spec).
-pub fn unit_shown(world: &World, u: &Unit) -> bool {
-    let me = world.vision.local;
-    if u.owner == me || world.rules.reveal_map {
-        return true;
-    }
-    if u.detected_by & bit(me) == 0 {
-        return false;
-    }
-    if !u.building {
-        return u.hidden_from & bit(me) == 0;
-    }
-    (0..u.size.1 as i32).any(|dy| (0..u.size.0 as i32).any(|dx| !world.vision.unexplored(u.tile.0 + dx, u.tile.1 + dy)))
-}
-
-/// The explored and visible maps' flags.
-pub fn maps(world: &World) -> (&[u8], &[u8]) {
-    (world.vision.flags(Map::Explored), world.vision.flags(Map::Visible))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view::CLEAR;
+
+    /// Shape c holds 100 + c on its top half (rows 0 to 15) and 0 below.
+    fn shapes() -> Shapes {
+        let mut vr4 = vec![0u8; 16 * 1024];
+        for c in 1..16 {
+            for i in 0..512 {
+                vr4[1024 * c + i] = 100 + c as u8;
+            }
+        }
+        Shapes::from_vr4(&vr4)
+    }
+
+    fn tile(v: u8, e: u8) -> Canvas {
+        let mut c = Canvas::new(0, 0, 32, 32);
+        draw(&mut c, 1, &[(v, e)], &shapes());
+        c
+    }
 
     #[test]
-    fn overlay_has_one_texel_per_quarter() {
-        // Two tiles side by side: the first unexplored, the second explored with only its top-left quarter visible.
-        let explored = [15, 0];
-        let visible = [15, 14];
-        let px = overlay(&explored, &visible, 2, 1, false);
-        let a = |x: usize, y: usize| px[(y * 4 + x) * 4 + 3];
-        assert_eq!([a(0, 0), a(1, 0), a(0, 1), a(1, 1)], [255; 4]);
-        assert_eq!([a(2, 0), a(3, 0), a(2, 1), a(3, 1)], [0, DIM, DIM, DIM]);
-        assert_eq!(px.len(), 4 * 2 * 4);
-        assert!(overlay(&explored, &visible, 2, 1, true).iter().all(|&b| b == 0));
+    fn explored_out_of_sight_is_a_black_checkerboard() {
+        // v = 16, e = 0: black on even pixels, the terrain shows on odd pixels.
+        let c = tile(16, 0);
+        assert_eq!((c.at(0, 0), c.at(1, 0), c.at(1, 1)), (Some(0), Some(CLEAR), Some(0)));
+    }
+
+    #[test]
+    fn unexplored_is_all_black() {
+        assert!(tile(16, 16).px.iter().all(|&p| p == 0));
+    }
+
+    #[test]
+    fn a_shape_on_the_even_pixels_only() {
+        // v = 2 (top half fogged), e = 0: shape 2's non-zero pixels on the even pixels only.
+        let c = tile(2, 0);
+        assert_eq!((c.at(0, 0), c.at(1, 0)), (Some(102), Some(CLEAR)));
+        assert_eq!(c.at(0, 20), Some(CLEAR), "zero pixels are transparent");
+    }
+
+    #[test]
+    fn the_other_rows() {
+        assert!(tile(0, 7).px.iter().all(|&p| p == CLEAR), "v = 0: nothing");
+        let c = tile(16, 3);
+        assert_eq!((c.at(0, 0), c.at(1, 0), c.at(1, 20)), (Some(0), Some(103), Some(CLEAR)));
+        let c = tile(4, 4);
+        assert_eq!((c.at(0, 0), c.at(1, 0)), (Some(104), Some(104)));
+        let c = tile(2, 4);
+        assert_eq!((c.at(0, 0), c.at(1, 0)), (Some(104), Some(104)), "S(e) over S(v)");
+        let c = tile(2, 16);
+        assert_eq!((c.at(0, 0), c.at(1, 0)), (Some(102), Some(CLEAR)));
+    }
+
+    #[test]
+    fn only_tiles_in_view_are_drawn() {
+        let mut c = Canvas::new(40, 0, 10, 10);
+        draw(&mut c, 2, &[(16, 16), (16, 16)], &shapes());
+        assert!(c.px.iter().all(|&p| p == 0));
     }
 }

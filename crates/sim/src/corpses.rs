@@ -117,6 +117,8 @@ impl World {
     /// The remains' last stage, or a dead unit that leaves none: the "remove" order, given to the neutral player.
     /// The slot is released at the remove animation's "step done", 513 cycles on.
     pub(crate) fn start_removal(&mut self, i: usize) {
+        // Map-drawing spec, "Remembered buildings": a building leaves play here, and may leave a ghost.
+        self.remember_building(i);
         if self.units[i].owner != slots::NEUTRAL {
             self.change_owner(i, slots::NEUTRAL);
         }

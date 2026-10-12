@@ -18,11 +18,13 @@
 //! decoder's); fades of all sound only ask the caller to cut the effects ([`Action::CutEffects`]); the music volume
 //! starts at 75, the first-run default of `ui/game-menu.md`, as nothing stores settings yet.
 //!
-//! Not yet here (they need app states): the title screen (track 22), the main menu (22 if not playing), the mission
-//! briefing (20 or 21 if not playing), the score screen (12 to 15), the credits (23 if not started), the campaign
-//! finale (16 or 17 after a fade of all sound), the fades when a game ends, the attract demo starts, a custom game
-//! starts, Battle.net is entered and the program exits; the sound dialog's volume applications; the disco cheat's
-//! typing (the toggle itself is [`Music::disco`]); a saved game's track (it should be saved with the game).
+//! Not yet here: the fade when the program exits, the attract demo start, a custom game starting from the
+//! custom-scenario screen and entering Battle.net (their screens do not exist yet); the sound dialog (it calls
+//! `Jukebox::set_volume`); the disco cheat's typing (the toggle itself is [`Music::disco`]); a saved game's track (it
+//! should be saved with the game); blocking fades (see above).
+//!
+//! Our choice for the campaign flow: the briefing's track is closed at once when the game screen opens, so the game's
+//! own track plays rather than the briefing's carrying on (the spec's "only if not started" would let it).
 
 use crate::sound::Shuffle;
 
@@ -315,7 +317,8 @@ impl Music {
         Music {
             volume: volume.min(100),
             remembered: REMEMBERED_AT_START,
-            restart_done: false,
+            // The first apply at program start arms the restart (nothing is open to restart).
+            restart_done: volume > 0,
             current: None,
             bump: false,
             open: None,
@@ -374,6 +377,8 @@ impl Music {
     }
 
     fn begin(&mut self, track: Option<u8>, carry_on: bool, out: &mut Vec<Action>) {
+        // A start ends a running fade (the fade's own `then` has already taken it).
+        self.fade = None;
         let Some(t) = track else {
             self.current = None;
             self.close(out);

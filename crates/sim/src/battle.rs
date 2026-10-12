@@ -2,7 +2,11 @@
 //! flight", "Impact effects", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by
 //! the line rule of `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack
 //! order's chase-and-face behaviour and the range measure are placeholders of our own until their specs land. The
-//! cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot.
+//! cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot. The kill credit,
+//! mission score and lost counters follow `docs/specs/game/campaign-flow.md` ("The score screen", "Mission score").
+//! Our reading: only a kill by damage from a unit is credited (a spell that kills without damage, such as
+//! polymorph, credits nobody), and only deaths and rescue's owner change count as lost (a removed corpse's move to
+//! the neutral player doesn't).
 
 use tidewater_formats::script::anim;
 
@@ -29,6 +33,8 @@ const NEUTRAL: u8 = 15;
 const DARK_PORTAL: u8 = 0x65;
 const KHADGAR: u8 = 0x18;
 const PORTAL_ENTRIES: [u8; 3] = [32, 34, 50];
+/// The first building type (the farm): a victim below it is a kill, from it on a razing (campaign-flow spec).
+const FIRST_BUILDING: u8 = 0x3a;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Missile {
@@ -54,6 +60,15 @@ pub struct Missile {
     /// What a spell effect does (spells spec, "Spell effects in flight"). For these, `kind` is the effect kind of that
     /// spec, `attacker` the effect's owner, `damage` its stored damage and `elapsed` the cycles since its first update.
     pub fx: Fx,
+}
+
+impl Missile {
+    /// Whether the effect's picture is drawn (map-drawing spec, "Effects"): from its start step on, which comes
+    /// `start_cycles` cycles after its first update. A plain missile shows after its first update, a spell marker
+    /// after the update one cycle later.
+    pub fn showing(&self) -> bool {
+        self.elapsed > crate::spells::start_cycles(self.kind)
+    }
 }
 
 /// Tiles between two footprints along the larger axis: 1 for neighbours, diagonal included.
@@ -307,10 +322,38 @@ impl World {
             return;
         }
         if let Some(a) = self.unit(attacker) {
-            let owner = a.owner as usize;
-            self.players[owner].kills += 1;
+            self.credit_kill(a.owner, ti);
         }
         self.kill(ti);
+    }
+
+    /// Campaign-flow spec, "Mission score": a unit of player `killer` killed the unit at `ti`. Unless the victim is
+    /// the killer's own, the killer's player gets the victim type's point value and a kill (a type below the first
+    /// building type) or a razing.
+    pub(crate) fn credit_kill(&mut self, killer: u8, ti: usize) {
+        let victim = &self.units[ti];
+        if victim.owner == killer {
+            return;
+        }
+        let points = self.stats.0.get(victim.kind as usize).map_or(0, |s| s.points as u32);
+        let kind = victim.kind;
+        let p = &mut self.players[killer as usize];
+        if kind < FIRST_BUILDING {
+            p.kills += 1;
+        } else {
+            p.razings += 1;
+        }
+        p.score += points;
+    }
+
+    /// Campaign-flow spec, "Statistics": the owner's count of units or of buildings went down by one.
+    pub(crate) fn count_lost(&mut self, owner: u8, building: bool) {
+        let p = &mut self.players[owner as usize];
+        if building {
+            p.buildings_lost += 1;
+        } else {
+            p.units_lost += 1;
+        }
     }
 
     /// The damage spec's Dark Portal case: in a single-player campaign game on campaign entries 32, 34 and 50, a hit
@@ -324,9 +367,11 @@ impl World {
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
-        self.remember_building(ti);
         self.death_sound(ti);
         let unit = self.units[ti].clone();
+        if !self.loading {
+            self.count_lost(unit.owner, unit.building);
+        }
         let p = &mut self.players[unit.owner as usize];
         if unit.construction.is_some() {
             p.under_construction -= 1;
@@ -548,6 +593,60 @@ mod tests {
 
     fn attack(w: &mut crate::World, player: u8, units: Vec<UnitId>, target: UnitId) {
         w.step(&[Command::Attack { player, units, target }]);
+    }
+
+    /// Campaign-flow spec, test vector: a footman killed by an enemy archer.
+    #[test]
+    fn a_kill_credits_the_killers_player_with_the_victims_points() {
+        let mut w = world();
+        w.stats.0[0].points = 50;
+        let archer = w.spawn(8, 1, (3, 3), 0).unwrap();
+        let footman = UnitId(1);
+        let i = w.index(footman).unwrap();
+        w.damage(i, 255, archer);
+        let p = &w.players[1];
+        assert_eq!((p.kills, p.razings, p.score), (1, 0, 50));
+        assert_eq!((w.players[0].units_lost, w.players[0].buildings_lost), (1, 0));
+        assert_eq!(w.players[0].score, 0);
+    }
+
+    /// Campaign-flow spec, test vector: an own farm destroyed by an own catapult.
+    #[test]
+    fn destroying_an_own_building_gives_no_credit_but_counts_as_lost() {
+        let mut w = world();
+        w.stats.0[0x3a].points = 100;
+        let farm = w.spawn(0x3a, 0, (5, 5), 0).unwrap();
+        let catapult = w.spawn(5, 0, (2, 6), 0).unwrap();
+        let i = w.index(farm).unwrap();
+        // The test table has no building flags; the farm stands as one.
+        w.units[i].building = true;
+        w.units[i].hp = 10;
+        w.damage(i, 255, catapult);
+        let p = &w.players[0];
+        assert_eq!((p.kills, p.razings, p.score), (0, 0, 0));
+        assert_eq!((p.units_lost, p.buildings_lost), (0, 1));
+    }
+
+    #[test]
+    fn an_enemy_building_is_a_razing() {
+        let mut w = world();
+        w.stats.0[0x3b].points = 100;
+        let farm = w.spawn(0x3b, 1, (5, 5), 0).unwrap();
+        let i = w.index(farm).unwrap();
+        w.units[i].building = true;
+        w.units[i].hp = 10;
+        w.damage(i, 255, UnitId(1));
+        let p = &w.players[0];
+        assert_eq!((p.kills, p.razings, p.score), (0, 1, 100));
+        assert_eq!(w.players[1].buildings_lost, 1);
+    }
+
+    #[test]
+    fn the_lost_counters_change_the_state_hash() {
+        let w = world();
+        let mut v = world();
+        v.players[0].units_lost = 1;
+        assert_ne!(w.state_hash(), v.state_hash());
     }
 
     #[test]
@@ -954,6 +1053,15 @@ mod tests {
     use crate::sound::Sound;
 
     /// A missile of `kind` whose next update is its impact, at `pos`.
+    #[test]
+    fn an_effect_shows_from_its_first_update() {
+        let mut m = landing(missile::BALLISTA, 0, (100, 100));
+        m.elapsed = 0;
+        assert!(!m.showing());
+        m.elapsed = 1;
+        assert!(m.showing());
+    }
+
     fn landing(kind: u8, damage: u8, pos: (i32, i32)) -> crate::Missile {
         crate::Missile {
             kind,
@@ -1017,7 +1125,7 @@ mod tests {
     }
 
     #[test]
-    fn catapult_rock_impact_effect_takes_a_later_slot_and_runs_at_once() {
+    fn catapult_rock_impact_effect_takes_a_later_slot_and_sounds_a_cycle_after_its_first_update() {
         let mut w = range();
         let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
         // Slots 0 to 2 are the permanent effects; the rock is in slot 3, slot 4 is in use and slot 5 is free.
@@ -1032,14 +1140,18 @@ mod tests {
             fx.elapsed, 1,
             "slot 5 comes after slot 3: its first update is in the same cycle"
         );
-        // The rock's impact cue has no file (sounds spec); the effect's explosion follows at its tile.
-        assert_eq!(cues, [impact(missile::CATAPULT, true), Sound::Explode]);
-        let place = w.sounds.cues[1].place;
+        assert!(!fx.showing(), "not showing before its start step");
+        // The rock's impact cue has no file (sounds spec); the effect's explosion follows at its tile, at the start
+        // step one cycle after the first update.
+        assert_eq!(cues, [impact(missile::CATAPULT, true)]);
+        assert_eq!(update_cues(&mut w), [Sound::Explode]);
+        assert!(w.missiles[5].as_ref().unwrap().showing(), "showing from the start step");
+        let place = w.sounds.cues[0].place;
         assert!(
             matches!(place, Some(crate::sound::Place::Tile { tile: (5, 7), .. })),
             "at its tile"
         );
-        // Removed during its update in cycle U + 13: 12 cycles of waits after the restart.
+        // Removed during its update in cycle U + 14: 12 cycles of waits after the restart in U + 1.
         for _ in 0..12 {
             assert!(update_cues(&mut w).is_empty(), "no further sound");
             assert!(w.missiles[5].is_some());
@@ -1055,7 +1167,12 @@ mod tests {
         let cues = update_cues(&mut w);
         assert!(w.missiles[3].is_none());
         assert_eq!(w.missiles[4].as_ref().map(|m| m.kind), Some(0x15));
-        assert_eq!(cues, [impact(missile::BALLISTA, false), Sound::Explode]);
+        assert_eq!(cues, [impact(missile::BALLISTA, false)]);
+        assert_eq!(
+            update_cues(&mut w),
+            [Sound::Explode],
+            "at its start step, a cycle later"
+        );
     }
 
     #[test]
@@ -1071,17 +1188,21 @@ mod tests {
         let fx = w.missiles[3].as_ref().unwrap();
         assert_eq!((fx.kind, fx.elapsed), (0x1a, 0), "not updated yet");
         assert_eq!(cues, [impact(missile::BIG_CANNON, true)]);
+        assert!(
+            update_cues(&mut w).is_empty(),
+            "its first update, in the next cycle: no sound yet"
+        );
         assert_eq!(
             update_cues(&mut w),
             [Sound::Explode],
-            "its explosion at its first update"
+            "its explosion at its start step, a cycle after the first update"
         );
         for _ in 0..12 {
             w.advance_missiles();
         }
         assert!(w.missiles[3].is_some());
         w.advance_missiles();
-        assert!(w.missiles[3].is_none(), "removed in cycle U + 13");
+        assert!(w.missiles[3].is_none(), "removed in cycle U + 14");
     }
 
     #[test]
@@ -1105,12 +1226,12 @@ mod tests {
         let cues = update_cues(&mut w);
         assert_eq!(cues, [impact(missile::SUBMARINE, true)]);
         assert_eq!(w.missiles[4].as_ref().map(|m| m.kind), Some(0x17));
-        for _ in 0..48 {
+        for _ in 0..49 {
             assert!(update_cues(&mut w).is_empty());
             assert!(w.missiles[4].is_some());
         }
         w.advance_missiles();
-        assert!(w.missiles[4].is_none(), "removed in cycle U + 49");
+        assert!(w.missiles[4].is_none(), "removed in cycle U + 50");
     }
 
     #[test]
@@ -1248,7 +1369,7 @@ mod tests {
     }
 
     #[test]
-    fn a_ships_cannon_is_followed_by_smoke_that_lasts_to_c_plus_13() {
+    fn a_ships_cannon_is_followed_by_smoke_that_lasts_to_c_plus_24() {
         let mut w = ships();
         let ship = spawn_at(&mut w, BATTLESHIP, 0, (0, 7), (16, 240));
         let foe = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
@@ -1269,13 +1390,14 @@ mod tests {
             ((16, 240), 0),
             "the shooter's centre, no first update yet"
         );
-        // Updates at C to C + 12 keep it; the one at C + 13 removes it.
-        for cycle in 0..13 {
+        // Updates at C to C + 23 keep it (its start animation waits 11 cycles); the one at C + 24 removes it.
+        for cycle in 0..24 {
             w.advance_missiles();
-            assert!(w.missiles[base + 4].is_some(), "alive at C + {cycle}");
+            let smoke = w.missiles[base + 4].as_ref().expect("alive");
+            assert_eq!(smoke.showing(), cycle >= 11, "showing from C + 11, at C + {cycle}");
         }
         w.advance_missiles();
-        assert!(w.missiles[base + 4].is_none(), "removed in C + 13");
+        assert!(w.missiles[base + 4].is_none(), "removed in C + 24");
     }
 
     #[test]
@@ -1338,7 +1460,7 @@ mod tests {
         let smoke = crate::Missile {
             kind: 0x19,
             fx: crate::spells::Fx::Cosmetic,
-            elapsed: 13,
+            elapsed: 24,
             ..landing(missile::ARROW, 0, (0, 0))
         };
         w.missiles[base] = Some(smoke);

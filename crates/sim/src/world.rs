@@ -293,6 +293,9 @@ pub struct Unit {
     pub colour: u8,
     /// The minimap's attack mark (minimap spec, "Attack mark"); not game state.
     pub attack_mark: crate::minimap::Mark,
+    /// A building's remembered look for the local player (map-drawing spec, "Buildings and remembered buildings");
+    /// display state, not game state.
+    pub look: crate::minimap::Look,
 }
 
 impl Unit {
@@ -327,7 +330,18 @@ pub struct Player {
     pub race: u8,
     pub start: Option<(i32, i32)>,
     pub upgrades: Upgrades,
+    /// Enemy units (types below the first building type) this player's units killed (campaign-flow spec, "Mission
+    /// score"); a kill of the player's own unit isn't counted.
     pub kills: u32,
+    /// Enemy buildings this player's units destroyed: the razings.
+    pub razings: u32,
+    /// The mission score: the point values of the enemy units and buildings this player's units killed. The score
+    /// screen adds the victory bonus (campaign-flow spec, "The score screen").
+    pub score: u32,
+    /// How many times the player's count of units (not buildings) went down, by a death or a change of owner.
+    pub units_lost: u32,
+    /// The same for the player's buildings.
+    pub buildings_lost: u32,
     /// Whether the player has ever had a completed town hall, keep or castle (build-train spec, "fast first hall").
     pub had_hall: bool,
     pub under_construction: u16,
@@ -371,7 +385,7 @@ pub struct Player {
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
-pub(crate) const RELEASED: u8 = 0xff;
+pub const RELEASED: u8 = 0xff;
 
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -933,6 +947,7 @@ impl World {
             held: false,
             colour: owner,
             attack_mark: Default::default(),
+            look: Default::default(),
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);
@@ -1074,6 +1089,7 @@ impl World {
         self.timers_pass();
         self.sort_vertical();
         self.unit_visibility();
+        self.remember_looks();
         self.forget_seen_buildings();
         self.flash_pass();
         self.victory_phase();

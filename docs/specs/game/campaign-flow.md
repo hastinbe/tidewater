@@ -6,6 +6,9 @@
   and music. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12: restarting a mission from the game menu is now described (`ui/game-menu.md`): it replays
   the mission through the act screen check and the briefing, with no score screen.
+- **Changes:** 2026-10-12: the skip-setting open question is closed by `game/cheats.md`: the developer words `noglues`
+  (act screen, briefing and score screen) and `title` (startup videos) turn the two settings on and off, and both
+  survive into later games.
 
 ## Behaviour
 
@@ -27,7 +30,8 @@ Game text is given by string table and entry number, counting from 1.
   playback).
 - **Ctrl held:** the Ctrl key is down at the moment of the check. Several steps are skipped while it is held.
 - **Skip setting:** a setting that, when on, skips the act screen, the briefing and the score screen. What turns it
-  on wasn't found (see the open questions). It is off in a normal game.
+  on is the `noglues` developer word, typed or given when the program starts (`game/cheats.md`, "Word codes"). It
+  is off in a normal game and, once on, stays on across games.
 
 ### Videos
 
@@ -327,9 +331,6 @@ mission the same way, with no score screen: the flow goes straight back to "Star
 
 ## Open questions
 
-- **Skip setting.** What turns on the setting that skips the act screen, briefing and score screen, and the second
-  setting that skips the startup videos, wasn't found. Both live with the cheat flags; they may be cheats or
-  command-line options. Default: both off.
 - **BDP intro without the movie archive.** The program checks for the movie archive (on the original CD) before the
   BDP intro and returns to the main menu when it is missing. How the GOG release satisfies this check wasn't
   checked. Default: the archive is always available.

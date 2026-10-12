@@ -7,6 +7,8 @@
 - **Changes:** 2026-10-12: the pause-notice open question is closed by `ui/game-menu.md` ("Pause"): the notices
   appear only in Enhanced multiplayer; entry 86 is filled in with the player's name and the pauses left, entry 87
   with the player's name.
+  2026-10-12: colour 3 alternating between green and red during a game is noted, citing `ui/palette-effects.md`.
+  2026-10-12: the cheat check now cites `game/cheats.md`.
 
 ## Behaviour
 
@@ -131,8 +133,8 @@ The prompt is set when the mode starts and cleared when it ends, which also hide
 
 **Chat line.** Enter opens a chat line in the status bar. The cost items are hidden and the bar shows a label (from
 `Rez\textbox.bin`) and a text field instead. Enter sends the text and Escape closes the line without sending. In
-single player nothing is sent. Typed text is first checked as a cheat code, which is a later spec. Who a line is sent
-to, and the Enhanced multiplayer version of the bar (`Rez\textbox_BNE.bin`), are also later specs.
+single player nothing is sent. Typed text is first checked as a cheat code (`game/cheats.md`). Who a line is sent
+to, and the Enhanced multiplayer version of the bar (`Rez\textbox_BNE.bin`), are later specs.
 
 ### Attacks on the minimap
 
@@ -144,6 +146,7 @@ is marked during demo playback.
 The minimap is redrawn every 40 game cycles. In a redraw, a marked unit that is drawn on the minimap is drawn in
 palette colour 3 instead of its usual colour, and its mark is then cleared. So an attacked unit shows in colour 3 for
 one redraw period (40 cycles) after the hit. A unit under steady attack keeps getting marked and stays in colour 3.
+During a game colour 3 alternates between pure green and pure red (`ui/palette-effects.md`, "Cycles per era").
 Which units the minimap draws and their usual colours are in `ui/minimap.md`.
 
 ### Event history (Enhanced rules)
@@ -222,4 +225,5 @@ The history is saved with a saved game. Under Classic rules the space key does n
   `economy/build-train.md` (stat_txt entries 435, 436 and 438 to 441) weren't traced to a line. Default: the notice
   line, like the placement messages.
 - **Space width.** How wide a space is in the message font wasn't traced. Default: the font's own space character.
-- **Chat recipients and Enhanced multiplayer chat.** These are left to a later spec, as is the cheat check.
+- **Chat recipients and Enhanced multiplayer chat.** These are left to a later spec. The cheat check is in
+  `game/cheats.md`.

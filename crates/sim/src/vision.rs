@@ -417,11 +417,12 @@ impl World {
         }
     }
 
-    /// Phase 5: each unit's hidden-from set ("Unit visibility").
+    /// Phase 5: each unit's hidden-from set ("Unit visibility"). A unit that is dead, removed or inside something is
+    /// hidden from everyone; a dying one (its death animation, a body or a ruin) is not, so the map view can draw it.
     pub(crate) fn unit_visibility(&mut self) {
         for i in 0..self.units.len() {
             let u = &self.units[i];
-            let hidden = if Self::is_dead(u) || u.inside {
+            let hidden = if u.removing || u.script.anim == RELEASED || u.inside {
                 0xff
             } else if self.rules.reveal_map {
                 0
@@ -481,8 +482,7 @@ impl World {
     }
 
     /// Whether the minimap draws a unit for the local player: a unit that is not hidden from it and is detected by
-    /// it; a building once seen. PLACEHOLDER: the spec's "seen" marker for buildings is an open question, so a
-    /// building counts as seen when any tile of its footprint is explored.
+    /// it; a building once seen (it has a remembered look).
     /// Minimap spec, "Units and buildings": dying, removed and inside units are skipped.
     pub fn on_minimap(&self, u: &Unit) -> bool {
         let p = self.vision.local;
@@ -495,10 +495,10 @@ impl World {
         self.rules.reveal_map || self.building_seen(u)
     }
 
-    /// The marker that the local player has seen a building (PLACEHOLDER, see [`World::on_minimap`]).
+    /// The marker that the local player has seen a building: its remembered look is set (map-drawing spec,
+    /// "Buildings and remembered buildings").
     pub(crate) fn building_seen(&self, u: &Unit) -> bool {
-        (0..u.size.1 as i32)
-            .any(|dy| (0..u.size.0 as i32).any(|dx| !self.vision.unexplored(u.tile.0 + dx, u.tile.1 + dy)))
+        u.look.0.is_some()
     }
 }
 
@@ -864,6 +864,25 @@ mod tests {
     }
 
     #[test]
+    fn dying_units_follow_the_fog_but_removed_ones_are_hidden_from_everyone() {
+        let mut w = map();
+        let g = w.spawn(FOOTMAN, 2, (10, 10), 0).unwrap();
+        w.reveal(0, (10, 10), 1);
+        let i = w.index(g).unwrap();
+        w.units[i].dying = true;
+        w.unit_visibility();
+        assert_eq!(w.units[i].hidden_from & 1, 0, "a dying unit in sight is not hidden");
+        assert_ne!(
+            w.units[i].hidden_from & (1 << 4),
+            0,
+            "but still hidden from an empty slot"
+        );
+        w.units[i].removing = true;
+        w.unit_visibility();
+        assert_eq!(w.units[i].hidden_from, 0xff, "removed: hidden from everyone");
+    }
+
+    #[test]
     fn a_building_with_one_seen_tile_is_not_hidden() {
         let mut w = map();
         w.spawn(0x3a, 2, (30, 30), 0).unwrap();
@@ -927,6 +946,7 @@ mod tests {
         w.reveal(0, (50, 50), 1);
         w.reveal(0, (41, 41), 1);
         w.unit_visibility();
+        w.remember_looks();
         assert!(w.on_minimap(w.unit(u).unwrap()) && w.on_minimap(w.unit(b).unwrap()));
         // The building stays once seen; the unit goes with the next refresh.
         run(&mut w, 99);
