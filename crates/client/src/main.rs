@@ -140,9 +140,25 @@ struct TerrainArt {
     tileset: tidewater_formats::tileset::Tileset,
 }
 
-/// Facing frames per (unit type, owner).
+/// Unit sprites: each type's sheet, and the pictures made from it so far per (type, owner, sheet frame).
 #[derive(Resource)]
-struct Art(HashMap<(u8, u8), Vec<Handle<Image>>>);
+struct Art {
+    sheets: HashMap<u8, tidewater_formats::grp::Grp>,
+    palette: tidewater_formats::tileset::Palette,
+    made: HashMap<(u8, u8, usize), Handle<Image>>,
+}
+
+impl Art {
+    /// The picture of sheet frame `f` of `kind` in `owner`'s colours, made on first use.
+    fn picture(&mut self, images: &mut Assets<Image>, kind: u8, owner: u8, f: usize) -> Option<Handle<Image>> {
+        let grp = self.sheets.get(&kind)?;
+        let h = self
+            .made
+            .entry((kind, owner, f))
+            .or_insert_with(|| images.add(image(scene::frame_picture(grp, f, &self.palette, owner))));
+        Some(h.clone())
+    }
+}
 
 /// Links a sprite entity to its unit.
 #[derive(Component)]
@@ -434,21 +450,11 @@ fn setup(
         image: fog,
         drawn: None,
     });
-    let art: HashMap<_, Vec<_>> = scene
-        .art
-        .into_iter()
-        .map(|(k, a)| (k, a.facings.into_iter().map(|p| images.add(image(p))).collect()))
-        .collect();
-    for u in &scene.world.units {
-        if let Some(frames) = art.get(&(u.kind, u.owner)) {
-            commands.spawn((
-                Sprite::from_image(frames[0].clone()),
-                Transform::default(),
-                UnitSprite(u.id),
-            ));
-        }
-    }
-    commands.insert_resource(Art(art));
+    commands.insert_resource(Art {
+        sheets: scene.sheets,
+        palette: scene.palette.clone(),
+        made: HashMap::new(),
+    });
     commands.insert_resource(Sim {
         world: scene.world,
         pending: Vec::new(),
@@ -533,15 +539,18 @@ fn depth(u: &tidewater_sim::Unit) -> f32 {
 fn sync_sprites(
     mut commands: Commands,
     sim: Option<Res<Sim>>,
-    art: Option<Res<Art>>,
+    art: Option<ResMut<Art>>,
+    mut images: ResMut<Assets<Image>>,
     mut q: Query<(Entity, &UnitSprite, &mut Sprite, &mut Transform, &mut Visibility)>,
 ) {
-    let (Some(sim), Some(art)) = (sim, art) else { return };
+    let (Some(sim), Some(mut art)) = (sim, art) else { return };
+    let mut drawn = std::collections::HashSet::new();
     for (e, us, mut sprite, mut tf, mut vis) in &mut q {
         let Some(u) = sim.world.unit(us.0) else {
             commands.entity(e).despawn();
             continue;
         };
+        drawn.insert(u.id);
         // Units the local player can't see aren't drawn (vision spec, "Unit visibility").
         let shown = if fog::unit_shown(&sim.world, u) {
             Visibility::Inherited
@@ -549,28 +558,29 @@ fn sync_sprites(
             Visibility::Hidden
         };
         vis.set_if_neq(shown);
-        if u.dying {
-            sprite.color = Color::srgba(0.6, 0.6, 0.6, 0.6);
-        }
-        // Units inside mines, platforms and depots aren't drawn.
-        if u.inside {
-            sprite.color = Color::NONE;
-        } else if !u.dying {
-            sprite.color = Color::WHITE;
-        }
+        // Units inside mines, platforms, depots and transports aren't drawn.
+        sprite.color = if u.inside { Color::NONE } else { Color::WHITE };
         tf.translation = world(u.centre_px().0 as f32, u.centre_px().1 as f32, depth(u));
-        let Some(frames) = art.0.get(&(u.kind, u.owner)) else {
+        let Some(frames) = art.sheets.get(&u.kind).map(|g| g.frames.len()) else {
+            sprite.color = Color::NONE;
             continue;
         };
-        let (f, flip) = if frames.len() > 1 {
-            scene::facing_frame(u.facing)
-        } else {
-            (0, false)
-        };
-        if sprite.image != frames[f] {
-            sprite.image = frames[f].clone();
+        let (f, flip) = scene::sprite_frame(u, frames);
+        if let Some(h) = art.picture(&mut images, u.kind, u.owner, f)
+            && sprite.image != h
+        {
+            sprite.image = h;
         }
         sprite.flip_x = flip;
+    }
+    // Units created during play get a sprite; the next run places it.
+    for u in sim.world.units.iter().filter(|u| !drawn.contains(&u.id)) {
+        commands.spawn((
+            Sprite::default(),
+            Transform::default(),
+            Visibility::Hidden,
+            UnitSprite(u.id),
+        ));
     }
 }
 

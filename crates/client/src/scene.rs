@@ -20,12 +20,6 @@ pub struct Picture {
     pub rgba: Vec<u8>,
 }
 
-/// Pictures for one unit type and owner.
-pub struct UnitArt {
-    /// Frames 0..=4 face N, NE, E, SE, S; the other facings mirror NE, E and SE. Buildings have one frame.
-    pub facings: Vec<Picture>,
-}
-
 pub struct Scene {
     pub era: Era,
     pub description: String,
@@ -36,10 +30,24 @@ pub struct Scene {
     pub palette: Palette,
     /// For redrawing tiles whose shape changes in play.
     pub tileset: Tileset,
-    pub art: HashMap<(u8, u8), UnitArt>,
+    /// Each unit type's sprite sheet, for the types that have one.
+    pub sheets: HashMap<u8, Grp>,
     pub world: World,
     /// The player the local user controls (the first `OWNR` slot marked human).
     pub human: u8,
+}
+
+/// The sheet frame and horizontal flip that draw a unit: its animation frame, plus the facing column for units
+/// (sheets hold 5 facings per step). Buildings and ruins draw the animation frame as it is. Out of range falls back
+/// to the facing column alone.
+pub fn sprite_frame(u: &tidewater_sim::Unit, frames: usize) -> (usize, bool) {
+    if u.building || (0x6a..=0x6d).contains(&u.kind) || frames < 5 {
+        let f = u.script.frame as usize;
+        return (if f < frames { f } else { 0 }, false);
+    }
+    let (col, flip) = facing_frame(u.facing);
+    let f = u.script.frame as usize + col;
+    (if f < frames { f } else { col }, flip)
 }
 
 /// The frame and horizontal flip that show `facing` (0 north, clockwise in eighths).
@@ -84,7 +92,7 @@ pub fn to_rgba(idx: &[u8], pal: &Palette, transparent0: bool, owner: Option<u8>)
 }
 
 /// One frame placed in its sheet's full cell, so every frame of a sheet shares a centre.
-fn frame_picture(grp: &Grp, frame: usize, pal: &Palette, owner: u8) -> Picture {
+pub fn frame_picture(grp: &Grp, frame: usize, pal: &Palette, owner: u8) -> Picture {
     let (w, h) = (grp.width as usize, grp.height as usize);
     let mut idx = vec![0u8; w * h];
     let f = &grp.frames[frame];
@@ -146,23 +154,14 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
     let ai = tidewater_formats::aibin::AiFile::parse(install.read("rez\\ai.bin")?)?;
     world.start_ai(std::sync::Arc::new(ai));
 
-    let mut sheets: HashMap<u8, Option<Grp>> = HashMap::new();
-    let mut art = HashMap::new();
-    for u in &world.units {
-        let sheet = sheets.entry(u.kind).or_insert_with(|| {
-            unit_sheet_candidates(u.kind, pud.era).into_iter().find_map(|name| {
+    let sheets = (0..tidewater_formats::script::UNIT_TYPES as u8)
+        .filter_map(|k| {
+            unit_sheet_candidates(k, pud.era).into_iter().find_map(|name| {
                 let g = Grp::parse(&install.read(&name).ok()?).ok()?;
-                (!g.frames.is_empty()).then_some(g)
+                (!g.frames.is_empty()).then_some((k, g))
             })
-        });
-        let Some(grp) = sheet else { continue };
-        art.entry((u.kind, u.owner)).or_insert_with(|| {
-            let n = if u.building || grp.frames.len() < 5 { 1 } else { 5 };
-            UnitArt {
-                facings: (0..n).map(|f| frame_picture(grp, f, &ts.palette, u.owner)).collect(),
-            }
-        });
-    }
+        })
+        .collect();
     let human = pud.owners().iter().position(|&o| o == 5).unwrap_or(0) as u8;
     world.vision.local = human;
     Ok(Scene {
@@ -172,7 +171,7 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         terrain,
         palette: ts.palette.clone(),
         tileset: ts,
-        art,
+        sheets,
         world,
         human,
     })

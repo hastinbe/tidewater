@@ -20,6 +20,10 @@
 //!   candidate names found none, and every unnamed archive block shaped like a sheet turned out to be something
 //!   else. They use their base unit's sheet.
 //! - Walls (types 0x67, 0x68) are map tiles, not sprites.
+//! - Remains: `Other\death.grp` draws dead bodies (type 0x69) with 5 facings per step: human body from frame 0, orc
+//!   body from 5, bones 10 to 29, ship wreck from 30. `Other\bldgdth.grp` (era variants `blddth`) draws the ruins
+//!   (0x6A to 0x6D): land ruin frames 0 and 1, water ruin frames 2 and 3. Found by probing names and rendering
+//!   the sheets; the frames line up with the corpses spec's decay stages.
 
 use crate::pud::Era;
 
@@ -108,6 +112,8 @@ fn sheet(kind: u8) -> Option<Sheet> {
         0x64 => (X, "vcircle", Some("vcir")),
         0x65 => (X, "gate", None),
         0x66 => (X, "rock", None),
+        0x69 => (X, "death", None),
+        0x6a..=0x6d => (X, "bldgdth", Some("blddth")),
         _ => return None,
     })
 }
