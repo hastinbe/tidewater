@@ -167,7 +167,7 @@ no effect is created. A released effect slot is simply marked unused.
 | Human04 setup (oracle trace), the three oil patches (type 0x5D) in slots 1572, 1597 and 1599 | hit points 1 each |
 | Human04 setup (oracle trace), the gold mine (type 0x5C) in slot 1559 | hit points 25500, the type's value (its trips, 700, come from the map) |
 | Every building in the Human04, Human01, human12, orc8 and xorc7 traces, at every record | Facing 0 |
-| Every unit in those traces whose type isn't a building and has "magic" 0 | Mana 0 at every record |
+| Every unit in those traces whose type isn't a building, can't cast and has "magic" 0 | Mana 0 at every record |
 | Human04 at setup: the 16 critters (type 0x39), peons, footmen and grunts | Facings drawn (the critters show facings 1 to 7); mana 0 |
 
 ## Open questions
