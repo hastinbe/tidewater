@@ -211,7 +211,9 @@ impl World {
             !far && !u.ship.landing && u.script.anim == anim::MOVE
         };
         if came_within {
-            self.start_anim(i, anim::WORK_B);
+            // The landing logic takes over the moving: the ordinary steps' path is not reused.
+            self.switch_anim(i, anim::WORK_B);
+            self.units[i].path.clear();
         }
         let u = &mut self.units[i];
         u.ship.landing = !far;
@@ -259,7 +261,7 @@ impl World {
             let (owner, target, dest) = (u.owner, u.ship.target, u.ship.dest);
             let target = target.filter(|&t| self.holds(owner, t));
             let o = self.transport_command(i, target, dest, false);
-            self.give(i, o);
+            self.take_over(i, o);
             return;
         }
         let Some(to) = self.find_push_off(tile, self.units[i].ship.target_tile) else {
@@ -351,17 +353,22 @@ impl World {
             t.ship.dest
         };
         if chebyshev(u.tile, goal) > 1 {
-            // "Boarding moves": the computer players' units leave order 34; the others are given the boarding
-            // command again.
-            if self.computer_player(u.owner) {
+            // "Boarding moves": the computer players' units leave order 34. The others stay in it: in the
+            // human12-transport trace a blocked step keeps restarting the move animation with nothing taking over,
+            // while a move with no route takes the boarding command again at once (order 34, still animation,
+            // wait 3; the transport is told to come unless it is landing).
+            let computer = self.computer_player(u.owner);
+            if computer {
                 let to = t.tile;
                 self.give(i, Order::MoveAttack { goal: to });
-            } else {
-                let o = self.board_command(i, transport);
-                self.give(i, o);
             }
             if matches!(self.move_toward(i, Goal::tile(goal, 1)), Walk::NoPath) {
-                self.stop(i);
+                if computer {
+                    self.stop(i);
+                } else {
+                    let o = self.board_command(i, transport);
+                    self.take_over(i, o);
+                }
             }
             return;
         }
@@ -381,7 +388,7 @@ impl World {
             u.pending = None;
             u.path.clear();
             self.units[ti].passengers[slot] = Some(unit.id);
-            self.switch_anim(i, anim::STILL);
+            self.start_anim(i, anim::STILL);
             self.boarded(i);
             return;
         }
@@ -543,6 +550,8 @@ mod tests {
             }
         }
         assert_eq!(tiles[1], (34, 12), "{tiles:?}");
+        // Within 3 tiles: a one-tile diagonal step (the trace's (70, 32) to (71, 31)), not the two-tile path's next step.
+        assert_eq!(tiles[2], (33, 11), "{tiles:?}");
         assert_eq!(*tiles.last().unwrap(), goal, "{tiles:?}");
     }
 
@@ -763,6 +772,40 @@ mod tests {
         let ti = w.index(tid).unwrap();
         w.kill(ti);
         assert!(w.unit(f).unwrap().dying);
+    }
+
+    #[test]
+    fn a_boarder_with_no_route_takes_the_boarding_command_again() {
+        // human12-transport: a human player's unit in order 34 whose move finds no route stays in order 34 (still
+        // animation, wait 3) instead of going idle; boarding is a special case of "No route".
+        let mut w = sea(20);
+        let t = ship(&mut w, (20, 10), Order::Docked);
+        let tid = w.units[t].id;
+        let f = w.spawn(FOOTMAN, 0, (14, 10), 0).unwrap();
+        let fi = w.index(f).unwrap();
+        for (x, y) in [
+            (13, 9),
+            (14, 9),
+            (15, 9),
+            (13, 10),
+            (15, 10),
+            (13, 11),
+            (14, 11),
+            (15, 11),
+        ] {
+            w.terrain.set_bits(x, y, 0x80);
+        }
+        w.take_over(fi, Order::Board { transport: tid });
+        for _ in 0..3 {
+            w.step(&[]);
+        }
+        let u = w.unit(f).unwrap();
+        assert_eq!(u.order, Order::Board { transport: tid });
+        assert_eq!((u.pending, u.script.anim, u.script.wait), (None, anim::STILL, 3));
+        for _ in 0..30 {
+            w.step(&[]);
+            assert_eq!(w.unit(f).unwrap().order, Order::Board { transport: tid });
+        }
     }
 
     #[test]
