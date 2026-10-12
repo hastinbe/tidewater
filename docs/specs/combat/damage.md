@@ -8,6 +8,9 @@
   distance measure added; demolition blast terrain effects now in `movement/occupancy.md`.
   2026-10-11, round-3 errata: the 7 × 7 splash scan order is row by row from the top, left to right, with a tile's
   ground-layer unit before its air-layer unit (open question closed).
+  2026-10-11, round-8 errata: new subsection "Missile flight" (speed, flight length, landing, impact delay and
+  draws per kind, the computer players' wall exception, and the gryphon hammer and dragon breath, which splash along
+  their path); two open questions closed.
 
 ## Behaviour
 
@@ -94,6 +97,73 @@ An attacking unit plays its **attack script** (see "Attack timing" below). At th
 
 Draws for one ranged shot, in order: one damage draw (non-splash only, and only if `T > 0`), then the horizontal
 scatter, then the vertical scatter.
+
+### Missile flight
+
+**Start.** A missile launched by a unit's attack in cycle C gets its first update in C, which only starts it
+(`spells/spells.md`, "When a new effect first runs"). From C + 1 it makes one **flight step every cycle**; every
+kind in the table below steps every cycle.
+
+**Flight length D.** D is the larger of the horizontal and vertical pixel distances from the missile's start (the
+attacker's centre) to its aim point **after** the aim scatter. If D is below the kind's minimum flight distance,
+D becomes that minimum. The aim point isn't moved, so the missile then flies on past it. Guard towers' shots use the
+same rule without the scatter and without the wall exception below.
+
+**Computer players' wall exception.** If the minimum is more than 2 tiles (catapult rock, ballista bolt), the
+attacker belongs to a computer-controlled player, and the attack's target tile carries a wall flag (0x04 or 0x08
+in `movement/occupancy.md`), the minimum is 2 tiles (64 px) instead.
+
+**Steps.** Each step moves the missile s pixels on the major axis, and s pixels or 0 on the minor axis, by the line
+rule of `spells/spells.md` ("How flying effects move"), with s the kind's speed. The remaining distance starts at
+D and goes down by s per step. The step on which it goes **below 0** is the **landing step**. So a flight has
+N = floor(D / s) + 1 steps, landing at C + N, and the missile ends N × s pixels from its start on the major axis
+(1 to s pixels past D).
+
+**Impact.** The missile then stays where it is. Its impact (the hit on its target, or the splash) comes a fixed
+number of cycles after the landing step: the impact delay in the table. The impact happens at the missile's
+final position.
+
+**Draws.** Each flight step makes one draw, at the end of the step and after the move, including the landing
+step. The draw is discarded. The catapult rock and the small cannon make one **more** draw on every step,
+including the landing step, after which their total travel n × s (for step n) is still below 5 × ceil(D / 5). A
+landing step's draws always come before the impact's draws, which happen in a later cycle. A non-splash missile's
+impact makes no draw of its own (only what "Applying damage" makes).
+
+| Value | Missile | Speed (px per step) | Extra draws | Impact delay (cycles after landing) |
+| --- | --- | --- | --- | --- |
+| 0x00 | lightning | 16 | no | 11 |
+| 0x07 | big cannon | 12 | no | 1 |
+| 0x0A | touch of death | 12 | no | 16 |
+| 0x0D | catapult rock | 8 | yes | 5 |
+| 0x0E | ballista bolt | 8 | no | 1 |
+| 0x0F | arrow | 12 | no | 1 |
+| 0x10 | axe | 12 | no | 1 |
+| 0x11 | submarine missile | 16 | no | 1 |
+| 0x12 | turtle missile | 16 | no | 1 |
+| 0x18 | small cannon | 16 | yes | 1 |
+| 0x1B | demon fire | 12 | no | 5 |
+| 0x01, 0x02 | gryphon hammer, dragon breath | 12, then 6 | no | see the next entry |
+
+**Gryphon hammer and dragon breath.** Each step makes **one draw at its start**, before moving. The step moves
+12 px, or 6 px if the remaining distance is already below 50 at the start of the step, by the same line rule; the
+remaining distance goes down by the amount moved. It keeps falling below 0, and the missile flies on past the aim
+point. Every step that leaves the remaining distance below 50 is **counted**:
+
+- if the count has already passed the **limit**, the missile ends on this step (after moving);
+- otherwise the count goes up by 1, and when the new count is a multiple of 8 the missile **splashes** at its
+position.
+
+The limit is 25, or 40 if the stored damage is exactly 40. So with the default data (stored damage 8 to 16) the
+count runs 1 to 26, splashes come on counts 8, 16 and 24, and the missile ends on the step after count 26. One
+cycle after the end step, the stored damage is applied to the unit that was the target at launch, as for a
+non-splash missile: wherever the hammer is, with no further armour and no draw. If it had no target, a wall on its
+final tile takes the damage.
+
+**Splashes** use the splash rule ("Splash on impact") with the stored damage as that rule's D (not the flight length) and these differences: **armour
+isn't subtracted**, so every unit within 42 px is hit, even with a base of 0; air-layer units are included,
+each after its tile's ground-layer unit; the firing unit is never hit. One draw is made per unit hit, after the
+step's own draw. Walls take D and floor(D / 4) as usual. A unit can be hit by several splashes of the same missile
+and by the final hit.
 
 ### Splash on impact
 
@@ -201,7 +271,8 @@ The values come from the `UDTA` missile weapon byte. The minimum flight distance
 | 0x0D | catapult rock | yes | 3 |
 | 0x0E | ballista bolt | yes | 3 |
 | 0x18 | small cannon | yes | 2 |
-| 0x0F, 0x10, 0x11, 0x12, 0x01, 0x02, 0x1B and others | arrow, axe, submarine, turtle, hammer, breath, demon fire | no | none |
+| 0x01, 0x02 | gryphon hammer, dragon breath | along the path (see "Missile flight") | none |
+| 0x0F, 0x10, 0x11, 0x12, 0x1B and others | arrow, axe, submarine, turtle, demon fire | no | none |
 | 0x1D | none (melee) | not applicable | not applicable |
 
 ### Unit statistics used in the test vectors
@@ -243,15 +314,32 @@ These are the default `unitdata.dat` values.
 | Footman attacking continuously, no spells | hits on cycles 11, 36, 61, … of the attack |
 | Hasted footman | each wait 3 becomes 1, 5 becomes 2, 10 becomes 5; loop = 1 + 1 + 1 + 1 + 2 + 5 = 11, strike on cycle 5 |
 
+Missile flight (C is the cycle of the strike; the scatter draws are taken as giving 0 offset, so the aim point is the
+target's centre):
+
+| Input | Expected |
+| --- | --- |
+| Arrow, D = 100 px | Draws at C: damage (if T > 0), x scatter, y scatter. Steps at C + 1 to C + 9, with remaining 88, 76, 64, 52, 40, 28, 16, 4, −8: landing at C + 9, 108 px from the start. One draw at the end of each step (9). Impact at C + 10: the stored damage is applied, with no draw of its own. 12 draws in all |
+| Catapult rock, D = 160 px | Draws at C: x scatter, y scatter. 5 × ceil(160 / 5) = 160. Steps at C + 1 to C + 21 (remaining 0 after step 20, −8 after step 21): landing at C + 21, 168 px out. Steps 1 to 19 make 2 draws each (travel 8 to 152, below 160) and steps 20 and 21 make 1 each: 40 flight draws. Splash at C + 26, with 1 draw per unit hit |
+| Catapult rock, D = 103 px | N = 13 (104 px); 5 × ceil(103 / 5) = 105, so all 13 steps, the landing step included, make 2 draws: 26 |
+| Ballista bolt, D = 100 px | N = 13, landing at C + 13 (104 px out), 13 flight draws, splash at C + 14 |
+| Lightning (mage), D = 100 px | N = 7, landing at C + 7 (112 px out), 7 flight draws, hit at C + 18 |
+| Human-controlled catapult attacks a wall tile, D = 70 px before the minimum | Minimum 96, so D = 96: N = 13, the rock lands 104 px out (34 px past the wall's centre) |
+| Same, computer-controlled | Minimum 64, so D = 70: N = 9, the rock lands 72 px out |
+| Gryphon rider (basic 0, piercing 16) strikes footman A (armour 2) at cycle C. A's centre is 96 px due east of the gryphon's centre. Footman B's centre is 20 px south of A's. No upgrades. Draws: launch r1 with r1 mod 9 = 4, scatter draws with r AND 7 = 3 | Stored damage 8 + 4 = 12; aim = A's centre, D = 96. Steps at C + 1 to C + 3 move 12 px (remaining 84, 72, 60). Step 4 moves 12 (remaining 48): count 1, 48 px out. Then 6 px a step: count k at step 3 + k, at 42 + 6k px |
+| Same, step 11 (count 8, 90 px out) | Step draw, then a splash at 6 px west of A's centre. A (6 px): base 12, h = 6, damage 6 + (r mod 7), 6 to 12. Then B (max(6, 20) = 20 px): the same, 6 to 12. A is drawn for first if the splash point is on A's tile |
+| Same, step 19 (count 16, 138 px out) | A and B are both 42 px away on x: base floor(12 / 4) = 3, h = 2, damage 2 to 4 each, A first (row order) |
+| Same, step 27 (count 24, 186 px out) | Nobody within 42 px: no splash draws |
+| Same, steps 28 and 29 | Counts 25 and 26 |
+| Same, step 30 (C + 30) | Step draw, move to 204 px; count 26 is past 25, so it ends |
+| Same, C + 31 | A takes the stored 12, with no draw |
+| Same, totals | Draws: 3 at launch, 30 step draws, 4 splash draws = 37. A takes 20 to 28 in all, and B 8 to 16 |
+
 ## Open questions
 
 - Whether a strike in progress uses the acquisition distance measure, and whether range is checked again at the
   strike point.
 - When towers fire relative to their 60- and 151-cycle scripts, and whether a tower's shot is always a missile.
-- What a missile's flight time is in cycles. The research points to `ceil(flight length / 5)` cycles, about 5 px per
-  cycle, but this isn't confirmed.
-- A computer-player rule may shorten the minimum flight distance to 2 tiles when certain target tiles are involved.
-  Not yet understood.
 - Spell damage (fireball, death coil, blizzard, death and decay, whirlwind, flame shield, exorcism, runes) is covered
   separately. Runes deal a flat 50.
 - Demolition squads and sappers: the terrain part of their blast (rock, forest and walls) is specified in
