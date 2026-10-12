@@ -11,6 +11,8 @@
   specified in `ai/caster-ai.md`.
   2026-10-12, round-31 errata: the first goal is given when any unit is created, map units included; the 50-cycle
   passes count the start-up cycles, so they first run in the first start-up cycle.
+  2026-10-12, round-40 errata: sea patrol's anchor tanker is the first tanker that isn't inside; with every tanker
+  inside the anchor is the unit's own tile; `xorc7` and `human10` vectors.
 
 ## Behaviour
 
@@ -309,8 +311,11 @@ idle, and turn into roamers when no enemy is left.
 
 **Sea patrol (6).** If idle:
 
-1. The **anchor** is the unit's own tile, or, if the player has a tanker (the first one in its list), the tile of the
-   depot nearest that tanker that accepts oil (`economy/harvest.md`), if there is one.
+1. The **anchor** is the unit's own tile, or, if the player has a tanker that isn't inside a building or platform
+   (the first such tanker in its list), the tile of the depot nearest that tanker that accepts oil
+   (`economy/harvest.md`), if there is one. Tankers inside are skipped, not taken and then rejected. If every tanker
+   is inside (or there is none), the anchor is the unit's own tile: the patrol toward it then arrives at once, and
+   the swap to the other end takes over with wait 3 (`orders/orders.md`, "Arriving and losing the target").
 2. The **far end** is the player's completed oil platform (bit 11) nearest the anchor; else the completed neutral
    oil patch (bit 21) nearest the anchor; else (anchor x − (r mod 5) − 2, anchor y − (r mod 5) − 2), two draws x first,
    clamped to the map.
@@ -518,6 +523,15 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Human footman V hit; an idle human footman 3 tiles away | Outside R = 2: it doesn't answer (the acquisition search may still react) |
 | Human unit hit by a guard tower | The tower is not recorded as its attacker; no call for help |
 | Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1) and the caster spell step's random search (1 to 10 per random try; `ai/caster-ai.md`). The post choice's off-map case (2) draws during creation, not in pass B |
+
+### Sea patrol (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| `xorc7-7000`, n = 953: computer destroyer 1423 (type 0x1E, owner 2) idle at (6, 22); tanker 1587 outside (order 23), tanker 1594 inside platform 1590 | Sea patrol: order 5, wait 3 |
+| `xorc7-7000`, n = 1002: 1423 idle again at (6, 22); tankers 1587 and 1594 both inside platform 1590 (order 26) | Patrol command toward (6, 22), its own tile: order 5, wait 3. n = 1005: order 5, wait 3 (the swap to the far end); n = 1008: animation 3, it starts walking |
+| `human10-10000`, the first tanker in the list taken and then rejected because it is inside (wrong) | Differs from the trace at n = 6907 |
+| `human10-10000`, n = 6956: computer destroyer 1483 (type 0x1F) at (24, 8) | Order 5, wait 3; n = 6959: tile (26, 6), facing 1, animation 3 |
 
 ## Open questions
 
