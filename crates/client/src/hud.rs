@@ -180,6 +180,8 @@ pub struct View<'a> {
     pub fog: Option<(&'a [u8], &'a [u8])>,
     /// The map view in tiles: left, top, right, bottom.
     pub view: (f32, f32, f32, f32),
+    /// The command panel's shown buttons: slot and icon frame (see [`crate::panel`]).
+    pub buttons: &'a [(u8, u16)],
 }
 
 // --- drawing primitives -------------------------------------------------------------------------------------------
@@ -420,6 +422,11 @@ impl HudArt {
         Layout::new(canvas, &self.pieces)
     }
 
+    /// String `n` of `stat_txt.tbl`, counting from 1 as the specs do.
+    pub fn string(&self, n: u16) -> String {
+        self.names.text((n as usize).wrapping_sub(1)).unwrap_or_default()
+    }
+
     /// The unit type's name from the game's own table.
     pub fn name(&self, kind: u8) -> String {
         self.names.text(kind as usize + 1).unwrap_or_default()
@@ -535,6 +542,22 @@ impl HudArt {
 
         if let Some(msg) = v.status {
             text(&mut pic, &self.font, l.bottom.x + 4, l.bottom.y + 1, msg);
+        }
+
+        // The command panel: frames of the icon sheet (the command icons share the unit icon sheet).
+        for &(slot, icon) in v.buttons {
+            let r = crate::panel::slot_rect((l.buttons.x, l.buttons.y), slot as usize);
+            fill(&mut pic, r, [24, 24, 24]);
+            if let Some(f) = self.icons.frames.get(icon as usize) {
+                let p = frame_picture(f, &self.pal, None);
+                blit(
+                    &mut pic,
+                    r.x + (r.w as i32 - p.width as i32) / 2,
+                    r.y + (r.h as i32 - p.height as i32) / 2,
+                    &p,
+                );
+            }
+            outline(&mut pic, r, [140, 120, 60]);
         }
 
         // Selection.
