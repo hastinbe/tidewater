@@ -11,6 +11,8 @@
   the exact goal.
 - **Changes:** 2026-10-12, round-37 errata: every command clears the blocked counter at once, for any order and even in
   mid-step.
+- **Changes:** 2026-10-12, round-39 errata: the "Paths" fallbacks name the harvesting worker's nearest-tree search
+  (`economy/harvest.md`).
 
 ## Behaviour
 
@@ -110,7 +112,8 @@ because two-tile steps can't always land exactly. When a unit arrives, its cache
   a new path is searched first.
 - The search itself is specified in `pathfinding.md`.
 - If the search returns no steps, the unit can't move. Its order then ends and it becomes idle; some orders have
-  their own fallback, such as an attack-type order looking for a new target.
+  their own fallback, such as an attack-type order looking for a new target, or a harvesting worker looking for the
+  nearest tree (`economy/harvest.md`, "Lumber", "No route").
 - **Before each step,** the next tile is tested against the blocking mask for the unit's layer (`occupancy.md`). Any
   unit on that tile blocks, including allies. If it is blocked, the step doesn't happen and the **blocked rules**
   apply.
