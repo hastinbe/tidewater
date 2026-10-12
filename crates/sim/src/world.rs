@@ -16,6 +16,7 @@ use crate::battle::Missile;
 use crate::combat::Upgrades;
 use crate::economy::{Construction, Event, Job, JobKind};
 use crate::rng::Rng;
+use crate::setup::Start;
 use crate::slots::{self, Slots};
 use crate::terrain::{Terrain, bits, mask};
 use crate::vision::Vision;
@@ -287,7 +288,8 @@ pub struct Unit {
     pub goal: crate::attack_ai::Goal,
     /// A computer building's think counter (training-research spec, "When a building thinks").
     pub think: u16,
-    /// The colour player: the owner the unit was created with (minimap spec, "Dot colour").
+    /// The colour player: the owner the unit was created with (minimap spec, "Dot colour"). It names a player, not a
+    /// palette colour: the unit is drawn in that player's [`Player::colour`].
     pub colour: u8,
     /// The minimap's attack mark (minimap spec, "Attack mark"); not game state.
     pub attack_mark: crate::minimap::Mark,
@@ -336,8 +338,8 @@ pub struct Player {
     pub gathered: [u32; 3],
     /// Computer script number from the map's `AIPL` section.
     pub ai_script: u8,
-    /// Players this player shares its vision with, as a bit set (vision spec). Only read in Enhanced mode, where the
-    /// player itself always counts too. Nothing sets it yet (diplomacy is a later spec).
+    /// Players this player shares its vision with, as a bit set (vision spec). Only read in Enhanced mode. Game setup
+    /// starts it as the player alone (setup spec); diplomacy is a later spec.
     pub shared_vision: u8,
     /// Level of each upgrade line, groups 0 to 10 (tech-tree spec, "Upgrade lines and their effects").
     pub levels: [u8; crate::tech::LINES],
@@ -349,8 +351,12 @@ pub struct Player {
     pub spells_researching: u32,
     pub upgrades_allowed: u32,
     pub upgrades_researching: u32,
-    /// Players 0 to 7 this player is allied with (bit q); a player always counts as allied with itself.
-    pub allies: u8,
+    /// Players 0 to 15 this player counts as allied (bit q), from game setup's alliance table (setup spec); a player
+    /// always counts as allied with itself.
+    pub allies: u16,
+    /// The player colour its units are drawn in: in single player, slot p uses colour p (setup spec, "Colours"). Units
+    /// pick it through their colour player ([`Unit::colour`]), so a unit that changes owner keeps its creator's colour.
+    pub colour: u8,
     /// The allied-victory setting (victory spec, "The multiplayer rule").
     pub allied_victory: bool,
     /// A human player no longer connected.
@@ -657,6 +663,8 @@ pub struct World {
     pub paused: bool,
     /// The local player's remembered buildings for the minimap (minimap spec). Not game state: left out of the hash.
     pub remembered: crate::minimap::Memory,
+    /// The starting view and sound set game setup chose. Not game state: left out of the hash.
+    pub start: crate::setup::Started,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -704,7 +712,10 @@ impl World {
             ai_file: None,
             missiles: vec![None; rules.effect_slots],
             rules,
-            players: [Player::default(); PLAYERS],
+            players: std::array::from_fn(|i| Player {
+                colour: i as u8,
+                ..Default::default()
+            }),
             rng: Rng::new(seed),
             scripts,
             stride,
@@ -719,23 +730,25 @@ impl World {
             speed: crate::timing::NORMAL,
             paused: false,
             remembered: Default::default(),
+            start: Default::default(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
         }
     }
 
-    /// Builds the starting state of a map. Start locations become [`Player::start`], not units. Map units are created
-    /// in map order, each making its creation draws; units of players marked "nobody" are skipped (unit-slots spec,
-    /// "Starting a map"). Converting a unit to its owner's race isn't done yet. `upgrades` is the installation's
-    /// default upgrade data (`upgrades.dat`), which the map's own data replaces when it has any.
+    /// Builds the starting state of a map for the players and choices of `start` ([`Start::choose`]), making steps 5
+    /// to 9 of the setup spec's "Order of the steps": the starting alliances and shared vision, the map's units, the
+    /// rescue players' new controllers, the starting view, the sound set and, on a campaign map, the mission start.
+    /// `tileset` must be the one for `start.era`. `upgrades` is the installation's default upgrade data
+    /// (`upgrades.dat`), which the map's own data replaces when its "use default" word is 0.
     pub fn from_pud(
         pud: &Pud,
         tileset: &Tileset,
         stats: UnitTable,
         upgrades: UpgradeTable,
         scripts: Arc<Scripts>,
-        seed: u32,
+        start: &Start,
     ) -> Result<Self, WorldError> {
         let want = pud.width as usize * pud.height as usize;
         if pud.tiles.len() != want {
@@ -753,62 +766,66 @@ impl World {
             pud.height,
             pud.section(b"OILM").is_some(),
         );
-        let mut w = World::new(terrain, stats, scripts, seed);
+        let mut w = World::new(terrain, stats, scripts, 0);
+        w.rng = start.rng;
+        let setup = &start.setup;
+        w.rules.enhanced = setup.enhanced;
+        if let Some(c) = setup.custom() {
+            w.rules.fog_of_war = c.fog_of_war;
+        }
         w.upgrade_data = upgrades;
-        // The map's upgrade data replaces the defaults only when its "use default data" word is 0.
         if let Some(t) = pud.section(b"UGRD").map(UpgradeTable::from_ugrd).transpose()?.flatten() {
             w.upgrade_data = t;
         }
-        // Without an ALOW section everything is allowed. Our reading: the two "being researched" words start at 0,
-        // since the PUD specification calls them only good for saved games.
-        let alow = pud.section(b"ALOW").map(Restrictions::parse).transpose()?;
+        // An empty ALOW section changes nothing; a full one replaces all six words for every slot.
+        let alow = pud
+            .section(b"ALOW")
+            .filter(|s| !s.is_empty())
+            .map(Restrictions::parse)
+            .transpose()?;
+        let (units, spells, ups) = setup.campaign().map_or((!0, !0, !0), crate::setup::campaign_allowance);
+        let allies = start.alliances();
         for (i, p) in w.players.iter_mut().enumerate() {
-            let (g, l, o) = pud.start_resources(i);
+            let (gold, lumber, oil) = start.resources[i];
             *p = Player {
-                gold: g as u32,
-                lumber: l as u32,
-                oil: o as u32,
-                race: pud.sides().get(i).copied().unwrap_or(2),
-                controller: pud.owners().get(i).copied().unwrap_or(crate::ai::controller::NOBODY),
+                gold,
+                lumber,
+                oil,
+                race: start.races[i],
+                controller: start.controllers[i],
                 ai_script: pud.ai_scripts().get(i).copied().unwrap_or(0),
-                units_allowed: alow.as_ref().map_or(!0, |r| r.units[i]),
-                spells_known: alow.as_ref().map_or(0, |r| r.spells_start[i]),
-                spells_allowed: alow.as_ref().map_or(!0, |r| r.spells_allowed[i]),
-                upgrades_allowed: alow.as_ref().map_or(!0, |r| r.upgrades_allowed[i]),
+                units_allowed: alow.as_ref().map_or(units, |r| r.units[i]),
+                spells_known: alow.as_ref().map_or(crate::setup::SPELLS_KNOWN, |r| r.spells_start[i]),
+                spells_allowed: alow.as_ref().map_or(spells, |r| r.spells_allowed[i]),
+                spells_researching: alow.as_ref().map_or(0, |r| r.spells_researching[i]),
+                upgrades_allowed: alow.as_ref().map_or(ups, |r| r.upgrades_allowed[i]),
+                upgrades_researching: alow.as_ref().map_or(0, |r| r.upgrades_researching[i]),
+                allies: allies[i],
+                shared_vision: if i < 8 { 1 << i } else { 0 },
+                colour: i as u8,
                 ..Default::default()
             };
         }
-        w.loading = true;
-        for u in &pud.units {
-            if pud.owners().get(u.owner as usize) == Some(&3) {
-                continue;
-            }
-            if matches!(u.kind, 0x5e | 0x5f) {
-                if let Some(p) = w.players.get_mut(u.owner as usize) {
-                    p.start = Some((u.x as i32, u.y as i32));
-                }
-                continue;
-            }
-            let resources = if matches!(u.kind, 0x5c | 0x5d) {
-                crate::harvest::trips(u.data)
-            } else {
-                0
+        w.vision.local = start.local;
+        let view = w.create_map_units(pud, setup);
+        // Rescue players become passive computer or computer players.
+        for p in &mut w.players {
+            p.controller = match p.controller {
+                crate::ai::controller::RESCUE_PASSIVE => crate::ai::controller::PASSIVE,
+                crate::ai::controller::RESCUE_ACTIVE => crate::ai::controller::COMPUTER,
+                c => c,
             };
-            // A unit that can't be created is left out, as the game does.
-            let Ok(id) = w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources) else {
-                continue;
-            };
-            if let Some(i) = w.index(id) {
-                w.units[i].held = !matches!(u.kind, 0x5c | 0x5d) && u.data & 0xff != 0;
-                w.held_goal(i);
-            }
-            if crate::economy::kind::is_hall(u.kind)
-                && let Some(p) = w.players.get_mut(u.owner as usize)
-            {
-                p.had_hall = true;
-            }
         }
-        w.loading = false;
+        let view = w.starting_view(view);
+        w.start = crate::setup::Started {
+            view,
+            saved_views: [view; 3],
+            race_setting: start.race_setting,
+            orc_sounds: start.race_setting == crate::setup::race::ORC || setup.campaign() == Some(48),
+        };
+        if let Some(entry) = setup.campaign() {
+            w.start_campaign(entry);
+        }
         Ok(w)
     }
 
@@ -1010,13 +1027,13 @@ impl World {
         self.units.binary_search_by_key(&slot, |u| u.slot).ok()
     }
 
-    /// Whether player `a` counts player `b` as allied (its own player included).
+    /// Whether player `a` counts player `b` as allied (its own player included), by the alliance table.
     pub(crate) fn allied(&self, a: u8, b: u8) -> bool {
         a == b
             || self
                 .players
                 .get(a as usize)
-                .is_some_and(|p| b < 8 && p.allies & (1 << b) != 0)
+                .is_some_and(|p| b < 16 && p.allies & (1 << b) != 0)
     }
 
     /// Moves a unit to another owner's list (unit-slots spec, "Changing owner"); the cap isn't checked. Rescue's

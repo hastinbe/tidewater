@@ -25,6 +25,8 @@ const MAX_INSTRUCTIONS: u32 = 10_000;
 
 /// Map controller values (`OWNR`, PUD specification).
 pub mod controller {
+    /// Passive computer: game setup gives it to slot 15 and to passive rescue players once the map's units exist.
+    pub const PASSIVE: u8 = 2;
     pub const NOBODY: u8 = 3;
     pub const COMPUTER: u8 = 4;
     pub const HUMAN: u8 = 5;
