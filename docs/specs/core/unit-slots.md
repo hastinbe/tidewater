@@ -14,6 +14,8 @@
   first-goal rule runs during creation, before the extra first-wait draw.
 - **Changes:** 2026-10-12, round-33 errata: a new unit's facing is 0 (only mobile units then draw one) and its mana
   byte starts at its type's "magic" value.
+- **Changes:** 2026-10-12, round-35 errata: a new unit starts hidden from every player until the next visibility pass,
+  so no target search finds it before then; bodies and ruins keep the mana byte (open question narrowed).
 
 ## Behaviour
 
@@ -71,7 +73,9 @@ Every unit slot belongs to exactly one owner list at all times.
    Its facing is 0, and its mana byte is its type's "magic" value from the unit data (in the default data 1 for
    types 0x0A, 0x0B, 0x15, 0x17, 0x18 and 0x33, and 0 for every other type, the paladin and ogre-mage included).
    The decay and caster rules of `spells/spells.md` then apply: a unit with a decay rate created during play gets
-   255, and a caster that isn't a building gets 85. Only mobile units then draw a facing (step 5); buildings and
+   255, and a caster that isn't a building gets 85. The unit starts **hidden from every player**, computers included
+   (the hidden-from set of `vision/fog.md`); the next visibility pass (phase 5) recomputes that, so until then no
+   target search counts it as a candidate. Only mobile units then draw a facing (step 5); buildings and
    other units that aren't mobile keep facing 0, and nothing in normal play changes it. So in the default data a
    unit that can't cast has mana 0 unless it is a summoned unit, a berserker with regeneration
    (`spells/spells.md`) or a building under construction or working on a job (`economy/build-train.md`).
@@ -169,11 +173,12 @@ no effect is created. A released effect slot is simply marked unused.
 | Every building in the Human04, Human01, human12, orc8 and xorc7 traces, at every record | Facing 0 |
 | Every unit in those traces whose type isn't a building, can't cast and has "magic" 0 | Mana 0 at every record |
 | Human04 at setup: the 16 critters (type 0x39), peons, footmen and grunts | Facings drawn (the critters show facings 1 to 7); mana 0 |
+| `xhuman4` (oracle trace): slots 1435, 1489, 1506 and 1516 have an enemy in reach from the start | No acquisition in the first start-up cycle (n = 1: order 2); every unit is still hidden from every player there |
 
 ## Open questions
 
-- **Mana byte after a type change, and on corpses and ruins.** Not checked. Default: a type change sets it from the
-  new type as at creation; a corpse or ruin keeps whatever the corpse rules set, or 0.
+- **Mana byte after a type change.** Not checked. Default: a type change sets it from the new type as at creation.
+  Bodies and ruins keep the dead unit's mana byte (`core/corpses.md`).
 - How many cycles a corpse and a ruin last, and the decay stages between them (bones, crater and so on).
 - The exact rule for which ruin type a building becomes (it depends on the building's width, and on water for
   shore buildings).
