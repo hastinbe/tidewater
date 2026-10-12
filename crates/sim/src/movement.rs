@@ -225,6 +225,8 @@ impl World {
         u.path.remove(0);
         let unit = self.units[i].clone();
         self.mark(&unit, next, Some(unit.id));
+        // Vision spec, "When sight is applied": a unit that moves onto a new tile reveals from it at once.
+        self.apply_unit_sight(i);
         if unit.script.anim != anim::MOVE {
             self.switch_anim(i, anim::MOVE);
         }

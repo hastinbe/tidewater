@@ -16,6 +16,7 @@ use crate::economy::{Construction, Event, Job, JobKind};
 use crate::rng::Rng;
 use crate::slots::{self, Slots};
 use crate::terrain::{Terrain, bits, mask};
+use crate::vision::Vision;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -171,6 +172,13 @@ pub struct Unit {
     pub construction: Option<Construction>,
     /// A building's training or upgrade job.
     pub job: Option<Job>,
+    /// Invisibility spell timer; the unit is invisible while above 0. Nothing casts the spell yet (placeholder until
+    /// the spell specs land); the vision rules read it.
+    pub invisibility: u16,
+    /// Players 0 to 7 that can see this unit at all (bit p), recomputed in phase 1 (vision spec, "Detection").
+    pub detected_by: u8,
+    /// Players 0 to 7 the fog hides this unit from (bit p), recomputed in phase 5 (vision spec, "Unit visibility").
+    pub hidden_from: u8,
 }
 
 impl Unit {
@@ -216,10 +224,13 @@ pub struct Player {
     pub gathered: [u32; 3],
     /// Computer script number from the map's `AIPL` section.
     pub ai_script: u8,
+    /// Players this player shares its vision with, as a bit set (vision spec). Only read in Enhanced mode, where the
+    /// player itself always counts too. Nothing sets it yet (diplomacy is a later spec).
+    pub shared_vision: u8,
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
-const RELEASED: u8 = 0xff;
+pub(crate) const RELEASED: u8 = 0xff;
 
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -231,6 +242,11 @@ pub struct Rules {
     pub enhanced: bool,
     pub multiplayer: bool,
     pub build_speed_cheat: bool,
+    /// The fog-of-war option (vision spec, "Fog-of-war option and cheat"). Switch it during play with
+    /// [`World::set_fog_of_war`].
+    pub fog_of_war: bool,
+    /// The reveal-map cheat: nothing is hidden and the whole minimap shows.
+    pub reveal_map: bool,
 }
 
 impl Default for Rules {
@@ -241,6 +257,8 @@ impl Default for Rules {
             enhanced: true,
             multiplayer: false,
             build_speed_cheat: false,
+            fog_of_war: true,
+            reveal_map: false,
         }
     }
 }
@@ -348,6 +366,8 @@ pub struct World {
     pub ai: [AiPlayer; SCRIPT_PLAYERS],
     pub(crate) ai_file: Option<Arc<AiFile>>,
     next_id: u32,
+    /// Fog maps and "seen" bits (vision spec).
+    pub vision: Vision,
     /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
     /// buildings share the ground plane.
     pub(crate) occupancy: [Vec<Option<UnitId>>; 2],
@@ -382,6 +402,7 @@ impl World {
             .map(|k| move_stride(&scripts, k))
             .collect();
         let rules = Rules::default();
+        let (terrain_w, terrain_h) = (terrain.width as usize, terrain.height as usize);
         World {
             tick: 0,
             occupancy: std::array::from_fn(|_| vec![None; n]),
@@ -400,6 +421,7 @@ impl World {
             stride,
             units: Vec::new(),
             next_id: 1,
+            vision: Vision::new(terrain_w, terrain_h),
         }
     }
 
@@ -540,6 +562,9 @@ impl World {
             removing: false,
             construction: None,
             job: None,
+            invisibility: 0,
+            detected_by: 0xff,
+            hidden_from: 0,
         };
         self.mark(&unit, unit.tile, Some(id));
         let at = self.units.partition_point(|u| u.slot < slot);
@@ -646,8 +671,13 @@ impl World {
         for c in commands {
             self.apply(c);
         }
+        self.detection();
         self.step_ai();
+        let refresh = self.fog_refresh();
         for i in 0..self.units.len() {
+            if refresh {
+                self.apply_unit_sight(i);
+            }
             self.advance(i);
         }
         self.advance_missiles();
@@ -656,6 +686,7 @@ impl World {
                 self.construct(i);
             }
         }
+        self.unit_visibility();
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -804,6 +835,8 @@ impl World {
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
         self.ai.hash(&mut h);
+        // The "seen" bits are game state; the explored and visible maps only drive the display.
+        self.vision.seen.hash(&mut h);
         h.finish()
     }
 }
@@ -814,7 +847,7 @@ pub(crate) mod tests {
     use tidewater_formats::tileset::{Palette, TileGroup};
 
     /// A tileset whose group 0 is ground and group 1 is water.
-    fn tileset() -> Tileset {
+    pub(crate) fn tileset() -> Tileset {
         let g = |flags, code| TileGroup {
             megatiles: [0; 16],
             terrain: [code; 4],
@@ -829,7 +862,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn stats() -> UnitTable {
+    pub(crate) fn stats() -> UnitTable {
         let mut t = vec![UnitStats::default(); 110];
         // A footman-like melee unit, an archer-like shooter (type 8) and a catapult-like splash thrower (type 5).
         t[0] = UnitStats {

@@ -46,6 +46,9 @@ pub struct Upgrades {
     pub marksmanship: bool,
     pub longbow: bool,
     pub lighter_axes: bool,
+    /// Ranger and berserker scouting (sight 9; vision spec, "Sight of a unit").
+    pub ranger_scouting: bool,
+    pub berserker_scouting: bool,
 }
 
 fn is_missile_trooper(kind: u8) -> bool {

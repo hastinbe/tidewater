@@ -267,6 +267,9 @@ impl World {
         let b = self.units[bi].clone();
         let bf = self.flags_of(b.kind);
         let tanker = self.is_tanker(&self.units[i]);
+        // Vision spec, "When sight is applied", rule 3.
+        let (worker, building) = (self.units[i].id, b.id);
+        self.worker_entry_sight(worker, building);
         let u = &mut self.units[i];
         u.inside = true;
         u.tile = b.tile;

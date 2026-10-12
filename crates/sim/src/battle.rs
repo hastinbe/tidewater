@@ -59,7 +59,11 @@ impl World {
     /// spec, "Arriving": the radius is the attack range, measured to the target's tile or, for a building, to the
     /// footprint tile picked by the building goal rule, re-read at every check).
     pub(crate) fn attack_order(&mut self, i: usize, target: UnitId) {
-        let target_ok = self.unit(target).is_some_and(|t| t.present());
+        // Orders spec: the order loses a target its owner no longer detects (fog does not matter).
+        let owner = self.units[i].owner;
+        let target_ok = self
+            .unit(target)
+            .is_some_and(|t| t.present() && Self::detected(t, owner));
         if !target_ok || !self.can_attack(&self.units[i], target) {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);

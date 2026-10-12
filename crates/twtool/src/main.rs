@@ -502,6 +502,8 @@ fn sim(
     let mut w = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
     let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
     w.start_ai(std::sync::Arc::new(ai));
+    // The display maps follow the local player, which the smoke check takes to be player 0.
+    w.vision.local = 0;
     let units: Vec<_> = w
         .units
         .iter()
@@ -611,6 +613,7 @@ fn sim(
             );
         }
     }
+    println!("explored tiles (player 0): {}", w.vision.explored_tiles());
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
     Ok(())
 }

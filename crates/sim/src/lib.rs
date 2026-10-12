@@ -21,6 +21,7 @@ pub mod rng;
 pub mod slots;
 pub mod terrain;
 pub mod timing;
+pub mod vision;
 mod world;
 
 pub use battle::Missile;
