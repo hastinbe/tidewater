@@ -7,6 +7,8 @@
 - **Changes:** 2026-10-11, round-3 errata: a trained unit and a builder coming out are placed by the ring search of
   `movement/placement.md` (limit 12, starting west of the building's top-left tile), replacing "within 12 tiles";
   repair rates and costs now point to `economy/repair.md`. Both open questions are closed.
+  2026-10-11, round-4 errata: building payment splits computer players (pay when the AI decides) from every other
+  player (pay on arrival), replacing "computer-controlled" and "human-controlled".
 
 ## Behaviour
 
@@ -44,15 +46,17 @@ Research and upgrades check gold, lumber and oil only.
 
 A worker ordered to build goes to the site in order 28 (arrival radius 0).
 
-- **Computer-controlled players** pay when the AI decides to build, before the worker sets out.
-- **Human-controlled players** pay on arrival. The affordability check runs then, and a failure shows its message and
-  makes the worker idle.
+- **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker
+  sets out.
+- **Every other player** (human, passive computer, neutral) pays on arrival. The affordability check runs then, and a
+  failure shows its message and makes the worker idle. In ordinary games only human players reach this, since
+  passive and neutral players don't build.
 - The site is then checked for placement (`movement/occupancy.md`, placement masks). The worker's own tile doesn't
   block it. A failure shows a placement message. For a computer player the cost is given back, and the worker becomes
   idle.
-- On success, the building is created under construction (below), the human player's cost is taken, and the worker
-  **goes inside** the building, in order 22, the same way a worker enters a mine (`economy/harvest.md`, step 2 of
-  "Entering").
+- On success, the building is created under construction (below), the cost of a player that pays on arrival is
+  taken, and the worker **goes inside** the building, in order 22, the same way a worker enters a mine
+  (`economy/harvest.md`, step 2 of "Entering").
 
 ### Construction
 
