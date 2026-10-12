@@ -33,7 +33,7 @@ pub const SURVIVAL_GOLD: u32 = 400;
 pub const HERO_RESCUE: u32 = 0x1000;
 
 /// A player's result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Outcome {
     Victory,
     Defeat,
@@ -42,7 +42,7 @@ pub enum Outcome {
 }
 
 /// The rule the check applies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Rule {
     /// "The standard rule", with its two options; `rescue` holds the required count.
     Standard {
@@ -72,7 +72,7 @@ fn rescue_rule(required: u32) -> Rule {
 }
 
 /// The check's state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Victory {
     pub countdown: u32,
     /// `None` until a campaign mission starts: the custom-scenario or multiplayer rule, by [`crate::Rules`].

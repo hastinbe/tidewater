@@ -238,6 +238,12 @@ impl Cycler {
         &self.pal
     }
 
+    /// Which of the game's cycles are on, bit n for cycle n (the pulse is cycle 0; the placement cycle isn't part of
+    /// a saved game).
+    pub fn on_set(&self) -> u8 {
+        (0..PLACEMENT_CYCLE).fold(0, |m, n| m | (self.cycles[n].is_some_and(|c| c.on) as u8) << n)
+    }
+
     pub fn set_on(&mut self, n: usize, on: bool) {
         if let Some(c) = self.cycles[n].as_mut() {
             c.on = on;
@@ -329,6 +335,14 @@ impl Cycling {
 
     pub fn cycler(&self) -> &Cycler {
         &self.cycler
+    }
+
+    /// A loaded game: the on set comes from the saved game (`Cycler::loaded`); the steps start counting again.
+    pub fn loaded(era: Era, base: &Palette, on: u8) -> Self {
+        Cycling {
+            cycler: Cycler::loaded(era, base, on),
+            last_step: None,
+        }
     }
 
     /// A unit changed owner: the pulse stays on for the rest of the game ("Cycle 0, the pulse").
@@ -548,6 +562,20 @@ mod tests {
             (41, &[0, 3, 4, 5]),
         ]);
         assert_eq!(turns(&mut c, 41), want);
+    }
+
+    #[test]
+    fn the_on_set_reads_back_the_cycles_that_are_on() {
+        let mut c = Cycler::new(Era::Forest, &base());
+        assert_eq!(c.on_set(), start_on(Era::Forest));
+        c.set_on(0, true);
+        c.set_on(1, false);
+        assert_eq!(c.on_set() & 0b11, 0b01, "the pulse is bit 0");
+        assert_eq!(
+            c.on_set() >> PLACEMENT_CYCLE,
+            0,
+            "the placement cycle isn't part of a save"
+        );
     }
 
     #[test]

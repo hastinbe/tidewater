@@ -23,7 +23,7 @@ use crate::world::World;
 pub const COPIES: usize = 25;
 
 /// The attack mark of a unit. It depends on the local player, so its `Hash` writes nothing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Mark(pub bool);
 
 impl std::hash::Hash for Mark {
@@ -32,7 +32,7 @@ impl std::hash::Hash for Mark {
 
 /// A picture and frame number: the unit type whose sprite draws it (a construction site or a ruin is its own type
 /// here), the animation frame and the facing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Picture {
     pub kind: u8,
     pub frame: u8,
@@ -40,7 +40,7 @@ pub struct Picture {
 }
 
 /// A building's remembered look; `None` while never seen. Its `Hash` writes nothing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Look(pub Option<Picture>);
 
 impl std::hash::Hash for Look {
@@ -54,7 +54,7 @@ pub fn excluded_ruin(kind: u8, enhanced: bool) -> bool {
 }
 
 /// A copy of a building where it stood (a ghost): what the minimap and the map view need to draw it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Remembered {
     pub kind: u8,
     /// The building's colour player (the owner it was created with).
@@ -67,7 +67,7 @@ pub struct Remembered {
 }
 
 /// The remembered buildings: [`COPIES`] slots, drawn in slot order.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Memory {
     pub slots: [Option<Remembered>; COPIES],
 }

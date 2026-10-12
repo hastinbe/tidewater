@@ -93,6 +93,17 @@ impl Jukebox {
         self.queue(a);
     }
 
+    /// A saved game is loaded: the saved track plays if no music has started (a loaded game "uses the saved track",
+    /// `ui/music.md`). The campaign bump has been applied to the saved track already, and applying it again changes
+    /// nothing.
+    pub fn resume_game(&mut self, campaign: Option<u8>, track: Option<u8>) {
+        self.music.set_campaign(campaign);
+        if let Some(t) = track {
+            let a = self.music.start_game(t);
+            self.queue(a);
+        }
+    }
+
     /// The game is over: the bump no longer applies.
     pub fn end_game(&mut self) {
         self.music.set_campaign(None);

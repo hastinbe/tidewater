@@ -83,7 +83,7 @@ pub fn flight_steps(d: i32, speed: i32) -> i32 {
 }
 
 /// A player's upgrade levels (0 to 2) and researched abilities.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Upgrades {
     pub sword: u8,
     pub arrow: u8,

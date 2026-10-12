@@ -10,7 +10,7 @@ pub const FACING_VECTOR: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0
 const MAX_OPS: usize = 256;
 
 /// A unit's place in its animation script.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Script {
     pub pc: u16,
     pub wait: u8,

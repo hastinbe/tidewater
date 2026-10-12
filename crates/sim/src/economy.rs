@@ -118,7 +118,7 @@ pub fn cost(s: &UnitStats) -> Cost {
 }
 
 /// A building under construction ("Construction").
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Construction {
     /// The pass counter P.
     pub passes: u32,
@@ -137,7 +137,7 @@ impl Construction {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum JobKind {
     Train(u8),
     /// The building becomes this type.
@@ -160,7 +160,7 @@ impl JobKind {
 }
 
 /// A building's one job ("Training, research and building upgrades").
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Job {
     pub kind: JobKind,
     pub steps: u16,

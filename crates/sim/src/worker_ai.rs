@@ -49,7 +49,7 @@ mod t {
 }
 
 /// The job a computer worker holds, for the bookkeeping its release undoes.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum AiJob {
     #[default]
     None,

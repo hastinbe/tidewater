@@ -36,7 +36,7 @@ const PORTAL_ENTRIES: [u8; 3] = [32, 34, 50];
 /// The first building type (the farm): a victim below it is a kill, from it on a razing (campaign-flow spec).
 const FIRST_BUILDING: u8 = 0x3a;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Missile {
     /// UDTA missile weapon value.
     pub kind: u8,

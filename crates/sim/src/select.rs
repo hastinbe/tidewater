@@ -70,7 +70,7 @@ pub mod action {
 pub const MOBILE: u32 = flags::LAND | flags::AIR | flags::EXPLODE_WHEN_KILLED | flags::SEA | flags::CRITTER;
 
 /// One player's synced selection and control groups.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PlayerSelection {
     /// Under Classic rules a lost unit leaves its place empty; under Enhanced rules the rest close up.
     pub places: [Option<UnitId>; PLACES],

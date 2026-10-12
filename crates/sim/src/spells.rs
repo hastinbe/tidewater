@@ -139,14 +139,14 @@ fn radius(spell: u8) -> Option<i32> {
 }
 
 /// A live rune on the map.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Rune {
     pub tile: (i32, i32),
     pub life: u16,
 }
 
 /// A flying effect's straight-line rule (spec, "How flying effects move").
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Line {
     sign: (i32, i32),
     x_major: bool,
@@ -204,7 +204,7 @@ impl Line {
 }
 
 /// What a spell effect does each time it is updated.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Fx {
     /// An ordinary attack missile in flight (`battle.rs`, damage spec "Missile flight"). `length` is the flight length
     /// D with the minimum applied; the line's remaining distance counts down from it.
