@@ -794,6 +794,19 @@ fn sim(
             );
         }
     }
+    let (n, heroes) = w.rescuable_counts();
+    let mut marked = std::collections::BTreeMap::new();
+    for u in w.units.iter().filter(|u| u.rescuable && !u.dying && !u.removing) {
+        *marked.entry(u.owner).or_insert(0) += 1;
+    }
+    let per = |f: fn(&tidewater_sim::Player) -> u16| -> Vec<(usize, u16)> {
+        w.players.iter().map(f).enumerate().filter(|(_, v)| *v > 0).collect()
+    };
+    println!(
+        "rescuable units {n} (heroes {heroes}), by owner {marked:?}; rescued by player {:?}; converted by player {:?}",
+        per(|p| p.rescued),
+        per(|p| p.converted)
+    );
     println!("explored tiles (player 0): {}", w.vision.explored_tiles());
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
     Ok(())
