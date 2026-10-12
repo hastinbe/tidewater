@@ -14,6 +14,8 @@
   2026-10-12, round-10 errata: a target with the used mark gets no notification and no damage; the notification
   points to `ai/attack-ai.md`, "Call for help", and the under-attack alert is no longer described as part of it.
   2026-10-12, round-14 errata: the Dark Portal special case is defined (game kind, campaign entries, types).
+  2026-10-12, round-15 errata: new paragraph "Impact effects" (the effect each missile kind leaves at its impact, its
+  slot and its lifetime).
 
 ## Behaviour
 
@@ -129,6 +131,25 @@ N = floor(D / s) + 1 steps, landing at C + N, and the missile ends N × s pixels
 **Impact.** The missile then stays where it is. Its impact (the hit on its target, or the splash) comes a fixed
 number of cycles after the landing step: the impact delay in the table. The impact happens at the missile's
 final position.
+
+**Impact effects.** At every impact of these missile kinds, after the impact sound (`ui/sounds.md`) and after the
+hit or splash, a cosmetic effect is created at the missile's final pixel position:
+
+| Missile kind | Impact effect |
+| --- | --- |
+| 0x0D catapult rock, 0x0E ballista bolt | kind 0x15 (ballista impact) |
+| 0x07 big cannon, 0x18 small cannon | kind 0x1A (cannon tower explosion) |
+| 0x11 submarine missile, 0x12 turtle missile | kind 0x17 (explosion) |
+| Every other kind | none |
+
+- The effect is made whatever the damage, even 0, and whether or not anything was hit.
+- It takes the lowest free effect slot. If there is none, no effect is made. The missile's own slot is freed only
+  after this, so the effect never reuses the missile's slot.
+- Its first update follows `spells/spells.md`, "When a new effect first runs" (it is created by another effect).
+- It changes nothing in the game. It holds its slot until its script's step done, counted from the effect's
+  restart at its first update: for kind 0x15, six frames with a wait of 2 each (12 cycles); for kind 0x1A, four
+  frames with a wait of 3 each (12 cycles); for kind 0x17, sixteen frames with a wait of 3 each (48 cycles; the
+  cosmetic effect of `spells/spells.md`, "Cosmetic effects").
 
 **Draws.** Each flight step makes one draw, at the end of the step and after the move, including the landing
 step. The draw is discarded. The catapult rock and the small cannon make one **more** draw on every step,
@@ -341,6 +362,16 @@ target's centre):
 | Same, step 30 (C + 30) | Step draw, move to 204 px; count 26 is past 25, so it ends |
 | Same, C + 31 | A takes the stored 12, with no draw |
 | Same, totals | Draws: 3 at launch, 30 step draws, 4 splash draws = 37. A takes 20 to 28 in all, and B 8 to 16 |
+
+Impact effects:
+
+| Input | Expected |
+| --- | --- |
+| A catapult rock lands and splashes; effect slots 0 to 4 in use, slot 5 free; the rock is in slot 3 | No impact sound; the splash; a kind 0x15 effect in slot 5 at the rock's position; the rock's slot 3 is freed. Slot 5 comes after slot 3, so the effect's first update is in the same cycle: `misc\explode` plays at its tile. It is freed after 12 cycles of waits |
+| A ballista bolt with stored damage 0 lands | No impact sound (damaging only); the kind 0x15 effect is still made, and plays `misc\explode` at its first update |
+| A battleship's big cannon lands; slot 1 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 1. Slot 1 comes before slot 6, so its first update, and its `misc\explode`, are in the next cycle |
+| A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
+| A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
 
 ## Open questions
 
