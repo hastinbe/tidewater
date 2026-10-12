@@ -6,6 +6,8 @@
   yet confirmed against the running game, except the frame rules of the round-33 errata (oracle trace Human04).
 - **Changes:** 2026-10-11, round-2 errata: when an animation's first instruction runs depends on how it was started.
   2026-10-12, round-33 errata: starting an animation never changes the frame; the events that do are listed.
+  2026-10-12, round-35 errata: new rule "Facing a tile" (eight-way, on tiles, a building faced at its top-left tile plus
+  (1, 1)), with trace vectors.
 
 ## Behaviour
 
@@ -74,6 +76,22 @@ clockwise:
 
 A diagonal step moves the same count on both axes, so a diagonal tile crossing covers 32 px on each axis in the same
 number of cycles as a straight one.
+
+**Facing a tile.** Wherever a spec says a unit faces, or turns to face, a tile or a target (placement, entering a
+mine or depot, felling, repair, point spells, and turning to strike), the new facing comes from this rule. Let dx and
+dy be measured from tile A (the unit's own tile) to tile B, with ax = |dx| and ay = |dy|:
+
+1. If ax < ay (mostly vertical): north (dy < 0) or south (dy ≥ 0) when ax < max(1, floor(ay / 2)); otherwise the
+   diagonal.
+2. If ax ≥ ay (mostly horizontal, ties included): west (dx < 0) or east (dx ≥ 0) when ay < max(1, floor(ax / 2));
+   otherwise the diagonal.
+3. The diagonal is NE, SE, SW or NW by the signs, with dx ≥ 0 counting as east and dy ≥ 0 as south.
+
+So a diagonal is chosen only when the smaller distance is at least half the larger one (rounded down, and at least
+1), and a unit facing its own tile faces east (2). B is a target building's top-left tile plus (1, 1), any other
+target unit's own tile (for a moving unit, the tile it has claimed, `movement/movement.md`), or the target tile when
+there is no target unit. Both ends are always tiles, never pixel positions, even while either unit is between tiles.
+Ships use a different rule when they strike (`combat/attack-ground-demolish.md`); it isn't described yet.
 
 ## Data
 
@@ -181,6 +199,10 @@ instructions and signal "step done" only every two tiles.
 | Human04 (oracle trace), peon 1531 fells its tree at n = 1913 | Frame 25 at n = 1912, 0 at n = 1913 (the felling, not the take-over) |
 | Human04, peon 1548 reaches the mine at n = 89 | n = 88: order 23, animation 3, frame 20. n = 89: order 25, animation 3, frame 0, wait 3 (the arrival switch ran the order's own animation; the take-over kept that frame) |
 | Human04, peon 1548 returning gold, order 25 takes over at n = 374 | Frame 0 at n = 374 to 380 (left by the arrival switch), then 5, 10, 0, 15, 20 as the move script runs; order 26 at n = 399 with frame 0 |
+| Facing a tile: `orc4` slot 1584 (type 0x02) comes out of building 1577 at n = 1273 onto (9, 12); its target, gold mine 1599, has top-left (12, 1), so B = (13, 2) | dx = +4, dy = −10: facing 0 (north) |
+| Facing a tile: `human01-basics` n = 116, footman 1598 on (26, 10) (pixel (832, 320)) strikes grunt 1592, which has claimed (26, 11) (pixel (845, 365)) | dx = 0, dy = +1: facing 4 (south), not the pixel direction |
+| Facing a tile: (76, 78) → (78, 78); (87, 80) → (89, 78) | 2; 1 |
+| Facing a tile: (0, 0) → (3, 1); → (4, 1); → (−2, −5); → (−2, −6); (5, 5) → (5, 5) | 3; 2; 7; 0; 2 |
 
 ## Open questions
 
