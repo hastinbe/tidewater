@@ -13,8 +13,8 @@
 //! part of a saved game: they stay in [`crate::gamemenu::Stored`].
 //!
 //! Not yet here: the game clock and the pause counts (`ClientState::clock_ms` and `pause_counts` stay `None`; nothing
-//! keeps them yet), multiplayer saves (who may save and the slot choice are in `saves`, tested but unused), and the
-//! main menu's Load Game button (the entry points are ready).
+//! keeps them yet) and multiplayer saves (who may save and the slot choice are in `saves`, tested but unused). The main
+//! menu's Load Game (`frontend`) uses [`load_game`] too.
 
 use bevy::prelude::*;
 use tidewater_sim::setup::Setup;

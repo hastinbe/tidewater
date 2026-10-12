@@ -5,7 +5,10 @@
 //!
 //! Every screen is drawn in software into 640x480 pictures shown by one camera on its own render layer, above the
 //! game's cameras. The dialog files (`rez\*.bin`) aren't specified yet, so the layouts of the menu, the dialogs, the
-//! briefing and the score screen are our own, and the menu has only what the flow needs (New Campaign, Quit).
+//! briefing and the score screen are our own, and the menu has only what the flow needs (New Campaign, Load Game,
+//! Quit; N, L and Q are our keys for them). The main menu and the credits fade in and out (`ui/palette-effects.md`,
+//! "Screen fades": 200 ms and 100 ms) like the title and act screens; the new-campaign choices, which the fade table
+//! doesn't name, don't fade.
 //!
 //! Entry points other screens reuse: [`restart`] (the game menu's restart: back to "Starting a mission"),
 //! [`end_with`] (a game's end, through the victory or defeat dialog's Continue), and [`to_main_menu`].
@@ -18,6 +21,8 @@ use std::time::Duration;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::ScalingMode;
 use bevy::camera::visibility::RenderLayers;
+use bevy::input::keyboard::KeyboardInput;
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use tidewater_formats::fnt::Font;
@@ -31,6 +36,9 @@ use tidewater_sim::victory::Outcome;
 use crate::campaign::{self as cf, Act, ActEvent, ActTimer, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::hud::{self, Rect};
 use crate::jukebox::{self, Jukebox};
+use crate::palette::fades;
+use crate::savedlg::SaveUi;
+use crate::saves;
 use crate::scene::Picture;
 use crate::video;
 
@@ -481,6 +489,9 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(AppState::Video), enter_video)
         .add_systems(OnEnter(AppState::Title), enter_title)
         .add_systems(OnEnter(AppState::MainMenu), enter_menu)
+        .add_systems(OnExit(AppState::MainMenu), |mut c: Commands| {
+            c.remove_resource::<MenuLoad>()
+        })
         .add_systems(OnEnter(AppState::NewCampaign), enter_new_campaign)
         .add_systems(OnEnter(AppState::Act), enter_act)
         .add_systems(OnEnter(AppState::Briefing), enter_briefing)
@@ -495,7 +506,8 @@ pub fn plugin(app: &mut App) {
                 boot.run_if(in_state(AppState::Boot)),
                 play_video.run_if(in_state(AppState::Video)),
                 run_title.run_if(in_state(AppState::Title)),
-                run_menu.run_if(in_state(AppState::MainMenu)),
+                run_menu.run_if(in_state(AppState::MainMenu).and_then(not(resource_exists::<MenuLoad>))),
+                run_menu_load.run_if(in_state(AppState::MainMenu).and_then(resource_exists::<MenuLoad>)),
                 run_new_campaign.run_if(in_state(AppState::NewCampaign)),
                 run_act.run_if(in_state(AppState::Act)),
                 run_briefing.run_if(in_state(AppState::Briefing)),
@@ -718,6 +730,35 @@ fn apply_fades(time: Res<Time>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fad
     }
 }
 
+/// A fade-in over `ms` of every layer of the screen being opened (its layers are spawned by the same commands).
+fn fade_in_new_screen(commands: &mut Commands, ms: u32) {
+    commands.queue(move |w: &mut World| {
+        let mut q = w.query::<(Entity, &Layer)>();
+        let es: Vec<Entity> = q.iter(w).map(|(e, _)| e).collect();
+        for e in es {
+            w.entity_mut(e).insert(Fade {
+                from: 0.0,
+                to: 1.0,
+                at: 0.0,
+                ms: ms as f64,
+            });
+        }
+    });
+}
+
+/// A fade-out over `ms` of every layer, starting at `at`; returns when it ends.
+fn fade_out_all(commands: &mut Commands, q: &Query<(Entity, &Layer)>, at: f64, ms: u32) -> f64 {
+    for (e, _) in q {
+        commands.entity(e).insert(Fade {
+            from: 1.0,
+            to: 0.0,
+            at,
+            ms: ms as f64,
+        });
+    }
+    at + ms as f64
+}
+
 fn fade_layer(commands: &mut Commands, q: &Query<(Entity, &Layer)>, layer: u8, from: f32, to: f32, at: f64, ms: u32) {
     for (e, l) in q {
         if l.0 == layer {
@@ -899,18 +940,7 @@ fn enter_title(
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(TitleScreen { closing: None });
     let _ = layers;
-    commands.queue(|w: &mut World| {
-        let mut q = w.query::<(Entity, &Layer)>();
-        let es: Vec<Entity> = q.iter(w).map(|(e, _)| e).collect();
-        for e in es {
-            w.entity_mut(e).insert(Fade {
-                from: 0.0,
-                to: 1.0,
-                at: 0.0,
-                ms: cf::TITLE_FADE_MS as f64,
-            });
-        }
-    });
+    fade_in_new_screen(&mut commands, cf::TITLE_FADE_MS);
     music.start(Some(cf::TITLE_MUSIC));
 }
 
@@ -953,6 +983,23 @@ struct Menu {
     items: Vec<(Rect, String)>,
     hot: Option<usize>,
     drawn: Option<Option<usize>>,
+    /// The main menu's fade-out: when it ends, and what was chosen.
+    closing: Option<(f64, MenuPick)>,
+}
+
+/// What the main menu does once its fade-out ends.
+enum MenuPick {
+    NewCampaign,
+    Load(Box<crate::savegame::Resume>),
+    Quit,
+}
+
+/// The main menu's load dialog (`loadgamt.bin`, spec `game/save-load.md`, "Load dialog"), open over the menu.
+#[derive(Resource)]
+struct MenuLoad {
+    ui: SaveUi,
+    image: Handle<Image>,
+    layer: Entity,
 }
 
 fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
@@ -981,6 +1028,7 @@ fn open_menu(commands: &mut Commands, front: &mut Front, images: &mut Assets<Ima
         items: menu_items(labels, top),
         hot: None,
         drawn: None,
+        closing: None,
     });
 }
 
@@ -1035,15 +1083,20 @@ fn enter_menu(
         &mut commands,
         &mut front,
         &mut images,
-        &["New Campaign", "Quit"],
+        &["New Campaign", "Load Game", "Quit"],
         AppState::MainMenu,
     );
+    fade_in_new_screen(&mut commands, fades::MENUS);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn run_menu(
+    mut commands: Commands,
     mut menu: ResMut<Menu>,
+    clock: Res<Clock>,
+    layers: Query<(Entity, &Layer)>,
     front: Res<Front>,
+    folder: Res<crate::savegame::SaveFolder>,
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
@@ -1053,21 +1106,108 @@ fn run_menu(
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    // Palette-effects spec, "Screen fades": nothing else runs during a fade.
+    if let Some((end, _)) = &menu.closing {
+        if clock.0 < *end {
+            return;
+        }
+        let Some((_, pick)) = menu.closing.take() else { return };
+        match pick {
+            MenuPick::NewCampaign => {
+                flow.steps = VecDeque::from([Step::NewCampaign]);
+                go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+            }
+            MenuPick::Load(r) => crate::savegame::load_game(&mut flow, &mut next, r.header, r.body),
+            MenuPick::Quit => {
+                exit.write(AppExit::Success);
+            }
+        }
+        return;
+    }
     let at = pointer(&window, &cam);
+    // The menu is drawn before its fade-in, but takes no input until the fade ends.
     let pick = menu_input(&mut menu, &front, &mut images, at, &mouse, &keys, "Tidewater");
-    let pick = pick.or(keys.just_pressed(KeyCode::KeyN).then_some(0));
+    if clock.0 < fades::MENUS as f64 {
+        return;
+    }
+    let pick = pick
+        .or(keys.just_pressed(KeyCode::KeyN).then_some(0))
+        .or(keys.just_pressed(KeyCode::KeyL).then_some(1))
+        .or(keys.just_pressed(KeyCode::KeyQ).then_some(2));
+    let close = |commands: &mut Commands, menu: &mut Menu, pick: MenuPick| {
+        let end = fade_out_all(commands, &layers, clock.0, fades::MENUS);
+        menu.closing = Some((end, pick));
+    };
     match pick {
-        Some(0) => {
-            flow.steps = VecDeque::from([Step::NewCampaign]);
-            go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        Some(0) => close(&mut commands, &mut menu, MenuPick::NewCampaign),
+        Some(1) => {
+            // Loading from the main menu is single player, and every single-player game is Enhanced.
+            let entries = folder.0.list(crate::savefile::Kind::Single, true);
+            let ui = SaveUi::new(saves::Dialog::open(saves::Mode::Load, entries, saves::FORBIDDEN));
+            let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
+            let image = images.add(rgba_image(pic));
+            let layer = commands
+                .spawn((
+                    Sprite::from_image(image.clone()),
+                    Transform::from_xyz(0.0, 0.0, 1.0),
+                    RenderLayers::layer(FRONT_LAYER),
+                    Layer(1),
+                    Persist,
+                    DespawnOnExit(AppState::MainMenu),
+                ))
+                .id();
+            commands.insert_resource(MenuLoad { ui, image, layer });
         }
-        Some(_) => {
-            exit.write(AppExit::Success);
-        }
-        None if keys.just_pressed(KeyCode::KeyQ) => {
-            exit.write(AppExit::Success);
-        }
+        Some(_) => close(&mut commands, &mut menu, MenuPick::Quit),
         None => {}
+    }
+}
+
+/// One frame of the main menu's load dialog: Load reads the chosen file and, if it is valid, the menu fades out and the
+/// saved game starts; a file that isn't valid shows the reason (`saves::Dialog::failed`); Cancel closes the dialog.
+#[allow(clippy::too_many_arguments)]
+fn run_menu_load(
+    mut commands: Commands,
+    mut load: ResMut<MenuLoad>,
+    mut menu: ResMut<Menu>,
+    clock: Res<Clock>,
+    layers: Query<(Entity, &Layer)>,
+    front: Res<Front>,
+    mut images: ResMut<Assets<Image>>,
+    (mut typed, mut wheel): (MessageReader<KeyboardInput>, MessageReader<MouseWheel>),
+    window: Query<&Window, With<PrimaryWindow>>,
+    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+) {
+    let input = crate::gamemenu::saving_input(&mut typed, &mut wheel, &keys, &mouse, &window, &cam);
+    let load = &mut *load;
+    let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot);
+    let before = snap(&load.ui);
+    let step = load.ui.step(&input);
+    let mut redraw = before != snap(&load.ui);
+    match step {
+        saves::Step::Close => {
+            commands.entity(load.layer).despawn();
+            commands.remove_resource::<MenuLoad>();
+            return;
+        }
+        saves::Step::Load(entry) => match saves::SaveDir::read(&entry.path, true) {
+            Ok((header, body)) => {
+                commands.remove_resource::<MenuLoad>();
+                let end = fade_out_all(&mut commands, &layers, clock.0, fades::MENUS);
+                menu.closing = Some((end, MenuPick::Load(Box::new(crate::savegame::Resume { header, body }))));
+            }
+            Err(reason) => {
+                load.ui.dialog.failed(reason, &entry.stem);
+                redraw = true;
+            }
+        },
+        _ => {}
+    }
+    if redraw {
+        let p = load.ui.draw(&front.font, &front.big, &|n| front.net(n));
+        set_image(&mut images, &load.image, p);
     }
 }
 
@@ -1677,6 +1817,8 @@ struct Scroller {
     narration_ms: u32,
     voice: VecDeque<(u32, String)>,
     drawn: Option<u32>,
+    /// The credits' fade-out: when it ends.
+    closing: Option<f64>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1715,6 +1857,7 @@ fn open_scroller(
         narration_ms: total,
         voice: cf::narration_starts(lens).into_iter().zip(files).collect(),
         drawn: None,
+        closing: None,
     });
 }
 
@@ -1788,6 +1931,7 @@ fn enter_credits(
         Some(cf::CREDITS_STEP_MS),
         AppState::Credits,
     );
+    fade_in_new_screen(&mut commands, fades::CREDITS);
     music.start_unless_started(crate::music::CREDITS_TRACK);
 }
 
@@ -1806,8 +1950,16 @@ fn run_scroller(
     mut music: ResMut<Jukebox>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    layers: Query<(Entity, &Layer)>,
 ) {
     let now = clock.0;
+    // Palette-effects spec, "Screen fades": the credits fade out over 100 ms, and nothing else runs meanwhile.
+    if let Some(end) = s.closing {
+        if now >= end {
+            go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        }
+        return;
+    }
     while s.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = s.voice.pop_front().unwrap();
         play_once(&mut commands, &mut front, &mut sources, &f, *state.get());
@@ -1832,6 +1984,8 @@ fn run_scroller(
         if *state.get() == AppState::Credits {
             // Music spec: the credits' close fades all sound.
             music.fade_stop(true, None);
+            s.closing = Some(fade_out_all(&mut commands, &layers, now, fades::CREDITS));
+            return;
         }
         go_on(&mut flow, &front, &keys, &mut next, &mut exit);
     }

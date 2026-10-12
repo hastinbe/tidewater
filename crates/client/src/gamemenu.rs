@@ -769,8 +769,20 @@ fn gather_saving_input(
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
 ) {
+    input.0 = saving_input(&mut typed, &mut wheel, &keys, &mouse_in, &window, &cam);
+}
+
+/// One frame's input for a save or load dialog (also the main menu's load dialog, `frontend`).
+pub(crate) fn saving_input(
+    typed: &mut MessageReader<KeyboardInput>,
+    wheel: &mut MessageReader<MouseWheel>,
+    keys: &ButtonInput<KeyCode>,
+    mouse_in: &ButtonInput<MouseButton>,
+    window: &Query<&Window, With<PrimaryWindow>>,
+    cam: &Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+) -> savedlg::Input {
     let mut i = savedlg::Input {
-        pointer: frontend::pointer(&window, &cam).map(|p| (p.x, p.y)),
+        pointer: frontend::pointer(window, cam).map(|p| (p.x, p.y)),
         click: mouse_in.just_released(MouseButton::Left),
         enter: keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]),
         escape: keys.just_pressed(KeyCode::Escape),
@@ -789,7 +801,7 @@ fn gather_saving_input(
     for w in wheel.read() {
         i.wheel += w.y.signum() as i32;
     }
-    input.0 = i;
+    i
 }
 
 fn close_on_exit(mut commands: Commands) {
