@@ -287,6 +287,10 @@ pub struct Unit {
     pub goal: crate::attack_ai::Goal,
     /// A computer building's think counter (training-research spec, "When a building thinks").
     pub think: u16,
+    /// The colour player: the owner the unit was created with (minimap spec, "Dot colour").
+    pub colour: u8,
+    /// The minimap's attack mark (minimap spec, "Attack mark"); not game state.
+    pub attack_mark: crate::minimap::Mark,
 }
 
 impl Unit {
@@ -651,6 +655,8 @@ pub struct World {
     /// The game speed, 0 to 8 (timing-and-rng spec, the 9 levels), and whether the game is paused.
     pub speed: u8,
     pub paused: bool,
+    /// The local player's remembered buildings for the minimap (minimap spec). Not game state: left out of the hash.
+    pub remembered: crate::minimap::Memory,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -712,6 +718,7 @@ impl World {
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,
+            remembered: Default::default(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
@@ -907,6 +914,8 @@ impl World {
             circle_wait: 0,
             freeze: Default::default(),
             held: false,
+            colour: owner,
+            attack_mark: Default::default(),
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);
@@ -1048,6 +1057,7 @@ impl World {
         self.timers_pass();
         self.sort_vertical();
         self.unit_visibility();
+        self.forget_seen_buildings();
         self.flash_pass();
         self.victory_phase();
         self.prune_selections();

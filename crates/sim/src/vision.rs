@@ -8,7 +8,7 @@
 //!
 //! Placeholders (the specs they wait for are not approved yet): shared vision sets
 //! ([`Player::shared_vision`](crate::Player)), the invisibility timer on [`Unit`], and the minimap building marker
-//! (see [`World::on_minimap`]). Player kinds come from the player's `OWNR` controller.
+//! (see [`World::on_minimap`]). The minimap's attack marks and remembered buildings are in [`crate::minimap`]. Player kinds come from the player's `OWNR` controller.
 
 use std::sync::OnceLock;
 
@@ -430,20 +430,28 @@ impl World {
                 let tl = (u.pos.0.div_euclid(crate::TILE_PX), u.pos.1.div_euclid(crate::TILE_PX));
                 let mut hidden = 0;
                 for p in 0..SEEN_PLAYERS {
-                    let h = match self.kind_of(p) {
-                        Kind::Computer => false,
-                        Kind::Nobody => true,
-                        Kind::Human | Kind::Passive => (0..u.size.1 as i32)
-                            .flat_map(|dy| (0..u.size.0 as i32).map(move |dx| (dx, dy)))
-                            .all(|(dx, dy)| self.vision.unseen_by(p, tl.0 + dx, tl.1 + dy)),
-                    };
-                    if h {
+                    if self.footprint_hidden_from(p, tl, u.size) {
                         hidden |= bit(p);
                     }
                 }
                 hidden
             };
             self.units[i].hidden_from = hidden;
+        }
+    }
+
+    /// Whether a footprint at `tl` of `size` tiles is hidden from player `p` by the fog ("Unit visibility" for a
+    /// unit that is alive and not inside anything). Parts outside the map are ignored.
+    pub(crate) fn footprint_hidden_from(&self, p: u8, tl: (i32, i32), size: (u8, u8)) -> bool {
+        if self.rules.reveal_map {
+            return false;
+        }
+        match self.kind_of(p) {
+            Kind::Computer => false,
+            Kind::Nobody => true,
+            Kind::Human | Kind::Passive => (0..size.1 as i32)
+                .flat_map(|dy| (0..size.0 as i32).map(move |dx| (dx, dy)))
+                .all(|(dx, dy)| self.vision.unseen_by(p, tl.0 + dx, tl.1 + dy)),
         }
     }
 
@@ -475,21 +483,22 @@ impl World {
     /// Whether the minimap draws a unit for the local player: a unit that is not hidden from it and is detected by
     /// it; a building once seen. PLACEHOLDER: the spec's "seen" marker for buildings is an open question, so a
     /// building counts as seen when any tile of its footprint is explored.
+    /// Minimap spec, "Units and buildings": dying, removed and inside units are skipped.
     pub fn on_minimap(&self, u: &Unit) -> bool {
         let p = self.vision.local;
-        if u.dying || u.removing || !Self::detected(u, p) {
+        if u.dying || u.removing || u.inside || !Self::detected(u, p) {
             return false;
         }
         if !u.building {
             return u.hidden_from & bit(p) == 0;
         }
-        self.building_on_minimap(u)
+        self.rules.reveal_map || self.building_seen(u)
     }
 
-    fn building_on_minimap(&self, u: &Unit) -> bool {
-        self.rules.reveal_map
-            || (0..u.size.1 as i32)
-                .any(|dy| (0..u.size.0 as i32).any(|dx| !self.vision.unexplored(u.tile.0 + dx, u.tile.1 + dy)))
+    /// The marker that the local player has seen a building (PLACEHOLDER, see [`World::on_minimap`]).
+    pub(crate) fn building_seen(&self, u: &Unit) -> bool {
+        (0..u.size.1 as i32)
+            .any(|dy| (0..u.size.0 as i32).any(|dx| !self.vision.unexplored(u.tile.0 + dx, u.tile.1 + dy)))
     }
 }
 
