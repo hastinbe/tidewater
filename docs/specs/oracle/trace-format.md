@@ -8,6 +8,8 @@
   2026-10-12: a cheat flag with no name in `game/cheats.md` is written as `"unnamed N"`, never as a raw value.
   2026-10-12: format version 2 (input scenarios): the header's `input` field, `turn` records for turns that carried
   out commands, their `commands` list, and when a handed-over command runs.
+  2026-10-12: the `cheat` command kind (still version 2); input lists are in ascending order of `n`, so the Orc02
+  vector with a late hand-over is replaced by a Human06 queue vector.
 
 ## Behaviour
 
@@ -57,7 +59,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `races` | 16 entries: `"human"`, `"orc"` or `"neutral"` |
 | `cheats` | The cheat flags on at setup, by their phrase or word as in `game/cheats.md` (for example `"tigerlily"`, mission select, which the launch uses; `"title"`, `"noglues"`); the two notices without a phrase are `"notice A"` and `"notice B"`; any other flag (none is known to be set by anything) is `"unnamed N"`, with N a number from 0 to 31 that only tells such flags apart; empty when none |
 | `unit_slots`, `effect_slots` | Table sizes (`core/unit-slots.md`, "Table sizes") |
-| `input` | The scenario's commands as given to the harness, in file order; an empty list when there is no input. Each entry has `n` (see "When a command runs"), `player` (always the local player) and the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used) |
+| `input` | The scenario's commands as given to the harness, in file order; an empty list when there is no input. Each entry has `n` (see "When a command runs"), `player` (always the local player) and the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used), and a `cheat` entry has `add` instead of `cheats` ("Cheat commands") |
 
 ### Record fields
 
@@ -114,6 +116,7 @@ and `kind`.
 | `command` | `command`, `tile`, `target` | Gives command number `command` (`orders/orders.md`, "Commands"; a spell by its spell order number, 38 to 56) to the units of the player's synced selection, as in `ui/selecting-and-commanding.md`, "Which units take part in a command": the list of handled commands, the selection filter and the formation offset. `tile` is `[x, y]`; `target` is a unit slot or `null` |
 | `build` | `type`, `tile` | The first unit of the player's synced selection, if its type is its race's worker, is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
 | `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/tech-tree.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
+| `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
 | `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
 
 A command whose conditions fail (a unit not owned by the player, a builder that isn't a worker, too little gold) is
@@ -123,16 +126,44 @@ still listed: it was carried out and did nothing.
 in a Human12 test run, a `select` of one building of the local player, which the scenario never gave, ran in turn 71.
 A comparer applies these like any other command.
 
+### Cheat commands
+
+**Names.** Each flag in a `cheat` entry's `cheats` is named as in the header's `cheats` field: by its phrase or word
+in `game/cheats.md` (for example `"every little thing she does"`, all spells; `"glittering prizes"`, resources;
+`"make it so"`, build speed; `"tigerlily"`, mission select), `"notice A"` or `"notice B"`, or `"unnamed N"`. The list
+is a set; its order means nothing. An empty list means every flag is off.
+
+**Carrying it out.** The cheat flags are one set for the whole game, not one per player. The flags before the first
+cheat command are the header's `cheats`; no record repeats them, so a comparer follows them from the header through
+each `cheat` entry. When the entry runs, the comparer carries out `game/cheats.md`, "Carrying out a cheat command",
+with `cheats` as the new flags:
+
+1. If `player` is the local player and `cheats` isn't empty, the mission counts as cheated.
+2. The flags become `cheats`.
+3. The steps of "Effects when the flags change" run in that spec's order, 1 to 8. The one-shot flags in the list
+   (`"glittering prizes"`, `"valdez"`, `"notice A"`, `"notice B"`, `"ucla"`) do their work there and don't stay on:
+   after the turn the flags are `cheats` without them.
+
+**When it shows.** The `cycle` record with the turn's `n` holds the state before the cheat. The `turn` record that
+lists it holds the state after it: for example the resources cheat's gold, lumber and oil are already added, for
+each of the 16 players. Lasting effects (`game/cheats.md`, "Lasting effects") act from cycle n + 1 on. In single
+player a cheat command draws no random numbers.
+
+All spells also acts at a later command: when a spell command runs while it is on, the caster's mana is 255 in that
+command's own `turn` record, before the caster moves (`spells/spells.md`, "Giving the order").
+
+**In the header's `input`.** A `cheat` entry has `add`, the flags to turn on. The harness reads the game's flags when
+it hands the entry over and gives the game a cheat command carrying those flags plus `add`. The `turn` record's
+`cheats` is what actually ran.
+
 ### When a command runs
 
-Handing a command to the game is not running it. The harness hands the header's `input` entries to the game **in
-file order**, at the stop after a `cycle` record: an entry is handed over after record H, the largest `n` among it
-and the entries before it. An entry whose `n` is smaller than an earlier entry's is therefore handed over late, not
-early.
+Handing a command to the game is not running it. The header's `input` entries are in ascending order of `n` (the
+harness refuses any other order), and each is handed to the game at the stop after `cycle` record H(i) = `n`.
 
 The game keeps handed-over commands in a queue and carries out at most one per human-controlled player in each
 command turn, first in, first out. At speed 8 a command turn follows every cycle. For one player, entry i (counting
-from 1, in file order) then runs in the turn with n = T(i), where T(i) is the larger of H(i) + 1 and T(i − 1) + 1,
+from 1, in list order) then runs in the turn with n = T(i), where T(i) is the larger of H(i) + 1 and T(i − 1) + 1,
 with T(0) = 0. So a select and a command handed over together run in two consecutive turns.
 
 The `turn` records' `commands` are the authoritative timing: a comparer applies each command in the turn where the
@@ -144,6 +175,7 @@ trace lists it, and uses the rule above only to predict that turn or to drive it
 | --- | --- | --- | --- |
 | 1 | Header `version` | `1` | `2` |
 | 2 | Header | — | Field `input` |
+| 2 | `commands` kinds | — | `select`, `command`, `build`, `job`, `other`; `cheat` was added later without a version change, since no trace had written a cheat command as `other` |
 | 3 | `turn` record, when written | Only when the turn drew random numbers | When the turn drew random numbers or carried out at least one command |
 | 4 | `turn` record fields | The record fields | The record fields and, when commands ran, `commands` |
 
@@ -183,7 +215,7 @@ These come from the first oracle trace (Human01, no input; the header's `launch`
 | Same, cycles n = 3 to 2000 | Draws per cycle repeat 1, 2, 1, 1, 3, 3196 in all (8 per 5 cycles: each of the 8 idle mobile units draws once per 5 cycles; this idle draw isn't yet in `core/timing-and-rng.md`'s draw table) |
 
 These come from `oracle/traces/human01-basics-9500.jsonl.gz` (Human01, Enhanced, speed 8, clock 946684800, local
-player 1) and `oracle/traces/orc02-victory-7639.jsonl.gz` (Orc02, local player 0).
+player 1) and the other input traces in `oracle/traces/`, named by mission.
 
 | Input | Expected |
 | --- | --- |
@@ -191,8 +223,14 @@ player 1) and `oracle/traces/orc02-victory-7639.jsonl.gz` (Orc02, local player 0
 | Human01: the command 8 entry gives only the target unit | `turn` n = 12 lists `tile` [29, 14], unit 1592's tile |
 | Human01: the build in turn 14 | Worker 1596 is in order 28 from `cycle` n = 19, and in order 22 with target 1587 (the new barracks) from n = 134 |
 | Human01: a select of 1587 and a job `"train"` 0 with `n` = 5300 | `turn` n = 5302 lists the job; barracks 1587's `mana` is 1 in that record (`economy/build-train.md`) |
-| Orc02: entries 1 to 18 (file order) end with a select and a command 8 with `n` = 5050; entries 19 to 26 follow, with `n` = 4000, 4000, 4350, 4350, 4700, 4700, 5050, 5050 | All eight are handed over after record 5050 and run in `turn` n = 5053 to 5060, one per turn |
-| Each of the five input traces in `oracle/traces/` (Human01 basics; Orc02 assault, defeat and victory; XOrc01 death coil) | Each `input` entry runs in turn T(i) of "When a command runs"; no `turn` record lists more than one command |
+| Human06 (`human06-tech-650`): a cheat entry with `n` = 10, then six entries (select, build, select, build, select, job) with `n` = 20 | The cheat runs in `turn` n = 11; the six run in `turn` n = 21 to 26, one per turn |
+| Every input trace in `oracle/traces/` (15 as of 2026-10-12) | Each `input` entry runs in turn T(i) of "When a command runs"; no `turn` record lists more than one command. The two Human12 traces also list one `select` the game queued itself (`human12-demolition-450`: turn 70; `human12-transport-650`: turn 74) |
+| Human06: `input` entry `n` 10, `player` 1, `kind` `"cheat"`, `add` `["make it so", "glittering prizes"]`; header `cheats` `["tigerlily"]` | `turn` n = 11 lists `{"player":1,"kind":"cheat","cheats":["make it so","glittering prizes","tigerlily"]}` and nothing else. `rng` is the same as in `cycle` n = 11 |
+| Human06, the same cheat | Gold in `cycle` n = 11: 1000 for every player but player 5 (500). In `turn` n = 11: +10000 gold, +5000 lumber and +5000 oil for each of the 16 players (player 5: 10500 gold) |
+| Human06, the farm (type 58) whose build ran in turn 22, under build speed | Created at n = 78 with 43 hit points; 400 hit points and shown progress 255 at n = 177; frame 0 and `mana` 0 (complete) at n = 178 |
+| Orc09 (`orc09-naval-1500`): the same cheat entry for player 5 | Player 5's gold is 1000 in `cycle` n = 11 and 11000 in `turn` n = 11 |
+| XHuman10 (`xhuman10-spells-700`): cheat `add` `["every little thing she does"]` in turn 11; mage 1481 selected in turn 21; command 46 (polymorph) in turn 22 | Gold unchanged by the cheat. Mage `mana` 85 in `turn` n = 21, 255 in `turn` n = 22 while still in order 2; order 46 from `cycle` n = 23; the cast at n = 145 leaves 55 |
+| XHuman10 blizzard, XOrc01 death knight, XOrc12 ogre-mage: the same cheat, then command 47, 53 or 49 in turn 22 (mage 1481, death knight 1491, Dentarg 1548) | `mana` 85 before, 255 in `turn` n = 22. XOrc12: back to 255 at each later spell command (turns 62 and 102) |
 
 ## Open questions
 
@@ -202,8 +240,12 @@ player 1) and `oracle/traces/orc02-victory-7639.jsonl.gz` (Orc02, local player 0
   whether such a command takes a place in the same queue ahead of the harness's entries.
 - **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios
   are single player for now.
-- **Other kinds** (cancel, alliances, speed, cheats, transports) aren't described yet; add them when a scenario needs
-  them.
+- **Other kinds** (cancel, alliances, speed, transports) aren't described yet; add them when a scenario needs them.
+- **Two cheat entries handed over before the first runs:** the harness builds the second from the flags at hand-over,
+  so it would drop what the first turned on. No scenario does this; the `turn` record shows what ran either way.
+- **Cheat commands the game makes itself** (mission select sends one with the flags unchanged) would appear as a
+  `cheat` entry with the same flags. None has been seen in a trace.
+- **Multiplayer cheats:** the throw-away draw when a game disables cheats hasn't been traced.
 - Fog of war, the map's tiles (trees cut, walls) and the AI state aren't recorded yet.
 - **Scenario identity.** `scenario` and `launch` are free text, so a comparer can't yet set up the scenario from the
   header alone. Default: each comparer test names its scenario (campaign entry or map file) itself; a structured
