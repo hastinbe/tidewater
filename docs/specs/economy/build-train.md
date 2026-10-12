@@ -4,11 +4,15 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the animation scripts in
   `script.bin`, and the public PUD specification text (unit data and upgrade data sections). Not yet confirmed
   against the running game.
+- **Changes:** 2026-10-11, round-3 errata: a trained unit and a builder coming out are placed by the ring search of
+  `movement/placement.md` (limit 12, starting west of the building's top-left tile), replacing "within 12 tiles";
+  repair rates and costs now point to `economy/repair.md`. Both open questions are closed.
 
 ## Behaviour
 
 Order numbers refer to `orders/orders.md`. "Build time", "cost" and "hit points" are the unit data (UDTA) fields of
-the type being made; upgrade time and costs come from the upgrade data (UGRD).
+the type being made; upgrade time and costs come from the upgrade data (UGRD). Repair is specified in
+`economy/repair.md`.
 
 ### Costs in the data
 
@@ -94,8 +98,9 @@ completes 12 passes later, with its hit points still below M.
   Then:
   - a **tanker** (the builder of an oil platform) is set to order 25, so it starts collecting oil from the new
     platform at once;
-  - any other unit is placed on a free tile around the building, within 12 tiles, and becomes idle. If no tile is
-    found, it **dies**.
+  - any other unit is placed on a free tile around the building and becomes idle. The tile is found by the ring
+    search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile; the
+    number of rings depends on the building's size). If no tile is found, it **dies**.
 - A completed **wall** piece (human or orc) is removed as a unit and becomes wall terrain (`movement/occupancy.md`,
   "Walls").
 
@@ -109,7 +114,7 @@ floor(stored cost × 30 / 4), which is 75 % of the real cost, rounded down.
 | Classic | Gold and lumber (not oil) |
 | Enhanced | Gold, lumber and oil |
 
-Any builder inside is let out (or dies if there is no room), as on completion.
+Any builder inside is let out by the same ring search (or dies if there is no room), as on completion.
 
 ### Training, research and building upgrades
 
@@ -140,7 +145,7 @@ cycles after the command.
 
 | Job | Finished | Cancelled |
 | --- | --- | --- |
-| Train | The unit is created next to the building. If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
+| Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
 | Research a spell | The spell becomes known | Full refund |
 | Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M). Towers get order 14 | Full refund |
 
@@ -187,10 +192,8 @@ The values of M and T in these vectors are examples, not quoted from the game da
 
 ## Open questions
 
-- How the free tile is chosen around a building for a trained unit, or a builder leaving (search order and range).
 - The exact requirement rules per unit type (which upgrades or buildings each needs), and the flag that turns them
   off.
 - Whether eyes of Kilrogg and other summoned units count as food in use.
 - What the working order's logic does with a building that is destroyed mid-job (no refund is expected).
 - The research jobs' effects in detail (each upgrade's bonus is in `combat/damage.md`; spells are a later spec).
-- Repair: rates and costs, still to be specified.
