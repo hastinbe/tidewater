@@ -1,14 +1,17 @@
 # Core: unit slots, creation order and slot reuse
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
-- **Sources:** static study of the 2.02 program (research notes under `research/notes/`). Not yet confirmed against the
-  running game.
+- **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and the unit data
+  `Rez\unitdata.dat` in the game data. Not yet confirmed against the running game, except the creation hit points
+  (oracle traces, round 31).
 - **Changes:** 2026-10-11, round-8 errata: only flag-bit-10 units (the transports), not all ships, get no corpse on
   shore water.
 - **Changes:** 2026-10-12, round-20 errata: the three permanent effects are never freed, so effects made during play
   take slot 3 or higher.
 - **Changes:** 2026-10-12: the open question on what the three permanent effects show is closed by
   `ui/map-drawing.md`: slot 0 is the light building fire, slot 1 the heavy building fire and slot 2 the ground marker.
+- **Changes:** 2026-10-12, round-31 errata: a new unit's hit points are its type's value, or 1 if that is 0; the AI's
+  first-goal rule runs during creation, before the extra first-wait draw.
 
 ## Behaviour
 
@@ -60,7 +63,9 @@ Every unit slot belongs to exactly one owner list at all times.
    (step 1).
 3. **Reset:** the slot's contents are cleared, except its list link and its fixed slot identity. The unit then gets
    the next **creation number**, a counter that starts at 1 when the map starts and goes up by 1 per created unit.
-   The counter isn't reused.
+   The counter isn't reused. Its hit points are set to its type's hit points from the unit data, or to 1 if that
+   value is 0 (in the default data: types 0x22, 0x30, 0x36, 0x5D oil patch, 0x5E, 0x5F and 0x64). A unit under
+   construction starts from this value too; `economy/build-train.md` then sets its hit points as it builds.
 4. **Placement:**
    - The position is aligned to the tile grid: 32 pixels for most units, and 64 pixels (an even tile) for ships and
      flying units.
@@ -69,6 +74,9 @@ Every unit slot belongs to exactly one owner list at all times.
    - A failed cap or empty free list shows the "too many units" message instead.
 5. **Random draws:** these happen as listed in `timing-and-rng.md` (facing for mobile units, a stored 0 to 5 value for
    buildings, then the extra first wait for all).
+6. **First goal:** after the unit's first order is set and before the extra first-wait draw, the unit's AI goal is
+   cleared and the first-goal rule of `ai/attack-ai.md` ("Unit goals") runs. This applies to every created unit,
+   the map's units included. Its only draws (a land unit's post, off-map case) therefore come before the wait draw.
 
 On a fresh map, therefore:
 
@@ -147,6 +155,8 @@ no effect is created. A released effect slot is simply marked unused.
 | Unit converted to a player already at the cap | conversion succeeds; that player now exceeds the cap |
 | Two missiles created, the first is removed, then a third is created | the third reuses the first's effect slot (the lowest free slot) |
 | Game saved and reloaded, then two units die and two are created | the new units take the two released slots, most recently released first |
+| Human04 setup (oracle trace), the three oil patches (type 0x5D) in slots 1572, 1597 and 1599 | hit points 1 each |
+| Human04 setup (oracle trace), the gold mine (type 0x5C) in slot 1559 | hit points 25500, the type's value (its trips, 700, come from the map) |
 
 ## Open questions
 
