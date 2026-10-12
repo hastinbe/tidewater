@@ -3,6 +3,8 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and the unit flags in the
   public PUD specification text. Not yet confirmed against the running game.
+- **Changes:** 2026-10-11, round-4 errata: a lost target or attacker (pushing off) is one that is no longer valid or
+  no longer **detected** by the owner; fog over it doesn't matter (was "no longer visible").
 
 ## Behaviour
 
@@ -89,9 +91,9 @@ movement logic (path cache, arrival test) doesn't run for it. Instead, each time
    coordinates are even and no bit of the sea mask (0x0903) is set. If none passes, the transport docks (order 32)
    and the run ends. If one passes, it becomes the target tile (the destination is not touched), the cached path is
    dropped and the blocked counter is cleared.
-3. **Forget lost targets:** a target unit or attacker that is no longer valid or no longer visible is forgotten. If
-   the target unit was forgotten, idle (order 2) is made the pending order, so the push-off ends at the next step
-   boundary.
+3. **Forget lost targets:** a target unit or attacker that is no longer valid or no longer detected by the
+   transport's owner (fog doesn't matter; see `vision/fog.md`, "What uses vision") is forgotten. If the target unit
+   was forgotten, idle (order 2) is made the pending order, so the push-off ends at the next step boundary.
 4. **Step size:** if the transport stands on an even tile, it becomes a two-tile mover and its move animation is
    started. On an odd tile nothing changes, so a transport that docked on an odd tile (a one-tile mover after
    landing) keeps one-tile steps until it reaches an even tile. Its movement class is not changed: it stays in the
