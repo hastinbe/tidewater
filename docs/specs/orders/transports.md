@@ -127,9 +127,9 @@ movement logic (path cache, arrival test) doesn't run for it. Instead, each time
    transport's owner (fog doesn't matter; see `vision/fog.md`, "What uses vision") is forgotten. If the target unit
    was forgotten, idle (order 2) is made the pending order, so the push-off ends at the next step boundary.
 4. **Step size:** if the transport stands on an even tile, it becomes a two-tile mover and its move animation is
-   started and run at once. On an odd tile nothing changes (the transport keeps animation 6, the order's own), so a transport that docked on an odd tile (a one-tile mover after
-   landing) keeps one-tile steps until it reaches an even tile. Its movement class is not changed: it stays in the
-   class it had (the landing class after a landing).
+   started and run at once. On an odd tile nothing changes (the transport keeps animation 6, the order's own), so a
+   transport that docked on an odd tile (a one-tile mover after landing) keeps one-tile steps until it reaches an
+   even tile. Its movement class is not changed: it stays in the class it had (the landing class after a landing).
 5. **Step:** it takes one step toward the target tile, using its cached path or a new search (`movement/pathfinding.md`).
    If the search finds no route, it docks (order 32). If the next tile is blocked, the blocked rules of
    `movement/movement.md` apply. Otherwise the step is taken as described in `movement/movement.md` (leaving a
