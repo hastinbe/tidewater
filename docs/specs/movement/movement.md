@@ -7,6 +7,8 @@
 - **Changes:** 2026-10-12: the open question on how owner codes map to player kinds is closed by `game/setup.md`.
 - **Changes:** 2026-10-12, round-35 errata: the corridor vector uses order 12, since order 9 isn't attack-type for the
   path search; a vector for order 9 is added.
+- **Changes:** 2026-10-12, round-35 errata: a landing transport's general radius is 3 (no +1); the landing logic checks
+  the exact goal.
 
 ## Behaviour
 
@@ -91,8 +93,8 @@ moves; for attack orders the radius is the attacker's attack range (see the comb
   (transport pushing off). The exception tests the unit's **current** order, not the order whose radius is used.
   Where it matters:
   - a **tanker** going to build an oil platform (order 28) gets no +1;
-  - a **landing transport** (order 30) is checked against radius 0 (not the radius listed for order 30), and with no
-    +1 it arrives only on its goal tile exactly (`orders/transports.md`);
+  - a **landing transport** (order 30) gets no +1: its general radius is 3, and the landing logic then checks its
+    exact goal (`orders/transports.md`; `orders/orders.md`, "Order 30's radius");
   - order 31 never makes an arrival check, so its exception has no known effect;
 - the unit is a land unit, the order being checked is 28, and the building to be built is a shore building.
 
@@ -208,7 +210,8 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | Footman at rest on tile (5, 7) | Pixel position (160, 224) |
 | Footman stepping from (5, 7) to (6, 7) | At the step start: tile (6, 7), pixel (160, 224). The pixel x then grows by the move animation's moves (for a footman, moves of 2 or 3 px at a time, 32 px over the 16-cycle loop; `core/animation-scripts.md`) and reaches (192, 224) when the step's loop ends |
 | Town hall placed with its top-left tile at (10, 10) | Pixel position (320, 320), for as long as it stands |
-| Transport landing (order 30) whose goal is 1 tile away on both axes | Not arrived (radius 0, no +1); it keeps moving |
+| Transport landing (order 30) whose goal is 1 tile away on both axes | General test met (radius 3); the landing logic's own test (radius 0, no +1) isn't, so it keeps moving |
+| Transport landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation |
 
 ## Open questions
 
