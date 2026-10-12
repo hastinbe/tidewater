@@ -5,6 +5,7 @@
   observes the original 2.02 program running under Wine. The field meanings follow the approved specs named in each
   row; nothing here is copied from the program.
 - **Changes:** 2026-10-12: first version (format version 1).
+  2026-10-12: a cheat flag with no name in `game/cheats.md` is written as `"unnamed N"`, never as a raw value.
 
 ## Behaviour
 
@@ -52,7 +53,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `local_player` | The player number the human plays |
 | `controllers` | 16 entries, one per player number: `"human"`, `"computer"`, `"passive"` (passive computer) or `"nobody"`, after setup (`game/setup.md`) |
 | `races` | 16 entries: `"human"`, `"orc"` or `"neutral"` |
-| `cheats` | The cheat flags on at setup, by their phrase or word as in `game/cheats.md` (for example `"tigerlily"`, mission select, which the launch uses; `"title"`, `"noglues"`); the two notices without a phrase are `"notice A"` and `"notice B"`; empty when none |
+| `cheats` | The cheat flags on at setup, by their phrase or word as in `game/cheats.md` (for example `"tigerlily"`, mission select, which the launch uses; `"title"`, `"noglues"`); the two notices without a phrase are `"notice A"` and `"notice B"`; any other flag (none is known to be set by anything) is `"unnamed N"`, with N a number from 0 to 31 that only tells such flags apart; empty when none |
 | `unit_slots`, `effect_slots` | Table sizes (`core/unit-slots.md`, "Table sizes") |
 
 ### Record fields
