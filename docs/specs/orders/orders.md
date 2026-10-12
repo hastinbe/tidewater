@@ -27,6 +27,9 @@
   strike decision tests the attack cooldown; a firing tower stores no target and doesn't turn; the round-36 capture
   reference names its folder.
   2026-10-12, round-38 errata: a lumber worker's own new aim is added to the confirmed same-update take-overs.
+  2026-10-12, round-39 errata: an acquisition in order 12 doesn't stop the unit (the new order 12's logic carries on in
+  the same update); the no-route immediate idle is confirmed for patrols by traces; `orc02`, `human10` and `xorc7`
+  vectors; two open questions.
 
 ## Behaviour
 
@@ -294,7 +297,7 @@ it from re-issuing every cycle when the move can't progress.
   **immediate** order (order 2, pending order cleared, still animation, wait 1). Its order is now 2, so the idle
   logic runs in the same update, straight after; a computer worker's job choice or a critter's wander can follow
   in that update too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to
-  orders 3, 4, 5 and 10. This rests on the static study only; no trace shows it yet.
+  orders 3, 4, 5 and 10. Traces show it for patrols (`human10`, `xorc7`; vectors below).
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
   other end. The new patrol takes over in the same update (still animation, wait 3); the first step comes at its next
   logic run, 3 cycles later.
@@ -449,6 +452,12 @@ vertical order wins.
 When the searching unit's order is idle-type, the resulting order is given as a pending order that takes over in the
 same update ("Same-update take-over"): attack animation, wait 3, and its logic first runs at that animation's next
 step done.
+
+When the searching unit is in order 12 and the search picks a different target, the new order 12 replaces the old one
+at once and its logic continues in the same update with the new target: the cooldown test, then the strike decision
+(with its turn toward the target) if the target is in reach, or else the unit keeps heading for it. The switch itself
+makes no strike, turn or wait: a unit that was walking keeps walking, with no attack animation and no wait of 3.
+Only order 12 is shown by a trace and the static study; orders 15 and 16 are an open question.
 
 Order 32 (docked transport) carries the idle-type mark in the order data too, but its logic does nothing, and the
 reaction in "Reacting to an attacker" gives order 12 without this table. So a unit in order 32 never reaches this
@@ -778,6 +787,11 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Enhanced (`research/oracle-round36/xhuman10-r36b-400.jsonl.gz`, oracle trace): hero 1463 (type 0x14) on (107, 98) gets command 8 on tile (113, 106) in turn 42, then a move to (111, 101) in turn 62 | Order 10 at n = 43; order 3 at n = 78; arrives at n = 113: order 2, animation 2, wait 3, and stays idle (the move command cleared the remembered attack-move) |
 | `xhuman10-spells-700` (oracle trace), player 1's guard tower 1468 (type 0x60) and cannon tower 1501 (type 0x62), grunts 1477 on (78, 91) and 1495 on (79, 88) in range | n = 2: order 14, animation 4, wait 3. n = 5: new effect slot 3, kind 0x0F, shooter 1468, target 1477, damage 7; slot 4, kind 0x18, shooter 1501, target 1495, damage 50. Both towers: target null, facing 0. n = 6: 1468 wait 59, 1501 wait 150, both animation 4 |
 | `human01-basics-9500` (oracle trace), n = 288: footman 1597 kills footman 1592; footman 1598 also targets 1592 | 1597: target null at once, still order 9. 1598: keeps target 1592 until its logic runs at n = 291, then order 2, wait 3 |
+| `orc02-assault`, `orc02-defeat` and `orc02-victory` (oracle traces), n = 570: footman 1582 (owner 1) in order 12 at (52, 26), target 1564, acquires 1572 at (54, 23), out of reach | Order 12, target 1572; it keeps walking: tile (53, 25), animation 3, wait 1, frame 0 |
+| A unit in order 12 acquires a new target already in reach, its cooldown run out (static study only) | The strike decision in the same update: it turns to the target and strikes as usual |
+| `human10-10000` (oracle trace), destroyer 1483 (type 0x1F) on patrol at (24, 8): bob draw at n = 6786, countdown 10, decremented at n = 6791 and 6796 | n = 6868: its patrol finds no route: order 2, wait 1 (immediate idle), and the idle logic runs in the same update (countdown decremented). It runs again at n = 6869 and every 5 cycles to n = 6899, where the countdown reaches 0 |
+| `human10-10000`, n = 6904: a computer patrol command for 1483 takes over (order 5, wait 3); at n = 6907 it finds no route | Order 2, wait 1, and the same-update idle logic makes a bob draw. That draw comes before every other draw of the cycle; without it, ship 1534's facing differs |
+| `xorc7-7000` (oracle trace), destroyer 1597 (type 0x1E) on patrol at (10, 16) | n = 806: no route: order 2, wait 1, and its first bob draw in the same update |
 | Enhanced (static study only): a unit on an attack-move acquires an enemy on the way and kills it; countdown 0; the target tile more than 1 tile away | The attack-move is given again instead of the pending idle (countdown 20) |
 
 ## Open questions
@@ -788,6 +802,11 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   found issues commands 9 or 14 except the command stream itself (player interface or AI by number); which buttons
   or AI steps send them is still open.
 - Order 57: nothing found sets it.
+- **Target switch in orders 15 and 16.** The same-update continuation after a switch of target is shown for order
+  12 only. Research runs gave orders 15 and 16 the same treatment with no trace getting worse.
+- **Draw order of a same-update idle.** In `human10` n = 6907 the no-route idle's draw comes before every other draw
+  of the cycle. That fits destroyer 1483 updating early in the cycle, but the update order there wasn't confirmed
+  separately.
 - Commands 2, 6, 23, 24 and the spell commands: covered by the economy and spell specs.
 - Whether the minimum-range test uses the same distance measure as the attack-range test during an attack.
 - Which unit types count as "two-tile movers" for the flee rounding (expected: sea units and air units).
