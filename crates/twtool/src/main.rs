@@ -57,6 +57,27 @@ enum Cmd {
         #[arg(long, default_value = "forest")]
         era: String,
     },
+    /// Decode a Smacker video up to frame `frame` and write that frame to a PNG, printing the video's properties.
+    /// `name` is a path on disk or a name inside the install's archives (then `--install` is required).
+    SmkFrame {
+        #[arg(long)]
+        install: Option<PathBuf>,
+        name: String,
+        frame: usize,
+        out: PathBuf,
+    },
+    /// Decode one audio track of a Smacker video (all frames) to a 16-bit WAV file.
+    SmkAudio {
+        #[arg(long)]
+        install: Option<PathBuf>,
+        name: String,
+        out: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        track: usize,
+        /// Stop after this many frames.
+        #[arg(long)]
+        frames: Option<usize>,
+    },
     /// Draw frame 0 of each GRP named on stdin (paths on disk or archive names) into one grid, printing `cell<TAB>name`.
     GrpSheet {
         #[arg(long)]
@@ -243,6 +264,19 @@ fn main() -> Result<()> {
             println!("{}x{}", img.width, img.height);
             write_png(&out, img.width as usize, img.height as usize, &img.pixels, &pal, false)?;
         }
+        Cmd::SmkFrame {
+            install,
+            name,
+            frame,
+            out,
+        } => smk_frame(install.as_deref(), &name, frame, &out)?,
+        Cmd::SmkAudio {
+            install,
+            name,
+            out,
+            track,
+            frames,
+        } => smk_audio(install.as_deref(), &name, &out, track, frames)?,
         Cmd::GrpSheet {
             install,
             out,
@@ -349,6 +383,88 @@ fn read_file_or_entry(inst: &mut Install, name: &str) -> Result<Vec<u8>> {
     } else {
         Ok(inst.read(name)?)
     }
+}
+
+fn open_smk(install: Option<&std::path::Path>, name: &str) -> Result<tidewater_formats::smk::Smacker> {
+    let data = match install {
+        Some(dir) if !std::path::Path::new(name).is_file() => Install::open(dir)?.read(name)?,
+        _ => std::fs::read(name)?,
+    };
+    Ok(tidewater_formats::smk::Smacker::from_vec(data)?)
+}
+
+fn smk_frame(install: Option<&std::path::Path>, name: &str, frame: usize, out: &std::path::Path) -> Result<()> {
+    let mut smk = open_smk(install, name)?;
+    println!(
+        "SMK{} {}x{} {} frames, {:.3} fps, y-scale {:?}",
+        smk.version() as char,
+        smk.width,
+        smk.height,
+        smk.frame_count(),
+        smk.fps(),
+        smk.y_scale()
+    );
+    for t in smk.audio_tracks() {
+        println!("audio track {t:?}");
+    }
+    anyhow::ensure!(frame < smk.frame_count(), "frame {frame} is past the end");
+    smk.set_decode_audio(false);
+    let mut last = None;
+    while smk.position() <= frame {
+        last = smk.next_frame()?;
+    }
+    let f = last.ok_or_else(|| anyhow::anyhow!("no frame"))?;
+    write_png(
+        out,
+        smk.width as usize,
+        smk.height as usize,
+        &f.pixels,
+        &Palette(f.palette),
+        false,
+    )
+}
+
+fn smk_audio(
+    install: Option<&std::path::Path>,
+    name: &str,
+    out: &std::path::Path,
+    track: usize,
+    frames: Option<usize>,
+) -> Result<()> {
+    let mut smk = open_smk(install, name)?;
+    let info = *smk
+        .audio_tracks()
+        .iter()
+        .find(|t| t.track == track)
+        .ok_or_else(|| anyhow::anyhow!("no audio track {track}"))?;
+    anyhow::ensure!(!info.unsupported_codec, "track uses an unsupported codec");
+    let mut pcm: Vec<u8> = Vec::new();
+    let mut n = 0;
+    while frames.is_none_or(|m| n < m) {
+        let Some(f) = smk.next_frame()? else { break };
+        n += 1;
+        for c in f.audio.iter().filter(|c| c.track == track) {
+            pcm.extend(c.samples.iter().flat_map(|s| s.to_le_bytes()));
+        }
+    }
+    let ch = info.channels as u32;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
+    wav.extend(b"RIFF");
+    wav.extend((36 + pcm.len() as u32).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend((ch as u16).to_le_bytes());
+    wav.extend(info.rate.to_le_bytes());
+    wav.extend((info.rate * ch * 2).to_le_bytes());
+    wav.extend(((ch * 2) as u16).to_le_bytes());
+    wav.extend(16u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend((pcm.len() as u32).to_le_bytes());
+    wav.extend(pcm);
+    std::fs::write(out, wav)?;
+    println!("{n} frames, {} Hz, {} channels", info.rate, ch);
+    Ok(())
 }
 
 fn upgrades(install: &std::path::Path, map: Option<&str>) -> Result<()> {

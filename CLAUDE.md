@@ -18,9 +18,9 @@ before writing any code, and follow it exactly.
 ## Layout
 
 - `crates/formats`: readers for the installation's data (MPQ archives, PUD maps, tilesets, GRP sprites (compressed
-  and uncompressed), PCX images, raw interface pictures and cursors (`raw`), fonts (`fnt`), string tables, unit and
+  and uncompressed), PCX images, raw interface pictures and cursors (`raw`), fonts (`fnt`), Smacker video (`smk`), string tables, unit and
   upgrade tables, map restrictions).
-- `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `grp-sheet`, `units`, `upgrades`,
+- `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
   `strings`, `sim`).
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the Bevy game client (`tidewater` binary). `scene.rs` builds the map and unit images, `hud.rs`

@@ -13,6 +13,7 @@ pub mod pcx;
 pub mod pud;
 pub mod raw;
 pub mod script;
+pub mod smk;
 pub mod sprites;
 pub mod tbl;
 pub mod tileset;
