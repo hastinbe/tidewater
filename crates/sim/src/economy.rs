@@ -53,6 +53,11 @@ pub enum Event {
         player: u8,
         shortage: Shortage,
     },
+    /// A repair stopped for lack of lumber (checked first) or gold.
+    CantRepair {
+        player: u8,
+        shortage: Shortage,
+    },
     /// A finished unit couldn't be placed; its cost was given back.
     NoRoom {
         player: u8,

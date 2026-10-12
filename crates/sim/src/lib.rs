@@ -13,6 +13,7 @@ pub mod combat;
 pub mod economy;
 mod movement;
 pub mod path;
+mod repair;
 pub mod rng;
 pub mod slots;
 pub mod terrain;

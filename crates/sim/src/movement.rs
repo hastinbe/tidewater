@@ -162,6 +162,7 @@ impl World {
             }
             Order::Attack { target } => self.attack_order(i, target),
             Order::AttackWall { tile } => self.attack_wall_order(i, tile),
+            Order::Repair { target } => self.repair_order(i, target),
         }
     }
 

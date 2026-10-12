@@ -68,6 +68,10 @@ pub enum Order {
     Attack {
         target: UnitId,
     },
+    /// Order 27: repair a building or transport (repair spec).
+    Repair {
+        target: UnitId,
+    },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
     AttackWall {
         tile: (i32, i32),
@@ -105,6 +109,8 @@ pub struct Unit {
     pub blocked: u16,
     /// A new order waiting for the next "step done" to take over.
     pub pending: Option<Order>,
+    /// Repair runs on this unit not yet paid for (repair spec: one payment per 2 runs, whoever repairs).
+    pub repair_runs: u8,
     /// Spell timers; running while above 0.
     pub bloodlust: u16,
     pub unholy_armor: u16,
@@ -237,6 +243,12 @@ pub enum Command {
         player: u8,
         building: UnitId,
         to: u8,
+    },
+    /// Command 27: workers repair a building or transport, or walk toward anything else.
+    Repair {
+        player: u8,
+        units: Vec<UnitId>,
+        target: UnitId,
     },
     /// Cancel a building's job, or the building if it is under construction.
     Cancel {
@@ -448,6 +460,7 @@ impl World {
             path: Vec::new(),
             blocked: 0,
             pending: None,
+            repair_runs: 0,
             bloodlust: 0,
             unholy_armor: 0,
             attacked_by: None,
@@ -588,7 +601,8 @@ impl World {
         let (player, units) = match c {
             Command::Move { player, units, .. }
             | Command::Stop { player, units }
-            | Command::Attack { player, units, .. } => (*player, units),
+            | Command::Attack { player, units, .. }
+            | Command::Repair { player, units, .. } => (*player, units),
             &Command::Train {
                 player,
                 building: id,
@@ -615,6 +629,15 @@ impl World {
                         continue;
                     }
                     Order::Attack { target }
+                }
+                Command::Repair { target, .. } => {
+                    if self.stats_of(u.kind).flags & flags::PEON == 0 {
+                        continue;
+                    }
+                    match self.repair_command(i, target) {
+                        Some(o) => o,
+                        None => continue,
+                    }
                 }
                 Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } => continue,
             };

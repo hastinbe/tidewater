@@ -87,6 +87,13 @@ fn message(e: &Event, human: u8) -> Option<String> {
             .to_string(),
         ),
         Event::NoRoom { player, .. } if player == human => Some("No room to place the unit".to_string()),
+        Event::CantRepair { player, shortage } if player == human => Some(
+            match shortage {
+                Shortage::Lumber => "Repairs stopped: out of lumber",
+                _ => "Repairs stopped: out of gold",
+            }
+            .to_string(),
+        ),
         _ => None,
     }
 }
@@ -570,13 +577,26 @@ fn order(
                 .iter()
                 .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_attack(u, t)))
     });
-    let c = match foe {
-        Some(target) => Command::Attack {
+    // Our own choice: a right click on a damaged building or transport of the player's sends the workers to repair it.
+    let mend = unit_at(&sim.world, to).filter(|&t| {
+        on_map
+            && sim.world.unit(t).is_some_and(|t| t.owner == human)
+            && units
+                .iter()
+                .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_repair(u, t)))
+    });
+    let c = match (mend, foe) {
+        (Some(target), _) => Command::Repair {
             player: human,
             units,
             target,
         },
-        None => Command::Move {
+        (None, Some(target)) => Command::Attack {
+            player: human,
+            units,
+            target,
+        },
+        (None, None) => Command::Move {
             player: human,
             units,
             to,
