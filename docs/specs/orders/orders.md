@@ -30,6 +30,12 @@
   2026-10-12, round-39 errata: an acquisition in order 12 doesn't stop the unit (the new order 12's logic carries on in
   the same update); the no-route immediate idle is confirmed for patrols by traces; `orc02`, `human10` and `xorc7`
   vectors; two open questions.
+  2026-10-12, round-40 errata: a chase with no route and no fallback goes idle at once with its idle logic in the same
+  update; order 16 out of range goes idle in the same update (wait 3, attacker kept) and doesn't switch to a new out-of-
+  range target; an order-12 switch to a target out of reach is a command that takes over at the next step done; Enhanced
+  attack-move acquisition is a command and the unit heads for the target until then; order 12 searches before its lost-
+  target check; the mage rule applies to the chosen target; a flee move takes over in the same update; the row range
+  uses a halving search; trace vectors; a stale open question removed and two added.
 
 ## Behaviour
 
@@ -297,7 +303,10 @@ it from re-issuing every cycle when the move can't progress.
   **immediate** order (order 2, pending order cleared, still animation, wait 1). Its order is now 2, so the idle
   logic runs in the same update, straight after; a computer worker's job choice or a critter's wander can follow
   in that update too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to
-  orders 3, 4, 5 and 10. Traces show it for patrols (`human10`, `xorc7`; vectors below).
+  orders 3, 4, 5 and 10. Traces show it for patrols (`human10`, `xorc7`; vectors below). It also applies to order
+  12 when the attack-type fallback finds nothing either: the unit goes idle at once and its idle logic runs in the
+  same update, so a unit whose target is still in its search box gets order 12 again at once (attack animation,
+  wait 3), with the look-around draw made in that update.
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
   other end. The new patrol takes over in the same update (still animation, wait 3); the first step comes at its next
   logic run, 3 cycles later.
@@ -310,6 +319,10 @@ target is lost:
 
 1. If a pending order exists, it takes over now.
 2. Otherwise, order 15 (attacking in place) becomes **13** (stand ground), and every other order becomes **2**.
+
+In **order 12** each run first runs the target search of "Automatic target acquisition". Only if the search finds
+nothing new does the lost-target rule above apply. So a chaser whose target died takes the best target in its box,
+if there is one, instead of going idle.
 
 A target that dies keeps its HP and its own target through its death animation (`combat/damage.md`, "Applying
 damage"). The unit that killed it forgets it at once, in the step that applies the blow, without changing its order.
@@ -342,9 +355,14 @@ the start or walked out:
 | --- | --- | --- |
 | 14, tower watching | Fires at it | Can't happen: the tower keeps no target (below) |
 | 15, attack without moving | Strikes | Forgets the target; order **13** (stand ground) takes over at the next step boundary |
-| 16, idle reaction | Strikes | Order **2** (idle) takes over at the next step boundary; on taking over, the target is forgotten |
+| 16, idle reaction | Strikes | The target is forgotten and order **2** (idle) takes over **in the same update** (still animation, wait 3); the attacker is kept |
 
 A lost target (invalid or not detected) is handled as in "Arriving and losing the target" for all three.
+
+In order 16 the idle logic first runs 3 cycles after that take-over, and may pick the same target again. When the
+search in order 16 picks a **new** target that is out of range, the unit doesn't switch to it: the out-of-range rule
+above applies instead (idle in the same update, wait 3, attacker kept), and its idle logic, 3 cycles later, attacks
+as usual. Whether order 15 also goes to order 13 in the same update isn't traced.
 
 **Order 14 (towers).** A tower doesn't keep a target from one run to the next. Each time its logic runs, it forgets its
 attacker and runs the target search of "Automatic target acquisition" with two differences: the box is always its
@@ -453,11 +471,23 @@ When the searching unit's order is idle-type, the resulting order is given as a 
 same update ("Same-update take-over"): attack animation, wait 3, and its logic first runs at that animation's next
 step done.
 
-When the searching unit is in order 12 and the search picks a different target, the new order 12 replaces the old one
-at once and its logic continues in the same update with the new target: the cooldown test, then the strike decision
-(with its turn toward the target) if the target is in reach, or else the unit keeps heading for it. The switch itself
-makes no strike, turn or wait: a unit that was walking keeps walking, with no attack animation and no wait of 3.
-Only order 12 is shown by a trace and the static study; orders 15 and 16 are an open question.
+When the searching unit is in order 12 and the search picks a different target:
+
+- **In reach:** the order's logic continues in the same update with the new target: the cooldown test, then the
+  strike decision (with its turn toward the target).
+- **Out of reach:** order 12 on the new target is given as a **command**: the target changes at once, the cached
+  route is dropped and the blocked counter cleared (as for every command). The unit finishes its current step, and
+  the new order takes over at its next step done ("Pending orders and immediate orders") with the attack animation
+  and wait 3. It walks on at the run after that.
+- **The old target is gone or was forgotten:** the new order takes over at once (attack animation, wait 3).
+
+**Attack-move (Enhanced).** When a unit in order 10 picks a target, order 12 on that target is likewise given as a
+command: the target is set and the cached route dropped at once, but the order stays 10 until the next step done.
+The order-10 logic carries on in the same update, **heading for the new target**: a unit at a step boundary starts
+its next step on a new route toward the target, not toward the attack-move goal. Order 12 takes over at the next
+step done (attack animation, wait 3). Only order 10 is traced; orders 4 and 5 are an open question.
+
+In order 16 a new target out of range isn't taken ("Attacking without moving").
 
 Order 32 (docked transport) carries the idle-type mark in the order data too, but its logic does nothing, and the
 reaction in "Reacting to an attacker" gives order 12 without this table. So a unit in order 32 never reaches this
@@ -465,8 +495,10 @@ table; only transports use order 32, and they can't attack anyway.
 
 **Special cases:**
 
-- **Mages** (mage and death knight types, including heroes of those types) attack automatically only targets that
-  can't attack or are non-combat units (workers, tankers, transports, demolition units).
+- **Mages** (mage and death knight types, including heroes of those types) search like any other unit, scoring every
+  candidate. The rule is applied to the **chosen** target: if the best candidate can attack and isn't a non-combat
+  unit (workers, tankers, transports, demolition units), they acquire nothing in that run. A harmless target is never
+  chosen in place of a dangerous one that scores higher.
 - In Enhanced mode a **demolition unit** (dwarven demolition squad, goblin sapper) with a remembered order uses the
   target to start a demolish instead of an attack.
 - Computer players' workers and tankers run AI routines here instead of the search (later spec).
@@ -483,12 +515,29 @@ position defined in `movement/movement.md`):
   the **second** place in one pass, and reaches first place only in a later cycle.
 - Units that are dying, dead or inside something sort as if at pixel y −32768.
 - A new unit is inserted before any units with the same pixel y.
-- The search uses **tile rows**, not pixels. It skips the dying, dead and inside entries at the front, then finds
-  (by binary search on tile rows) the first entry whose tile row is at least the box's top row − 3 (but not below
-  0), to catch tall buildings whose footprint reaches into the box, and the last entry whose tile row is at most the
-  box's bottom row. It visits the entries between them in list order. Because a moving unit's tile changes at the
-  start of a step while its pixel y changes gradually, tile rows in the list are only nearly sorted, so a unit near
-  either end of that range can be missed or included.
+- The search uses **tile rows**, not pixels. It skips the dying, dead and inside entries at the front. Its **top
+  row** is the box's top row − 3 (but not below 0), to catch tall buildings whose footprint reaches into the box,
+  and its **bottom row** is the box's bottom row. It visits the entries from a first entry to a last entry in list
+  order, found by the halving search below. Because a moving unit's tile changes at the start of a step while its
+  pixel y changes gradually, tile rows in the list are only nearly sorted, so this search can include or miss
+  different units than an exact partition would.
+
+**The halving search.** "Above" means a smaller row number, "below" a larger one; a row is an entry's tile row.
+Entry positions count from the first entry after the skipped front entries ("the first") to the list's last entry.
+
+- **No range:** if the top row is below the last entry's row, or the bottom row is above the first's, nothing is
+  visited.
+- **First entry.** Keep a low and a high position, starting at the first and the last. Repeatedly take the middle,
+  floor((low + high) / 2). Stop when the middle entry's row is above the top row and the next entry's row isn't, or
+  when low equals high. Otherwise, when the middle entry's row is above the top row, low becomes
+  floor((low + high + 1) / 2); else high becomes floor((low + high − 1) / 2). The first entry visited is the middle
+  entry, or the one after it if the middle entry's row is above the top row.
+- **Last entry.** The same from the other side, again starting at the first and the last. Stop when the middle
+  entry's row is below the bottom row and the entry before it isn't, or when low equals high. Otherwise, when the
+  middle entry's row is below the bottom row, high becomes floor((low + high − 1) / 2); else low becomes
+  floor((low + high + 1) / 2). The last entry visited is the middle entry, or the one before it if the middle
+  entry's row is below the bottom row.
+- If the first entry visited has a row below the bottom row, nothing is visited.
 
 ### Idle look-around
 
@@ -616,7 +665,9 @@ the unit has an attacker:
    step: facing 0 to 7 gives (k_x, k_y) = (0,−1), (1,−1), (1,0), (1,1), (0,1), (−1,1), (−1,0), (−1,−1).
    Two-tile movers (sea and air units) use twice those steps (so 8 tiles instead of 4).
 5. The tile is clamped to the map, and for two-tile movers each coordinate is rounded down to even.
-6. The unit gets a move to that tile, and its attacker is forgotten.
+6. The unit gets a move to that tile, and its attacker is forgotten. A unit that **isn't in its move animation**
+   takes the move (order 3) in the same update, with wait 3 (its animation shown is unchanged until it steps), and
+   steps at its next run. A unit in its move animation keeps the move pending until its next step done.
 
 Since the attacker faces the victim, the victim runs **away from the attacker**, in the direction the attacker is
 facing, about 4 tiles further on each axis that the facing moves along (2 to 9 tiles), with a spread of −2 to +5
@@ -792,6 +843,24 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `human10-10000` (oracle trace), destroyer 1483 (type 0x1F) on patrol at (24, 8): bob draw at n = 6786, countdown 10, decremented at n = 6791 and 6796 | n = 6868: its patrol finds no route: order 2, wait 1 (immediate idle), and the idle logic runs in the same update (countdown decremented). It runs again at n = 6869 and every 5 cycles to n = 6899, where the countdown reaches 0 |
 | `human10-10000`, n = 6904: a computer patrol command for 1483 takes over (order 5, wait 3); at n = 6907 it finds no route | Order 2, wait 1, and the same-update idle logic makes a bob draw. That draw comes before every other draw of the cycle; without it, ship 1534's facing differs |
 | `xorc7-7000` (oracle trace), destroyer 1597 (type 0x1E) on patrol at (10, 16) | n = 806: no route: order 2, wait 1, and its first bob draw in the same update |
+| `xhuman4-7000` (oracle trace), n = 5: axe thrower 1490 (type 0x09, owner 0) at (78, 62) in order 12 on footman 1518 at (72, 60), every route blocked by its own units | Order 12, animation 4, wait 3, target 1518, facing 4; one look-around draw in the cycle. It steps to (77, 61) at n = 8 |
+| A unit in order 12 with no route and no other target in its search box (static study only) | Order 2, still animation, wait 1, target forgotten |
+| `xhuman4-7000`, n = 6: axe thrower 1437 (type 0x09, owner 6) at (75, 113) in order 16 on flying machine 1444 (type 0x28) at (78, 108): distance 5, range 4 | Order 2, animation 2, wait 3, target null; n = 9: order 16, animation 4, wait 3, target 1444 |
+| `xhuman2-10000` (oracle trace), n = 34: footman 1548 (owner 1) at (60, 68) in order 16 on 1547, hit by catapult 1555 at (56, 63), out of range | n = 34: order 2, animation 2, wait 3, target null; n = 37: order 12, animation 4, wait 3, target 1555 |
+| `xhuman4-7000`, n = 66: footman 1497 (owner 1) at (71, 61), walking in order 12 on 1490, acquires 1505 at (73, 60), out of reach | n = 66: animation 3, target 1505; n = 67: animation 4, wait 3, target 1505 |
+| `orc02-assault` (oracle trace), n = 586: footman 1582 (switched to 1572 at n = 570) reaches its step done at (53, 25) | Order 12, animation 4, wait 3, target 1572; n = 589: it steps to (54, 24) |
+| `xhuman2-10000`, n = 206: catapult 1556 (owner 5) at (67, 60), order 12 with no target, acquires guard tower 1546 (type 0x60) at (56, 69) | Target 1546, animation 4, wait 3 at once, facing unchanged (5) |
+| `xhuman2-10000`, n = 205: catapult 1555 at (56, 63) in order 12; its target 1548 has just died; guard tower 1546 in range | Order 12, target 1546, facing 4, wait 3; it fires (wait 198 at n = 208) |
+| A unit in order 12 whose target died, with nothing in its search box (static study only) | Order 2, wait 3, as before |
+| `xorc01-death-knight-2100` (oracle trace, Enhanced), n = 718: ogre 1488 (type 0x07, owner 5) in order 10 reaches (57, 74) at a step boundary and acquires 1516 at (55, 70) | Order 10, target 1516, tile (56, 73), facing 7, animation 3, wait 1 |
+| Same unit, n = 730 | Pixel (1792, 2336), order 12, animation 4, wait 3, target 1516 |
+| `xorc01-death-coil-2500` (oracle trace, Enhanced), n = 718: ogre 1496 (type 0x07, owner 5) in order 10, heading north (facing 0 at n = 717), acquires 1516 | Order 10, target 1516, tile (56, 73), facing 7; n = 730: order 12, animation 4, wait 3 |
+| `xhuman2-10000`, n = 7: death knight 1557 (type 0x0B, owner 5) idle at (64, 59); footman 1548 outscores barracks 1554 in its box | Order 2, no target (the footman can attack, so nothing is acquired) |
+| A mage whose best candidate is a peasant (static study only) | It attacks the peasant (order 12) |
+| `xorc10-dragons-800` (oracle trace), n = 333: computer footman 1520 (owner 2) idle at (30, 30), hit by the breath splash, flees | Order 3, animation 2, wait 3; n = 336: tile (31, 31), facing 3, animation 3 |
+| `human12-7000` (oracle trace), n = 5668: zeppelin 1503 (type 0x29, owner 0) idle at (16, 108), flees | Order 3, animation 2, wait 3; n = 5671: tile (18, 106), facing 1 |
+| `xorc01-death-knight-2100`, n = 708: skeleton 1515 (type 0x37, owner 6) idle at (56, 69); grunt 1497 has just stepped to row 73 and sits among row-74 entries in the list | The halving search includes it: order 12, animation 4, wait 3, target 1497 (an exact partition would stop before it) |
+| Rows 1, 2, 5, 5, 6 (positions 0 to 4), top row 3, bottom row 5 | First entry: middles 2, 0, 1; stop at 1 (row 2 above 3, next row 5 not): first entry 2. Last entry: middles 2, 3, 3, 4; stop at 4 (row 6 below 5, the one before not): last entry 3 |
 | Enhanced (static study only): a unit on an attack-move acquires an enemy on the way and kills it; countdown 0; the target tile more than 1 tile away | The attack-move is given again instead of the pending idle (countdown 20) |
 
 ## Open questions
@@ -804,6 +873,11 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - Order 57: nothing found sets it.
 - **Target switch in orders 15 and 16.** The same-update continuation after a switch of target is shown for order
   12 only. Research runs gave orders 15 and 16 the same treatment with no trace getting worse.
+- **Out-of-range idle in order 15.** Only order 16's same-update idle is traced; order 15's take-over of order 13 is
+  expected to follow it.
+- **Attack-move acquisition in orders 4 and 5.** Only Enhanced order 10 is traced. Research runs gave patrol the
+  same treatment with no trace getting worse. Whether Classic attack-move (which reacts without acquiring) has a
+  counterpart wasn't checked.
 - **Draw order of a same-update idle.** In `human10` n = 6907 the no-route idle's draw comes before every other draw
   of the cycle. That fits destroyer 1483 updating early in the cycle, but the update order there wasn't confirmed
   separately.
@@ -812,8 +886,6 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - Which unit types count as "two-tile movers" for the flee rounding (expected: sea units and air units).
 - The player-kind splits in "Terms" rest on the mapping of map owner codes to player kinds, which
   `movement/movement.md` still lists as open for rescue players.
-- **No route, traced.** The immediate idle of a move that finds no route, with its idle logic in the same update,
-  rests on the static study alone.
 - **Untraced look-around cases.** Fliers and catapults at rest, orders 7 and 13, and a critter whose wander target is
   clamped back to its own tile don't occur in the traces; those rules rest on the static study alone.
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
