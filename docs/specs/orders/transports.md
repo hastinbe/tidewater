@@ -2,11 +2,14 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and the unit flags in the
-  public PUD specification text. Not yet confirmed against the running game.
+  public PUD specification text. Not yet confirmed against the running game, except "Land and shore targets"
+  (oracle trace, research-side command logs and map dumps of Human04, round 31).
 - **Changes:** 2026-10-11, round-4 errata: a lost target or attacker (pushing off) is one that is no longer valid or
   no longer **detected** by the owner; fog over it doesn't matter (was "no longer visible").
   2026-10-11, round-5 errata: boarding moves split computer players (command 4, leaves order 34) from every other
   player (smart move, stays in order 34), the other way round from "human-controlled" and "any other".
+  2026-10-12, round-31 errata: new paragraph "Land and shore targets" (a land or shore-water target drops the target
+  unit and, from open water, pulls the target tile back to shore water); the open question on it is closed.
 
 ## Behaviour
 
@@ -42,6 +45,28 @@ target tile and S the transport's tile.
 command has one), the **target tile** (the target unit's tile, or the command's tile), and the **destination**, a
 copy of the target tile made at that moment. Later steps may change the target tile (docking at S, pushing off), but
 they never change the destination, which is what "its destination tile" means below.
+
+**Land and shore targets.** After those are recorded, if the target tile has the land bit (0x01) or the shore-water
+bit (0x02), three more steps run before the rules below:
+
+1. The **target unit is dropped**. The command goes on with no target unit.
+2. If the transport stands on **open water** (bit 0x40), its target tile is adjusted. Otherwise it is left as it is.
+   T is the transport's tile and G the target tile.
+   1. **Pull back.** Take the line from T to G by the line rule of `movement/pathfinding.md` ("Line rule"), all of
+      its steps s1, s2, … in order, until it reaches G. Walk back from G by undoing them in that order: G, then
+      G − s1, then G − s1 − s2, and so on, stopping before T. A tile is **usable** when its region value equals T's
+      and it has no bit of 0x0803 (the sea blocking mask 0x0903 without 0x0100). If G itself is usable, K = G.
+      Otherwise K is the tile walked **just before** the first usable tile, on G's side of it. If no tile is usable,
+      K is the last tile before T.
+   2. **Check.** If K has the shore-water bit, no bit of the landing blocking mask 0x0901, and the same region value
+      as G, K is the new target tile. Otherwise the ring search of `movement/placement.md` runs with a 1 × 1 source
+      at G, aimed at G, limit **8** (4 rings), accepting a tile that has the shore-water bit, no bit of 0x0901, and
+      G's region value. The first tile found is the new target tile. If none is found, K is.
+3. The destination becomes the (adjusted) target tile.
+
+The rules below then run with G = the new target tile. From open water, a land target therefore usually ends as "G is
+shore water: order 30". The target unit is gone, so the "own side's unit that isn't a building: order 6" row applies
+only to a target unit standing on open water.
 
 The unload command first checks G: if G is shore water, the transport is marked **unload on arrival**. Then both
 commands apply the same rules, first match wins:
@@ -178,6 +203,8 @@ computer players).
 | Unload order | slot 6 first, slot 1 last |
 | Unload search | 1 × 1 at the transport's tile, limit 6 (3 rings), same region as the transport's tile |
 | Push-off search | 1 × 1 at the transport's tile, limit 10 (5 rings), even tile, sea mask 0x0903 clear |
+| Shore-target search | 1 × 1 at the target tile, aimed at it, limit 8 (4 rings), shore water, 0x0901 clear, target's region |
+| Pull-back usable test | region of the transport's tile, 0x0803 clear |
 | Boarding distance | at most 2 tiles from the transport's tile on each axis |
 | Transport must be in order | 32 to accept a passenger; 29 or 32 to unload one |
 
@@ -199,13 +226,12 @@ computer players).
 | Straight line, S = (20, 20), G = (25, 22) | Tiles tested: (20, 20), (21, 21), (22, 21), (23, 21), (24, 22); the walk stops at (25, 22) |
 | Unloading at a shore whose land tiles within 3 tiles are all occupied | Each passenger stays aboard; the transport still docks (order 32) |
 | Transport carrying 3 passengers is destroyed | All 3 passengers die |
+| Human04 n = 1 (oracle trace): transport (slot 1543) at (68, 88), open water, region 0. Smart move with the great hall (slot 1550) as the target unit, G = (81, 84), land | Target unit dropped. The line from (68, 88) to (81, 84) has M = 13, m = 4, and the walk back passes (81, 84), (80, 84), (79, 85), (78, 85), (77, 85), (76, 86), (75, 86), (74, 86), (73, 87), (72, 87), (71, 87), (70, 87), (69, 88). The first usable tile is (69, 88) (open water, region 0), so K = (70, 87). (70, 87) is shore water, with no bit of 0x0901 and the same region value as (81, 84), so the target tile and destination are (70, 87): order 30, wait 3 at n = 1. It steps to (69, 87) at n = 4 and (70, 87) at n = 20, and docks at n = 36: order 32 |
+| Same transport at n = 51, docked on (70, 87) (shore water); the same smart move | Target unit dropped. It isn't on open water, so G stays (81, 84). First rule (S shore water, same region, land first): order 32, target tile S. It stays docked; the same happens every 50 cycles |
 
 ## Open questions
 
 - Which tile a computer player's boarding unit moves to when its transport is landing in its region.
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
-- How the target tile of a smart move on land reaches the transport rules: the goal pull-back in
-  `movement/pathfinding.md` moves unusable goals for transports heading to a shore, but whether the command's G is
-  already moved when the rules above run is not confirmed.
 - The docking sound's identity and the exact sound rules.
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
