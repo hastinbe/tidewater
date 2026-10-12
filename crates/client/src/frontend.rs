@@ -115,6 +115,8 @@ pub struct Flow {
     pub skip_screens: bool,
     /// The "skip the startup videos" setting (`startup_steps`' `skip_videos`): the `title` developer word toggles it.
     pub skip_videos: bool,
+    /// A saved game to put over the game that starts next (`savegame`).
+    pub resume: Option<Box<crate::savegame::Resume>>,
     /// The cheat flags that carry into the next game (`cheats`).
     pub cheat_flags: tidewater_sim::cheats::Flags,
 }
@@ -174,7 +176,7 @@ impl Front {
             .clone()
     }
 
-    fn net(&self, entry: u16) -> String {
+    pub(crate) fn net(&self, entry: u16) -> String {
         self.network.text(cf::text_index(entry)).unwrap_or_default()
     }
 }
@@ -456,8 +458,10 @@ struct Layer(u8);
 #[derive(Resource)]
 pub struct OutcomeDialog {
     pub victory: bool,
-    /// Save was pressed: a notice shows until the next click.
-    notice: bool,
+    /// Save was pressed: the game menu opens the save dialog over this one (`gamemenu::open_from_outcome`).
+    pub(crate) save_wanted: bool,
+    /// The game was saved from here: the dialog ends the game as Continue does.
+    pub(crate) saved: bool,
     image: Handle<Image>,
 }
 
@@ -499,7 +503,9 @@ pub fn plugin(app: &mut App) {
                 run_scroller.run_if(in_state(AppState::Finale)),
                 run_scroller.run_if(in_state(AppState::Credits)),
                 watch_outcome.run_if(in_state(AppState::Game)),
-                run_dialog.run_if(resource_exists::<OutcomeDialog>),
+                run_dialog.run_if(
+                    resource_exists::<OutcomeDialog>.and_then(not(resource_exists::<crate::gamemenu::GameMenu>)),
+                ),
                 show_cursor.run_if(not(game_running)),
                 apply_fades,
             ),
@@ -1410,7 +1416,8 @@ fn watch_outcome(
     let image = spawn_layer(&mut commands, &mut images, blank(), 1, AppState::Game, None);
     commands.insert_resource(OutcomeDialog {
         victory: o == Outcome::Victory,
-        notice: false,
+        save_wanted: false,
+        saved: false,
         image,
     });
 }
@@ -1448,11 +1455,7 @@ fn draw_dialog(front: &Front, d: &OutcomeDialog) -> Picture {
         DIALOG.y + 10,
         head,
     );
-    if d.notice {
-        let s = "Saving isn't available yet.";
-        let w = front.font.width(s.as_bytes()) as i32;
-        hud::text(&mut p, &front.font, DIALOG.x + (DIALOG.w as i32 - w) / 2, SAVE.y + 4, s);
-    } else if d.victory {
+    if d.victory {
         button(&mut p, &front.font, SAVE, "Save", false);
     }
     button(&mut p, &front.font, CONTINUE, "Continue", false);
@@ -1479,9 +1482,9 @@ fn run_dialog(
     }
     let at = pointer(&window, &cam).filter(|_| mouse.just_released(MouseButton::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
-    let button = if hit(CONTINUE) || keys.any_just_pressed([KeyCode::Enter, KeyCode::KeyC]) {
+    let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([KeyCode::Enter, KeyCode::KeyC]) {
         Some(cf::DialogButton::Continue)
-    } else if dialog.victory && !dialog.notice && (hit(SAVE) || keys.just_pressed(KeyCode::KeyS)) {
+    } else if dialog.victory && (hit(SAVE) || keys.just_pressed(KeyCode::KeyS)) {
         Some(cf::DialogButton::Save)
     } else {
         None
@@ -1492,8 +1495,8 @@ fn run_dialog(
             end_with(&mut flow, &mut front, &sim.world, sim.human, dialog.victory);
             go_on(&mut flow, &front, &keys, &mut next, &mut exit);
         }
-        // Saving is a placeholder: as after a cancelled save, the victory dialog shows again (with a notice).
-        Some(cf::DialogResult::OpenSave) => dialog.notice = !cf::after_save(false),
+        // The save dialog opens over this one; a save ends the game (`saved`), Cancel shows this dialog again.
+        Some(cf::DialogResult::OpenSave) => dialog.save_wanted = true,
         None => {}
     }
 }

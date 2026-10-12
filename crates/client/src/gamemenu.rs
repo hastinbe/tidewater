@@ -8,8 +8,11 @@
 //! Choices where the spec leaves a gap:
 //! - The dialog files (`gamemenu.bin` and the others) have no spec, so the layouts, the labels and the texts of the
 //!   confirmations and the keyboard help are our own, drawn like the outcome dialogs, without the race backdrops.
-//! - Save and Load open a notice, "Saving isn't available yet." and "Loading isn't available yet." (`game/save-load.md`
-//!   is a later task). Load stays in the menu: this client has no network session.
+//! - Save and Load open the save and load dialogs (`game/save-load.md`; the rules are in [`crate::saves`], the layout and
+//!   input in [`crate::savedlg`], the game's side in [`crate::savegame`]). They are screens of this menu's stack, so
+//!   the game stays stopped while they are open. Load stays in the menu: this client has no network session. The
+//!   victory dialog's Save opens the same dialog over it ([`open_from_outcome`]); a save there ends the game as
+//!   Continue does, and Cancel shows the victory dialog again.
 //! - Restart rebuilds the mission through the flow (`frontend::restart`). Surrender sets the local player's result to
 //!   defeat and closes the menus: the defeat dialog and score screen follow from the outcome dialog as for any defeat.
 //! - Quit to menu, Return to chat and Load custom scenario all go to the main menu (the client has no chat room or
@@ -32,6 +35,8 @@
 //! - The dialogs' own art, and the "Network" button of the Battle.net options menu.
 
 use bevy::camera::visibility::RenderLayers;
+use bevy::input::keyboard::KeyboardInput;
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
@@ -42,6 +47,10 @@ use crate::hud::{self, Rect};
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
 use crate::prefs::{self, Prefs, bit};
+use crate::savedlg::{self, SaveUi};
+use crate::savefile;
+use crate::savegame::{self, SaveFolder};
+use crate::saves::{self, SaveDir};
 use crate::{PanelUi, ScreenUi, Sim, Speaker};
 
 /// The stored settings in force.
@@ -70,21 +79,39 @@ pub struct GameMenu {
     /// The slider being dragged: its index in the item list.
     drag: Option<usize>,
     dirty: bool,
+    /// The open save or load dialog (the `Saving` screen).
+    save: Option<SaveUi>,
+    /// Something the dialog decided that needs the whole game: done by [`service_saving`].
+    request: Option<saves::Step>,
+    /// Opened from the victory dialog's Save.
+    from_outcome: bool,
 }
 
 #[derive(Component)]
 struct MenuLayer;
 
+/// The save dialog's input for this frame, collected by [`gather_saving_input`].
+#[derive(Resource, Default)]
+pub struct SavingInput(savedlg::Input);
+
 pub fn plugin(app: &mut App) {
-    app.add_systems(OnExit(AppState::Game), close_on_exit).add_systems(
-        Update,
-        (
-            open_requests.run_if(frontend::game_running),
-            run_menu.run_if(resource_exists::<GameMenu>),
-            sync_settings.run_if(in_state(AppState::Game)),
+    app.init_resource::<SavingInput>()
+        .add_systems(OnExit(AppState::Game), close_on_exit)
+        .add_systems(
+            Update,
+            (
+                open_requests.run_if(frontend::game_running),
+                open_from_outcome
+                    .run_if(resource_exists::<frontend::OutcomeDialog>.and_then(not(resource_exists::<GameMenu>))),
+                gather_saving_input.run_if(resource_exists::<GameMenu>),
+                run_menu.run_if(resource_exists::<GameMenu>),
+                run_saving.run_if(resource_exists::<GameMenu>),
+                service_saving.run_if(resource_exists::<GameMenu>),
+                sync_settings.run_if(in_state(AppState::Game)),
+            )
+                .chain(),
         )
-            .chain(),
-    );
+        .add_systems(Update, demo_save_load.run_if(in_state(AppState::Game)));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -385,11 +412,8 @@ impl GameMenu {
                     false,
                 )
             }
-            Screen::Saving(s) => {
-                b.lines(&self.lines);
-                b.button(Act::Back, "OK");
-                (if s == Saving::Save { "Save Game" } else { "Load Game" }, false)
-            }
+            // The save and load dialogs draw themselves (`savedlg`); this frame is only their place.
+            Screen::Saving(_) => ("", false),
             Screen::KeyHelp => {
                 b.lines(&self.lines);
                 b.button(Act::Back, "Previous");
@@ -407,7 +431,7 @@ impl GameMenu {
 }
 
 /// The texts and numbers a screen shows, set when it opens.
-fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, flow: &Flow) {
+fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, flow: &Flow, folder: &SaveDir) {
     let screen = m.screen();
     let wrap = |front: &Front, text: &str| cf::wrap(text, INNER_W, &|s: &str| front.font.width(s.as_bytes()));
     m.lines.clear();
@@ -431,11 +455,20 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
             m.lines = wrap(front, &text);
         }
         Screen::Saving(s) => {
-            let text = match s {
-                Saving::Save => "Saving isn't available yet.",
-                Saving::Load => "Loading isn't available yet.",
+            let mode = if s == Saving::Save {
+                saves::Mode::Save
+            } else {
+                saves::Mode::Load
             };
-            m.lines = wrap(front, text);
+            let entries = folder.list(savefile::Kind::Single, sim.world.rules.enhanced);
+            // Network entry 105 lists the characters a name can't hold.
+            let forbidden = front.net(105);
+            let forbidden = if forbidden.is_empty() {
+                saves::FORBIDDEN.to_string()
+            } else {
+                forbidden
+            };
+            m.save = Some(SaveUi::new(saves::Dialog::open(mode, entries, &forbidden)));
         }
         Screen::Confirm(c) => {
             let text = match c {
@@ -570,6 +603,7 @@ fn open_requests(
     mut stored: ResMut<Stored>,
     mut front: ResMut<Front>,
     flow: Res<Flow>,
+    folder: Res<SaveFolder>,
     mut images: ResMut<Assets<Image>>,
     mut demo_done: Local<bool>,
 ) {
@@ -578,7 +612,7 @@ fn open_requests(
         .as_mut()
         .is_some_and(|u| std::mem::take(&mut u.menu_requested))
         .then_some(Screen::Game);
-    // Development aid: `TIDEWATER_DEMO_MENU=game|options|sound|speed|prefs|objectives|end|restart|tips` opens that
+    // Development aid: `TIDEWATER_DEMO_MENU=game|options|sound|speed|prefs|objectives|end|restart|tips|save|load` opens that
     // screen once, as its key would, after 50 cycles so the map and panels have been drawn from a running game.
     if sim.world.tick >= 50
         && !std::mem::replace(&mut *demo_done, true)
@@ -594,6 +628,8 @@ fn open_requests(
             "end" => Some(Screen::End),
             "restart" => Some(Screen::Confirm(Confirm::Restart)),
             "tips" => Some(Screen::Tips),
+            "save" => Some(Screen::Saving(Saving::Save)),
+            "load" => Some(Screen::Saving(Saving::Load)),
             _ => asked,
         };
     }
@@ -635,6 +671,32 @@ fn open_requests(
         asked = Some(s);
     }
     let Some(screen) = asked else { return };
+    open_menu(
+        &mut commands,
+        screen,
+        &mut images,
+        &mut stored,
+        &mut front,
+        &sim,
+        &flow,
+        &folder.0,
+        false,
+    );
+}
+
+/// Opens the menu on `screen`.
+#[allow(clippy::too_many_arguments)]
+fn open_menu(
+    commands: &mut Commands,
+    screen: Screen,
+    images: &mut Assets<Image>,
+    stored: &mut Stored,
+    front: &mut Front,
+    sim: &Sim,
+    flow: &Flow,
+    folder: &SaveDir,
+    from_outcome: bool,
+) {
     let mut nav = Nav::default();
     nav.open(screen);
     let image = images.add(frontend::rgba_image(frontend::blank()));
@@ -660,9 +722,75 @@ fn open_requests(
         hot: None,
         drag: None,
         dirty: true,
+        save: None,
+        request: None,
+        from_outcome,
     };
-    enter(&mut m, &mut front, &mut stored, &sim, &flow);
+    enter(&mut m, front, stored, sim, flow, folder);
     commands.insert_resource(m);
+}
+
+/// The victory dialog's Save opens the save dialog over it.
+#[allow(clippy::too_many_arguments)]
+fn open_from_outcome(
+    mut commands: Commands,
+    mut dialog: ResMut<frontend::OutcomeDialog>,
+    sim: Option<Res<Sim>>,
+    mut stored: ResMut<Stored>,
+    mut front: ResMut<Front>,
+    flow: Res<Flow>,
+    folder: Res<SaveFolder>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(sim) = sim else { return };
+    if !dialog.save_wanted {
+        return;
+    }
+    dialog.save_wanted = false;
+    open_menu(
+        &mut commands,
+        Screen::Saving(Saving::Save),
+        &mut images,
+        &mut stored,
+        &mut front,
+        &sim,
+        &flow,
+        &folder.0,
+        true,
+    );
+}
+
+/// Collects the typed text, keys, pointer and wheel for the save dialog.
+fn gather_saving_input(
+    mut input: ResMut<SavingInput>,
+    mut typed: MessageReader<KeyboardInput>,
+    mut wheel: MessageReader<MouseWheel>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse_in: Res<ButtonInput<MouseButton>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+) {
+    let mut i = savedlg::Input {
+        pointer: frontend::pointer(&window, &cam).map(|p| (p.x, p.y)),
+        click: mouse_in.just_released(MouseButton::Left),
+        enter: keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]),
+        escape: keys.just_pressed(KeyCode::Escape),
+        up: keys.just_pressed(KeyCode::ArrowUp),
+        down: keys.just_pressed(KeyCode::ArrowDown),
+        backspace: keys.just_pressed(KeyCode::Backspace),
+        ..Default::default()
+    };
+    for e in typed.read() {
+        if e.state.is_pressed()
+            && let Some(t) = &e.text
+        {
+            i.text.extend(t.chars().filter(|c| !c.is_control()));
+        }
+    }
+    for w in wheel.read() {
+        i.wheel += w.y.signum() as i32;
+    }
+    input.0 = i;
 }
 
 fn close_on_exit(mut commands: Commands) {
@@ -693,9 +821,14 @@ fn run_menu(
     layer: Query<Entity, With<MenuLayer>>,
     mouse_in: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    folder: Res<SaveFolder>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    // The save and load dialogs run in `run_saving`.
+    if matches!(m.screen(), Screen::Saving(_)) {
+        return;
+    }
     let kind = Kind::of(flow.game);
     let title_h = front.big.height as i32;
     let line_h = front.font.height as i32 + 4;
@@ -774,7 +907,7 @@ fn run_menu(
         act = match screen {
             _ if settings => Some(Act::Ok),
             Screen::Confirm(c) => Some(Act::Do(c)),
-            Screen::Saving(_) | Screen::KeyHelp | Screen::Tips => Some(Act::Back),
+            Screen::KeyHelp | Screen::Tips => Some(Act::Back),
             _ => None,
         };
     } else if act.is_none() {
@@ -799,7 +932,7 @@ fn run_menu(
     match act {
         Act::Open(s) => {
             m.nav.open_child(s);
-            enter(&mut m, &mut front, &mut stored, &sim, &flow);
+            enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.0);
         }
         Act::CloseAll => {
             m.nav.close();
@@ -813,7 +946,7 @@ fn run_menu(
             if m.nav.back() {
                 close(&mut commands, &layer);
             } else {
-                enter(&mut m, &mut front, &mut stored, &sim, &flow);
+                enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.0);
             }
         }
         Act::Ok => {
@@ -851,6 +984,144 @@ fn run_menu(
             }
             frontend::go_on(&mut flow, &front, &keys, &mut next, &mut exit);
         }
+    }
+}
+
+/// Development aid: `TIDEWATER_DEMO_SAVE=name` saves the running game as `name` at cycle 200; from cycle 300,
+/// `TIDEWATER_DEMO_LOAD=name` loads that saved game (the dialogs' own paths, without typing).
+fn demo_save_load(world: &mut World) {
+    let tick = world.get_resource::<Sim>().map_or(0, |s| s.world.tick);
+    if let Ok(name) = std::env::var("TIDEWATER_DEMO_SAVE")
+        && tick == 200
+    {
+        let r = savegame::save_game(world, &saves::file_stem(&name), &name);
+        info!("demo save {name}: {r:?}");
+    }
+    if let Ok(name) = std::env::var("TIDEWATER_DEMO_LOAD")
+        && tick >= 300
+    {
+        let folder = world.resource::<SaveFolder>().0.clone();
+        let enhanced = world.resource::<Sim>().world.rules.enhanced;
+        match SaveDir::read(
+            &folder.path_of(&saves::file_stem(&name), savefile::Kind::Single),
+            enhanced,
+        ) {
+            Ok((header, body)) => {
+                world.resource_scope(|world, mut flow: Mut<Flow>| {
+                    let mut next = world.resource_mut::<NextState<AppState>>();
+                    savegame::load_game(&mut flow, &mut next, header, body);
+                });
+                info!("demo load {name}");
+            }
+            Err(r) => error!("demo load {name}: {r:?}"),
+        }
+    }
+}
+
+/// One frame of the save or load dialog: its input, drawing, and what it decided.
+#[allow(clippy::too_many_arguments)]
+fn run_saving(
+    mut commands: Commands,
+    mut m: ResMut<GameMenu>,
+    input: Res<SavingInput>,
+    front: Res<Front>,
+    mut images: ResMut<Assets<Image>>,
+    folder: Res<SaveFolder>,
+    sim: Res<Sim>,
+    layer: Query<Entity, With<MenuLayer>>,
+) {
+    let Screen::Saving(_) = m.screen() else { return };
+    let Some(ui) = m.save.as_mut() else { return };
+    let snap = |u: &SaveUi| {
+        (
+            u.dialog.name.clone(),
+            u.dialog.selected,
+            u.dialog.stage.clone(),
+            u.scroll,
+            u.hot,
+        )
+    };
+    let before = snap(ui);
+    let step = ui.step(&input.0);
+    let mut redraw = before != snap(ui) || m.dirty;
+    match step {
+        saves::Step::Nothing => {}
+        saves::Step::Close => {
+            if m.nav.back() {
+                close(&mut commands, &layer);
+                return;
+            }
+        }
+        saves::Step::Delete(e) => {
+            // A file that can't be removed simply stays in the list.
+            let _ = folder.0.delete(&e);
+            let entries = folder.0.list(savefile::Kind::Single, sim.world.rules.enhanced);
+            if let Some(ui) = m.save.as_mut() {
+                ui.dialog.relist(entries);
+            }
+            redraw = true;
+        }
+        step @ (saves::Step::Write { .. } | saves::Step::Load(_)) => {
+            m.request = Some(step);
+        }
+    }
+    if redraw {
+        m.dirty = false;
+        if let Some(ui) = &m.save {
+            let p = ui.draw(&front.font, &front.big, &|n| front.net(n));
+            frontend::set_image(&mut images, &m.image, p);
+        }
+    }
+}
+
+/// Carries out a save or load the dialog asked for. Exclusive: both need the whole game.
+fn service_saving(world: &mut World) {
+    let Some(req) = world.resource_mut::<GameMenu>().request.take() else {
+        return;
+    };
+    match req {
+        saves::Step::Write { stem, name } => match savegame::save_game(world, &stem, &name) {
+            Ok(()) => finish_save(world),
+            Err(reason) => fail(world, reason, &stem),
+        },
+        saves::Step::Load(entry) => {
+            let enhanced = world.resource::<Sim>().world.rules.enhanced;
+            match SaveDir::read(&entry.path, enhanced) {
+                Ok((header, body)) => {
+                    world.resource_scope(|world, mut flow: Mut<Flow>| {
+                        let mut next = world.resource_mut::<NextState<AppState>>();
+                        savegame::load_game(&mut flow, &mut next, header, body);
+                    });
+                    remove_menu(world);
+                }
+                Err(reason) => fail(world, reason, &entry.stem),
+            }
+        }
+        _ => {}
+    }
+}
+
+fn remove_menu(world: &mut World) {
+    let layers: Vec<Entity> = world.query_filtered::<Entity, With<MenuLayer>>().iter(world).collect();
+    for e in layers {
+        world.despawn(e);
+    }
+    world.remove_resource::<GameMenu>();
+}
+
+fn fail(world: &mut World, reason: savefile::Reason, file: &str) {
+    if let Some(ui) = world.resource_mut::<GameMenu>().save.as_mut() {
+        ui.dialog.failed(reason, file);
+    }
+    world.resource_mut::<GameMenu>().dirty = true;
+}
+
+/// A save went through: the menus close; from the victory dialog the game ends as Continue does.
+fn finish_save(world: &mut World) {
+    let from_outcome = world.resource::<GameMenu>().from_outcome;
+    remove_menu(world);
+    if from_outcome && let Some(mut d) = world.get_resource_mut::<frontend::OutcomeDialog>() {
+        d.saved = cf::after_save(true);
     }
 }
 
@@ -933,6 +1204,9 @@ mod tests {
             hot: None,
             drag: None,
             dirty: false,
+            save: None,
+            request: None,
+            from_outcome: false,
         }
     }
 

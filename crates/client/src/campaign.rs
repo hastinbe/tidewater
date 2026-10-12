@@ -140,7 +140,7 @@ pub fn map_name(entry: u8) -> String {
 }
 
 /// The kind of game being played.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameKind {
     Campaign(u8),
     Custom,
@@ -283,7 +283,7 @@ pub fn act_sound(race: u8) -> &'static str {
 }
 
 /// What the flow remembers since the program started: the last act screen shown and the last video played.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Memory {
     pub last_act: Option<u8>,
     pub last_video: Option<u8>,
@@ -575,7 +575,7 @@ pub fn after_save(saved: bool) -> bool {
 pub const VICTORY_BONUS: u32 = 500;
 
 /// The campaign total and its value at the start of the mission ("Campaign total").
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CampaignTotal {
     pub total: u32,
     pub at_start: u32,

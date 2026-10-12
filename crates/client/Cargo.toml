@@ -9,11 +9,17 @@ name = "tidewater"
 path = "src/main.rs"
 
 [dependencies]
+serde.workspace = true
+postcard.workspace = true
+directories.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 clap.workspace = true
 tidewater-formats.workspace = true
 tidewater-sim.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

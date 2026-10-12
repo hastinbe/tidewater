@@ -124,8 +124,18 @@ pub fn tile_picture(ts: &Tileset, megatile: usize, pal: &Palette) -> Picture {
     }
 }
 
+/// The time in whole seconds since 1970-01-01 UTC, truncated to 32 bits (`core/timing-and-rng.md`, "Seeding").
+pub fn now_secs() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as u32)
+}
+
 /// Loads `map` and starts a game on it with the options `setup` (`docs/specs/game/setup.md`).
-pub fn load(install: &mut Install, map: &str, setup: &tidewater_sim::setup::Setup) -> Result<Scene> {
+///
+/// `seed` is the game's start seed; a new game passes `None` and takes the time in seconds, a loaded game passes the
+/// saved game's so the same template world is built (`savefile::Header::seed`).
+pub fn load(install: &mut Install, map: &str, setup: &tidewater_sim::setup::Setup, seed: Option<u32>) -> Result<Scene> {
     let data = if std::path::Path::new(map).is_file() {
         std::fs::read(map).with_context(|| format!("reading {map}"))?
     } else {
@@ -133,9 +143,7 @@ pub fn load(install: &mut Install, map: &str, setup: &tidewater_sim::setup::Setu
     };
     let pud = Pud::parse(&data)?;
     // Single player seeds with the time in whole seconds (timing-and-rng spec, "Seeding"); slot setup draws from it.
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as u32);
+    let seed = seed.unwrap_or_else(now_secs);
     let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
     let era = start.era;
     let ts = install.tileset(era)?;

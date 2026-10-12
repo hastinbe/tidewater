@@ -31,6 +31,10 @@ mod music;
 mod palette;
 mod panel;
 mod prefs;
+mod savedlg;
+mod savefile;
+mod savegame;
+mod saves;
 mod scene;
 mod screen;
 mod sound;
@@ -78,6 +82,10 @@ struct Args {
     /// By default a campaign map starts as its campaign mission and any other map as a custom game.
     #[arg(long, value_parser = tidewater_sim::setup::Setup::parse)]
     setup: Option<tidewater_sim::setup::Setup>,
+    /// The folder for saved games. Without it, a `Save` folder in Tidewater's own user data directory; the program
+    /// never writes into the installation.
+    #[arg(long)]
+    save_dir: Option<PathBuf>,
     /// Initial zoom: world pixels per screen pixel (2 shows twice as much map).
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
@@ -363,6 +371,7 @@ fn main() -> Result<()> {
         .as_deref()
         .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
     let ui_scale = args.ui_scale;
+    let save_dir = args.save_dir.clone();
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
@@ -374,6 +383,9 @@ fn main() -> Result<()> {
         }))
         .init_state::<frontend::AppState>()
         .insert_resource(front)
+        .insert_resource(savegame::SaveFolder(saves::SaveDir::new(
+            save_dir.unwrap_or_else(saves::default_dir),
+        )))
         .insert_resource(flow)
         .insert_resource(stored)
         .insert_resource(Opts(args))
@@ -481,7 +493,21 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     let options = args
         .setup
         .unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&args.map));
-    let scene = scene::load(&mut install, &args.map, &options)?;
+    // A saved game builds the same game again (same start seed), then its state goes over it.
+    let resume = world.resource_mut::<frontend::Flow>().resume.take();
+    let seed = resume.as_ref().map(|r| r.header.seed);
+    let mut scene = scene::load(&mut install, &args.map, &options, seed)?;
+    if let Some(r) = &resume {
+        scene
+            .world
+            .restore(&r.body.world, savegame::reseed())
+            .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
+    }
+    world.insert_resource(savegame::GameOrigin {
+        map: args.map.clone(),
+        setup: options,
+        seed: scene.seed,
+    });
     println!(
         "{:?} map, {} units, you are player {}: {}",
         scene.era,
@@ -493,7 +519,6 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     let race = scene.world.start.race_setting;
     let hud_art = hud::HudArt::load(&mut install, scene.era, race, &scene.palette)?;
     let hz = 1000.0 / tidewater_sim::timing::ENHANCED_MS[tidewater_sim::timing::NORMAL as usize] as f64;
-    let mut scene = scene;
     if let Some(to) = args.demo_move {
         let units = scene
             .world
@@ -545,7 +570,10 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         shapes: fog::Shapes::from_vr4(&scene.tileset.minitiles),
     };
     let cycling = Cycling {
-        state: palette::Cycling::new(scene.era, &scene.palette),
+        state: match &resume {
+            Some(r) => palette::Cycling::loaded(scene.era, &scene.palette, r.body.client.cycles_on),
+            None => palette::Cycling::new(scene.era, &scene.palette),
+        },
         started: std::time::Instant::now(),
         used: None,
     };
@@ -592,11 +620,16 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         ..default()
     };
     // Music spec: the game's track (drawn after the map has loaded) plays if no music has started.
-    world.resource_mut::<jukebox::Jukebox>().start_game(
-        scene.world.start.orc_sounds,
-        options.campaign(),
-        &mut speaker.director.shuffle,
-    );
+    match &resume {
+        Some(r) => world
+            .resource_mut::<jukebox::Jukebox>()
+            .resume_game(options.campaign(), r.body.client.music),
+        None => world.resource_mut::<jukebox::Jukebox>().start_game(
+            scene.world.start.orc_sounds,
+            options.campaign(),
+            &mut speaker.director.shuffle,
+        ),
+    }
     // The flow's record of the game: its kind, the campaign total and the starting controllers (score screen).
     {
         let mut flow = world.resource_mut::<frontend::Flow>();
@@ -609,12 +642,20 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         for (i, p) in scene.world.players.iter().take(8).enumerate() {
             flow.start_controllers[i] = p.controller;
         }
+        // A loaded game keeps the flow's record of the saved one, and the screen's position.
+        if let Some(r) = &resume {
+            savegame::apply_client(&mut flow, &r.body.client);
+        }
     }
     let mut q =
         world.query_filtered::<(&mut Window, &mut bevy::window::CursorOptions), With<bevy::window::PrimaryWindow>>();
     for (mut w, mut c) in q.iter_mut(world) {
         w.title = format!("Tidewater — {}", args.map);
         c.visible = !own_pointer;
+    }
+    if let Some(r) = &resume {
+        let (x, y) = r.body.client.screen;
+        world.insert_resource(savegame::ResumeLook(Vec2::new(x as f32, y as f32)));
     }
     world.insert_resource(cycling);
     world.insert_resource(Loaded(Some(scene)));
@@ -682,6 +723,7 @@ fn world(x: f32, y: f32, z: f32) -> Vec3 {
     Vec3::new(x, -y, z)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup(
     mut commands: Commands,
     mut loaded: ResMut<Loaded>,
@@ -690,6 +732,7 @@ fn setup(
     zoom: Res<StartZoom>,
     mut hud: ResMut<Hud>,
     sel: Res<Selection>,
+    resume_look: Option<Res<savegame::ResumeLook>>,
 ) {
     let Some(scene) = loaded.0.take() else { return };
     // Start the view on the selection if there is one, else on game setup's starting view: its top-left tile, with
@@ -700,6 +743,9 @@ fn setup(
         Vec2::new((vx as f32 + half) * TILE_PX as f32, (vy as f32 + half) * TILE_PX as f32),
         |u| Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32),
     );
+    // A loaded game starts the view where the saved game's view was.
+    let look = resume_look.map_or(look, |r| r.0);
+    commands.remove_resource::<savegame::ResumeLook>();
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
         scene.terrain.height / TILE_PX as u32,
