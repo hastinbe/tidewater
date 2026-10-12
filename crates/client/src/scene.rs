@@ -35,6 +35,8 @@ pub struct Scene {
     pub world: World,
     /// The player the local user controls (the first `OWNR` slot marked human).
     pub human: u8,
+    /// The game's seed, which also starts the sound-variant generator (`client::sound`).
+    pub seed: u32,
 }
 
 /// The sheet frame and horizontal flip that draw a unit: its animation frame, plus the facing column for units
@@ -174,6 +176,7 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         sheets,
         world,
         human,
+        seed,
     })
 }
 

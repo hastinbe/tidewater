@@ -10,6 +10,7 @@ mod fog;
 mod hud;
 mod panel;
 mod scene;
+mod sound;
 
 use std::path::PathBuf;
 
@@ -75,6 +76,18 @@ struct Sim {
     human: u8,
     /// The message in the bottom bar and the ticks it has left.
     message: Option<(String, u32)>,
+}
+
+/// Plays the sim's sound cues (`sound.rs`, spec `docs/specs/ui/sounds.md`): reads the files from the install on first
+/// use and keeps the decoded sources by name.
+#[derive(Resource)]
+struct Speaker {
+    director: sound::Director,
+    install: Install,
+    /// Archive name to source; `None` for a file the install doesn't have, so it is looked up once.
+    sources: HashMap<String, Option<Handle<AudioSource>>>,
+    /// `Rez\network.tbl`, for the subtitles.
+    subtitles: Option<tidewater_formats::tbl::StringTable>,
 }
 
 /// How long a message stays up: five seconds of game time.
@@ -279,6 +292,15 @@ fn main() -> Result<()> {
         scene.world.step(&orders);
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
+    let speaker = Speaker {
+        director: sound::Director::new(sound::SoundSet::of_race(race), scene.era, scene.seed),
+        subtitles: install
+            .read("rez\\network.tbl")
+            .ok()
+            .and_then(|d| tidewater_formats::tbl::StringTable::parse(&d).ok()),
+        install,
+        sources: HashMap::new(),
+    };
     let mut selection = Selection::default();
     if let Some(n) = args.demo_select {
         selection.units = scene
@@ -317,6 +339,7 @@ fn main() -> Result<()> {
         })
         .insert_resource(Time::<Fixed>::from_hz(hz))
         .insert_resource(selection)
+        .insert_resource(speaker)
         .init_resource::<PanelUi>()
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
@@ -329,6 +352,7 @@ fn main() -> Result<()> {
                 pan_and_zoom,
                 select,
                 order,
+                play_sounds,
                 sync_sprites,
                 redraw_terrain,
                 redraw_fog,
@@ -604,12 +628,12 @@ fn select(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
-    sim: Option<Res<Sim>>,
+    sim: Option<ResMut<Sim>>,
     mut sel: ResMut<Selection>,
     hud: Res<Hud>,
     ui: Res<PanelUi>,
 ) {
-    let (Some(sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
+    let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
         return;
     };
     let Some(at) = cursor_map(window, cam) else { return };
@@ -642,6 +666,13 @@ fn select(
             .map(|u| u.id)
             .collect()
     };
+    // Sounds spec, "Selecting units": the selection's first unit; in Classic rules only a single unit. Open question
+    // "Which selecting actions ask for the sound": every action that changes the selection does.
+    if let Some(&first) = picked.first()
+        && (picked.len() == 1 || sim.world.rules.enhanced)
+    {
+        sim.world.select_sound(first);
+    }
     sel.units = picked;
 }
 
@@ -667,9 +698,7 @@ fn order(
         .copied()
         .filter(|&id| sim.world.unit(id).is_some_and(|u| u.owner == human))
         .collect();
-    if units.is_empty() {
-        return;
-    }
+    let Some(&first) = units.first() else { return };
     if !buttons.just_pressed(MouseButton::Right) {
         return;
     }
@@ -721,6 +750,7 @@ fn order(
         },
     };
     sim.pending.push(c);
+    sim.world.acknowledge(first);
 }
 
 /// The living unit whose footprint covers a tile.
@@ -1030,7 +1060,12 @@ fn panel_input(
     };
     match effect {
         panel::Effect::Nothing => {}
-        panel::Effect::Send(c) => sim.pending.push(c),
+        panel::Effect::Send(c) => {
+            sim.pending.push(c);
+            if let Some(u) = infos.first() {
+                sim.world.acknowledge(u.id);
+            }
+        }
         panel::Effect::Message(n) => sim.message = Some((hud.art.string(n), MESSAGE_TICKS)),
         panel::Effect::SetMode(m) => ui.mode = m,
     }
@@ -1050,9 +1085,81 @@ fn panel_input(
             panel::Mode::Place(kind) => Some(panel::build_command(human, infos[0].id, kind, tile)),
             _ => None,
         };
+        if command.is_some() {
+            sim.world.acknowledge(infos[0].id);
+        }
         sim.pending.extend(command);
         ui.mode = panel::Mode::None;
         ui.consumed = true;
+    }
+}
+
+/// The main view in tiles: left, top, right, bottom.
+fn view_tiles(camera: &Camera, tf: &Transform, proj: &Projection) -> (f32, f32, f32, f32) {
+    let zoom = match proj {
+        Projection::Orthographic(o) => o.scale,
+        _ => 1.0,
+    };
+    let half = camera.logical_viewport_size().unwrap_or(Vec2::ONE) * zoom / 2.0;
+    let centre = Vec2::new(tf.translation.x, -tf.translation.y);
+    let t = TILE_PX as f32;
+    (
+        (centre.x - half.x) / t,
+        (centre.y - half.y) / t,
+        (centre.x + half.x) / t,
+        (centre.y + half.y) / t,
+    )
+}
+
+/// Plays the cues the sim queued since the last frame (sounds spec, "How a sound is played"), and shows their
+/// subtitles in the message line.
+fn play_sounds(
+    mut commands: Commands,
+    sim: Option<ResMut<Sim>>,
+    mut speaker: ResMut<Speaker>,
+    mut sources: ResMut<Assets<AudioSource>>,
+    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+) {
+    let (Some(mut sim), Ok((camera, tf, proj))) = (sim, cam.single()) else {
+        return;
+    };
+    if sim.world.sounds.cues.is_empty() {
+        return;
+    }
+    let (l, t, r, b) = view_tiles(camera, tf, proj);
+    let view = sound::View {
+        x: l.floor() as i32,
+        y: t.floor() as i32,
+        w: (r - l).floor() as i32,
+        h: (b - t).floor() as i32,
+    };
+    let cues = std::mem::take(&mut sim.world.sounds.cues);
+    let sp = &mut *speaker;
+    for cue in &cues {
+        let heard = sp.director.hear(cue, view);
+        if let Some(n) = heard.subtitle
+            && let Some(text) = sp.subtitles.as_ref().and_then(|t| t.text(n as usize - 1))
+        {
+            sim.message = Some((text, MESSAGE_TICKS));
+        }
+        let Some((name, level)) = heard.play else { continue };
+        let path = sound::path(&name);
+        let install = &mut sp.install;
+        let handle = sp
+            .sources
+            .entry(path)
+            .or_insert_with_key(|p| {
+                let bytes = install.read(p).ok()?;
+                Some(sources.add(AudioSource { bytes: bytes.into() }))
+            })
+            .clone();
+        if let Some(h) = handle {
+            // Our choice: a level maps linearly to loudness (the game's volume table isn't specified).
+            commands.spawn((
+                AudioPlayer(h),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(level as f32 / 255.0)),
+            ));
+        }
     }
 }
 
@@ -1067,19 +1174,7 @@ fn draw_hud(
     let (Some(sim), Some(layout), Ok((camera, tf, proj))) = (sim, hud.layout, cam.single()) else {
         return;
     };
-    let zoom = match proj {
-        Projection::Orthographic(o) => o.scale,
-        _ => 1.0,
-    };
-    let half = camera.logical_viewport_size().unwrap_or(Vec2::ONE) * zoom / 2.0;
-    let centre = Vec2::new(tf.translation.x, -tf.translation.y);
-    let t = TILE_PX as f32;
-    let view = (
-        (centre.x - half.x) / t,
-        (centre.y - half.y) / t,
-        (centre.x + half.x) / t,
-        (centre.y + half.y) / t,
-    );
+    let view = view_tiles(camera, tf, proj);
     let dots: Vec<hud::Dot> = sim
         .world
         .units
