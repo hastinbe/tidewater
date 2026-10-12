@@ -6,6 +6,8 @@
   running game.
 - **Changes:** 2026-10-11, round-4 errata: a lost target or attacker is one that is no longer valid or no longer
   **detected** by the owner; fog over it doesn't matter (was "no longer visible").
+  2026-10-11, round-5 errata: fleeing while repairing splits computer players (don't flee) from every other player
+  (flee), replacing "computer-controlled" and "human-controlled".
 
 ## Behaviour
 
@@ -37,8 +39,8 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
    | --- | --- |
    | The attacker is forgotten (it is no longer valid, its owner is not playing, or the worker's type can't attack) | Goes on to step 2 |
    | The attacker is a worker: the repairer fights back (command 8 on it) | Ends |
-   | Human-controlled worker: it flees (order 27 is one of the orders that flee) | Ends |
-   | Computer-controlled worker: it doesn't flee, because it isn't idle; the attacker is kept | Goes on to step 2 |
+   | Worker of any player other than a computer player (`orders/orders.md`, "Terms"): it flees (order 27 is one of the orders that flee) | Ends |
+   | Computer player's worker: it doesn't flee, because it isn't idle; the attacker is kept | Goes on to step 2 |
 
    So a computer player's worker keeps repairing while it is hit, unless its attacker is a worker.
 2. **No target** (the target died or is no longer valid): the worker becomes idle (order 2).
