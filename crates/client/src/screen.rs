@@ -1,6 +1,7 @@
 //! The in-game screen's rules from `docs/specs/ui/screen-and-cursors.md`: the resource bar (its counting, the food
 //! item and the large-number placeholder), the menu and pause buttons, scrolling at the screen edge and with the keys,
-//! which pointer shows when, the placement site under the pointer's hot spot, and the saved view positions F2 to F4.
+//! which pointer shows when, and the placement site under the pointer's hot spot. The saved views F2 to F4 are game
+//! setup's `Started::saved_views`, kept by the client.
 //! The 640 × 480 layout itself is [`crate::hud::Layout`]. No Bevy types here.
 //!
 //! Our readings where the spec leaves room:
@@ -357,16 +358,6 @@ impl Scroller {
         }
         self.key_countdown = wait(self.key_speed);
         (!i.ctrl_or_alt && i.keys != (0, 0)).then_some(i.keys)
-    }
-}
-
-/// The view positions F2 to F4 go to; Shift+F2 to F4 save them. All three start as the view at the start of the game.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SavedViews(pub [(i32, i32); 3]);
-
-impl SavedViews {
-    pub fn new(start: (i32, i32)) -> Self {
-        Self([start; 3])
     }
 }
 
@@ -805,10 +796,5 @@ mod tests {
         let area = Rect::new(176, 16, 448, 448);
         assert_eq!(site_tile((300, 100), area, (10, 20)), Some((13, 22)));
         assert_eq!(site_tile((100, 100), area, (10, 20)), None);
-    }
-
-    #[test]
-    fn saved_views_start_at_the_start_view() {
-        assert_eq!(SavedViews::new((5, 7)).0, [(5, 7); 3]);
     }
 }

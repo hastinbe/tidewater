@@ -49,6 +49,11 @@ struct Args {
     install: PathBuf,
     /// A .pud file path, or a name inside the archives.
     map: String,
+    /// Game setup options: `campaign:ENTRY`, or `custom` with choices such as
+    /// `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`.
+    /// By default a campaign map starts as its campaign mission and any other map as a custom game.
+    #[arg(long, value_parser = tidewater_sim::setup::Setup::parse)]
+    setup: Option<tidewater_sim::setup::Setup>,
     /// Initial zoom: world pixels per screen pixel (2 shows twice as much map).
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
@@ -157,8 +162,9 @@ struct ScreenUi {
     edge: (i32, i32),
     /// The pointer to draw and the mouse position, when the client draws the pointer.
     pointer: Option<(screen::Pointer, (i32, i32))>,
-    /// F2 to F4, and the event history; set from the view at the start of the game.
-    views: Option<screen::SavedViews>,
+    /// The views F2 to F4 go to, from game setup's saved views (`World::start`); Shift+F2 to F4 replace them.
+    views: [(i32, i32); 3],
+    /// The event history, starting at game setup's starting view.
     history: Option<messages::History>,
     messages: messages::Messages,
     status: messages::StatusBar,
@@ -310,7 +316,10 @@ const HUD_LAYER: usize = 1;
 fn main() -> Result<()> {
     let args = Args::parse();
     let mut install = Install::open(&args.install)?;
-    let scene = scene::load(&mut install, &args.map)?;
+    let options = args
+        .setup
+        .unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&args.map));
+    let scene = scene::load(&mut install, &args.map, &options)?;
     println!(
         "{:?} map, {} units, you are player {}: {}",
         scene.era,
@@ -318,7 +327,8 @@ fn main() -> Result<()> {
         scene.human,
         scene.description
     );
-    let race = scene.world.players[scene.human as usize].race;
+    // The interface follows the local player's race setting (setup spec).
+    let race = scene.world.start.race_setting;
     let hud_art = hud::HudArt::load(&mut install, scene.era, race, &scene.palette)?;
     let hz = 1000.0 / tidewater_sim::timing::ENHANCED_MS[tidewater_sim::timing::NORMAL as usize] as f64;
     let mut scene = scene;
@@ -360,7 +370,7 @@ fn main() -> Result<()> {
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
     let speaker = Speaker {
-        director: sound::Director::new(sound::SoundSet::of_race(race), scene.era, scene.seed),
+        director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         install,
         sources: HashMap::new(),
         muted: false,
@@ -397,6 +407,8 @@ fn main() -> Result<()> {
     let own_pointer = hud_art.has_pointers();
     let screen_ui = ScreenUi {
         scroller: screen::Scroller::new(args.mouse_scroll_speed, args.key_scroll_speed),
+        views: scene.world.start.saved_views,
+        history: Some(messages::History::new(scene.world.start.view)),
         ..default()
     };
     App::new()
@@ -496,22 +508,14 @@ fn setup(
     sel: Res<Selection>,
 ) {
     let scene = loaded.0.take().expect("scene loaded once");
-    // Start the view on the selection if there is one, else on the local player's start location (types 0x5E and
-    // 0x5F), else on one of their units, else the map centre.
-    let own = |u: &&tidewater_sim::Unit| u.owner == scene.human;
-    let look = sel
-        .units
-        .first()
-        .and_then(|&id| scene.world.unit(id))
-        .or_else(|| {
-            let mut mine = scene.world.units.iter().filter(own);
-            mine.clone()
-                .find(|u| matches!(u.kind, 0x5e | 0x5f))
-                .or_else(|| mine.next())
-        })
-        .map_or(size.0 / 2.0, |u| {
-            Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32)
-        });
+    // Start the view on the selection if there is one, else on game setup's starting view: its top-left tile, with
+    // the original 14-tile view's centre in the middle of the window (setup spec, "After the units").
+    let (vx, vy) = scene.world.start.view;
+    let half = tidewater_sim::setup::VIEW_TILES as f32 / 2.0;
+    let look = sel.units.first().and_then(|&id| scene.world.unit(id)).map_or(
+        Vec2::new((vx as f32 + half) * TILE_PX as f32, (vy as f32 + half) * TILE_PX as f32),
+        |u| Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32),
+    );
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
         scene.terrain.height / TILE_PX as u32,
@@ -905,8 +909,6 @@ fn draw_selection(
 fn pan_and_zoom(
     scroll: Res<AccumulatedMouseScroll>,
     size: Res<MapSize>,
-    hud: Res<Hud>,
-    mut scr: ResMut<ScreenUi>,
     mut cam: Query<(&Camera, &mut Transform, &mut Projection), With<MapCamera>>,
 ) {
     let Ok((camera, mut tf, mut proj)) = cam.single_mut() else {
@@ -927,14 +929,6 @@ fn pan_and_zoom(
     let top = ((-tf.translation.y - half.y) / t).round() * t;
     tf.translation.x = keep_on_map(left + half.x, half.x, size.0.x);
     tf.translation.y = -keep_on_map(top + half.y, half.y, size.0.y);
-    // Screen spec, "Scrolling": the saved views F2 to F4, and the messages spec's event history, start as the view at
-    // the start of the game.
-    if scr.views.is_none() && camera.logical_viewport_size().is_some() {
-        let (proj, tf) = (&*proj, &*tf);
-        let start = view_geom(camera, tf, proj, hud.map).pos;
-        scr.views = Some(screen::SavedViews::new(start));
-        scr.history = Some(messages::History::new(start));
-    }
 }
 
 /// A view centre on one axis that keeps a view of half-width `half` inside a map `len` long; a map narrower than
@@ -1580,16 +1574,11 @@ fn keys_input(
                 exit.write(AppExit::Success);
             }
             mouse::KeyAction::GotoView(n) => {
-                if let Some(v) = scr.views {
-                    let geom = view_geom(camera, &tf, proj, hud.map);
-                    move_view(camera, &mut tf, proj, geom.clamp(v.0[n as usize]));
-                }
+                let geom = view_geom(camera, &tf, proj, hud.map);
+                move_view(camera, &mut tf, proj, geom.clamp(scr.views[n as usize]));
             }
             mouse::KeyAction::RememberView(n) => {
-                let pos = view_geom(camera, &tf, proj, hud.map).pos;
-                if let Some(v) = &mut scr.views {
-                    v.0[n as usize] = pos;
-                }
+                scr.views[n as usize] = view_geom(camera, &tf, proj, hud.map).pos;
             }
             _ => {}
         }

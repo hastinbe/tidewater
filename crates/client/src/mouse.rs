@@ -318,7 +318,7 @@ impl<'a> Board<'a> {
     /// The board of a running game for the local player `local`.
     pub fn of_world(world: &World, local: u8, view: PxRect, view_tiles: i32, opaque: Opaque<'a>) -> Self {
         let me = bit(local) as u16;
-        let allies = world.players.get(local as usize).map_or(0, |p| p.allies as u16) | me | 1 << NEUTRAL;
+        let allies = world.players.get(local as usize).map_or(0, |p| p.allies) | me | 1 << NEUTRAL;
         let units = world.units.iter().map(|u| cand(world, u, local)).collect();
         let v = View {
             local,

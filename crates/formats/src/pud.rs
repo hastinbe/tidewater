@@ -2,25 +2,40 @@
 //!
 //! Format source: Daniel Lemberg, "PUD file format" (1997), mirrored in Wargus's documentation
 //! (<https://github.com/Wargus/wargus>, `doc/pud-format.html`). A PUD is a list of sections, each a 4-byte tag, a
-//! little-endian u32 length and the payload. Only the sections an engine needs are decoded; every section stays
-//! available raw through [`Pud::section`].
+//! little-endian u32 length and the payload. Section layouts, lengths and unit type ids are that text's.
+//!
+//! Which sections are read, in what order, and the checks on them follow `docs/specs/game/setup.md` ("Reading
+//! sections", "Section effects" and the header and body tables). Only the sections those tables accept are kept;
+//! [`Pud::section`] gives their payloads.
+//!
+//! Our readings where the spec leaves room:
+//! - The body table is read from the start of the file again, with the header's sections skipped as unknown (the
+//!   spec's default for "Where the body reading starts").
+//! - A `UNIT` length that isn't a multiple of 8 fails the load (the spec's default for "Short `UNIT` section").
+//! - The spec didn't trace the `UDTA` and `UGRD` length checks. `UGRD` must be the PUD text's 782 bytes. `UDTA` must
+//!   hold at least the "use default" word and the table we read (5696 bytes): the PUD text gives 5950, and shipped maps
+//!   use both lengths.
+//! - The tile sections are copied as they are into a size × size map; tiles past the end of a short section are 0.
+//!   A `DIM ` size of 0 or above 128 fails the load, since the tile maps hold at most 128 × 128 words.
 
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum PudError {
-    #[error("truncated section header at {0}")]
-    Truncated(usize),
     #[error("not a PUD (TYPE section missing or wrong)")]
     NotPud,
-    #[error("section {tag} has {got} bytes, expected {want}")]
-    BadLength { tag: String, got: usize, want: usize },
+    #[error("section {tag} has {got} bytes, which its rule doesn't allow")]
+    BadLength { tag: String, got: usize },
+    #[error("unsupported PUD version {0:#x}")]
+    BadVersion(u16),
+    #[error("map size {0} not supported")]
+    BadSize(u16),
     #[error("missing section {0}")]
-    Missing(&'static str),
+    Missing(String),
 }
 
 /// The four terrains (the `ERA`/`ERAX` section).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Era {
     Forest,
     Winter,
@@ -29,13 +44,13 @@ pub enum Era {
 }
 
 impl Era {
-    fn from_u16(v: u16) -> Self {
-        // Values above 3 appear in some maps; the public spec says they read as forest.
-        match v {
+    /// The tileset is the value's low two bits (setup spec, "Section effects").
+    pub fn from_u16(v: u16) -> Self {
+        match v & 3 {
+            0 => Era::Forest,
             1 => Era::Winter,
             2 => Era::Wasteland,
-            3 => Era::Swamp,
-            _ => Era::Forest,
+            _ => Era::Swamp,
         }
     }
 }
@@ -51,14 +66,130 @@ pub struct PlacedUnit {
     pub data: u16,
 }
 
+/// What a table entry accepts as the section length.
+#[derive(Clone, Copy, Debug)]
+enum Len {
+    Any,
+    Exactly(usize),
+    AtMost(usize),
+    AtLeast(usize),
+    ZeroOr(usize),
+    MultipleOf(usize),
+}
+
+impl Len {
+    fn allows(self, n: usize) -> bool {
+        match self {
+            Len::Any => true,
+            Len::Exactly(m) => n == m,
+            Len::AtMost(m) => n <= m,
+            Len::AtLeast(m) => n >= m,
+            Len::ZeroOr(m) => n == 0 || n == m,
+            Len::MultipleOf(m) => n.is_multiple_of(m),
+        }
+    }
+}
+
+struct Entry {
+    tag: &'static [u8; 4],
+    required: bool,
+    len: Len,
+}
+
+const fn entry(tag: &'static [u8; 4], required: bool, len: Len) -> Entry {
+    Entry { tag, required, len }
+}
+
+/// The header table, read first (setup spec, Data). `TYPE`'s length isn't checked.
+const HEADER: [Entry; 16] = [
+    entry(b"TYPE", true, Len::Any),
+    entry(b"VER ", true, Len::Exactly(2)),
+    entry(b"DESC", true, Len::Exactly(32)),
+    entry(b"OWNR", true, Len::Exactly(16)),
+    entry(b"ERA ", true, Len::Exactly(2)),
+    entry(b"ERAX", false, Len::Exactly(2)),
+    entry(b"SIGN", false, Len::Exactly(4)),
+    entry(b"DIM ", true, Len::Exactly(4)),
+    entry(b"UDTA", false, Len::AtLeast(2 + crate::udta::TABLE_LEN)),
+    entry(b"UGRD", false, Len::Exactly(2 + crate::ugrd::TABLE_LEN)),
+    entry(b"ALOW", false, Len::ZeroOr(crate::alow::LEN)),
+    entry(b"SIDE", true, Len::Exactly(16)),
+    entry(b"SGLD", true, Len::Exactly(32)),
+    entry(b"SLBR", true, Len::Exactly(32)),
+    entry(b"SOIL", true, Len::Exactly(32)),
+    entry(b"AIPL", false, Len::Exactly(16)),
+];
+
+/// The body table, read after the header.
+const BODY: [Entry; 5] = [
+    entry(b"MTXM", true, Len::AtMost(32768)),
+    entry(b"SQM ", true, Len::AtMost(32768)),
+    entry(b"OILM", true, Len::Any),
+    entry(b"REGM", true, Len::AtMost(32768)),
+    entry(b"UNIT", true, Len::MultipleOf(8)),
+];
+
+/// The largest map side the tile maps hold.
+pub const MAX_SIZE: u16 = 128;
+
+/// A section a table entry read: its tag and payload.
+type Read<'a> = ([u8; 4], &'a [u8]);
+
+/// Reads one table over the whole file ("Reading sections"): returns the sections its entries read, in table order.
+fn read_table<'a>(data: &'a [u8], table: &[Entry]) -> Result<Vec<Read<'a>>, PudError> {
+    let mut out = Vec::new();
+    let (mut pos, mut i) = (0, 0);
+    while pos < table.len() && i + 8 <= data.len() {
+        let tag: [u8; 4] = data[i..i + 4].try_into().expect("4 bytes");
+        let len = u32::from_le_bytes(data[i + 4..i + 8].try_into().expect("4 bytes")) as usize;
+        if len > data.len() - (i + 8) {
+            // A section longer than the bytes left ends the reading, as if the file ended there.
+            break;
+        }
+        let payload = &data[i + 8..i + 8 + len];
+        i += 8 + len;
+        let Some(k) = table[pos..].iter().position(|e| *e.tag == tag).map(|k| pos + k) else {
+            continue;
+        };
+        if let Some(e) = table[pos..k].iter().find(|e| e.required) {
+            return Err(PudError::Missing(tag_name(e.tag)));
+        }
+        if !table[k].len.allows(len) {
+            return Err(PudError::BadLength {
+                tag: tag_name(&tag),
+                got: len,
+            });
+        }
+        out.push((tag, payload));
+        pos = k + 1;
+    }
+    // The file ended first: only one optional entry may be left.
+    let left = &table[pos..];
+    match left {
+        [] => Ok(out),
+        [e] if !e.required => Ok(out),
+        _ => Err(PudError::Missing(tag_name(
+            left.iter().find(|e| e.required).unwrap_or(&left[0]).tag,
+        ))),
+    }
+}
+
+fn tag_name(t: &[u8; 4]) -> String {
+    String::from_utf8_lossy(t).into_owned()
+}
+
 #[derive(Clone, Debug)]
 pub struct Pud {
+    /// The sections the two tables read, header ones first.
     sections: Vec<([u8; 4], Vec<u8>)>,
     pub version: u16,
+    /// The map's id tag, bytes 12 to 15 of `TYPE` (0 when the section is shorter).
+    pub id_tag: u32,
+    /// The map is always square: both are the second word of `DIM `.
     pub width: u16,
     pub height: u16,
     pub era: Era,
-    /// Tile numbers, row-major.
+    /// Tile numbers, row-major, size × size.
     pub tiles: Vec<u16>,
     pub units: Vec<PlacedUnit>,
 }
@@ -69,44 +200,45 @@ fn u16s(b: &[u8]) -> Vec<u16> {
 
 impl Pud {
     pub fn parse(data: &[u8]) -> Result<Self, PudError> {
-        let mut sections = Vec::new();
-        let mut i = 0;
-        while i < data.len() {
-            if i + 8 > data.len() {
-                return Err(PudError::Truncated(i));
-            }
-            let tag: [u8; 4] = data[i..i + 4].try_into().expect("4 bytes");
-            let len = u32::from_le_bytes(data[i + 4..i + 8].try_into().expect("4 bytes")) as usize;
-            let end = (i + 8 + len).min(data.len());
-            sections.push((tag, data[i + 8..end].to_vec()));
-            i = i + 8 + len;
+        let header = read_table(data, &HEADER)?;
+        let find = |t: &[u8; 4]| header.iter().find(|(tag, _)| tag == t).map(|(_, d)| *d);
+        let ty = find(b"TYPE").unwrap_or_default();
+        if !ty.starts_with(b"WAR2 MAP\0") {
+            return Err(PudError::NotPud);
         }
-        let find = |t: &[u8; 4]| sections.iter().find(|(tag, _)| tag == t).map(|(_, d)| d.as_slice());
-        match find(b"TYPE") {
-            Some(t) if t.starts_with(b"WAR2 MAP") => {}
-            _ => return Err(PudError::NotPud),
+        let id_tag = ty
+            .get(12..16)
+            .map_or(0, |b| u32::from_le_bytes(b.try_into().expect("4 bytes")));
+        let version = u16s(find(b"VER ").unwrap_or_default()).first().copied().unwrap_or(0);
+        if !matches!(version, 0x11 | 0x13) {
+            return Err(PudError::BadVersion(version));
         }
-        let version = find(b"VER ").map(|v| u16s(v)[0]).unwrap_or(0);
-        let dim = find(b"DIM ").ok_or(PudError::Missing("DIM "))?;
-        let d = u16s(dim);
-        let (width, height) = (d[0], d[1]);
-        // ERAX (expansion) overrides ERA when present.
+        // ERAX comes later in the table, so it wins when both are present.
         let era = find(b"ERAX")
             .or_else(|| find(b"ERA "))
-            .map(|e| Era::from_u16(u16s(e)[0]))
-            .unwrap_or(Era::Forest);
-        let mtxm = find(b"MTXM").ok_or(PudError::Missing("MTXM"))?;
-        let want = width as usize * height as usize * 2;
-        if mtxm.len() != want {
-            return Err(PudError::BadLength {
-                tag: "MTXM".into(),
-                got: mtxm.len(),
-                want,
-            });
+            .map_or(Era::Forest, |e| Era::from_u16(u16s(e)[0]));
+        // Only the second word (the height) is kept; the map is square.
+        let size = u16s(find(b"DIM ").unwrap_or_default()).get(1).copied().unwrap_or(0);
+        if size == 0 || size > MAX_SIZE {
+            return Err(PudError::BadSize(size));
         }
-        let tiles = u16s(mtxm);
-        let units = find(b"UNIT")
-            .unwrap_or(&[])
+        let body = read_table(data, &BODY)?;
+        let mut sections: Vec<([u8; 4], Vec<u8>)> = header.iter().map(|(t, d)| (*t, d.to_vec())).collect();
+        sections.extend(body.iter().map(|(t, d)| (*t, d.to_vec())));
+        let mut pud = Self {
+            sections,
+            version,
+            id_tag,
+            width: size,
+            height: size,
+            era,
+            tiles: Vec::new(),
+            units: Vec::new(),
+        };
+        pud.tiles = pud.tile_words(b"MTXM");
+        pud.units = pud
+            .section(b"UNIT")
+            .unwrap_or_default()
             .chunks_exact(8)
             .map(|u| PlacedUnit {
                 x: u16::from_le_bytes([u[0], u[1]]),
@@ -116,18 +248,11 @@ impl Pud {
                 data: u16::from_le_bytes([u[6], u[7]]),
             })
             .collect();
-        Ok(Self {
-            sections,
-            version,
-            width,
-            height,
-            era,
-            tiles,
-            units,
-        })
+        Ok(pud)
     }
 
-    /// The raw payload of a section, e.g. `b"UDTA"`.
+    /// The payload of a section the tables read, e.g. `b"UDTA"`. Sections the tables skipped (unknown tags, second
+    /// copies, optional entries passed over) aren't kept.
     pub fn section(&self, tag: &[u8; 4]) -> Option<&[u8]> {
         self.sections.iter().find(|(t, _)| t == tag).map(|(_, d)| d.as_slice())
     }
@@ -136,17 +261,18 @@ impl Pud {
         self.sections.iter().map(|(t, _)| t)
     }
 
-    /// Player races (`SIDE`): 0 human, 1 orc, 2 neutral.
+    /// Player races (`SIDE`) as the map gives them: 0 human, 1 orc, anything else neutral.
     pub fn sides(&self) -> &[u8] {
         self.section(b"SIDE").unwrap_or(&[])
     }
 
-    /// Computer script numbers (`AIPL`), one per player.
+    /// Computer script numbers (`AIPL`), one per player; empty without the section.
     pub fn ai_scripts(&self) -> &[u8] {
         self.section(b"AIPL").unwrap_or(&[])
     }
 
-    /// Player controllers (`OWNR`): e.g. 3 nobody, 4 computer, 5 human, 6 rescue (passive), 7 rescue (active).
+    /// Owner codes (`OWNR`) as the map gives them: e.g. 2 passive computer, 3 nobody, 4 computer, 5 human,
+    /// 6 rescue (passive), 7 rescue (active).
     pub fn owners(&self) -> &[u8] {
         self.section(b"OWNR").unwrap_or(&[])
     }
@@ -157,19 +283,22 @@ impl Pud {
         String::from_utf8_lossy(&d[..end]).into_owned()
     }
 
-    /// The movement words (`SQM `), one per tile, if the section is present and complete.
+    /// The movement words (`SQM `), one per tile.
     pub fn movement(&self) -> Option<Vec<u16>> {
-        self.tile_words(b"SQM ")
+        self.section(b"SQM ").is_some().then(|| self.tile_words(b"SQM "))
     }
 
-    /// The region map (`REGM`), one value per tile, if the section is present and complete.
+    /// The region map (`REGM`), one value per tile.
     pub fn regions(&self) -> Option<Vec<u16>> {
-        self.tile_words(b"REGM")
+        self.section(b"REGM").is_some().then(|| self.tile_words(b"REGM"))
     }
 
-    fn tile_words(&self, tag: &[u8; 4]) -> Option<Vec<u16>> {
-        let w = u16s(self.section(tag)?);
-        (w.len() >= self.width as usize * self.height as usize).then_some(w)
+    /// A tile section copied as it is into a size × size map, as rows of the map's size; tiles past its end are 0.
+    fn tile_words(&self, tag: &[u8; 4]) -> Vec<u16> {
+        let n = self.width as usize * self.height as usize;
+        let mut w = u16s(self.section(tag).unwrap_or_default());
+        w.resize(n, 0);
+        w
     }
 
     /// Starting resources for player `p` (`SGLD`, `SLBR`, `SOIL`), as (gold, lumber, oil).
@@ -179,33 +308,144 @@ impl Pud {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn section(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+/// Builds PUD files from parts, for tests here and in other crates. The data is synthetic.
+pub mod build {
+    /// One section: the tag, the u32 length and the payload.
+    pub fn section(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
         let mut v = tag.to_vec();
         v.extend((data.len() as u32).to_le_bytes());
         v.extend(data);
         v
     }
 
-    fn synthetic() -> Vec<u8> {
-        let mut d = section(b"TYPE", b"WAR2 MAP\0\0\x0a\xff\0\0\0\0");
-        d.extend(section(b"VER ", &0x13u16.to_le_bytes()));
-        d.extend(section(b"ERA ", &2u16.to_le_bytes()));
-        d.extend(section(b"DIM ", &[2, 0, 1, 0]));
-        d.extend(section(b"MTXM", &[0x50, 0x00, 0x23, 0x01]));
-        d.extend(section(b"UNIT", &[1, 0, 0, 0, 0x5c, 15, 4, 0]));
-        d
+    fn words(w: &[u16]) -> Vec<u8> {
+        w.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    /// A small map, built up section by section.
+    #[derive(Clone, Debug)]
+    pub struct Map {
+        pub size: u16,
+        pub era: u16,
+        pub owners: [u8; 16],
+        pub sides: [u8; 16],
+        pub gold: [u16; 16],
+        pub lumber: [u16; 16],
+        pub oil: [u16; 16],
+        pub ai: Option<[u8; 16]>,
+        /// Movement words, one per tile; all 0 when empty.
+        pub movement: Vec<u16>,
+        /// Region values, one per tile; all 0 when empty.
+        pub regions: Vec<u16>,
+        /// (x, y, type, owner, data).
+        pub units: Vec<(u16, u16, u8, u8, u16)>,
+    }
+
+    impl Default for Map {
+        fn default() -> Self {
+            Map {
+                size: 32,
+                era: 0,
+                owners: [3; 16],
+                sides: [0; 16],
+                gold: [2000; 16],
+                lumber: [1000; 16],
+                oil: [1000; 16],
+                ai: None,
+                movement: Vec::new(),
+                regions: Vec::new(),
+                units: Vec::new(),
+            }
+        }
+    }
+
+    impl Map {
+        /// The header sections in table order.
+        pub fn header(&self) -> Vec<Vec<u8>> {
+            let mut desc = [0u8; 32];
+            desc[..4].copy_from_slice(b"test");
+            let mut v = vec![
+                section(b"TYPE", b"WAR2 MAP\0\0\x0a\xff\x01\x02\x03\x04"),
+                section(b"VER ", &words(&[0x13])),
+                section(b"DESC", &desc),
+                section(b"OWNR", &self.owners),
+                section(b"ERA ", &words(&[self.era])),
+                section(b"DIM ", &words(&[self.size, self.size])),
+                section(b"SIDE", &self.sides),
+                section(b"SGLD", &words(&self.gold)),
+                section(b"SLBR", &words(&self.lumber)),
+                section(b"SOIL", &words(&self.oil)),
+            ];
+            if let Some(ai) = self.ai {
+                v.push(section(b"AIPL", &ai));
+            }
+            v
+        }
+
+        /// The body sections in table order.
+        pub fn body(&self) -> Vec<Vec<u8>> {
+            let n = self.size as usize * self.size as usize;
+            let tiles = |w: &[u16]| if w.is_empty() { vec![0; n] } else { w.to_vec() };
+            let units: Vec<u8> = self
+                .units
+                .iter()
+                .flat_map(|&(x, y, k, o, d)| {
+                    let mut r = Vec::with_capacity(8);
+                    r.extend(x.to_le_bytes());
+                    r.extend(y.to_le_bytes());
+                    r.extend([k, o]);
+                    r.extend(d.to_le_bytes());
+                    r
+                })
+                .collect();
+            vec![
+                section(b"MTXM", &words(&vec![0x50; n])),
+                section(b"SQM ", &words(&tiles(&self.movement))),
+                section(b"OILM", &vec![0; n]),
+                section(b"REGM", &words(&tiles(&self.regions))),
+                section(b"UNIT", &units),
+            ]
+        }
+
+        pub fn bytes(&self) -> Vec<u8> {
+            self.header().into_iter().chain(self.body()).flatten().collect()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build::{Map, section};
+    use super::*;
+
+    fn join(parts: &[Vec<u8>]) -> Vec<u8> {
+        parts.concat()
+    }
+
+    /// The header sections of a default map with `f` applied, then its body.
+    fn with_header(f: impl FnOnce(&mut Vec<Vec<u8>>)) -> Result<Pud, PudError> {
+        let m = Map::default();
+        let mut h = m.header();
+        f(&mut h);
+        Pud::parse(&join(&[join(&h), join(&m.body())]))
+    }
+
+    fn pos(h: &[Vec<u8>], tag: &[u8; 4]) -> usize {
+        h.iter().position(|s| &s[..4] == tag).unwrap()
     }
 
     #[test]
     fn parses_core_sections() {
-        let p = Pud::parse(&synthetic()).unwrap();
-        assert_eq!((p.width, p.height, p.version), (2, 1, 0x13));
+        let mut m = Map {
+            size: 2,
+            era: 2,
+            ..Default::default()
+        };
+        m.units.push((1, 0, 0x5c, 15, 4));
+        let p = Pud::parse(&m.bytes()).unwrap();
+        assert_eq!((p.width, p.height, p.version, p.id_tag), (2, 2, 0x13, 0x0403_0201));
         assert_eq!(p.era, Era::Wasteland);
-        assert_eq!(p.tiles, vec![0x0050, 0x0123]);
+        assert_eq!(p.tiles, vec![0x50; 4]);
         assert_eq!(
             p.units,
             vec![PlacedUnit {
@@ -219,13 +459,151 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_tile_count() {
-        let mut d = synthetic();
-        d.extend(section(b"MTXM", &[0; 2]));
-        // The first MTXM wins, so build one where it's short instead.
-        let mut bad = section(b"TYPE", b"WAR2 MAP\0\0");
-        bad.extend(section(b"DIM ", &[2, 0, 2, 0]));
-        bad.extend(section(b"MTXM", &[0; 4]));
-        assert!(matches!(Pud::parse(&bad), Err(PudError::BadLength { .. })));
+    fn minimal_header_loads_with_defaults() {
+        // TYPE VER DESC OWNR ERA DIM SIDE SGLD SLBR SOIL, no optional sections.
+        let p = with_header(|_| {}).unwrap();
+        assert_eq!(p.era, Era::Forest);
+        assert!(p.section(b"UDTA").is_none() && p.section(b"UGRD").is_none());
+        assert!(p.ai_scripts().is_empty());
+    }
+
+    #[test]
+    fn erax_wins_and_era_uses_the_low_two_bits() {
+        let p = with_header(|h| {
+            let at = pos(h, b"ERA ") + 1;
+            h.insert(at, section(b"ERAX", &2u16.to_le_bytes()));
+            h[at - 1] = section(b"ERA ", &1u16.to_le_bytes());
+        })
+        .unwrap();
+        assert_eq!(p.era, Era::Wasteland);
+        let p = with_header(|h| {
+            let at = pos(h, b"ERA ");
+            h[at] = section(b"ERA ", &6u16.to_le_bytes());
+        })
+        .unwrap();
+        assert_eq!(p.era, Era::Wasteland);
+        assert_eq!(Era::from_u16(7), Era::Swamp);
+    }
+
+    #[test]
+    fn dim_keeps_the_second_word() {
+        let m = Map::default();
+        let mut h = m.header();
+        let at = pos(&h, b"DIM ");
+        h[at] = section(b"DIM ", &[64, 0, 32, 0]);
+        let p = Pud::parse(&join(&[join(&h), join(&m.body())])).unwrap();
+        assert_eq!((p.width, p.height, p.tiles.len()), (32, 32, 32 * 32));
+    }
+
+    #[test]
+    fn only_versions_0x11_and_0x13_load() {
+        for (v, ok) in [(0x11u16, true), (0x13, true), (0x12, false)] {
+            let r = with_header(|h| {
+                let at = pos(h, b"VER ");
+                h[at] = section(b"VER ", &v.to_le_bytes());
+            });
+            assert_eq!(r.is_ok(), ok, "version {v:#x}");
+        }
+    }
+
+    #[test]
+    fn a_passed_optional_entry_is_never_read() {
+        // SIDE read first skips UDTA, UGRD and ALOW; the later UDTA is unknown by then.
+        let mut udta = vec![0u8; 2 + crate::udta::TABLE_LEN];
+        udta[0] = 0;
+        let p = with_header(|h| {
+            let at = pos(h, b"SIDE") + 1;
+            h.insert(at, section(b"UDTA", &udta));
+        })
+        .unwrap();
+        assert!(p.section(b"UDTA").is_none());
+        assert_eq!(p.sides().len(), 16);
+    }
+
+    #[test]
+    fn skipping_a_required_entry_fails() {
+        let r = with_header(|h| {
+            h.remove(pos(h, b"SGLD"));
+        });
+        assert!(matches!(r, Err(PudError::Missing(t)) if t == "SGLD"));
+    }
+
+    #[test]
+    fn file_may_end_with_only_aipl_left() {
+        let m = Map::default();
+        // The header alone, ending right after SOIL: the header reads, but the body is missing.
+        let h = join(&m.header());
+        assert!(read_table(&h, &HEADER).is_ok());
+        assert!(matches!(Pud::parse(&h), Err(PudError::Missing(t)) if t == "MTXM"));
+        // Ending before SOIL leaves two entries.
+        let short = join(&m.header()[..9]);
+        assert!(read_table(&short, &HEADER).is_err());
+    }
+
+    #[test]
+    fn unknown_sections_are_skipped_anywhere() {
+        let m = Map::default();
+        let mut parts = m.header();
+        parts.insert(0, section(b"ABCD", &[1, 2, 3]));
+        parts.insert(5, section(b"ABCD", &[]));
+        parts.extend(m.body());
+        parts.insert(13, section(b"ABCD", &[9; 7]));
+        parts.push(section(b"ABCD", &[0; 4]));
+        let p = Pud::parse(&join(&parts)).unwrap();
+        assert!(p.section(b"ABCD").is_none());
+        assert_eq!(p.width, 32);
+    }
+
+    #[test]
+    fn wrong_lengths_fail() {
+        assert!(matches!(
+            with_header(|h| {
+                let at = pos(h, b"OWNR");
+                h[at] = section(b"OWNR", &[3; 15]);
+            }),
+            Err(PudError::BadLength { .. })
+        ));
+        // ALOW may be empty or 384 bytes.
+        for (n, ok) in [(0, true), (384, true), (100, false)] {
+            let r = with_header(|h| {
+                let at = pos(h, b"SIDE");
+                h.insert(at, section(b"ALOW", &vec![0; n]));
+            });
+            assert_eq!(r.is_ok(), ok, "ALOW length {n}");
+        }
+        // A UNIT section that isn't a multiple of 8.
+        let m = Map::default();
+        let mut b = m.body();
+        b[4] = section(b"UNIT", &[0; 12]);
+        assert!(Pud::parse(&join(&[join(&m.header()), join(&b)])).is_err());
+    }
+
+    #[test]
+    fn an_overlong_section_ends_the_file() {
+        let m = Map::default();
+        let mut bytes = m.bytes();
+        bytes.extend(b"ABCD");
+        bytes.extend(1000u32.to_le_bytes());
+        assert!(Pud::parse(&bytes).is_ok());
+        // Cut inside UNIT's payload: UNIT is required, so the load fails.
+        let mut m = Map::default();
+        m.units.push((0, 0, 0, 0, 0));
+        let bytes = m.bytes();
+        assert!(Pud::parse(&bytes[..bytes.len() - 2]).is_err());
+    }
+
+    #[test]
+    fn type_must_name_a_war2_map() {
+        let r = with_header(|h| h[0] = section(b"TYPE", b"WAR2 MAX\0\0\0\0\0\0\0\0"));
+        assert!(matches!(r, Err(PudError::NotPud)));
+    }
+
+    #[test]
+    fn short_tile_sections_are_padded() {
+        let m = Map::default();
+        let mut b = m.body();
+        b[0] = section(b"MTXM", &[0x23, 0x01]);
+        let p = Pud::parse(&join(&[join(&m.header()), join(&b)])).unwrap();
+        assert_eq!((p.tiles[0], p.tiles[1], p.tiles.len()), (0x123, 0, 32 * 32));
     }
 }
