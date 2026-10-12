@@ -12,6 +12,8 @@
   vector with a late hand-over is replaced by a Human06 queue vector.
   2026-10-12, round-35 errata: the Human12 select that no scenario gave is the capture harness's late click, not the
   game's own command.
+  2026-10-12, round-40 errata: a `build` command's builder may be a tanker (oil platforms) as well as a worker;
+  `orc09-naval` vector.
 
 ## Behaviour
 
@@ -116,12 +118,12 @@ and `kind`.
 | --- | --- | --- |
 | `select` | `units` | Replaces the player's **synced selection** (`ui/selecting-and-commanding.md`, "Two selections") with these unit slots, in this order (at most 9) |
 | `command` | `command`, `tile`, `target` | Gives command number `command` (`orders/orders.md`, "Commands"; a spell by its spell order number, 38 to 56) to the units of the player's synced selection, as in `ui/selecting-and-commanding.md`, "Which units take part in a command": the list of handled commands, the selection filter and the formation offset. `tile` is `[x, y]`; `target` is a unit slot or `null` |
-| `build` | `type`, `tile` | The first unit of the player's synced selection, if its type is its race's worker, is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
+| `build` | `type`, `tile` | The first unit of the player's synced selection, if it can build (a worker, or a tanker, which builds oil platforms; `economy/build-train.md`), is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
 | `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/tech-tree.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
 | `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
 | `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
 
-A command whose conditions fail (a unit not owned by the player, a builder that isn't a worker, too little gold) is
+A command whose conditions fail (a unit not owned by the player, a builder that is neither a worker nor a tanker, too little gold) is
 still listed: it was carried out and did nothing.
 
 `commands` lists every command carried out in the turn, not only the scenario's. In the Human12 captures the
@@ -224,6 +226,7 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
 
 | Input | Expected |
 | --- | --- |
+| `orc09-naval-1500`: a select of tanker 1473 (type 0x1B, player 5) and a build of type 0x57 (oil platform) at (57, 75), both with `n` = 100 | `turn` n = 101 lists the select and 102 the build; 1473 is in order 28, wait 3 at `cycle` n = 105 |
 | Human01: a select of 1593, 1597, 1598 and command 8 on unit 1592, then a select of 1596 and a build of type 60 at (5, 8), all with `n` = 10 | `turn` n = 11 lists the select, 12 the command, 13 the second select, 14 the build: one per turn, in file order |
 | Human01: the command 8 entry gives only the target unit | `turn` n = 12 lists `tile` [29, 14], unit 1592's tile |
 | Human01: the build in turn 14 | Worker 1596 is in order 28 from `cycle` n = 19, and in order 22 with target 1587 (the new barracks) from n = 134 |
