@@ -2,11 +2,14 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and the public PUD
-  specification text (unit data section). Not yet confirmed against the running game.
+  specification text (unit data section). Not yet confirmed against the running game, except the idle look-around
+  (oracle traces).
 - **Changes:** 2026-10-12, round-10 errata: a hit records its attacker only under the rules of `ai/attack-ai.md`
   ("Call for help"), and the first live attacker is kept, so the attacker is not always the last unit that hit.
   2026-10-12, round-13 errata: command 17 gives order 17 at once when the target tile is in the unit's own region.
   2026-10-12, round-14 errata: orders 33 and 14 forget the building's attacker each time their logic runs.
+  2026-10-12, round-30 errata: new section "Idle look-around" (turn, wander and bob draws of idle units) with trace
+  vectors; a unit is created in order 2 and its first order, if different, is pending until its first step done.
 
 ## Behaviour
 
@@ -153,6 +156,11 @@ Orders that count as **stationary or followable** (used by the follow rules belo
 | Circle of power | 59 |
 | Any other building (complete or under construction) | 33 |
 | Anything else | 2 |
+
+A unit is created in order 2, with its animation's first wait of 1 + (r AND 7) (`core/unit-slots.md`). For a unit
+whose first order isn't 2, that order is its pending order and takes over at the unit's first step done ("Pending
+orders and immediate orders"). In the Human01 trace the map's buildings and gold mines show order 2 at setup and 33
+from their first step done.
 
 ### Commands
 
@@ -401,6 +409,83 @@ position defined in `movement/movement.md`):
   start of a step while its pixel y changes gradually, tile rows in the list are only nearly sorted, so a unit near
   either end of that range can be missed or included.
 
+### Idle look-around
+
+Every time a unit's **idle logic** runs, the first thing it does is the look-around. Except for catapults, this makes
+random draws (`core/timing-and-rng.md`), so it decides the draw sequence of every game, even one with no fighting.
+
+**When it runs.**
+
+- The idle logic is the order logic of order **2** (stop / idle) and order **13** (stand ground). Order **7** (follow
+  and guard) runs it after its follow steps ("Order 7 then also runs the idle logic", above). A follower whose follow
+  steps give it a new order in that update doesn't reach it, so it makes no draw.
+- No other order makes the look-around. That includes the attack orders that share parts of the idle logic (9, 11,
+  12, 15, 16 and 17), and order 32 (transport docked), whose logic does nothing.
+- Order logic runs at the "step done" signal of the unit's animation (`core/animation-scripts.md`). A unit at rest
+  in order 2 or 13 shows its still animation (animation 2), which loops once every **5 cycles**, so the unit draws
+  once every 5 cycles. Its wait reads 4, 3, 2, 1, 1 at the ends of those cycles, and the draw comes in the cycle of
+  the second 1, which is the step done.
+- A newly created unit starts in order 2 with a wait of 1 + (r AND 7) from its creation draw (`core/unit-slots.md`).
+  It draws at its first step done, unless a pending first order takes over then ("Orders given when a unit is
+  created"): a building or gold mine makes no look-around.
+- When a critter's move (order 3) ends and it goes idle, the idle logic also runs in that same update, so it draws
+  then. Whether every unit does the same is in "Open questions".
+
+**Where in the cycle.** The draw is in phase 4 (units), during the unit's own update, so units draw in ascending slot
+order (`core/unit-slots.md`).
+
+- Within the update it comes after any draw made by the unit's animation step in that cycle, because the step done
+  comes first.
+- It comes before every other draw that the rest of the idle logic may make in the same update.
+- A unit created during another unit's update makes its creation draws there. For example, a great hall that finishes
+  training a peon makes the peon's two creation draws in the hall's own update, between the look-around draws of the
+  units in the slots below and above the hall.
+
+**Who does what.** One rule applies per run, chosen by the unit's type:
+
+| Unit | Each run of the idle logic |
+| --- | --- |
+| Type with flag bit 2 ("explode when killed"; in the default data the two catapults, 0x04 and 0x05) | Nothing: no look-around and no draw |
+| Type with flag bit 3 (sea; every ship, 0x1A to 0x21 and 0x24 to 0x27 in the default data), or a unit on the air layer (`movement/occupancy.md`, "Movement layers"; every flier) | **Bob** (below) |
+| Any other unit (land units, critters) | **Turn** (below), then for the critter (type 0x39) possibly **Wander** |
+
+**Turn.** Make 1 draw r and look at its low 8 bits, `r AND 255`:
+
+| `r AND 255` | Effect |
+| --- | --- |
+| 0 | Facing turns one step counter-clockwise: `facing ← (facing − 1) mod 8` |
+| 1, 2 or 3 | Facing turns one step clockwise: `facing ← (facing + 1) mod 8` |
+| 4 to 50, and the unit is a critter (type 0x39) | **Wander** |
+| Anything else | Nothing more |
+
+So an idle land unit turns on 4 runs in 256, and a critter wanders on 47 runs in 256. A turn changes only the
+facing. The unit is redrawn, but its animation, frame and wait are unchanged.
+
+**Wander** (critter only, after the turn draw). Make a 2nd draw r2, and let d = `r2 AND 7` be a direction in the
+facing order of `core/animation-scripts.md` ("Movement by scripts"):
+
+| d | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| dx | 0 | +1 | +1 | +1 | 0 | −1 | −1 | −1 |
+| dy | −1 | −1 | 0 | +1 | +1 | +1 | 0 | −1 |
+
+- The target tile is the critter's tile plus (dx, dy), with each coordinate clamped to 0 … map size − 1.
+- If the clamped target is the critter's own tile, nothing more happens.
+- Otherwise the critter gets **command 3 (smart move)** to that tile, as "Commands" describes. Its wait is cut to at
+  most 10 cycles, because a critter's owner isn't a computer player. The target is an empty tile, so the result is
+  order 3 (move). In the traces the critter's order is already 3, with a wait of 3, at the end of that same update.
+- The move then follows the movement specs.
+
+**Bob** (ships and fliers). Each unit has a **bob countdown** and a **bob value**, both 0 when the unit is created.
+On each run:
+
+- If the countdown is above 0, it decreases by 1. Nothing else happens, and there is no draw.
+- If it is 0, make 1 draw r. The countdown becomes `(r AND 7) + 8`, from 8 to 15. The bob value flips: 0 becomes 1,
+  anything else becomes 0. The unit is redrawn.
+
+So a ship at rest draws at its first run, then again every `(r AND 7) + 9` runs, which is every 5 × ((r AND 7) + 9)
+cycles. The bob value is the b of `ui/map-drawing.md`, "Bob offset": the unit is drawn b pixels higher.
+
 ### Reacting to an attacker
 
 A hit can record the attacker. The rules are in `ai/attack-ai.md`, "Call for help", steps 1 to 4: a live attacker is
@@ -535,6 +620,66 @@ Distances are in tiles; scores as defined above.
 | Footman following (order 6, nothing pending) a peasant that is harvesting, arrives within 1 tile | idle (order 2) |
 | Footman follows a footman that is moving (order 3), and arrives within 1 tile | order 7 (guard) |
 
+### Idle look-around (oracle traces)
+
+These come from traces of the running game (`oracle/trace-format.md`): record n = 1 and 2 are the start-up cycles,
+n = 3 is the first normal cycle, and "setup" is the state after the map has loaded. Clock 946684800 in both.
+
+**Human01, the first draws.** Setup state 0xF55E08A8. Eight units are idle: grunts (type 0x01) in slots 1588, 1590,
+1591 and 1592, footmen (0x00) in 1593, 1597 and 1598, and a peasant (0x02) in 1596. The map's buildings and gold
+mines draw nothing.
+
+| n | Slot (type) | r | `r AND 255` | Facing before → after | State after record n |
+| --- | --- | --- | --- | --- | --- |
+| 1 | (no draw) | | | | 0xF55E08A8 |
+| 2 | 1598 (0x00) | 9770 | 42 | 5 → 5 | 0x262AFAC9 |
+| 3 | 1593 (0x00) | 29433 | 249 | 2 → 2 | 0xF2F9299E |
+| 4 | 1590 (0x01) | 30671 | 207 | 2 → 2 | |
+| 4 | 1596 (0x02) | 27742 | 94 | 5 → 5 | 0xEC5EDCE4 |
+| 5 | 1597 (0x00) | 25369 | 25 | 6 → 6 | 0x63193335 |
+| 6 | 1592 (0x01) | 26483 | 115 | 7 → 7 | 0x6773BFFA |
+| 7 | 1588 (0x01) | 10072 | 88 | 7 → 7 | |
+| 7 | 1591 (0x01) | 2174 | 126 | 0 → 0 | |
+| 7 | 1598 (0x00) | 4396 | 44 | 5 → 5 | 0x912C27E1 |
+| 8 | 1593 (0x00) | 26724 | 100 | 2 → 2 | 0x6864CF96 |
+
+From n = 3 on, 1, 2, 1, 1 and 3 draws per cycle repeat every 5 cycles; each unit draws in every 5th cycle (slot
+1598 at n = 2, 7, 12, …). That makes 3197 draws over n = 1 to 2000, all of them look-arounds: 47 turn clockwise, 17
+counter-clockwise and the other 3133 change nothing.
+
+**Human01, the first turns.**
+
+| n | Slot (type) | r | `r AND 255` | Facing before → after | State after record n |
+| --- | --- | --- | --- | --- | --- |
+| 50 | 1597 (0x00) | 7682 | 2 | 6 → 7 | 0x1E02158D |
+| 64 | 1590 (0x01) | 13824 | 0 | 2 → 1 | 0x5C886184 |
+| 73 | 1593 (0x00) | 17152 | 0 | 2 → 1 | 0x4300342E |
+| 104 | 1596 (0x02) | 4352 | 0 | 5 → 4 | |
+| 209 | 1596 (0x02) | 7682 | 2 | 4 → 5 | |
+| 351 | 1592 (0x01) | 14083 | 3 | 7 → 0 | |
+
+**Human04, the first wanders.** Setup state 0xF07C3BB8, map size 96. Critters (type 0x39):
+
+| n | Slot | Turn draw r (`AND 255`) | Wander draw r2 (d) | Tile → target | Result |
+| --- | --- | --- | --- | --- | --- |
+| 7 | 1579 | 23301 (5) | 23615 (7) | (59, 44) → (58, 43) | Order 3 at n = 7; tile (58, 43) from n = 10 |
+| 7 | 1580 | 12067 (35) | 4352 (0) | (63, 44) → (63, 43) | Order 3 at n = 7; tile (63, 43) from n = 10 |
+| 8 | 1557 | 6160 (16) | 16610 (2) | (40, 79) → (41, 79) | Order 3 at n = 8; tile (41, 79) from n = 11 |
+| 9 | 1593 | 19475 (19) | 8785 (1) | (37, 19) → (38, 18) | Order 3 at n = 9; tile (38, 18) from n = 12 |
+
+**Human04, bob.** The troll destroyer (type 0x1F) in slot 1598 sits in order 2. Its countdown is 0 at creation, so
+it draws at its first run.
+
+| n | r | New countdown `(r AND 7) + 8` | Next bob draw |
+| --- | --- | --- | --- |
+| 2 | 21216 | 8 | n = 2 + 5 × 9 = 47 |
+| 47 | 17609 | 9 | n = 47 + 5 × 10 = 97 |
+| 97 | 11139 | 11 | n = 97 + 5 × 12 = 157 |
+| 157 | 9246 | 14 | n = 157 + 5 × 15 = 232 |
+
+**Human04, whole trace.** Setup and n = 1 to 3000 hold 13772 draws: 142 creation draws (68 map units at setup and 3
+trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. The computer player makes none.
+
 ## Open questions
 
 - What issues commands 9, 11, 12, 14 and 16. The game's own logic issues orders 11 (the computer players' wall rule
@@ -548,3 +693,7 @@ Distances are in tiles; scores as defined above.
 - Which unit types count as "two-tile movers" for the flee rounding (expected: sea units and air units).
 - The player-kind splits in "Terms" rest on the mapping of map owner codes to player kinds, which
   `movement/movement.md` still lists as open for rescue players.
+- **Idle logic after a move.** The traces show critters running the idle logic (and drawing) in the update where
+  their move ends. Whether every unit does the same wasn't checked. Default: yes.
+- **Untraced look-around cases.** Fliers and catapults at rest, orders 7 and 13, and a critter whose wander target is
+  clamped back to its own tile don't occur in the traces; those rules rest on the static study alone.
