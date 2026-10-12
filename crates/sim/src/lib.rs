@@ -28,6 +28,7 @@ pub mod spells;
 pub mod tech;
 pub mod terrain;
 pub mod timing;
+pub mod training_ai;
 mod transport;
 pub mod victory;
 pub mod vision;

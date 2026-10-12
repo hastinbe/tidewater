@@ -758,6 +758,40 @@ fn sim(
                 s.repairers,
                 s.done
             );
+            let goals = |k: tidewater_sim::attack_ai::GoalKind| {
+                w.units
+                    .iter()
+                    .filter(|u| u.owner as usize == p && !u.dying && u.goal.kind == k)
+                    .count()
+            };
+            use tidewater_sim::attack_ai::GoalKind as G;
+            let l = w.army.launched[p];
+            println!(
+                "  army: waves land {} sea {} air {}; goals hold {} attack {} ferry {} roam {} base-edge {} \
+                 sea-patrol {} escort {}",
+                l[0],
+                l[1],
+                l[2],
+                goals(G::Hold),
+                goals(G::Attack),
+                goals(G::Ferry),
+                goals(G::Roam),
+                goals(G::BaseEdge),
+                goals(G::SeaPatrol),
+                goals(G::Escort)
+            );
+            let mut kinds = std::collections::BTreeMap::new();
+            for u in w.units.iter().filter(|u| u.owner as usize == p && !u.dying) {
+                *kinds.entry(u.kind).or_insert(0) += 1;
+            }
+            let kinds: Vec<String> = kinds.iter().map(|(k, n)| format!("{k:#04x}x{n}")).collect();
+            println!(
+                "  types {}; levels {:?} spells known {:#x} research requests {:#x}",
+                kinds.join(" "),
+                q.levels,
+                q.spells_known,
+                s.research_requests
+            );
         }
     }
     println!("explored tiles (player 0): {}", w.vision.explored_tiles());

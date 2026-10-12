@@ -269,6 +269,8 @@ pub struct Unit {
     pub ai_job: crate::worker_ai::AiJob,
     /// The computer army's goal for this unit (attack-ai spec, "Unit goals").
     pub goal: crate::attack_ai::Goal,
+    /// A computer building's think counter (training-research spec, "When a building thinks").
+    pub think: u16,
 }
 
 impl Unit {
@@ -809,6 +811,7 @@ impl World {
             hidden_from: 0,
             ai_job: Default::default(),
             goal: Default::default(),
+            think: 0,
             rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
             held: false,
         };
@@ -1083,7 +1086,15 @@ impl World {
             if self.is_watching_tower(i) {
                 self.tower(i, fx);
             } else {
+                // Order 33's logic runs at a "step done" with no job; a job's take-over replaces it.
+                let resting = fx.step_done && self.units[i].job.is_none();
                 self.work(i, fx.step_done);
+                if resting {
+                    // Order 33's attacker handling, read as the orders spec's "reaction" ("Reacting to an
+                    // attacker"): a building forgets its attacker, so its next hit calls for help again.
+                    self.units[i].attacked_by = None;
+                    self.building_think_tick(i);
+                }
             }
             return;
         }

@@ -9,7 +9,7 @@
 //! - The prerequisites of a build-list entry are the build-button rules of `ui/command-buttons.md`.
 //! - Coming out of a depot, a choice that ends in the wait gives no job, so the usual return to the old source goes
 //!   ahead (the draw is still made).
-//! - Build-list entries of 0x80 or more are only recorded as requested; nothing acts on them yet.
+//! - Build-list entries of 0x80 or more are recorded as research requests (acted on in `training_ai.rs`).
 
 use tidewater_formats::udta::flags;
 
@@ -340,7 +340,7 @@ impl World {
     }
 
     /// The player's build list (`ai/ai-scripts.md`), read from the script file.
-    fn build_list(&self, p: usize) -> Vec<u8> {
+    pub(crate) fn build_list(&self, p: usize) -> Vec<u8> {
         let Some(file) = &self.ai_file else {
             return Vec::new();
         };
@@ -363,7 +363,7 @@ impl World {
                 continue;
             }
             if e >= 0x80 {
-                self.ai[p].research_requests |= 1 << (e - 0x80);
+                self.ai[p].request(e);
                 return None;
             }
             let kind = for_race(e, race);

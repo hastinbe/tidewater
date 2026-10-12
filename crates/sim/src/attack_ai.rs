@@ -162,6 +162,9 @@ pub struct Army {
     pub blocks: Vec<Block>,
     pub boxes: [BaseBox; SCRIPT_PLAYERS],
     pub sides: [u8; SCRIPT_PLAYERS],
+    /// Wave rounds launched per player (land, sea, air) that sent at least one unit. Not from the spec: a count for
+    /// inspection.
+    pub launched: [[u32; 3]; SCRIPT_PLAYERS],
 }
 
 impl Army {
@@ -198,6 +201,7 @@ impl Army {
             blocks,
             boxes: [BaseBox::empty(terrain.width); SCRIPT_PLAYERS],
             sides: [0; SCRIPT_PLAYERS],
+            launched: [[0; 3]; SCRIPT_PLAYERS],
         }
     }
 
@@ -376,6 +380,7 @@ impl World {
         self.army.countdown = PERIOD;
         self.rebuild_threat_map();
         self.attack_waves();
+        // Step 2: `ai/training-research.md`, "the no-workers pass" (training_ai.rs).
         self.no_workers_research_pass();
         for p in 0..SCRIPT_PLAYERS as u8 {
             if self.computer_player(p) {
@@ -384,11 +389,6 @@ impl World {
         }
         self.run_goals();
     }
-
-    /// Step 2 of "Timing": the research requests of computer players with no workers, from
-    /// `docs/specs/ai/training-research.md` ("the no-workers pass"). Not implemented here: that spec's module
-    /// replaces this hook.
-    fn no_workers_research_pass(&mut self) {}
 
     // ---- The threat map -----------------------------------------------------------------------------------------
 
@@ -530,6 +530,9 @@ impl World {
             }
             self.set_goal(i, GoalKind::Attack, Some(tile));
             count += 1;
+        }
+        if count > 0 {
+            self.army.launched[p as usize][wave as usize] += 1;
         }
     }
 
@@ -2210,6 +2213,17 @@ mod tests {
         let g = spawn(&mut w, GRYPHON, 1, (50, 50));
         w.damage(ix(&w, v), 1, d);
         assert_eq!(at(&w, g).pending, None);
+    }
+
+    #[test]
+    fn a_resting_building_forgets_its_attacker() {
+        let mut w = game();
+        let farm = spawn(&mut w, FARM, 1, (20, 20));
+        let a = spawn(&mut w, FOOTMAN, 0, (50, 50));
+        w.damage(ix(&w, farm), 1, a);
+        assert_eq!(at(&w, farm).attacked_by, Some(a));
+        run(&mut w, 300);
+        assert_eq!(at(&w, farm).attacked_by, None);
     }
 
     #[test]
