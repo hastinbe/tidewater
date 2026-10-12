@@ -7,6 +7,8 @@
 - **Changes:** 2026-10-12: the non-square map open question is closed by `game/setup.md`: every map is square.
 - **Changes:** 2026-10-12, round-20 errata: the colour and list-order references now cite `game/setup.md` and
   `core/unit-slots.md`.
+- **Changes:** 2026-10-12: the remembered-buildings open question is narrowed by `ui/map-drawing.md`: the excluded
+  buildings are those last seen as ruins, and a copy's hidden set is worked out every cycle like a unit's.
 
 ## Behaviour
 
@@ -84,9 +86,10 @@ After the terrain, these are drawn as filled rectangles (**dots**), later ones o
 
 1. **Remembered buildings.** When a building is removed while hidden from the local player, and it carries the
    marker that it has been seen (the marker behind "Minimap units" in `vision/fog.md`), the game keeps a copy of it
-   where it stood, up to 25 copies (no copy when all 25 are in use). Some buildings are never copied (see the open
-   questions). A copy is removed once it is no longer hidden from the local player. Copies are drawn first, with the
-   colour, position and size rules below. Copies are also drawn in the map view (a later spec).
+   where it stood, up to 25 copies (no copy when all 25 are in use). A building last seen as a ruin is not copied,
+   except a 1 × 1 ruin in Classic mode. A copy is removed once it is no longer hidden from the local player. Copies
+   are drawn first, with the colour, position and size rules below. Copies are also drawn in the map view; the
+   copies, the "seen" marker and the ruin rule are in `ui/map-drawing.md` ("Remembered buildings").
 2. **Units and buildings**, player 15 first and player 0 last, each player's units in their list order, most recently
    added first (`core/unit-slots.md`). A unit is skipped while it is dying, removed or inside something. A unit that
    isn't a building is drawn when it isn't hidden from the local player; a building is drawn when the local player has
@@ -189,11 +192,8 @@ half-view offset: pixel x − 24 and y − 26, each clamped to 0..127, then the 
 
 ## Open questions
 
-- **Remembered buildings.** A value stored on each building (not decoded) keeps some buildings from being copied. In
-  Enhanced rules the excluded range is one value wider than in Classic. Which buildings these are wasn't found.
-  When a copy stops being hidden is tied to the local visibility update, which belongs to the drawing spec. Whether
-  the drawing tests of "Units and buildings" (dying, detected) apply to a copy wasn't traced. Default: every copy is
-  drawn.
+- **Remembered buildings.** Whether the drawing tests of "Units and buildings" (dying, detected) apply to a copy
+  wasn't traced. Default: every copy is drawn.
 - **Colour player after a change of owner.** No program path was found that changes a unit's colour player after it
   is created. Whether rescued or converted units keep their old minimap colour wasn't checked in the running game.
 - **Terrain preference.** The preference that turns the minimap terrain off is inferred from the Preferences dialog's
