@@ -13,6 +13,7 @@
   their path); two open questions closed.
   2026-10-12, round-10 errata: a target with the used mark gets no notification and no damage; the notification
   points to `ai/attack-ai.md`, "Call for help", and the under-attack alert is no longer described as part of it.
+  2026-10-12, round-14 errata: the Dark Portal special case is defined (game kind, campaign entries, types).
 
 ## Behaviour
 
@@ -69,8 +70,10 @@ piercing damage hitting armour equal to or above its basic damage does 0.
 When damage D from an attacker reaches a target:
 
 - Nothing happens if the target is already dying or has been removed.
-- **Dark Portal special case:** on three Beyond the Dark Portal campaign maps, a Dark Portal takes damage only from
-  Khadgar. This doesn't apply in multiplayer.
+- **Dark Portal special case:** in a single-player campaign game (not a network game, not a custom scenario) on
+  campaign entries 32, 34 and 50 (`game/victory.md`, "Mission rules"), a hit on a type 0x65 (Dark Portal) does
+  nothing, not even the notification, unless the attacker is type 0x18 (Khadgar). Which shipped map files these
+  entries are, and whether each holds a Dark Portal, hasn't been checked; keying on the campaign entry is enough.
 - Nothing happens if the target has the used mark (`core/corpses.md`), for example a passenger inside a transport.
 - Otherwise the target is first **notified that it was attacked**, even if D is 0 (`ai/attack-ai.md`, "Call for
   help": which attacker is recorded, and who comes to help). The under-attack alert is a separate step
