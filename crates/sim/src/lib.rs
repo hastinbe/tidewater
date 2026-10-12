@@ -25,6 +25,7 @@ pub mod tech;
 pub mod terrain;
 pub mod timing;
 mod transport;
+pub mod victory;
 pub mod vision;
 mod world;
 

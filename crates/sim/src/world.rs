@@ -243,6 +243,8 @@ pub struct Unit {
     pub detected_by: u8,
     /// Players 0 to 7 the fog hides this unit from (bit p), recomputed in phase 5 (vision spec, "Unit visibility").
     pub hidden_from: u8,
+    /// The rescuable mark: the unit counts as rescuable (victory spec, "Terms").
+    pub rescuable: bool,
 }
 
 impl Unit {
@@ -301,6 +303,17 @@ pub struct Player {
     pub spells_researching: u32,
     pub upgrades_allowed: u32,
     pub upgrades_researching: u32,
+    /// Players 0 to 7 this player is allied with (bit q); a player always counts as allied with itself.
+    pub allies: u8,
+    /// The allied-victory setting (victory spec, "The multiplayer rule").
+    pub allied_victory: bool,
+    /// A human player no longer connected.
+    pub disconnected: bool,
+    /// Units rescued, plus 0x1000 for a hero when the mission asks for one (victory spec, "Terms").
+    pub rescued: u32,
+    /// Some unit or building has changed owner to this player (mission mode F).
+    pub received: bool,
+    pub result: Option<crate::victory::Outcome>,
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
@@ -324,6 +337,10 @@ pub struct Rules {
     /// Whether training and building-upgrade requirements are checked when a command arrives (tech-tree spec, "When
     /// requirements are enforced"). Always on in single player and in our own multiplayer.
     pub enforce_requirements: bool,
+    /// The instant-victory, instant-defeat and disable-victory cheats (victory spec).
+    pub instant_victory: bool,
+    pub instant_defeat: bool,
+    pub disable_victory: bool,
 }
 
 impl Default for Rules {
@@ -337,6 +354,9 @@ impl Default for Rules {
             fog_of_war: true,
             reveal_map: false,
             enforce_requirements: true,
+            instant_victory: false,
+            instant_defeat: false,
+            disable_victory: false,
         }
     }
 }
@@ -497,6 +517,8 @@ pub struct World {
     next_id: u32,
     /// Fog maps and "seen" bits (vision spec).
     pub vision: Vision,
+    /// The victory check (victory spec).
+    pub victory: crate::victory::Victory,
     /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
     /// buildings share the ground plane.
     pub(crate) occupancy: [Vec<Option<UnitId>>; 2],
@@ -555,6 +577,7 @@ impl World {
             ylist: Vec::new(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
+            victory: Default::default(),
         }
     }
 
@@ -718,6 +741,7 @@ impl World {
             invisibility: 0,
             detected_by: 0xff,
             hidden_from: 0,
+            rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);
@@ -814,6 +838,7 @@ impl World {
 
     /// Moves a unit to another owner's list (unit-slots spec, "Changing owner"); the cap isn't checked.
     pub(crate) fn change_owner(&mut self, i: usize, to: u8) {
+        self.note_owner_change(i, to);
         let u = &mut self.units[i];
         self.slots.change_owner(u.slot, u.owner, to);
         u.owner = to;
@@ -842,6 +867,7 @@ impl World {
         }
         self.sort_vertical();
         self.unit_visibility();
+        self.victory_phase();
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -1007,6 +1033,7 @@ impl World {
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
         self.ai.hash(&mut h);
+        self.victory.hash(&mut h);
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);
         h.finish()

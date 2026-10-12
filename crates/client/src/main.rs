@@ -21,6 +21,7 @@ use clap::Parser;
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::{Event, Shortage, kind};
+use tidewater_sim::victory::Outcome;
 use tidewater_sim::{Command, TILE_PX, UnitId, World};
 
 #[derive(Parser)]
@@ -96,6 +97,12 @@ fn message(e: &Event, human: u8) -> Option<String> {
             }
             .to_string(),
         ),
+        Event::GameOver { player, outcome } => Some(match outcome {
+            Outcome::Victory if player == human => "Victory!".to_string(),
+            Outcome::Defeat if player == human => "You have been defeated".to_string(),
+            Outcome::Defeat => format!("Player {} has been defeated", player + 1),
+            _ => "The game has ended".to_string(),
+        }),
         _ => None,
     }
 }

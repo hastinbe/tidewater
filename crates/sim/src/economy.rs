@@ -78,6 +78,11 @@ pub enum Event {
         player: u8,
         tile: (i32, i32),
     },
+    /// A player's game ended (victory spec): the local player's outcome screen, or another player knocked out.
+    GameOver {
+        player: u8,
+        outcome: crate::victory::Outcome,
+    },
 }
 
 /// Gold, lumber and oil.
@@ -486,7 +491,7 @@ impl World {
 
     /// The owner's units of type `from` become `to` in place ("Converting units"): hit points go up by the
     /// difference of the maximums (each at least 1), mana is set, and a barracks working on `from` works on `to`.
-    fn convert(&mut self, owner: u8, from: u8, to: u8) {
+    pub(crate) fn convert(&mut self, owner: u8, from: u8, to: u8) {
         let max = |k: u8| (self.stats_of(k).hit_points as i32).max(1);
         let delta = max(to) - max(from);
         let s = self.stats_of(to);
