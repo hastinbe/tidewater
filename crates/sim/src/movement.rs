@@ -329,8 +329,24 @@ impl World {
             return false;
         }
         let s = self.stats_of(u.kind);
-        let fighter = s.flags & (flags::PEON | flags::TANKER | flags::CASTER) == 0;
-        let attack_type = matches!(u.order, Order::Attack { .. } | Order::AttackWall { .. });
+        let fighter = s.flags & (flags::PEON | flags::TANKER | flags::CASTER) == 0
+            && !crate::orders::DEMOLITION.contains(&u.kind);
+        // Pathfinding spec, "Units seen by the search": the orders with the "acquires" mark (2, 4, 5, 7, 12 to 16 and
+        // 32), and attack-move (10) in Enhanced mode. Attacking a unit (9) or a wall (11) is not attack-type.
+        let attack_type = match u.order {
+            Order::Idle
+            | Order::MoveAttack { .. }
+            | Order::Patrol { .. }
+            | Order::Guard { .. }
+            | Order::Chase { .. }
+            | Order::StandGround
+            | Order::TowerWatch { .. }
+            | Order::AttackInPlace { .. }
+            | Order::IdleReact { .. }
+            | Order::Docked => true,
+            Order::AttackMove { .. } => self.rules.enhanced,
+            _ => false,
+        };
         let allied = self.allied(u.owner, o.owner);
         if attack_type && u.attacked_by.is_none() && fighter && !allied {
             return true;
@@ -456,13 +472,78 @@ mod tests {
         let ally = w.spawn(0, 1, (3, 1), 0).unwrap();
         let enemy = w.spawn(0, 2, (5, 1), 0).unwrap();
         let i = w.units.iter().position(|u| u.id == a).unwrap();
-        w.units[i].order = Order::Attack { target: enemy };
+        w.units[i].order = Order::Chase { target: enemy };
         let u = w.units[i].clone();
         assert!(w.ignored_by_search(&u, enemy));
         assert!(!w.ignored_by_search(&u, ally));
         let j = w.units.iter().position(|u| u.id == ally).unwrap();
         w.units[j].script.anim = anim::MOVE;
         assert!(w.ignored_by_search(&u, ally));
+    }
+
+    #[test]
+    fn attack_type_orders_are_the_acquiring_ones() {
+        // Pathfinding spec, "Units seen by the search": orders 2, 4, 5, 7 and 12 to 16 (and 10 in Enhanced mode) go
+        // through enemies; attacking a unit (9) or a wall (11) doesn't, and neither do demolition units.
+        let mut w = field(12, 4);
+        let a = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let enemy = w.spawn(0, 2, (5, 1), 0).unwrap();
+        let i = w.index(a).unwrap();
+        let seen = |w: &mut World, o: Order| {
+            w.units[i].order = o;
+            let u = w.units[i].clone();
+            w.ignored_by_search(&u, enemy)
+        };
+        let goal = (8, 1);
+        for o in [
+            Order::Idle,
+            Order::MoveAttack { goal },
+            Order::Patrol { to: goal, back: (1, 1) },
+            Order::Chase { target: enemy },
+            Order::StandGround,
+        ] {
+            assert!(seen(&mut w, o), "{o:?}");
+        }
+        for o in [
+            Order::Move { goal },
+            Order::Attack { target: enemy },
+            Order::AttackWall { tile: goal },
+        ] {
+            assert!(!seen(&mut w, o), "{o:?}");
+        }
+        w.rules.enhanced = true;
+        assert!(seen(&mut w, Order::AttackMove { goal }));
+        w.rules.enhanced = false;
+        assert!(!seen(&mut w, Order::AttackMove { goal }));
+        // An attacker, or a demolition unit, sees every unit.
+        w.units[i].kind = crate::orders::DEMOLITION[0];
+        assert!(!seen(&mut w, Order::Chase { target: enemy }));
+        w.units[i].kind = 0;
+        w.units[i].attacked_by = Some(enemy);
+        assert!(!seen(&mut w, Order::Chase { target: enemy }));
+    }
+
+    #[test]
+    fn attacking_a_unit_walks_round_an_enemy_in_the_way() {
+        // Order 9 is not attack-type: the search sees the idle enemy grunt on the line and walks round it, so the
+        // footman is never blocked.
+        let mut w = field(12, 5);
+        let f = w.spawn(0, 0, (1, 2), 0).unwrap();
+        w.spawn(0, 1, (2, 2), 0).unwrap();
+        let foe = w.spawn(0, 1, (8, 2), 0).unwrap();
+        order(
+            &mut w,
+            f,
+            Command::Attack {
+                player: 0,
+                units: vec![f],
+                target: foe,
+            },
+        );
+        until(&mut w, 30, |w| w.unit(f).unwrap().tile != (1, 2));
+        let u = w.unit(f).unwrap();
+        assert_ne!(u.tile, (2, 2));
+        assert_eq!(u.blocked, 0);
     }
 
     #[test]
@@ -537,17 +618,11 @@ mod tests {
         let f = w.spawn(0, 0, (2, 1), 0).unwrap();
         w.spawn(5, 1, (3, 1), 0).unwrap();
         let foe = w.spawn(0, 1, (6, 1), 0).unwrap();
-        order(
-            &mut w,
-            f,
-            Command::Attack {
-                player: 0,
-                units: vec![f],
-                target: foe,
-            },
-        );
+        // Movement spec vector: chasing a found target (order 12) beyond the blocker. The search ignores it.
+        let i = w.index(f).unwrap();
+        w.take_over(i, Order::Chase { target: foe });
         let first = until(&mut w, 40, |w| w.unit(f).unwrap().blocked == 1);
-        assert_eq!(w.unit(f).unwrap().order, Order::Attack { target: foe });
+        assert_eq!(w.unit(f).unwrap().order, Order::Chase { target: foe });
         // Blocks 1 to 7 retry the next cycle, blocks 8 to 14 wait 15 cycles, block 15 gives up.
         let more = until(&mut w, 200, |w| w.unit(f).unwrap().order == Order::Idle);
         let _ = first;

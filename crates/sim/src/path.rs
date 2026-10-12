@@ -344,6 +344,16 @@ mod tests {
     }
 
     #[test]
+    fn equal_scores_keep_the_left_walk() {
+        // Spec vector (xorc01-death-coil, grunt 1497 at n = 356): from (72, 79) toward (58, 75) the line's first tile
+        // (71, 79) is blocked. Left: SW to (71, 80), NW to (70, 79), next to the line tile (70, 78); "two of W"
+        // through (71, 79) is refused, so 2 steps, distance 12, score 14. Right: NW to (71, 78), distance 13, score
+        // 14. The tie keeps the left walk.
+        let got = run(100, 100, &[(71, 79)], (72, 79), (58, 75));
+        assert_eq!(got, [SW, 7]);
+    }
+
+    #[test]
     fn straight_lines() {
         assert_eq!(run(10, 10, &[], (0, 0), (5, 2)), [SE, E, E, SE, E]);
         let mut want = vec![E, E, E, SE];

@@ -33,7 +33,7 @@ const FRIENDLY_FIRE_HUMAN: u32 = 1;
 const FRIENDLY_FIRE_OTHER: u32 = 3;
 
 /// Dwarven demolition squad and goblin sappers (public PUD specification).
-const DEMOLITION: [u8; 2] = [0x0e, 0x0f];
+pub(crate) const DEMOLITION: [u8; 2] = [0x0e, 0x0f];
 
 /// How an order acquires targets ("The order list", column "Acquires").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
