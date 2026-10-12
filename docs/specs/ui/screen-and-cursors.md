@@ -6,6 +6,8 @@
   `sidebox.bin`, `stat_f10.bin`, `spd_dlg.bin`), the screen pictures in `Art\`, the resource icons `Art\icons.grp`
   (frame sizes) and the pointer files `Art\*.cur`.
   Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: the default-scroll-speeds open question is closed by `ui/game-menu.md` ("Stored
+  settings"): both default to 4 and are kept with the player's stored settings.
 
 ## Behaviour
 
@@ -129,7 +131,8 @@ held.
 The directions of all held keys are added up; on each axis only the sign of the total counts, so one step is at most
 2 tiles per axis.
 
-**Speeds.** The game speed dialog (F8) has a mouse scroll speed and a key scroll speed, each 0 to 6 (fastest).
+**Speeds.** The game speed dialog (F8) has a mouse scroll speed and a key scroll speed, each 0 to 6 (fastest). Both
+default to 4 and are stored between runs (`ui/game-menu.md`, "Stored settings").
 
 | Speed | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -243,7 +246,6 @@ describes.
   (`arrow_3d.cur`) are loaded. The 3D arrow is set when the game screen opens and replaced at the first input
   check. No in-game use of the others was found; they may belong to the menus.
 - **Network wait.** The length of the retry period that brings up the watch wasn't measured.
-- **Default scroll speeds** and where they are saved weren't traced.
 - **Text placement.** The exact vertical pixel of the bar text (centred, with a 2-pixel offset in the program's
   arithmetic) and the font's baseline belong to the drawing spec.
 - **Bar font.** Which font the bar text uses is set by the dialog framework, not by the item drawing, and wasn't

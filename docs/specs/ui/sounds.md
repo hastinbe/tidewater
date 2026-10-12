@@ -16,6 +16,8 @@
   sound; both are plain sounds.
 - **Changes:** 2026-10-12, round-24 errata: the impact effects' sound plays at the effect's start step, one cycle after
   its first update.
+- **Changes:** 2026-10-12: the option-labels open question is closed by `ui/game-menu.md` ("Sound dialog"): the
+  dialog file's labels and the game's own names for the stored bits agree with the labels given here.
 
 ## Behaviour
 
@@ -430,7 +432,7 @@ follows the **sound set**, not the building's race. So a human player who select
 ### Option bits in the preferences
 
 The four on/off options are stored as bits of one preferences word: unit speech 0x01, acknowledgements 0x02,
-building sounds 0x04, subtitles 0x40000 (labels as inferred; see the open questions).
+building sounds 0x04, subtitles 0x40000 (`ui/game-menu.md`, "Stored settings", lists the others).
 
 ## Test vectors
 
@@ -494,9 +496,6 @@ selection cooldown has expired, and r is the setup-shuffle draw.
   sounds can play at once, isn't covered. Default: every play starts a new sound and overlaps freely.
 - **A unit state bit silences placed sounds.** Besides being inside a unit, one more unit state bit silences placed
   sounds on that unit. Its meaning isn't identified. Default: ignore it.
-- **Option labels.** Which dialog label goes with which bit (0x01 unit speech, 0x02 acknowledgements, 0x04 building
-  sounds, 0x40000 subtitles) is inferred from the order of the dialog's controls; the bit each event tests is not in
-  doubt. Default: the labels as given.
 - **When the critter explosion happens.** The kill on the 10th click is made by the selection code when the click is
   handled, outside the cycle's phases. Only single player is affected, so no other machine has to agree. Default:
   the kill is applied between two cycles, before the next cycle's phase 1, and it makes the same draws as any other
