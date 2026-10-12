@@ -21,6 +21,7 @@ pub mod corpses;
 pub mod economy;
 mod ground;
 mod harvest;
+pub mod idle;
 pub mod minimap;
 mod movement;
 mod orders;

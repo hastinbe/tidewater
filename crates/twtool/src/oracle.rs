@@ -1001,6 +1001,7 @@ pub fn run(
     let seed = opts.seed.unwrap_or(w.rng.state);
     let mut prev = (seed, seed);
     let mut last_n: Option<u64> = None;
+    let mut last_kind: Option<String> = None;
     // The differences of the previous record, and every place each field has differed.
     let mut before: BTreeSet<(Scope, &'static str)> = BTreeSet::new();
     let mut places: BTreeMap<String, BTreeSet<Scope>> = BTreeMap::new();
@@ -1017,6 +1018,10 @@ pub fn run(
                 {
                     writeln!(out, "note: record n={} follows n={l}; stepping once", theirs.n)?;
                 }
+                // Scheduler rule 1: the counter is reset after the start-up cycles.
+                if theirs.kind == "cycle" && last_kind.as_deref() == Some("startup") {
+                    w.end_start_up();
+                }
                 w.step(&[]);
             }
             k => {
@@ -1025,6 +1030,7 @@ pub fn run(
             }
         }
         last_n = Some(theirs.n);
+        last_kind = Some(theirs.kind.clone());
         let ours = snapshot(w, theirs.n, &theirs.kind);
         let diffs = compare(&theirs, &ours, &opts.filter, &mut s.skipped);
         s.records += 1;

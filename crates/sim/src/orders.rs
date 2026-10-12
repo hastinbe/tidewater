@@ -97,7 +97,8 @@ fn followable(o: Order) -> bool {
 impl World {
     fn acquires(&self, o: Order) -> Option<Acquires> {
         match o {
-            Order::Idle | Order::Guard { .. } | Order::IdleReact { .. } => Some(Acquires::Idle),
+            // Order 7 acquires in the idle logic it runs after its follow steps (`run_order`).
+            Order::Idle | Order::IdleReact { .. } => Some(Acquires::Idle),
             Order::MoveAttack { .. } | Order::Patrol { .. } | Order::Chase { .. } => Some(Acquires::Moving),
             Order::AttackMove { .. } if self.rules.enhanced => Some(Acquires::Moving),
             Order::StandGround | Order::TowerWatch { .. } | Order::AttackInPlace { .. } => Some(Acquires::Other),
@@ -312,6 +313,11 @@ impl World {
     /// The per-step order logic for the orders this module owns. Returns false for orders it doesn't handle.
     pub(crate) fn run_order(&mut self, i: usize) -> bool {
         let o = self.units[i].order;
+        // "Idle look-around": the first thing each run of the idle logic (orders 2 and 13) does. A critter that
+        // wanders is in its move now, so the rest of the idle logic doesn't run on the old order.
+        if matches!(o, Order::Idle | Order::StandGround) && self.look_around(i) {
+            return true;
+        }
         if let Some(t) = target_of(o)
             && !self.holds(self.units[i].owner, t)
         {
@@ -339,6 +345,11 @@ impl World {
                 if matches!(self.move_toward(i, Goal::tile(goal, 0)), Walk::Arrived | Walk::NoPath) {
                     self.units[i].attacked_by = None;
                     self.stop(i);
+                    // "Idle look-around": when a move (order 3) ends, the idle logic runs in the same update (the
+                    // spec's open question "Idle logic after a move", default: every unit).
+                    if matches!(o, Order::Move { .. }) && self.units[i].order == Order::Idle {
+                        self.run_order(i);
+                    }
                 }
             }
             Order::Patrol { to, back } => match self.move_toward(i, Goal::tile(to, 0)) {
@@ -357,7 +368,11 @@ impl World {
                 if matches!(o, Order::Follow { .. }) && self.react(i) {
                     return true;
                 }
-                self.follow(i, target);
+                // "Follow": order 7 then runs the idle logic (look-around, then acquisition as for order 2), unless
+                // its follow steps gave it a new order.
+                if self.follow(i, target) && !self.look_around(i) {
+                    self.acquire(i, Acquires::Idle);
+                }
             }
             Order::Attack { target } | Order::Chase { target } => self.attack_order(i, target),
             Order::AttackInPlace { target } | Order::IdleReact { target } => self.attack_in_place(i, target),
@@ -369,22 +384,23 @@ impl World {
         true
     }
 
-    /// Orders 6 and 7 ("Follow").
-    fn follow(&mut self, i: usize, target: UnitId) {
-        let Some(t) = self.unit(target) else { return };
+    /// Orders 6 and 7 ("Follow"). Returns whether a guarding unit (order 7) goes on to its idle logic: it is within
+    /// the radius and its follow steps gave it no new order.
+    fn follow(&mut self, i: usize, target: UnitId) -> bool {
+        let Some(t) = self.unit(target) else { return false };
         let (t_order, t_tile) = (t.order, t.tile);
         let u = &self.units[i];
         let following = matches!(u.order, Order::Guard { .. }) || matches!(u.pending, Some(Order::Follow { .. }));
         if following && !followable(t_order) {
             let here = u.tile;
             self.give(i, Order::Move { goal: here });
-            return;
+            return false;
         }
         if chebyshev(u.tile, t_tile) > 1 {
             if matches!(self.move_toward(i, Goal::tile(t_tile, 1)), Walk::NoPath) {
                 self.stop(i);
             }
-            return;
+            return false;
         }
         if matches!(u.order, Order::Follow { .. }) {
             if followable(t_order) {
@@ -396,9 +412,12 @@ impl World {
             } else {
                 self.stop(i);
             }
-        } else if self.units[i].script.anim != anim::STILL {
+            return false;
+        }
+        if self.units[i].script.anim != anim::STILL {
             self.switch_anim(i, anim::STILL);
         }
+        true
     }
 
     /// Orders 15 and 16: strike in range, never move ("Attacking without moving").

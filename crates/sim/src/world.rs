@@ -296,6 +296,8 @@ pub struct Unit {
     /// A building's remembered look for the local player (map-drawing spec, "Buildings and remembered buildings");
     /// display state, not game state.
     pub look: crate::minimap::Look,
+    /// A ship's or flier's bob countdown and value (orders spec, "Idle look-around").
+    pub bob: crate::idle::Bob,
 }
 
 impl Unit {
@@ -635,6 +637,8 @@ pub enum Command {
 }
 
 pub const PLAYERS: usize = 16;
+/// Cycles run at once when a game starts (timing-and-rng spec, "Scheduler", rule 1).
+pub const START_UP_CYCLES: u32 = 2;
 
 #[derive(Clone, Debug)]
 pub struct World {
@@ -968,6 +972,14 @@ impl World {
             colour: owner,
             attack_mark: Default::default(),
             look: Default::default(),
+            bob: Default::default(),
+        };
+        // Orders spec, "Orders given when a unit is created": every unit starts in order 2; a building's first order
+        // (14, 33 or 59; we hold a building at rest as `Idle` and a tower switches to order 14 at its first run) is
+        // pending until its first step done.
+        let unit = Unit {
+            pending: building.then_some(Order::Idle),
+            ..unit
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);
@@ -1131,6 +1143,20 @@ impl World {
         self.tick += 1;
     }
 
+    /// Timing-and-rng spec, "Scheduler", rule 1: when a game starts, the two start-up cycles run at once as full
+    /// cycles (units update and draw), then the cycle counter is reset, so the first normal cycle ends at 1.
+    pub fn start_up(&mut self) {
+        for _ in 0..START_UP_CYCLES {
+            self.step(&[]);
+        }
+        self.end_start_up();
+    }
+
+    /// The counter reset that ends the start-up cycles, for a caller that steps them itself.
+    pub fn end_start_up(&mut self) {
+        self.tick = 0;
+    }
+
     fn apply(&mut self, c: &Command) {
         if self.selection_command(c) {
             return;
@@ -1283,6 +1309,13 @@ impl World {
         let u = &mut self.units[i];
         u.resume = u.resume.saturating_sub(1);
         if u.building {
+            // Orders spec, "Orders given when a unit is created": the first order takes over at the first step done
+            // (wait 3), and nothing else runs in that update.
+            if fx.step_done && u.pending == Some(Order::Idle) {
+                u.pending = None;
+                self.take_over(i, Order::Idle);
+                return;
+            }
             if self.is_watching_tower(i) {
                 self.tower(i, fx);
             } else {
