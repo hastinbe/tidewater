@@ -5562,7 +5562,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "flate2",
  "png",
+ "serde_json",
  "tidewater-formats",
  "tidewater-sim",
 ]

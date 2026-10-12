@@ -1,5 +1,7 @@
 //! `twtool`: inspect and convert data from a user-supplied installation.
 
+mod oracle;
+
 use std::io::BufRead;
 use std::path::PathBuf;
 
@@ -167,6 +169,38 @@ enum Cmd {
     },
     /// Summarise an archive's block table: how many blocks, how many in use.
     MpqInfo { archive: PathBuf },
+    /// Compare our simulation cycle by cycle against a trace of the original game (`.jsonl` or `.jsonl.gz`, format
+    /// `docs/specs/oracle/trace-format.md`) and report the first record that differs. The trace's header gives the
+    /// seed (its clock), the rules and the expected players; the map and campaign entry are named here.
+    Oracle {
+        #[arg(long)]
+        install: PathBuf,
+        /// The scenario's map: a path on disk or a name inside the install's archives.
+        #[arg(long)]
+        map: String,
+        /// Campaign mission table entry (as mission select starts it). By default a campaign map's own entry.
+        #[arg(long)]
+        entry: Option<u8>,
+        /// Seed, when the trace's clock is null or to override it.
+        #[arg(long)]
+        seed: Option<u32>,
+        /// Carry on past divergences and print a summary table of the differing records and fields.
+        #[arg(long)]
+        keep_going: bool,
+        /// After a record whose generator state differs, copy theirs into ours; a record where only the generator
+        /// differs then doesn't stop the run.
+        #[arg(long)]
+        resync_rng: bool,
+        /// Compare only these fields or categories, comma-separated: `rng`, `gold`, `x`, `unit.facing`,
+        /// `effect.kind`, or `resources`, `slots`, `positions`, `orders`, `facing`, `anim`, `stats`, `effects`; a leading
+        /// `-` leaves one out (`-facing`).
+        #[arg(long)]
+        fields: Option<String>,
+        /// Stop after the record with this cycle number `n`.
+        #[arg(long)]
+        max_cycles: Option<u64>,
+        trace: PathBuf,
+    },
 }
 
 fn stdin_names() -> impl Iterator<Item = String> {
@@ -342,6 +376,28 @@ fn main() -> Result<()> {
             for i in 0..t.0.len() {
                 let text = t.text(i).expect("index in range");
                 println!("{i}\t{}", text.escape_debug());
+            }
+        }
+        Cmd::Oracle {
+            install,
+            map,
+            entry,
+            seed,
+            keep_going,
+            resync_rng,
+            fields,
+            max_cycles,
+            trace,
+        } => {
+            let opts = oracle::Options {
+                keep_going,
+                resync_rng,
+                max_cycles,
+                filter: fields.as_deref().map(oracle::Filter::parse).unwrap_or_default(),
+                seed,
+            };
+            if !oracle_cmd(&install, &map, entry, &trace, opts)? {
+                std::process::exit(1);
             }
         }
         Cmd::MpqInfo { archive } => {
@@ -619,29 +675,11 @@ fn sim(
     seed: u32,
     mode: SimMode,
 ) -> Result<()> {
-    use tidewater_formats::udta::UnitTable;
-    use tidewater_sim::{Command, World};
+    use tidewater_sim::Command;
     let mut inst = Install::open(install)?;
-    let data = if std::path::Path::new(map).is_file() {
-        std::fs::read(map)?
-    } else {
-        inst.read(map)?
-    };
-    let pud = Pud::parse(&data)?;
+    let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
     let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
-    let mut build = || -> Result<World> {
-        let ts = inst.tileset(start.era)?;
-        let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
-            Some(t) => t,
-            None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
-        };
-        let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
-        let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?;
-        let mut w = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), &start)?;
-        let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
-        w.start_ai(std::sync::Arc::new(ai));
-        Ok(w)
-    };
+    let mut build = || start_world(&mut inst, &pud, &start);
     let mut w = build()?;
     let player = player.unwrap_or(start.local);
     println!(
@@ -867,6 +905,75 @@ fn sim(
     }
     println!("save/load round trip ok ({} bytes)", bytes.len());
     Ok(())
+}
+
+/// Starts a game on `pud` as `start` chose it, with the install's tables and computer scripts.
+fn start_world(inst: &mut Install, pud: &Pud, start: &tidewater_sim::setup::Start) -> Result<tidewater_sim::World> {
+    use tidewater_formats::udta::UnitTable;
+    let ts = inst.tileset(start.era)?;
+    let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
+        Some(t) => t,
+        None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
+    };
+    let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
+    let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?;
+    let mut w = tidewater_sim::World::from_pud(pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), start)?;
+    let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
+    w.start_ai(std::sync::Arc::new(ai));
+    Ok(w)
+}
+
+/// `twtool oracle`: sets up the trace's scenario, runs the comparison and prints the report. Returns whether the
+/// whole trace matched.
+fn oracle_cmd(
+    install: &std::path::Path,
+    map: &str,
+    entry: Option<u8>,
+    trace: &std::path::Path,
+    mut opts: oracle::Options,
+) -> Result<bool> {
+    use tidewater_sim::setup::{Game, Setup, Start};
+    let (header, records) = oracle::read(oracle::open(trace)?)?;
+    let seed = opts
+        .seed
+        .or(header.clock)
+        .ok_or_else(|| anyhow::anyhow!("the trace used the real clock; give --seed"))?;
+    opts.seed = Some(seed);
+    let mut inst = Install::open(install)?;
+    let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
+    let mut setup = match entry {
+        Some(entry) => Setup {
+            game: Game::Campaign { entry },
+            ..Default::default()
+        },
+        None => Setup::for_map(map),
+    };
+    setup.enhanced = header.enhanced;
+    let start = Start::choose(&pud, &setup, seed)?;
+    let mut w = start_world(&mut inst, &pud, &start)?;
+    // Cheats on at setup, read as program arguments are (cheats spec); the two notices without a phrase are one-shot
+    // and carry nothing into a new game.
+    let (flags, _) = tidewater_sim::cheats::from_arguments(header.cheats.iter().map(String::as_str));
+    w.start_cheats(flags);
+    w.speed = header.speed.min(8);
+    println!("trace: {} ({})", header.scenario, header.launch);
+    println!(
+        "ours: {map}, {:?}, seed {seed} ({seed:#010x}), local player {}, cheat flags {:#x}",
+        setup.game, start.local, flags.0
+    );
+    let era = match start.era {
+        Era::Forest => 0,
+        Era::Winter => 1,
+        Era::Wasteland => 2,
+        Era::Swamp => 3,
+    };
+    for m in oracle::setup_mismatches(&header, &w, era, start.local) {
+        println!("setup mismatch: {m}");
+    }
+    let mut out = std::io::stdout().lock();
+    let summary = oracle::run(&mut w, records, &opts, &mut out)?;
+    oracle::print_summary(&mut out, &summary)?;
+    Ok(summary.diverged == 0)
 }
 
 /// One run of a unit's animation: (cycles between the first two events, pixels moved between them, cycle of the first).
