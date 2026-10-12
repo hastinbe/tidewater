@@ -21,7 +21,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tidewater_formats::udta::flags;
-use tidewater_sim::{Order, Unit, World};
+use tidewater_sim::{Order, Unit, UnitId, World};
 
 /// Unit fields in report order; `slot` is the key and isn't listed. The four timers are flattened.
 pub const UNIT_FIELDS: [&str; 20] = [
@@ -67,8 +67,6 @@ const MAX_STEPS: u32 = 1 << 20;
 pub enum Cell {
     Int(i64),
     Null,
-    /// Any of these values matches: our simulation doesn't tell them apart.
-    AnyOf(Vec<i64>),
     /// Not compared, for the reason given (listed once in the report).
     Skip(&'static str),
 }
@@ -89,7 +87,6 @@ impl Cell {
     fn matches(&self, theirs: &Cell) -> Option<bool> {
         Some(match (self, theirs) {
             (Cell::Skip(_), _) | (_, Cell::Skip(_)) => return None,
-            (Cell::AnyOf(set), Cell::Int(n)) => set.contains(n),
             (a, b) => a == b,
         })
     }
@@ -99,7 +96,6 @@ impl Cell {
         match self {
             Cell::Int(n) => Some(Value::from(*n)),
             Cell::Null => Some(Value::Null),
-            Cell::AnyOf(set) => set.first().map(|&n| Value::from(n)),
             Cell::Skip(_) => None,
         }
     }
@@ -110,10 +106,6 @@ impl fmt::Display for Cell {
         match self {
             Cell::Int(n) => write!(f, "{n}"),
             Cell::Null => f.write_str("null"),
-            Cell::AnyOf(set) => {
-                let s: Vec<String> = set.iter().map(i64::to_string).collect();
-                f.write_str(&s.join("|"))
-            }
             Cell::Skip(_) => f.write_str("-"),
         }
     }
@@ -672,19 +664,21 @@ fn order_cell(u: &Unit) -> Cell {
     if u.dying {
         return Cell::Int(1);
     }
+    // Orders spec, "Orders given when a unit is created": a building reads as order 2 until its first order (14,
+    // 33 or 59) takes over at its first step done. We hold 33 and 59 as `Idle`; 37 is a job that has taken over.
+    if u.building && u.pending.is_some() && matches!(u.order, Order::Idle) {
+        return Cell::Int(2);
+    }
     let n = match u.order {
         Order::Idle if u.building => {
-            // We hold no order number for a building at rest: it reads as order 2 until its resting logic first runs,
-            // then 33 (or 37 while working, 59 for the circle of power).
-            return if u.job.is_some() {
-                Cell::Int(37)
+            return Cell::Int(if u.job.is_some_and(|j| j.running) {
+                37
             } else if u.kind == tidewater_sim::rescue::CIRCLE_OF_POWER {
-                Cell::AnyOf(vec![2, 59])
+                59
             } else {
-                Cell::AnyOf(vec![2, 33])
-            };
+                33
+            });
         }
-        Order::TowerWatch { target: None } if u.building => return Cell::AnyOf(vec![2, 14]),
         Order::Idle => 2,
         Order::Move { .. } => 3,
         Order::MoveAttack { .. } => 4,
@@ -721,9 +715,17 @@ fn order_cell(u: &Unit) -> Cell {
     Cell::Int(n)
 }
 
-/// The slot of the unit the order aims at, as far as our orders name one.
+/// The slot of the unit the order aims at, as far as our orders name one. A command sets the unit's target at once,
+/// so a pending order's target unit is shown while it waits to take over.
 fn target_cell(w: &World, u: &Unit) -> Cell {
-    let id = match u.order {
+    let pending = u.pending.and_then(order_target);
+    let id = pending.or_else(|| order_target(u.order));
+    Cell::opt(id.and_then(|id| w.unit(id)).map(|t| t.slot))
+}
+
+/// The target unit an order names, if any.
+fn order_target(o: Order) -> Option<UnitId> {
+    match o {
         Order::Follow { target }
         | Order::Guard { target }
         | Order::Attack { target }
@@ -740,8 +742,7 @@ fn target_cell(w: &World, u: &Unit) -> Cell {
         Order::Demolish { at, .. } => at,
         Order::Board { transport } | Order::Aboard { transport } => Some(transport),
         _ => None,
-    };
-    Cell::opt(id.and_then(|id| w.unit(id)).map(|t| t.slot))
+    }
 }
 
 fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {
@@ -1172,11 +1173,6 @@ pub fn print_summary(out: &mut dyn Write, s: &Summary) -> Result<()> {
             writeln!(out, "  {k}")?;
         }
     }
-    writeln!(
-        out,
-        "note: a building's resting order is compared as 2 or 33 (14 for towers, 59 for the circle of power): our \
-         simulation doesn't record the switch from 2 to the resting order"
-    )?;
     Ok(())
 }
 
@@ -1445,11 +1441,9 @@ mod tests {
     }
 
     #[test]
-    fn any_of_matches_each_value() {
-        let ours = Cell::AnyOf(vec![2, 33]);
-        assert_eq!(ours.matches(&Cell::Int(2)), Some(true));
-        assert_eq!(ours.matches(&Cell::Int(33)), Some(true));
-        assert_eq!(ours.matches(&Cell::Int(37)), Some(false));
+    fn skipped_cells_are_not_compared() {
+        assert_eq!(Cell::Int(33).matches(&Cell::Int(33)), Some(true));
+        assert_eq!(Cell::Int(33).matches(&Cell::Int(37)), Some(false));
         assert_eq!(Cell::Skip("x").matches(&Cell::Int(1)), None);
     }
 
