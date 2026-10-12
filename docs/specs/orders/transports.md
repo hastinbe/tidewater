@@ -5,6 +5,8 @@
   public PUD specification text. Not yet confirmed against the running game.
 - **Changes:** 2026-10-11, round-4 errata: a lost target or attacker (pushing off) is one that is no longer valid or
   no longer **detected** by the owner; fog over it doesn't matter (was "no longer visible").
+  2026-10-11, round-5 errata: boarding moves split computer players (command 4, leaves order 34) from every other
+  player (smart move, stays in order 34), the other way round from "human-controlled" and "any other".
 
 ## Behaviour
 
@@ -138,10 +140,11 @@ computer players).
 2. **Goal:** the transport's tile if the transport stands in the unit's region; otherwise the transport's own
    destination tile (where it is heading). The arrival radius is 1 (`orders/orders.md`).
 3. **Not arrived:** the unit is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"):
-   - a **human-controlled** player's unit gets a smart move (command 3). That is the boarding command again, so the
-     unit **stays in order 34**, and the transport is told to come again unless it is landing;
-   - **any other** player's unit gets command 4 (move and attack on the way) and **leaves order 34**: its order
-     becomes 4 at the next step boundary. It boards only if it is given the boarding command again.
+   - a **computer player's** unit gets command 4 (move and attack on the way) and **leaves order 34**: its order
+     becomes 4 at the next step boundary. It boards only if it is given the boarding command again;
+   - **every other player's** unit (human, passive computer, passive rescue, neutral; `orders/orders.md`, "Terms")
+     gets a smart move (command 3). That is the boarding command again, so the unit **stays in order 34**, and the
+     transport is told to come again unless it is landing.
 4. **Arrived:** the unit boards if all of these hold:
    - it is within **2 tiles** of the transport's tile on both axes;
    - the transport's order is **32** (docked);
@@ -190,6 +193,7 @@ computer players).
 | Land unit, smart move on its own side's docked transport with 6 passengers | Order 34; on arrival it can't board (no empty slot); if the transport's destination is in its region it keeps waiting, else it becomes idle |
 | Land unit (human player) in order 34 at (24, 21), in region L. Its transport is docked (order 32) at (20, 20), whose tile is in another region W, with a free slot; the transport's destination tile is (23, 20), in region L (for example left by a landing command whose route failed on the shore) | Goal: the destination (23, 20), because the transport isn't in the unit's region. The unit is within 1 tile of it, so it has arrived, but it is 4 tiles from the transport on x, so it doesn't board. The transport isn't landing and its destination is in the unit's region, so the unit keeps waiting in order 34, without moving, at every run until something changes |
 | Same, but the destination tile (23, 20) is in a third region | The unit gives up: order 2 |
+| Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing | Gets a smart move again: stays in order 34, and the transport is told to come |
 | Transport docked at (21, 20) (odd x, one-tile mover, landing class) on shore water, smart move to an open-water tile G = (40, 20); open water (no sea-mask bit) is every tile with x ≥ 22 | Order 31, target tile G. Run 1: odd tile, so the ring search runs from (21, 20) aimed at (40, 20): start corner (22, 19), first tile tested (22, 20) passes. The target tile becomes (22, 20) (the destination stays (40, 20)); one-tile step east to (22, 20). Run 2: (22, 20) is an even open-water tile: sea class, two-tile mover, idle, then a smart move to (40, 20): order 3 |
 | Transport docked at (20, 20) (even) on shore water, smart move to G = (40, 20); open water is every tile with x ≥ 24 | Run 1: even tile but not open water. The ring search aimed at (40, 20) finds (24, 18) after 53 tests (counting repeated tiles); it becomes the target tile; two-tile mover, move animation, first step toward (24, 18). Each later run repeats the search aimed at (24, 18) before stepping. On reaching (24, 18): sea class, idle, smart move to (40, 20) |
 | Straight line, S = (20, 20), G = (25, 22) | Tiles tested: (20, 20), (21, 21), (22, 21), (23, 21), (24, 22); the walk stops at (25, 22) |
