@@ -4,6 +4,7 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 19 (minimap)"), the
   tileset files `Art\bgs\*\*.vx4` and `*.vr4` (how a tile's colour is picked) and the minimap frame pictures
   `Art\h_lft1.bmp` / `Art\o_lft1.bmp`. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: the non-square map open question is closed by `game/setup.md`: every map is square.
 
 ## Behaviour
 
@@ -24,8 +25,8 @@ the minimap's top-left corner (0 to 127 each way).
 | 96 | 4/3 | p = floor(4t / 3) | t = floor(3p / 4) |
 | 128 (and any other width) | 1 | p = t | t = p |
 
-A map that isn't square still uses the width's scale for both axes. Rows past the map's height aren't defined here
-(see the open questions).
+Maps are always square: the game keeps one size from the map file for both width and height (`game/setup.md`,
+`DIM `).
 
 ### When it is redrawn
 
@@ -185,9 +186,6 @@ half-view offset: pixel x − 24 and y − 26, each clamped to 0..127, then the 
 
 ## Open questions
 
-- **Non-square maps.** The scale and the terrain walk use the width for both axes, and the terrain walk moves down
-  by whole map rows. On a map taller than it is wide, rows past what fits aren't shown; on a map wider than it is
-  tall, the walk reads past the map's last row. What the game shows there wasn't checked.
 - **Remembered buildings.** A value stored on each building (not decoded) keeps some buildings from being copied. In
   Enhanced rules the excluded range is one value wider than in Classic. Which buildings these are wasn't found.
   When a copy stops being hidden is tied to the local visibility update, which belongs to the drawing spec. Whether
