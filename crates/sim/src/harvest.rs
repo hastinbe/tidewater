@@ -313,7 +313,7 @@ impl World {
     }
 
     /// "Delivering goods".
-    fn deliver(&mut self, i: usize, owner: u8, tanker: bool) {
+    pub(crate) fn deliver(&mut self, i: usize, owner: u8, tanker: bool) {
         let u = &self.units[i];
         if self.rules.enhanced && !u.carrying {
             return;

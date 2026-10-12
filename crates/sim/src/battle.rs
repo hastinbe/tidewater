@@ -256,6 +256,9 @@ impl World {
         if !unit.inside {
             self.mark(&unit, unit.tile, None);
         }
+        if unit.building {
+            self.release_builders(ti, false);
+        }
         let u = &mut self.units[ti];
         u.hp = 0;
         u.dying = true;

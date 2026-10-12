@@ -64,6 +64,11 @@ pub enum Event {
         player: u8,
         kind: u8,
     },
+    /// A worker couldn't place a building on its site.
+    CantPlace {
+        player: u8,
+        kind: u8,
+    },
 }
 
 /// Gold, lumber and oil.
@@ -160,21 +165,21 @@ impl World {
         Ok(())
     }
 
-    fn pay(&mut self, owner: u8, c: Cost) {
+    pub(crate) fn pay(&mut self, owner: u8, c: Cost) {
         let p = &mut self.players[owner as usize];
         p.gold -= c[0];
         p.lumber -= c[1];
         p.oil -= c[2];
     }
 
-    fn refund(&mut self, owner: u8, c: Cost) {
+    pub(crate) fn refund(&mut self, owner: u8, c: Cost) {
         let p = &mut self.players[owner as usize];
         p.gold += c[0];
         p.lumber += c[1];
         p.oil += c[2];
     }
 
-    fn afford_or_tell(&mut self, owner: u8, c: Cost, needs_food: bool) -> bool {
+    pub(crate) fn afford_or_tell(&mut self, owner: u8, c: Cost, needs_food: bool) -> bool {
         match self.can_afford(owner, c, needs_food) {
             Ok(()) => true,
             Err(shortage) => {
@@ -265,6 +270,7 @@ impl World {
         if kind::is_hall(k) {
             p.had_hall = true;
         }
+        self.release_builders(i, true);
     }
 
     /// Starts a job at a completed, idle building: pays at once, then the work animation takes over at the still

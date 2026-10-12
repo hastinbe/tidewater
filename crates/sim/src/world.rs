@@ -118,6 +118,10 @@ pub enum Order {
     Board { transport: UnitId },
     /// 36: a passenger aboard a transport.
     Aboard { transport: UnitId },
+    /// 28: a worker going to `site` (the top-left tile) to build `kind` (build-train spec, "Placing a building").
+    Build { kind: u8, site: (i32, i32) },
+    /// 22: a worker inside the building it is constructing.
+    InsideSite { building: UnitId },
 }
 
 /// What a transport stores when given a command (transports spec, "What the transport stores"), and how it moves.
@@ -408,6 +412,13 @@ pub enum Command {
     StandGround {
         player: u8,
         units: Vec<UnitId>,
+    },
+    /// Command 27 with a building type: a worker builds `kind` with its top-left tile at `tile`.
+    Build {
+        player: u8,
+        unit: UnitId,
+        kind: u8,
+        tile: (i32, i32),
     },
     /// Command 29: a transport unloads at `tile` (transports spec).
     Unload {
@@ -817,6 +828,23 @@ impl World {
                 to,
             } => return self.building_command(player, id, Some(JobKind::Upgrade(to))),
             &Command::Cancel { player, unit } => return self.building_command(player, unit, None),
+            &Command::Build {
+                player,
+                unit,
+                kind,
+                tile,
+            } => {
+                let Some(i) = self
+                    .index(unit)
+                    .filter(|&i| self.units[i].owner == player && !self.units[i].dying)
+                else {
+                    return;
+                };
+                if let Some(o) = self.build_command(i, kind, tile) {
+                    self.give(i, o);
+                }
+                return;
+            }
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };

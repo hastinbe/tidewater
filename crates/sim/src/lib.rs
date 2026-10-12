@@ -10,6 +10,7 @@ pub mod acquire;
 pub mod ai;
 pub mod anim;
 mod battle;
+mod build;
 pub mod combat;
 pub mod economy;
 mod harvest;

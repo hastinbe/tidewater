@@ -88,6 +88,7 @@ fn message(e: &Event, human: u8) -> Option<String> {
             .to_string(),
         ),
         Event::NoRoom { player, .. } if player == human => Some("No room to place the unit".to_string()),
+        Event::CantPlace { player, .. } if player == human => Some("Can't build there".to_string()),
         Event::CantRepair { player, shortage } if player == human => Some(
             match shortage {
                 Shortage::Lumber => "Repairs stopped: out of lumber",

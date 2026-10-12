@@ -99,7 +99,7 @@ impl World {
         // Orders 25 and 26 can't be interrupted (harvest spec, "Entering"), and dying units take no orders.
         let inside = matches!(
             self.units[i].order,
-            Order::Enter { .. } | Order::Inside { .. } | Order::Aboard { .. }
+            Order::Enter { .. } | Order::Inside { .. } | Order::Aboard { .. } | Order::InsideSite { .. }
         );
         if self.units[i].dying || inside {
             return;
@@ -162,6 +162,8 @@ impl World {
             Order::ReturnGoods { depot } => self.return_order(i, depot),
             Order::Enter { building, stepped } => self.enter_order(i, building, stepped),
             Order::Inside { building, hall_sized } => self.come_out(i, building, hall_sized),
+            Order::Build { kind, site } => self.build_order(i, kind, site),
+            Order::InsideSite { .. } => self.inside_site(i),
             _ => {}
         }
     }
