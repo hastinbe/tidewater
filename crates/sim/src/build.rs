@@ -64,7 +64,7 @@ impl World {
 
     /// Arrival at the site: pay (players other than computer players), check the site, then place the building and
     /// go inside it.
-    fn raise(&mut self, i: usize, kind: u8, site: (i32, i32)) {
+    pub(crate) fn raise(&mut self, i: usize, kind: u8, site: (i32, i32)) {
         let u = self.units[i].clone();
         let c = cost(&self.stats_of(kind));
         let pays_now = !self.computer_player(u.owner);
@@ -94,6 +94,12 @@ impl World {
         if let Some(Some(p)) = patch
             && let Some(pi) = self.index(p)
         {
+            // Harvest spec, "Mine and platform amounts": the platform takes the patch's trips.
+            let trips = self.units[pi].resources;
+            if let Some(bi) = self.index(b) {
+                self.units[bi].resources = trips;
+            }
+            let pi = self.index(p).expect("the patch is alive");
             self.kill(pi);
         }
         if pays_now {

@@ -2,7 +2,6 @@
 //!
 //! Not yet here:
 //! - The AI hand-off of computer players' units coming out (ai spec to come); their units carry on as anyone else's.
-//! - Oil platforms built on patches.
 //!
 //! Our own reading: a unit that arrives at its mine, platform or depot starts order 25 in the same decision, rather
 //! than waiting for another step done.

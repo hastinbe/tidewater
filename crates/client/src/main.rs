@@ -1,15 +1,22 @@
 //! Tidewater client. Loads a PUD from the user's installation, runs the simulation at its fixed tick rate and draws it.
 //!
-//! Controls: left click or drag selects your units, right click orders them to move. The command panel (lower left)
-//! shows the selection's buttons (`panel`): click one or press its hotkey; commands that need a target take the next
-//! left click on the map (right click or Escape cancels). In placement mode the building's picture follows the
-//! pointer, and a click on a site that fails the site check (`tidewater_sim::site`) shows why and keeps the mode. Arrow keys pan, mouse wheel or +/- zoom, Escape cancels a
-//! panel mode and otherwise quits. On the minimap, left click or drag moves the view and right click orders a move
-//! there.
+//! Controls follow `docs/specs/ui/selecting-and-commanding.md` (`mouse`): left click or drag selects (Shift adds or
+//! removes, Ctrl or a double-click takes all of the type on screen, Alt recalls the remembered group), right click
+//! gives the right-click command (with `--second-mouse-style`, right click centres the view instead). The command
+//! panel (lower left) shows the selection's buttons (`panel`): click one or press its hotkey; commands that need a
+//! target take the next left click on the map or minimap, and a right click ends the mode. In placement mode the
+//! building's picture follows the pointer, and a click on a site that fails the site check (`tidewater_sim::site`)
+//! shows why and keeps the mode. Ctrl+digit sets a control group, the digit recalls it (twice quickly centres the
+//! view), Alt+digit centres and recalls. +/- change the game speed, Ctrl+P pauses, Ctrl+C centres on the selection,
+//! F2 to F4 jump to a view position remembered with Shift, Ctrl+S mutes, Ctrl+Q or Ctrl+X quits. Arrow keys pan,
+//! the mouse wheel zooms, Escape cancels a panel mode and otherwise quits. On the minimap, left click or drag moves
+//! the view.
 
 mod fog;
 mod hud;
 mod info;
+mod minimap;
+mod mouse;
 mod panel;
 mod scene;
 mod sound;
@@ -69,6 +76,9 @@ struct Args {
     /// placement click there at the start.
     #[arg(long, value_parser = parse_tile)]
     demo_site: Option<(i32, i32)>,
+    /// The Preferences dialog's second mouse style: right click centres the view instead of giving a command.
+    #[arg(long)]
+    second_mouse_style: bool,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -109,6 +119,8 @@ struct Speaker {
     sources: HashMap<String, Option<Handle<AudioSource>>>,
     /// `Rez\network.tbl`, for the subtitles.
     subtitles: Option<tidewater_formats::tbl::StringTable>,
+    /// Ctrl+S turned the sounds off.
+    muted: bool,
 }
 
 /// How long a message stays up: five seconds of game time.
@@ -156,8 +168,12 @@ struct PanelUi {
     escape_used: bool,
     /// The tooltip of the button under the cursor.
     tooltip: Option<String>,
-    /// The selection the mode belongs to; a different selection ends the mode.
+    /// The selection a build menu belongs to; a different selection returns the panel from it.
     last_sel: Vec<UnitId>,
+    /// The mouse style (`mouse::Style`).
+    style: mouse::Style,
+    /// View centres remembered with Shift+F2 to F4.
+    views: [Option<Vec2>; 3],
     /// Development aid (`--demo-site`): the pointer's tile while the pointer is off the map view.
     demo_pointer: Option<(i32, i32)>,
     /// Development aid: one placement click at `demo_pointer` is still to be made.
@@ -188,11 +204,40 @@ struct InfoPanel {
     speeds: Vec<u8>,
 }
 
+/// The local selection and what the selecting rules remember (`mouse`).
 #[derive(Resource, Default)]
 struct Selection {
     units: Vec<UnitId>,
-    /// Where a left-button drag started, in world space.
+    /// Where a left-button drag started, in map pixels.
     drag_from: Option<Vec2>,
+    /// Shift, Ctrl and the double-click as they were at the press.
+    press: mouse::Mods,
+    /// The last left press on the map view (seconds, map pixel), for the double-click.
+    last_press: Option<(f64, Vec2)>,
+    /// A left press on the minimap is moving the view.
+    minimap_held: bool,
+    remembered: mouse::Remembered,
+    groups: mouse::GroupKeys,
+    /// The right-click target's flash: unit, palette colour, cycles left.
+    flash: Option<(UnitId, u8, u32)>,
+    /// The ground marker (effect 0x1C): map pixel and cycles left.
+    marker: Option<((i32, i32), u32)>,
+}
+
+impl Selection {
+    /// A selecting action changed the local selection: sends it as the synced selection and asks for the selection
+    /// sound (sounds spec, "Selecting units": under Classic rules only for one unit).
+    fn set(&mut self, sim: &mut Sim, units: Vec<UnitId>, sound: bool) {
+        if mouse::sound_wanted(sim.world.rules.enhanced, sound, units.len()) {
+            sim.world.select_sound(units[0]);
+        }
+        sim.pending.push(Command::Select {
+            player: sim.human,
+            units: units.clone(),
+        });
+        self.groups.forget();
+        self.units = units;
+    }
 }
 
 /// The terrain picture and what redraws its tiles.
@@ -238,9 +283,10 @@ struct Hud {
     layout: Option<hud::Layout>,
     frame: scene::Picture,
     image: Handle<Image>,
-    tiles: Vec<[u8; 3]>,
     /// Map size in tiles.
     map: (u32, u32),
+    /// The minimap: its redraw countdown, terrain picture and last picture (`minimap`).
+    minimap: minimap::Minimap,
 }
 
 impl Hud {
@@ -353,6 +399,7 @@ fn main() -> Result<()> {
             .and_then(|d| tidewater_formats::tbl::StringTable::parse(&d).ok()),
         install,
         sources: HashMap::new(),
+        muted: false,
     };
     let mut selection = Selection::default();
     if let Some(n) = args.demo_select {
@@ -368,7 +415,14 @@ fn main() -> Result<()> {
             .map(|u| u.id)
             .collect();
     }
-    let mut panel_ui = PanelUi::default();
+    let mut panel_ui = PanelUi {
+        style: if args.second_mouse_style {
+            mouse::Style::Second
+        } else {
+            mouse::Style::First
+        },
+        ..default()
+    };
     if let Some(kind) = args.demo_place {
         panel_ui.mode = panel::Mode::Place(kind);
         panel_ui.last_sel = selection.units.clone();
@@ -397,8 +451,8 @@ fn main() -> Result<()> {
                 rgba: vec![0; 4],
             },
             image: Handle::default(),
-            tiles: Vec::new(),
             map: (0, 0),
+            minimap: minimap::Minimap::new(0),
         })
         .insert_resource(Time::<Fixed>::from_hz(hz))
         .insert_resource(selection)
@@ -411,12 +465,11 @@ fn main() -> Result<()> {
             Update,
             (
                 hud_layout,
-                minimap_input,
                 panel_input,
                 info_input,
+                keys_input,
+                mouse_input,
                 pan_and_zoom,
-                select,
-                order,
                 play_sounds,
                 sync_sprites,
                 redraw_terrain,
@@ -474,11 +527,11 @@ fn setup(
         Vec2::new((vx as f32 + half) * TILE_PX as f32, (vy as f32 + half) * TILE_PX as f32),
         |u| Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32),
     );
-    hud.tiles = scene.tile_colours.clone();
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
         scene.terrain.height / TILE_PX as u32,
     );
+    hud.minimap = minimap::Minimap::new(hud.map.0);
     hud.image = images.add(image_with(
         scene::Picture {
             width: 1,
@@ -546,9 +599,18 @@ fn setup(
         palette: scene.palette.clone(),
         made: HashMap::new(),
     });
+    // A selection made at the start (`--demo-select`) becomes the synced selection on the first cycle.
+    let pending = if sel.units.is_empty() {
+        Vec::new()
+    } else {
+        vec![Command::Select {
+            player: scene.human,
+            units: sel.units.clone(),
+        }]
+    };
     commands.insert_resource(Sim {
         world: scene.world,
-        pending: Vec::new(),
+        pending,
         human: scene.human,
         message: None,
         unload_one: Vec::new(),
@@ -557,7 +619,27 @@ fn setup(
     commands.spawn((Sprite::default(), Transform::default(), Visibility::Hidden, Ghost));
 }
 
-fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
+/// The fixed timestep for the game speed (timing spec): Enhanced rules use the speed's cycle time, Classic rules the
+/// mean of its row's three-cycle pattern.
+fn cycle_secs(enhanced: bool, speed: u8) -> f64 {
+    use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, ENHANCED_MS};
+    let s = (speed as usize).min(ENHANCED_MS.len() - 1);
+    let ms = if enhanced {
+        ENHANCED_MS[s] as f64
+    } else {
+        CLASSIC_MS[CLASSIC_ROW[s]].iter().sum::<u32>() as f64 / 3.0
+    };
+    ms / 1000.0
+}
+
+fn tick(
+    mut sim: ResMut<Sim>,
+    mut sel: ResMut<Selection>,
+    mut time: ResMut<Time<Fixed>>,
+    mut hud: ResMut<Hud>,
+    art: Option<Res<TerrainArt>>,
+    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+) {
     // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
     // spec's one-passenger rule (open question there: assumed to be that request). The sim has no command for it, so
     // its one-passenger unload runs here, between ticks, for transports the local player owns.
@@ -569,8 +651,25 @@ fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
     }
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
-    // A dying unit is deselected (corpses spec).
-    sel.units.retain(|&id| sim.world.unit(id).is_some_and(|u| !u.dying));
+    let step = std::time::Duration::from_secs_f64(cycle_secs(sim.world.rules.enhanced, sim.world.speed));
+    if time.timestep() != step {
+        time.set_timestep(step);
+    }
+    // Minimap spec, "When it is redrawn": the countdown runs in the game cycle, after the units are updated.
+    if let (Some(art), Ok((camera, tf, proj))) = (art, cam.single()) {
+        let (l, t, r, b) = view_tiles(camera, tf, proj);
+        let at = (l.floor().max(0.0) as i32, t.floor().max(0.0) as i32);
+        let size = ((r - l).round().max(1.0) as i32, (b - t).round().max(1.0) as i32);
+        hud.minimap.cycle(&mut sim.world, &art.tileset, at, size, true);
+    }
+    // A lost unit (dying, or gone inside) leaves the local selection and the remembered groups (corpses spec;
+    // selecting spec, "Two selections").
+    let w = &sim.world;
+    let present = |id: UnitId| w.unit(id).is_some_and(|u| u.present());
+    sel.units.retain(|&id| present(id));
+    sel.remembered.retain(present);
+    sel.flash = sel.flash.filter(|f| f.2 > 1).map(|(u, c, n)| (u, c, n - 1));
+    sel.marker = sel.marker.filter(|m| m.1 > 1).map(|(p, n)| (p, n - 1));
     let human = sim.human;
     let events = std::mem::take(&mut sim.world.events);
     // A unit that changed owner by rescue leaves the selection (rescue spec, "Owner change").
@@ -589,8 +688,9 @@ fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
     }
 }
 
-/// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture and the minimap.
-fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut<Assets<Image>>, mut hud: ResMut<Hud>) {
+/// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture. The minimap catches up at
+/// its next terrain rebuild (`minimap`).
+fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut<Assets<Image>>) {
     let changed = std::mem::take(&mut sim.world.terrain.redraw);
     if changed.is_empty() {
         return;
@@ -600,7 +700,6 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
     };
     let width = img.width() as usize;
     let Some(data) = img.data.as_mut() else { return };
-    let map_w = sim.world.terrain.width as usize;
     let t = TILE_PX as usize;
     for (x, y) in changed {
         let Some(m) = sim.world.terrain.tile(x, y) else {
@@ -610,9 +709,6 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
         for row in 0..t {
             let at = ((y as usize * t + row) * width + x as usize * t) * 4;
             data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);
-        }
-        if let Some(c) = hud.tiles.get_mut(y as usize * map_w + x as usize) {
-            *c = hud::tile_colours(&pic, TILE_PX as u32)[0];
         }
     }
 }
@@ -753,149 +849,7 @@ fn cursor_map(window: &Window, cam: (&Camera, &GlobalTransform)) -> Option<Vec2>
     Some(Vec2::new(p.x, -p.y))
 }
 
-fn select(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
-    sim: Option<ResMut<Sim>>,
-    mut sel: ResMut<Selection>,
-    hud: Res<Hud>,
-    ui: Res<PanelUi>,
-) {
-    let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
-        return;
-    };
-    let Some(at) = cursor_map(window, cam) else { return };
-    if ui.consumed {
-        return;
-    }
-    if buttons.just_pressed(MouseButton::Left) && hud.over_map(window) {
-        sel.drag_from = Some(at);
-    }
-    if !buttons.just_released(MouseButton::Left) {
-        return;
-    }
-    let Some(from) = sel.drag_from.take() else { return };
-    let (lo, hi) = (from.min(at), from.max(at));
-    let mine = |u: &&tidewater_sim::Unit| u.owner == sim.human && !u.building;
-    let picked: Vec<UnitId> = if (hi - lo).length() < 4.0 {
-        // A click: the unit whose footprint contains the point.
-        let tile = ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX));
-        unit_at(&sim.world, tile).into_iter().collect()
-    } else {
-        sim.world
-            .units
-            .iter()
-            .filter(mine)
-            .filter(|u| {
-                let p = Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32);
-                p.cmpge(lo).all() && p.cmple(hi).all()
-            })
-            .take(9)
-            .map(|u| u.id)
-            .collect()
-    };
-    // Sounds spec, "Selecting units": the selection's first unit; in Classic rules only a single unit. Open question
-    // "Which selecting actions ask for the sound": every action that changes the selection does.
-    if let Some(&first) = picked.first()
-        && (picked.len() == 1 || sim.world.rules.enhanced)
-    {
-        sim.world.select_sound(first);
-    }
-    sel.units = picked;
-}
-
-fn order(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
-    sim: Option<ResMut<Sim>>,
-    sel: Res<Selection>,
-    hud: Res<Hud>,
-    ui: Res<PanelUi>,
-) {
-    let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
-        return;
-    };
-    if ui.consumed {
-        return;
-    }
-    let human = sim.human;
-    let units: Vec<UnitId> = sel
-        .units
-        .iter()
-        .copied()
-        .filter(|&id| sim.world.unit(id).is_some_and(|u| u.owner == human))
-        .collect();
-    let Some(&first) = units.first() else { return };
-    if !buttons.just_pressed(MouseButton::Right) {
-        return;
-    }
-    // A right click on the minimap moves there; on the map view, an enemy under the cursor is attacked if any
-    // selected unit can, and anything else is a smart move.
-    let (to, on_map) = if let Some(t) = hud.minimap_tile(window) {
-        let max = (hud.map.0 as i32 - 1, hud.map.1 as i32 - 1);
-        (((t.x as i32).min(max.0), (t.y as i32).min(max.1)), false)
-    } else if hud.over_map(window) {
-        let Some(at) = cursor_map(window, cam) else { return };
-        (
-            ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX)),
-            true,
-        )
-    } else {
-        return;
-    };
-    let foe = unit_at(&sim.world, to).filter(|&t| {
-        on_map
-            && units
-                .iter()
-                .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_attack(u, t)))
-    });
-    // Our own choice: a right click on a damaged building or transport of the player's sends the workers to repair it.
-    let mend = unit_at(&sim.world, to).filter(|&t| {
-        on_map
-            && sim.world.unit(t).is_some_and(|t| t.owner == human)
-            && units
-                .iter()
-                .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_repair(u, t)))
-    });
-    let c = match (mend, foe) {
-        (Some(target), _) => Command::Repair {
-            player: human,
-            units,
-            target,
-        },
-        (None, Some(target)) => Command::Attack {
-            player: human,
-            units,
-            target,
-        },
-        // Orders spec, "Smart move": returning goods, harvesting, following or moving, decided per unit.
-        (None, None) => Command::Smart {
-            player: human,
-            units,
-            target: unit_at(&sim.world, to).filter(|_| on_map),
-            tile: to,
-        },
-    };
-    sim.pending.push(c);
-    sim.world.acknowledge(first);
-}
-
-/// The living unit whose footprint covers a tile.
-fn unit_at(w: &tidewater_sim::World, (x, y): (i32, i32)) -> Option<UnitId> {
-    w.units
-        .iter()
-        .find(|u| {
-            u.present()
-                && x >= u.tile.0
-                && y >= u.tile.1
-                && x < u.tile.0 + u.size.0 as i32
-                && y < u.tile.1 + u.size.1 as i32
-        })
-        .map(|u| u.id)
-}
-
+#[allow(clippy::too_many_arguments)]
 fn draw_selection(
     mut gizmos: Gizmos,
     sim: Option<Res<Sim>>,
@@ -904,6 +858,7 @@ fn draw_selection(
     cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     ui: Res<PanelUi>,
     hud: Res<Hud>,
+    art: Option<Res<Art>>,
 ) {
     let Some(sim) = sim else { return };
     // Placing a building: its footprint under the cursor.
@@ -940,6 +895,27 @@ fn draw_selection(
             green,
         );
     }
+    // Command feedback: the target's selection box flashes in its palette colour; the marker (effect 0x1C, drawn as
+    // our own shrinking ring until effects have sprites) shows a ground click.
+    let palette = |n: u8| {
+        let c = art.as_ref().map_or([255, 255, 255], |a| a.palette.0[n as usize]);
+        Color::srgb_u8(c[0], c[1], c[2])
+    };
+    if let Some((id, colour, left)) = sel.flash
+        && (left / 4) % 2 == 0
+        && let Some(u) = sim.world.unit(id)
+    {
+        let size = Vec2::new(u.size.0 as f32, u.size.1 as f32) * TILE_PX as f32;
+        gizmos.rect_2d(
+            Vec2::new(u.centre_px().0 as f32, -(u.centre_px().1 as f32)),
+            size + 2.0,
+            palette(colour),
+        );
+    }
+    if let Some((p, left)) = sel.marker {
+        let r = 2.0 + left as f32 / 3.0;
+        gizmos.circle_2d(Vec2::new(p.0 as f32, -(p.1 as f32)), r, green);
+    }
     if let (Some(from), Ok(window), Ok(cam)) = (sel.drag_from, windows.single(), cams.single())
         && let Some(at) = cursor_map(window, cam)
     {
@@ -961,14 +937,8 @@ fn pan_and_zoom(
     let Projection::Orthographic(ortho) = proj.as_mut() else {
         return;
     };
-    let mut zoom = 0.0;
-    if keys.pressed(KeyCode::Equal) {
-        zoom -= 2.0 * time.delta_secs();
-    }
-    if keys.pressed(KeyCode::Minus) {
-        zoom += 2.0 * time.delta_secs();
-    }
-    zoom -= scroll.delta.y * 0.1;
+    // + and - are the game speed keys; only the wheel zooms.
+    let zoom = -scroll.delta.y * 0.1;
     ortho.scale = (ortho.scale * (1.0 + zoom)).clamp(0.25, 8.0);
 
     let mut d = Vec2::ZERO;
@@ -1046,27 +1016,6 @@ fn hud_layout(
     });
 }
 
-/// Left click or drag on the minimap centres the map view there.
-fn minimap_input(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    hud: Res<Hud>,
-    sel: Res<Selection>,
-    mut cam: Query<&mut Transform, With<MapCamera>>,
-) {
-    let (Ok(window), Ok(mut tf)) = (windows.single(), cam.single_mut()) else {
-        return;
-    };
-    if !buttons.pressed(MouseButton::Left) || sel.drag_from.is_some() {
-        return;
-    }
-    if let Some(t) = hud.minimap_tile(window) {
-        let p = t * TILE_PX as f32;
-        tf.translation.x = p.x;
-        tf.translation.y = -p.y;
-    }
-}
-
 /// The hotkey a key press stands for.
 fn key_char(k: KeyCode) -> Option<char> {
     use KeyCode::*;
@@ -1118,7 +1067,6 @@ fn panel_input(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     sim: Option<ResMut<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
@@ -1127,21 +1075,24 @@ fn panel_input(
     ui.consumed = false;
     ui.escape_used = false;
     ui.tooltip = None;
-    let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
+    let (Some(mut sim), Ok(window)) = (sim, windows.single()) else {
         return;
     };
     let human = sim.human;
-    let (infos, effect, tile) = {
+    let (infos, effect) = {
         let state = panel::WorldState {
             world: &sim.world,
             local: human,
         };
         let infos: Vec<panel::UnitInfo> = sel.units.iter().filter_map(|&id| state.unit(id)).collect();
         let ids: Vec<UnitId> = infos.iter().map(|u| u.id).collect();
-        if ids != ui.last_sel {
-            ui.last_sel = ids;
+        // A mode belongs to a selection: none is left without one, and a build menu returns to the set when the
+        // selection changes. Target mode stays across a change (Alt+digit works in it).
+        let menu_left = ids != ui.last_sel && matches!(ui.mode, panel::Mode::Menu(_));
+        if ids.is_empty() || infos[0].owner != human || menu_left {
             ui.mode = panel::Mode::None;
         }
+        ui.last_sel = ids;
         let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
         let label = |n: u16| panel::parse_label(&hud.art.string(n));
         let mut effect = panel::Effect::Nothing;
@@ -1158,7 +1109,14 @@ fn panel_input(
         if keys.just_pressed(KeyCode::Escape) && ui.mode != panel::Mode::None {
             ui.escape_used = true;
         }
-        if !ui.consumed {
+        // Ctrl and Alt make the in-game keys (`keys_input`), not hotkeys.
+        let held = keys.any_pressed([
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+        ]);
+        if !ui.consumed && !held {
             for &key in keys.get_just_pressed() {
                 let hk = if key == KeyCode::Escape {
                     Some(panel::Hotkey::Escape)
@@ -1180,9 +1138,7 @@ fn panel_input(
             effect = panel::Effect::SetMode(panel::Mode::None);
             ui.consumed = true;
         }
-        let tile =
-            cursor_map(window, cam).map(|at| ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX)));
-        (infos, effect, tile)
+        (infos, effect)
     };
     match effect {
         panel::Effect::Nothing => {}
@@ -1195,50 +1151,382 @@ fn panel_input(
         panel::Effect::Message(n) => sim.message = Some((hud.art.string(n), MESSAGE_TICKS)),
         panel::Effect::SetMode(m) => ui.mode = m,
     }
-    if ui.consumed || infos.first().is_none_or(|p| p.owner != human) {
+}
+
+/// Runs `f` on the selecting rules' snapshot of the game for the local player (`mouse::Board`), with the map view's
+/// area `view` (in tiles) and the sprites' pixels for the click rules' pixel test.
+fn with_board<R>(
+    world: &World,
+    local: u8,
+    art: Option<&Art>,
+    view: (f32, f32, f32, f32),
+    f: impl FnOnce(&mouse::Board) -> R,
+) -> R {
+    let t = TILE_PX as f32;
+    let rect = mouse::PxRect {
+        l: (view.0 * t) as i32,
+        t: (view.1 * t) as i32,
+        r: (view.2 * t) as i32 - 1,
+        b: (view.3 * t) as i32 - 1,
+    };
+    let opaque = |c: &mouse::Cand, p: (i32, i32)| {
+        let (Some(u), Some(art)) = (world.unit(c.id), art) else {
+            return false;
+        };
+        art.sheets.get(&u.kind).is_some_and(|g| {
+            let (f, flip) = scene::sprite_frame(u, g.frames.len());
+            scene::opaque(g, f, flip, u.centre_px(), p)
+        })
+    };
+    let board = mouse::Board::of_world(world, local, rect, (view.2 - view.0).round() as i32, &opaque);
+    f(&board)
+}
+
+fn px(p: Vec2) -> (i32, i32) {
+    (p.x.floor() as i32, p.y.floor() as i32)
+}
+
+/// Starts the feedback of a command: the target flashes in its colour, or the marker shows where the click was.
+fn feedback(sel: &mut Selection, target: Option<(UnitId, u8)>, at: (i32, i32)) {
+    match target {
+        Some((t, colour)) => sel.flash = Some((t, colour, mouse::FLASH_CYCLES)),
+        None => sel.marker = Some((at, mouse::FLASH_CYCLES)),
+    }
+}
+
+/// The unit a map click at `at` (map pixels) on `tile` targets, with its flash colour.
+fn click_target(b: &mouse::Board, world: &World, at: Vec2, tile: (i32, i32)) -> Option<(UnitId, u8)> {
+    let hovered = mouse::hover(b, px(at)).first().copied();
+    let explored = !world.vision.unexplored(tile.0, tile.1);
+    let t = mouse::target(b, hovered, tile, world.rules.reveal_map, explored)?;
+    Some((t, mouse::flash_colour(b, b.get(t)?.owner)))
+}
+
+/// The right-click command ("Right-click on the map"): from the map view at `at`, or from the minimap (`at` is
+/// `None`) to `tile`.
+fn right_click(
+    sim: &mut Sim,
+    sel: &mut Selection,
+    art: Option<&Art>,
+    view: (f32, f32, f32, f32),
+    at: Option<Vec2>,
+    tile: (i32, i32),
+) {
+    let human = sim.human;
+    let (target, sends) = with_board(&sim.world, human, art, view, |b| {
+        let target = at.and_then(|at| click_target(b, &sim.world, at, tile));
+        let sends = mouse::right_click_sends(b, &sel.units, target.map(|t| t.0), sim.world.paused);
+        (target, sends)
+    });
+    if !sends {
         return;
     }
-    // A map click in target or placement mode gives the target; a right click leaves the mode.
-    let waiting = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));
-    if waiting && buttons.just_pressed(MouseButton::Right) {
-        ui.mode = panel::Mode::None;
-        ui.consumed = true;
-    } else if let panel::Mode::Place(kind) = ui.mode
-        && let Some(tile) = if ui.demo_click {
-            // After the first fog refresh, so the site has been explored.
-            ui.demo_pointer.filter(|_| sim.world.tick >= 2)
-        } else {
-            tile.filter(|_| buttons.just_pressed(MouseButton::Left) && hud.over_map(window))
+    sim.pending.push(Command::RightClick {
+        player: human,
+        target: target.map(|t| t.0),
+        tile,
+    });
+    sim.world.acknowledge(sel.units[0]);
+    let mark = at.map_or((tile.0 * TILE_PX + 8, tile.1 * TILE_PX + 8), px);
+    feedback(sel, target, mark);
+}
+
+/// A target-mode click: the mode's command at the clicked unit or tile (`at` is `None` on the minimap), then the
+/// mode ends.
+fn target_click(
+    sim: &mut Sim,
+    sel: &mut Selection,
+    ui: &mut PanelUi,
+    art: Option<&Art>,
+    view: (f32, f32, f32, f32),
+    at: Option<Vec2>,
+    tile: (i32, i32),
+) {
+    let panel::Mode::Target(t) = ui.mode else { return };
+    ui.mode = panel::Mode::None;
+    let human = sim.human;
+    let Some(&primary) = sel.units.first() else { return };
+    let hit = at.and_then(|at| with_board(&sim.world, human, art, view, |b| click_target(b, &sim.world, at, tile)));
+    if let Some(c) = panel::target_command(t, human, hit.map(|h| h.0), tile) {
+        sim.pending.push(c);
+        sim.world.acknowledge(primary);
+        let mark = at.map_or((tile.0 * TILE_PX + 8, tile.1 * TILE_PX + 8), px);
+        feedback(sel, hit, mark);
+    }
+}
+
+/// Placement mode's click (spec `ui/placing-buildings.md`, "The click"): a refused site keeps the mode on.
+fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, hud: &Hud, kind: u8, tile: (i32, i32)) {
+    match panel::place_click(&sim.world, sim.human, builder, kind, tile) {
+        panel::PlaceClick::Build(command) => {
+            sim.ui_sounds.push(sound::UiSound::Thunk);
+            sim.world.acknowledge(builder);
+            sim.pending.push(command);
+            ui.mode = panel::Mode::None;
         }
+        panel::PlaceClick::Refused(n) => {
+            sim.ui_sounds.push(sound::UiSound::Error);
+            sim.message = Some((hud.art.string(n), MESSAGE_TICKS));
+        }
+    }
+}
+
+/// Moves the map view's centre to map pixel `c`; `pan_and_zoom` keeps it on the map.
+fn centre_view(tf: &mut Transform, c: Vec2) {
+    tf.translation.x = c.x;
+    tf.translation.y = -c.y;
+}
+
+/// The mouse on the map view, minimap and panel by the handler table (`mouse::action`, spec
+/// `ui/selecting-and-commanding.md`, "Mouse regions"): selecting, the right-click command, target-mode and placement
+/// clicks, and moving the view.
+#[allow(clippy::too_many_arguments)]
+fn mouse_input(
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time<Real>>,
+    windows: Query<&Window>,
+    mut cams: Query<(&Camera, &GlobalTransform, &mut Transform, &Projection), With<MapCamera>>,
+    sim: Option<ResMut<Sim>>,
+    art: Option<Res<Art>>,
+    mut sel: ResMut<Selection>,
+    hud: Res<Hud>,
+    mut ui: ResMut<PanelUi>,
+) {
+    let (Some(mut sim), Ok(window), Ok((camera, gt, mut tf, proj)), Some(layout)) =
+        (sim, windows.single(), cams.single_mut(), hud.layout)
+    else {
+        return;
+    };
+    let (sim, sel, ui, art) = (&mut *sim, &mut *sel, &mut *ui, art.as_deref());
+    let enhanced = sim.world.rules.enhanced;
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    let at = cursor_map(window, (camera, gt));
+    let view = view_tiles(camera, &tf, proj);
+    // Development aid (`--demo-site`): one placement click, after the first fog refresh so the site is explored.
+    if ui.demo_click
+        && let panel::Mode::Place(kind) = ui.mode
+        && let (Some(tile), Some(&builder)) = (ui.demo_pointer, sel.units.first())
+        && sim.world.tick >= 2
     {
-        // Spec `ui/placing-buildings.md`, "The click": a refused site keeps placement mode on.
         ui.demo_click = false;
-        ui.consumed = true;
-        match panel::place_click(&sim.world, human, infos[0].id, kind, tile) {
-            panel::PlaceClick::Build(command) => {
-                sim.ui_sounds.push(sound::UiSound::Thunk);
-                sim.world.acknowledge(infos[0].id);
-                sim.pending.push(command);
-                ui.mode = panel::Mode::None;
-            }
-            panel::PlaceClick::Refused(n) => {
-                sim.ui_sounds.push(sound::UiSound::Error);
-                sim.message = Some((hud.art.string(n), MESSAGE_TICKS));
+        place_click(sim, builder, ui, &hud, kind, tile);
+    }
+    if buttons.just_released(MouseButton::Left) {
+        sel.minimap_held = false;
+        if let (Some(from), Some(to)) = (sel.drag_from.take(), at) {
+            let press = mouse::Mods { alt, ..sel.press };
+            let pick = with_board(&sim.world, sim.human, art, view, |b| {
+                mouse::release(b, px(from), px(to), press, &sel.units, &mut sel.remembered)
+            });
+            if let mouse::Pick::Set { units, sound } = pick {
+                sel.set(sim, units, sound);
             }
         }
-    } else if waiting && buttons.just_pressed(MouseButton::Left) && hud.over_map(window) {
-        let Some(tile) = tile else { return };
-        let units: Vec<UnitId> = infos.iter().filter(|u| u.owner == human).map(|u| u.id).collect();
-        let command = match ui.mode {
-            panel::Mode::Target(t) => panel::target_command(t, human, units, unit_at(&sim.world, tile), tile),
-            _ => None,
+    }
+    let minimap_tile = hud.minimap_tile(window).map(|t| {
+        let max = (hud.map.0 as i32 - 1, hud.map.1 as i32 - 1);
+        ((t.x as i32).clamp(0, max.0), (t.y as i32).clamp(0, max.1))
+    });
+    if sel.minimap_held
+        && buttons.pressed(MouseButton::Left)
+        && let Some(t) = hud.minimap_tile(window)
+    {
+        centre_view(&mut tf, t * TILE_PX as f32);
+    }
+    let Some(cursor) = hud.cursor(window).filter(|_| !ui.consumed) else {
+        return;
+    };
+    let region = mouse::Regions::of_layout(&layout).at((cursor.x, cursor.y));
+    let mode = match ui.mode {
+        panel::Mode::Target(_) => mouse::ModeKind::Target,
+        panel::Mode::Place(_) => mouse::ModeKind::Place,
+        _ => mouse::ModeKind::Normal,
+    };
+    let map_tile = at.map(pointer_tile);
+    for (button, b) in [
+        (MouseButton::Left, mouse::Button::Left),
+        (MouseButton::Right, mouse::Button::Right),
+    ] {
+        if !buttons.just_pressed(button) {
+            continue;
+        }
+        // The client has no edge scrolling yet, so the pointer is never at a scrolling edge.
+        match mouse::action(mode, ui.style, region, b, sim.world.paused, false) {
+            mouse::Action::Nothing => {}
+            mouse::Action::Select => {
+                let Some(at) = at else { continue };
+                let now = time.elapsed_secs_f64();
+                let double = enhanced
+                    && sel.last_press.is_some_and(|(t, p)| {
+                        now - t <= mouse::DOUBLE_MS as f64 / 1000.0
+                            && (at - p).abs().max_element() <= mouse::SMALL as f32
+                    });
+                sel.last_press = Some((now, at));
+                sel.press = mouse::Mods {
+                    shift,
+                    ctrl,
+                    alt: false,
+                    double,
+                };
+                sel.drag_from = Some(at);
+            }
+            mouse::Action::RightClick => {
+                if let Some(tile) = map_tile {
+                    right_click(sim, sel, art, view, at, tile);
+                }
+            }
+            mouse::Action::RightClickTile => {
+                if let Some(tile) = minimap_tile {
+                    right_click(sim, sel, art, view, None, tile);
+                }
+            }
+            mouse::Action::CentreView => {
+                if let Some(t) = map_tile {
+                    centre_view(&mut tf, Vec2::new(t.0 as f32 + 0.5, t.1 as f32 + 0.5) * TILE_PX as f32);
+                }
+            }
+            mouse::Action::MoveView => {
+                if let Some(t) = hud.minimap_tile(window) {
+                    centre_view(&mut tf, t * TILE_PX as f32);
+                    sel.minimap_held = b == mouse::Button::Left;
+                }
+            }
+            mouse::Action::GiveTarget => {
+                if let Some(tile) = map_tile {
+                    target_click(sim, sel, ui, art, view, at, tile);
+                }
+            }
+            mouse::Action::GiveTargetTile => {
+                if let Some(tile) = minimap_tile {
+                    target_click(sim, sel, ui, art, view, None, tile);
+                }
+            }
+            mouse::Action::Place => {
+                if let (panel::Mode::Place(kind), Some(tile), Some(&builder)) = (ui.mode, map_tile, sel.units.first()) {
+                    place_click(sim, builder, ui, &hud, kind, tile);
+                }
+            }
+            mouse::Action::EndMode | mouse::Action::EndModeOrBack => ui.mode = panel::Mode::None,
+        }
+    }
+}
+
+/// The key a key press stands for in the in-game key table.
+fn game_key(k: KeyCode) -> Option<mouse::Key> {
+    use KeyCode::*;
+    Some(match k {
+        Equal | NumpadAdd => mouse::Key::Plus,
+        Minus | NumpadSubtract => mouse::Key::Minus,
+        F1 => mouse::Key::F(1),
+        F2 => mouse::Key::F(2),
+        F3 => mouse::Key::F(3),
+        F4 => mouse::Key::F(4),
+        F5 => mouse::Key::F(5),
+        F6 => mouse::Key::F(6),
+        F7 => mouse::Key::F(7),
+        F8 => mouse::Key::F(8),
+        F9 => mouse::Key::F(9),
+        F10 => mouse::Key::F(10),
+        F11 => mouse::Key::F(11),
+        F12 => mouse::Key::F(12),
+        k => match key_char(k)? {
+            c @ '0'..='9' => mouse::Key::Digit(c as u8 - b'0'),
+            c => mouse::Key::Letter(c),
+        },
+    })
+}
+
+/// The in-game keys (`mouse::key_action`, spec `ui/selecting-and-commanding.md`, "Keys" and "Control groups"). The
+/// dialogs and menus they open aren't built yet, so those keys do nothing.
+#[allow(clippy::too_many_arguments)]
+fn keys_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time<Real>>,
+    sim: Option<ResMut<Sim>>,
+    art: Option<Res<Art>>,
+    mut sel: ResMut<Selection>,
+    mut speaker: ResMut<Speaker>,
+    mut ui: ResMut<PanelUi>,
+    mut cams: Query<(&Camera, &mut Transform, &Projection), With<MapCamera>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let (Some(mut sim), Ok((camera, mut tf, proj))) = (sim, cams.single_mut()) else {
+        return;
+    };
+    if ui.consumed {
+        return;
+    }
+    let (sim, sel) = (&mut *sim, &mut *sel);
+    let human = sim.human;
+    let m = mouse::KeyMods {
+        shift: keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
+        ctrl: keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]),
+        alt: keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]),
+    };
+    for &k in keys.get_just_pressed() {
+        // The client plays one human player and has no chat line yet.
+        let Some(a) = game_key(k).and_then(|key| mouse::key_action(key, m, false, sim.world.rules.enhanced, false))
+        else {
+            continue;
         };
-        if command.is_some() {
-            sim.world.acknowledge(infos[0].id);
+        match a {
+            mouse::KeyAction::Speed(faster) => sim.pending.push(Command::Speed { player: human, faster }),
+            mouse::KeyAction::Pause => sim.pending.push(Command::Pause { player: human }),
+            mouse::KeyAction::Group(key, g) => {
+                let view = view_tiles(camera, &tf, proj);
+                let group = sim.world.selections[human as usize]
+                    .groups
+                    .get(g as usize)
+                    .cloned()
+                    .unwrap_or_default();
+                let mode = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));
+                let now = (time.elapsed_secs_f64() * 1000.0) as u64;
+                let (plan, half) = with_board(&sim.world, human, art.as_deref(), view, |b| {
+                    (sel.groups.press(b, key, g, &group, mode, now), b.view.view_tiles / 2)
+                });
+                if let Some(t) = plan.view {
+                    let c = Vec2::new((t.0 + half) as f32 + 0.5, (t.1 + half) as f32 + 0.5);
+                    centre_view(&mut tf, c * TILE_PX as f32);
+                }
+                if let Some(units) = plan.select {
+                    if let Some(&first) = units.first() {
+                        sim.world.select_sound(first);
+                    }
+                    sel.units = units;
+                }
+                match plan.send {
+                    Some(mouse::GroupSend::Set(group)) => sim.pending.push(Command::SetGroup { player: human, group }),
+                    Some(mouse::GroupSend::Recall(group)) => {
+                        sim.pending.push(Command::RecallGroup { player: human, group })
+                    }
+                    None => {}
+                }
+            }
+            mouse::KeyAction::CentrePrimary => {
+                // Info-panel spec: an own unit, or one that isn't invisible.
+                if let Some(u) = sel.units.first().and_then(|&id| sim.world.unit(id))
+                    && (u.owner == human || u.invisibility == 0)
+                {
+                    centre_view(&mut tf, Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32));
+                }
+            }
+            mouse::KeyAction::ToggleSounds => speaker.muted = !speaker.muted,
+            mouse::KeyAction::Quit | mouse::KeyAction::QuitDialog => {
+                exit.write(AppExit::Success);
+            }
+            mouse::KeyAction::GotoView(n) => {
+                if let Some(c) = ui.views[n as usize] {
+                    centre_view(&mut tf, c);
+                }
+            }
+            mouse::KeyAction::RememberView(n) => {
+                ui.views[n as usize] = Some(Vec2::new(tf.translation.x, -tf.translation.y));
+            }
+            _ => {}
         }
-        sim.pending.extend(command);
-        ui.mode = panel::Mode::None;
-        ui.consumed = true;
     }
 }
 
@@ -1284,6 +1572,9 @@ fn play_sounds(
     };
     let cues = std::mem::take(&mut sim.world.sounds.cues);
     let sp = &mut *speaker;
+    if sp.muted {
+        return;
+    }
     let mut heard: Vec<sound::Heard> = ui_sounds.into_iter().map(|s| sp.director.hear_ui(s)).collect();
     heard.extend(cues.iter().map(|cue| sp.director.hear(cue, view)));
     for heard in heard {
@@ -1363,8 +1654,12 @@ fn info_input(
     let centre_ok = one.is_some_and(|u| u.owner == sim.human || u.invisibility == 0);
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     match info::click(&slots, n, sel.units.len(), shift, transport, centre_ok) {
-        info::Click::SelectOnly(id) => sel.units = vec![id],
-        info::Click::Remove(id) => sel.units.retain(|&u| u != id),
+        // Selection changes are sent as the synced selection; our reading: with the selection sound, as a click.
+        info::Click::SelectOnly(id) => sel.set(&mut sim, vec![id], true),
+        info::Click::Remove(id) => {
+            let rest = sel.units.iter().copied().filter(|&u| u != id).collect();
+            sel.set(&mut sim, rest, false);
+        }
         info::Click::Unload { transport, place } => sim.unload_one.push((transport, place)),
         info::Click::Centre(id) => {
             if let (Some(u), Ok(mut tf)) = (sim.world.unit(id), cam.single_mut()) {
@@ -1433,23 +1728,10 @@ fn draw_hud(
     ui: Res<PanelUi>,
     info_panel: Res<InfoPanel>,
     mut images: ResMut<Assets<Image>>,
-    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
 ) {
-    let (Some(sim), Some(layout), Ok((camera, tf, proj))) = (sim, hud.layout, cam.single()) else {
+    let (Some(sim), Some(layout)) = (sim, hud.layout) else {
         return;
     };
-    let view = view_tiles(camera, tf, proj);
-    let dots: Vec<hud::Dot> = sim
-        .world
-        .units
-        .iter()
-        .filter(|u| sim.world.on_minimap(u))
-        .map(|u| hud::Dot {
-            tile: u.tile,
-            size: u.size,
-            owner: u.owner,
-        })
-        .collect();
     let icons = info_panel.slots.map(|s| {
         let u = sim.world.unit(s?)?;
         Some(hud::Icon {
@@ -1479,8 +1761,6 @@ fn draw_hud(
     let pic = hud.art.draw(
         &hud.frame,
         &layout,
-        &hud.tiles,
-        hud.map,
         &hud::View {
             gold: me.gold,
             lumber: me.lumber,
@@ -1496,10 +1776,10 @@ fn draw_hud(
                 .tooltip
                 .as_deref()
                 .or(info_panel.hover.as_deref())
+                // Our wording: the pause notice isn't specified.
+                .or(sim.world.paused.then_some("Paused"))
                 .or(sim.message.as_ref().map(|(m, _)| m.as_str())),
-            dots: &dots,
-            fog: (!sim.world.rules.reveal_map).then(|| fog::maps(&sim.world)),
-            view,
+            minimap: &hud.minimap.pixels,
             buttons: &buttons,
         },
     );

@@ -5,6 +5,8 @@
   running game.
 - **Changes:** 2026-10-11, round-8 errata: only flag-bit-10 units (the transports), not all ships, get no corpse on
   shore water.
+- **Changes:** 2026-10-12, round-20 errata: the three permanent effects are never freed, so effects made during play
+  take slot 3 or higher.
 
 ## Behaviour
 
@@ -36,7 +38,8 @@ Every unit slot belongs to exactly one owner list at all times.
 2. The slots are added to the free list in slot order 0, 1, 2, … , N − 1. Because each goes to the front, the free
    list starts with slot N − 1 and ends with slot 0.
 3. The effect table is cleared. Three permanent effect entries are created at once, so they take effect slots 0, 1
-   and 2.
+   and 2. None of the three is ever freed: two loop forever, and the third is only ever replaced in place. So effects
+   made during play always take slot 3 or higher.
 4. The map's units are created in the order the map file lists them (see "Creating a unit").
    - Units of an owner that is not playing are skipped.
    - Start-location markers are normally not created (they set the starting view instead).
@@ -147,6 +150,6 @@ no effect is created. A released effect slot is simply marked unused.
 - How many cycles a corpse and a ruin last, and the decay stages between them (bones, crater and so on).
 - The exact rule for which ruin type a building becomes (it depends on the building's width, and on water for
   shore buildings).
-- What the three permanent effects at map start are.
+- What the three permanent effects at map start show on screen.
 - Whether a player with only corpses left in their list still counts towards P (it appears so, since corpses keep their
   owner until removed).

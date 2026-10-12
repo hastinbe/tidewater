@@ -288,6 +288,11 @@ pub struct Unit {
     pub goal: crate::attack_ai::Goal,
     /// A computer building's think counter (training-research spec, "When a building thinks").
     pub think: u16,
+    /// The colour player: the owner the unit was created with (minimap spec, "Dot colour"). It names a player, not a
+    /// palette colour: the unit is drawn in that player's [`Player::colour`].
+    pub colour: u8,
+    /// The minimap's attack mark (minimap spec, "Attack mark"); not game state.
+    pub attack_mark: crate::minimap::Mark,
 }
 
 impl Unit {
@@ -349,7 +354,8 @@ pub struct Player {
     /// Players 0 to 15 this player counts as allied (bit q), from game setup's alliance table (setup spec); a player
     /// always counts as allied with itself.
     pub allies: u16,
-    /// The player colour its units are drawn in: in single player, slot p uses colour p (setup spec, "Colours").
+    /// The player colour its units are drawn in: in single player, slot p uses colour p (setup spec, "Colours"). Units
+    /// pick it through their colour player ([`Unit::colour`]), so a unit that changes owner keeps its creator's colour.
     pub colour: u8,
     /// The allied-victory setting (victory spec, "The multiplayer rule").
     pub allied_victory: bool,
@@ -559,6 +565,45 @@ pub enum Command {
         target: Option<UnitId>,
         tile: (i32, i32),
     },
+    /// Replaces the player's synced selection with up to 9 units (selecting-and-commanding spec, "Two selections").
+    Select {
+        player: u8,
+        units: Vec<UnitId>,
+    },
+    /// The right-click command for the player's synced selection: each unit picks a command by its type's right-click
+    /// action ("What a right-click command does").
+    RightClick {
+        player: u8,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Command `command` (numbered as in the orders spec) from target mode, the command buttons or the keys, for the
+    /// units of the player's synced selection that pass the command filter ("Which units take part in a command").
+    Issue {
+        player: u8,
+        command: u8,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Fills control group `group` from the player's synced selection ("Control groups").
+    SetGroup {
+        player: u8,
+        group: u8,
+    },
+    /// Tidies control group `group` and makes its units the player's synced selection.
+    RecallGroup {
+        player: u8,
+        group: u8,
+    },
+    /// Game speed one step up (`faster`) or down ("Keys").
+    Speed {
+        player: u8,
+        faster: bool,
+    },
+    /// Pause or resume.
+    Pause {
+        player: u8,
+    },
 }
 
 pub const PLAYERS: usize = 16;
@@ -611,6 +656,13 @@ pub struct World {
     pub(crate) stale: BTreeMap<u16, crate::caster_ai::Stale>,
     /// Spell counts for inspection tools. Not game state: left out of the hash.
     pub casts: crate::caster_ai::CastCounts,
+    /// Each player's synced selection and control groups (selecting-and-commanding spec).
+    pub selections: [crate::select::PlayerSelection; PLAYERS],
+    /// The game speed, 0 to 8 (timing-and-rng spec, the 9 levels), and whether the game is paused.
+    pub speed: u8,
+    pub paused: bool,
+    /// The local player's remembered buildings for the minimap (minimap spec). Not game state: left out of the hash.
+    pub remembered: crate::minimap::Memory,
     /// The starting view and sound set game setup chose. Not game state: left out of the hash.
     pub start: crate::setup::Started,
 }
@@ -660,7 +712,10 @@ impl World {
             ai_file: None,
             missiles: vec![None; rules.effect_slots],
             rules,
-            players: [Player::default(); PLAYERS],
+            players: std::array::from_fn(|i| Player {
+                colour: i as u8,
+                ..Default::default()
+            }),
             rng: Rng::new(seed),
             scripts,
             stride,
@@ -671,6 +726,10 @@ impl World {
             sounds: Default::default(),
             stale: BTreeMap::new(),
             casts: Default::default(),
+            selections: Default::default(),
+            speed: crate::timing::NORMAL,
+            paused: false,
+            remembered: Default::default(),
             start: Default::default(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
@@ -872,6 +931,8 @@ impl World {
             circle_wait: 0,
             freeze: Default::default(),
             held: false,
+            colour: owner,
+            attack_mark: Default::default(),
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);
@@ -989,6 +1050,11 @@ impl World {
         for c in commands {
             self.apply(c);
         }
+        // Timing-and-rng spec, scheduler rule 4: a paused cycle changes no game state, but the counter still counts.
+        if self.paused {
+            self.tick += 1;
+            return;
+        }
         self.detection();
         self.step_ai();
         self.army_pass();
@@ -1008,8 +1074,10 @@ impl World {
         self.timers_pass();
         self.sort_vertical();
         self.unit_visibility();
+        self.forget_seen_buildings();
         self.flash_pass();
         self.victory_phase();
+        self.prune_selections();
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -1028,6 +1096,9 @@ impl World {
     }
 
     fn apply(&mut self, c: &Command) {
+        if self.selection_command(c) {
+            return;
+        }
         let (player, units) = match c {
             Command::Move { player, units, .. }
             | Command::Stop { player, units }
@@ -1087,6 +1158,13 @@ impl World {
                 }
                 return;
             }
+            Command::Select { .. }
+            | Command::RightClick { .. }
+            | Command::Issue { .. }
+            | Command::SetGroup { .. }
+            | Command::RecallGroup { .. }
+            | Command::Speed { .. }
+            | Command::Pause { .. } => return,
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -1216,6 +1294,9 @@ impl World {
         self.ai.hash(&mut h);
         self.army.hash(&mut h);
         self.victory.hash(&mut h);
+        self.selections.hash(&mut h);
+        self.speed.hash(&mut h);
+        self.paused.hash(&mut h);
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);
         h.finish()

@@ -4,6 +4,11 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the AI script file
   `Rez\ai.bin` and the unit data `Rez\unitdata.dat` in the game data, and the `ALOW` bit list and unit flags in the
   public PUD specification text. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-21 errata: build-list step 2 makes no other test, so an entry the player can never
+  research blocks the rest of the list; the done marks now list every way an entry is marked or cleared.
+- **Changes:** 2026-10-12, round-22 errata: the job choice's tree search reaches radius 2k + 1 < floor(3N / 4); a gold
+  store under construction can be the site-search centre; map-placed buildings get no keep-clear mark; a carrying
+  worker with no path is given command 24 to the same depot again.
 
 ## Behaviour
 
@@ -39,7 +44,9 @@ The job choice runs for a unit of a **computer-controlled** player:
 3. **Depot.** The nearest reachable depot is found as in `economy/harvest.md` ("Finding the nearest depot"): a
    completed building of the player in the worker's region that stores gold, or stores wood while the worker is in
    lumber mode. On a tie the candidate latest in the list wins.
-4. **Carrying goods, depot found:** command 24 (return goods) to it. Done.
+4. **Carrying goods, depot found:** command 24 (return goods) to it. Done. If the worker then gets no path, its order
+   ends (`movement/movement.md`, "Paths") and the choice runs again. Nothing marks the depot as unreachable and there
+   is no wait, so it gets command 24 to the same depot again.
 5. **No depot found:**
    - **New town hall**, tried only if the map allows the player town halls (`ALOW` unit bit 26). Each player has a
      **hall cooldown**. If it is not 0, it goes down by 1 and no hall is tried. Otherwise no hall is tried if one is
@@ -81,7 +88,10 @@ stopping at an 0xFF entry. For each entry:
 
 1. **Done** entries (below) are skipped.
 2. An entry of **0x80 or more** marks that research item as requested for the player and ends the scan. (The request
-   is handled by the computer player's building logic, not covered here.)
+   is handled by the computer player's building logic, `ai/training-research.md`.) No other test is made: not whether
+   the player has the building that does the research or can ever get one, nor whether the map allows the item, its
+   prerequisites are met or it is already known. An entry the player can never research therefore blocks every later
+   entry for the rest of the game.
 3. The entry is a building type, with its race changed to the worker's race. If the map doesn't allow that type
    (`ALOW` unit bits), its prerequisites aren't met, or the player can't afford it, the **scan ends** with no job.
 4. If one of that type is already in progress, the entry is **skipped**.
@@ -97,8 +107,18 @@ stopping at an 0xFF entry. For each entry:
 - When a building of a computer player is **destroyed**, the first entry in list order that is done and whose type
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
-- Entries of 0x80 or more are marked done when the research starts, and at the start of a game those whose upgrade is
-  already at the level they ask for are marked done.
+- Entries of 0x80 or more are marked done when the research or building upgrade starts (`ai/training-research.md`).
+- At the start of a game, entries of 0x80 or more for what the player already has are marked done: codes 0x80, 0x81
+  and 0x86 to 0x8F when the upgrade line has already reached the level the code asks for; codes 0x82 to 0x85 when
+  the item is already researched; and codes 0x90 to 0x97 when the player already knows the human or the orc item of
+  the code (its spells-known bit; Data, "Spell bits for done marks at game start").
+- At the start of a game, the buildings the map places mark entries too: a guard or cannon tower marks the first
+  entry 0x40 (scout tower) that isn't done; a keep marks every 0x98 entry and the first 0x4A (town hall) entry that
+  isn't done; a castle marks every 0x98 and 0x99 entry and the first 0x4A entry that isn't done; any other building
+  marks the first entry of its type that isn't done.
+
+Nothing else marks an entry done or clears its mark. In particular nothing marks a research entry done because the
+player can't research it.
 
 So the list works like a wish list: each entry stands for one building, and a lost building is replaced.
 
@@ -143,7 +163,10 @@ matches:
 | otherwise (G ≥ 1000, L < 500) | floor(3 (W + 1) / 4) |
 
 1. **Lumber** if lumberjacks < T: the worker switches to lumber mode and the tree search of `economy/harvest.md`
-   ("Finding the nearest tree") runs. If a tree is found: command 23 on it, lumberjacks +1. Done. If no tree is
+   ("Finding the nearest tree") runs from the worker's tile, but with a larger limit: rings of radius k are searched
+   while 2k + 1 < floor(3N / 4), N being the map size (radius 47 on a 128 × 128 map). A worker coming out of a depot
+   is still inside it, so the search starts from the depot's top-left tile (`economy/harvest.md`, "Entering a mine,
+   platform or depot"). If a tree is found: command 23 on it, lumberjacks +1. Done. If no tree is
    found, the worker goes on to gold.
 2. **Gold** otherwise, and also when the tree search found nothing: the worker switches to gold mode and finds the
    nearest depot as in step 3. Then, among gold mines that have trips left and stand in the worker's region, it takes
@@ -152,11 +175,16 @@ matches:
    that mine, miners +1, and a **keep-clear line** is marked from the depot to the mine (below).
 3. If there is no depot or no mine, lumber is tried as in 1 (whatever T is).
 
+The job choice is the only place where a computer worker is given a lumber job; the 50-cycle AI routines don't
+assign workers.
+
 ### Keep-clear marks and site search
 
 **Keep-clear mark:** a per-tile mark that the computer players put on planned building sites and mining paths. It is
 the run-time tile mark 0x0400 in the tile flags of `movement/occupancy.md`. The computer's site search refuses tiles with it, so its buildings leave paths and a ring of
 space. It isn't in the movement or ordinary placement masks, so it doesn't affect movement or human placement.
+Buildings placed by the map get no keep-clear mark. Marks come only from the computer's own building jobs and its
+keep-clear lines.
 
 **Keep-clear line.** With the depot's top-left tile (dx, dy) and the mine's top-left tile (mx, my):
 
@@ -173,7 +201,7 @@ space. It isn't in the movement or ordinary placement masks, so it doesn't affec
 
 | Family | Centre | Step s |
 | --- | --- | --- |
-| Most buildings | the player's nearest completed gold-storing building in the worker's region (strictly nearest, so the earliest wins ties); the worker's tile if none | 6 |
+| Most buildings | the top-left tile of the player's nearest gold-storing building, complete or not, in the worker's region (strictly nearest, so the earliest wins ties); the worker's tile if none | 6 |
 | Farm | as above | 2 |
 | Foundry, refinery | as above; no site if the player has no completed shipyard | 1 |
 | Shipyard | the nearest town hall (any tier); the water region of the oil patch nearest to it is noted, and the footprint must contain a tile of that region | 1 |
@@ -183,6 +211,9 @@ The search visits square **rings** of radius k·s around the centre, for k = 1, 
 its top-left corner (right along the top, down the right side, left along the bottom, up the left side), in steps of
 s; corners are visited twice. It continues while (2k + 1)·s < max(cx, N − cx, cy, N − cy) − 1, where (cx, cy) is the
 centre and N the map size. If a ring has no position in the worker's region, the search fails.
+
+Only the first try of a new town hall when no depot is found ("Worker", step 5) uses the border; every other search
+uses the plain footprint.
 
 A position (x, y) is accepted if:
 
@@ -233,6 +264,7 @@ only custom unit data creates):
 | Low-stock repair rule | gold < 200 and lumber < 100: gold-storing buildings only |
 | Lumber targets | table above (thresholds 500, 1000, 2000 gold/lumber, 5 workers) |
 | Site steps | 6 most buildings, 2 farm, 1 shore buildings and halls |
+| Job-choice tree search | rings while 2k + 1 < floor(3N / 4): largest radius 11, 23, 35, 47 for N = 32, 64, 96, 128 |
 | Computer placement masks | 0x0DDE land, 0x0D11 shore |
 | Keep-clear bit | 0x0400 |
 | New-mine search | mines with ≥ 50 trips; no gold store in (−5, −5) to (+7, +7); site within 10 tiles; nearest site wins |
@@ -250,6 +282,22 @@ only custom unit data creates):
 | 20 | inventor / alchemist, aviary / roost, shipyards, foundries, mage tower / temple, blacksmiths, refineries, oil platforms |
 | 15 | stables / ogre mound, lumber mills |
 | 0 | gold mine, oil patch, start locations, circle of power, dark portal |
+
+### Spell bits for done marks at game start
+
+An entry is marked done at the start of a game when either bit of its code is set in the player's spells-known word
+(`economy/tech-tree.md`).
+
+| Code | Bits (human, orc) |
+| --- | --- |
+| 0x90 | 20 (the same bit for both) |
+| 0x91 | 1, 11 |
+| 0x92 | 3, 18 |
+| 0x93 | 4, 13 |
+| 0x94 | 6, 16 |
+| 0x95 | 7, 15 |
+| 0x96 | 8, 17 |
+| 0x97 | 9, 19 |
 
 ## Test vectors
 
@@ -289,6 +337,15 @@ only custom unit data creates):
 | Computer tanker, empty, an oil refinery touching its water, two platforms with oil: P1 depot 6 and tanker 10, P2 depot 9 and tanker 2 | P1: 6 + 5 = 11, P2: 9 + 1 = 10: P2 |
 | Computer tanker, no oil depot touches its water | Nothing; no wait |
 | Computer tanker, depot, no platform, oil patch 7 tiles from the depot, platform affordable | Builds an oil platform on that patch, paid at once |
+| Computer player, build list 0x93, 0x90, 0x91, 0x94; limit 7; a temple, no altar; raise dead already researched | Every scan skips 0x93 (done), sets the request for 0x90 and ends. The requests for 0x91 and 0x94 are never set, so the temple never researches haste |
+| Same list; the player gets an altar and ogre-mage research starts | 0x90 marked done; the next scan reaches 0x91 |
+| Map gives a computer player a castle; build list 0x4A, 0x98, 0x99, 0x4A | At game start entries 1 and 2 (0x98, 0x99) and entry 0 (the first 0x4A) are marked done; entry 3 is not |
+| Spells known at game start 0x4020 (the setup default); build list 0x90 | Not marked done (bit 20 isn't set) |
+| 128 × 128 map; a computer worker comes out of its town hall (top-left (12, 71)) and lumber is wanted; the nearest reachable forest is 20 tiles away | The job choice finds it (radius 20 ≤ 47) and gives command 23 |
+| Same, on a 32 × 32 map, nearest reachable forest 12 tiles from the depot's top-left | Not found (largest radius 11); the worker tries gold |
+| Computer player with only a town hall under construction; a worker looks for a farm site | The search centres on the unfinished hall's top-left tile |
+| Map-placed town hall at game start | No keep-clear mark on or around it |
+| Computer peon carrying wood gets command 24 to its hall and the path search returns no steps | Its order ends; the next job choice gives command 24 to the same hall again, with no wait |
 
 ## Open questions
 
@@ -302,4 +359,9 @@ only custom unit data creates):
 - The general placement check adds rules for the site (beyond the masks) that are in `movement/placement.md`; their
   interaction with the border option is assumed to use the unbordered footprint.
 - The all-out attack started by losing buildings is not specified here (it belongs to the attack AI).
-- The other AI work run every 50 cycles (`ai/ai-scripts.md`) may also send workers; not covered here.
+- Whether the game-start marks for placed buildings compare entries after a race change, as completion does, and so
+  whether a stronghold and a fortress mark entries as a keep and a castle do, wasn't traced. Default: the same race
+  change as on completion, with the orc halls and towers treated like the human ones.
+- A worker inside a depot starts the job choice's tree search from the depot's top-left tile and uses that tile's
+  region value. This assumes region values ignore buildings, as `movement/occupancy.md` implies; not checked
+  separately.

@@ -1059,25 +1059,28 @@ pub mod msg {
 pub fn activate(en: &Entry, s: &impl PanelState, sel: &[UnitInfo]) -> Effect {
     let Some(p) = sel.first() else { return Effect::Nothing };
     let player = s.local();
-    let units: Vec<UnitId> = sel.iter().map(|u| u.id).collect();
+    // Commands for the whole selection go to the synced selection, aimed at the primary unit's tile.
+    let issue = |command| Command::Issue {
+        player,
+        command,
+        target: None,
+        tile: p.tile,
+    };
     match en.act {
         Act::Target(t) => Effect::SetMode(Mode::Target(t)),
-        Act::Stop => Effect::Send(Command::Stop { player, units }),
-        Act::StandGround => Effect::Send(Command::StandGround { player, units }),
+        Act::Stop => Effect::Send(issue(2)),
+        Act::StandGround => Effect::Send(issue(13)),
         Act::ReturnGoods => {
             if s.has_depot(p.id) {
-                Effect::Send(Command::ReturnGoods { player, units })
+                Effect::Send(issue(24))
             } else {
                 Effect::Message(msg::NOWHERE_TO_RETURN)
             }
         }
         Act::Unload => {
             if p.docked {
-                Effect::Send(Command::Unload {
-                    player,
-                    units: vec![p.id],
-                    tile: p.tile,
-                })
+                // A docked transport unloads on its own tile.
+                Effect::Send(issue(29))
             } else {
                 Effect::SetMode(Mode::Target(Target::Unload))
             }
@@ -1087,8 +1090,8 @@ pub fn activate(en: &Entry, s: &impl PanelState, sel: &[UnitInfo]) -> Effect {
             if button_mana(n).is_some_and(|m| p.mana < m) {
                 Effect::Message(msg::NOT_ENOUGH_MANA)
             } else if n == 48 {
-                // TODO(spells): send command 48 at once when the spells spec adds it to the sim.
-                Effect::Nothing
+                // Cast at once, on the primary unit's tile.
+                Effect::Send(issue(48))
             } else {
                 Effect::SetMode(Mode::Target(Target::Spell(n)))
             }
@@ -1133,56 +1136,37 @@ pub fn activate(en: &Entry, s: &impl PanelState, sel: &[UnitInfo]) -> Effect {
     }
 }
 
-/// The command a map click gives in target mode, for the clicked unit or tile.
-pub fn target_command(
-    t: Target,
-    player: u8,
-    units: Vec<UnitId>,
-    hit: Option<UnitId>,
-    tile: (i32, i32),
-) -> Option<Command> {
-    Some(match t {
-        Target::Move => Command::Smart {
-            player,
-            units,
-            target: hit,
-            tile,
-        },
-        Target::Attack => match hit {
-            Some(target) => Command::Attack { player, units, target },
-            None => Command::AttackMove {
-                player,
-                units,
-                to: tile,
-            },
-        },
-        Target::Patrol => Command::Patrol {
-            player,
-            units,
-            to: tile,
-        },
-        Target::Harvest => Command::Harvest {
-            player,
-            units,
-            target: hit,
-            tile,
-        },
-        Target::Repair => Command::Repair {
-            player,
-            units,
-            target: hit?,
-        },
-        Target::Unload => Command::Unload { player, units, tile },
+/// The command number a target-mode button sends (orders spec, "Commands").
+pub fn target_number(t: Target) -> u8 {
+    match t {
+        Target::Move => 3,
+        Target::Attack => 8,
+        Target::Patrol => 5,
+        Target::Harvest => 23,
+        Target::Repair => 27,
+        Target::AttackGround => 17,
+        Target::Demolish => 19,
+        Target::Unload => 29,
+        Target::Spell(n) => n,
+    }
+}
+
+/// The command a map click gives in target mode, for the clicked unit or tile. It goes to the synced selection, and
+/// the sim's command filter decides which units take it (spec `ui/selecting-and-commanding.md`, "Which units take a
+/// command").
+pub fn target_command(t: Target, player: u8, hit: Option<UnitId>, tile: (i32, i32)) -> Option<Command> {
+    let target = match t {
         // Commands 17 and 19 (attack-ground-demolish spec): attack ground ignores any unit under the cursor.
-        Target::AttackGround => Command::AttackGround { player, units, tile },
-        Target::Demolish => Command::Demolish {
-            player,
-            units,
-            target: hit,
-            tile,
-        },
-        // TODO(spells): targeted spells have no sim command yet.
-        Target::Spell(_) => return None,
+        Target::AttackGround => None,
+        // Our reading: repair without a target does nothing, so nothing is sent (and nothing acknowledged).
+        Target::Repair => Some(hit?),
+        _ => hit,
+    };
+    Some(Command::Issue {
+        player,
+        command: target_number(t),
+        target,
+        tile,
     })
 }
 
@@ -1644,13 +1628,21 @@ mod tests {
             activate(&fireball, &s, &[mage]),
             Effect::SetMode(Mode::Target(Target::Spell(43)))
         );
-        // Eye of Kilrogg is sent at once (a no-op until the spells spec lands).
+        // Eye of Kilrogg is sent at once, on the primary unit's tile.
         mage.mana = 70;
         let eye = Entry {
             act: Act::Cast(48),
             ..fireball
         };
-        assert_eq!(activate(&eye, &s, &[mage]), Effect::Nothing);
+        assert_eq!(
+            activate(&eye, &s, &[mage]),
+            Effect::Send(Command::Issue {
+                player: 0,
+                command: 48,
+                target: None,
+                tile: mage.tile
+            })
+        );
     }
 
     #[test]
@@ -1668,9 +1660,10 @@ mod tests {
         t.docked = true;
         assert_eq!(
             activate(unload, &s, &[t]),
-            Effect::Send(Command::Unload {
+            Effect::Send(Command::Issue {
                 player: 0,
-                units: vec![UnitId(1)],
+                command: 29,
+                target: None,
                 tile: (3, 4)
             })
         );
@@ -1689,7 +1682,7 @@ mod tests {
         s.depot = true;
         assert!(matches!(
             activate(&en, &s, &[p]),
-            Effect::Send(Command::ReturnGoods { .. })
+            Effect::Send(Command::Issue { command: 24, .. })
         ));
     }
 
@@ -1810,32 +1803,35 @@ mod tests {
 
     #[test]
     fn target_clicks() {
-        let u = vec![UnitId(1)];
-        assert!(matches!(
-            target_command(Target::Attack, 0, u.clone(), Some(UnitId(9)), (1, 1)),
-            Some(Command::Attack { .. })
-        ));
-        assert!(matches!(
-            target_command(Target::Attack, 0, u.clone(), None, (1, 1)),
-            Some(Command::AttackMove { .. })
-        ));
-        assert_eq!(target_command(Target::Repair, 0, u.clone(), None, (1, 1)), None);
-        assert_eq!(
-            target_command(Target::AttackGround, 0, u.clone(), Some(UnitId(9)), (1, 1)),
-            Some(Command::AttackGround {
+        let issue = |command, target, tile| {
+            Some(Command::Issue {
                 player: 0,
-                units: u.clone(),
-                tile: (1, 1)
+                command,
+                target,
+                tile,
             })
-        );
+        };
+        let foe = Some(UnitId(9));
+        assert_eq!(target_command(Target::Attack, 0, foe, (1, 1)), issue(8, foe, (1, 1)));
+        assert_eq!(target_command(Target::Attack, 0, None, (1, 1)), issue(8, None, (1, 1)));
+        assert_eq!(target_command(Target::Repair, 0, None, (1, 1)), None);
+        assert_eq!(target_command(Target::Repair, 0, foe, (1, 1)), issue(27, foe, (1, 1)));
         assert_eq!(
-            target_command(Target::Demolish, 0, u.clone(), Some(UnitId(9)), (1, 1)),
-            Some(Command::Demolish {
-                player: 0,
-                units: u,
-                target: Some(UnitId(9)),
-                tile: (1, 1)
-            })
+            target_command(Target::AttackGround, 0, foe, (1, 1)),
+            issue(17, None, (1, 1)),
+            "attack ground ignores the unit under the cursor"
         );
+        assert_eq!(target_command(Target::Demolish, 0, foe, (1, 1)), issue(19, foe, (1, 1)));
+        assert_eq!(
+            target_command(Target::Spell(43), 0, foe, (2, 3)),
+            issue(43, foe, (2, 3))
+        );
+        assert_eq!(target_command(Target::Move, 0, None, (2, 3)), issue(3, None, (2, 3)));
+        assert_eq!(target_command(Target::Patrol, 0, None, (2, 3)), issue(5, None, (2, 3)));
+        assert_eq!(
+            target_command(Target::Harvest, 0, None, (2, 3)),
+            issue(23, None, (2, 3))
+        );
+        assert_eq!(target_command(Target::Unload, 0, None, (2, 3)), issue(29, None, (2, 3)));
     }
 }

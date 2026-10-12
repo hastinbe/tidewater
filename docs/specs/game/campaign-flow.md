@@ -1,0 +1,342 @@
+# Game: campaign flow, briefings and end screens
+
+- **Status:** approved (Reviewed-by: spec-review session, 2026-10-12)
+- **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 20 (campaign flow)"),
+  the game's string tables and dialog files in the `Rez` folder, and the file names of the videos, pictures, speech
+  and music. Not yet confirmed against the running game.
+
+## Behaviour
+
+This spec covers what happens around a single-player game: the startup videos and title, choosing a new campaign,
+the act screens and briefings before a mission, the victory and defeat dialogs, the score screen with its statistics
+and rank, moving on to the next mission, and the endings. How a map becomes a game is in `game/setup.md`; when
+victory or defeat is decided is in `game/victory.md`. The main menu, the game menu, saving and loading, multiplayer
+and the music rules are in later specs; this spec names only the music tracks it starts.
+
+Game text is given by string table and entry number, counting from 1.
+
+### Terms
+
+- **Race:** 0 for human, 1 for orc. In a campaign it is the side of the chosen campaign.
+- **Mission entry:** as in `game/victory.md`, "Mission rules": 2(n − 1) for human mission n and 2(n − 1) + 1 for orc
+  mission n, plus 28 for *Beyond the Dark Portal* (BDP). *Tides of Darkness* (ToD) has 14 missions per race (entries
+  0 to 27), BDP has 12 (entries 28 to 51).
+- **Campaign game:** a single-player game started from the campaign (not a custom game, not multiplayer, not demo
+  playback).
+- **Ctrl held:** the Ctrl key is down at the moment of the check. Several steps are skipped while it is held.
+- **Skip setting:** a setting that, when on, skips the act screen, the briefing and the score screen. What turns it
+  on wasn't found (see the open questions). It is off in a normal game.
+
+### Videos
+
+Videos are played full screen from the `Smk` folder. Any key or mouse click skips the rest of a video.
+
+| Video | File |
+| --- | --- |
+| 0 | `Blizzard` |
+| 1 | `Intro_M` |
+| 2 | `Smoke_M` |
+| 3 | `Burn_M` |
+| 4 | `Zepp_M` |
+| 5 | `Turtle_M` |
+| 6 | `Ships_M` |
+| 7 | `Demn_M` |
+| 8 | `HVict_M` |
+| 9 | `OVict_M` |
+| 10 | `IntroX_M` |
+| 11 | `HVicX_M` |
+| 12 | `OrcX_M` |
+
+### Startup
+
+1. Unless Ctrl is held (or a second, unidentified setting is on), video 0 plays. Then, if the movie archive is
+   available and the "play the intro" preference bit is set, the bit is cleared and video 1 plays. So the intro
+   plays once, on the first start.
+2. Unless Ctrl is held, the title picture `Art\Title_Rel_BNE.pcx` fades in over 250 ms, music track 22 starts, and
+   the title stays for 100 ticks or until a key or click. It then fades out over 250 ms, or at once (1 ms) if a key or
+   click ended it.
+3. The main menu opens.
+
+### Choosing a new campaign
+
+The new-campaign dialog (`rez\newcmpgn.bin`) has four campaign choices:
+
+| Choice | Race | First mission | Next |
+| --- | --- | --- | --- |
+| ToD orc | orc | entry 1 | the mission starts |
+| ToD human | human | entry 0 | the mission starts |
+| BDP orc | orc | entry 29 | the BDP intro, then the mission |
+| BDP human | human | entry 28 | the BDP intro, then the mission |
+
+Cancel returns to the menu. Any choice also marks the game as a campaign game (not custom).
+
+**BDP intro.** If the movie archive is available, video 10 plays unless Ctrl is held, then the mission starts. If
+the archive isn't available, the game goes back to the main menu instead (see the open questions).
+
+**Campaign maps.** Each mission entry has its own map file, read from the game's archive:
+`Campaign\Human\HumanNN.pud` and `Campaign\Orc\OrcNN.pud` for ToD, `Campaign\XHuman\2XHumNN.pud` and
+`Campaign\XOrc\2XOrcNN.pud` for BDP, where NN is the two-digit mission number (01 to 14, or 01 to 12).
+
+### Starting a mission
+
+For a campaign game, before the map is read:
+
+1. **Act screen** (skipped while Ctrl is held, or the skip setting is on).
+2. **Briefing** (the same, checked again after the act screen).
+3. The game starts (`game/setup.md`). If it fails to start, the game goes back to the main menu.
+
+If either screen ends with a quit, the program quits and the mission doesn't start. A game started by loading a
+saved game skips both screens. Custom games, multiplayer games and demo playback have neither screen.
+
+### The act screen
+
+The act screen (`rez\interlud.bin`) is shown only for the first mission of an act, and only if that act isn't the
+last act shown since the program started (so replaying an act's first mission after a defeat doesn't show it again).
+
+| Mission | Entry | Act lines (`acts.tbl`) | Picture | Video after |
+| --- | --- | --- | --- | --- |
+| ToD human 1 | 0 | 1, 2 | `umaact1` | none |
+| ToD human 5 | 8 | 3, 4 | `umaact2` | 2 |
+| ToD human 8 | 14 | 5, 6 | `umaact3` | 4 |
+| ToD human 12 | 22 | 7, 8 | `umaact4` | 6 |
+| ToD orc 1 | 1 | 9, 10 | `orcact1` | none |
+| ToD orc 5 | 9 | 11, 12 | `orcact2` | 3 |
+| ToD orc 8 | 15 | 13, 14 | `orcact3` | 5 |
+| ToD orc 12 | 23 | 15, 16 | `orcact4` | 7 |
+| BDP orc 1 | 29 | 17, 18 | `2xoact1` | none |
+| BDP orc 4 | 35 | 19, 20 | `2xoact2` | none |
+| BDP orc 7 | 41 | 21, 22 | `2xoact3` | none |
+| BDP orc 10 | 47 | 23, 24 | `2xoact4` | none |
+| BDP human 1 | 28 | 25, 26 | `2xhact1` | none |
+| BDP human 4 | 34 | 27, 28 | `2xhact2` | none |
+| BDP human 7 | 40 | 29, 30 | `2xhact3` | none |
+| BDP human 10 | 46 | 31, 32 | `2xhact4` | none |
+
+- The first act line is the act number, the second its title. The picture's palette is taken from the act-1 picture
+  of the same campaign and side.
+- **Timing.** The screen runs a countdown from 60 to 0, one step per tick. At 60 the palette is black with only the
+  text colours (entries 1 to 3) white, so the text shows first, and fades in over 300 ms. At 50 the picture fades in
+  over 600 ms and the act sound plays (`Sfx\hact.wav` for human, `Sfx\oact.wav` for orc). At 0 the screen closes.
+- **Closing early.** Esc, Enter, Space or a mouse click close it, but not on its first tick. A quit request quits
+  the program.
+- **Video after.** After the screen closes, the act's video plays if it has one, it isn't the video played last, and
+  no quit was requested.
+
+### The briefing
+
+The briefing is shown for mission entries 0 to 51. It uses `rez\hdisptch.bin` for a human campaign and
+`rez\odisptch.bin` for an orc one.
+
+- **Background picture** by mission number (the same for ToD and BDP):
+
+  | Missions | Human | Orc |
+  | --- | --- | --- |
+  | 1 to 4 | `Art\hdspatch.pcx` | `Art\slash.pcx` |
+  | 5 to 7 | `Art\ogreknit.pcx` | `Art\odspatch.pcx` |
+  | 8 to 11 | `Art\dethnite.pcx` | `Art\mage.pcx` |
+  | 12 to 14 | `Art\dragon.pcx` | `Art\griffon.pcx` |
+
+- **Title and objectives:** `objctivs.tbl` entry e + 60 is the mission title and entry e + 1 the objectives, where
+  e is the mission entry.
+- **Story text:** entry 1 of the mission's table: `rez\humanN.tbl`, `rez\orcN.tbl` (ToD) or `rez\2xhumN.tbl`,
+  `rez\2xorcN.tbl` (BDP), N the mission number without a leading zero. It scrolls up through the text panel.
+- **Narration:** one to three speech files per mission, played in order with a 255 ms gap between them:
+  `Speech\hum_N_K.wav` / `Speech\orc_N_K.wav` (ToD) and `Speech\war2x\humN_K.wav` / `Speech\war2x\orcN_K.wav`
+  (BDP), K = 1, 2, 3. The parts for each mission are in the Data section.
+- **Scroll speed.** With T = the narration's total length in ms (the sum of each part's length plus 255, minus 255),
+  the text moves up one step every T / (text height + panel height − half a line) ms; if that is 0, every 100 ms. So
+  the text finishes scrolling about when the narration ends.
+- **Music:** if no music is playing, track 20 (human) or 21 (orc) starts.
+- **Closing.** The briefing closes by itself once the text has scrolled out of the panel and the narration has
+  finished. The OK button closes it at once. A quit request quits the program.
+
+### The victory and defeat dialogs
+
+When `game/victory.md` decides the outcome:
+
+- **Victory, single player.** Any open menu is closed and the victory dialog (`rez\wmission.bin`) is
+  shown over the game, with the race's small picture (`art\h144x64.bmp` or `art\o144x64.bmp`). It has two choices:
+  - **Continue** ends the game with a victory;
+  - **Save** opens the save dialog (a later spec). After a save the game ends with a victory. If the save is
+    cancelled, the victory dialog is shown again.
+- **Defeat, single player.** The game is marked as lost first, menus are closed, and the defeat dialog
+  (`rez\lmission.bin`, same picture) is shown. Its only button ends the game.
+- **Multiplayer.** No dialog: the game ends at once with the result.
+
+### The score screen
+
+After a victory or a defeat the score screen is shown, unless the skip setting is on.
+
+1. **The score for the mission is closed.** On a victory the local player's mission score goes up by 500. Then the
+   local player's mission score is added to the campaign total.
+2. **Layout.** The background is `Art\hwinglu.pcx` (human victory), `Art\owinglu.pcx` (orc victory),
+   `Art\hlosglu.pcx` (human defeat) or `Art\olosglu.pcx` (orc defeat). Music track 14 (human) or 15 (orc) plays
+   after a victory, 12 or 13 after a defeat. The dialog depends on how many players are shown: `rez\msnstat2.bin`
+   for up to 2, `rez\msnstat4.bin` up to 4, `rez\msnstat6.bin` up to 6, `rez\msnstats.bin` otherwise.
+3. **Players shown** (single player): for each slot 0 to 7, in order:
+
+   | Slot | Label (`network.tbl`) |
+   | --- | --- |
+   | The local human player | entry 34 |
+   | A computer player not allied with the local player | entry 35 |
+   | A computer player allied with the local player | entry 36 |
+   | Anyone else | not shown |
+
+   Each row reads "label - name". The name is a `network.tbl` entry chosen by slot and race:
+
+   | Slot | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+   | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+   | Human | 50 | 46 | 52 | 56 | 58 | 54 | 48 | 60 |
+   | Orc, not BDP | 51 | 47 | 53 | 57 | 59 | 55 | 49 | 61 |
+   | Orc, BDP campaign | 94 | 92 | 95 | 97 | 98 | 96 | 93 | 99 |
+
+   Before the rows are built, each slot's controller is put back to what it was when the game started (so a slot
+   whose player was defeated or changed during play is still listed by its starting role).
+4. **Statistics** for each shown player:
+
+   | Statistic | Value |
+   | --- | --- |
+   | Units | units alive now + units lost |
+   | Buildings | buildings standing now + buildings lost |
+   | Gold, lumber, oil | the amounts the player gathered (delivered) during the mission |
+   | Kills | enemy units killed |
+   | Razings | enemy buildings destroyed |
+
+   "Lost" goes up by 1 every time the player's count of units (or of buildings) goes down, whatever the cause
+   (death, or a change of owner). So "units" is roughly the number of units the player ever had. Each bar grows in
+   steps of max / 40 (at least 1), where max is the largest value of that statistic among the shown players.
+5. **Score and rank.** The shown score counts up from 0 to the campaign total in steps of total / 10, with the tick
+   sound `Sfx\numbers.wav`; `Sfx\rank.wav` goes with the rank. The rank is a `rank_txt.tbl` entry:
+   - i = the position (counting from 0) of the first threshold above the total, in the list 2000, 5000, 8000, 18000,
+     28000, 40000, 55000, 70000, 85000, 105000, 125000, 145000, 165000, 185000, 205000, 230000, 255000, 280000,
+     300000. If no threshold is above the total, i = 18.
+   - The entry is 2i + 1 + race.
+   - If the local player used a cheat during this mission, the entry is 39 instead.
+6. **Closing.** Esc, Enter, Space or the button close the screen. A quit request quits the program.
+
+**Mission score.** Each player has a mission score, 0 at the start of a game. When a unit of one player kills a unit
+of another player (not its own), the killer's player gets the victim type's point value (the "points" field of the
+unit data). A victim of a non-building type (below the first building type) counts as a kill, a building as a
+razing.
+
+**Campaign total.** When a game starts, the campaign total is set to 0 if it is a multiplayer or custom game, or the
+first mission of a campaign (entries 0, 1, 28 and 29); otherwise it carries over. The value at the start of the
+mission is remembered. A defeat puts the total back to that value before the mission is replayed, so a lost attempt
+adds nothing.
+
+### After the score screen
+
+| Game | Victory | Defeat |
+| --- | --- | --- |
+| Campaign, last ToD mission (entry 26 human, 27 orc) | ToD ending | replay the same mission |
+| Campaign, last BDP mission (entry 50 human, 51 orc) | BDP ending | replay the same mission |
+| Campaign, any other mission | next mission of the same race (entry + 2): act screen, briefing, game | replay the same mission |
+| Custom game | main menu | main menu |
+| Multiplayer | back to the multiplayer screens (a later spec) | the same |
+
+Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
+because its act was the last shown.
+
+### Endings
+
+- **ToD ending.** A video, then the finale dialog. Which video plays wasn't traced (see the open questions); by
+  its file name it is video 8 (human) or 9 (orc).
+- **BDP ending.** The same, with video 11 (human) or 12 (orc).
+- **Finale dialog** (`rez\finaldlg.bin`): picture `art\humanv.pcx` or `art\orcv.pcx`; music track 16 (human) or
+  17 (orc); the narration below; and `finale.tbl` entry k + 1 scrolled up, with k = race + 2 for BDP and race for ToD.
+
+  | Ending | Narration |
+  | --- | --- |
+  | ToD human | `Speech\humvict.wav` |
+  | ToD orc | `Speech\orcvict.wav` |
+  | BDP human | `Speech\war2x\humvict1.wav`, `humvict2.wav` |
+  | BDP orc | `Speech\war2x\orcvict1.wav`, `orcvict2.wav`, `orcvict3.wav` |
+
+  A second page then scrolls entry 1 of `rez\crdt_lst.tbl` (ToD) or `rez\crelst2x.tbl` (BDP), the credits, one step
+  every 40 ms.
+- After either ending the main menu opens.
+
+## Data
+
+### Briefing narration parts per mission
+
+| Campaign | Missions with 1 part | 2 parts | 3 parts |
+| --- | --- | --- | --- |
+| ToD human | 6, 9, 10, 12, 14 | 1, 2, 3, 4, 5, 7, 8, 11, 13 | none |
+| ToD orc | 1, 2, 4, 5, 6, 8, 9, 10, 14 | 3, 7, 11, 12, 13 | none |
+| BDP human | none | 1, 2, 3, 5, 8, 9, 11, 12 | 4, 6, 7, 10 |
+| BDP orc | 8 | 2, 3, 4, 5, 6, 9, 11 | 1, 7, 10, 12 |
+
+### Music tracks started here
+
+| Track | File (in `Music`) | Used for |
+| --- | --- | --- |
+| 12 | `HDEFEAT.WAV` | score screen, human defeat |
+| 13 | `ODEFEAT.WAV` | score screen, orc defeat |
+| 14 | `HVICTORY.WAV` | score screen, human victory |
+| 15 | `OVICTORY.WAV` | score screen, orc victory |
+| 16 | `HUMAN5.WAV` | human finale |
+| 17 | `HUMAN6.WAV` | orc finale |
+| 20 | `HWARROOM.WAV` | human briefing |
+| 21 | `OWARROOM.WAV` | orc briefing |
+| 22 | `OWARROOM.WAV` | title |
+
+### Constants
+
+| Constant | Value |
+| --- | --- |
+| Victory bonus | 500 added to the local player's mission score |
+| Rank thresholds | 2000, 5000, 8000, 18000, 28000, 40000, 55000, 70000, 85000, 105000, 125000, 145000, 165000, 185000, 205000, 230000, 255000, 280000, 300000 |
+| Rank entry | 2i + 1 + race (`rank_txt.tbl`), cheat 39 |
+| Narration gap | 255 ms |
+| Act screen countdown | 60 ticks; fade 300 ms at 60, 600 ms at 50 |
+| Title | 100 ticks, fades 250 ms |
+| Credits scroll | one step per 40 ms |
+
+## Test vectors
+
+| Situation | Expected |
+| --- | --- |
+| New campaign, ToD human, Ctrl not held | Act screen (act lines 1 and 2, `umaact1`), no video after it; briefing for entry 0; mission `Campaign\Human\Human01.pud` |
+| Same, Ctrl held throughout | No act screen, no briefing; the mission starts |
+| New campaign, BDP orc, archive available | Video 10, act screen (lines 17 and 18, `2xoact1`), briefing for entry 29, `Campaign\XOrc\2XOrc01.pud` |
+| ToD human mission 4 won | Score screen; next mission entry 8: act screen (lines 3 and 4) then video 2; briefing with `Art\ogreknit.pcx` |
+| ToD orc mission 5 lost | Score screen (`Art\olosglu.pcx`, track 13); mission 5 replayed; no act screen (act already shown); briefing shown |
+| ToD human mission 14 (entry 26) won | Score screen, video 8 (by default), finale with `finale.tbl` entry 1, then credits from `crdt_lst.tbl`, then the main menu |
+| BDP orc mission 12 (entry 51) won | Score screen, video 12 (by default), finale with `finale.tbl` entry 4 and three narration parts |
+| Briefing for BDP human 4 | Three parts `hum4_1`, `hum4_2`, `hum4_3`; text from `rez\2xhum4.tbl`; title `objctivs.tbl` entry 94, objectives entry 35 |
+| Narration parts of 10,000 and 5,000 ms | T = 10,255 + 5,255 − 255 = 15,255 ms |
+| Campaign total 0 | Rank entry 1 (human) or 2 (orc) |
+| Campaign total 2000 (human) | i = 1 (5000 is the first threshold above 2000): entry 3 |
+| Campaign total 299,999 (orc) | i = 18: entry 38 |
+| Campaign total 300,000 (human) | No threshold above: i = 18, entry 37 |
+| Local player typed a cheat this mission | Rank entry 39 |
+| Mission 2, total 4000 at start; the player kills units worth 900 points and wins | Mission score 1400; total 5400; the shown score counts up in steps of 540 |
+| Same mission lost | No bonus; total back to 4000 for the replay |
+| Footman killed by an enemy archer | Archer's player: kills + 1, mission score + the footman's points |
+| Own farm destroyed by own catapult | No kill credit (same owner); the owner's buildings lost + 1 |
+| Victory dialog, Save, then cancel | The victory dialog is shown again |
+| Custom game won | Score screen (no campaign total carried; the total started at 0), then the main menu |
+| Single player, slot 1 a computer allied with the local player | Row label `network.tbl` entry 36 |
+| BDP orc campaign, slot 0 local, slot 3 orc computer | Names `network.tbl` entries 94 and 97 |
+
+## Open questions
+
+- **Skip setting.** What turns on the setting that skips the act screen, briefing and score screen, and the second
+  setting that skips the startup videos, wasn't found. Both live with the cheat flags; they may be cheats or
+  command-line options. Default: both off.
+- **BDP intro without the movie archive.** The program checks for the movie archive (on the original CD) before the
+  BDP intro and returns to the main menu when it is missing. How the GOG release satisfies this check wasn't
+  checked. Default: the archive is always available.
+- **"Play the intro" preference.** Where the preference bit is first set (for the one-time intro) wasn't traced.
+- **Quit requests.** Several screens treat one dialog event as "quit the program". Which user action causes it
+  (closing the window, a system menu) wasn't traced.
+- **Tick lengths.** The act screen's and the title's tick length wasn't found.
+- **Units lost and type changes.** Whether a type change (an upgrade such as town hall to keep) counts as a building
+  lost, through the per-type count going down, wasn't checked.
+- **Gathered resources.** Whether gold, lumber and oil count deliveries only, or also other income (such as
+  trading or cheats), wasn't traced.
+- **Multiplayer score screen.** Which players are listed and how in a multiplayer game is left to a later spec.
+- **Ending videos.** The endings' video calls weren't traced. Default: by file name, `HVict_M` / `OVict_M` for the
+  ToD endings and `HVicX_M` / `OrcX_M` for the BDP endings, played before the finale dialog.
+- **Title music.** Track 22 is the same file as the orc briefing track. This wasn't checked by ear.

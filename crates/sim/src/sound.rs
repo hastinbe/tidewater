@@ -337,6 +337,8 @@ impl World {
 
     /// "Under attack": a hit that took hit points from unit `i` without killing it.
     pub(crate) fn under_attack(&mut self, i: usize) {
+        // The minimap's attack mark comes before this check's other tests (messages spec, "Attacks on the minimap").
+        self.mark_attacked(i);
         let u = &self.units[i];
         let s = &self.sounds;
         if u.owner != self.local()

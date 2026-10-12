@@ -1,4 +1,4 @@
-//! Fog of war as the client shows it (vision spec, "The fog maps" and "The minimap"). The sim owns the maps; this turns
+//! Fog of war as the client shows it (vision spec, "The fog maps"; the minimap is in `crate::minimap`). The sim owns the maps; this turns
 //! them into a quarter-tile overlay picture and decides which units to draw. No Bevy types here.
 //!
 //! The shading is our own design (the spec leaves it to rendering): unexplored quarters are black, explored quarters
@@ -59,14 +59,7 @@ pub fn unit_shown(world: &World, u: &Unit) -> bool {
     (0..u.size.1 as i32).any(|dy| (0..u.size.0 as i32).any(|dx| !world.vision.unexplored(u.tile.0 + dx, u.tile.1 + dy)))
 }
 
-/// What the minimap samples for terrain: the explored map on even columns and the visible map on odd ones, each
-/// showing the colour only where the tile is fully clear.
-pub fn minimap_terrain_shown(explored: &[u8], visible: &[u8], column: i32, tile: usize) -> bool {
-    let map = if column % 2 == 0 { explored } else { visible };
-    map.get(tile).is_none_or(|&f| f == 0)
-}
-
-/// The explored and visible maps' flags for the minimap.
+/// The explored and visible maps' flags.
 pub fn maps(world: &World) -> (&[u8], &[u8]) {
     (world.vision.flags(Map::Explored), world.vision.flags(Map::Visible))
 }
@@ -86,16 +79,5 @@ mod tests {
         assert_eq!([a(2, 0), a(3, 0), a(2, 1), a(3, 1)], [0, DIM, DIM, DIM]);
         assert_eq!(px.len(), 4 * 2 * 4);
         assert!(overlay(&explored, &visible, 2, 1, true).iter().all(|&b| b == 0));
-    }
-
-    #[test]
-    fn minimap_columns_alternate_between_the_maps() {
-        let (explored, visible) = ([0u8], [15u8]);
-        assert!(minimap_terrain_shown(&explored, &visible, 0, 0));
-        assert!(!minimap_terrain_shown(&explored, &visible, 1, 0));
-        assert!(
-            !minimap_terrain_shown(&[8], &[0], 2, 0),
-            "a partly fogged tile is black"
-        );
     }
 }

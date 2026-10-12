@@ -324,6 +324,7 @@ impl World {
     }
 
     pub(crate) fn kill(&mut self, ti: usize) {
+        self.remember_building(ti);
         self.death_sound(ti);
         let unit = self.units[ti].clone();
         let p = &mut self.players[unit.owner as usize];

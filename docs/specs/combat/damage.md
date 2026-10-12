@@ -19,6 +19,8 @@
   2026-10-12, round-19 errata: cannon smoke is made only by destroyers, battleships and juggernaughts (never towers),
   at the missile's start point, in the lowest free effect slot after the missile's; a shot with no free effect slot
   creates nothing and draws nothing; cannon towers, like guard towers, fire without aim scatter.
+- **Changes:** 2026-10-12, round-20 errata: two test vectors renumbered so effect slots 0 to 2 stay in use
+  (`core/unit-slots.md`).
 
 ## Behaviour
 
@@ -378,7 +380,7 @@ Impact effects:
 | --- | --- |
 | A catapult rock lands and splashes; effect slots 0 to 4 in use, slot 5 free; the rock is in slot 3 | No impact sound; the splash; a kind 0x15 effect in slot 5 at the rock's position; the rock's slot 3 is freed. Slot 5 comes after slot 3, so the effect's first update is in the same cycle: `misc\explode` plays at its tile. It is freed after 12 cycles of waits |
 | A ballista bolt with stored damage 0 lands | No impact sound (damaging only); the kind 0x15 effect is still made, and plays `misc\explode` at its first update |
-| A battleship's big cannon lands; slot 1 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 1. Slot 1 comes before slot 6, so its first update, and its `misc\explode`, are in the next cycle |
+| A battleship's big cannon lands; slot 3 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 3. Slot 3 comes before slot 6, so its first update, and its `misc\explode`, are in the next cycle |
 | A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
 | A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
 
@@ -387,7 +389,7 @@ Cannon smoke and launch slots:
 | Input | Expected |
 | --- | --- |
 | A battleship strikes in cycle C; effect slots 0 to 2 in use, 3 and up free | Missile in slot 3, smoke (kind 0x19) in slot 4 at the battleship's centre, facing 0. Both first update in C; the smoke is removed in C + 13 |
-| A destroyer strikes; slots 0 and 2 in use, 1 and 3 free | Missile in slot 1, smoke in slot 3 |
+| A destroyer strikes; slots 3 and 5 in use, 4 and 6 free | Missile in slot 4, smoke in slot 6 |
 | A destroyer strikes; only one effect slot free | Missile in that slot; no smoke; the two scatter draws as usual (the small cannon is a splash missile, so no damage draw) |
 | A juggernaught strikes; no effect slot free | Nothing created; no draws for this shot |
 | An archer strikes; no effect slot free | Nothing created; no damage draw and no scatter draws |

@@ -10,7 +10,7 @@
 This spec covers how a new single-player game is built from a map file: reading the map's sections, choosing which
 player slots are played and by whom, the custom-game choices, the starting alliances, creating the map's units and
 the starting view. Loading a saved game and the multiplayer lobby (slot choice, start-position and colour shuffles,
-teams) are in later specs. Choosing a campaign mission and the briefing are in a later spec.
+teams) are in later specs. Choosing a campaign mission and the briefing are in `game/campaign-flow.md`.
 
 A **campaign map** is a map started from the campaign in single player. A **custom game** is a map started from the
 custom-scenario screen in single player. **Slot** means one of the 16 players of the map file (0 to 15); 15 is

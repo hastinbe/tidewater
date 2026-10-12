@@ -6,6 +6,8 @@
   yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-14 errata: the attacker handling before a think is the building forgetting its
   attacker (`orders/orders.md`, row 33).
+- **Changes:** 2026-10-12, round-21 errata: only a research start and the game-start marks mark a research entry
+  done, so an entry the player can never research blocks the requests of the entries after it.
 
 ## Behaviour
 
@@ -63,6 +65,12 @@ is set:
 
 When a research or building upgrade **starts**, every build-list entry equal to its code (entries 0 to 63, stopping at
 an 0xFF entry) is marked **done**, and the code's request is cleared. A request is never cleared otherwise.
+
+Nothing else marks a research entry done, apart from the marks made at the start of a game for what the player already
+has and for a keep or castle the map places (`ai/worker-ai.md`, "Done marks"). No scan, timeout or missing building
+marks it. If the player never has a building that can research an entry, the entry stays not done, and the requests of
+the entries after it are never set by either scan: both the worker job scan and the no-workers pass stop at that
+entry.
 
 ### Research codes
 
@@ -264,6 +272,7 @@ file; those types' thinks do nothing, so only the counter is affected.
 | Mage tower, slot 0x1D = 2, 1 mage, code 0x94 requested | Slow research starts; the mage training after it fails (busy) |
 | Computer player with 0 workers, build list 0x4A (done), 0x3C (not done), 0x80 (not done) | No-workers pass sets the request for 0x80 (the barracks entry is passed over) |
 | Scout tower of a computer player with guard-tower upgrade allowed and affordable | Upgrades into a guard tower at its first think |
+| *Tides of Darkness* human mission 13, player 4 (script 0x15, build list 0x93, 0x90, 0x91, …) | Once the limit is 2 or more and 0x93 is done, every scan stops at 0x90 (the list has no building entries, so no altar is built). The requests for 0x91 onward are never set. This is the original game's behaviour |
 
 ## Open questions
 

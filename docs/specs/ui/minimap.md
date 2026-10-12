@@ -5,6 +5,8 @@
   tileset files `Art\bgs\*\*.vx4` and `*.vr4` (how a tile's colour is picked) and the minimap frame pictures
   `Art\h_lft1.bmp` / `Art\o_lft1.bmp`. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12: the non-square map open question is closed by `game/setup.md`: every map is square.
+- **Changes:** 2026-10-12, round-20 errata: the colour and list-order references now cite `game/setup.md` and
+  `core/unit-slots.md`.
 
 ## Behaviour
 
@@ -85,11 +87,11 @@ After the terrain, these are drawn as filled rectangles (**dots**), later ones o
    where it stood, up to 25 copies (no copy when all 25 are in use). Some buildings are never copied (see the open
    questions). A copy is removed once it is no longer hidden from the local player. Copies are drawn first, with the
    colour, position and size rules below. Copies are also drawn in the map view (a later spec).
-2. **Units and buildings**, player 15 first and player 0 last, each player's units in their list order. A unit is
-   skipped while it is dying, removed or inside something. A unit that isn't a building is drawn when it isn't hidden
-   from the local player; a building is drawn when the local player has seen it, or the reveal-map cheat is on. In
-   both cases it must also be detected by the local player. These are the "Minimap units" rule in `vision/fog.md`,
-   "What uses vision".
+2. **Units and buildings**, player 15 first and player 0 last, each player's units in their list order, most recently
+   added first (`core/unit-slots.md`). A unit is skipped while it is dying, removed or inside something. A unit that
+   isn't a building is drawn when it isn't hidden from the local player; a building is drawn when the local player has
+   seen it, or the reveal-map cheat is on. In both cases it must also be detected by the local player. These are the
+   "Minimap units" rule in `vision/fog.md`, "What uses vision".
 
 **Dot colour** (palette colour), first rule that applies:
 
@@ -112,8 +114,8 @@ then cleared. `ui/messages.md`, "Attacks on the minimap", gives the details.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Minimap colour | 208 | 1 | 216 | 220 | 224 | 228 | 255 | 2 |
 
-Player 15 (neutral) is always 251. By default player p (0 to 7) has the p-th colour of the table. Game setup can
-assign colours differently (a later spec).
+Player 15 (neutral) is always 251. By default player p (0 to 7) has the p-th colour of the table. In single player,
+slot p always uses the p-th colour (`game/setup.md`); colour choices in the multiplayer lobby are in a later spec.
 
 **Dot position and size.** The dot's corner is the pixel of the unit's tile position (its top-left tile for a
 building), from the scale table. Its width is the unit's size in tiles converted the same way (the width in tiles × 4
@@ -183,6 +185,7 @@ half-view offset: pixel x − 24 and y − 26, each clamped to 0..127, then the 
 | 64-wide map, tile (5, 0) explored but not visible | Pixel column 10 (even, explored map) shows terrain; column 11 (odd, visible map) is colour 0 |
 | Enemy farm carrying the seen marker is destroyed while hidden from the local player, 3 copies in use | A fourth copy is kept and drawn where the farm stood until it is no longer hidden from the local player |
 | Same, all 25 copies in use | No copy; the farm's dot disappears at the next redraw |
+| Two units of player 1: A created first, then B | B's dot is drawn first, then A's (A over B where they overlap) |
 
 ## Open questions
 
@@ -195,5 +198,3 @@ half-view offset: pixel x − 24 and y − 26, each clamped to 0..127, then the 
   is created. Whether rescued or converted units keep their old minimap colour wasn't checked in the running game.
 - **Terrain preference.** The preference that turns the minimap terrain off is inferred from the Preferences dialog's
   control order (as in `ui/selecting-and-commanding.md`); its label and default weren't checked.
-- **List order.** Within one player, dots are drawn in the player's unit list order. How that list is ordered (newest
-  first or last) is in a later spec.
