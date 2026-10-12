@@ -1,0 +1,216 @@
+# Movement: tile steps, paths, arrival and blocking
+
+- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
+- **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and per-type step timings
+  computed from `Rez\script.bin` (see `specs/core/animation-scripts.md`). The path search is in `pathfinding.md`
+  and tile blocking is in `occupancy.md`. Not yet confirmed against the running game.
+
+## Behaviour
+
+### Positions and steps
+
+- Every unit has a **tile position** and a **pixel position**. Map tiles are 32 × 32 px.
+- **The pixel position** is the map-pixel point of the top-left corner of a tile cell (x grows east, y grows south;
+  pixel (0, 0) is the top-left corner of tile (0, 0)):
+  - **At rest**, it is exactly the tile position × 32, for mobile units and buildings alike. For a building (and any
+    unit bigger than one tile) the tile position is the top-left tile of its footprint, so the pixel position is the
+    top-left corner of the footprint.
+  - **When a unit is placed** on the map (trained, unloaded, coming out of a building), both are set together: pixel
+    = tile × 32.
+  - **During a step**, the tile position already holds the destination tile (see below), while the pixel position
+    starts at the old tile × 32 and is moved by the move animation's pixel moves, frame by frame, until it equals the
+    new tile × 32 when the step's loop ends.
+  - A building never moves, so its pixel position never changes.
+  - Rules that need a tile from the pixel position (for example in `vision/fog.md`) use pixel ÷ 32, rounded down.
+- Units move **one step at a time** in one of 8 directions (facing 0 = north, then clockwise; see the
+  animation-scripts spec). A diagonal step changes both tile coordinates at once.
+- **Step size:**
+  - Land units step **one tile**.
+  - Every sea unit and every air unit steps **two tiles**; the daemon and the Eye of Kilrogg are air units. Their move
+    scripts cover 64 px per loop.
+  - Transports that come to rest away from the shore settle on even tile coordinates. This suggests that all two-tile
+    movers keep to even coordinates; not yet confirmed.
+- **The tile changes at the start of a step.** When a step begins:
+  1. The unit leaves its old tile in the occupancy map, its tile position becomes the destination tile, and it is
+     entered there.
+  2. Its facing is set to the step's direction.
+  3. If it belongs to a human player, its sight is applied to the fog from the new tile at once.
+  4. Its move animation then carries the pixel position across over the following cycles.
+  
+  So the destination tile counts as occupied for the whole step, and the tile left behind is free at once.
+- **Step duration** is the move-script loop length for the unit type (16 cycles for a footman, 12 for a knight, 32
+  for a ballista, and so on; full table in the animation-scripts spec). Haste and slow change it as described there.
+
+### When decisions are made
+
+- A unit's **order logic runs only when its animation signals "step done"**, which happens once per script loop. That
+  is once per tile step for a moving land unit (every two tiles for two-tile movers), and once per attack loop for an
+  attacking unit.
+- A **new order** given to a unit doesn't interrupt the current step. It is held as a **pending order** and replaces
+  the current one at the next "step done" boundary. When it does:
+  - the new order's animation is started, which on its own would set the wait to 1;
+  - the wait is then **overwritten with 3**, so the new animation's first instruction runs on the third cycle after
+    the boundary. This 3 is a plain value and is not adjusted for haste or slow;
+  - nothing else happens for that unit in that cycle. The new order's logic first runs at the animation's next
+    "step done" signal, which is normally that first instruction;
+  - a two-tile mover that becomes idle on even coordinates away from the shore settles there.
+- **Which first wait applies when:**
+
+  | Situation | First wait |
+  | --- | --- |
+  | Animation started by a pending order taking over | 3 |
+  | Animation started for a new unit | 1, plus a random 0 to 7 (see the timing spec) |
+  | Any other animation start, such as switching to the move animation to take a step, or back to the order's own animation on arrival | 1 |
+  | Blocked unit (see below) | 15 or 1, set by the blocked rules |
+
+  When a unit switches to its move animation to take a step, or back to its order's animation on arrival, the first
+  instruction runs **in the same cycle**, so in that case the 1 is not waited.
+
+### Arriving
+
+Each order has an **arrival radius** in tiles. A unit is "there" when both the horizontal and the vertical tile
+distance to its goal are within the radius (Chebyshev distance). Some orders count as always there, so the unit never
+moves; for attack orders the radius is the attacker's attack range (see the combat spec). The goal is:
+
+- for an order aimed at a mobile unit, that unit's current tile, re-read every time the check is made, so chasing
+  works;
+- for an order aimed at a **building**, the footprint tile picked by the building goal rule in `pathfinding.md`
+  ("Building goal rule"), re-picked from the unit's current tile at every check. So arrival is measured to the near
+  edge of the footprint, or to its middle row or column when the unit is level with the building. (A land unit
+  heading for a shore building in another land region uses the shore-building variant of that rule.);
+- for **boarding** (order 34), the transport's tile if the transport stands in the unit's region, otherwise the
+  tile the transport is heading for (`orders/transports.md`);
+- otherwise, the ordered tile.
+
+**The +1.** The radius from the order table is increased by 1 in exactly these cases:
+
+- the unit is a **sea unit or an air unit**, **and** its current order is not 28 (build), 30 (transport landing) or 31
+  (transport pushing off). The exception tests the unit's **current** order, not the order whose radius is used.
+  Where it matters:
+  - a **tanker** going to build an oil platform (order 28) gets no +1;
+  - a **landing transport** (order 30) is checked against radius 0 (not the radius listed for order 30), and with no
+    +1 it arrives only on its goal tile exactly (`orders/transports.md`);
+  - order 31 never makes an arrival check, so its exception has no known effect;
+- the unit is a land unit, the order being checked is 28, and the building to be built is a shore building.
+
+There is never a +1 when the radius is the attack range, or when the order counts as always there. The +1 exists
+because two-tile steps can't always land exactly. When a unit arrives, its cached path is dropped.
+
+### Paths
+
+- A unit keeps a **cached path** of up to **20 directions**.
+- At each step boundary, if it hasn't arrived, it takes the next direction from the cache. If the cache is used up,
+  a new path is searched first.
+- The search itself is specified in `pathfinding.md`.
+- If the search returns no steps, the unit can't move. Its order then ends and it becomes idle; some orders have
+  their own fallback, such as an attack-type order looking for a new target.
+- **Before each step,** the next tile is tested against the blocking mask for the unit's layer (`occupancy.md`). Any
+  unit on that tile blocks, including allies. If it is blocked, the step doesn't happen and the **blocked rules**
+  apply.
+
+### Blocked rules
+
+Each unit has a **blocked counter**, from 0 to 15.
+
+- It is set to 0 when the unit is given a new move-type order, or when it gives up (below).
+- It is **not** reset by successful steps, so blocks add up over the whole order.
+
+A unit's **attacker** is the enemy unit that most recently damaged it. It is recorded when the unit is notified that
+it was attacked (see the combat spec), and forgotten when that unit dies or leaves play. For human players, attacks by
+buildings are not recorded.
+
+When the next tile is blocked, the unit restarts its move animation in place (or its order's work animation, if that
+order uses one) and its counter goes up by 1. Then the **first matching row** below applies.
+
+| # | Condition (after the counter is increased) | Outcome | Path cache | Next decision |
+| --- | --- | --- | --- | --- |
+| A | The unit's player is a **computer player** (see "Player kinds"), the blocking tile's movement word carries bit 0x04, and the unit is not invisible and has no attacker | Its order becomes **11** (attack a wall tile, `orders/orders.md`) on that tile, as a pending order | replaced by the new order | 1 cycle |
+| B | The unit's player is a computer player, the blocking tile's movement word carries bit 0x04, and the unit is invisible or has an attacker | Keeps its order | dropped | 1 cycle |
+| C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" | kept (unused) | 15 cycles |
+| D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
+| E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
+| F | This unit is in its move animation. The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
+| G | The unit has an attacker, and it is within 1 tile of its goal on both axes (land units) or within 2 tiles (sea and air units) | Stops: order becomes "stand still" | kept (unused) | 1 cycle |
+| H | The unit has an attacker, is a sea or air unit, and is within 2 tiles of its goal on x but farther on y | Keeps its order | dropped | 1 cycle |
+| I | Anything else | Keeps its order | dropped (it searches again) | 1 cycle |
+
+"Next decision" is how many cycles pass before the unit acts again. With 15, the unit spends 15 cycles playing the
+animation in place. With 1, it tries again on the next cycle.
+
+Notes:
+
+- **Head-on meetings:** in row F, two allies walking into each other don't wait for each other, because each one's
+  next step is onto the other's tile. They fall through to the rows below.
+- **Stationary or enemy blockers:** these reach row I while the counter is 1 to 7, so the unit searches again every
+  cycle. The search sees the blocker and routes around it (unless an attack-type order ignores enemies; see
+  `pathfinding.md`). From the 8th block it waits 15 cycles per attempt, and at the 15th it gives up.
+- **Walls:** when a computer unit's search fails, it follows the straight-line prefix up to the obstacle (see
+  `pathfinding.md`). If that obstacle carries bit 0x04, rows A and B make it attack the wall. `occupancy.md` puts
+  bit 0x04 on walls built by human-controlled players and on human-style walls placed in the map, **whatever their
+  owner**. Walls built during play by computer players don't carry it and never trigger these rows.
+
+### Player kinds
+
+Two rules here and in `pathfinding.md` depend on what kind of player owns the unit, and they don't test the same
+thing:
+
+| Rule | Players it applies to |
+| --- | --- |
+| Blocked rows A and B (attack a wall tile) | Computer players only |
+| Search mask drops bit 0x04 (`pathfinding.md`) | Every player that isn't human-controlled: computer players, passive computer players, rescue players and neutral or empty slots |
+
+During game setup a rescuable (active) player becomes a computer player and a rescuable (passive) player becomes a
+passive computer player, so active rescue players are covered by both rules and passive ones only by the second.
+
+## Data
+
+| Item | Value |
+| --- | --- |
+| Tile size | 32 px |
+| Path cache length | 20 directions |
+| Wait after a blocked step (rows C to F) | 15 cycles |
+| Wait after a blocked step (rows A, B, G to I) | 1 cycle |
+| Blocks before the path is searched again | 8 |
+| Blocks before giving up | 15 |
+| First wait after a pending order takes over | 3 cycles |
+| Step length, land units | 1 tile |
+| Step length, sea and air units | 2 tiles |
+| Stop distance with an attacker (row G) | 1 tile land, 2 tiles sea and air |
+
+Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured timings").
+
+## Test vectors
+
+| Input | Expected |
+| --- | --- |
+| Idle footman ordered 5 tiles east over open ground | the order takes over at the idle animation's next boundary (up to 5 cycles later); 3 cycles after that the first step starts and the tile changes; 4 further tile changes follow, 16 cycles apart; it arrives at the boundary 16 cycles after the 5th step began |
+| Knight, same order | 5 steps of 12 cycles (60 cycles) |
+| Footman moving diagonally 3 tiles north-east | 3 diagonal steps of 16 cycles; each step moves +32 px x and −32 px y |
+| Unit given a new order mid-step | finishes the current step; the new order takes over at the next step boundary |
+| Footman (human player, no attacker) on a move order in a corridor one tile wide; the next tile holds an enemy catapult standing ground (it can't fire at an adjacent unit, so the footman never gets an attacker) | block 1 (row I): path dropped. Next cycle the search sees the catapult: the line is blocked at its first tile and both walks fail or are rejected, so the result is empty and the move order ends (idle) |
+| Footman (human player, no attacker) with an attack order (order 9) on an enemy beyond such a catapult, in a corridor one tile wide | The search ignores the catapult (attack-type order, non-allied unit), so it keeps returning a path through it, and each step is blocked. Blocks 1 to 7: row I, searches again next cycle; blocks 8 to 14: row D, waits 15 cycles each; block 15: row C, "stand still", counter 0 |
+| Footman attacking a 4 × 4 town hall whose footprint is (10, 10) to (13, 13), starting at (6, 11), nothing else in the way | Goal (10, 12) (west edge, middle row; a footprint tile). The straight line (`pathfinding.md`) is blocked at the goal itself, with T = (9, 12); the walk from T goes north to (9, 11), inside the goal zone. After shortening the path is (7, 11), (8, 11), (9, 11). At (9, 11) the re-picked goal is still (10, 12), at distance 1 on both axes, so it stops and attacks there after 3 steps |
+| Same, but a route around exists | block 1: searches again next cycle and walks round the blocker; the counter stays at 1 for the rest of the order |
+| Footman blocked by an allied footman walking away (next step not onto it) | waits 15 cycles, keeps its path; counter +1 |
+| Two allied footmen stepping onto each other's tiles | neither waits; each drops its path and searches again next cycle (row I) |
+| Footman with counter 7 blocked by a moving ally | row D applies first: path dropped, waits 15 cycles |
+| Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle |
+| Passive computer player's grunt, same situation | row A doesn't apply (not a computer player); falls through to the rows below |
+| Grunt with an attacker, blocked 1 tile from its goal | becomes idle (stand still) next cycle |
+| Gryphon rider with an attacker, blocked 2 tiles from its goal on both axes | becomes idle |
+| Attack order, target 3 tiles away, attacker range 4 | already in range; no movement; attack starts |
+| Destroyer ordered to a tile it can only get within 1 tile of | stops when within 1 tile on both axes (radius +1) |
+| Footman at rest on tile (5, 7) | Pixel position (160, 224) |
+| Footman stepping from (5, 7) to (6, 7) | At the step start: tile (6, 7), pixel (160, 224). The pixel x then grows by the move animation's moves (for a footman, moves of 2 or 3 px at a time, 32 px over the 16-cycle loop; `core/animation-scripts.md`) and reaches (192, 224) when the step's loop ends |
+| Town hall placed with its top-left tile at (10, 10) | Pixel position (320, 320), for as long as it stands |
+| Transport landing (order 30) whose goal is 1 tile away on both axes | Not arrived (radius 0, no +1); it keeps moving |
+
+## Open questions
+
+- Whether two-tile movers always keep to even tile coordinates.
+- What makes an allied unit count as "about to move" when its state, rather than its animation, says so. Row F needs
+  the animation itself to be the move animation.
+- How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
+  construction spec.
+- Exactly how the map's owner codes map to the player kinds above. The rescue mapping is read from game setup and
+  not yet confirmed in play.
