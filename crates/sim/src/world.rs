@@ -886,6 +886,15 @@ impl World {
     }
 
     /// Moves a unit to another owner's list (unit-slots spec, "Changing owner"); the cap isn't checked.
+    /// Whether player `a` counts player `b` as allied (its own player included).
+    pub(crate) fn allied(&self, a: u8, b: u8) -> bool {
+        a == b
+            || self
+                .players
+                .get(a as usize)
+                .is_some_and(|p| b < 8 && p.allies & (1 << b) != 0)
+    }
+
     pub(crate) fn change_owner(&mut self, i: usize, to: u8) {
         self.note_owner_change(i, to);
         let u = &mut self.units[i];

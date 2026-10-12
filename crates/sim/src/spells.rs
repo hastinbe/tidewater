@@ -739,7 +739,7 @@ impl World {
                     continue;
                 };
                 let u = &self.units[ui];
-                let allied = self.rules.enhanced && u.owner < 8 && u.owner == owner;
+                let allied = self.rules.enhanced && u.owner < 8 && self.allied(owner, u.owner);
                 if self.stats_of(u.kind).flags & flags::UNDEAD == 0 || allied {
                     continue;
                 }
@@ -784,7 +784,8 @@ impl World {
                 for l in [Layer::Land, Layer::Air] {
                     let Some(id) = self.occupant(l, x, y) else { continue };
                     let Some(u) = self.unit(id) else { continue };
-                    if u.present() && u.owner != owner && self.stats_of(u.kind).flags & flags::ORGANIC != 0 {
+                    let ally = self.rules.enhanced && u.owner < 8 && self.allied(owner, u.owner);
+                    if u.present() && u.owner != owner && !ally && self.stats_of(u.kind).flags & flags::ORGANIC != 0 {
                         found.push(id);
                     }
                 }
