@@ -97,6 +97,19 @@ impl World {
         self.remembered.keep(copy);
     }
 
+    /// The units and buildings the minimap draws, in drawing order ("Units and buildings"): player 15 first and
+    /// player 0 last, each player's units in its owner list order, most recently added first (`core/unit-slots.md`).
+    pub fn minimap_units(&self) -> impl Iterator<Item = &crate::Unit> + '_ {
+        (0..=crate::slots::NEUTRAL).rev().flat_map(move |p| {
+            self.slots.list(p).filter_map(move |slot| {
+                let i = self.units.partition_point(|u| u.slot < slot);
+                self.units
+                    .get(i)
+                    .filter(|u| u.slot == slot && u.owner == p && self.on_minimap(u))
+            })
+        })
+    }
+
     /// Phase 5, after the units' visibility: copies that are no longer hidden from the local player go.
     pub(crate) fn forget_seen_buildings(&mut self) {
         let me = self.vision.local;
@@ -273,6 +286,25 @@ mod tests {
         w.unit_visibility();
         w.kill(at(&w, u));
         assert!(w.remembered.is_empty());
+    }
+
+    #[test]
+    fn dots_are_in_owner_list_order_newest_first() {
+        let mut w = world();
+        w.rules.reveal_map = true;
+        // Two units of player 1: A created first, then B. B's dot is drawn first, then A's.
+        let a = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+        let b = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+        let mine = w.spawn(FOOTMAN, 0, (9, 9), 0).unwrap();
+        let neutral = w.spawn(FARM, 15, (20, 20), 0).unwrap();
+        w.unit_visibility();
+        let order: Vec<UnitId> = w.minimap_units().map(|u| u.id).collect();
+        assert_eq!(order, [neutral, b, a, mine]);
+        // Dying units are skipped.
+        let ai = at(&w, a);
+        w.kill(ai);
+        let order: Vec<UnitId> = w.minimap_units().map(|u| u.id).collect();
+        assert_eq!(order, [neutral, b, mine]);
     }
 
     #[test]
