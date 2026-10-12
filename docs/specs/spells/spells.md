@@ -19,6 +19,8 @@
   2026-10-12, round-39 errata: every cosmetic effect (kinds 0x0B, 0x15, 0x16, 0x17, 0x19, 0x1A and 0x1C) is created with
   only its kind and position set (destination (0, 0), no target, no shooter, damage 0), not only kind 0x16; `xorc12`
   rune vector.
+  2026-10-12, round-40 errata: each fireball splash follows the hammer and breath rule: it needs a free effect slot, and
+  its kind-0x17 explosion has only kind and position set.
 
 ## Behaviour
 
@@ -248,13 +250,16 @@ unit for flames) is never hit. So for a stored damage D:
 One draw r is made per unit hit, in scan order. Walls on the effect's tile take D and the four neighbour walls take
 floor(D / 4) (`movement/occupancy.md`, "Walls").
 
-**Fireball.** Launched from the caster's centre toward the target tile's centre with stored damage **40**. On each
-step it makes one draw (discarded), then moves 12 px, or 6 px if its remaining distance is already below 50. Once
-its remaining distance is below 50 it counts its steps: on counts 8, 16, 24, 32 and 40 it **splashes** (damage 40)
-at its position and makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash), and on the step
-after count 41 it ends. It flies on past the
-target point, so the first explosion lands near the point and the next four follow every 48 px along the same line
-beyond it. When it ends, it touches a wall on its final tile with damage 40.
+**Fireball.** Launched from the caster's centre toward the target tile's centre with stored damage **40**. On each step
+it makes one draw (discarded), then moves 12 px, or 6 px if its remaining distance is already below 50. Once its
+remaining distance is below 50 it counts its steps: on counts 8, 16, 24, 32 and 40 it **splashes** (damage 40) at its
+position and makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash), and on the step after count 41
+it ends. Each splash follows the rule of the gryphon hammer and dragon breath, with which the fireball shares its
+missile behaviour (`combat/damage.md`): it first needs a free effect slot (if there is none, there is no splash, sound
+or explosion on that step), and the explosion is created in that slot with only kind and position set ("Cosmetic
+effects"). No fireball trace shows this yet. It flies on past the target point, so the first explosion lands near the
+point and the next four follow every 48 px along the same line beyond it. When it ends, it touches a wall on its final
+tile with damage 40.
 
 **Flame shield.** The bolt flies from the caster to the target unit's centre at 12 px per step, making one draw at
 the start of every step. On the step after it arrives (remaining distance 0 or less), it creates **5 flames** on the
