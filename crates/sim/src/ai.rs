@@ -99,7 +99,6 @@ impl World {
         for p in 0..SCRIPT_PLAYERS {
             let mut s = AiPlayer::default();
             s.slots[BUILD_LIMIT] = 0xff;
-            s.slots[FERRY_SEARCH] = 1;
             if let Some(r) = file.record(self.players[p].ai_script) {
                 s.build_list = r.build_list;
                 s.second_list = r.second_list;
@@ -107,6 +106,8 @@ impl World {
             }
             self.ai[p] = s;
             self.run_script(p);
+            // Attack-ai spec, "Slots": set after the opening run, so an opening write is overwritten.
+            self.ai[p].slots[FERRY_SEARCH] = 1;
         }
     }
 

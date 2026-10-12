@@ -311,6 +311,7 @@ impl World {
             u.path.clear();
             self.units[ti].passengers[slot] = Some(unit.id);
             self.switch_anim(i, anim::STILL);
+            self.boarded(i);
             return;
         }
         let dest_here = self.region_at(t.ship.dest) == here;

@@ -307,6 +307,8 @@ impl World {
         if matches!(k, kind::HUMAN_WALL | kind::ORC_WALL) {
             self.wall_completed(i);
         }
+        // Attack-ai spec, "When a unit is completed": a building's goal is cleared.
+        self.units[i].goal = Default::default();
     }
 
     /// A finished wall piece becomes terrain (walls spec, "Completion: the piece becomes terrain"): it is killed as a
@@ -436,6 +438,10 @@ impl World {
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
                 if let Ok(id) = placed {
                     self.ready_sound(id);
+                    // Attack-ai spec, "When a unit is completed".
+                    if let Some(n) = self.index(id) {
+                        self.first_goal(n);
+                    }
                 }
                 if placed.is_err() {
                     self.refund(u.owner, job.paid);

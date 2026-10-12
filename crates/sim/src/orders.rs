@@ -106,7 +106,7 @@ impl World {
     }
 
     /// Workers, tankers, transports and demolition units.
-    fn non_combat(&self, u: &Unit) -> bool {
+    pub(crate) fn non_combat(&self, u: &Unit) -> bool {
         self.flags_of_unit(u) & (flags::PEON | flags::TANKER | flags::TRANSPORT) != 0 || DEMOLITION.contains(&u.kind)
     }
 
@@ -443,7 +443,7 @@ impl World {
     }
 
     /// Whether `t` passes the candidate skip list for searcher `u` ("A candidate is skipped if").
-    fn candidate(&self, u: &Unit, t: &Unit, order: Order) -> bool {
+    pub(crate) fn candidate(&self, u: &Unit, t: &Unit, order: Order) -> bool {
         let s = self.stats_of(u.kind);
         let tf = self.flags_of_unit(t);
         if t.owner == u.owner || t.owner == slots::NEUTRAL || !t.present() {

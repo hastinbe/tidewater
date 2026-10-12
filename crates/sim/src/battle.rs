@@ -274,12 +274,12 @@ impl World {
         if t.dying {
             return;
         }
-        // Movement spec, "Blocked rules": for human players, attacks by buildings aren't recorded.
-        let by_building = self.unit(attacker).is_some_and(|a| a.building);
-        let owner = self.units[ti].owner;
-        if !(by_building && self.human_controlled(owner)) {
-            self.units[ti].attacked_by = Some(attacker);
+        // Damage spec: a target with the used mark gets no notification and no damage.
+        if t.used || t.inside {
+            return;
         }
+        // The notification: attack-ai spec, "Call for help" (which keeps the movement spec's building rule).
+        self.call_for_help(ti, attacker);
         let t = &mut self.units[ti];
         if t.unholy_armor > 0 || d == 0 {
             return;
@@ -339,6 +339,10 @@ impl World {
             }
         }
         self.leave_oil(ti);
+        // Worker-ai spec, "Losses": too few buildings left starts the all-out attack (attack-ai spec).
+        if unit.building {
+            self.building_lost(unit.owner);
+        }
     }
 
     /// Updates every missile once, in effect slot order. Plain missiles and breath missiles are updated here, spell

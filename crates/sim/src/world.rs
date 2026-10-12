@@ -267,6 +267,8 @@ pub struct Unit {
     pub held: bool,
     /// A computer worker's job, for the worker AI's bookkeeping.
     pub ai_job: crate::worker_ai::AiJob,
+    /// The computer army's goal for this unit (attack-ai spec, "Unit goals").
+    pub goal: crate::attack_ai::Goal,
 }
 
 impl Unit {
@@ -545,6 +547,8 @@ pub struct World {
     pub events: Vec<Event>,
     /// Computer player scripts (ai-scripts spec), one state per player 0 to 7.
     pub ai: [AiPlayer; SCRIPT_PLAYERS],
+    /// The computer players' army: threat map, base boxes, pass counter (attack-ai spec).
+    pub army: crate::attack_ai::Army,
     /// Upgrade data: the defaults, or the map's UGRD section (tech-tree spec, "Default upgrade data").
     pub upgrade_data: UpgradeTable,
     pub(crate) ai_file: Option<Arc<AiFile>>,
@@ -596,6 +600,7 @@ impl World {
             .collect();
         let rules = Rules::default();
         let (terrain_w, terrain_h) = (terrain.width as usize, terrain.height as usize);
+        let army = crate::attack_ai::Army::new(&terrain);
         World {
             tick: 0,
             occupancy: std::array::from_fn(|_| vec![None; n]),
@@ -605,6 +610,7 @@ impl World {
             slot_of: BTreeMap::new(),
             events: Vec::new(),
             ai: Default::default(),
+            army,
             upgrade_data: crate::tech::default_upgrades(),
             ai_file: None,
             missiles: vec![None; rules.effect_slots],
@@ -699,6 +705,7 @@ impl World {
             };
             if let Some(i) = w.index(id) {
                 w.units[i].held = !matches!(u.kind, 0x5c | 0x5d) && u.data & 0xff != 0;
+                w.held_goal(i);
             }
             if crate::economy::kind::is_hall(u.kind)
                 && let Some(p) = w.players.get_mut(u.owner as usize)
@@ -801,6 +808,7 @@ impl World {
             detected_by: 0xff,
             hidden_from: 0,
             ai_job: Default::default(),
+            goal: Default::default(),
             rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
             held: false,
         };
@@ -922,6 +930,7 @@ impl World {
         }
         self.detection();
         self.step_ai();
+        self.army_pass();
         let refresh = self.fog_refresh();
         for i in 0..self.units.len() {
             if refresh {
@@ -1107,6 +1116,7 @@ impl World {
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
         self.ai.hash(&mut h);
+        self.army.hash(&mut h);
         self.victory.hash(&mut h);
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);

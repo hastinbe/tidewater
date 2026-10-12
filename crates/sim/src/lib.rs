@@ -9,6 +9,7 @@
 pub mod acquire;
 pub mod ai;
 pub mod anim;
+pub mod attack_ai;
 mod battle;
 mod build;
 pub mod combat;
