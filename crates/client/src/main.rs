@@ -622,7 +622,7 @@ fn order(
         return;
     }
     // A right click on the minimap moves there; on the map view, an enemy under the cursor is attacked if any
-    // selected unit can, and anything else is a move.
+    // selected unit can, and anything else is a smart move.
     let (to, on_map) = if let Some(t) = hud.minimap_tile(window) {
         let max = (hud.map.0 as i32 - 1, hud.map.1 as i32 - 1);
         (((t.x as i32).min(max.0), (t.y as i32).min(max.1)), false)
@@ -649,23 +649,6 @@ fn order(
                 .iter()
                 .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_repair(u, t)))
     });
-    // Workers sent to a mine or tree harvest; carrying workers sent to a depot return their goods.
-    let worker =
-        |f: &dyn Fn(&tidewater_sim::Unit) -> bool| on_map && units.iter().any(|&id| sim.world.unit(id).is_some_and(f));
-    let at = unit_at(&sim.world, to);
-    if worker(&|u| sim.world.can_harvest(u, to)) {
-        sim.pending.push(Command::Harvest {
-            player: human,
-            units,
-            target: at,
-            tile: to,
-        });
-        return;
-    }
-    if at.is_some_and(|d| worker(&|u| sim.world.can_return_to(u, d))) {
-        sim.pending.push(Command::ReturnGoods { player: human, units });
-        return;
-    }
     let c = match (mend, foe) {
         (Some(target), _) => Command::Repair {
             player: human,
@@ -677,10 +660,12 @@ fn order(
             units,
             target,
         },
-        (None, None) => Command::Move {
+        // Orders spec, "Smart move": returning goods, harvesting, following or moving, decided per unit.
+        (None, None) => Command::Smart {
             player: human,
             units,
-            to,
+            target: unit_at(&sim.world, to).filter(|_| on_map),
+            tile: to,
         },
     };
     sim.pending.push(c);

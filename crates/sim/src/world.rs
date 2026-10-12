@@ -60,19 +60,37 @@ impl Layer {
 const OIL_PATCH: u8 = 0x5d;
 const CIRCLE_OF_POWER: u8 = 0x65;
 
+/// A unit's order (orders spec, "The order list"); the spec's number is given on each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Order {
+    /// 2: stop / idle.
     Idle,
-    Move {
-        goal: (i32, i32),
-    },
-    Attack {
-        target: UnitId,
-    },
+    /// 3.
+    Move { goal: (i32, i32) },
+    /// 4: move, attacking on the way.
+    MoveAttack { goal: (i32, i32) },
+    /// 5: patrol toward `to`; on arrival the ends swap.
+    Patrol { to: (i32, i32), back: (i32, i32) },
+    /// 6: follow a unit.
+    Follow { target: UnitId },
+    /// 7: follow and guard a unit.
+    Guard { target: UnitId },
+    /// 9: attack a unit.
+    Attack { target: UnitId },
+    /// 10: attack-move to a location.
+    AttackMove { goal: (i32, i32) },
+    /// 12: chase and attack a found target.
+    Chase { target: UnitId },
+    /// 13: stand ground.
+    StandGround,
+    /// 14: a tower watching; the target is found afresh each run.
+    TowerWatch { target: Option<UnitId> },
+    /// 15: attack a found target without moving.
+    AttackInPlace { target: UnitId },
+    /// 16: an idle unit's reaction: attack without moving.
+    IdleReact { target: UnitId },
     /// Order 27: repair a building or transport (repair spec).
-    Repair {
-        target: UnitId,
-    },
+    Repair { target: UnitId },
     /// Order 23: gather from a gold mine or oil platform (`source`), or cut the tree at `tree` (harvest spec).
     Harvest {
         source: Option<UnitId>,
@@ -80,24 +98,14 @@ pub enum Order {
         chopping: bool,
     },
     /// Order 24: carry goods to a depot, found when `None`.
-    ReturnGoods {
-        depot: Option<UnitId>,
-    },
+    ReturnGoods { depot: Option<UnitId> },
     /// Order 25: step into a mine, platform or depot; `stepped` once the step in has started.
-    Enter {
-        building: UnitId,
-        stepped: bool,
-    },
+    Enter { building: UnitId, stepped: bool },
     /// Order 26: inside a building. `hall_sized` when goods were just delivered to a gold-accepting depot, which sizes
     /// the coming-out search as a town hall.
-    Inside {
-        building: UnitId,
-        hall_sized: bool,
-    },
+    Inside { building: UnitId, hall_sized: bool },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
-    AttackWall {
-        tile: (i32, i32),
-    },
+    AttackWall { tile: (i32, i32) },
 }
 
 /// What a worker gathers (harvest spec, "Gather mode and carried goods"). Tankers always gather oil.
@@ -107,6 +115,14 @@ pub enum Gather {
     None,
     Gold,
     Lumber,
+}
+
+/// A patrol or attack-move remembered in Enhanced mode, to resume after a fight (orders spec, "Resuming patrol and
+/// attack-move").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Remembered {
+    Patrol { to: (i32, i32), back: (i32, i32) },
+    AttackMove { goal: (i32, i32) },
 }
 
 /// Where a unit goes back to after delivering.
@@ -157,6 +173,9 @@ pub struct Unit {
     pub blocked: u16,
     /// A new order waiting for the next "step done" to take over.
     pub pending: Option<Order>,
+    /// Enhanced mode's remembered patrol or attack-move, and the countdown before it may be resumed.
+    pub remembered: Option<Remembered>,
+    pub resume: u8,
     /// Repair runs on this unit not yet paid for (repair spec: one payment per 2 runs, whoever repairs).
     pub repair_runs: u8,
     /// Spell timers; running while above 0.
@@ -334,6 +353,30 @@ pub enum Command {
         player: u8,
         units: Vec<UnitId>,
     },
+    /// Command 3, smart move (a right click): follow, harvest, return goods or move, by the target.
+    Smart {
+        player: u8,
+        units: Vec<UnitId>,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Command 8 on a location: attack-move.
+    AttackMove {
+        player: u8,
+        units: Vec<UnitId>,
+        to: (i32, i32),
+    },
+    /// Command 5.
+    Patrol {
+        player: u8,
+        units: Vec<UnitId>,
+        to: (i32, i32),
+    },
+    /// Command 13.
+    StandGround {
+        player: u8,
+        units: Vec<UnitId>,
+    },
     /// Cancel a building's job, or the building if it is under construction.
     Cancel {
         player: u8,
@@ -371,6 +414,8 @@ pub struct World {
     /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
     /// buildings share the ground plane.
     pub(crate) occupancy: [Vec<Option<UnitId>>; 2],
+    /// Every unit in vertical order, re-sorted once per cycle (orders spec, "Vertical order").
+    pub(crate) ylist: Vec<UnitId>,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -420,6 +465,7 @@ impl World {
             scripts,
             stride,
             units: Vec::new(),
+            ylist: Vec::new(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
         }
@@ -554,6 +600,8 @@ impl World {
             path: Vec::new(),
             blocked: 0,
             pending: None,
+            remembered: None,
+            resume: 0,
             repair_runs: 0,
             bloodlust: 0,
             unholy_armor: 0,
@@ -567,6 +615,7 @@ impl World {
             hidden_from: 0,
         };
         self.mark(&unit, unit.tile, Some(id));
+        self.insert_vertical(id, unit.pos.1);
         let at = self.units.partition_point(|u| u.slot < slot);
         self.units.insert(at, unit);
         self.slot_of.insert(id, slot);
@@ -686,6 +735,7 @@ impl World {
                 self.construct(i);
             }
         }
+        self.sort_vertical();
         self.unit_visibility();
         let gone: Vec<UnitId> = self
             .units
@@ -693,6 +743,9 @@ impl World {
             .filter(|u| u.script.anim == RELEASED)
             .map(|u| u.id)
             .collect();
+        if !gone.is_empty() {
+            self.ylist.retain(|id| !gone.contains(id));
+        }
         for id in gone {
             self.slot_of.remove(&id);
         }
@@ -707,7 +760,11 @@ impl World {
             | Command::Attack { player, units, .. }
             | Command::Repair { player, units, .. }
             | Command::Harvest { player, units, .. }
-            | Command::ReturnGoods { player, units } => (*player, units),
+            | Command::ReturnGoods { player, units }
+            | Command::Smart { player, units, .. }
+            | Command::AttackMove { player, units, .. }
+            | Command::Patrol { player, units, .. }
+            | Command::StandGround { player, units } => (*player, units),
             &Command::Train {
                 player,
                 building: id,
@@ -726,33 +783,8 @@ impl World {
             if u.owner != player || u.dying || u.building || self.stride_of(u.kind) == 0 {
                 continue;
             }
-            let order = match *c {
-                Command::Move { to, .. } => Order::Move { goal: to },
-                Command::Stop { .. } => Order::Idle,
-                Command::Attack { target, .. } => {
-                    if !self.can_attack(u, target) {
-                        continue;
-                    }
-                    Order::Attack { target }
-                }
-                Command::Repair { target, .. } => {
-                    if self.stats_of(u.kind).flags & flags::PEON == 0 {
-                        continue;
-                    }
-                    match self.repair_command(i, target) {
-                        Some(o) => o,
-                        None => continue,
-                    }
-                }
-                Command::Harvest { target, tile, .. } => match self.harvest_command(i, target, tile) {
-                    Some(o) => o,
-                    None => continue,
-                },
-                Command::ReturnGoods { .. } => match self.return_command(i) {
-                    Some(o) => o,
-                    None => continue,
-                },
-                Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } => continue,
+            let Some(order) = self.command_order(i, c) else {
+                continue;
             };
             self.give(i, order);
         }
@@ -805,8 +837,14 @@ impl World {
         if dying {
             return;
         }
-        if self.units[i].building {
-            self.work(i, fx.step_done);
+        let u = &mut self.units[i];
+        u.resume = u.resume.saturating_sub(1);
+        if u.building {
+            if self.is_watching_tower(i) {
+                self.tower(i, fx);
+            } else {
+                self.work(i, fx.step_done);
+            }
             return;
         }
         self.order(i, fx);
@@ -831,6 +869,7 @@ impl World {
         self.players.hash(&mut h);
         self.rng.hash(&mut h);
         self.units.hash(&mut h);
+        self.ylist.hash(&mut h);
         self.missiles.hash(&mut h);
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
@@ -874,6 +913,7 @@ pub(crate) mod tests {
             armor: 2,
             attack_range: 1,
             missile: crate::combat::missile::NONE,
+            can_target: 1,
             ..Default::default()
         };
         t[8] = UnitStats {
@@ -884,6 +924,7 @@ pub(crate) mod tests {
             piercing_damage: 6,
             attack_range: 4,
             missile: 0x0f,
+            can_target: 7,
             ..Default::default()
         };
         t[5] = UnitStats {
@@ -893,6 +934,7 @@ pub(crate) mod tests {
             basic_damage: 80,
             attack_range: 8,
             missile: crate::combat::missile::CATAPULT,
+            can_target: 3,
             ..Default::default()
         };
         t[2] = UnitStats {

@@ -14,6 +14,7 @@ pub mod combat;
 pub mod economy;
 mod harvest;
 mod movement;
+mod orders;
 pub mod path;
 pub mod placement;
 mod repair;

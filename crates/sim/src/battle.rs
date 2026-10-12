@@ -132,7 +132,7 @@ impl World {
     }
 
     /// Turns toward the target and plays the attack animation, starting it in the same cycle if needed.
-    fn face_and_strike(&mut self, i: usize, d: (i32, i32)) {
+    pub(crate) fn face_and_strike(&mut self, i: usize, d: (i32, i32)) {
         if self.units[i].script.anim != anim::ATTACK {
             self.units[i].facing = facing(d.0, d.1);
             self.switch_anim(i, anim::ATTACK);
@@ -141,15 +141,20 @@ impl World {
 
     /// The strike point of the attack script: a melee hit or a missile launch.
     pub(crate) fn strike(&mut self, i: usize) {
-        let (ti, to) = match self.units[i].order {
-            Order::Attack { target } => {
+        let order = self.units[i].order;
+        let (ti, to) = match (order, crate::orders::target_of(order)) {
+            (Order::AttackWall { tile }, _) => (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2)),
+            (Order::Follow { .. } | Order::Guard { .. }, _) | (_, None) => return,
+            (_, Some(target)) => {
                 let Some(ti) = self.index(target).filter(|&ti| self.units[ti].present()) else {
                     return;
                 };
+                // Orders spec, "Friendly fire": ground attackers check the 3 x 3 around the target first.
+                if self.holds_fire(i, self.units[ti].tile) {
+                    return;
+                }
                 (Some(ti), self.units[ti].centre_px())
             }
-            Order::AttackWall { tile } => (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2)),
-            _ => return,
         };
         let a = &self.units[i];
         let s = self.stats_of(a.kind);
@@ -354,7 +359,10 @@ mod tests {
     #[test]
     fn melee_fight_to_the_death() {
         let mut w = world();
-        let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
+        // An unarmed copy of the footman, so it doesn't fight back.
+        w.stats.0[1] = w.stats.0[0];
+        w.stats.0[1].flags &= !tidewater_formats::udta::flags::CAN_ATTACK;
+        let foe = w.spawn(1, 1, (1, 0), 0).unwrap();
         attack(&mut w, 0, vec![UnitId(1)], foe);
         run(&mut w, 40);
         let hp = w.unit(foe).unwrap().hp;

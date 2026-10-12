@@ -96,8 +96,8 @@ impl World {
 
     /// Gives a unit a new order: it waits as the pending order until the next "step done".
     pub(crate) fn give(&mut self, i: usize, order: Order) {
-        // Orders 25 and 26 can't be interrupted (harvest spec, "Entering").
-        if matches!(self.units[i].order, Order::Enter { .. } | Order::Inside { .. }) {
+        // Orders 25 and 26 can't be interrupted (harvest spec, "Entering"), and dying units take no orders.
+        if self.units[i].dying || matches!(self.units[i].order, Order::Enter { .. } | Order::Inside { .. }) {
             return;
         }
         self.units[i].pending = Some(order);
@@ -148,39 +148,25 @@ impl World {
             self.take_over(i, o);
             return;
         }
+        if self.run_order(i) {
+            return;
+        }
         match self.units[i].order {
-            Order::Idle => {
-                if self.units[i].script.anim != anim::STILL {
-                    self.switch_anim(i, anim::STILL);
-                }
-            }
-            Order::Move { goal } => {
-                let g = Goal::tile(goal, 0);
-                match self.move_toward(i, g) {
-                    Walk::Arrived | Walk::NoPath => {
-                        self.go_idle(i);
-                        self.switch_anim(i, anim::STILL);
-                    }
-                    Walk::Stepping | Walk::Blocked => {}
-                }
-            }
-            Order::Attack { target } => self.attack_order(i, target),
             Order::AttackWall { tile } => self.attack_wall_order(i, tile),
             Order::Repair { target } => self.repair_order(i, target),
             Order::Harvest { source, tree, chopping } => self.harvest_order(i, source, tree, chopping),
             Order::ReturnGoods { depot } => self.return_order(i, depot),
             Order::Enter { building, stepped } => self.enter_order(i, building, stepped),
             Order::Inside { building, hall_sized } => self.come_out(i, building, hall_sized),
+            _ => {}
         }
     }
 
     /// A pending order replaces the current one: its animation starts with a first wait of 3 and nothing else
     /// happens this cycle (movement spec, "When decisions are made").
     fn take_over(&mut self, i: usize, o: Order) {
-        let a = match o {
-            Order::Idle => anim::STILL,
-            _ => anim::MOVE,
-        };
+        self.release_tree(i);
+        let a = crate::orders::order_anim(o);
         let u = &mut self.units[i];
         u.order = o;
         u.path.clear();
@@ -615,7 +601,10 @@ mod tests {
                 target: hall,
             },
         );
-        until(&mut w, 100, |w| w.unit(f).unwrap().script.anim == anim::ATTACK);
-        assert_eq!(w.unit(f).unwrap().tile, (9, 11));
+        // Order 9 starts its attack animation at takeover, so wait for the footman to stop walking.
+        until(&mut w, 100, |w| w.unit(f).unwrap().tile == (9, 11));
+        run(&mut w, 40);
+        let u = w.unit(f).unwrap();
+        assert_eq!((u.tile, u.script.anim), ((9, 11), anim::ATTACK));
     }
 }
