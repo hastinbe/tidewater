@@ -586,6 +586,11 @@ impl HudArt {
         outline(pic, r, [140, 120, 60]);
     }
 
+    /// Uses the cycled palette (`palette`) from now on: the minimap and the icons drawn later show its colours.
+    pub fn set_palette(&mut self, pal: &Palette) {
+        self.pal.clone_from(pal);
+    }
+
     /// A palette colour of the era.
     fn colour(&self, n: u8) -> [u8; 3] {
         self.pal.0[n as usize]
