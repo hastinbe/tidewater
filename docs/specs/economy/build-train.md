@@ -141,7 +141,8 @@ A completed building that isn't already working can start **one** job at a time.
 
 **Starting:** the cost is taken at once. The building's order becomes 37 (working), its progress counter is set
 to 0 and its mana byte to 1. Starting a **building upgrade** also sets the frame to 1 and shows the new type's
-picture, while the type stays the old one until the upgrade ends. Training also raises the owner's "units in training" count.
+picture, while the type stays the old one until the upgrade ends. Training also raises the owner's "units in
+training" count.
 
 **Progress:** the working order's logic runs once per loop of the building's work animation, and each run adds 1 to
 the counter (with the build-speed cheat, up to 10 at a time). Building animation timing (from the scripts):
