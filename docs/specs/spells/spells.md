@@ -6,6 +6,8 @@
   (`Rez\unitdata.dat`) and the unit flags in the public PUD specification text. Not yet confirmed against the running
   game.
 - **Changes:** 2026-10-11, round-8 errata: the fireball's count goes on to 41 and it ends on the step after count 41.
+  2026-10-12, round-16 errata: the cosmetic effects' lifetimes (each plays its script once; removed in cycle
+  U + 1 + W).
 
 ## Behaviour
 
@@ -267,7 +269,24 @@ when it reaches 0 (touching a wall on its final tile with damage 4). When it rea
 goal at its position plus ((r & 127) − 64) px on x and on y (2 draws). It lasts 2400 cycles and splashes 400 times. A
 new goal equal to its position is never reached, so it then drifts east until it ends.
 
-**Cosmetic effects.** Kinds 0x0B, 0x16 and 0x17 are removed at their first step and change nothing but slot use. Kinds
+**Cosmetic effects.** Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A change nothing but slot use, and draw no random
+number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's
+step done. Its first update ("When a new effect first runs") is in cycle U and restarts its script with a wait of 1;
+it is removed during its update in cycle **U + 1 + W**, where W is the total of the script's waits. From that update
+on, its slot is free for any effect created later.
+
+| Kind | Use | Script | W (cycles) | Removed in cycle |
+| --- | --- | --- | --- | --- |
+| 0x0B | rune marker | six frames with waits 3, 2, 3, 2, 3, 2 | 15 | U + 16 |
+| 0x16 | spell marker (holy vision, slow, invisibility and others) | six frames with a wait of 3 each | 18 | U + 19 |
+| 0x17 | explosion | sixteen frames with a wait of 3 each | 48 | U + 49 |
+| 0x19 | cannon smoke (`combat/damage.md`) | four frames with a wait of 3 each | 12 | U + 13 |
+| 0x15, 0x1A | impact effects (`combat/damage.md`, "Impact effects") | as given there | 12 | U + 13 |
+
+Kinds 0x13 and 0x14 would also be removed at step done, but their scripts loop and never reach one. Nothing found
+creates them.
+
+Kinds
 8 (exorcism) and 9 (healing) are not quite cosmetic: they start at the unit's pixel position plus (floor(w / 2),
 floor(h / 2) − 4), with w × h the unit type's box size, make one flight step of 12 px up and to the left (one draw),
 and end on their next step by touching a wall on their final tile with damage 0, which still adds 1 to that wall's
