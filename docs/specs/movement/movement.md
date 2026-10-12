@@ -9,6 +9,8 @@
   path search; a vector for order 9 is added.
 - **Changes:** 2026-10-12, round-36 errata: a landing transport's general radius is 3 (no +1); the landing logic checks
   the exact goal.
+- **Changes:** 2026-10-12, round-37 errata: every command clears the blocked counter at once, for any order and even in
+  mid-step.
 
 ## Behaviour
 
@@ -117,7 +119,10 @@ because two-tile steps can't always land exactly. When a unit arrives, its cache
 
 Each unit has a **blocked counter**, from 0 to 15.
 
-- It is set to 0 when the unit is given a new move-type order, or when it gives up (below).
+- It is set to 0 when the unit is given any command (by a player, by a computer player or by its own order logic,
+  for every order, including 17, 30 and the spells), at the moment the command is given, even if the unit is in the
+  middle of a step; it doesn't wait for the pending order to take over. It is also set to 0 when the unit gives up
+  (below).
 - It is **not** reset by successful steps, so blocks add up over the whole order.
 
 A unit's **attacker** is the enemy unit that most recently damaged it. It is recorded when the unit is notified that
