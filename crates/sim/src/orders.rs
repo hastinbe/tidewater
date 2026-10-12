@@ -187,9 +187,9 @@ impl World {
         let u = &mut self.units[i];
         u.script.wait = u.script.wait.min(cap);
         let u = &self.units[i];
-        let target = target
-            .or_else(|| self.occupant(u.layer, tile.0, tile.1))
-            .filter(|&t| t != u.id);
+        // The command carries its target unit, if any ("Commands"): a unit standing on the target tile isn't looked
+        // up, so a critter wandering onto another unit's tile gets order 3 (Human04 trace, n = 82).
+        let target = target.filter(|&t| t != u.id);
         if self.is_transport(u) {
             return Some(self.transport_command(i, target, tile, false));
         }
@@ -342,10 +342,19 @@ impl World {
                 if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && self.react(i) {
                     return true;
                 }
-                if matches!(self.move_toward(i, Goal::tile(goal, 0)), Walk::Arrived | Walk::NoPath) {
+                let walk = self.move_toward(i, Goal::tile(goal, 0));
+                // A move (order 3) that arrives goes idle as a same-update take-over (orders spec, open question
+                // "Same-update take-over", default: every command a unit's own order logic gives it): order 2 with
+                // wait 3 and no idle logic run in that update. The Human04 trace shows this for critters (n = 58).
+                if matches!(walk, Walk::Arrived) && matches!(o, Order::Move { .. }) {
+                    self.units[i].attacked_by = None;
+                    self.take_over(i, Order::Idle);
+                    return true;
+                }
+                if matches!(walk, Walk::Arrived | Walk::NoPath) {
                     self.units[i].attacked_by = None;
                     self.stop(i);
-                    // "Idle look-around": when a move (order 3) ends, the idle logic runs in the same update (the
+                    // "Idle look-around": when a move (order 3) gives up, the idle logic runs in the same update (the
                     // spec's open question "Idle logic after a move", default: every unit).
                     if matches!(o, Order::Move { .. }) && self.units[i].order == Order::Idle {
                         self.run_order(i);
@@ -900,6 +909,35 @@ mod tests {
             assert_eq!(w.command_order(i, &c), Some(Order::Move { goal: (10, 10) }));
             assert_eq!(w.units[i].script.wait, expected, "owner {owner}");
         }
+    }
+
+    #[test]
+    fn an_arriving_move_goes_idle_as_a_same_update_take_over() {
+        // Human04 critters (n = 58): when order 3 arrives, order 2 takes over in the same update with wait 3 and no
+        // idle logic run (orders spec, open question "Same-update take-over", default).
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        w.step(&[Command::Smart {
+            player: 0,
+            units: vec![f],
+            target: None,
+            tile: (7, 5),
+        }]);
+        let (mut moving, mut arrived) = (false, false);
+        for _ in 0..200 {
+            w.step(&[]);
+            let u = w.unit(f).unwrap();
+            moving |= matches!(u.order, Order::Move { .. });
+            if moving && u.order == Order::Idle {
+                assert_eq!(
+                    (u.tile, u.pending, u.script.anim, u.script.wait),
+                    ((7, 5), None, anim::STILL, 3)
+                );
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived);
     }
 
     #[test]

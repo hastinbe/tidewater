@@ -220,7 +220,13 @@ impl World {
         let u = &self.units[i];
         let next = u.path[0];
         let occupant = self.occupant(u.layer, next.0, next.1).filter(|&o| o != u.id);
-        if occupant.is_some() || !self.terrain_allows(u.layer, next.0, next.1) {
+        // Transports spec, "Landing": a landing transport moves in the landing class, which may enter shore water.
+        let class = if u.ship.landing {
+            crate::terrain::mask::LANDING
+        } else {
+            u.layer.mask()
+        };
+        if occupant.is_some() || !self.terrain_allows_mask(class, next.0, next.1) {
             self.blocked(i, next, occupant, g);
             return Walk::Blocked;
         }
@@ -234,7 +240,9 @@ impl World {
         self.mark(&unit, next, Some(unit.id));
         // Vision spec, "When sight is applied": a unit that moves onto a new tile reveals from it at once.
         self.apply_unit_sight(i);
-        if unit.script.anim != anim::MOVE {
+        // A transport moving as a one-tile unit keeps its order's animation (6 for orders 30 and 31): only a two-tile
+        // mover starts the move animation (transports spec, "Landing" step 2 and "Pushing off" step 4).
+        if unit.script.anim != anim::MOVE && !unit.ship.one_tile {
             self.switch_anim(i, anim::MOVE);
         }
         // Sounds spec, "Docking": a transport moving onto a shore-water tile.

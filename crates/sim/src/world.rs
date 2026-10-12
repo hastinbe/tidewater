@@ -872,8 +872,8 @@ impl World {
     }
 
     /// Creates a unit with full hit points in the front free slot (unit-slots spec), making the creation draws
-    /// (timing-and-rng spec, "Draw sites"): a mobile unit's facing, a building's variation value, then extra cycles on
-    /// the first animation wait. Ships and flyers are aligned to even tiles. Placement only checks the map bounds
+    /// (timing-and-rng spec, "Draw sites"): a mobile unit's facing, a building's variation value, a computer land
+    /// unit's post choice (its first goal, attack-ai spec), then extra cycles on the first animation wait. Ships and flyers are aligned to even tiles. Placement only checks the map bounds
     /// until the placement spec lands. Returns its id.
     pub fn spawn(&mut self, kind: u8, owner: u8, tile: (i32, i32), resources: u32) -> Result<UnitId, SpawnError> {
         let s = self.stats_of(kind);
@@ -908,7 +908,6 @@ impl World {
         }
         let mut script = Script::default();
         script.start(anim::STILL, self.scripts.unit(kind, anim::STILL).unwrap_or(0));
-        script.wait += (self.rng.draw() & 7) as u8;
         let unit = Unit {
             id,
             slot,
@@ -917,7 +916,8 @@ impl World {
             tile,
             pos: (tile.0 * TILE_PX, tile.1 * TILE_PX),
             facing,
-            hp: s.hit_points,
+            // Unit-slots spec, "Creating a unit", step 3: the type's hit points, or 1 if that is 0.
+            hp: s.hit_points.max(1),
             layer,
             size,
             building,
@@ -975,10 +975,14 @@ impl World {
             bob: Default::default(),
         };
         // Orders spec, "Orders given when a unit is created": every unit starts in order 2; a building's first order
-        // (14, 33 or 59; we hold a building at rest as `Idle` and a tower switches to order 14 at its first run) is
-        // pending until its first step done.
+        // (14 for a tower, else 33 or 59, which we hold as `Idle`) is pending until its first step done.
+        let first = if s.flags & flags::TOWER != 0 {
+            Order::TowerWatch { target: None }
+        } else {
+            Order::Idle
+        };
         let unit = Unit {
-            pending: building.then_some(Order::Idle),
+            pending: building.then_some(first),
             ..unit
         };
         self.mark(&unit, unit.tile, Some(id));
@@ -986,6 +990,11 @@ impl World {
         let at = self.units.partition_point(|u| u.slot < slot);
         self.units.insert(at, unit);
         self.slot_of.insert(id, slot);
+        // Unit-slots spec, "Creating a unit", step 6: the goal is cleared and the attack-ai spec's first-goal rule runs
+        // after the first order is set and before the extra first-wait draw, which always comes last.
+        self.first_goal(at);
+        let extra = (self.rng.draw() & 7) as u8;
+        self.units[at].script.wait += extra;
         Ok(id)
     }
 
@@ -1050,10 +1059,10 @@ impl World {
         self.occupancy[layer_index(layer)][n]
     }
 
-    /// Whether a unit of `layer` may enter the tile as far as the terrain and buildings go: its movement word against
-    /// the layer's mask, leaving out the unit marks of tiles a unit stands on (the callers judge units by pointer).
-    /// Marks without a unit, such as the map's "cave" and "space" values, still block.
-    pub(crate) fn terrain_allows(&self, layer: Layer, x: i32, y: i32) -> bool {
+    /// Whether a unit moving in the class `mask` may enter the tile as far as the terrain and buildings go: its
+    /// movement word against the class mask, leaving out the unit marks of tiles a unit stands on (the callers judge
+    /// units by pointer). Marks without a unit, such as the map's "cave" and "space" values, still block.
+    pub(crate) fn terrain_allows_mask(&self, mask: u16, x: i32, y: i32) -> bool {
         let Some(n) = self.terrain.at(x, y) else { return false };
         let mut word = self.terrain.words[n];
         if self.occupancy[0][n].is_some() {
@@ -1062,7 +1071,7 @@ impl World {
         if self.occupancy[1][n].is_some() {
             word &= !bits::AIR_UNIT;
         }
-        word & layer.mask() == 0
+        word & mask == 0
     }
 
     pub fn unit(&self, id: UnitId) -> Option<&Unit> {
@@ -1106,11 +1115,17 @@ impl World {
         self.step_ai();
         self.army_pass();
         let refresh = self.fog_refresh();
-        for i in 0..self.units.len() {
+        // Ascending slot order. A unit created during another unit's update is inserted into the table, so the walk
+        // goes by slot rather than by index: a new unit in a higher slot is reached this cycle, one in a lower slot
+        // isn't, and no unit is updated twice.
+        let mut i = 0;
+        while i < self.units.len() {
+            let slot = self.units[i].slot;
             if refresh {
                 self.apply_unit_sight(i);
             }
             self.advance(i);
+            i = self.units.partition_point(|u| u.slot <= slot);
         }
         self.advance_missiles();
         for i in 0..self.units.len() {
@@ -1311,9 +1326,10 @@ impl World {
         if u.building {
             // Orders spec, "Orders given when a unit is created": the first order takes over at the first step done
             // (wait 3), and nothing else runs in that update.
-            if fx.step_done && u.pending == Some(Order::Idle) {
-                u.pending = None;
-                self.take_over(i, Order::Idle);
+            if fx.step_done
+                && let Some(first) = u.pending.take()
+            {
+                self.take_over(i, first);
                 return;
             }
             if self.is_watching_tower(i) {
@@ -1675,6 +1691,28 @@ pub(crate) mod tests {
         let b = w.spawn(0x3a, 0, (6, 6), 0).unwrap();
         assert_eq!(w.unit(b).unwrap().variation, (130 % 6) as u8);
         assert_eq!(w.unit(b).unwrap().script.wait, 1 + (10982 & 7) as u8);
+    }
+
+    #[test]
+    fn a_new_units_hit_points_are_its_types_or_1() {
+        // Unit-slots spec, "Creating a unit": the type's hit points, or 1 if that is 0 (the Human04 oil patches);
+        // other values are kept (the gold mine's 25500).
+        let mut w = world();
+        w.stats.0[0x3a].hit_points = 0;
+        let patch = w.spawn(0x3a, 0, (5, 5), 0).unwrap();
+        w.stats.0[0x3a].hit_points = 25500;
+        let mine = w.spawn(0x3a, 0, (2, 2), 0).unwrap();
+        assert_eq!((w.unit(patch).unwrap().hp, w.unit(mine).unwrap().hp), (1, 25500));
+    }
+
+    #[test]
+    fn a_new_buildings_first_order_is_pending() {
+        // Orders spec, "Orders given when a unit is created": a building's resting order takes over at its first
+        // step done, so it shows order 2 until then.
+        let mut w = world();
+        let b = w.spawn(0x3a, 0, (5, 5), 0).unwrap();
+        let u = w.unit(b).unwrap();
+        assert_eq!((u.order, u.pending), (Order::Idle, Some(Order::Idle)));
     }
 
     #[test]

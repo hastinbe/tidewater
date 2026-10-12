@@ -351,7 +351,7 @@ impl Start {
         }
         codes[PLAYERS - 1] = controller::PASSIVE;
         let mut races = [race::NEUTRAL; PLAYERS];
-        for (r, &s) in races.iter_mut().zip(pud.sides()).take(PLAYABLE) {
+        for (r, &s) in races.iter_mut().zip(pud.sides()) {
             *r = if s <= race::ORC { s } else { race::NEUTRAL };
         }
         let mut resources = [(DEFAULT_RESOURCES, DEFAULT_RESOURCES, DEFAULT_RESOURCES); PLAYERS];
@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn slot_15_is_passive_and_8_to_15_are_neutral() {
+    fn slot_15_is_passive_and_races_come_from_the_map() {
         let mut m = Map::default();
         m.owners[15] = 3;
         m.sides = [1; 16];
@@ -669,8 +669,19 @@ mod tests {
         m.owners[0] = 5;
         let s = Start::choose(&pud(&m), &Setup::parse("campaign:0").unwrap(), 0).unwrap();
         assert_eq!(s.controllers[15], PASSIVE);
-        assert_eq!(s.races[7], 1);
-        assert!(s.races[8..].iter().all(|&r| r == race::NEUTRAL));
+        // The map's `SIDE` race is used as it is for all 16 slots (round-31 errata).
+        assert!(s.races.iter().all(|&r| r == race::ORC));
+        // Human01 and Human04: 1, then 0 fourteen times, then 2.
+        m.sides = [0; 16];
+        m.sides[0] = 1;
+        m.sides[15] = 2;
+        let s = Start::choose(&pud(&m), &Setup::parse("campaign:0").unwrap(), 0).unwrap();
+        assert_eq!(s.races[0], race::ORC);
+        assert!(s.races[1..15].iter().all(|&r| r == race::HUMAN));
+        assert_eq!(s.races[15], race::NEUTRAL);
+        m.sides[15] = 7;
+        let s = Start::choose(&pud(&m), &Setup::parse("campaign:0").unwrap(), 0).unwrap();
+        assert_eq!(s.races[15], race::NEUTRAL);
     }
 
     fn custom_vector(c: Custom) -> Start {

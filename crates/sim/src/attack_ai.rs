@@ -784,8 +784,8 @@ impl World {
         false
     }
 
-    /// The completion hook (`economy/build-train.md`, "Completion"): the goal is cleared, and a computer player's
-    /// mobile fighting unit gets its first goal ("When a unit is completed").
+    /// Creation step 6 (`core/unit-slots.md`): the goal is cleared, and a computer player's mobile fighting unit gets
+    /// its first goal ("When a unit is created", map units included).
     pub(crate) fn first_goal(&mut self, i: usize) {
         self.units[i].goal = Goal::default();
         let u = &self.units[i];
@@ -1602,18 +1602,25 @@ mod tests {
     // ---- Timing and waves ----
 
     #[test]
-    fn passes_run_in_cycles_1_51_101() {
+    fn passes_run_in_the_first_start_up_cycle_then_every_50() {
+        // "Timing": the first start-up cycle (trace record n = 1), then the cycles ending with the counter at 49, 99,
+        // ... (n = 51, 101, ...).
         let mut w = game();
         spawn(&mut w, GRUNT, 1, (40, 40));
         let trigger = |w: &mut World| w.ai[1].slots[0x09] = 1;
         trigger(&mut w);
         w.step(&[]);
-        assert_eq!(w.ai[1].slots[0x09], 0, "cycle 1");
+        assert_eq!(w.ai[1].slots[0x09], 0, "n = 1");
         trigger(&mut w);
         run(&mut w, 49);
         assert_eq!(w.ai[1].slots[0x09], 1);
         w.step(&[]);
-        assert_eq!(w.ai[1].slots[0x09], 0, "cycle 51");
+        assert_eq!(w.ai[1].slots[0x09], 0, "n = 51");
+        trigger(&mut w);
+        run(&mut w, 49);
+        assert_eq!(w.ai[1].slots[0x09], 1);
+        w.step(&[]);
+        assert_eq!(w.ai[1].slots[0x09], 0, "n = 101");
     }
 
     fn wave_world(held: usize) -> (World, Vec<UnitId>) {
@@ -1647,8 +1654,9 @@ mod tests {
         // List order: the newest units come first in the owner's list, so the two oldest stay home.
         let list: Vec<UnitId> = w.list_of(1).into_iter().map(|i| w.units[i].id).collect();
         assert_eq!(&list[8..], &[grunts[1], grunts[0]]);
+        // They keep the first goal they got when created (hold).
         for g in &list[8..] {
-            assert_eq!(at(&w, *g).goal.kind, GoalKind::None);
+            assert_eq!(at(&w, *g).goal.kind, GoalKind::Hold);
         }
     }
 
@@ -1657,7 +1665,7 @@ mod tests {
         let (mut w, grunts) = wave_world(3);
         w.attack_waves();
         assert_eq!(attackers(&w, &grunts), 7);
-        assert!(grunts[..3].iter().all(|g| at(&w, *g).goal.kind == GoalKind::None));
+        assert!(grunts[..3].iter().all(|g| at(&w, *g).goal.kind == GoalKind::Hold));
     }
 
     #[test]
@@ -1914,6 +1922,57 @@ mod tests {
     }
 
     #[test]
+    fn units_get_their_first_goal_when_created() {
+        // Unit-slots spec, step 6: every created unit, map units included, with no call from outside.
+        let mut w = game();
+        water(&mut w, 40, 64);
+        let kinds: Vec<GoalKind> = [
+            (GRUNT, 1, (10, 10)),
+            (TRANSPORT, 1, (50, 10)),
+            (DESTROYER, 1, (50, 20)),
+            (GRYPHON, 1, (20, 20)),
+            (PEASANT, 1, (11, 11)),
+            (GRUNT, 0, (12, 12)),
+        ]
+        .into_iter()
+        .map(|(k, p, t)| {
+            let u = spawn(&mut w, k, p, t);
+            at(&w, u).goal.kind
+        })
+        .collect();
+        use GoalKind::*;
+        assert_eq!(kinds, [Hold, Ferry, SeaPatrol, Roam, None, None]);
+    }
+
+    #[test]
+    fn an_off_map_post_draws_before_the_first_wait_draw() {
+        // Timing spec, draw table: a mobile unit's creation draws its facing, then a computer land unit's post choice
+        // off the map draws x then y, and the extra first-wait draw comes last.
+        let mut w = game();
+        // A box as large as the map: the walk west from the hall toward the footman leaves it beyond the left edge.
+        spawn(&mut w, TOWN_HALL, 1, (4, 10));
+        spawn(&mut w, FOOTMAN, 0, (0, 10));
+        w.army.boxes[1] = BaseBox {
+            min_x: 0,
+            min_y: 0,
+            max_x: 63,
+            max_y: 63,
+        };
+        let mut r = w.rng;
+        let facing = r.draw() & 7;
+        let (dx, dy, extra) = (r.draw() % 12, r.draw() % 12, r.draw() & 7);
+        let g = spawn(&mut w, GRUNT, 1, (30, 30));
+        assert_eq!(w.rng, r, "four draws");
+        let want = (30 + dx as i32 - 6, 30 + dy as i32 - 6);
+        let u = at(&w, g);
+        assert_eq!((u.facing as u32, u.goal.kind), (facing, GoalKind::Hold));
+        if want != (30, 30) {
+            assert_eq!(u.goal.tile, Some(want));
+        }
+        assert_eq!(u.script.wait as u32, 1 + extra);
+    }
+
+    #[test]
     fn line_walk_steps() {
         let inside = |(x, _): (i32, i32)| x < 3;
         assert_eq!(line_walk((0, 0), (10, 5), inside), (3, 2));
@@ -2113,6 +2172,9 @@ mod tests {
         w.ai[1].slots[FERRY_SEARCH] = 1;
         let a = spawn(&mut w, GRUNT, 1, (10, 10));
         let b = spawn(&mut w, GRUNT, 1, (11, 10));
+        // Only the goal tiles matter here, not the first goals the grunts got when created.
+        um(&mut w, a).goal = Goal::default();
+        um(&mut w, b).goal = Goal::default();
         um(&mut w, a).goal.tile = Some((60, 5));
         um(&mut w, b).goal.tile = Some((60, 20));
         for (slot, p) in [a, b].into_iter().enumerate() {
@@ -2128,10 +2190,12 @@ mod tests {
         // From (60, 20), B's goal: the first shore tile of region 3 in direction d0 and on.
         let want = w.landing_spot((60, 20), d0);
         assert!(w.terrain.word(want.0, want.1) & bits::SHORE != 0);
+        // The landing spot is shore water and the transport is on open water, so the command pulls the target tile
+        // back toward the transport (transports spec, "Land and shore targets").
         let tr = at(&w, t);
         assert!(tr.ship.unload);
         assert!(tr.pending.is_some());
-        assert_eq!(tr.ship.dest, want);
+        assert_eq!(tr.ship.dest, w.shore_target(tr.tile, want));
     }
 
     #[test]
@@ -2333,6 +2397,6 @@ mod tests {
         let g = spawn(&mut w, GRUNT, 1, (10, 10));
         let f = ix(&w, farms[0]);
         w.kill(f);
-        assert_eq!(at(&w, g).goal.kind, GoalKind::None);
+        assert_eq!(at(&w, g).goal.kind, GoalKind::Hold, "the first goal from creation");
     }
 }

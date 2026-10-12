@@ -698,6 +698,100 @@ mod tests {
         assert_eq!((job(&w, i), at(&mut w, i).think), (None, 0));
     }
 
+    /// Steps the world once per entry and records the building's wait after each step (one trace record each).
+    fn waits(w: &mut World, id: UnitId, n: usize) -> Vec<u8> {
+        (0..n)
+            .map(|_| {
+                w.step(&[]);
+                w.unit(id).unwrap().script.wait
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_new_buildings_resting_order_takes_over_at_its_first_step_done() {
+        // Orders spec, "Taking over", Human01 vector: wait 1 at setup takes over at n = 1, wait 2 at n = 2; then
+        // a "step done" every 5 cycles.
+        let mut w = base(&[0xff]);
+        let first = put(&mut w, b::BARRACKS);
+        let second = put(&mut w, b::LUMBER_MILL);
+        at(&mut w, first).script.wait = 1;
+        at(&mut w, second).script.wait = 2;
+        assert!(at(&mut w, first).pending.is_some());
+        w.step(&[]);
+        assert_eq!((at(&mut w, first).pending, at(&mut w, first).script.wait), (None, 3));
+        assert_eq!(at(&mut w, second).script.wait, 1);
+        assert!(at(&mut w, second).pending.is_some());
+        w.step(&[]);
+        assert_eq!((at(&mut w, second).pending, at(&mut w, second).script.wait), (None, 3));
+        // n = 3 on: the first building's step done at n = 4 (the second 1), then every 5 cycles.
+        assert_eq!(at(&mut w, first).script.wait, 2);
+        assert_eq!(waits(&mut w, first, 8), [1, 1, 4, 3, 2, 1, 1, 4]);
+    }
+
+    #[test]
+    fn a_take_over_replaces_the_logic_run_so_a_hall_thinks_at_n_21() {
+        // Orders spec, "Taking over", Human04 great hall vector: created with wait 8, the resting order takes over at
+        // n = 8 (wait 3); its logic runs at n = 11, 16, 21 and the third run thinks; the job takes over at n = 26.
+        let mut w = base(&[0xff]);
+        let hall = put(&mut w, b::BARRACKS);
+        slots(&mut w, &[(0x14, 9)]);
+        at(&mut w, hall).script.wait = 8;
+        let mut runs = vec![];
+        let mut thought = 0;
+        let mut working = 0;
+        for n in 1..=30 {
+            let before = at(&mut w, hall).think;
+            w.step(&[]);
+            let u = at(&mut w, hall);
+            if n == 8 {
+                assert_eq!((u.pending, u.script.wait), (None, 3), "take-over at n = 8");
+            }
+            if u.think != before || (thought == 0 && u.job.is_some()) {
+                runs.push(n);
+            }
+            if thought == 0 && u.job.is_some() {
+                thought = n;
+            }
+            if working == 0 && u.job.is_some_and(|j| j.running) {
+                working = n;
+            }
+        }
+        assert_eq!((runs, thought, working), (vec![11, 16, 21], 21, 26));
+    }
+
+    #[test]
+    fn after_training_the_resting_order_takes_over_at_once() {
+        // Human04 vector: the peon appears at n = 489; order 33 takes over at once with wait 3, its logic runs at
+        // n = 492, 497, 502, and it thinks at the third run.
+        let mut w = base(&[0xff]);
+        let hall = put(&mut w, b::BARRACKS);
+        slots(&mut w, &[(0x14, 9)]);
+        let units = |w: &World| w.units.len();
+        let mut n0 = units(&w);
+        let mut out = 0;
+        for n in 1..=200 {
+            w.step(&[]);
+            if units(&w) > n0 {
+                out = n;
+                break;
+            }
+            n0 = units(&w);
+        }
+        assert!(out > 0, "a footman was trained");
+        let u = at(&mut w, hall);
+        assert_eq!((u.job, u.pending, u.script.wait), (None, None, 3));
+        let mut thought = 0;
+        for n in out + 1..=out + 20 {
+            w.step(&[]);
+            if at(&mut w, hall).job.is_some() {
+                thought = n;
+                break;
+            }
+        }
+        assert_eq!(thought, out + 13);
+    }
+
     #[test]
     fn barracks_footman_first_without_a_draw() {
         let mut w = base(&[0xff]);

@@ -43,12 +43,10 @@ pub fn trips(map_value: u16) -> u32 {
     }
 }
 
-/// The tile of `b`'s footprint nearest to `from`.
-fn nearest_in(from: (i32, i32), b: &Unit) -> (i32, i32) {
-    (
-        from.0.clamp(b.tile.0, b.tile.0 + b.size.0 as i32 - 1),
-        from.1.clamp(b.tile.1, b.tile.1 + b.size.1 as i32 - 1),
-    )
+/// The tile a unit faces when it turns to a building: its top-left tile plus (1, 1), as `economy/repair.md` and
+/// `movement/placement.md` state for facing a target building.
+fn facing_point(b: &Unit) -> (i32, i32) {
+    (b.tile.0 + 1, b.tile.1 + 1)
 }
 
 fn zone(b: &Unit) -> (i32, i32, i32, i32) {
@@ -173,11 +171,15 @@ impl World {
         if self.units[si].construction.is_some() {
             return self.idle(i);
         }
-        self.units[i].order = Order::Enter {
-            building: s,
-            stepped: false,
-        };
-        self.enter_order(i, s, false);
+        // Order 25 takes over at once, in the same update, without running its logic (orders spec, "Taking over",
+        // and its default for "Same-update take-over"): its first run comes at the next step done.
+        self.take_over(
+            i,
+            Order::Enter {
+                building: s,
+                stepped: false,
+            },
+        );
     }
 
     /// Moves toward building `bi` (arrival radius 1). Returns whether the unit has arrived; a unit with no path goes
@@ -222,11 +224,14 @@ impl World {
             return self.idle(i);
         }
         let building = self.units[di].id;
-        self.units[i].order = Order::Enter {
-            building,
-            stepped: false,
-        };
-        self.enter_order(i, building, false);
+        // As at a mine: order 25 takes over at once and first runs at the next step done.
+        self.take_over(
+            i,
+            Order::Enter {
+                building,
+                stepped: false,
+            },
+        );
     }
 
     /// Order 25 ("Entering a mine, platform or depot").
@@ -241,7 +246,7 @@ impl World {
         };
         let tanker = self.is_tanker(&self.units[i]);
         if !stepped {
-            let aim = nearest_in(self.units[i].tile, &self.units[bi]);
+            let aim = facing_point(&self.units[bi]);
             let u = self.units[i].clone();
             self.mark(&u, u.tile, None);
             let u = &mut self.units[i];
@@ -252,7 +257,10 @@ impl World {
                 stepped: true,
             };
             if !tanker {
-                // One move loop carries the worker a tile toward the building; the logic runs again when it ends.
+                // One move loop carries the worker a tile toward the building; the logic runs again when it ends. As
+                // for any step, the tile position holds the destination tile from the step's start (movement spec).
+                let v = crate::path::DIRECTIONS[u.facing as usize & 7];
+                u.tile = (u.tile.0 + v.0, u.tile.1 + v.1);
                 self.switch_anim(i, anim::MOVE);
                 return;
             }
@@ -412,11 +420,26 @@ impl World {
             self.kill(i);
             return;
         };
+        // Placement spec: the unit faces its target; a target building is faced at its top-left tile plus (1, 1).
+        let face = match next {
+            Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
+            _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
+        };
         let u = &mut self.units[i];
         u.inside = false;
         u.tile = tile;
         u.pos = (tile.0 * TILE_PX, tile.1 * TILE_PX);
-        u.order = next.unwrap_or(Order::Idle);
+        if let Some(f) = face.filter(|&f| f != tile) {
+            u.facing = facing(f.0 - tile.0, f.1 - tile.1);
+        }
+        if chosen.is_some() {
+            // Step 3: the AI's choice is a command, so it is pending; the unit stays idle (order 2) until its next
+            // step done (Human04 trace: order 2 with the depot as target, then order 24 after the 25-cycle wait).
+            u.order = Order::Idle;
+            u.pending = chosen;
+        } else {
+            u.order = next.unwrap_or(Order::Idle);
+        }
         let u = u.clone();
         self.mark(&u, tile, Some(u.id));
         self.start_anim(i, anim::STILL);
@@ -471,10 +494,7 @@ impl World {
         self.terrain.fell(tree.0, tree.1, area);
         self.units[i].carrying = true;
         match self.nearest_depot(&self.units[i]) {
-            Some(d) => {
-                self.units[i].order = Order::ReturnGoods { depot: Some(d) };
-                self.return_order(i, Some(d));
-            }
+            Some(d) => self.take_over(i, Order::ReturnGoods { depot: Some(d) }),
             None => self.idle(i),
         }
     }
@@ -800,6 +820,32 @@ mod tests {
             w.step(&[]);
         }
         assert_eq!(w.unit(p).unwrap().chop - c0, 10);
+    }
+
+    #[test]
+    fn felling_a_tree_takes_over_the_return_in_the_same_update() {
+        // Human04 n = 1913: when the tree falls, order 24 takes over at once (wait 3, the still animation) and its
+        // logic first runs at the next step done (orders spec, open question "Same-update take-over", default).
+        let mut w = land();
+        forest(&mut w, 10, 8);
+        let hall = w.spawn(kind::TOWN_HALL, 0, (2, 10), 0).unwrap();
+        let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+        harvest(&mut w, vec![p], None, (10, 8));
+        for _ in 0..30 {
+            w.step(&[]);
+        }
+        let pi = w.index(p).unwrap();
+        w.units[pi].chop = 50;
+        let felled = (0..100).find(|_| {
+            w.step(&[]);
+            w.unit(p).unwrap().carrying
+        });
+        assert!(felled.is_some());
+        let u = w.unit(p).unwrap();
+        assert_eq!(
+            (u.order, u.pending, u.script.anim, u.script.wait, u.tile),
+            (Order::ReturnGoods { depot: Some(hall) }, None, anim::STILL, 3, (10, 9))
+        );
     }
 
     #[test]

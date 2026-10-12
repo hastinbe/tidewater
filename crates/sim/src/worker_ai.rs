@@ -167,10 +167,14 @@ impl World {
             && f & (flags::PEON | flags::TANKER) != 0
     }
 
-    /// The idle-order hook: makes the choice and gives its order.
+    /// The idle-order hook: makes the choice and gives its order, which takes over at once, in the same update,
+    /// without running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
     pub(crate) fn idle_choice(&mut self, i: usize) {
         if let Choice::Order(o) = self.worker_choice(i) {
             self.give(i, o);
+            if let Some(o) = self.units[i].pending.take() {
+                self.take_over(i, o);
+            }
         }
     }
 
@@ -960,6 +964,34 @@ mod tests {
         for (x, y) in keep_clear_line((14, 14), (22, 20)) {
             assert!(w.keep_clear_at(x, y));
         }
+    }
+
+    #[test]
+    fn a_new_peons_first_step_done_chooses_a_job_that_takes_over_at_once() {
+        // Orders spec, "Taking over", Human04 peon vector: created with wait 6, its first step done at n = 6 runs the
+        // idle logic and the job choice, whose order takes over in the same update: order 23 on the mine, wait 3.
+        let (mut w, _) = town();
+        for x in 0..3 {
+            w.spawn(t::FARM, 1, (2 + 3 * x, 2), 0).unwrap();
+        }
+        let mine = w.spawn(t::GOLD_MINE, slots::NEUTRAL, (22, 20), 100).unwrap();
+        let peon = w.spawn(PEASANT, 1, (10, 10), 0).unwrap();
+        let i = w.index(peon).unwrap();
+        w.units[i].script.wait = 6;
+        for n in 1..=6 {
+            w.step(&[]);
+            let u = w.unit(peon).unwrap();
+            if n < 6 {
+                assert_eq!(u.order, Order::Idle, "n = {n}");
+            }
+        }
+        let u = w.unit(peon).unwrap();
+        assert!(
+            matches!(u.order, Order::Harvest { source: Some(m), .. } if m == mine),
+            "{:?}",
+            u.order
+        );
+        assert_eq!((u.pending, u.script.wait), (None, 3));
     }
 
     #[test]

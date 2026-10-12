@@ -12,12 +12,18 @@ use tidewater_formats::udta::flags;
 use crate::TILE_PX;
 use crate::movement::{Goal, Walk, chebyshev};
 use crate::path;
-use crate::placement::{LIMIT_UNLOAD, Source};
-use crate::terrain::bits;
+use crate::placement::{LIMIT_UNLOAD, Source, ring_walk};
+use crate::terrain::{bits, mask};
 use crate::world::{Layer, Order, Unit, UnitId, World};
 
 /// Boarding distance on each axis.
 const BOARD_REACH: i32 = 2;
+
+/// "Pull-back usable test": the sea blocking mask without the ground-unit bit.
+const PULL_BACK_MASK: u16 = mask::SEA & !bits::UNIT;
+
+/// "Shore-target search" limit (4 rings).
+const LIMIT_SHORE_TARGET: i32 = 8;
 
 fn even(t: (i32, i32)) -> bool {
     t.0 & 1 == 0 && t.1 & 1 == 0
@@ -61,6 +67,48 @@ impl World {
         true
     }
 
+    /// "Land and shore targets", step 2: the target tile `g` of a transport on open water at `t`, pulled back toward
+    /// `t` to shore water, or found by the shore-target ring search around `g`.
+    pub(crate) fn shore_target(&self, t: (i32, i32), g: (i32, i32)) -> (i32, i32) {
+        let home = self.region_at(t);
+        let usable = |at: (i32, i32)| self.region_at(at) == home && self.terrain.word(at.0, at.1) & PULL_BACK_MASK == 0;
+        // The walk back from G undoes the line's steps in their order: G, G - s1, G - s1 - s2, ..., stopping before T.
+        let steps = path::line(t, g, 1);
+        let mut walk = Vec::with_capacity(steps.len());
+        let mut at = g;
+        for &d in &steps {
+            if at == t {
+                break;
+            }
+            walk.push(at);
+            let v = path::DIRECTIONS[d as usize];
+            at = (at.0 - v.0, at.1 - v.1);
+        }
+        let k = match walk.iter().position(|&a| self.terrain.contains(a.0, a.1) && usable(a)) {
+            Some(0) => g,
+            Some(n) => walk[n - 1],
+            None => walk.last().copied().unwrap_or(g),
+        };
+        let region = self.region_at(g);
+        let ok = |at: (i32, i32)| {
+            self.terrain.contains(at.0, at.1) && {
+                let w = self.terrain.word(at.0, at.1);
+                w & bits::SHORE != 0 && w & mask::LANDING == 0 && self.region_at(at) == region
+            }
+        };
+        if ok(k) {
+            return k;
+        }
+        ring_walk(
+            Source::tile(g.0, g.1),
+            g,
+            LIMIT_SHORE_TARGET,
+            self.terrain.width as i32,
+            |x, y| ok((x, y)),
+        )
+        .unwrap_or(k)
+    }
+
     /// A smart move (or, with `unload`, command 29) given to a transport ("Commands given to a transport").
     pub(crate) fn transport_command(
         &mut self,
@@ -69,12 +117,20 @@ impl World {
         tile: (i32, i32),
         unload: bool,
     ) -> Order {
-        let g = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
+        let mut g = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
+        let mut target = target;
+        let s = self.units[i].tile;
+        // "Land and shore targets": the target unit is dropped and, from open water, the tile pulled back to shore.
+        if self.terrain.contains(g.0, g.1) && self.terrain.word(g.0, g.1) & (bits::LAND | bits::SHORE) != 0 {
+            target = None;
+            if self.open_water(s) {
+                g = self.shore_target(s, g);
+            }
+        }
         let u = &mut self.units[i];
         u.ship.target = target;
         u.ship.target_tile = g;
         u.ship.dest = g;
-        let s = u.tile;
         let docking = matches!(u.order, Order::Land { .. } | Order::PushOff | Order::Docked);
         if unload && self.shore_water(g) {
             self.units[i].ship.unload = true;
@@ -156,7 +212,9 @@ impl World {
                 let next = if u.ship.unload { Order::Unload } else { Order::Docked };
                 u.ship.unload = false;
                 u.order = next;
-                self.switch_anim(i, anim::STILL);
+                // Set at once like an immediate order: the still animation starts with a wait of 1 (orders spec,
+                // "Pending orders and immediate orders"; Human04 vector: docked at n = 36 with wait 1).
+                self.start_anim(i, anim::STILL);
             }
             Walk::NoPath => {
                 let unload = std::mem::take(&mut self.units[i].ship.unload);
@@ -171,7 +229,7 @@ impl World {
                 };
                 self.units[i].order = next;
                 self.units[i].path.clear();
-                self.switch_anim(i, anim::STILL);
+                self.start_anim(i, anim::STILL);
             }
             Walk::Stepping | Walk::Blocked => {}
         }
@@ -357,17 +415,21 @@ mod tests {
     /// A 48 x 32 map: land for x < `shore`, shore water (in the land region, as coasts are) at `shore` and
     /// `shore` + 1, open water beyond.
     fn sea(shore: i32) -> World {
+        coast(|x| match x {
+            c if c < shore => bits::LAND,
+            c if c < shore + 2 => bits::SHORE,
+            _ => bits::WATER,
+        })
+    }
+
+    /// A 48 x 32 map whose terrain word depends on the column only; water tiles are in the sea region, the others
+    /// (shore water included, as coasts are) in the land region.
+    fn coast(column: impl Fn(i32) -> u16) -> World {
         let (w, h) = (48i32, 32i32);
-        let x = |n: i32| n % w;
-        let words: Vec<u16> = (0..w * h)
-            .map(|n| match x(n) {
-                c if c < shore => bits::LAND,
-                c if c < shore + 2 => bits::SHORE,
-                _ => bits::WATER,
-            })
-            .collect();
-        let regions: Vec<u16> = (0..w * h)
-            .map(|n| if x(n) < shore + 2 { LAND_REGION } else { SEA_REGION })
+        let words: Vec<u16> = (0..w * h).map(|n| column(n % w)).collect();
+        let regions: Vec<u16> = words
+            .iter()
+            .map(|&t| if t == bits::WATER { SEA_REGION } else { LAND_REGION })
             .collect();
         let tiles = vec![0u16; (w * h) as usize];
         // The ship gets its own animation table whose animation 6 is the still loop, as in the game's data, where it
@@ -461,6 +523,71 @@ mod tests {
             (w.units[i].ship.target_tile, w.units[i].ship.dest),
             ((20, 10), (15, 10))
         );
+    }
+
+    /// The Human04 vector of "Land and shore targets", moved 60 tiles up and left: open water for x < 10, shore water
+    /// at x = 10, land beyond.
+    fn east_coast() -> World {
+        coast(|x| match x {
+            c if c < 10 => bits::WATER,
+            10 => bits::SHORE,
+            _ => bits::LAND,
+        })
+    }
+
+    fn smart_on(w: &mut World, i: usize, target: UnitId) -> Order {
+        let c = crate::Command::Smart {
+            player: 0,
+            units: vec![w.units[i].id],
+            target: Some(target),
+            tile: w.unit(target).unwrap().tile,
+        };
+        w.command_order(i, &c).unwrap()
+    }
+
+    #[test]
+    fn a_land_target_from_open_water_is_pulled_back_to_the_shore() {
+        let mut w = east_coast();
+        // The target first: spawning shifts the unit indices.
+        let hall = w.spawn(FOOTMAN, 0, (21, 24), 0).unwrap();
+        let i = ship(&mut w, (8, 28), Order::Idle);
+        // The walk back from (21, 24): (20, 24), (19, 25), (18, 25), (17, 25), (16, 26), (15, 26), (14, 26), (13, 27),
+        // (12, 27), (11, 27), (10, 27), (9, 28). (9, 28) is the first usable tile (open water, the ship's region), so
+        // K = (10, 27): shore water, landing mask clear, (21, 24)'s region.
+        assert_eq!(w.shore_target((8, 28), (21, 24)), (10, 27));
+        assert_eq!(smart_on(&mut w, i, hall), Order::Land { goal: (10, 27) });
+        let ship = &w.units[i].ship;
+        assert_eq!((ship.target, ship.target_tile, ship.dest), (None, (10, 27), (10, 27)));
+    }
+
+    #[test]
+    fn a_docked_transport_sent_to_the_same_land_target_stays_docked() {
+        let mut w = east_coast();
+        // The target first: spawning shifts the unit indices.
+        let hall = w.spawn(FOOTMAN, 0, (21, 24), 0).unwrap();
+        let i = ship(&mut w, (10, 27), Order::Docked);
+        // Not on open water, so G stays (21, 24); S is shore water in G's region and the line meets land first.
+        assert_eq!(smart_on(&mut w, i, hall), Order::Docked);
+        let ship = &w.units[i].ship;
+        assert_eq!((ship.target, ship.target_tile, ship.dest), (None, (10, 27), (21, 24)));
+    }
+
+    #[test]
+    fn a_shore_target_out_of_line_is_found_by_the_ring_search() {
+        // No shore water on the line: the pull-back K is a land tile, so the ring search around G finds shore water.
+        let mut w = coast(|x| match x {
+            c if c < 10 => bits::WATER,
+            _ => bits::LAND,
+        });
+        for y in 0..32 {
+            let n = (y * 48 + 10) as usize;
+            w.terrain.words[n] = if y == 22 { bits::SHORE } else { bits::LAND };
+        }
+        // Walk back from (12, 20): (11, 20), (10, 20), then (9, 20) is usable, so K = (10, 20), which is land. The
+        // ring search around (12, 20) finds the only shore tile within 4 rings.
+        assert_eq!(w.shore_target((8, 20), (12, 20)), (10, 22));
+        // Out of its reach (limit 8, 4 rings), K stays.
+        assert_eq!(w.shore_target((8, 14), (16, 14)), (10, 14));
     }
 
     #[test]

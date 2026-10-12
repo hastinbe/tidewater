@@ -463,6 +463,9 @@ impl World {
 
     fn finish_job(&mut self, i: usize, job: Job) {
         self.end_job(i, job);
+        // Orders spec, "Taking over" (Human04 vectors): when a job finishes, order 33 takes over at once with wait 3,
+        // and its logic first runs at the still animation's next step done.
+        self.units[i].script.wait = TAKEOVER_WAIT;
         let u = self.units[i].clone();
         match job.kind {
             JobKind::Train(k) => {
@@ -472,10 +475,6 @@ impl World {
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
                 if let Ok(id) = placed {
                     self.ready_sound(id);
-                    // Attack-ai spec, "When a unit is completed".
-                    if let Some(n) = self.index(id) {
-                        self.first_goal(n);
-                    }
                 }
                 if placed.is_err() {
                     self.refund(u.owner, job.paid);
