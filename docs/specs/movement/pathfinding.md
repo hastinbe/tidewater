@@ -15,6 +15,8 @@
   closed, trace vectors added.
   2026-10-12, round-37 errata: a two-tile mover's goal zone rounds its first row and column down to even and its last up
   to even; the blocked counter is cleared by every command (`movement.md`), not by the pull-back.
+  2026-10-12, round-38 errata: the searching unit's own tile is free only under the moving-ally case and otherwise
+  blocks the walks; trace vectors for `orc4`, `orc09-repair` and `human10`.
 
 ## Behaviour
 
@@ -68,6 +70,12 @@ In every other case the unit blocks the search, the target included: the target 
 goal zone (Step 1) only ends the walks, it doesn't make any tile free. Air units always block other air units. These
 exceptions apply only to the search. When the unit actually takes a step, any unit on the next tile blocks it (see
 the blocked rules in `movement.md`).
+
+The searching unit's own tile is no exception. It is free only when the moving-ally case applies to the unit itself
+(in its move animation, or with a command whose pending order hasn't taken over, and with blocked counter 0);
+otherwise it blocks the walks. This matters only when a walk comes back next to S: if S blocks, step 3 can't find it
+free, so the "N is T" failure doesn't happen there and the walk turns on past S. Shortening never makes a new tile
+that is S, so its checks never meet the unit's own tile.
 
 ### Step 1: mark the goal zone
 
@@ -257,6 +265,11 @@ units on the map.
 | Footman ordered onto an island tile (another region) with sea between (static study only) | The goal becomes the tile just before the first tile of its own region on the walk back (a water tile) |
 | `orc4` (oracle trace): computer footman 1538 on (9, 12), order 3, route north into (9, 11). At n = 3246 peasant 1540 (same owner) comes out of a mine onto (9, 11): order 2, wait 25, with a harvest command pending (it takes over at n = 3271) | Each new search ignores the peasant, so the route stays north and the step is refused: n = 3252 to 3257 tile (9, 12), wait 1 (row I); n = 3258 wait 15 (row D). At n = 3273 the peasant's order has taken over, its tile blocks the search, and the footman steps to (10, 11), facing 1 |
 | Same, but the peasant has no pending command (static study only) | The search sees it: the route goes round at the first new search |
+| `orc4-20000` (oracle trace): computer peasant 1578 (type 0x02) idle on (6, 6), given lumber at n = 6808 (order 23, animation 4, wait 3, taken over: no pending order); search at n = 6811 toward (4, 3) | The line's first step NW onto (5, 5) (worker 1539) is blocked, so T = S. Left walk: W to (5, 6); from there N, NW, W, SW, S, SE (footman 1585 on (6, 7)) and E (S itself, which blocks) are blocked, NE onto (6, 5) is free, and C's neighbour N, (5, 5), is a line tile: the walk succeeds at (5, 6). Route W; equal distance 3, minor-axis 1 against 2, so progress 1, score 2: used at once. Trace: W to (5, 6) at n = 6811, NE to (6, 5) at 6827, NW to (5, 4) at 6843 |
+| Same unit in its move animation with blocked counter 0 (static study only) | Its own tile is free: the left walk reaches S and fails ("N is T") |
+| Same unit in its move animation with blocked counter 2 (static study only) | Its own tile blocks |
+| `orc09-repair-600` (oracle trace) n = 5: computer peasant 1587 (type 0x02) in order 28, S = (89, 4), G = (82, 6), the "Building goal rule" tile of its farm site (81, 6) (`ai/worker-ai.md`); town hall 1592 covers x 85 to 88, y 2 to 5; peasant 1584 is idle on (89, 5) | Line dx −7, dy 2, e = 3: the first step W onto (88, 4) is the hall, so T = S, blocked direction W; line tiles (88, 4), (87, 5), (86, 5), (85, 5), (84, 6), (83, 6), (82, 6). Left walk SE, SW, W, W, W, W, succeeding at C = (85, 6) (its W neighbour (84, 6) is a line tile); (SE, SW) isn't made "two of S" because (89, 5) holds 1584; L 6, progress 3, score 9. Right walk N, N, NW, W, W, W, SW, S, S to P = (84, 4): L 9, progress 2, score 11. The left walk is used: first step SE to (90, 5), facing 3 |
+| `human10-10000` (oracle trace) n = 6804: computer destroyer 1483 (type 0x1F, two-tile) on (24, 12); at n = 6801 its player gives it a patrol to (22, 9), which the pull-back keeps (the line tiles are all shipyard 1580's, 3 × 3 at (22, 9)) | G = (22, 8); zone the even tiles x 20 to 24, y 6 to 10. The line's first step NW onto (22, 10) is blocked. The left walk follows the coast south from S (24, 14) and doesn't score below 8. Right walk: N onto (24, 10) is the shipyard, NE onto (26, 10) is free, then NW onto (24, 8), water and in the zone: route NE, NW, L 2, progress 2 (P's distance to (22, 9)), score 4. Trace: (26, 10), facing 1, animation 3 |
 | `xorc01-death-coil` (oracle trace), n = 353: the attack-tile command given in turn 352 reaches the six selected units; death knight 1491, in its move animation on (71, 80) since n = 341, blocked once at n = 304 (counter 1) | Its counter is 0 at once, while its order 10 is still pending, so grunt 1497's search at n = 356 ignores it (the vector above) |
 | A unit given a spell command (order 38 to 56) with blocked counter 5 (static study only) | Counter 0; the goal is not pulled back |
 | Two-tile mover, target building 3 × 3 at (6, 18) | Goal zone: even tiles x 4 to 10, y 16 to 22 |
