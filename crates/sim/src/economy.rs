@@ -330,36 +330,42 @@ impl World {
     /// failed check ends it silently, except affordability, which tells the owner. Pays at once; the work animation
     /// takes over at the still animation's next "step done".
     pub(crate) fn start_job(&mut self, i: usize, job: JobKind) {
+        self.try_job(i, job, true);
+    }
+
+    /// [`World::start_job`], reporting whether the job started. `tell` false (the computer's own decisions) fails
+    /// silently on affordability too (training-research spec, "Starting a job").
+    pub(crate) fn try_job(&mut self, i: usize, job: JobKind, tell: bool) -> bool {
         // 1. The building is completed and not working.
         let u = &self.units[i];
         if !u.building || u.dying || u.construction.is_some() || u.job.is_some() {
-            return;
+            return false;
         }
         let (owner, b) = (u.owner, u.kind);
         // 2 and 3. The kind's own check, and what the job costs and takes.
         let (paid, steps, needs_food) = match job {
             JobKind::Train(k) => {
                 if !self.may_train(owner, b, k) {
-                    return;
+                    return false;
                 }
                 let s = self.stats_of(k);
                 (cost(&s), 2 * s.build_time as u16, true)
             }
             JobKind::Upgrade(to) => {
                 if !self.may_become(owner, b, to) {
-                    return;
+                    return false;
                 }
                 let s = self.stats_of(to);
                 (cost(&s), 2 * s.build_time as u16, false)
             }
             JobKind::Research(n) | JobKind::Spell(n) => {
                 if !World::may_research(b, n) {
-                    return;
+                    return false;
                 }
                 let up = self.upgrade_entry(n);
                 // 4. The level check, for upgrade numbers 0 to 23.
                 if matches!(job, JobKind::Research(_)) && !self.level_ok(owner, n) {
-                    return;
+                    return false;
                 }
                 (
                     [up.gold as u32, up.lumber as u32, up.oil as u32],
@@ -369,8 +375,13 @@ impl World {
             }
         };
         // 5. Affordability.
-        if !self.afford_or_tell(owner, paid, needs_food) {
-            return;
+        let afford = if tell {
+            self.afford_or_tell(owner, paid, needs_food)
+        } else {
+            self.can_afford(owner, paid, needs_food).is_ok()
+        };
+        if !afford {
+            return false;
         }
         // 6. Pay and start.
         self.pay(owner, paid);
@@ -387,6 +398,7 @@ impl World {
             running: false,
             paid,
         });
+        true
     }
 
     /// A building's reaction to its script: jobs take over at a "step done" and advance once per work loop.

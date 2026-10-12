@@ -267,6 +267,8 @@ pub struct Unit {
     pub held: bool,
     /// A computer worker's job, for the worker AI's bookkeeping.
     pub ai_job: crate::worker_ai::AiJob,
+    /// A computer building's think counter (training-research spec, "When a building thinks").
+    pub think: u16,
 }
 
 impl Unit {
@@ -801,6 +803,7 @@ impl World {
             detected_by: 0xff,
             hidden_from: 0,
             ai_job: Default::default(),
+            think: 0,
             rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
             held: false,
         };
@@ -1074,7 +1077,12 @@ impl World {
             if self.is_watching_tower(i) {
                 self.tower(i, fx);
             } else {
+                // Order 33's logic runs at a "step done" with no job; a job's take-over replaces it.
+                let resting = fx.step_done && self.units[i].job.is_none();
                 self.work(i, fx.step_done);
+                if resting {
+                    self.building_think_tick(i);
+                }
             }
             return;
         }
