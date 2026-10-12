@@ -3,6 +3,8 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-12)
 - **Sources:** static study of the 2.02 program (research notes, "Round 13 (attack ground, demolish)"). Sound names
   come from the game's sound list. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-39 errata: the demolisher's HP doesn't change when it is killed after its blast;
+  `human12-demolition` vector.
 
 ## Behaviour
 
@@ -90,8 +92,9 @@ own tile. In this order:
    - otherwise the cosmetic explosion effect (effect kind 0x17) is created at the occupant's centre, 8 pixels up;
    - then the occupant takes **200** damage from the demolisher (`combat/damage.md`, "Applying damage");
    - then, if the tile still has a ground occupant, the same occupant takes **200** damage again.
-3. **The demolisher dies.** It is killed outright, not by damage, so nobody is credited with its death. It plays its
-   own death sound (`misc\explode`, `ui/sounds.md`, "Deaths") and leaves no remains (`core/corpses.md`).
+3. **The demolisher dies.** It is killed outright, not by damage, so nobody is credited with its death. Its HP doesn't
+   change (`core/unit-slots.md`, "Death, corpses and release"). It plays its own death sound (`misc\explode`,
+   `ui/sounds.md`, "Deaths") and leaves no remains (`core/corpses.md`).
 4. **The blast sound.** `misc\explode` plays at (x, y), audible off screen. With step 3, the blast makes two
    explosion sounds.
 
@@ -140,6 +143,7 @@ own tile. In this order:
 | Same, an enemy gryphon rider over (10, 11) | Not hit |
 | Same, an enemy unit with unholy armour at (10, 11) | No damage; it is still notified it was attacked, twice |
 | Squad blows up at (0, 0) | Neighbours with −1 are off the map and skipped; (1, 1), (0, 1), (1, 0) are tested |
+| `human12-demolition` (oracle trace), n = 239: demolition squad 1430 (type 0x0E, 40 HP) reaches (29, 100) and blasts | Killed in the same update: order 1, animation 1, HP **40**, and still 40 through its death animation, to the trace's end at n = 450 |
 | Any blast | Order of events: terrain, unit hits, squad dies (its death sound `misc\explode`), then `misc\explode` at the tile |
 
 ## Open questions
