@@ -16,7 +16,7 @@ use tidewater_formats::udta::flags;
 use crate::economy::cost;
 use crate::orders::distance;
 use crate::slots;
-use crate::terrain::{bits, region};
+use crate::terrain::bits;
 use crate::world::{Gather, Order, Unit, UnitId, World};
 
 /// The keep-clear tile mark (occupancy spec, "Run-time marks").
@@ -773,6 +773,7 @@ const _: () = assert!(bits::BUILDING & KEEP_CLEAR == 0);
 mod tests {
     use super::*;
     use crate::ai::controller;
+    use crate::terrain::region;
     use crate::world::tests::field;
     use std::sync::Arc;
     use tidewater_formats::aibin::AiFile;
