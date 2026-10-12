@@ -936,7 +936,7 @@ impl World {
             return;
         };
         let s = self.stats_of(a.kind);
-        let (basic, pierce) = combat::attack(a.kind, &s, &self.players[a.owner as usize].upgrades, a.bloodlust > 0);
+        let (basic, pierce) = self.attack_values(a, &s);
         let armour = combat::armour(&self.stats_of(v.kind), &self.players[v.owner as usize].upgrades);
         let (from, mut to) = (a.centre_px(), v.centre_px());
         let _ = combat::roll(&mut self.rng, basic, pierce, armour);

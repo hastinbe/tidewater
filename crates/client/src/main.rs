@@ -15,6 +15,7 @@
 //! notices and the status bar follow `ui/messages.md` (`messages`).
 
 mod campaign;
+mod cheats;
 mod fog;
 mod frontend;
 mod hud;
@@ -344,7 +345,7 @@ fn main() -> Result<()> {
             }
             steps
         }
-        (None, None) => frontend::startup_steps(false, false, !args.no_intro),
+        (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
     };
     flow.steps = steps.into();
     let title = args
@@ -368,6 +369,7 @@ fn main() -> Result<()> {
         .add_plugins(frontend::plugin)
         .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
         .add_systems(OnExit(frontend::AppState::Game), end_game)
+        .add_plugins(cheats::plugin)
         .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
         .add_systems(
             Update,
@@ -791,6 +793,7 @@ fn tick(
     mut cycling: ResMut<Cycling>,
     art: Option<Res<TerrainArt>>,
     cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+    mut cheat_queue: ResMut<cheats::Queue>,
 ) {
     // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
     // spec's one-passenger rule (open question there: assumed to be that request). The sim has no command for it, so
@@ -836,6 +839,7 @@ fn tick(
             sel.units.retain(|&id| id != unit);
         }
     }
+    cheat_queue.take_events(&events);
     // Each notice replaces the last on the notice line, so the latest wins.
     if let Some(n) = events.iter().rev().find_map(|e| messages::event_notice(e, human)) {
         sim.notices.push(n);

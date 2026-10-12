@@ -111,8 +111,12 @@ pub struct Flow {
     /// A game the flow asks to start.
     pub pending: Option<(String, Option<Setup>)>,
     /// The skip setting: the act screen, the briefing and the score screen are skipped. The `noglues` developer word
-    /// turns it on (`game/cheats.md`, not implemented yet); it lasts across games.
+    /// toggles it (`game/cheats.md`, kept in step by `cheats`); it lasts across games.
     pub skip_screens: bool,
+    /// The "skip the startup videos" setting (`startup_steps`' `skip_videos`): the `title` developer word toggles it.
+    pub skip_videos: bool,
+    /// The cheat flags that carry into the next game (`cheats`).
+    pub cheat_flags: tidewater_sim::cheats::Flags,
 }
 
 /// The installation, fonts and tables the screens use, and audio sources by name.

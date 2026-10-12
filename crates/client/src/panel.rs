@@ -666,6 +666,10 @@ pub trait PanelState {
     fn has_depot(&self, id: UnitId) -> bool;
     /// The footprint of a building type, in tiles.
     fn footprint(&self, kind: u8) -> (u8, u8);
+    /// The all-spells cheat is on: the cast buttons skip their mana test (cheats spec, "Lasting effects").
+    fn all_spells_cheat(&self) -> bool {
+        false
+    }
 }
 
 // --- conditions ---------------------------------------------------------------------------------------------------
@@ -1080,8 +1084,7 @@ pub fn activate(en: &Entry, s: &impl PanelState, sel: &[UnitInfo]) -> Effect {
             }
         }
         Act::Cast(n) => {
-            // Our reading: the cheat state that skips the mana test is not modelled yet.
-            if button_mana(n).is_some_and(|m| p.mana < m) {
+            if !s.all_spells_cheat() && button_mana(n).is_some_and(|m| p.mana < m) {
                 Effect::Message(msg::NOT_ENOUGH_MANA)
             } else if n == 48 {
                 // Cast at once, on the primary unit's tile.
@@ -1227,6 +1230,10 @@ impl PanelState for WorldState<'_> {
 
     fn multiplayer(&self) -> bool {
         self.world.rules.multiplayer
+    }
+
+    fn all_spells_cheat(&self) -> bool {
+        self.world.rules.all_spells_cheat
     }
 
     fn unit(&self, id: UnitId) -> Option<UnitInfo> {

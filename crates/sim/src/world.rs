@@ -411,6 +411,12 @@ pub struct Rules {
     pub disable_victory: bool,
     /// The all-spells cheat (spells spec, "Giving the order"): a spell command first sets the caster's mana to 255.
     pub all_spells_cheat: bool,
+    /// The lumber cheat: each chop finishes the tree at once (harvest spec).
+    pub lumber_cheat: bool,
+    /// The invulnerability and damage cheat (damage spec, "Cheat").
+    pub invulnerable_cheat: bool,
+    /// The lobby option that disables cheats; it only matters in multiplayer games (cheats spec).
+    pub cheats_disabled: bool,
 }
 
 impl Default for Rules {
@@ -428,6 +434,9 @@ impl Default for Rules {
             instant_defeat: false,
             disable_victory: false,
             all_spells_cheat: false,
+            lumber_cheat: false,
+            invulnerable_cheat: false,
+            cheats_disabled: false,
         }
     }
 }
@@ -618,6 +627,11 @@ pub enum Command {
     Pause {
         player: u8,
     },
+    /// A recognised cheat line (cheats spec): `flags` becomes the cheat flags (a [`crate::cheats::Flags`] value).
+    Cheat {
+        player: u8,
+        flags: u32,
+    },
 }
 
 pub const PLAYERS: usize = 16;
@@ -679,6 +693,8 @@ pub struct World {
     pub remembered: crate::minimap::Memory,
     /// The starting view and sound set game setup chose. Not game state: left out of the hash.
     pub start: crate::setup::Started,
+    /// The cheat flags (cheats spec); hashed once any is on.
+    pub cheats: crate::cheats::Cheats,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -745,6 +761,7 @@ impl World {
             paused: false,
             remembered: Default::default(),
             start: Default::default(),
+            cheats: Default::default(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
@@ -1181,6 +1198,7 @@ impl World {
             | Command::RecallGroup { .. }
             | Command::Speed { .. }
             | Command::Pause { .. } => return,
+            &Command::Cheat { player, flags } => return self.cheat_command(player, crate::cheats::Flags(flags)),
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -1313,6 +1331,10 @@ impl World {
         self.selections.hash(&mut h);
         self.speed.hash(&mut h);
         self.paused.hash(&mut h);
+        // Cheat flags join the hash only when set, so a game without cheats hashes as it always has.
+        if self.cheats.flags.0 != 0 {
+            self.cheats.flags.hash(&mut h);
+        }
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);
         h.finish()
