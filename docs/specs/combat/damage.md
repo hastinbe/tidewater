@@ -11,6 +11,8 @@
   2026-10-11, round-8 errata: new subsection "Missile flight" (speed, flight length, landing, impact delay and
   draws per kind, the computer players' wall exception, and the gryphon hammer and dragon breath, which splash along
   their path); two open questions closed.
+  2026-10-12, round-10 errata: a target with the used mark gets no notification and no damage; the notification
+  points to `ai/attack-ai.md`, "Call for help", and the under-attack alert is no longer described as part of it.
 
 ## Behaviour
 
@@ -69,8 +71,10 @@ When damage D from an attacker reaches a target:
 - Nothing happens if the target is already dying or has been removed.
 - **Dark Portal special case:** on three Beyond the Dark Portal campaign maps, a Dark Portal takes damage only from
   Khadgar. This doesn't apply in multiplayer.
-- Otherwise the target is first **notified that it was attacked**, even if D is 0. This feeds its reaction and its
-  owner's under-attack alert.
+- Nothing happens if the target has the used mark (`core/corpses.md`), for example a passenger inside a transport.
+- Otherwise the target is first **notified that it was attacked**, even if D is 0 (`ai/attack-ai.md`, "Call for
+  help": which attacker is recorded, and who comes to help). The under-attack alert is a separate step
+  (`ui/sounds.md`, "Ready, work complete and under attack").
 - If the target's unholy-armour timer is running, or D is 0, it takes no damage.
 - If the target's HP ≤ D, it dies and the kill is credited to the attacker's owner. Otherwise its HP drops by D.
 
