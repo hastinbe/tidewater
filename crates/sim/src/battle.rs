@@ -171,10 +171,24 @@ impl World {
     /// comes from "Facing a tile" (animation-scripts spec) toward tile `b`; ships use their own rule, which no spec
     /// describes yet, so they keep ours: the direction of the pixel delta `d`.
     pub(crate) fn face_and_strike(&mut self, i: usize, b: (i32, i32), d: (i32, i32)) {
+        let cast = matches!(self.units[i].order, Order::Cast { .. });
+        if !cast && self.cooling_down(i) {
+            return;
+        }
+        self.decide_strike(i, b, d, cast);
+        if self.units[i].script.anim != anim::ATTACK {
+            self.switch_anim(i, anim::ATTACK);
+        }
+    }
+
+    /// A strike decision that passed the cooldown test: the unit turns to face its target and its cooldown starts
+    /// again (damage spec, "Attack timing (cooldown)"). A cast turns the same way but has no cooldown.
+    pub(crate) fn decide_strike(&mut self, i: usize, b: (i32, i32), d: (i32, i32), cast: bool) {
         // Sounds spec, "Attacks": each turn to strike makes the type's attack sound pending. Our reading: casting
         // (which also turns to the target) doesn't.
-        if !matches!(self.units[i].order, Order::Cast { .. }) {
+        if !cast {
             self.pend_attack(i);
+            self.start_cooldown(i);
         }
         let u = &self.units[i];
         if u.layer == Layer::Sea {
@@ -184,9 +198,39 @@ impl World {
         } else {
             self.units[i].facing = face_tile(u.tile, b);
         }
-        if self.units[i].script.anim != anim::ATTACK {
-            self.switch_anim(i, anim::ATTACK);
+    }
+
+    /// Whether `t` is within reach of an attack order's strike (orders 9 and 12): the footprints' gap against the
+    /// attack range.
+    pub(crate) fn within_strike_reach(&self, u: &Unit, t: &Unit) -> bool {
+        let up = self.players[u.owner as usize].upgrades;
+        gap(u, t) <= combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32
+    }
+
+    /// The strike decision's cooldown test (damage spec, "Attack timing (cooldown)"): a unit that isn't a flyer and
+    /// whose wait is less than its cooldown left restarts its attack animation from its first frame and waits for the
+    /// cooldown left. Returns whether it did, which ends the run.
+    pub(crate) fn cooling_down(&mut self, i: usize) -> bool {
+        let u = &self.units[i];
+        if u.building || u.layer == Layer::Air || u.script.wait as u16 >= u.cooldown {
+            return false;
         }
+        let left = u.cooldown.min(255) as u8;
+        self.start_anim(i, anim::ATTACK);
+        let u = &mut self.units[i];
+        u.script.frame = 0;
+        u.script.wait = left;
+        true
+    }
+
+    /// A strike decision starts the cooldown again: the type's attack loop + 1. Buildings have none.
+    pub(crate) fn start_cooldown(&mut self, i: usize) {
+        let u = &self.units[i];
+        if u.building {
+            return;
+        }
+        let lp = self.attack_loop.get(u.kind as usize).copied().unwrap_or(0);
+        self.units[i].cooldown = lp + 1;
     }
 
     /// The strike point of the attack script: a melee hit or a missile launch.
@@ -212,6 +256,11 @@ impl World {
                 (Some(ti), self.units[ti].centre_px())
             }
         };
+        self.hit_or_launch(i, ti, to);
+    }
+
+    /// A strike's hit or launch from the unit at `i` at the unit at `ti`, or at the point `to` (a wall or the ground).
+    pub(crate) fn hit_or_launch(&mut self, i: usize, ti: Option<usize>, to: (i32, i32)) {
         // Spells spec, "Timers": a unit's attack strike ends its own invisibility.
         self.units[i].invisibility = 0;
         if self.units[i].building {
@@ -334,7 +383,25 @@ impl World {
         if let Some(a) = self.unit(attacker) {
             self.credit_kill(a.owner, ti);
         }
+        // Damage spec, "Applying damage": the killing blow doesn't lower the HP, and the target keeps its target.
+        let hp = self.units[ti].hp;
         self.kill(ti);
+        self.units[ti].hp = hp;
+        self.forget_kill(attacker, self.units[ti].id);
+    }
+
+    /// Damage spec, "Applying damage": a unit (not a building) that killed `victim` forgets it as its target at once,
+    /// without changing its order. Other attackers keep it until their own next logic run. Our orders hold their
+    /// target, so the forgotten one is marked: while the order is unchanged, it has no target.
+    fn forget_kill(&mut self, attacker: UnitId, victim: UnitId) {
+        let Some(a) = self.index(attacker) else { return };
+        let u = &mut self.units[a];
+        if u.building || u.dying {
+            return;
+        }
+        if crate::orders::target_of(u.order) == Some(victim) {
+            u.forgot = Some(u.order);
+        }
     }
 
     /// Campaign-flow spec, "Mission score": a unit of player `killer` killed the unit at `ti`. Unless the victim is
@@ -405,6 +472,7 @@ impl World {
         // A computer worker's job is released when it dies (worker-ai spec).
         self.release_job(ti);
         let u = &mut self.units[ti];
+        u.dying_target = u.pending.and_then(Order::target).or_else(|| u.order.target());
         u.hp = 0;
         u.dying = true;
         u.order = Order::Idle;
@@ -649,6 +717,94 @@ mod tests {
         let p = &w.players[0];
         assert_eq!((p.kills, p.razings, p.score), (0, 1, 100));
         assert_eq!(w.players[1].buildings_lost, 1);
+    }
+
+    /// Damage spec, "Applying damage", the 5-HP vector and `human01-basics` n = 288: a target with 5 HP taking 5
+    /// dies but keeps HP 5 and its target; the killer forgets its target at once and keeps its order 9; another
+    /// attacker isn't touched until its own next logic run (n = 291: order 2, wait 3).
+    #[test]
+    fn a_killing_blow_keeps_the_victims_hp_and_the_killer_forgets_at_once() {
+        let mut w = world();
+        let killer = UnitId(1);
+        let victim = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let other = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let (k, v, o) = (
+            w.index(killer).unwrap(),
+            w.index(victim).unwrap(),
+            w.index(other).unwrap(),
+        );
+        w.units[v].hp = 5;
+        w.units[v].order = Order::Attack { target: other };
+        w.units[k].order = Order::Attack { target: victim };
+        w.units[o].order = Order::Attack { target: victim };
+        w.damage(v, 5, killer);
+        let u = &w.units[v];
+        assert_eq!((u.dying, u.hp, u.dying_target), (true, 5, Some(other)));
+        let attack = Order::Attack { target: victim };
+        assert_eq!((w.units[k].order, w.units[k].forgot), (attack, Some(attack)));
+        assert_eq!((w.units[o].order, w.units[o].forgot), (attack, None));
+        // Each attacker's next logic run loses the target: order 2, taking over with wait 3.
+        for i in [o, k] {
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!((u.order, u.script.wait, u.forgot), (Order::Idle, 3, None));
+        }
+    }
+
+    /// Damage spec, "Attack timing (cooldown)": the synthetic attack loop strikes every 25 cycles, so a strike
+    /// decision starts a cooldown of 26 (a footman's). `orc02-assault` footman 1582 then waits 23 three cycles after
+    /// the take-over (n = 379), and archer 1584 (cooldown 66) waits 63 (n = 346), restarted at frame 0 and unturned.
+    #[test]
+    fn a_strike_decision_waits_out_the_cooldown() {
+        let mut w = world();
+        assert_eq!(w.attack_loop[0], 25);
+        let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let i = w.index(UnitId(1)).unwrap();
+        w.units[i].order = Order::Attack { target: foe };
+        w.face_and_strike(i, (1, 0), (32, 0));
+        assert_eq!((w.units[i].cooldown, w.units[i].facing), (26, 2));
+        for (kind, left) in [(0usize, 23), (8, 63)] {
+            w.attack_loop[kind] = if kind == 8 { 65 } else { 25 };
+            w.units[i].kind = kind as u8;
+            w.units[i].cooldown = left;
+            w.units[i].script.wait = 1;
+            w.units[i].script.frame = 7;
+            w.units[i].facing = 5;
+            w.face_and_strike(i, (1, 0), (32, 0));
+            let u = &w.units[i];
+            assert_eq!(
+                (u.script.anim, u.script.frame, u.script.wait, u.facing, u.cooldown),
+                (tidewater_formats::script::anim::ATTACK, 0, left as u8, 5, left),
+                "type {kind}"
+            );
+        }
+        // Steady fire: one loop later the cooldown has 1 cycle left and the wait is 1, not less, so the strike goes
+        // on and the cooldown starts again (archer: 66, one strike every 65 cycles).
+        w.units[i].cooldown = 1;
+        w.face_and_strike(i, (1, 0), (32, 0));
+        assert_eq!((w.units[i].cooldown, w.units[i].facing), (66, 2));
+    }
+
+    /// The cooldown counts down every cycle, except for transports; flyers and buildings skip the test.
+    #[test]
+    fn the_cooldown_counts_down_except_on_transports() {
+        let mut w = world();
+        let i = w.index(UnitId(1)).unwrap();
+        w.units[i].cooldown = 26;
+        run(&mut w, 3);
+        assert_eq!(w.units[i].cooldown, 23);
+        w.stats.0[0].flags |= tidewater_formats::udta::flags::TRANSPORT;
+        run(&mut w, 3);
+        assert_eq!(w.units[i].cooldown, 23);
+        w.units[i].layer = Layer::Air;
+        w.units[i].script.wait = 1;
+        assert!(!w.cooling_down(i));
+        w.units[i].layer = Layer::Land;
+        assert!(w.cooling_down(i));
+        w.units[i].building = true;
+        w.units[i].cooldown = 0;
+        w.start_cooldown(i);
+        assert_eq!(w.units[i].cooldown, 0);
     }
 
     #[test]
@@ -897,7 +1053,9 @@ mod tests {
         assert_eq!(fly(&mut w, 1), [1]);
         // Damage spec, "Impact effects": only the rock's ballista-impact effect is left.
         assert_eq!(live(&w).map(|m| m.kind), Some(0x15));
-        assert!(w.unit(foe).unwrap().hp < 60);
+        // Damage spec, "Applying damage": a killing blow leaves the hit points as they were.
+        let f = w.unit(foe).unwrap();
+        assert!(f.dying || f.hp < 60);
     }
 
     #[test]

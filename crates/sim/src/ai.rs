@@ -170,7 +170,11 @@ impl World {
     /// with a land, air, explode, sea or critter bit and the can-attack bit.
     pub fn ai_counts(&self, p: usize) -> Counts {
         let mut c = Counts::default();
-        for u in self.units.iter().filter(|u| u.owner as usize == p && u.hp > 0) {
+        for u in self
+            .units
+            .iter()
+            .filter(|u| u.owner as usize == p && u.hp > 0 && !u.dying)
+        {
             if WORKERS.contains(&u.kind) {
                 c.workers += 1;
             }
@@ -192,9 +196,9 @@ impl World {
 
     /// Whether player `p` has a completed building of one of `kinds`.
     pub(crate) fn has_complete(&self, p: usize, kinds: &[u8]) -> bool {
-        self.units
-            .iter()
-            .any(|u| u.owner as usize == p && u.hp > 0 && u.construction.is_none() && kinds.contains(&u.kind))
+        self.units.iter().any(|u| {
+            u.owner as usize == p && u.hp > 0 && !u.dying && u.construction.is_none() && kinds.contains(&u.kind)
+        })
     }
 
     fn condition(&self, p: usize, c: u8) -> bool {

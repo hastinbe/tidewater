@@ -21,7 +21,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
-use tidewater_sim::{Order, Unit, UnitId, World};
+use tidewater_sim::{Order, Unit, World};
 
 use crate::replay::{self, Entry};
 
@@ -749,33 +749,22 @@ fn order_cell(u: &Unit) -> Cell {
 }
 
 /// The slot of the unit the order aims at, as far as our orders name one. A command sets the unit's target at once,
-/// so a pending order's target unit is shown while it waits to take over.
+/// so a pending order's target unit is shown while it waits to take over. A dying unit shows the target it had when
+/// it died, and a killer whose order is still the one whose target it forgot shows none (damage spec, "Applying
+/// damage").
 fn target_cell(w: &World, u: &Unit) -> Cell {
-    let pending = u.pending.and_then(order_target);
-    let id = pending.or_else(|| order_target(u.order));
+    let id = if u.dying {
+        u.dying_target
+    } else if let (true, Some(p)) = (u.commanded, u.pending) {
+        // A command's target replaces the old one at once, even with none (`xorc01-death-knight`, n = 82: a move
+        // given to a caster that was in order 54 on a unit shows no target).
+        p.target()
+    } else if u.pending.is_none() && u.forgot == Some(u.order) {
+        None
+    } else {
+        u.pending.and_then(Order::target).or_else(|| u.order.target())
+    };
     Cell::opt(id.and_then(|id| w.unit(id)).map(|t| t.slot))
-}
-
-/// The target unit an order names, if any.
-fn order_target(o: Order) -> Option<UnitId> {
-    match o {
-        Order::Follow { target }
-        | Order::Guard { target }
-        | Order::Attack { target }
-        | Order::Chase { target }
-        | Order::AttackInPlace { target }
-        | Order::IdleReact { target }
-        | Order::Repair { target } => Some(target),
-        Order::TowerWatch { target } | Order::Cast { target, .. } => target,
-        Order::Harvest { source, .. } => source,
-        Order::ReturnGoods { depot } => depot,
-        Order::Enter { building, .. } | Order::Inside { building, .. } | Order::InsideSite { building } => {
-            Some(building)
-        }
-        Order::Demolish { at, .. } => at,
-        Order::Board { transport } | Order::Aboard { transport } => Some(transport),
-        _ => None,
-    }
 }
 
 fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {

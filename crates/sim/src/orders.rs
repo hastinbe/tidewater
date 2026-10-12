@@ -301,17 +301,17 @@ impl World {
         self.unit(t).is_some_and(|t| t.present() && Self::detected(t, owner))
     }
 
-    /// "Arriving and losing the target": a pending order takes over now; otherwise 15 becomes 13 and the rest 2.
+    /// "Arriving and losing the target": a pending order takes over now; otherwise 15 becomes 13 and the rest 2. The
+    /// new order takes over in the same update (wait 3): `human01-basics`, n = 291, footman 1598 losing its dead
+    /// target gets order 2 with wait 3.
     pub(crate) fn lose_target(&mut self, i: usize) {
         if let Some(o) = self.units[i].pending.take() {
             self.immediately(i, o);
         } else if matches!(self.units[i].order, Order::AttackInPlace { .. }) {
             self.immediately(i, Order::StandGround);
-        } else if let Some(o) = self.resumed(i) {
-            // "Resuming patrol and attack-move": losing the target is one of the places idle becomes pending.
-            self.take_over(i, o);
         } else {
-            self.stop(i);
+            // "Resuming patrol and attack-move": losing the target is one of the places idle becomes pending.
+            self.idle_now(i);
         }
     }
 
@@ -335,8 +335,12 @@ impl World {
         if matches!(o, Order::Idle | Order::StandGround) && self.look_around(i) {
             return true;
         }
+        // Damage spec, "Applying damage": a killer whose order is still the one whose target it forgot has no target,
+        // and its next logic run loses it as any other attacker does. That spec leaves this run open; in
+        // `human01-basics` footman 1593 kills at n = 575 and its next run, at n = 591, gives order 2 with wait 3.
+        let forgot = self.units[i].forgot.take() == Some(o);
         if let Some(t) = target_of(o)
-            && !self.holds(self.units[i].owner, t)
+            && (forgot || !self.holds(self.units[i].owner, t))
         {
             self.lose_target(i);
             return true;
@@ -638,10 +642,40 @@ impl World {
             return false;
         }
         let o = self.resulting(i, kind, best);
+        if matches!(
+            u.order,
+            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
+        ) {
+            self.acquiring_strike(i, o, best);
+        }
         // Orders spec, "Same-update take-over": a command the unit's own logic gives it takes over at once ("Taking
         // over": the animation starts with a wait of 3).
         self.take_over(i, o);
         true
+    }
+
+    /// Damage spec, "Attack timing (cooldown)": the run that acquires a new target reaches the strike decision with
+    /// it, starting the cooldown, when it is within reach, before the order given again restarts the animation. A
+    /// unit still cooling down only gets its restart, which the take-over replaces. Our reading of the traces: only a
+    /// target switch (a unit already in order 12, 15 or 16) reaches it, and that strike decision turns the unit as any
+    /// other does; a first acquisition doesn't (`human5`, slot 1531 at n = 6, and `xhuman10`, slot 1487 at n = 2, keep
+    /// their facing, while `orc02`, slot 1582 at n = 402, turns).
+    fn acquiring_strike(&mut self, i: usize, o: Order, target: UnitId) {
+        let Some(t) = self.unit(target) else { return };
+        let u = &self.units[i];
+        let reach = match o {
+            Order::Chase { .. } => self.within_strike_reach(u, t),
+            _ => self.in_range(u, t),
+        };
+        if !reach {
+            return;
+        }
+        let (uc, tc) = (u.centre_px(), t.centre_px());
+        let b = crate::world::facing_tile_of(t);
+        if self.cooling_down(i) {
+            return;
+        }
+        self.decide_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1), false);
     }
 
     /// The plain reaction to an attacker ("The reaction"). Returns true if the unit's order changed or it fled.
@@ -744,31 +778,24 @@ impl World {
         b.construction.is_none() && self.flags_of_unit(b) & flags::TOWER != 0
     }
 
-    /// Order 14 ("Order 14 (towers)"): each run forgets the attacker and searches its attack range afresh.
+    /// Order 14 ("Order 14 (towers)"): each run forgets the attacker and searches its attack range afresh. A target
+    /// found is fired at at once, in the run (tower scripts have no strike point); the tower stores no target, doesn't
+    /// turn and has no cooldown.
     pub(crate) fn tower(&mut self, i: usize, fx: Effects) {
-        if self.units[i].script.anim == anim::ATTACK {
-            for _ in 0..fx.strikes {
-                self.strike(i);
-            }
-        }
         if !fx.step_done {
             return;
         }
         self.units[i].attacked_by = None;
-        if !matches!(self.units[i].order, Order::TowerWatch { .. }) {
-            self.units[i].order = Order::TowerWatch { target: None };
-        }
+        self.units[i].order = Order::TowerWatch { target: None };
         let found = if self.flags_of_unit(&self.units[i]) & flags::CAN_ATTACK != 0 {
             self.search(i, None, true)
         } else {
             None
         };
-        self.units[i].order = Order::TowerWatch { target: found };
         // With no target the tower "does nothing until its next run": it keeps whatever animation it plays.
-        if let Some(t) = found.and_then(|t| self.unit(t)) {
-            let (uc, tc) = (self.units[i].centre_px(), t.centre_px());
-            let b = crate::world::facing_tile_of(t);
-            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
+        if let Some(ti) = found.and_then(|t| self.index(t)) {
+            let to = self.units[ti].centre_px();
+            self.hit_or_launch(i, Some(ti), to);
         }
     }
 
@@ -956,7 +983,8 @@ mod tests {
         w.units[gi].dying = true;
         w.units[i].order = Order::Attack { target: g };
         w.lose_target(i);
-        assert_eq!(w.units[i].order, Order::Idle);
+        // `human01-basics` n = 291: order 2 taking over with wait 3.
+        assert_eq!((w.units[i].order, w.units[i].script.wait), (Order::Idle, 3));
         w.units[i].order = Order::AttackInPlace { target: g };
         w.lose_target(i);
         assert_eq!(w.units[i].order, Order::StandGround);
@@ -1352,6 +1380,39 @@ mod tests {
         let fi = at(&w, f);
         w.units[fi].tile = (13, 13);
         assert_eq!(w.search(i, None, true), None);
+    }
+
+    /// "Order 14 (towers)" and the `xhuman10-spells` vector (n = 5): a tower fires at once in its logic run, stores
+    /// no target, doesn't turn and has no cooldown; between step dones it does nothing.
+    #[test]
+    fn a_firing_tower_stores_no_target_and_does_not_turn() {
+        let mut w = map();
+        let t = w.spawn(TOWER, 0, (5, 5), 0).unwrap();
+        let f = w.spawn(FOOTMAN, 1, (9, 5), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, t);
+        w.units[i].facing = 0;
+        w.missiles.iter_mut().for_each(|m| *m = None);
+        w.tower(i, Effects::default());
+        assert!(
+            w.missiles.iter().flatten().next().is_none(),
+            "no shot between step dones"
+        );
+        w.tower(
+            i,
+            Effects {
+                step_done: true,
+                ..Default::default()
+            },
+        );
+        let shots: Vec<_> = w.missiles.iter().flatten().map(|m| (m.attacker, m.target)).collect();
+        assert_eq!(shots, [(t, Some(f))]);
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.facing, u.cooldown),
+            (Order::TowerWatch { target: None }, 0, 0)
+        );
     }
 
     #[test]

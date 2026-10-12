@@ -56,8 +56,10 @@ impl Request {
     fn in_zone(&self, p: (i32, i32)) -> bool {
         let (mut x0, mut y0, mut x1, mut y1) = self.zone;
         if self.stride == 2 {
-            // Aligned to even coordinates: the zone covers every even tile it touches.
-            (x0, y0, x1, y1) = (x0 & !1, y0 & !1, x1 | 1, y1 | 1);
+            // Pathfinding spec, "Step 1": the first row and column round down to even, the last up to even; a
+            // two-tile mover stands only on even tiles, so the zone is the even tiles in that range.
+            let up = |v: i32| (v + 1) & !1;
+            (x0, y0, x1, y1) = (x0 & !1, y0 & !1, up(x1), up(y1));
         }
         (x0..=x1).contains(&p.0) && (y0..=y1).contains(&p.1)
     }
@@ -397,6 +399,32 @@ mod tests {
         let req = Request::to_tile(10, 10, (4, 4), (9, 9), 1);
         let open = |_: i32, _: i32| false;
         assert_eq!(shorten(&req, &open, vec![N, E, SW, SE]), Some(vec![SE]));
+    }
+
+    /// Pathfinding spec, "Step 1", the two-tile vectors: a 3 x 3 building at (6, 18) widens to columns 5 to 9 and
+    /// rows 17 to 21, and a two-tile mover's zone is the even tiles from (4, 16) to (10, 22); with no target and
+    /// G = (22, 8) it is the even tiles from (20, 6) to (24, 10).
+    #[test]
+    fn a_two_tile_movers_zone_rounds_out_to_even() {
+        let mut req = Request::to_tile(64, 64, (14, 14), (8, 18), 2);
+        req.zone = (5, 17, 9, 21);
+        for x in (4..=10).step_by(2) {
+            for y in (16..=22).step_by(2) {
+                assert!(req.in_zone((x, y)), "({x}, {y})");
+            }
+        }
+        for p in [(2, 16), (12, 16), (4, 14), (4, 24)] {
+            assert!(!req.in_zone(p), "{p:?}");
+        }
+        let req = Request::to_tile(64, 64, (2, 2), (22, 8), 2);
+        for x in (20..=24).step_by(2) {
+            for y in (6..=10).step_by(2) {
+                assert!(req.in_zone((x, y)), "({x}, {y})");
+            }
+        }
+        for p in [(18, 8), (26, 8), (22, 4), (22, 12)] {
+            assert!(!req.in_zone(p), "{p:?}");
+        }
     }
 
     #[test]

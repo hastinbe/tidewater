@@ -67,6 +67,23 @@ fn the_pending_command_mark_comes_back() {
     assert_eq!(b.units, a.units);
 }
 
+/// Damage spec: a unit's attack cooldown, a dying unit's kept target and a killer's forgotten target are stored.
+#[test]
+fn the_cooldown_and_the_kept_and_forgotten_targets_come_back() {
+    let mut a = battle();
+    let attack = Order::Attack { target: UnitId(5) };
+    a.units[0].cooldown = 61;
+    a.units[0].forgot = Some(attack);
+    a.units[4].dying_target = Some(UnitId(3));
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!(
+        (b.units[0].cooldown, b.units[0].forgot, b.units[4].dying_target),
+        (61, Some(attack), Some(UnitId(3)))
+    );
+    assert_eq!(b.units, a.units);
+}
+
 #[test]
 fn the_generator_starts_afresh_from_the_seed() {
     let mut a = battle();

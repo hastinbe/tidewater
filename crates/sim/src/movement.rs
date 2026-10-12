@@ -114,13 +114,18 @@ impl World {
             Order::Idle => self.resumed(i).unwrap_or(Order::Idle),
             o => o,
         };
-        self.units[i].pending = Some(order);
-        self.units[i].commanded = false;
+        // Movement spec, "Blocked rules": every command clears the blocked counter at once, whoever gives it and
+        // whatever the order, even in the middle of a step.
+        let u = &mut self.units[i];
+        u.pending = Some(order);
+        u.commanded = false;
+        u.blocked = 0;
     }
 
     /// A command's order for one unit, whoever gives it: the goal pulled back off ground the unit can't stand on
-    /// and the blocked counter cleared (pathfinding spec, "Goal pulled back"), then the order stored as pending with
-    /// the pending-command mark ("Units seen by the search").
+    /// (pathfinding spec, "Goal pulled back") and the blocked counter cleared for every order (movement spec), then
+    /// the order stored as pending with the pending-command mark ("Units seen by the search"). Our reading of
+    /// `xorc01-death-coil` (death knight 1491, n = 353): the command also drops the unit's cached route.
     pub(crate) fn command(&mut self, i: usize, order: Order) {
         let order = match order {
             Order::Move { goal } => Order::Move {
@@ -138,12 +143,8 @@ impl World {
             },
             o => o,
         };
-        if !matches!(
-            order,
-            Order::AttackGround { .. } | Order::Land { .. } | Order::Cast { .. }
-        ) {
-            self.units[i].blocked = 0;
-        }
+        self.units[i].blocked = 0;
+        self.units[i].path.clear();
         self.give(i, order);
         let u = &mut self.units[i];
         u.commanded = u.pending == Some(order);
@@ -367,7 +368,7 @@ impl World {
             // E: the blocker is dying or leaving play. F: an ally walking away (its next step isn't onto us).
             b.dying
                 || b.removing
-                || (b.owner == u.owner
+                || (self.allied(u.owner, b.owner)
                     && b.script.anim == anim::MOVE
                     && b.blocked == 0
                     && b.path.first().is_some_and(|&t| t != u.tile))
@@ -614,6 +615,30 @@ mod tests {
                 (Some(Order::Move { goal: want }), 0, true)
             );
         }
+    }
+
+    /// Movement spec, "Blocked rules", and the pathfinding vector: a spell command (orders 38 to 56) with blocked
+    /// counter 5 leaves it 0 and its tile is not pulled back; an order the unit's own logic gives clears it too.
+    #[test]
+    fn every_command_clears_the_blocked_counter_at_once() {
+        let mut w = field(70, 70);
+        w.stats.0[0x4a].size = (3, 3);
+        w.stats.0[0x4a].flags |= flags::BUILDING;
+        w.spawn(0x4a, 1, (6, 18), 0).unwrap();
+        let f = w.spawn(0, 0, (36, 64), 0).unwrap();
+        let i = w.index(f).unwrap();
+        w.units[i].blocked = 5;
+        let cast = Order::Cast {
+            spell: crate::spells::spell::HASTE,
+            target: None,
+            tile: (6, 18),
+        };
+        w.command(i, cast);
+        let u = &w.units[i];
+        assert_eq!((u.pending, u.blocked), (Some(cast), 0));
+        w.units[i].blocked = 5;
+        w.give(i, Order::Idle);
+        assert_eq!(w.units[i].blocked, 0);
     }
 
     #[test]

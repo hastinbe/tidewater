@@ -145,6 +145,31 @@ pub enum Order {
     },
 }
 
+impl Order {
+    /// The unit the order names as its target, as the unit's target field shows it: the unit attacked, followed,
+    /// repaired, harvested from, delivered to, entered or boarded.
+    pub fn target(self) -> Option<UnitId> {
+        match self {
+            Order::Follow { target }
+            | Order::Guard { target }
+            | Order::Attack { target }
+            | Order::Chase { target }
+            | Order::AttackInPlace { target }
+            | Order::IdleReact { target }
+            | Order::Repair { target } => Some(target),
+            Order::TowerWatch { target } | Order::Cast { target, .. } => target,
+            Order::Harvest { source, .. } => source,
+            Order::ReturnGoods { depot } => depot,
+            Order::Enter { building, .. } | Order::Inside { building, .. } | Order::InsideSite { building } => {
+                Some(building)
+            }
+            Order::Demolish { at, .. } => at,
+            Order::Board { transport } | Order::Aboard { transport } => Some(transport),
+            _ => None,
+        }
+    }
+}
+
 /// What a transport stores when given a command (transports spec, "What the transport stores"), and how it moves.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Ship {
@@ -299,6 +324,14 @@ pub struct Unit {
     pub look: crate::minimap::Look,
     /// A ship's or flier's bob countdown and value (orders spec, "Idle look-around").
     pub bob: crate::idle::Bob,
+    /// The attack cooldown in cycles (damage spec, "Attack timing (cooldown)"): set to the type's attack loop + 1 at
+    /// each strike decision, counted down every cycle while above 0 (not for transports).
+    pub cooldown: u16,
+    /// A dying unit's target, kept through its death animation (damage spec, "Applying damage").
+    pub dying_target: Option<UnitId>,
+    /// A killer's forgotten target (damage spec, "Applying damage"): while the unit's order is still this one, the
+    /// order has no target.
+    pub forgot: Option<Order>,
 }
 
 impl Unit {
@@ -477,6 +510,34 @@ pub fn move_stride(scripts: &Scripts, kind: u8) -> u8 {
                 return (dx / TILE_PX).clamp(0, 2) as u8;
             }
         }
+    }
+    0
+}
+
+/// Cycles between two strikes of a unit type's attack script (damage spec, "Attack timing (cooldown)", the "loop"
+/// column, measured from the script with plain waits), or between two step dones for a script with no strike point;
+/// 0 if it has no attack animation.
+pub fn attack_loop(scripts: &Scripts, kind: u8) -> u16 {
+    let Some(pc) = scripts.unit(kind, anim::ATTACK) else {
+        return 0;
+    };
+    let mut s = Script::default();
+    s.start(anim::ATTACK, pc);
+    let (mut strikes, mut dones) = (vec![], vec![]);
+    for c in 0..2048u16 {
+        let fx = s.update(scripts.bytes(), 0, Modifiers::default());
+        if fx.strikes > 0 {
+            strikes.push(c);
+        }
+        if fx.step_done {
+            dones.push(c);
+        }
+        if strikes.len() == 2 {
+            return strikes[1] - strikes[0];
+        }
+    }
+    if strikes.is_empty() && dones.len() >= 2 {
+        return dones[1] - dones[0];
     }
     0
 }
@@ -665,6 +726,8 @@ pub struct World {
     pub scripts: Arc<Scripts>,
     /// Per unit type, from [`move_stride`].
     pub stride: Vec<u8>,
+    /// Per unit type, from [`attack_loop`].
+    pub attack_loop: Vec<u16>,
     /// Live units, sorted by slot.
     pub units: Vec<Unit>,
     /// The effect table: missiles by effect slot. The first slots hold the permanent effects and stay `None` here.
@@ -781,6 +844,9 @@ impl World {
         let stride = (0..tidewater_formats::script::UNIT_TYPES as u8)
             .map(|k| move_stride(&scripts, k))
             .collect();
+        let attack_loop = (0..tidewater_formats::script::UNIT_TYPES as u8)
+            .map(|k| attack_loop(&scripts, k))
+            .collect();
         let rules = Rules::default();
         let (terrain_w, terrain_h) = (terrain.width as usize, terrain.height as usize);
         let army = crate::attack_ai::Army::new(&terrain);
@@ -805,6 +871,7 @@ impl World {
             rng: Rng::new(seed),
             scripts,
             stride,
+            attack_loop,
             units: Vec::new(),
             ylist: Vec::new(),
             runes: vec![None; crate::spells::RUNE_SLOTS],
@@ -1033,6 +1100,9 @@ impl World {
             attack_mark: Default::default(),
             look: Default::default(),
             bob: Default::default(),
+            cooldown: 0,
+            dying_target: None,
+            forgot: None,
         };
         // Orders spec, "Orders given when a unit is created": every unit starts in order 2; a building's first order
         // (14 for a tower, else 33 or 59, which we hold as `Idle`) is pending until its first step done.
@@ -1352,6 +1422,10 @@ impl World {
     fn advance(&mut self, i: usize) {
         use crate::rescue::Freeze;
         let scripts = Arc::clone(&self.scripts);
+        // Damage spec, "Attack timing (cooldown)": the cooldown counts down every cycle, except a transport's.
+        if self.units[i].cooldown > 0 && self.stats_of(self.units[i].kind).flags & flags::TRANSPORT == 0 {
+            self.units[i].cooldown -= 1;
+        }
         let u = &mut self.units[i];
         // Rescue spec, "Frozen units": a frozen unit doesn't advance its animation at all.
         if u.freeze == Freeze::Frozen && !u.dying {
@@ -1657,6 +1731,19 @@ pub(crate) mod tests {
         }
     }
 
+    /// Damage spec, "Attack timing (cooldown)": the attack loop is the cycles between two strikes of the attack
+    /// script (25 in the synthetic scripts); without a strike point (towers) it is the step-done period.
+    #[test]
+    fn attack_loop_from_the_scripts() {
+        let s = scripts();
+        assert_eq!(attack_loop(&s, 0), 25);
+        assert_eq!(attack_loop(&s, 8), 25);
+        let w = world();
+        assert_eq!((w.attack_loop[0], w.attack_loop[5]), (25, 25));
+        // Building types' attack animation in the synthetic scripts has neither a strike nor a step done.
+        assert_eq!(attack_loop(&s, 0x60), 0);
+    }
+
     /// The same rule for a strike: a footman faces a building at its top-left tile plus (1, 1), whatever animation
     /// it is already playing.
     #[test]
@@ -1670,6 +1757,8 @@ pub(crate) mod tests {
         w.face_and_strike(i, b, (100, -300));
         assert_eq!((w.units[i].facing, w.units[i].script.anim), (0, 4));
         w.units[i].tile = (20, 6);
+        // Damage spec, "Attack timing (cooldown)": past the cooldown the next strike decision is reached.
+        w.units[i].cooldown = 0;
         w.face_and_strike(i, b, (0, 0));
         assert_eq!(w.units[i].facing, 7, "turns again while in animation 4");
     }

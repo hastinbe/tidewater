@@ -562,7 +562,7 @@ impl World {
                 self.spell_sound(spell, Some(t), tile);
                 let h = &mut self.units[t].haste;
                 *h = if *h < 0 { -1000 } else { h.saturating_sub(1000) };
-                self.blink(t);
+                self.marker_on(t);
             }
             INVISIBILITY => {
                 let t = ti.expect("unit spell");
@@ -571,7 +571,7 @@ impl World {
                 }
                 self.spell_sound(spell, Some(t), tile);
                 self.units[t].invisibility = 2000;
-                self.blink(t);
+                self.marker_on(t);
             }
             POLYMORPH => {
                 let t = ti.expect("unit spell");
@@ -625,7 +625,7 @@ impl World {
                 }
                 self.spell_sound(spell, Some(t), tile);
                 self.units[t].bloodlust = 1000;
-                self.blink(t);
+                self.marker_on(t);
             }
             RAISE_DEAD => {
                 self.finish_cast(i, true);
@@ -662,7 +662,7 @@ impl World {
                 self.spell_sound(spell, Some(t), tile);
                 let h = &mut self.units[t].haste;
                 *h = if *h > 0 { 1000 } else { h.saturating_add(1000) };
-                self.blink(t);
+                self.marker_on(t);
             }
             UNHOLY_ARMOUR => {
                 let t = ti.expect("unit spell");
@@ -675,7 +675,7 @@ impl World {
                 if u.hp >= 2 {
                     u.hp /= 2;
                 }
-                self.blink(t);
+                self.marker_on(t);
             }
             RUNES => {
                 if !self.begin(i, 200, true) {
@@ -767,7 +767,23 @@ impl World {
         Some(n)
     }
 
-    /// A cosmetic effect of kind 0x16 on a unit.
+    /// A spell marker (kind 0x16) on the target of slow, invisibility, bloodlust, haste or unholy armour (spec,
+    /// "Cosmetic effects"): at the unit's pixel position plus (floor(w / 2), floor(h / 2) - 4), w x h the type's box
+    /// size, with destination (0, 0), no target, no shooter and damage 0.
+    fn marker_on(&mut self, t: usize) {
+        let u = &self.units[t];
+        let b = self.stats_of(u.kind).box_size;
+        let pos = (u.pos.0 + b.0 as i32 / 2, u.pos.1 + b.1 as i32 / 2 - 4);
+        if let Some(n) = self.new_fx(kind::BLINK, UnitId(0), None, pos, 0, Fx::Cosmetic)
+            && let Some(m) = self.missiles[n].as_mut()
+        {
+            m.from = (0, 0);
+            m.to = (0, 0);
+        }
+    }
+
+    /// A cosmetic effect of kind 0x16 on a unit raised as a skeleton (whether it is placed as [`World::marker_on`]
+    /// places the other markers is the spec's open question; we keep the unit's centre).
     fn blink(&mut self, t: usize) {
         let (id, c) = (self.units[t].id, self.units[t].centre_px());
         self.new_fx(kind::BLINK, id, None, c, 0, Fx::Cosmetic);
@@ -1784,6 +1800,29 @@ mod tests {
         assert_eq!(mana(&w, p), 55);
     }
 
+    /// Spells spec, kind 0x16 markers, the `xorc01-death-knight` (haste, n = 37) and `xorc12-ogre-mage` (bloodlust,
+    /// n = 36) vectors: an ogre with a 42 x 42 box gets its marker at its pixel plus (21, 17), with destination (0, 0),
+    /// no target, no shooter and damage 0.
+    #[test]
+    fn a_marker_on_a_unit_is_placed_from_its_box() {
+        for (spell, px, want) in [
+            (HASTE, (2848, 2944), (2869, 2961)),
+            (BLOODLUST, (3712, 288), (3733, 305)),
+        ] {
+            let mut w = lab(128);
+            w.stats.0[0].box_size = (42, 42);
+            let tile = (px.0 / 32, px.1 / 32);
+            let p = caster(&mut w, DEATH_KNIGHT, (tile.0 + 1, tile.1), 255);
+            let t = w.spawn(0, 0, tile, 0).unwrap();
+            let ti = w.index(t).unwrap();
+            w.units[ti].pos = px;
+            strike(&mut w, p, spell, Some(t), (0, 0));
+            let m = w.missiles.iter().flatten().find(|m| m.kind == 0x16).unwrap();
+            assert_eq!((m.pos, m.from, m.to), (want, (0, 0), (0, 0)), "spell {spell}");
+            assert_eq!((m.target, m.attacker, m.damage), (None, UnitId(0), 0));
+        }
+    }
+
     #[test]
     fn a_spell_without_enough_mana_does_nothing() {
         let mut w = lab(32);
@@ -1983,7 +2022,8 @@ mod tests {
         assert_eq!((hp(&w, f), hp(&w, own), mana(&w, p)), (60, 40, 255));
         w.rules.enhanced = false;
         strike(&mut w, p, EXORCISM, None, (9, 8));
-        assert!(hp(&w, own) < 40, "Classic mode hits its own undead");
+        let own = w.unit(own).unwrap();
+        assert!(own.dying || own.hp < 40, "Classic mode hits its own undead");
     }
 
     #[test]
