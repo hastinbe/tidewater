@@ -259,6 +259,8 @@ pub struct Unit {
     pub flame_shield: u16,
     /// The per-unit "used" mark (spells spec, polymorph): a dead body that keeps it can't be raised.
     pub used: bool,
+    /// The caster AI's seven per-cycle target marks (`caster_ai::mark`), cleared by the timers pass.
+    pub marks: u8,
     /// Created during play with a decay rate: it decays (spells spec, "Summoned units and decay").
     pub decays: bool,
     /// Decay periods left before the unit starts losing hit points, and the cycles left in the current period.
@@ -599,6 +601,12 @@ pub struct World {
     pub(crate) loading: bool,
     /// Sound cues and the interface state behind them (sounds spec). Not game state: left out of the hash.
     pub sounds: crate::sound::Sounds,
+    /// What released unit slots still hold (unit-slots spec, "Death, corpses and release"; caster-ai spec, open
+    /// question "Free slots in the random search"). A slot missing here and not in [`World::units`] reads as never
+    /// used: all zero, owner 14.
+    pub(crate) stale: BTreeMap<u16, crate::caster_ai::Stale>,
+    /// Spell counts for inspection tools. Not game state: left out of the hash.
+    pub casts: crate::caster_ai::CastCounts,
 }
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -655,6 +663,8 @@ impl World {
             runes: vec![None; crate::spells::RUNE_SLOTS],
             loading: false,
             sounds: Default::default(),
+            stale: BTreeMap::new(),
+            casts: Default::default(),
             next_id: 1,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
@@ -762,6 +772,8 @@ impl World {
         let layer = self.layer_of(kind);
         let size = (s.size.0.clamp(1, 8) as u8, s.size.1.clamp(1, 8) as u8);
         let slot = self.slots.take(owner).map_err(|_| SpawnError::TooMany)?;
+        // Unit-slots spec, "Creating a unit", step 3: a reused slot's old contents are cleared now.
+        self.stale.remove(&slot);
         let tile = if self.stride_of(kind) == 2 {
             (tile.0 & !1, tile.1 & !1)
         } else {
@@ -833,6 +845,7 @@ impl World {
             invisibility: 0,
             flame_shield: 0,
             used: false,
+            marks: 0,
             decays,
             decay_period: if decays { 255 } else { 0 },
             decay_count: if decays { s.decay_rate } else { 0 },
@@ -1186,6 +1199,7 @@ impl World {
         self.runes.hash(&mut h);
         self.vision.countdown.hash(&mut h);
         self.slots.hash(&mut h);
+        self.stale.hash(&mut h);
         self.terrain.hash(&mut h);
         self.ai.hash(&mut h);
         self.army.hash(&mut h);

@@ -332,17 +332,40 @@ impl World {
         if unit_spell && target.is_none() {
             return;
         }
+        self.give_spell(i, spell, target, tile);
+    }
+
+    /// Gives unit `i` a spell order (spec, "Giving the order"): the all-spells cheat's top-up, then the order becomes
+    /// pending, a point spell dropping its target unit. A unit spell without a target is given as it is and fails
+    /// when its order logic runs (the caster AI's random search does that; caster-ai spec).
+    pub(crate) fn give_spell(&mut self, i: usize, spell: u8, target: Option<UnitId>, tile: (i32, i32)) {
         if self.rules.all_spells_cheat {
             self.units[i].mana = 255;
         }
         let order = Order::Cast {
             spell,
-            target: if unit_spell { target } else { None },
+            target: if UNIT_SPELLS.contains(&spell) { target } else { None },
             tile,
         };
         // Our own choice, as for the other player commands: a new order forgets a remembered patrol.
         self.units[i].remembered = None;
         self.give(i, order);
+    }
+
+    /// A spell's mana cost from the spec's table ("Orders and mana costs"); for the spells paid per hit point, per
+    /// strike or per skeleton, the cost of one. 0 for numbers that aren't spells.
+    pub(crate) fn mana_cost(spell: u8) -> u8 {
+        match spell {
+            HOLY_VISION | EYE_OF_KILROGG => 70,
+            HEALING => 6,
+            EXORCISM => 4,
+            FLAME_SHIELD => 80,
+            FIREBALL | DEATH_COIL | WHIRLWIND | UNHOLY_ARMOUR => 100,
+            SLOW | BLOODLUST | RAISE_DEAD | HASTE => 50,
+            INVISIBILITY | POLYMORPH | RUNES => 200,
+            BLIZZARD | DEATH_AND_DECAY => 25,
+            _ => 0,
+        }
     }
 
     /// The order logic of orders 38 to 56 at a "step done" (spec, "Moving and casting").
@@ -405,6 +428,8 @@ impl World {
 
     /// Steps 4 and 5: idle (unless channelled) and the caster's invisibility ends.
     fn finish_cast(&mut self, i: usize, idle: bool) {
+        let owner = self.units[i].owner as usize;
+        self.casts.strikes[owner & 15] += 1;
         if idle {
             self.idle_pending(i);
         }
@@ -937,6 +962,8 @@ impl World {
             }
             let (kind, owner) = (u.kind, u.owner);
             let s = self.stats_of(kind);
+            // Caster-ai spec, "Marks": the seven target marks last until the unit's next visit here.
+            self.units[i].marks = 0;
             if kind == unit::BERSERKER && self.players[owner as usize].upgrades.marksmanship {
                 // Our reading: the regeneration upgrade is the level line it shares with marksmanship.
                 let u = &mut self.units[i];

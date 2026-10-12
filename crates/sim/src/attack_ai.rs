@@ -10,7 +10,7 @@
 //!   without a goal tile lands at the transport's own tile.
 //! - Command 4 with a target unit moves toward that unit's tile at the time of the command (order 4 keeps a tile).
 //! - The weights are computed from the world's unit and animation data (the map's own unit data when it has some).
-//! - Spell casting by computer units is not covered (spec, open question "Caster AI"): casters run their goal.
+//! - Casters run the spell step of `ai/caster-ai.md` (`caster_ai.rs`) before their goal in pass B.
 
 use tidewater_formats::script::{Op, Scripts, anim, decode};
 use tidewater_formats::udta::{UnitTable, flags};
@@ -909,8 +909,11 @@ impl World {
             if !self.army_player(u.owner) || gone(u) || u.goal.kind == GoalKind::None {
                 continue;
             }
-            // Casters would run the computer spell logic first (spec, open question "Caster AI"): deferred.
-            match u.goal.kind {
+            // Casters first run the spell step (`ai/caster-ai.md`); if it acts, the goal is skipped this pass.
+            if self.unit_flags(u) & flags::CASTER != 0 && self.caster_step(i) {
+                continue;
+            }
+            match self.units[i].goal.kind {
                 GoalKind::Hold => self.hold_goal(i),
                 GoalKind::Attack => self.attack_goal(i),
                 GoalKind::Ferry => self.ferry_goal(i),
@@ -1305,7 +1308,7 @@ impl World {
     }
 
     /// Command 3, smart move.
-    fn smart_move(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) {
+    pub(crate) fn smart_move(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) {
         if !self.takes_commands(i) {
             return;
         }
@@ -1341,7 +1344,7 @@ impl World {
     }
 
     /// Command 12 against a unit.
-    fn command_12(&mut self, i: usize, target: UnitId) {
+    pub(crate) fn command_12(&mut self, i: usize, target: UnitId) {
         if self.takes_commands(i) {
             self.give(i, Order::Chase { target });
         }

@@ -131,8 +131,15 @@ impl World {
         let u = &self.units[i];
         if u.removing {
             if fx.step_done {
-                // Release order decides slot reuse, so the free list is updated now.
+                // Release order decides slot reuse, so the free list is updated now. The slot keeps its last
+                // contents until reused, with owner 14 and only the unused mark (caster-ai spec, "Free slots").
                 self.slots.release(u.slot, u.owner);
+                let stale = crate::caster_ai::Stale {
+                    kind: u.kind,
+                    tile: u.tile,
+                    marks: u.marks,
+                };
+                self.stale.insert(u.slot, stale);
                 self.units[i].script.anim = RELEASED;
             }
         } else if u.remains {

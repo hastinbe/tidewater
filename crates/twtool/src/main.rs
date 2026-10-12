@@ -792,6 +792,19 @@ fn sim(
                 q.spells_known,
                 s.research_requests
             );
+            let given: Vec<String> = w
+                .casts
+                .commands
+                .iter()
+                .filter(|((o, _), _)| *o as usize == p)
+                .map(|((_, spell), n)| format!("{spell}x{n}"))
+                .collect();
+            println!(
+                "  caster ai: spell commands [{}] retreats {}; spell strikes {}",
+                given.join(" "),
+                w.casts.retreats[p],
+                w.casts.strikes[p]
+            );
         }
     }
     let (n, heroes) = w.rescuable_counts();
