@@ -149,9 +149,12 @@ impl World {
                 }
                 self.transport_command(i, None, tile, true)
             }
-            Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } | Command::Build { .. } => {
-                return None;
-            }
+            Command::Train { .. }
+            | Command::Upgrade { .. }
+            | Command::Research { .. }
+            | Command::Spell { .. }
+            | Command::Cancel { .. }
+            | Command::Build { .. } => return None,
         };
         self.units[i].remembered = if enhanced { remember } else { None };
         Some(order)

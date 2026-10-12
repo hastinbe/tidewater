@@ -2,10 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use tidewater_formats::aibin::AiFile;
+use tidewater_formats::alow::Restrictions;
 use tidewater_formats::pud::Pud;
 use tidewater_formats::script::{Scripts, anim};
 use tidewater_formats::tileset::Tileset;
 use tidewater_formats::udta::{UnitStats, UnitTable, flags};
+use tidewater_formats::ugrd::UpgradeTable;
 
 use crate::TILE_PX;
 use crate::ai::{AiPlayer, SCRIPT_PLAYERS};
@@ -22,6 +24,10 @@ use crate::vision::Vision;
 pub enum WorldError {
     #[error("map has {got} tiles, expected {want}")]
     BadMap { got: usize, want: usize },
+    #[error(transparent)]
+    Upgrades(#[from] tidewater_formats::ugrd::UgrdError),
+    #[error(transparent)]
+    Restrictions(#[from] tidewater_formats::alow::AlowError),
 }
 
 /// Why a unit couldn't be created (unit-slots spec, "Creating a unit").
@@ -227,6 +233,9 @@ pub struct Unit {
     pub construction: Option<Construction>,
     /// A building's training or upgrade job.
     pub job: Option<Job>,
+    /// Mana, and its regeneration counter (set when a unit converts to a caster; regeneration is a later spec).
+    pub mana: u8,
+    pub mana_counter: u8,
     /// Invisibility spell timer; the unit is invisible while above 0. Nothing casts the spell yet (placeholder until
     /// the spell specs land); the vision rules read it.
     pub invisibility: u16,
@@ -282,6 +291,16 @@ pub struct Player {
     /// Players this player shares its vision with, as a bit set (vision spec). Only read in Enhanced mode, where the
     /// player itself always counts too. Nothing sets it yet (diplomacy is a later spec).
     pub shared_vision: u8,
+    /// Level of each upgrade line, groups 0 to 10 (tech-tree spec, "Upgrade lines and their effects").
+    pub levels: [u8; crate::tech::LINES],
+    /// The map's per-player words (tech-tree spec, "Per-player words from the map"): units and buildings allowed,
+    /// spells known, spells allowed to research, spells being researched, upgrades allowed, upgrades being researched.
+    pub units_allowed: u32,
+    pub spells_known: u32,
+    pub spells_allowed: u32,
+    pub spells_researching: u32,
+    pub upgrades_allowed: u32,
+    pub upgrades_researching: u32,
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
@@ -302,6 +321,9 @@ pub struct Rules {
     pub fog_of_war: bool,
     /// The reveal-map cheat: nothing is hidden and the whole minimap shows.
     pub reveal_map: bool,
+    /// Whether training and building-upgrade requirements are checked when a command arrives (tech-tree spec, "When
+    /// requirements are enforced"). Always on in single player and in our own multiplayer.
+    pub enforce_requirements: bool,
 }
 
 impl Default for Rules {
@@ -314,6 +336,7 @@ impl Default for Rules {
             build_speed_cheat: false,
             fog_of_war: true,
             reveal_map: false,
+            enforce_requirements: true,
         }
     }
 }
@@ -359,17 +382,29 @@ pub enum Command {
         units: Vec<UnitId>,
         target: UnitId,
     },
-    /// Start training a unit at a building. Whether the building makes that unit isn't checked yet.
+    /// Start training a unit at a building (tech-tree spec, "Starting a job").
     Train {
         player: u8,
         building: UnitId,
         kind: u8,
     },
-    /// Start upgrading a building to another type. Whether `to` is an upgrade of it isn't checked yet.
+    /// Start upgrading a building to another type.
     Upgrade {
         player: u8,
         building: UnitId,
         to: u8,
+    },
+    /// Start an upgrade job, upgrade numbers 0 to 51 (weapons, armour, training and so on).
+    Research {
+        player: u8,
+        building: UnitId,
+        upgrade: u8,
+    },
+    /// Start a spell job, upgrade numbers 0 to 51 (the spells, and the paladin and ogre-mage upgrades).
+    Spell {
+        player: u8,
+        building: UnitId,
+        spell: u8,
     },
     /// Command 27: workers repair a building or transport, or walk toward anything else.
     Repair {
@@ -456,6 +491,8 @@ pub struct World {
     pub events: Vec<Event>,
     /// Computer player scripts (ai-scripts spec), one state per player 0 to 7.
     pub ai: [AiPlayer; SCRIPT_PLAYERS],
+    /// Upgrade data: the defaults, or the map's UGRD section (tech-tree spec, "Default upgrade data").
+    pub upgrade_data: UpgradeTable,
     pub(crate) ai_file: Option<Arc<AiFile>>,
     next_id: u32,
     /// Fog maps and "seen" bits (vision spec).
@@ -506,6 +543,7 @@ impl World {
             slot_of: BTreeMap::new(),
             events: Vec::new(),
             ai: Default::default(),
+            upgrade_data: crate::tech::default_upgrades(),
             ai_file: None,
             missiles: vec![None; rules.effect_slots],
             rules,
@@ -547,6 +585,13 @@ impl World {
             pud.section(b"OILM").is_some(),
         );
         let mut w = World::new(terrain, stats, scripts, seed);
+        // The map's upgrade data replaces the defaults only when its "use default data" word is 0.
+        if let Some(t) = pud.section(b"UGRD").map(UpgradeTable::from_ugrd).transpose()?.flatten() {
+            w.upgrade_data = t;
+        }
+        // Without an ALOW section everything is allowed. Our reading: the two "being researched" words start at 0,
+        // since the PUD specification calls them only good for saved games.
+        let alow = pud.section(b"ALOW").map(Restrictions::parse).transpose()?;
         for (i, p) in w.players.iter_mut().enumerate() {
             let (g, l, o) = pud.start_resources(i);
             *p = Player {
@@ -556,6 +601,10 @@ impl World {
                 race: pud.sides().get(i).copied().unwrap_or(2),
                 controller: pud.owners().get(i).copied().unwrap_or(crate::ai::controller::NOBODY),
                 ai_script: pud.ai_scripts().get(i).copied().unwrap_or(0),
+                units_allowed: alow.as_ref().map_or(!0, |r| r.units[i]),
+                spells_known: alow.as_ref().map_or(0, |r| r.spells_start[i]),
+                spells_allowed: alow.as_ref().map_or(!0, |r| r.spells_allowed[i]),
+                upgrades_allowed: alow.as_ref().map_or(!0, |r| r.upgrades_allowed[i]),
                 ..Default::default()
             };
         }
@@ -661,6 +710,8 @@ impl World {
             removing: false,
             construction: None,
             job: None,
+            mana: 0,
+            mana_counter: 0,
             invisibility: 0,
             detected_by: 0xff,
             hidden_from: 0,
@@ -827,6 +878,16 @@ impl World {
                 building: id,
                 to,
             } => return self.building_command(player, id, Some(JobKind::Upgrade(to))),
+            &Command::Research {
+                player,
+                building: id,
+                upgrade,
+            } => return self.building_command(player, id, Some(JobKind::Research(upgrade))),
+            &Command::Spell {
+                player,
+                building: id,
+                spell,
+            } => return self.building_command(player, id, Some(JobKind::Spell(spell))),
             &Command::Cancel { player, unit } => return self.building_command(player, unit, None),
             &Command::Build {
                 player,
@@ -1049,8 +1110,8 @@ pub(crate) mod tests {
         b[480..485].copy_from_slice(&[4, 1, 1, 5, 2]);
         b[340..343].copy_from_slice(&[2, 3, 0]);
         put(&mut b, 342, 340);
-        // Buildings (types 0x3e, 0x4a and 0x58): still is a "step done" every 5 cycles; work waits 10, then goes still.
-        for k in [0x3e, 0x4a, 0x58] {
+        // Buildings (types 58 to 99): still is a "step done" every 5 cycles; work waits 10, then goes still.
+        for k in 58..100 {
             put(&mut b, k * 2, 490);
         }
         for (a, at) in [340, 480, 343, 340, 340, 504, 343].into_iter().enumerate() {

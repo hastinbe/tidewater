@@ -1,14 +1,17 @@
-//! Construction, training, building upgrades and food. Spec: `docs/specs/economy/build-train.md`.
+//! Construction, training, research, building upgrades and food. Specs: `docs/specs/economy/build-train.md` and
+//! `docs/specs/economy/tech-tree.md` (the checks a job command runs, and what finishing or cancelling research does;
+//! the tables are in `tech.rs`).
 //!
-//! Not yet here: workers walking to a site and going inside (orders spec), research (the upgrade table and spell
-//! effects), which building may make which unit and its requirements (not yet specified, so the caller decides),
-//! completed walls becoming terrain (the wall graphic joining isn't specified), and the free tile a trained unit is
+//! Not yet here: workers walking to a site and going inside (orders spec), the completion alert's sound and position
+//! (a later spec), spell effects, completed walls becoming terrain (the wall graphic joining isn't specified), and the free tile a trained unit is
 //! placed on (a placeholder search until the free-tile rule is approved).
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::{UnitStats, flags};
+use tidewater_formats::ugrd::Upgrade;
 
 use crate::placement::{LIMIT_OUT, Source};
+use crate::tech;
 use crate::world::{SpawnError, UnitId, World};
 
 /// Unit types by their PUD numbers (public PUD specification).
@@ -69,6 +72,12 @@ pub enum Event {
         player: u8,
         kind: u8,
     },
+    /// Enhanced mode's completion alert: an upgrade or spell finished at `tile` (tech-tree spec, "Finishing or
+    /// cancelling research"). Sound and position use are a later spec.
+    ResearchDone {
+        player: u8,
+        tile: (i32, i32),
+    },
 }
 
 /// Gold, lumber and oil.
@@ -104,6 +113,21 @@ pub enum JobKind {
     Train(u8),
     /// The building becomes this type.
     Upgrade(u8),
+    /// Research an upgrade, by upgrade number.
+    Research(u8),
+    /// Research a spell (or the paladin and ogre-mage upgrades), by upgrade number.
+    Spell(u8),
+}
+
+impl JobKind {
+    /// The upgrade number and whether it is a spell, for the two research kinds.
+    fn research(self) -> Option<(u8, bool)> {
+        match self {
+            JobKind::Research(n) => Some((n, false)),
+            JobKind::Spell(n) => Some((n, true)),
+            _ => None,
+        }
+    }
 }
 
 /// A building's one job ("Training, research and building upgrades").
@@ -273,30 +297,68 @@ impl World {
         self.release_builders(i, true);
     }
 
-    /// Starts a job at a completed, idle building: pays at once, then the work animation takes over at the still
-    /// animation's next "step done". The caller decides whether the building may make it.
+    /// The upgrade data entry of upgrade number `n`.
+    fn upgrade_entry(&self, n: u8) -> Upgrade {
+        self.upgrade_data.0.get(n as usize).copied().unwrap_or_default()
+    }
+
+    /// Starts a job at a building when the command arrives ("Starting a job (when the command arrives)"): every
+    /// failed check ends it silently, except affordability, which tells the owner. Pays at once; the work animation
+    /// takes over at the still animation's next "step done".
     pub(crate) fn start_job(&mut self, i: usize, job: JobKind) {
+        // 1. The building is completed and not working.
         let u = &self.units[i];
         if !u.building || u.dying || u.construction.is_some() || u.job.is_some() {
             return;
         }
-        let owner = u.owner;
-        let (made, needs_food) = match job {
-            JobKind::Train(k) => (k, true),
-            JobKind::Upgrade(k) => (k, false),
+        let (owner, b) = (u.owner, u.kind);
+        // 2 and 3. The kind's own check, and what the job costs and takes.
+        let (paid, steps, needs_food) = match job {
+            JobKind::Train(k) => {
+                if !self.may_train(owner, b, k) {
+                    return;
+                }
+                let s = self.stats_of(k);
+                (cost(&s), 2 * s.build_time as u16, true)
+            }
+            JobKind::Upgrade(to) => {
+                if !self.may_become(owner, b, to) {
+                    return;
+                }
+                let s = self.stats_of(to);
+                (cost(&s), 2 * s.build_time as u16, false)
+            }
+            JobKind::Research(n) | JobKind::Spell(n) => {
+                if !World::may_research(b, n) {
+                    return;
+                }
+                let up = self.upgrade_entry(n);
+                // 4. The level check, for upgrade numbers 0 to 23.
+                if matches!(job, JobKind::Research(_)) && !self.level_ok(owner, n) {
+                    return;
+                }
+                (
+                    [up.gold as u32, up.lumber as u32, up.oil as u32],
+                    2 * up.time as u16,
+                    false,
+                )
+            }
         };
-        let s = self.stats_of(made);
-        let paid = cost(&s);
+        // 5. Affordability.
         if !self.afford_or_tell(owner, paid, needs_food) {
             return;
         }
+        // 6. Pay and start.
         self.pay(owner, paid);
-        if matches!(job, JobKind::Train(_)) {
-            self.players[owner as usize].in_training += 1;
+        match job {
+            JobKind::Train(_) => self.players[owner as usize].in_training += 1,
+            JobKind::Research(n) => self.players[owner as usize].upgrades_researching |= self.upgrade_entry(n).affect,
+            JobKind::Spell(n) => self.players[owner as usize].spells_researching |= self.upgrade_entry(n).affect,
+            JobKind::Upgrade(_) => {}
         }
         self.units[i].job = Some(Job {
             kind: job,
-            steps: 2 * s.build_time as u16,
+            steps,
             progress: 0,
             running: false,
             paid,
@@ -362,7 +424,122 @@ impl World {
                 b.kind = k;
                 b.hp = (b.hp as i32 + new as i32 - old as i32).max(1) as u16;
             }
+            JobKind::Research(_) | JobKind::Spell(_) => self.end_research(i, job.kind, true),
         }
+    }
+
+    /// A research job ends, finished or cancelled ("Finishing or cancelling research"). If none of the job's
+    /// "affects" bits is set in the matching being-researched word, nothing happens at all, not even a refund.
+    /// Otherwise the bits are cleared, and then the job takes effect or is refunded in full at the data's current cost.
+    fn end_research(&mut self, i: usize, kind: JobKind, finished: bool) {
+        let Some((n, spell)) = kind.research() else { return };
+        let up = self.upgrade_entry(n);
+        let (owner, tile) = (self.units[i].owner, self.units[i].tile);
+        let p = &mut self.players[owner as usize];
+        let word = if spell {
+            &mut p.spells_researching
+        } else {
+            &mut p.upgrades_researching
+        };
+        if *word & up.affect == 0 {
+            return;
+        }
+        *word &= !up.affect;
+        if !finished {
+            self.refund(owner, [up.gold as u32, up.lumber as u32, up.oil as u32]);
+            return;
+        }
+        if spell {
+            self.players[owner as usize].spells_known |= up.affect;
+            if up.affect == tech::PALADIN_BIT {
+                self.paladin_upgrade_finished(owner);
+            }
+        } else {
+            // A group above 10 has no defined effect (open question); the level is left alone.
+            if let Some(level) = self.players[owner as usize].levels.get_mut(up.group as usize) {
+                *level += 1;
+                self.sync_upgrades(owner);
+            }
+            if up.affect == tech::RANGER_TRAINING_BIT {
+                self.convert(owner, tech::unit::ARCHER, tech::unit::RANGER);
+                self.convert(owner, tech::unit::AXE_THROWER, tech::unit::BERSERKER);
+            }
+        }
+        if self.rules.enhanced {
+            self.events.push(Event::ResearchDone { player: owner, tile });
+        }
+    }
+
+    /// Paladin or ogre-mage upgrade finished, either race's version: holy vision, knights to paladins, the eye of
+    /// Kilrogg, ogres to ogre-mages. The two spells come only if the owner is allowed to research them.
+    fn paladin_upgrade_finished(&mut self, owner: u8) {
+        let grant = |p: &mut crate::world::Player, bit: u32| {
+            if p.spells_allowed & bit != 0 {
+                p.spells_known |= bit;
+            }
+        };
+        grant(&mut self.players[owner as usize], tech::HOLY_VISION_BIT);
+        self.convert(owner, tech::unit::KNIGHT, tech::unit::PALADIN);
+        grant(&mut self.players[owner as usize], tech::EYE_OF_KILROGG_BIT);
+        self.convert(owner, tech::unit::OGRE, tech::unit::OGRE_MAGE);
+    }
+
+    /// The owner's units of type `from` become `to` in place ("Converting units"): hit points go up by the
+    /// difference of the maximums (each at least 1), mana is set, and a barracks working on `from` works on `to`.
+    fn convert(&mut self, owner: u8, from: u8, to: u8) {
+        let max = |k: u8| (self.stats_of(k).hit_points as i32).max(1);
+        let delta = max(to) - max(from);
+        let s = self.stats_of(to);
+        let to_cost = cost(&s);
+        for u in &mut self.units {
+            if u.owner != owner {
+                continue;
+            }
+            if u.building {
+                if matches!(u.kind, tech::building::HUMAN_BARRACKS | tech::building::ORC_BARRACKS)
+                    && let Some(job) = &mut u.job
+                    && job.kind == JobKind::Train(from)
+                {
+                    // The progress is kept and the cost was paid as `from`; a cancel refunds `to`'s cost.
+                    job.kind = JobKind::Train(to);
+                    job.paid = to_cost;
+                }
+                continue;
+            }
+            if u.kind != from || u.dying || u.removing || u.inside {
+                continue;
+            }
+            u.kind = to;
+            // Our reading: a unit never drops below 1 hit point from a conversion.
+            u.hp = (u.hp as i32 + delta).clamp(1, u16::MAX as i32) as u16;
+            // Our reading: the unit data's "magic" value is a flag in our reader, so it gives 0 or 1.
+            if s.flags & flags::CASTER != 0 {
+                u.mana = 85;
+                u.mana_counter = 40;
+            } else {
+                u.mana = u8::from(s.magic);
+            }
+        }
+    }
+
+    /// Copies the level lines into the combat and vision view of the player's upgrades. Both races' versions of a
+    /// shared line (longbow and lighter axes, the two scouting upgrades) read the same level.
+    fn sync_upgrades(&mut self, owner: u8) {
+        let p = &mut self.players[owner as usize];
+        let l = p.levels;
+        p.upgrades = crate::combat::Upgrades {
+            sword: l[1],
+            arrow: l[0],
+            shield: l[2],
+            ship_cannon: l[3],
+            ship_armor: l[4],
+            siege: l[6],
+            marksmanship: l[10] > 0,
+            longbow: l[8] > 0,
+            lighter_axes: l[8] > 0,
+            ranger_scouting: l[9] > 0,
+            berserker_scouting: l[9] > 0,
+        };
     }
 
     /// Cancels a building's job (full refund) or, if it is under construction, the building itself: it is destroyed
@@ -375,7 +552,11 @@ impl World {
         let owner = u.owner;
         if let Some(job) = u.job {
             self.end_job(i, job);
-            self.refund(owner, job.paid);
+            if job.kind.research().is_some() {
+                self.end_research(i, job.kind, false);
+            } else {
+                self.refund(owner, job.paid);
+            }
             return;
         }
         if u.construction.is_none() {
@@ -526,12 +707,12 @@ mod tests {
     fn training_takes_13_plus_5n_cycles_after_takeover() {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
-        w.stats.0[0].build_time = 6;
-        w.stats.0[0].gold = 40;
+        w.stats.0[2].build_time = 6;
+        w.stats.0[2].gold = 40;
         w.step(&[Command::Train {
             player: 0,
             building: hall,
-            kind: 0,
+            kind: 2,
         }]);
         assert_eq!(w.players[0].gold, 9_600);
         assert_eq!(w.players[0].in_training, 1);
@@ -558,12 +739,12 @@ mod tests {
     fn cancelling_a_job_refunds_it_all() {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
-        w.stats.0[0].gold = 40;
-        w.stats.0[0].build_time = 60;
+        w.stats.0[2].gold = 40;
+        w.stats.0[2].build_time = 60;
         w.step(&[Command::Train {
             player: 0,
             building: hall,
-            kind: 0,
+            kind: 2,
         }]);
         run(&mut w, 20);
         w.step(&[Command::Cancel { player: 0, unit: hall }]);
@@ -577,7 +758,7 @@ mod tests {
         w.step(&[Command::Train {
             player: 0,
             building: hall,
-            kind: 0,
+            kind: 2,
         }]);
         assert_eq!(
             w.events,
@@ -592,6 +773,8 @@ mod tests {
     #[test]
     fn upgrades_keep_damage() {
         let (mut w, hall) = town();
+        // This test is about hit points, not the barracks the keep upgrade needs.
+        w.rules.enforce_requirements = false;
         w.stats.0[kind::TOWN_HALL as usize].hit_points = 1200;
         w.stats.0[kind::KEEP as usize].hit_points = 1400;
         w.stats.0[kind::KEEP as usize].build_time = 1;
@@ -611,18 +794,18 @@ mod tests {
     fn a_trained_unit_comes_out_west_of_the_hall() {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
-        w.stats.0[0].build_time = 1;
-        w.stats.0[0].gold = 40;
+        w.stats.0[2].build_time = 1;
+        w.stats.0[2].gold = 40;
         w.step(&[Command::Train {
             player: 0,
             building: hall,
-            kind: 0,
+            kind: 2,
         }]);
         run(&mut w, 200);
         let u = w
             .units
             .iter()
-            .find(|u| u.kind == 0 && u.slot != 0)
+            .find(|u| u.kind == 2 && u.slot != 0)
             .expect("trained unit");
         assert_eq!(u.tile, (4, 6));
     }
@@ -631,8 +814,9 @@ mod tests {
     fn a_trained_unit_with_no_room_is_refunded() {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
-        w.stats.0[0].build_time = 1;
-        w.stats.0[0].gold = 40;
+        w.stats.0[2].build_time = 1;
+        w.stats.0[2].gold = 40;
+        w.stats.0[2].flags = flags::LAND;
         // Everything within reach blocks land units.
         for n in 0..w.terrain.words.len() {
             if w.occupancy[0][n].is_none() {
@@ -642,7 +826,7 @@ mod tests {
         w.step(&[Command::Train {
             player: 0,
             building: hall,
-            kind: 0,
+            kind: 2,
         }]);
         assert_eq!(w.players[0].gold, 9_600);
         let n = w.units.len();
@@ -653,7 +837,7 @@ mod tests {
         assert!(
             w.events
                 .iter()
-                .any(|e| matches!(e, Event::NoRoom { player: 0, kind: 0 }))
+                .any(|e| matches!(e, Event::NoRoom { player: 0, kind: 2 }))
         );
     }
 }
