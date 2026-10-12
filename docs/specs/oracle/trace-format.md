@@ -123,8 +123,8 @@ and `kind`.
 | `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
 | `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
 
-A command whose conditions fail (a unit not owned by the player, a builder that is neither a worker nor a tanker, too little gold) is
-still listed: it was carried out and did nothing.
+A command whose conditions fail (a unit not owned by the player, a builder that is neither a worker nor a tanker, too
+little gold) is still listed: it was carried out and did nothing.
 
 `commands` lists every command carried out in the turn, not only the scenario's. In the Human12 captures the
 harness's last click on the briefing's Continue button can land on the map after the game has started; it selects the
