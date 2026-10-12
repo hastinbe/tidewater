@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the message table in the
   game data (`network.tbl`), and the unit flags in the public PUD specification text. Not yet confirmed against the
   running game.
+- **Changes:** 2026-10-11, round-4 errata: a lost target or attacker is one that is no longer valid or no longer
+  **detected** by the owner; fog over it doesn't matter (was "no longer visible").
 
 ## Behaviour
 
@@ -26,9 +28,10 @@ order 3: the worker just walks toward it.
 The logic runs once per loop of the worker's attack animation, so every **25 cycles** without haste or slow (10 with
 haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
 
-1. **Attacked:** a target or attacker that is no longer valid or no longer visible is forgotten first. Then, if the
-   worker still has an attacker, the reaction of `orders/orders.md` ("Reacting to an attacker") runs. Its outcome
-   decides whether the run goes on:
+1. **Attacked:** a target or attacker that is no longer valid or no longer detected by the worker's owner (fog
+   doesn't matter; see `vision/fog.md`, "What uses vision") is forgotten first. Then, if the worker still has an
+   attacker, the reaction of `orders/orders.md` ("Reacting to an attacker") runs. Its outcome decides whether the run
+   goes on:
 
    | Outcome of the reaction | Run |
    | --- | --- |
