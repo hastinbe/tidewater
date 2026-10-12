@@ -275,8 +275,6 @@ pub struct Unit {
     pub rescuable: bool,
     /// The flash countdown after an owner change (rescue spec, "Flash"); not game state.
     pub flash: crate::rescue::Flash,
-    /// A circle of power's cycles left before its next rescue check (rescue spec, "Rescuing at a circle of power").
-    pub circle_wait: u8,
     /// The frozen state (rescue spec, "Frozen units").
     pub freeze: crate::rescue::Freeze,
     /// The held mark: placed by the map with a non-zero low byte in its data value; held units are left out of the
@@ -966,7 +964,6 @@ impl World {
             // Rescue spec, "Where the mark comes from": only units the map gives to a rescue player.
             rescuable: self.loading && crate::ai::controller::is_rescue(self.players[owner as usize].controller),
             flash: Default::default(),
-            circle_wait: 0,
             freeze: Default::default(),
             held: false,
             colour: owner,
@@ -1103,9 +1100,7 @@ impl World {
     /// Runs one cycle: applies `commands` in order, then phase 4 of the timing-and-rng spec: every unit in ascending
     /// slot order, then every missile in effect slot order. Units whose slots were released leave the table at the end.
     pub fn step(&mut self, commands: &[Command]) {
-        for c in commands {
-            self.apply(c);
-        }
+        self.turn(commands);
         // Timing-and-rng spec, scheduler rule 4: a paused cycle changes no game state, but the counter still counts.
         if self.paused {
             self.tick += 1;
@@ -1165,6 +1160,23 @@ impl World {
             self.step(&[]);
         }
         self.end_start_up();
+    }
+
+    /// A command turn without a cycle: applies `commands` in order, as [`World::step`] does before its cycle. The
+    /// oracle trace format (`docs/specs/oracle/trace-format.md`, "Records and the cycles they follow") records the
+    /// state after a turn separately from the cycle that follows it, so a comparer runs the two apart.
+    pub fn turn(&mut self, commands: &[Command]) {
+        for c in commands {
+            self.apply(c);
+        }
+    }
+
+    /// The live unit in unit-table slot `slot`, if any.
+    pub fn unit_in_slot(&self, slot: u16) -> Option<&Unit> {
+        self.units
+            .binary_search_by_key(&slot, |u| u.slot)
+            .ok()
+            .map(|i| &self.units[i])
     }
 
     /// The counter reset that ends the start-up cycles, for a caller that steps them itself.
@@ -1314,12 +1326,9 @@ impl World {
             return;
         }
         // Rescue spec, "Joining": the check comes first at a "step done", before the pending order and the order
-        // logic. A circle of power runs its own check every update.
+        // logic.
         if fx.step_done {
             self.joining_check(i);
-        }
-        if self.units[i].kind == CIRCLE_OF_POWER {
-            self.circle_check(i);
         }
         let u = &mut self.units[i];
         u.resume = u.resume.saturating_sub(1);
@@ -1334,6 +1343,11 @@ impl World {
             }
             if self.is_watching_tower(i) {
                 self.tower(i, fx);
+            } else if self.units[i].kind == CIRCLE_OF_POWER {
+                // Order 59's logic is the rescue check (rescue spec, "Rescuing at a circle of power").
+                if fx.step_done {
+                    self.circle_check(i);
+                }
             } else {
                 // Order 33's logic runs at a "step done" with no job; a job's take-over (order 37) replaces it. The
                 // circle of power rests in order 59 instead. Orders 37 and 59 keep the attacker.

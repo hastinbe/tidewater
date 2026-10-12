@@ -13,8 +13,9 @@
 //!   [`Event::OwnerChanged`] and the client drops the unit from its selection.
 //! - The flash countdown is display state for the local player (it depends on what the local player detects), so it
 //!   is kept out of [`World::state_hash`].
-//! - Circle timing (open question): the circle checks on the update it is created in and then once every 51 cycles
-//!   (the 50-cycle pause plus the animation's own wait, assumed 1), on a countdown of its own rather than its script.
+//! - Circle timing (open question): the check is order 59's logic, so it runs at each "step done" of the circle's
+//!   still animation once that order has taken over, and the 50-cycle pause is the animation's wait. The period is
+//!   then 50 cycles plus the rest of the still loop (54 in the Orc02 oracle trace).
 //! - Frozen state (open question): implemented as described, but no command sets it yet.
 //! - The two redraw requests at the end of an owner change (open question) are the client's business: it redraws
 //!   every frame.
@@ -175,15 +176,12 @@ impl World {
         self.units[i].flash = Flash(FLASH_CYCLES);
     }
 
-    /// The circle of power's rescue check, once per update: on its countdown, every footprint tile's ground occupant
-    /// with the mark and a human-controlled owner is rescued ("Rescuing at a circle of power").
+    /// The circle of power's rescue check, its resting order's logic (order 59, run at a "step done" like every
+    /// building's resting order): every footprint tile's ground occupant with the mark and a human-controlled owner is
+    /// rescued, then the circle's animation waits 50 cycles before it goes on ("Rescuing at a circle of power", step 4).
     pub(crate) fn circle_check(&mut self, i: usize) {
         let c = &mut self.units[i];
-        if c.circle_wait > 0 {
-            c.circle_wait -= 1;
-            return;
-        }
-        c.circle_wait = CIRCLE_PAUSE;
+        c.script.wait = CIRCLE_PAUSE;
         let (x, y) = c.tile;
         let (w, h) = (c.size.0 as i32, c.size.1 as i32);
         let hero_bit = self.required() & HERO_RESCUE as u32 != 0;
@@ -624,10 +622,9 @@ mod tests {
         (w, c)
     }
 
-    /// Runs the circle's check now, whatever its countdown.
+    /// Runs the circle's check now.
     fn check(w: &mut World, c: UnitId) {
         let n = i(w, c);
-        w.units[n].circle_wait = 0;
         w.circle_check(n);
     }
 
@@ -689,17 +686,30 @@ mod tests {
         assert_eq!(w.rescuable_counts(), (2, 0));
     }
 
+    /// "Rescuing at a circle of power", step 4: after a check the circle's animation waits 50 cycles before it goes
+    /// on, so the checks (order 59's logic, at a step done of the still animation) come 50 cycles plus the rest of the
+    /// still loop apart. The first runs at the first step done after order 59 has taken over, not at creation.
     #[test]
-    fn the_circle_checks_every_51_cycles() {
+    fn the_circle_pauses_its_animation_after_each_check() {
         let (mut w, id) = circle_world();
         let mut checks = Vec::new();
-        for t in 0..160 {
+        for t in 0..400 {
             w.step(&[]);
-            if u(&w, id).circle_wait == CIRCLE_PAUSE {
+            if u(&w, id).script.wait == CIRCLE_PAUSE {
                 checks.push(t);
             }
         }
-        assert_eq!(checks, [0, 51, 102, 153]);
+        assert!(checks.len() >= 3 && checks[0] > 0, "{checks:?}");
+        let period = checks[1] - checks[0];
+        assert!(period > CIRCLE_PAUSE as usize, "{checks:?}");
+        assert!(checks.windows(2).all(|p| p[1] - p[0] == period), "{checks:?}");
+        // The pause counts down like any wait.
+        let (mut w, id) = circle_world();
+        for _ in 0..=checks[0] {
+            w.step(&[]);
+        }
+        w.step(&[]);
+        assert_eq!(u(&w, id).script.wait, CIRCLE_PAUSE - 1);
     }
 
     #[test]
