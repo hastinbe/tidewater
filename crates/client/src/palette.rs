@@ -17,11 +17,13 @@
 //!   loop starts"; no step happens on that frame.
 //! - **Palette values.** Colour lists are 8-bit values as the spec gives them, put straight into the palette.
 //! - **Fades.** [`Fade::frame_times`] is the schedule only; waiting out a frame is the caller's business.
-//!
-//! Not yet here: the colour-cycling preference and game menu (the caller passes `true` and `false`), screen fades
-//! between screens (they need app states; [`Fade`] and the [`fades`] table are ready), the greyscale palette while
-//! paused (`ui/game-menu.md`), and saving a PCX screenshot (the flash rule [`negative`] and the file-name rule
-//! [`screenshot_name`] are ready).
+//! - **Shown palette.** The cycled palette is what the game draws with; what the screen shows is [`shown`] of it: the
+//!   greyscale while paused (`ui/game-menu.md`, "Greyscale while paused"), the negative during the screenshot flash,
+//!   and the game start's fade-in. The caller redraws whatever uses the entries that changed ([`Entries::changed`]).
+//! - **Game end fade.** The 1 ms fade-out at the end of a game is a cut to black, which leaving the game screen for
+//!   the next screen already is (the front end clears to black); the greyscale goes with the game screen.
+//! - **Game start fade.** The 10 ms fade-in shows its frame at t = 0 (all black) for one frame, then t = 10 (the
+//!   fade's frames last at least 16 ms, so there are no frames in between).
 
 use tidewater_formats::pud::Era;
 use tidewater_formats::tileset::Palette;
@@ -186,6 +188,21 @@ impl Entries {
         e
     }
 
+    /// The entries whose colours differ between two palettes.
+    pub fn changed(a: &Palette, b: &Palette) -> Self {
+        let mut e = Entries::default();
+        for (i, (x, y)) in a.0.iter().zip(&b.0).enumerate() {
+            if x != y {
+                e.insert(i as u8);
+            }
+        }
+        e
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == [0; 4]
+    }
+
     pub fn intersects(&self, o: &Entries) -> bool {
         self.0.iter().zip(&o.0).any(|(a, b)| a & b != 0)
     }
@@ -256,6 +273,7 @@ impl Cycler {
     }
 
     /// The entries the cycles in `mask` (bit n for cycle n) change.
+    #[cfg(test)]
     pub fn entries_of(&self, mask: u8) -> Entries {
         let mut e = Entries::default();
         for (n, c) in self.cycles.iter().enumerate() {
@@ -442,16 +460,77 @@ impl Fade {
     }
 }
 
+// --- greyscale while paused ---------------------------------------------------------------------------------------
+
+/// A colour's grey level while paused (`ui/game-menu.md`): each term rounded down on its own.
+pub fn grey_level(c: Rgb) -> u8 {
+    let [r, g, b] = c.map(u32::from);
+    (77 * r / 256 + 151 * g / 256 + 28 * b / 256) as u8
+}
+
+/// The whole palette in grey.
+#[cfg(test)]
+pub fn greyscale(pal: &Palette) -> Palette {
+    Palette(pal.0.map(|c| [grey_level(c); 3]))
+}
+
+/// What the screen shows over the game's cycled palette `pal`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Effects {
+    pub paused: bool,
+    /// The screenshot flash.
+    pub negative: bool,
+    /// A fade-in running: (ms since it began, its length).
+    pub fade_in: Option<(u32, u32)>,
+}
+
+/// A colour as the screen shows it: the greyscale while paused, then the flash's negative, then the fade-in (the
+/// fade's start + t × (end − start) / T with a black start, per channel).
+pub fn shown_colour(c: Rgb, e: Effects) -> Rgb {
+    let mut c = if e.paused { [grey_level(c); 3] } else { c };
+    if e.negative {
+        c = c.map(|v| 255 - v);
+    }
+    if let Some((t, total)) = e.fade_in {
+        let (t, total) = (t.min(total), total.max(1));
+        c = c.map(|v| (v as u32 * t / total) as u8);
+    }
+    c
+}
+
+/// The palette the screen shows over the cycled palette `pal`.
+pub fn shown(pal: &Palette, e: Effects) -> Palette {
+    Palette(pal.0.map(|c| shown_colour(c, e)))
+}
+
+impl Effects {
+    pub fn any(&self) -> bool {
+        *self != Effects::default()
+    }
+}
+
+/// Puts the effects over an RGBA picture drawn with the cycled palette (the interface, which has colours of its own
+/// besides palette entries): each pixel as [`shown_colour`] gives it.
+pub fn apply(rgba: &mut [u8], e: Effects) {
+    if !e.any() {
+        return;
+    }
+    for px in rgba.chunks_exact_mut(4) {
+        let c = shown_colour([px[0], px[1], px[2]], e);
+        px[..3].copy_from_slice(&c);
+    }
+}
+
 // --- screenshot flash ----------------------------------------------------------------------------------------------
 
 /// The palette shown in negative while a screenshot is saved: each channel v becomes 255 − v.
-#[allow(dead_code)] // For the Print Screen flash.
+/// (`shown_colour` applies it per colour; this whole-palette form is for the tests.)
+#[cfg(test)]
 pub fn negative(pal: &Palette) -> Palette {
     Palette(pal.0.map(|c| c.map(|v| 255 - v)))
 }
 
 /// The first of `screen000.pcx` to `screen999.pcx` for which `exists` is false; `None` if all 1000 exist.
-#[allow(dead_code)]
 pub fn screenshot_name(exists: impl Fn(&str) -> bool) -> Option<String> {
     (0..1000)
         .map(|n| format!("screen{n:03}.pcx"))
@@ -735,5 +814,67 @@ mod tests {
         assert!(water.intersects(&c.entries_of(0b10)));
         assert!(!land.intersects(&c.entries_of(0b11110)));
         assert_eq!(c.entries_of(0), Entries::default());
+    }
+
+    #[test]
+    fn greyscale_rounds_each_term_down() {
+        assert_eq!(grey_level([255, 0, 0]), 76);
+        assert_eq!(grey_level([255, 255, 255]), 76 + 150 + 27);
+        let g = greyscale(&base());
+        assert_eq!(g.0[3], [27; 3], "pure blue: floor(28 * 255 / 256)");
+        assert!(g.0.iter().all(|c| c[0] == c[1] && c[1] == c[2]));
+    }
+
+    #[test]
+    fn the_shown_palette_puts_the_effects_together() {
+        let b = base();
+        assert_eq!(shown(&b, Effects::default()), b);
+        assert_eq!(
+            shown(
+                &b,
+                Effects {
+                    paused: true,
+                    ..Effects::default()
+                }
+            ),
+            greyscale(&b)
+        );
+        let neg = shown(
+            &b,
+            Effects {
+                negative: true,
+                ..Effects::default()
+            },
+        );
+        assert_eq!(neg.0[3], [255, 255, 0]);
+        let start = Effects {
+            fade_in: Some((0, 10)),
+            ..Effects::default()
+        };
+        assert!(shown(&b, start).0.iter().all(|c| *c == [0; 3]), "t = 0 is black");
+        let end = Effects {
+            fade_in: Some((10, 10)),
+            ..Effects::default()
+        };
+        assert_eq!(shown(&b, end), b);
+        // The interface's own colours get the same treatment as palette entries.
+        let mut px = [255, 0, 0, 255, 10, 20, 30, 0];
+        apply(
+            &mut px,
+            Effects {
+                paused: true,
+                ..Effects::default()
+            },
+        );
+        assert_eq!(px, [76, 76, 76, 255, 17, 17, 17, 0]);
+        // The fade agrees with `Fade::at`.
+        let half = Effects {
+            fade_in: Some((96, 200)),
+            ..Effects::default()
+        };
+        assert_eq!(shown(&b, half), Fade::fade_in(&b, 200).at(96));
+        // Resuming puts back the current palette: only the entries that differ need redrawing.
+        let e = Entries::changed(&b, &greyscale(&b));
+        assert!(!e.is_empty() && Entries::changed(&b, &b).is_empty());
     }
 }
