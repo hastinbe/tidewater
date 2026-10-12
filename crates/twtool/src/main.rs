@@ -954,9 +954,10 @@ fn oracle_cmd(
     setup.enhanced = header.enhanced;
     let start = Start::choose(&pud, &setup, seed)?;
     let mut w = start_world(&mut inst, &pud, &start)?;
-    // Cheats on at setup, read as program arguments are (cheats spec); the two notices without a phrase are one-shot
-    // and carry nothing into a new game.
-    let (flags, _) = tidewater_sim::cheats::from_arguments(header.cheats.iter().map(String::as_str));
+    // Cheats on at setup, by the trace format's names ("Cheat commands", "Names"); the one-shot flags (the two notices
+    // without a phrase among them) never stay on, so none is set here.
+    let flags =
+        tidewater_sim::cheats::Flags(replay::cheat_flags(&header.cheats) & !tidewater_sim::cheats::flag::ONE_SHOT);
     w.start_cheats(flags);
     w.speed = header.speed.min(8);
     println!("trace: {} ({})", header.scenario, header.launch);

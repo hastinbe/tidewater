@@ -12,15 +12,22 @@
 //! Units are named by unit-table slot (`core/unit-slots.md`). A slot that holds no live unit when the command runs
 //! names nothing: it leaves a selection, and a target in it reads as no target.
 //!
+//! A `cheat` is [`Command::Cheat`] with the flags its `cheats` names (trace format, "Cheat commands"), which the
+//! simulation carries out as `game/cheats.md`, "Carrying out a cheat command", says: the mission counts as cheated
+//! for the local player, the flags are set, the effects run in the spec's order and the one-shot flags are dropped.
+//! A header `input` cheat entry has `add` instead, the flags it turned on; it matches the turn whose `cheats` holds
+//! them all.
+//!
 //! Our reading where the format is open: a `build` needs the first selected unit to be a worker, peasant or peon
 //! (type 0x02 or 0x03, public PUD specification, appendix A), whichever race; "its race's worker" is read as the
-//! unit's own race.
+//! unit's own race. An `"unnamed N"` cheat flag has no meaning in the cheats spec, so it sets nothing on our side.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use tidewater_sim::cheats::{PHRASES, WORDS, flag};
 use tidewater_sim::{Command, World};
 
 /// Unit types of the two workers (public PUD specification, appendix A).
@@ -82,6 +89,10 @@ pub enum Kind {
     Build { kind: u8, tile: (i32, i32) },
     /// The first selected unit starts a job.
     Job { job: Job, number: u8 },
+    /// A cheat command carrying the whole new set of cheat flags, by name.
+    Cheat { cheats: Vec<String> },
+    /// A header `input` cheat entry: the flags it turns on.
+    CheatAdd { add: Vec<String> },
     /// A command the format doesn't describe.
     Other,
 }
@@ -134,6 +145,21 @@ impl Entry {
                 job: Job::parse(v.get("job").context("missing `job`")?)?,
                 number: num("number")? as u8,
             },
+            "cheat" => {
+                let names = |k: &str| -> Option<Result<Vec<String>>> {
+                    let a = v.get(k)?;
+                    Some(a.as_array().context("cheat flags are not a list").and_then(|a| {
+                        a.iter()
+                            .map(|n| n.as_str().map(str::to_string).context("a cheat flag name"))
+                            .collect()
+                    }))
+                };
+                match (names("cheats"), names("add")) {
+                    (Some(cheats), _) => Kind::Cheat { cheats: cheats? },
+                    (None, Some(add)) => Kind::CheatAdd { add: add? },
+                    (None, None) => bail!("a cheat without `cheats` or `add`"),
+                }
+            }
             _ => Kind::Other,
         };
         Ok(Entry {
@@ -175,6 +201,14 @@ impl Entry {
                 o.insert("job".into(), job.json());
                 o.insert("number".into(), (*number).into());
             }
+            Kind::Cheat { cheats } => {
+                o.insert("kind".into(), "cheat".into());
+                o.insert("cheats".into(), cheats.clone().into());
+            }
+            Kind::CheatAdd { add } => {
+                o.insert("kind".into(), "cheat".into());
+                o.insert("add".into(), add.clone().into());
+            }
             Kind::Other => {
                 o.insert("kind".into(), "other".into());
             }
@@ -199,6 +233,12 @@ impl Entry {
                     command: b, target: tb, ..
                 },
             ) => a == b && ta == tb,
+            // The harness adds `add` to the flags it reads at hand-over (trace format, "In the header's `input`").
+            (Kind::CheatAdd { add }, Kind::Cheat { cheats }) => add.iter().all(|f| cheats.contains(f)),
+            // The flags are a set; their order means nothing.
+            (Kind::Cheat { cheats: a }, Kind::Cheat { cheats: b }) => {
+                a.len() == b.len() && a.iter().all(|f| b.contains(f))
+            }
             (a, b) => a == b,
         }
     }
@@ -221,9 +261,32 @@ impl fmt::Display for Entry {
             }
             Kind::Build { kind, tile } => write!(f, "build {kind:#04x} at ({}, {})", tile.0, tile.1),
             Kind::Job { job, number } => write!(f, "job {} {number}", job.json()),
+            Kind::Cheat { cheats } => write!(f, "cheat {cheats:?}"),
+            Kind::CheatAdd { add } => write!(f, "cheat adding {add:?}"),
             Kind::Other => f.write_str("other"),
         }
     }
+}
+
+/// The cheat flag a trace names (trace format, "Cheat commands"): a phrase or developer word of `game/cheats.md`, or
+/// `"notice A"` or `"notice B"` (the two codes without a phrase). `None` for `"unnamed N"` and any other name.
+pub fn cheat_flag(name: &str) -> Option<u32> {
+    match name {
+        "notice A" => Some(flag::NOTICE_A),
+        "notice B" => Some(flag::NOTICE_B),
+        // The two codes without a phrase: our phrase table holds a line that matches them, not a name.
+        "day" | "183" => None,
+        _ => PHRASES
+            .iter()
+            .find(|p| p.text == name)
+            .map(|p| p.flag)
+            .or_else(|| WORDS.iter().find(|(w, _)| *w == name).and_then(|(_, w)| w.flag())),
+    }
+}
+
+/// The cheat flags a list of names stands for; a name with no flag on our side adds nothing.
+pub fn cheat_flags(names: &[String]) -> u32 {
+    names.iter().filter_map(|n| cheat_flag(n)).fold(0, |a, f| a | f)
 }
 
 /// The player command our simulation runs for a trace command, as the world stands when it runs; `None` when the
@@ -284,7 +347,11 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
                 Job::Other(_) => return None,
             }
         }
-        Kind::Other => return None,
+        Kind::Cheat { cheats } => Command::Cheat {
+            player,
+            flags: cheat_flags(cheats),
+        },
+        Kind::CheatAdd { .. } | Kind::Other => return None,
     })
 }
 
@@ -403,6 +470,74 @@ mod tests {
         )
     }
 
+    fn names(n: &[&str]) -> Vec<String> {
+        n.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn cheat_add(n: u64, add: &[&str]) -> Entry {
+        entry(Some(n), 1, Kind::CheatAdd { add: names(add) })
+    }
+
+    /// Trace format, "Cheat commands", and its Human06 vector: the input entry adds build speed and resources to the
+    /// header's mission select, and the turn lists the whole new set.
+    #[test]
+    fn cheat_entries_parse_and_match_their_turn() {
+        let input = r#"{"n":10,"player":1,"kind":"cheat","add":["make it so","glittering prizes"]}"#;
+        let ran = r#"{"player":1,"kind":"cheat","cheats":["make it so","glittering prizes","tigerlily"]}"#;
+        let input = Entry::parse(&serde_json::from_str(input).unwrap()).unwrap();
+        let ran = Entry::parse(&serde_json::from_str(ran).unwrap()).unwrap();
+        assert_eq!(input, cheat_add(10, &["make it so", "glittering prizes"]));
+        for e in [&input, &ran] {
+            assert_eq!(&Entry::parse(&e.to_json()).unwrap(), e);
+        }
+        assert!(input.same_command(&ran));
+        // The set's order means nothing; a missing flag doesn't match.
+        let reordered = entry(
+            None,
+            1,
+            Kind::Cheat {
+                cheats: names(&["tigerlily", "make it so", "glittering prizes"]),
+            },
+        );
+        assert!(ran.same_command(&reordered));
+        assert!(!cheat_add(10, &["valdez"]).same_command(&ran));
+        let Kind::Cheat { cheats } = &ran.kind else { panic!() };
+        assert_eq!(
+            cheat_flags(cheats),
+            flag::BUILD_SPEED | flag::RESOURCES | flag::MISSION_SELECT
+        );
+        assert_eq!(
+            ran.to_string(),
+            r#"player 1 cheat ["make it so", "glittering prizes", "tigerlily"]"#
+        );
+        assert!(Entry::parse(&serde_json::json!({"player": 1, "kind": "cheat"})).is_err());
+    }
+
+    /// Every name of the trace format's "Cheat commands" ("Names"), and the ones with no flag.
+    #[test]
+    fn cheat_names() {
+        for (name, f) in [
+            ("every little thing she does", flag::ALL_SPELLS),
+            ("glittering prizes", flag::RESOURCES),
+            ("make it so", flag::BUILD_SPEED),
+            ("tigerlily", flag::MISSION_SELECT),
+            ("valdez", flag::OIL),
+            ("ucla", flag::NOTICE_C),
+            ("notice A", flag::NOTICE_A),
+            ("notice B", flag::NOTICE_B),
+            ("noglues", flag::NO_GLUES),
+            ("title", flag::SKIP_TITLE),
+            ("showpath", flag::SHOW_PATH),
+            ("disco", flag::DISCO),
+        ] {
+            assert_eq!(cheat_flag(name), Some(f), "{name}");
+        }
+        for name in ["unnamed 3", "day", "183", "fastdemo", "Make It So"] {
+            assert_eq!(cheat_flag(name), None, "{name}");
+        }
+        assert_eq!(cheat_flags(&names(&["unnamed 0", "disco"])), flag::DISCO);
+    }
+
     #[test]
     fn parses_and_writes_every_kind() {
         let lines = [
@@ -444,15 +579,15 @@ mod tests {
         // Four entries handed over together run one per turn.
         let human01 = [select(10, &[1]), attack(10, 2), select(10, &[3]), select(10, &[4])];
         assert_eq!(predict(&human01), [11, 12, 13, 14]);
-        // An entry whose n is smaller than an earlier one's is handed over late, after the larger n.
-        let mut orc02 = vec![select(4700, &[1]), attack(4700, 2), select(5050, &[1]), attack(5050, 2)];
-        for n in [4000, 4000, 4350, 4350, 4700, 4700, 5050, 5050] {
-            orc02.push(select(n, &[3]));
+        // Human06: a cheat with n = 10, then six entries with n = 20, run in turns 11 and 21 to 26.
+        let mut human06 = vec![cheat_add(10, &["make it so", "glittering prizes"])];
+        for _ in 0..6 {
+            human06.push(select(20, &[1]));
         }
-        assert_eq!(
-            predict(&orc02),
-            [4701, 4702, 5051, 5052, 5053, 5054, 5055, 5056, 5057, 5058, 5059, 5060]
-        );
+        assert_eq!(predict(&human06), [11, 21, 22, 23, 24, 25, 26]);
+        // Entries handed over before the queue empties wait their turn.
+        let queued = [select(10, &[1]), attack(10, 2), select(11, &[3]), attack(30, 4)];
+        assert_eq!(predict(&queued), [11, 12, 13, 31]);
         // Each player has its own sequence.
         let mut two = vec![select(10, &[1]), select(10, &[2])];
         two[1].player = 0;
