@@ -375,11 +375,19 @@ fn setup(
     sel: Res<Selection>,
 ) {
     let scene = loaded.0.take().expect("scene loaded once");
-    // Start the view on the selection if there is one, else the map centre.
+    // Start the view on the selection if there is one, else on the local player's start location (types 0x5E and
+    // 0x5F), else on one of their units, else the map centre.
+    let own = |u: &&tidewater_sim::Unit| u.owner == scene.human;
     let look = sel
         .units
         .first()
         .and_then(|&id| scene.world.unit(id))
+        .or_else(|| {
+            let mut mine = scene.world.units.iter().filter(own);
+            mine.clone()
+                .find(|u| matches!(u.kind, 0x5e | 0x5f))
+                .or_else(|| mine.next())
+        })
         .map_or(size.0 / 2.0, |u| {
             Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32)
         });
@@ -789,9 +797,9 @@ fn pan_and_zoom(
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
     size: Res<MapSize>,
-    mut cam: Query<(&mut Transform, &mut Projection), With<MapCamera>>,
+    mut cam: Query<(&Camera, &mut Transform, &mut Projection), With<MapCamera>>,
 ) {
-    let Ok((mut tf, mut proj)) = cam.single_mut() else {
+    let Ok((camera, mut tf, mut proj)) = cam.single_mut() else {
         return;
     };
     let Projection::Orthographic(ortho) = proj.as_mut() else {
@@ -819,8 +827,20 @@ fn pan_and_zoom(
         }
     }
     let step = d * 900.0 * ortho.scale * time.delta_secs();
-    tf.translation.x = (tf.translation.x + step.x).clamp(0.0, size.0.x);
-    tf.translation.y = (tf.translation.y + step.y).clamp(-size.0.y, 0.0);
+    // Runs every frame, so a view moved any other way (minimap, start position) is kept on the map too.
+    let half = camera.logical_viewport_size().unwrap_or(Vec2::ZERO) * ortho.scale / 2.0;
+    tf.translation.x = keep_on_map(tf.translation.x + step.x, half.x, size.0.x);
+    tf.translation.y = -keep_on_map(-(tf.translation.y + step.y), half.y, size.0.y);
+}
+
+/// A view centre on one axis that keeps a view of half-width `half` inside a map `len` long; a map narrower than
+/// the view is centred.
+fn keep_on_map(c: f32, half: f32, len: f32) -> f32 {
+    if 2.0 * half >= len {
+        len / 2.0
+    } else {
+        c.clamp(half, len - half)
+    }
 }
 
 fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, ui: Res<PanelUi>, mut exit: MessageWriter<AppExit>) {
@@ -1120,5 +1140,18 @@ fn draw_hud(
     );
     if let Some(mut img) = images.get_mut(&hud.image) {
         *img = image_with(pic, RenderAssetUsages::default());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_on_map;
+
+    #[test]
+    fn the_view_stays_on_the_map() {
+        assert_eq!(keep_on_map(10.0, 100.0, 1000.0), 100.0);
+        assert_eq!(keep_on_map(990.0, 100.0, 1000.0), 900.0);
+        assert_eq!(keep_on_map(500.0, 100.0, 1000.0), 500.0);
+        assert_eq!(keep_on_map(10.0, 600.0, 1000.0), 500.0, "a small map is centred");
     }
 }
