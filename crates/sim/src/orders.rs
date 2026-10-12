@@ -1034,4 +1034,34 @@ mod tests {
         assert_eq!(ys(&w), [32, 96, 192]);
         assert_eq!(w.ylist.len(), ids.len());
     }
+
+    #[test]
+    fn lumber_workers_flee_gold_workers_do_not() {
+        let mut w = map();
+        w.stats.0[PEASANT as usize].flags &= !flags::CAN_ATTACK;
+        let p = w.spawn(PEASANT, 0, (10, 10), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (6, 10), 0).unwrap();
+        let mine = w.spawn(FARM, 3, (14, 14), 0).unwrap();
+        let i = at(&w, p);
+        let walking_to_mine = Order::Harvest {
+            source: Some(mine),
+            tree: (0, 0),
+            chopping: false,
+        };
+        let chopping = Order::Harvest {
+            source: None,
+            tree: (11, 10),
+            chopping: false,
+        };
+        for (order, flees) in [(walking_to_mine, false), (chopping, true)] {
+            w.units[i].order = order;
+            w.units[i].pending = None;
+            w.units[i].attacked_by = Some(a);
+            assert_eq!(w.flee(i), flees, "{order:?}");
+        }
+        // A computer player's worker flees only when idle.
+        w.players[0].controller = controller::COMPUTER;
+        w.units[i].attacked_by = Some(a);
+        assert!(!w.flee(i));
+    }
 }

@@ -128,10 +128,12 @@ impl World {
 
     /// The per-step logic of the transport orders. Returns false for other orders.
     pub(crate) fn run_transport(&mut self, i: usize) -> bool {
-        match self.units[i].order {
+        let order = self.units[i].order;
+        match order {
             Order::Land { goal } => self.landing(i, goal),
             Order::PushOff => self.push_off(i),
             Order::Unload => self.unload(i),
+            Order::Board { .. } if self.react(i) => {}
             Order::Board { transport } => self.board(i, transport),
             Order::Docked | Order::Aboard { .. } => {
                 if self.units[i].script.anim != anim::STILL {
@@ -583,5 +585,19 @@ mod tests {
         let j = w.index(w.units[j].id).unwrap();
         w.stop(j);
         assert_eq!(w.units[j].order, Order::Idle);
+    }
+
+    #[test]
+    fn a_boarding_footman_hit_turns_on_its_attacker() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (20, 10), Order::Docked);
+        let tid = w.units[t].id;
+        let f = w.spawn(FOOTMAN, 0, (10, 10), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (9, 10), 0).unwrap();
+        let fi = w.index(f).unwrap();
+        w.units[fi].order = Order::Board { transport: tid };
+        w.units[fi].attacked_by = Some(g);
+        assert!(w.run_transport(fi));
+        assert_eq!(w.units[fi].order, Order::Chase { target: g });
     }
 }

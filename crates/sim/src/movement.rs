@@ -155,8 +155,11 @@ impl World {
         if self.run_order(i) || self.run_transport(i) {
             return;
         }
-        match self.units[i].order {
+        let order = self.units[i].order;
+        match order {
             Order::AttackWall { tile } => self.attack_wall_order(i, tile),
+            // Orders spec, "The reaction": orders 23 and 27 run it each time their logic runs.
+            Order::Repair { .. } | Order::Harvest { .. } if self.react(i) => {}
             Order::Repair { target } => self.repair_order(i, target),
             Order::Harvest { source, tree, chopping } => self.harvest_order(i, source, tree, chopping),
             Order::ReturnGoods { depot } => self.return_order(i, depot),
