@@ -302,13 +302,14 @@ fn death(kind: u8, f: u32, era: Era) -> &'static str {
     }
 }
 
-/// "Missile impacts": the sound for a missile kind, if any.
+/// "Missile impacts": the sound for a missile kind, if any. The impact effects' explosion (kinds 0x15 and 0x1A) is a
+/// separate `Sound::Explode` the sim cues at the effect's first update.
 fn impact(kind: u8, damaging: bool) -> Option<&'static str> {
     match kind {
         0x00 | 0x01 | 0x02 | 0x05 | 0x1b if damaging => Some("misc\\firehit"),
         0x0e if damaging => Some("misc\\explode"),
         0x0f | 0x10 if damaging => Some("misc\\bowhit"),
-        0x07 | 0x11 | 0x12 | 0x15 | 0x1a => Some("misc\\explode"),
+        0x07 | 0x11 | 0x12 => Some("misc\\explode"),
         _ => None,
     }
 }
@@ -851,6 +852,7 @@ mod tests {
         assert_eq!(impact(0x07, false), Some("misc\\explode"));
         assert_eq!(impact(0x0e, false), None);
         assert_eq!(impact(0x0d, true), None, "catapult rock");
+        assert_eq!(impact(0x18, true), None, "small cannon");
     }
 
     #[test]

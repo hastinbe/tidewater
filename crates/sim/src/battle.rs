@@ -1,8 +1,9 @@
 //! Attacks, missiles and death. Spec: `docs/specs/combat/damage.md`, "How an attack delivers damage", "Missile
-//! flight", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by the line rule of
-//! `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack order's
-//! chase-and-face behaviour and the range measure are placeholders of our own until their specs land, and the
-//! cosmetic cannon smoke isn't simulated (the spec doesn't name its effect kind).
+//! flight", "Impact effects", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by
+//! the line rule of `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack
+//! order's chase-and-face behaviour and the range measure are placeholders of our own until their specs land. The
+//! cosmetic cannon smoke (kind 0x19) isn't simulated: the specs give its kind and lifetime but not where "the muzzle"
+//! is or whether it takes its slot before or after the missile's.
 
 use tidewater_formats::script::anim;
 
@@ -400,8 +401,9 @@ impl World {
             }
             self.missiles[n] = Some(m);
         } else if age == m.flight + f.delay {
-            self.missiles[n] = None;
+            // Damage spec, "Impact effects": the missile's slot is freed only after the impact and its effect.
             self.land(m);
+            self.missiles[n] = None;
         } else {
             self.missiles[n] = Some(m);
         }
@@ -459,13 +461,19 @@ impl World {
         }
     }
 
-    /// The impact, at the missile's final position.
+    /// The impact, at the missile's final position: the impact sound, the hit or splash, then the impact effect
+    /// (damage spec, "Impact effects").
     fn land(&mut self, m: Missile) {
         let sound = crate::sound::Sound::Impact {
             kind: m.kind,
             damaging: m.damage != 0,
         };
         self.sound_at_px(m.pos, sound);
+        self.hit_or_splash(&m);
+        self.impact_fx(m.kind, m.attacker, m.pos);
+    }
+
+    fn hit_or_splash(&mut self, m: &Missile) {
         if !m.splash {
             match m.target {
                 Some(t) => {
@@ -762,7 +770,8 @@ mod tests {
         assert_eq!(fly(&mut w, 4), [0, 0, 0, 0]);
         assert!(live(&w).is_some());
         assert_eq!(fly(&mut w, 1), [1]);
-        assert!(live(&w).is_none());
+        // Damage spec, "Impact effects": only the rock's ballista-impact effect is left.
+        assert_eq!(live(&w).map(|m| m.kind), Some(0x15));
         assert!(w.unit(foe).unwrap().hp < 60);
     }
 
@@ -793,7 +802,7 @@ mod tests {
         assert_eq!(per_cycle.iter().sum::<u32>(), 13, "13 flight draws, none extra");
         assert_eq!(live(&w).unwrap().pos, (76 + 104, 240), "landing at C + 13, 104 px out");
         assert_eq!(fly(&mut w, 1), [1], "the splash at C + 14 hits the footman");
-        assert!(live(&w).is_none());
+        assert_eq!(live(&w).map(|m| m.kind), Some(0x15), "only the impact effect is left");
     }
 
     #[test]
@@ -929,6 +938,199 @@ mod tests {
         assert_eq!(drawn(start, w.rng), 37);
         assert!((20..=28).contains(&(60 - w.unit(a).unwrap().hp)));
         assert!((8..=16).contains(&(60 - w.unit(b).unwrap().hp)));
+    }
+
+    // ----- impact effects (damage spec, "Impact effects"; sounds spec, "Missile impacts") -----------------------
+
+    use crate::sound::Sound;
+
+    /// A missile of `kind` whose next update is its impact, at `pos`.
+    fn landing(kind: u8, damage: u8, pos: (i32, i32)) -> crate::Missile {
+        crate::Missile {
+            kind,
+            attacker: UnitId(0),
+            target: None,
+            from: pos,
+            to: pos,
+            pos,
+            flight: 1,
+            elapsed: 1 + crate::combat::flight(kind).delay,
+            damage,
+            splash: crate::combat::splash(kind).is_some(),
+            hits_air: false,
+            fx: crate::spells::Fx::Shot {
+                line: crate::spells::Line::new(pos, pos),
+                length: 1,
+            },
+        }
+    }
+
+    /// A cosmetic spell marker (kind 0x16) that only holds its slot and makes no sound.
+    fn filler() -> crate::Missile {
+        crate::Missile {
+            kind: 0x16,
+            fx: crate::spells::Fx::Cosmetic,
+            ..landing(missile::ARROW, 0, (0, 0))
+        }
+    }
+
+    /// The cues of the next update of the effect table.
+    fn update_cues(w: &mut World) -> Vec<Sound> {
+        w.sounds.cues.clear();
+        w.advance_missiles();
+        w.sounds.cues.iter().map(|c| c.sound).collect()
+    }
+
+    fn impact(kind: u8, damaging: bool) -> Sound {
+        Sound::Impact { kind, damaging }
+    }
+
+    #[test]
+    fn each_missile_kind_leaves_its_impact_effect() {
+        use crate::spells::impact_effect;
+        assert_eq!(impact_effect(missile::CATAPULT), Some(0x15));
+        assert_eq!(impact_effect(missile::BALLISTA), Some(0x15));
+        assert_eq!(impact_effect(missile::BIG_CANNON), Some(0x1a));
+        assert_eq!(impact_effect(missile::SMALL_CANNON), Some(0x1a));
+        assert_eq!(impact_effect(missile::SUBMARINE), Some(0x17));
+        assert_eq!(impact_effect(missile::TURTLE), Some(0x17));
+        for k in [
+            missile::LIGHTNING,
+            missile::GRYPHON_HAMMER,
+            missile::DRAGON_BREATH,
+            missile::TOUCH_OF_DEATH,
+            missile::ARROW,
+            missile::AXE,
+            missile::DEMON_FIRE,
+        ] {
+            assert_eq!(impact_effect(k), None, "kind {k:#x}");
+        }
+    }
+
+    #[test]
+    fn catapult_rock_impact_effect_takes_a_later_slot_and_runs_at_once() {
+        let mut w = range();
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
+        // Slots 0 to 2 are the permanent effects; the rock is in slot 3, slot 4 is in use and slot 5 is free.
+        w.missiles[3] = Some(landing(missile::CATAPULT, 20, (176, 240)));
+        w.missiles[4] = Some(filler());
+        let cues = update_cues(&mut w);
+        assert!(w.unit(foe).unwrap().hp < 60, "the splash");
+        assert!(w.missiles[3].is_none(), "the rock's slot is freed");
+        let fx = w.missiles[5].as_ref().unwrap();
+        assert_eq!((fx.kind, fx.pos), (0x15, (176, 240)));
+        assert_eq!(
+            fx.elapsed, 1,
+            "slot 5 comes after slot 3: its first update is in the same cycle"
+        );
+        // The rock's impact cue has no file (sounds spec); the effect's explosion follows at its tile.
+        assert_eq!(cues, [impact(missile::CATAPULT, true), Sound::Explode]);
+        let place = w.sounds.cues[1].place;
+        assert!(
+            matches!(place, Some(crate::sound::Place::Tile { tile: (5, 7), .. })),
+            "at its tile"
+        );
+        // Removed during its update in cycle U + 13: 12 cycles of waits after the restart.
+        for _ in 0..12 {
+            assert!(update_cues(&mut w).is_empty(), "no further sound");
+            assert!(w.missiles[5].is_some());
+        }
+        w.advance_missiles();
+        assert!(w.missiles[5].is_none());
+    }
+
+    #[test]
+    fn ballista_bolt_with_no_damage_still_leaves_its_effect() {
+        let mut w = range();
+        w.missiles[3] = Some(landing(missile::BALLISTA, 0, (100, 100)));
+        let cues = update_cues(&mut w);
+        assert!(w.missiles[3].is_none());
+        assert_eq!(w.missiles[4].as_ref().map(|m| m.kind), Some(0x15));
+        assert_eq!(cues, [impact(missile::BALLISTA, false), Sound::Explode]);
+    }
+
+    #[test]
+    fn big_cannon_impact_effect_in_an_earlier_slot_runs_next_cycle() {
+        let mut w = range();
+        // The spec's "slot 1 free, the missile in slot 6": here the first free slot (3) is before the missile's (6).
+        for n in 4..6 {
+            w.missiles[n] = Some(filler());
+        }
+        w.missiles[6] = Some(landing(missile::BIG_CANNON, 30, (100, 100)));
+        let cues = update_cues(&mut w);
+        assert!(w.missiles[6].is_none());
+        let fx = w.missiles[3].as_ref().unwrap();
+        assert_eq!((fx.kind, fx.elapsed), (0x1a, 0), "not updated yet");
+        assert_eq!(cues, [impact(missile::BIG_CANNON, true)]);
+        assert_eq!(
+            update_cues(&mut w),
+            [Sound::Explode],
+            "its explosion at its first update"
+        );
+        for _ in 0..12 {
+            w.advance_missiles();
+        }
+        assert!(w.missiles[3].is_some());
+        w.advance_missiles();
+        assert!(w.missiles[3].is_none(), "removed in cycle U + 13");
+    }
+
+    #[test]
+    fn small_cannon_with_no_free_slot_makes_no_effect() {
+        let mut w = range();
+        let n = w.missiles.len();
+        for k in crate::slots::PERMANENT_EFFECTS..n {
+            w.missiles[k] = Some(filler());
+        }
+        w.missiles[7] = Some(landing(missile::SMALL_CANNON, 30, (100, 100)));
+        let cues = update_cues(&mut w);
+        assert!(w.missiles[7].is_none(), "freed only after the impact");
+        assert!(w.missiles.iter().flatten().all(|m| m.kind == 0x16), "no impact effect");
+        assert_eq!(cues, [impact(missile::SMALL_CANNON, true)]);
+    }
+
+    #[test]
+    fn submarine_missile_leaves_a_silent_explosion() {
+        let mut w = range();
+        w.missiles[3] = Some(landing(missile::SUBMARINE, 20, (100, 100)));
+        let cues = update_cues(&mut w);
+        assert_eq!(cues, [impact(missile::SUBMARINE, true)]);
+        assert_eq!(w.missiles[4].as_ref().map(|m| m.kind), Some(0x17));
+        for _ in 0..48 {
+            assert!(update_cues(&mut w).is_empty());
+            assert!(w.missiles[4].is_some());
+        }
+        w.advance_missiles();
+        assert!(w.missiles[4].is_none(), "removed in cycle U + 49");
+    }
+
+    #[test]
+    fn explosions_per_impact_in_all() {
+        // Sounds spec: the impact sound is `misc\explode` for these kinds (the ballista bolt only if damaging).
+        let explodes = |s: &Sound| match *s {
+            Sound::Impact { kind, damaging } => {
+                matches!(kind, 0x07 | 0x11 | 0x12) || (kind == missile::BALLISTA && damaging)
+            }
+            Sound::Explode => true,
+            _ => false,
+        };
+        for (kind, damage, want) in [
+            (missile::CATAPULT, 50, 1),
+            (missile::BALLISTA, 50, 2),
+            (missile::BALLISTA, 0, 1),
+            (missile::BIG_CANNON, 50, 2),
+            (missile::SMALL_CANNON, 50, 1),
+            (missile::SUBMARINE, 50, 1),
+            (missile::TURTLE, 50, 1),
+        ] {
+            let mut w = range();
+            w.missiles[3] = Some(landing(kind, damage, (100, 100)));
+            let mut n = 0;
+            for _ in 0..60 {
+                n += update_cues(&mut w).iter().filter(|s| explodes(s)).count();
+            }
+            assert_eq!(n, want, "kind {kind:#x}, damage {damage}");
+        }
     }
 
     // ----- the Dark Portal case (damage spec, "Applying damage") ----------------------------------------------

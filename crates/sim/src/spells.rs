@@ -37,8 +37,34 @@ mod kind {
     pub const COIL: u8 = 10;
     pub const WHIRLWIND: u8 = 12;
     pub const RUNE: u8 = 0x0b;
+    pub const BALLISTA_IMPACT: u8 = 0x15;
     pub const BLINK: u8 = 0x16;
     pub const EXPLOSION: u8 = 0x17;
+    pub const CANNON_SMOKE: u8 = 0x19;
+    pub const CANNON_EXPLOSION: u8 = 0x1a;
+}
+
+/// The total of the waits W of a cosmetic effect's script (spec, "Cosmetic effects"): it is removed during its update
+/// W + 1 cycles after its first update.
+fn cosmetic_waits(k: u8) -> u16 {
+    match k {
+        kind::RUNE => 15,
+        kind::BLINK => 18,
+        kind::EXPLOSION => 48,
+        kind::BALLISTA_IMPACT | kind::CANNON_SMOKE | kind::CANNON_EXPLOSION => 12,
+        // Not a kind the spec lists as cosmetic; nothing creates one.
+        _ => 0,
+    }
+}
+
+/// The effect a missile kind leaves at its impact (damage spec, "Impact effects").
+pub(crate) fn impact_effect(missile: u8) -> Option<u8> {
+    match missile {
+        0x0d | 0x0e => Some(kind::BALLISTA_IMPACT),
+        0x07 | 0x18 => Some(kind::CANNON_EXPLOSION),
+        0x11 | 0x12 => Some(kind::EXPLOSION),
+        _ => None,
+    }
 }
 
 /// Unit types by PUD number that the spec names.
@@ -180,7 +206,8 @@ pub enum Fx {
         count: u8,
         ended: bool,
     },
-    /// Kinds 0x0B, 0x16 and 0x17: removed at the first step.
+    /// Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A: play their script once and are removed at its step done, W + 1
+    /// cycles after the first update (`cosmetic_waits`).
     Cosmetic,
     /// Kinds 8 and 9: one flight step, then a touch on a wall.
     Wisp,
@@ -653,6 +680,14 @@ impl World {
         self.new_fx(kind::EXPLOSION, unit, None, pos, 0, Fx::Cosmetic);
     }
 
+    /// The cosmetic effect a missile of kind `missile` leaves at its impact at `pos`, if any (damage spec, "Impact
+    /// effects"); it takes the lowest free slot, or isn't made when there is none.
+    pub(crate) fn impact_fx(&mut self, missile: u8, owner: UnitId, pos: (i32, i32)) {
+        if let Some(k) = impact_effect(missile) {
+            self.new_fx(k, owner, None, pos, 0, Fx::Cosmetic);
+        }
+    }
+
     /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full.
     fn new_fx(
         &mut self,
@@ -1007,7 +1042,13 @@ impl World {
         match &mut m.fx {
             // Attack missiles are updated by `battle.rs`.
             Fx::Shot { .. } | Fx::Breath { .. } => true,
-            Fx::Cosmetic => age == 0 || self.gone(n),
+            Fx::Cosmetic => {
+                // Sounds spec, "Missile impacts": the impact effects' explosion plays at their first update.
+                if age == 0 && matches!(m.kind, kind::BALLISTA_IMPACT | kind::CANNON_EXPLOSION) {
+                    self.sound_at_px(m.pos, Sound::Explode);
+                }
+                age <= cosmetic_waits(m.kind) || self.gone(n)
+            }
             Fx::Wisp => match age {
                 0 => true,
                 1 => {
@@ -2353,6 +2394,50 @@ mod tests {
         assert_eq!(w.rng, advanced(before, 1), "one flight step, one draw");
         run(&mut w, 2);
         assert_eq!(fx_of_kind(&w, 9), 0);
+    }
+
+    #[test]
+    fn cosmetic_effects_are_removed_in_cycle_u_plus_1_plus_w() {
+        for (k, waits) in [(0x0b, 15), (0x15, 12), (0x16, 18), (0x17, 48), (0x19, 12), (0x1a, 12)] {
+            let mut w = lab(32);
+            let n = w.new_fx(k, UnitId(0), None, (40, 40), 0, Fx::Cosmetic).unwrap();
+            assert_eq!(n, slots::PERMANENT_EFFECTS, "the lowest free slot");
+            let rng = w.rng;
+            // Cycle U, the first update, then U + 1 to U + W: still there.
+            for _ in 0..=waits {
+                w.advance_missiles();
+                assert!(w.missiles[n].is_some(), "kind {k:#x}");
+            }
+            // Removed during its update in cycle U + 1 + W; the slot is free for the next effect.
+            w.advance_missiles();
+            assert!(w.missiles[n].is_none(), "kind {k:#x}");
+            assert_eq!(w.rng, rng, "no draws");
+            assert_eq!(w.new_fx(0x16, UnitId(0), None, (0, 0), 0, Fx::Cosmetic), Some(n));
+        }
+    }
+
+    #[test]
+    fn rune_explosion_runs_from_the_next_cycle() {
+        // Spec, "When a new effect first runs": an effect made in the timers pass first runs in the next cycle, so
+        // the rune's explosion (kind 0x17) is gone 50 cycles after the one it was made in.
+        let mut w = lab(32);
+        let p = caster(&mut w, MAGE, (5, 5), 255);
+        strike(&mut w, p, RUNES, None, (10, 10));
+        w.spawn(0, 1, (10, 10), 0).unwrap();
+        let mut made = None;
+        for c in 0..200 {
+            w.step(&[]);
+            let live = fx_of_kind(&w, 0x17) > 0;
+            match made {
+                None if live => made = Some(c),
+                Some(m) if !live => {
+                    assert_eq!(c - m, 50);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        panic!("no rune explosion seen ended");
     }
 
     #[test]
