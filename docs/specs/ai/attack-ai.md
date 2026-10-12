@@ -4,10 +4,13 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the AI script file
   `Rez\ai.bin`, the unit data `Rez\unitdata.dat` and the animation data `Rez\script.bin` in the game data, and the
   unit flags, "can target" values and `UNIT` section in the public PUD specification text. Not yet confirmed against
-  the running game.
+  the running game, except when the first goal is given and when the 50-cycle passes run (oracle traces and
+  research-side command logs, round 31).
 - **Changes:** 2026-10-12, round-14 errata: the ferry gather vector corrected (units after the 6th counted one are
   not visited), and a mixed-areas vector added. 2026-10-12, round-17 errata: the caster spell step is now
   specified in `ai/caster-ai.md`.
+  2026-10-12, round-31 errata: the first goal is given when any unit is created, map units included; the 50-cycle
+  passes count the start-up cycles, so they first run in the first start-up cycle.
 
 ## Behaviour
 
@@ -31,8 +34,10 @@ in the order stated winning a tie.
 ### Timing
 
 Two passes run every 50 cycles, in phase 2 of the cycle (`core/timing-and-rng.md`), after all computer players have
-run their script step. Both use counters that start at 1 when a game starts, so both run in **cycle 1** and then in
-cycles 51, 101, and so on. In such a cycle, in this order:
+run their script step. Both use counters that start at 1 when a game starts and count every cycle, the two start-up
+cycles included (`core/timing-and-rng.md`, "Scheduler", rule 1). So both run in the **first start-up cycle**, and
+then every 50 cycles: in the normal cycles that end with the cycle counter at 49, 99, 149, and so on. In such a
+cycle, in this order:
 
 1. **Pass A:** the threat map is rebuilt, then attack waves are launched (below).
 2. **Research requests with no workers** (`ai/training-research.md`).
@@ -77,9 +82,10 @@ The two marks are **needs a ferry** (with an **assigned transport**, possibly no
    land area becomes the tile's region value, the kind is set, and the result is **failure**. A sea unit fails with
    nothing changed.
 
-**When a unit is completed** (trained, or a building finished; the hook of `economy/build-train.md`, "Completion"),
-its goal is cleared (kind none, no tile, no marks, no assigned transport). Then, only for a unit of a computer
-player that is mobile and is neither a worker (bit 8) nor a tanker (bit 9), it gets a first goal, first match:
+**When a unit is created** (`core/unit-slots.md`, "Creating a unit": the map's units as the map loads, trained units
+as they appear), after its first order is set and before the extra first-wait draw, its goal is cleared (kind none,
+no tile, no marks, no assigned transport). Then, only for a unit of a computer player that is mobile and is neither
+a worker (bit 8) nor a tanker (bit 9), it gets a first goal, first match (so buildings get none):
 
 | Unit | First goal |
 | --- | --- |
@@ -115,7 +121,8 @@ their amount instead, and are excluded) gets the **held** mark. A held unit:
 - if it is mobile, can attack (bit 19) and is not a worker, gets goal **hold** at its own tile;
 - is never sent in an attack wave, never picked as an escort, and answers a call for help only when close (below).
 
-A map-placed unit without the mark keeps goal kind none until an attack wave or the all-out attack gives it one.
+The held mark is set after the unit is created, so it replaces the first goal only where it sets hold. A map-placed
+unit without the mark keeps the first goal it got when it was created. Finishing a building gives no goal.
 
 **Boarding.** When a unit goes inside a transport, its needs-a-ferry mark and assigned transport are cleared.
 
@@ -449,7 +456,7 @@ Grunt maximum HP (H) in the default data: 60.
 
 | Item | Value |
 | --- | --- |
-| Pass period | 50 cycles, first run in cycle 1 |
+| Pass period | 50 cycles; first run in the first start-up cycle, then at cycle counter 49, 99, … |
 | Dominant owner floor | strength must be > −100 and ≠ 0 |
 | Hold give-up ratio | stays only while 10 × own ≥ 4 × dominant |
 | Leash | floor(react range (computer) / 2) + 4 |
@@ -469,7 +476,9 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 
 | Input | Expected |
 | --- | --- |
-| New game | Passes A and B run in cycles 1, 51, 101, …; both in the same cycle, A first |
+| New game | Passes A and B run in the first start-up cycle, then in the normal cycles ending with the counter at 49, 99, 149, …; both in the same cycle, A first |
+| Human04 (oracle trace and research-side command log), the orc transport (type 0x1D, slot 1543, `UNIT` data value 0) at (68, 88), computer player 0, no passengers, nobody needs a ferry | Goal ferry from creation. Pass B in the first start-up cycle (trace record n = 1) runs "Ferry" step 5: a smart move with the great hall (slot 1550, top-left (81, 84)) as the target unit. Pass B commands it again at n = 51, 101, 151, … (counter 49, 99, 149, …) |
+| Human04, the orc destroyers (type 0x1F, `UNIT` data value 1) | Held. They can attack, so their goal is hold at their own tile, and pass B gives them no command |
 | Block with a computer grunt (60 HP) and a human footman at 30 HP, land block | Land strengths: player 1 = 5, player 0 = floor(30 × 5 / 60) = 2. Dominant owner: player 1 |
 | Land block with only player 0's town hall (4 × 4 footprint inside the block) and 2 peasants | Player 0 land strength = 16 × (−1) + 2 × (−2) = −20; non-zero and > −100, so player 0 is dominant |
 | Land block containing only player 2's farm (−4) and player 3's farm (−4) | Equal: player 2 (first) is dominant |
@@ -495,7 +504,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Ferry sails, landing spot found (G is shore water) | T gets a smart move to G and the unload-on-arrival mark; when it arrives it takes order 29 and unloads |
 | Roam on a 64 map, unit at (10, 10), draws 5 then 40 | x = 10 + 5 − 16 = −1 → 0; y = 10 + 8 − 16 = 2 (40 mod 32 = 8); command 4 to (0, 2) |
 | Unit placed by the map with data value 1, a grunt | Held: not in the army count, goal hold at its tile, never sent in waves |
-| Computer grunt completed, no gold store in its region | Goal hold at its own tile |
+| Computer grunt trained, no gold store in its region | Goal hold at its own tile |
 | Base box: buildings at (10, 12) and then (20, 25) in list order | min x 5, min y 7, max x 28, max y 33 |
 | Base box: buildings at (20, 25) and then (10, 12) | Each building only lowers the minimums: min x 5, min y 7, max x 7, max y 7 (list order matters) |
 | Base box: a single building at (10, 12) | min x 5, min y 7, max x 7, max y 7 (the maximums were never raised from −1) |
@@ -508,7 +517,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Computer footman V hit by an enemy archer; 3 idle computer grunts within 13 tiles | All 3 get command 12 against the archer |
 | Human footman V hit; an idle human footman 3 tiles away | Outside R = 2: it doesn't answer (the acquisition search may still react) |
 | Human unit hit by a guard tower | The tower is not recorded as its attacker; no call for help |
-| Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1), the post choice's off-map case (2), and the caster spell step's random search (1 to 10 per random try; `ai/caster-ai.md`) |
+| Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1) and the caster spell step's random search (1 to 10 per random try; `ai/caster-ai.md`). The post choice's off-map case (2) draws during creation, not in pass B |
 
 ## Open questions
 
@@ -531,3 +540,8 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 - **Line walk when the store and the enemy share a tile.** The line rule then has a zero-length major axis. Default:
   the walk stays on the store's tile, which is inside the box, so treat it as reaching the box edge without moving:
   use the store's tile.
+- **A land unit's post at map load.** The first goal of a computer player's non-held land unit is chosen while the
+  map is still loading, before any base box has been built, and where its draws fall relative to the creation's
+  facing draw isn't confirmed. Neither traced map has such a unit. Default: the base box is still in its empty state
+  (as for a player with no gold store), so a store found then is already outside it and its own tile is the walk's
+  result; gold stores the map lists later don't count yet. Any draws come after the facing draw.
