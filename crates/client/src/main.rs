@@ -544,6 +544,12 @@ fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
     sel.units.retain(|&id| sim.world.unit(id).is_some_and(|u| !u.dying));
     let human = sim.human;
     let events = std::mem::take(&mut sim.world.events);
+    // A unit that changed owner by rescue leaves the selection (rescue spec, "Owner change").
+    for e in &events {
+        if let Event::OwnerChanged { unit, .. } = *e {
+            sel.units.retain(|&id| id != unit);
+        }
+    }
     if let Some(m) = events.iter().rev().find_map(|e| message(e, human)) {
         sim.message = Some((m, MESSAGE_TICKS));
     } else if let Some((_, left)) = &mut sim.message {
