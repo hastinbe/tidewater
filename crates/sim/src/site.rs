@@ -385,6 +385,21 @@ mod tests {
         assert_eq!(w.check_site(PLATFORM, site, p), SiteCheck::Blocked);
     }
 
+    /// Harvest spec, "Mine and platform amounts": a platform built on a patch takes the patch's trips.
+    #[test]
+    fn a_platform_built_on_a_patch_takes_its_trips() {
+        let (mut w, _) = town();
+        sea(&mut w, 8, 0, 31, 31);
+        let site = (11, 7);
+        let patch = w.spawn(PATCH, 15, site, 37).unwrap();
+        let t = w.spawn(TANKER, 0, (14, 7), 0).unwrap();
+        let i = w.index(t).unwrap();
+        w.raise(i, PLATFORM, site);
+        let platform = w.units.iter().find(|u| u.kind == PLATFORM).expect("placed");
+        assert_eq!(platform.resources, 37);
+        assert!(w.unit(patch).is_none_or(|u| u.dying || !u.present()));
+    }
+
     #[test]
     fn farm_on_a_tree_is_blocked() {
         let (mut w, p) = town();
