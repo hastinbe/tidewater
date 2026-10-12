@@ -7,6 +7,9 @@
 - **Changes:** 2026-10-12, round-22 errata: for two-tile movers the progress check measures P to the unrounded goal;
   the goal zone plays no part in it.
   2026-10-12, round-31 errata: for transports the kept tile of a goal pull-back is defined in `orders/transports.md`.
+  2026-10-12, round-35 errata: attack-type orders for the search are those with the "acquires" mark (plus order 10 in
+  Enhanced mode); orders 9 and 11 aren't; the target gets no special treatment. New trace vectors (a stored path kept
+  while the target moves; a route into a moving ally refused at the step).
 
 ## Behaviour
 
@@ -44,16 +47,18 @@ it is. Long journeys are therefore many short searches.
 Buildings and terrain always block. A tile that holds a **ground-layer unit** (land unit or ship) is treated as free
 when either of these holds:
 
-1. **Attack-type orders:** the searching unit's order is an attack-type order (attack, and in Enhanced mode also
-   attack-move/patrol), it has no attacker (see `movement.md`), and it is not a worker, tanker, demolition unit or spell-caster type.
-   Then **units of non-allied players are ignored**: the path goes through enemies, and the unit fights whatever it
-   meets.
+1. **Attack-type orders:** the searching unit's order carries the "acquires" mark of `orders/orders.md` (orders 2,
+   4, 5, 7, 12, 13, 14, 15 and 16, and 32, which never moves), or it is order 10 (attack-move) in Enhanced mode; it
+   has no attacker (see `movement.md`); and it is not a worker, tanker, demolition unit or spell-caster type. Orders
+   9 (attack a unit) and 11 (attack a wall) are **not** attack-type. Then **units of non-allied players are
+   ignored**, the target included: the path goes through enemies, and the unit fights whatever it meets.
 2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player). It is
    currently moving or about to move, its blocked counter is 0, and it is not inside something. Then it is ignored.
 
-In every other case the unit blocks the search. Air units always block other air units. These exceptions apply only
-to the search. When the unit actually takes a step, any unit on the next tile blocks it (see the blocked rules in
-`movement.md`).
+In every other case the unit blocks the search, the target included: the target gets no special treatment, and the
+goal zone (Step 1) only ends the walks, it doesn't make any tile free. Air units always block other air units. These
+exceptions apply only to the search. When the unit actually takes a step, any unit on the next tile blocks it (see
+the blocked rules in `movement.md`).
 
 ### Step 1: mark the goal zone
 
@@ -212,6 +217,12 @@ units on the map.
 | Footman with an attack order; the only route passes an enemy footman | the search goes through the enemy's tile; the actual step is then blocked and the unit fights it |
 | One-tile mover at S = (35, 4), G = (38, 5) (a 4 × 4 hall's tile); a walk ends at P = (37, 9), inside the goal zone | S's distance 3, P's 4: rejected |
 | Two-tile mover at S = (10, 10), ordered tile (13, 11) | G = (12, 10); S's distance 2. A walk ending at P = (12, 12) has distance 1 to (13, 11): accepted with progress value 1. (Measured to the rounded G it would be 2, equal, with minor-axis distance 0: rejected) |
+| `orc02-assault` (oracle trace): computer footman 1582, order 12 from n = 275, target 1575. Its search at n = 278 from (54, 27) aims at 1575's tile then, (50, 33) | Order 12 is attack-type. The stored steps run along the line: (53, 28), (53, 29), (52, 30), (51, 31). The footman follows them although 1575 moves to (51, 32) at n = 288 and (51, 31) at n = 304: n = 294 tile (53, 29), facing 4; n = 310 tile (52, 30), facing 5 |
+| A footman in order 9 (no attacker); the line to its target passes an idle enemy grunt (static study only) | The grunt's tile blocks the search; the route walks round it |
+| Same with order 12 | The search goes through the grunt's tile; the step itself is then blocked (`movement/movement.md`, blocked rules) |
+| `xorc01-death-coil` (oracle trace): grunt 1497 on (72, 79), order 10 since n = 353. At n = 356 the line's first tile (71, 79) holds ogre 1496 (order 10 since n = 354, still animation): blocked. Ally death knight 1491 on (71, 80) is in its move animation; (71, 78) and (70, 79) are free | Left walk (p = −1): south-west to (71, 80) (the moving death knight is ignored), north-west to (70, 79), and it succeeds there because (70, 78) is a line tile. The pair (SW, NW) is "two of W" through (71, 79), which is occupied, so no change: 2 steps, P's distance 12, score 14. Right walk (p = +1): north-west to (71, 78), succeeds there: 1 step, distance 13, score 14. The tie keeps the left walk |
+| Same, the step at n = 356 | The first step, south-west, is onto the death knight's tile: refused (`movement/movement.md`, row I). Record n = 356: order 10, animation 3, wait 1, tile (72, 79), facing 6 |
+| Same, n = 357 | Ogre 1496 has moved on to (70, 79) earlier in the same cycle, so the new line's first tile (71, 79) is free: the grunt steps west, tile (71, 79), facing 6 |
 
 ## Open questions
 
