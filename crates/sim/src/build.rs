@@ -16,7 +16,8 @@ use crate::TILE_PX;
 use crate::economy::{Event, cost};
 use crate::movement::{Goal, Walk};
 use crate::placement::{LIMIT_OUT, Source};
-use crate::terrain::{bits, mask};
+use crate::site::building_mask;
+use crate::terrain::bits;
 use crate::world::{Gather, Order, UnitId, World};
 
 /// Order 22's wait.
@@ -108,19 +109,14 @@ impl World {
         self.units[i].script.wait = INSIDE_SITE_WAIT;
     }
 
-    /// The placement check of the occupancy spec for a building of type `kind` with its top-left tile at `site`.
-    /// `Some(patch)` if it passes, with the oil patch an oil platform is placed on.
+    /// The placement check of the occupancy spec for a building of type `kind` with its top-left tile at `site`, made
+    /// when the worker arrives. `Some(patch)` if it passes, with the oil patch an oil platform is placed on. The click
+    /// in placement mode makes the fuller check of [`World::check_site`] first.
     pub(crate) fn site_ok(&self, kind: u8, site: (i32, i32)) -> Option<Option<UnitId>> {
         let s = self.stats_of(kind);
         let platform = s.flags & flags::OIL_SOURCE != 0;
         let shore = s.flags & flags::SHORE_BUILDING != 0;
-        let m = if platform {
-            mask::OIL_PLATFORM
-        } else if shore {
-            mask::SHORE_BUILDING
-        } else {
-            mask::LAND_BUILDING
-        };
+        let m = building_mask(s.flags);
         let tiles = (0..s.size.1 as i32).flat_map(|dy| (0..s.size.0 as i32).map(move |dx| (site.0 + dx, site.1 + dy)));
         let mut touches_shore = false;
         for (x, y) in tiles {

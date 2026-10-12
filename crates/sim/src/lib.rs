@@ -24,6 +24,7 @@ pub mod placement;
 mod repair;
 pub mod rescue;
 pub mod rng;
+pub mod site;
 pub mod slots;
 pub mod sound;
 pub mod spells;
