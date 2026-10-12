@@ -4,6 +4,7 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and per-type step timings
   computed from `Rez\script.bin` (see `specs/core/animation-scripts.md`). The path search is in `pathfinding.md`
   and tile blocking is in `occupancy.md`. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12: the open question on how owner codes map to player kinds is closed by `game/setup.md`.
 
 ## Behaviour
 
@@ -160,7 +161,8 @@ thing:
 | Search mask drops bit 0x04 (`pathfinding.md`) | Every player that isn't human-controlled: computer players, passive computer players, rescue players and neutral or empty slots |
 
 During game setup a rescuable (active) player becomes a computer player and a rescuable (passive) player becomes a
-passive computer player, so active rescue players are covered by both rules and passive ones only by the second.
+passive computer player (`game/setup.md` gives how every owner code becomes a player kind), so active rescue
+players are covered by both rules and passive ones only by the second.
 
 ## Data
 
@@ -212,5 +214,3 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
   the animation itself to be the move animation.
 - How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
   construction spec.
-- Exactly how the map's owner codes map to the player kinds above. The rescue mapping is read from game setup and
-  not yet confirmed in play.
