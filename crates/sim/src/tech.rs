@@ -212,11 +212,11 @@ pub fn default_upgrades() -> UpgradeTable {
 
 impl Player {
     /// Whether training needs the ranger (berserker) training level above 0.
-    fn ranger_training_done(&self) -> bool {
+    pub(crate) fn ranger_training_done(&self) -> bool {
         self.levels[RANGER_TRAINING_LINE] > 0
     }
 
-    fn paladin_known(&self) -> bool {
+    pub(crate) fn paladin_known(&self) -> bool {
         self.spells_known & PALADIN_BIT != 0
     }
 }

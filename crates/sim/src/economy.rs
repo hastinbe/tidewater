@@ -85,6 +85,13 @@ pub enum Event {
         player: u8,
         outcome: crate::victory::Outcome,
     },
+    /// A unit or building changed owner by rescue (rescue spec, "Owner change"): it leaves every player's current
+    /// selection.
+    OwnerChanged {
+        unit: UnitId,
+        from: u8,
+        to: u8,
+    },
 }
 
 /// Gold, lumber and oil.
@@ -536,11 +543,9 @@ impl World {
     /// The owner's units of type `from` become `to` in place ("Converting units"): hit points go up by the
     /// difference of the maximums (each at least 1), mana is set, and a barracks working on `from` works on `to`.
     pub(crate) fn convert(&mut self, owner: u8, from: u8, to: u8) {
-        let max = |k: u8| (self.stats_of(k).hit_points as i32).max(1);
-        let delta = max(to) - max(from);
-        let s = self.stats_of(to);
-        let to_cost = cost(&s);
-        for u in &mut self.units {
+        let to_cost = cost(&self.stats_of(to));
+        for i in 0..self.units.len() {
+            let u = &mut self.units[i];
             if u.owner != owner {
                 continue;
             }
@@ -558,16 +563,26 @@ impl World {
             if u.kind != from || u.dying || u.removing || u.inside {
                 continue;
             }
-            u.kind = to;
-            // Our reading: a unit never drops below 1 hit point from a conversion.
-            u.hp = (u.hp as i32 + delta).clamp(1, u16::MAX as i32) as u16;
-            // Our reading: the unit data's "magic" value is a flag in our reader, so it gives 0 or 1.
-            if s.flags & flags::CASTER != 0 {
-                u.mana = 85;
-                u.mana_counter = 40;
-            } else {
-                u.mana = u8::from(s.magic);
-            }
+            self.convert_unit(i, to);
+        }
+    }
+
+    /// One unit becomes type `to` ("Converting units"): hit points go up by the difference of the maximums (each at
+    /// least 1), and mana is set.
+    pub(crate) fn convert_unit(&mut self, i: usize, to: u8) {
+        let max = |k: u8| (self.stats_of(k).hit_points as i32).max(1);
+        let delta = max(to) - max(self.units[i].kind);
+        let s = self.stats_of(to);
+        let u = &mut self.units[i];
+        u.kind = to;
+        // Our reading: a unit never drops below 1 hit point from a conversion.
+        u.hp = (u.hp as i32 + delta).clamp(1, u16::MAX as i32) as u16;
+        // Our reading: the unit data's "magic" value is a flag in our reader, so it gives 0 or 1.
+        if s.flags & flags::CASTER != 0 {
+            u.mana = 85;
+            u.mana_counter = 40;
+        } else {
+            u.mana = u8::from(s.magic);
         }
     }
 
@@ -594,28 +609,34 @@ impl World {
     /// Cancels a building's job (full refund) or, if it is under construction, the building itself: it is destroyed
     /// and part of its cost comes back ("Cancelling construction").
     pub(crate) fn cancel(&mut self, i: usize) {
+        if self.units[i].dying || self.cancel_job(i) {
+            return;
+        }
         let u = &self.units[i];
-        if u.dying {
-            return;
-        }
-        let owner = u.owner;
-        if let Some(job) = u.job {
-            self.end_job(i, job);
-            if job.kind.research().is_some() {
-                self.end_research(i, job.kind, false);
-            } else {
-                self.refund(owner, job.paid);
-            }
-            return;
-        }
         if u.construction.is_none() {
             return;
         }
+        let owner = u.owner;
         let s = self.stats_of(u.kind);
         let part = |v: u16| v as u32 * 30 / 4;
         let oil = if self.rules.enhanced { part(s.oil) } else { 0 };
         self.refund(owner, [part(s.gold), part(s.lumber), oil]);
         self.kill(i);
+    }
+
+    /// Cancels a building's job with a full refund to its owner, as the cancel column of "Ending" says. Returns
+    /// whether it had one.
+    pub(crate) fn cancel_job(&mut self, i: usize) -> bool {
+        let u = &self.units[i];
+        let Some(job) = u.job else { return false };
+        let owner = u.owner;
+        self.end_job(i, job);
+        if job.kind.research().is_some() {
+            self.end_research(i, job.kind, false);
+        } else {
+            self.refund(owner, job.paid);
+        }
+        true
     }
 
     /// The tile a unit of type `k` comes out on: the ring search of the placement spec around the building's

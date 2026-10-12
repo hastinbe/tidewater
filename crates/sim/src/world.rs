@@ -64,7 +64,7 @@ impl Layer {
 
 /// Unit types that occupy tiles in their own way (occupancy spec, "Run-time marks"), in the PUD unit numbering.
 const OIL_PATCH: u8 = 0x5d;
-const CIRCLE_OF_POWER: u8 = 0x65;
+use crate::rescue::CIRCLE_OF_POWER;
 
 /// A unit's order (orders spec, "The order list"); the spec's number is given on each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -260,8 +260,14 @@ pub struct Unit {
     pub detected_by: u8,
     /// Players 0 to 7 the fog hides this unit from (bit p), recomputed in phase 5 (vision spec, "Unit visibility").
     pub hidden_from: u8,
-    /// The rescuable mark: the unit counts as rescuable (victory spec, "Terms").
+    /// The rescuable mark: the unit counts as rescuable (rescue spec, "Terms").
     pub rescuable: bool,
+    /// The flash countdown after an owner change (rescue spec, "Flash"); not game state.
+    pub flash: crate::rescue::Flash,
+    /// A circle of power's cycles left before its next rescue check (rescue spec, "Rescuing at a circle of power").
+    pub circle_wait: u8,
+    /// The frozen state (rescue spec, "Frozen units").
+    pub freeze: crate::rescue::Freeze,
     /// The held mark: placed by the map with a non-zero low byte in its data value; held units are left out of the
     /// computer's army counts (ai-scripts spec, "Conditions"). Nothing clears it (that spec's open question).
     pub held: bool,
@@ -335,10 +341,12 @@ pub struct Player {
     pub allied_victory: bool,
     /// A human player no longer connected.
     pub disconnected: bool,
-    /// Units rescued, plus 0x1000 for a hero when the mission asks for one (victory spec, "Terms").
-    pub rescued: u32,
-    /// Some unit or building has changed owner to this player (mission mode F).
-    pub received: bool,
+    /// Rescuable units brought to a circle of power, plus 0x1000 for a hero when the mission asks for one: an
+    /// unsigned 16-bit value (victory spec, "Terms"; rescue spec).
+    pub rescued: u16,
+    /// The converted tally: units and buildings that changed owner to this player by rescue (rescue spec, "Owner
+    /// change"); mission mode F reads it.
+    pub converted: u16,
     pub result: Option<crate::victory::Outcome>,
 }
 
@@ -812,7 +820,11 @@ impl World {
             ai_job: Default::default(),
             goal: Default::default(),
             think: 0,
-            rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
+            // Rescue spec, "Where the mark comes from": only units the map gives to a rescue player.
+            rescuable: self.loading && crate::ai::controller::is_rescue(self.players[owner as usize].controller),
+            flash: Default::default(),
+            circle_wait: 0,
+            freeze: Default::default(),
             held: false,
         };
         self.mark(&unit, unit.tile, Some(id));
@@ -908,7 +920,6 @@ impl World {
         self.units.binary_search_by_key(&slot, |u| u.slot).ok()
     }
 
-    /// Moves a unit to another owner's list (unit-slots spec, "Changing owner"); the cap isn't checked.
     /// Whether player `a` counts player `b` as allied (its own player included).
     pub(crate) fn allied(&self, a: u8, b: u8) -> bool {
         a == b
@@ -918,8 +929,9 @@ impl World {
                 .is_some_and(|p| b < 8 && p.allies & (1 << b) != 0)
     }
 
+    /// Moves a unit to another owner's list (unit-slots spec, "Changing owner"); the cap isn't checked. Rescue's
+    /// owner change is [`World::rescue_owner_change`].
     pub(crate) fn change_owner(&mut self, i: usize, to: u8) {
-        self.note_owner_change(i, to);
         let u = &mut self.units[i];
         self.slots.change_owner(u.slot, u.owner, to);
         u.owner = to;
@@ -950,6 +962,7 @@ impl World {
         self.timers_pass();
         self.sort_vertical();
         self.unit_visibility();
+        self.flash_pass();
         self.victory_phase();
         let gone: Vec<UnitId> = self
             .units
@@ -1058,13 +1071,29 @@ impl World {
 
     /// Phase 4 for one unit: advance its animation script, then its order.
     fn advance(&mut self, i: usize) {
+        use crate::rescue::Freeze;
         let scripts = Arc::clone(&self.scripts);
         let u = &mut self.units[i];
+        // Rescue spec, "Frozen units": a frozen unit doesn't advance its animation at all.
+        if u.freeze == Freeze::Frozen && !u.dying {
+            return;
+        }
         let m = Modifiers {
             haste: u.haste,
             carrying: u.carrying,
         };
-        let fx = u.script.update(scripts.bytes(), u.facing, m);
+        let mut fx = u.script.update(scripts.bytes(), u.facing, m);
+        match u.freeze {
+            Freeze::Freezing if fx.step_done => {
+                u.freeze = Freeze::Frozen;
+                fx.step_done = false;
+            }
+            Freeze::Released => {
+                u.freeze = Freeze::None;
+                fx.step_done = true;
+            }
+            _ => {}
+        }
         u.pos.0 += fx.dx;
         u.pos.1 += fx.dy;
         let dying = u.dying;
@@ -1079,6 +1108,14 @@ impl World {
         }
         if dying {
             return;
+        }
+        // Rescue spec, "Joining": the check comes first at a "step done", before the pending order and the order
+        // logic. A circle of power runs its own check every update.
+        if fx.step_done {
+            self.joining_check(i);
+        }
+        if self.units[i].kind == CIRCLE_OF_POWER {
+            self.circle_check(i);
         }
         let u = &mut self.units[i];
         u.resume = u.resume.saturating_sub(1);

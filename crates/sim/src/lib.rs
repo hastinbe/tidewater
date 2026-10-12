@@ -21,6 +21,7 @@ mod orders;
 pub mod path;
 pub mod placement;
 mod repair;
+pub mod rescue;
 pub mod rng;
 pub mod slots;
 pub mod sound;

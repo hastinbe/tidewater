@@ -10,7 +10,11 @@
 //!   and the destroy-all check replace an earlier result. The two exceptions the spec spells out (mode L when Grom
 //!   doesn't exist, and mode U's rescue test) are kept.
 //! - "No result while ..." ends the check keeping the result so far, so the standard part's defeat still stands.
-//! - A unit is rescued when its owner changes from a rescue player to any other (non-neutral) player.
+//! - Rescue itself (joining, the circle of power, the rescued count going up) is in `rescue.rs`. The rescuable
+//!   counts are [`World::rescuable_counts`].
+//! - Modes W and Z (flagged open question): the literal behaviour. Making a hero rescuable that has no mark lowers
+//!   L's rescued count by 1, wrapping at 16 bits, so a count of 0 becomes 65535 and the rescue test gives victory at
+//!   the next check.
 //! - The multiplayer rule treats only human and computer slots as players; rescue and passive players are neither in
 //!   nor out. The network game is our multiplayer game.
 //! - Demo playback isn't implemented.
@@ -319,27 +323,8 @@ impl World {
         }
     }
 
-    /// Bookkeeping when a unit changes owner: rescues and mode F's "changed owner to L" mark.
-    pub(crate) fn note_owner_change(&mut self, i: usize, to: u8) {
-        if to == crate::slots::NEUTRAL || to as usize >= self.players.len() {
-            return;
-        }
-        self.players[to as usize].received = true;
-        let u = &self.units[i];
-        if !u.rescuable || controller::is_rescue(self.players[to as usize].controller) {
-            return;
-        }
-        let hero = self.stats_of(u.kind).flags & flags::HERO != 0;
-        self.units[i].rescuable = false;
-        self.capture_sound(i, to);
-        let mut add = 1;
-        if hero && self.required() & HERO_RESCUE != 0 {
-            add += HERO_RESCUE;
-        }
-        self.players[to as usize].rescued += add;
-    }
-
-    fn required(&self) -> u32 {
+    /// The required rescue count of the current rule (0 without one).
+    pub(crate) fn required(&self) -> u32 {
         match self.victory.rule {
             Some(Rule::Standard { rescue: Some(r), .. }) => r,
             Some(Rule::Mission { required, .. }) => required,
@@ -451,10 +436,18 @@ impl World {
         found.len() == n && found.iter().all(|&a| a)
     }
 
-    /// Makes the first unit of `kind` found rescuable.
-    fn make_rescuable(&mut self, kind: u8) {
-        if let Some(u) = self.units.iter_mut().find(|u| u.kind == kind) {
+    /// Modes W and Z: makes the first unit of `kind` found rescuable. A hero that didn't have the mark also lowers
+    /// L's rescued count by 1, unsigned 16-bit.
+    fn make_rescuable(&mut self, l: usize, kind: u8) {
+        let hero = self.stats_of(kind).flags & flags::HERO != 0;
+        if let Some(u) = self.units.iter_mut().find(|u| u.kind == kind)
+            && !u.rescuable
+        {
             u.rescuable = true;
+            if hero {
+                let p = &mut self.players[l];
+                p.rescued = p.rescued.wrapping_sub(1);
+            }
         }
     }
 
@@ -479,17 +472,12 @@ impl World {
 
     /// Step 3 of the standard rule.
     fn rescue_test(&self, l: usize, required: u32) -> Option<Outcome> {
-        let got = self.players[l].rescued;
+        let got = self.players[l].rescued as u32;
         if got >= required {
             return Some(Outcome::Victory);
         }
-        let mut left = 0;
-        let mut hero_left = false;
-        for u in self.units.iter().filter(|u| u.rescuable && !u.dying && !u.removing) {
-            left += 1;
-            hero_left |= self.stats_of(u.kind).flags & flags::HERO != 0;
-        }
-        let hero = if hero_left || got & HERO_RESCUE != 0 {
+        let (left, heroes) = self.rescuable_counts();
+        let hero = if heroes > 0 || got & HERO_RESCUE != 0 {
             HERO_RESCUE
         } else {
             0
@@ -543,7 +531,7 @@ impl World {
                 }
             }
             F => {
-                if self.players[l].received {
+                if self.players[l].converted > 0 {
                     self.victory.rule = Some(DESTROY_ALL);
                 }
             }
@@ -637,7 +625,7 @@ impl World {
                     return Some(Defeat);
                 }
                 if !players_0_7().any(|q| q != l && q != 4 && self.has(q, t::KEEPS_UP)) {
-                    self.make_rescuable(t::TURALYON);
+                    self.make_rescuable(l, t::TURALYON);
                     self.victory.rule = Some(rescue_rule(required));
                 }
             }
@@ -658,8 +646,8 @@ impl World {
                 if self.is_in(4) {
                     return r;
                 }
-                self.make_rescuable(t::TURALYON);
-                self.make_rescuable(t::DANATH);
+                self.make_rescuable(l, t::TURALYON);
+                self.make_rescuable(l, t::DANATH);
                 self.victory.rule = Some(rescue_rule(required));
             }
             AA => {
@@ -899,6 +887,14 @@ mod tests {
         assert_eq!(w.standard(0, false, None), None);
     }
 
+    /// A unit of player 2 with the rescuable mark.
+    fn marked(w: &mut World, k: u8, tile: (i32, i32)) -> usize {
+        let id = w.spawn(k, 2, tile, 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.units[i].rescuable = true;
+        i
+    }
+
     #[test]
     fn rescue_counts_heroes_with_bit_0x1000() {
         let mut w = world(16, 16);
@@ -906,35 +902,74 @@ mod tests {
         w.spawn(0x00, 0, (2, 2), 0).unwrap();
         // Entry 18: required 4, three rescued, one left.
         w.players[0].rescued = 3;
-        let last = w.spawn(0x00, 2, (8, 8), 0).unwrap();
-        assert!(w.unit(last).unwrap().rescuable);
+        let last = marked(&mut w, 0x00, (8, 8));
         assert_eq!(w.rescue_test(0, 4), None);
-        let i = w.index(last).unwrap();
-        w.units[i].dying = true;
+        w.units[last].dying = true;
         assert_eq!(w.rescue_test(0, 4), Some(Outcome::Defeat));
-        // Entry 3: rescuing a hero first.
+        // Entry 3: a hero rescued first.
         let mut w = world(16, 16);
-        w.players[2].controller = controller::RESCUE_PASSIVE;
         w.stats.0[0x14].flags |= flags::HERO;
-        w.victory.rule = Some(mission_rule(3));
-        let hero = w.spawn(0x14, 2, (8, 8), 0).unwrap();
-        let i = w.index(hero).unwrap();
-        w.change_owner(i, 0);
-        assert_eq!(w.players[0].rescued, 0x1001);
+        w.players[0].rescued = 0x1001;
         assert_eq!(w.rescue_test(0, 0x1001), Some(Outcome::Victory));
         // An ordinary unit rescued, the hero lost: possible = 1.
         let mut w = world(16, 16);
-        w.players[2].controller = controller::RESCUE_PASSIVE;
         w.stats.0[0x14].flags |= flags::HERO;
-        w.victory.rule = Some(mission_rule(3));
-        let man = w.spawn(0x00, 2, (4, 4), 0).unwrap();
-        let hero = w.spawn(0x14, 2, (8, 8), 0).unwrap();
-        let i = w.index(man).unwrap();
-        w.change_owner(i, 0);
-        let i = w.index(hero).unwrap();
-        w.units[i].dying = true;
-        assert_eq!(w.players[0].rescued, 1);
+        let hero = marked(&mut w, 0x14, (8, 8));
+        w.players[0].rescued = 1;
+        assert_eq!(w.rescue_test(0, 0x1001), None, "the hero is still left");
+        w.units[hero].dying = true;
         assert_eq!(w.rescue_test(0, 0x1001), Some(Outcome::Defeat));
+    }
+
+    #[test]
+    fn modes_w_and_z_lower_the_rescued_count() {
+        // Mode W (entry 32): no other player has a keep; Turalyon, a hero, becomes rescuable and L's count wraps.
+        let mut w = world(24, 24);
+        w.stats.0[t::TURALYON as usize] = w.stats.0[0x00];
+        w.stats.0[t::TURALYON as usize].flags |= flags::HERO;
+        w.spawn(0x00, 0, (2, 2), 0).unwrap();
+        let tur = w.spawn(t::TURALYON, 0, (4, 4), 0).unwrap();
+        w.start_campaign(32);
+        let Some(Rule::Mission { mode: m, required }) = w.victory.rule else {
+            panic!()
+        };
+        assert_eq!(m, mode::W);
+        assert_eq!(
+            w.mission(0, m, required),
+            None,
+            "the rescue test first runs at the next check"
+        );
+        assert!(w.unit(tur).unwrap().rescuable);
+        assert_eq!(w.players[0].rescued, 0xffff);
+        assert_eq!(w.victory.rule, Some(rescue_rule(1)));
+        assert_eq!(w.standard(0, false, Some(1)), Some(Outcome::Victory));
+        // Already marked: no second drop.
+        assert_eq!(w.mission(0, mode::W, 1), None);
+        assert_eq!(w.players[0].rescued, 0xffff);
+        // Mode Z: two heroes, two drops.
+        let mut w = world(24, 24);
+        for k in [t::TURALYON, t::DANATH] {
+            w.stats.0[k as usize] = w.stats.0[0x00];
+            w.stats.0[k as usize].flags |= flags::HERO;
+            w.spawn(k, 0, (4 + k as i32 % 8, 4), 0).unwrap();
+        }
+        w.players[0].rescued = 5;
+        assert_eq!(w.mission(0, mode::Z, 2), None);
+        assert_eq!(w.players[0].rescued, 3);
+        assert_eq!(w.rescuable_counts(), (2, 2));
+    }
+
+    #[test]
+    fn mode_f_reads_the_converted_tally() {
+        let mut w = world(24, 24);
+        w.spawn(0x00, 0, (2, 2), 0).unwrap();
+        w.spawn(0x00, 1, (20, 20), 0).unwrap();
+        w.victory.rule = Some(mission_rule(20));
+        assert_eq!(w.mission(0, mode::F, 0), None);
+        assert_ne!(w.victory.rule, Some(DESTROY_ALL));
+        w.players[0].converted = 1;
+        w.mission(0, mode::F, 0);
+        assert_eq!(w.victory.rule, Some(DESTROY_ALL));
     }
 
     #[test]

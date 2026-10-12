@@ -135,7 +135,9 @@ pub enum Sound {
     Explode,
     Construction,
     Dock,
+    /// A circle of power rescued a unit (rescue spec): `misc\hrescue` or `misc\orescue`.
     Rescue,
+    /// A rescuable unit joined a human-controlled player (rescue spec): `misc\hcapture` or `misc\ocapture`.
     Capture,
     /// A spell took effect; the spell's order number (38 to 56). The eye of Kilrogg (48) is a plain sound.
     Spell(u8),
@@ -389,15 +391,6 @@ impl World {
         // Our reading: the timer restarts whenever the sound is due, whether or not the client can hear it.
         self.sounds.construction_timer = CONSTRUCTION_TIMER;
         self.sound_on(i, Sound::Construction);
-    }
-
-    /// "Rescue and capture", our reading of the open question: `capture` plays when a rescued unit or building
-    /// changes owner to a human-controlled player. The `rescue` sound's trigger (a rescuing unit finding rescuable
-    /// units next to it) belongs to the rescue logic, which the sim doesn't have yet.
-    pub(crate) fn capture_sound(&mut self, i: usize, to: u8) {
-        if self.human_controlled(to) {
-            self.sound_on(i, Sound::Capture);
-        }
     }
 
     /// Whether this is a single-player game: exactly one human player ("Critters").
