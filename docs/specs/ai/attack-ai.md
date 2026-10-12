@@ -5,6 +5,8 @@
   `Rez\ai.bin`, the unit data `Rez\unitdata.dat` and the animation data `Rez\script.bin` in the game data, and the
   unit flags, "can target" values and `UNIT` section in the public PUD specification text. Not yet confirmed against
   the running game.
+- **Changes:** 2026-10-12, round-14 errata: the ferry gather vector corrected (units after the 6th counted one are
+  not visited), and a mixed-areas vector added.
 
 ## Behaviour
 
@@ -356,8 +358,9 @@ the transport.
    - its assigned transport becomes T;
    - the first candidate fixes the **trip area** (its goal land area); a candidate with the same goal land area as
      the trip area (the first one included) is given a smart move with T as the target unit, and counted;
-   - when 6 have been counted, stop.
-   Candidates bound for another area still get T as their assigned transport, but no command.
+   - when 6 have been counted, stop: units later in the list aren't visited and keep their assigned transport.
+   Candidates bound for another area that come before that point still get T as their assigned transport, but no
+   command.
 5. If there was no candidate, T is given a smart move with its owner's gold store nearest T as the target unit (for
    a sea unit any gold store counts), if there is one.
 
@@ -499,7 +502,8 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Base box with buildings near the right edge of a 64 map, max x 60 | 68 is not below 64: max x = 63 |
 | 128-wide map, any buildings | min x, min y start at −128 and stay; after the margin they are 123 |
 | Transport idle with 2 passengers whose goal tiles are A then B (slot order) | G = B; the landing-spot search runs from B (slot 0x0C is 1 by default) |
-| Transport idle, no passengers, 8 grunts needing a ferry to the same area | The first 6 in list order are assigned and told to board; the other 2 are assigned to it with no command |
+| Transport idle, no passengers, 8 grunts needing a ferry to the same area | The first 6 in list order are assigned to it and told to board; the walk stops there, so the other 2 keep their old assignment (none). They are gathered on a later run, once the transport is idle with no passengers and nobody assigned |
+| Transport idle, no passengers; in list order: a grunt bound for area B, then 7 grunts bound for area A | The first grunt fixes the trip area B: it is assigned and told to board (count 1). All 7 area-A grunts are assigned with no command; the walk goes on to the end of the list, since only 1 was counted |
 | Computer footman V hit by an enemy archer; 3 idle computer grunts within 13 tiles | All 3 get command 12 against the archer |
 | Human footman V hit; an idle human footman 3 tiles away | Outside R = 2: it doesn't answer (the acquisition search may still react) |
 | Human unit hit by a guard tower | The tower is not recorded as its attacker; no call for help |
