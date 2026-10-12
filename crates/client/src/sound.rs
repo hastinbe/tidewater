@@ -448,6 +448,25 @@ struct Choice {
     off_screen: bool,
 }
 
+/// Sounds the interface makes by itself rather than cues of the sim: the placement click's
+/// (`docs/specs/ui/placing-buildings.md`, "The click"). Both are plain sounds under no option.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiSound {
+    /// `misc\error`: a placement click on a site that fails the site check. Its only use.
+    Error,
+    /// `misc\thunk`: a placement click on an allowed site.
+    Thunk,
+}
+
+impl UiSound {
+    pub fn file(self) -> &'static str {
+        match self {
+            UiSound::Error => "misc\\error",
+            UiSound::Thunk => "misc\\thunk",
+        }
+    }
+}
+
 /// Turns the sim's cues into files and levels.
 #[derive(Clone, Debug)]
 pub struct Director {
@@ -543,6 +562,16 @@ impl Director {
             option,
             off_screen: true,
         })
+    }
+
+    /// What the local player hears of an interface sound: a plain sound at the normal level, under no option, with no
+    /// subtitle. No variant draw is made.
+    pub fn hear_ui(&self, s: UiSound) -> Heard {
+        let st = self.settings;
+        Heard {
+            play: (st.volume > 0).then(|| (s.file().to_string(), st.normal_level())),
+            subtitle: None,
+        }
     }
 
     /// What the local player hears of `cue` with the main view at `view`.
@@ -905,6 +934,22 @@ mod tests {
         d.settings.options = option::ALL;
         d.settings.volume = 0;
         assert_eq!(file(&mut d, on_unit(Sound::Explode, (12, 12))), None);
+    }
+
+    #[test]
+    fn placement_click_sounds_are_plain() {
+        let mut d = director();
+        d.settings.options = 0;
+        let h = d.hear_ui(UiSound::Error);
+        assert_eq!(h.play, Some(("misc\\error".to_string(), d.settings.normal_level())));
+        assert_eq!(h.subtitle, None);
+        assert_eq!(
+            d.hear_ui(UiSound::Thunk).play.map(|p| p.0).as_deref(),
+            Some("misc\\thunk")
+        );
+        assert_eq!(path(UiSound::Error.file()), "Gamesfx\\misc\\error.wav");
+        d.settings.volume = 0;
+        assert_eq!(d.hear_ui(UiSound::Thunk), Heard::default());
     }
 
     #[test]

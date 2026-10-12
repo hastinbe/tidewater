@@ -1186,6 +1186,26 @@ pub fn target_command(
     })
 }
 
+/// What a map click in placement mode comes to (spec `docs/specs/ui/placing-buildings.md`, "The click").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlaceClick {
+    /// The site is allowed: send this build command, play `misc\thunk` and end placement mode.
+    Build(Command),
+    /// The site fails the check: show this `stat_txt.tbl` message, play `misc\error` and stay in placement mode.
+    Refused(u16),
+}
+
+/// The site check for the primary unit `builder` placing `kind` with the pointer on `pointer`: the site follows the
+/// pointer (sea-layer buildings snap to odd coordinates). Our reading of the open question on the pointer tile: the
+/// tile under the pointer's hot spot is the site's top-left tile before the sea-layer rule.
+pub fn place_click(world: &World, player: u8, builder: UnitId, kind: u8, pointer: (i32, i32)) -> PlaceClick {
+    let site = world.site_at(kind, pointer);
+    match world.check_site(kind, site, builder).message() {
+        Some(n) => PlaceClick::Refused(n),
+        None => PlaceClick::Build(build_command(player, builder, kind, site)),
+    }
+}
+
 /// The command a map click gives in placement mode: the primary unit builds `kind` at `tile`.
 pub fn build_command(player: u8, unit: UnitId, kind: u8, tile: (i32, i32)) -> Command {
     Command::Build {

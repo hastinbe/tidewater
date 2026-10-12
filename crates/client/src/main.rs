@@ -2,7 +2,8 @@
 //!
 //! Controls: left click or drag selects your units, right click orders them to move. The command panel (lower left)
 //! shows the selection's buttons (`panel`): click one or press its hotkey; commands that need a target take the next
-//! left click on the map (right click or Escape cancels). Arrow keys pan, mouse wheel or +/- zoom, Escape cancels a
+//! left click on the map (right click or Escape cancels). In placement mode the building's picture follows the
+//! pointer, and a click on a site that fails the site check (`tidewater_sim::site`) shows why and keeps the mode. Arrow keys pan, mouse wheel or +/- zoom, Escape cancels a
 //! panel mode and otherwise quits. On the minimap, left click or drag moves the view and right click orders a move
 //! there.
 
@@ -56,6 +57,13 @@ struct Args {
     /// Development aid: with `--demo-select`, select only units of this type number (any owner).
     #[arg(long)]
     demo_type: Option<u8>,
+    /// Development aid: with `--demo-select`, start in placement mode for this building type number.
+    #[arg(long)]
+    demo_place: Option<u8>,
+    /// Development aid: with `--demo-place`, the pointer's tile `X,Y` while the pointer is off the map view, and one
+    /// placement click there at the start.
+    #[arg(long, value_parser = parse_tile)]
+    demo_site: Option<(i32, i32)>,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -82,6 +90,8 @@ struct Sim {
     message: Option<(String, u32)>,
     /// Passengers to put ashore one at a time (transport, place 0 to 5), from clicks on the information panel.
     unload_one: Vec<(UnitId, usize)>,
+    /// Interface sounds to play this frame (the placement click's).
+    ui_sounds: Vec<sound::UiSound>,
 }
 
 /// Plays the sim's sound cues (`sound.rs`, spec `docs/specs/ui/sounds.md`): reads the files from the install on first
@@ -143,7 +153,15 @@ struct PanelUi {
     tooltip: Option<String>,
     /// The selection the mode belongs to; a different selection ends the mode.
     last_sel: Vec<UnitId>,
+    /// Development aid (`--demo-site`): the pointer's tile while the pointer is off the map view.
+    demo_pointer: Option<(i32, i32)>,
+    /// Development aid: one placement click at `demo_pointer` is still to be made.
+    demo_click: bool,
 }
+
+/// Links the sprite that shows the building being placed over its site.
+#[derive(Component)]
+struct Ghost;
 
 /// The information panel's state (`info`, spec `ui/info-panel.md`).
 #[derive(Resource, Default)]
@@ -341,6 +359,13 @@ fn main() -> Result<()> {
             .map(|u| u.id)
             .collect();
     }
+    let mut panel_ui = PanelUi::default();
+    if let Some(kind) = args.demo_place {
+        panel_ui.mode = panel::Mode::Place(kind);
+        panel_ui.last_sel = selection.units.clone();
+        panel_ui.demo_pointer = args.demo_site;
+        panel_ui.demo_click = args.demo_site.is_some();
+    }
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
@@ -369,7 +394,7 @@ fn main() -> Result<()> {
         .insert_resource(Time::<Fixed>::from_hz(hz))
         .insert_resource(selection)
         .insert_resource(speaker)
-        .init_resource::<PanelUi>()
+        .insert_resource(panel_ui)
         .init_resource::<InfoPanel>()
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
@@ -388,6 +413,7 @@ fn main() -> Result<()> {
                 redraw_terrain,
                 redraw_fog,
                 draw_selection,
+                draw_ghost,
                 update_info,
                 draw_hud,
                 quit_on_escape,
@@ -525,7 +551,9 @@ fn setup(
         human: scene.human,
         message: None,
         unload_one: Vec::new(),
+        ui_sounds: Vec::new(),
     });
+    commands.spawn((Sprite::default(), Transform::default(), Visibility::Hidden, Ghost));
 }
 
 fn tick(mut sim: ResMut<Sim>, mut sel: ResMut<Selection>) {
@@ -664,6 +692,58 @@ fn sync_sprites(
             UnitSprite(u.id),
         ));
     }
+}
+
+/// The map tile holding a point in map pixels.
+fn pointer_tile(at: Vec2) -> (i32, i32) {
+    ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX))
+}
+
+/// The building being placed, drawn over its site while the pointer is on the map view (spec
+/// `ui/placing-buildings.md`, "The site"). Our choice: the type's first frame in the owner's colours, half
+/// transparent, above the fog.
+#[allow(clippy::too_many_arguments)]
+fn draw_ghost(
+    sim: Option<Res<Sim>>,
+    art: Option<ResMut<Art>>,
+    mut images: ResMut<Assets<Image>>,
+    ui: Res<PanelUi>,
+    sel: Res<Selection>,
+    hud: Res<Hud>,
+    windows: Query<&Window>,
+    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
+    mut ghost: Query<(&mut Sprite, &mut Transform, &mut Visibility), With<Ghost>>,
+) {
+    let Ok((mut sprite, mut tf, mut vis)) = ghost.single_mut() else {
+        return;
+    };
+    let (Some(sim), Some(mut art)) = (sim, art) else { return };
+    let pointer = match (windows.single(), cams.single()) {
+        (Ok(window), Ok(cam)) if hud.over_map(window) => cursor_map(window, cam).map(pointer_tile),
+        _ => None,
+    }
+    .or(ui.demo_pointer);
+    let builder = sel.units.first().and_then(|&id| sim.world.unit(id));
+    let (panel::Mode::Place(kind), Some(tile), Some(b)) = (ui.mode, pointer, builder) else {
+        vis.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    let Some(h) = art.picture(&mut images, kind, b.owner, 0) else {
+        vis.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    let size = sim.world.stats.0.get(kind as usize).map_or((1, 1), |s| s.size);
+    let site = sim.world.site_at(kind, tile);
+    let c = (
+        (site.0 * TILE_PX) as f32 + (size.0 as i32 * TILE_PX) as f32 / 2.0,
+        (site.1 * TILE_PX) as f32 + (size.1 as i32 * TILE_PX) as f32 / 2.0,
+    );
+    tf.translation = world(c.0, c.1, FOG_Z + 1.0);
+    if sprite.image != h {
+        sprite.image = h;
+    }
+    sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.6);
+    vis.set_if_neq(Visibility::Inherited);
 }
 
 /// The cursor position in map pixels (y down), if it is over the window.
@@ -836,11 +916,8 @@ fn draw_selection(
         };
         let (w, h) = st.footprint(kind);
         let size = Vec2::new(w as f32, h as f32) * TILE_PX as f32;
-        let tile = Vec2::new(
-            (at.x as i32).div_euclid(TILE_PX) as f32,
-            (at.y as i32).div_euclid(TILE_PX) as f32,
-        );
-        let c = tile * TILE_PX as f32 + size / 2.0;
+        let site = sim.world.site_at(kind, pointer_tile(at));
+        let c = Vec2::new(site.0 as f32, site.1 as f32) * TILE_PX as f32 + size / 2.0;
         gizmos.rect_2d(Vec2::new(c.x, -c.y), size, Color::srgb(0.9, 0.9, 0.2));
     }
     let green = Color::srgb(0.2, 0.9, 0.2);
@@ -1125,12 +1202,34 @@ fn panel_input(
     if waiting && buttons.just_pressed(MouseButton::Right) {
         ui.mode = panel::Mode::None;
         ui.consumed = true;
+    } else if let panel::Mode::Place(kind) = ui.mode
+        && let Some(tile) = if ui.demo_click {
+            // After the first fog refresh, so the site has been explored.
+            ui.demo_pointer.filter(|_| sim.world.tick >= 2)
+        } else {
+            tile.filter(|_| buttons.just_pressed(MouseButton::Left) && hud.over_map(window))
+        }
+    {
+        // Spec `ui/placing-buildings.md`, "The click": a refused site keeps placement mode on.
+        ui.demo_click = false;
+        ui.consumed = true;
+        match panel::place_click(&sim.world, human, infos[0].id, kind, tile) {
+            panel::PlaceClick::Build(command) => {
+                sim.ui_sounds.push(sound::UiSound::Thunk);
+                sim.world.acknowledge(infos[0].id);
+                sim.pending.push(command);
+                ui.mode = panel::Mode::None;
+            }
+            panel::PlaceClick::Refused(n) => {
+                sim.ui_sounds.push(sound::UiSound::Error);
+                sim.message = Some((hud.art.string(n), MESSAGE_TICKS));
+            }
+        }
     } else if waiting && buttons.just_pressed(MouseButton::Left) && hud.over_map(window) {
         let Some(tile) = tile else { return };
         let units: Vec<UnitId> = infos.iter().filter(|u| u.owner == human).map(|u| u.id).collect();
         let command = match ui.mode {
             panel::Mode::Target(t) => panel::target_command(t, human, units, unit_at(&sim.world, tile), tile),
-            panel::Mode::Place(kind) => Some(panel::build_command(human, infos[0].id, kind, tile)),
             _ => None,
         };
         if command.is_some() {
@@ -1171,7 +1270,8 @@ fn play_sounds(
     let (Some(mut sim), Ok((camera, tf, proj))) = (sim, cam.single()) else {
         return;
     };
-    if sim.world.sounds.cues.is_empty() {
+    let ui_sounds = std::mem::take(&mut sim.ui_sounds);
+    if sim.world.sounds.cues.is_empty() && ui_sounds.is_empty() {
         return;
     }
     let (l, t, r, b) = view_tiles(camera, tf, proj);
@@ -1183,8 +1283,9 @@ fn play_sounds(
     };
     let cues = std::mem::take(&mut sim.world.sounds.cues);
     let sp = &mut *speaker;
-    for cue in &cues {
-        let heard = sp.director.hear(cue, view);
+    let mut heard: Vec<sound::Heard> = ui_sounds.into_iter().map(|s| sp.director.hear_ui(s)).collect();
+    heard.extend(cues.iter().map(|cue| sp.director.hear(cue, view)));
+    for heard in heard {
         if let Some(n) = heard.subtitle
             && let Some(text) = sp.subtitles.as_ref().and_then(|t| t.text(n as usize - 1))
         {
