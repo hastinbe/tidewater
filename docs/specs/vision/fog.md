@@ -13,6 +13,8 @@
   and answers when the minimap's "seen" marker is set. The hidden-from rule now names the right states: dead, removed
   or inside something (a dying unit isn't hidden from everyone), as in the research notes.
 - **Changes:** 2026-10-12: the fog-off cheat is named: the `showpath` developer word (`game/cheats.md`).
+- **Changes:** 2026-10-12, round-32 errata: the first fog refresh is in the first start-up cycle, and later ones are
+  named by cycle counter value (99, 199, … in Enhanced).
 
 ## Behaviour
 
@@ -155,8 +157,9 @@ For a 1 × 1 unit that is its own tile; for a 2 × 2 building at (x, y), (x + 1,
 3. **A worker entering a building.** A worker that goes inside a mine, depot or construction site reveals a sight-3
    area. Its centre is the building's top-left tile moved one step in the direction the worker faces.
 
-**The fog refresh** happens on the first cycle and then every 100 cycles in Enhanced mode, every 101 in Classic
-(`core/timing-and-rng.md`). In phase 3 of a refresh cycle the previous visible map is kept for redrawing. Then, if the
+**The fog refresh** happens in the first start-up cycle and then every 100 cycles in Enhanced mode, every 101 in
+Classic: in the normal cycles that end with the cycle counter at 99, 199, … (Classic: 100, 201, …;
+`core/timing-and-rng.md`). In phase 3 of a refresh cycle the previous visible map is kept for redrawing. Then, if the
 fog-of-war option is on, the visible map is fully fogged and every "seen" bit is set. Phase 4 then re-applies all
 sight. So a tile that no unit sees any more stays visible until the next refresh: **up to 100 cycles late**
 (101 in Classic). Phase 7 only redraws the screen where the visible map changed.
@@ -242,7 +245,7 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
 | Sight values | 0 to 9 (0 and 1 give the same area) |
 | Sight of an incomplete building | 3 |
 | Scouting sight (ranger, berserker) | 9 |
-| Refresh interval | 100 cycles (Enhanced), 101 (Classic); first on the first cycle |
+| Refresh interval | 100 cycles (Enhanced), 101 (Classic); first in the first start-up cycle |
 | Submarine detection range | 6 tiles on each axis, tile positions |
 | Minimap redraw | every 40 cycles |
 | PUD unit flags used | bit 5 building, bit 6 submarine, bit 7 can see submarine, bits 0–4 "is a unit" |
@@ -258,7 +261,7 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 | Sight 0 and sight 1 at (10, 10) | Identical: (10, 10) code 0, (9, 10) code 4, (11, 10) code 6, (9, 9) code 1, (11, 11) code 9; 9 tiles touched |
 | Sight 9 at (50, 50) | 349 tiles touched; (59, 50) code 6; (59, 56) code 6; (59, 57) code 9 (only the top-left quarter clear); (58, 58) code 9; (59, 58) and (59, 59) untouched |
 | A tile at code 4 (left half fogged) is revealed by an area that leaves it at code 2 (top half fogged) | Result code 10: only the top-left quarter stays fogged |
-| Human scout walks out of an area at cycle 50, Enhanced, fog on | The area stays visible until the refresh at the start of cycle 101; from then it is fogged (visible map) but stays explored |
+| Human scout walks out of an area in the normal cycle that ends with the cycle counter at 50, Enhanced, fog on | The area stays visible until the refresh in the normal cycle that ends with the counter at 99; from then it is fogged (visible map) but stays explored |
 | Same, fog-of-war option off | The area stays visible for the rest of the game |
 | Human town hall (4 × 4, complete) at (30, 30), sight 4 | Centre tile (32, 32) |
 | Human guard tower under construction at (30, 30) (2 × 2) | Sight 3 at (31, 31), whatever its own sight range |
