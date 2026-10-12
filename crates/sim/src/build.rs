@@ -279,6 +279,38 @@ mod tests {
     }
 
     #[test]
+    fn a_finished_wall_piece_becomes_wall_terrain() {
+        let (mut w, p) = town();
+        let mut wall = w.stats.0[kind::FARM as usize];
+        wall.size = (1, 1);
+        w.stats.0[kind::HUMAN_WALL as usize] = wall;
+        w.terrain.build_wall(9, 8, true, false);
+        w.step(&[Command::Build {
+            player: 0,
+            unit: p,
+            kind: kind::HUMAN_WALL,
+            tile: (8, 8),
+        }]);
+        for _ in 0..400 {
+            w.step(&[]);
+            if w.terrain.tile(8, 8) != Some(0) {
+                break;
+            }
+        }
+        // Joined east to the orc wall, which joins back west; a human-controlled owner's bit.
+        assert_eq!(
+            (w.terrain.tile(8, 8), w.terrain.tile(9, 8)),
+            (Some(16 + 2), Some(34 + 9))
+        );
+        assert_eq!(w.terrain.word(8, 8) & 0xff, 0x95);
+        let piece = w.units.iter().find(|u| u.kind == kind::HUMAN_WALL).unwrap();
+        assert!(piece.dying && piece.construction.is_none());
+        assert_eq!(w.players[0].under_construction, 0);
+        let u = w.unit(p).unwrap();
+        assert!(!u.inside && u.order == Order::Idle);
+    }
+
+    #[test]
     fn computer_players_pay_when_the_build_is_decided() {
         let (mut w, _) = town();
         let p = w.spawn(PEASANT, 1, (12, 2), 0).unwrap();

@@ -56,12 +56,20 @@ pub mod region {
 /// Internal index of the first wall shape; intact walls run up to [`DAMAGED_WALL`], damaged ones up to
 /// [`RUBBLE`], rubble after.
 pub const WALL_BASE: u16 = 16;
+/// Internal index of the first intact orc-style wall (walls spec, "Internal tile index ranges of walls").
+pub const ORC_WALL: u16 = 34;
 pub const DAMAGED_WALL: u16 = 52;
 pub const RUBBLE: u16 = 88;
 /// The highest wall damage counter that doesn't advance the wall.
 const WALL_COUNTER_MAX: u16 = 19;
 /// Entry bits meaning "cleared" in the forest and rock tables.
 const CLEARED: u16 = 0xF000;
+
+/// "Variant by neighbour mask": masks from 6 on skip variant 6, and from 11 on also variant 12.
+fn wall_variant(m: u16) -> u16 {
+    let v = if m >= 6 { m + 1 } else { m };
+    if v >= 12 { v + 1 } else { v }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WallStage {
@@ -249,9 +257,20 @@ impl Terrain {
         (forest, forest + (self.changes.forest.rows as u16).saturating_sub(1))
     }
 
+    /// Whether a tile is a wall a hit can damage: a map wall (region "wall"), or a wall built in play, which keeps its
+    /// land-area value but carries a wall-owner bit (walls spec, "Completion"). Our reading: the specs don't say how
+    /// a hit finds a built wall.
+    fn is_wall(&self, n: usize) -> bool {
+        self.regions[n] == region::WALL || self.has_wall_bit(n)
+    }
+
+    fn has_wall_bit(&self, n: usize) -> bool {
+        self.words[n] & (bits::HUMAN_WALL | bits::COMPUTER_WALL) != 0
+    }
+
     pub fn wall_stage(&self, x: i32, y: i32) -> Option<WallStage> {
         let n = self.at(x, y)?;
-        (self.regions[n] == region::WALL).then(|| match self.tiles[n] {
+        self.is_wall(n).then(|| match self.tiles[n] {
             i if i < DAMAGED_WALL => WallStage::Intact,
             i if i < RUBBLE => WallStage::Damaged,
             _ => WallStage::Rubble,
@@ -262,7 +281,7 @@ impl Terrain {
     /// a stage.
     pub fn hit_wall(&mut self, x: i32, y: i32, damage: u32) -> bool {
         let Some(n) = self.at(x, y) else { return false };
-        if self.regions[n] != region::WALL {
+        if !self.is_wall(n) {
             return false;
         }
         let c = self.wall_damage[n] as u16 + ((damage % 256) / 4).max(1) as u16;
@@ -278,7 +297,7 @@ impl Terrain {
     /// Moves a wall tile one stage on through the wall table, resetting its counter.
     pub fn advance_wall(&mut self, x: i32, y: i32) {
         let Some(n) = self.at(x, y) else { return };
-        if self.regions[n] != region::WALL {
+        if !self.is_wall(n) {
             return;
         }
         let i = self.tiles[n];
@@ -291,6 +310,45 @@ impl Terrain {
         if next >= RUBBLE {
             self.rubble(n);
         }
+    }
+
+    /// A finished wall piece becomes wall terrain (walls spec, "Completion", steps 3 and 4): the first intact graphic
+    /// of the style (`orc` from the owner's race), counter 0, movement bits 0x91 plus the owner bit, then the joining
+    /// of north, west, the tile itself, east and south. The region value is left alone.
+    pub fn build_wall(&mut self, x: i32, y: i32, orc: bool, human_controlled: bool) {
+        let Some(n) = self.at(x, y) else { return };
+        self.set_tile(n, if orc { ORC_WALL } else { WALL_BASE });
+        self.wall_damage[n] = 0;
+        let owner = if human_controlled {
+            bits::HUMAN_WALL
+        } else {
+            bits::COMPUTER_WALL
+        };
+        self.words[n] |= bits::OBSTACLE | bits::NO_BUILD | bits::LAND | owner;
+        for (dx, dy) in [(0, -1), (-1, 0), (0, 0), (1, 0), (0, 1)] {
+            self.join(x + dx, y + dy);
+        }
+    }
+
+    /// "Joining": a tile with a wall bit takes the variant its wall neighbours call for, in its own style, intact.
+    fn join(&mut self, x: i32, y: i32) {
+        let Some(n) = self.at(x, y) else { return };
+        if !self.has_wall_bit(n) {
+            return;
+        }
+        let wall = |dx: i32, dy: i32| self.at(x + dx, y + dy).is_some_and(|m| self.has_wall_bit(m));
+        let m = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            .iter()
+            .enumerate()
+            .filter(|&(_, &(dx, dy))| wall(dx, dy))
+            .fold(0u16, |m, (b, _)| m | 1 << b);
+        let base = match self.tiles[n] {
+            16..=33 | 52..=69 => WALL_BASE,
+            34..=51 | 70..=87 => ORC_WALL,
+            _ => return,
+        };
+        self.set_tile(n, base + wall_variant(m));
+        self.wall_damage[n] = 0;
     }
 
     /// A wall tile has become rubble ("Rubble").
@@ -494,6 +552,69 @@ pub(crate) mod tests {
         assert!([0x0001, 0x0011, 0x0002].iter().all(|&w| !open(mask::SEA, w)));
         assert!([0x0081, 0x0101, 0x0801].iter().all(|&w| open(mask::AIR, w)));
         assert!([0x0201, 0x0200, 0x0F00].iter().all(|&w| !open(mask::AIR, w)));
+    }
+
+    #[test]
+    fn built_walls_take_their_style_and_owner_bit() {
+        let mut t = terrain(ground);
+        t.build_wall(5, 5, false, true);
+        assert_eq!(
+            (t.tile(5, 5), t.word(5, 5), t.region(5, 5)),
+            (Some(16), 0x95, Some(0x4000))
+        );
+        t.build_wall(2, 2, true, false);
+        assert_eq!((t.tile(2, 2), t.word(2, 2)), (Some(34), 0x99));
+    }
+
+    #[test]
+    fn walls_join_their_neighbours() {
+        let mut t = terrain(ground);
+        t.build_wall(4, 4, false, true);
+        t.build_wall(5, 4, true, false);
+        assert_eq!((t.tile(4, 4), t.tile(5, 4)), (Some(18), Some(43)));
+        let mut t = terrain(ground);
+        for (x, y) in [(5, 4), (4, 5), (6, 5), (5, 6)] {
+            t.build_wall(x, y, false, true);
+        }
+        t.build_wall(5, 5, false, true);
+        assert_eq!(t.tile(5, 5), Some(33));
+        assert_eq!(t.tile(5, 4), Some(17), "the north wall gains its south bit");
+        assert_eq!(t.tile(4, 5), Some(18), "the west wall gains its east bit");
+        assert_eq!(t.tile(6, 5), Some(16 + 9), "the east wall gains its west bit");
+        assert_eq!(t.tile(5, 6), Some(16 + 4), "the south wall gains its north bit");
+        assert_eq!([6, 11].map(wall_variant), [7, 13]);
+        assert_eq!(
+            (0..16).map(wall_variant).collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17]
+        );
+    }
+
+    #[test]
+    fn joining_repairs_and_skips_the_edge() {
+        let mut t = terrain(|x, y| {
+            if (x, y) == (5, 4) {
+                (52, 0x8d, region::WALL)
+            } else {
+                ground(x, y)
+            }
+        });
+        t.wall_damage[45] = 12;
+        t.build_wall(5, 5, false, true);
+        assert_eq!((t.tile(5, 4), t.wall_damage[45]), (Some(17), 0));
+        assert_eq!(t.tile(5, 5), Some(16 + 4));
+        let mut t = terrain(ground);
+        t.build_wall(0, 0, false, true);
+        assert_eq!(t.tile(0, 0), Some(16));
+    }
+
+    #[test]
+    fn built_walls_break_like_map_walls() {
+        let mut t = terrain(ground);
+        t.build_wall(5, 5, false, true);
+        assert!(t.hit_wall(5, 5, 110));
+        assert_eq!(t.wall_stage(5, 5), Some(WallStage::Damaged));
+        assert!(t.hit_wall(5, 5, 110));
+        assert_eq!((t.word(5, 5), t.wall_stage(5, 5)), (0x01, None));
     }
 
     #[test]

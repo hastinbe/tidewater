@@ -27,6 +27,8 @@ pub mod kind {
     pub const STRONGHOLD: u8 = 0x59;
     pub const CASTLE: u8 = 0x5a;
     pub const FORTRESS: u8 = 0x5b;
+    pub const HUMAN_WALL: u8 = 0x67;
+    pub const ORC_WALL: u8 = 0x68;
 
     /// Town halls and their upgrades, of either race.
     pub fn is_hall(k: u8) -> bool {
@@ -301,6 +303,20 @@ impl World {
         }
         self.release_builders(i, true);
         self.mark_build_list(owner as u8, k, true);
+        if matches!(k, kind::HUMAN_WALL | kind::ORC_WALL) {
+            self.wall_completed(i);
+        }
+    }
+
+    /// A finished wall piece becomes terrain (walls spec, "Completion: the piece becomes terrain"): it is killed as a
+    /// building (wall pieces have no death explosion), then its tile turns to wall in the owner's race style and joins
+    /// its neighbours. Until corpses land, a dying unit leaves nothing, which is what the used mark gives it.
+    fn wall_completed(&mut self, i: usize) {
+        let (owner, tile) = (self.units[i].owner as usize, self.units[i].tile);
+        self.kill(i);
+        let p = &self.players[owner];
+        let (orc, human) = (p.race == 1, p.controller == crate::ai::controller::HUMAN);
+        self.terrain.build_wall(tile.0, tile.1, orc, human);
     }
 
     /// The upgrade data entry of upgrade number `n`.
