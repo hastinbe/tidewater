@@ -23,6 +23,9 @@
   2026-10-12, round-36 errata: order 30's radius 3 is used (ordinary steps until within 3 tiles, then the landing
   logic); patrol arrival takes over with wait 3 and steps 3 cycles later; round 35's resume vector replaced (a command
   clears the remembered order).
+  2026-10-12, round-37 errata: a killer forgets its dead target at once and other attackers on their next run; the
+  strike decision tests the attack cooldown; a firing tower stores no target and doesn't turn; the round-36 capture
+  reference names its folder.
 
 ## Behaviour
 
@@ -304,6 +307,15 @@ target is lost:
 1. If a pending order exists, it takes over now.
 2. Otherwise, order 15 (attacking in place) becomes **13** (stand ground), and every other order becomes **2**.
 
+A target that dies keeps its HP and its own target through its death animation (`combat/damage.md`, "Applying
+damage"). The unit that killed it forgets it at once, in the step that applies the blow, without changing its order.
+Every other unit attacking it keeps it as its target until its own next logic run, where the target is lost as above.
+
+**Strike decision (attack orders 9, 11, 12, 15, 16 and 17).** Before a unit strikes, the attack cooldown of
+`combat/damage.md` ("Attack timing (cooldown)") is tested: a unit that isn't a flyer and whose wait is less than its
+cooldown left restarts its attack animation and waits for the cooldown left. When it strikes, it turns to face its
+target (the facing rule of `core/animation-scripts.md`; ships use a different rule) and its cooldown starts again.
+
 **Follow (orders 6 and 7):** each time the logic runs, with the target still valid:
 
 1. If the follower's order is **7**, or a follow order (6) is pending, and the followed unit's own order is **not**
@@ -330,11 +342,14 @@ the start or walked out:
 
 A lost target (invalid or not detected) is handled as in "Arriving and losing the target" for all three.
 
-**Order 14 (towers).** A tower doesn't keep a target from one run to the next. Each time its logic runs, it forgets
-its attacker and runs the target search of "Automatic target acquisition" with two differences: the box is always
-its **attack range** (even for a computer player), and the search does **not** start with the attacker as the best
-candidate. If the search finds a target, the tower fires at it in that run; if not, it does nothing until its next
-run. So a target that walks out of range is simply not found again, and the tower fires at whatever is best in range.
+**Order 14 (towers).** A tower doesn't keep a target from one run to the next. Each time its logic runs, it forgets its
+attacker and runs the target search of "Automatic target acquisition" with two differences: the box is always its
+**attack range** (even for a computer player), and the search does **not** start with the attacker as the best
+candidate. If the search finds a target, the tower fires at it in that run; if not, it does nothing until its next run.
+Either way the tower stores no target (its target stays null) and doesn't turn: its facing isn't changed by firing. The
+shot is made at once in the logic run, not at a strike point of the animation (tower scripts have none), and the attack
+cooldown doesn't apply to towers. So a target that walks out of range is simply not found again, and the tower fires at
+whatever is best in range.
 
 Either way the tower stays in its attack animation (4), which order 14 starts and never changes: finding nothing
 doesn't make it idle or start its still animation. A tower's attack animation is a "step done" followed by one long
@@ -759,7 +774,9 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xhuman4`, slot 1435 (type 0x09), enemy 1444 in reach from the start | n = 1: order 2, animation 2, wait 1 (no acquisition in the first start-up cycle); n = 2: wait 4; n = 6: order 16, animation 4, wait 3, target 1444 |
 | `human12`, slot 1480 (type 0x63), no enemy in range | n = 1: order 14, animation 4, wait 3; n = 4: logic runs, finds nothing; n = 5: animation 4, wait 150; next logic run at n = 155 (wait 150 again at n = 156) |
 | `xorc3`, slot 1506 (type 0x61), no enemy in range | n = 4: logic runs, finds nothing; n = 5: animation 4, wait 59; next run at n = 64 |
-| Enhanced (`xhuman10` capture, round 36): hero 1463 (type 0x14) on (107, 98) gets command 8 on tile (113, 106) in turn 42, then a move to (111, 101) in turn 62 | Order 10 at n = 43; order 3 at n = 78; arrives at n = 113: order 2, animation 2, wait 3, and stays idle (the move command cleared the remembered attack-move) |
+| Enhanced (`research/oracle-round36/xhuman10-r36b-400.jsonl.gz`, oracle trace): hero 1463 (type 0x14) on (107, 98) gets command 8 on tile (113, 106) in turn 42, then a move to (111, 101) in turn 62 | Order 10 at n = 43; order 3 at n = 78; arrives at n = 113: order 2, animation 2, wait 3, and stays idle (the move command cleared the remembered attack-move) |
+| `xhuman10-spells-700` (oracle trace), player 1's guard tower 1468 (type 0x60) and cannon tower 1501 (type 0x62), grunts 1477 on (78, 91) and 1495 on (79, 88) in range | n = 2: order 14, animation 4, wait 3. n = 5: new effect slot 3, kind 0x0F, shooter 1468, target 1477, damage 7; slot 4, kind 0x18, shooter 1501, target 1495, damage 50. Both towers: target null, facing 0. n = 6: 1468 wait 59, 1501 wait 150, both animation 4 |
+| `human01-basics-9500` (oracle trace), n = 288: footman 1597 kills footman 1592; footman 1598 also targets 1592 | 1597: target null at once, still order 9. 1598: keeps target 1592 until its logic runs at n = 291, then order 2, wait 3 |
 | Enhanced (static study only): a unit on an attack-move acquires an enemy on the way and kills it; countdown 0; the target tile more than 1 tile away | The attack-move is given again instead of the pending idle (countdown 20) |
 
 ## Open questions
