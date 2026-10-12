@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the AI script file
   `Rez\ai.bin` in the game data, and the unit type, upgrade and AI lists in the public PUD specification text. Not
   yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-14 errata: the attacker handling before a think is the building forgetting its
+  attacker (`orders/orders.md`, row 33).
 
 ## Behaviour
 
@@ -21,8 +23,9 @@ types. The unit **group** counts in the table under "Training buildings" also le
 ### When a building thinks
 
 A building of a computer player runs its **think** from its resting order (order 33, `orders/orders.md`), each time
-that order's logic runs, after the order's attacker handling. Only buildings in order 33 think, so towers that can
-attack (order 14) never do; scout towers (types 0x40, 0x41) are in order 33 and do.
+that order's logic runs, after the order's attacker handling (the building's attacker is forgotten,
+`orders/orders.md`, row 33). Only buildings in order 33 think, so towers that can attack (order 14) never do; scout
+towers (types 0x40, 0x41) are in order 33 and do.
 
 The script's **second list** (`ai/ai-scripts.md`) holds one 16-bit **interval** per building type, starting with
 type 0x3A. An interval of 0xFFFF means "never". Each building has a think counter, 0 when it is created. Each
