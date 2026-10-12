@@ -5,11 +5,11 @@
   conversion table and the wall, forest and rock tables named below). The test vectors that use tileset data use the
   Forest tileset. Not yet confirmed against the running game.
 - **Changes:** 2026-10-11, round-3 errata: the search-mask note now says which player kinds drop bit 0x04, and when.
-  2026-10-12, round-13 errata: "Rock" step 4 now points to the blast's damage rules.
   2026-10-11, round-3 errata: "Units not on the map" now says what entering a transport, mine, depot, platform or
   construction site, and coming out, do to the marks and pointers (open question closed). The forest and rock table
   bases are read from each tileset's table headers instead of fixed row counts (41 forest rows is Forest only).
   2026-10-11, round-7 errata: the run-time marks table lists 0x0400, the computer players' keep-clear mark.
+  2026-10-12, round-13 errata: "Rock" step 4 now points to the blast's damage rules.
 
 ## Behaviour
 
