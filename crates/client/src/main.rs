@@ -1,11 +1,14 @@
 //! Tidewater client. Loads a PUD from the user's installation, runs the simulation at its fixed tick rate and draws it.
 //!
-//! Controls: left click or drag selects your units, right click orders them to move, S stops them. Arrow keys / WASD
-//! pan, mouse wheel or +/- zoom, Escape quits. On the minimap, left click or drag moves the view and right click
-//! orders a move there.
+//! Controls: left click or drag selects your units, right click orders them to move. The command panel (lower left)
+//! shows the selection's buttons (`panel`): click one or press its hotkey; commands that need a target take the next
+//! left click on the map (right click or Escape cancels). Arrow keys pan, mouse wheel or +/- zoom, Escape cancels a
+//! panel mode and otherwise quits. On the minimap, left click or drag moves the view and right click orders a move
+//! there.
 
 mod fog;
 mod hud;
+mod panel;
 mod scene;
 
 use std::path::PathBuf;
@@ -18,6 +21,7 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use clap::Parser;
+use panel::PanelState;
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::{Event, Shortage, kind};
@@ -96,8 +100,23 @@ fn message(e: &Event, human: u8) -> Option<String> {
             }
             .to_string(),
         ),
+        Event::ResearchDone { player, .. } if player == human => Some("Research complete".to_string()),
         _ => None,
     }
+}
+
+/// The command panel's input state (see `panel`).
+#[derive(Resource, Default)]
+struct PanelUi {
+    mode: panel::Mode,
+    /// A panel click or key was handled this frame; the map must not also act on it.
+    consumed: bool,
+    /// Escape was used by the panel this frame and must not quit.
+    escape_used: bool,
+    /// The tooltip of the button under the cursor.
+    tooltip: Option<String>,
+    /// The selection the mode belongs to; a different selection ends the mode.
+    last_sel: Vec<UnitId>,
 }
 
 #[derive(Resource, Default)]
@@ -275,6 +294,7 @@ fn main() -> Result<()> {
         })
         .insert_resource(Time::<Fixed>::from_hz(hz))
         .insert_resource(selection)
+        .init_resource::<PanelUi>()
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
         .add_systems(
@@ -282,6 +302,7 @@ fn main() -> Result<()> {
             (
                 hud_layout,
                 minimap_input,
+                panel_input,
                 pan_and_zoom,
                 select,
                 order,
@@ -559,11 +580,15 @@ fn select(
     sim: Option<Res<Sim>>,
     mut sel: ResMut<Selection>,
     hud: Res<Hud>,
+    ui: Res<PanelUi>,
 ) {
     let (Some(sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
         return;
     };
     let Some(at) = cursor_map(window, cam) else { return };
+    if ui.consumed {
+        return;
+    }
     if buttons.just_pressed(MouseButton::Left) && hud.over_map(window) {
         sel.drag_from = Some(at);
     }
@@ -595,16 +620,19 @@ fn select(
 
 fn order(
     buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     sim: Option<ResMut<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
+    ui: Res<PanelUi>,
 ) {
     let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
         return;
     };
+    if ui.consumed {
+        return;
+    }
     let human = sim.human;
     let units: Vec<UnitId> = sel
         .units
@@ -613,10 +641,6 @@ fn order(
         .filter(|&id| sim.world.unit(id).is_some_and(|u| u.owner == human))
         .collect();
     if units.is_empty() {
-        return;
-    }
-    if keys.just_pressed(KeyCode::KeyS) && !keys.pressed(KeyCode::ShiftLeft) {
-        sim.pending.push(Command::Stop { player: human, units });
         return;
     }
     if !buttons.just_pressed(MouseButton::Right) {
@@ -692,8 +716,28 @@ fn draw_selection(
     sel: Res<Selection>,
     windows: Query<&Window>,
     cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
+    ui: Res<PanelUi>,
+    hud: Res<Hud>,
 ) {
     let Some(sim) = sim else { return };
+    // Placing a building: its footprint under the cursor.
+    if let (panel::Mode::Place(kind), Ok(window), Ok(cam)) = (ui.mode, windows.single(), cams.single())
+        && hud.over_map(window)
+        && let Some(at) = cursor_map(window, cam)
+    {
+        let st = panel::WorldState {
+            world: &sim.world,
+            local: sim.human,
+        };
+        let (w, h) = st.footprint(kind);
+        let size = Vec2::new(w as f32, h as f32) * TILE_PX as f32;
+        let tile = Vec2::new(
+            (at.x as i32).div_euclid(TILE_PX) as f32,
+            (at.y as i32).div_euclid(TILE_PX) as f32,
+        );
+        let c = tile * TILE_PX as f32 + size / 2.0;
+        gizmos.rect_2d(Vec2::new(c.x, -c.y), size, Color::srgb(0.9, 0.9, 0.2));
+    }
     let green = Color::srgb(0.2, 0.9, 0.2);
     // Missiles have no sprites yet: draw each as a small square.
     for m in sim.world.missiles.iter().flatten() {
@@ -745,13 +789,13 @@ fn pan_and_zoom(
     ortho.scale = (ortho.scale * (1.0 + zoom)).clamp(0.25, 8.0);
 
     let mut d = Vec2::ZERO;
-    for (k1, k2, v) in [
-        (KeyCode::ArrowLeft, KeyCode::KeyA, Vec2::NEG_X),
-        (KeyCode::ArrowRight, KeyCode::KeyD, Vec2::X),
-        (KeyCode::ArrowUp, KeyCode::KeyW, Vec2::Y),
-        (KeyCode::ArrowDown, KeyCode::KeyS, Vec2::NEG_Y),
+    for (k1, v) in [
+        (KeyCode::ArrowLeft, Vec2::NEG_X),
+        (KeyCode::ArrowRight, Vec2::X),
+        (KeyCode::ArrowUp, Vec2::Y),
+        (KeyCode::ArrowDown, Vec2::NEG_Y),
     ] {
-        if keys.pressed(k1) || keys.pressed(k2) {
+        if keys.pressed(k1) {
             d += v;
         }
     }
@@ -760,8 +804,8 @@ fn pan_and_zoom(
     tf.translation.y = (tf.translation.y + step.y).clamp(-size.0.y, 0.0);
 }
 
-fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
-    if keys.just_pressed(KeyCode::Escape) {
+fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, ui: Res<PanelUi>, mut exit: MessageWriter<AppExit>) {
+    if keys.just_pressed(KeyCode::Escape) && !ui.escape_used {
         exit.write(AppExit::Success);
     }
 }
@@ -828,10 +872,156 @@ fn minimap_input(
     }
 }
 
+/// The hotkey a key press stands for.
+fn key_char(k: KeyCode) -> Option<char> {
+    use KeyCode::*;
+    Some(match k {
+        KeyA => 'A',
+        KeyB => 'B',
+        KeyC => 'C',
+        KeyD => 'D',
+        KeyE => 'E',
+        KeyF => 'F',
+        KeyG => 'G',
+        KeyH => 'H',
+        KeyI => 'I',
+        KeyJ => 'J',
+        KeyK => 'K',
+        KeyL => 'L',
+        KeyM => 'M',
+        KeyN => 'N',
+        KeyO => 'O',
+        KeyP => 'P',
+        KeyQ => 'Q',
+        KeyR => 'R',
+        KeyS => 'S',
+        KeyT => 'T',
+        KeyU => 'U',
+        KeyV => 'V',
+        KeyW => 'W',
+        KeyX => 'X',
+        KeyY => 'Y',
+        KeyZ => 'Z',
+        Digit0 => '0',
+        Digit1 => '1',
+        Digit2 => '2',
+        Digit3 => '3',
+        Digit4 => '4',
+        Digit5 => '5',
+        Digit6 => '6',
+        Digit7 => '7',
+        Digit8 => '8',
+        Digit9 => '9',
+        _ => return None,
+    })
+}
+
+/// The command panel: clicks and hotkeys on its buttons, and the map click or cancel that follows a target or
+/// placement mode (`panel`, spec `ui/command-buttons.md`).
+#[allow(clippy::too_many_arguments)]
+fn panel_input(
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window>,
+    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
+    sim: Option<ResMut<Sim>>,
+    sel: Res<Selection>,
+    hud: Res<Hud>,
+    mut ui: ResMut<PanelUi>,
+) {
+    ui.consumed = false;
+    ui.escape_used = false;
+    ui.tooltip = None;
+    let (Some(mut sim), Ok(window), Ok(cam)) = (sim, windows.single(), cams.single()) else {
+        return;
+    };
+    let human = sim.human;
+    let (infos, effect, tile) = {
+        let state = panel::WorldState {
+            world: &sim.world,
+            local: human,
+        };
+        let infos: Vec<panel::UnitInfo> = sel.units.iter().filter_map(|&id| state.unit(id)).collect();
+        let ids: Vec<UnitId> = infos.iter().map(|u| u.id).collect();
+        if ids != ui.last_sel {
+            ui.last_sel = ids;
+            ui.mode = panel::Mode::None;
+        }
+        let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
+        let label = |n: u16| panel::parse_label(&hud.art.string(n));
+        let mut effect = panel::Effect::Nothing;
+        if let (Some(l), Some(c)) = (hud.layout, hud.cursor(window))
+            && let Some(n) = panel::slot_at((l.buttons.x, l.buttons.y), (c.x, c.y))
+            && let Some(en) = slots[n]
+        {
+            ui.tooltip = Some(panel::tooltip(en, &label(en.string), &state));
+            if buttons.just_pressed(MouseButton::Left) {
+                effect = panel::activate(en, &state, &infos);
+                ui.consumed = true;
+            }
+        }
+        if keys.just_pressed(KeyCode::Escape) && ui.mode != panel::Mode::None {
+            ui.escape_used = true;
+        }
+        if !ui.consumed {
+            for &key in keys.get_just_pressed() {
+                let hk = if key == KeyCode::Escape {
+                    Some(panel::Hotkey::Escape)
+                } else {
+                    key_char(key).map(panel::Hotkey::Char)
+                };
+                let Some(n) = hk.and_then(|hk| panel::hotkey_slot(&slots, &label, hk)) else {
+                    continue;
+                };
+                if let Some(en) = slots[n] {
+                    effect = panel::activate(en, &state, &infos);
+                    ui.consumed = true;
+                    ui.escape_used |= key == KeyCode::Escape;
+                    break;
+                }
+            }
+        }
+        if !ui.consumed && ui.escape_used {
+            effect = panel::Effect::SetMode(panel::Mode::None);
+            ui.consumed = true;
+        }
+        let tile =
+            cursor_map(window, cam).map(|at| ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX)));
+        (infos, effect, tile)
+    };
+    match effect {
+        panel::Effect::Nothing => {}
+        panel::Effect::Send(c) => sim.pending.push(c),
+        panel::Effect::Message(n) => sim.message = Some((hud.art.string(n), MESSAGE_TICKS)),
+        panel::Effect::SetMode(m) => ui.mode = m,
+    }
+    if ui.consumed || infos.first().is_none_or(|p| p.owner != human) {
+        return;
+    }
+    // A map click in target or placement mode gives the target; a right click leaves the mode.
+    let waiting = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));
+    if waiting && buttons.just_pressed(MouseButton::Right) {
+        ui.mode = panel::Mode::None;
+        ui.consumed = true;
+    } else if waiting && buttons.just_pressed(MouseButton::Left) && hud.over_map(window) {
+        let Some(tile) = tile else { return };
+        let units: Vec<UnitId> = infos.iter().filter(|u| u.owner == human).map(|u| u.id).collect();
+        let command = match ui.mode {
+            panel::Mode::Target(t) => panel::target_command(t, human, units, unit_at(&sim.world, tile), tile),
+            panel::Mode::Place(kind) => Some(panel::build_command(human, infos[0].id, kind, tile)),
+            _ => None,
+        };
+        sim.pending.extend(command);
+        ui.mode = panel::Mode::None;
+        ui.consumed = true;
+    }
+}
+
 fn draw_hud(
     sim: Option<Res<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
+    ui: Res<PanelUi>,
     mut images: ResMut<Assets<Image>>,
     cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
 ) {
@@ -880,6 +1070,17 @@ fn draw_hud(
         }
         _ => None,
     };
+    let state = panel::WorldState {
+        world: &sim.world,
+        local: sim.human,
+    };
+    let infos: Vec<panel::UnitInfo> = sel.units.iter().filter_map(|&id| state.unit(id)).collect();
+    let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
+    let buttons: Vec<(u8, u16)> = slots
+        .iter()
+        .enumerate()
+        .filter_map(|(n, en)| en.map(|en| (n as u8, en.icon)))
+        .collect();
     let pic = hud.art.draw(
         &hud.frame,
         &layout,
@@ -891,10 +1092,11 @@ fn draw_hud(
             oil: me.oil,
             selected: &selected,
             food,
-            status: sim.message.as_ref().map(|(m, _)| m.as_str()),
+            status: ui.tooltip.as_deref().or(sim.message.as_ref().map(|(m, _)| m.as_str())),
             dots: &dots,
             fog: (!sim.world.rules.reveal_map).then(|| fog::maps(&sim.world)),
             view,
+            buttons: &buttons,
         },
     );
     if let Some(mut img) = images.get_mut(&hud.image) {
