@@ -8,17 +8,21 @@
 //! building's picture follows the pointer, and a click on a site that fails the site check (`tidewater_sim::site`)
 //! shows why and keeps the mode. Ctrl+digit sets a control group, the digit recalls it (twice quickly centres the
 //! view), Alt+digit centres and recalls. +/- change the game speed, Ctrl+P pauses, Ctrl+C centres on the selection,
-//! F2 to F4 jump to a view position remembered with Shift, Ctrl+S mutes, Ctrl+Q or Ctrl+X quits. Arrow keys pan,
-//! the mouse wheel zooms, Escape cancels a panel mode and otherwise quits. On the minimap, left click or drag moves
-//! the view.
+//! F2 to F4 jump to a view position remembered with Shift, Ctrl+S mutes, Ctrl+Q or Ctrl+X quits. The view scrolls at
+//! the screen edge and with the arrow, Home, End, Page Up, Page Down and keypad keys (`screen`, spec
+//! `ui/screen-and-cursors.md`), the mouse wheel zooms, Escape cancels a panel mode and otherwise quits. On the
+//! minimap, left click or drag moves the view. Space steps through the latest events (Enhanced rules). Messages,
+//! notices and the status bar follow `ui/messages.md` (`messages`).
 
 mod fog;
 mod hud;
 mod info;
+mod messages;
 mod minimap;
 mod mouse;
 mod panel;
 mod scene;
+mod screen;
 mod sound;
 
 use std::path::PathBuf;
@@ -34,8 +38,7 @@ use clap::Parser;
 use panel::PanelState;
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
-use tidewater_sim::economy::{Event, Shortage};
-use tidewater_sim::victory::Outcome;
+use tidewater_sim::economy::Event;
 use tidewater_sim::{Command, TILE_PX, UnitId, World};
 
 #[derive(Parser)]
@@ -74,6 +77,12 @@ struct Args {
     /// The Preferences dialog's second mouse style: right click centres the view instead of giving a command.
     #[arg(long)]
     second_mouse_style: bool,
+    /// The speed dialog's mouse scroll speed, 0 to 6 (fastest).
+    #[arg(long, default_value_t = screen::DEFAULT_SPEED, value_parser = clap::value_parser!(u8).range(0..=6))]
+    mouse_scroll_speed: u8,
+    /// The speed dialog's key scroll speed, 0 to 6 (fastest).
+    #[arg(long, default_value_t = screen::DEFAULT_SPEED, value_parser = clap::value_parser!(u8).range(0..=6))]
+    key_scroll_speed: u8,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -96,8 +105,10 @@ struct Sim {
     /// Commands collected since the last tick.
     pending: Vec<Command>,
     human: u8,
-    /// The message in the bottom bar and the ticks it has left.
-    message: Option<(String, u32)>,
+    /// Notices for the notice line since the last frame (`messages`).
+    notices: Vec<messages::Text>,
+    /// The resource bar's shown gold, lumber and oil, counted once per cycle.
+    counter: screen::Counter,
     /// Passengers to put ashore one at a time (transport, place 0 to 5), from clicks on the information panel.
     unload_one: Vec<(UnitId, usize)>,
     /// Interface sounds to play this frame (the placement click's).
@@ -112,45 +123,8 @@ struct Speaker {
     install: Install,
     /// Archive name to source; `None` for a file the install doesn't have, so it is looked up once.
     sources: HashMap<String, Option<Handle<AudioSource>>>,
-    /// `Rez\network.tbl`, for the subtitles.
-    subtitles: Option<tidewater_formats::tbl::StringTable>,
     /// Ctrl+S turned the sounds off.
     muted: bool,
-}
-
-/// How long a message stays up: five seconds of game time.
-const MESSAGE_TICKS: u32 = 5 * 25;
-
-/// Our wording for a message to the player, if the event is theirs.
-fn message(e: &Event, human: u8) -> Option<String> {
-    match *e {
-        Event::CantAfford { player, shortage } if player == human => Some(
-            match shortage {
-                Shortage::Food => "Not enough food: build more farms",
-                Shortage::Gold => "Not enough gold",
-                Shortage::Lumber => "Not enough lumber",
-                Shortage::Oil => "Not enough oil",
-            }
-            .to_string(),
-        ),
-        Event::NoRoom { player, .. } if player == human => Some("No room to place the unit".to_string()),
-        Event::CantPlace { player, .. } if player == human => Some("Can't build there".to_string()),
-        Event::CantRepair { player, shortage } if player == human => Some(
-            match shortage {
-                Shortage::Lumber => "Repairs stopped: out of lumber",
-                _ => "Repairs stopped: out of gold",
-            }
-            .to_string(),
-        ),
-        Event::ResearchDone { player, .. } if player == human => Some("Research complete".to_string()),
-        Event::GameOver { player, outcome } => Some(match outcome {
-            Outcome::Victory if player == human => "Victory!".to_string(),
-            Outcome::Defeat if player == human => "You have been defeated".to_string(),
-            Outcome::Defeat => format!("Player {} has been defeated", player + 1),
-            _ => "The game has ended".to_string(),
-        }),
-        _ => None,
-    }
 }
 
 /// The command panel's input state (see `panel`).
@@ -161,18 +135,34 @@ struct PanelUi {
     consumed: bool,
     /// Escape was used by the panel this frame and must not quit.
     escape_used: bool,
-    /// The tooltip of the button under the cursor.
-    tooltip: Option<String>,
+    /// The tooltip of the button under the cursor, with its cost kind, gold, lumber and oil costs and mana cost.
+    tooltip: Option<(String, (u8, panel::Cost, u32))>,
     /// The selection a build menu belongs to; a different selection returns the panel from it.
     last_sel: Vec<UnitId>,
     /// The mouse style (`mouse::Style`).
     style: mouse::Style,
-    /// View centres remembered with Shift+F2 to F4.
-    views: [Option<Vec2>; 3],
+    /// The placement site's top-left tile under the pointer's hot spot, kept while the pointer is off the map view.
+    site: Option<(i32, i32)>,
     /// Development aid (`--demo-site`): the pointer's tile while the pointer is off the map view.
     demo_pointer: Option<(i32, i32)>,
     /// Development aid: one placement click at `demo_pointer` is still to be made.
     demo_click: bool,
+}
+
+/// The screen's and the messages' state (`screen`, `messages`).
+#[derive(Resource, Default)]
+struct ScreenUi {
+    scroller: screen::Scroller,
+    /// The scrolling edge the pointer is at, this frame.
+    edge: (i32, i32),
+    /// The pointer to draw and the mouse position, when the client draws the pointer.
+    pointer: Option<(screen::Pointer, (i32, i32))>,
+    /// F2 to F4, and the event history; set from the view at the start of the game.
+    views: Option<screen::SavedViews>,
+    history: Option<messages::History>,
+    messages: messages::Messages,
+    status: messages::StatusBar,
+    was_paused: bool,
 }
 
 /// Links the sprite that shows the building being placed over its site.
@@ -297,19 +287,6 @@ impl Hud {
             _ => false,
         }
     }
-
-    /// The map tile under the cursor if it is over the minimap.
-    fn minimap_tile(&self, window: &Window) -> Option<Vec2> {
-        let (l, p) = (self.layout?, self.cursor(window)?);
-        l.minimap.contains(p.x, p.y).then(|| {
-            let t = hud::Minimap {
-                rect: l.minimap,
-                map: self.map,
-            }
-            .tile_at((p.x, p.y));
-            Vec2::new(t.0, t.1)
-        })
-    }
 }
 
 /// The fog overlay picture (one texel per quarter tile) and the sim state it was last drawn from.
@@ -384,10 +361,6 @@ fn main() -> Result<()> {
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
     let speaker = Speaker {
         director: sound::Director::new(sound::SoundSet::of_race(race), scene.era, scene.seed),
-        subtitles: install
-            .read("rez\\network.tbl")
-            .ok()
-            .and_then(|d| tidewater_formats::tbl::StringTable::parse(&d).ok()),
         install,
         sources: HashMap::new(),
         muted: false,
@@ -420,11 +393,21 @@ fn main() -> Result<()> {
         panel_ui.demo_pointer = args.demo_site;
         panel_ui.demo_click = args.demo_site.is_some();
     }
+    // The client draws the pointer itself when the install has every pointer of the race.
+    let own_pointer = hud_art.has_pointers();
+    let screen_ui = ScreenUi {
+        scroller: screen::Scroller::new(args.mouse_scroll_speed, args.key_scroll_speed),
+        ..default()
+    };
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
                 title: format!("Tidewater — {}", args.map),
                 resolution: (640 * args.ui_scale, 480 * args.ui_scale).into(),
+                ..default()
+            }),
+            primary_cursor_options: Some(bevy::window::CursorOptions {
+                visible: !own_pointer,
                 ..default()
             }),
             ..default()
@@ -449,6 +432,7 @@ fn main() -> Result<()> {
         .insert_resource(selection)
         .insert_resource(speaker)
         .insert_resource(panel_ui)
+        .insert_resource(screen_ui)
         .init_resource::<InfoPanel>()
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, tick)
@@ -456,12 +440,14 @@ fn main() -> Result<()> {
             Update,
             (
                 hud_layout,
+                scroll_view,
                 panel_input,
                 info_input,
                 keys_input,
                 mouse_input,
                 pan_and_zoom,
                 play_sounds,
+                update_messages,
                 sync_sprites,
                 redraw_terrain,
                 redraw_fog,
@@ -607,11 +593,16 @@ fn setup(
             units: sel.units.clone(),
         }]
     };
+    let counter = {
+        let p = &scene.world.players[scene.human as usize];
+        screen::Counter::open([p.gold, p.lumber, p.oil])
+    };
     commands.insert_resource(Sim {
         world: scene.world,
         pending,
         human: scene.human,
-        message: None,
+        notices: Vec::new(),
+        counter,
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
     });
@@ -677,14 +668,14 @@ fn tick(
             sel.units.retain(|&id| id != unit);
         }
     }
-    if let Some(m) = events.iter().rev().find_map(|e| message(e, human)) {
-        sim.message = Some((m, MESSAGE_TICKS));
-    } else if let Some((_, left)) = &mut sim.message {
-        *left -= 1;
-        if *left == 0 {
-            sim.message = None;
-        }
+    // Each notice replaces the last on the notice line, so the latest wins.
+    if let Some(n) = events.iter().rev().find_map(|e| messages::event_notice(e, human)) {
+        sim.notices.push(n);
     }
+    // Screen spec, "Counting up and down": once per cycle.
+    let p = &sim.world.players[human as usize];
+    let real = [p.gold, p.lumber, p.oil];
+    sim.counter.update(real);
 }
 
 /// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture. The minimap catches up at
@@ -795,30 +786,22 @@ fn pointer_tile(at: Vec2) -> (i32, i32) {
     ((at.x as i32).div_euclid(TILE_PX), (at.y as i32).div_euclid(TILE_PX))
 }
 
-/// The building being placed, drawn over its site while the pointer is on the map view (spec
-/// `ui/placing-buildings.md`, "The site"). Our choice: the type's first frame in the owner's colours, half
+/// The building being placed, drawn over its site (spec `ui/placing-buildings.md`, "The site"; the site stays put
+/// while the pointer is off the map view). Our choice: the type's first frame in the owner's colours, half
 /// transparent, above the fog.
-#[allow(clippy::too_many_arguments)]
 fn draw_ghost(
     sim: Option<Res<Sim>>,
     art: Option<ResMut<Art>>,
     mut images: ResMut<Assets<Image>>,
     ui: Res<PanelUi>,
     sel: Res<Selection>,
-    hud: Res<Hud>,
-    windows: Query<&Window>,
-    cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     mut ghost: Query<(&mut Sprite, &mut Transform, &mut Visibility), With<Ghost>>,
 ) {
     let Ok((mut sprite, mut tf, mut vis)) = ghost.single_mut() else {
         return;
     };
     let (Some(sim), Some(mut art)) = (sim, art) else { return };
-    let pointer = match (windows.single(), cams.single()) {
-        (Ok(window), Ok(cam)) if hud.over_map(window) => cursor_map(window, cam).map(pointer_tile),
-        _ => None,
-    }
-    .or(ui.demo_pointer);
+    let pointer = ui.site.or(ui.demo_pointer);
     let builder = sel.units.first().and_then(|&id| sim.world.unit(id));
     let (panel::Mode::Place(kind), Some(tile), Some(b)) = (ui.mode, pointer, builder) else {
         vis.set_if_neq(Visibility::Hidden);
@@ -856,22 +839,18 @@ fn draw_selection(
     windows: Query<&Window>,
     cams: Query<(&Camera, &GlobalTransform), With<MapCamera>>,
     ui: Res<PanelUi>,
-    hud: Res<Hud>,
     art: Option<Res<Art>>,
 ) {
     let Some(sim) = sim else { return };
-    // Placing a building: its footprint under the cursor.
-    if let (panel::Mode::Place(kind), Ok(window), Ok(cam)) = (ui.mode, windows.single(), cams.single())
-        && hud.over_map(window)
-        && let Some(at) = cursor_map(window, cam)
-    {
+    // Placing a building: its footprint on the site.
+    if let (panel::Mode::Place(kind), Some(tile)) = (ui.mode, ui.site) {
         let st = panel::WorldState {
             world: &sim.world,
             local: sim.human,
         };
         let (w, h) = st.footprint(kind);
         let size = Vec2::new(w as f32, h as f32) * TILE_PX as f32;
-        let site = sim.world.site_at(kind, pointer_tile(at));
+        let site = sim.world.site_at(kind, tile);
         let c = Vec2::new(site.0 as f32, site.1 as f32) * TILE_PX as f32 + size / 2.0;
         gizmos.rect_2d(Vec2::new(c.x, -c.y), size, Color::srgb(0.9, 0.9, 0.2));
     }
@@ -924,10 +903,10 @@ fn draw_selection(
 }
 
 fn pan_and_zoom(
-    keys: Res<ButtonInput<KeyCode>>,
     scroll: Res<AccumulatedMouseScroll>,
-    time: Res<Time>,
     size: Res<MapSize>,
+    hud: Res<Hud>,
+    mut scr: ResMut<ScreenUi>,
     mut cam: Query<(&Camera, &mut Transform, &mut Projection), With<MapCamera>>,
 ) {
     let Ok((camera, mut tf, mut proj)) = cam.single_mut() else {
@@ -940,22 +919,22 @@ fn pan_and_zoom(
     let zoom = -scroll.delta.y * 0.1;
     ortho.scale = (ortho.scale * (1.0 + zoom)).clamp(0.25, 8.0);
 
-    let mut d = Vec2::ZERO;
-    for (k1, v) in [
-        (KeyCode::ArrowLeft, Vec2::NEG_X),
-        (KeyCode::ArrowRight, Vec2::X),
-        (KeyCode::ArrowUp, Vec2::Y),
-        (KeyCode::ArrowDown, Vec2::NEG_Y),
-    ] {
-        if keys.pressed(k1) {
-            d += v;
-        }
-    }
-    let step = d * 900.0 * ortho.scale * time.delta_secs();
-    // Runs every frame, so a view moved any other way (minimap, start position) is kept on the map too.
+    // Runs every frame, so a view moved any other way (minimap, start position) is kept on the map too. The view
+    // position is a whole tile (screen spec, "Layout"), so the view's top-left corner goes onto the tile grid first.
     let half = camera.logical_viewport_size().unwrap_or(Vec2::ZERO) * ortho.scale / 2.0;
-    tf.translation.x = keep_on_map(tf.translation.x + step.x, half.x, size.0.x);
-    tf.translation.y = -keep_on_map(-(tf.translation.y + step.y), half.y, size.0.y);
+    let t = TILE_PX as f32;
+    let left = ((tf.translation.x - half.x) / t).round() * t;
+    let top = ((-tf.translation.y - half.y) / t).round() * t;
+    tf.translation.x = keep_on_map(left + half.x, half.x, size.0.x);
+    tf.translation.y = -keep_on_map(top + half.y, half.y, size.0.y);
+    // Screen spec, "Scrolling": the saved views F2 to F4, and the messages spec's event history, start as the view at
+    // the start of the game.
+    if scr.views.is_none() && camera.logical_viewport_size().is_some() {
+        let (proj, tf) = (&*proj, &*tf);
+        let start = view_geom(camera, tf, proj, hud.map).pos;
+        scr.views = Some(screen::SavedViews::new(start));
+        scr.history = Some(messages::History::new(start));
+    }
 }
 
 /// A view centre on one axis that keeps a view of half-width `half` inside a map `len` long; a map narrower than
@@ -1069,6 +1048,7 @@ fn panel_input(
     sim: Option<ResMut<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
+    scr: Res<ScreenUi>,
     mut ui: ResMut<PanelUi>,
 ) {
     ui.consumed = false;
@@ -1077,6 +1057,20 @@ fn panel_input(
     let (Some(mut sim), Ok(window)) = (sim, windows.single()) else {
         return;
     };
+    // Screen spec: at a scrolling edge, clicks on the panel do nothing.
+    let pressed = buttons.just_pressed(MouseButton::Left) && scr.edge == (0, 0);
+    // The menu and pause buttons (screen spec, "Menu buttons"); the game menu isn't built yet.
+    if pressed
+        && let Some(c) = hud.cursor(window)
+        && let Some(b) = screen::menu_button_at((c.x, c.y), pause_button(&sim))
+    {
+        if b == screen::MenuButton::Pause {
+            let player = sim.human;
+            sim.pending.push(Command::Pause { player });
+        }
+        ui.consumed = true;
+        return;
+    }
     let human = sim.human;
     let (infos, effect) = {
         let state = panel::WorldState {
@@ -1099,8 +1093,9 @@ fn panel_input(
             && let Some(n) = panel::slot_at((l.buttons.x, l.buttons.y), (c.x, c.y))
             && let Some(en) = slots[n]
         {
-            ui.tooltip = Some(panel::tooltip(en, &label(en.string), &state));
-            if buttons.just_pressed(MouseButton::Left) {
+            let l = label(en.string);
+            ui.tooltip = Some((panel::tooltip(en, &l), panel::costs(en, &l, &state)));
+            if pressed {
                 effect = panel::activate(en, &state, &infos);
                 ui.consumed = true;
             }
@@ -1147,7 +1142,7 @@ fn panel_input(
                 sim.world.acknowledge(u.id);
             }
         }
-        panel::Effect::Message(n) => sim.message = Some((hud.art.string(n), MESSAGE_TICKS)),
+        panel::Effect::Message(n) => sim.notices.push(messages::Text::Stat(n)),
         panel::Effect::SetMode(m) => ui.mode = m,
     }
 }
@@ -1255,7 +1250,7 @@ fn target_click(
 }
 
 /// Placement mode's click (spec `ui/placing-buildings.md`, "The click"): a refused site keeps the mode on.
-fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, hud: &Hud, kind: u8, tile: (i32, i32)) {
+fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, kind: u8, tile: (i32, i32)) {
     match panel::place_click(&sim.world, sim.human, builder, kind, tile) {
         panel::PlaceClick::Build(command) => {
             sim.ui_sounds.push(sound::UiSound::Thunk);
@@ -1265,7 +1260,7 @@ fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, hud: &Hud, kind
         }
         panel::PlaceClick::Refused(n) => {
             sim.ui_sounds.push(sound::UiSound::Error);
-            sim.message = Some((hud.art.string(n), MESSAGE_TICKS));
+            sim.notices.push(messages::Text::Stat(n));
         }
     }
 }
@@ -1291,7 +1286,9 @@ fn mouse_input(
     mut sel: ResMut<Selection>,
     hud: Res<Hud>,
     mut ui: ResMut<PanelUi>,
+    mut scr: ResMut<ScreenUi>,
 ) {
+    scr.pointer = None;
     let (Some(mut sim), Ok(window), Ok((camera, gt, mut tf, proj)), Some(layout)) =
         (sim, windows.single(), cams.single_mut(), hud.layout)
     else {
@@ -1311,7 +1308,7 @@ fn mouse_input(
         && sim.world.tick >= 2
     {
         ui.demo_click = false;
-        place_click(sim, builder, ui, &hud, kind, tile);
+        place_click(sim, builder, ui, kind, tile);
     }
     if buttons.just_released(MouseButton::Left) {
         sel.minimap_held = false;
@@ -1325,26 +1322,76 @@ fn mouse_input(
             }
         }
     }
-    let minimap_tile = hud.minimap_tile(window).map(|t| {
-        let max = (hud.map.0 as i32 - 1, hud.map.1 as i32 - 1);
-        ((t.x as i32).clamp(0, max.0), (t.y as i32).clamp(0, max.1))
-    });
+    // Minimap spec, "Moving the view with the minimap": presses in screen pixels.
+    let width = hud.map.0;
+    let geom = view_geom(camera, &tf, proj, hud.map);
+    let pointer = hud.cursor(window).map(|c| (c.x.floor() as i32, c.y.floor() as i32));
+    let regions = mouse::Regions::of_layout(&layout);
+    let on_minimap = hud
+        .cursor(window)
+        .is_some_and(|c| regions.at((c.x, c.y)) == mouse::Region::Minimap);
+    let minimap_tile = pointer
+        .filter(|_| on_minimap)
+        .map(|p| minimap::tile_for_press(width, p));
     if sel.minimap_held
         && buttons.pressed(MouseButton::Left)
-        && let Some(t) = hud.minimap_tile(window)
+        && let Some(p) = pointer
     {
-        centre_view(&mut tf, t * TILE_PX as f32);
+        move_view(
+            camera,
+            &mut tf,
+            proj,
+            minimap::view_for_press(width, p, geom.tiles, geom.max()),
+        );
     }
-    let Some(cursor) = hud.cursor(window).filter(|_| !ui.consumed) else {
-        return;
-    };
-    let region = mouse::Regions::of_layout(&layout).at((cursor.x, cursor.y));
     let mode = match ui.mode {
         panel::Mode::Target(_) => mouse::ModeKind::Target,
         panel::Mode::Place(_) => mouse::ModeKind::Place,
         _ => mouse::ModeKind::Normal,
     };
     let map_tile = at.map(pointer_tile);
+    // Screen spec, "Placement": the site follows the hot spot's tile while the pointer is in the map view.
+    if !matches!(ui.mode, panel::Mode::Place(_)) {
+        ui.site = None;
+    } else if hud.over_map(window) && map_tile.is_some() {
+        ui.site = map_tile;
+    }
+    // Screen spec, "Pointer shapes".
+    if let Some(p) = pointer {
+        let region = regions.at((p.0 as f32, p.1 as f32));
+        let over = match region {
+            mouse::Region::MapView => screen::Over::MapView,
+            mouse::Region::Minimap => screen::Over::Minimap,
+            _ => screen::Over::Other,
+        };
+        let hovered: Vec<u8> = match (over, at) {
+            (screen::Over::MapView, Some(at)) => with_board(&sim.world, sim.human, art, view, |b| {
+                mouse::hover(b, px(at))
+                    .iter()
+                    .filter_map(|&id| b.get(id).map(|c| c.owner))
+                    .collect()
+            }),
+            _ => Vec::new(),
+        };
+        let shape = screen::pointer(&screen::PointerInput {
+            waiting: false,
+            edge: scr.edge,
+            paused: sim.world.paused,
+            over,
+            mode: match mode {
+                mouse::ModeKind::Target => screen::Mode::Target,
+                mouse::ModeKind::Place => screen::Mode::Place,
+                mouse::ModeKind::Normal => screen::Mode::Normal,
+            },
+            hovered: &hovered,
+            local: sim.human,
+        });
+        scr.pointer = Some((shape, p));
+    }
+    let Some(cursor) = hud.cursor(window).filter(|_| !ui.consumed) else {
+        return;
+    };
+    let region = regions.at((cursor.x, cursor.y));
     for (button, b) in [
         (MouseButton::Left, mouse::Button::Left),
         (MouseButton::Right, mouse::Button::Right),
@@ -1352,8 +1399,7 @@ fn mouse_input(
         if !buttons.just_pressed(button) {
             continue;
         }
-        // The client has no edge scrolling yet, so the pointer is never at a scrolling edge.
-        match mouse::action(mode, ui.style, region, b, sim.world.paused, false) {
+        match mouse::action(mode, ui.style, region, b, sim.world.paused, scr.edge != (0, 0)) {
             mouse::Action::Nothing => {}
             mouse::Action::Select => {
                 let Some(at) = at else { continue };
@@ -1388,8 +1434,13 @@ fn mouse_input(
                 }
             }
             mouse::Action::MoveView => {
-                if let Some(t) = hud.minimap_tile(window) {
-                    centre_view(&mut tf, t * TILE_PX as f32);
+                if let Some(p) = pointer {
+                    move_view(
+                        camera,
+                        &mut tf,
+                        proj,
+                        minimap::view_for_press(width, p, geom.tiles, geom.max()),
+                    );
                     sel.minimap_held = b == mouse::Button::Left;
                 }
             }
@@ -1405,7 +1456,7 @@ fn mouse_input(
             }
             mouse::Action::Place => {
                 if let (panel::Mode::Place(kind), Some(tile), Some(&builder)) = (ui.mode, map_tile, sel.units.first()) {
-                    place_click(sim, builder, ui, &hud, kind, tile);
+                    place_click(sim, builder, ui, kind, tile);
                 }
             }
             mouse::Action::EndMode | mouse::Action::EndModeOrBack => ui.mode = panel::Mode::None,
@@ -1448,7 +1499,9 @@ fn keys_input(
     art: Option<Res<Art>>,
     mut sel: ResMut<Selection>,
     mut speaker: ResMut<Speaker>,
-    mut ui: ResMut<PanelUi>,
+    ui: Res<PanelUi>,
+    hud: Res<Hud>,
+    mut scr: ResMut<ScreenUi>,
     mut cams: Query<(&Camera, &mut Transform, &Projection), With<MapCamera>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -1460,6 +1513,16 @@ fn keys_input(
     }
     let (sim, sel) = (&mut *sim, &mut *sel);
     let human = sim.human;
+    // Messages spec, "Event history": the space key (no chat line yet to take it).
+    if keys.just_pressed(KeyCode::Space)
+        && let Some(h) = &mut scr.history
+    {
+        let now = (time.elapsed_secs_f64() * 1000.0) as u64;
+        if let Some(v) = h.space(now, sim.world.rules.enhanced) {
+            let geom = view_geom(camera, &tf, proj, hud.map);
+            move_view(camera, &mut tf, proj, geom.clamp(v));
+        }
+    }
     let m = mouse::KeyMods {
         shift: keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
         ctrl: keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]),
@@ -1517,12 +1580,16 @@ fn keys_input(
                 exit.write(AppExit::Success);
             }
             mouse::KeyAction::GotoView(n) => {
-                if let Some(c) = ui.views[n as usize] {
-                    centre_view(&mut tf, c);
+                if let Some(v) = scr.views {
+                    let geom = view_geom(camera, &tf, proj, hud.map);
+                    move_view(camera, &mut tf, proj, geom.clamp(v.0[n as usize]));
                 }
             }
             mouse::KeyAction::RememberView(n) => {
-                ui.views[n as usize] = Some(Vec2::new(tf.translation.x, -tf.translation.y));
+                let pos = view_geom(camera, &tf, proj, hud.map).pos;
+                if let Some(v) = &mut scr.views {
+                    v.0[n as usize] = pos;
+                }
             }
             _ => {}
         }
@@ -1547,7 +1614,7 @@ fn view_tiles(camera: &Camera, tf: &Transform, proj: &Projection) -> (f32, f32, 
 }
 
 /// Plays the cues the sim queued since the last frame (sounds spec, "How a sound is played"), and shows their
-/// subtitles in the message line.
+/// subtitles on the notice line.
 fn play_sounds(
     mut commands: Commands,
     sim: Option<ResMut<Sim>>,
@@ -1577,10 +1644,9 @@ fn play_sounds(
     let mut heard: Vec<sound::Heard> = ui_sounds.into_iter().map(|s| sp.director.hear_ui(s)).collect();
     heard.extend(cues.iter().map(|cue| sp.director.hear(cue, view)));
     for heard in heard {
-        if let Some(n) = heard.subtitle
-            && let Some(text) = sp.subtitles.as_ref().and_then(|t| t.text(n as usize - 1))
-        {
-            sim.message = Some((text, MESSAGE_TICKS));
+        // Messages spec: a subtitle (the under-attack ones included) goes to the notice line.
+        if let Some(n) = heard.subtitle {
+            sim.notices.push(messages::Text::Net(n));
         }
         let Some((name, level)) = heard.play else { continue };
         let path = sound::path(&name);
@@ -1615,6 +1681,7 @@ fn info_input(
     hud: Res<Hud>,
     mut ui: ResMut<PanelUi>,
     mut panel: ResMut<InfoPanel>,
+    scr: Res<ScreenUi>,
     mut cam: Query<&mut Transform, With<MapCamera>>,
 ) {
     panel.hover = None;
@@ -1631,7 +1698,7 @@ fn info_input(
         .and_then(&unit)
         .and_then(|u| info::name_entry(u.kind))
         .map(|e| hud.art.string(e));
-    if buttons.just_pressed(MouseButton::Left) && slot.is_some() && !ui.consumed {
+    if buttons.just_pressed(MouseButton::Left) && slot.is_some() && !ui.consumed && scr.edge == (0, 0) {
         panel.pressed = slot;
         ui.consumed = true;
     }
@@ -1720,12 +1787,165 @@ fn update_info(sim: Option<Res<Sim>>, mut sel: ResMut<Selection>, mut panel: Res
     });
 }
 
+/// The view position, its size in tiles and the map's (screen spec, "Layout"), from the map camera.
+fn view_geom(camera: &Camera, tf: &Transform, proj: &Projection, map: (u32, u32)) -> screen::ViewGeom {
+    let (l, t, r, b) = view_tiles(camera, tf, proj);
+    let size = |n: f32| {
+        let n = n.round() as i32;
+        // Before the camera has a viewport: the original screen's view.
+        if n < 1 { minimap::VIEW_TILES } else { n }
+    };
+    screen::ViewGeom {
+        pos: (l.round() as i32, t.round() as i32),
+        tiles: (size(r - l), size(b - t)),
+        map: (map.0 as i32, map.1 as i32),
+    }
+}
+
+/// Moves the map view so that its top-left tile is `pos`; `pan_and_zoom` keeps it on the map.
+fn move_view(camera: &Camera, tf: &mut Transform, proj: &Projection, pos: (i32, i32)) {
+    let (l, t, _, _) = view_tiles(camera, tf, proj);
+    let px = TILE_PX as f32;
+    tf.translation.x += (pos.0 as f32 - l) * px;
+    tf.translation.y -= (pos.1 as f32 - t) * px;
+}
+
+/// Scrolling at the screen edge and with the keys (`screen`, spec `ui/screen-and-cursors.md`, "Scrolling"); also sets
+/// the scrolling edge that blocks this frame's clicks.
+#[allow(clippy::too_many_arguments)]
+fn scroll_view(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time<Real>>,
+    windows: Query<&Window>,
+    sim: Option<Res<Sim>>,
+    hud: Res<Hud>,
+    mut scr: ResMut<ScreenUi>,
+    mut cams: Query<(&Camera, &mut Transform, &Projection), With<MapCamera>>,
+) {
+    scr.edge = (0, 0);
+    let (Some(sim), Ok(window), Ok((camera, mut tf, proj)), Some(l)) =
+        (sim, windows.single(), cams.single_mut(), hud.layout)
+    else {
+        return;
+    };
+    let geom = view_geom(camera, &tf, proj, hud.map);
+    // No menus or demo yet: only a pause blocks scrolling.
+    let blocked = sim.world.paused;
+    if !blocked && let Some(c) = hud.cursor(window) {
+        let canvas = (l.canvas.0 as i32, l.canvas.1 as i32);
+        scr.edge = screen::edge((c.x.floor() as i32, c.y.floor() as i32), canvas, &geom);
+    }
+    use screen::ScrollKey as K;
+    let held: Vec<K> = [
+        (KeyCode::ArrowUp, K::Up),
+        (KeyCode::ArrowDown, K::Down),
+        (KeyCode::ArrowLeft, K::Left),
+        (KeyCode::ArrowRight, K::Right),
+        (KeyCode::Home, K::Home),
+        (KeyCode::PageUp, K::PageUp),
+        (KeyCode::End, K::End),
+        (KeyCode::PageDown, K::PageDown),
+        (KeyCode::Numpad8, K::Pad(8)),
+        (KeyCode::Numpad2, K::Pad(2)),
+        (KeyCode::Numpad4, K::Pad(4)),
+        (KeyCode::Numpad6, K::Pad(6)),
+        (KeyCode::Numpad7, K::Pad(7)),
+        (KeyCode::Numpad9, K::Pad(9)),
+        (KeyCode::Numpad1, K::Pad(1)),
+        (KeyCode::Numpad3, K::Pad(3)),
+    ]
+    .into_iter()
+    .filter(|(k, _)| keys.pressed(*k))
+    .map(|(_, s)| s)
+    .collect();
+    let input = screen::ScrollInput {
+        now: (time.elapsed_secs_f64() * 1000.0) as u64,
+        edge: scr.edge,
+        // No chat line yet.
+        keys: screen::keys_direction(&held, false),
+        ctrl_or_alt: keys.any_pressed([
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+        ]),
+        blocked,
+    };
+    if let Some(d) = scr.scroller.update(input) {
+        move_view(camera, &mut tf, proj, geom.step(d));
+    }
+}
+
+/// Whether the pause button is shown: the client has no multiplayer games yet, so it always is.
+fn pause_button(sim: &Sim) -> bool {
+    screen::pause_shown(sim.world.rules.enhanced, false, 0)
+}
+
+/// The text of a message source.
+fn text_of(hud: &Hud, t: &messages::Text) -> String {
+    match t {
+        messages::Text::Stat(n) => hud.art.string(*n),
+        messages::Text::Net(n) => hud.art.net_string(*n),
+        messages::Text::Own(s) => s.clone(),
+    }
+}
+
+/// The message area, the status bar and the event history (`messages`, spec `ui/messages.md`): new notices and the
+/// pause notices, real-time expiry, the event locations, the fixed prompts and what the pointer is over.
+fn update_messages(
+    time: Res<Time<Real>>,
+    sim: Option<ResMut<Sim>>,
+    hud: Res<Hud>,
+    ui: Res<PanelUi>,
+    info_panel: Res<InfoPanel>,
+    mut scr: ResMut<ScreenUi>,
+) {
+    let Some(mut sim) = sim else { return };
+    let scr = &mut *scr;
+    let now = (time.elapsed_secs_f64() * 1000.0) as u64;
+    for n in std::mem::take(&mut sim.notices) {
+        scr.messages.notice(&text_of(&hud, &n), 0, now);
+    }
+    // Our wording for the player's name; open question default: the name only.
+    let paused = sim.world.paused;
+    if paused != scr.was_paused {
+        let entry = if paused {
+            messages::net::PAUSED
+        } else {
+            messages::net::RESUMED
+        };
+        let name = format!("Player {}", sim.human + 1);
+        scr.messages
+            .notice(&messages::fill_name(&hud.art.net_string(entry), &name), 0, now);
+        scr.was_paused = paused;
+    }
+    scr.messages.expire(now);
+    for tile in std::mem::take(&mut sim.world.sounds.events) {
+        if let Some(h) = &mut scr.history {
+            h.push(tile, now);
+        }
+    }
+    let demo = sim.world.sounds.demo;
+    let prompt = match ui.mode {
+        panel::Mode::Target(_) => Some(messages::net::SELECT_TARGET),
+        panel::Mode::Place(_) => Some(messages::net::SELECT_LOCATION),
+        _ => None,
+    };
+    scr.status.set_prompt(prompt.map(|n| hud.art.net_string(n)));
+    match (&ui.tooltip, &info_panel.hover) {
+        (Some((text, (kind, cost, mana))), _) => scr.status.button(text, *kind, *cost, *mana, demo),
+        (None, Some(name)) => scr.status.name(name, demo),
+        (None, None) => scr.status.clear(demo),
+    }
+}
+
 fn draw_hud(
     sim: Option<Res<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
     ui: Res<PanelUi>,
     info_panel: Res<InfoPanel>,
+    scr: Res<ScreenUi>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let (Some(sim), Some(layout)) = (sim, hud.layout) else {
@@ -1745,7 +1965,6 @@ fn draw_hud(
                 .map_or(1, |s| s.hit_points.max(1)),
         })
     });
-    let me = &sim.world.players[sim.human as usize];
     let state = panel::WorldState {
         world: &sim.world,
         local: sim.human,
@@ -1761,9 +1980,12 @@ fn draw_hud(
         &hud.frame,
         &layout,
         &hud::View {
-            gold: me.gold,
-            lumber: me.lumber,
-            oil: me.oil,
+            resources: sim.counter.shown,
+            food: screen::food(
+                sim.world.rules.enhanced,
+                sim.world.food_used(sim.human),
+                sim.world.food_supply(sim.human),
+            ),
             info: hud::InfoView {
                 frame: info_panel.frame,
                 slots: icons,
@@ -1771,13 +1993,11 @@ fn draw_hud(
                 content: info_panel.content.as_ref(),
                 local: sim.human,
             },
-            status: ui
-                .tooltip
-                .as_deref()
-                .or(info_panel.hover.as_deref())
-                // Our wording: the pause notice isn't specified.
-                .or(sim.world.paused.then_some("Paused"))
-                .or(sim.message.as_ref().map(|(m, _)| m.as_str())),
+            status: &scr.status,
+            messages: &scr.messages,
+            paused: sim.world.paused,
+            pause_button: pause_button(&sim),
+            pointer: scr.pointer.filter(|_| hud.art.has_pointers()),
             minimap: &hud.minimap.pixels,
             buttons: &buttons,
         },

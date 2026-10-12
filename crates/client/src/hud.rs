@@ -4,17 +4,20 @@
 //! Art comes from the installation (formats in the formats crate's `raw`, `grp` and `fnt` modules): the frame pieces
 //! `Art\{h,o}_{top,btm,rgt,lft0,lft1,lft2}.bmp` and the info box `Art\{h,o}frame.grp` per race, the resource icons
 //! `Art\icons.grp`, the unit icons `Art\unit\Portrait\*port*.grp` per era, the font `Art\font10x.fnt` and the
-//! strings in `rez\stat_txt.tbl`. Pieces are placed as the 640x480 screen shows them: a 176-pixel panel on the left,
+//! strings in `rez\stat_txt.tbl` and `rez\network.tbl`, and the pointers `Art\*.cur`. Pieces are placed as the 640x480 screen shows them: a 176-pixel panel on the left,
 //! 16-pixel bars above, below and to the right of the map view. Larger canvases repeat the bars and extend the panel.
 //! The information panel follows `docs/specs/ui/info-panel.md` (layout and rules in [`crate::info`]); the resource
-//! slots, button frames and text colours are our own choices that follow the look of the game. No Bevy types here.
+//! The resource bar, the menu and pause buttons and the pointer follow `docs/specs/ui/screen-and-cursors.md` (rules in
+//! [`crate::screen`]); the message area and the status bar follow `docs/specs/ui/messages.md` (rules in
+//! [`crate::messages`]). Button frames, the menu button labels and the text colours of the colour codes are our own
+//! choices that follow the look of the game. No Bevy types here.
 
 use anyhow::{Context, Result, bail};
 use tidewater_formats::fnt::Font;
 use tidewater_formats::grp::{Frame, Grp};
 use tidewater_formats::install::Install;
 use tidewater_formats::pud::Era;
-use tidewater_formats::raw::RawImage;
+use tidewater_formats::raw::{Cursor, RawImage};
 use tidewater_formats::tbl::StringTable;
 use tidewater_formats::tileset::Palette;
 
@@ -87,41 +90,6 @@ impl Layout {
     }
 }
 
-/// Maps between minimap pixels and map tiles for the current mouse input, which scales the map to fit the minimap and
-/// centres it. The spec's mapping is [`crate::minimap::view_for_press`] and [`crate::minimap::tile_for_press`], which
-/// the input rewrite takes over.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Minimap {
-    pub rect: Rect,
-    /// Map size in tiles.
-    pub map: (u32, u32),
-}
-
-impl Minimap {
-    /// Minimap pixels per tile.
-    pub fn scale(&self) -> f32 {
-        (self.rect.w as f32 / self.map.0.max(1) as f32).min(self.rect.h as f32 / self.map.1.max(1) as f32)
-    }
-
-    /// Canvas position of the map's top-left corner.
-    fn origin(&self) -> (f32, f32) {
-        let s = self.scale();
-        (
-            self.rect.x as f32 + (self.rect.w as f32 - self.map.0 as f32 * s) / 2.0,
-            self.rect.y as f32 + (self.rect.h as f32 - self.map.1 as f32 * s) / 2.0,
-        )
-    }
-
-    /// The tile position (fractional, clamped to the map) under canvas point `p`.
-    pub fn tile_at(&self, p: (f32, f32)) -> (f32, f32) {
-        let (ox, oy, s) = (self.origin().0, self.origin().1, self.scale());
-        (
-            ((p.0 - ox) / s).clamp(0.0, self.map.0 as f32),
-            ((p.1 - oy) / s).clamp(0.0, self.map.1 as f32),
-        )
-    }
-}
-
 /// A unit in the information panel's grid: its type, owner and health.
 #[derive(Clone, Copy, Debug)]
 pub struct Icon {
@@ -148,12 +116,19 @@ pub struct InfoView<'a> {
 
 /// The changing state the interface shows.
 pub struct View<'a> {
-    pub gold: u32,
-    pub lumber: u32,
-    pub oil: u32,
+    /// The shown gold, lumber and oil (see [`crate::screen::Counter`]).
+    pub resources: [i64; 3],
+    /// The food item, if drawn.
+    pub food: Option<crate::screen::Food>,
     pub info: InfoView<'a>,
-    /// The latest message for the player.
-    pub status: Option<&'a str>,
+    pub status: &'a crate::messages::StatusBar,
+    pub messages: &'a crate::messages::Messages,
+    /// The game is paused: the pause button shows as a resume button.
+    pub paused: bool,
+    /// Whether the pause button is shown ([`crate::screen::pause_shown`]).
+    pub pause_button: bool,
+    /// The pointer shape and the mouse position, if the pointer is drawn.
+    pub pointer: Option<(crate::screen::Pointer, (i32, i32))>,
     /// The last minimap picture drawn: 128 × 128 palette indices (see [`crate::minimap`]).
     pub minimap: &'a [u8],
     /// The command panel's shown buttons: slot and icon frame (see [`crate::panel`]).
@@ -234,6 +209,40 @@ const TEXT_ALT: [[u8; 3]; 8] = [
     [0, 0, 0],
 ];
 
+/// Colour code 2 (chat, food in use): a pale green face. Our own choice.
+const TEXT_2: [[u8; 3]; 8] = [
+    [0, 0, 0],
+    [200, 252, 192],
+    [168, 216, 160],
+    [136, 180, 128],
+    [104, 140, 96],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+];
+
+/// Colour code 3 (food over the supply): a red face. Our own choice.
+const TEXT_3: [[u8; 3]; 8] = [
+    [0, 0, 0],
+    [252, 96, 72],
+    [216, 72, 56],
+    [176, 52, 40],
+    [136, 36, 28],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+];
+
+/// The shade colours of a font colour code (1 to 4).
+fn colour_code(code: u8) -> &'static [[u8; 3]; 8] {
+    match code {
+        2 => &TEXT_2,
+        3 => &TEXT_3,
+        4 => &TEXT_ALT,
+        _ => &TEXT,
+    }
+}
+
 /// Draws `text` with its top-left at `(x, y)` and returns its width.
 pub fn text(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str) -> u32 {
     text_in(dst, font, x, y, s, &TEXT)
@@ -241,6 +250,12 @@ pub fn text(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str) -> u32 {
 
 /// Draws `text` in the given shade colours.
 fn text_in(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str, colours: &[[u8; 3]; 8]) -> u32 {
+    text_clipped(dst, font, (x, y), s, colours, i32::MAX)
+}
+
+/// Draws `text` at `at` in the given shade colours, leaving out pixels right of `clip`.
+fn text_clipped(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, colours: &[[u8; 3]; 8], clip: i32) -> u32 {
+    let (x, y) = at;
     let mut pen = x;
     for c in s.bytes() {
         if let Some(g) = font.glyph(c) {
@@ -251,7 +266,7 @@ fn text_in(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str, colours: &[[
                         continue;
                     }
                     let (dx, dy) = (pen + g.x as i32 + gx, y + g.y as i32 + gy);
-                    if dx >= 0 && dy >= 0 && (dx as u32) < dst.width && (dy as u32) < dst.height {
+                    if dx <= clip && dx >= 0 && dy >= 0 && (dx as u32) < dst.width && (dy as u32) < dst.height {
                         let d = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
                         let col = colours[shade as usize];
                         dst.rgba[d..d + 4].copy_from_slice(&[col[0], col[1], col[2], 255]);
@@ -304,13 +319,19 @@ pub struct HudArt {
     /// The information panel's background frames 0 to 3 (see [`crate::info::frame`]).
     info: [Picture; 4],
     menu_button: Option<Picture>,
-    /// Gold, lumber, oil.
+    /// The frames of `Art\icons.grp`: gold, lumber, oil, mana, food.
     resources: Vec<Picture>,
+    /// The pointers by file name, with their hot spots.
+    pointers: std::collections::HashMap<&'static str, (Picture, (i32, i32))>,
+    /// `rez\network.tbl`, if the install has it.
+    network: StringTable,
     icons: Grp,
     font: Font,
     /// A smaller font for the hit point text, if the install has one.
     small: Option<Font>,
     names: StringTable,
+    /// The local race is orc: the race pointers' orc versions.
+    orc: bool,
     pub pieces: Pieces,
 }
 
@@ -352,6 +373,24 @@ impl HudArt {
         let icons = Grp::parse(&install.read(portrait_sheet(era))?).context("portrait sheet")?;
         let font = Font::parse(&install.read("Art\\font10x.fnt")?).context("font10x.fnt")?;
         let names = StringTable::parse(&install.read("rez\\stat_txt.tbl")?).context("stat_txt.tbl")?;
+        let network = install
+            .read("rez\\network.tbl")
+            .ok()
+            .and_then(|d| StringTable::parse(&d).ok())
+            .unwrap_or_default();
+        let mut pointers = std::collections::HashMap::new();
+        for ptr in crate::screen::Pointer::all() {
+            let name = ptr.file(race != 0);
+            if let Some(c) = install
+                .read(&format!("Art\\{name}"))
+                .ok()
+                .and_then(|d| Cursor::parse(&d).ok())
+            {
+                let (w, h) = (c.image.width as u32, c.image.height as u32);
+                let pic = indexed(w, h, &c.image.pixels, pal, true, None);
+                pointers.insert(name, (pic, (c.hotspot.0 as i32, c.hotspot.1 as i32)));
+            }
+        }
 
         // The minimap is x 24 to 151, y 26 to 153 on the screen, 2 pixels below the minimap box's top (screen spec).
         let hole = Rect::new(
@@ -380,13 +419,16 @@ impl HudArt {
             // A sheet with fewer than four frames repeats its last one.
             info: [0, 1, 2, 3].map(|n| frame_picture(&frames.frames[n.min(frames.frames.len() - 1)], pal, None)),
             menu_button,
-            resources: res.frames.iter().take(3).map(|f| frame_picture(f, pal, None)).collect(),
+            resources: res.frames.iter().take(5).map(|f| frame_picture(f, pal, None)).collect(),
+            pointers,
+            network,
             icons,
             font,
             small: SMALL_FONT
                 .iter()
                 .find_map(|n| install.read(n).ok().and_then(|d| Font::parse(&d).ok())),
             names,
+            orc: race != 0,
             pal: pal.clone(),
             pieces,
         })
@@ -399,6 +441,16 @@ impl HudArt {
     /// String `n` of `stat_txt.tbl`, counting from 1 as the specs do.
     pub fn string(&self, n: u16) -> String {
         self.names.text((n as usize).wrapping_sub(1)).unwrap_or_default()
+    }
+
+    /// Entry `n` of `rez\network.tbl`, counting from 1.
+    pub fn net_string(&self, n: u16) -> String {
+        self.network.text((n as usize).wrapping_sub(1)).unwrap_or_default()
+    }
+
+    /// Whether every pointer of the race was found, so the client can draw the pointer itself.
+    pub fn has_pointers(&self) -> bool {
+        self.pointers.len() == crate::screen::Pointer::all().len()
     }
 
     /// The parts that only change with the canvas size; the map view is left transparent.
@@ -433,15 +485,92 @@ impl HudArt {
             blit(&mut pic, 0, y, &self.info[0]);
             y += self.info[0].height.max(1) as i32;
         }
-        if let Some(menu) = &self.menu_button {
-            let bx = (self.pieces.panel_w as i32 - menu.width as i32) / 2;
-            let by = (self.pieces.panel_h[0] as i32 - menu.height as i32) / 2;
-            blit(&mut pic, bx, by, menu);
-            let label = "Menu (F10)";
-            let tw = self.font.width(label.as_bytes()) as i32;
-            text(&mut pic, &self.font, bx + (menu.width as i32 - tw) / 2, by + 1, label);
-        }
         pic
+    }
+
+    /// The menu and pause buttons (screen spec, "Menu buttons"); the labels are our own wording.
+    fn draw_menu_buttons(&self, pic: &mut Picture, paused: bool, pause_button: bool) {
+        use crate::screen::MenuButton;
+        for (b, label) in [
+            (MenuButton::Menu, "Menu (F10)"),
+            (MenuButton::Pause, if paused { "Resume" } else { "Pause" }),
+        ] {
+            if b == MenuButton::Pause && !pause_button {
+                continue;
+            }
+            let r = b.rect();
+            match &self.menu_button {
+                Some(p) => blit(
+                    pic,
+                    r.x + (r.w as i32 - p.width as i32) / 2,
+                    r.y + (r.h as i32 - p.height as i32) / 2,
+                    p,
+                ),
+                None => {
+                    fill(pic, Rect::new(r.x, r.y + 2, r.w, r.h - 4), [40, 36, 28]);
+                    outline(pic, Rect::new(r.x, r.y + 2, r.w, r.h - 4), [140, 120, 60]);
+                }
+            }
+            text_centred(pic, &self.font, r, label);
+        }
+    }
+
+    /// One item of the resource bar or the status bar: the icon at the item's left edge `x` in `bar`, then the text
+    /// [`crate::screen::TEXT_DX`] to the right, vertically centred, in spans of colour codes.
+    fn item(&self, pic: &mut Picture, bar: Rect, x: i32, icon: usize, spans: &[(&str, u8)]) {
+        if let Some(i) = self.resources.get(icon) {
+            blit(pic, x, bar.y + (bar.h as i32 - i.height as i32) / 2, i);
+        }
+        let mut pen = x + crate::screen::TEXT_DX;
+        for &(s, code) in spans {
+            pen += text_in(pic, &self.font, pen, text_top(&self.font, bar), s, colour_code(code)) as i32;
+        }
+    }
+
+    /// The resource bar (screen spec, "Resource bar"): single-player positions.
+    fn draw_resources(&self, pic: &mut Picture, bar: Rect, v: &View) {
+        use crate::screen::{Item, amount_text};
+        for (item, amount) in Item::ALL.iter().zip(v.resources) {
+            let x = bar.x + item.area(false).0;
+            self.item(pic, bar, x, item.icon(), &[(&amount_text(amount), 1)]);
+        }
+        if let Some(f) = v.food {
+            let (used, rest) = f.colours();
+            let x = bar.x + Item::Food.area(false).0;
+            let (u, s) = (f.used.to_string(), format!("/{}", f.supply));
+            self.item(pic, bar, x, Item::Food.icon(), &[(&u, used), (&s, rest)]);
+        }
+    }
+
+    /// The status bar (messages spec, "The status bar").
+    fn draw_status(&self, pic: &mut Picture, bar: Rect, s: &crate::messages::StatusBar) {
+        let clip = bar.x + s.text_right();
+        let at = (bar.x + crate::messages::STATUS_TEXT_X, text_top(&self.font, bar));
+        text_clipped(pic, &self.font, at, &s.text, &TEXT, clip);
+        for (cost, value) in s.shown() {
+            let ((x0, _), icon) = cost.place();
+            self.item(pic, bar, bar.x + x0, icon, &[(&value.to_string(), 1)]);
+        }
+    }
+
+    /// The message area (messages spec): the list and the notice line, kept at the same distance from the map
+    /// view's bottom-left as on the 640 x 480 screen.
+    fn draw_messages(&self, pic: &mut Picture, view: Rect, m: &crate::messages::Messages) {
+        use crate::messages::{CLIP_RIGHT, LEFT};
+        let bottom = view.y + view.h as i32;
+        let right = view.x + view.w as i32;
+        for (y, line) in m.lines() {
+            let at = (view.x + (LEFT - 176), bottom - (464 - y));
+            let clip = right - (624 - CLIP_RIGHT);
+            text_clipped(pic, &self.font, at, &line.text, colour_code(line.colour), clip);
+        }
+    }
+
+    /// The pointer, its hot spot on the mouse position.
+    fn draw_pointer(&self, pic: &mut Picture, p: crate::screen::Pointer, at: (i32, i32)) {
+        if let Some((img, hot)) = self.pointers.get(p.file(self.orc)) {
+            blit(pic, at.0 - hot.0, at.1 - hot.1, img);
+        }
     }
 
     /// Draws icon frame `n` of the era's icon set in `owner`'s colour inside a button frame, with its top-left at
@@ -563,24 +692,10 @@ impl HudArt {
             blit(&mut pic, l.minimap.x, l.minimap.y, &mini);
         }
 
-        // Resources, right-aligned in the top bar.
-        let slot = 84;
-        let mut x = l.top.x + l.top.w as i32 - 3 * slot - 4;
-        for (icon, amount) in self.resources.iter().zip([v.gold, v.lumber, v.oil]) {
-            blit(&mut pic, x, l.top.y + 1, icon);
-            text(
-                &mut pic,
-                &self.font,
-                x + icon.width as i32 + 4,
-                l.top.y + 1,
-                &amount.to_string(),
-            );
-            x += slot;
-        }
-
-        if let Some(msg) = v.status {
-            text(&mut pic, &self.font, l.bottom.x + 4, l.bottom.y + 1, msg);
-        }
+        self.draw_resources(&mut pic, l.top, v);
+        self.draw_status(&mut pic, l.bottom, v.status);
+        self.draw_menu_buttons(&mut pic, v.paused, v.pause_button);
+        self.draw_messages(&mut pic, l.viewport, v.messages);
 
         // The command panel: frames of the icon sheet (the command icons share the unit icon sheet).
         for &(slot, icon) in v.buttons {
@@ -599,6 +714,9 @@ impl HudArt {
         }
 
         self.draw_info(&mut pic, (l.info.x, l.info.y), &v.info);
+        if let Some((p, at)) = v.pointer {
+            self.draw_pointer(&mut pic, p, at);
+        }
         pic
     }
 }
@@ -628,21 +746,6 @@ mod tests {
         assert!(l.viewport.contains(176.0, 16.0));
         assert!(!l.viewport.contains(175.9, 100.0));
         assert!(!l.viewport.contains(624.0, 100.0));
-    }
-
-    #[test]
-    fn minimap_maps_both_ways_and_centres_wide_maps() {
-        let m = Minimap {
-            rect: Rect::new(10, 20, 128, 128),
-            map: (64, 32),
-        };
-        assert_eq!(m.scale(), 2.0);
-        // 64 pixels tall, centred vertically: top at 20 + 32.
-        assert_eq!(m.origin(), (10.0, 52.0));
-        assert_eq!(m.tile_at((10.0 + 20.0, 52.0 + 8.0)), (10.0, 4.0));
-        // Outside the map clamps to its edge.
-        assert_eq!(m.tile_at((0.0, 0.0)), (0.0, 0.0));
-        assert_eq!(m.tile_at((500.0, 500.0)), (64.0, 32.0));
     }
 
     #[test]
