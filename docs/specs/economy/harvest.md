@@ -14,6 +14,9 @@
   on the active look is closed.
   2026-10-12, round-38 errata: the tree tile is the pulled-back goal of the harvest command, and every new aim of a
   lumber worker is a new harvest command that takes over in the same update.
+  2026-10-12, round-39 errata: a unit with the peon flag in order 23 (either gather mode) whose route search finds no
+  route runs the nearest-tree search and is given a new harvest command to the tree found; `human5` and `orc8` vectors;
+  open question on its untraced details.
 
 ## Behaviour
 
@@ -54,7 +57,8 @@ Mines aren't owned, so any worker can mine any gold mine. A worker already carry
 While in order 23 with a target mine or platform:
 
 - If the target is gone (dying, dead, or inside something), the unit becomes idle (order 2).
-- If the unit hasn't arrived yet (arrival radius 1, `movement/movement.md`), it moves toward the target.
+- If the unit hasn't arrived yet (arrival radius 1, `movement/movement.md`), it moves toward the target. If its
+  route search finds no route, it looks for the nearest tree ("No route" under "Lumber"), although it is in gold mode.
 - On arrival, if the mine or platform is **completed**, its order becomes 25 (enter). An uncompleted platform (still
   under construction) makes the unit idle instead.
 
@@ -143,6 +147,18 @@ count up, then the felling run.
 
 Each chop also picks a chop sound at random (one of 4). That draw uses the **setup-shuffle generator**, not the
 simulation generator (see `core/timing-and-rng.md` and `ERRATA-round2.md`).
+
+**No route.** When a unit whose type has the **peon flag** is in order 23, in **either gather mode**, and its route
+search finds no route, it looks for the nearest tree ("Finding the nearest tree", below) from its own tile. A gold
+worker heading for a mine does this too.
+
+- **A tree is found:** the unit is given a **new harvest command** to that tree tile with no target unit. "Starting
+  to harvest" runs, so the gather mode becomes lumber, a target mine is dropped and the goal is pulled back. Order 23
+  takes over in the same update: attack animation (4), wait 3. Its logic next runs 3 cycles later.
+- While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
+- **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
+- Tankers have the peon flag too, so they make the same search; with the land rules of the tree search it should
+  normally find nothing for them (see open questions).
 
 ### Finding the nearest tree
 
@@ -278,6 +294,14 @@ gold, storage for wood, storage for oil, building.
 | `human5-10000`, computer peasant 1512 (type 0x02) on (34, 105) given lumber at n = 4, tree (29, 107), pulled back to (31, 106) | Route SW, SW: (33, 106) at n = 7, (32, 107) at 23. n = 39: animation 4, wait 3 (the new aim at (29, 107)). n = 42: SW to (31, 108) |
 | Lumber worker arrives next to its tree tile; the tile was cut meanwhile; a tree 2 rings away | Same-update take-over: order 23, animation 4, wait 3; its route starts 3 cycles later |
 
+### Round-39 vectors (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| `human5-10000`: computer worker 1567 (type 0x03, owner 5) walks from (107, 43) toward gold mine 1555 at (100, 54), in gold mode with the mine as its target. At n = 119, at (105, 48), its route search finds no route | n = 119: order 23, animation 4, wait 3, target null (a lumber harvest command). n = 122: the same. n = 125: it steps east to (106, 48), facing 2, animation 3 |
+| `orc8`: lumber worker 1499 at (123, 92); no route from n = 754 | Order 23, animation 4, wait 3 at n = 754, 757 and every 3 cycles to n = 1993; it steps north at n = 1996 |
+| A worker in order 23 with no route and no tree within 6 rings | Idle as in "No route" (`orders/orders.md`) |
+
 ## Open questions
 
 - Step 1's new harvest command (not yet there) is from the static study only: in the traces the order's logic runs
@@ -286,3 +310,6 @@ gold, storage for wood, storage for oil, building.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
+- **No route details.** Untraced: a tanker in order 23 with no route (the static study runs the tree search for it
+  too); whether the idle after "no tree found" is pending or immediate; and whether the computer's job counts change
+  when a miner becomes a lumber worker this way (the static study shows no count change on this path).
