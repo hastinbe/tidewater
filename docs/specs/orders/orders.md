@@ -10,6 +10,8 @@
   2026-10-12, round-14 errata: orders 33 and 14 forget the building's attacker each time their logic runs.
   2026-10-12, round-30 errata: new section "Idle look-around" (turn, wander and bob draws of idle units) with trace
   vectors; a unit is created in order 2 and its first order, if different, is pending until its first step done.
+  2026-10-12, round-31 errata: a take-over replaces that step done's logic run; the new order's logic first runs at
+  its animation's next step done.
 
 ## Behaviour
 
@@ -216,6 +218,11 @@ animation starts with a first wait of 3 cycles).
   becomes 2 instead; otherwise the depot becomes the target;
 - the order's animation starts with a wait of 3;
 - a tree the unit had reserved is released (see `occupancy.md`).
+
+The take-over replaces the logic run of that step done: the new order's logic doesn't run in that update, and first
+runs at the next step done of its animation. Only a step done with no pending order runs the order's logic. If that
+run gives the unit a command of its own (the critter's wander, a computer worker's job choice), the new pending order
+takes over at once, in the same update, and its logic doesn't run in that update either.
 
 **Immediate orders** (used for going idle, dying and giving up): the order is set at once, the pending order is
 cleared, the order's animation starts with a wait of 1, and any reserved tree is released. When the immediate order
@@ -679,6 +686,15 @@ it draws at its first run.
 
 **Human04, whole trace.** Setup and n = 1 to 3000 hold 13772 draws: 142 creation draws (68 map units at setup and 3
 trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. The computer player makes none.
+
+### Taking over (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| Human04 great hall (slot 1550, computer, created with wait 8) | Order 33 takes over at n = 8 (wait 3). Order 33 logic runs at n = 11, 16, 21 (wait reads 3, 2, 1, 1, then 4, 3, 2, 1, 1). Its think counter reaches the third run at n = 21: it trains a peon (gold −400 at n = 21), and order 37 takes over at n = 26 |
+| Same hall, the peon appears at n = 489 (463 cycles after n = 26) | Order 33 takes over at once with wait 3. Its logic runs at n = 492, 497, 502; it thinks at the third run, n = 502 (gold −400), and order 37 takes over at n = 507. The next peon appears at n = 970; then payment at n = 983, take-over at n = 988 and peon at n = 1451 |
+| Human04 peon (slot 1548, computer, created with wait 6) | First step done at n = 6: idle logic, then the worker job choice (`ai/worker-ai.md`) picks gold mine 1559, the only mine in its region, with the great hall 1550 as depot. At the end of n = 6: order 23, target 1559, wait 3 |
+| Human01 gold mine (slot 1589, wait 1 at setup) and farm (slot 1594, wait 2 at setup) | The mine: order 33 with wait 3 at n = 1. The farm: wait 1 at n = 1, order 33 with wait 3 at n = 2. Each then has a step done every 5 cycles |
 
 ## Open questions
 
