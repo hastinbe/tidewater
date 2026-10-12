@@ -7,6 +7,8 @@
   Not yet confirmed against the running game.
 - **Changes:** 2026-10-12: the open question on the minimap column pattern for maps smaller than 128 × 128 is
   closed by `ui/minimap.md`: the alternation is by minimap pixel column on every map size.
+- **Changes:** 2026-10-12: the open question on whether the shared-vision set contains the player itself is
+  closed by `game/setup.md`: game setup puts each player in its own set.
 
 ## Behaviour
 
@@ -24,8 +26,8 @@ Phase numbers are those of `core/timing-and-rng.md`.
 
 - **Human, computer, passive, nobody:** the player kinds of `movement/movement.md`, "Player kinds".
 - **Classic and Enhanced:** the two rule modes of `core/timing-and-rng.md`.
-- **Shared-vision set of player p:** in Enhanced mode, the set of players that p shares its vision with. It includes
-  p itself (see the open questions). In Classic mode only p counts.
+- **Shared-vision set of player p:** in Enhanced mode, the set of players that p shares its vision with. Game setup
+  puts p in it (`game/setup.md`), so it includes p itself. In Classic mode only p counts.
 - **Unit (as opposed to building):** a type with any of the flag bits 0–4 (land, air, explode, sea, critter).
 - **Complete:** a building whose construction has finished. Units count as complete.
 
@@ -269,8 +271,6 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 
 ## Open questions
 
-- Whether the shared-vision set of a player always contains the player itself. The display rules need it (a player's
-  own units must reveal for it in Enhanced mode); this was not checked where the set is built.
 - How the shared-vision sets are set during play (alliance with "shared vision" in the diplomacy screen is assumed).
 - Which unit types have the "can see submarine" flag in the default unit data.
 - Sight values above 9 in custom unit data: the program has no area for them (the behaviour is undefined; assume
