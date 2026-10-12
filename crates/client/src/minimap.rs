@@ -27,7 +27,6 @@ pub const AFTER_SCROLL: u32 = 4;
 /// The terrain picture is rebuilt on every this many redraws.
 pub const REBUILD_EVERY: u32 = 6;
 /// The view size in tiles on the original screen.
-#[allow(dead_code)] // For the minimap input, which the mouse input rewrite wires up.
 pub const VIEW_TILES: i32 = 14;
 /// The minitile pixel the terrain takes: column 7, row 6.
 const SAMPLE: (usize, usize) = (7, 6);
@@ -63,7 +62,6 @@ pub fn to_px(width: u32, t: i32) -> i32 {
 }
 
 /// Minimap pixel to tile on a map `width` tiles wide ("Scale").
-#[allow(dead_code)] // For the minimap input, which the mouse input rewrite wires up.
 pub fn to_tile(width: u32, p: i32) -> i32 {
     match width {
         32 => p.div_euclid(4),
@@ -261,7 +259,6 @@ pub fn outline(pic: &mut [u8], r: Px, c: u8) {
 /// The new view position for a "move the view" press or drag at screen point `pointer` ("Moving the view with the
 /// minimap"): centred on the pointer, then clamped to `0..=max` (the view range). `view_tiles` is the view's size in
 /// tiles (14 on the original screen).
-#[allow(dead_code)] // Wired up by the mouse input rewrite (`ui/selecting-and-commanding.md`).
 pub fn view_for_press(width: u32, pointer: (i32, i32), view_tiles: (i32, i32), max: (i32, i32)) -> (i32, i32) {
     let half = |n: i32| view_px(width, n) / 2;
     let px = (pointer.0 - ORIGIN.0 - half(view_tiles.0)).clamp(0, SIZE as i32 - 1);
@@ -274,7 +271,6 @@ pub fn view_for_press(width: u32, pointer: (i32, i32), view_tiles: (i32, i32), m
 
 /// The tile a minimap press that gives a tile (a target or a right-click command) uses: the pixel under the pointer,
 /// with no half-view offset.
-#[allow(dead_code)] // Wired up by the mouse input rewrite (`ui/selecting-and-commanding.md`).
 pub fn tile_for_press(width: u32, pointer: (i32, i32)) -> (i32, i32) {
     let px = (pointer.0 - ORIGIN.0).clamp(0, SIZE as i32 - 1);
     let py = (pointer.1 - ORIGIN.1).clamp(0, SIZE as i32 - 1);

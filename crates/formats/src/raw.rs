@@ -3,7 +3,11 @@
 //!
 //! Layouts established by data inspection (every file's size matches exactly). Despite the extension, the `.bmp`
 //! files are not Windows bitmaps: u16 width, u16 height, then `width * height` palette indices, rows top to bottom.
-//! A `.cur` file is u16 hot-spot x, u16 hot-spot y, then the same picture layout; index 0 is transparent.
+//! A `.cur` file is u16 hot-spot x, u16 hot-spot y, then the same picture layout (u16 width, u16 height, then
+//! `width * height` palette indices); index 0 is transparent. This is also the layout the reviewed spec
+//! `docs/specs/ui/screen-and-cursors.md` ("Pointer shapes") gives: four 16-bit numbers (hot spot x, hot spot y, width,
+//! height) followed by the indices, with the hot spot used as it is. No public write-up of the `.cur` layout is known
+//! to us; every pointer file in the installation matches it exactly in size.
 
 use thiserror::Error;
 
