@@ -141,7 +141,9 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as u32);
-    let world = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
+    let mut world = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
+    let ai = tidewater_formats::aibin::AiFile::parse(install.read("rez\\ai.bin")?)?;
+    world.start_ai(std::sync::Arc::new(ai));
 
     let mut sheets: HashMap<u8, Option<Grp>> = HashMap::new();
     let mut art = HashMap::new();

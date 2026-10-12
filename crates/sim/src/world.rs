@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use tidewater_formats::aibin::AiFile;
 use tidewater_formats::pud::Pud;
 use tidewater_formats::script::{Scripts, anim};
 use tidewater_formats::tileset::Tileset;
 use tidewater_formats::udta::{UnitStats, UnitTable, flags};
 
+use crate::ai::{AiPlayer, SCRIPT_PLAYERS};
 use crate::anim::{Effects, Modifiers, Script};
 use crate::battle::Missile;
 use crate::combat::Upgrades;
@@ -135,6 +137,10 @@ pub struct Player {
     pub had_hall: bool,
     pub under_construction: u16,
     pub in_training: u16,
+    /// Controller from the map's `OWNR` section (values in [`crate::ai::controller`]).
+    pub controller: u8,
+    /// Computer script number from the map's `AIPL` section.
+    pub ai_script: u8,
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
@@ -256,6 +262,9 @@ pub struct World {
     slot_of: BTreeMap<UnitId, u16>,
     /// Messages for the player, drained by the client. Not game state.
     pub events: Vec<Event>,
+    /// Computer player scripts (ai-scripts spec), one state per player 0 to 7.
+    pub ai: [AiPlayer; SCRIPT_PLAYERS],
+    pub(crate) ai_file: Option<Arc<AiFile>>,
     next_id: u32,
     /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
     /// buildings share the ground plane.
@@ -306,6 +315,8 @@ impl World {
             slots: Slots::new(rules.unit_slots),
             slot_of: BTreeMap::new(),
             events: Vec::new(),
+            ai: Default::default(),
+            ai_file: None,
             missiles: vec![None; rules.effect_slots],
             rules,
             players: [Player::default(); PLAYERS],
@@ -351,6 +362,8 @@ impl World {
                 lumber: l as u32,
                 oil: o as u32,
                 race: pud.sides().get(i).copied().unwrap_or(2),
+                controller: pud.owners().get(i).copied().unwrap_or(crate::ai::controller::NOBODY),
+                ai_script: pud.ai_scripts().get(i).copied().unwrap_or(0),
                 ..Default::default()
             };
         }
@@ -552,6 +565,7 @@ impl World {
         for c in commands {
             self.apply(c);
         }
+        self.step_ai();
         for i in 0..self.units.len() {
             self.advance(i);
         }
@@ -848,6 +862,7 @@ impl World {
         self.missiles.hash(&mut h);
         self.slots.hash(&mut h);
         self.terrain.hash(&mut h);
+        self.ai.hash(&mut h);
         h.finish()
     }
 }

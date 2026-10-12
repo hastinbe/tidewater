@@ -479,6 +479,8 @@ fn sim(
     };
     let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
     let mut w = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
+    let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
+    w.start_ai(std::sync::Arc::new(ai));
     let units: Vec<_> = w
         .units
         .iter()
@@ -540,6 +542,17 @@ fn sim(
         .collect();
     println!("kills by player: {kills:?}");
     println!("tiles reshaped: {}", w.terrain.redraw.len());
+    for (p, s) in w.ai.iter().enumerate() {
+        if w.players[p].controller == tidewater_sim::ai::controller::COMPUTER {
+            let wanted: Vec<String> = (0x13..=0x22).map(|n| s.slots[n].to_string()).collect();
+            println!(
+                "ai player {p} script {:#04x}: wait {} slots 0x13..0x22 [{}]",
+                w.players[p].ai_script,
+                s.wait,
+                wanted.join(" ")
+            );
+        }
+    }
     println!("{} ticks in {took:?}, state hash {:016x}", w.tick, w.state_hash());
     Ok(())
 }

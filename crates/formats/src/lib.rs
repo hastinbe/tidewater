@@ -2,6 +2,7 @@
 //!
 //! Every format detail is cited in the module that uses it. Nothing here is derived from the original program's code.
 
+pub mod aibin;
 pub mod alow;
 pub mod fnt;
 pub mod grp;

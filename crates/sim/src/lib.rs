@@ -6,6 +6,7 @@
 //! Engine behaviour comes only from reviewed specs (`docs/specs/`). Until a spec covers an area, the code here is a
 //! placeholder of our own design and says so; constants that a spec will replace live in [`Rules`].
 
+pub mod ai;
 pub mod anim;
 mod battle;
 pub mod combat;

@@ -141,6 +141,11 @@ impl Pud {
         self.section(b"SIDE").unwrap_or(&[])
     }
 
+    /// Computer script numbers (`AIPL`), one per player.
+    pub fn ai_scripts(&self) -> &[u8] {
+        self.section(b"AIPL").unwrap_or(&[])
+    }
+
     /// Player controllers (`OWNR`): e.g. 3 nobody, 4 computer, 5 human, 6 rescue (passive), 7 rescue (active).
     pub fn owners(&self) -> &[u8] {
         self.section(b"OWNR").unwrap_or(&[])
