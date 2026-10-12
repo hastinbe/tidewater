@@ -82,6 +82,9 @@ pub struct Victory {
     pub campaign: Option<u8>,
     /// The local player has an outcome; no more checks run.
     pub over: bool,
+    /// Mode K's "circle's region": the region value at the last circle of power the map lists, remembered when the
+    /// map's units are created (setup spec, "Creating the map's units").
+    pub circle_region: Option<u16>,
 }
 
 impl Default for Victory {
@@ -91,6 +94,7 @@ impl Default for Victory {
             rule: None,
             campaign: None,
             over: false,
+            circle_region: None,
         }
     }
 }
@@ -150,7 +154,6 @@ mod t {
     pub const LOTHAR: u8 = 0x32;
     pub const ORC_SHIPYARD: u8 = 0x49;
     pub const FORTRESS: u8 = 0x5b;
-    pub const CIRCLE: u8 = 0x64;
     pub const PORTAL: &[u8] = &[0x65];
     pub const RUNESTONE: &[u8] = &[0x66];
     pub const DAEMON: &[u8] = &[0x38];
@@ -494,10 +497,10 @@ impl World {
     /// Mode K: L owns a complete orc shipyard and a complete fortress that each stand at least partly in the region
     /// of the circle of power.
     fn in_circle_region(&self, l: usize) -> bool {
-        let Some(circle) = self.units.iter().find(|u| u.kind == t::CIRCLE) else {
+        let Some(region) = self.victory.circle_region else {
             return false;
         };
-        let region = self.terrain.region(circle.tile.0, circle.tile.1);
+        let region = Some(region);
         let touches = |kind: u8| {
             self.units.iter().any(|u| {
                 u.owner as usize == l

@@ -216,7 +216,7 @@ impl World {
         } else if self
             .players
             .get(p as usize)
-            .is_some_and(|q| q.controller == controller::RESCUE_PASSIVE)
+            .is_some_and(|q| matches!(q.controller, controller::PASSIVE | controller::RESCUE_PASSIVE))
         {
             Kind::Passive
         } else {

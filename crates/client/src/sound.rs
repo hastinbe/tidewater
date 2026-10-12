@@ -44,9 +44,13 @@ pub enum SoundSet {
 }
 
 impl SoundSet {
-    /// From a race number of the map's `SIDE` section: 1 is orc, anything else human.
-    pub fn of_race(race: u8) -> Self {
-        if race == 1 { SoundSet::Orc } else { SoundSet::Human }
+    /// The set game setup chose ([`tidewater_sim::setup::Started::orc_sounds`]).
+    pub fn of_world(w: &tidewater_sim::World) -> Self {
+        if w.start.orc_sounds {
+            SoundSet::Orc
+        } else {
+            SoundSet::Human
+        }
     }
 }
 

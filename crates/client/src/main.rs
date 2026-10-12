@@ -39,6 +39,11 @@ struct Args {
     install: PathBuf,
     /// A .pud file path, or a name inside the archives.
     map: String,
+    /// Game setup options: `campaign:ENTRY`, or `custom` with choices such as
+    /// `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`.
+    /// By default a campaign map starts as its campaign mission and any other map as a custom game.
+    #[arg(long, value_parser = tidewater_sim::setup::Setup::parse)]
+    setup: Option<tidewater_sim::setup::Setup>,
     /// Initial zoom: world pixels per screen pixel (2 shows twice as much map).
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
@@ -287,7 +292,10 @@ const HUD_LAYER: usize = 1;
 fn main() -> Result<()> {
     let args = Args::parse();
     let mut install = Install::open(&args.install)?;
-    let scene = scene::load(&mut install, &args.map)?;
+    let options = args
+        .setup
+        .unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&args.map));
+    let scene = scene::load(&mut install, &args.map, &options)?;
     println!(
         "{:?} map, {} units, you are player {}: {}",
         scene.era,
@@ -295,7 +303,8 @@ fn main() -> Result<()> {
         scene.human,
         scene.description
     );
-    let race = scene.world.players[scene.human as usize].race;
+    // The interface follows the local player's race setting (setup spec).
+    let race = scene.world.start.race_setting;
     let hud_art = hud::HudArt::load(&mut install, scene.era, race, &scene.palette)?;
     let hz = 1000.0 / tidewater_sim::timing::ENHANCED_MS[tidewater_sim::timing::NORMAL as usize] as f64;
     let mut scene = scene;
@@ -337,7 +346,7 @@ fn main() -> Result<()> {
     }
     let size = Vec2::new(scene.terrain.width as f32, scene.terrain.height as f32);
     let speaker = Speaker {
-        director: sound::Director::new(sound::SoundSet::of_race(race), scene.era, scene.seed),
+        director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         subtitles: install
             .read("rez\\network.tbl")
             .ok()
@@ -457,22 +466,14 @@ fn setup(
     sel: Res<Selection>,
 ) {
     let scene = loaded.0.take().expect("scene loaded once");
-    // Start the view on the selection if there is one, else on the local player's start location (types 0x5E and
-    // 0x5F), else on one of their units, else the map centre.
-    let own = |u: &&tidewater_sim::Unit| u.owner == scene.human;
-    let look = sel
-        .units
-        .first()
-        .and_then(|&id| scene.world.unit(id))
-        .or_else(|| {
-            let mut mine = scene.world.units.iter().filter(own);
-            mine.clone()
-                .find(|u| matches!(u.kind, 0x5e | 0x5f))
-                .or_else(|| mine.next())
-        })
-        .map_or(size.0 / 2.0, |u| {
-            Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32)
-        });
+    // Start the view on the selection if there is one, else on game setup's starting view: its top-left tile, with
+    // the original 14-tile view's centre in the middle of the window (setup spec, "After the units").
+    let (vx, vy) = scene.world.start.view;
+    let half = tidewater_sim::setup::VIEW_TILES as f32 / 2.0;
+    let look = sel.units.first().and_then(|&id| scene.world.unit(id)).map_or(
+        Vec2::new((vx as f32 + half) * TILE_PX as f32, (vy as f32 + half) * TILE_PX as f32),
+        |u| Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32),
+    );
     hud.tiles = scene.tile_colours.clone();
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
