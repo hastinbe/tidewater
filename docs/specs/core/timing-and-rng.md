@@ -19,6 +19,8 @@
   a shot that finds no free effect slot makes no draws.
   2026-10-12: the setup-shuffle generator also picks a non-campaign game's music track (`ui/music.md`).
   2026-10-12: the game-saved draw happens only for saves in an Enhanced game in a network session (`game/save-load.md`).
+  2026-10-12, round-30 errata: the draw table gains the idle look-around and bob rows (replacing "critter wandering,
+  ship bobbing"); the two start-up cycles run before the deadline and counter are reset, as full cycles with draws.
 
 ## Behaviour
 
@@ -41,8 +43,9 @@ There are two pacing modes. The player chooses between them in multiplayer as "E
 
 The scheduler keeps a **deadline** in milliseconds on the system tick clock.
 
-1. When a game starts, the deadline is set to now and the cycle counter to 0. Two cycles run immediately during
-   start-up, before the first normal frame.
+1. When a game starts, two cycles run at once (the **start-up cycles**). Then the deadline is set to now and the
+   cycle counter to 0, so the first normal cycle ends with the counter at 1. The start-up cycles are full cycles in
+   every other respect: units update and draw.
 2. On each frame, if the deadline has passed, up to **3** cycles run back to back. After each cycle the deadline
    moves forward by the current cycle length, and the loop stops early once the deadline is in the future again.
 3. The deadline is reset to now (dropping any backlog) when any of these happen:
@@ -134,7 +137,8 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | Splash missile lands | missiles | 1 per unit hit | Damage roll for each unit in the blast (combat spec) |
 | Computer player's idle worker finds no job (no harvest, build or repair) | units | 1 | Wait of `(r AND 15) + 44` cycles, 44 to 59, before it looks again (the routine is to be specified with the AI) |
 | Unit flees from its attacker | units | 2 | Flee tile offset `(r mod 8) − 2`, x first, then y (`orders/orders.md`, "Fleeing") |
-| Critter wandering, ship bobbing | units | 1 or more | Cosmetic movement that is still simulated |
+| Idle look-around: a unit in order 2 or 13, or in order 7 when it reaches the idle logic, each time that logic runs (every 5 cycles for a unit at rest), except catapults, ships and fliers | units | 1, plus 1 when a critter wanders | Turn or wander (`orders/orders.md`, "Idle look-around") |
+| Bob: a ship or flier at the same moments, when its bob countdown is 0 | units | 1 | Countdown `(r AND 7) + 8`; the bob value flips (`orders/orders.md`, "Idle look-around") |
 | Missile flight step (unit attacks and towers; all kinds except hammer and breath) | missiles | 1 at the end of the step, landing step included; catapult rock and small cannon: 1 more while their travel is below 5 × ceil(D / 5) (combat spec) | Discarded |
 | Gryphon hammer or dragon breath step | missiles | 1 at the start of the step, then 1 per unit hit by a splash on that step (combat spec) | Discarded; splash damage |
 | Spell effects | units or missiles | as `spells/spells.md`, "Random draws", lists | Scatter, start offsets, wander, splash damage |
@@ -212,6 +216,7 @@ Outputs are listed in draw order; each draw steps the state first.
 | Classic row 1, 9 cycles | 480 ms (3 × (50 + 50 + 60)) |
 | Frame arrives 130 ms after the deadline at 40 ms per cycle | 3 cycles run; the deadline is still 10 ms in the past |
 | Frame arrives 600 ms late | Deadline reset to now; at most 3 cycles run, backlog dropped |
+| Oracle trace Human01 (`oracle/trace-format.md`), clock 946684800: state after setup 0xF55E08A8 | First start-up cycle: no draw. Second: 1 draw (an idle look-around), state 0x262AFAC9. First normal cycle: counter 1, state 0xF2F9299E |
 
 Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step from 0 gives a state of 1.
 
@@ -221,8 +226,9 @@ Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step f
 - On a reset, whether the cycles due that frame still run before the deadline moves to now, or the reset replaces them.
   The two choices differ by up to 3 cycles of latency, which is invisible to players but matters for exact replays.
 - Whether the Classic three-cycle pattern restarts at the first phase after a speed change.
-- Exact draw counts for each area spell and for critter and ship idle motion.
+- Exact draw counts for each area spell.
 - What the building creation value `r mod 6` is used for.
-- Whether "cycle 1" for the first fog refresh means the cycle counter's value 1 or the first cycle run (counter value 0),
-  and whether the two start-up cycles count.
+- Whether "cycle 1" for the first fog refresh means the cycle counter's value 1 or the first cycle run (counter value
+  0). The start-up cycles run before the counter is reset (Scheduler, rule 1), so the answer depends only on which
+  counter value the first refresh tests.
 - How the setup-shuffle generator turns its state into a choice (which bits, and the shuffle method).
