@@ -20,7 +20,7 @@
   watching tower stays in its attack animation and searches once per loop; the Enhanced resume applies to every pending
   idle, arrival included, and never to an immediate idle; the no-route attack fallbacks never apply to orders 3, 4, 5
   and 10.
-  2026-10-12, round-35 errata: order 30's radius 3 is used (ordinary steps until within 3 tiles, then the landing
+  2026-10-12, round-36 errata: order 30's radius 3 is used (ordinary steps until within 3 tiles, then the landing
   logic); patrol arrival takes over with wait 3 and steps 3 cycles later; round 35's resume vector replaced (a command
   clears the remembered order).
 
