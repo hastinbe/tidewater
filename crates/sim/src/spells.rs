@@ -713,6 +713,11 @@ impl World {
         }
     }
 
+    /// The cosmetic smoke of a unit's cannon shot (damage spec), at the missile's start point; none if no slot is free.
+    pub(crate) fn cannon_smoke(&mut self, owner: UnitId, pos: (i32, i32)) {
+        self.new_fx(kind::CANNON_SMOKE, owner, None, pos, 0, Fx::Cosmetic);
+    }
+
     /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full.
     fn new_fx(
         &mut self,

@@ -2,8 +2,7 @@
 //! flight", "Impact effects", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by
 //! the line rule of `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack
 //! order's chase-and-face behaviour and the range measure are placeholders of our own until their specs land. The
-//! cosmetic cannon smoke (kind 0x19) isn't simulated: the specs give its kind and lifetime but not where "the muzzle"
-//! is or whether it takes its slot before or after the missile's.
+//! cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot.
 
 use tidewater_formats::script::anim;
 
@@ -212,12 +211,22 @@ impl World {
             }
             return;
         }
+        // Damage spec: with no effect slot free for the missile, nothing is created and nothing is drawn.
+        let Some(slot) = self
+            .missiles
+            .iter()
+            .skip(slots::PERMANENT_EFFECTS)
+            .position(|e| e.is_none())
+            .map(|n| n + slots::PERMANENT_EFFECTS)
+        else {
+            return;
+        };
         let min_flight = combat::splash(s.missile);
         let damage = match min_flight {
             Some(_) => (basic + pierce).min(255) as u8,
             None => combat::roll(&mut self.rng, basic, pierce, armour),
         };
-        // Guard towers fire without the aim scatter and without the computer players' wall exception.
+        // Towers (guard and cannon) fire without the aim scatter and without the computer players' wall exception.
         let tower = s.flags & tidewater_formats::udta::flags::TOWER != 0;
         let aim_tile = (to.0.div_euclid(TILE_PX), to.1.div_euclid(TILE_PX));
         let mut to = to;
@@ -266,14 +275,13 @@ impl World {
             hits_air: s.missile == missile::SMALL_CANNON && hits_air,
             fx,
         };
-        // Unit-slots spec, "Effect slots": the lowest free slot after the permanent entries; none free, no missile.
-        if let Some(e) = self
-            .missiles
-            .iter_mut()
-            .skip(slots::PERMANENT_EFFECTS)
-            .find(|e| e.is_none())
-        {
-            *e = Some(missile);
+        // Unit-slots spec, "Effect slots": the lowest free slot after the permanent entries.
+        let cannon = matches!(s.missile, missile::BIG_CANNON | missile::SMALL_CANNON);
+        self.missiles[slot] = Some(missile);
+        // Damage spec, "How an attack delivers damage": a unit's cannon shot is followed by smoke (kind 0x19) at the
+        // missile's start point, in the next free slot; with none free there is no smoke.
+        if cannon && !tower {
+            self.cannon_smoke(attacker, from);
         }
     }
 
@@ -1184,5 +1192,157 @@ mod tests {
         // Only type 0x65 is protected.
         let (mut w, _, foot, khadgar) = portal_world(Some(32), false);
         assert_eq!(hit(&mut w, khadgar, foot).0, 50);
+    }
+
+    // ----- cannon smoke and launch slots (damage spec, "Cannon smoke and launch slots") --------------------------
+
+    const BATTLESHIP: u8 = 11;
+    const DESTROYER: u8 = 12;
+    const CANNON_TOWER: u8 = 13;
+
+    /// `range()` plus a big-cannon ship, a small-cannon ship and a small-cannon tower.
+    fn ships() -> World {
+        let mut w = range();
+        let shooter = |m: u8, f: u32| UnitStats {
+            hit_points: 100,
+            size: (1, 1),
+            flags: flags::LAND | flags::CAN_ATTACK | f,
+            basic_damage: 10,
+            piercing_damage: 5,
+            attack_range: 8,
+            missile: m,
+            can_target: 3,
+            ..Default::default()
+        };
+        w.stats.0[BATTLESHIP as usize] = shooter(missile::BIG_CANNON, 0);
+        w.stats.0[DESTROYER as usize] = shooter(missile::SMALL_CANNON, 0);
+        w.stats.0[CANNON_TOWER as usize] = shooter(missile::SMALL_CANNON, flags::TOWER);
+        w
+    }
+
+    /// Fills every effect slot after the permanent ones except those in `free`.
+    fn fill_except(w: &mut World, free: &[usize]) {
+        for n in crate::slots::PERMANENT_EFFECTS..w.missiles.len() {
+            if !free.contains(&n) {
+                w.missiles[n] = Some(filler());
+            }
+        }
+    }
+
+    fn kinds(w: &World) -> Vec<(usize, u8)> {
+        w.missiles
+            .iter()
+            .enumerate()
+            .filter_map(|(n, m)| m.as_ref().map(|m| (n, m.kind)))
+            .collect()
+    }
+
+    /// Strikes with `kind` at a footman three tiles away.
+    fn shoot(w: &mut World, kind: u8) -> u32 {
+        let shooter = spawn_at(w, kind, 0, (0, 7), (16, 240));
+        let foe = spawn_at(w, FOOTMAN, 1, (3, 7), (112, 240));
+        let start = w.rng;
+        launch(w, shooter, Some(foe), (0, 0));
+        drawn(start, w.rng)
+    }
+
+    #[test]
+    fn a_ships_cannon_is_followed_by_smoke_that_lasts_to_c_plus_13() {
+        let mut w = ships();
+        let ship = spawn_at(&mut w, BATTLESHIP, 0, (0, 7), (16, 240));
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        let base = crate::slots::PERMANENT_EFFECTS;
+        // Three effects in use, the rest free.
+        for n in base..base + 3 {
+            w.missiles[n] = Some(filler());
+        }
+        launch(&mut w, ship, Some(foe), (0, 0));
+        let ks = kinds(&w);
+        assert_eq!(
+            ks[base + 3 - base..],
+            [(base + 3, missile::BIG_CANNON), (base + 4, 0x19)][..]
+        );
+        let smoke = w.missiles[base + 4].as_ref().unwrap();
+        assert_eq!(
+            (smoke.pos, smoke.elapsed),
+            ((16, 240), 0),
+            "the shooter's centre, no first update yet"
+        );
+        // Updates at C to C + 12 keep it; the one at C + 13 removes it.
+        for cycle in 0..13 {
+            w.advance_missiles();
+            assert!(w.missiles[base + 4].is_some(), "alive at C + {cycle}");
+        }
+        w.advance_missiles();
+        assert!(w.missiles[base + 4].is_none(), "removed in C + 13");
+    }
+
+    #[test]
+    fn smoke_takes_the_next_free_slot_after_the_missile() {
+        let mut w = ships();
+        let base = crate::slots::PERMANENT_EFFECTS;
+        fill_except(&mut w, &[base + 1, base + 3]);
+        assert_eq!(shoot(&mut w, DESTROYER), 2, "a splash missile: scatter only");
+        assert_eq!(w.missiles[base + 1].as_ref().unwrap().kind, missile::SMALL_CANNON);
+        assert_eq!(w.missiles[base + 3].as_ref().unwrap().kind, 0x19);
+    }
+
+    #[test]
+    fn with_one_free_slot_the_missile_flies_without_smoke() {
+        let mut w = ships();
+        let base = crate::slots::PERMANENT_EFFECTS;
+        fill_except(&mut w, &[base + 7]);
+        assert_eq!(shoot(&mut w, DESTROYER), 2);
+        assert_eq!(w.missiles[base + 7].as_ref().unwrap().kind, missile::SMALL_CANNON);
+        assert!(!kinds(&w).iter().any(|k| k.1 == 0x19));
+    }
+
+    #[test]
+    fn with_no_free_slot_a_shot_creates_nothing_and_draws_nothing() {
+        for kind in [BATTLESHIP, DESTROYER, ARCHER] {
+            let mut w = ships();
+            fill_except(&mut w, &[]);
+            let before = kinds(&w);
+            assert_eq!(shoot(&mut w, kind), 0, "kind {kind}");
+            assert_eq!(kinds(&w), before, "kind {kind}");
+        }
+    }
+
+    #[test]
+    fn a_cannon_tower_fires_without_scatter_or_smoke() {
+        let mut w = ships();
+        assert_eq!(
+            shoot(&mut w, CANNON_TOWER),
+            0,
+            "splash missile: no damage draw, no scatter"
+        );
+        let ks = kinds(&w);
+        assert_eq!(ks, [(crate::slots::PERMANENT_EFFECTS, missile::SMALL_CANNON)]);
+        assert_eq!(live(&w).unwrap().to, (112, 240));
+    }
+
+    #[test]
+    fn catapults_and_ballistas_scatter_but_make_no_smoke() {
+        for kind in [CATAPULT, BALLISTA] {
+            let mut w = ships();
+            assert_eq!(shoot(&mut w, kind), 2, "kind {kind}");
+            assert_eq!(kinds(&w).len(), 1, "kind {kind}");
+        }
+    }
+
+    #[test]
+    fn a_higher_slot_effect_may_take_the_smokes_old_slot() {
+        let mut w = ships();
+        let base = crate::slots::PERMANENT_EFFECTS;
+        let smoke = crate::Missile {
+            kind: 0x19,
+            fx: crate::spells::Fx::Cosmetic,
+            elapsed: 13,
+            ..landing(missile::ARROW, 0, (0, 0))
+        };
+        w.missiles[base] = Some(smoke);
+        w.missiles[base + 1] = Some(landing(missile::BIG_CANNON, 0, (100, 100)));
+        w.advance_missiles();
+        assert_eq!(kinds(&w), [(base, 0x1a)], "the explosion took the smoke's slot");
     }
 }
