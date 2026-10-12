@@ -21,7 +21,7 @@ impl World {
     /// Whether worker `u` has something to repair in `target`: a damaged building or transport. The client uses this
     /// to turn a right click into a repair.
     pub fn can_repair(&self, u: &Unit, target: UnitId) -> bool {
-        let Some(t) = self.unit(target).filter(|t| t.alive()) else {
+        let Some(t) = self.unit(target).filter(|t| t.present()) else {
             return false;
         };
         let s = self.stats_of(t.kind);
@@ -45,7 +45,7 @@ impl World {
     /// One run of the repair order's logic ("Each run of the order's logic").
     pub(crate) fn repair_order(&mut self, i: usize, target: UnitId) {
         // 2. No target.
-        let Some(ti) = self.index(target).filter(|&ti| self.units[ti].alive()) else {
+        let Some(ti) = self.index(target).filter(|&ti| self.units[ti].present()) else {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);
             return;

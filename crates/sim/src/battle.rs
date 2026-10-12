@@ -48,7 +48,7 @@ impl World {
         let Some(t) = self.unit(target) else { return false };
         let s = self.stats_of(u.kind);
         t.id != u.id
-            && t.alive()
+            && t.present()
             && t.owner != u.owner
             && t.owner != NEUTRAL
             && s.flags & tidewater_formats::udta::flags::CAN_ATTACK != 0
@@ -59,7 +59,7 @@ impl World {
     /// spec, "Arriving": the radius is the attack range, measured to the target's tile or, for a building, to the
     /// footprint tile picked by the building goal rule, re-read at every check).
     pub(crate) fn attack_order(&mut self, i: usize, target: UnitId) {
-        let target_ok = self.unit(target).is_some_and(|t| t.alive());
+        let target_ok = self.unit(target).is_some_and(|t| t.present());
         if !target_ok || !self.can_attack(&self.units[i], target) {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);
@@ -139,7 +139,7 @@ impl World {
     pub(crate) fn strike(&mut self, i: usize) {
         let (ti, to) = match self.units[i].order {
             Order::Attack { target } => {
-                let Some(ti) = self.index(target).filter(|&ti| self.units[ti].alive()) else {
+                let Some(ti) = self.index(target).filter(|&ti| self.units[ti].present()) else {
                     return;
                 };
                 (Some(ti), self.units[ti].centre_px())

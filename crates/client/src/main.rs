@@ -465,6 +465,12 @@ fn sync_sprites(
         if u.dying {
             sprite.color = Color::srgba(0.6, 0.6, 0.6, 0.6);
         }
+        // Units inside mines, platforms and depots aren't drawn.
+        if u.inside {
+            sprite.color = Color::NONE;
+        } else if !u.dying {
+            sprite.color = Color::WHITE;
+        }
         tf.translation = world(u.centre_px().0 as f32, u.centre_px().1 as f32, depth(u));
         let Some(frames) = art.0.get(&(u.kind, u.owner)) else {
             continue;
@@ -585,6 +591,23 @@ fn order(
                 .iter()
                 .any(|&id| sim.world.unit(id).is_some_and(|u| sim.world.can_repair(u, t)))
     });
+    // Workers sent to a mine or tree harvest; carrying workers sent to a depot return their goods.
+    let worker =
+        |f: &dyn Fn(&tidewater_sim::Unit) -> bool| on_map && units.iter().any(|&id| sim.world.unit(id).is_some_and(f));
+    let at = unit_at(&sim.world, to);
+    if worker(&|u| sim.world.can_harvest(u, to)) {
+        sim.pending.push(Command::Harvest {
+            player: human,
+            units,
+            target: at,
+            tile: to,
+        });
+        return;
+    }
+    if at.is_some_and(|d| worker(&|u| sim.world.can_return_to(u, d))) {
+        sim.pending.push(Command::ReturnGoods { player: human, units });
+        return;
+    }
     let c = match (mend, foe) {
         (Some(target), _) => Command::Repair {
             player: human,
@@ -610,7 +633,7 @@ fn unit_at(w: &tidewater_sim::World, (x, y): (i32, i32)) -> Option<UnitId> {
     w.units
         .iter()
         .find(|u| {
-            u.alive()
+            u.present()
                 && x >= u.tile.0
                 && y >= u.tile.1
                 && x < u.tile.0 + u.size.0 as i32

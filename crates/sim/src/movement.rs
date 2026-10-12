@@ -96,6 +96,10 @@ impl World {
 
     /// Gives a unit a new order: it waits as the pending order until the next "step done".
     pub(crate) fn give(&mut self, i: usize, order: Order) {
+        // Orders 25 and 26 can't be interrupted (harvest spec, "Entering").
+        if matches!(self.units[i].order, Order::Enter { .. } | Order::Inside { .. }) {
+            return;
+        }
         self.units[i].pending = Some(order);
     }
 
@@ -120,7 +124,7 @@ impl World {
         let u = &mut self.units[i];
         let m = Modifiers {
             haste: u.haste,
-            carrying: false,
+            carrying: u.carrying,
         };
         let fx = u.script.update(scripts.bytes(), u.facing, m);
         u.pos.0 += fx.dx;
@@ -163,6 +167,10 @@ impl World {
             Order::Attack { target } => self.attack_order(i, target),
             Order::AttackWall { tile } => self.attack_wall_order(i, tile),
             Order::Repair { target } => self.repair_order(i, target),
+            Order::Harvest { source, tree, chopping } => self.harvest_order(i, source, tree, chopping),
+            Order::ReturnGoods { depot } => self.return_order(i, depot),
+            Order::Enter { building, stepped } => self.enter_order(i, building, stepped),
+            Order::Inside { building, hall_sized } => self.come_out(i, building, hall_sized),
         }
     }
 

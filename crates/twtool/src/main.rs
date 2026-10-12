@@ -67,7 +67,8 @@ enum Cmd {
         #[arg(long, default_value_t = 8)]
         cols: usize,
     },
-    /// Run a map headless: order player `player`'s units to `x,y` (or, with `--fight`, against the nearest enemy),
+    /// Run a map headless: order player `player`'s units to `x,y` (or, with `--fight`, against the nearest enemy, or
+    /// with `--harvest`, to gather),
     /// step `ticks` ticks, print where units ended up and the state hash.
     Sim {
         #[arg(long)]
@@ -87,6 +88,10 @@ enum Cmd {
         /// Instead of moving, send each unit against the nearest enemy unit.
         #[arg(long)]
         fight: bool,
+        /// Instead of moving, send each worker to the nearest gold mine (or else the nearest tree) and each tanker to
+        /// the nearest of its side's oil platforms.
+        #[arg(long)]
+        harvest: bool,
     },
     /// Print the unit stats table (`rez\\unitdata.dat`) as TSV.
     Units {
@@ -245,7 +250,15 @@ fn main() -> Result<()> {
             ticks,
             seed,
             fight,
-        } => sim(&install, &map, player, (x, y), ticks, seed, fight)?,
+            harvest,
+        } => {
+            let mode = match (fight, harvest) {
+                (true, _) => SimMode::Fight,
+                (_, true) => SimMode::Harvest,
+                _ => SimMode::Move,
+            };
+            sim(&install, &map, player, (x, y), ticks, seed, mode)?
+        }
         Cmd::Units { install } => {
             let mut inst = Install::open(&install)?;
             let t = tidewater_formats::udta::UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?;
@@ -454,6 +467,14 @@ fn grp_sheet(install: &std::path::Path, out: &std::path::Path, era: &str, cols: 
     write_png(out, stride, rows * cell, &px, &pal, false)
 }
 
+/// What `twtool sim` orders the player's units to do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SimMode {
+    Move,
+    Fight,
+    Harvest,
+}
+
 fn sim(
     install: &std::path::Path,
     map: &str,
@@ -461,7 +482,7 @@ fn sim(
     to: (i32, i32),
     ticks: u32,
     seed: u32,
-    fight: bool,
+    mode: SimMode,
 ) -> Result<()> {
     use tidewater_formats::udta::UnitTable;
     use tidewater_sim::{Command, World};
@@ -488,7 +509,39 @@ fn sim(
         .map(|u| u.id)
         .collect();
     let before: Vec<_> = units.iter().map(|&id| w.unit(id).map(|u| u.tile)).collect();
-    let orders: Vec<Command> = if fight {
+    let dist = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
+    let orders: Vec<Command> = if mode == SimMode::Harvest {
+        let (mw, mh) = (w.terrain.width as i32, w.terrain.height as i32);
+        let sites: Vec<(i32, i32)> = w
+            .units
+            .iter()
+            .filter(|u| u.building)
+            .map(|u| u.tile)
+            .chain((0..mh).flat_map(|y| (0..mw).map(move |x| (x, y))).filter(|&(x, y)| {
+                w.terrain
+                    .region(x, y)
+                    .is_some_and(tidewater_sim::terrain::region::is_forest)
+            }))
+            .collect();
+        units
+            .iter()
+            .filter_map(|&id| {
+                let me = w.unit(id)?;
+                // Mines come first in `sites`, so prefer one that is no further than the nearest tree.
+                let tile = sites
+                    .iter()
+                    .copied()
+                    .filter(|&t| w.can_harvest(me, t))
+                    .min_by_key(|&t| dist(me.tile, t))?;
+                Some(Command::Harvest {
+                    player,
+                    units: vec![id],
+                    target: None,
+                    tile,
+                })
+            })
+            .collect()
+    } else if mode == SimMode::Fight {
         units
             .iter()
             .filter_map(|&id| {
@@ -497,7 +550,7 @@ fn sim(
                     .units
                     .iter()
                     .filter(|t| w.can_attack(me, t.id))
-                    .min_by_key(|t| (t.tile.0 - me.tile.0).abs().max((t.tile.1 - me.tile.1).abs()))?;
+                    .min_by_key(|t| dist(t.tile, me.tile))?;
                 Some(Command::Attack {
                     player,
                     units: vec![id],
@@ -541,6 +594,11 @@ fn sim(
         .filter(|(_, k)| *k > 0)
         .collect();
     println!("kills by player: {kills:?}");
+    let p = &w.players[player as usize];
+    println!(
+        "player {player} gathered gold {} lumber {} oil {}",
+        p.gathered[0], p.gathered[1], p.gathered[2]
+    );
     println!("tiles reshaped: {}", w.terrain.redraw.len());
     for (p, s) in w.ai.iter().enumerate() {
         if w.players[p].controller == tidewater_sim::ai::controller::COMPUTER {

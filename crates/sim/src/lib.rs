@@ -11,6 +11,7 @@ pub mod anim;
 mod battle;
 pub mod combat;
 pub mod economy;
+mod harvest;
 mod movement;
 pub mod path;
 pub mod placement;
@@ -24,7 +25,7 @@ mod world;
 pub use battle::Missile;
 pub use rng::Rng;
 pub use terrain::{Terrain, WallStage};
-pub use world::{Command, Layer, Order, Player, Rules, SpawnError, Unit, UnitId, World, WorldError};
+pub use world::{Command, Gather, Layer, Order, Player, Rules, Source, SpawnError, Unit, UnitId, World, WorldError};
 
 /// Map pixels per tile.
 pub const TILE_PX: i32 = 32;

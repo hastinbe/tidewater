@@ -42,6 +42,11 @@ impl Slots {
         self.lists[owner as usize & 15].len()
     }
 
+    /// An owner's slots, most recently added first.
+    pub fn list(&self, owner: u8) -> impl Iterator<Item = u16> + '_ {
+        self.lists[owner as usize & 15].iter().copied()
+    }
+
     /// Players (owners 0 to 7) holding at least one slot.
     pub fn players(&self) -> usize {
         self.lists[..8].iter().filter(|l| !l.is_empty()).count()

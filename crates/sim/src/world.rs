@@ -72,10 +72,47 @@ pub enum Order {
     Repair {
         target: UnitId,
     },
+    /// Order 23: gather from a gold mine or oil platform (`source`), or cut the tree at `tree` (harvest spec).
+    Harvest {
+        source: Option<UnitId>,
+        tree: (i32, i32),
+        chopping: bool,
+    },
+    /// Order 24: carry goods to a depot, found when `None`.
+    ReturnGoods {
+        depot: Option<UnitId>,
+    },
+    /// Order 25: step into a mine, platform or depot; `stepped` once the step in has started.
+    Enter {
+        building: UnitId,
+        stepped: bool,
+    },
+    /// Order 26: inside a building. `hall_sized` when goods were just delivered to a gold-accepting depot, which sizes
+    /// the coming-out search as a town hall.
+    Inside {
+        building: UnitId,
+        hall_sized: bool,
+    },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
     AttackWall {
         tile: (i32, i32),
     },
+}
+
+/// What a worker gathers (harvest spec, "Gather mode and carried goods"). Tankers always gather oil.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Gather {
+    #[default]
+    None,
+    Gold,
+    Lumber,
+}
+
+/// Where a unit goes back to after delivering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Source {
+    Unit(UnitId),
+    Tree((i32, i32)),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -95,8 +132,18 @@ pub struct Unit {
     pub layer: Layer,
     pub size: (u8, u8),
     pub building: bool,
-    /// Gold or oil left, for mines and patches.
+    /// Trips left in a gold mine, oil patch or platform (harvest spec, "Mine and platform amounts").
     pub resources: u32,
+    pub gather: Gather,
+    /// Holding one load.
+    pub carrying: bool,
+    pub return_to: Option<Source>,
+    /// Chop counter, 0 to 50.
+    pub chop: u8,
+    /// Inside a mine, platform or depot: hidden, untargetable and off the occupancy marks.
+    pub inside: bool,
+    /// Units inside this mine or platform; above 0 it shows its "active" look.
+    pub occupants: u8,
     pub order: Order,
     pub script: Script,
     /// Haste/slow timer: positive is hasted, negative slowed.
@@ -142,6 +189,11 @@ impl Unit {
     pub fn alive(&self) -> bool {
         !self.dying
     }
+
+    /// Alive and not inside a building: something other units can target.
+    pub fn present(&self) -> bool {
+        !self.dying && !self.inside
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -160,6 +212,8 @@ pub struct Player {
     pub in_training: u16,
     /// Controller from the map's `OWNR` section (values in [`crate::ai::controller`]).
     pub controller: u8,
+    /// Gold, lumber and oil delivered over the game ("total gathered" statistics).
+    pub gathered: [u32; 3],
     /// Computer script number from the map's `AIPL` section.
     pub ai_script: u8,
 }
@@ -249,6 +303,18 @@ pub enum Command {
         player: u8,
         units: Vec<UnitId>,
         target: UnitId,
+    },
+    /// Command 23: gather from `target` (or the ground unit on `tile`), or cut lumber at `tile`.
+    Harvest {
+        player: u8,
+        units: Vec<UnitId>,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
+    /// Command 24: carry goods to the nearest depot.
+    ReturnGoods {
+        player: u8,
+        units: Vec<UnitId>,
     },
     /// Cancel a building's job, or the building if it is under construction.
     Cancel {
@@ -387,7 +453,7 @@ impl World {
                 continue;
             }
             let resources = if matches!(u.kind, 0x5c | 0x5d) {
-                u.data as u32 * 2500
+                crate::harvest::trips(u.data)
             } else {
                 0
             };
@@ -453,6 +519,12 @@ impl World {
             size,
             building,
             resources,
+            gather: Gather::None,
+            carrying: false,
+            return_to: None,
+            chop: 0,
+            inside: false,
+            occupants: 0,
             order: Order::Idle,
             script,
             haste: 0,
@@ -602,7 +674,9 @@ impl World {
             Command::Move { player, units, .. }
             | Command::Stop { player, units }
             | Command::Attack { player, units, .. }
-            | Command::Repair { player, units, .. } => (*player, units),
+            | Command::Repair { player, units, .. }
+            | Command::Harvest { player, units, .. }
+            | Command::ReturnGoods { player, units } => (*player, units),
             &Command::Train {
                 player,
                 building: id,
@@ -639,6 +713,14 @@ impl World {
                         None => continue,
                     }
                 }
+                Command::Harvest { target, tile, .. } => match self.harvest_command(i, target, tile) {
+                    Some(o) => o,
+                    None => continue,
+                },
+                Command::ReturnGoods { .. } => match self.return_command(i) {
+                    Some(o) => o,
+                    None => continue,
+                },
                 Command::Train { .. } | Command::Upgrade { .. } | Command::Cancel { .. } => continue,
             };
             self.give(i, order);
@@ -667,7 +749,7 @@ impl World {
         let u = &mut self.units[i];
         let m = Modifiers {
             haste: u.haste,
-            carrying: false,
+            carrying: u.carrying,
         };
         let fx = u.script.update(scripts.bytes(), u.facing, m);
         u.pos.0 += fx.dx;

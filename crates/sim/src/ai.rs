@@ -166,7 +166,8 @@ impl World {
         c
     }
 
-    fn has_complete(&self, p: usize, kinds: &[u8]) -> bool {
+    /// Whether player `p` has a completed building of one of `kinds`.
+    pub(crate) fn has_complete(&self, p: usize, kinds: &[u8]) -> bool {
         self.units
             .iter()
             .any(|u| u.owner as usize == p && u.hp > 0 && u.construction.is_none() && kinds.contains(&u.kind))
