@@ -224,8 +224,8 @@ mod tests {
         w.stats.0[PEASANT as usize] = w.stats.0[0];
         w.stats.0[PEASANT as usize].flags = flags::LAND | flags::PEON;
         let farm = &mut w.stats.0[kind::FARM as usize];
-        farm.gold = 50;
-        farm.lumber = 25;
+        farm.gold = 500;
+        farm.lumber = 250;
         farm.build_time = 2;
         farm.hit_points = 400;
         for p in &mut w.players[..2] {

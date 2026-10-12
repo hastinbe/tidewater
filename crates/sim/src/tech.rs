@@ -384,8 +384,8 @@ mod tests {
     fn train_checks_the_producer_and_counts_keeps_as_halls() {
         let mut w = lab();
         w.spawn(0x3a, 0, (0, 20), 0).unwrap();
-        w.stats.0[1].gold = 10;
-        w.stats.0[2].gold = 10;
+        w.stats.0[1].gold = 100;
+        w.stats.0[2].gold = 100;
         let barracks = put(&mut w, HUMAN_BARRACKS, false);
         w.step(&[Command::Train {
             player: 0,
@@ -461,7 +461,7 @@ mod tests {
             let mut w = lab();
             w.rules.enforce_requirements = enforce;
             w.spawn(0x3a, 0, (0, 20), 0).unwrap();
-            w.stats.0[6].gold = 10;
+            w.stats.0[6].gold = 100;
             let b = put(&mut w, HUMAN_BARRACKS, false);
             put(&mut w, HUMAN_BLACKSMITH, false);
             put(&mut w, STABLES, false);
@@ -601,7 +601,7 @@ mod tests {
             hit_points: hp,
             size: (1, 1),
             flags: flags::LAND | if caster { flags::CASTER } else { 0 },
-            gold: 10,
+            gold: 100,
             ..Default::default()
         };
         w.stats.0[unit::KNIGHT as usize] = st(90, false);
@@ -610,7 +610,7 @@ mod tests {
         w.stats.0[unit::OGRE_MAGE as usize] = st(80, true);
         w.stats.0[unit::ARCHER as usize] = st(40, false);
         w.stats.0[unit::RANGER as usize] = st(50, false);
-        w.stats.0[unit::RANGER as usize].gold = 15;
+        w.stats.0[unit::RANGER as usize].gold = 150;
         w.stats.0[unit::AXE_THROWER as usize] = st(40, false);
         w.stats.0[unit::BERSERKER as usize] = st(55, false);
     }

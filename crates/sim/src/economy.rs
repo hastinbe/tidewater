@@ -97,9 +97,10 @@ pub enum Event {
 /// Gold, lumber and oil.
 pub type Cost = [u32; 3];
 
-/// The real cost of a unit or building type: the stored values times 10 ("Costs in the data").
+/// The real cost of a unit or building type ("Costs in the data"). The data reader already multiplies the stored
+/// tenths by 10, so the stats hold full amounts.
 pub fn cost(s: &UnitStats) -> Cost {
-    [s.gold as u32 * 10, s.lumber as u32 * 10, s.oil as u32 * 10]
+    [s.gold as u32, s.lumber as u32, s.oil as u32]
 }
 
 /// A building under construction ("Construction").
@@ -618,7 +619,8 @@ impl World {
         }
         let owner = u.owner;
         let s = self.stats_of(u.kind);
-        let part = |v: u16| v as u32 * 30 / 4;
+        // 3/4 of the real cost, with the stats holding full amounts (10 × the stored value).
+        let part = |v: u16| v as u32 * 3 / 4;
         let oil = if self.rules.enhanced { part(s.oil) } else { 0 };
         self.refund(owner, [part(s.gold), part(s.lumber), oil]);
         self.kill(i);
@@ -732,7 +734,7 @@ mod tests {
             let (mut w, _) = town();
             w.rules.enhanced = enhanced;
             let s = &mut w.stats.0[0x3e];
-            (s.gold, s.lumber, s.oil) = (50, 25, 10);
+            (s.gold, s.lumber, s.oil) = (500, 250, 100);
             let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
             w.step(&[Command::Cancel { player: 0, unit: b }]);
             let p = w.players[0];
@@ -778,7 +780,7 @@ mod tests {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
         w.stats.0[2].build_time = 6;
-        w.stats.0[2].gold = 40;
+        w.stats.0[2].gold = 400;
         w.step(&[Command::Train {
             player: 0,
             building: hall,
@@ -809,7 +811,7 @@ mod tests {
     fn cancelling_a_job_refunds_it_all() {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
-        w.stats.0[2].gold = 40;
+        w.stats.0[2].gold = 400;
         w.stats.0[2].build_time = 60;
         w.step(&[Command::Train {
             player: 0,
@@ -865,7 +867,7 @@ mod tests {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
         w.stats.0[2].build_time = 1;
-        w.stats.0[2].gold = 40;
+        w.stats.0[2].gold = 400;
         w.step(&[Command::Train {
             player: 0,
             building: hall,
@@ -885,7 +887,7 @@ mod tests {
         let (mut w, hall) = town();
         w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
         w.stats.0[2].build_time = 1;
-        w.stats.0[2].gold = 40;
+        w.stats.0[2].gold = 400;
         w.stats.0[2].flags = flags::LAND;
         // Everything within reach blocks land units.
         for n in 0..w.terrain.words.len() {

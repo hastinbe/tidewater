@@ -784,8 +784,8 @@ mod tests {
             hit_points: hp,
             size: (size, size),
             flags: flags::BUILDING | f,
-            gold: 50,
-            lumber: 25,
+            gold: 500,
+            lumber: 250,
             annoy_computer: annoy,
             ..Default::default()
         }
@@ -878,7 +878,7 @@ mod tests {
             w.spawn(t::FARM, 1, (2 + 3 * x, 2), 0).unwrap();
         }
         with_list(&mut w, &[BARRACKS, t::FARM, 0xff]);
-        w.stats.0[BARRACKS as usize].gold = 600;
+        w.stats.0[BARRACKS as usize].gold = 6000;
         let i = peasants(&mut w, 1)[0];
         assert_eq!(w.worker_choice(i), Choice::Wait);
     }
