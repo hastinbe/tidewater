@@ -18,9 +18,10 @@
 //! A header `input` cheat entry has `add` instead, the flags it turned on; it matches the turn whose `cheats` holds
 //! them all.
 //!
-//! Our reading where the format is open: a `build` needs the first selected unit to be a worker, peasant or peon
-//! (type 0x02 or 0x03, public PUD specification, appendix A), whichever race; "its race's worker" is read as the
-//! unit's own race. An `"unnamed N"` cheat flag has no meaning in the cheats spec, so it sets nothing on our side.
+//! A `build` needs the first selected unit to be able to build: a worker (peasant or peon, type 0x02 or 0x03) or a
+//! tanker, which builds oil platforms (type 0x1A or 0x1B; types from the public PUD specification, appendix A).
+//!
+//! Our reading where the format is open: an `"unnamed N"` cheat flag has no meaning in the cheats spec, so it sets nothing on our side.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -33,6 +34,8 @@ use tidewater_sim::{Command, World};
 /// Unit types of the two workers (public PUD specification, appendix A).
 const PEASANT: u8 = 0x02;
 const PEON: u8 = 0x03;
+/// Unit types of the two tankers (public PUD specification, appendix A).
+const TANKERS: [u8; 2] = [0x1a, 0x1b];
 
 /// A `job` entry's kind (trace format, "Commands").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,7 +293,7 @@ pub fn cheat_flags(names: &[String]) -> u32 {
 }
 
 /// The player command our simulation runs for a trace command, as the world stands when it runs; `None` when the
-/// command does nothing there (no first selected unit, a builder that isn't a worker, a kind we can't express).
+/// command does nothing there (no first selected unit, a builder that is neither a worker nor a tanker, a kind we can't express).
 pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
     let player = e.player;
     let live = |slot: u16| w.unit_in_slot(slot);
@@ -311,7 +314,9 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         }
         &Kind::Build { kind, tile } => {
             let unit = first()?;
-            if !w.unit(unit).is_some_and(|u| u.kind == PEASANT || u.kind == PEON) {
+            // Trace format, "Commands" (round-40 errata, `orc09-naval`): a tanker builds oil platforms.
+            let builds = |k: u8| k == PEASANT || k == PEON || TANKERS.contains(&k);
+            if !w.unit(unit).is_some_and(|u| builds(u.kind)) {
                 return None;
             }
             Command::Build {
