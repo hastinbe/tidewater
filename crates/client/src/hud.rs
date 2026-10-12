@@ -544,8 +544,14 @@ impl HudArt {
 
     /// The status bar (messages spec, "The status bar").
     fn draw_status(&self, pic: &mut Picture, bar: Rect, s: &crate::messages::StatusBar) {
-        let clip = bar.x + s.text_right();
         let at = (bar.x + crate::messages::STATUS_TEXT_X, text_top(&self.font, bar));
+        if let Some(line) = &s.chat {
+            // Messages spec, "Chat line": a label and the text field instead of the text and the costs.
+            let clip = bar.x + bar.w as i32 - crate::messages::STATUS_TEXT_X;
+            text_clipped(pic, &self.font, at, &crate::chat::shown(line), &TEXT, clip);
+            return;
+        }
+        let clip = bar.x + s.text_right();
         text_clipped(pic, &self.font, at, &s.text, &TEXT, clip);
         for (cost, value) in s.shown() {
             let ((x0, _), icon) = cost.place();

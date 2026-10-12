@@ -15,6 +15,7 @@
 //! notices and the status bar follow `ui/messages.md` (`messages`).
 
 mod campaign;
+mod chat;
 mod cheats;
 mod fog;
 mod frontend;
@@ -26,7 +27,7 @@ mod menu;
 mod messages;
 mod minimap;
 mod mouse;
-#[allow(dead_code)] // the disco toggle and the sound dialog's calls are not wired yet
+#[allow(dead_code)] // the spec's track table and fade helpers are kept whole; some screens don't use them yet
 mod music;
 mod palette;
 mod panel;
@@ -404,6 +405,7 @@ fn main() -> Result<()> {
         .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
         .add_systems(OnExit(frontend::AppState::Game), end_game)
         .add_plugins(cheats::plugin)
+        .add_plugins(chat::plugin)
         .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
         .add_systems(
             Update,

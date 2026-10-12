@@ -1,8 +1,8 @@
 //! Cheats on the client side. Spec: `docs/specs/game/cheats.md`.
 //!
 //! [`submit`] checks a line the player typed before it would go out as chat ([`tidewater_sim::cheats::interpret`]) and
-//! says what the caller must do next ([`Outcome`]). The client has no chat line yet, so nothing calls it; when the
-//! line exists it calls [`submit`] on Enter. The notices come back through the sim's events (`messages::event_notice`).
+//! says what the caller must do next ([`Outcome`]). The chat line (`chat`) calls it on Enter. The notices come back
+//! through the sim's events (`messages::event_notice`).
 //!
 //! Defaults: cheats are enabled unless the world's [`Rules::cheats_disabled`](tidewater_sim::Rules) says a multiplayer
 //! lobby turned them off (it is off by default, and has no effect in single player).
@@ -11,9 +11,12 @@
 //! and start the next world's flags; `noglues` and `title` toggle `Flow::skip_screens` and `Flow::skip_videos`; the
 //! finale event and a chosen mission (`Queue::mission`) leave the game for the campaign flow without a score screen.
 //!
-//! TODO: `Event::Disco` (music track, no music player yet) and the local settings of [`Outcome::Local`] and
-//! [`Outcome::Developer`] (sync check, demo speed, profiling, info and memory displays, colour cycling); command-line
-//! words (`cheats::from_arguments`) are not read because the command line is parsed by `clap`.
+//! The disco flag's change (`Event::Disco`) changes the game's music track ([`play_disco`], `ui/music.md`, "Disco
+//! cheat"): turning it on picks track 25, turning it off the campaign formula or a new draw from the setup-shuffle
+//! generator; a playing track fades with all sound first. The local and developer words' settings are in `chat`.
+//!
+//! Not yet here: command-line words (`cheats::from_arguments`) are not read because the command line is parsed by
+//! `clap`.
 
 use bevy::prelude::*;
 use tidewater_sim::cheats::{self, Context, Flags, Line, MissionSelect, Word};
@@ -24,7 +27,6 @@ use crate::frontend::{self, AppState, Flow, Front, Step};
 
 /// What to do with a typed line.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "no chat line yet"))]
 pub enum Outcome {
     /// Not a cheat: send it as chat in multiplayer, drop it in single player.
     Chat,
@@ -40,7 +42,6 @@ pub enum Outcome {
 }
 
 /// Checks `line` typed by `player` (the world's `rules` and current cheat `flags`) and queues the cheat command in `pending` if it is one.
-#[cfg_attr(not(test), expect(dead_code, reason = "no chat line yet"))]
 pub fn submit(rules: &Rules, flags: Flags, player: u8, line: &str, pending: &mut Vec<Command>) -> Outcome {
     let cx = Context {
         flags,
@@ -72,14 +73,18 @@ pub struct Queue {
     finale: Option<bool>,
     /// Mission select chose a mission.
     pub mission: Option<MissionSelect>,
+    /// The disco flag changed to this.
+    disco: Option<bool>,
 }
 
 impl Queue {
     /// Keeps the cheat events of one cycle.
     pub fn take_events(&mut self, events: &[Event]) {
         for e in events {
-            if let Event::Finale { beyond } = *e {
-                self.finale = Some(beyond);
+            match *e {
+                Event::Finale { beyond } => self.finale = Some(beyond),
+                Event::Disco { on } => self.disco = Some(on),
+                _ => {}
             }
         }
     }
@@ -87,7 +92,26 @@ impl Queue {
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Queue>()
-        .add_systems(Update, run.run_if(in_state(AppState::Game)));
+        .add_systems(Update, (run, play_disco).run_if(in_state(AppState::Game)));
+}
+
+/// The disco cheat changes the game's track (music spec, "Disco cheat").
+fn play_disco(
+    mut queue: ResMut<Queue>,
+    sim: Option<Res<crate::Sim>>,
+    origin: Option<Res<crate::savegame::GameOrigin>>,
+    speaker: Option<ResMut<crate::Speaker>>,
+    mut jukebox: ResMut<crate::jukebox::Jukebox>,
+) {
+    let Some(on) = queue.disco.take() else { return };
+    let (Some(sim), Some(mut speaker)) = (sim, speaker) else {
+        return;
+    };
+    let orc = sim.world.start.orc_sounds;
+    let campaign = origin.and_then(|o| o.setup.campaign());
+    jukebox.disco(on, || {
+        crate::music::game_track(orc, campaign, false, &mut speaker.director.shuffle)
+    });
 }
 
 /// Starts the world's flags from the flow, keeps the flow's settings in step with the world's flags, and leaves the

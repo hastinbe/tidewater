@@ -31,7 +31,7 @@ pub struct Jukebox {
     carry: Duration,
 }
 
-#[allow(dead_code)] // the game menu's sound dialog and the disco cheat will call the rest
+#[allow(dead_code)] // not every screen calls every method yet
 impl Jukebox {
     fn queue(&mut self, actions: Vec<Action>) {
         self.pending.extend(actions);
@@ -102,6 +102,14 @@ impl Jukebox {
             let a = self.music.start_game(t);
             self.queue(a);
         }
+    }
+
+    /// The disco cheat turned `on` or off: track 25, or the game's normal track from `normal` (called only when turning
+    /// off, as only that draws from the setup-shuffle generator).
+    pub fn disco(&mut self, on: bool, normal: impl FnOnce() -> u8) {
+        let normal = if on { music::DISCO } else { normal() };
+        let (_, a) = self.music.disco(on, normal);
+        self.queue(a);
     }
 
     /// The game is over: the bump no longer applies.

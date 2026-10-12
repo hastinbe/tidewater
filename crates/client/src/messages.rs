@@ -302,6 +302,8 @@ pub struct StatusBar {
     pub costs: bool,
     /// The fixed prompt, while target or placement mode is on.
     pub prompt: Option<String>,
+    /// The chat line's text while it is open (`crate::chat`): the bar shows it instead, and no cost items.
+    pub chat: Option<String>,
 }
 
 impl StatusBar {
@@ -354,7 +356,7 @@ impl StatusBar {
 
     /// The cost items shown, with their values.
     pub fn shown(&self) -> Vec<(Cost, u32)> {
-        if !self.costs {
+        if !self.costs || self.chat.is_some() {
             return Vec::new();
         }
         Cost::ALL
