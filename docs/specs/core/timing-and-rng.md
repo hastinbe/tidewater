@@ -23,6 +23,9 @@
   ship bobbing"); the two start-up cycles run before the deadline and counter are reset, as full cycles with draws.
   2026-10-12, round-31 errata: the draw table gains a creation row for a computer land unit's post choice
   (`ai/attack-ai.md`), which comes before the first-wait draw.
+  2026-10-12, round-32 errata: the fog refresh and victory countdowns count the start-up cycles. Their first runs
+  are the first and second start-up cycles, and later runs are named by cycle counter value. The open question on
+  "cycle 1" for the fog refresh is closed.
 
 ## Behaviour
 
@@ -77,8 +80,11 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
 
    The full rule is in `vision/fog.md`, "Detection (phase 1)".
 2. **Computer players.** Each computer-controlled player runs one step of its AI script.
-3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1, so the first refresh
-   happens in cycle 1. On a refresh cycle each unit's sight is re-applied to the fog during phase 4.
+3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1 and counts every cycle,
+   the two start-up cycles included, so the first refresh happens in the first start-up cycle. Then it happens every
+   100 cycles (101 in Classic): in the normal cycles that end with the cycle counter at 99, 199, … (Classic: 100,
+   201, …; this follows from the period, as no Classic run was traced). On a refresh cycle each unit's sight is
+   re-applied to the fog during phase 4.
 4. **Units.** Every unit is updated in slot order (`core/unit-slots.md`):
    - its sight is re-applied if this is a refresh cycle;
    - its per-unit countdowns are advanced;
@@ -91,7 +97,7 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
 5. **Visibility** for the local player is recomputed.
 6. **Minimap** is refreshed every 40 cycles.
 7. **Fog** bookkeeping for the cycle is closed.
-8. **Victory and defeat** are checked every 201 cycles, first on the second cycle (`game/victory.md`).
+8. **Victory and defeat** are checked every 201 cycles, first in the second start-up cycle (`game/victory.md`).
 9. The **cycle counter** increases by 1. This also happens on paused cycles (see the scheduler, rule 4).
 
 ### Random number generator
@@ -187,9 +193,9 @@ Each row is the pattern of lengths for three cycles in a row; the pattern then r
 
 | Event | Period |
 | --- | --- |
-| Fog refresh | 100 (Enhanced), 101 (Classic); first at cycle 1 |
+| Fog refresh | 100 (Enhanced), 101 (Classic); first in the first start-up cycle, then at counter 99 (Classic 100) |
 | Minimap refresh | 40 |
-| Victory check | 201; first at cycle 2 |
+| Victory check | 201; first in the second start-up cycle, then at counter 201 |
 | Mana regeneration (+1, max 255) | 40 |
 | Berserker regeneration (+1 HP) | 240 |
 
@@ -220,6 +226,7 @@ Outputs are listed in draw order; each draw steps the state first.
 | Frame arrives 130 ms after the deadline at 40 ms per cycle | 3 cycles run; the deadline is still 10 ms in the past |
 | Frame arrives 600 ms late | Deadline reset to now; at most 3 cycles run, backlog dropped |
 | Oracle trace Human01 (`oracle/trace-format.md`), clock 946684800: state after setup 0xF55E08A8 | First start-up cycle: no draw. Second: 1 draw (an idle look-around), state 0x262AFAC9. First normal cycle: counter 1, state 0xF2F9299E |
+| Human01, Enhanced, no input, 700 cycles (research-side run that logs each refresh and check) | Fog refresh in trace records n = 1, 101, 201, 301, 401, 501, 601 (first start-up cycle, then counter 99, 199, …). Victory check in n = 2, 203, 404, 605 (second start-up cycle, then counter 201, 402, 603). Neither runs in any other record |
 
 Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step from 0 gives a state of 1.
 
@@ -231,7 +238,4 @@ Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step f
 - Whether the Classic three-cycle pattern restarts at the first phase after a speed change.
 - Exact draw counts for each area spell.
 - What the building creation value `r mod 6` is used for.
-- Whether "cycle 1" for the first fog refresh means the cycle counter's value 1 or the first cycle run (counter value
-  0). The start-up cycles run before the counter is reset (Scheduler, rule 1), so the answer depends only on which
-  counter value the first refresh tests.
 - How the setup-shuffle generator turns its state into a choice (which bits, and the shuffle method).
