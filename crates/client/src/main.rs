@@ -14,6 +14,7 @@
 //! minimap, left click or drag moves the view. Space steps through the latest events (Enhanced rules). Messages,
 //! notices and the status bar follow `ui/messages.md` (`messages`).
 
+mod campaign;
 mod fog;
 mod hud;
 mod info;
