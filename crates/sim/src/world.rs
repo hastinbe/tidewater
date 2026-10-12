@@ -374,7 +374,7 @@ pub struct Player {
 }
 
 /// Animation number marking a unit whose slot was released this cycle (no real animation uses it).
-pub(crate) const RELEASED: u8 = 0xff;
+pub const RELEASED: u8 = 0xff;
 
 /// Numbers that specs will replace. Every field here is a placeholder of our own choosing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

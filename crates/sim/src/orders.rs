@@ -1066,6 +1066,30 @@ mod tests {
     }
 
     #[test]
+    fn draw_list_vectors() {
+        // Map-drawing spec, "Test vectors": a unit at y 320 is drawn before (under) one at y 352.
+        let mut w = map();
+        let b = w.spawn(FOOTMAN, 1, (4, 11), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 0, (4, 10), 0).unwrap();
+        assert_eq!(w.draw_list(), [a, b]);
+        // Two units at the same y, A before B; a new unit C at that y goes in front of both.
+        let mut w = map();
+        let a = w.spawn(FOOTMAN, 0, (2, 5), 0).unwrap();
+        let b = w.spawn(FOOTMAN, 0, (4, 5), 0).unwrap();
+        let ab = w.draw_list().to_vec();
+        let c = w.spawn(FOOTMAN, 0, (6, 5), 0).unwrap();
+        let mut want = vec![c];
+        want.extend(ab.iter().copied());
+        assert!(ab.contains(&a) && ab.contains(&b));
+        assert_eq!(w.draw_list(), want);
+        // A dying unit sorts first, under every other unit.
+        let i = at(&w, b);
+        w.units[i].dying = true;
+        w.sort_vertical();
+        assert_eq!(w.draw_list()[0], b);
+    }
+
+    #[test]
     fn lumber_workers_flee_gold_workers_do_not() {
         let mut w = map();
         w.stats.0[PEASANT as usize].flags &= !flags::CAN_ATTACK;
