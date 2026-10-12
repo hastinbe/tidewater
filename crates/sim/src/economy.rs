@@ -92,6 +92,20 @@ pub enum Event {
         from: u8,
         to: u8,
     },
+    /// A cheat command changed the flags: the notice to show, with `sender` for the multiplayer name prefix (cheats
+    /// spec, "Effects when the flags change", step 8).
+    Cheat {
+        sender: u8,
+        notice: crate::cheats::Notice,
+    },
+    /// The disco flag changed: the game's music track changes (music spec, "Disco cheat").
+    Disco {
+        on: bool,
+    },
+    /// The finale cheat: the game ends and a campaign ending starts (not a victory).
+    Finale {
+        beyond: bool,
+    },
 }
 
 /// Gold, lumber and oil.
@@ -589,7 +603,7 @@ impl World {
 
     /// Copies the level lines into the combat and vision view of the player's upgrades. Both races' versions of a
     /// shared line (longbow and lighter axes, the two scouting upgrades) read the same level.
-    fn sync_upgrades(&mut self, owner: u8) {
+    pub(crate) fn sync_upgrades(&mut self, owner: u8) {
         let p = &mut self.players[owner as usize];
         let l = p.levels;
         p.upgrades = crate::combat::Upgrades {

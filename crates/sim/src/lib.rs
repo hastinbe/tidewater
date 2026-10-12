@@ -14,6 +14,7 @@ pub mod attack_ai;
 mod battle;
 mod build;
 pub mod caster_ai;
+pub mod cheats;
 pub mod combat;
 pub mod corpses;
 pub mod economy;

@@ -169,7 +169,8 @@ impl World {
             | Command::SetGroup { .. }
             | Command::RecallGroup { .. }
             | Command::Speed { .. }
-            | Command::Pause { .. } => return None,
+            | Command::Pause { .. }
+            | Command::Cheat { .. } => return None,
         };
         self.units[i].remembered = if enhanced { remember } else { None };
         Some(order)

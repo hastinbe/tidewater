@@ -18,6 +18,7 @@
 //! `movement/placement.md`. A finished research has no text (its work-complete sound carries the subtitle). The
 //! end-of-game lines are our own wording until the victory screen has a spec.
 
+use tidewater_sim::cheats::Notice as CheatNotice;
 use tidewater_sim::economy::{Event, Shortage};
 use tidewater_sim::victory::Outcome;
 
@@ -64,8 +65,11 @@ pub mod net {
     pub const CANT_CREATE: u16 = 69;
     pub const SELECT_TARGET: u16 = 70;
     pub const SELECT_LOCATION: u16 = 71;
+    pub const CHEAT_B: u16 = 72;
     pub const NEED_LUMBER: u16 = 73;
     pub const NEED_GOLD: u16 = 74;
+    pub const CHEAT_ON: u16 = 80;
+    pub const CHEAT_OFF: u16 = 81;
     pub const PAUSED: u16 = 86;
     pub const RESUMED: u16 = 87;
 }
@@ -101,6 +105,14 @@ pub fn event_notice(e: &Event, human: u8) -> Option<Text> {
             Outcome::Defeat => format!("Player {} has been defeated", player + 1),
             _ => "The game has ended".to_string(),
         })),
+        // Cheats spec, step 8 and the one-shot notices. The multiplayer sender's name in front is not shown yet: this
+        // client has no network games.
+        Event::Cheat { notice, .. } => Some(match notice {
+            CheatNotice::On => Text::Net(net::CHEAT_ON),
+            CheatNotice::Off => Text::Net(net::CHEAT_OFF),
+            CheatNotice::B => Text::Net(net::CHEAT_B),
+            n => Text::Own(n.text().unwrap_or_default().to_string()),
+        }),
         _ => None,
     }
 }
@@ -518,6 +530,11 @@ mod tests {
             event_notice(&Event::NoRoom { player: 0, kind: 0 }, 0),
             Some(Text::Net(67))
         );
+        let cheat = |notice| Event::Cheat { sender: 0, notice };
+        assert_eq!(event_notice(&cheat(CheatNotice::On), 0), Some(Text::Net(80)));
+        assert_eq!(event_notice(&cheat(CheatNotice::Off), 0), Some(Text::Net(81)));
+        assert_eq!(event_notice(&cheat(CheatNotice::B), 0), Some(Text::Net(72)));
+        assert!(matches!(event_notice(&cheat(CheatNotice::A), 0), Some(Text::Own(_))));
         assert_eq!(
             fill_name("%s paused the game. (%d timeouts remaining)", "Ann"),
             "Ann paused the game."

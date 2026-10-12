@@ -203,7 +203,7 @@ impl World {
         }
         let a = &self.units[i];
         let s = self.stats_of(a.kind);
-        let (basic, pierce) = combat::attack(a.kind, &s, &self.players[a.owner as usize].upgrades, a.bloodlust > 0);
+        let (basic, pierce) = self.attack_values(a, &s);
         let armour = ti.map_or(0, |ti| {
             let t = &self.units[ti];
             combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades)

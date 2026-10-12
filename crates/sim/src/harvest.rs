@@ -459,7 +459,7 @@ impl World {
         }
         let u = &mut self.units[i];
         if u.chop < CHOP_LIMIT {
-            u.chop += if self.rules.build_speed_cheat {
+            u.chop += if self.rules.lumber_cheat {
                 CHOP_LIMIT - u.chop
             } else {
                 1
