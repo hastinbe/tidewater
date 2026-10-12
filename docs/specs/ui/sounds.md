@@ -12,6 +12,8 @@
   open question on them is closed.
   2026-10-12, round-15 errata: the impact effects' explosion sound plays at the effect's first update, not at its
   creation; a table of the sounds each missile impact makes in all.
+  2026-10-12, round-16 errata: the error sound's one trigger (a failed building placement click) and the placement
+  sound; both are plain sounds.
 
 ## Behaviour
 
@@ -79,7 +81,8 @@ ends are included, so one extra column and row count as on screen.
 
 - **On screen:** the sound plays at the normal level.
 - **Off screen:** every placed sound listed in this spec plays at the **quiet level**, except the chop sounds and
-  the error sound, which are silent off screen.
+  the error sound, which are silent off screen. (The error sound is in fact always a plain sound, so this never
+  applies to it.)
 
 **Levels.** With V the digital volume setting, the normal level is `floor(V × 99 / 100)` and the quiet level is
 `floor(V × 24 / 100)`. Each level selects one step of the game's volume table. The stereo position is always the
@@ -300,6 +303,10 @@ sound, audible off screen.
 human-controlled player, only for the unit that was touched, not for the rest of its side that follows it.
 `misc\hrescue` (orc set: `misc\orescue`) plays on a circle of power for each rescuable unit it rescues. Both are placed
 sounds, audible off screen (`game/rescue.md`).
+
+**Placing a building.** A click that places a building plays `misc\thunk`. A click on a site that fails the site
+check plays `misc\error` and shows the reason (`ui/placing-buildings.md`). Both are plain sounds. Nothing else plays
+the error sound.
 
 ### Spells
 
