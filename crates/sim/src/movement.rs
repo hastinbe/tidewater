@@ -172,6 +172,14 @@ impl World {
     /// happens this cycle (movement spec, "When decisions are made").
     fn take_over(&mut self, i: usize, o: Order) {
         self.release_tree(i);
+        // Orders spec, "Taking over": a return with no depot looks one up, or becomes idle.
+        let o = match o {
+            Order::ReturnGoods { depot: None } => match self.nearest_depot(&self.units[i]) {
+                Some(d) => Order::ReturnGoods { depot: Some(d) },
+                None => Order::Idle,
+            },
+            o => o,
+        };
         let a = crate::orders::order_anim(o);
         let u = &mut self.units[i];
         u.order = o;
@@ -182,7 +190,7 @@ impl World {
     }
 
     /// Arrival radius after the +1 (movement spec, "The +1"): sea and air units get it, except in orders 30 and 31.
-    /// Order 28 isn't modelled yet.
+    /// Order 28 is a land unit's, so it never gets the +1.
     fn arrival_radius(&self, u: &Unit, g: &Goal) -> i32 {
         let docking = matches!(u.order, Order::Land { .. } | Order::PushOff);
         let bonus = !g.range && !docking && matches!(u.layer, Layer::Sea | Layer::Air);

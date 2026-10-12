@@ -572,4 +572,16 @@ mod tests {
         w.board(fi, tid);
         assert_eq!(w.units[fi].order, Order::Idle);
     }
+
+    #[test]
+    fn going_idle_on_the_shore_docks() {
+        let mut w = sea(20);
+        let i = ship(&mut w, (20, 10), Order::PushOff);
+        w.stop(i);
+        assert_eq!(w.units[i].order, Order::Docked);
+        let j = ship(&mut w, (30, 10), Order::Move { goal: (40, 10) });
+        let j = w.index(w.units[j].id).unwrap();
+        w.stop(j);
+        assert_eq!(w.units[j].order, Order::Idle);
+    }
 }

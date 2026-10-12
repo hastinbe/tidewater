@@ -207,6 +207,21 @@ impl World {
         u.path.clear();
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = 1;
+        // A transport settles on an even tile that isn't shore water, and otherwise waits docked.
+        let u = &self.units[i];
+        if self.is_transport(u) {
+            let t = u.tile;
+            let settles =
+                t.0 & 1 == 0 && t.1 & 1 == 0 && self.terrain.word(t.0, t.1) & crate::terrain::bits::SHORE == 0;
+            let u = &mut self.units[i];
+            if settles {
+                u.ship.landing = false;
+                u.ship.one_tile = false;
+            } else {
+                u.order = Order::Docked;
+                return;
+            }
+        }
         let u = &self.units[i];
         if !self.rules.enhanced || u.resume > 0 {
             return;

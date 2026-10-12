@@ -264,6 +264,7 @@ impl World {
         u.dying = true;
         u.order = Order::Idle;
         u.pending = None;
+        u.remembered = None;
         u.path.clear();
         self.start_anim(ti, anim::DEATH);
         self.kill_passengers(ti);
