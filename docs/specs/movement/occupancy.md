@@ -5,6 +5,9 @@
   conversion table and the wall, forest and rock tables named below). The test vectors that use tileset data use the
   Forest tileset. Not yet confirmed against the running game.
 - **Changes:** 2026-10-11, round-3 errata: the search-mask note now says which player kinds drop bit 0x04, and when.
+  2026-10-11, round-3 errata: "Units not on the map" now says what entering a transport, mine, depot, platform or
+  construction site, and coming out, do to the marks and pointers (open question closed). The forest and rock table
+  bases are read from each tileset's table headers instead of fixed row counts (41 forest rows is Forest only).
 
 ## Behaviour
 
@@ -108,9 +111,20 @@ A building may be placed only where no footprint tile shares a bit with its plac
 
 ### Units not on the map
 
-A unit inside a gold mine is removed from the occupancy marks when it enters and put back when it leaves. It blocks
-nothing while inside. Units carried by a transport, and peasants inside a building being built, are believed to work
-the same way; this isn't confirmed yet.
+- **Entering a transport, a gold mine, a depot or an oil platform:** the unit leaves its tile as in "When a unit
+  leaves a tile" above: the 0x0100 mark is cleared, and the tile's ground-unit pointer is zeroed if it names the unit.
+  The unit's tile and pixel position then become the container's (for a building, its top-left tile). It is **not**
+  entered there: while inside it sets no mark and no pointer anywhere, and blocks nothing.
+- **Entering a construction site:** just before the building is placed, the 0x0100 mark on the builder's tile is
+  cleared (the pointer is left alone), so the builder doesn't block its own site. The building then marks its
+  footprint (0x0800 and the pointer, as usual), and the builder goes inside as above, at the building's top-left
+  tile. If the building can't be placed, the builder's 0x0100 mark is put back, unless that tile is a footprint tile.
+- **Coming out** (unloaded from a transport, leaving a mine, platform or depot, or leaving a finished or destroyed
+  building): the unit's tile becomes the tile found by the ring search of `movement/placement.md`, its pixel
+  position becomes that tile × 32, and it is entered there: the 0x0100 mark is set and the tile's ground-unit pointer
+  names the unit.
+
+Boarding and unloading are specified in `orders/transports.md`.
 
 ## How passability changes
 
@@ -227,8 +241,22 @@ the number of rows. The 16-bit entries follow.
   - Intact walls are internal indices 16 to 51.
   - Damaged walls are 52 to 87.
   - Rubble starts at 88.
-- **Forest table:** 10 columns, 41 rows. Forest indices start at `F = 16 + 87 − 1`.
-- **Rock table:** 10 columns, 39 rows. Rock indices start at `R = F + 41 − 1`.
+- **Forest table:** 10 columns; the row count differs per tileset. Forest indices start at
+  `F = 16 + (wall table rows) − 1`.
+- **Rock table:** 10 columns, 39 rows in every shipped tileset. Rock indices start at
+  `R = F + (forest table rows) − 1`.
+- Read every row count from the table's own header (its second 16-bit word); don't use fixed numbers. In the shipped
+  tilesets:
+
+  | Tileset | Wall rows | Forest rows | Rock rows | F | R |
+  | --- | --- | --- | --- | --- | --- |
+  | Forest | 87 | 41 | 39 | 102 | 142 |
+  | Swamp | 87 | 38 | 39 | 102 | 139 |
+  | Winter | 87 | 36 | 39 | 102 | 137 |
+  | Wasteland | 87 | 36 | 39 | 102 | 137 |
+
+- An internal tile index is the tileset's megatile number (the tile graphics in the tileset's `.cv4` data). On a
+  Forest map, forest tiles draw megatiles 102 to 141, rock tiles 142 to 179, and intact walls 16 to 51.
 - **Forest and rock entries:**
   - A tile with internal index i uses row `i − base + 1`.
   - Column 0 is the row itself. Columns 1 to 9 give the new shape for block position k.
@@ -268,8 +296,6 @@ Bits use the tables above.
 
 ## Open questions
 
-- Whether transported units and peasants inside a construction site are removed from occupancy in the same way as
-  units inside a gold mine.
 - How a woodcutter picks its tree (search shape, distance and tie-breaks); see `../economy/harvest.md`.
 - The gold mine's own placement check (distance from town halls and so on).
 - Whether any map other than old beta maps has bit 0x04 on a tile without 0x80.
