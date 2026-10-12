@@ -14,6 +14,9 @@
 - **Changes:** 2026-10-12, round-38 errata: a computer player's building gets a keep-clear mark by type when it is
   created, map buildings included (this replaces round 22's "no mark"); the keep-clear rectangle's edge rules, including
   the skew at the right edge.
+- **Changes:** 2026-10-12, round-39 errata: the site search's last test is the full site check of `ui/placing-
+  buildings.md` (Allowed), including "too close" to a gold mine; `xhuman10` vectors. Creation marks for computer
+  players' map buildings are confirmed as they are.
 
 ## Behaviour
 
@@ -262,7 +265,13 @@ A position (x, y) is accepted if:
   tiles from (x − 1, y − 1) (from x or y itself where that is 0);
 - no footprint tile carries a bit of the computer's placement mask: **0x0DDE** for land buildings, **0x0D11** for
   shore buildings. These are the masks of `movement/occupancy.md` plus the keep-clear bit;
-- the ordinary placement check (`movement/occupancy.md`, "Building placement masks") also passes.
+- the site check of `ui/placing-buildings.md` ("The site check") gives **Allowed** for the building type at
+  (x, y). Besides the placement masks (`movement/occupancy.md`, "Building placement masks") this applies "no shore",
+  "too close" to a gold mine (gold stores, distance 3) or to oil (shore buildings), and "no oil patch". The
+  "unexplored" outcome and the fog exception ("Hidden units don't block") apply only to the local player's builder,
+  never to a computer worker.
+
+This applies to every site search: the ordinary search, the new-mine search and the town hall searches.
 
 The first accepted position is the site; the building's top-left is (x, y).
 
@@ -398,6 +407,9 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Bordered rectangle, footprint 3 × 3 at (0, 0) | Marked x 0 to 4, y 0 to 4 |
 | Bordered rectangle, footprint 2 × 2 at (10, 10), N = 64 | Marked x 9 to 12, y 9 to 12 (no clipping) |
 | Farm rectangle (no border), footprint 2 × 2 at (62, 5), N = 64 | Marked (62, 5) and (61, 6) only: the width is cut to 1, and the second row starts 1 tile further left |
+| Hall (4 × 4) site (43, 72); gold mine (3 × 3) at (40, 73), so columns 40 to 42 and rows 73 to 75 (ends 43 and 76) | x: 40 − 3 = 37 < 47 and 43 − 3 = 40 < 43; y: 73 − 3 = 70 < 76 and 72 − 3 = 69 < 76. Too close: refused |
+| Hall site (40, 79), same mine | y: 79 − 3 = 76, not below the mine's end row 76. Not too close: accepted if the other tests pass |
+| `xhuman10-spells` and `xhuman10-blizzard` (oracle traces): player 2's peon 1553 looks for a new-mine hall site. The site at the mine at (16, 116) is refused by the keep-clear ring of player 6's barracks 1424 (type 0x3D) at (21, 113); mine 1514 is at (40, 73) | (43, 72) is refused as too close to mine 1514. Site **(40, 79)**: the great hall (type 0x4B) stands there by n = 551, slot 1410 in `xhuman10-spells` and 1411 in `xhuman10-blizzard` |
 | Computer peon carrying wood gets command 24 to its hall and the path search returns no steps | Its order ends; the next job choice gives command 24 to the same hall again, with no wait |
 
 ## Open questions
