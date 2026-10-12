@@ -327,7 +327,18 @@ pub struct Player {
     pub race: u8,
     pub start: Option<(i32, i32)>,
     pub upgrades: Upgrades,
+    /// Enemy units (types below the first building type) this player's units killed (campaign-flow spec, "Mission
+    /// score"); a kill of the player's own unit isn't counted.
     pub kills: u32,
+    /// Enemy buildings this player's units destroyed: the razings.
+    pub razings: u32,
+    /// The mission score: the point values of the enemy units and buildings this player's units killed. The score
+    /// screen adds the victory bonus (campaign-flow spec, "The score screen").
+    pub score: u32,
+    /// How many times the player's count of units (not buildings) went down, by a death or a change of owner.
+    pub units_lost: u32,
+    /// The same for the player's buildings.
+    pub buildings_lost: u32,
     /// Whether the player has ever had a completed town hall, keep or castle (build-train spec, "fast first hall").
     pub had_hall: bool,
     pub under_construction: u16,

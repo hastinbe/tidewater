@@ -2,7 +2,11 @@
 //! flight", "Impact effects", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by
 //! the line rule of `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack
 //! order's chase-and-face behaviour and the range measure are placeholders of our own until their specs land. The
-//! cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot.
+//! cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot. The kill credit,
+//! mission score and lost counters follow `docs/specs/game/campaign-flow.md` ("The score screen", "Mission score").
+//! Our reading: only a kill by damage from a unit is credited (a spell that kills without damage, such as
+//! polymorph, credits nobody), and only deaths and rescue's owner change count as lost (a removed corpse's move to
+//! the neutral player doesn't).
 
 use tidewater_formats::script::anim;
 
@@ -29,6 +33,8 @@ const NEUTRAL: u8 = 15;
 const DARK_PORTAL: u8 = 0x65;
 const KHADGAR: u8 = 0x18;
 const PORTAL_ENTRIES: [u8; 3] = [32, 34, 50];
+/// The first building type (the farm): a victim below it is a kill, from it on a razing (campaign-flow spec).
+const FIRST_BUILDING: u8 = 0x3a;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Missile {
@@ -307,10 +313,38 @@ impl World {
             return;
         }
         if let Some(a) = self.unit(attacker) {
-            let owner = a.owner as usize;
-            self.players[owner].kills += 1;
+            self.credit_kill(a.owner, ti);
         }
         self.kill(ti);
+    }
+
+    /// Campaign-flow spec, "Mission score": a unit of player `killer` killed the unit at `ti`. Unless the victim is
+    /// the killer's own, the killer's player gets the victim type's point value and a kill (a type below the first
+    /// building type) or a razing.
+    pub(crate) fn credit_kill(&mut self, killer: u8, ti: usize) {
+        let victim = &self.units[ti];
+        if victim.owner == killer {
+            return;
+        }
+        let points = self.stats.0.get(victim.kind as usize).map_or(0, |s| s.points as u32);
+        let kind = victim.kind;
+        let p = &mut self.players[killer as usize];
+        if kind < FIRST_BUILDING {
+            p.kills += 1;
+        } else {
+            p.razings += 1;
+        }
+        p.score += points;
+    }
+
+    /// Campaign-flow spec, "Statistics": the owner's count of units or of buildings went down by one.
+    pub(crate) fn count_lost(&mut self, owner: u8, building: bool) {
+        let p = &mut self.players[owner as usize];
+        if building {
+            p.buildings_lost += 1;
+        } else {
+            p.units_lost += 1;
+        }
     }
 
     /// The damage spec's Dark Portal case: in a single-player campaign game on campaign entries 32, 34 and 50, a hit
@@ -327,6 +361,9 @@ impl World {
         self.remember_building(ti);
         self.death_sound(ti);
         let unit = self.units[ti].clone();
+        if !self.loading {
+            self.count_lost(unit.owner, unit.building);
+        }
         let p = &mut self.players[unit.owner as usize];
         if unit.construction.is_some() {
             p.under_construction -= 1;
@@ -548,6 +585,60 @@ mod tests {
 
     fn attack(w: &mut crate::World, player: u8, units: Vec<UnitId>, target: UnitId) {
         w.step(&[Command::Attack { player, units, target }]);
+    }
+
+    /// Campaign-flow spec, test vector: a footman killed by an enemy archer.
+    #[test]
+    fn a_kill_credits_the_killers_player_with_the_victims_points() {
+        let mut w = world();
+        w.stats.0[0].points = 50;
+        let archer = w.spawn(8, 1, (3, 3), 0).unwrap();
+        let footman = UnitId(1);
+        let i = w.index(footman).unwrap();
+        w.damage(i, 255, archer);
+        let p = &w.players[1];
+        assert_eq!((p.kills, p.razings, p.score), (1, 0, 50));
+        assert_eq!((w.players[0].units_lost, w.players[0].buildings_lost), (1, 0));
+        assert_eq!(w.players[0].score, 0);
+    }
+
+    /// Campaign-flow spec, test vector: an own farm destroyed by an own catapult.
+    #[test]
+    fn destroying_an_own_building_gives_no_credit_but_counts_as_lost() {
+        let mut w = world();
+        w.stats.0[0x3a].points = 100;
+        let farm = w.spawn(0x3a, 0, (5, 5), 0).unwrap();
+        let catapult = w.spawn(5, 0, (2, 6), 0).unwrap();
+        let i = w.index(farm).unwrap();
+        // The test table has no building flags; the farm stands as one.
+        w.units[i].building = true;
+        w.units[i].hp = 10;
+        w.damage(i, 255, catapult);
+        let p = &w.players[0];
+        assert_eq!((p.kills, p.razings, p.score), (0, 0, 0));
+        assert_eq!((p.units_lost, p.buildings_lost), (0, 1));
+    }
+
+    #[test]
+    fn an_enemy_building_is_a_razing() {
+        let mut w = world();
+        w.stats.0[0x3b].points = 100;
+        let farm = w.spawn(0x3b, 1, (5, 5), 0).unwrap();
+        let i = w.index(farm).unwrap();
+        w.units[i].building = true;
+        w.units[i].hp = 10;
+        w.damage(i, 255, UnitId(1));
+        let p = &w.players[0];
+        assert_eq!((p.kills, p.razings, p.score), (0, 1, 100));
+        assert_eq!(w.players[1].buildings_lost, 1);
+    }
+
+    #[test]
+    fn the_lost_counters_change_the_state_hash() {
+        let w = world();
+        let mut v = world();
+        v.players[0].units_lost = 1;
+        assert_ne!(w.state_hash(), v.state_hash());
     }
 
     #[test]
