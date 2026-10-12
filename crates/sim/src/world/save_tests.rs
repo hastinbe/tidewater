@@ -58,6 +58,16 @@ fn save_then_load_reproduces_the_state() {
 }
 
 #[test]
+fn the_pending_command_mark_comes_back() {
+    // battle() gives its commands in the first cycle; their pending orders haven't taken over yet.
+    let a = battle();
+    assert!(a.units.iter().any(|u| u.commanded), "a command is pending at the save");
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!(b.units, a.units);
+}
+
+#[test]
 fn the_generator_starts_afresh_from_the_seed() {
     let mut a = battle();
     run(&mut a, 20);

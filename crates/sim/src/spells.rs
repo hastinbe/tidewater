@@ -362,7 +362,7 @@ impl World {
         };
         // Our own choice, as for the other player commands: a new order forgets a remembered patrol.
         self.units[i].remembered = None;
-        self.give(i, order);
+        self.command(i, order);
     }
 
     /// A spell's mana cost from the spec's table ("Orders and mana costs"); for the spells paid per hit point, per

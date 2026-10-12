@@ -403,7 +403,7 @@ impl World {
                 target,
                 tile,
             },
-            4 => return self.give(i, Order::MoveAttack { goal: tile }),
+            4 => return self.command(i, Order::MoveAttack { goal: tile }),
             5 => Command::Patrol {
                 player,
                 units,
@@ -414,11 +414,11 @@ impl World {
                     Some(target) => Order::Follow { target },
                     None => Order::Move { goal: tile },
                 };
-                return self.give(i, o);
+                return self.command(i, o);
             }
             8 | 10 => match target {
                 Some(target) => Command::Attack { player, units, target },
-                None if self.wall_tile(tile) => return self.give(i, Order::AttackWall { tile }),
+                None if self.wall_tile(tile) => return self.command(i, Order::AttackWall { tile }),
                 None => Command::AttackMove {
                     player,
                     units,
@@ -427,7 +427,7 @@ impl World {
             },
             9 | 11 => match target {
                 Some(target) => Command::Attack { player, units, target },
-                None if self.wall_tile(tile) => return self.give(i, Order::AttackWall { tile }),
+                None if self.wall_tile(tile) => return self.command(i, Order::AttackWall { tile }),
                 None => Command::Stop { player, units },
             },
             12 | 16 => {
@@ -437,10 +437,10 @@ impl World {
                 } else {
                     Order::IdleReact { target }
                 };
-                return self.give(i, o);
+                return self.command(i, o);
             }
             13 | 15 => Command::StandGround { player, units },
-            14 => return self.give(i, Order::TowerWatch { target: None }),
+            14 => return self.command(i, Order::TowerWatch { target: None }),
             17 => Command::AttackGround { player, units, tile },
             19 => Command::Demolish {
                 player,
@@ -456,7 +456,7 @@ impl World {
             },
             24 => match target.filter(|&t| self.can_return_to(u, t)) {
                 Some(depot) => {
-                    return self.give(i, Order::ReturnGoods { depot: Some(depot) });
+                    return self.command(i, Order::ReturnGoods { depot: Some(depot) });
                 }
                 None => Command::ReturnGoods { player, units },
             },
@@ -472,7 +472,7 @@ impl World {
             _ => return,
         };
         if let Some(o) = self.command_order(i, &c) {
-            self.give(i, o);
+            self.command(i, o);
         }
     }
 

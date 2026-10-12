@@ -1319,7 +1319,7 @@ impl World {
             tile,
         };
         if let Some(o) = self.command_order(i, &c) {
-            self.give(i, o);
+            self.command(i, o);
         }
     }
 
@@ -1340,13 +1340,13 @@ impl World {
             let _ = self.command_order(i, &c);
         }
         self.units[i].remembered = None;
-        self.give(i, Order::MoveAttack { goal });
+        self.command(i, Order::MoveAttack { goal });
     }
 
     /// Command 12 against a unit.
     pub(crate) fn command_12(&mut self, i: usize, target: UnitId) {
         if self.takes_commands(i) {
-            self.give(i, Order::Chase { target });
+            self.command(i, Order::Chase { target });
         }
     }
 
@@ -1356,7 +1356,7 @@ impl World {
             return;
         }
         self.units[i].remembered = self.rules.enhanced.then_some(Remembered::Patrol { to: from, back: to });
-        self.give(i, Order::Patrol { to: from, back: to });
+        self.command(i, Order::Patrol { to: from, back: to });
     }
 }
 

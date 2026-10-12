@@ -136,7 +136,7 @@ impl World {
         let Some(o) = self.command_order(i, &c) else {
             return false;
         };
-        self.give(i, o);
+        self.command(i, o);
         let Some(o) = self.units[i].pending.take() else {
             return false;
         };

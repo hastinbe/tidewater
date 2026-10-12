@@ -225,6 +225,7 @@ impl World {
         let u = &mut self.units[i];
         u.order = Order::Idle;
         u.pending = None;
+        u.commanded = false;
         u.path.clear();
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = 1;
@@ -277,6 +278,7 @@ impl World {
         let u = &mut self.units[i];
         u.order = o;
         u.pending = None;
+        u.commanded = false;
         u.path.clear();
         self.start_anim(i, order_anim(o));
         self.units[i].script.wait = 1;

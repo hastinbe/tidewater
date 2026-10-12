@@ -115,6 +115,68 @@ impl World {
             o => o,
         };
         self.units[i].pending = Some(order);
+        self.units[i].commanded = false;
+    }
+
+    /// A command's order for one unit, whoever gives it: the goal pulled back off ground the unit can't stand on
+    /// and the blocked counter cleared (pathfinding spec, "Goal pulled back"), then the order stored as pending with
+    /// the pending-command mark ("Units seen by the search").
+    pub(crate) fn command(&mut self, i: usize, order: Order) {
+        let order = match order {
+            Order::Move { goal } => Order::Move {
+                goal: self.pull_back(i, goal),
+            },
+            Order::MoveAttack { goal } => Order::MoveAttack {
+                goal: self.pull_back(i, goal),
+            },
+            Order::AttackMove { goal } => Order::AttackMove {
+                goal: self.pull_back(i, goal),
+            },
+            Order::Patrol { to, back } => Order::Patrol {
+                to: self.pull_back(i, to),
+                back,
+            },
+            o => o,
+        };
+        if !matches!(
+            order,
+            Order::AttackGround { .. } | Order::Land { .. } | Order::Cast { .. }
+        ) {
+            self.units[i].blocked = 0;
+        }
+        self.give(i, order);
+        let u = &mut self.units[i];
+        u.commanded = u.pending == Some(order);
+    }
+
+    /// "Goal pulled back": a goal tile the unit can't stand on (terrain or building bits of its mask, units ignored;
+    /// another region for a unit that doesn't fly) becomes the last unusable tile met when walking the line's tiles
+    /// back from the goal toward the unit. Kept as it is if usable, or if no tile on the way is.
+    pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
+        let u = &self.units[i];
+        let mask = u.layer.mask() & !(bits::UNIT | bits::AIR_UNIT);
+        let home = self.terrain.region(u.tile.0, u.tile.1);
+        let air = u.layer == Layer::Air;
+        let usable = |t: (i32, i32)| {
+            self.terrain.contains(t.0, t.1)
+                && self.terrain.word(t.0, t.1) & mask == 0
+                && (air || self.terrain.region(t.0, t.1) == home)
+        };
+        if usable(g) {
+            return g;
+        }
+        let mut tiles = vec![u.tile];
+        for d in path::line(u.tile, g, 1) {
+            let v = path::DIRECTIONS[d as usize];
+            let p = *tiles.last().expect("start");
+            tiles.push((p.0 + v.0, p.1 + v.1));
+        }
+        // Walk back from the goal; the unit's own tile ends the walk.
+        let back: Vec<_> = tiles[1..].iter().rev().copied().collect();
+        match back.iter().position(|&t| usable(t)) {
+            Some(n) if n > 0 => back[n - 1],
+            _ => g,
+        }
     }
 
     /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec, round-3 errata).
@@ -201,6 +263,7 @@ impl World {
         u.order = o;
         u.path.clear();
         u.blocked = 0;
+        u.commanded = false;
         self.start_anim(i, a);
         self.units[i].script.wait = TAKEOVER_WAIT;
     }
@@ -356,7 +419,7 @@ impl World {
         if attack_type && u.attacked_by.is_none() && fighter && !allied {
             return true;
         }
-        allied && o.script.anim == anim::MOVE && o.blocked == 0
+        allied && (o.script.anim == anim::MOVE || (o.commanded && o.pending.is_some())) && o.blocked == 0
     }
 
     /// Up to 20 tiles of route from `u` toward `g` (pathfinding spec). Empty means no path.
@@ -526,6 +589,51 @@ mod tests {
         w.units[i].kind = 0;
         w.units[i].attacked_by = Some(enemy);
         assert!(!seen(&mut w, Order::Chase { target: enemy }));
+    }
+
+    #[test]
+    fn a_goal_on_a_building_is_pulled_back_toward_the_unit() {
+        // Pathfinding spec, "Goal pulled back", with the xorc7 vectors' geometry on land: a 3 x 3 building covering
+        // (6..8, 18..20). From (36, 64) the walk back meets (6, 18), (7, 19), (7, 20), then usable (8, 21): goal
+        // (7, 20). From (58, 4): (6, 18), (7, 18), then (8, 17): goal (7, 18).
+        let mut w = field(70, 70);
+        w.stats.0[0x4a].size = (3, 3);
+        w.stats.0[0x4a].flags |= flags::BUILDING;
+        w.spawn(0x4a, 1, (6, 18), 0).unwrap();
+        for (from, want) in [((36, 64), (7, 20)), ((58, 4), (7, 18))] {
+            let f = w.spawn(0, 0, from, 0).unwrap();
+            let i = w.index(f).unwrap();
+            assert_eq!(w.pull_back(i, (6, 18)), want, "from {from:?}");
+            // A usable goal is kept, and the command stores the pulled-back goal.
+            assert_eq!(w.pull_back(i, (20, 20)), (20, 20));
+            w.units[i].blocked = 5;
+            w.command(i, Order::Move { goal: (6, 18) });
+            let u = &w.units[i];
+            assert_eq!(
+                (u.pending, u.blocked, u.commanded),
+                (Some(Order::Move { goal: want }), 0, true)
+            );
+        }
+    }
+
+    #[test]
+    fn an_ally_with_a_command_pending_is_ignored_by_the_search() {
+        // The orc4 vector: a peasant out of a mine, idle with a command pending, is "about to move"; once the order
+        // has taken over (not moving), it blocks the search.
+        let mut w = field(12, 4);
+        let a = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let p = w.spawn(0, 0, (2, 1), 0).unwrap();
+        let (i, j) = (w.index(a).unwrap(), w.index(p).unwrap());
+        let u = w.units[i].clone();
+        assert!(!w.ignored_by_search(&u, p));
+        w.command(j, Order::Move { goal: (8, 2) });
+        assert!(w.ignored_by_search(&u, p));
+        let o = w.units[j].pending.take().unwrap();
+        w.take_over(j, o);
+        assert!(!w.ignored_by_search(&u, p));
+        // An internal pending order isn't a command.
+        w.give(j, Order::Idle);
+        assert!(!w.ignored_by_search(&u, p));
     }
 
     #[test]

@@ -233,6 +233,8 @@ pub struct Unit {
     pub ship: Ship,
     pub passengers: [Option<UnitId>; PASSENGER_SLOTS],
     pub resume: u8,
+    /// Pathfinding spec, "Units seen by the search": the pending order came from a command and hasn't taken over.
+    pub commanded: bool,
     /// Repair runs on this unit not yet paid for (repair spec: one payment per 2 runs, whoever repairs).
     pub repair_runs: u8,
     /// Spell timers; running while above 0.
@@ -988,6 +990,7 @@ impl World {
             ship: Ship::default(),
             passengers: [None; PASSENGER_SLOTS],
             resume: 0,
+            commanded: false,
             repair_runs: 0,
             bloodlust: 0,
             unholy_armor: 0,
@@ -1303,7 +1306,7 @@ impl World {
                     return;
                 };
                 if let Some(o) = self.build_command(i, kind, tile) {
-                    self.give(i, o);
+                    self.command(i, o);
                 }
                 return;
             }
@@ -1325,7 +1328,7 @@ impl World {
             let Some(order) = self.command_order(i, c) else {
                 continue;
             };
-            self.give(i, order);
+            self.command(i, order);
         }
     }
 

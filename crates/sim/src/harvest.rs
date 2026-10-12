@@ -448,6 +448,8 @@ impl World {
         // 25-cycle wait).
         u.order = Order::Idle;
         u.pending = next;
+        // The order comes from a command (harvest or return), so the unit counts as about to move (pathfinding spec).
+        u.commanded = next.is_some();
         let u = u.clone();
         self.mark(&u, tile, Some(u.id));
         self.start_anim(i, anim::STILL);
