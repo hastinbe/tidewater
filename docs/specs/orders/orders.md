@@ -3,6 +3,8 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and the public PUD
   specification text (unit data section). Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-10 errata: a hit records its attacker only under the rules of `ai/attack-ai.md`
+  ("Call for help"), and the first live attacker is kept, so the attacker is not always the last unit that hit.
 
 ## Behaviour
 
@@ -353,9 +355,10 @@ a reference tile of the candidate:
 score = base + priority − floor(d² / 4), and at least 1. "Priority" is the candidate type's priority value in the
 unit data.
 
-**Choice.** The search starts with the unit's current **attacker** (the last unit that hit it; see `damage.md`) as
-the best candidate, with its own score. A candidate replaces the best only with a **strictly greater** score. So on a
-tie the attacker wins, and otherwise the first candidate in vertical order wins.
+**Choice.** The search starts with the unit's current **attacker** (the first attacker that is still alive; see
+`ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score. A candidate replaces the
+best only with a **strictly greater** score. So on a tie the attacker wins, and otherwise the first candidate in
+vertical order wins.
 
 **Resulting order** when a target is chosen:
 
@@ -398,7 +401,9 @@ position defined in `movement/movement.md`):
 
 ### Reacting to an attacker
 
-A hit records the attacker (see `damage.md`). There are two places where the attacker is dealt with.
+A hit can record the attacker. The rules are in `ai/attack-ai.md`, "Call for help", steps 1 to 4: a live attacker is
+kept, allies are ignored, and a human player's unit doesn't record a building. There are two places where the attacker
+is dealt with.
 
 **In the acquiring orders** (those marked "acquires", and attack-move in Enhanced mode), each time the logic runs and
 the unit has an attacker:
