@@ -7,7 +7,7 @@
 - **Changes:** 2026-10-12: the open question on how owner codes map to player kinds is closed by `game/setup.md`.
 - **Changes:** 2026-10-12, round-35 errata: the corridor vector uses order 12, since order 9 isn't attack-type for the
   path search; a vector for order 9 is added.
-- **Changes:** 2026-10-12, round-35 errata: a landing transport's general radius is 3 (no +1); the landing logic checks
+- **Changes:** 2026-10-12, round-36 errata: a landing transport's general radius is 3 (no +1); the landing logic checks
   the exact goal.
 
 ## Behaviour
