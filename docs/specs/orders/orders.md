@@ -220,9 +220,9 @@ animation starts with a first wait of 3 cycles).
 - a tree the unit had reserved is released (see `occupancy.md`).
 
 The take-over replaces the logic run of that step done: the new order's logic doesn't run in that update, and first
-runs at the next step done of its animation. Only a step done with no pending order runs the order's logic. If that
-run gives the unit a command of its own (the critter's wander, a computer worker's job choice), the new pending order
-takes over at once, in the same update, and its logic doesn't run in that update either.
+runs at the next step done of its animation. Only a step done with no pending order runs the order's logic. A command
+that this run gives the unit itself can take over at once, in the same update, without running its logic: the
+critter's wander and a computer worker's job choice from idle both do (oracle traces).
 
 **Immediate orders** (used for going idle, dying and giving up): the order is set at once, the pending order is
 cleared, the order's animation starts with a wait of 1, and any reserved tree is released. When the immediate order
@@ -713,3 +713,6 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   their move ends. Whether every unit does the same wasn't checked. Default: yes.
 - **Untraced look-around cases.** Fliers and catapults at rest, orders 7 and 13, and a critter whose wander target is
   clamped back to its own tile don't occur in the traces; those rules rest on the static study alone.
+- **Same-update take-over.** The order logic signals when a command it gave should take over at once. Only the
+  critter's wander and the computer worker's job choice from idle are confirmed. Default: every command a unit's own
+  order logic gives it takes over in the same update.
