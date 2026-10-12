@@ -17,6 +17,9 @@
   to even; the blocked counter is cleared by every command (`movement.md`), not by the pull-back.
   2026-10-12, round-38 errata: the searching unit's own tile is free only under the moving-ally case and otherwise
   blocks the walks; trace vectors for `orc4`, `orc09-repair` and `human10`.
+  2026-10-12, round-39 errata: the goal pull-back subtracts the line's steps from the goal in their order (the run
+  mirrored from the goal end) and tests k − 1 tiles; the transport case is stated here; `orc8` vectors added and the
+  `xorc7` and `human10` vectors restated in the new terms (same results).
 
 ## Behaviour
 
@@ -196,11 +199,18 @@ tile the command stores (the command also clears the unit's blocked counter, for
 1. A tile is **usable** when it has none of the terrain or building bits of the unit's movement mask (units are
    ignored) and, for a unit that isn't an air unit, its region is the unit's own region.
 2. If the goal is usable, it is kept as it is.
-3. Otherwise, take the tiles of the line rule (Step 2) from the unit's tile to the goal, **one tile per step even for
-   a two-tile mover**, and walk them backwards from the goal toward the unit.
-4. At the first usable tile, the goal becomes the tile just before it on the goal's side: the last tile that isn't
-   usable. So the new goal is still unusable; it is the unusable tile nearest the usable ground.
-5. If the walk reaches the unit's own tile without finding a usable tile, the goal is kept as it is.
+3. Otherwise, take the k steps of the line rule (Step 2) from the unit's tile to the goal, **one tile per step even
+   for a two-tile mover**. Start at the goal and subtract the steps one by one **in their order, first step first**;
+   each subtraction gives the next tile to test. This is the line's run mirrored from the goal end, not the line's
+   own tiles in reverse: the first tile tested is the goal minus the line's first step. Only the first k − 1
+   subtractions are tested; the last would give the unit's own tile, which is never tested.
+4. At the first usable tile, the goal becomes the tile tested just before it (the goal itself if the first tile
+   tested is usable). So the new goal is still unusable unless it is the goal itself.
+5. If none of the k − 1 tiles is usable, the goal is kept as it is. When the pull-back is run for a transport
+   (`orders/transports.md`), the goal becomes the unit's tile plus the line's **last** step instead.
+
+The tested tiles are the line's own tiles in reverse when the line has a single direction, and also when its steps
+are symmetric. They differ when a diagonal step is not in the middle of the run.
 
 The search then aims at this stored goal, rounded down to even for a two-tile mover; the arrival test uses the stored
 goal, not rounded, with the radius rules of `movement.md`. A transport sent to a land or shore-water tile from open
@@ -259,17 +269,21 @@ units on the map.
 | Same, n = 357 | Ogre 1496 has moved on to (70, 79) earlier in the same cycle, so the new line's first tile (71, 79) is free: the grunt steps west, tile (71, 79), facing 6 |
 | `human12` (oracle trace): zeppelin 1559 (type 0x29, two-tile) at (92, 14), roam goal (87, 1) | G = (86, 0); tile deltas (−6, −14): M 14, m 6, e 7. Steps N, NW, N, NW, N, NW: (92, 12) at n = 9, (90, 10) at 29, (90, 8) at 49, (88, 6) at 69, (88, 4) at 89, (86, 2) at 109; 1 tile from (87, 1) on both axes, so arrived (radius 0 + 1, air); idle at n = 129 |
 | Same, deltas halved to (−3, −7) (wrong) | NW first |
-| `xorc7` (oracle trace): submarine 1493 (type 0x26, two-tile) at (36, 64), sea patrol to (6, 18), the top-left tile of a shipyard covering (6..8, 18..20) | Walking back: (6, 18), (7, 19), (7, 20) are shipyard tiles, (8, 21) is water in its region, so the goal is (7, 20) and the search aims at (6, 20). The first 20 steps: NW, N, NW, NW, N, NW, NW, N, NW, NW, NW, N, NW, NW, N, NW, NW, N, NW, NW |
-| Same shipyard, a submarine at (58, 4) | Walk (6, 18), (7, 18), then (8, 17), water: goal (7, 18) |
+| `xorc7` (oracle trace): submarine 1493 (type 0x26, two-tile) at (36, 64), sea patrol to (6, 18), the top-left tile of a shipyard covering (6..8, 18..20) | Line steps NW, N, NW and so on; (6, 18) is a shipyard tile. Tested: (6, 18) − NW = (7, 19) and − N = (7, 20), shipyard tiles; − NW = (8, 21), water in its region, so the goal is (7, 20) and the search aims at (6, 20). The first 20 steps: NW, N, NW, NW, N, NW, NW, N, NW, NW, NW, N, NW, NW, N, NW, NW, N, NW, NW |
+| Same shipyard, a submarine at (58, 4) | Line steps W, SW and so on. Tested (7, 18), shipyard, then (8, 17), water: goal (7, 18) |
 | Footman ordered onto a tile of its own region with no building | Goal unchanged |
-| Footman ordered onto an island tile (another region) with sea between (static study only) | The goal becomes the tile just before the first tile of its own region on the walk back (a water tile) |
+| Footman ordered onto an island tile (another region) with sea between (static study only) | The goal becomes the tile tested just before the first tested tile of its own region (a water tile) |
+| `orc8` (oracle trace), n = 591: computer worker 1505 inside its hall, unit tile (123, 96), is sent to harvest the tree at (124, 90). Line steps N, N, NE, N, N, N. Church 1503 (type 0x3E, 3 × 3) at (124, 91); (124, 90) and (125, 90) forest | Tested: (124, 91) building, (124, 92) building, (123, 93) usable. Stored goal **(124, 92)**. The worker comes out facing 0 (N), toward (124, 92) |
+| Same command, the line's own tiles walked backwards (wrong) | Would test (124, 91), (124, 92), (124, 93), (123, 94): goal (124, 93), facing 1. Differs from the trace |
+| `orc8`, n = 667: worker 1505 at (123, 93), re-aimed at the tree (124, 90). Line steps NE, N, N | First tested: (124, 90) − NE = (123, 91), usable. Goal kept: **(124, 90)**. n = 670 it steps N; from n = 702 it chops from (123, 91), facing 1 |
+| Unit at (0, 0), goal (0, 3), line steps S, S, S; (0, 3), (0, 2) and (0, 1) all unusable | Tested (0, 2) and (0, 1) only (k − 1 = 2). None usable: goal kept (0, 3); when run for a transport, (0, 0) + S = (0, 1) |
 | `orc4` (oracle trace): computer footman 1538 on (9, 12), order 3, route north into (9, 11). At n = 3246 peasant 1540 (same owner) comes out of a mine onto (9, 11): order 2, wait 25, with a harvest command pending (it takes over at n = 3271) | Each new search ignores the peasant, so the route stays north and the step is refused: n = 3252 to 3257 tile (9, 12), wait 1 (row I); n = 3258 wait 15 (row D). At n = 3273 the peasant's order has taken over, its tile blocks the search, and the footman steps to (10, 11), facing 1 |
 | Same, but the peasant has no pending command (static study only) | The search sees it: the route goes round at the first new search |
 | `orc4-20000` (oracle trace): computer peasant 1578 (type 0x02) idle on (6, 6), given lumber at n = 6808 (order 23, animation 4, wait 3, taken over: no pending order); search at n = 6811 toward (4, 3) | The line's first step NW onto (5, 5) (worker 1539) is blocked, so T = S. Left walk: W to (5, 6); from there N, NW, W, SW, S, SE (footman 1585 on (6, 7)) and E (S itself, which blocks) are blocked, NE onto (6, 5) is free, and C's neighbour N, (5, 5), is a line tile: the walk succeeds at (5, 6). Route W; equal distance 3, minor-axis 1 against 2, so progress 1, score 2: used at once. Trace: W to (5, 6) at n = 6811, NE to (6, 5) at 6827, NW to (5, 4) at 6843 |
 | Same unit in its move animation with blocked counter 0 (static study only) | Its own tile is free: the left walk reaches S and fails ("N is T") |
 | Same unit in its move animation with blocked counter 2 (static study only) | Its own tile blocks |
 | `orc09-repair-600` (oracle trace) n = 5: computer peasant 1587 (type 0x02) in order 28, S = (89, 4), G = (82, 6), the "Building goal rule" tile of its farm site (81, 6) (`ai/worker-ai.md`); town hall 1592 covers x 85 to 88, y 2 to 5; peasant 1584 is idle on (89, 5) | Line dx −7, dy 2, e = 3: the first step W onto (88, 4) is the hall, so T = S, blocked direction W; line tiles (88, 4), (87, 5), (86, 5), (85, 5), (84, 6), (83, 6), (82, 6). Left walk SE, SW, W, W, W, W, succeeding at C = (85, 6) (its W neighbour (84, 6) is a line tile); (SE, SW) isn't made "two of S" because (89, 5) holds 1584; L 6, progress 3, score 9. Right walk N, N, NW, W, W, W, SW, S, S to P = (84, 4): L 9, progress 2, score 11. The left walk is used: first step SE to (90, 5), facing 3 |
-| `human10-10000` (oracle trace) n = 6804: computer destroyer 1483 (type 0x1F, two-tile) on (24, 12); at n = 6801 its player gives it a patrol to (22, 9), which the pull-back keeps (the line tiles are all shipyard 1580's, 3 × 3 at (22, 9)) | G = (22, 8); zone the even tiles x 20 to 24, y 6 to 10. The line's first step NW onto (22, 10) is blocked. The left walk follows the coast south from S (24, 14) and doesn't score below 8. Right walk: N onto (24, 10) is the shipyard, NE onto (26, 10) is free, then NW onto (24, 8), water and in the zone: route NE, NW, L 2, progress 2 (P's distance to (22, 9)), score 4. Trace: (26, 10), facing 1, animation 3 |
+| `human10-10000` (oracle trace) n = 6804: computer destroyer 1483 (type 0x1F, two-tile) on (24, 12); at n = 6801 its player gives it a patrol to (22, 9), which the pull-back keeps (line steps NW, NW, N; the k − 1 = 2 tiles tested, (23, 10) and (24, 11), are both shipyard 1580's, 3 × 3 at (22, 9)) | G = (22, 8); zone the even tiles x 20 to 24, y 6 to 10. The line's first step NW onto (22, 10) is blocked. The left walk follows the coast south from S (24, 14) and doesn't score below 8. Right walk: N onto (24, 10) is the shipyard, NE onto (26, 10) is free, then NW onto (24, 8), water and in the zone: route NE, NW, L 2, progress 2 (P's distance to (22, 9)), score 4. Trace: (26, 10), facing 1, animation 3 |
 | `xorc01-death-coil` (oracle trace), n = 353: the attack-tile command given in turn 352 reaches the six selected units; death knight 1491, in its move animation on (71, 80) since n = 341, blocked once at n = 304 (counter 1) | Its counter is 0 at once, while its order 10 is still pending, so grunt 1497's search at n = 356 ignores it (the vector above) |
 | A unit given a spell command (order 38 to 56) with blocked counter 5 (static study only) | Counter 0; the goal is not pulled back |
 | Two-tile mover, target building 3 × 3 at (6, 18) | Goal zone: even tiles x 4 to 10, y 16 to 22 |
