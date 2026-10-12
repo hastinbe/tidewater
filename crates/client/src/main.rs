@@ -785,6 +785,7 @@ fn cycle_secs(enhanced: bool, speed: u8) -> f64 {
     ms / 1000.0
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tick(
     mut sim: ResMut<Sim>,
     mut sel: ResMut<Selection>,
