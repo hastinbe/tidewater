@@ -508,7 +508,8 @@ fn sim(
         None => UnitTable::from_table(&inst.read("rez\\unitdata.dat")?)?,
     };
     let scripts = tidewater_formats::script::Scripts::parse(inst.read("rez\\script.bin")?)?;
-    let mut w = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
+    let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&inst.read("rez\\upgrades.dat")?)?;
+    let mut w = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), seed)?;
     let ai = tidewater_formats::aibin::AiFile::parse(inst.read("rez\\ai.bin")?)?;
     w.start_ai(std::sync::Arc::new(ai));
     // The display maps follow the local player, which the smoke check takes to be player 0.

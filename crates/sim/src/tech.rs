@@ -143,8 +143,8 @@ fn becomes(from: u8) -> &'static [u8] {
     }
 }
 
-/// The default upgrade data ("Default upgrade data"), standing in for `upgrades.dat` until a map's UGRD section
-/// replaces it. Costs are stored at full value; "affects" is the single bit given in the spec's table.
+/// The default upgrade data ("Default upgrade data"), for worlds built without an installation (`World::new`);
+/// `World::from_pud` takes the installation's `upgrades.dat` instead. Costs are stored at full value; "affects" is the single bit given in the spec's table.
 pub fn default_upgrades() -> UpgradeTable {
     // (time, gold, lumber, oil, group, bit)
     let row = |n: usize| -> (u8, u16, u16, u16, u16, u32) {

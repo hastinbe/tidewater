@@ -560,11 +560,13 @@ impl World {
 
     /// Builds the starting state of a map. Start locations become [`Player::start`], not units. Map units are created
     /// in map order, each making its creation draws; units of players marked "nobody" are skipped (unit-slots spec,
-    /// "Starting a map"). Converting a unit to its owner's race isn't done yet.
+    /// "Starting a map"). Converting a unit to its owner's race isn't done yet. `upgrades` is the installation's
+    /// default upgrade data (`upgrades.dat`), which the map's own data replaces when it has any.
     pub fn from_pud(
         pud: &Pud,
         tileset: &Tileset,
         stats: UnitTable,
+        upgrades: UpgradeTable,
         scripts: Arc<Scripts>,
         seed: u32,
     ) -> Result<Self, WorldError> {
@@ -585,6 +587,7 @@ impl World {
             pud.section(b"OILM").is_some(),
         );
         let mut w = World::new(terrain, stats, scripts, seed);
+        w.upgrade_data = upgrades;
         // The map's upgrade data replaces the defaults only when its "use default data" word is 0.
         if let Some(t) = pud.section(b"UGRD").map(UpgradeTable::from_ugrd).transpose()?.flatten() {
             w.upgrade_data = t;

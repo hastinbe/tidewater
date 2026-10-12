@@ -137,11 +137,12 @@ pub fn load(install: &mut Install, map: &str) -> Result<Scene> {
         None => UnitTable::from_table(&install.read("rez\\unitdata.dat")?)?,
     };
     let scripts = Scripts::parse(install.read("rez\\script.bin")?)?;
+    let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&install.read("rez\\upgrades.dat")?)?;
     // Single player seeds with the time in whole seconds (timing-and-rng spec, "Seeding").
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as u32);
-    let mut world = World::from_pud(&pud, &ts, stats, std::sync::Arc::new(scripts), seed)?;
+    let mut world = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), seed)?;
     let ai = tidewater_formats::aibin::AiFile::parse(install.read("rez\\ai.bin")?)?;
     world.start_ai(std::sync::Arc::new(ai));
 
