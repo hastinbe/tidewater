@@ -250,11 +250,11 @@ comes before its air-layer unit. A unit already considered (the impact-tile unit
 
 ### Attack timing (cooldown)
 
-Each unit has an attack **cooldown**, a count of cycles. When a unit decides to strike, it turns to face its target
-(except ships, `orders/orders.md`) and its cooldown is set to its type's **attack loop + 1** (the loop column of the
-table below): 26 for footmen and the other melee units, 66 for archers and axe throwers, 41 for mages and death
-knights, 201 for ballistas and catapults, and so on. The cooldown counts down by 1 every cycle while it is above 0,
-for every unit except transports. Buildings have none.
+Each unit has an attack **cooldown**, a count of cycles. When a unit decides to strike, it turns to face its target (the
+facing rule of `core/animation-scripts.md`; ships use a different rule) and its cooldown is set to its type's **attack
+loop + 1** (the loop column of the table below): 26 for footmen and the other melee units, 66 for archers and axe
+throwers, 41 for mages and death knights, 201 for ballistas and catapults, and so on. The cooldown counts down by 1
+every cycle while it is above 0, for every unit except transports. Buildings have none.
 
 Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a
 flyer: if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first
