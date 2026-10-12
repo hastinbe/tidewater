@@ -13,6 +13,8 @@
   2026-10-12, round-36 errata: the line counts in tiles for two-tile movers too; the goal pull-back's orders, walk and
   kept tile; a unit with a command whose pending order hasn't taken over counts as about to move. Two open questions
   closed, trace vectors added.
+  2026-10-12, round-37 errata: a two-tile mover's goal zone rounds its first row and column down to even and its last up
+  to even; the blocked counter is cleared by every command (`movement.md`), not by the pull-back.
 
 ## Behaviour
 
@@ -70,7 +72,11 @@ the blocked rules in `movement.md`).
 ### Step 1: mark the goal zone
 
 The **goal zone** is the 3 × 3 tiles centred on G. For a target unit or building, it is the target's footprint
-widened by one tile on each side. For two-tile movers it is aligned to even coordinates.
+widened by one tile on each side. For two-tile movers the zone's first row and column are rounded **down** to even
+and its last row and column are rounded **up** to even; the zone is the even tiles in that range, so it can reach one
+tile farther out than the plain zone on the right and bottom. For example, for a 3 × 3 building at (6, 18) the
+widened footprint is columns 5 to 9 and rows 17 to 21, and a two-tile mover's zone is the even tiles from (4, 16) to
+(10, 22); with no target it is the even tiles from G − 2 to G + 2.
 
 ### Step 2: the straight line
 
@@ -177,7 +183,7 @@ corner that touches the unit's region, if one exists. Regions come from the map'
 
 Every command runs this when the order it gives is one of **0 to 16, 18 to 29, 31 to 37 and 57 to 60**, whoever
 gives it (a human or a computer player). Orders 17, 30 and 38 to 56 (the spells) don't use it. It works on the goal
-tile the command stores, and the same step clears the unit's blocked counter (`movement.md`):
+tile the command stores (the command also clears the unit's blocked counter, for every order, `movement.md`):
 
 1. A tile is **usable** when it has none of the terrain or building bits of the unit's movement mask (units are
    ignored) and, for a unit that isn't an air unit, its region is the unit's own region.
@@ -251,6 +257,12 @@ units on the map.
 | Footman ordered onto an island tile (another region) with sea between (static study only) | The goal becomes the tile just before the first tile of its own region on the walk back (a water tile) |
 | `orc4` (oracle trace): computer footman 1538 on (9, 12), order 3, route north into (9, 11). At n = 3246 peasant 1540 (same owner) comes out of a mine onto (9, 11): order 2, wait 25, with a harvest command pending (it takes over at n = 3271) | Each new search ignores the peasant, so the route stays north and the step is refused: n = 3252 to 3257 tile (9, 12), wait 1 (row I); n = 3258 wait 15 (row D). At n = 3273 the peasant's order has taken over, its tile blocks the search, and the footman steps to (10, 11), facing 1 |
 | Same, but the peasant has no pending command (static study only) | The search sees it: the route goes round at the first new search |
+| `xorc01-death-coil` (oracle trace), n = 353: the attack-tile command given in turn 352 reaches the six selected units; death knight 1491, in its move animation on (71, 80) since n = 341, blocked once at n = 304 (counter 1) | Its counter is 0 at once, while its order 10 is still pending, so grunt 1497's search at n = 356 ignores it (the vector above) |
+| A unit given a spell command (order 38 to 56) with blocked counter 5 (static study only) | Counter 0; the goal is not pulled back |
+| Two-tile mover, target building 3 × 3 at (6, 18) | Goal zone: even tiles x 4 to 10, y 16 to 22 |
+| Two-tile mover, no target, G = (22, 8) | Goal zone: even tiles x 20 to 24, y 6 to 10 |
+| `xorc7-7000` (oracle trace): computer tanker 1594 (type 0x1A, two-tile), order 24 to its 3 × 3 shipyard 1567 at (6, 18); search at n = 410 from (14, 14) toward (8, 18), the "Building goal rule" tile | Line SW to (12, 16), W to (10, 16), then SW onto the shipyard: blocked, T = (10, 16). The left walk first tries S onto (10, 18), in the zone, and succeeds: route SW, W, S, shortened to SW, SW; P's distance 2 against S's 6, score 4, below 8, so the right walk isn't tried. Record n = 410: (12, 16), facing 5 |
+| Same, n = 442 and n = 474 | n = 442: (10, 18), facing 5. n = 474: order 25 |
 
 ## Open questions
 
