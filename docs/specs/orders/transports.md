@@ -12,7 +12,7 @@
   unit and, from open water, pulls the target tile back to shore water); the open question on it is closed.
   2026-10-12, round-33 errata: landing and pushing off keep animation 6 on one-tile steps; on two-tile steps the move
   animation is started and run at once.
-  2026-10-12, round-35 errata: the landing logic runs only within 3 tiles of the goal; farther out the transport takes
+  2026-10-12, round-36 errata: the landing logic runs only within 3 tiles of the goal; farther out the transport takes
   ordinary two-tile steps.
 
 ## Behaviour
