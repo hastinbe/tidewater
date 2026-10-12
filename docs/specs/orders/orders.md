@@ -5,6 +5,7 @@
   specification text (unit data section). Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-10 errata: a hit records its attacker only under the rules of `ai/attack-ai.md`
   ("Call for help"), and the first live attacker is kept, so the attacker is not always the last unit that hit.
+  2026-10-12, round-13 errata: command 17 gives order 17 at once when the target tile is in the unit's own region.
 
 ## Behaviour
 
@@ -168,7 +169,7 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | 13, 15 | Order 13 (stand ground) |
 | 14 | Order 14 |
 | 16 | Order 16 |
-| 17, attack ground | Order 17 if the target point is already within the unit's attack range, otherwise order 18 (move into range, then attack) |
+| 17, attack ground | Order 17 if the target tile has the same region value as the unit's tile, or is already within the unit's attack range; otherwise order 18 (move into range, then attack). Details: `combat/attack-ground-demolish.md` |
 | 19, demolish | Target unit: order 20. Target tile holds a tree, rock or wall (or a reserved tree): order 20. Otherwise: order 21 |
 
 Commands 2, 6, 23, 24, 27, 29 and the spell commands have their own handlers, covered by later specs (stop, harvest,
@@ -496,7 +497,8 @@ Distances are in tiles; scores as defined above.
 | Same, a passive computer player's unit with 37 cycles left | its wait becomes 10 (not a computer player) |
 | Command 8 on an empty tile, Enhanced | order 10, attack-move remembered |
 | Command 17 on a point 6 tiles away, catapult (range 8) | order 17 at once |
-| Command 17 on a point 12 tiles away, catapult | order 18; becomes 17 when within 8 tiles on both axes |
+| Command 17 on a point 12 tiles away in the catapult's own land area | order 17 at once; it walks until within 8 tiles |
+| Command 17 on a forest tile 12 tiles away, catapult | order 18; becomes 17 when within 8 tiles on both axes |
 | Command 19 on a tree tile | order 20 |
 | Command 19 on open grass | order 21 |
 | New order given while the unit's order is 25 | ignored |
