@@ -262,6 +262,9 @@ pub struct Unit {
     pub hidden_from: u8,
     /// The rescuable mark: the unit counts as rescuable (victory spec, "Terms").
     pub rescuable: bool,
+    /// The held mark: placed by the map with a non-zero low byte in its data value; held units are left out of the
+    /// computer's army counts (ai-scripts spec, "Conditions"). Nothing clears it (that spec's open question).
+    pub held: bool,
     /// A computer worker's job, for the worker AI's bookkeeping.
     pub ai_job: crate::worker_ai::AiJob,
 }
@@ -691,8 +694,13 @@ impl World {
                 0
             };
             // A unit that can't be created is left out, as the game does.
-            if w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources).is_ok()
-                && crate::economy::kind::is_hall(u.kind)
+            let Ok(id) = w.spawn(u.kind, u.owner, (u.x as i32, u.y as i32), resources) else {
+                continue;
+            };
+            if let Some(i) = w.index(id) {
+                w.units[i].held = !matches!(u.kind, 0x5c | 0x5d) && u.data & 0xff != 0;
+            }
+            if crate::economy::kind::is_hall(u.kind)
                 && let Some(p) = w.players.get_mut(u.owner as usize)
             {
                 p.had_hall = true;
@@ -794,6 +802,7 @@ impl World {
             hidden_from: 0,
             ai_job: Default::default(),
             rescuable: crate::ai::controller::is_rescue(self.players[owner as usize].controller),
+            held: false,
         };
         self.mark(&unit, unit.tile, Some(id));
         self.insert_vertical(id, unit.pos.1);

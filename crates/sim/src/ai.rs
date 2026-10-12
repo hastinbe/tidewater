@@ -17,6 +17,8 @@ use crate::world::World;
 pub const SCRIPT_PLAYERS: usize = 8;
 /// Slot holding the build-list limit.
 pub const BUILD_LIMIT: usize = 0x22;
+/// Slot switching the ferry's landing-spot search; 1 for every player at game start (ai-scripts spec, "Slots").
+pub const FERRY_SEARCH: usize = 0x0c;
 /// Instructions one run may carry out before we park the script. Not from the spec: a guard against a script that
 /// loops without ever waiting, which would otherwise hang the cycle.
 const MAX_INSTRUCTIONS: u32 = 10_000;
@@ -97,6 +99,7 @@ impl World {
         for p in 0..SCRIPT_PLAYERS {
             let mut s = AiPlayer::default();
             s.slots[BUILD_LIMIT] = 0xff;
+            s.slots[FERRY_SEARCH] = 1;
             if let Some(r) = file.record(self.players[p].ai_script) {
                 s.build_list = r.build_list;
                 s.second_list = r.second_list;
@@ -157,10 +160,9 @@ impl World {
         }
     }
 
-    /// The player's live counts ("Conditions"): workers include rescuable units; armies count complete,
-    /// non-rescuable units with a land, air, explode, sea or critter bit and the can-attack bit.
+    /// The player's live counts ("Conditions"): workers include held units; armies count complete, unheld units
+    /// with a land, air, explode, sea or critter bit and the can-attack bit.
     pub fn ai_counts(&self, p: usize) -> Counts {
-        let rescue = controller::is_rescue(self.players[p].controller);
         let mut c = Counts::default();
         for u in self.units.iter().filter(|u| u.owner as usize == p && u.hp > 0) {
             if WORKERS.contains(&u.kind) {
@@ -168,7 +170,7 @@ impl World {
             }
             let f = self.stats_of(u.kind).flags;
             let mobile = flags::LAND | flags::AIR | flags::EXPLODE_WHEN_KILLED | flags::SEA | flags::CRITTER;
-            if rescue || u.construction.is_some() || f & mobile == 0 || f & flags::CAN_ATTACK == 0 {
+            if u.held || u.construction.is_some() || f & mobile == 0 || f & flags::CAN_ATTACK == 0 {
                 continue;
             }
             if f & (flags::AIR | flags::SEA | flags::PEON) == 0 {
@@ -256,6 +258,7 @@ mod tests {
         let w = computer(&code);
         let s = &w.ai[0];
         assert_eq!((s.slots[0x13], s.slots[0x18], s.slots[BUILD_LIMIT]), (2, 1, 0xff));
+        assert_eq!(s.slots[FERRY_SEARCH], 1);
         assert_eq!((s.build_list, s.second_list), (0x140, 0x150));
         assert_eq!(s.wait, 65535);
         assert_eq!(s.pos, Some(START + 11));
@@ -345,8 +348,12 @@ mod tests {
                 air: 1
             }
         );
-        // A rescuable player's units count as workers but in no army.
+        // Held units count as workers but in no army; the rescue mark changes nothing.
         w.players[0].controller = controller::RESCUE_PASSIVE;
+        assert_eq!(w.ai_counts(0).land, 3);
+        for u in &mut w.units {
+            u.held = true;
+        }
         assert_eq!(
             w.ai_counts(0),
             Counts {
