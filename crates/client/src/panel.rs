@@ -1173,8 +1173,14 @@ pub fn target_command(
             target: hit?,
         },
         Target::Unload => Command::Unload { player, units, tile },
-        // TODO(orders): attack ground and demolish have no sim command yet.
-        Target::AttackGround | Target::Demolish => return None,
+        // Commands 17 and 19 (attack-ground-demolish spec): attack ground ignores any unit under the cursor.
+        Target::AttackGround => Command::AttackGround { player, units, tile },
+        Target::Demolish => Command::Demolish {
+            player,
+            units,
+            target: hit,
+            tile,
+        },
         // TODO(spells): targeted spells have no sim command yet.
         Target::Spell(_) => return None,
     })
@@ -1794,6 +1800,22 @@ mod tests {
             Some(Command::AttackMove { .. })
         ));
         assert_eq!(target_command(Target::Repair, 0, u.clone(), None, (1, 1)), None);
-        assert_eq!(target_command(Target::AttackGround, 0, u, None, (1, 1)), None);
+        assert_eq!(
+            target_command(Target::AttackGround, 0, u.clone(), Some(UnitId(9)), (1, 1)),
+            Some(Command::AttackGround {
+                player: 0,
+                units: u.clone(),
+                tile: (1, 1)
+            })
+        );
+        assert_eq!(
+            target_command(Target::Demolish, 0, u.clone(), Some(UnitId(9)), (1, 1)),
+            Some(Command::Demolish {
+                player: 0,
+                units: u,
+                target: Some(UnitId(9)),
+                tile: (1, 1)
+            })
+        );
     }
 }
