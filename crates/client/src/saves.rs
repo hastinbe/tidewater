@@ -44,6 +44,21 @@ pub fn default_dir() -> PathBuf {
         .map_or_else(|| PathBuf::from("Save"), |d| d.data_dir().join("Save"))
 }
 
+/// The folder for the program's other files (the settings file, Print Screen pictures): the folder given with
+/// `--save-dir`, so a run with its own save folder writes nothing else; otherwise the folder that holds the default
+/// save folder (the original keeps them in the game's folder, which holds `Save`; we never write into the install).
+pub fn user_dir(save_dir: Option<&Path>) -> PathBuf {
+    match save_dir {
+        Some(d) => d.to_path_buf(),
+        None => {
+            let d = default_dir();
+            d.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Names
 

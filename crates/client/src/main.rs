@@ -114,12 +114,16 @@ struct Args {
     /// The Preferences dialog's second mouse style: right click centres the view instead of giving a command.
     #[arg(long)]
     second_mouse_style: bool,
-    /// The speed dialog's mouse scroll speed, 0 to 6 (fastest).
-    #[arg(long, default_value_t = screen::DEFAULT_SPEED, value_parser = clap::value_parser!(u8).range(0..=6))]
-    mouse_scroll_speed: u8,
-    /// The speed dialog's key scroll speed, 0 to 6 (fastest).
-    #[arg(long, default_value_t = screen::DEFAULT_SPEED, value_parser = clap::value_parser!(u8).range(0..=6))]
-    key_scroll_speed: u8,
+    /// The speed dialog's mouse scroll speed, 0 to 6 (fastest). Without it, the stored setting.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
+    mouse_scroll_speed: Option<u8>,
+    /// The speed dialog's key scroll speed, 0 to 6 (fastest). Without it, the stored setting.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
+    key_scroll_speed: Option<u8>,
+    /// The settings file, read at start and written when the program exits normally. Without it, `settings.txt` in
+    /// the `--save-dir` folder if one is given, else in Tidewater's own user data directory.
+    #[arg(long)]
+    settings: Option<PathBuf>,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -361,7 +365,11 @@ fn main() -> Result<()> {
         (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
     };
     flow.steps = steps.into();
-    let stored = gamemenu::Stored(prefs::Prefs::from_args(
+    let settings = args
+        .settings
+        .clone()
+        .unwrap_or_else(|| saves::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
+    let stored = gamemenu::Stored(prefs::Prefs::load(&settings).with_args(
         args.mouse_scroll_speed,
         args.key_scroll_speed,
         args.second_mouse_style,
@@ -388,6 +396,8 @@ fn main() -> Result<()> {
         )))
         .insert_resource(flow)
         .insert_resource(stored)
+        .insert_resource(SettingsFile(settings))
+        .add_systems(Last, store_settings)
         .insert_resource(Opts(args))
         .add_plugins(frontend::plugin)
         .add_plugins(gamemenu::plugin)
@@ -429,6 +439,19 @@ fn main() -> Result<()> {
         )
         .run();
     Ok(())
+}
+
+/// Where the stored settings live (`prefs`).
+#[derive(Resource)]
+struct SettingsFile(PathBuf);
+
+/// "Saving": the settings are written when the program exits normally, not on an error exit.
+fn store_settings(mut exits: MessageReader<AppExit>, file: Res<SettingsFile>, stored: Res<gamemenu::Stored>) {
+    if exits.read().any(|e| *e == AppExit::Success)
+        && let Err(e) = stored.0.store(&file.0)
+    {
+        eprintln!("can't write the settings to {}: {e}", file.0.display());
+    }
 }
 
 /// The command line, kept for starting games.
@@ -485,8 +508,8 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         demo_place: a.demo_place,
         demo_site: a.demo_site,
         second_mouse_style: a.second_mouse_style,
-        mouse_scroll_speed: a.mouse_scroll_speed,
-        key_scroll_speed: a.key_scroll_speed,
+        mouse_scroll_speed: a.mouse_scroll_speed.unwrap_or(screen::DEFAULT_SPEED),
+        key_scroll_speed: a.key_scroll_speed.unwrap_or(screen::DEFAULT_SPEED),
         demo_outcome: a.demo_outcome.as_deref().map(|o| o == "victory"),
     };
     let mut install = Install::open(&args.install)?;

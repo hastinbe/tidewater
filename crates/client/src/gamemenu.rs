@@ -26,7 +26,6 @@
 //!   owns it (`Prefs::toggle_music` is ready for it).
 //!
 //! Not yet here:
-//! - Reading and writing the settings file (`Prefs::from_text` / `to_text`); the values live for one run.
 //! - The tips dialog at the start of a game, and the "play the opening film" and "system pointer" bits.
 //! - Consuming the music volume, the music bit and colour cycling: `music.rs` reads [`Stored`]`.0.music_volume`
 //!   and `palette.rs` [`crate::prefs::Prefs::colour_cycling`].

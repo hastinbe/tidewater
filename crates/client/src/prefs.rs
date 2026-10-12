@@ -3,8 +3,13 @@
 //!
 //! Choices where the spec leaves a gap:
 //! - The text form is `name=value` lines. Unknown names, bad numbers and numbers outside their range fall back to
-//!   the default ("A stored number outside its range is replaced by the default"). Writing it to disk and reading it
-//!   at start-up isn't done yet (see `gamemenu`, "Not yet here").
+//!   the default ("A stored number outside its range is replaced by the default").
+//! - "Where they are stored is the reimplementation's choice": the file `settings.txt` in Tidewater's own per-user data
+//!   directory, or in the folder given with `--save-dir` (so a run with its own save folder leaves the real settings
+//!   alone), or the file given with `--settings`. [`Prefs::load`] reads it at start-up (a missing or unreadable file
+//!   means first-run defaults) and [`Prefs::store`] writes it when the program exits normally (`main.rs`).
+//! - Command-line options (`--mouse-scroll-speed`, `--key-scroll-speed`, `--second-mouse-style`) given on top of the
+//!   file override it for the run, and are stored at exit like any other change ([`Prefs::with_args`]).
 //! - The minimap terrain mode is a field here, but it is not stored and starts on ("Not stored").
 
 /// The option bits of the preferences word ("Option bits").
@@ -38,6 +43,9 @@ pub mod bit {
         | STEREO
         | SOUND_3D;
 }
+
+/// The settings file's name in the user folder.
+pub const FILE_NAME: &str = "settings.txt";
 
 pub const MAX_GAME_SPEED: u8 = 8;
 pub const MAX_SCROLL_SPEED: u8 = 6;
@@ -87,19 +95,34 @@ impl Default for Prefs {
 }
 
 impl Prefs {
-    /// The defaults with the scroll speeds and the mouse style the command line chose.
-    pub fn from_args(mouse_scroll: u8, key_scroll: u8, second_mouse_style: bool) -> Self {
-        let mut p = Self {
-            mouse_scroll: mouse_scroll.min(MAX_SCROLL_SPEED),
-            key_scroll: key_scroll.min(MAX_SCROLL_SPEED),
-            ..Self::default()
-        };
-        p.set(bit::FIRST_MOUSE_STYLE, !second_mouse_style);
-        p
+    /// These settings with the scroll speeds and the mouse style the command line gave, where it gave them.
+    pub fn with_args(mut self, mouse_scroll: Option<u8>, key_scroll: Option<u8>, second_mouse_style: bool) -> Self {
+        if let Some(s) = mouse_scroll {
+            self.mouse_scroll = s.min(MAX_SCROLL_SPEED);
+        }
+        if let Some(s) = key_scroll {
+            self.key_scroll = s.min(MAX_SCROLL_SPEED);
+        }
+        if second_mouse_style {
+            self.set(bit::FIRST_MOUSE_STYLE, false);
+        }
+        self
+    }
+
+    /// Reads the settings file at program start ("Loading"); no file, or one that can't be read, gives the defaults.
+    pub fn load(path: &std::path::Path) -> Self {
+        std::fs::read_to_string(path).map_or_else(|_| Self::default(), |s| Self::from_text(&s))
+    }
+
+    /// Writes the settings file ("Saving": when the program exits normally).
+    pub fn store(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(path, self.to_text())
     }
 
     /// Reads the text form: every setting takes its default, then the stored value when it is in range.
-    #[allow(dead_code, reason = "the settings file isn't read yet; the tests cover it")]
     pub fn from_text(s: &str) -> Self {
         let mut p = Self::default();
         for line in s.lines() {
@@ -125,7 +148,6 @@ impl Prefs {
     }
 
     /// The text form of everything stored.
-    #[allow(dead_code, reason = "the settings file isn't written yet; the tests cover it")]
     pub fn to_text(&self) -> String {
         format!(
             "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\n",
@@ -276,10 +298,34 @@ mod tests {
 
     #[test]
     fn the_command_line_picks_scroll_and_mouse_style() {
-        let p = Prefs::from_args(2, 9, true);
+        let p = Prefs::default().with_args(Some(2), Some(9), true);
         assert_eq!((p.mouse_scroll, p.key_scroll), (2, 6));
         assert!(!p.has(bit::FIRST_MOUSE_STYLE));
-        assert!(Prefs::from_args(2, 2, false).has(bit::FIRST_MOUSE_STYLE));
+        assert!(
+            Prefs::default()
+                .with_args(None, None, false)
+                .has(bit::FIRST_MOUSE_STYLE)
+        );
+        // Options not given leave the stored values.
+        let stored = Prefs::from_text("mouse_scroll=1\nkey_scroll=2");
+        let p = stored.clone().with_args(None, Some(5), false);
+        assert_eq!((p.mouse_scroll, p.key_scroll), (1, 5));
+    }
+
+    #[test]
+    fn the_settings_file_round_trips_and_a_missing_one_gives_defaults() {
+        let dir = std::env::temp_dir().join(format!("tidewater-prefs-{}", std::process::id()));
+        let path = dir.join("sub").join("settings.txt");
+        assert_eq!(Prefs::load(&path), Prefs::default());
+        let mut p = Prefs {
+            game_speed: 7,
+            digital_volume: 30,
+            ..Prefs::default()
+        };
+        p.set(bit::COLOUR_CYCLING, false);
+        p.store(&path).unwrap();
+        assert_eq!(Prefs::load(&path), p);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
