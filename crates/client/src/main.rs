@@ -25,6 +25,7 @@ mod minimap;
 mod mouse;
 #[allow(dead_code)] // the disco toggle and the sound dialog's calls are not wired yet
 mod music;
+mod palette;
 mod panel;
 mod scene;
 mod screen;
@@ -255,6 +256,15 @@ struct TerrainArt {
     tileset: tidewater_formats::tileset::Tileset,
 }
 
+/// Colour cycling (`palette`): the cycled palette every indexed picture is converted with, and the tiles' used entries.
+#[derive(Resource)]
+struct Cycling {
+    state: palette::Cycling,
+    started: std::time::Instant,
+    /// Per megatile, the palette entries it uses; filled on first use.
+    used: Option<Vec<palette::Entries>>,
+}
+
 /// The map view's sprite files, palette and fog shapes (`view`, `fog`).
 #[derive(Resource)]
 struct Art {
@@ -371,6 +381,7 @@ fn main() -> Result<()> {
                 pan_and_zoom,
                 play_sounds,
                 update_messages,
+                cycle_palette,
                 redraw_terrain,
                 draw_view,
                 draw_placement,
@@ -510,6 +521,11 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         palette: scene.palette.clone(),
         shapes: fog::Shapes::from_vr4(&scene.tileset.minitiles),
     };
+    let cycling = Cycling {
+        state: palette::Cycling::new(scene.era, &scene.palette),
+        started: std::time::Instant::now(),
+        used: None,
+    };
     let mut speaker = Speaker {
         director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         install,
@@ -577,6 +593,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         w.title = format!("Tidewater — {}", args.map);
         c.visible = !own_pointer;
     }
+    world.insert_resource(cycling);
     world.insert_resource(Loaded(Some(scene)));
     world.insert_resource(MapSize(size));
     world.insert_resource(StartZoom(args.zoom));
@@ -771,6 +788,7 @@ fn tick(
     mut sel: ResMut<Selection>,
     mut time: ResMut<Time<Fixed>>,
     mut hud: ResMut<Hud>,
+    mut cycling: ResMut<Cycling>,
     art: Option<Res<TerrainArt>>,
     cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
 ) {
@@ -813,6 +831,8 @@ fn tick(
     // A unit that changed owner by rescue leaves the selection (rescue spec, "Owner change").
     for e in &events {
         if let Event::OwnerChanged { unit, .. } = *e {
+            // The pulse colour starts for the rest of the game (palette-effects spec, "Cycle 0, the pulse").
+            cycling.state.owner_changed();
             sel.units.retain(|&id| id != unit);
         }
     }
@@ -826,9 +846,81 @@ fn tick(
     sim.counter.update(real);
 }
 
+/// Steps the colour cycles (`palette`, spec `ui/palette-effects.md`) and applies the cycled palette: the map view,
+/// the interface and the terrain tiles that use the changed entries all convert with it from here on.
+#[allow(clippy::too_many_arguments)]
+fn cycle_palette(
+    sim: Option<Res<Sim>>,
+    art: Option<ResMut<Art>>,
+    terrain: Option<Res<TerrainArt>>,
+    mut cycling: ResMut<Cycling>,
+    mut hud: ResMut<Hud>,
+    ui: Res<PanelUi>,
+    windows: Query<&Window>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let (Some(sim), Some(mut art), Some(terrain)) = (sim, art, terrain) else {
+        return;
+    };
+    let gate = palette::Gate {
+        preference: true, // TODO: the colour-cycling preference (game-menu spec) isn't built yet.
+        paused: sim.world.paused,
+        menu_open: false, // TODO: no game menu yet.
+        focused: windows.single().is_ok_and(|w| w.focused),
+    };
+    let now = cycling.started.elapsed().as_millis() as u64;
+    let placing = matches!(ui.mode, panel::Mode::Place(_));
+    let turned = cycling.state.frame(now, gate, placing);
+    if turned == 0 {
+        return;
+    }
+    art.palette = cycling.state.palette().clone();
+    hud.art.set_palette(cycling.state.palette());
+    // Redraw the terrain tiles that use an entry a turn changed (water and coast).
+    let changed = cycling.state.cycler().entries_of(turned);
+    let ts = &terrain.tileset;
+    let used = cycling.used.take().unwrap_or_else(|| {
+        (0..ts.megatiles.len())
+            .map(|m| {
+                let mut px = vec![0u8; TILE_PX as usize * TILE_PX as usize];
+                ts.draw_megatile(m, &mut px, TILE_PX as usize);
+                palette::Entries::of_pixels(&px)
+            })
+            .collect()
+    });
+    if let Some(mut img) = images.get_mut(&terrain.image) {
+        let width = img.width() as usize;
+        if let Some(data) = img.data.as_mut() {
+            let t = TILE_PX as usize;
+            let v = &sim.world.vision;
+            for y in 0..v.height as i32 {
+                for x in 0..v.width as i32 {
+                    let Some(m) = sim.world.terrain.tile(x, y) else {
+                        continue;
+                    };
+                    if !used.get(m as usize).is_some_and(|u| u.intersects(&changed)) {
+                        continue;
+                    }
+                    let pic = scene::tile_picture(ts, m as usize, cycling.state.palette());
+                    for row in 0..t {
+                        let at = ((y as usize * t + row) * width + x as usize * t) * 4;
+                        data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);
+                    }
+                }
+            }
+        }
+    }
+    cycling.used = Some(used);
+}
+
 /// Redraws tiles whose shape changed (felled trees, broken walls) on the terrain picture. The minimap catches up at
 /// its next terrain rebuild (`minimap`).
-fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut<Assets<Image>>) {
+fn redraw_terrain(
+    mut sim: ResMut<Sim>,
+    art: Res<TerrainArt>,
+    cycling: Res<Cycling>,
+    mut images: ResMut<Assets<Image>>,
+) {
     let changed = std::mem::take(&mut sim.world.terrain.redraw);
     if changed.is_empty() {
         return;
@@ -843,7 +935,7 @@ fn redraw_terrain(mut sim: ResMut<Sim>, art: Res<TerrainArt>, mut images: ResMut
         let Some(m) = sim.world.terrain.tile(x, y) else {
             continue;
         };
-        let pic = scene::tile_picture(&art.tileset, m as usize);
+        let pic = scene::tile_picture(&art.tileset, m as usize, cycling.state.palette());
         for row in 0..t {
             let at = ((y as usize * t + row) * width + x as usize * t) * 4;
             data[at..at + t * 4].copy_from_slice(&pic.rgba[row * t * 4..(row + 1) * t * 4]);

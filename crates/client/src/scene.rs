@@ -111,8 +111,8 @@ pub fn opaque(grp: &Grp, frame: usize, flip: bool, centre: (i32, i32), p: (i32, 
     f.pixels[(y * f.width as i32 + x) as usize] != 0
 }
 
-/// One megatile as a `TILE` x `TILE` picture.
-pub fn tile_picture(ts: &Tileset, megatile: usize) -> Picture {
+/// One megatile as a `TILE` x `TILE` picture in the palette `pal` (the cycled one, `palette`).
+pub fn tile_picture(ts: &Tileset, megatile: usize, pal: &Palette) -> Picture {
     let mut px = vec![0u8; TILE * TILE];
     if megatile < ts.megatiles.len() {
         ts.draw_megatile(megatile, &mut px, TILE);
@@ -120,7 +120,7 @@ pub fn tile_picture(ts: &Tileset, megatile: usize) -> Picture {
     Picture {
         width: TILE as u32,
         height: TILE as u32,
-        rgba: to_rgba(&px, &ts.palette, false, None),
+        rgba: to_rgba(&px, pal, false, None),
     }
 }
 
