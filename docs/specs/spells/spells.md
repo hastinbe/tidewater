@@ -12,6 +12,8 @@
   (per-kind table); the cosmetic effects are removed in cycle U + A + 1 + W (cannon smoke U + 24, not U + 13); the
   open question on each kind's own script is closed. Kinds 0x13 and 0x14 are the building fires made at map start.
   2026-10-12, round-30 errata: a test vector confirms the building fires' start step in the running game.
+  2026-10-12, round-35 errata: the mana gain of the timers pass has no building exception; a building with the caster
+  flag starts its counter at 0.
 
 ## Behaviour
 
@@ -161,9 +163,13 @@ Also in the timers pass, for each unit, in this order:
    timer is running.
 3. The five timers above.
 4. **Mana** for units with flag bit 17 (caster): if mana is below 255, a per-unit counter counts down; when it reaches
-   0 it is reset to 40 and mana goes up by 1. So a caster gains 1 mana every 40 cycles, up to 255. Every newly
-   created caster (placed by the map, trained, or created any other way) starts with **85 mana** and its counter at
-   **40**, so its first extra mana point comes on its 40th timers pass.
+   0 it is reset to 40 and mana goes up by 1. So a caster gains 1 mana every 40 cycles, up to 255. This includes
+   buildings with the flag. Every newly created caster that isn't a building (placed by the map, trained, or created
+   any other way) starts with **85 mana** and its counter at **40**, so its first extra mana point comes on its 40th
+   timers pass. A building with the flag starts with its type's "magic" value and its counter at **0**, which wraps
+   to 255 on the first pass, so its first point comes on its 256th pass. While it is under construction or working,
+   its mana byte holds its progress (`economy/build-train.md`), and these gains add to it. In the default data no
+   building has the flag.
 5. **Decay** for other units whose type has a non-zero decay rate, if they were created during play (below).
 
 The runes are advanced before the units in the same pass (below).
@@ -439,6 +445,8 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | A spell puts a spell marker (0x16) on a unit in cycle C | First update in C; start step and showing from C + 1; removed in C + 20 |
 | Runes cast: a rune marker (0x0B) made in the timers pass of cycle C | First update in C + 1; start step in C + 3; removed in C + 19 |
 | Map start, oracle trace Human01: the building fires in effect slots 0 and 1 | First update in the first start-up cycle; start step 5 cycles later, in the 4th normal cycle; never removed |
+| Custom unit data gives a farm the caster flag and magic 0; the farm is placed by the map | Mana 0 until its 256th timers pass, then 1; +1 every 40 passes after that, up to 255 |
+| Default data | No building gains mana from the timers pass |
 
 ## Open questions
 
