@@ -3,6 +3,8 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`). The ring order was checked
   by hand-simulating the search for the test vectors below. Not yet confirmed against the running game.
+- **Changes:** 2026-10-12, round-42 errata: a worker coming out with a build job faces its build goal tile
+  (`economy/harvest.md`).
 
 ## Behaviour
 
@@ -105,10 +107,11 @@ Some callers add a **region condition**: the tile's region (from the map's regio
 | A transport unloads one passenger | The transport's tile, as a 1 × 1 source | The transport's tile | 6 | The passenger's class | The region of the transport's tile | The passenger stays aboard |
 | A transport pushes off from the shore (`orders/transports.md`) | The transport's tile, as a 1 × 1 source | The transport's target tile | 10 | Push-off test | none | The transport docks (order 32) |
 
-A unit placed by the search stands on the found tile, faces its target (a target building is faced at its top-left
-tile plus (1, 1)), and is shown on the map again. A builder coming out of a finished or destroyed building becomes
-idle (order 2). A worker leaving a mine, platform or depot keeps the order that harvesting gave it
-(`economy/harvest.md`). An unloaded passenger becomes idle.
+A unit placed by the search stands on the found tile, faces its target (a target building is faced at its top-left tile
+plus (1, 1)), and is shown on the map again. A worker coming out with a computer player's build job faces its build goal
+tile instead (`economy/harvest.md`, "Coming out"). A builder coming out of a finished or destroyed building becomes idle
+(order 2). A worker leaving a mine, platform or depot keeps the order that harvesting gave it (`economy/harvest.md`). An
+unloaded passenger becomes idle.
 
 For a transport pushing off, the found tile is not a placement: the transport is not moved, and the tile becomes its
 target tile (`orders/transports.md` says how it then sails there).
