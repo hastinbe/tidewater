@@ -125,6 +125,11 @@
   radius has the +1 for sea and air units, and a follower whose target can't be guarded gets a pending idle; a
   smart move with a target unit that becomes the move keeps the target (traced for a tanker); a carrying tanker
   onto its shipyard and a smart move onto an oil patch are traced; round-62 vectors.
+  2026-10-13, round-63 errata: a smart move whose target unit is dying, gone, inside something or undetected ends as on
+  arrival at the next step boundary (traced for land units too); the reaction in orders 23, 24, 27, 6 and 34 runs only
+  when the walk has ended, so a lumber worker walking to its tree doesn't flee (static study only for orders 24, 27, 6
+  and 34); the arrival switch makes such a flee take over at once; a commanded target unit that is inside something
+  fails the command check; round-63 vectors.
 
 ## Behaviour
 
@@ -360,13 +365,22 @@ return goods, repair, build and spells).
 | Anything else | Order 3 (move); with a target unit, see below |
 
 **A smart move with a target unit that becomes the move** keeps that unit as the move's **target** until the move
-ends; on arrival the target is dropped with the order. Its stored goal is the target's tile, **not pulled back**
+ends. At each step boundary (each time order 3's logic runs), a target that is dying, gone, inside something or no
+longer detected by the unit's player ends the order as on arrival: the target is dropped, the attacker forgotten, and
+idle becomes the pending order and takes over in the same update (still animation, wait 3), with the Enhanced resume.
+The walk doesn't go on to the stored tile. It is the same test as order 4's (command 4 in the table above; traced for a
+dying target: `orc9-orc09-smart-target-2100` n = 1877, round-63 vectors; the inside and undetected parts are static
+study only). Its stored goal is the target's tile, **not pulled back**
 (`movement/pathfinding.md`, "Goal pulled back"), and its route goal G comes from the building goal rule on the
 target's footprint, from the unit's tile, as for any walk whose order holds a target unit. Traced only for a
 **tanker** (a sea unit): a carrying tanker onto its own shipyard and an empty tanker onto an oil patch
-(`orc9-orc09-tanker-move-2200` n = 1265 and 1700, round-62 vectors). For **land units** (a worker carrying goods
-onto a building that doesn't accept them, any unit onto a neutral or enemy unit) it is **static study only**, and
-nothing else in a land unit's smart move changes: the rows above still come first. The target goal zone of
+(`orc9-orc09-tanker-move-2200` n = 1265 and 1700, round-62 vectors). Traced for **land units** too, onto their own
+side's buildings: a grunt, an ogre and a peon keep the building as their target to arrival, and a land unit arrives
+when its walk ends next to the target's footprint (its walk goal is the footprint tile of the building goal rule,
+`movement/pathfinding.md`; order 3's arrival radius is 0, so the footprint, not the radius, gives this)
+(`orc9-orc09-smart-target-2100` n = 31, 67 and 78, round-63 vectors). A land unit's smart move onto a neutral or
+enemy unit, or a worker carrying goods onto a building that doesn't accept them, is **static study only**. Nothing
+else in a land unit's smart move changes: the rows above still come first. The target goal zone of
 `movement/pathfinding.md` ("Step 1") for this walk is static study only too (no trace needs it).
 
 ### Order 11: attacking a wall tile
@@ -523,6 +537,9 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   takes over in the same update (still animation, wait 3). The idle logic doesn't run in that update; it first runs
   at the still animation's next step done, 3 cycles later. (Before that, at the step done, the arrival switch of
   `core/animation-scripts.md` runs the order's own animation at once, and then the order's logic runs.)
+  **Order 3 with a target unit, and order 4,** end the same way, before arriving, at the first step boundary where the
+  target is dying, gone, inside something or no longer detected by the unit's player ("Smart move" and "Commands";
+  traced for order 3 with a dying target: `orc9-orc09-smart-target-2100` n = 1877, round-63 vectors).
   For orders 4 and 10 the arrival test comes before the target search: a unit in order 4 or 10 whose logic runs while it
   stands at its move goal arrives, and runs **no** target acquisition in that run, even with a target in range (traced:
   `xorc11-10000`, vectors below). Whether patrol (order 5) does the same at a patrol end isn't traced. At the move goal
@@ -631,7 +648,9 @@ command listed in `movement/movement.md`, "Blocked rules") checks the unit's rec
 dying, dead or removed, or isn't detected by the unit's owner, it is forgotten. So a kept dying attacker is also
 forgotten at the unit's next command (traced: `xorc01-death-knight-2100`, vectors below). A target unit given with the
 command, a spell command's included (`spells/spells.md`, "Giving the order"; traced: `xhuman10-slow-3000`), gets the
-same check: if it fails, the target is dropped and idle becomes the unit's **pending** order in place of the command's
+same check, and for a target unit being **inside something** (a mine, platform, depot or transport, or another unit)
+also fails it (traced for command 24, return goods, given a peon inside a gold mine: `orc9-orc09-return-nodepot-2200`
+n = 1374, round-63 vectors; static study only for the other commands, which share the check): if it fails, the target is dropped and idle becomes the unit's **pending** order in place of the command's
 order (with the resume rules of "Resuming patrol and attack-move"); the command still counts as a command. The pending
 idle takes over at the unit's next step done with wait 3, and the idle logic doesn't run in that update, so an idle
 unit makes no look-around draw there. A call for help answered against a dying attacker ends this way
@@ -1049,7 +1068,16 @@ the unit has an attacker:
    attacker check (static study only).
 
 **The reaction**, used by the orders that react without acquiring (attack-move in Classic mode, demolish orders
-19 to 21) and by several other orders' logic (follow, repair, board):
+19 to 21) and by several other orders' logic: harvest (23), return goods (24), repair (27), follow (6) and board (34).
+
+**Walking orders react only when the walk has ended.** Orders 23, 24, 27, 6 and 34 run the reaction only in a logic run
+where the unit is **not walking**: it has reached its goal (in reach), or its walk has ended in another way (such as no
+route). While the unit is walking, only the walk runs, and the attacker stays recorded for later. **The arrival
+switch:** when the walk ends at a step done and the unit still shows its move animation, it is switched to its order's
+own animation (`core/animation-scripts.md`) **before** the order's logic runs, so a flee given there takes over at once:
+order 3, still animation, wait 3 (traced for order 23: `orc9-orc09-flee-walk-1200` n = 590 and
+`orc9-orc09-flee-chop-walk-900` n = 483 to 573, round-63 vectors; static study only for orders 24, 27, 6 and 34, where
+no trace has an attacker on a walking unit).
 
 - If the attacker is no longer valid (dying, dead or inside something), or the unit's owner is not playing, or the
   unit is a building, or it can't attack, the attacker is simply forgotten.
@@ -1071,12 +1099,14 @@ other (traced: `human12-25000`, vectors below).
    tanker's is its platform, while a lumber worker never has one (`economy/harvest.md`, "Starting to harvest"). The
    tree tile, the chopping state and the return-to source are not looked at. So:
    - a gold worker or tanker on its way to its mine or platform doesn't flee;
-   - a lumber worker flees, whether it is walking to its tree or chopping;
+   - a lumber worker flees while chopping, and on reaching its tree; while it is walking to the tree it doesn't react
+     ("Walking orders react only when the walk has ended", above);
    - a tanker in order 23 with no platform (its target was cleared) flees;
    - a lumber worker whose tree search found nothing is idle (order 2), so it flees by the order-2 rule.
 
-   Order 23's logic runs the reaction each time it runs, so a chopping worker reacts at its next chop-loop run. A
-   fleeing lumber worker's reserved tree is released when the flee move takes over ("Taking over").
+   Order 23's logic runs the reaction each time it runs while the worker isn't walking, so a chopping worker reacts at
+   its next chop-loop run. A fleeing lumber worker's reserved tree is released when the flee move takes over ("Taking
+   over").
 4. The flee tile is the unit's tile plus, on each axis, `(r mod 8) − 2 + 4·k`, where r is a fresh random draw (the
    game's RNG, `timing-and-rng.md`; x is drawn first, then y), and k is the attacker's **facing** direction as a unit
    step: facing 0 to 7 gives (k_x, k_y) = (0,−1), (1,−1), (1,0), (1,1), (0,1), (−1,1), (−1,0), (−1,−1).
@@ -1153,7 +1183,7 @@ Distances are in tiles; scores as defined above.
 | Enhanced, footman on attack-move kills a target 10 tiles short of the goal and goes idle, countdown 0 | attack-move re-issued; countdown 20 |
 | Human peasant (order 2) hit by an archer facing east (facing 2), draws r = 5 then r = 2 | flee tile = peasant tile + (5 − 2 + 4, 2 − 2 + 0) = (+7, 0) |
 | Human gold worker walking to its mine (order 23, the mine as target unit) is hit by an enemy archer | does not flee |
-| Human lumber worker walking to its tree (order 23, no target unit) is hit by an enemy archer | flees (2 draws) |
+| Human lumber worker walking to its tree (order 23, no target unit) is hit by an enemy archer | doesn't flee while walking; flees (2 draws) at its first logic run after it reaches the tree (or its walk ends with no route) |
 | Human lumber worker chopping (order 23, no target unit) is hit by an enemy archer | flees at its next chop-loop run |
 | Human lumber worker whose tree search found nothing (now order 2) is hit | flees (order-2 rule) |
 | Computer player's lumber worker chopping is hit | does not flee (only idle units of computer players flee) |
@@ -1427,6 +1457,19 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `orc9-orc09-tanker-move-2200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-tanker-move.txt`): juggernaut 1501 (type 0x21, owner 5) smart-moved onto its own destroyer 1497 (type 0x1F) at n = 20 (order 6 from n = 27); 1497 sails to (60, 62) and attacks without moving (order 16 from n = 359) | 1501 reaches (60, 64), 2 tiles away, inside the radius 1 + 1: at n = 614 order 2, still animation, wait 3; order 16 from n = 617. Not order 6, and not a stop command's wait 1 |
 | Same trace, n = 1265: orc tanker 1473 (type 0x1B), carrying oil, smart-moved onto its own shipyard 1499 (type 0x49) | The move: order 3 from n = 1277 with target 1499; at (48, 80) it arrives, order 2 with no target at n = 1408 |
 | Same trace, n = 1700: tanker 1473, empty, smart-moved onto oil patch 1517 (type 0x5D, top-left (47, 51)) | The move: order 3 from n = 1720 with target 1517, route goal from the building goal rule and stored goal the patch's tile, not pulled back (at n = 1819 it steps to (50, 70)); it arrives at (48, 54), order 2 with no target, at n = 2107 |
+
+### Round-63 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-smart-target-2100` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-smart-target.txt`), n = 1792: peon 1478 (type 0x03, owner 5) smart-moved onto its own pig farm 1496 (type 0x3B), which player 5's catapults (type 0x05) are attacking | Order 3 with target 1496 from n = 1794. The farm is dying from n = 1869 (ruin type 0x6B from n = 1870). At the peon's next step boundary, n = 1877 at (41, 87): order 2, target none, still animation, wait 3; it doesn't walk on to the farm's tile |
+| Same trace: grunt 1481 (type 0x01) smart-moved onto pig farm 1479, next to it; ogre 1493 (type 0x07) onto orc barracks 1500 (type 0x3D, top-left (33, 78)); grunt 1492 onto pig farm 1489 (top-left (33, 86)) | Each keeps its target to arrival: 1481 idle at n = 31; 1493 arrives at (34, 81) at n = 67; 1492 at (35, 87) at n = 78; each then order 2 with no target |
+| Same trace, n = 102: ogre 1493 smart-moved onto peon 1482 (its own side's unit, in order 23) | Order 6 from n = 103; idle (order 2, no target) at n = 298, when the peon has gone into the gold mine (order 26 from n = 294) |
+| `orc9-orc09-flee-chop-walk-900` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-flee-chop-walk.txt`), n = 472: peon 1478 (owner 5) told to chop at (49, 93), walking west past player 0's archers 1475 and 1476 (type 0x08) | Hit at n = 483 (hp 21) and 487 (hp 12); it stays in order 23 and keeps walking (no flee at n = 493). At n = 573, at (53, 91), its walk ends and it flees: order 3 (that the walk ended with no route is static study) |
+| `orc9-orc09-flee-walk-1200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-flee-walk.txt`), n = 502: peon 1478 told to chop at (61, 94) | Hit during its last step (n = 583 and 586) and keeps order 23; at n = 590 it reaches (60, 93) and flees at once: order 3, still animation, wait 3 in the same record |
+| `orc9-orc09-return-nodepot-2200` (oracle trace, Enhanced), n = 1374: peon 1482 (type 0x03), idle with return goods to its great hall pending, told to return goods to peon 1478, which is inside a gold mine | Target none in the same turn record; order 2 kept; the pending idle takes over at n = 1393 (still animation, wait 3) |
+| A smart move whose target unit goes into a transport or becomes undetected mid-walk (static study) | Ends as on arrival at the next step boundary: order 2, wait 3, target dropped |
+| A human player's peasant repairing (order 27) is hit by an archer while walking to the building (static study) | No reaction while walking; it flees at its first logic run after it arrives |
 
 ## Open questions
 
