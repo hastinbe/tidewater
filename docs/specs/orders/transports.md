@@ -35,6 +35,8 @@
   2026-10-13, round-54 errata: the boarding answers: every player that isn't a computer player, passive and rescue
   included, gets the smart move after the restart (open question closed); the random tile is clamped to the single map
   size.
+  2026-10-13, round-56 answers: the boarding unit's smart move sets order 34 again and it takes over in the same update,
+  with no visible effect (static).
 
 ## Behaviour
 
@@ -229,7 +231,9 @@ Each time the order's logic runs:
      a smart move (command 3). That is the boarding command again, so the unit **stays in order 34**, and the transport
      is told to come again unless the transport's order or pending order is landing (order 30). The only split is
      computer player or not, so passive and rescue players' units take this branch too, with the smart move's wait cap
-     of 10 (static study only; no trace shows it).
+     of 10 (static study only; no trace shows it). The smart move sets order 34 again and it takes over in the same
+     update; this has no visible effect, so the net result is the transport call and the wait cap, with the unit still
+     in order 34 and nothing left pending (static study; `human12-transport` and the row-f traces agree).
 4. **Arrived:** the unit boards if all of these hold:
    - it is within **2 tiles** of the transport's tile on both axes;
    - the transport's order is **32** (docked);
