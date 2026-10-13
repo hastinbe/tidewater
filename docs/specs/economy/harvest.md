@@ -445,7 +445,7 @@ gold, storage for wood, storage for oil, building.
 
 | Input | Expected |
 | --- | --- |
-| `human8-10000` (oracle trace), n = 2486: computer peasant 1508 (type 0x02, owner 2) comes out of great hall 1512 (type 0x4A, top-left (74, 72)) with a repair job on farm 1540 (type 0x3A, top-left (74, 59)) | Tile (73, 72), order 2, target 1540, facing 0, wait 25 |
+| `human8-10000` (oracle trace), n = 2486: computer peasant 1508 (type 0x02, owner 2) comes out of town hall 1512 (type 0x4A, top-left (74, 72)) with a repair job on farm 1540 (type 0x3A, top-left (74, 59)) | Tile (73, 72), order 2, target 1540, facing 0, wait 25 |
 
 ### Round-51 vectors
 
