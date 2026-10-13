@@ -16,6 +16,8 @@
   `orc09-naval` vector.
   2026-10-12, round-44 errata: a dead unit keeps reporting a released target's slot in `target`; a blizzard shard's
   `dest` is its landing point from creation; `human06-31357` and `xhuman10-blizzard-600` vectors.
+  2026-10-13, round-45 errata: the `dest` of death coil missiles, death-and-decay clouds and whirlwinds, and a death
+  coil caster's `target`, as in `spells/spells.md`.
 
 ## Behaviour
 
@@ -96,7 +98,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `frame` | Sprite frame (`core/animation-scripts.md`) |
 | `wait` | Animation wait counter (`core/animation-scripts.md`) |
 | `mana` | The unit's 8-bit mana value for spellcasters. For other units the same value may hold another counter; compare it only where a spec defines it |
-| `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit |
+| `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit. A death knight casting death coil has each victim in turn as its target, as each missile is launched, and keeps the last until the idle takes over (`spells/spells.md`, "Death coil victims") |
 | `trips` | Only for types 0x56 and 0x57 (oil platforms), 0x5C (gold mine) and 0x5D (oil patch): trips left (`economy/harvest.md`) |
 | `timers` | Only when one is running: any of `invisibility`, `unholy_armour`, `bloodlust` (cycles left) and `haste` (cycles; positive = haste, negative = slow) |
 
@@ -107,7 +109,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `slot` | Effect-table slot (`core/unit-slots.md`) |
 | `kind` | Missile or effect kind number (`combat/damage.md`, `spells/spells.md`) |
 | `x`, `y` | Position in pixels |
-| `dest` | Destination `[x, y]` in pixels. A blizzard shard has its chain's landing point from the moment it is created, through its initial wait (`spells/spells.md`, "Blizzard shards") |
+| `dest` | Destination `[x, y]` in pixels. A blizzard shard has its chain's landing point from the moment it is created, through its initial wait (`spells/spells.md`, "Blizzard shards"); a death coil missile has its aim point from creation; a death-and-decay cloud has the target tile's centre; a whirlwind has its current goal (`spells/spells.md`) |
 | `target`, `shooter` | Unit slots, or `null` |
 | `damage` | The damage value stored on the missile (`combat/damage.md`) |
 
