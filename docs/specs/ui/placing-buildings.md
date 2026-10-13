@@ -7,6 +7,8 @@
 - **Changes:** 2026-10-12: the pointer-tile open question is closed by `ui/screen-and-cursors.md` ("Placement"):
   the site is the tile under the pointer's hot spot, not centred, and it updates only while the pointer is in the
   map view.
+  2026-10-13, round-60 errata: carrying out the build command checks the site again, without the unexplored
+  test; the "setup-time switch" open question is closed; `orc9-orc09-shore-build-3000` vector.
 
 ## Behaviour
 
@@ -76,8 +78,12 @@ When the player clicks on the map in placement mode:
 Both `misc\thunk` and `misc\error` are plain sounds: not placed at a tile, always at the normal level, and not under
 any sound option. The off-screen rule in `ui/sounds.md` that silences the error sound therefore never applies to it.
 
-The site check is a local filter. When the worker reaches the site, the game checks the placement again
-(`economy/build-train.md`); that check plays no error sound.
+The site check is not only a local filter. When the build command is carried out (in the command turn, for every
+player), the site check runs again for the builder, **without the unexplored test**, followed by the affordability
+check; on a failure the builder gets no order and nothing is paid, and the message is shown only to the builder's
+owner (`economy/build-train.md`, "Carrying out a player's build command"; traced: `orc9-orc09-shore-build-3000`
+n = 27). When the worker reaches the site, the game checks the placement again (`economy/build-train.md`); that
+check plays no error sound.
 
 ## Data
 
@@ -114,10 +120,10 @@ oil patch 2 × 2.
 | Same, the tile is visible | Blocked: message 443 |
 | The builder, a peasant, stands on one of a farm's site tiles; nothing else is there | Not blocked by the peasant: allowed if nothing else fails |
 | The player cancels placement mode | No sound |
+| `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): a shipyard command at (52, 81), too close to oil, carried out at n = 26 | The peon gets no order (stays in order 2) |
+| A command whose site is partly unexplored for the builder's owner, carried out (`human01-basics-9500` n = 19) | No unexplored failure: the build goes ahead |
 
 ## Open questions
 
-- **A setup-time switch.** The unexplored test is also skipped while one game-setup step runs. It is never on when the
-  player can click, so it has no known effect.
 - **Other error sounds.** No other use of the error sound was found, including clicks on an invalid target in target
   mode. If play shows the sound elsewhere, this spec should be extended.
