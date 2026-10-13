@@ -252,9 +252,14 @@ impl World {
         }
         // Orders spec, "Order 12 with no route" (round-48 errata, step 3): a skip mark set before this run is cleared
         // at its end, whatever the order, unless the run ends in a take-over or a move step.
+        // Round-52 errata (`xorc8-10000` elven destroyer 1468, n = 7372): a unit out of reach of its order-12 target
+        // takes a move step, which leaves the mark set; if that step ends in idle at once, the idle logic that runs
+        // straight after is the next run, skips its search and clears the mark.
         let (marked, tile, takeovers) = (self.units[i].skip_search, self.units[i].tile, self.takeovers);
+        let move_step = marked && self.out_of_reach(i);
         self.order_logic(i);
-        if marked && self.units[i].tile == tile && self.takeovers == takeovers {
+        let stepped = move_step && matches!(self.units[i].order, Order::Chase { .. });
+        if marked && !stepped && self.units[i].tile == tile && self.takeovers == takeovers {
             self.units[i].skip_search = false;
         }
     }

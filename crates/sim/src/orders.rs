@@ -95,6 +95,10 @@ fn followable(o: Order) -> bool {
     )
 }
 
+/// The movement-class flags: the five lowest type flag bits (orders spec, "Forgetting a dying attacker first",
+/// round-52 errata). A type with any of them is "a unit that can move".
+pub(crate) const MOVEMENT_CLASS: u32 = 0x1F;
+
 impl World {
     fn acquires(&self, o: Order) -> Option<Acquires> {
         match o {
@@ -387,9 +391,10 @@ impl World {
 
     /// Round-51 errata, "Forgetting a dying attacker first": every target search of a unit that can move starts by
     /// forgetting a recorded attacker that is dying or no longer in play (`xorc6-10000` axe thrower 1475, n = 6106).
+    /// Round-52 errata: a unit can move if its type has a movement-class flag (the five lowest type flag bits).
     pub(crate) fn forget_dying_attacker(&mut self, i: usize) {
         let u = &self.units[i];
-        if !u.building
+        if self.flags_of_unit(u) & MOVEMENT_CLASS != 0
             && let Some(a) = u.attacked_by
             && self.dying_or_gone(a)
         {
@@ -428,6 +433,19 @@ impl World {
     /// attacker"; the same check applies to a command's target unit).
     pub(crate) fn stale(&self, owner: u8, t: UnitId) -> bool {
         self.unit(t).is_none_or(|t| t.dying || !Self::detected(t, owner))
+    }
+
+    /// Orders spec, "Order 12 with no route" step 3 (round-52 errata, `xorc8-10000` elven destroyer 1468, n = 7372):
+    /// a unit in order 12 out of reach of a target it still holds takes a move step instead of running its order
+    /// logic, and the move step's target search runs whatever the skip mark.
+    pub(crate) fn out_of_reach(&self, i: usize) -> bool {
+        let u = &self.units[i];
+        let Order::Chase { target } = u.order else { return false };
+        if !self.holds(u.owner, target) {
+            return false;
+        }
+        let t = self.unit(target).expect("held");
+        !self.within_strike_reach(u, t)
     }
 
     /// The per-step order logic for the orders this module owns. Returns false for orders it doesn't handle.
@@ -475,7 +493,8 @@ impl World {
                     | Order::AttackInPlace { .. }
                     | Order::IdleReact { .. }
                     | Order::AttackGround { .. }
-            );
+            )
+            && !self.out_of_reach(i);
         // Round-51 errata, "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): in orders 4
         // and 10 the arrival test comes before the target search, so a unit standing at its move goal arrives below
         // with no acquisition in that run.
@@ -517,7 +536,9 @@ impl World {
                 }
             }
             Order::Move { goal } | Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => {
-                if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && self.react(i) {
+                // Round-52 errata (static study): at the move goal the whole move step is skipped, so the Classic
+                // reaction doesn't run there either.
+                if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && !arriving && self.react(i) {
                     return true;
                 }
                 let walk = self.move_toward(i, Goal::tile(goal, 0));
@@ -916,7 +937,9 @@ impl World {
         let t = self.unit(best).expect("found by the search");
         // "Attacking without moving" (round-40 errata, `xhuman2` footman 1548 at n = 34): order 16 doesn't switch to a
         // new target out of range; the target is forgotten and idle takes over in the same update, attacker kept.
-        if matches!(u.order, Order::IdleReact { .. }) && !self.in_range(u, t) {
+        // Round-52 errata (static study): while the unit is still cooling down, the cooling-down rule wins and the new
+        // target is taken with no range test.
+        if matches!(u.order, Order::IdleReact { .. }) && !self.in_range(u, t) && !self.still_cooling(u) {
             self.idle_now(i);
             return true;
         }
@@ -2785,5 +2808,140 @@ mod tests {
         let u = &w.units[i];
         assert!(matches!(u.pending, Some(Order::Move { .. })), "{:?}", u.pending);
         assert_eq!(u.script.wait, SMART_WAIT_OTHER);
+    }
+
+    /// Round-52 errata, "Order 12 with no route" step 3 (the `xorc8-10000` elven destroyer 1468 vector at n = 7372,
+    /// in small): a marked unit in order 12 out of reach of its target takes a move step, whose target search runs
+    /// whatever the mark. It takes an enemy it has no route to and goes idle at once (still animation, wait 1, no
+    /// target); the idle logic that runs straight after skips its search and clears the mark. With no such enemy the
+    /// unit steps toward its target and the mark stays set.
+    #[test]
+    fn the_skip_mark_does_not_stop_the_move_steps_search() {
+        for walled_foe in [true, false] {
+            // A computer player's footman (reaction range 6) chasing a footman 8 tiles away.
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 0, (5, 13), 0).unwrap();
+            if walled_foe {
+                // Walled in two tiles out, with the first tile of the straight line toward it blocked too, so there is
+                // no route to it; the way south to the old target stays open.
+                w.spawn(FOOTMAN, 0, (9, 5), 0).unwrap();
+                for y in 3..=7 {
+                    for x in 6..=11 {
+                        if x == 6 && y != 5 {
+                            continue;
+                        }
+                        if x <= 7 || x == 11 || y == 3 || y == 7 {
+                            let n = w.terrain.at(x, y).unwrap();
+                            w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+                        }
+                    }
+                }
+            }
+            w.unit_visibility();
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = Order::Chase { target: old };
+            u.pending = None;
+            u.skip_search = true;
+            u.facing = 7;
+            let fx = crate::anim::Effects {
+                step_done: true,
+                ..Default::default()
+            };
+            w.order(i, fx);
+            let u = &w.units[i];
+            if walled_foe {
+                assert_eq!(
+                    (u.order, u.tile, u.facing, u.script.anim, u.script.wait),
+                    (Order::Idle, (5, 5), 7, anim::STILL, 1)
+                );
+                assert!(!u.skip_search, "the idle logic's run clears it");
+            } else {
+                assert_eq!((u.order, u.script.anim), (Order::Chase { target: old }, anim::MOVE));
+                assert!(u.skip_search, "a move step leaves it set");
+            }
+        }
+    }
+
+    /// Round-52 errata, "Attacking without moving" (static study): in order 16 a new target out of range is taken
+    /// while the unit is still cooling down (order 16 on it, the cooldown left as the wait); with no cooldown left the
+    /// out-of-range rule applies (idle takes over, wait 3).
+    #[test]
+    fn in_order_16_the_cooldown_wins_over_the_out_of_range_rule() {
+        for cooling in [true, false] {
+            // A computer player's footman searches its reaction range; a peasant that can't attack gives order 16.
+            let mut w = map();
+            w.stats.0[PEASANT as usize].flags &= !flags::CAN_ATTACK;
+            let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+            let old = w.spawn(PEASANT, 0, (20, 20), 0).unwrap();
+            let g = w.spawn(PEASANT, 0, (5, 8), 0).unwrap();
+            w.unit_visibility();
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.pending = None;
+            u.order = Order::IdleReact { target: old };
+            u.cooldown = if cooling { 40 } else { 0 };
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            if cooling {
+                assert_eq!(
+                    (u.order, u.tile, u.script.anim, u.script.frame, u.script.wait),
+                    (Order::IdleReact { target: g }, (5, 5), anim::ATTACK, 0, 40)
+                );
+            } else {
+                assert_eq!((u.order, u.script.wait), (Order::Idle, 3));
+            }
+        }
+    }
+
+    /// Round-52 errata, "Arriving and losing the target" (static study): in Classic mode a unit in order 10 at its
+    /// move goal skips the whole move step, its reaction included, and arrives. Away from the goal it reacts.
+    #[test]
+    fn classic_attack_move_at_its_goal_arrives_without_reacting() {
+        for at_goal in [true, false] {
+            let mut w = map();
+            w.rules.enhanced = false;
+            w.players[1].controller = controller::NOBODY;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.unit_visibility();
+            let i = at(&w, f);
+            let goal = if at_goal { (5, 5) } else { (15, 5) };
+            let u = &mut w.units[i];
+            u.order = Order::AttackMove { goal };
+            u.pending = None;
+            u.attacked_by = Some(g);
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            if at_goal {
+                assert_eq!((u.order, u.attacked_by, u.script.wait), (Order::Idle, None, 3));
+            } else {
+                assert!(matches!(target_of(u.order), Some(t) if t == g), "{:?}", u.order);
+            }
+        }
+    }
+
+    /// Round-52 errata, "Forgetting a dying attacker first": a unit can move if its type has a movement-class flag
+    /// (the five lowest type flag bits). A type with none, building or not, keeps a dying attacker's record.
+    #[test]
+    fn only_a_type_with_a_movement_class_flag_forgets_a_dying_attacker() {
+        for (class, forgets) in [
+            (flags::LAND, true),
+            (flags::SEA, true),
+            (flags::CRITTER, true),
+            (0, false),
+        ] {
+            let mut w = map();
+            w.stats.0[FOOTMAN as usize].flags = class | flags::CAN_ATTACK;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let a = w.spawn(ARCHER, 1, (5, 7), 0).unwrap();
+            let (i, ai) = (at(&w, f), at(&w, a));
+            w.units[ai].dying = true;
+            w.units[i].attacked_by = Some(a);
+            w.forget_dying_attacker(i);
+            assert_eq!(w.units[i].attacked_by.is_none(), forgets, "flags {class:#x}");
+        }
     }
 }
