@@ -741,7 +741,9 @@ impl World {
             let mut best: Option<(i32, UnitId)> = None;
             for m in self.owned(slots::NEUTRAL) {
                 if self.is_live_mine(m) && self.terrain.region(m.tile.0, m.tile.1) == region {
-                    let v = distance(d.tile, m) + distance(here, m) / 2;
+                    // Round-58 errata: the worker term is the larger axis distance from the mine's top-left tile
+                    // (`mp-gold-rush-bne-25000`, n = 6461), not the distance to the mine's nearest tile.
+                    let v = distance(d.tile, m) + crate::movement::chebyshev(here, m.tile) / 2;
                     if best.is_none_or(|(bv, _)| v < bv) {
                         best = Some((v, m.id));
                     }
@@ -1072,6 +1074,32 @@ mod tests {
         for (x, y) in keep_clear_line((14, 14), (22, 20)) {
             assert!(w.keep_clear_at(x, y));
         }
+    }
+
+    /// Round-58 errata, "Harvest" step 2 (the `mp-gold-rush-bne-25000` peon 1505 vector at n = 6461, moved by
+    /// (3, -35)): with the depot's top-left tile at (14, 14) and the worker at (14, 20), all six mines score 10, so
+    /// the first in the list wins. With the worker term to the mine's nearest tile, the mine at (12, 8) would score
+    /// 4 + 5 = 9 and win; from its top-left tile it is max(2, 12) = 12, so 4 + 6 = 10.
+    #[test]
+    fn the_mine_scores_worker_term_is_from_the_mines_top_left_tile() {
+        let (mut w, _) = town();
+        for x in 0..3 {
+            w.spawn(t::FARM, 1, (2 + 3 * x, 2), 0).unwrap();
+        }
+        // The newest unit is listed first, so the mines are made in reverse: the one at (21, 20) leads the list.
+        let mines: Vec<UnitId> = [(18, 8), (15, 8), (12, 8), (21, 14), (21, 17), (21, 20)]
+            .into_iter()
+            .map(|m| w.spawn(t::GOLD_MINE, slots::NEUTRAL, m, 100).unwrap())
+            .collect();
+        let first = w.owned(slots::NEUTRAL).next().unwrap().id;
+        assert_eq!(first, mines[5]);
+        let peon = w.spawn(PEASANT, 1, (14, 20), 0).unwrap();
+        let i = w.index(peon).unwrap();
+        assert!(matches!(
+            w.worker_choice(i),
+            Choice::Order(Order::Harvest { source: Some(m), .. }) if m == first
+        ));
+        assert_eq!(crate::movement::chebyshev((14, 20), (12, 8)), 12);
     }
 
     #[test]

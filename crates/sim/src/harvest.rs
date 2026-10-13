@@ -469,6 +469,9 @@ impl World {
             Some(Order::Build { kind, site, .. }) => Some(self.build_goal(i, kind, site)),
             // Round-52 errata: a return faces the depot's top-left tile plus (1, 1), not its pulled-back aim.
             Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| (d.tile.0 + 1, d.tile.1 + 1)),
+            // Round-58 errata: a harvest at a source that is a unit faces its top-left tile plus (1, 1), not its
+            // pulled-back aim.
+            Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| (s.tile.0 + 1, s.tile.1 + 1)),
             _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
         }
     }
@@ -520,7 +523,10 @@ impl World {
             // Round-52 errata (`human13-10000` peon 1550, n = 196): a return aims at the depot's top-left tile pulled
             // back, as for any command to a building; the worker still faces the depot (`come_out_face`).
             Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| d.tile).map(|t| self.pull_back(i, t)),
-            Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile),
+            // Round-58 errata (`mp-rose-petal-bne-10000` peon 1567, n = 1731): a harvest at a gold mine (or another
+            // source that is a unit) aims at the source's top-left tile pulled back in the same way.
+            Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile).map(|t| self.pull_back(i, t)),
+            // A tree tile is already the pulled-back goal.
             Some(Order::Harvest { tree, .. }) => Some(tree),
             // Round-40 errata: a build order aims at the site's top-left tile, not the build walk's goal tile.
             Some(Order::Build { site, .. }) => Some(site),
@@ -1440,6 +1446,51 @@ mod tests {
         assert_eq!((u.order, u.tile), (Order::Idle, (11, 9)));
         // Toward (3, 19): south-west; toward the pulled-back goal's (11, 11) it would be south (4).
         assert_eq!(u.facing, 5);
+    }
+
+    /// Round-58 errata, "Coming out" step 6 (the `mp-rose-petal-bne-10000` peon 1567 vector at n = 1731, moved by
+    /// (-50, -74)): a worker leaving a hall toward a gold mine aims at the mine's top-left tile pulled back. From the
+    /// hall's (5, 10) toward the mine's (9, 4), the first tile tested, (8, 5), is forest and the next, (8, 6), is
+    /// usable, so the goal is (8, 5): the worker comes out at (5, 9), facing 1 toward the mine's (10, 5). Aimed at
+    /// (9, 4) it would come out at (9, 10) facing 0.
+    #[test]
+    fn leaving_toward_a_mine_aims_at_its_pulled_back_top_left_tile() {
+        let mut w = land();
+        forest(&mut w, 8, 5);
+        let mine = w.spawn(MINE, 15, (9, 4), 100).unwrap();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (5, 10), 0).unwrap();
+        let p = w.spawn(0, 0, (5, 14), 0).unwrap();
+        go_in_now(&mut w, p, hall);
+        let pi = w.index(p).unwrap();
+        assert!(w.units[pi].hall_exit);
+        w.units[pi].return_to = Some(Source::Unit(mine));
+        assert_eq!(w.units[pi].tile, (5, 10));
+        assert_eq!(w.pull_back(pi, (9, 4)), (8, 5));
+        come_out_now(&mut w, p, hall);
+        let u = &w.units[pi];
+        assert!(matches!(u.pending, Some(Order::Harvest { source: Some(s), .. }) if s == mine));
+        assert_eq!((u.order, u.tile, u.facing), (Order::Idle, (5, 9), 1));
+    }
+
+    /// Round-58 errata (the `mp-gold-rush-bne-6000` peon 1511 vector at n = 2353, moved by (0, -30)): the worker faces
+    /// the mine's top-left tile plus (1, 1), (7, 14), not the pulled-back goal (8, 15) plus (1, 1).
+    #[test]
+    fn leaving_toward_a_mine_faces_its_top_left_tile_plus_one() {
+        let mut w = land();
+        // Forest in place of the trace's other ground keeps the exit off (10, 19).
+        forest(&mut w, 10, 19);
+        let mine = w.spawn(MINE, 15, (6, 13), 100).unwrap();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (11, 19), 0).unwrap();
+        let p = w.spawn(0, 0, (16, 20), 0).unwrap();
+        go_in_now(&mut w, p, hall);
+        let pi = w.index(p).unwrap();
+        w.units[pi].return_to = Some(Source::Unit(mine));
+        assert_eq!(w.pull_back(pi, (6, 13)), (8, 15));
+        come_out_now(&mut w, p, hall);
+        // From the exit tile, the pulled-back goal's (9, 16) would give 0.
+        let u = &w.units[pi];
+        assert_eq!((u.tile, u.facing), ((10, 20), 7));
+        assert_eq!(crate::world::face_tile(u.tile, (9, 16)), 0);
     }
 
     #[test]
