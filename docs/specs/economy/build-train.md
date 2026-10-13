@@ -38,6 +38,8 @@
   `xorc4-10000` vector; open question on a Classic builder's delivery.
   2026-10-13, round-48 errata: a building killed while a job runs cancels the job at the kill, with the cancel refund
   and the mana byte set to 0; `human5-10000` vector; the open question on jobs at a building's death is closed.
+  2026-10-13, round-49 errata: a computer player's build walk with no route doesn't give its payment back; a tanker
+  can't take a platform placed in the same cycle; `xhuman12-10000` and `human14-10000` vectors.
 
 ## Behaviour
 
@@ -94,8 +96,10 @@ idle: with **no route**, idle as an immediate order (`orders/orders.md`, "No rou
 limit**, idle as a pending order (`movement/movement.md`, "Blocked rules", row C). The worker arrives when it **stands
 on** the goal tile; the placement check ignores the worker's own tile (below), so that doesn't stop the building.
 
-- **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker
-  sets out.
+- **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker sets
+  out. A build walk that ends with **no route** doesn't give the payment back; the job choice may give the same build
+  again and the player pays again each time (traced: `xhuman12-10000`, `human14-10000`, vectors below). Only a failed
+  site check on arrival (below) refunds it.
 - **Every other player** (human, passive computer, neutral) pays on arrival. The affordability check runs then, and a
   failure shows its message and makes the worker idle. In ordinary games only human players reach this, since
   passive and neutral players don't build.
@@ -111,6 +115,8 @@ on** the goal tile; the placement check ignores the worker's own tile (below), s
   released 513 cycles later, as for any removed unit (`core/corpses.md`). The patch's wait of 1 comes from its own
   update, which follows the builder's in that cycle; after that the wait keeps counting down (0 at the next cycle,
   then 255).
+  A tanker given the harvest command on the new platform in that same cycle doesn't take it as its target
+  (`economy/harvest.md`, "Starting to harvest", step 3).
 
 ### Construction
 
@@ -290,6 +296,8 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `human06-tech` (oracle trace), n = 578: building 1516 at (72, 4) finishes its upgrade from type 0x40 to 0x60 | The same record: type 0x60, order 14, animation 4, wait 3 |
 | `xorc4-10000` (oracle trace): computer peasant 1580 (type 0x02, owner 2) comes out of 1565 (top-left (26, 11)) at n = 7963, at (25, 12), with a build job for a 3 × 3 site at (14, 11) | Its walk goal, worked out from (26, 11), is (16, 11), not (16, 12): it walks row 12 to (20, 12), steps north-west to (19, 11) at n = 8071, reaches (16, 11) at n = 8119 and is in order 22 at n = 8135 |
 | `human5-10000` (oracle trace), n = 8086: great hall 1525 (type 0x4A, owner 0) is killed while training (order 37, mana byte 70) | Same cycle: order 1, player 0's gold 300 to 700 (the 400 paid for the unit refunded), mana byte 0 |
+| `xhuman12-10000` (oracle trace), n = 116: a computer player 6 build walk finds no route | Player 6 gold 3700 and lumber 3650: the payment made that cycle stays spent |
+| `human14-10000` (oracle trace), n = 1040: the same for computer player 5 | Player 5 gold 33556 and lumber 35906 (no refund) |
 
 ## Open questions
 
