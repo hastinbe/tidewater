@@ -49,6 +49,7 @@
   `orc9-orc09-shore-build-3000` vector.
   2026-10-13, round-61 errata: the build command's validity test names its builder by a builder table (not the
   builder's race); the affordability check on carrying it out is traced; `orc9-orc09-smart-move-2000` vectors.
+  2026-10-13, round-62: the shore site with no corner is traced (`orc9-orc09-shore-no-corner-600`).
 
 ## Behaviour
 
@@ -118,8 +119,8 @@ If step 2 or 3 fails, the builder gets **no order** and nothing is paid; the out
 builder belongs to the local player (traced: `orc9-orc09-shore-build-3000` n = 27, round-60 vectors; the unexplored
 test's absence: `human01-basics-9500` n = 19, whose barracks site is partly unexplored and is built). Otherwise the
 build goes ahead as below; the payment and the check on arrival are unchanged. A shore site with no footprint corner
-in the worker's region also gives no order and no payment (`movement/pathfinding.md`, "Shore building"; static
-study only).
+in the worker's region also gives no order and no payment (`movement/pathfinding.md`, "Shore building"; traced:
+`orc9-orc09-shore-no-corner-600` n = 20, round-62 vectors).
 
 A worker ordered to build goes to the site in order 28 (arrival radius 0), with no target unit. Its goal is a tile
 of the planned footprint, worked out from the planned building's type and top-left tile and the worker's current tile
@@ -367,7 +368,7 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | --- | --- |
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-shore-build.txt`): player 5's peon 1482 (type 0x03) at (34, 89) is sent to build a shipyard (type 0x49) at (52, 81), too close to oil; the command is carried out at n = 26 | No order: 1482 stays in order 2 (wait 1 at n = 26, 27) and never takes order 28; nothing is paid |
 | `human01-basics-9500` (oracle trace): the barracks at (5, 8), partly unexplored when the build command is carried out | Built: no unexplored test in the command turn |
-| A player's build command it can't afford when carried out (static study) | No order, nothing paid |
+| A player's build command it can't afford when carried out (traced: round-61 vectors, n = 10) | No order, nothing paid |
 
 ### Round-61 vectors
 
@@ -376,6 +377,12 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `orc9-orc09-smart-move-2000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-smart-move.txt`), n = 10: player 5's peon 1482 (type 0x03) given a great hall (type 0x4B, 1200 gold) on a clear site at (45, 84), with 1000 gold | Nothing: 1482 stays in order 2, nothing paid |
 | Same trace, n = 14: peon 1482 given a human farm (type 0x3A) on a clear site | Nothing (the farm's builder is the peasant type): no order 28 at n = 17 |
 | Same trace, n = 50: peon 1482 (in order 23) given a keep (type 0x58) on a clear site, with 10600 gold | Nothing (no builder): 1482 keeps its harvest order |
+
+### Round-62 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-shore-no-corner-600` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-shore-no-corner.txt`), n = 20: player 5's peon 1478 (type 0x03) at (38, 92) sent to build a shipyard (type 0x49) at (22, 65), on the coast of another island: no footprint corner in its region | 1478 stays in order 2; gold and lumber stay 1000 |
 
 ## Open questions
 
