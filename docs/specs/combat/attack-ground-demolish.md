@@ -5,6 +5,8 @@
   come from the game's sound list. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-39 errata: the demolisher's HP doesn't change when it is killed after its blast;
   `human12-demolition` vector.
+- **Changes:** 2026-10-12, round-42 errata: the ships' facing rule is now defined (`core/animation-scripts.md`, warships
+  turn broadside).
 
 ## Behaviour
 
@@ -48,7 +50,8 @@ base range without range upgrades; no unit that can attack the ground has one.
 
 1. While the unit is out of range, it walks toward the target tile like any moving order.
 2. Each time it is in range when its order logic runs:
-   - it turns to face the target tile (ships use the ships' facing rule, as for their other attacks);
+   - it turns to face the target tile (warships turn broadside instead, by the table in `core/animation-scripts.md`,
+     "Facing a tile", as for their other attacks);
    - the attack sound plays (`ui/sounds.md`);
    - its attack script runs, and at the strike point the missile is fired at the centre of the target tile
      (`combat/damage.md`, "How an attack delivers damage").
