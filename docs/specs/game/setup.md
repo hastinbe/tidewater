@@ -12,6 +12,8 @@
 - **Changes:** 2026-10-13, round-58 errata: how a multiplayer start places its computer opponents (one spent draw,
   then custom step 3 on code-5 slots: 1 + opponents draws); `mp-dark-paths-bne-1000`, `mp-gold-rush-bne-6000` and
   `mp-rose-petal-bne-10000` vectors.
+- **Changes:** 2026-10-13, round-59 corrections: a multiplayer "Fixed Order" start places no opponents by draw
+  (Computer rows take their own slot numbers); zero opponents make no placement draw (static study).
 
 ## Behaviour
 
@@ -129,12 +131,21 @@ spec), not from the map.
 **Multiplayer game.** The generator is seeded with the lobby's game seed (the lobby is a later spec). The lobby's
 humans take the slots they were given, with no draw; there is no local-slot draw (custom step 1). The computer
 opponents are then placed exactly as custom step 3 places them, and the humans' slots don't count as code 5: a draw
-r per try (with fixed start positions, no draw and r = 0), then a search from slot r mod 8 upward for code 4. When a
+r per try, then a search from slot r mod 8 upward for code 4. When a
 search finds no code-4 slot, that draw is spent and placement moves to the code-5 slots for good, with a new draw for
 each opponent. These draws come before the unit-creation draws. Every multiplayer map traced so far has code 5 in
 all its player slots, so the first draw always finds no code-4 slot and the setup makes **1 + (number of
 opponents)** placement draws (traced: `mp-dark-paths-bne-1000`, `mp-gold-rush-bne-6000`, `mp-rose-petal-bne-10000`;
 vectors below).
+This count holds when there is at least one opponent: with **none**, placement stops before its first draw and
+makes **no** draw. If the code-5 slots run out, fewer computers are placed than lobby rows set to Computer, and
+each failed search has still spent its draw (static study; no traced map does either).
+
+**Fixed Order.** The lobby's "Location: Fixed Order" option is the fixed-starts setting. With it, a multiplayer
+start doesn't run the opponent placement at all: each human takes the slot with its own lobby row number (row i,
+slot i), each lobby row set to Computer becomes a computer in the **same-numbered slot** if the map gives that slot
+code 4 or 5, and there are **no** placement draws. The "no draw, r = 0" search of custom step 3 is for the
+single-player custom game only (static study; no trace has Fixed Order).
 
 **Both.** Every slot that still has code 4 or 5 becomes **nobody**. Codes 2, 3, 6 and 7 are kept for now. Any other
 code is kept as it is (see the open questions).
@@ -345,6 +356,9 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | `mp-gold-rush-bne-6000` (oracle trace, Enhanced): game seed 5, humans in slots 1 and 2, 2 opponents, 82 map units | `controllers` has computers in slots 0 and 3; the setup `rng` is 167 steps from 5: 3 placement draws + 2 × 82 creation draws |
 | `mp-dark-paths-bne-1000` (oracle trace, Enhanced): game seed 5, codes (5, 5, 5, 3, 3, 3, 3, 3), humans in slots 0 and 1, 1 opponent, 13 map units | Computer in slot 2; setup `rng` 0x2E4642F9, 28 steps from 5 (2 placement + 26 creation draws) |
 | `mp-rose-petal-bne-10000` (oracle trace, Enhanced): game seed 5, codes (5, 5, 5, 5, 5, 5, 3, 3), humans in slots 0 and 4, 4 opponents, 43 map units | Computers in slots 1, 2, 3 and 5; the setup `rng` is 91 steps from 5 (5 placement + 86 creation draws) |
+| Multiplayer, 0 computer opponents | No placement draw: the setup's first draws are the unit-creation draws (static study) |
+| Multiplayer with Fixed Order: humans in lobby rows 0 and 1, row 2 set to Computer, map slot 2 has code 5 | Humans in slots 0 and 1, a computer in slot 2, no placement draw (static study) |
+| Multiplayer with Fixed Order, row 3 set to Computer, map slot 3 has code 3 | No computer in slot 3 (static study) |
 
 ## Open questions
 
