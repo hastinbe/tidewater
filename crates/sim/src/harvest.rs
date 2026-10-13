@@ -523,7 +523,7 @@ impl World {
             // Round-52 errata (`human13-10000` peon 1550, n = 196): a return aims at the depot's top-left tile pulled
             // back, as for any command to a building; the worker still faces the depot (`come_out_face`).
             Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| d.tile).map(|t| self.pull_back(i, t)),
-            // Round-58 errata (`mp-rose-petal-bne-10000` peon 1567, n = 1731): a harvest at a gold mine (or another
+            // Round-58 errata (`mp-rose-petal-bne-10000` peasant 1567, n = 1731): a harvest at a gold mine (or another
             // source that is a unit) aims at the source's top-left tile pulled back in the same way.
             Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile).map(|t| self.pull_back(i, t)),
             // A tree tile is already the pulled-back goal.
@@ -1448,10 +1448,10 @@ mod tests {
         assert_eq!(u.facing, 5);
     }
 
-    /// Round-58 errata, "Coming out" step 6 (the `mp-rose-petal-bne-10000` peon 1567 vector at n = 1731, moved by
-    /// (-50, -74)): a worker leaving a hall toward a gold mine aims at the mine's top-left tile pulled back. From the
-    /// hall's (5, 10) toward the mine's (9, 4), the first tile tested, (8, 5), is forest and the next, (8, 6), is
-    /// usable, so the goal is (8, 5): the worker comes out at (5, 9), facing 1 toward the mine's (10, 5). Aimed at
+    /// Round-58 errata, "Coming out" step 6 (the `mp-rose-petal-bne-10000` peasant 1567 vector at n = 1731, moved
+    /// by (-50, -74)): a worker leaving a town hall toward a gold mine aims at the mine's top-left tile pulled back.
+    /// From the hall's (5, 10) toward the mine's (9, 4), the first tile tested, (8, 5), is forest and the next, (8, 6),
+    /// is usable, so the goal is (8, 5): the worker comes out at (5, 9), facing 1 toward the mine's (10, 5). Aimed at
     /// (9, 4) it would come out at (9, 10) facing 0.
     #[test]
     fn leaving_toward_a_mine_aims_at_its_pulled_back_top_left_tile() {
