@@ -15,6 +15,8 @@
   inside the anchor is the unit's own tile; `xorc7` and `human10` vectors.
   2026-10-12, round-42 errata: call for help tests only the answering unit's top-left tile, and the box reaches 3 rows
   above its top; `orc02` vector.
+  2026-10-12, round-43 errata: a recorded attacker that is dying doesn't stop a unit from answering a call for help;
+  `orc02-assault` vector.
 
 ## Behaviour
 
@@ -412,7 +414,9 @@ When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applyi
    - S is not dying or dead, and its order is 2 (idle) or 7 (follow and guard) with no order waiting to follow it;
    - S's type is not a worker or tanker, has neither flag bit 25 nor 26, can attack (bit 19), and is not a tower
      (bit 20);
-   - S has no attacker of its own, S is not V, and S's acquisition score for A is non-zero.
+   - S has no attacker of its own, S is not V, and S's acquisition score for A is non-zero. A recorded attacker that is
+     **dying** doesn't count here: S answers while the unit it records is still in its death animation
+     (`movement/movement.md` keeps that record when another unit made the kill).
    For a computer player, a **held** S answers only if its distance to V is at most 4, and its goal is first set to
    **attack** at its own tile. Every answering S is given command 12 against A.
 
@@ -529,6 +533,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Human footman V hit; an idle human footman 3 tiles away | Outside R = 2: it doesn't answer (the acquisition search may still react) |
 | Human unit hit by a guard tower | The tower is not recorded as its attacker; no call for help |
 | `orc02-assault-3000` (oracle trace), n = 969: grunt 1576 (owner 0) at (59, 19), attacking 1587, is V (radius 2: box rows 17 to 21); idle grunt 1568 (owner 0) at (58, 16) | 1568 is in the box (row 16 ≥ 17 − 3) and answers: target 1587 at n = 969; order 12 takes over at n = 973 (animation 4, wait 3) |
+| Same trace: 1568's recorded attacker is footman 1597, dying from n = 879 (killed by grunt 1578) until it becomes a body at n = 985 | 1568 still answers at n = 969: a dying attacker doesn't count as "an attacker of its own" |
 | Human player's V at (10, 10), 1 × 1 (radius 2: box columns 8 to 12, rows 8 to 12); idle footman of V's owner at (12, 5) | Answers (row 5 ≥ 8 − 3) |
 | Same, footman at (12, 4) | Doesn't answer |
 | Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1) and the caster spell step's random search (1 to 10 per random try; `ai/caster-ai.md`). The post choice's off-map case (2) draws during creation, not in pass B |
