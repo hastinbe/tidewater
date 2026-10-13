@@ -211,8 +211,9 @@ impl World {
             4 => self.ai_counts(p).land >= slot(0x0d) * slot(0x0e),
             5 => self.ai_counts(p).sea >= slot(0x0f) * slot(0x10),
             6 => self.ai_counts(p).air >= slot(0x11) * slot(0x12),
-            // Alliances aren't modelled yet: every other player counts as not allied.
-            7 => (0..SCRIPT_PLAYERS).any(|q| q != p && self.ai_counts(q).workers > 0),
+            // Round-60 errata: by the alliance table, in which a player counts as allied with itself, so its own
+            // workers never count (`human11-30000` n = 22113: allied player 3's peasants don't count either).
+            7 => (0..SCRIPT_PLAYERS).any(|q| !self.allied(p as u8, q as u8) && self.ai_counts(q).workers > 0),
             _ => false,
         }
     }
@@ -390,6 +391,23 @@ mod tests {
         w.spawn(0x03, 3, (6, 6), 0).unwrap();
         assert!(w.condition(0, 7));
         assert!(!w.condition(0, 0));
+    }
+
+    /// Round-60 errata, condition 7: a player counts as allied with itself, so its own workers never count, and an
+    /// allied player's workers don't either (`human11-30000`: player 4's allied passive player 3 has peasants, and
+    /// the condition stays false).
+    #[test]
+    fn condition_7_skips_the_player_itself_and_its_allies() {
+        let mut w = computer(&wait(1000));
+        w.stats.0[0x03].size = (1, 1);
+        w.stats.0[0x03].hit_points = 10;
+        w.players[0].allies = 1 << 2;
+        w.spawn(0x03, 0, (1, 1), 0).unwrap();
+        assert!(!w.condition(0, 7), "own workers only");
+        w.spawn(0x03, 2, (2, 2), 0).unwrap();
+        assert!(!w.condition(0, 7), "own and an ally's workers");
+        w.spawn(0x03, 3, (3, 3), 0).unwrap();
+        assert!(w.condition(0, 7), "player 3 isn't allied");
     }
 
     #[test]
