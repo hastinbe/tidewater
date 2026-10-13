@@ -217,8 +217,8 @@ impl World {
         // The command carries its target unit, if any ("Commands"): a unit standing on the target tile isn't looked
         // up, so a critter wandering onto another unit's tile gets order 3 (Human04 trace, n = 82).
         let target = target.filter(|&t| t != u.id);
-        // Round-60 errata, step 2: with no target unit, a gold mine (or the unit's own oil platform) on the goal tile
-        // becomes the target of a worker (tanker) that can harvest it.
+        // Step 2 (round-61 errata): with no target unit, the building on the goal tile becomes the target when it
+        // passes the harvest test; otherwise there is none.
         let target = target.or_else(|| self.smart_building(u, tile));
         if self.is_transport(u) {
             return Some(self.transport_command(i, target, tile, false));
@@ -229,13 +229,19 @@ impl World {
             return Some(self.board_command(i, t));
         }
         let u = &self.units[i];
+        // Round-61 errata: return goods by smart move is for workers only (static study); a tanker carrying oil sent
+        // onto a refinery or shipyard goes on down the table.
         if let Some(t) = target
+            && self.is_worker(u)
             && self.can_return_to(u, t)
         {
             return Some(Order::ReturnGoods { depot: Some(t) });
         }
-        if self.can_harvest(u, tile) {
-            return self.harvest_command(i, target, tile);
+        // Round-61 errata: the harvest row is the harvest test of step 2, never a tree or an oil patch.
+        if let Some(t) = target
+            && self.unit(t).is_some_and(|t| self.harvest_test(u, t))
+        {
+            return self.harvest_command(i, Some(t), tile);
         }
         let own_unit = target
             .and_then(|t| self.unit(t))
@@ -246,24 +252,28 @@ impl World {
         })
     }
 
-    /// "Smart move" step 2 (round-60 errata; `orc9-orc09-shore-build-3000` peon 1478, n = 599, for the gold mine;
-    /// static study for the tanker): with no target unit, the building on the goal tile becomes the target when it is
-    /// a gold mine and the unit a worker in gold mode not carrying gold, or an oil platform of the unit's own player and
-    /// the unit a tanker not carrying oil. Anything else gives no target.
+    /// "Smart move" step 2 (round-61 errata): with no target unit, the building on the goal tile becomes the target
+    /// when it passes the harvest test ([`World::harvest_test`]). Anything else gives no target.
     pub(crate) fn smart_building(&self, u: &Unit, tile: (i32, i32)) -> Option<UnitId> {
-        if u.carrying {
-            return None;
-        }
         let at = self.occupant(Layer::Land, tile.0, tile.1).and_then(|t| self.unit(t))?;
-        let (f, af) = (self.flags_of_unit(u), self.flags_of_unit(at));
-        let takes = if f & flags::PEON != 0 {
-            u.gather == crate::world::Gather::Gold && af & flags::MINE != 0
+        (at.building && self.harvest_test(u, at)).then_some(at.id)
+    }
+
+    /// The smart move's harvest test ("Smart move" step 2, round-61 errata; `orc9-orc09-smart-move-2000` vectors): a
+    /// worker carrying nothing on a gold mine, or a tanker not carrying oil on an oil platform of its own player. It is
+    /// on the unit type and what it carries only: what the worker last harvested (its gather mode) plays no part.
+    pub(crate) fn harvest_test(&self, u: &Unit, t: &Unit) -> bool {
+        if u.carrying {
+            return false;
+        }
+        let (f, tf) = (self.flags_of_unit(u), self.flags_of_unit(t));
+        if f & flags::PEON != 0 {
+            tf & flags::MINE != 0
         } else if f & flags::TANKER != 0 {
-            af & flags::OIL_SOURCE != 0 && at.owner == u.owner
+            tf & flags::OIL_SOURCE != 0 && t.owner == u.owner
         } else {
             false
-        };
-        takes.then_some(at.id)
+        }
     }
 
     /// The smart move's wait cap ("Commands"): a waiting unit's wait is cut to 40 cycles for a computer player's
@@ -1224,10 +1234,10 @@ impl World {
         // transport takes the transport outcome (landing, order 30, on a shore tile: `xorc8-10000` transport 1423,
         // n = 6177); with no target unit and no mine or platform the harvest outcomes don't, so every other unit gets
         // a move (order 3), even next to a forest.
-        // Round-60 errata: the smart move's step 2 applies, so a gold-mode worker not carrying gold whose flee tile
-        // is a gold mine's harvests it (`orc9-orc09-shore-build-3000` peon 1478, n = 599), as would a tanker on its
-        // own player's oil platform (static study). That trace's peon is a player's builder that never had a harvest
-        // command, so ours is in no gather mode there and gets a move: an open question (the row stops at n = 598).
+        // Round-60 and round-61 errata: the smart move's step 2 applies with its harvest test, so a worker carrying
+        // nothing whose flee tile is a gold mine's harvests it, whatever it last harvested
+        // (`orc9-orc09-shore-build-3000` peon 1478, n = 599, a builder that never harvested), as would a tanker not
+        // carrying oil on its own player's oil platform.
         self.cap_smart_wait(i);
         let mine = self.smart_building(&self.units[i], to);
         let o = if self.is_transport(&self.units[i]) {
@@ -3076,9 +3086,10 @@ mod tests {
         }
     }
 
-    /// Round-60 errata, "Smart move" step 2 (`orc9-orc09-shore-build-3000` peon 1478 at n = 599, and the static
-    /// tanker row): with no target unit, a gold mine on the goal tile is the target of a gold-mode worker not carrying
-    /// gold, and an oil platform of the unit's own player that of a tanker not carrying oil; nothing else is.
+    /// Round-61 errata, "Smart move" step 2 and its harvest test (`orc9-orc09-smart-move-2000` vectors): with no
+    /// target unit, a gold mine on the goal tile is the target of a worker carrying nothing, whatever it last
+    /// harvested (never harvested, or a lumber worker between loads), and an oil platform of the unit's own player
+    /// that of a tanker not carrying oil; a carrying unit, another player's platform or anything else gives none.
     #[test]
     fn a_smart_move_onto_a_mine_or_own_platform_takes_it_as_the_target() {
         const MINE: u8 = 0x5c;
@@ -3099,25 +3110,68 @@ mod tests {
         let theirs = w.spawn(PLATFORM, 1, (2, 2), 0).unwrap();
         let p = w.spawn(PEASANT, 0, (5, 5), 0).unwrap();
         let t = w.spawn(TANKER, 0, (6, 5), 0).unwrap();
-        let mut peon = w.unit(p).unwrap().clone();
-        peon.gather = crate::world::Gather::Gold;
-        assert_eq!(w.smart_building(&peon, (10, 10)), Some(mine));
+        let peon = w.unit(p).unwrap().clone();
+        for gather in [crate::world::Gather::Gold, crate::world::Gather::Lumber, peon.gather] {
+            let worker = Unit { gather, ..peon.clone() };
+            assert_eq!(w.smart_building(&worker, (10, 10)), Some(mine), "{gather:?}");
+        }
         assert_eq!(w.smart_building(&peon, (12, 12)), None, "off the footprint");
         let carrying = Unit {
             carrying: true,
             ..peon.clone()
         };
         assert_eq!(w.smart_building(&carrying, (10, 10)), None);
-        let lumber = Unit {
-            gather: crate::world::Gather::Lumber,
-            ..peon.clone()
-        };
-        assert_eq!(w.smart_building(&lumber, (10, 10)), None);
         let tanker = w.unit(t).unwrap().clone();
         assert_eq!(w.smart_building(&tanker, (2, 10)), Some(own));
         assert_eq!(w.smart_building(&tanker, (2, 2)), None, "another player's platform");
         assert_eq!(w.smart_building(&tanker, (10, 10)), None);
+        let full = Unit {
+            carrying: true,
+            ..tanker.clone()
+        };
+        assert_eq!(w.smart_building(&full, (2, 10)), None, "a tanker carrying oil");
+        assert_eq!(w.smart_building(&peon, (2, 10)), None, "a worker on a platform");
         let _ = theirs;
+    }
+
+    /// Round-61 errata, "Smart move" table: a smart move by a lumber worker between loads onto a gold mine harvests
+    /// it (order 23 on the mine, `orc9-orc09-smart-move-2000` n = 201); one carrying gold gets the move (n = 481); a
+    /// smart move onto a forest tile is the move, never a tree harvest.
+    #[test]
+    fn a_smart_move_harvests_only_by_the_harvest_test() {
+        const MINE: u8 = 0x5c;
+        let mut w = map();
+        w.stats.0[MINE as usize] = w.stats.0[FARM as usize];
+        w.stats.0[MINE as usize].flags = flags::BUILDING | flags::MINE;
+        for y in 0..w.terrain.height as i32 {
+            for x in 16..w.terrain.width as i32 {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.regions[n] = crate::terrain::region::FOREST;
+                w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+            }
+        }
+        let mine = w.spawn(MINE, slots::NEUTRAL, (10, 10), 0).unwrap();
+        let p = w.spawn(PEASANT, 0, (5, 5), 0).unwrap();
+        let i = at(&w, p);
+        w.units[i].gather = crate::world::Gather::Lumber;
+        let smart = |tile| Command::Smart {
+            player: 0,
+            units: vec![p],
+            target: None,
+            tile,
+        };
+        let o = w.command_order(i, &smart((10, 10)));
+        assert!(
+            matches!(o, Some(Order::Harvest { source: Some(s), .. }) if s == mine),
+            "{o:?}"
+        );
+        w.units[i].carrying = true;
+        w.units[i].gather = crate::world::Gather::Gold;
+        let o = w.command_order(i, &smart((10, 10)));
+        assert!(matches!(o, Some(Order::Move { .. })), "{o:?}");
+        w.units[i].carrying = false;
+        let o = w.command_order(i, &smart((17, 5)));
+        assert!(matches!(o, Some(Order::Move { .. })), "a forest tile: {o:?}");
     }
 
     /// Round-60 errata, "Order 12 with no route" step 3 (the `orc12-30000` juggernaut 1439 vector, n = 29156): a
