@@ -28,6 +28,8 @@
   current goal; every death-and-decay cloud's destination is the target tile's centre; raise dead's marker is placed
   like the other kind 0x16 markers (open question closed); a blizzard shard lands on the step that reaches its landing
   point, then lingers 4 cycles; trace vectors.
+  2026-10-13, round-47 errata: a fireball's destination is the target tile's centre and a flame shield bolt's the target
+  unit's centre, from creation; trace vectors.
 
 ## Behaviour
 
@@ -262,24 +264,26 @@ unit for flames) is never hit. So for a stored damage D:
 One draw r is made per unit hit, in scan order. Walls on the effect's tile take D and the four neighbour walls take
 floor(D / 4) (`movement/occupancy.md`, "Walls").
 
-**Fireball.** Launched from the caster's centre toward the target tile's centre with stored damage **40**. On each step
-it makes one draw (discarded), then moves 12 px, or 6 px if its remaining distance is already below 50. Once its
-remaining distance is below 50 it counts its steps: on counts 8, 16, 24, 32 and 40 it **splashes** (damage 40) at its
-position and makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash), and on the step after count 41
-it ends. Each splash follows the rule of the gryphon hammer and dragon breath, with which the fireball shares its
-missile behaviour (`combat/damage.md`): it first needs a free effect slot (if there is none, there is no splash, sound
-or explosion on that step), and the explosion is created in that slot with only kind and position set ("Cosmetic
-effects"). No fireball trace shows this yet. It flies on past the target point, so the first explosion lands near the
-point and the next four follow every 48 px along the same line beyond it. When it ends, it touches a wall on its final
-tile with damage 40.
+**Fireball.** Launched from the caster's centre toward the target tile's centre with stored damage **40**. Its
+destination is the target tile's centre from creation (traced: `xhuman10-spells-700`, vectors below). On each step it
+makes one draw (discarded), then moves 12 px, or 6 px if its remaining distance is already below 50. Once its remaining
+distance is below 50 it counts its steps: on counts 8, 16, 24, 32 and 40 it **splashes** (damage 40) at its position and
+makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash), and on the step after count 41 it ends.
+Each splash follows the rule of the gryphon hammer and dragon breath, with which the fireball shares its missile
+behaviour (`combat/damage.md`): it first needs a free effect slot (if there is none, there is no splash, sound or
+explosion on that step), and the explosion is created in that slot with only kind and position set ("Cosmetic effects").
+No fireball trace shows this yet. It flies on past the target point, so the first explosion lands near the point and the
+next four follow every 48 px along the same line beyond it. When it ends, it touches a wall on its final tile with
+damage 40.
 
-**Flame shield.** The bolt flies from the caster to the target unit's centre at 12 px per step, making one draw at
-the start of every step. On the step after it arrives (remaining distance 0 or less), it creates **5 flames** on the
-target unit and ends. Each flame circles the unit's centre through a fixed 51-point path (Data), one point per cycle,
-starting at points 0, 10, 20, 30 and 40. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. A flame
-counts its lifetime down by 1 each step and splashes with damage **4** whenever the new count's low 4 bits equal 1
-(so about every 16 cycles). A flame ends when its count reaches 0, or as soon as the shielded unit is dying or gone.
-The shielded unit is never hurt by its own flames; its neighbours, friend or foe, are.
+**Flame shield.** The bolt flies from the caster to the target unit's centre at 12 px per step, making one draw at the
+start of every step. The bolt (effect kind 3) has the target unit's centre as its destination from creation (traced:
+`xhuman10-blizzard-600`, vectors below). On the step after it arrives (remaining distance 0 or less), it creates **5
+flames** on the target unit and ends. Each flame circles the unit's centre through a fixed 51-point path (Data), one
+point per cycle, starting at points 0, 10, 20, 30 and 40. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. A
+flame counts its lifetime down by 1 each step and splashes with damage **4** whenever the new count's low 4 bits equal 1
+(so about every 16 cycles). A flame ends when its count reaches 0, or as soon as the shielded unit is dying or gone. The
+shielded unit is never hurt by its own flames; its neighbours, friend or foe, are.
 
 **Blizzard shards.** Each of the 5 chains picks its landing point once, when it starts: the target tile's centre plus
 ((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the landing
@@ -502,6 +506,8 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
 | `xhuman10-blizzard-600`, n = 170: the shards in slots 7 and 8 step to (2585, 2809) and (2523, 2841), past their landing points (2576, 2800) and (2512, 2832) | They land in that update: the chains' next shards appear in slots 12 and 13 (destinations (2576, 2800) and (2512, 2832)), before slot 10's missile's impact effect (slot 14, kind 0x1A) |
 | Same, n = 174 and 175 | Slots 7 and 8 unmoved at n = 174; free at n = 175 |
+| `xhuman10-spells-700` (oracle trace), n = 329: mage 1481 (type 0x0A) casts fireball (order 43) at catapult 1487 on tile (74, 89) | Effect 3: kind 2 at (2704, 2832), destination (2384, 2864), shooter 1481, damage 40 |
+| `xhuman10-blizzard-600` (oracle trace), n = 417: mage 1481 casts flame shield (order 42) on knight 1480 at pixel (2592, 2880) | Effect 9: kind 3 at (2704, 2832), destination (2608, 2896), target 1480, shooter 1481 |
 
 ## Open questions
 
