@@ -22,6 +22,8 @@
   2026-10-13, round-46 errata: the own-tile rule is credited to the hold goal set at the unit's own tile, not to the
   leash return (the `human01-order15-range-700` vector corrected); hold step 3's smart move goes to the goal tile as
   given (traced: `xorc3-10000`; static check open).
+  2026-10-13, round-47 errata: the call for help tests only whether S can target A's kind, so it answers a dying
+  attacker; the hold return's smart move to the goal tile as given is confirmed by static study (open question closed).
 
 ## Behaviour
 
@@ -306,7 +308,8 @@ from the unit data, and the **leash** is floor(react range / 2) + 4.
 3. If the distance from the goal tile to the unit is at least the leash: set goal (unit, hold, goal tile); on success
    give a smart move (command 3) to the goal tile. In both cases the unit forgets its attacker. The smart move goes to
    the goal tile **as given** to set goal, not to the tile set goal stores when its ring search moves it (traced:
-   `xorc3-10000`, vectors below; the static study hasn't checked it, see Open questions).
+   `xorc3-10000`, vectors below, and confirmed by static study). Set goal adjusts and stores its own tile; the tile the
+   smart move gets isn't changed.
 
 So a unit holding its post returns when it has wandered or chased past the leash, and gives up a fight early (even
 while busy) when it is badly outmatched where it stands.
@@ -427,9 +430,13 @@ When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applyi
    - S is not dying or dead, and its order is 2 (idle) or 7 (follow and guard) with no order waiting to follow it;
    - S's type is not a worker or tanker, has neither flag bit 25 nor 26, can attack (bit 19), and is not a tower
      (bit 20);
-   - S has no attacker of its own, S is not V, and S's acquisition score for A is non-zero. A recorded attacker that is
-     **dying** doesn't count here: S answers while the unit it records is still in its death animation
-     (`movement/movement.md` keeps that record when another unit made the kill).
+   - S has no attacker of its own, S is not V, and S's acquisition score for A is non-zero. Only the **can-target** part
+     of the score counts here (whether S can attack that kind of unit): it doesn't test whether A is dying or whether
+     S's owner sees it. So neighbours answer an attacker that is already dying, for example a thrower whose missile
+     lands after its death; their command then fails its target check and leaves them a pending idle
+     (`orders/orders.md`, "Commands forget a stale attacker"; traced: `xhuman10-spells-700`). For S's own record, an
+     attacker that is **dying** doesn't count as one: S answers while the unit it records is still in its death
+     animation (`movement/movement.md` keeps that record when another unit made the kill).
    For a computer player, a **held** S answers only if its distance to V is at most 4, and its goal is first set to
    **attack** at its own tile. Every answering S is given command 12 against A.
 
@@ -588,5 +595,3 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
   facing draw isn't confirmed. Neither traced map has such a unit. Default: the base box is still in its empty state
   (as for a player with no gold store), so a store found then is already outside it and its own tile is the walk's
   result; gold stores the map lists later don't count yet. Any draws come after the facing draw.
-- **The hold return's smart move.** That it goes to the goal tile as given, not the tile set goal stores, rests on
-  the `xorc3-10000` trace; the static study hasn't checked it.
