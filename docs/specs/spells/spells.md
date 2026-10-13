@@ -30,6 +30,11 @@
   point, then lingers 4 cycles; trace vectors.
   2026-10-13, round-47 errata: a fireball's destination is the target tile's centre and a flame shield bolt's the target
   unit's centre, from creation; trace vectors.
+  2026-10-13, round-48 errata: the fireball's last step marks it as ending and it is removed at its next update (limit
+  40, or 25 for other stored damage, static study); healing and exorcism have no shooter, target or destination and wait
+  18 cycles before their step; the flame shield bolt is removed an update after making its flames, and each flame waits
+  5 cycles before its first step and reports no target and destination (0, 0); `xhuman10-spells-700` and
+  `xhuman10-blizzard-600` vectors.
 
 ## Behaviour
 
@@ -268,22 +273,30 @@ floor(D / 4) (`movement/occupancy.md`, "Walls").
 destination is the target tile's centre from creation (traced: `xhuman10-spells-700`, vectors below). On each step it
 makes one draw (discarded), then moves 12 px, or 6 px if its remaining distance is already below 50. Once its remaining
 distance is below 50 it counts its steps: on counts 8, 16, 24, 32 and 40 it **splashes** (damage 40) at its position and
-makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash), and on the step after count 41 it ends.
+makes a cosmetic explosion (kind 0x17); the count goes on to 41 (no splash). The step after count 41 still draws and
+moves, and then, the count having passed the limit, marks the fireball as **ending** instead of counting. The limit is
+40 when the stored damage is 40, as it is for every fireball, and 25 otherwise, as for the hammer and breath (static
+study). A fireball marked as ending stays in its slot, unmoved, and is removed at its **next update**, with no draw and
+no move (traced: `xhuman10-spells-700`, vectors below).
 Each splash follows the rule of the gryphon hammer and dragon breath, with which the fireball shares its missile
 behaviour (`combat/damage.md`): it first needs a free effect slot (if there is none, there is no splash, sound or
 explosion on that step), and the explosion is created in that slot with only kind and position set ("Cosmetic effects").
 No fireball trace shows this yet. It flies on past the target point, so the first explosion lands near the point and the
-next four follow every 48 px along the same line beyond it. When it ends, it touches a wall on its final tile with
-damage 40.
+next four follow every 48 px along the same line beyond it. When it is removed, it touches a wall on its final tile
+with damage 40.
 
 **Flame shield.** The bolt flies from the caster to the target unit's centre at 12 px per step, making one draw at the
 start of every step. The bolt (effect kind 3) has the target unit's centre as its destination from creation (traced:
-`xhuman10-blizzard-600`, vectors below). On the step after it arrives (remaining distance 0 or less), it creates **5
-flames** on the target unit and ends. Each flame circles the unit's centre through a fixed 51-point path (Data), one
-point per cycle, starting at points 0, 10, 20, 30 and 40. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. A
-flame counts its lifetime down by 1 each step and splashes with damage **4** whenever the new count's low 4 bits equal 1
-(so about every 16 cycles). A flame ends when its count reaches 0, or as soon as the shielded unit is dying or gone. The
-shielded unit is never hurt by its own flames; its neighbours, friend or foe, are.
+`xhuman10-blizzard-600`, vectors below). On the step after it arrives (remaining distance 0 or less), it makes its draw
+and creates **5 flames** on the target unit; it then stays in its slot, unmoved, and is removed at its **next update**,
+with no draw. Each flame circles the unit's centre through a fixed 51-point path (Data), one point per cycle, starting
+at points 0, 10, 20, 30 and 40. A flame first **waits 5 cycles** at its start point: it makes its first path step in its
+update 6 cycles after it was created, and its lifetime count starts with that step. In the trace a flame has the
+shielded unit as its shooter, no target, destination (0, 0) and damage 4; it follows the shielded unit. The flames'
+lifetimes are 512, 524, 518, 521 and 527 cycles. A flame counts its lifetime down by 1 each step and splashes with
+damage **4** whenever the new count's low 4 bits equal 1 (so about every 16 cycles). A flame ends when its count reaches
+0, or as soon as the shielded unit is dying or gone. The shielded unit is never hurt by its own flames; its neighbours,
+friend or foe, are.
 
 **Blizzard shards.** Each of the 5 chains picks its landing point once, when it starts: the target tile's centre plus
 ((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the landing
@@ -342,11 +355,12 @@ box size, as for kinds 8 and 9 below. Holy vision and polymorph keep their own p
 Kinds 0x13 and 0x14 would also be removed at step done, but their scripts loop and never reach one. Only the map
 start creates them: they are the building fires in effect slots 0 and 1 (`core/unit-slots.md`, `ui/map-drawing.md`).
 
-Kinds
-8 (exorcism) and 9 (healing) are not quite cosmetic: they start at the unit's pixel position plus (floor(w / 2),
-floor(h / 2) − 4), with w × h the unit type's box size, make one flight step of 12 px up and to the left (one draw),
-and end on their next step by touching a wall on their final tile with damage 0, which still adds 1 to that wall's
-damage counter (`movement/occupancy.md`, "Walls").
+Kinds 8 (exorcism) and 9 (healing) are not quite cosmetic. They are created with no shooter, no target and destination
+(0, 0), at the unit's pixel position plus (floor(w / 2), floor(h / 2) − 4), with w × h the unit type's box size. In
+their first update they start their flight animation, six frames with a wait of 3 each (18 cycles). They make their one
+flight step, 12 px up and to the left (one draw), in their update 19 cycles after their first, and end in the next
+update by touching a wall on their final tile with damage 0, which still adds 1 to that wall's damage counter
+(`movement/occupancy.md`, "Walls"). Traced for healing: `xhuman10-spells-700`, vectors below.
 
 ### When a new effect first runs
 
@@ -468,7 +482,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Death coil, no candidates | 100 mana spent; nothing else |
 | Blizzard, caster with 60 mana, channelled | Two strikes (60 → 35 → 10); at the third strike 10 < 25, so the caster becomes idle. 10 chains, 110 shards in all |
 | One blizzard shard lands 10 px from a footman | 5 to 10 damage (armour ignored) |
-| Fireball cast at a point 200 px east of the caster's centre | Steps of 12 px until the remaining distance drops below 50 (13 steps: 200 → 44). Then 6-px steps; counts 1, 2, … from that step. Explosions on counts 8, 16, 24, 32 and 40 (steps 20, 28, 36, 44 and 52), at remaining distances 2, −46, −94, −142 and −190 (east of the point by that many px). Count 41 on step 53, and it ends on step 54 (still moving 6 px): 54 step draws |
+| Fireball cast at a point 200 px east of the caster's centre | Steps of 12 px until the remaining distance drops below 50 (13 steps: 200 → 44). Then 6-px steps; counts 1, 2, … from that step. Explosions on counts 8, 16, 24, 32 and 40 (steps 20, 28, 36, 44 and 52), at remaining distances 2, −46, −94, −142 and −190 (east of the point by that many px). Count 41 on step 53; step 54 still moves 6 px and marks it as ending; removed at the next update with no draw: 54 step draws |
 | Eye of Kilrogg | Created next to the caster. Killed on its 828th timers pass |
 | Skeleton raised | Killed on its 26400th timers pass |
 | Caster at 254 mana | 255 after its counter next reaches 0; then no more gains |
@@ -508,6 +522,12 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Same, n = 174 and 175 | Slots 7 and 8 unmoved at n = 174; free at n = 175 |
 | `xhuman10-spells-700` (oracle trace), n = 329: mage 1481 (type 0x0A) casts fireball (order 43) at catapult 1487 on tile (74, 89) | Effect 3: kind 2 at (2704, 2832), destination (2384, 2864), shooter 1481, damage 40 |
 | `xhuman10-blizzard-600` (oracle trace), n = 417: mage 1481 casts flame shield (order 42) on knight 1480 at pixel (2592, 2880) | Effect 9: kind 3 at (2704, 2832), destination (2608, 2896), target 1480, shooter 1481 |
+| `xhuman10-spells-700`, n = 393: the fireball in effect slot 3 (kind 2, shooter 1481, damage 40, destination (2384, 2864)) | Still in use at (2182, 2880); free at n = 394, with no draw for it |
+| `xhuman10-spells-700`, n = 619: healing on knight 1489 | Effect slot 3: kind 9 at (2421, 2897), destination (0, 0), target and shooter null, damage 0 |
+| Same effect | Unmoved through n = 637; one step to (2409, 2885) at n = 638 (619 + 19); free at n = 639 |
+| `xhuman10-blizzard-600`, n = 426: the flame shield bolt in effect slot 9 | Still in use at (2608, 2892), as at n = 425; free at n = 427 |
+| Same, n = 426: the flames (slots 11 and 20 to 23) | Kind 4, shooter 1480, target null, destination (0, 0), damage 4 |
+| Same, the flame in slot 11 | At (2609, 2862) from n = 426 to 431; (2612, 2862) at n = 432 |
 
 ## Open questions
 
