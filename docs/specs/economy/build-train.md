@@ -26,6 +26,10 @@
   2026-10-12, round-41 errata: the build walk's goal stays fixed while the worker walks and is worked out again only
   when a walk ends without arriving (the round-35 line is corrected); the oil patch under a new platform is marked used
   and killed, leaves no ruin and its slot is released 513 cycles later; `xorc7` and `orc09-naval` vectors.
+  2026-10-12, round-42 errata: order 28's logic runs only on arrival; a build walk ends without arriving only with no
+  route (idle at once) or at the blocked counter's limit (idle as a pending order), so the round-41 sentence on working
+  the goal out again after such a walk is replaced; the oil patch's wait of 1 comes from its own update; open question
+  on the patch's update order.
 
 ## Behaviour
 
@@ -69,12 +73,13 @@ as if the building already stood there:
 - a shore building: the shore rule of `movement/pathfinding.md` ("Building goal rule");
 - any other building: the building goal rule of `movement/pathfinding.md` on the planned footprint.
 
-The goal is worked out when the order is given, and again only when a walk ends without arriving; while the worker
-walks, it stays as it was. The walk runs instead of the order's logic, so the goal isn't worked out again as the
-worker's own tile changes, even when the building goal rule would now pick another footprint tile. When a walk ends
-without arriving, order 28's logic runs, works the goal out again and gives the walk again from where the worker stands.
-The worker arrives when it **stands on** the goal tile; the placement check ignores the worker's own tile (below), so
-that doesn't stop the building.
+The goal is worked out when the order is given; while the worker walks, it stays as it was. The walk runs instead of the
+order's logic, so the goal isn't worked out again as the worker's own tile changes, even when the building goal rule
+would now pick another footprint tile. Order 28's logic runs only on arrival. A build walk ends without arriving in two
+ways, both leaving the worker idle: with **no route**, idle as an immediate order (`orders/orders.md`, "No route"), and
+at the **blocked counter's limit**, idle as a pending order (`movement/movement.md`, "Blocked rules", row C). The worker
+arrives when it **stands on** the goal tile; the placement check ignores the worker's own tile (below), so that doesn't
+stop the building.
 
 - **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker
   sets out.
@@ -90,7 +95,9 @@ that doesn't stop the building.
   (`economy/harvest.md`, step 2 of "Entering").
 - **Oil platform:** the oil patch under the new platform is marked used and killed. It leaves no ruin: in the same
   cycle its order becomes "remove" (order 0, animation 0, wait 1; its type and other fields kept), and its slot is
-  released 513 cycles later, as for any removed unit (`core/corpses.md`).
+  released 513 cycles later, as for any removed unit (`core/corpses.md`). The patch's wait of 1 comes from its own
+  update, which follows the builder's in that cycle; after that the wait keeps counting down (0 at the next cycle,
+  then 255).
 
 ### Construction
 
@@ -266,5 +273,7 @@ The requirement rules, the setting that turns them off and the research jobs' ef
 - What the working order's logic does with a building that is destroyed mid-job (no refund is expected).
 - **Upgrade picture.** Which frame of the new type's graphics a building upgrade shows with frame 1 (a construction
   stage of the new type, or something else) wasn't checked. Default: frame 1 of the new type's picture.
+- **The oil patch's update order.** A patch updated before its builder in a cycle would show order 1 for that cycle
+  and be removed in the next. No trace has that order.
 - **Exit facing on cancel or destroy.** A builder let out at completion faces the building. Whether one let out of a
   cancelled or destroyed site also turns wasn't checked. Default: it turns the same way.
