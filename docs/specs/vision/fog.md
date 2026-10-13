@@ -19,6 +19,8 @@
   target search succeeds in the first start-up cycle.
 - **Changes:** 2026-10-12, round-36 errata: added the `xhuman10-spells` vector for the first start-up cycle (no rule
   change).
+- **Changes:** 2026-10-13, round-53 errata: a fourth item in "When sight is applied": an attack-type strike reveals a
+  sight-2 area around the attacker to the target's owner until the next refresh; `human06-31357` vector.
 
 ## Behaviour
 
@@ -160,6 +162,14 @@ For a 1 × 1 unit that is its own tile; for a 2 × 2 building at (x, y), (x + 1,
    new tile (`movement/movement.md`).
 3. **A worker entering a building.** A worker that goes inside a mine, depot or construction site reveals a sight-3
    area. Its centre is the building's top-left tile moved one step in the direction the worker faces.
+4. **Strike reveal.** At each strike point of a unit whose order is attack-type (orders 9, 12, 15, 16, 17, 20 and 21,
+   and the spells Slow and Haste), if the order has a target unit whose owner isn't the attacker's owner and is one of
+   players 0 to 7, a sight-2 area centred on the attacker's tile is revealed for the **target's owner** (with its
+   shared-vision set, as for any reveal). It comes before the strike itself (`combat/damage.md`). The area stays seen by
+   that owner until the next fog refresh, so the target's owner can see the attacker until then, and the attacker passes
+   the fog test of a search made in that time, the attacker seed included (`orders/orders.md`, "Choice"; traced:
+   `human06-31357` n = 9642 and `xhuman11-10000`). Only order 12 is traced; the other orders and the spells are static
+   study only.
 
 **The fog refresh** happens in the first start-up cycle and then every 100 cycles in Enhanced mode, every 101 in
 Classic: in the normal cycles that end with the cycle counter at 99, 199, … (Classic: 100, 201, …;
@@ -287,6 +297,7 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 | Human player places a farm whose site includes an unexplored tile | Refused |
 | Human player places a farm on explored but unseen tiles where an enemy unit stands | The enemy unit doesn't block the placement |
 | `xhuman10-spells-700` (oracle trace), computer player 2's grunt 1475, axe thrower 1496 and ogres 1538 and 1543; player 1's units in range | n = 1: order 2, animation 2, wait 1, no target (everything is hidden in the first start-up cycle); n = 2: wait 4; n = 6: order 12, animation 4, wait 3, targets 1492, 1492, 1536 and 1542 |
+| `human06-31357` (oracle trace): axe thrower 1516 (type 0x09, owner 5) at (68, 11) in order 12 on footman 1584 (owner 1, the human player) at (72, 7) strikes after a fog refresh; (68, 11) is otherwise unseen by player 1 | The strike reveals a sight-2 area around (68, 11) for player 1; at n = 9642 footman 1584's search takes 1516 as its attacker seed: order 12, animation 4, wait 3 |
 
 ## Open questions
 
