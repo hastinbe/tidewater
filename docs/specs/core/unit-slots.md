@@ -20,6 +20,7 @@
   vector.
 - **Changes:** 2026-10-12, round-40 errata: a killed building makes a kind-0x17 explosion at its centre, 8 px up, in the
   lowest free effect slot (not walls or a building with the used mark); `human5` and `xhuman2` vectors.
+- **Changes:** 2026-10-13, round-50 errata: a dying unit keeps the target recorded when it dies, which may be none.
 
 ## Behaviour
 
@@ -113,6 +114,8 @@ When a unit is killed, it keeps its slot. The game:
 - releases any tree it had reserved;
 - kills any units inside it (transports, and buildings holding units);
 - sets its order to "dying", which plays its death animation;
+- keeps the target recorded at that moment, which may be none (a killer that forgot its target dies with no target;
+  `combat/damage.md`, "Applying damage");
 - leaves its HP as it is: no kill, whether by damage or outright, changes a unit's HP (`combat/damage.md`). This
   covers the killing blow, a demolisher killed after its blast, a passenger killed with its transport, a builder
   with no exit tile and every other outright kill. The HP shows unchanged through the death animation;
