@@ -29,8 +29,9 @@ pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// periods moved into its mana byte (the separate counter is gone). Version 3: a unit's pending-command mark.
 /// Version 4: a unit's attack cooldown, a dying unit's kept target and a killer's forgotten target. Version 5: the
 /// round-40 to round-49 unit state (the build goal, the hall exit mark, the search skip mark, a dying unit's reported
-/// target slot and command 4's target unit).
-pub const VERSION: u16 = 5;
+/// target slot and command 4's target unit). Version 6: the unit-to-slot map keeps a released unit's entry until its
+/// slot is reused, and attacker records may name a released unit (round-51 errata).
+pub const VERSION: u16 = 6;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").

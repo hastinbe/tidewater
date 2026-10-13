@@ -966,4 +966,22 @@ mod tests {
         assert!(w.run_transport(fi));
         assert_eq!(w.units[fi].order, Order::Chase { target: g });
     }
+
+    /// Round-51 errata, orders spec "Fleeing" step 6 (`xorc8-10000` transport 1423, n = 6177): a transport flees with a
+    /// smart move, so a flee tile on the shore makes it land: order 30, landing animation 6, wait 3.
+    #[test]
+    fn a_transport_fleeing_to_the_shore_lands() {
+        let mut w = sea(30);
+        let i = ship(&mut w, (34, 10), Order::Idle);
+        let s = w.units[i].id;
+        let a = w.spawn(FOOTMAN, 1, (20, 10), 0).unwrap();
+        let ai = w.index(a).unwrap();
+        w.units[ai].facing = 6;
+        let i = w.index(s).unwrap();
+        w.units[i].attacked_by = Some(a);
+        assert!(w.flee(i));
+        let u = &w.units[i];
+        assert!(matches!(u.order, Order::Land { .. }), "{:?}", u.order);
+        assert_eq!((u.script.anim, u.script.wait, u.attacked_by), (anim::WORK_B, 3, None));
+    }
 }

@@ -197,13 +197,7 @@ impl World {
 
     /// Command 3 ("Smart move"). Transports and boarding come with the transports spec, so for now they move.
     fn smart(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) -> Option<Order> {
-        let cap = if self.computer_player(self.units[i].owner) {
-            SMART_WAIT_COMPUTER
-        } else {
-            SMART_WAIT_OTHER
-        };
-        let u = &mut self.units[i];
-        u.script.wait = u.script.wait.min(cap);
+        self.cap_smart_wait(i);
         let u = &self.units[i];
         // The command carries its target unit, if any ("Commands"): a unit standing on the target tile isn't looked
         // up, so a critter wandering onto another unit's tile gets order 3 (Human04 trace, n = 82).
@@ -232,6 +226,18 @@ impl World {
             Some(t) => Order::Follow { target: t.id },
             None => Order::Move { goal: tile },
         })
+    }
+
+    /// The smart move's wait cap ("Commands"): a waiting unit's wait is cut to 40 cycles for a computer player's
+    /// unit and 10 for every other player's.
+    fn cap_smart_wait(&mut self, i: usize) {
+        let cap = if self.computer_player(self.units[i].owner) {
+            SMART_WAIT_COMPUTER
+        } else {
+            SMART_WAIT_OTHER
+        };
+        let u = &mut self.units[i];
+        u.script.wait = u.script.wait.min(cap);
     }
 
     /// An immediate order 2 ("Pending orders and immediate orders"): set at once, the pending order cleared, the
@@ -359,17 +365,48 @@ impl World {
     /// counts as an attacker for the resulting order. Round-43 errata: it is kept until it leaves play (its slot is
     /// released); the end of its death animation isn't a rule (movement spec, open questions). Round-49 errata ("Terms",
     /// `xhuman7-10000` troll destroyer 1420): an attacker in play that the owner doesn't detect is ignored in this run
-    /// and stays recorded; only a command forgets it.
+    /// and stays recorded; only a command forgets it. Round-51 errata ("A recorded attacker outlives its slot"): a
+    /// released slot reads as a dying attacker, so its record is kept here too.
     fn attacker(&mut self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
         let a = u.attacked_by?;
         if self.holds(u.owner, a) {
             return Some(a);
         }
-        if !self.unit(a).is_some_and(|a| a.dying || a.present()) {
+        if self.unit(a).is_some_and(|a| !a.dying && a.inside) {
             self.units[i].attacked_by = None;
         }
         None
+    }
+
+    /// Whether a recorded attacker is dying or no longer in play; a released slot reads as both ("A recorded attacker
+    /// outlives its slot").
+    pub(crate) fn dying_or_gone(&self, a: UnitId) -> bool {
+        self.unit(a).is_none_or(|a| a.dying)
+    }
+
+    /// Round-51 errata, "Forgetting a dying attacker first": every target search of a unit that can move starts by
+    /// forgetting a recorded attacker that is dying or no longer in play (`xorc6-10000` axe thrower 1475, n = 6106).
+    pub(crate) fn forget_dying_attacker(&mut self, i: usize) {
+        let u = &self.units[i];
+        if !u.building
+            && let Some(a) = u.attacked_by
+            && self.dying_or_gone(a)
+        {
+            self.units[i].attacked_by = None;
+        }
+    }
+
+    /// Whether `u` can target a recorded attacker's kind ("Reacting to an attacker", step 1). A released slot is
+    /// judged by the last type it held ("A recorded attacker outlives its slot").
+    fn can_target_recorded(&self, u: &Unit, a: UnitId) -> bool {
+        if let Some(t) = self.unit(a) {
+            return self.can_target_kind(u, t);
+        }
+        let Some(kind) = self.last_slot(a).and_then(|s| self.stale.get(&s)).map(|s| s.kind) else {
+            return true;
+        };
+        self.can_target_type(u, self.stats_of(kind).flags, self.layer_of(kind))
     }
 
     /// Orders spec, "Commands forget a stale attacker" (round-45 errata): every command given to a unit that isn't a
@@ -439,7 +476,15 @@ impl World {
                     | Order::IdleReact { .. }
                     | Order::AttackGround { .. }
             );
+        // Round-51 errata, "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): in orders 4
+        // and 10 the arrival test comes before the target search, so a unit standing at its move goal arrives below
+        // with no acquisition in that run.
+        let arriving = match o {
+            Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => self.at_goal(i, Goal::tile(goal, 0)),
+            _ => false,
+        };
         if !skip
+            && !arriving
             && let Some(kind) = self.acquires(o)
             && self.acquire(i, kind, forgot)
         {
@@ -610,12 +655,16 @@ impl World {
     /// Whether `u`'s type can attack `t`'s kind: its can-target mask against land, sea or air, with submarines'
     /// special list.
     pub(crate) fn can_target_kind(&self, u: &Unit, t: &Unit) -> bool {
+        self.can_target_type(u, self.flags_of_unit(t), t.layer)
+    }
+
+    /// [`World::can_target_kind`] for a target type's flags `tf` in `layer`.
+    fn can_target_type(&self, u: &Unit, tf: u32, layer: Layer) -> bool {
         let s = self.stats_of(u.kind);
-        let tf = self.flags_of_unit(t);
         if s.flags & flags::SUBMARINE != 0 {
-            return t.layer == Layer::Sea || tf & (flags::SHORE_BUILDING | flags::OIL_SOURCE) != 0;
+            return layer == Layer::Sea || tf & (flags::SHORE_BUILDING | flags::OIL_SOURCE) != 0;
         }
-        let bit = match t.layer {
+        let bit = match layer {
             Layer::Air => 4,
             Layer::Sea => 2,
             Layer::Land => 1,
@@ -778,13 +827,14 @@ impl World {
     }
 
     /// The order a chosen target gives ("Resulting order").
-    fn resulting(&self, i: usize, kind: Acquires, t: UnitId) -> Order {
+    /// `attacked`: the unit recorded an attacker before the search ("Forgetting a dying attacker first").
+    fn resulting(&self, i: usize, kind: Acquires, t: UnitId, attacked: bool) -> Order {
         let u = &self.units[i];
         match kind {
             Acquires::Moving => Order::Chase { target: t },
             Acquires::Other => Order::AttackInPlace { target: t },
             Acquires::Idle => {
-                let chase = u.attacked_by.is_some()
+                let chase = attacked
                     || (self.computer_player(u.owner)
                         && self
                             .unit(t)
@@ -814,13 +864,13 @@ impl World {
         }
         // Round-50 errata, "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a recorded
         // attacker that is dying or no longer in play, and that the unit couldn't target at all, is forgotten. There is
-        // no flee and no target search in that run, and the rest of the order's logic goes on.
+        // no flee and no target search in that run, and the rest of the order's logic goes on. Round-51 errata: a
+        // released slot by the last type it held.
         let u = &self.units[i];
         if attacker.is_none()
             && let Some(a) = u.attacked_by
-            && let Some(at) = self.unit(a)
-            && at.dying
-            && !self.can_target_kind(u, at)
+            && self.dying_or_gone(a)
+            && !self.can_target_recorded(u, a)
         {
             self.units[i].attacked_by = None;
             return false;
@@ -847,6 +897,11 @@ impl World {
         // Round-45 errata, step 3: a mage-type unit with an attacker that finds no target it may take (or only its
         // current one) runs the reaction instead, which treats it as a non-combat unit, so it flees
         // (`xorc01-death-coil` death knight 1491, n = 1431).
+        // Round-51 errata, "Forgetting a dying attacker first": the resulting order is picked from the record as it was
+        // before the search.
+        let attacked = u.attacked_by.is_some();
+        self.forget_dying_attacker(i);
+        let u = &self.units[i];
         let found = self
             .search(i, attacker, false)
             .filter(|&b| Some(b) != target_of(u.order));
@@ -857,7 +912,7 @@ impl World {
             return false;
         };
         let u = &self.units[i];
-        let o = self.resulting(i, kind, best);
+        let o = self.resulting(i, kind, best, attacked);
         let t = self.unit(best).expect("found by the search");
         // "Attacking without moving" (round-40 errata, `xhuman2` footman 1548 at n = 34): order 16 doesn't switch to a
         // new target out of range; the target is forgotten and idle takes over in the same update, attacker kept.
@@ -980,7 +1035,14 @@ impl World {
 
     /// The plain reaction to an attacker ("The reaction"). Returns true if the unit's order changed or it fled.
     pub(crate) fn react(&mut self, i: usize) -> bool {
-        let Some(a) = self.attacker(i) else { return false };
+        // "The reaction": an attacker that is no longer valid is forgotten. Round-51 errata: a dying or released one
+        // too ("A recorded attacker outlives its slot"); an undetected one stays recorded.
+        let Some(a) = self.attacker(i) else {
+            if self.units[i].attacked_by.is_some_and(|a| self.dying_or_gone(a)) {
+                self.units[i].attacked_by = None;
+            }
+            return false;
+        };
         let u = &self.units[i];
         let playing = u.owner != slots::NEUTRAL
             && self
@@ -1006,7 +1068,7 @@ impl World {
     }
 
     /// "Fleeing". Returns true if the unit fled or turned on its attacker.
-    fn flee(&mut self, i: usize) -> bool {
+    pub(crate) fn flee(&mut self, i: usize) -> bool {
         let Some(a) = self.attacker(i) else { return false };
         let u = &self.units[i];
         let at = self.unit(a).expect("held");
@@ -1040,7 +1102,17 @@ impl World {
         // Our reading: the take-over starts the move order's own animation, the still one, as any take-over does.
         // Round-44 errata: the move is a command, so its goal is pulled back, its blocked counter cleared and its
         // cached route dropped.
-        self.command(i, Order::Move { goal: to });
+        // Round-51 errata, "Fleeing" step 6: the move is a smart move with no target unit. Its wait cap applies, and a
+        // transport takes the transport outcome (landing, order 30, on a shore tile: `xorc8-10000` transport 1423,
+        // n = 6177); with no target unit and no mine or platform the harvest outcomes don't, so every other unit gets
+        // a move (order 3), even next to a forest.
+        self.cap_smart_wait(i);
+        let o = if self.is_transport(&self.units[i]) {
+            self.transport_command(i, None, to, false)
+        } else {
+            Order::Move { goal: to }
+        };
+        self.command(i, o);
         if self.units[i].script.anim != anim::MOVE
             && let Some(o) = self.units[i].pending.take()
         {
@@ -2562,5 +2634,156 @@ mod tests {
                 None => assert!(matches!(o, Order::Move { .. }), "{o:?}"),
             }
         }
+    }
+
+    /// Round-51 errata, "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): a unit in order
+    /// 4 or (Enhanced) 10 standing at its move goal arrives, with no target acquisition, even with an enemy in range.
+    #[test]
+    fn orders_4_and_10_at_their_goal_arrive_without_acquiring() {
+        for o in [
+            Order::MoveAttack {
+                goal: (5, 5),
+                target: None,
+            },
+            Order::AttackMove { goal: (5, 5) },
+        ] {
+            let mut w = map();
+            w.rules.enhanced = true;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let i = at(&w, f);
+            assert!(w.in_range(&w.units[i], w.unit(g).unwrap()));
+            w.units[i].pending = None;
+            w.units[i].order = o;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.recorded_target()),
+                (Order::Idle, None, anim::STILL, 3, None),
+                "{o:?}"
+            );
+        }
+    }
+
+    /// Round-51 errata, "Forgetting a dying attacker first" (`xorc6-10000` axe thrower 1475, n = 6106): the search
+    /// forgets a dying attacker, and the resulting order is picked from the record as it was before: the first search
+    /// gives order 12, a later one (no attacker) order 16 for a human player's idle unit.
+    #[test]
+    fn a_search_forgets_a_dying_attacker_but_counts_it_once() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let d = w.spawn(FOOTMAN, 1, (9, 9), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let di = at(&w, d);
+        w.units[di].dying = true;
+        let i = at(&w, f);
+        w.units[i].pending = None;
+        w.units[i].order = Order::Idle;
+        w.units[i].attacked_by = Some(d);
+        assert!(w.acquire(i, Acquires::Idle, false));
+        let u = &w.units[i];
+        assert_eq!((u.order, u.attacked_by), (Order::Chase { target: g }, None));
+        // The next search sees no attacker.
+        w.units[i].order = Order::Idle;
+        assert!(w.acquire(i, Acquires::Idle, false));
+        assert_eq!(w.units[i].order, Order::IdleReact { target: g });
+    }
+
+    /// Round-51 errata, "A recorded attacker outlives its slot" (static study): a released slot reads as a dying
+    /// attacker. The first search still counts it (order 12) and forgets it; a released slot whose last type the unit
+    /// can't target is forgotten by step 1 of the reaction, with no search.
+    #[test]
+    fn a_released_attacker_reads_as_dying() {
+        const FLYER: u8 = 0x2b;
+        for flyer in [false, true] {
+            let mut w = map();
+            w.stats.0[FLYER as usize] = w.stats.0[FOOTMAN as usize];
+            w.stats.0[FLYER as usize].flags = flags::AIR | flags::CAN_ATTACK;
+            w.stats.0[FOOTMAN as usize].can_target = 1;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let d = w.spawn(FOOTMAN, 1, (9, 9), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            // Release d's slot, leaving the last type it held.
+            let di = at(&w, d);
+            let (slot, owner) = (w.units[di].slot, w.units[di].owner);
+            w.slots.release(slot, owner);
+            w.units.remove(di);
+            w.ylist.retain(|&x| x != d);
+            let kind = if flyer { FLYER } else { FOOTMAN };
+            w.stale.insert(
+                slot,
+                crate::caster_ai::Stale {
+                    kind,
+                    tile: (9, 9),
+                    marks: 0,
+                },
+            );
+            assert!(w.unit(d).is_none() && w.last_slot(d) == Some(slot));
+            let i = at(&w, f);
+            w.units[i].pending = None;
+            w.units[i].order = Order::Idle;
+            w.units[i].attacked_by = Some(d);
+            let changed = w.acquire(i, Acquires::Idle, false);
+            let u = &w.units[i];
+            if flyer {
+                assert!(!changed, "no search");
+                assert_eq!((u.order, u.attacked_by), (Order::Idle, None));
+            } else {
+                assert!(changed);
+                assert_eq!((u.order, u.attacked_by), (Order::Chase { target: g }, None));
+            }
+        }
+    }
+
+    /// Round-51 errata, "A recorded attacker outlives its slot": the record names the slot's new unit once the slot is
+    /// reused.
+    #[test]
+    fn a_reused_slot_gives_the_record_its_new_unit() {
+        let mut w = map();
+        let v = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 1, (9, 9), 0).unwrap();
+        let vi = at(&w, v);
+        w.units[vi].attacked_by = Some(a);
+        let ai = at(&w, a);
+        let (slot, owner) = (w.units[ai].slot, w.units[ai].owner);
+        w.slots.release(slot, owner);
+        w.units.remove(ai);
+        w.ylist.retain(|&x| x != a);
+        let n = w.spawn(FOOTMAN, 1, (12, 12), 0).unwrap();
+        assert_eq!(w.unit(n).unwrap().slot, slot);
+        assert_eq!(w.unit(v).unwrap().attacked_by, Some(n));
+        assert_eq!((w.unit(a).is_none(), w.last_slot(a)), (true, None));
+    }
+
+    /// Round-51 errata, "Fleeing" step 6: the flee is a smart move with its wait cap, and a peasant fleeing toward a
+    /// forest gets a move (order 3), never a tree harvest.
+    #[test]
+    fn a_flee_toward_a_forest_is_a_move_with_the_smart_wait_cap() {
+        let mut w = map();
+        for y in 0..w.terrain.height as i32 {
+            for x in 12..w.terrain.width as i32 {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.regions[n] = crate::terrain::region::FOREST;
+                w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+            }
+        }
+        let p = w.spawn(PEASANT, 0, (10, 10), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (6, 10), 0).unwrap();
+        let (i, ai) = (at(&w, p), at(&w, a));
+        w.units[ai].facing = 2;
+        w.units[i].attacked_by = Some(a);
+        // In its move animation the order stays pending, so the capped wait shows.
+        w.start_anim(i, anim::MOVE);
+        w.units[i].script.wait = 30;
+        assert!(w.flee(i));
+        let u = &w.units[i];
+        assert!(matches!(u.pending, Some(Order::Move { .. })), "{:?}", u.pending);
+        assert_eq!(u.script.wait, SMART_WAIT_OTHER);
     }
 }

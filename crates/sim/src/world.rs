@@ -1163,6 +1163,22 @@ impl World {
         self.insert_vertical(id, unit.pos.1);
         let at = self.units.partition_point(|u| u.slot < slot);
         self.units.insert(at, unit);
+        // Orders spec, "A recorded attacker outlives its slot" (round-51 errata): a record naming a unit whose slot was
+        // released names the slot's new unit once the slot is reused.
+        let old: Vec<UnitId> = self
+            .slot_of
+            .iter()
+            .filter(|&(&o, &s)| s == slot && o != id)
+            .map(|(&o, _)| o)
+            .collect();
+        for o in old {
+            self.slot_of.remove(&o);
+            for u in &mut self.units {
+                if u.attacked_by == Some(o) {
+                    u.attacked_by = Some(id);
+                }
+            }
+        }
         self.slot_of.insert(id, slot);
         // Unit-slots spec, "Creating a unit", step 6: the goal is cleared and the attack-ai spec's first-goal rule runs
         // after the first order is set and before the extra first-wait draw, which always comes last.
@@ -1254,7 +1270,19 @@ impl World {
 
     pub(crate) fn index(&self, id: UnitId) -> Option<usize> {
         let slot = *self.slot_of.get(&id)?;
-        self.units.binary_search_by_key(&slot, |u| u.slot).ok()
+        // A slot released and reused in the same cycle is held twice until the cycle's end: pick by id.
+        let lo = self.units.partition_point(|u| u.slot < slot);
+        self.units[lo..]
+            .iter()
+            .take_while(|u| u.slot == slot)
+            .position(|u| u.id == id)
+            .map(|k| lo + k)
+    }
+
+    /// The slot a unit was last in, for a unit whose slot has been released too, until the slot is reused (orders
+    /// spec, "A recorded attacker outlives its slot").
+    pub(crate) fn last_slot(&self, id: UnitId) -> Option<u16> {
+        self.slot_of.get(&id).copied()
     }
 
     /// Whether player `a` counts player `b` as allied (its own player included), by the alliance table.
@@ -1322,11 +1350,9 @@ impl World {
             .filter(|u| u.script.anim == RELEASED)
             .map(|u| u.id)
             .collect();
+        // A released unit's slot entry is kept until the slot is reused (`spawn`): attacker records may still name it.
         if !gone.is_empty() {
             self.ylist.retain(|id| !gone.contains(id));
-        }
-        for id in gone {
-            self.slot_of.remove(&id);
         }
         self.units.retain(|u| u.script.anim != RELEASED);
         self.sound_tick();

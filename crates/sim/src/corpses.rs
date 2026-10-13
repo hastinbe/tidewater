@@ -148,15 +148,8 @@ impl World {
                 };
                 self.stale.insert(u.slot, stale);
                 self.units[i].script.anim = RELEASED;
-                // Movement spec, the attacker paragraph: units other than the killer keep a dead attacker's record
-                // until they find it no longer valid, or until it leaves play, which is here (round-43 errata: the
-                // end of its death animation isn't a rule).
-                let id = self.units[i].id;
-                for o in &mut self.units {
-                    if o.attacked_by == Some(id) {
-                        o.attacked_by = None;
-                    }
-                }
+                // Orders spec, "A recorded attacker outlives its slot" (round-51 errata, static study): releasing the
+                // slot doesn't clear other units' attacker records; a released slot reads as dying or gone.
             }
         } else if u.remains {
             if fx.step_done {
@@ -378,22 +371,26 @@ mod tests {
         assert_eq!((wd.script.frame, wf.script.frame), (0, 30));
     }
 
-    /// Movement spec, the attacker paragraph (round-43 errata): units other than the killer keep a dead attacker's
-    /// record until it leaves play, which is when its slot is released, not when it becomes remains.
+    /// Orders spec, "A recorded attacker outlives its slot" (round-51 errata): units other than the killer keep a dead
+    /// attacker's record through its remains and past the release of its slot.
     #[test]
-    fn a_dead_attackers_record_is_kept_until_its_slot_is_released() {
+    fn a_dead_attackers_record_outlives_its_slot() {
         let mut w = field(16, 16);
         let a = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
         let v = w.spawn(FOOTMAN, 0, (9, 9), 0).unwrap();
         let vi = w.index(v).unwrap();
         w.units[vi].attacked_by = Some(a);
+        // An order with no logic, so no target search forgets the dying attacker.
+        w.units[vi].order = crate::Order::Docked;
         kill(&mut w, a);
         until_remains(&mut w, a);
         assert_eq!(w.unit(v).unwrap().attacked_by, Some(a));
-        while w.unit(a).is_some_and(|u| u.script.anim != RELEASED) {
+        while w.unit(a).is_some() {
             run(&mut w, 1);
         }
-        assert_eq!(w.unit(v).unwrap().attacked_by, None);
+        assert_eq!(w.unit(v).unwrap().attacked_by, Some(a));
+        // The kind check reads the last type the slot held: the body the footman left.
+        assert_eq!(w.last_slot(a).map(|s| w.stale[&s].kind), Some(DEAD_BODY));
     }
 
     #[test]

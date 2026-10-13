@@ -433,6 +433,20 @@ impl World {
         self.kill(bi);
     }
 
+    /// The tile a unit coming out faces, for the order it was given (`next`) and the tile it aims at (`aim`).
+    /// Placement spec: the unit faces its target; a target building is faced at its top-left tile plus (1, 1).
+    /// Round-42 errata (`xorc3` peon 1485, n = 9180): a worker with a build job faces its build goal tile. Round-51
+    /// errata (`xhuman9-10000` peon 1440, n = 9065): the goal worked out when the command was given, while the worker
+    /// was still inside, not one worked out again from its exit tile.
+    fn come_out_face(&self, i: usize, next: Option<Order>, aim: Option<(i32, i32)>) -> Option<(i32, i32)> {
+        match next {
+            Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
+            Some(Order::Build { goal: Some(g), .. }) => Some(g),
+            Some(Order::Build { kind, site, .. }) => Some(self.build_goal(i, kind, site)),
+            _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
+        }
+    }
+
     /// Order 26 when the wait inside ends ("Coming out").
     pub(crate) fn come_out(&mut self, i: usize, building: UnitId) {
         self.go_idle(i);
@@ -502,14 +516,7 @@ impl World {
         u.inside = false;
         u.tile = tile;
         u.pos = (tile.0 * TILE_PX, tile.1 * TILE_PX);
-        // Placement spec: the unit faces its target; a target building is faced at its top-left tile plus (1, 1).
-        // Round-42 errata (`xorc3` peon 1485, n = 9180): a worker with a build job faces its build goal tile, found
-        // by the building goal rule from its exit tile.
-        let face = match next {
-            Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
-            Some(Order::Build { kind, site, .. }) => Some(self.build_goal(i, kind, site)),
-            _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
-        };
+        let face = self.come_out_face(i, next, aim);
         let u = &mut self.units[i];
         if let Some(f) = face.filter(|&f| f != tile) {
             u.facing = crate::world::face_tile(tile, f);
@@ -1363,5 +1370,42 @@ mod tests {
         w.kill(mi);
         w.enter_order(pi, mine, true);
         assert!(w.units[pi].dying);
+    }
+
+    /// Round-51 errata ("Coming out", step 6; harvest spec round-51 vectors): a worker coming out with a build job faces
+    /// the build goal worked out when the command was given, while it was still inside at the hall's top-left tile, not
+    /// one worked out again from its exit tile. The `xhuman9-10000` peon 1440 case: hall at (114, 109), exit (113, 110),
+    /// a 2 x 2 site at (110, 109).
+    #[test]
+    fn a_build_job_coming_out_faces_the_goal_worked_out_inside() {
+        let mut w = field(128, 128);
+        w.stats.0[0].flags |= flags::PEON;
+        w.stats.0[kind::FARM as usize].size = (2, 2);
+        w.stats.0[kind::FARM as usize].flags |= flags::BUILDING;
+        for (hall, exit, site, goal, facing) in [
+            ((114, 109), (113, 110), (110, 109), (111, 109), 7),
+            ((8, 8), (10, 10), (14, 10), (14, 10), 2),
+        ] {
+            let p = w.spawn(0, 0, hall, 0).unwrap();
+            let i = w.index(p).unwrap();
+            w.units[i].tile = hall;
+            let next = w.build_command(i, kind::FARM, site);
+            assert_eq!(
+                next,
+                Some(Order::Build {
+                    kind: kind::FARM,
+                    site,
+                    goal: Some(goal)
+                })
+            );
+            w.units[i].tile = exit;
+            // Worked out again from the exit tile, the goal would differ in the first case: (111, 110).
+            if hall == (114, 109) {
+                assert_eq!(w.build_goal(i, kind::FARM, site), (111, 110));
+            }
+            let face = w.come_out_face(i, next, Some(site));
+            assert_eq!(face, Some(goal));
+            assert_eq!(crate::world::face_tile(exit, goal), facing);
+        }
     }
 }

@@ -176,6 +176,8 @@ impl World {
     /// next order-logic run skips the target search. With nothing found the unit goes idle at once. Round-48 errata:
     /// the take-over is a strike decision, so the cooldown starts in this update (and the attack sound is pending).
     fn chase_no_route(&mut self, i: usize) {
+        // Round-51 errata, "Forgetting a dying attacker first": this search too.
+        self.forget_dying_attacker(i);
         let Some(target) = self.search_in_range(i) else {
             return self.idle_at_once(i);
         };

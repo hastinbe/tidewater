@@ -859,7 +859,10 @@ impl World {
     }
 
     /// "Enemy search": the nearest unit, anywhere on the map, of a player the unit's owner doesn't count as allied,
-    /// that is alive and that the unit's acquisition would score above 0.
+    /// that isn't dying, gone or inside anything and whose kind the unit can hit. Round-51 errata (`xorc8-10000`
+    /// gryphon rider 1550, `xhuman7-10000` dragon 1415): the attack order's kind check is the only other test, with no
+    /// fog, detection, air-against-air or minimum-range test and no score; only a strictly nearer candidate replaces
+    /// the nearest so far.
     pub(crate) fn enemy_search(&self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
         let mut best: Option<(i32, UnitId)> = None;
@@ -869,7 +872,7 @@ impl World {
             }
             for t in self.list_of(q) {
                 let t = &self.units[t];
-                if gone(t) || !self.candidate(u, t, u.order) {
+                if gone(t) || !self.can_hit_kind(u, t) {
                     continue;
                 }
                 let d = distance(u.tile, t);
@@ -2537,5 +2540,33 @@ mod tests {
         let f = ix(&w, farms[0]);
         w.kill(f);
         assert_eq!(at(&w, g).goal.kind, GoalKind::Hold, "the first goal from creation");
+    }
+
+    /// Round-51 errata, "Enemy search" (`xorc8-10000` gryphon rider 1550, n = 6051): only alliance, the attack order's
+    /// kind check and dying, gone or inside count, so the nearest enemy is taken even when it is an air unit that can't
+    /// attack, against a flier; on a tie the first one visited wins.
+    #[test]
+    fn the_enemy_search_takes_the_nearest_unit_of_a_kind_it_can_hit() {
+        const ZEPPELIN: u8 = 0x29;
+        let mut w = game();
+        w.stats.0[ZEPPELIN as usize] = UnitStats {
+            flags: flags::AIR,
+            ..melee(100, 0, 0, 0)
+        };
+        w.stride[ZEPPELIN as usize] = 2;
+        let g = spawn(&mut w, GRYPHON, 1, (10, 10));
+        let z = spawn(&mut w, ZEPPELIN, 0, (12, 10));
+        let far = spawn(&mut w, FOOTMAN, 0, (40, 40));
+        assert_eq!(w.enemy_search(ix(&w, g)), Some(z));
+        // A grunt can't hit air: the far footman.
+        let f = spawn(&mut w, GRUNT, 1, (10, 12));
+        assert_eq!(w.enemy_search(ix(&w, f)), Some(far));
+        // A dying unit isn't a candidate.
+        um(&mut w, z).dying = true;
+        assert_eq!(w.enemy_search(ix(&w, g)), Some(far));
+        // Equally near: the first visited wins (player 0 before player 2).
+        let near0 = spawn(&mut w, FOOTMAN, 0, (14, 10));
+        let _near2 = spawn(&mut w, FOOTMAN, 2, (6, 10));
+        assert_eq!(w.enemy_search(ix(&w, g)), Some(near0));
     }
 }

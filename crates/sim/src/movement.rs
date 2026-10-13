@@ -320,6 +320,12 @@ impl World {
         g.radius + bonus as i32
     }
 
+    /// Whether the unit stands within the arrival radius of `g` (the arrival test of [`World::move_toward`]).
+    pub(crate) fn at_goal(&self, i: usize, g: Goal) -> bool {
+        let u = &self.units[i];
+        chebyshev(u.tile, g.tile) <= self.arrival_radius(u, &g)
+    }
+
     /// One movement decision toward `g`: arrive, step, or apply the blocked rules.
     pub(crate) fn move_toward(&mut self, i: usize, g: Goal) -> Walk {
         self.move_toward_as(i, g, false)
