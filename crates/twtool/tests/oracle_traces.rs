@@ -19,16 +19,13 @@
 //! human12-25000, human09-fleet-3000, xorc11-air-sea-3000, human01-walls, human06-upgrades, xorc12-spells,
 //! xhuman10-exorcism, orc13-25000, orc14-25000, xhuman11-25000 and orc11-25000 match in full.
 //!
-//! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header and take the setup
-//! record as given: mp-dark-paths-bne-1000 (Enhanced) and mp-dark-paths-bne-classic-1000 (Classic mode) match in full,
-//! and so do mp-gold-rush-bne-6000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000 and
-//! mp-schwartzwald-bne-6000 (Enhanced). xorc12-reach-400 matches in full.
-//!
-//! Known gaps (the limit is the last cycle that matches): a computer builder let out of its finished building with a
-//! gold job comes out on another tile, or heads for another mine, than ours (open question):
-//! mp-rose-petal-bne-10000 at n = 1731 (peon 1567 from great hall 1556), and in Classic mode
-//! mp-gold-rush-bne-classic-8000 at n = 6461 (peasant 505 from 517) and mp-gold-rush-bne-classic-20000 at n = 19728
-//! (peon 586 from town hall 590).
+//! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
+//! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
+//! humans' slots and races, the number of opponents) from the header. All match in full: mp-dark-paths-bne-1000,
+//! mp-gold-rush-bne-6000, mp-gold-rush-bne-25000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000,
+//! mp-big-rock-candy-mountain-bne-25000, mp-schwartzwald-bne-6000, mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000
+//! and mp-rose-petal-bne-25000 (Enhanced), and mp-dark-paths-bne-classic-1000, mp-gold-rush-bne-classic-8000 and
+//! mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -208,7 +205,11 @@ traces! {
     mp_great_white_north_bne_6000: (mp, "mp-great-white-north-bne-6000.jsonl.gz", &[], None),
     mp_big_rock_candy_mountain_bne_6000: (mp, "mp-big-rock-candy-mountain-bne-6000.jsonl.gz", &[], None),
     mp_schwartzwald_bne_6000: (mp, "mp-schwartzwald-bne-6000.jsonl.gz", &[], None),
-    mp_rose_petal_bne_10000: (mp, "mp-rose-petal-bne-10000.jsonl.gz", &[], Some(1730)),
-    mp_gold_rush_bne_classic_8000: (mp, "mp-gold-rush-bne-classic-8000.jsonl.gz", &[], Some(6460)),
-    mp_gold_rush_bne_classic_20000: (mp, "mp-gold-rush-bne-classic-20000.jsonl.gz", &[], Some(19727)),
+    mp_rose_petal_bne_10000: (mp, "mp-rose-petal-bne-10000.jsonl.gz", &[], None),
+    mp_gold_rush_bne_classic_8000: (mp, "mp-gold-rush-bne-classic-8000.jsonl.gz", &[], None),
+    mp_gold_rush_bne_classic_20000: (mp, "mp-gold-rush-bne-classic-20000.jsonl.gz", &[], None),
+    mp_big_rock_candy_mountain_bne_25000: (mp, "mp-big-rock-candy-mountain-bne-25000.jsonl.gz", &[], None),
+    mp_rose_petal_bne_25000: (mp, "mp-rose-petal-bne-25000.jsonl.gz", &[], None),
+    mp_gold_rush_bne_25000: (mp, "mp-gold-rush-bne-25000.jsonl.gz", &[], None),
+    mp_schwartzwald_bne_25000: (mp, "mp-schwartzwald-bne-25000.jsonl.gz", &[], None),
 }
