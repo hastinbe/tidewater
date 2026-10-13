@@ -14,6 +14,7 @@
   `mp-rose-petal-bne-10000` vectors.
 - **Changes:** 2026-10-13, round-59 corrections: a multiplayer "Fixed Order" start places no opponents by draw
   (Computer rows take their own slot numbers); zero opponents make no placement draw (static study).
+- **Changes:** 2026-10-13, round-60: Fixed Order is traced (`mp-*-fixed` traces); vectors.
 
 ## Behaviour
 
@@ -141,11 +142,12 @@ This count holds when there is at least one opponent: with **none**, placement s
 makes **no** draw. If the code-5 slots run out, fewer computers are placed than lobby rows set to Computer, and
 each failed search has still spent its draw (static study; no traced map does either).
 
-**Fixed Order.** The lobby's "Location: Fixed Order" option is the fixed-starts setting. With it, a multiplayer
-start doesn't run the opponent placement at all: each human takes the slot with its own lobby row number (row i,
-slot i), each lobby row set to Computer becomes a computer in the **same-numbered slot** if the map gives that slot
-code 4 or 5, and there are **no** placement draws. The "no draw, r = 0" search of custom step 3 is for the
-single-player custom game only (static study; no trace has Fixed Order).
+**Fixed Order.** The lobby's "Location: Fixed Order" option is the fixed-starts setting. With it, a multiplayer start
+doesn't run the opponent placement at all: each human takes the slot with its own lobby row number (row i, slot i), each
+lobby row set to Computer becomes a computer in the **same-numbered slot** if the map gives that slot code 4 or 5, and
+there are **no** placement draws. The "no draw, r = 0" search of custom step 3 is for the single-player custom game only
+(static study; traced: `mp-dark-paths-bne-fixed-1000`, `mp-gold-rush-bne-fixed-6000` and `mp-rose-petal-bne-fixed-3000`,
+vectors below).
 
 **Both.** Every slot that still has code 4 or 5 becomes **nobody**. Codes 2, 3, 6 and 7 are kept for now. Any other
 code is kept as it is (see the open questions).
@@ -358,6 +360,8 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | `mp-rose-petal-bne-10000` (oracle trace, Enhanced): game seed 5, codes (5, 5, 5, 5, 5, 5, 3, 3), humans in slots 0 and 4, 4 opponents, 43 map units | Computers in slots 1, 2, 3 and 5; the setup `rng` is 91 steps from 5 (5 placement + 86 creation draws) |
 | Multiplayer, 0 computer opponents | No placement draw: the setup's first draws are the unit-creation draws (static study) |
 | Multiplayer with Fixed Order: humans in lobby rows 0 and 1, row 2 set to Computer, map slot 2 has code 5 | Humans in slots 0 and 1, a computer in slot 2, no placement draw (static study) |
+| `mp-gold-rush-bne-fixed-6000` (oracle trace, Enhanced): Gold Rush BNE, Fixed Order, start seed 1, humans in lobby rows 0 and 1, rows 2 and 3 set to Computer | Humans in slots 0 and 1, computers in slots 2 and 3; no placement draw: the setup's 164 draws are the unit-creation draws alone (setup `rng` 0x0452EB91) |
+| `mp-dark-paths-bne-fixed-1000` and `mp-rose-petal-bne-fixed-3000` (oracle traces, Enhanced), Fixed Order, 1 and 4 Computer rows | Computers in slot 2, and in slots 2 to 5; 26 and 86 setup draws, the unit-creation draws alone (their random-start twins make 28 and 91) |
 | Multiplayer with Fixed Order, row 3 set to Computer, map slot 3 has code 3 | No computer in slot 3 (static study) |
 
 ## Open questions
