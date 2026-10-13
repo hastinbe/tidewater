@@ -50,6 +50,9 @@
   2026-10-13, round-51 errata: a worker coming out with a build job faces the build goal worked out when the command was
   given, while it was still inside, not a goal worked out again from its exit tile; `xhuman9-10000` vector; the
   synthetic build-job vector names the hall's top-left tile.
+  2026-10-13, round-52 errata: after the no-route tree search, a worker not within reach of the new tree gets the
+  harvest command again, so its goal is pulled back a second time; a worker coming out with a return job is placed
+  toward the pulled-back goal, still facing the depot; `xhuman12-10000` and `human13-10000` vectors.
 
 ## Behaviour
 
@@ -150,9 +153,11 @@ When the 150-cycle wait ends and the inside order's logic runs:
    it is carried until the unit's next come-out from **any** building, a mine, a platform or a depot (traced:
    `orc5-10000`, vectors below). It is aimed at the tile the unit is heading for, so the unit comes out on that side.
    That tile is the goal its new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer
-   player's job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile;
-   for a harvest, the source's tile (a mine's top-left tile or the tree tile); for a **repair** (a computer player's
-   job), the building's top-left tile, and the worker then faces the building as any come-out faces its target (traced:
+   player's job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile
+   **pulled back** as for any command to a building (`movement/pathfinding.md`, "Goal pulled back"; traced:
+   `human13-10000`, round-52 vectors), though the worker still faces the depot's top-left tile plus (1, 1); for a
+   harvest, the source's tile (a mine's top-left tile or the tree tile); for a **repair** (a computer player's job), the
+   building's top-left tile, and the worker then faces the building as any come-out faces its target (traced:
    `human8-10000`, round-50 vectors). With no new command (the unit stays idle), it is the unit's own stored tile, from
    step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at their first worker
    coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded goal tile runs them
@@ -218,9 +223,11 @@ worker heading for a mine does this too.
   over in the same update: attack animation (4), wait 3. Unlike the other new harvest commands of "Lumber", order 23's
   logic then **runs once more in the same update**. If the new tree tile is within 1 tile, chopping starts at once (step
   2): the worker turns to face the tree, reserves it, and the chop makes its chop-sound draw; the attack animation still
-  restarts with wait 3. If the tree is further away, nothing more changes (facing kept, animation 4, wait 3): no move is
-  started in that update, and the route search and first step come at the next run (static study). Its logic next runs 3
-  cycles later (traced: `orc4-40000`, round-44 vectors).
+  restarts with wait 3. If the tree is further away, the worker is given the harvest command **again**, to the goal the
+  first command set, so the goal is pulled back a second time, from the first pulled-back tile (facing kept, animation
+  4, wait 3). No move is started in that update; the route search and first step come at the next run, and if that
+  search fails again the whole sequence repeats every 3 cycles and the worker doesn't move (traced: `xhuman12-10000`,
+  round-52 vectors). Its logic next runs 3 cycles later (traced: `orc4-40000`, round-44 vectors).
 - While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
 - **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
 - Only the peon flag (type flags bit 8) counts. Tankers have the tanker flag (bit 9) and not the peon flag in the
@@ -452,6 +459,13 @@ gold, storage for wood, storage for oil, building.
 | Input | Expected |
 | --- | --- |
 | `xhuman9-10000` (oracle trace), n = 9065: computer peon 1440 (type 0x03, owner 2) comes out of great hall 1438 (type 0x4B, top-left (114, 109)) at (113, 110) with a pig farm job at site (110, 109); the goal worked out from inside is (111, 109) | Order 2, wait 25, facing 7 (toward (111, 109), not 6 toward (111, 110), the goal from the exit tile). The walk goes (112, 109) at n = 9100, then (111, 109); it builds at n = 9125 |
+
+### Round-52 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman12-10000` (oracle trace), n = 5598: computer peon 1386 (type 0x03, owner 6) at (25, 88) in order 23; its route to (23, 90) fails at n = 5595; the nearest tree is (27, 92), whose pulled-back goal is (26, 91) | Second pull-back: goal (25, 90); tile (25, 88), order 23, facing 6, animation 4, wait 3 |
+| `human13-10000` (oracle trace), n = 196: peon 1550 (type 0x03, owner 0) comes out of gold mine 1544 (type 0x5C) carrying, with a return to fortress 1584 (type 0x5B, top-left (81, 2)); the pulled-back goal is (77, 6) | Placed at (75, 8) (the ring search starts at (74, 8) going east), order 2, wait 25, facing 1 |
 
 ## Open questions
 
