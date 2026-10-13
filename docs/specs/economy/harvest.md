@@ -53,6 +53,8 @@
   2026-10-13, round-52 errata: after the no-route tree search, a worker not within reach of the new tree gets the
   harvest command again, so its goal is pulled back a second time; a worker coming out with a return job is placed
   toward the pulled-back goal, still facing the depot; `xhuman12-10000` and `human13-10000` vectors.
+  2026-10-13, round-54 errata: a collapse also clears the target of the unit that took the last trip (wait 1, out at its
+  next step done); `human12-25000` vector.
 
 ## Behaviour
 
@@ -310,9 +312,10 @@ Delivery happens when a unit enters a depot, and for each builder inside a build
   2500 × that value, and one trip is 100). A value of 0 means 120, so 3000 trips (300 000 gold).
 - An oil platform built on a patch takes the patch's trips. A destroyed platform leaves an oil patch holding the
   platform's remaining trips.
-- **Collapse:** when the last trip is taken, the mine or platform is destroyed. Any unit still inside it is let out at
-  its next chance (its target is cleared and its wait cut to 1). The unit that took the last trip carries its load as
-  usual, but has no return-to source.
+- **Collapse:** when the last trip is taken, the mine or platform is destroyed. Every unit inside that has it as its
+  target is let out at its next chance: its target is cleared and its wait cut to 1. That includes the unit that took
+  the last trip: it carries its load as usual, but has no target and no return-to source, and comes out at its next step
+  done like the others (traced: `human12-25000`, vectors below).
 
 ## Data
 
@@ -466,6 +469,12 @@ gold, storage for wood, storage for oil, building.
 | --- | --- |
 | `xhuman12-10000` (oracle trace), n = 5598: computer peon 1386 (type 0x03, owner 6) at (25, 88) in order 23; its route to (23, 90) fails at n = 5595; the nearest tree is (27, 92), whose pulled-back goal is (26, 91) | Second pull-back: goal (25, 90); tile (25, 88), order 23, facing 6, animation 4, wait 3 |
 | `human13-10000` (oracle trace), n = 196: peon 1550 (type 0x03, owner 0) comes out of gold mine 1544 (type 0x5C) carrying, with a return to fortress 1584 (type 0x5B, top-left (81, 2)); the pulled-back goal is (77, 6) | Placed at (75, 8) (the ring search starts at (74, 8) going east), order 2, wait 25, facing 1 |
+
+### Round-54 vectors
+
+| Input | Expected |
+| --- | --- |
+| `human12-25000` (oracle trace), n = 12948: tanker 1410 (type 0x1B, owner 0) takes the last trip of oil platform 1530, which collapses | 1410: order 26, wait 1, target null (it was in order 25 on 1530 at n = 12947) |
 
 ## Open questions
 
