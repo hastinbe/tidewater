@@ -13,6 +13,8 @@
   passes count the start-up cycles, so they first run in the first start-up cycle.
   2026-10-12, round-40 errata: sea patrol's anchor tanker is the first tanker that isn't inside; with every tanker
   inside the anchor is the unit's own tile; `xorc7` and `human10` vectors.
+  2026-10-12, round-42 errata: call for help tests only the answering unit's top-left tile, and the box reaches 3 rows
+  above its top; `orc02` vector.
 
 ## Behaviour
 
@@ -400,9 +402,13 @@ When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applyi
    owner's unit nearest V that is an air unit or a submarine, has no attacker and is not V is given command 4 with V as
    the target
    unit.
-6. **Neighbours:** the help radius R is 13 for a computer player's V; for others, 4 if V is a sea unit, else 2. The
-   box runs from V's tile − R to V's far edge (x + width − 1 + R, y + height − 1 + R), clamped to the map. Each unit
-   S of V's owner in that box (found by the acquisition search's vertical order) answers if all hold:
+6. **Neighbours:** the help radius R is 13 for a computer player's V; for others, 4 if V is a sea unit, else 2. The box
+   runs from V's tile − R to V's far edge (x + width − 1 + R, y + height − 1 + R), clamped to the map. A unit S of V's
+   owner is in the box when its **top-left tile's** column is within the box's columns and its top-left tile's row is
+   from **3 rows above** the box's top row (at least 0) to the box's bottom row. Only the top-left tile is tested: a
+   unit or building whose footprint overlaps the box but whose top-left tile is outside isn't in it. (The 3 extra rows
+   come from the acquisition search's vertical-order lookup, which starts 3 rows higher; `orders/orders.md`, "Vertical
+   order".) Each S in the box answers if all hold:
    - S is not dying or dead, and its order is 2 (idle) or 7 (follow and guard) with no order waiting to follow it;
    - S's type is not a worker or tanker, has neither flag bit 25 nor 26, can attack (bit 19), and is not a tower
      (bit 20);
@@ -522,6 +528,9 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Computer footman V hit by an enemy archer; 3 idle computer grunts within 13 tiles | All 3 get command 12 against the archer |
 | Human footman V hit; an idle human footman 3 tiles away | Outside R = 2: it doesn't answer (the acquisition search may still react) |
 | Human unit hit by a guard tower | The tower is not recorded as its attacker; no call for help |
+| `orc02-assault-3000` (oracle trace), n = 969: grunt 1576 (owner 0) at (59, 19), attacking 1587, is V (radius 2: box rows 17 to 21); idle grunt 1568 (owner 0) at (58, 16) | 1568 is in the box (row 16 ≥ 17 − 3) and answers: target 1587 at n = 969; order 12 takes over at n = 973 (animation 4, wait 3) |
+| Human player's V at (10, 10), 1 × 1 (radius 2: box columns 8 to 12, rows 8 to 12); idle footman of V's owner at (12, 5) | Answers (row 5 ≥ 8 − 3) |
+| Same, footman at (12, 4) | Doesn't answer |
 | Draws | Pass A makes none. Pass B draws only in roam (2), sea patrol fallback (2), ferry landing spot (1) and the caster spell step's random search (1 to 10 per random try; `ai/caster-ai.md`). The post choice's off-map case (2) draws during creation, not in pass B |
 
 ### Sea patrol (oracle traces)
