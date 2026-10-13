@@ -44,6 +44,9 @@
   2026-10-13, round-49 errata: a tanker's harvest command on an oil platform placed in the same cycle, before the oil
   patch's own update, fails and leaves the tanker idle; `orc12-10000` and `xhuman8-10000` vectors; open question on the
   cause.
+  2026-10-13, round-50 errata: a worker coming out with a computer player's repair job aims at the building's top-left
+  tile and faces the building; `human8-10000` vector; open questions on the same-cycle platform's slot order and other
+  AI jobs.
 
 ## Behaviour
 
@@ -145,17 +148,18 @@ When the 150-cycle wait ends and the inside order's logic runs:
    `orc5-10000`, vectors below). It is aimed at the tile the unit is heading for, so the unit comes out on that side.
    That tile is the goal its new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer
    player's job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile;
-   for a harvest, the source's tile (a mine's top-left tile or the tree tile). With no new command (the unit stays
-   idle), it is the unit's own stored tile, from step 1. The comparer runs over the trace set support this: aiming
-   nowhere breaks 24 traces at their first worker coming out, aiming one tile off (the target's top-left plus (1, 1))
-   breaks 18, and the commanded goal tile runs them all. If no tile is found, the unit dies. The placed unit then faces
-   as `movement/placement.md` says, except that a worker with a **build** job faces its **build goal tile**: the tile
-   the build walk heads for, found by the building goal rule (`movement/pathfinding.md`) from the worker's exit tile on
-   the site's footprint. This is for the facing only: the walk's own goal was worked out when the build command was
-   given in step 3, from the unit's tile then, the building's top-left tile (`economy/build-train.md`, "Placing a
-   building"), so the two can differ. The facing rule is "Facing a tile" of `core/animation-scripts.md`, from the exit
-   tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a tree at its own
-   tile).
+   for a harvest, the source's tile (a mine's top-left tile or the tree tile); for a **repair** (a computer player's
+   job), the building's top-left tile, and the worker then faces the building as any come-out faces its target (traced:
+   `human8-10000`, round-50 vectors). With no new command (the unit stays idle), it is the unit's own stored tile, from
+   step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at their first worker
+   coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded goal tile runs them
+   all. If no tile is found, the unit dies. The placed unit then faces as `movement/placement.md` says, except that a
+   worker with a **build** job faces its **build goal tile**: the tile the build walk heads for, found by the building
+   goal rule (`movement/pathfinding.md`) from the worker's exit tile on the site's footprint. This is for the facing
+   only: the walk's own goal was worked out when the build command was given in step 3, from the unit's tile then, the
+   building's top-left tile (`economy/build-train.md`, "Placing a building"), so the two can differ. The facing rule is
+   "Facing a tile" of `core/animation-scripts.md`, from the exit tile. Every other come-out faces the target as before
+   (a building at its top-left tile plus (1, 1), a tree at its own tile).
 
 The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
 over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
@@ -433,6 +437,12 @@ gold, storage for wood, storage for oil, building.
 | `orc12-10000` (oracle trace), n = 2877: computer tanker 1409 (type 0x1B, owner 1), idle, given the harvest command on oil platform 1403 (type 0x57), placed in that cycle | Order 2, animation 2, wait 3, target null |
 | `xhuman8-10000` (oracle trace), n = 732: tanker 1468 (type 0x1B, owner 3) on platform 1466 (type 0x57), placed in that cycle | Order 2, animation 2, wait 3, target null |
 
+### Round-50 vectors
+
+| Input | Expected |
+| --- | --- |
+| `human8-10000` (oracle trace), n = 2486: computer peasant 1508 (type 0x02, owner 2) comes out of great hall 1512 (type 0x4A, top-left (74, 72)) with a repair job on farm 1540 (type 0x3A, top-left (74, 59)) | Tile (73, 72), order 2, target 1540, facing 0, wait 25 |
+
 ## Open questions
 
 - Step 1's new harvest command (not yet there) is from the static study only: in the traces the order's logic runs
@@ -446,4 +456,8 @@ gold, storage for wood, storage for oil, building.
   idle there. Also untraced: whether the computer's job counts change when a miner becomes a lumber worker this way (the
   static study shows no count change on this path).
 - **A platform placed in the same cycle.** Why a tanker's harvest command on it fails ("Starting to harvest", step 3)
-  wasn't found; the rule is the narrowest one that fits both traces.
+  wasn't found; the rule is the narrowest one that fits both traces. In both, the oil patch's slot comes after the
+  builder's and the tanker's; whether a platform is usable at once when the builder's slot comes after the patch's is
+  untraced.
+- **Other AI jobs at a come-out.** Only the repair job's aim is traced; the aims for the AI's other jobs (attack,
+  patrol) aren't checked.
