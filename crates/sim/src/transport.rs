@@ -369,18 +369,31 @@ impl World {
     }
 
     /// Order 34 ("Order 34 (board)").
+    /// The boarding walk of unit `i` to the transport at `ti`: the transport's tile when it is in the unit's region,
+    /// else its destination tile, with arrival radius 1. Round-52 errata (`orc14-10000` knight 1433, n = 2421): the
+    /// walk's route search has the transport as its target unit, so its goal zone is the transport's footprint widened
+    /// by one tile (pathfinding spec, "Step 1"), even when the goal isn't the transport's tile.
+    fn board_walk(&self, i: usize, ti: usize) -> Goal {
+        let (t, u) = (&self.units[ti], &self.units[i]);
+        let goal = if self.region_at(t.tile) == self.region_at(u.tile) {
+            t.tile
+        } else {
+            t.ship.dest
+        };
+        Goal {
+            zone: Some(crate::battle::goal_zone(t)),
+            ..Goal::tile(goal, 1)
+        }
+    }
+
     fn board(&mut self, i: usize, transport: UnitId) {
         let Some(ti) = self.index(transport).filter(|&ti| self.units[ti].present()) else {
             self.stop(i);
             return;
         };
+        let walk = self.board_walk(i, ti);
         let (t, u) = (&self.units[ti], &self.units[i]);
         let here = self.region_at(u.tile);
-        let goal = if self.region_at(t.tile) == here {
-            t.tile
-        } else {
-            t.ship.dest
-        };
         // Round-42 errata: order 34 is a walking order. While the unit walks to its goal only the movement runs, so
         // a unit of any player stays in order 34 (`human10-24000` grunt 1473, `human12-7000` grunt 1407); the logic
         // runs on arrival. With no route the unit restarts order 34 at once (still animation, wait 3) if the
@@ -391,7 +404,7 @@ impl World {
         // it only restarts order 34 (`human10-24000` n = 17216 and `human12-7000` n = 6454 leave the transport be).
         let dest_here = self.region_at(t.ship.dest) == here;
         let human = self.human_controlled(u.owner);
-        match self.move_toward(i, Goal::tile(goal, 1)) {
+        match self.move_toward(i, walk) {
             Walk::Arrived => {}
             Walk::NoPath if dest_here => {
                 let o = if human {
@@ -924,6 +937,23 @@ mod tests {
             let ti = w.index(tid).unwrap();
             assert_eq!(w.units[ti].pending.is_some(), tells, "controller {kind}");
         }
+    }
+
+    /// Round-52 errata (the `orc14-10000` knight 1433 vector at n = 2421, moved): a unit boarding a transport in
+    /// another region walks to the transport's destination tile, but its route search's goal zone is the transport's
+    /// footprint widened by one tile, not the 3 x 3 tiles around that goal.
+    #[test]
+    fn the_boarding_walk_aims_at_the_transports_widened_footprint() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (22, 10), Order::Docked);
+        w.units[t].ship.dest = (21, 9);
+        assert_eq!(w.units[t].size, (1, 1));
+        let tid = w.units[t].id;
+        let f = w.spawn(FOOTMAN, 0, (14, 4), 0).unwrap();
+        let (fi, ti) = (w.index(f).unwrap(), w.index(tid).unwrap());
+        let g = w.board_walk(fi, ti);
+        assert_eq!((g.tile, g.radius, g.range), ((21, 9), 1, false));
+        assert_eq!(g.zone, Some((21, 9, 23, 11)), "not (20, 8) to (22, 10)");
     }
 
     #[test]
