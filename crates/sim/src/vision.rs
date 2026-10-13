@@ -1074,10 +1074,7 @@ mod tests {
         let p = w.spawn(FOOTMAN, 0, (20, 19), 0).unwrap();
         let i = w.index(p).unwrap();
         w.units[i].inside = true;
-        w.units[i].order = Order::Inside {
-            building: m,
-            hall_sized: false,
-        };
+        w.units[i].order = Order::Inside { building: m };
         assert_eq!(w.sight_of(i), Some(((21, 21), 2)));
         w.step(&[]);
         assert_eq!(touched(&w), 21);

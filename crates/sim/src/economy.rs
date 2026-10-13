@@ -192,11 +192,12 @@ impl World {
         }
     }
 
-    /// Food in use: the owner's units that aren't buildings, less skeletons, daemons and critters.
+    /// Food in use: the owner's units that aren't buildings, less skeletons, daemons and critters. A killed unit stops
+    /// counting at the start of its death animation ("Food").
     pub fn food_used(&self, owner: u8) -> u32 {
         self.units
             .iter()
-            .filter(|u| u.owner == owner && !u.building)
+            .filter(|u| u.owner == owner && !u.building && !u.dying)
             .filter(|u| !matches!(u.kind, kind::SKELETON | kind::DAEMON | kind::CRITTER))
             .filter(|u| self.stats_of(u.kind).flags & flags::CRITTER == 0)
             .count() as u32
@@ -814,6 +815,12 @@ mod tests {
         assert_eq!(w.can_afford(0, [0; 3], true), Err(Shortage::Food));
         w.spawn(kind::SKELETON, 0, (0, 4), 0).unwrap();
         w.spawn(kind::SKELETON, 0, (1, 4), 0).unwrap();
+        assert_eq!(w.food_used(0), 9);
+        // Round-47 errata: a killed unit stops counting at the start of its death animation.
+        let doomed = w.spawn(0, 0, (2, 4), 0).unwrap();
+        assert_eq!(w.food_used(0), 10);
+        let d = w.index(doomed).unwrap();
+        w.kill(d);
         assert_eq!(w.food_used(0), 9);
         // Gold comes before lumber.
         w.players[0].gold = 0;

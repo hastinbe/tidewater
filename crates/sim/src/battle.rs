@@ -147,18 +147,40 @@ impl World {
         }
         let g = self.strike_goal(u, t);
         match self.move_toward(i, g) {
-            // Orders spec, "No route" (round-40 errata, `xhuman4` axe thrower 1490 at n = 5): order 12 whose fallback
-            // search found nothing new (its run started with that search) goes idle at once, and its idle logic runs
-            // in the same update. Round-42 errata (`orc02-assault` grunt 1573, n = 679): order 9 uses the same logic.
-            Walk::NoPath if matches!(self.units[i].order, Order::Chase { .. } | Order::Attack { .. }) => {
-                self.idle_at_once(i)
-            }
+            // Orders spec, "No route" (round-40 errata, `xhuman4` axe thrower 1490 at n = 5): order 12 goes idle at
+            // once, its idle logic running in the same update, when its own fallback (round-47 errata) finds nothing.
+            // Round-42 errata (`orc02-assault` grunt 1573, n = 679): order 9, with no such fallback, goes idle at once.
+            Walk::NoPath if matches!(self.units[i].order, Order::Chase { .. }) => self.chase_no_route(i),
+            Walk::NoPath if matches!(self.units[i].order, Order::Attack { .. }) => self.idle_at_once(i),
             Walk::NoPath | Walk::Arrived => {
                 self.go_idle(i);
                 self.switch_anim(i, anim::STILL);
             }
             Walk::Stepping | Walk::Blocked => {}
         }
+    }
+
+    /// Orders spec, "Order 12 with no route" (round-47 errata; `human5-10000` grunt 1531, n = 1759): a search over
+    /// the attack range box with no attacker seed. A target found gets order 12 as a command that takes over at once:
+    /// the unit turns as for a strike, its attack animation starts with its first step run in this update, and its
+    /// next run of order 12's logic skips the target search. With nothing found the unit goes idle at once.
+    fn chase_no_route(&mut self, i: usize) {
+        let Some(target) = self.search_in_range(i) else {
+            return self.idle_at_once(i);
+        };
+        let o = Order::Chase { target };
+        self.release_tree(i);
+        let u = &mut self.units[i];
+        u.order = o;
+        u.pending = None;
+        u.commanded = false;
+        u.path.clear();
+        u.blocked = 0;
+        u.skip_search = true;
+        self.forget_stale_attacker(i);
+        let b = facing_tile_of(self.unit(target).expect("found by the search"));
+        self.units[i].facing = self.strike_facing(&self.units[i], b);
+        self.switch_anim(i, anim::ATTACK);
     }
 
     /// The goal of a walk toward an attack target: the target's tile or, for a building, the footprint tile of the
@@ -454,26 +476,38 @@ impl World {
         }
         // Damage spec, "Applying damage": the killing blow doesn't lower the HP, and the target keeps its target.
         self.kill(ti);
-        self.forget_kill(attacker, self.units[ti].id);
+        self.forget_kill(attacker);
     }
 
-    /// Damage spec, "Applying damage": a unit (not a building) that killed `victim` forgets it as its target at once,
-    /// without changing its order. Other attackers keep it until their own next logic run. Our orders hold their
-    /// target, so the forgotten one is marked: while the order is unchanged, it has no target.
+    /// Damage spec, "Applying damage": a unit (not a building) that made a kill checks its own records at once,
+    /// without changing its order: it forgets its target, and its recorded attacker, if that unit is now dying, gone
+    /// or not detected by its owner. The victim is dying, so it is always forgotten when it is either. Other
+    /// attackers keep their target until their own next logic run. Our orders hold their target, so the forgotten
+    /// one is marked: while the order is unchanged, it has no target.
     ///
     /// Round-42 errata: only the killer forgets the victim as its attacker at once (movement spec, "Blocked rules");
-    /// every other unit keeps that record while the victim is dying.
-    fn forget_kill(&mut self, attacker: UnitId, victim: UnitId) {
+    /// every other unit keeps that record while the victim is dying. Round-47 errata: this applies to every kill,
+    /// a splash kill of a unit other than the target included (`xhuman10-blizzard` ballista 1483, n = 309).
+    fn forget_kill(&mut self, attacker: UnitId) {
         let Some(a) = self.index(attacker) else { return };
-        let u = &mut self.units[a];
-        if u.attacked_by == Some(victim) {
-            u.attacked_by = None;
-        }
-        if u.building || u.dying {
+        let u = &self.units[a];
+        if u.building {
             return;
         }
-        if crate::orders::target_of(u.order) == Some(victim) {
-            u.forgot = Some(u.order);
+        let owner = u.owner;
+        if let Some(k) = u.attacked_by
+            && self.stale(owner, k)
+        {
+            self.units[a].attacked_by = None;
+        }
+        let u = &self.units[a];
+        if u.dying {
+            return;
+        }
+        if let Some(t) = crate::orders::target_of(u.order)
+            && self.stale(owner, t)
+        {
+            self.units[a].forgot = Some(self.units[a].order);
         }
     }
 
@@ -889,6 +923,54 @@ mod tests {
             let u = &w.units[i];
             assert_eq!((u.order, u.script.wait, u.forgot), (Order::Idle, 3, None));
         }
+    }
+
+    /// Damage spec, "Applying damage" (round-47 errata, `xhuman10-blizzard-600` vector): a kill of a unit other than
+    /// the killer's target makes the killer forget a target that is dying from someone else's kill, and its recorded
+    /// attacker if dying; a live target that isn't the victim is kept.
+    #[test]
+    fn any_kill_makes_the_killer_forget_a_dying_target_and_attacker() {
+        for target_dying in [true, false] {
+            let mut w = world();
+            let killer = UnitId(1);
+            let target = w.spawn(0, 1, (3, 0), 0).unwrap();
+            let bystander = w.spawn(0, 0, (1, 1), 0).unwrap();
+            let attacker = w.spawn(0, 1, (0, 3), 0).unwrap();
+            let k = w.index(killer).unwrap();
+            let order = Order::IdleReact { target };
+            w.units[k].order = order;
+            w.units[k].attacked_by = Some(attacker);
+            let a = w.index(attacker).unwrap();
+            w.kill(a);
+            if target_dying {
+                let t = w.index(target).unwrap();
+                w.kill(t);
+            }
+            let b = w.index(bystander).unwrap();
+            w.units[b].hp = 5;
+            w.damage(b, 10, killer);
+            let u = &w.units[k];
+            assert_eq!(u.order, order, "the order isn't changed");
+            assert_eq!(u.attacked_by, None, "the dying attacker is forgotten");
+            assert_eq!(u.forgot, target_dying.then_some(order), "target dying: {target_dying}");
+        }
+    }
+
+    /// Orders spec, "Commands forget a stale attacker" (round-47 errata, `xhuman10-spells-700` knight 1480): a
+    /// command whose target unit is dying makes idle the pending order instead; it still counts as a command.
+    #[test]
+    fn a_command_on_a_dying_target_leaves_a_pending_idle() {
+        let mut w = world();
+        let foe = w.spawn(0, 1, (3, 0), 0).unwrap();
+        let i = w.index(UnitId(1)).unwrap();
+        let f = w.index(foe).unwrap();
+        w.kill(f);
+        w.command(i, Order::Chase { target: foe });
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.commanded),
+            (Order::Idle, Some(Order::Idle), true)
+        );
     }
 
     /// Damage spec, "How an attack delivers damage" (round-41 errata): a melee strike at a target that is already

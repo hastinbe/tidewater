@@ -548,7 +548,7 @@ impl World {
                 self.spell_sound(spell, Some(t), tile);
                 self.units[t].flame_shield = 500;
                 let (from, to) = (self.units[i].centre_px(), self.units[t].centre_px());
-                self.new_fx(
+                let n = self.new_fx(
                     kind::BOLT,
                     caster,
                     tid,
@@ -558,6 +558,8 @@ impl World {
                         line: Line::new(from, to),
                     },
                 );
+                // Round-47 errata: the bolt's destination is the target unit's centre from creation.
+                self.set_dest(n, to);
             }
             FIREBALL => {
                 if !self.begin(i, 100, true) {
@@ -568,7 +570,9 @@ impl World {
                     line: Line::new(from, to),
                     count: 0,
                 };
-                self.new_fx(kind::FIREBALL, caster, None, from, 40, fx);
+                let n = self.new_fx(kind::FIREBALL, caster, None, from, 40, fx);
+                // Round-47 errata: the fireball's destination is the target tile's centre from creation.
+                self.set_dest(n, to);
             }
             SLOW => {
                 let t = ti.expect("unit spell");

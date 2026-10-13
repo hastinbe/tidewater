@@ -1295,7 +1295,9 @@ impl World {
             let fighter = f & (flags::PEON | flags::TANKER | flags::KILLED_BY_INVISIBILITY | flags::MAGE_LIKE) == 0
                 && f & flags::CAN_ATTACK != 0
                 && f & flags::TOWER == 0;
-            if s.dying || !ready || !fighter || self.live_attacker(s) || k == vi || !self.candidate(s, a, s.order) {
+            // Round-47 errata: only the can-target part of the acquisition score counts, so a dying attacker is
+            // answered (its command 12 then fails the target check and leaves a pending idle).
+            if s.dying || !ready || !fighter || self.live_attacker(s) || k == vi || !self.can_target_kind(s, a) {
                 continue;
             }
             if computer && s.held {

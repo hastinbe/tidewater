@@ -1232,9 +1232,17 @@ mod tests {
     fn retreat_attacks_the_recorded_attacker_without_an_alive_test() {
         let mut w = game();
         let c = caster(&mut w, MAGE, (10, 10), 40);
+        let f = put(&mut w, FOOTMAN, 0, (12, 10));
+        um(&mut w, c).attacked_by = Some(f);
+        assert_eq!(cast_step(&mut w, c), (true, 0));
+        assert_eq!(at(&w, c).pending, Some(Order::Chase { target: f }));
+        // An attacker no longer in play: the step still acts, but the command fails its target check and leaves a
+        // pending idle (orders spec, "Commands forget a stale attacker", round-47 errata).
+        let mut w = game();
+        let c = caster(&mut w, MAGE, (10, 10), 40);
         um(&mut w, c).attacked_by = Some(UnitId(777));
         assert_eq!(cast_step(&mut w, c), (true, 0));
-        assert_eq!(at(&w, c).pending, Some(Order::Chase { target: UnitId(777) }));
+        assert_eq!(at(&w, c).pending, Some(Order::Idle));
     }
 
     #[test]

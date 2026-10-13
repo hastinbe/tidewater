@@ -409,7 +409,11 @@ impl World {
             self.lose_target(i);
             return true;
         }
-        if let Some(kind) = self.acquires(o)
+        // "Order 12 with no route" (round-47 errata): a unit marked by that fallback skips the target search (and with
+        // it the acquisition) in its next run of order 12's logic; the mark lasts that one run.
+        let skip = matches!(o, Order::Chase { .. }) && std::mem::take(&mut self.units[i].skip_search);
+        if !skip
+            && let Some(kind) = self.acquires(o)
             && self.acquire(i, kind, forgot)
         {
             return true;
@@ -670,7 +674,20 @@ impl World {
         } else {
             self.reach(u)
         };
-        let extra = tower as i32;
+        self.search_box(i, seed, r, tower as i32)
+    }
+
+    /// "Order 12 with no route" (round-47 errata): the target search with the box of the unit's attack range (one
+    /// tile further right and down only for tower types) and no attacker seed.
+    pub(crate) fn search_in_range(&self, i: usize) -> Option<UnitId> {
+        let u = &self.units[i];
+        let tower = self.flags_of_unit(u) & flags::TOWER != 0;
+        self.search_box(i, None, self.reach(u), tower as i32)
+    }
+
+    /// The target search over the box of radius `r` around the unit, reaching `extra` tiles further right and down.
+    fn search_box(&self, i: usize, seed: Option<UnitId>, r: i32, extra: i32) -> Option<UnitId> {
+        let u = &self.units[i];
         let (x0, y0, x1, y1) = (u.tile.0 - r, u.tile.1 - r, u.tile.0 + r + extra, u.tile.1 + r + extra);
         // "Choice" (round-44 errata, `human06-31357` ballista 1582 at n = 23683): the attacker seeds the search only
         // with a score above 0; one the unit can't attack (score 0: a kind it can't attack, or closer than its minimum

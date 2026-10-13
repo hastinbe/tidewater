@@ -108,9 +108,8 @@ pub enum Order {
     ReturnGoods { depot: Option<UnitId> },
     /// Order 25: step into a mine, platform or depot; `stepped` once the step in has started.
     Enter { building: UnitId, stepped: bool },
-    /// Order 26: inside a building. `hall_sized` when goods were just delivered to a gold-accepting depot, which sizes
-    /// the coming-out search as a town hall.
-    Inside { building: UnitId, hall_sized: bool },
+    /// Order 26: inside a building; the coming-out search is sized by the unit's [`Unit::hall_exit`] mark.
+    Inside { building: UnitId },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
     AttackWall { tile: (i32, i32) },
     /// 17: attack the ground at `tile` (attack-ground-demolish spec).
@@ -134,7 +133,7 @@ pub enum Order {
     /// 36: a passenger aboard a transport.
     Aboard { transport: UnitId },
     /// 28: a worker going to `site` (the top-left tile) to build `kind` (build-train spec, "Placing a building").
-    /// `goal` is the build walk's goal, worked out at the order's first logic run and then kept while it walks.
+    /// `goal` is the build walk's goal, worked out when the command is given and then kept while it walks.
     Build {
         kind: u8,
         site: (i32, i32),
@@ -339,6 +338,12 @@ pub struct Unit {
     /// A killer's forgotten target (damage spec, "Applying damage"): while the unit's order is still this one, the
     /// order has no target.
     pub forgot: Option<Order>,
+    /// The hall-sized exit mark (harvest spec, "Coming out", step 6): set by every delivery at a gold-accepting
+    /// building and for a hall's builder at completion; the next come-out uses the 4 × 4 source and clears it.
+    pub hall_exit: bool,
+    /// Set by order 12's no-route fallback (orders spec, "Order 12 with no route"): the next run of order 12's logic
+    /// skips its target search, and clears the mark.
+    pub skip_search: bool,
 }
 
 impl Unit {
@@ -946,6 +951,8 @@ impl World {
             .transpose()?;
         let (units, spells, ups) = setup.campaign().map_or((!0, !0, !0), crate::setup::campaign_allowance);
         let allies = start.alliances();
+        // Set for every slot at the start of a new game, except in Enhanced multiplayer (setup spec, "Ever had a hall").
+        let had_hall = !(w.rules.enhanced && w.rules.multiplayer);
         for (i, p) in w.players.iter_mut().enumerate() {
             let (gold, lumber, oil) = start.resources[i];
             *p = Player {
@@ -964,6 +971,7 @@ impl World {
                 allies: allies[i],
                 shared_vision: if i < 8 { 1 << i } else { 0 },
                 colour: i as u8,
+                had_hall,
                 ..Default::default()
             };
         }
@@ -1069,6 +1077,8 @@ impl World {
             bloodlust: 0,
             unholy_armor: 0,
             attacked_by: None,
+            hall_exit: false,
+            skip_search: false,
             dying: false,
             removing: false,
             remains: false,

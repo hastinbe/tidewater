@@ -147,6 +147,15 @@ impl World {
         self.units[i].path.clear();
         // Orders spec, "Commands forget a stale attacker" (round-45 errata).
         self.forget_stale_attacker(i);
+        // Round-47 errata: a target unit given with the command gets the same check. If it fails, the target is
+        // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
+        let owner = self.units[i].owner;
+        if crate::orders::target_of(order).is_some_and(|t| self.stale(owner, t)) {
+            self.give(i, Order::Idle);
+            let u = &mut self.units[i];
+            u.commanded = u.pending.is_some();
+            return;
+        }
         self.give(i, order);
         let u = &mut self.units[i];
         u.commanded = u.pending == Some(order);
@@ -253,7 +262,7 @@ impl World {
             Order::Harvest { source, tree, chopping } => self.harvest_order(i, source, tree, chopping),
             Order::ReturnGoods { depot } => self.return_order(i, depot),
             Order::Enter { building, stepped } => self.enter_order(i, building, stepped),
-            Order::Inside { building, hall_sized } => self.come_out(i, building, hall_sized),
+            Order::Inside { building } => self.come_out(i, building),
             Order::Build { kind, site, goal } => self.build_order(i, kind, site, goal),
             Order::InsideSite { .. } => self.inside_site(i),
             _ => {}

@@ -43,7 +43,14 @@ impl World {
             }
             self.pay(owner, c);
         }
-        Some(Order::Build { kind, site, goal: None })
+        // Round-47 errata: the walk's goal is worked out now, from the worker's tile when the command is given; a
+        // computer worker coming out of a building is still at the building's top-left tile here.
+        let goal = self.build_goal(i, kind, site);
+        Some(Order::Build {
+            kind,
+            site,
+            goal: Some(goal),
+        })
     }
 
     /// The build walk's goal ("Placing a building"): a tile of the planned footprint, worked out from the worker's
@@ -78,8 +85,8 @@ impl World {
 
     /// Order 28: walk to the build goal and build on standing on it (arrival radius 0; a land unit building a shore
     /// building gets the movement spec's +1). Round-41 errata (`xorc7` peasant 1421, n = 2028): the goal is worked
-    /// out once and stays fixed while the worker walks. Our reading: it is worked out at the order's first logic run,
-    /// which for a standing worker is where it was given. Round-42 errata: the order's own logic runs only on
+    /// out once and stays fixed while the worker walks; round-47 errata: it is worked out when the command is given
+    /// ([`World::build_command`]), and only an order made without one works it out here. Round-42 errata: the order's own logic runs only on
     /// arrival; the walk ends without arriving only with no route (idle at once) or at the blocked counter's limit
     /// (idle as a pending order, `movement.rs` row C).
     pub(crate) fn build_order(&mut self, i: usize, kind: u8, site: (i32, i32), goal: Option<(i32, i32)>) {
@@ -235,6 +242,11 @@ impl World {
                 };
                 if u.carrying && accepts {
                     self.deliver(k, b.owner, tanker);
+                }
+                // Round-47 errata: a hall's builder gets the hall-sized exit mark, carrying or not; being let out
+                // here neither uses nor clears it.
+                if !tanker && bf & flags::GOLD_STORAGE != 0 {
+                    self.units[k].hall_exit = true;
                 }
                 if tanker && bf & flags::OIL_SOURCE != 0 {
                     // Round-43 errata: order 25 is an immediate order (move animation, wait 1); its logic runs in the
@@ -441,6 +453,26 @@ mod tests {
         assert_ne!(w.build_goal(i, kind::FARM, (5, 8)), (7, 9));
         w.step(&[]);
         assert_eq!(w.unit(p).unwrap().order, want);
+    }
+
+    /// Round-47 errata (`xorc4-10000` peasant 1580): the goal is worked out when the command is given, from the
+    /// worker's tile then, so a worker that moves before its order first runs keeps it.
+    #[test]
+    fn the_build_goal_comes_from_the_tile_when_the_command_is_given() {
+        let (mut w, p) = town();
+        w.stats.0[kind::FARM as usize].size = (3, 3);
+        let i = w.index(p).unwrap();
+        w.units[i].tile = (14, 9);
+        let o = w.build_command(i, kind::FARM, (5, 8)).expect("a builder");
+        w.units[i].tile = (6, 16);
+        assert_eq!(
+            o,
+            Order::Build {
+                kind: kind::FARM,
+                site: (5, 8),
+                goal: Some((7, 9)),
+            }
+        );
     }
 
     /// Round-41 errata (`orc09-naval` patch 1502): an oil platform's patch is marked used and removed with no ruin,

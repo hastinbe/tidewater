@@ -167,16 +167,18 @@ impl World {
         }
     }
 
-    /// Order 23 at a mine or platform ("Gold and oil: going to the source").
+    /// Order 23 at a mine or platform ("Gold and oil: going to the source"). Round-47 errata: a lost source, or
+    /// arriving at one that isn't completed, makes idle the pending order, taken over in the same update (wait 3)
+    /// without running the idle logic.
     fn gather_order(&mut self, i: usize, s: UnitId) {
         let Some(si) = self.index(s).filter(|&si| self.units[si].present()) else {
-            return self.idle(i);
+            return self.idle_now(i);
         };
         if !self.walk_to_building(i, si, true) {
             return;
         }
         if self.units[si].construction.is_some() {
-            return self.idle(i);
+            return self.idle_now(i);
         }
         // Order 25 takes over at once, in the same update, without running its logic (orders spec, "Taking over",
         // and its default for "Same-update take-over"): its first run comes at the next step done.
@@ -335,11 +337,12 @@ impl World {
                 Gather::None => false,
             }
         };
-        let hall_sized = accepts && !tanker && bf & flags::GOLD_STORAGE != 0;
-        self.units[i].order = Order::Inside {
-            building: b.id,
-            hall_sized,
-        };
+        // "Delivering goods" (round-47 errata): every delivery at a building that accepts gold sets the hall-sized
+        // exit mark, whatever the gather mode and whether or not the unit carries anything.
+        if !source && bf & flags::GOLD_STORAGE != 0 {
+            self.units[i].hall_exit = true;
+        }
+        self.units[i].order = Order::Inside { building: b.id };
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = INSIDE_WAIT;
         if accepts {
@@ -418,7 +421,7 @@ impl World {
     }
 
     /// Order 26 when the wait inside ends ("Coming out").
-    pub(crate) fn come_out(&mut self, i: usize, building: UnitId, hall_sized: bool) {
+    pub(crate) fn come_out(&mut self, i: usize, building: UnitId) {
         self.go_idle(i);
         if let Some(bi) = self.index(building) {
             let carrying_from_source = self.units[i].carrying
@@ -467,7 +470,12 @@ impl World {
             _ => None,
         };
         let at = self.units[i].tile;
-        let side = if hall_sized { 4 } else { 3 };
+        // Step 6 (round-47 errata): the hall-sized exit mark sizes the source as a town hall; this come-out clears it.
+        let side = if std::mem::take(&mut self.units[i].hall_exit) {
+            4
+        } else {
+            3
+        };
         let src = placement::Source::new(at.0, at.1, side, side);
         let Some(tile) = self.find_place(self.units[i].kind, src, aim.unwrap_or(at), placement::LIMIT_OUT) else {
             self.units[i].inside = false;
@@ -1084,7 +1092,7 @@ mod tests {
     /// Lets worker `p` out of `b` ("Coming out").
     fn come_out_now(w: &mut World, p: UnitId, b: UnitId) {
         let pi = w.index(p).unwrap();
-        w.come_out(pi, b, false);
+        w.come_out(pi, b);
     }
 
     /// The mine's occupant count and frame.
@@ -1190,7 +1198,7 @@ mod tests {
         assert!(w.unit(t).unwrap().carrying);
         assert_eq!(mine_look(&w, platform), (1, 2));
         let ti = w.index(t).unwrap();
-        w.come_out(ti, platform, false);
+        w.come_out(ti, platform);
         assert_eq!(mine_look(&w, platform), (0, 0));
     }
 
@@ -1209,6 +1217,56 @@ mod tests {
             let u = &w.units[pi];
             assert_eq!((u.facing, u.tile), (facing, to), "{b:#x}");
         }
+    }
+
+    /// Round-47 errata, "Coming out" step 6: every delivery at a gold-accepting building sets the hall-sized exit
+    /// mark, carrying or not; a lumber mill doesn't; the next come-out from any building clears it.
+    #[test]
+    fn the_hall_sized_exit_mark_lasts_until_the_next_come_out() {
+        let mut w = land();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+        let mill = w.spawn(LUMBER_MILL, 0, (4, 12), 0).unwrap();
+        let p = w.spawn(0, 0, (12, 4), 0).unwrap();
+        let mark = |w: &World| w.unit(p).unwrap().hall_exit;
+        go_in_now(&mut w, p, hall);
+        assert!(mark(&w), "set without carrying anything");
+        come_out_now(&mut w, p, hall);
+        assert!(!mark(&w));
+        go_in_now(&mut w, p, hall);
+        come_out_now(&mut w, p, hall);
+        go_in_now(&mut w, p, mine);
+        assert!(!mark(&w), "a mine doesn't set it");
+        let pi = w.index(p).unwrap();
+        w.units[pi].hall_exit = true;
+        come_out_now(&mut w, p, mine);
+        assert!(!mark(&w), "a mine's come-out clears it");
+        let pi = w.index(p).unwrap();
+        w.units[pi].gather = Gather::Lumber;
+        let mi = w.index(mill).unwrap();
+        w.go_in(pi, mi);
+        assert!(!mark(&w), "a lumber mill doesn't set it");
+    }
+
+    /// Round-47 errata (`xhuman3-10000` tanker 1418, n = 8749): arriving at a mine still under construction makes idle
+    /// the pending order, taken over at once with wait 3 and no idle logic.
+    #[test]
+    fn arriving_at_an_unfinished_mine_takes_over_a_pending_idle() {
+        let mut w = land();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        let mi = w.index(mine).unwrap();
+        w.units[mi].construction = Some(Default::default());
+        let p = w.spawn(0, 0, (13, 4), 0).unwrap();
+        let pi = w.index(p).unwrap();
+        w.units[pi].gather = Gather::Gold;
+        w.units[pi].order = Order::Harvest {
+            source: Some(mine),
+            tree: (14, 4),
+            chopping: false,
+        };
+        w.harvest_order(pi, Some(mine), (14, 4), false);
+        let u = &w.units[pi];
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
     }
 
     #[test]
