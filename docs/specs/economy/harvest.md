@@ -47,6 +47,9 @@
   2026-10-13, round-50 errata: a worker coming out with a computer player's repair job aims at the building's top-left
   tile and faces the building; `human8-10000` vector; open questions on the same-cycle platform's slot order and other
   AI jobs.
+  2026-10-13, round-51 errata: a worker coming out with a build job faces the build goal worked out when the command was
+  given, while it was still inside, not a goal worked out again from its exit tile; `xhuman9-10000` vector; the
+  synthetic build-job vector names the hall's top-left tile.
 
 ## Behaviour
 
@@ -154,12 +157,13 @@ When the 150-cycle wait ends and the inside order's logic runs:
    step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at their first worker
    coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded goal tile runs them
    all. If no tile is found, the unit dies. The placed unit then faces as `movement/placement.md` says, except that a
-   worker with a **build** job faces its **build goal tile**: the tile the build walk heads for, found by the building
-   goal rule (`movement/pathfinding.md`) from the worker's exit tile on the site's footprint. This is for the facing
-   only: the walk's own goal was worked out when the build command was given in step 3, from the unit's tile then, the
-   building's top-left tile (`economy/build-train.md`, "Placing a building"), so the two can differ. The facing rule is
-   "Facing a tile" of `core/animation-scripts.md`, from the exit tile. Every other come-out faces the target as before
-   (a building at its top-left tile plus (1, 1), a tree at its own tile).
+   worker with a **build** job faces its **build goal tile**: the goal of the build walk, worked out when the build
+   command was given in step 3, while the worker was still inside, from the unit's tile then (the building's top-left
+   tile), by the building goal rule (`movement/pathfinding.md`) on the site's footprint (`economy/build-train.md`,
+   "Placing a building"). It is **not** worked out again from the exit tile, so the facing and the walk use the same
+   goal (traced: `xhuman9-10000`, round-51 vectors). The facing rule is "Facing a tile" of `core/animation-scripts.md`,
+   from the exit tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a
+   tree at its own tile).
 
 The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
 over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
@@ -397,7 +401,7 @@ gold, storage for wood, storage for oil, building.
 | Input | Expected |
 | --- | --- |
 | `xorc3-10000` (oracle trace), n = 9180: computer peon 1485 (type 0x03, owner 2) comes out at (35, 117) with a build job | Order 2, wait 25, facing 0 (toward its build goal tile) |
-| A worker comes out at (10, 10) with a build job for a 2 × 2 site at (14, 10) | Faces its build goal tile from (10, 10): east (2) |
+| A worker comes out at (10, 10) of a hall whose top-left tile is (8, 8), with a build job for a 2 × 2 site at (14, 10) | The goal worked out from (8, 8) is (14, 10); it faces it from (10, 10): east (2) |
 
 ### Round-43 vectors
 
@@ -442,6 +446,12 @@ gold, storage for wood, storage for oil, building.
 | Input | Expected |
 | --- | --- |
 | `human8-10000` (oracle trace), n = 2486: computer peasant 1508 (type 0x02, owner 2) comes out of great hall 1512 (type 0x4A, top-left (74, 72)) with a repair job on farm 1540 (type 0x3A, top-left (74, 59)) | Tile (73, 72), order 2, target 1540, facing 0, wait 25 |
+
+### Round-51 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman9-10000` (oracle trace), n = 9065: computer peon 1440 (type 0x03, owner 2) comes out of great hall 1438 (type 0x4B, top-left (114, 109)) at (113, 110) with a pig farm job at site (110, 109); the goal worked out from inside is (111, 109) | Order 2, wait 25, facing 7 (toward (111, 109), not 6 toward (111, 110), the goal from the exit tile). The walk goes (112, 109) at n = 9100, then (111, 109); it builds at n = 9125 |
 
 ## Open questions
 
