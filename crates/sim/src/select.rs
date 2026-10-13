@@ -430,7 +430,10 @@ impl World {
             6 => {
                 let o = match target {
                     Some(target) => Order::Follow { target },
-                    None => Order::Move { goal: tile },
+                    None => Order::Move {
+                        goal: tile,
+                        target: None,
+                    },
                 };
                 return self.command(i, o);
             }
@@ -801,7 +804,7 @@ mod tests {
         let goals: Vec<_> = men.iter().map(|&m| intent(&w, m)).collect();
         assert_eq!(
             goals,
-            [(29, 20), (30, 20), (31, 21)].map(|goal| Some(Order::Move { goal }))
+            [(29, 20), (30, 20), (31, 21)].map(|goal| Some(Order::Move { goal, target: None }))
         );
     }
 

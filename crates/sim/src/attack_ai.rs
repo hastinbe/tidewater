@@ -1387,6 +1387,11 @@ impl World {
                 .rules
                 .enhanced
                 .then_some(Remembered::Patrol { to: from, back: here });
+            // Round-62 errata (orders spec, "Resuming patrol and attack-move", static study): remembering sets the
+            // countdown to 0.
+            if self.rules.enhanced {
+                self.units[i].resume = 0;
+            }
         }
         self.command(i, Order::Patrol { to: from, back: to });
     }
@@ -1778,7 +1783,13 @@ mod tests {
         u.attacked_by = Some(foe);
         w.rebuild_threat_map();
         w.run_goals();
-        assert_eq!(at(&w, g).pending, Some(Order::Move { goal: (20, 30) }));
+        assert_eq!(
+            at(&w, g).pending,
+            Some(Order::Move {
+                goal: (20, 30),
+                target: None
+            })
+        );
         assert_eq!(at(&w, g).attacked_by, None);
         // Within the leash (6 / 2 + 4 = 7): nothing.
         let mut w = game();
@@ -1812,7 +1823,13 @@ mod tests {
     #[test]
     fn hold_gives_up_a_fight_when_badly_outmatched() {
         // 10 x 5 < 4 x 13; 10 x 6 >= 4 x 13.
-        assert_eq!(outmatched(5), Some(Order::Move { goal: (12, 2) }));
+        assert_eq!(
+            outmatched(5),
+            Some(Order::Move {
+                goal: (12, 2),
+                target: None
+            })
+        );
         assert_eq!(outmatched(6), None);
     }
 

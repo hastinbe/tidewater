@@ -38,7 +38,10 @@ impl World {
             Order::Repair { target }
         } else {
             let _ = i;
-            Order::Move { goal: t.tile }
+            Order::Move {
+                goal: t.tile,
+                target: None,
+            }
         })
     }
 

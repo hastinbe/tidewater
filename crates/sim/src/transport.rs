@@ -173,7 +173,7 @@ impl World {
                 .filter(|t| t.owner == owner && !t.building);
             return match own_unit {
                 Some(t) => Order::Follow { target: t.id },
-                None => Order::Move { goal: g },
+                None => Order::Move { goal: g, target: None },
             };
         }
         Order::Land { goal: g }
@@ -705,7 +705,13 @@ mod tests {
         let mut w = sea(20);
         let i = ship(&mut w, (30, 10), Order::Idle);
         assert_eq!(smart(&mut w, i, (21, 12)), Order::Land { goal: (21, 12) });
-        assert_eq!(smart(&mut w, i, (40, 12)), Order::Move { goal: (40, 12) });
+        assert_eq!(
+            smart(&mut w, i, (40, 12)),
+            Order::Move {
+                goal: (40, 12),
+                target: None
+            }
+        );
     }
 
     #[test]
@@ -799,7 +805,13 @@ mod tests {
             }
         }
         let u = w.unit(id).unwrap();
-        assert_eq!(u.order, Order::Move { goal: (40, 20) });
+        assert_eq!(
+            u.order,
+            Order::Move {
+                goal: (40, 20),
+                target: None
+            }
+        );
         assert_eq!(u.tile, (22, 20));
         assert!(!u.ship.landing && !u.ship.one_tile);
     }
@@ -1065,14 +1077,26 @@ mod tests {
         // The vector's offsets: -3 and +5.
         assert_eq!(
             landing_boarder(20, c, (20, 10), (19, 9), 3, 11),
-            (Order::Move { goal: (16, 14) }, true)
+            (
+                Order::Move {
+                    goal: (16, 14),
+                    target: None
+                },
+                true
+            )
         );
         let human = landing_boarder(20, controller::HUMAN, (20, 10), (19, 9), 3, 11);
         assert!(matches!(human, (Order::Board { .. }, false)), "{human:?}");
         // Clamped at 0.
         assert_eq!(
             landing_boarder(2, c, (2, 2), (1, 1), 0, 0),
-            (Order::Move { goal: (0, 0) }, true)
+            (
+                Order::Move {
+                    goal: (0, 0),
+                    target: None
+                },
+                true
+            )
         );
     }
 
@@ -1114,7 +1138,14 @@ mod tests {
         let i = ship(&mut w, (20, 10), Order::PushOff);
         w.stop(i);
         assert_eq!(w.units[i].order, Order::Docked);
-        let j = ship(&mut w, (30, 10), Order::Move { goal: (40, 10) });
+        let j = ship(
+            &mut w,
+            (30, 10),
+            Order::Move {
+                goal: (40, 10),
+                target: None,
+            },
+        );
         let j = w.index(w.units[j].id).unwrap();
         w.stop(j);
         assert_eq!(w.units[j].order, Order::Idle);

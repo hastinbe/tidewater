@@ -143,7 +143,10 @@ impl World {
         let owner = u.owner;
         let fresh = |t: Option<UnitId>| t.filter(|&t| !self.stale(owner, t));
         let order = match *c {
-            Command::Move { to, .. } => Order::Move { goal: shore(to) },
+            Command::Move { to, .. } => Order::Move {
+                goal: shore(to),
+                target: None,
+            },
             Command::Stop { .. } => Order::Idle,
             // Round-48 errata: a target unit of any owner (own, allied and neutral units included) gives order 9. A
             // dying target is still given; `command` then finds it stale and leaves a pending idle
@@ -198,7 +201,14 @@ impl World {
         self.units[i].remembered = match remember {
             _ if !enhanced => None,
             Some(Remembered::Patrol { to, .. }) if self.unremembered_patrol(i, to) => self.units[i].remembered,
-            r => r,
+            r => {
+                // Round-62 errata ("Resuming patrol and attack-move", static study): remembering sets the countdown
+                // to 0.
+                if r.is_some() {
+                    self.units[i].resume = 0;
+                }
+                r
+            }
         };
         Some(order)
     }
@@ -229,8 +239,8 @@ impl World {
             return Some(self.board_command(i, t));
         }
         let u = &self.units[i];
-        // Round-61 errata: return goods by smart move is for workers only (static study); a tanker carrying oil sent
-        // onto a refinery or shipyard goes on down the table.
+        // Round-61 errata: return goods by smart move is for workers only; a tanker carrying oil sent onto a refinery
+        // or shipyard goes on down the table (round-62: traced for its own shipyard, `orc9-orc09-tanker-move-2200`).
         if let Some(t) = target
             && self.is_worker(u)
             && self.can_return_to(u, t)
@@ -246,9 +256,20 @@ impl World {
         let own_unit = target
             .and_then(|t| self.unit(t))
             .filter(|t| t.owner == u.owner && !t.building && t.present());
-        Some(match own_unit {
-            Some(t) => Order::Follow { target: t.id },
-            None => Order::Move { goal: tile },
+        // Round-62 errata ("Smart move"; `orc9-orc09-tanker-move-2200` tanker 1473, n = 1265 and 1700): a target unit
+        // that falls through to the move stays its target, and the stored goal is the target's tile (not pulled back,
+        // `World::command`). Traced for a tanker; static study for land units.
+        let moving_to = target.and_then(|t| self.unit(t)).map(|t| (t.id, t.tile));
+        Some(match (own_unit, moving_to) {
+            (Some(t), _) => Order::Follow { target: t.id },
+            (None, Some((t, at))) => Order::Move {
+                goal: at,
+                target: Some(t),
+            },
+            (None, None) => Order::Move {
+                goal: tile,
+                target: None,
+            },
         })
     }
 
@@ -320,6 +341,10 @@ impl World {
     /// remembered order to give instead, with the countdown set. `None` keeps the idle. An immediate idle never comes
     /// here.
     ///
+    /// Round-62 errata: with the countdown at 0, a remembered attack-move that is complete (within 1 tile on both
+    /// axes) is forgotten here, wherever idle becomes pending (traced: `orc9-orc09-attack-move-1500` ogre 1493). With
+    /// the countdown running nothing is resumed or forgotten (static study only).
+    ///
     /// Round-45 errata: the resumed order is a full command. Its goal is pulled back (pathfinding spec, "Goal pulled
     /// back"), the cached route dropped, the blocked counter cleared and the recorded attacker checked ("Commands
     /// forget a stale attacker"; `xorc01-death-coil` ogre 1489, n = 901 to 904).
@@ -341,6 +366,10 @@ impl World {
                 Order::AttackMove {
                     goal: self.pull_back(i, goal),
                 }
+            }
+            Some(Remembered::AttackMove { .. }) => {
+                self.units[i].remembered = None;
+                return None;
             }
             _ => return None,
         };
@@ -579,7 +608,26 @@ impl World {
                     self.idle_choice(i);
                 }
             }
-            Order::Move { goal } | Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => {
+            Order::Move { target: Some(t), .. } if self.unit(t).is_some() => {
+                // Round-62 errata ("Smart move"; pathfinding spec, "Step 1"): a move that keeps a target unit walks to
+                // the route goal of the building goal rule on the target's footprint, from the unit's tile, with the
+                // target's goal zone, as any walk whose order holds a target unit. On arrival the target is dropped
+                // with the order.
+                let t = self.unit(t).expect("checked above");
+                let g = Goal {
+                    zone: Some(crate::battle::goal_zone(t)),
+                    ..Goal::tile(self.target_goal(&self.units[i], t), 0)
+                };
+                match self.move_toward(i, g) {
+                    Walk::Arrived => {
+                        self.units[i].attacked_by = None;
+                        self.idle_now(i);
+                    }
+                    Walk::NoPath => self.idle_at_once(i),
+                    Walk::Stepping | Walk::Blocked => {}
+                }
+            }
+            Order::Move { goal, .. } | Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => {
                 // Round-52 errata (static study): at the move goal the whole move step is skipped, so the Classic
                 // reaction doesn't run there either.
                 if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && !arriving && self.react(i) {
@@ -627,6 +675,9 @@ impl World {
                     };
                     if self.rules.enhanced && !self.unremembered_patrol(i, back) {
                         self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
+                        // Round-62 errata (static study): every patrol turnaround that remembers sets the countdown
+                        // to 0.
+                        self.units[i].resume = 0;
                     }
                     // Movement spec, "Blocked rules" (round-41 errata): the turnaround is a command.
                     self.units[i].blocked = 0;
@@ -667,17 +718,25 @@ impl World {
         let following = matches!(u.order, Order::Guard { .. }) || matches!(u.pending, Some(Order::Follow { .. }));
         if following && !followable(t_order) {
             let here = u.tile;
-            self.give(i, Order::Move { goal: here });
+            self.give(
+                i,
+                Order::Move {
+                    goal: here,
+                    target: None,
+                },
+            );
             return false;
         }
-        if chebyshev(u.tile, t_tile) > 1 {
-            // Round-60 errata (pathfinding spec, "Step 1"; static study): the walk's order holds a target unit, so its
-            // goal zone is the target's widened footprint.
-            let zone = self.unit(target).map(crate::battle::goal_zone);
-            let g = Goal {
-                zone,
-                ..Goal::tile(t_tile, 1)
-            };
+        // Round-60 errata (pathfinding spec, "Step 1"; static study): the walk's order holds a target unit, so its
+        // goal zone is the target's widened footprint.
+        let zone = self.unit(target).map(crate::battle::goal_zone);
+        let g = Goal {
+            zone,
+            ..Goal::tile(t_tile, 1)
+        };
+        // Round-62 errata (`orc9-orc09-tanker-move-2200` juggernaut 1501, n = 614): the radius is 1 plus the +1 for a
+        // sea or air follower, as in the general arrival test.
+        if !self.at_goal(i, g) {
             if matches!(self.move_toward(i, g), Walk::NoPath) {
                 self.stop(i);
             }
@@ -691,7 +750,9 @@ impl World {
                     self.switch_anim(i, anim::STILL);
                 }
             } else {
-                self.stop(i);
+                // Round-62 errata (same vector): idle is made the pending order, with the Enhanced resume, and takes
+                // over in the same update (still animation, wait 3); not a stop command.
+                self.idle_now(i);
             }
             return false;
         }
@@ -1245,7 +1306,7 @@ impl World {
         } else if let Some(o) = mine.and_then(|m| self.harvest_command(i, Some(m), to)) {
             o
         } else {
-            Order::Move { goal: to }
+            Order::Move { goal: to, target: None }
         };
         self.command(i, o);
         if self.units[i].script.anim != anim::MOVE
@@ -1517,11 +1578,20 @@ mod tests {
         assert_eq!(w.units[i].order, Order::StandGround);
         // A pending order takes over instead.
         w.units[i].order = Order::Attack { target: g };
-        w.units[i].pending = Some(Order::Move { goal: (1, 1) });
+        w.units[i].pending = Some(Order::Move {
+            goal: (1, 1),
+            target: None,
+        });
         w.lose_target(i);
         assert_eq!(
             (w.units[i].order, w.units[i].pending),
-            (Order::Move { goal: (1, 1) }, None)
+            (
+                Order::Move {
+                    goal: (1, 1),
+                    target: None
+                },
+                None
+            )
         );
     }
 
@@ -1538,7 +1608,13 @@ mod tests {
                 target: None,
                 tile: (10, 10),
             };
-            assert_eq!(w.command_order(i, &c), Some(Order::Move { goal: (10, 10) }));
+            assert_eq!(
+                w.command_order(i, &c),
+                Some(Order::Move {
+                    goal: (10, 10),
+                    target: None
+                })
+            );
             assert_eq!(w.units[i].script.wait, expected, "owner {owner}");
         }
     }
@@ -1580,7 +1656,13 @@ mod tests {
         let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
         let i = at(&w, f);
         w.units[i].script.frame = 15;
-        w.take_over(i, Order::Move { goal: (9, 9) });
+        w.take_over(
+            i,
+            Order::Move {
+                goal: (9, 9),
+                target: None,
+            },
+        );
         assert_eq!((w.units[i].script.frame, w.units[i].script.wait), (15, 3));
         w.stop(i);
         assert_eq!((w.units[i].script.frame, w.units[i].script.wait), (15, 1));
@@ -1591,7 +1673,10 @@ mod tests {
         // Orders spec, "Arriving and losing the target": orders 3, 4 and 10 forget the attacker on arrival (the
         // Human04 critters' order 3 test above), and idle takes over in the same update (still animation, wait 3).
         for o in [
-            Order::Move { goal: (7, 5) },
+            Order::Move {
+                goal: (7, 5),
+                target: None,
+            },
             Order::MoveAttack {
                 goal: (7, 5),
                 target: None,
@@ -1646,7 +1731,10 @@ mod tests {
         // New units are hidden from everyone until a visibility pass.
         w.unit_visibility();
         let i = at(&w, f);
-        w.units[i].order = Order::Move { goal: (15, 15) };
+        w.units[i].order = Order::Move {
+            goal: (15, 15),
+            target: None,
+        };
         w.units[i].script.wait = 1;
         // The move's logic runs at its next step done; it never reaches idle with the take-over's wait of 3.
         let mut after = None;
@@ -1787,12 +1875,23 @@ mod tests {
                     w.terrain.set_bits(x, y, 0x80);
                 }
             }
-            w.take_over(i, Order::Move { goal: (5, 7) });
+            w.take_over(
+                i,
+                Order::Move {
+                    goal: (5, 7),
+                    target: None,
+                },
+            );
             let mut seen = None;
             for _ in 0..100 {
                 w.step(&[]);
                 let u = &w.units[i];
-                if u.order != (Order::Move { goal: (5, 7) }) {
+                if u.order
+                    != (Order::Move {
+                        goal: (5, 7),
+                        target: None,
+                    })
+                {
                     seen = Some((u.order, u.pending, u.resume, u.script.wait));
                     break;
                 }
@@ -1892,7 +1991,7 @@ mod tests {
         // for animation-4 orders) never apply to them.
         let goal = (1, 1);
         for o in [
-            Order::Move { goal },
+            Order::Move { goal, target: None },
             Order::MoveAttack { goal, target: None },
             Order::Patrol { to: goal, back: goal },
             Order::AttackMove { goal },
@@ -2515,7 +2614,7 @@ mod tests {
         w.units[i].attacked_by = Some(a);
         assert!(w.flee(i));
         // The move takes over in the same update (round-40 errata).
-        let Order::Move { goal } = w.units[i].order else {
+        let Order::Move { goal, .. } = w.units[i].order else {
             panic!("expected a move, got {:?}", w.units[i].order)
         };
         assert_eq!(w.units[i].pending, None);
@@ -2559,7 +2658,7 @@ mod tests {
         w.units[i].attacked_by = Some(a);
         w.units[i].blocked = 5;
         assert!(w.flee(i));
-        let Order::Move { goal } = w.units[i].order else {
+        let Order::Move { goal, .. } = w.units[i].order else {
             panic!("expected a move, got {:?}", w.units[i].order)
         };
         assert_eq!((goal.0, w.units[i].blocked), (12, 0), "{goal:?}");
@@ -2589,7 +2688,13 @@ mod tests {
         let gi = at(&w, g);
         w.units[gi].order = Order::ReturnGoods { depot: None };
         w.follow(i, g);
-        assert_eq!(w.units[i].pending, Some(Order::Move { goal: (5, 5) }));
+        assert_eq!(
+            w.units[i].pending,
+            Some(Order::Move {
+                goal: (5, 5),
+                target: None
+            })
+        );
     }
 
     #[test]
@@ -2765,11 +2870,23 @@ mod tests {
         let own = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
         let i = at(&w, f);
         w.units[i].attacked_by = Some(a);
-        w.command(i, Order::Move { goal: (1, 1) });
+        w.command(
+            i,
+            Order::Move {
+                goal: (1, 1),
+                target: None,
+            },
+        );
         assert_eq!(w.units[i].attacked_by, Some(a));
         let ai = at(&w, a);
         w.kill(ai);
-        w.command(i, Order::Move { goal: (2, 2) });
+        w.command(
+            i,
+            Order::Move {
+                goal: (2, 2),
+                target: None,
+            },
+        );
         assert_eq!(w.units[i].attacked_by, None);
         let oi = at(&w, own);
         w.kill(oi);
@@ -2779,7 +2896,13 @@ mod tests {
             target: Some(own),
             tile: (3, 3),
         };
-        assert_eq!(w.command_order(i, &c), Some(Order::Move { goal: (3, 3) }));
+        assert_eq!(
+            w.command_order(i, &c),
+            Some(Order::Move {
+                goal: (3, 3),
+                target: None
+            })
+        );
     }
 
     /// Round-45 errata, "No route": a move with no route keeps its attacker, so the idle logic that runs in the same
@@ -2791,13 +2914,16 @@ mod tests {
         let a = w.spawn(FOOTMAN, 1, (9, 5), 0).unwrap();
         w.unit_visibility();
         let i = at(&w, p);
-        w.units[i].order = Order::Move { goal: (15, 15) };
+        w.units[i].order = Order::Move {
+            goal: (15, 15),
+            target: None,
+        };
         w.units[i].attacked_by = Some(a);
         let before = w.rng.state;
         assert!(w.run_order(i));
         let u = &w.units[i];
         assert!(
-            matches!(u.order, Order::Move { goal } if goal != (15, 15)),
+            matches!(u.order, Order::Move { goal, .. } if goal != (15, 15)),
             "{:?}",
             u.order
         );
@@ -3350,7 +3476,10 @@ mod tests {
         let g = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
         let c = w.spawn(tanker, 1, (5, 15), 0).unwrap();
         let ci = at(&w, c);
-        let busy = Order::Move { goal: (20, 20) };
+        let busy = Order::Move {
+            goal: (20, 20),
+            target: None,
+        };
         w.units[ci].order = busy;
         w.units[ci].attacked_by = Some(g);
         let rng = w.rng;
@@ -3654,5 +3783,157 @@ mod tests {
         zone_walk.move_toward(i, goal);
         assert_eq!(w.units[i].path, zone_walk.units[i].path);
         assert_eq!(w.units[i].tile, zone_walk.units[i].tile);
+    }
+
+    /// Round-62 vectors (`orc9-orc09-attack-move-1500` ogre 1493): an attack-move that arrives with the countdown at 0
+    /// is complete and forgotten, so a later pending idle 3 tiles from its target tile (losing a target) doesn't
+    /// resume it.
+    #[test]
+    fn a_complete_attack_move_is_forgotten_at_countdown_0() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        let c = Command::AttackMove {
+            player: 0,
+            units: vec![f],
+            to: (5, 6),
+        };
+        let o = w.command_order(i, &c).unwrap();
+        w.take_over(i, o);
+        assert_eq!(w.units[i].remembered, Some(Remembered::AttackMove { goal: (5, 6) }));
+        // Arriving makes idle pending with the countdown at 0: the attack-move is complete and forgotten.
+        w.idle_now(i);
+        assert_eq!((w.units[i].order, w.units[i].remembered), (Order::Idle, None));
+        // 3 tiles away, a lost target makes idle pending again: nothing resumes.
+        w.units[i].tile = (5, 9);
+        w.lose_target(i);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+    }
+
+    /// Round-62 errata (static study vector): a complete attack-move with the countdown running is kept, and a later
+    /// pending idle at countdown 0 resumes it once the unit is more than 1 tile away.
+    #[test]
+    fn a_complete_attack_move_is_kept_while_the_countdown_runs() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].remembered = Some(Remembered::AttackMove { goal: (5, 6) });
+        w.units[i].resume = 5;
+        w.give(i, Order::Idle);
+        assert_eq!(w.units[i].pending, Some(Order::Idle));
+        assert_eq!(w.units[i].remembered, Some(Remembered::AttackMove { goal: (5, 6) }));
+        w.units[i].resume = 0;
+        w.units[i].tile = (5, 9);
+        w.give(i, Order::Idle);
+        assert_eq!(w.units[i].pending, Some(Order::AttackMove { goal: (5, 6) }));
+        assert_eq!(w.units[i].resume, RESUME_ATTACK_MOVE);
+    }
+
+    /// Round-62 errata (static study vector): a unit that resumed (countdown 20) and is given a new attack-move can
+    /// resume it at its next pending idle, because remembering sets the countdown to 0. The countdown runs only while
+    /// something is remembered.
+    #[test]
+    fn remembering_sets_the_countdown_to_0_and_it_runs_only_while_remembered() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].resume = RESUME_ATTACK_MOVE;
+        let c = Command::AttackMove {
+            player: 0,
+            units: vec![f],
+            to: (15, 5),
+        };
+        w.command_order(i, &c).unwrap();
+        assert_eq!(w.units[i].resume, 0);
+        w.give(i, Order::Idle);
+        assert_eq!(w.units[i].pending, Some(Order::AttackMove { goal: (15, 5) }));
+        // With nothing remembered the countdown stays where it is.
+        let mut w = map();
+        w.rules.enhanced = true;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].resume = 7;
+        for _ in 0..20 {
+            w.step(&[]);
+        }
+        assert_eq!(w.units[i].resume, 7);
+        w.units[i].remembered = Some(Remembered::AttackMove { goal: (15, 5) });
+        for _ in 0..20 {
+            w.step(&[]);
+        }
+        assert_eq!(w.units[i].resume, 0);
+    }
+
+    /// Round-62 vector (`orc9-orc09-tanker-move-2200` juggernaut 1501, n = 614): a sea or air follower's radius is 1
+    /// plus the +1, so it is inside at 2 tiles; one whose target can't be guarded gets a pending idle that takes over
+    /// in the same update (still animation, wait 3), not a stop command (wait 1).
+    #[test]
+    fn a_flying_follower_is_inside_at_2_tiles_and_gets_a_pending_idle() {
+        const FLYER: u8 = 0x10;
+        let mut w = map();
+        w.stats.0[FLYER as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[FLYER as usize].flags = flags::AIR | flags::CAN_ATTACK;
+        let f = w.spawn(FLYER, 0, (4, 4), 0).unwrap();
+        let g = w.spawn(FLYER, 0, (6, 4), 0).unwrap();
+        let (i, gi) = (at(&w, f), at(&w, g));
+        w.units[i].order = Order::Follow { target: g };
+        w.units[gi].order = Order::IdleReact { target: g };
+        w.units[i].script.wait = 9;
+        assert!(!w.follow(i, g));
+        let u = &w.units[i];
+        assert_eq!(u.tile, (4, 4), "it doesn't move");
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+        // A followable target gives the guard at the same distance.
+        w.units[i].order = Order::Follow { target: g };
+        w.units[gi].order = Order::Idle;
+        w.follow(i, g);
+        assert_eq!(w.units[i].order, Order::Guard { target: g });
+    }
+
+    /// Round-62 errata ("Smart move"; pathfinding spec, "Goal pulled back"): a smart move with a target unit that falls
+    /// through to the move keeps the target, and its stored goal is the target's tile, not pulled back; the walk ends
+    /// in the target's goal zone and drops the target with the order.
+    #[test]
+    fn a_smart_move_onto_a_unit_keeps_it_as_the_moves_target() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (3, 10), 0).unwrap();
+        // Its own farm: not a follow (a building), so the move.
+        let b = w.spawn(FARM, 0, (10, 9), 0).unwrap();
+        let i = at(&w, f);
+        let c = Command::Smart {
+            player: 0,
+            units: vec![f],
+            target: Some(b),
+            tile: (11, 10),
+        };
+        let o = w.command_order(i, &c).unwrap();
+        assert_eq!(
+            o,
+            Order::Move {
+                goal: (10, 9),
+                target: Some(b)
+            }
+        );
+        w.command(i, o);
+        assert_eq!(w.units[i].pending, Some(o), "the farm's tile, not pulled back");
+        assert_eq!(w.units[i].recorded_target(), Some(b));
+        let mut arrived = false;
+        for _ in 0..400 {
+            w.step(&[]);
+            let u = &w.units[i];
+            if u.order == Order::Idle && u.pending.is_none() {
+                // Next to the farm, in its goal zone.
+                assert_eq!(u.tile.0, 9, "{:?}", u.tile);
+                assert_eq!(u.recorded_target(), None);
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived);
     }
 }

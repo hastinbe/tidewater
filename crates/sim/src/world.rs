@@ -72,8 +72,9 @@ use crate::rescue::CIRCLE_OF_POWER;
 pub enum Order {
     /// 2: stop / idle.
     Idle,
-    /// 3.
-    Move { goal: (i32, i32) },
+    /// Order 3. A smart move with a target unit that becomes the move keeps that unit as `target` until the move
+    /// ends (orders spec, "Smart move", round-62 errata); every other move has none.
+    Move { goal: (i32, i32), target: Option<UnitId> },
     /// 4: move, attacking on the way. A command 4 with a target unit walks to the target's tile and records the
     /// unit as `target` (orders spec, "Commands", round-49 errata).
     MoveAttack { goal: (i32, i32), target: Option<UnitId> },
@@ -163,7 +164,10 @@ impl Order {
             | Order::AttackInPlace { target }
             | Order::IdleReact { target }
             | Order::Repair { target } => Some(target),
-            Order::TowerWatch { target } | Order::Cast { target, .. } | Order::MoveAttack { target, .. } => target,
+            Order::TowerWatch { target }
+            | Order::Cast { target, .. }
+            | Order::MoveAttack { target, .. }
+            | Order::Move { target, .. } => target,
             Order::Harvest { source, .. } => source,
             Order::ReturnGoods { depot } => depot,
             Order::Enter { building, .. } | Order::InsideSite { building } => Some(building),
@@ -1558,7 +1562,11 @@ impl World {
             self.joining_check(i);
         }
         let u = &mut self.units[i];
-        u.resume = u.resume.saturating_sub(1);
+        // Orders spec, "Resuming patrol and attack-move" (round-62 errata, static study): the countdown runs only while
+        // the unit remembers something.
+        if u.remembered.is_some() {
+            u.resume = u.resume.saturating_sub(1);
+        }
         if u.building {
             // Orders spec, "Orders given when a unit is created": the first order takes over at the first step done
             // (wait 3), and nothing else runs in that update.

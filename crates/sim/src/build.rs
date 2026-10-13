@@ -56,8 +56,8 @@ impl World {
             return None;
         }
         let owner = u.owner;
-        // Round-60 errata (pathfinding spec, "Shore building"; static study): a shore site with no footprint corner
-        // in the worker's region fails silently: no order, nothing paid.
+        // Round-60 errata (pathfinding spec, "Shore building"): a shore site with no footprint corner in the worker's
+        // region fails silently: no order, nothing paid (traced in round 62: `orc9-orc09-shore-no-corner-600` n = 20).
         let s = self.stats_of(kind);
         if s.flags & flags::SHORE_BUILDING != 0
             && self
@@ -770,7 +770,7 @@ mod tests {
     }
 
     /// Round-60 errata, "Carrying out a player's build command" (the `orc9-orc09-shore-build-3000` peon 1482 vector,
-    /// n = 26, and the static affordability row): a command whose site fails the check, or that the player can't
+    /// n = 26, and the affordability row, traced in round 61): a command whose site fails the check, or that the player can't
     /// afford when it is carried out, gives the builder no order and pays nothing.
     #[test]
     fn a_player_build_command_is_checked_when_carried_out() {

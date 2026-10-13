@@ -128,8 +128,11 @@ impl World {
     /// `xorc01-death-coil` (death knight 1491, n = 353): the command also drops the unit's cached route.
     pub(crate) fn command(&mut self, i: usize, order: Order) {
         let order = match order {
-            Order::Move { goal } => Order::Move {
+            // Round-62 errata (pathfinding spec, "Goal pulled back"): a smart move with a target unit that becomes the
+            // move stores the target's tile without pulling it back.
+            Order::Move { goal, target: None } => Order::Move {
                 goal: self.pull_back(i, goal),
+                target: None,
             },
             Order::MoveAttack { goal, target } => Order::MoveAttack {
                 goal: self.pull_back(i, goal),
@@ -456,20 +459,15 @@ impl World {
             // order, and the unit starts its still animation with wait 1 instead of 15.
             // Round-61 errata (`orc10-10000` tanker 1533, n = 3505; `xhuman12-10000` axe thrower 1521, n = 4144):
             // when nothing resumes, idle is pending and nothing else changes, so the unit keeps the walking animation
-            // restarted above, with wait 15; only the resume case starts the still animation. A remembered
-            // attack-move that is complete (within 1 tile on both axes) is forgotten here (static study only).
+            // restarted above, with wait 15; only the resume case starts the still animation. Round-62 errata: a
+            // remembered attack-move that is complete is forgotten only with the countdown at 0, as everywhere idle
+            // becomes pending (`resumed`).
             if let Some(o) = self.resumed(i) {
                 self.units[i].pending = Some(o);
                 self.start_anim(i, anim::STILL);
                 1
             } else {
-                let u = &mut self.units[i];
-                if let Some(crate::world::Remembered::AttackMove { goal }) = u.remembered
-                    && chebyshev(u.tile, goal) <= 1
-                {
-                    u.remembered = None;
-                }
-                u.pending = Some(Order::Idle);
+                self.units[i].pending = Some(Order::Idle);
                 LONG_WAIT
             }
         } else if u.blocked >= LONG_WAIT_FROM {
@@ -694,7 +692,7 @@ mod tests {
             assert!(seen(&mut w, o), "{o:?}");
         }
         for o in [
-            Order::Move { goal },
+            Order::Move { goal, target: None },
             Order::Attack { target: enemy },
             Order::AttackWall { tile: goal },
         ] {
@@ -736,11 +734,24 @@ mod tests {
             // A usable goal is kept, and the command stores the pulled-back goal.
             assert_eq!(w.pull_back(i, (20, 20)), (20, 20));
             w.units[i].blocked = 5;
-            w.command(i, Order::Move { goal: (6, 18) });
+            w.command(
+                i,
+                Order::Move {
+                    goal: (6, 18),
+                    target: None,
+                },
+            );
             let u = &w.units[i];
             assert_eq!(
                 (u.pending, u.blocked, u.commanded),
-                (Some(Order::Move { goal: want }), 0, true)
+                (
+                    Some(Order::Move {
+                        goal: want,
+                        target: None
+                    }),
+                    0,
+                    true
+                )
             );
         }
     }
@@ -821,9 +832,21 @@ mod tests {
         let p = w.spawn(0, 0, (6, 6), 0).unwrap();
         let i = w.index(p).unwrap();
         w.units[i].blocked = 2;
-        w.take_over(i, Order::Move { goal: (1, 1) });
+        w.take_over(
+            i,
+            Order::Move {
+                goal: (1, 1),
+                target: None,
+            },
+        );
         assert_eq!(w.units[i].blocked, 2);
-        w.command(i, Order::Move { goal: (2, 2) });
+        w.command(
+            i,
+            Order::Move {
+                goal: (2, 2),
+                target: None,
+            },
+        );
         assert_eq!(w.units[i].blocked, 0);
     }
 
@@ -834,7 +857,13 @@ mod tests {
     #[test]
     fn row_f_needs_the_blocked_unit_in_its_move_animation() {
         for (order, waits) in [
-            (Order::Move { goal: (5, 1) }, true),
+            (
+                Order::Move {
+                    goal: (5, 1),
+                    target: None,
+                },
+                true,
+            ),
             (Order::Land { goal: (5, 1) }, false),
         ] {
             let mut w = field(12, 4);
@@ -861,7 +890,10 @@ mod tests {
         let p = w.spawn(0, 0, (6, 6), 0).unwrap();
         let i = w.index(p).unwrap();
         let free = |w: &World| w.ignored_by_search(&w.units[i], p);
-        w.units[i].order = Order::Move { goal: (4, 3) };
+        w.units[i].order = Order::Move {
+            goal: (4, 3),
+            target: None,
+        };
         w.units[i].script.anim = anim::ATTACK;
         assert!(!free(&w), "just taken over, not moving: it blocks");
         w.units[i].script.anim = anim::MOVE;
@@ -870,7 +902,13 @@ mod tests {
         assert!(!free(&w), "counter 2");
         w.units[i].blocked = 0;
         w.units[i].script.anim = anim::STILL;
-        w.command(i, Order::Move { goal: (1, 1) });
+        w.command(
+            i,
+            Order::Move {
+                goal: (1, 1),
+                target: None,
+            },
+        );
         assert!(free(&w), "a command pending");
     }
 
@@ -884,7 +922,13 @@ mod tests {
         let (i, j) = (w.index(a).unwrap(), w.index(p).unwrap());
         let u = w.units[i].clone();
         assert!(!w.ignored_by_search(&u, p));
-        w.command(j, Order::Move { goal: (8, 2) });
+        w.command(
+            j,
+            Order::Move {
+                goal: (8, 2),
+                target: None,
+            },
+        );
         assert!(w.ignored_by_search(&u, p));
         let o = w.units[j].pending.take().unwrap();
         w.take_over(j, o);
@@ -954,7 +998,13 @@ mod tests {
         // The step east is finished first: the pixel position reaches tile 2 before the unit turns back.
         let n = until(&mut w, 20, |w| w.unit(f).unwrap().pos.0 == 64);
         assert!(n <= 8);
-        assert_eq!(w.unit(f).unwrap().order, Order::Move { goal: (0, 1) });
+        assert_eq!(
+            w.unit(f).unwrap().order,
+            Order::Move {
+                goal: (0, 1),
+                target: None
+            }
+        );
         until(&mut w, 20, |w| w.unit(f).unwrap().tile == (1, 1));
     }
 
@@ -1043,20 +1093,28 @@ mod tests {
 
     /// Round-61 errata, row C with nothing to resume (orders spec, "Giving up when blocked"; the `orc10-10000` tanker
     /// 1533 and `xhuman12-10000` axe thrower 1521 vectors): idle pending, the walking animation (3) kept, wait 15. A
-    /// remembered attack-move within 1 tile of the unit is complete and forgotten there (static study only); one
-    /// further away is kept while the countdown runs.
+    /// remembered attack-move within 1 tile of the unit is complete and forgotten there; one further away is kept while
+    /// the countdown runs. Round-62 errata: a complete one is forgotten only at countdown 0, and kept while it runs.
     #[test]
     fn row_c_with_nothing_to_resume_keeps_walking_and_forgets_a_complete_attack_move() {
-        for (goal, kept) in [(None, false), (Some((3, 2)), false), (Some((7, 1)), true)] {
+        for (goal, countdown, kept) in [
+            (None, 0, false),
+            (Some((3, 2)), 0, false),
+            (Some((3, 2)), 5, true),
+            (Some((7, 1)), 5, true),
+        ] {
             let mut w = corridor(10);
             w.rules.enhanced = true;
             let f = w.spawn(0, 1, (2, 1), 0).unwrap();
             let b = w.spawn(5, 1, (3, 1), 0).unwrap();
             let i = w.index(f).unwrap();
             let u = &mut w.units[i];
-            u.order = Order::Move { goal: (7, 1) };
+            u.order = Order::Move {
+                goal: (7, 1),
+                target: None,
+            };
             u.remembered = goal.map(|goal| crate::world::Remembered::AttackMove { goal });
-            u.resume = if kept { 5 } else { 0 };
+            u.resume = countdown;
             u.blocked = 14;
             u.path = vec![(3, 1)];
             w.blocked(i, (3, 1), Some(b), Goal::tile((7, 1), 0));
@@ -1070,7 +1128,7 @@ mod tests {
     /// Unit `f` mid-move at `at`, its cached path pointing at `next`.
     fn stepping_into(w: &mut World, f: UnitId, goal: (i32, i32), next: (i32, i32)) -> usize {
         let i = w.index(f).unwrap();
-        w.units[i].order = Order::Move { goal };
+        w.units[i].order = Order::Move { goal, target: None };
         w.units[i].path = vec![next];
         i
     }

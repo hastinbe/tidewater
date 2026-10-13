@@ -408,7 +408,7 @@ impl World {
             _ => None,
         };
         let tile = match u.order {
-            Order::Move { goal }
+            Order::Move { goal, .. }
             | Order::MoveAttack { goal, .. }
             | Order::AttackMove { goal }
             | Order::Land { goal }
@@ -930,7 +930,10 @@ mod tests {
         let mut w = game();
         let c = caster(&mut w, OGRE_MAGE, (10, 10), 255);
         w.players[1].spells_known = spell_bit(EYE_OF_KILROGG);
-        um(&mut w, c).order = Order::Move { goal: (30, 20) };
+        um(&mut w, c).order = Order::Move {
+            goal: (30, 20),
+            target: None,
+        };
         assert_eq!(cast_step(&mut w, c), (true, 0));
         assert_eq!(at(&w, c).pending, cast(EYE_OF_KILROGG, None, (30, 20)));
         let e = put(&mut w, GRUNT, 0, (13, 14));
@@ -1110,7 +1113,10 @@ mod tests {
         let mut w = game();
         let c = caster(&mut w, MAGE, (10, 10), 80);
         let g = put(&mut w, GRUNT, 0, (14, 10));
-        um(&mut w, g).order = Order::Move { goal: (0, 0) };
+        um(&mut w, g).order = Order::Move {
+            goal: (0, 0),
+            target: None,
+        };
         put(&mut w, FARM, 0, (40, 40));
         assert_eq!(cast_step(&mut w, c), (true, 0));
         assert_eq!(at(&w, c).pending, cast(SLOW, Some(g), (14, 10)));

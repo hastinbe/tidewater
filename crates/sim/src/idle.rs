@@ -342,7 +342,7 @@ mod tests {
         for _ in 0..2000 {
             w.step(&[]);
             let u = w.unit(c).unwrap();
-            if let Order::Move { goal } = u.order {
+            if let Order::Move { goal, .. } = u.order {
                 assert_eq!(u.script.wait, 3);
                 assert_eq!(u.pending, None);
                 let d = (goal.0 - 3, goal.1 - 3);
