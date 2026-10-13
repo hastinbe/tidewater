@@ -44,6 +44,8 @@
   forgets its own target and attacker if they are dying, gone or not detected; `xhuman10-blizzard-600` vector.
   2026-10-13, round-48 errata: a killing building keeps its target and attacker records (static study); a building
   killed during a job has the job cancelled at the kill.
+  2026-10-13, round-50 errata: a unit keeps through its death animation the target recorded when it dies, so a killer
+  that forgot its target dies with none; `xhuman12-10000` and `xhuman8-10000` vectors.
 
 ## Behaviour
 
@@ -111,20 +113,22 @@ When damage D from an attacker reaches a target:
   (`ui/sounds.md`, "Ready, work complete and under attack").
 - If the target's unholy-armour timer is running, or D is 0, it takes no damage.
 - If the target's HP ≤ D, it dies and the kill is credited to the attacker's owner. Its HP is **not** lowered: it keeps
-  its HP from before the blow, and its target, through the death animation. Then, if the attacker is a unit (not a
-  building), it checks **its own** records, whichever units they are: it at once forgets its target (the unit it is
-  attacking for its command) if that unit is now dying, gone or not detected by the attacker's player, and likewise
-  forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's order doesn't change in
-  that step. The victim is dying by then, so it is always forgotten when it is the target or the attacker. This applies
-  to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other than the target, even one
-  of the shooter's own, after which a target that is dying from someone else's kill is forgotten too (traced:
-  `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched; each forgets it on its
-  own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its
-  **attacker**; every other unit that recorded the victim as its attacker keeps that record while the victim is dying
-  (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a tower) makes none of these
-  checks and keeps both its records (static study). If the victim is a building with a job running, the job is cancelled
-  at the kill, with its refund (`economy/build-train.md`, "A building killed during a job"). Otherwise the target's HP
-  drops by D.
+  its HP from before the blow, and its recorded target, through the death animation. A target it forgot after a kill of
+  its own stays forgotten: a unit that killed its target and has had no new target since dies with no target, even
+  though its order was still the attack order (traced: `xhuman12-10000`, `xhuman8-10000`, vectors below). Then, if the
+  attacker is a unit (not a building), it checks **its own** records, whichever units they are: it at once forgets its
+  target (the unit it is attacking for its command) if that unit is now dying, gone or not detected by the attacker's
+  player, and likewise forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's
+  order doesn't change in that step. The victim is dying by then, so it is always forgotten when it is the target or the
+  attacker. This applies to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other
+  than the target, even one of the shooter's own, after which a target that is dying from someone else's kill is
+  forgotten too (traced: `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched;
+  each forgets it on its own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer
+  forgets the victim as its **attacker**; every other unit that recorded the victim as its attacker keeps that record
+  while the victim is dying (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a
+  tower) makes none of these checks and keeps both its records (static study). If the victim is a building with a job
+  running, the job is cancelled at the kill, with its refund (`economy/build-train.md`, "A building killed during a
+  job"). Otherwise the target's HP drops by D.
 
 ### How an attack delivers damage
 
@@ -490,6 +494,8 @@ Cannon smoke and launch slots:
 | `2XHum12` played as a custom scenario | Damage applied as usual (the check needs a campaign game) |
 | `xhuman10-blizzard-600` (oracle trace): ballista 1483 (type 0x04, owner 1) in order 16, cooling down (animation 4, wait 88 at n = 308), keeps target grunt 1490, dying since n = 277 from another unit's kill; at n = 309 its own rock's splash kills footman 1479 (owner 1, HP 10 kept) | n = 309: order 16, animation 4, frame 15, wait 87, target null |
 | A killer whose target is alive and isn't the victim | Target kept |
+| `xhuman12-10000` (oracle trace): grunt 1504 (type 0x01, owner 2) kills footman 1398 at n = 4837 and forgets it, staying in order 12 while it cools down; it dies at n = 4851 | n = 4851: order 1, animation 1, target null |
+| `xhuman8-10000` (oracle trace): juggernaut 1535 (type 0x21, owner 3) in order 12 forgets destroyer 1557 at n = 6749 and dies at n = 6831 | n = 6831: order 1, animation 1, target null |
 
 ## Open questions
 
