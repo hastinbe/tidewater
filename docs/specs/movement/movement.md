@@ -16,6 +16,10 @@
 - **Changes:** 2026-10-12, round-41 errata: only commands clear the blocked counter; a pending order taking over doesn't
   (a patrol's turnaround and the order given on coming out are commands). Row F also needs the blocked unit's own
   animation to be the move animation, so it never applies in orders 30 and 31 (static study only, untraced).
+- **Changes:** 2026-10-12, round-42 errata: the blocked counter is cleared by every command (a target search's resulting
+  order included), by giving up and by a transport pushing off, and by nothing else; only the killer forgets its victim
+  as its attacker at once; the restart in orders 30 and 31 uses animation 6 (traced: `orc8`, `human10-24000`); row F's
+  own-animation condition is still untraced.
 
 ## Behaviour
 
@@ -127,19 +131,22 @@ Each unit has a **blocked counter**, from 0 to 15.
 
 - It is set to 0 when the unit is given any command (by a player, by a computer player or by its own order logic,
   for every order, including 17, 30 and the spells), at the moment the command is given, even if the unit is in the
-  middle of a step; it doesn't wait for the pending order to take over. It is also set to 0 when the unit gives up
-  (below).
-- A pending order taking over doesn't clear it, nor does an order made pending without a command. A patrol's
-  turnaround and the order given on coming out of a building are commands and do clear it.
+  middle of a step; it doesn't wait for the pending order to take over. Every command counts: a player's or a
+  computer player's, a target search's resulting order (`orders/orders.md`, "Resulting order"), an order given
+  again, a patrol's turnaround and the order given on coming out of a building. It is also set to 0 when the unit
+  gives up (row C below), and when a transport pushing off picks a new water tile (`orders/transports.md`).
+- Nothing else clears it: not a pending order taking over, an order made pending without a command, or an immediate
+  order.
 - It is **not** reset by successful steps, so blocks add up over the whole order.
 
-A unit's **attacker** is the enemy unit that most recently damaged it. It is recorded when the unit is notified that
-it was attacked (see the combat spec), and forgotten when that unit dies or leaves play. For human players, attacks by
-buildings are not recorded.
+A unit's **attacker** is the enemy unit that most recently damaged it. It is recorded when the unit is notified that it
+was attacked (see the combat spec). When that unit dies, only its killer forgets it at once; any other unit keeps the
+record while it is dying (`combat/damage.md`, "Applying damage") and forgets it when it next finds it no longer valid,
+or when it leaves play. For human players, attacks by buildings are not recorded.
 
-When the next tile is blocked, the unit restarts its walking animation in place: the move animation, or for an order
-whose own walking animation is the second walking animation (orders 30 and 31) that one. Its counter goes up by 1.
-Then the **first matching row** below applies.
+When the next tile is blocked, the unit restarts its walking animation in place: the move animation, or animation 6 for
+an order whose own animation is 6 (orders 30 and 31). Its counter goes up by 1. Then the **first matching row** below
+applies.
 
 | # | Condition (after the counter is increased) | Outcome | Path cache | Next decision |
 | --- | --- | --- | --- | --- |
@@ -219,6 +226,9 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | A unit blocked twice is given a command | Counter 0 at once |
 | A patrolling unit reaches one end | The turnaround is a command: counter 0 |
 | A transport in order 30 blocked by an allied transport in its move animation (static study only) | Row F doesn't apply (the blocked unit isn't in the move animation); a lower row does |
+| `orc8-10000` (oracle trace), n = 3554: transport 1454 (type 0x1C) at (86, 64) in order 30, landing, blocked by docked transport 1455 at (84, 64) | Animation 6, wait 1; n = 3555: no route, idle (order 2, animation 2, wait 1) |
+| `human10-24000` (oracle trace), n = 22388: transport 1480 (type 0x1D) in order 30 | Animation 6 (animation 3 at n = 22387); the research runs stop here without this rule |
+| `xhuman10-spells-700` (oracle trace), n = 89: grunt 1497 had been blocked twice, then acquired a target (a command); grunt 1490 (owner 2) at (78, 87) is blocked by it | 1497's counter is 0, so row F applies: 1490 steps to (79, 87), animation 3 |
 | Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle |
 | Passive computer player's grunt, same situation | row A doesn't apply (not a computer player); falls through to the rows below |
 | Grunt with an attacker, blocked 1 tile from its goal | becomes idle (stand still) next cycle |
