@@ -64,6 +64,9 @@
   vectors.
   2026-10-13, round-46 errata: the attacker seed's score of 0 comes only from the two rejections before scoring (a kind
   the unit can't target, inside the minimum range); open question on other rejections.
+  2026-10-13, round-47 errata: order 12 with no route searches its attack range and attacks what it finds at once, with
+  a one-run skip mark (order 9 unchanged); a command whose target unit fails the check gives a pending idle;
+  `human5-10000` and `xhuman10-spells-700` vectors; two open questions.
 
 ## Behaviour
 
@@ -343,12 +346,23 @@ it from re-issuing every cycle when the move can't progress.
   the same update, straight after, and may react to that attacker (a unit that fled may flee again, traced:
   `xorc10-dragons-800`, vectors below); a computer worker's job choice or a critter's wander can follow in that update
   too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to orders 3, 4, 5 and
-  10. Traces show it for patrols (`human10`, `xorc7`; vectors below). It also applies to order 12 **and order 9** (which
-  uses the same logic) when the attack-type fallback finds nothing either: the unit goes idle at once and its idle logic
-  runs in the same update, so a unit whose target is still in its search box gets order 12 again at once (attack
-  animation, wait 3), with the look-around draw made in that update. It also applies to a worker or tanker returning
-  goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is the job choice,
-  whose new command takes over in the same update (wait 3).
+  10. Traces show it for patrols (`human10`, `xorc7`; vectors below). It also applies to order 12 when its own fallback
+  ("Order 12 with no route", below) finds nothing, **and to order 9**, which has no such fallback: the unit goes idle at
+  once and its idle logic runs in the same update, so a unit whose target is still in its search box gets order 12 again
+  at once (attack animation, wait 3), with the look-around draw made in that update. It also applies to a worker or
+  tanker returning goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is
+  the job choice, whose new command takes over in the same update (wait 3).
+- **Order 12 with no route.** Order 12, and not order 9, has its own fallback when its route search finds no route:
+  1. A separate target search runs ("Automatic target acquisition") with the box of the unit's **attack range**, not its
+     reaction range (the extra tile for towers applies only to tower types), and with no attacker seed.
+  2. If it finds a target, order 12 on that target is given **as a command** and takes over at once, in the same update:
+     the unit turns to face the target as for a strike ("Strike decision"), its attack animation starts and the
+     animation's first step runs in that update, leaving a wait of 1.
+  3. The unit is marked so that the **next** run of order 12's logic skips the target search at its start (and with it
+     the acquisition). The mark is cleared after that one run.
+  4. If nothing is found, the unit goes idle at once, as above.
+  Traced: `human5-10000`, vectors below. Each part is needed there: the facing, the same-update step, and a mark that
+  lasts exactly one run.
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
   other end. As a command, the new goal is **pulled back** (`movement/pathfinding.md`, "Goal pulled back"), for every
   patrol, human or computer, land or sea; the remembered ends stay as they were. The new patrol takes over in the same
@@ -389,7 +403,11 @@ player's command, a resumed patrol or attack-move, a flee move, a target search'
 command listed in `movement/movement.md`, "Blocked rules") checks the unit's recorded attacker: if the attacker is
 dying, dead or removed, or isn't detected by the unit's owner, it is forgotten. So a kept dying attacker is also
 forgotten at the unit's next command (traced: `xorc01-death-knight-2100`, vectors below). A target unit given with the
-command gets the same check (static study only).
+command gets the same check: if it fails, the target is dropped and idle becomes the unit's **pending** order in place
+of the command's order (with the resume rules of "Resuming patrol and attack-move"); the command still counts as a
+command. The pending idle takes over at the unit's next step done with wait 3, and the idle logic doesn't run in that
+update, so an idle unit makes no look-around draw there. A call for help answered against a dying attacker ends this way
+(`ai/attack-ai.md`, "Call for help"; traced: `xhuman10-spells-700`, vectors below).
 
 **Strike decision (attack orders 9, 11, 12, 15, 16 and 17).** Before a unit strikes, the attack cooldown of
 `combat/damage.md` ("Attack timing (cooldown)") is tested: a unit that isn't a flyer and whose wait is less than its
@@ -1028,6 +1046,10 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xorc01-death-coil-2500` (oracle trace): death knight 1491 (type 0x0B, owner 5, the human player) idle at (72, 69), hit by a skeleton at n = 1431 | n = 1433: order 3 (flee), still animation, wait 3, 2 draws for the offset. n = 1436: (71, 69), facing 6 |
 | An idle mage hit by a footman, nothing else in its box | Flees |
 | An idle mage hit by a footman, with an enemy peasant in its box that outscores the footman | Attacks the peasant |
+| `human5-10000` (oracle trace), n = 1759: grunt 1531 (type 0x01, owner 5) at (43, 95) in order 12 on 1521 finds no route; great hall 1525 (type 0x4A, top-left (40, 96)) is within its attack range | Order 12 on 1525 at once: facing 5, animation 4, frame 0, wait 1. n = 1760: frame 25, wait 3. n = 1809: target 1518 |
+| Order 9 with no route | Immediate idle (unchanged) |
+| `xhuman10-spells-700` (oracle trace): at n = 324 an axe from 1478 (type 0x09, owner 2, dying since n = 323) hits knight 1493 (type 0x06, owner 1); idle knight 1480 (type 0x06, owner 1) at (83, 90) answers with command 12 against 1478 | The target fails the check: idle becomes its pending order. n = 328, its next step done: order 2, animation 2, wait 3, target null, no look-around draw (7 draws in that cycle, not 8) |
+| An idle S next to V; V hit by a missile from A, A already dying | S answers; its order stays 2; the pending idle takes over at its next step done |
 
 ## Open questions
 
@@ -1069,3 +1091,7 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   command a unit's own order logic gives it takes over in the same update.
 - **Other rejections in the attacker seed.** Whether a candidate check other than the two named in "Choice" (for
   example the attacker standing in fog) also gives the seed a score of 0 isn't separated by any trace.
+- **A player's attack command on a dying unit.** The static reading says it becomes a pending idle like the call for
+  help's command; no trace separates it.
+- **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
+  is open; the `human5-10000` trace fits the strike facing.
