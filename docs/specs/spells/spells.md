@@ -46,6 +46,9 @@
   2026-10-13, round-56 errata: an effect keeps its shooter's slot after the slot is released, and its splash credits that
   slot (static); a spell's strike makes no distance test (traced for healing); `xorc12-spells-1500` and `orc14-25000`
   vectors.
+  2026-10-13, round-57 answers: the strike's missing distance test is traced for bloodlust too (`xorc12-reach-400`);
+  a reused shooter slot credits its new unit in every respect, and an own or allied unit there records nothing
+  (static study).
 
 ## Behaviour
 
@@ -114,8 +117,8 @@ of a 40-cycle loop for mages and death knights, cycle 11 of a 25-cycle loop for 
 loop for ogre-mages, without haste or slow.
 
 The distance to the target is tested only here, when the order's logic decides to cast. Once the casting animation is
-playing, its strike takes effect even if the target has since moved outside the spell's radius (traced for healing:
-`orc14-25000`, vectors below; static study for the other spells).
+playing, its strike takes effect even if the target has since moved outside the spell's radius (traced for healing,
+`orc14-25000`, and for bloodlust, `xorc12-reach-400`; vectors below; static study for the other spells).
 
 ### At the strike
 
@@ -360,8 +363,12 @@ below).
 **The shooter after its slot is released.** An effect records its shooter as a unit slot and never clears it. When the
 shooter dies and its slot is released, the effect goes on (a whirlwind doesn't look at its shooter at all), and the
 trace still shows the old slot number as its shooter (traced: `xorc12-spells-1500`, vectors below). Its splash damage
-is applied with that slot as the attacker, whatever unit the slot holds by then (static study; no trace has a unit hit
-after the release).
+is applied with that slot as the attacker, whatever unit the slot holds by then. If a new unit U holds the slot, U is
+the attacker in every respect: the victim records U as its attacker and calls for help against U, and a kill gives
+U's owner the kill count and the score. If U belongs to the victim's owner or an ally, nothing is recorded, there is
+no call for help and no score, but the damage still lands. If the slot was released and not reused, the values left
+in it are read (static study; the attacker record and the scores aren't in the trace format, so no trace can show
+this).
 
 **Cosmetic effects.** Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A change nothing but slot use, and draw no random
 number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's step
@@ -553,7 +560,9 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | A whirlwind after a new goal (x, y) is picked | Destination (x, y) |
 | `xorc12-spells-1500` (oracle trace, Enhanced), n = 1166: whirlwind effect 3 (kind 12, created at n = 327 with destination (3248, 1008)), cast by Teron Gorefiend 1583 (type 0x15, owner 5), who died at n = 633; his slot is released in this cycle | Shooter 1583, unchanged; the whirlwind goes on |
 | A whirlwind whose caster's slot was released and then reused by a new unit U splashes a footman (static study) | The footman's recorded attacker is U |
+| The same, with U owned by the footman's owner (static study) | The footman takes the damage; no attacker is recorded, no call for help, no score |
 | `orc14-25000` (oracle trace, Enhanced), n = 18992: paladin 1433 (type 0x0C, owner 6) at (8, 109) in order 39 (healing) on paladin 1429 (owner 6), which moved to (15, 114) at n = 18990, 7 tiles away (healing's radius is 6) | The strike heals: 1429 goes from 85 to 87 HP, 1433's mana from 16 to 4, and a healing effect (kind 9) appears at 1429 |
+| `xorc12-reach-400` (oracle trace, Enhanced): Dentarg 1548 (ogre-mage) at (114, 9) is ordered to bloodlust ogre 1547, which is walking west (order 3); the cast (order 49) starts at n = 131 with 1547 at (108, 11), 6 tiles away (bloodlust's radius is 6); 1547 reaches (107, 11), 7 tiles away, at n = 140 | At the strike, n = 141, 1547 gets bloodlust (timer 999) and 1548's mana drops from 255 to 205 |
 | A mage casts slow; its target walks 12 tiles away during the casting animation (static study) | Slow still takes effect at the strike |
 | `xorc01-death-knight-2100`, n = 1569: death and decay on tile (69, 68) | Every cloud (kind 6, slots 4 to 8, at (2224, 2160), (2256, 2192) and others) has destination (2224, 2192) |
 | `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
@@ -584,10 +593,9 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 - Whether a used dead body is drawn: see `core/corpses.md` (default: drawn like any body).
 - The inactive unit state skipped by the timers pass besides dying and remains. Default: the state that the unit
   update also skips.
-- **The shooter's slot reused** (static study only). No trace has a unit hit by an effect whose shooter's slot was
-  released, or released and reused; a capture where a whirlwind or death and decay outlives its caster long enough for
-  the slot to be reused, with units under it, would show the attacker credit.
-- **The strike's missing distance test for spells other than healing** rests on static study; no trace has another
-  spell's target leave the radius during the casting animation.
+- **A released shooter slot that isn't reused:** its left-over values are read as the attacker; whether a release
+  clears them isn't checked (static study; the trace format can't show the attacker record).
+- **The strike's missing distance test for spells other than healing and bloodlust** rests on static study. In
+  `xorc12-reach-400`, haste and unholy armour are cast only after their targets stop, so they don't test it.
 - Whether the raise-dead scan can pick up a body in a slot that has already been released (the scan reads the body
   type and remains state only). Default: no; a released slot never qualifies.
