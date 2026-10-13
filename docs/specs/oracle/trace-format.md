@@ -28,6 +28,8 @@
   `mp-dark-paths-bne-1000` and `mp-dark-paths-bne-classic-1000` (Classic mode) vectors.
   2026-10-13, round-57 answers: the start seed's + 4 is exact, not only observed.
   2026-10-13, round-58 errata: a comparer can derive a multiplayer setup's generator state (`game/setup.md`).
+  2026-10-13, round-59 corrections: the placement draw count needs at least one opponent (none: no draw); Fixed
+  Order starts make no placement draws.
 
 ## Behaviour
 
@@ -225,7 +227,9 @@ so a pinned start is one the game can produce. The fields say how to repeat the 
 
 A comparer can derive the setup's generator state: seed with (`start_seed` + 4) mod 256, then make the opponent
 placement draws of `game/setup.md` ("Choosing the players", multiplayer: 1 + the number of opponents on every map
-traced so far) before the unit-creation draws. The setup record's `rng` checks the result. The humans' slots and
+traced so far, none with no opponents, none with Fixed Order) before the unit-creation draws. The opponent count is
+the number of computer controllers after setup, which undercounts the draws only if a placement search failed (not
+seen on any traced map). The setup record's `rng` checks the result. The humans' slots and
 start locations come from the lobby (a later spec): take them from the header and the setup record.
 
 **What a comparer does:**
