@@ -26,8 +26,13 @@
 //! platform by empty and carrying workers and a tanker), orc9-orc09-attack-move-1500 (complete attack-moves forgotten
 //! at countdown 0), orc9-orc09-return-goods-2200 (return goods given a lumber mill and an own oil platform),
 //! orc9-orc09-shore-no-corner-600 (a shipyard site with no corner in the worker's region), orc9-orc09-tanker-move-2200
-//! (a ship following a ship, and smart moves onto a shipyard and an oil patch that keep the target) and
-//! orc9-orc09-enter-dying-1800 (a depot dying under a returning and an entering peon) match in full.
+//! (a ship following a ship, and smart moves onto a shipyard and an oil patch that keep the target),
+//! orc9-orc09-enter-dying-1800 (a depot dying under a returning and an entering peon), orc9-orc09-enter-nothing-1900
+//! (return goods to a blacksmith and a shipyard: no delivery, frame 2 kept, a come-out with no depot),
+//! orc9-orc09-smart-target-2100 (land smart moves onto buildings, and one whose farm dies mid-walk),
+//! orc9-orc09-flee-walk-1200 and orc9-orc09-flee-chop-walk-900 (a lumber peon hit while walking flees only when its
+//! walk ends), orc9-orc09-return-nodepot-2200 (return goods into a peon, then to one inside a mine, and with no depot
+//! left) and orc9-orc09-patrol-countdown-1500 (patrols resumed at countdown 0) match in full.
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
@@ -38,7 +43,8 @@
 //! mp-gold-rush-bne-6000, mp-gold-rush-bne-25000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000,
 //! mp-big-rock-candy-mountain-bne-25000, mp-big-rock-candy-mountain-bne-40000, mp-schwartzwald-bne-6000,
 //! mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000, mp-rose-petal-bne-25000, mp-isolation-bne-30000,
-//! mp-frosty-fjords-bne-30000 and mp-kaboom-bne-40000 (Enhanced), and mp-dark-paths-bne-classic-1000,
+//! mp-frosty-fjords-bne-30000, mp-kaboom-bne-40000 and mp-kaboom-bne-70000 (Enhanced; its capture ends at n 67739, when
+//! the game ended), and mp-dark-paths-bne-classic-1000,
 //! mp-gold-rush-bne-classic-8000 and mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
 
 use std::path::PathBuf;
@@ -248,4 +254,11 @@ traces! {
     orc9_orc09_shore_no_corner_600: ("orc9-orc09-shore-no-corner-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_tanker_move_2200: ("orc9-orc09-tanker-move-2200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_enter_dying_1800: ("orc9-orc09-enter-dying-1800.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_enter_nothing_1900: ("orc9-orc09-enter-nothing-1900.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_smart_target_2100: ("orc9-orc09-smart-target-2100.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_flee_walk_1200: ("orc9-orc09-flee-walk-1200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_flee_chop_walk_900: ("orc9-orc09-flee-chop-walk-900.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_return_nodepot_2200: ("orc9-orc09-return-nodepot-2200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_patrol_countdown_1500: ("orc9-orc09-patrol-countdown-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    mp_kaboom_bne_70000: (mp, "mp-kaboom-bne-70000.jsonl.gz", &[], None),
 }
