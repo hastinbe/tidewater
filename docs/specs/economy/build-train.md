@@ -47,6 +47,8 @@
   and the cost first, giving no order on a failure; a worker coming out with a build job aims at and faces the
   stored goal (static); a shore site with no corner in the worker's region fails silently (static);
   `orc9-orc09-shore-build-3000` vector.
+  2026-10-13, round-61 errata: the build command's validity test names its builder by a builder table (not the
+  builder's race); the affordability check on carrying it out is traced; `orc9-orc09-smart-move-2000` vectors.
 
 ## Behaviour
 
@@ -88,11 +90,29 @@ Research and upgrades check gold, lumber and oil only.
 **Carrying out a player's build command.** When a build command sent by a player (the click of
 `ui/placing-buildings.md`) is carried out in the command turn, it is checked first, before any order is given:
 
-1. the command must be valid: the site on the map, the builder the sender's own unit, the type a building of the
-   builder's race;
+1. the command must be valid, all on the command as received: the site's top-left tile is on the map (x and y below
+   the map size); the builder belongs to the player who sent the command; the building type is from 0x3A to 0x68,
+   has the building flag (PUD flag bit 5) and none of flag bits 19 (can attack), 21 (oil patch) and 22 (mine); and
+   the builder's type is the one the **builder table** below names for that building type. If any of these fails,
+   the command does nothing: no order, no message, nothing paid;
 2. the full site check of `ui/placing-buildings.md` ("The site check") runs for the builder, its own tile not
    blocking, **except the unexplored test**, which is never made while commands are carried out;
-3. the affordability check (static study only).
+3. the affordability check (traced: `orc9-orc09-smart-move-2000` n = 10, round-61 vectors).
+
+**Builder table** (unit types of the PUD specification's unit list; static study: it is fixed in the program, not
+in the game data):
+
+| Building types | Builder |
+| --- | --- |
+| 0x3A to 0x55, even (human buildings), and 0x67 (human wall) | Peasant (0x02) |
+| 0x3B to 0x55, odd (orc buildings), and 0x68 (orc wall) | Peon (0x03) |
+| 0x56 (human oil platform) | Human tanker (0x1A) |
+| 0x57 (orc oil platform) | Orc tanker (0x1B) |
+| 0x58 to 0x66 (keeps, strongholds, castles and fortresses, gold mine, oil patch, start locations, guard and cannon towers, circle of power, dark portal, runestone) | None: a build command for these always fails |
+
+The command panel never sends a command that fails the table; it matters for a command naming the wrong builder or
+a type with no builder, which an input script or a network peer can send (traced: `orc9-orc09-smart-move-2000`
+n = 14 and 50, round-61 vectors).
 
 If step 2 or 3 fails, the builder gets **no order** and nothing is paid; the outcome's message is shown only if the
 builder belongs to the local player (traced: `orc9-orc09-shore-build-3000` n = 27, round-60 vectors; the unexplored
@@ -348,6 +368,14 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-shore-build.txt`): player 5's peon 1482 (type 0x03) at (34, 89) is sent to build a shipyard (type 0x49) at (52, 81), too close to oil; the command is carried out at n = 26 | No order: 1482 stays in order 2 (wait 1 at n = 26, 27) and never takes order 28; nothing is paid |
 | `human01-basics-9500` (oracle trace): the barracks at (5, 8), partly unexplored when the build command is carried out | Built: no unexplored test in the command turn |
 | A player's build command it can't afford when carried out (static study) | No order, nothing paid |
+
+### Round-61 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-smart-move-2000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-smart-move.txt`), n = 10: player 5's peon 1482 (type 0x03) given a great hall (type 0x4B, 1200 gold) on a clear site at (45, 84), with 1000 gold | Nothing: 1482 stays in order 2, nothing paid |
+| Same trace, n = 14: peon 1482 given a human farm (type 0x3A) on a clear site | Nothing (the farm's builder is the peasant type): no order 28 at n = 17 |
+| Same trace, n = 50: peon 1482 (in order 23) given a keep (type 0x58) on a clear site, with 10600 gold | Nothing (no builder): 1482 keeps its harvest order |
 
 ## Open questions
 
