@@ -38,6 +38,9 @@
   completed hall's builder included) and cleared by the next come-out; order 23 at an unfinished mine or platform, or
   with its target gone, gives a pending idle; the build-job facing on coming out and the walk goal can differ; the
   re-aim open question is closed (static study); round-47 vectors.
+  2026-10-13, round-48 errata: a lumber worker that finds its tree gone and no other tree goes idle through a pending
+  order (frame kept, wait 3); every entry into a gold-accepting building sets the hall-sized exit mark, gather mode none
+  included, and a ship's delivery never does; `xhuman2-10000` vector; the no-route open question updated.
 
 ## Behaviour
 
@@ -162,8 +165,10 @@ While in order 23 in lumber mode, each time the order's logic runs:
      - the worker turns to face the tree;
      - the tree tile is marked **reserved** (see `movement/occupancy.md`);
      - the tree tile becomes its return-to source.
-   - Otherwise (the tree was cut, or another worker reserved it), it looks for the **nearest tree** (below) from its
-     own tile and moves there. If none is found, it becomes idle.
+   - Otherwise (the tree was cut, or another worker reserved it), it looks for the **nearest tree** (below) from its own
+     tile and moves there. If none is found, idle becomes the **pending** order and takes over in the same update: still
+     animation, **frame kept**, wait 3. The idle logic doesn't run in that update (traced: `xhuman2-10000`, round-48
+     vectors).
 3. **Chopping**, and the tree tile is still reserved:
    - While the counter is below **50**, it goes up by 1. A cheat sets it straight to 50.
    - When the counter is already 50, the tree is **felled** (`movement/occupancy.md` gives the map changes). The
@@ -181,7 +186,7 @@ goal is pulled back again and becomes the tree tile, the blocked counter is clea
 order 23 takes over **in the same update** with its attack animation (4) and a wait of 3, without running its logic
 (`orders/orders.md`, "Same-update take-over"). The logic first runs at that animation's next step done, 3 cycles
 later, and the worker then searches for a route and starts walking. If the nearest-tree search finds nothing, the
-worker becomes idle at once, as before.
+worker goes idle as in step 2.
 
 The order's logic runs once per loop of the chop animation (the attack animation, 25 cycles per loop for workers;
 see `core/animation-scripts.md`). The tree falls on the 51st run after chopping started: 1 run to start, 50 to
@@ -270,7 +275,8 @@ Delivery happens when a unit enters a depot, and for each builder inside a build
 - After a delivery the carrying mark is cleared. The gather mode and return-to source stay.
 - Every delivery at a building that accepts gold (a town hall, keep or castle, of either race) sets the unit's
   **hall-sized exit mark**, whatever its gather mode and whether or not it carries anything. Every unit starts without
-  the mark; only a come-out (order 26) uses and clears it ("Coming out", step 6).
+  the mark; only a come-out (order 26) uses and clears it ("Coming out", step 6). Entering such a building always counts
+  as a delivery here, so a unit with gather mode none gets the mark too. A ship's delivery never sets it (static study).
 - **Enhanced** rules deliver only if the unit is carrying. **Classic** rules check only the gather mode, so a unit in
   gold or lumber mode delivers a full load even with empty hands, if it gets into a depot.
 - "Has a completed building" counts buildings of both races, of the owner, that have finished construction.
@@ -407,6 +413,13 @@ gold, storage for wood, storage for oil, building.
 | The same worker's following exit from the mine | 3 × 3 source |
 | `xhuman3-10000` (oracle trace), n = 8749: computer tanker 1418 (type 0x1B, owner 3) in order 23 arrives at (108, 60) next to its platform 1404 (type 0x57), still under construction | Order 2, animation 2, wait 3, target null (pending idle). n = 8752: order 23 again, animation 4, wait 3, target 1404. n = 8755: order 2, wait 3 |
 
+### Round-48 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman2-10000` (oracle trace), n = 5820: computer peon 1530 (type 0x03, owner 7) at (88, 94) in order 23 finds its tree gone and no other tree | Order 2, animation 2, frame 25 kept, wait 3; the worker AI gives order 23 again at n = 5823 |
+| A worker with gather mode none enters a town hall | Hall-sized exit mark set |
+
 ## Open questions
 
 - Step 1's new harvest command (not yet there) is from the static study only: in the traces the order's logic runs
@@ -415,7 +428,8 @@ gold, storage for wood, storage for oil, building.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
-- **No route details.** Untraced: whether the idle after "no tree found" is pending or immediate; and whether the
-  computer's job counts change when a miner becomes a lumber worker this way (the static study shows no count change
-  on this path).
+- **No route details.** Whether the idle after "no tree found" in "No route" is pending or immediate isn't separated by
+  the traces: a research run made it a pending idle, as in step 2, and no trace changed. The spec keeps the immediate
+  idle there. Also untraced: whether the computer's job counts change when a miner becomes a lumber worker this way (the
+  static study shows no count change on this path).
 
