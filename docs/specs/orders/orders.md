@@ -111,6 +111,11 @@
   target unit and order 4's walk while it keeps a target unit use the target's widened footprint as the goal zone
   (traced, no static confirmation); the acquisition kind check uses the transport-on-shore rule (provisional);
   `orc5-40000` vectors.
+  2026-10-13, round-60 errata: the shore-transport kind rule in acquisition is confirmed (no longer provisional) and
+  the kind check is given in full; the target goal zone serves every walk whose order holds a target unit; a
+  take-over from the order logic's own run still clears the skip mark; reach to a shore building is measured to its
+  shore corner; a remembered order resumes at once when a unit gives up blocked; a smart move with no target unit
+  takes the mine or own oil platform at its goal; round-60 vectors.
 
 ## Behaviour
 
@@ -305,7 +310,9 @@ this order: a target in the **air** layer needs air; a **submarine** attacker ca
 platforms (the oil-source type) or shore buildings, all by the target type's own flags, not the layer it stands in; a
 target of a **transport** type standing on **shore water** (its own tile has the shore-water flag, the same test as a
 transport's wreck in `core/corpses.md`) can be hit by an attacker with either land or sea; any other target in the sea
-layer needs sea; and any other target needs land (static study only for this paragraph).
+layer needs sea; and any other target needs land, first match wins. One check serves both the attack order and target
+acquisition ("Automatic target acquisition"), and the attacker seed passes it too (static study; the transport case is
+traced in acquisition: `orc12-30000` n = 26982, round-59 vectors).
 
 Commands 2, 6, 23, 24, 27, 29 and the spell commands have their own handlers, covered by later specs (stop, harvest,
 return goods, repair, build and spells).
@@ -314,7 +321,12 @@ return goods, repair, build and spells).
 
 1. If the unit is currently waiting, the wait is cut to at most **40 cycles** for a computer player's unit and
    **10 cycles** for every other player's unit, so it reacts sooner.
-2. Then the first matching rule applies:
+2. With **no target unit**, the building on the goal tile is looked at: a worker in gold mode not carrying gold,
+   with a **gold mine** there, or a tanker not carrying oil, with an **oil platform of its own player** there. That
+   building becomes the target, so the harvest row below applies (order 23). Anything else, or a carrying unit, goes
+   on with no target (traced for the gold mine: `orc9-orc09-shore-build-3000` n = 599, round-60 vectors; the tanker
+   case is static study only).
+3. Then the first matching rule applies:
 
 | Unit and target | Result |
 | --- | --- |
@@ -419,6 +431,14 @@ something, or in order 25):
 | Attack-move, with the target tile more than 1 tile away (either axis) | The attack-move is given again **as a command** (goal pulled back, cached route dropped, blocked counter cleared, attacker checked), and the countdown is set to **20** |
 | Attack-move, already within 1 tile | It stays idle (the attack-move is complete) |
 
+**Giving up when blocked.** When a unit gives up at the blocked counter's limit (`movement/movement.md`, "Blocked
+rules", row C), idle is made its pending order with these rules. If it remembers a patrol, or an attack-move whose
+target tile is more than 1 tile away on either axis, and its countdown is 0, it starts its **still** animation with
+wait **1** (not row C's 15), and the remembered order is given as a command, as in the table (countdown 40 or 20). It
+is the **pending** order and takes over at the next step done, a cycle later (traced: `xhuman8-25000` n = 11284,
+round-60 vectors). Otherwise row C is unchanged: idle pending, still animation, wait 15. Whether the other places that
+make idle pending share this exact step isn't checked (static study only for them).
+
 If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
 set as usual.
 
@@ -475,6 +495,11 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   at once (attack animation, wait 3), with the look-around draw made in that update. It also applies to a worker or
   tanker returning goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is
   the job choice, whose new command takes over in the same update (wait 3).
+- **A shore building as the target.** A unit that is neither a sea nor an air unit, with a shore building as its
+  target, walks to the shore corner goal (`movement/pathfinding.md`, "Shore building") and is within reach when the
+  larger of its x and y distances to that tile is at most its attack range (`movement/movement.md`, "Arriving").
+  For other buildings the goal is the footprint tile the building goal rule picks, so measuring to the goal is the
+  same as today's rule (traced: `orc9-orc09-shore-build-3000` n = 343, round-60 vectors; static study agrees).
 - **Order 12 with no route.** Order 12, and not order 9 or 11, has its own fallback when its route search finds none:
   1. A separate target search runs ("Automatic target acquisition") with the box of the unit's **attack range**, not its
      reaction range (the extra tile for towers applies only to tower types), and with no attacker seed.
@@ -490,8 +515,11 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
      acquisition). If the order at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips
      its search (static study; no trace separates the case of a changed order). **Clearing:** at the end of an update in
      which the unit's order logic runs and the unit doesn't step, the mark is cleared only if it was already set when
-     that update began; a mark first set in an update lasts at least until the next one. An update that ends in a
-     pending order taking over, or in a move step, leaves it set. So a mark set again in an update that began marked
+     that update began; a mark first set in an update lasts at least until the next one. Only a pending order that
+     takes over at the step done, **before** the order logic runs, leaves it set, and so does a move step. A take-over
+     that the order logic's own run causes (for example, the order loses its target and the resumed or idle order
+     takes over in that update) doesn't: the mark is still cleared at the end of that update (traced: `orc12-30000`
+     n = 29162, round-60 vectors; static study agrees). So a mark set again in an update that began marked
      (`xorc8-10000` n = 7373) is cleared at that update's end (static study).
      **The mark gates only** the search at the start of the order logic. A unit in an attack-type order that is out of
      reach of its target takes a move step instead of running its order logic, and the move step's own target search
@@ -686,10 +714,10 @@ order" below). This order decides ties.
 - it is not **detected** by the searcher's owner (Invisibility, submarines), or it is **hidden** from that owner by
   the fog (see "Terms");
 - the searcher can't attack its kind (air, sea or land, per the searcher's type). Submarines can attack only sea
-  units, shore buildings and oil platforms. A candidate of a transport type standing on shore water can be picked
-  by a searcher that can target land **or** sea, as in the attack command's kind check ("Commands"). This last
-  rule is **provisional**: its only evidence is one capture that isn't committed (`orc12-30000` n = 26982, round-59
-  vectors); confirm it on a re-capture;
+  units, shore buildings and oil platforms. The check is the attack command's kind check ("Commands", "Checks on an
+  attack command"), so a candidate of a transport type standing on shore water can be picked by a searcher that can
+  target land **or** sea (traced: `orc12-30000` n = 26982, a capture not committed but re-captured identically in
+  round 60; with this rule off the comparison fails there; static study agrees);
 - both are air units and the candidate can't attack;
 - it is inside the searcher's minimum range: its distance d (below) is less than the searcher's missile's minimum
   flight value minus 1 (`damage.md`, "Missile weapon kinds"). So catapults and ballistas skip d ≤ 1, and cannons
@@ -790,12 +818,13 @@ footprint widened by one tile; `movement/pathfinding.md`, "Step 1"). A unit targ
 `human06-31357`, vectors below), with the **target's** goal zone, as for a building: its footprint widened by one tile,
 rounded out to even for a two-tile mover (`movement/pathfinding.md`, "Step 1"), not the 3 × 3 around its tile. While
 order 4 keeps a target unit, its own walk toward its stored goal tile uses that zone too: G stays the stored goal, and
-the zone comes from the target where it stands now, which may have moved since (traced: `orc5-40000` n = 33260, round-59
-vectors; not yet confirmed by static study). Order 12 takes over at the next step done (attack animation, wait 3). This
-holds even when the new target is already within strike reach: there is no strike in that update, the walk steps toward
-the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced; patrol changes no trace in the
-set. A unit in order 4 or 10 standing at its move goal doesn't search at all: it arrives ("Arriving and losing the
-target").
+the zone comes from the target where it stands now, which may have moved since (traced: `orc5-40000` n = 33260 and
+`orc12-30000` n = 23612, round-59 vectors; static study agrees). The zone rule is wider: it serves every walk whose
+order holds a target unit (`movement/pathfinding.md`, "Step 1"). Order 12 takes over at the next step done (attack
+animation, wait 3). This holds even when the new target is already within strike reach: there is no strike in that
+update, the walk steps toward the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced;
+patrol changes no trace in the set. A unit in order 4 or 10 standing at its move goal doesn't search at all: it arrives
+("Arriving and losing the target").
 
 In order 16 a new target out of range isn't taken unless the unit is cooling down ("Attacking without moving").
 
@@ -1007,8 +1036,11 @@ other (traced: `human12-25000`, vectors below).
    smart move's parts apply. Its wait cap cuts a waiting unit's wait to at most 40 cycles for a computer player's unit
    and 10 for every other player's unit (static study only; no trace shows it). A transport takes the transport outcome,
    so a transport whose flee tile is on the shore lands (order 30; traced: `xorc8-10000`, vectors below). The harvest
-   outcomes need a target unit, or a mine or oil platform at the tile, so a flee never starts a tree harvest, even to a
-   tile next to a forest: every other unit gets a move (order 3). As a command, its goal is pulled back
+   outcomes need a target unit or the building test of "Smart move" step 2: a worker in gold mode not carrying gold
+   whose flee tile is a gold mine's tile harvests that mine (order 23; traced: `orc9-orc09-shore-build-3000` n = 599),
+   and a tanker not carrying oil whose flee tile is its own player's oil platform's tile would harvest it (static
+   study only). A flee never starts a tree harvest, even to a tile next to a forest: every other unit gets a move
+   (order 3). As a command, its goal is pulled back
    (`movement/pathfinding.md`, "Goal pulled back"), its blocked counter is cleared and its cached route dropped. A unit
    that **isn't in its move animation** takes the new order in the same update. The take-over starts that order's
    animation (for order 3 the still animation, for order 30 the landing animation 6) with wait 3, whatever animation the
@@ -1308,8 +1340,18 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `orc5-40000` (Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle; transport 1516 (type 0x1C, owner 0) landing at (120, 6), d = 2 | Picked: order 16, animation 4, wait 3, target 1516 (a minimum of 3 would have skipped it) |
 | `orc5-40000` (Enhanced), n = 33260: computer footman 1485 (type 0x00, owner 0) at (43, 103) in order 4 since n = 33257, target transport 1474, stored goal (46, 106); 1474 moved to (46, 104) at n = 33258 | With the transport's widened footprint as the zone the walk finds a route: 1485 steps east to (44, 103) (animation 3, facing 2). With the 3 × 3 zone around (46, 106) there is no route and it would go idle |
 | `orc12-30000` (Enhanced; capture not committed, re-capture with the setup `rng` 0xF12C6CAA), n = 23612: computer juggernaut 1394 (owner 1, two-tile mover) at (24, 112) picks ogre 1449 at (19, 116), G = (18, 116) | Zone: even tiles of columns 18 to 20 and rows 114 to 118; first step south-west to (22, 114). The 3 × 3 zone would give W, W, W, SW |
-| `orc12-30000` (as above, **provisional**), n = 26982: computer ogre mage 1442 (owner 3) at (36, 119), idle; transport 1434 (owner 0) landing on the shore tile (29, 121) | Picked: order 16, animation 4, wait 3, target 1434 |
-| A land-only searcher; candidate a transport in the sea layer on a shore-water tile (static, provisional) | Not skipped for its kind |
+| `orc12-30000` (as above; re-captured identically in round 60), n = 26982: computer ogre mage 1442 (owner 3) at (36, 119), idle; transport 1434 (owner 0) landing on the shore tile (29, 121) | Picked: order 16, animation 4, wait 3, target 1434 |
+| A land-only searcher; candidate a transport in the sea layer on a shore-water tile (static study) | Not skipped for its kind |
+
+### Round-60 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc12-30000` (oracle trace, Enhanced; capture not committed), juggernaut 1439 (type 0x21, owner 3) at (24, 116): order 12 with no route at n = 28926; the fallback finds a target and marks the unit. At its next order-logic run (n = 29156) order 12 loses its target and its remembered patrol takes over in that run | The mark is cleared at the end of n = 29156. At n = 29159 the patrol picks catapult 1426 (owner 0) at (17, 124), finds no route, goes idle at once, and the idle logic (unmarked) searches: order 12 on 1426, animation 4, wait 3 |
+| `xhuman8-25000` (oracle trace, Enhanced), n = 11284: computer troll destroyer 1441 (type 0x1F, owner 7) on patrol (order 5) at (66, 58), blocked by tanker 1446 for the 15th time, resume countdown 0 | Still animation (2), wait 1 at n = 11284; the patrol takes over at the next step done (wait 3 at n = 11285). Not animation 3, wait 15 |
+| `orc9-orc09-shore-build-3000` (oracle trace, Enhanced), archer 1476 (type 0x08, owner 0, range 4) attacking shipyard 1469 (type 0x49, top-left (55, 86)), whose only corner in the archer's region is the bottom-left (55, 88) | At (61, 92) the footprint is 4 away but the corner 6: it walks on, (60, 91) at n = 343, (59, 91) at n = 359 (4 from the corner), and strikes there (animation 4 at n = 375) |
+| Same trace, n = 599: peon 1478 (type 0x03, owner 5) in gold mode, not carrying, flees with a smart move to (51, 92), a tile of gold mine 1480 (top-left (50, 91)) | Order 23 on 1480, animation 4, wait 3 (not order 3) |
+| A tanker not carrying oil given a smart move to a tile of its own player's oil platform, no target unit (static study) | Harvest (order 23) on the platform |
 
 ## Open questions
 
@@ -1357,7 +1399,9 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   player's own unit as the target (`orc02-dyingcmd-3760`); the enemy case rests on static study.
 - **Order 11's cooldown and range checks** ("Order 11: attacking a wall tile", steps 4.2 and 4.4) rest on static study;
   no trace reaches either on its own.
-- **The order-12 skip mark across an order change** ("Order 12 with no route", step 3) rests on static study.
+- **The order-12 skip mark across an order change** ("Order 12 with no route", step 3) rests on static study,
+  except the clearing after a take-over caused by the order logic's own run, which rests on one capture that isn't
+  committed (`orc12-30000` n = 29162, round-60 vectors); commit or re-capture a trace that shows it.
 - **A computer player's other commands and the remembered order.** Only command 4 is known to keep it; whether a
   computer player's commands 3 and 12, among others, clear it isn't known.
 - **An attacker forgotten between runs.** In `xorc6-10000` axe thrower 1475 chases gryphon rider 1467 (type 0x2A), which
