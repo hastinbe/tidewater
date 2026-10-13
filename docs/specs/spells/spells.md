@@ -43,6 +43,9 @@
   2026-10-13, round-54 errata: a spell command's target unit gets the command check (a dead or undetected target is
   dropped and idle becomes pending); a flame's step counts down first and a step that reaches 0 ends it without moving
   or splashing; `xhuman10-slow-3000` vectors.
+  2026-10-13, round-56 errata: an effect keeps its shooter's slot after the slot is released, and its splash credits that
+  slot (static); a spell's strike makes no distance test (traced for healing); `xorc12-spells-1500` and `orc14-25000`
+  vectors.
 
 ## Behaviour
 
@@ -110,9 +113,15 @@ The spell takes effect at the **strike** event of the caster's attack animation 
 of a 40-cycle loop for mages and death knights, cycle 11 of a 25-cycle loop for paladins, and cycle 8 of a 25-cycle
 loop for ogre-mages, without haste or slow.
 
+The distance to the target is tested only here, when the order's logic decides to cast. Once the casting animation is
+playing, its strike takes effect even if the target has since moved outside the spell's radius (traced for healing:
+`orc14-25000`, vectors below; static study for the other spells).
+
 ### At the strike
 
-Unless the spell's row below says otherwise, the strike works like this:
+A caster that has been given a command that hasn't taken over yet doesn't strike at all (`core/animation-scripts.md`,
+"No strike while a command waits"). Unless the spell's row below says otherwise, the strike works like this. None of the strike's checks is a distance:
+a target that has left the radius during the casting animation is still affected.
 
 1. **Target check** (unit spells only): the target must exist and must not be dying, dead remains or otherwise
    inactive. If it fails, the caster becomes idle and nothing else happens.
@@ -348,6 +357,12 @@ to its position is never reached, so it then drifts east until it ends. Its dest
 target point's centre from creation, then each new goal as it is picked (traced: `xorc01-death-knight-2100`, vectors
 below).
 
+**The shooter after its slot is released.** An effect records its shooter as a unit slot and never clears it. When the
+shooter dies and its slot is released, the effect goes on (a whirlwind doesn't look at its shooter at all), and the
+trace still shows the old slot number as its shooter (traced: `xorc12-spells-1500`, vectors below). Its splash damage
+is applied with that slot as the attacker, whatever unit the slot holds by then (static study; no trace has a unit hit
+after the release).
+
 **Cosmetic effects.** Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A change nothing but slot use, and draw no random
 number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's step
 done. Its first update ("When a new effect first runs") is in cycle U. Its start step comes A cycles later and restarts
@@ -536,6 +551,10 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Same: effect 4, D = 384 | 33 steps: lands at n = 1224 at x = 2716 |
 | `xorc01-death-knight-2100` (oracle trace): whirlwind cast on tile (80, 68) at n = 1300 | n = 1318: effect 3 (kind 12) at (2614, 2171), destination (2576, 2192) |
 | A whirlwind after a new goal (x, y) is picked | Destination (x, y) |
+| `xorc12-spells-1500` (oracle trace, Enhanced), n = 1166: whirlwind effect 3 (kind 12, created at n = 327 with destination (3248, 1008)), cast by Teron Gorefiend 1583 (type 0x15, owner 5), who died at n = 633; his slot is released in this cycle | Shooter 1583, unchanged; the whirlwind goes on |
+| A whirlwind whose caster's slot was released and then reused by a new unit U splashes a footman (static study) | The footman's recorded attacker is U |
+| `orc14-25000` (oracle trace, Enhanced), n = 18992: paladin 1433 (type 0x0C, owner 6) at (8, 109) in order 39 (healing) on paladin 1429 (owner 6), which moved to (15, 114) at n = 18990, 7 tiles away (healing's radius is 6) | The strike heals: 1429 goes from 85 to 87 HP, 1433's mana from 16 to 4, and a healing effect (kind 9) appears at 1429 |
+| A mage casts slow; its target walks 12 tiles away during the casting animation (static study) | Slow still takes effect at the strike |
 | `xorc01-death-knight-2100`, n = 1569: death and decay on tile (69, 68) | Every cloud (kind 6, slots 4 to 8, at (2224, 2160), (2256, 2192) and others) has destination (2224, 2192) |
 | `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
 | `xhuman10-blizzard-600`, n = 170: the shards in slots 7 and 8 step to (2585, 2809) and (2523, 2841), past their landing points (2576, 2800) and (2512, 2832) | They land in that update: the chains' next shards appear in slots 12 and 13 (destinations (2576, 2800) and (2512, 2832)), before slot 10's missile's impact effect (slot 14, kind 0x1A) |
@@ -565,5 +584,10 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 - Whether a used dead body is drawn: see `core/corpses.md` (default: drawn like any body).
 - The inactive unit state skipped by the timers pass besides dying and remains. Default: the state that the unit
   update also skips.
+- **The shooter's slot reused** (static study only). No trace has a unit hit by an effect whose shooter's slot was
+  released, or released and reused; a capture where a whirlwind or death and decay outlives its caster long enough for
+  the slot to be reused, with units under it, would show the attacker credit.
+- **The strike's missing distance test for spells other than healing** rests on static study; no trace has another
+  spell's target leave the radius during the casting animation.
 - Whether the raise-dead scan can pick up a body in a slot that has already been released (the scan reads the body
   type and remains state only). Default: no; a released slot never qualifies.
