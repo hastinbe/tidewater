@@ -51,6 +51,8 @@
   `xorc8-10000` vector.
   2026-10-13, round-54 errata: the killer forget runs on a missile's shooter whatever its state, so a dead shooter whose
   missile kills forgets its target; `human13-subs-2000` vector.
+  2026-10-13, round-56 errata: no strike while a command given to the attacker is waiting to take over;
+  `orc14-25000` vector.
 
 ## Behaviour
 
@@ -142,6 +144,10 @@ When damage D from an attacker reaches a target:
 An attacking unit plays its **attack script** (see "Attack timing" below). At the script's strike point, before the
 strike itself, the **strike reveal** of `vision/fog.md` ("When sight is applied", item 4) is made when the order has a
 target unit owned by another player. Then:
+
+- **A command waiting.** If the attacker has been given a command whose order hasn't taken over yet, the strike does
+  nothing at all: no strike reveal, no damage roll, no draw, no launch, and the cooldown isn't started again
+  (`core/animation-scripts.md`, "No strike while a command waits"; traced: `orc14-25000`, vectors below).
 
 - **Melee:** if the type's missile weapon is "none", the damage is rolled and applied to the current target at once.
   The strike is made even if the target started dying earlier in the same cycle (killed by another unit's strike):
@@ -509,6 +515,8 @@ Cannon smoke and launch slots:
 | A killer whose target is alive and isn't the victim | Target kept |
 | `xhuman12-10000` (oracle trace): grunt 1504 (type 0x01, owner 2) kills footman 1398 at n = 4837 and forgets it, staying in order 12 while it cools down; it dies at n = 4851 | n = 4851: order 1, animation 1, target null |
 | `xhuman8-10000` (oracle trace): juggernaut 1535 (type 0x21, owner 3) in order 12 forgets destroyer 1557 at n = 6749 and dies at n = 6831 | n = 6831: order 1, animation 1, target null |
+| `orc14-25000` (oracle trace, Enhanced), n = 12307: computer paladin 1456 (type 0x0C, owner 6) in order 12 reaches its strike with the caster AI's healing command on paladin 1433 not yet taken over; peon 1448 (type 0x03, owner 0) has 11 HP | No draw; 1448 keeps 11 HP |
+| A footman at its strike point is given a stop command earlier in the same cycle (static study) | No damage and no draw |
 
 ## Open questions
 
