@@ -27,6 +27,7 @@
   `launch_path`, `connection`, `map`, `start_seed` and `humans`, and "Multiplayer launch";
   `mp-dark-paths-bne-1000` and `mp-dark-paths-bne-classic-1000` (Classic mode) vectors.
   2026-10-13, round-57 answers: the start seed's + 4 is exact, not only observed.
+  2026-10-13, round-58 errata: a comparer can derive a multiplayer setup's generator state (`game/setup.md`).
 
 ## Behaviour
 
@@ -220,8 +221,12 @@ counter, so the real value varies from run to run; the harness fixes it so that 
 
 The + 4 is exact: both bytes are the host's message sequence number, and exactly four host messages separate them,
 whatever the timing (static study; every observed start agrees). Any start seed from 0 to 255 occurs in real games,
-so a pinned start is one the game can produce. A comparer doesn't need to
-derive any of this: it takes the setup record as given. The fields say how to repeat the capture.
+so a pinned start is one the game can produce. The fields say how to repeat the capture.
+
+A comparer can derive the setup's generator state: seed with (`start_seed` + 4) mod 256, then make the opponent
+placement draws of `game/setup.md` ("Choosing the players", multiplayer: 1 + the number of opponents on every map
+traced so far) before the unit-creation draws. The setup record's `rng` checks the result. The humans' slots and
+start locations come from the lobby (a later spec): take them from the header and the setup record.
 
 **What a comparer does:**
 
@@ -321,8 +326,9 @@ second human, no input, 1000 cycles).
   (found in round 35).
 - **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios
   are single player for now.
-- **Setting up a multiplayer start:** should a comparer set up a multiplayer start itself (start locations from
-  the seed), or always take the setup record as given? For now it takes the setup record as given.
+- **Setting up a multiplayer start:** the generator state and the computer slots can now be derived ("Multiplayer
+  launch"); the lobby's start-location draw isn't specified yet, so the humans' slots and start locations still
+  come from the trace.
 - **Other kinds** (cancel, alliances, speed, transports) aren't described yet; add them when a scenario needs them.
 - **Two cheat entries handed over before the first runs:** the harness builds the second from the flags at hand-over,
   so it would drop what the first turned on. No scenario does this; the `turn` record shows what ran either way.
