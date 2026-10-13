@@ -8,6 +8,8 @@
   for non-zero values).
 - **Changes:** 2026-10-12, round-36 errata: the static dead-mage vector is replaced by a traced one (no rule change).
 - **Changes:** 2026-10-12, round-37 errata: the dead-mage vector names the folder its trace is in.
+- **Changes:** 2026-10-12, round-41 errata: an oil patch under a new oil platform gets the used mark and is killed,
+  leaving no ruin (`orc09-naval` n = 268, slot released at n = 781).
 
 ## Behaviour
 
@@ -45,7 +47,9 @@ uses for the unit) has the shore-water flag (0x02) in the tile flags of `movemen
 - a unit inside a transport, a building or a mine carries it (it is the "inside something" mark);
 - polymorph sets it on its victim just before killing it;
 - raise dead sets it on each body it raises a skeleton from;
-- an oil platform with oil left gets it when it is killed.
+- an oil platform with oil left gets it when it is killed;
+- an oil patch gets it when an oil platform is placed on it, just before it is killed (`economy/build-train.md`), so
+  it leaves no ruin: its order becomes "remove" in the same cycle and its slot is released 513 cycles later;
 - a transport that dies on shore water gets it at its death step done, at the same moment it is removed. Because
   it is removed at once, the mark has no further effect there.
 
