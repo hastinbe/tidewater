@@ -116,6 +116,10 @@
   take-over from the order logic's own run still clears the skip mark; reach to a shore building is measured to its
   shore corner; a remembered order resumes at once when a unit gives up blocked; a smart move with no target unit
   takes the mine or own oil platform at its goal; round-60 vectors.
+  2026-10-13, round-61 errata: the smart move's harvest test is on the unit type and what it carries, never the
+  gather mode, and never harvests trees or oil patches; return goods by smart move is for workers only (static);
+  when a unit gives up blocked and nothing resumes, it keeps its walking animation (not the still animation), and a
+  complete attack-move is forgotten (static); `orc9-orc09-smart-move-2000` vectors.
 
 ## Behaviour
 
@@ -321,19 +325,30 @@ return goods, repair, build and spells).
 
 1. If the unit is currently waiting, the wait is cut to at most **40 cycles** for a computer player's unit and
    **10 cycles** for every other player's unit, so it reacts sooner.
-2. With **no target unit**, the building on the goal tile is looked at: a worker in gold mode not carrying gold,
-   with a **gold mine** there, or a tanker not carrying oil, with an **oil platform of its own player** there. That
-   building becomes the target, so the harvest row below applies (order 23). Anything else, or a carrying unit, goes
-   on with no target (traced for the gold mine: `orc9-orc09-shore-build-3000` n = 599, round-60 vectors; the tanker
-   case is static study only).
+2. With **no target unit**, the building that covers the goal tile (in any layer) is looked at. If it passes the
+   **harvest test** below, it becomes the target and the harvest row applies; otherwise the unit goes on with no
+   target.
+
+   **The harvest test** (made on the target unit, or on that building) passes in two cases only:
+   - the unit is a **worker** (its type has flag bit 8: the peasant and peon types) carrying **nothing**, neither
+     gold nor lumber, and the building is a **gold mine**. What the worker last harvested or was last sent to
+     harvest plays no part: a worker that has never harvested, or a lumber worker between loads, passes;
+   - the unit is a **tanker** (flag bit 9) not carrying oil, and the building is an **oil platform** (flag bit 11)
+     of the unit's own player.
+
+   A worker carrying gold or lumber, or a tanker carrying oil, sent onto a mine or its own platform fails the test
+   (and goes on down the table). Trees and oil patches never pass: a smart move never starts a tree or oil-patch
+   harvest, and a forest tile gives the move. Traced: `orc9-orc09-smart-move-2000`, round-61 vectors (a worker that
+   has never harvested, a worker cutting wood, a worker carrying gold, an empty tanker and a carrying tanker);
+   `orc9-orc09-shore-build-3000` n = 599. The oil-patch case is static study only.
 3. Then the first matching rule applies:
 
 | Unit and target | Result |
 | --- | --- |
 | The unit is a transport | Transport rules (`orders/transports.md`) |
 | A land unit, and the target is its own side's transport | The transport is told to come; the unit gets order 34 (board) |
-| A worker carrying goods, and the target is a depot that accepts them | Order 24 (return goods) |
-| The target can be harvested by this unit (gold mine, oil patch or platform, tree) | Harvest rules (see the economy specs) |
+| A worker (peasant or peon type) carrying goods, and the target is a depot that accepts them | Order 24 (return goods). Workers only (static study only): a tanker carrying oil sent onto a refinery or shipyard goes on down the table and gets the move |
+| The target passes the harvest test of step 2 | Harvest (order 23) on that building (see the economy specs) |
 | The target is its own side's unit (not a building) | Order 6 (follow) |
 | Anything else | Order 3 (move) |
 
@@ -436,8 +451,13 @@ rules", row C), idle is made its pending order with these rules. If it remembers
 target tile is more than 1 tile away on either axis, and its countdown is 0, it starts its **still** animation with
 wait **1** (not row C's 15), and the remembered order is given as a command, as in the table (countdown 40 or 20). It
 is the **pending** order and takes over at the next step done, a cycle later (traced: `xhuman8-25000` n = 11284,
-round-60 vectors). Otherwise row C is unchanged: idle pending, still animation, wait 15. Whether the other places that
-make idle pending share this exact step isn't checked (static study only for them).
+round-60 vectors). Otherwise (no remembered order, the countdown running, or the attack-move complete) idle becomes
+the pending order and **nothing else changes**: the unit keeps the walking animation the blocked step restarted (the
+move animation, or animation 6 in orders 30 and 31), with row C's wait of 15; only the resume case starts the still
+animation (traced: `orc10-10000` n = 3505 and `xhuman12-10000` n = 4144, round-61 vectors). A remembered
+attack-move that is complete (within 1 tile of its target tile on both axes) is **forgotten** there, so it can't
+resume later (static study only). Whether the other places that make idle pending share this exact step isn't
+checked (static study only for them).
 
 If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
 set as usual.
@@ -1036,11 +1056,10 @@ other (traced: `human12-25000`, vectors below).
    smart move's parts apply. Its wait cap cuts a waiting unit's wait to at most 40 cycles for a computer player's unit
    and 10 for every other player's unit (static study only; no trace shows it). A transport takes the transport outcome,
    so a transport whose flee tile is on the shore lands (order 30; traced: `xorc8-10000`, vectors below). The harvest
-   outcomes need a target unit or the building test of "Smart move" step 2: a worker in gold mode not carrying gold
-   whose flee tile is a gold mine's tile harvests that mine (order 23; traced: `orc9-orc09-shore-build-3000` n = 599),
-   and a tanker not carrying oil whose flee tile is its own player's oil platform's tile would harvest it (static
-   study only). A flee never starts a tree harvest, even to a tile next to a forest: every other unit gets a move
-   (order 3). As a command, its goal is pulled back
+   outcomes need the harvest test of "Smart move" step 2: a worker carrying nothing whose flee tile is a gold
+   mine's tile harvests that mine (order 23; traced: `orc9-orc09-shore-build-3000` n = 599), and so would a tanker
+   not carrying oil whose flee tile is its own player's oil platform's tile. A flee never starts a tree harvest, even
+   to a tile next to a forest: every other unit gets a move (order 3). As a command, its goal is pulled back
    (`movement/pathfinding.md`, "Goal pulled back"), its blocked counter is cleared and its cached route dropped. A unit
    that **isn't in its move animation** takes the new order in the same update. The take-over starts that order's
    animation (for order 3 the still animation, for order 30 the landing animation 6) with wait 3, whatever animation the
@@ -1350,8 +1369,21 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `orc12-30000` (oracle trace, Enhanced; capture not committed), juggernaut 1439 (type 0x21, owner 3) at (24, 116): order 12 with no route at n = 28926; the fallback finds a target and marks the unit. At its next order-logic run (n = 29156) order 12 loses its target and its remembered patrol takes over in that run | The mark is cleared at the end of n = 29156. At n = 29159 the patrol picks catapult 1426 (owner 0) at (17, 124), finds no route, goes idle at once, and the idle logic (unmarked) searches: order 12 on 1426, animation 4, wait 3 |
 | `xhuman8-25000` (oracle trace, Enhanced), n = 11284: computer troll destroyer 1441 (type 0x1F, owner 7) on patrol (order 5) at (66, 58), blocked by tanker 1446 for the 15th time, resume countdown 0 | Still animation (2), wait 1 at n = 11284; the patrol takes over at the next step done (wait 3 at n = 11285). Not animation 3, wait 15 |
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced), archer 1476 (type 0x08, owner 0, range 4) attacking shipyard 1469 (type 0x49, top-left (55, 86)), whose only corner in the archer's region is the bottom-left (55, 88) | At (61, 92) the footprint is 4 away but the corner 6: it walks on, (60, 91) at n = 343, (59, 91) at n = 359 (4 from the corner), and strikes there (animation 4 at n = 375) |
-| Same trace, n = 599: peon 1478 (type 0x03, owner 5) in gold mode, not carrying, flees with a smart move to (51, 92), a tile of gold mine 1480 (top-left (50, 91)) | Order 23 on 1480, animation 4, wait 3 (not order 3) |
-| A tanker not carrying oil given a smart move to a tile of its own player's oil platform, no target unit (static study) | Harvest (order 23) on the platform |
+| Same trace, n = 599: peon 1478 (type 0x03, owner 5), carrying nothing and never sent to harvest (a build command and two flees only), flees with a smart move to (51, 92), a tile of gold mine 1480 (top-left (50, 91)) | Order 23 on 1480, animation 4, wait 3 (not order 3) |
+| A tanker not carrying oil given a smart move to a tile of its own player's oil platform, no target unit | Harvest (order 23) on the platform (traced: round-61 vectors) |
+
+### Round-61 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-smart-move-2000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-smart-move.txt`), n = 32: peon 1482 (type 0x03, owner 5) at (34, 89), which has never harvested, given a smart move to (51, 92), a tile of gold mine 1480, no target unit | Target 1480 at once (n = 32); order 23 on 1480 from n = 37 (animation 4, wait 3) |
+| Same trace, n = 201: peon 1478 cutting wood (order 23, no target, not carrying), smart move to (51, 92) | Order 23 on 1480 |
+| Same trace, n = 481: peon 1482 carrying gold (order 24), smart move to (51, 92) | No harvest: target cleared, order 3 at n = 499 |
+| Same trace, n = 965: orc tanker 1473 (type 0x1B), stopped and empty, smart move to (58, 76), a tile of its own player's oil platform 1468 | Target 1468, wait cut to 10; order 23 on 1468 from n = 975 |
+| Same trace, n = 1262: tanker 1473 carrying oil, smart move to (58, 76) | No harvest: wait cut to 10, target cleared; order 3 at n = 1272 |
+| A smart move onto a forest tile or an oil patch, no target unit (static study for the oil patch) | The move (order 3) |
+| `orc10-10000` (oracle trace), n = 3505: computer tanker 1533 (type 0x1A, owner 1) in order 24 gives up blocked, nothing to resume | Animation 3 (the restarted move animation), wait 15; not the still animation |
+| `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (type 0x09, owner 2) in order 4 gives up blocked, nothing resumed | Animation 3, wait 15 |
 
 ## Open questions
 
