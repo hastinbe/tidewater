@@ -32,6 +32,8 @@
   2026-10-12, round-44 errata: after the no-route re-aim to a tree, order 23's logic runs again in the same update, so a
   worker next to the new tree starts chopping at once; the round-43 `orc8-10000` vector's evidence corrected (worker
   1501 fells its tree at n = 8036); `orc4-40000` vector.
+  2026-10-13, round-46 errata: after a no-route re-aim to a tree that isn't adjacent no move starts in that update
+  (default reading, open question).
 
 ## Behaviour
 
@@ -183,8 +185,9 @@ worker heading for a mine does this too.
   over in the same update: attack animation (4), wait 3. Unlike the other new harvest commands of "Lumber", order 23's
   logic then **runs once more in the same update**. If the new tree tile is within 1 tile, chopping starts at once (step
   2): the worker turns to face the tree, reserves it, and the chop makes its chop-sound draw; the attack animation still
-  restarts with wait 3. If the tree is further away, nothing more changes (facing kept, animation 4, wait 3). Its logic
-  next runs 3 cycles later (traced: `orc4-40000`, round-44 vectors).
+  restarts with wait 3. If the tree is further away, nothing more changes (facing kept, animation 4, wait 3): no move is
+  started in that update, and the route search and first step come at the next run (default reading; no trace separates
+  it, see Open questions). Its logic next runs 3 cycles later (traced: `orc4-40000`, round-44 vectors).
 - While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
 - **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
 - Only the peon flag (type flags bit 8) counts. Tankers have the tanker flag (bit 9) and not the peon flag in the
@@ -385,6 +388,9 @@ gold, storage for wood, storage for oil, building.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
+- **Re-aim to a tree that isn't adjacent.** Whether the same-update run of order 23 starts a move toward the new tree
+  in that update isn't separated by any trace; the `human5` and `human12` vectors fit both readings. Default: no move
+  in that update.
 - **No route details.** Untraced: whether the idle after "no tree found" is pending or immediate; and whether the
   computer's job counts change when a miner becomes a lumber worker this way (the static study shows no count change
   on this path).
