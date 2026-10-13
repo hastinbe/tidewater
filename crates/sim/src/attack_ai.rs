@@ -1216,9 +1216,9 @@ impl World {
 
     // ---- The call for help --------------------------------------------------------------------------------------
 
-    /// Whether `s` has an attacker for the call for help's tests. Round-42 errata: a dying attacker's record is kept,
-    /// but our reading of `orc02-assault` (grunt 1568 at n = 969, whose attacker 1597 is dying, killed by another
-    /// unit, answers) is that only a living attacker counts here, as in step 1.
+    /// Whether `s` has an attacker for the call for help's tests. A dying attacker's record is kept (round-42 errata),
+    /// but it doesn't count here (round-43 errata, `orc02-assault` grunt 1568 at n = 969, whose attacker 1597 is
+    /// dying, killed by another unit, answers).
     pub(crate) fn live_attacker(&self, s: &Unit) -> bool {
         s.attacked_by.and_then(|a| self.unit(a)).is_some_and(|a| !gone(a))
     }

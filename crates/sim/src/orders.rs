@@ -289,7 +289,7 @@ impl World {
     }
 
     /// An immediate order other than idle.
-    fn immediately(&mut self, i: usize, o: Order) {
+    pub(crate) fn immediately(&mut self, i: usize, o: Order) {
         self.release_tree(i);
         let u = &mut self.units[i];
         u.order = o;
@@ -333,16 +333,15 @@ impl World {
 
     /// The unit's attacker if still good; a lost one is forgotten. Round-42 errata (movement spec, "Blocked rules";
     /// "Resulting order"): a dying attacker isn't good, but its record is kept while it is dying, where it still
-    /// counts as an attacker for the resulting order. Our reading of "while it is dying" (`orc02-assault` footman
-    /// 1587, n = 940, whose attacker 1573 became a body at n = 890): until its death animation ends; dead remains are
-    /// forgotten.
+    /// counts as an attacker for the resulting order. Round-43 errata: it is kept until it leaves play (its slot is
+    /// released); the end of its death animation isn't a rule (movement spec, open questions).
     fn attacker(&mut self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
         let a = u.attacked_by?;
         if self.holds(u.owner, a) {
             return Some(a);
         }
-        if !self.unit(a).is_some_and(still_dying) {
+        if !self.unit(a).is_some_and(|a| a.dying) {
             self.units[i].attacked_by = None;
         }
         None
@@ -733,6 +732,18 @@ impl World {
             self.head_for(i, target);
             return true;
         }
+        // Orders spec, "Friendly-fire check" (round-43 errata, `xhuman4` ballista 1488 at n = 210, `xhuman10-spells`
+        // ballista 1483 at n = 227): after a target switch in orders 12, 15 and 16 the run goes on with the new
+        // target, and the check is made on it (not while still cooling down).
+        let tile = t.tile;
+        if matches!(
+            u.order,
+            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
+        ) && self.holds_fire(i, tile)
+        {
+            return true;
+        }
+        let u = &self.units[i];
         let switching_chase = matches!((u.order, o), (Order::Chase { .. }, Order::Chase { .. }));
         if matches!(
             u.order,
@@ -947,11 +958,6 @@ impl World {
         });
         self.ylist = list;
     }
-}
-
-/// A unit in its death animation, not yet remains or being removed.
-pub(crate) fn still_dying(u: &Unit) -> bool {
-    u.dying && !u.remains && !u.removing
 }
 
 /// Chebyshev distance from `from` to `t`'s reference tile ("Distance").
@@ -1626,6 +1632,73 @@ mod tests {
                 (Order::Idle, None, anim::STILL, 3, 6),
                 "{foe_tile:?}"
             );
+        }
+    }
+
+    /// Round-43 errata (`xhuman4` ballista 1488, n = 210): after order 16's search switches to a new target, the run
+    /// goes on and the friendly-fire check is made on the new target; a unit still cooling down isn't checked and keeps
+    /// the new target.
+    #[test]
+    fn the_friendly_fire_check_is_made_on_a_switched_target() {
+        for cooling in [false, true] {
+            let mut w = map();
+            w.stats.0[CATAPULT as usize].flags |= flags::GROUND_ATTACK;
+            let c = w.spawn(CATAPULT, 0, (14, 20), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 3, (16, 20), 0).unwrap();
+            let new = w.spawn(FOOTMAN, 3, (18, 20), 0).unwrap();
+            w.spawn(FOOTMAN, 0, (19, 20), 0).unwrap();
+            w.step(&[]);
+            let oi = at(&w, old);
+            w.units[oi].dying = true;
+            let i = at(&w, c);
+            w.units[i].order = Order::IdleReact { target: old };
+            w.units[i].attacked_by = None;
+            w.units[i].pending = None;
+            w.units[i].script.wait = 1;
+            w.units[i].cooldown = if cooling { 10 } else { 0 };
+            assert!(w.acquire(i, Acquires::Idle, false));
+            let u = &w.units[i];
+            let want = if cooling {
+                Order::IdleReact { target: new }
+            } else {
+                Order::Idle
+            };
+            assert_eq!(u.order, want, "cooling {cooling}");
+            if !cooling {
+                assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+            }
+        }
+    }
+
+    /// Round-43 errata, "A dying attacker in orders 9, 11 and 17": each run first forgets a dying attacker, before the
+    /// target check, so losing a dying target that is also the attacker leaves no attacker (`orc09-naval` destroyer
+    /// 1497, n = 510); a living attacker is kept.
+    #[test]
+    fn order_9_forgets_a_dying_attacker_first() {
+        let step_done = Effects {
+            step_done: true,
+            ..Default::default()
+        };
+        for dying in [true, false] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (12, 12), 0).unwrap();
+            let a = w.spawn(ARCHER, 1, (5, 9), 0).unwrap();
+            w.step(&[]);
+            let (target, attacker) = if dying { (g, g) } else { (g, a) };
+            let gi = at(&w, g);
+            w.units[gi].dying = dying;
+            let i = at(&w, f);
+            w.units[i].order = Order::Attack { target };
+            w.units[i].pending = None;
+            w.units[i].attacked_by = Some(attacker);
+            w.order(i, step_done);
+            let u = &w.units[i];
+            if dying {
+                assert_eq!((u.order, u.attacked_by, u.script.wait), (Order::Idle, None, 3));
+            } else {
+                assert_eq!(u.attacked_by, Some(a));
+            }
         }
     }
 

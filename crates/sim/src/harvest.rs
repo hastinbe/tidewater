@@ -535,9 +535,12 @@ impl World {
         let area = self.terrain.region(here.0, here.1).unwrap_or(region::LAND_AREA);
         self.terrain.fell(tree.0, tree.1, area);
         // The worker carries lumber and its frame is set to 0; the return (or idle, with no depot) takes over in the
-        // same update (orders spec, "Same-update take-over"). Taking over looks up the nearest depot.
-        self.units[i].carrying = true;
-        self.units[i].script.frame = 0;
+        // same update (orders spec, "Same-update take-over"). Taking over looks up the nearest depot. Round-43 errata:
+        // as a command, the return clears the blocked counter, so blocks met on the way to the tree don't carry over.
+        let u = &mut self.units[i];
+        u.carrying = true;
+        u.script.frame = 0;
+        u.blocked = 0;
         self.take_over(i, Order::ReturnGoods { depot: None });
     }
 
@@ -978,6 +981,8 @@ mod tests {
         }
         let pi = w.index(p).unwrap();
         w.units[pi].chop = 50;
+        // Round-43 errata: blocks met on the way to the tree don't carry over into the walk back.
+        w.units[pi].blocked = 9;
         // Harvest and animation-scripts specs, round-33 vectors (peon 1531): frame 25 before the felling, 0 after.
         let felled = (0..100).find(|_| {
             let pi = w.index(p).unwrap();
@@ -998,6 +1003,7 @@ mod tests {
                 (10, 9)
             )
         );
+        assert_eq!(u.blocked, 0);
     }
 
     #[test]

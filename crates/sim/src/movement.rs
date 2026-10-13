@@ -228,6 +228,16 @@ impl World {
             self.take_over(i, o);
             return;
         }
+        // Orders spec, "A dying attacker in orders 9, 11 and 17" (round-43 errata): their logic first forgets a
+        // recorded attacker that is dying or no longer in play, before the target check.
+        if matches!(
+            self.units[i].order,
+            Order::Attack { .. } | Order::AttackWall { .. } | Order::AttackGround { .. }
+        ) && let Some(a) = self.units[i].attacked_by
+            && self.unit(a).is_none_or(|a| a.dying)
+        {
+            self.units[i].attacked_by = None;
+        }
         if self.run_order(i) || self.run_transport(i) || self.run_spell(i) {
             return;
         }
@@ -371,8 +381,9 @@ impl World {
             drop_path(self); // D
             LONG_WAIT
         } else if b.is_some_and(|b| {
-            // E: the blocker is dying or leaving play. F: this unit in its move animation (round-41 errata), and an
-            // ally walking away (its next step isn't onto us).
+            // E: the blocker is dying or leaving play. F: this unit in its move animation after the restart (round-41
+            // errata; round 43: a transport in a plain move waits, a landing one doesn't), and an ally walking away
+            // (its next step isn't onto us).
             b.dying
                 || b.removing
                 || (u.script.anim == anim::MOVE
@@ -425,8 +436,8 @@ impl World {
             _ => false,
         };
         let allied = self.allied(u.owner, o.owner);
-        // Round-42 errata keeps a dying attacker's record; our reading of `xorc01-death-coil` (ogre 1489 at n = 886,
-        // whose attacker 1515 is dying, killed by 1496) is that the search's "no attacker" test counts only a living one.
+        // Round-43 errata: a kept dying attacker doesn't count for the "no attacker" test (`xorc01-death-coil` ogre
+        // 1489 at n = 886, whose attacker 1515 is dying, killed by 1496).
         if attack_type && !self.live_attacker(u) && fighter && !allied {
             return true;
         }
@@ -709,9 +720,10 @@ mod tests {
         assert_eq!(w.units[i].blocked, 0);
     }
 
-    /// Movement spec, "Blocked rules", row F (round-41 errata): the blocked unit itself must be in its move
-    /// animation, which a transport in order 30 or 31 never is (it restarts its own walking animation), so it doesn't
-    /// wait for an ally walking away; a unit in an ordinary walk does.
+    /// Movement spec, "Blocked rules", row F (round-41 errata; traced in round 43 by `human12-row-f-move` and
+    /// `human12-row-f-landing`): the blocked unit itself must be in its move animation, which a transport in order 30
+    /// or 31 never is (it restarts its own walking animation), so it doesn't wait for an ally walking away; a unit in
+    /// an ordinary walk does.
     #[test]
     fn row_f_needs_the_blocked_unit_in_its_move_animation() {
         for (order, waits) in [

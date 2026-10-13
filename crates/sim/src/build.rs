@@ -237,10 +237,13 @@ impl World {
                     self.deliver(k, b.owner, tanker);
                 }
                 if tanker && bf & flags::OIL_SOURCE != 0 {
-                    self.units[k].order = Order::Enter {
+                    // Round-43 errata: order 25 is an immediate order (move animation, wait 1); its logic runs in the
+                    // next cycle and takes the tanker into the platform (order 26). The facing is kept.
+                    let enter = Order::Enter {
                         building: b.id,
                         stepped: true,
                     };
+                    self.immediately(k, enter);
                     continue;
                 }
             }
@@ -475,6 +478,25 @@ mod tests {
         assert!(pu.slot < w.unit(t).unwrap().slot);
         assert_eq!(pu.script.wait, 1);
         assert!(w.unit(t).unwrap().inside);
+        // Round-43 errata (`orc09-naval` tanker 1473, n = 468): when the platform is finished, its tanker gets order
+        // 25 as an immediate order (move animation, wait 1, facing kept), and goes in at the next cycle (order 26).
+        let platform = w.units.iter().find(|u| u.kind == PLATFORM).unwrap().id;
+        let i = w.index(t).unwrap();
+        w.units[i].facing = 2;
+        let bi = w.index(platform).unwrap();
+        w.units[bi].construction = None;
+        w.release_builders(bi, true);
+        let u = w.unit(t).unwrap();
+        let enter = Order::Enter {
+            building: platform,
+            stepped: true,
+        };
+        assert_eq!(
+            (u.order, u.script.anim, u.script.wait, u.facing),
+            (enter, anim::MOVE, 1, 2)
+        );
+        w.step(&[]);
+        assert!(matches!(w.unit(t).unwrap().order, Order::Inside { .. }));
     }
 
     #[test]

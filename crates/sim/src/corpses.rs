@@ -76,15 +76,6 @@ impl World {
 
     /// The death animation's "step done" ("What a dead unit becomes").
     pub(crate) fn death_done(&mut self, i: usize) {
-        // Movement spec, "Blocked rules" (round-42 errata): units other than the killer keep a dying attacker's record
-        // until it leaves play. Our reading (`orc02-assault` grunt 1568 answering a call for help at n = 969, footman
-        // 1587 stepping at n = 940): it leaves play when its death animation ends.
-        let id = self.units[i].id;
-        for o in &mut self.units {
-            if o.attacked_by == Some(id) {
-                o.attacked_by = None;
-            }
-        }
         let u = &self.units[i];
         let s = self.stats_of(u.kind);
         // A unit inside something carries the used mark (spec, "The used mark").
@@ -132,6 +123,11 @@ impl World {
             self.change_owner(i, slots::NEUTRAL);
         }
         let u = &mut self.units[i];
+        // Spec, "A ship wreck's last frame" (round-43 errata): a wreck shows frame 0 from its "remove" order on; bodies
+        // and ruins keep their last frame.
+        if u.remains && u.script.anim == kind::WRECK {
+            u.script.frame = 0;
+        }
         u.remains = false;
         u.removing = true;
         self.start_anim(i, REMOVE);
@@ -152,6 +148,15 @@ impl World {
                 };
                 self.stale.insert(u.slot, stale);
                 self.units[i].script.anim = RELEASED;
+                // Movement spec, the attacker paragraph: units other than the killer keep a dead attacker's record
+                // until they find it no longer valid, or until it leaves play, which is here (round-43 errata: the
+                // end of its death animation isn't a rule).
+                let id = self.units[i].id;
+                for o in &mut self.units {
+                    if o.attacked_by == Some(id) {
+                        o.attacked_by = None;
+                    }
+                }
             }
         } else if u.remains {
             if fx.step_done {
@@ -346,6 +351,49 @@ mod tests {
         let (t, d) = (w.unit(t).unwrap(), w.unit(d).unwrap());
         assert!(t.removing && t.used && t.kind == TRANSPORT);
         assert_eq!((d.kind, d.script.anim), (DEAD_BODY, kind::WRECK));
+    }
+
+    /// Round-43 errata, "A ship wreck's last frame": a wreck shows frame 0 from its "remove" order on; a body keeps
+    /// its last frame.
+    #[test]
+    fn a_wreck_shows_frame_0_when_removed_and_a_body_keeps_its_frame() {
+        let mut w = field(16, 16);
+        let d = w.spawn(DESTROYER, 1, (9, 5), 0).unwrap();
+        let f = w.spawn(FOOTMAN, 1, (3, 3), 0).unwrap();
+        kill(&mut w, d);
+        kill(&mut w, f);
+        until_remains(&mut w, d);
+        // The fixture's decay scripts show no frames: give the remains a last frame of their own.
+        for _ in 0..100 {
+            for id in [d, f] {
+                let i = w.index(id).unwrap();
+                if w.units[i].remains {
+                    w.units[i].script.frame = 30;
+                }
+            }
+            run(&mut w, 1);
+        }
+        let (wd, wf) = (w.unit(d).unwrap(), w.unit(f).unwrap());
+        assert!(wd.removing && wf.removing);
+        assert_eq!((wd.script.frame, wf.script.frame), (0, 30));
+    }
+
+    /// Movement spec, the attacker paragraph (round-43 errata): units other than the killer keep a dead attacker's
+    /// record until it leaves play, which is when its slot is released, not when it becomes remains.
+    #[test]
+    fn a_dead_attackers_record_is_kept_until_its_slot_is_released() {
+        let mut w = field(16, 16);
+        let a = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+        let v = w.spawn(FOOTMAN, 0, (9, 9), 0).unwrap();
+        let vi = w.index(v).unwrap();
+        w.units[vi].attacked_by = Some(a);
+        kill(&mut w, a);
+        until_remains(&mut w, a);
+        assert_eq!(w.unit(v).unwrap().attacked_by, Some(a));
+        while w.unit(a).is_some_and(|u| u.script.anim != RELEASED) {
+            run(&mut w, 1);
+        }
+        assert_eq!(w.unit(v).unwrap().attacked_by, None);
     }
 
     #[test]

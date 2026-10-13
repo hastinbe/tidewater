@@ -384,14 +384,20 @@ impl World {
         // a unit of any player stays in order 34 (`human10-24000` grunt 1473, `human12-7000` grunt 1407); the logic
         // runs on arrival. With no route the unit restarts order 34 at once (still animation, wait 3) if the
         // transport's destination tile is in its region, and becomes idle at once otherwise. The "not arrived" step
-        // (the boarding moves) is never reached this way, as that spec's open question says. The restart is the
-        // boarding command again, so the transport is told to come unless it is landing (our reading of that spec's
-        // open question "No-route restart", traced: `human12-transport` transport 1428, n = 46, wait 3).
+        // (the boarding moves) is never reached this way, as that spec's open question says. Round-43 errata: for a
+        // human player's unit the restart also tells the transport to come again unless it is landing
+        // (`human12-transport` transport 1428, n = 46, wait 3). Whether a computer player's restart does is open, so
+        // it only restarts order 34 (`human10-24000` n = 17216 and `human12-7000` n = 6454 leave the transport be).
         let dest_here = self.region_at(t.ship.dest) == here;
+        let human = self.human_controlled(u.owner);
         match self.move_toward(i, Goal::tile(goal, 1)) {
             Walk::Arrived => {}
             Walk::NoPath if dest_here => {
-                let o = self.board_command(i, transport);
+                let o = if human {
+                    self.board_command(i, transport)
+                } else {
+                    Order::Board { transport }
+                };
                 self.take_over(i, o);
                 return;
             }
@@ -881,6 +887,41 @@ mod tests {
         for _ in 0..30 {
             w.step(&[]);
             assert_eq!(w.unit(f).unwrap().order, Order::Board { transport: tid });
+        }
+    }
+
+    /// Round-43 errata: a human player's no-route restart tells the docked transport to come again (its order 32
+    /// becomes pending); a computer player's only restarts order 34 (whether it tells the transport is open).
+    #[test]
+    fn only_a_human_players_restart_tells_the_transport() {
+        for (kind, tells) in [(controller::HUMAN, true), (controller::COMPUTER, false)] {
+            let mut w = sea(20);
+            w.players[0].controller = kind;
+            let t = ship(&mut w, (20, 10), Order::Docked);
+            let tid = w.units[t].id;
+            let f = w.spawn(FOOTMAN, 0, (14, 10), 0).unwrap();
+            for (x, y) in [
+                (13, 9),
+                (14, 9),
+                (15, 9),
+                (13, 10),
+                (15, 10),
+                (13, 11),
+                (14, 11),
+                (15, 11),
+            ] {
+                w.terrain.set_bits(x, y, 0x80);
+            }
+            let fi = w.index(f).unwrap();
+            w.units[fi].order = Order::Board { transport: tid };
+            w.board(fi, tid);
+            let u = &w.units[fi];
+            assert_eq!(
+                (u.order, u.script.anim, u.script.wait),
+                (Order::Board { transport: tid }, anim::STILL, 3)
+            );
+            let ti = w.index(tid).unwrap();
+            assert_eq!(w.units[ti].pending.is_some(), tells, "controller {kind}");
         }
     }
 
