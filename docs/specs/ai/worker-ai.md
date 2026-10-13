@@ -442,7 +442,7 @@ An entry is marked done at the start of a game when either bit of its code is se
 | A player with 10 units that aren't buildings, 2 of them dying | Food in use 8 |
 | Depot top-left (11, 49), worker at (11, 55), gold mine top-left (9, 43) | Depot term 4, worker term max(2, 12) = 12: score 4 + 6 = 10 (not 4 + 5 = 9) |
 | `mp-gold-rush-bne-25000` (oracle trace, Enhanced), n = 6461: computer peon 1505 comes out of lumber mill 1517 at (11, 55); its depot is great hall 1534 (11, 49). Mines 1523 (18, 55), 1528 (18, 52), 1533 (18, 49), 1548 (9, 43), 1549 (12, 43) and 1550 (15, 43) all score 10, and 1523 is first in the list | Mine 1523: placed at (14, 55), facing 2, order 2 with target 1523. With the old worker term 1548 scored 9 and won |
-| Classic mode: `mp-gold-rush-bne-classic-8000` n = 6461 (peon 505, mine 523) and `mp-gold-rush-bne-classic-20000` n = 19728 (peon 586 in great hall 590 at (11, 11): mine 582 (18, 15) scores 7 + 3 = 10, mine 575 (3, 18) 7 + 4 = 11) | The same choices as the Enhanced rule gives (582 at n = 19728). Classic-mode evidence only agrees with the rule; it isn't its source |
+| Classic mode: `mp-gold-rush-bne-classic-8000` n = 6461 (peon 505, mine 523) and `mp-gold-rush-bne-classic-20000` n = 19728 (peasant 586 in town hall 590 at (11, 11): mine 582 (18, 15) scores 7 + 3 = 10, mine 575 (3, 18) 7 + 4 = 11) | The same choices as the Enhanced rule gives (582 at n = 19728). Classic-mode evidence only agrees with the rule; it isn't its source |
 
 ## Open questions
 
