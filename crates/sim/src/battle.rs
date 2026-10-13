@@ -104,6 +104,11 @@ impl World {
             self.switch_anim(i, anim::STILL);
             return;
         }
+        // Orders spec, "Friendly-fire check" (round-41 errata): in order 12 it runs before the range test.
+        let tile = self.unit(target).expect("checked above").tile;
+        if self.holds_fire(i, tile) {
+            return;
+        }
         let u = &self.units[i];
         let t = self.unit(target).expect("checked above");
         if self.within_strike_reach(u, t) {
@@ -147,12 +152,14 @@ impl World {
         }
     }
 
-    /// Orders spec, "Attack-move (Enhanced)" (round-40 errata): a unit in order 10 that picked a target heads for it
-    /// until order 12 takes over at its next step done. Our reading: with no route it goes idle as order 10 does
-    /// ("No route"), and once there it waits for the take-over.
+    /// Orders spec, "Attack-move: orders 4, 5 and (Enhanced) 10" (round-41 errata): a unit in one of these orders
+    /// that picked a target heads for it until order 12 takes over at its next step done, stepping even when the
+    /// target is already within strike reach. Our reading: the order's own walk (radius 0) carries on toward the goal
+    /// the command set, the target's tile; with no route it goes idle as the order does ("No route"), and once there
+    /// it waits for the take-over.
     pub(crate) fn head_for(&mut self, i: usize, target: UnitId) {
         let Some(t) = self.unit(target) else { return };
-        let g = self.strike_goal(&self.units[i], t);
+        let g = Goal::tile(t.tile, 0);
         if self.move_toward(i, g) == Walk::NoPath {
             self.units[i].attacked_by = None;
             self.idle_at_once(i);
@@ -271,13 +278,13 @@ impl World {
             // A demolisher plays the attack animation on its way but never strikes (attack-ground-demolish spec).
             (Order::Follow { .. } | Order::Guard { .. } | Order::Demolish { .. }, _) | (_, None) => return,
             (_, Some(target)) => {
-                let Some(ti) = self.index(target).filter(|&ti| self.units[ti].present()) else {
+                // Damage spec, "How an attack delivers damage" (round-41 errata, `human01-basics` n = 576): a melee
+                // strike is made at a target that started dying earlier in the cycle, and rolls its damage to no
+                // effect; a target that is gone or inside something isn't struck. Ranged attackers are that spec's
+                // open question, where a missile is expected to behave the same; we follow that expectation.
+                let Some(ti) = self.index(target).filter(|&ti| !self.units[ti].inside) else {
                     return;
                 };
-                // Orders spec, "Friendly fire": ground attackers check the 3 x 3 around the target first.
-                if self.holds_fire(i, self.units[ti].tile) {
-                    return;
-                }
                 (Some(ti), self.units[ti].centre_px())
             }
         };
@@ -831,6 +838,28 @@ mod tests {
             let u = &w.units[i];
             assert_eq!((u.order, u.script.wait, u.forgot), (Order::Idle, 3, None));
         }
+    }
+
+    /// Damage spec, "How an attack delivers damage" (round-41 errata): a melee strike at a target that is already
+    /// dying is still made and rolls its damage, with no effect; one at a target inside something isn't made and
+    /// draws nothing.
+    #[test]
+    fn a_melee_strike_at_a_dying_target_still_rolls_its_damage() {
+        let mut w = world();
+        let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let i = w.index(UnitId(1)).unwrap();
+        w.units[i].order = Order::Attack { target: foe };
+        let f = w.index(foe).unwrap();
+        w.kill(f);
+        let (before, hp) = (w.rng, w.unit(foe).unwrap().hp);
+        w.strike(i);
+        assert_eq!(drawn(before, w.rng), 1, "the damage roll");
+        assert_eq!(w.unit(foe).unwrap().hp, hp);
+        let f = w.index(foe).unwrap();
+        w.units[f].inside = true;
+        let before = w.rng;
+        w.strike(i);
+        assert_eq!(w.rng, before);
     }
 
     /// Damage spec, "Attack timing (cooldown)": the synthetic attack loop strikes every 25 cycles, so a strike

@@ -90,7 +90,12 @@ pub fn row_range(rows: &[i32], top: i32, bottom: i32) -> Option<(usize, usize)> 
             hi = (lo + hi - 1) / 2;
         }
     };
-    let (mut lo, mut hi) = (0, n - 1);
+    // Round-41 errata: nothing is visited when the first entry found is below the bottom row, and otherwise the
+    // last-entry search starts with low at the first entry found.
+    if rows.get(first).is_none_or(|&r| r > bottom) {
+        return None;
+    }
+    let (mut lo, mut hi) = (first, n - 1);
     let last = loop {
         let mid = (lo + hi) / 2;
         let below = rows[mid] > bottom;
@@ -103,7 +108,7 @@ pub fn row_range(rows: &[i32], top: i32, bottom: i32) -> Option<(usize, usize)> 
             lo = (lo + hi).div_ceil(2);
         }
     };
-    if first > last || rows.get(first).is_none_or(|&r| r > bottom) {
+    if first > last {
         return None;
     }
     Some((first, last))
@@ -122,6 +127,9 @@ mod tests {
         assert_eq!(row_range(&[], 0, 3), None);
         // Nearly sorted: a row-3 entry among row-4 entries is still visited.
         assert_eq!(row_range(&[1, 4, 3, 4, 4, 9], 2, 4), Some((1, 4)));
+        // Round-41 errata: the last-entry search starts at the first entry found (2), so its first middle is 3 (row
+        // 2, below 1) and it ends at 2. Starting at position 0 would have ended at 5.
+        assert_eq!(row_range(&[0, 0, 1, 2, 0, 1], 1, 1), Some((2, 2)));
     }
 
     #[test]

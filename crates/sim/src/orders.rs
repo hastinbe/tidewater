@@ -410,6 +410,8 @@ impl World {
                     if let Some(Remembered::Patrol { .. }) = self.units[i].remembered {
                         self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
                     }
+                    // Movement spec, "Blocked rules" (round-41 errata): the turnaround is a command.
+                    self.units[i].blocked = 0;
                     self.take_over(i, swapped);
                 }
                 // "No route" (round-39 errata, `human10` and `xorc7`): an immediate idle whose idle logic runs in the
@@ -476,6 +478,12 @@ impl World {
     /// Orders 15 and 16: strike in range, never move ("Attacking without moving").
     fn attack_in_place(&mut self, i: usize, target: UnitId) {
         let Some(t) = self.unit(target) else { return };
+        // "Friendly-fire check" (round-41 errata): before the range test.
+        let tile = t.tile;
+        if self.holds_fire(i, tile) {
+            return;
+        }
+        let t = self.unit(target).expect("checked above");
         let u = &self.units[i];
         if self.in_range(u, t) {
             let (uc, tc) = (u.centre_px(), t.centre_px());
@@ -485,10 +493,9 @@ impl World {
             return;
         }
         match u.order {
-            Order::AttackInPlace { .. } => {
-                self.units[i].order = Order::StandGround;
-                self.give(i, Order::StandGround);
-            }
+            // Round-41 errata (static study only): order 15 forgets the target and order 13 takes over in the same
+            // update (still animation, wait 3), by the same path as order 16.
+            Order::AttackInPlace { .. } => self.take_over(i, Order::StandGround),
             // Round-40 errata (`xhuman4` axe thrower 1437, n = 6): order 16 forgets the target and idle takes over in
             // the same update (still animation, wait 3); the attacker is kept.
             _ => self.idle_now(i),
@@ -696,21 +703,35 @@ impl World {
             self.attack_order(i, target);
             return true;
         }
-        // Enhanced attack-move (`xorc01-death-knight` ogre 1488, n = 718): the same command, but the order stays 10
-        // until the next step done and its logic carries on heading for the new target.
-        if let (Order::AttackMove { .. }, Order::Chase { target }) = (u.order, o) {
+        // Attack-move: orders 4, 5 and Enhanced 10 (`xorc01-death-knight` ogre 1488, n = 718; round-41 errata,
+        // `xhuman2` ogre 1581 at n = 2048 in order 4): the same command, but the order stays until the next step done
+        // and its logic carries on heading for the new target, even one already within strike reach
+        // (`orc02-victory` axe thrower 1591, n = 4789).
+        if let (Order::AttackMove { .. } | Order::MoveAttack { .. } | Order::Patrol { .. }, Order::Chase { target }) =
+            (u.order, o)
+        {
             self.command(i, o);
             self.head_for(i, target);
             return true;
         }
+        let switching_chase = matches!((u.order, o), (Order::Chase { .. }, Order::Chase { .. }));
         if matches!(
             u.order,
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
-        ) {
-            self.acquiring_strike(i, o, best);
+        ) && self.acquiring_strike(i, o, best)
+            && switching_chase
+        {
+            // Round-41 errata, "Resulting order" (`orc02-assault` footman 1587, n = 617): an order-12 switch to a
+            // target in reach while still cooling down takes effect at once, and the cooldown test's restart (the
+            // cooldown left as its wait) stands; there is no wait of 3.
+            let u = &mut self.units[i];
+            u.order = o;
+            u.path.clear();
+            return true;
         }
         // Orders spec, "Same-update take-over": a command the unit's own logic gives it takes over at once ("Taking
-        // over": the animation starts with a wait of 3).
+        // over": the animation starts with a wait of 3). Being a command, it clears the blocked counter.
+        self.units[i].blocked = 0;
         self.take_over(i, o);
         true
     }
@@ -721,22 +742,25 @@ impl World {
     /// target switch (a unit already in order 12, 15 or 16) reaches it, and that strike decision turns the unit as any
     /// other does; a first acquisition doesn't (`human5`, slot 1531 at n = 6, and `xhuman10`, slot 1487 at n = 2, keep
     /// their facing, while `orc02`, slot 1582 at n = 402, turns).
-    fn acquiring_strike(&mut self, i: usize, o: Order, target: UnitId) {
-        let Some(t) = self.unit(target) else { return };
+    ///
+    /// Returns whether the target was in reach and the cooldown test restarted the animation.
+    fn acquiring_strike(&mut self, i: usize, o: Order, target: UnitId) -> bool {
+        let Some(t) = self.unit(target) else { return false };
         let u = &self.units[i];
         let reach = match o {
             Order::Chase { .. } => self.within_strike_reach(u, t),
             _ => self.in_range(u, t),
         };
         if !reach {
-            return;
+            return false;
         }
         let (uc, tc) = (u.centre_px(), t.centre_px());
         let b = crate::world::facing_tile_of(t);
         if self.cooling_down(i) {
-            return;
+            return true;
         }
         self.decide_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1), false);
+        false
     }
 
     /// The plain reaction to an attacker ("The reaction"). Returns true if the unit's order changed or it fled.
@@ -808,8 +832,11 @@ impl World {
         true
     }
 
-    /// The friendly-fire check before a ground attacker's strike in orders 12, 15 and 16. Returns true if the strike
-    /// is called off (order 2 then takes over at the next step boundary).
+    /// The friendly-fire check of a ground attacker in orders 12, 15 and 16, made in the order's logic before the
+    /// range test (round-41 errata; `xhuman2` ballista 1503, n = 2226, and `human06-31357` ballista 1582, n = 9483).
+    /// Returns true if the strike is called off: the target is forgotten and idle takes over in the same update
+    /// (still animation, wait 3, facing kept). Our reading of "after the cooldown test": a unit still cooling down
+    /// (whose strike decision would only restart its animation) isn't checked in that run.
     pub(crate) fn holds_fire(&mut self, i: usize, at: (i32, i32)) -> bool {
         let u = &self.units[i];
         let in_order = matches!(
@@ -817,6 +844,9 @@ impl World {
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
         );
         if !in_order || self.flags_of_unit(u) & flags::GROUND_ATTACK == 0 {
+            return false;
+        }
+        if !u.building && u.layer != Layer::Air && (u.script.wait as u16) < u.cooldown {
             return false;
         }
         let limit = if self.human_controlled(u.owner) {
@@ -835,7 +865,7 @@ impl World {
             }
         }
         if own >= limit {
-            self.give(i, Order::Idle);
+            self.take_over(i, Order::Idle);
             return true;
         }
         false
@@ -1361,6 +1391,8 @@ mod tests {
                 back: (2, 2),
             },
         );
+        // Round-41 errata: the turnaround is a command, so it clears the blocked counter.
+        w.units[i].blocked = 3;
         let mut n = 0;
         while order_of(&w, f)
             == (Order::Patrol {
@@ -1380,7 +1412,7 @@ mod tests {
                 back: u.tile
             }
         );
-        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+        assert_eq!((u.script.anim, u.script.wait, u.blocked), (anim::STILL, 3, 0));
         let here = u.tile;
         w.step(&[]);
         w.step(&[]);
@@ -1472,6 +1504,86 @@ mod tests {
         }
     }
 
+    /// Round-41 errata, "Resulting order", and the `orc02-assault` n = 617 vector: an order-12 switch to a target in
+    /// reach while still cooling down takes effect at once, and the animation restarts with the cooldown left as its
+    /// wait (no wait of 3, no turn).
+    #[test]
+    fn a_switch_in_reach_while_cooling_down_keeps_the_cooldown_wait() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let old = w.spawn(FOOTMAN, 1, (20, 20), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, f);
+        let u = &mut w.units[i];
+        u.pending = None;
+        u.order = Order::Chase { target: old };
+        u.facing = 0;
+        u.cooldown = 23;
+        u.script.wait = 1;
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.facing, u.script.anim, u.script.frame, u.script.wait),
+            (Order::Chase { target: g }, 0, anim::ATTACK, 0, 23)
+        );
+    }
+
+    /// Round-41 errata, "Attack-move: orders 4, 5 and (Enhanced) 10": a unit in order 4 that picks a target already
+    /// within strike reach doesn't strike. It gets order 12 as a command (pending, target at once), keeps order 4 and
+    /// steps toward the target in the same update (the `orc02-victory` n = 4789 and `xhuman2` n = 2048 vectors).
+    #[test]
+    fn order_4_heads_for_a_new_target_even_in_reach() {
+        let mut w = map();
+        let a = w.spawn(ARCHER, 0, (5, 5), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (5, 8), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, a);
+        let goal = (5, 20);
+        w.units[i].pending = None;
+        w.units[i].order = Order::MoveAttack { goal };
+        assert!(w.within_strike_reach(&w.units[i], w.unit(g).unwrap()));
+        let before = w.rng;
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.tile, u.script.anim),
+            (
+                Order::MoveAttack { goal },
+                Some(Order::Chase { target: g }),
+                (5, 6),
+                anim::MOVE
+            )
+        );
+        assert!(w.missiles.iter().all(Option::is_none) && w.rng == before, "no strike");
+    }
+
+    /// Round-41 errata, "Friendly-fire check": made in the order's logic before the range test, so a ground attacker
+    /// whose target stands among its own units goes idle in the same update (still animation, wait 3, facing kept),
+    /// in range or not (the `xhuman2` n = 2226 vector: the ballista 8 tiles away).
+    #[test]
+    fn the_friendly_fire_check_idles_in_the_same_update() {
+        for foe_tile in [(18, 20), (20, 5)] {
+            let mut w = map();
+            w.stats.0[CATAPULT as usize].flags |= flags::GROUND_ATTACK;
+            let c = w.spawn(CATAPULT, 0, (14, 20), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 3, foe_tile, 0).unwrap();
+            w.spawn(FOOTMAN, 0, (foe_tile.0 + 1, foe_tile.1), 0).unwrap();
+            let i = at(&w, c);
+            w.units[i].order = Order::IdleReact { target: g };
+            w.units[i].facing = 6;
+            w.attack_in_place(i, g);
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.facing),
+                (Order::Idle, None, anim::STILL, 3, 6),
+                "{foe_tile:?}"
+            );
+        }
+    }
+
     #[test]
     fn standing_ground_takes_its_out_of_range_attacker_then_forgets_it() {
         let mut w = map();
@@ -1485,8 +1597,13 @@ mod tests {
         assert_eq!(w.search(i, Some(a), false), Some(a));
         assert!(w.acquire(i, Acquires::Other));
         assert_eq!(w.units[i].order, Order::AttackInPlace { target: a });
+        // Round-41 errata: order 13 takes over in the same update (still animation, wait 3, target null).
         w.attack_in_place(i, a);
-        assert_eq!(w.units[i].pending, Some(Order::StandGround));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.script.anim, u.script.wait),
+            (Order::StandGround, None, anim::STILL, 3)
+        );
     }
 
     #[test]

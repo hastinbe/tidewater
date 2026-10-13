@@ -134,7 +134,12 @@ pub enum Order {
     /// 36: a passenger aboard a transport.
     Aboard { transport: UnitId },
     /// 28: a worker going to `site` (the top-left tile) to build `kind` (build-train spec, "Placing a building").
-    Build { kind: u8, site: (i32, i32) },
+    /// `goal` is the build walk's goal, worked out at the order's first logic run and then kept while it walks.
+    Build {
+        kind: u8,
+        site: (i32, i32),
+        goal: Option<(i32, i32)>,
+    },
     /// 22: a worker inside the building it is constructing.
     InsideSite { building: UnitId },
     /// Orders 38 to 56: casting `spell` (the order number) at a unit or, for the point spells, at `tile` (spells spec).

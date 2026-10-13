@@ -242,14 +242,15 @@ impl World {
             Order::ReturnGoods { depot } => self.return_order(i, depot),
             Order::Enter { building, stepped } => self.enter_order(i, building, stepped),
             Order::Inside { building, hall_sized } => self.come_out(i, building, hall_sized),
-            Order::Build { kind, site } => self.build_order(i, kind, site),
+            Order::Build { kind, site, goal } => self.build_order(i, kind, site, goal),
             Order::InsideSite { .. } => self.inside_site(i),
             _ => {}
         }
     }
 
     /// A pending order replaces the current one: its animation starts with a first wait of 3 and nothing else
-    /// happens this cycle (movement spec, "When decisions are made").
+    /// happens this cycle (movement spec, "When decisions are made"). It doesn't clear the blocked counter (round-41
+    /// errata): only commands do.
     pub(crate) fn take_over(&mut self, i: usize, o: Order) {
         self.release_tree(i);
         // Orders spec, "Taking over": a return with no depot looks one up, or becomes idle.
@@ -264,7 +265,6 @@ impl World {
         let u = &mut self.units[i];
         u.order = o;
         u.path.clear();
-        u.blocked = 0;
         u.commanded = false;
         self.start_anim(i, a);
         self.units[i].script.wait = TAKEOVER_WAIT;
@@ -339,7 +339,13 @@ impl World {
     /// The blocked rules: the move animation restarts in place, the counter goes up, and the first matching row
     /// decides (movement spec, "Blocked rules").
     fn blocked(&mut self, i: usize, next: (i32, i32), blocker: Option<UnitId>, g: Goal) {
-        self.start_anim(i, anim::MOVE);
+        // Round-41 errata: the walking animation restarts in place, which for orders 30 and 31 is their own (the
+        // second walking animation).
+        let walking = match self.units[i].order {
+            Order::Land { .. } | Order::PushOff => crate::orders::order_anim(self.units[i].order),
+            _ => anim::MOVE,
+        };
+        self.start_anim(i, walking);
         let u = &mut self.units[i];
         u.blocked = (u.blocked + 1).min(GIVE_UP);
         let u = &self.units[i];
@@ -366,12 +372,15 @@ impl World {
             drop_path(self); // D
             LONG_WAIT
         } else if b.is_some_and(|b| {
-            // E: the blocker is dying or leaving play. F: an ally walking away (its next step isn't onto us).
+            // E: the blocker is dying or leaving play. F: this unit in its move animation (round-41 errata), and an
+            // ally walking away (its next step isn't onto us).
             b.dying
                 || b.removing
-                || (self.allied(u.owner, b.owner)
+                || (u.script.anim == anim::MOVE
+                    && self.allied(u.owner, b.owner)
                     && b.script.anim == anim::MOVE
                     && b.blocked == 0
+                    && !b.inside
                     && b.path.first().is_some_and(|&t| t != u.tile))
         }) {
             LONG_WAIT
@@ -682,6 +691,45 @@ mod tests {
         w.units[i].blocked = 5;
         w.give(i, Order::Idle);
         assert_eq!(w.units[i].blocked, 0);
+    }
+
+    /// Movement spec, "Blocked rules" (round-41 errata, the `orc8-10000` n = 947 vector): a pending order taking over
+    /// doesn't clear the blocked counter; only commands do.
+    #[test]
+    fn a_take_over_keeps_the_blocked_counter() {
+        let mut w = field(12, 12);
+        let p = w.spawn(0, 0, (6, 6), 0).unwrap();
+        let i = w.index(p).unwrap();
+        w.units[i].blocked = 2;
+        w.take_over(i, Order::Move { goal: (1, 1) });
+        assert_eq!(w.units[i].blocked, 2);
+        w.command(i, Order::Move { goal: (2, 2) });
+        assert_eq!(w.units[i].blocked, 0);
+    }
+
+    /// Movement spec, "Blocked rules", row F (round-41 errata): the blocked unit itself must be in its move
+    /// animation, which a transport in order 30 or 31 never is (it restarts its own walking animation), so it doesn't
+    /// wait for an ally walking away; a unit in an ordinary walk does.
+    #[test]
+    fn row_f_needs_the_blocked_unit_in_its_move_animation() {
+        for (order, waits) in [
+            (Order::Move { goal: (5, 1) }, true),
+            (Order::Land { goal: (5, 1) }, false),
+        ] {
+            let mut w = field(12, 4);
+            let a = w.spawn(0, 0, (1, 1), 0).unwrap();
+            let b = w.spawn(0, 0, (2, 1), 0).unwrap();
+            let (i, j) = (w.index(a).unwrap(), w.index(b).unwrap());
+            w.units[j].script.anim = anim::MOVE;
+            w.units[j].path = vec![(3, 1)];
+            w.units[i].order = order;
+            w.blocked(i, (2, 1), Some(b), Goal::tile((5, 1), 0));
+            let u = &w.units[i];
+            assert_eq!(u.blocked, 1);
+            assert_eq!(u.script.wait == LONG_WAIT, waits, "{order:?}");
+            let walking = if waits { anim::MOVE } else { anim::WORK_B };
+            assert_eq!(u.script.anim, walking);
+        }
     }
 
     /// Pathfinding spec, round-38 errata, the `orc4-20000` vectors: the searcher's own tile is free only under the

@@ -6,8 +6,7 @@
 //! Not yet here: which worker may build which type (the tech tree and the command panel decide that), and walls,
 //! whose pieces become terrain on completion.
 //!
-//! Our choices: a platform placed on an oil patch removes the patch unit through the death path; a failed placement
-//! tells the player with [`Event::CantPlace`].
+//! Our choice: a failed placement tells the player with [`Event::CantPlace`].
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -44,7 +43,7 @@ impl World {
             }
             self.pay(owner, c);
         }
-        Some(Order::Build { kind, site })
+        Some(Order::Build { kind, site, goal: None })
     }
 
     /// The build walk's goal ("Placing a building"): a tile of the planned footprint, worked out from the worker's
@@ -77,10 +76,18 @@ impl World {
         goal
     }
 
-    /// Order 28: walk to the build goal, worked out again on each run, and build on standing on it (arrival radius
-    /// 0; a land unit building a shore building gets the movement spec's +1).
-    pub(crate) fn build_order(&mut self, i: usize, kind: u8, site: (i32, i32)) {
-        let goal = self.build_goal(i, kind, site);
+    /// Order 28: walk to the build goal and build on standing on it (arrival radius 0; a land unit building a shore
+    /// building gets the movement spec's +1). Round-41 errata (`xorc7` peasant 1421, n = 2028): the goal is worked
+    /// out once and stays fixed while the worker walks. Our reading: it is worked out at the order's first logic run,
+    /// which for a standing worker is where it was given; the walk with our route cache only ends without arriving
+    /// when no route is found, which ends the order.
+    pub(crate) fn build_order(&mut self, i: usize, kind: u8, site: (i32, i32), goal: Option<(i32, i32)>) {
+        let goal = goal.unwrap_or_else(|| self.build_goal(i, kind, site));
+        self.units[i].order = Order::Build {
+            kind,
+            site,
+            goal: Some(goal),
+        };
         let shore =
             self.stats_of(kind).flags & flags::SHORE_BUILDING != 0 && self.units[i].layer == crate::world::Layer::Land;
         match self.move_toward(i, Goal::tile(goal, shore as i32)) {
@@ -136,8 +143,17 @@ impl World {
             if let Some(bi) = self.index(b) {
                 self.units[bi].resources = trips;
             }
+            // Round-41 errata (`orc09-naval` patch 1502, n = 268): the patch is marked used and killed, and leaves no
+            // ruin: its "remove" order starts in the same cycle, with its type kept (core/corpses spec), and the
+            // cycle's record shows it with wait 1. Our reading: the removal starts as of the patch's own update this
+            // cycle, so a patch still to be updated (a higher slot than the builder's) has its first wait run there.
             let pi = self.index(p).expect("the patch is alive");
+            self.units[pi].used = true;
             self.kill_as(pi, false);
+            let pi = self.index(p).expect("the patch is still in its slot");
+            self.death_done(pi);
+            let later = self.units[pi].slot > u.slot;
+            self.units[pi].script.wait = 1 + later as u8;
         }
         if pays_now {
             self.pay(u.owner, c);
@@ -387,6 +403,75 @@ mod tests {
         let u = w.unit(p).unwrap();
         assert!(matches!(u.order, Order::InsideSite { .. }));
         assert_eq!(u.script.wait, 150);
+    }
+
+    /// Round-41 errata (`xorc7` peasant 1421): the build walk's goal is worked out once and kept in the order.
+    #[test]
+    fn the_build_goal_stays_fixed_while_walking() {
+        let (mut w, p) = town();
+        w.stats.0[kind::FARM as usize].size = (3, 3);
+        let i = w.index(p).unwrap();
+        w.units[i].tile = (14, 9);
+        w.units[i].pos = (14 * 32, 9 * 32);
+        build(&mut w, 0, p, (5, 8));
+        for _ in 0..20 {
+            if matches!(w.unit(p).unwrap().order, Order::Build { goal: Some(_), .. }) {
+                break;
+            }
+            w.step(&[]);
+        }
+        let want = Order::Build {
+            kind: kind::FARM,
+            site: (5, 8),
+            goal: Some((7, 9)),
+        };
+        assert_eq!(w.unit(p).unwrap().order, want);
+        // Moved somewhere whose own goal would differ: the order keeps the first one.
+        let i = w.index(p).unwrap();
+        w.mark(&w.units[i].clone(), w.units[i].tile, None);
+        w.units[i].tile = (6, 16);
+        w.units[i].pos = (6 * 32, 16 * 32);
+        w.units[i].path.clear();
+        assert_ne!(w.build_goal(i, kind::FARM, (5, 8)), (7, 9));
+        w.step(&[]);
+        assert_eq!(w.unit(p).unwrap().order, want);
+    }
+
+    /// Round-41 errata (`orc09-naval` patch 1502): an oil platform's patch is marked used and removed with no ruin,
+    /// its type kept, with wait 1 in the cycle's record (the patch here updates before the builder, so nothing more
+    /// runs on it this cycle).
+    #[test]
+    fn a_platform_removes_its_oil_patch() {
+        let (mut w, _) = town();
+        const TANKER: u8 = 0x1a;
+        const PLATFORM: u8 = 0x56;
+        let base = w.stats.0[0];
+        for (k, size, f) in [
+            (TANKER, (1, 1), flags::SEA | flags::TANKER),
+            (PLATFORM, (2, 2), flags::BUILDING | flags::OIL_SOURCE),
+            (OIL_PATCH, (2, 2), flags::BUILDING | flags::OIL_PATCH),
+        ] {
+            let s = &mut w.stats.0[k as usize];
+            *s = base;
+            s.size = size;
+            s.flags = f;
+        }
+        for y in 0..24 {
+            for x in 10..24 {
+                w.terrain.clear_bits(x, y, crate::terrain::bits::LAND);
+                w.terrain.set_bits(x, y, crate::terrain::bits::WATER);
+            }
+        }
+        let t = w.spawn(TANKER, 0, (12, 12), 0).unwrap();
+        let patch = w.spawn(OIL_PATCH, crate::slots::NEUTRAL, (16, 16), 0).unwrap();
+        let i = w.index(t).unwrap();
+        w.raise(i, PLATFORM, (16, 16));
+        let pu = w.unit(patch).unwrap();
+        assert_eq!(pu.kind, OIL_PATCH);
+        assert!(pu.used && pu.removing && pu.dying, "{pu:?}");
+        assert!(pu.slot < w.unit(t).unwrap().slot);
+        assert_eq!(pu.script.wait, 1);
+        assert!(w.unit(t).unwrap().inside);
     }
 
     #[test]

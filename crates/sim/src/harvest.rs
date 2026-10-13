@@ -203,7 +203,9 @@ impl World {
                 if harvesting {
                     self.no_route(i);
                 } else {
-                    self.idle(i);
+                    // Round-41 errata (`xorc3` peon 1462, n = 8895): a return with no route goes idle at once, and
+                    // its idle logic (a computer player's job choice) runs in the same update.
+                    self.idle_at_once(i);
                 }
                 false
             }
@@ -472,6 +474,10 @@ impl World {
         u.pending = next;
         // The order comes from a command (harvest or return), so the unit counts as about to move (pathfinding spec).
         u.commanded = next.is_some();
+        // Movement spec, "Blocked rules" (round-41 errata): the order given on coming out is a command.
+        if next.is_some() {
+            u.blocked = 0;
+        }
         let u = u.clone();
         self.mark(&u, tile, Some(u.id));
         self.start_anim(i, anim::STILL);
