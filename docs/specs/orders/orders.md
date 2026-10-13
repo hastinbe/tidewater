@@ -87,6 +87,10 @@
   smart move (transports land, no tree harvest, wait cap static); a recorded attacker outlives its slot's release
   (static); the kind check's terms (layer, type flags, shore water) sharpened (static); `xorc11`, `xorc6` and `xorc8`
   vectors; open questions on the seed's fog test, patrol arrival and the flee wait cap.
+  2026-10-13, round-52 errata: the order-12 skip mark gates only the order logic's search, not the move step's; in order
+  16 the cooldown wins over the out-of-range rule (static); one target field, a missile copies it at launch (static); at
+  the move goal the whole move step is skipped, Classic reaction included (static); "a unit that can move" is a type
+  with a movement-class flag; a released slot's last type is its remains type (static); `xorc8-10000` vector.
 
 ## Behaviour
 
@@ -116,8 +120,13 @@ valid or no longer **detected** by the unit's owner.
 **A recorded attacker outlives its slot** (static study only). Releasing a unit's slot doesn't clear other units'
 attacker records, so a record can name a slot that has been released. A released slot reads as dying or gone, so every
 test of a recorded attacker (the forget at the start of a target search, the reaction's checks, the candidate checks)
-treats it like a dying attacker, and the kind check uses the last type the slot held. If the slot is reused before the
-record is read, the record names the new unit.
+treats it like a dying attacker, and the kind check uses the last type the slot held. For a unit that left remains, that
+is the remains type, which the slot keeps until it is freed; a unit removed with no remains is freed with its own type.
+If the slot is reused before the record is read, the record names the new unit.
+
+**One target** (static study only). A unit has a single target: the unit it strikes is its order's target. A missile
+takes its shooter's target when it is launched and keeps its own copy from then on, so a later change of the shooter's
+target doesn't redirect it.
 
 **Player kinds.** `movement/movement.md` ("Player kinds") names the kinds of player. The rules here use two
 different splits:
@@ -415,7 +424,9 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   `core/animation-scripts.md` runs the order's own animation at once, and then the order's logic runs.)
   For orders 4 and 10 the arrival test comes before the target search: a unit in order 4 or 10 whose logic runs while it
   stands at its move goal arrives, and runs **no** target acquisition in that run, even with a target in range (traced:
-  `xorc11-10000`, vectors below). Whether patrol (order 5) does the same at a patrol end isn't traced.
+  `xorc11-10000`, vectors below). Whether patrol (order 5) does the same at a patrol end isn't traced. At the move goal
+  the whole move step is skipped, so in Classic mode, where order 10 only reacts, the reaction doesn't run there either
+  (static study).
 - **No route:** if the route search finds nothing and none of the special cases of `movement/movement.md` applies (the
   harvest tree search, arrived after all, boarding, the attack-type fallbacks), the unit becomes idle as an
   **immediate** order (order 2, pending order cleared, still animation, wait 1). Only arrival makes orders 3, 4 and 10
@@ -442,7 +453,11 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
      acquisition). The mark is cleared at the end of the next update in which the unit's order logic runs, whatever its
      order is then; an update that ends in a pending order taking over, or in a move step, leaves it set. If the order
      at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips its search (static study;
-     no trace separates the case of a changed order).
+     no trace separates the case of a changed order). The mark gates **only** the search at the start of the order
+     logic. A unit in an attack-type order that is out of reach of its target takes a move step instead of running its
+     order logic, and the move step's own target search runs whatever the mark. That search can change the target, and
+     the move step then looks for a route to the new target; with none, the unit goes idle at once as above. The mark
+     stays set until the next run of the order logic (traced: `xorc8-10000`, vectors below).
   4. If nothing is found, the unit goes idle at once, as above.
   Traced: `human5-10000`, vectors below. Each part is needed there: the facing, the same-update step, and a mark that
   lasts exactly one run.
@@ -529,13 +544,15 @@ A lost target (invalid or not detected) is handled as in "Arriving and losing th
 15 and 16 the target search of "Automatic target acquisition" runs first, as for order 12; the lost target is
 handled only if it finds nothing new. So a dying target stays the target until then.
 
-In order 16 the idle logic first runs 3 cycles after that take-over, and may pick the same target again. When the
-search in order 16 picks a **new** target that is out of range, the unit doesn't switch to it: the out-of-range rule
-above applies instead (idle in the same update, wait 3, attacker kept), and its idle logic, 3 cycles later, attacks
-as usual. Order 15 goes to order 13 in the same update by the same path (orders 15 and 16 share one logic; the
-out-of-range branch gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by `human01-order15-range-700`
-(vectors below). The logic runs at the step done that ends the attack cycle, after the cooldown frames, so a target
-that walks out of range is seen only then.
+In order 16 the idle logic first runs 3 cycles after that take-over, and may pick the same target again. When the search
+in order 16 picks a **new** target that is out of range, the unit doesn't switch to it: the out-of-range rule above
+applies instead (idle in the same update, wait 3, attacker kept), and its idle logic, 3 cycles later, attacks as usual.
+Order 15 goes to order 13 in the same update by the same path (orders 15 and 16 share one logic; the out-of-range branch
+gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by `human01-order15-range-700` (vectors below). The
+logic runs at the step done that ends the attack cycle, after the cooldown frames, so a target that walks out of range
+is seen only then. While the unit is still **cooling down**, the cooling-down rule of "Automatic target acquisition"
+wins: the search takes the new target with no range test, and the unit restarts order 16 on it with the cooldown left as
+its wait. The out-of-range idle can come only at a later run with no cooldown left (static study only).
 
 **Order 14 (towers).** A tower doesn't keep a target from one run to the next. Each time its logic runs, it forgets its
 attacker and runs the target search of "Automatic target acquisition" with two differences: the box is always its
@@ -588,7 +605,9 @@ but no trace shows such a run:
 ### Automatic target acquisition
 
 Units in an order marked "acquires" look for an enemy each time their logic runs. Enhanced mode adds acquisition to
-attack-move (order 10).
+attack-move (order 10). A unit in an attack-type order that is out of reach of its target runs a move step instead of
+its order logic, and the move step makes the same search; the skip mark of "Order 12 with no route" doesn't stop that
+one.
 
 **Search box.** The unit searches a square box centred on its own tile, extending R tiles on each side:
 
@@ -639,9 +658,11 @@ unit data.
 
 **Forgetting a dying attacker first.** Every target search (acquisition, the search in the reaction and order 12's
 fallbacks) starts, for a unit that can move, by forgetting its recorded attacker if that attacker is dying or no longer
-in play. The search then runs with no attacker seed. The resulting order below is still picked from the record as it was
-before the search, so the first search after the attacker started dying can still give order 12; later searches see no
-attacker and use the "otherwise" cases (traced: `xorc6-10000`, vectors below).
+in play. A unit can move if its type has any movement-class flag (the five lowest type flag bits of the unit data);
+buildings never do, and nor do the remains types (0x67 to 0x6D) or the unused types 0x22, 0x30 and 0x36. The search then
+runs with no attacker seed. The resulting order below is still picked from the record as it was before the search, so
+the first search after the attacker started dying can still give order 12; later searches see no attacker and use the
+"otherwise" cases (traced: `xorc6-10000`, vectors below).
 
 **Choice.** The search starts with the unit's current **attacker** (the first attacker that is still alive; see
 `ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score, but only when that score is
@@ -707,7 +728,7 @@ the target, and order 12 takes over at the next step done. Orders 4 and 10 are t
 set. A unit in order 4 or 10 standing at its move goal doesn't search at all: it arrives ("Arriving and losing the
 target").
 
-In order 16 a new target out of range isn't taken ("Attacking without moving").
+In order 16 a new target out of range isn't taken unless the unit is cooling down ("Attacking without moving").
 
 Order 32 (docked transport) carries the idle-type mark in the order data too, but its logic does nothing, and the
 reaction in "Reacting to an attacker" gives order 12 without this table. So a unit in order 32 never reaches this
@@ -1185,6 +1206,7 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xorc6-10000` (oracle trace), n = 6106: axe thrower 1475 (type 0x09, owner 5) idle at (82, 90); its recorded attacker died earlier and was forgotten by an earlier search | Order 16 (not 12) on footman 1459, animation 4, wait 3 |
 | `xorc8-10000` (oracle trace), n = 6177: transport 1423 (type 0x1D, owner 5), idle at (118, 110), flees to a shore tile | Order 30, animation 6, wait 3 |
 | A peasant flees to a tile next to a forest | Order 3 (move); no harvest |
+| `xorc8-10000` (oracle trace, Enhanced), n = 7372: elven destroyer 1468 (type 0x1E, owner 2, 1 HP) at (116, 116) in order 12 on fleeing transport 1402 (type 0x1D, owner 5) at (104, 114), out of reach, skip mark set by a no-route retarget at n = 7252; ogre 1392 (type 0x07, owner 5) on land at (121, 117) | The move step's search takes 1392 and finds no route: order 2 at once, animation 2, wait 1, target null; tile (116, 116), facing 7 |
 
 ## Open questions
 
