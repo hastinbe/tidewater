@@ -29,6 +29,9 @@
   2026-10-13, round-51 errata: the enemy search tests only alliance, the attack order's kind check and dying, gone or
   inside: no fog, detection, air-against-air or minimum-range test, and no score; the nearest candidate wins (strictly
   nearer replaces); `xorc8-10000` and `xhuman7-10000` vectors.
+  2026-10-13, round-55 errata: the sea and base-edge patrols set the unit's current patrol ends but not its remembered
+  ones (Enhanced), so a patrol resumed during its first leg turns toward the unit's own tile at the command, not the far
+  end; `xorc11-air-sea-3000` vector.
 
 ## Behaviour
 
@@ -345,7 +348,11 @@ idle, and turn into roamers when no enemy is left.
    oil patch (bit 21) nearest the anchor; else (anchor x − (r mod 5) − 2, anchor y − (r mod 5) − 2), two draws x first,
    clamped to the map.
 3. Give a patrol command (command 5) toward the anchor, then make the unit's patrol ends the anchor and the far end.
-   The unit's goal tile becomes the anchor.
+   The unit's goal tile becomes the anchor. In Enhanced mode the patrol command remembers the anchor and the tile the
+   unit stands on (`orders/orders.md`, "Resuming patrol and attack-move"), and setting the ends doesn't change that. So
+   the first leg runs to the anchor and turns toward the far end, but a patrol broken off during its first leg and
+   resumed later runs to the anchor and turns toward the tile the unit stood on when the patrol was given (traced:
+   `xorc11-air-sea-3000`, vectors below).
 
 So warships patrol between the oil supply and the nearest platform or oil patch.
 
@@ -362,8 +369,9 @@ of the box (each end clamped to the map):
 | South | (min x, max y) | (max x, max y) |
 | West | (min x, min y) | (min x, max y) |
 
-The unit is given a patrol command toward "From", then its patrol ends are set to "From" and "To". No path that gives
-a unit this goal has been found (see Open questions).
+The unit is given a patrol command toward "From", then its patrol ends are set to "From" and "To". As for the sea
+patrol, the remembered patrol (Enhanced) keeps "From" and the unit's own tile at the command, not "To". No path that
+gives a unit this goal has been found (see Open questions).
 
 **Escort (7)** and **none (0):** nothing.
 
@@ -579,6 +587,8 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `xorc7-7000`, n = 1002: 1423 idle again at (6, 22); tankers 1587 and 1594 both inside platform 1590 (order 26) | Patrol command toward (6, 22), its own tile: order 5, wait 3. n = 1005: order 5, wait 3 (the swap to the far end); n = 1008: animation 3, it starts walking |
 | `human10-10000`, the first tanker in the list taken and then rejected because it is inside (wrong) | Differs from the trace at n = 6907 |
 | `human10-10000`, n = 6956: computer destroyer 1483 (type 0x1F) at (24, 8) | Order 5, wait 3; n = 6959: tile (26, 6), facing 1, animation 3 |
+| `xorc11-air-sea-3000` (Enhanced): computer battleship 1539 (type 0x20, owner 6) at (6, 24) gets the sea patrol at n = 3 (anchor (21, 34), far end oil platform 1556 at (5, 19)); order 12 from n = 112; the patrol resumes at n = 1145 toward (21, 34) and turns at (20, 34) at n = 1413 | Goal (6, 24), not the platform: at n = 1643 it steps west from (12, 28) to (10, 28) |
+| Enhanced: computer warship at (6, 24) idle; sea patrol with anchor (21, 34) and far end (5, 19); it fights during the first leg, then resumes (static study) | The resumed patrol runs to (21, 34) and turns toward (6, 24); without the fight the first leg turns toward (5, 19) |
 | `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) starts at (29, 14), its hold goal set at its own tile; it chases a target to (21, 7), where the target is lost at n = 401 | The ring search moved the stored goal to (28, 14) when the goal was set. At n = 403, past its leash, it is sent back (order 3, wait 3) to (28, 14), not (29, 14): there at n = 550, idle at n = 566 (wait 3, facing 3) |
 | `xorc3-10000` (oracle trace): computer grunt 1455 (type 0x01, owner 3), created at (43, 11) at n = 9443 with its hold goal at (34, 9); at n = 9454 peon 1464 stands on (34, 9) | Past its leash, at n = 9454 it gets order 3 (wait 3) and walks to (34, 9) itself, the tile as given, though set goal's ring search would move the stored goal off the peon's tile; idle there at n = 9601 (wait 3) |
 | `xorc8-10000` (oracle trace, Enhanced), n = 6051: computer gryphon rider 1550 (type 0x2A, owner 2) idle at (10, 120); goblin zeppelin 1400 (type 0x29, owner 5) at (8, 120) is the nearest enemy; troll destroyer 1386 (type 0x1F, owner 5) is far away, at (106, 124) | Order 12 on 1400, animation 4, wait 3 (the zeppelin isn't skipped for being an air unit that can't attack) |
