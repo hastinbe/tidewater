@@ -25,6 +25,8 @@
   water target); the ordinary pull-back keeps the goal for transports too.
   2026-10-12, round-43 errata: a recorded attacker that is dying doesn't count for the attack-type rule's "no attacker"
   test; `xorc01-death-coil` vector.
+  2026-10-13, round-50 errata: the search's spell-caster exclusion is the mage-type units only (mage and death knight
+  types); paladins and ogre mages count as fighters; `xhuman11-10000` vector.
 
 ## Behaviour
 
@@ -65,9 +67,11 @@ when either of these holds:
 1. **Attack-type orders:** the searching unit's order carries the "acquires" mark of `orders/orders.md` (orders 2, 4, 5,
    7, 12, 13, 14, 15 and 16, and 32, which never moves), or it is order 10 (attack-move) in Enhanced mode; it has no
    attacker (see `movement.md`; a recorded attacker that is **dying** doesn't count); and it is not a worker, tanker,
-   demolition unit or spell-caster type. Orders 9 (attack a unit) and 11 (attack a wall) are **not** attack-type. Then
-   **units of non-allied players are ignored**, the target included: the path goes through enemies, and the unit fights
-   whatever it meets.
+   demolition unit or **mage-type unit** (mage and death knight types, heroes included, as in `orders/orders.md`,
+   "Reacting to an attacker"). Paladins and ogre mages can cast spells but count as fighters here (traced for a paladin:
+   `xhuman11-10000`, vectors below; ogre mages are expected to behave the same). Orders 9 (attack a unit) and 11 (attack
+   a wall) are **not** attack-type. Then **units of non-allied players are ignored**, the target included: the path goes
+   through enemies, and the unit fights whatever it meets.
 2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player); it is in
    its move animation (3), **or** it has been given a command whose pending order hasn't taken over yet; its blocked
    counter is 0; and one further state mark is clear (assumed to be "not inside something"; see "Open questions").
@@ -299,6 +303,7 @@ units on the map.
 | Two-tile mover, no target, G = (22, 8) | Goal zone: even tiles x 20 to 24, y 6 to 10 |
 | `xorc7-7000` (oracle trace): computer tanker 1594 (type 0x1A, two-tile), order 24 to its 3 × 3 shipyard 1567 at (6, 18); search at n = 410 from (14, 14) toward (8, 18), the "Building goal rule" tile | Line SW to (12, 16), W to (10, 16), then SW onto the shipyard: blocked, T = (10, 16). The left walk first tries S onto (10, 18), in the zone, and succeeds: route SW, W, S, shortened to SW, SW; P's distance 2 against S's 6, score 4, below 8, so the right walk isn't tried. Record n = 410: (12, 16), facing 5 |
 | Same, n = 442 and n = 474 | n = 442: (10, 18), facing 5. n = 474: order 25 |
+| `xhuman11-10000` (oracle trace), n = 4443: paladin 1510 (type 0x0C, owner 1) at (88, 76) in order 12 on grunt 1570 at (88, 74); dying grunt 1577 on (88, 75) | Steps north to (88, 75): facing 0, animation 3 (the paladin's search ignores enemy units) |
 
 ## Open questions
 
