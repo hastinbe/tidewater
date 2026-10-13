@@ -27,6 +27,8 @@
   2026-10-12, round-42 errata: a worker coming out with a build job faces its build goal tile (building goal rule from
   its exit tile); the exit aim at the commanded goal is supported by the trace set and no longer marked static study
   only (open question closed); `xorc3` vector.
+  2026-10-12, round-43 errata: felling's return command clears the blocked counter, as every command does (stated
+  explicitly); round-43 vectors (`orc8`).
 
 ## Behaviour
 
@@ -147,8 +149,10 @@ While in order 23 in lumber mode, each time the order's logic runs:
    - While the counter is below **50**, it goes up by 1. A cheat sets it straight to 50.
    - When the counter is already 50, the tree is **felled** (`movement/occupancy.md` gives the map changes). The
      worker is now carrying lumber (its graphic changes to the carrying one) and its frame is set to 0. It is given
-     a return command to the nearest depot (order 24), or becomes idle if there is none, and that order takes over
-     in the same update: order 24, its still animation, wait 3 (`orders/orders.md`, "Same-update take-over").
+     a return command to the nearest depot (order 24), or becomes idle if there is none, and that order takes over in
+     the same update: order 24, its still animation, wait 3 (`orders/orders.md`, "Same-update take-over"). As a command,
+     it clears the blocked counter (`movement/movement.md`, "Blocked rules"), so blocks met on the way to the tree don't
+     carry over into the walk back.
 4. **Chopping, but the tile is no longer reserved:** the reservation is dropped, and the worker looks for the nearest
    tree from its own tile, as in step 2.
 
@@ -350,6 +354,13 @@ gold, storage for wood, storage for oil, building.
 | --- | --- |
 | `xorc3-10000` (oracle trace), n = 9180: computer peon 1485 (type 0x03, owner 2) comes out at (35, 117) with a build job | Order 2, wait 25, facing 0 (toward its build goal tile) |
 | A worker comes out at (10, 10) with a build job for a 2 × 2 site at (14, 10) | Faces its build goal tile from (10, 10): east (2) |
+
+### Round-43 vectors
+
+| Input | Expected |
+| --- | --- |
+| A worker blocked 9 times on its way to a tree fells it | Its return walk starts with the blocked counter at 0 |
+| `orc8-10000` (oracle trace): computer peasant 1497 (type 0x02, owner 1) comes out of gold mine 1509 at n = 8054 (order 2, wait 25); at n = 8079 it is given the return command (order 24 on 1489, wait 3) | n = 8082: tile (123, 88), facing 4, move animation (the return command cleared its blocked counter) |
 
 ## Open questions
 
