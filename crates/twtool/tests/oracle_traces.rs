@@ -16,14 +16,20 @@
 //!   near that target.
 //! - **human5**, n = 1758: at n = 1759 a grunt (slot 1531) in order 12 targets 1525, facing 5, wait 1 in the game,
 //!   and 1518, facing 2, wait 3 in ours; and a critter (slot 1538) is in order 3 in the game and 2 in ours.
-//! - **xhuman2**, n = 2486: at n = 2487 player 0 has 0 gold and 825 lumber in the game and 50 and 775 in ours, and a
+//! - **xhuman2**, n = 2486: at n = 2487 player 0 has 0 gold and 825 lumber in the game and 50 and 775 in ours, and a unit
 //!   worker (slot 1588) let out of a building faces 0 in the game and 7 in ours.
+//! - **orc5**, n = 1640: at n = 1641 player 1 has 300 gold and 75 lumber in the game and 800 and 325 in ours, and
+//!   a unit of type 0x02 (slot 1564) stands at tile y 41, facing 5, in the game and y 39, facing 7, in ours.
+//! - **xorc4**, n = 8070: at n = 8071 a unit of type 0x02 (slot 1580, owner 2) in order 28 is at tile y 11, facing
+//!   7, in the game and y 12, facing 6, in ours.
+//! - **xhuman3**, n = 8748: at n = 8749 an idle unit of type 0x1b (slot 1418, owner 3) has wait 3 in the game and 1
+//!   in ours.
 //!
 //! human01-2000, human04-3000, human01-basics, orc02-assault, xorc12-ogre-mage, orc09-naval, orc09-repair,
 //! human12-transport, human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human7-10000,
 //! xorc3, human10-24000, orc8, xhuman4, human06-31357, orc4-40000, human7-22000, human01-order15-range,
-//! human12-row-f-move, human12-row-f-landing, xorc01-death-coil, xorc01-death-knight and xorc10-dragons match in
-//! full.
+//! human12-row-f-move, human12-row-f-landing, xorc01-death-coil, xorc01-death-knight, xorc10-dragons, orc3, orc6,
+//! xorc2, xorc5, xhuman1, xhuman5, xorc1-20000 and xorc10-20000 match in full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -32,7 +38,7 @@ use std::process::Command;
 /// fields left out, and the last cycle that must match (`None`: the whole trace).
 type Trace = (&'static str, &'static str, u8, &'static [&'static str], Option<u32>);
 
-const TRACES: [Trace; 34] = [
+const TRACES: [Trace; 45] = [
     ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
     (
@@ -169,6 +175,29 @@ const TRACES: [Trace; 34] = [
         &[],
         None,
     ),
+    ("orc3-10000.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    ("orc5-10000.jsonl.gz", "Campaign\\Orc\\Orc05.pud", 9, &[], Some(1640)),
+    ("orc6-10000.jsonl.gz", "Campaign\\Orc\\Orc06.pud", 11, &[], None),
+    ("xorc2-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc02.pud", 31, &[], None),
+    (
+        "xorc4-10000.jsonl.gz",
+        "Campaign\\XOrc\\2XOrc04.pud",
+        35,
+        &[],
+        Some(8070),
+    ),
+    ("xorc5-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
+    ("xhuman1-10000.jsonl.gz", "Campaign\\XHuman\\2XHum01.pud", 28, &[], None),
+    (
+        "xhuman3-10000.jsonl.gz",
+        "Campaign\\XHuman\\2XHum03.pud",
+        32,
+        &[],
+        Some(8748),
+    ),
+    ("xhuman5-10000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    ("xorc1-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
+    ("xorc10-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
 ];
 
 #[test]
