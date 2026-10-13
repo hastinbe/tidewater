@@ -65,6 +65,13 @@
   tanker, no owner or depot test), and gold taken to a wood-only depot is lost; a lost or busy depot re-issues
   return goods at once as a pending order; entering drops a dying, gone or unseen target first, so a unit
   stepping into a dying building dies; round-62 vectors.
+  2026-10-13, round-63 errata: a worker delivers only at a building that stores gold or wood; at any other building
+  (an oil-only one included) it goes inside like a mine or platform, keeps its load, and the building keeps frame 2;
+  coming out lowers the return-to source's count whatever it comes out of; coming out always makes idle the pending
+  order (wait 3 when it takes over); stepping in faces a non-building target's own tile; command 24's target unit gets
+  the command check ("inside something" fails it: pending idle, no depot search); order 24's reaction runs only when
+  its walk has ended (static study only); entering's target check is detection, not fog (static study only); the
+  no-depot return is traced; round-63 vectors.
 
 ## Behaviour
 
@@ -123,7 +130,9 @@ While in order 23 with a target mine or platform:
 Order 25 can't be interrupted by new orders (see `orders/orders.md`).
 
 1. **First time the order's logic runs:**
-   - The unit turns to face the tile one in from the building's top-left corner (top-left tile + (1, 1)).
+   - The unit turns to face the tile one in from the building's top-left corner (top-left tile + (1, 1)); if the
+     target is not a building (command 24 takes any unit as given, "Returning goods"), it faces the target's own tile
+     (traced: `orc9-orc09-return-nodepot-2200` n = 1196, a peon stepping into another peon; round-63 vectors).
    - It is taken off the occupancy marks.
    - A **land worker** moves one tile in that direction, playing its move animation; the order's logic runs again
      when that move loop ends.
@@ -132,20 +141,28 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
    - The unit becomes **inside** the building: it is hidden, untargetable, its attacker is forgotten, and its tile
      position becomes the building's position.
    - Its order becomes 26 (inside) at once, and its wait is set to **150 cycles**.
-   - If the unit is a worker and the building stores gold, wood or oil, or the unit is a tanker and the building
-     isn't an oil platform, the goods are **delivered** (below), and nothing else happens, even if the building
-     doesn't accept what the unit carries: the delivery table then adds nothing and the load is lost (traced for gold
-     at a lumber mill: `orc9-orc09-return-goods-2200` n = 1482, round-62 vectors; static study only for the other
-     cases). A tanker that enters its own oil platform takes the branch below and delivers nothing (traced: same
-     trace, n = 1287), and so does a worker at a building that stores nothing (static study only).
-   - Otherwise (a mine or platform):
+   - If the unit is a worker and the building stores gold or wood, or the unit is a tanker and the building isn't an
+     oil platform, the goods are **delivered** (below), and nothing else happens, even if the building doesn't accept
+     what the unit carries: the delivery table then adds nothing and the load is lost (traced for gold at a lumber
+     mill: `orc9-orc09-return-goods-2200` n = 1482, round-62 vectors; static study only for the other cases). A
+     tanker that enters its own oil platform takes the branch below and delivers nothing (traced: same trace,
+     n = 1287), and so does a worker at a building that stores neither gold nor wood (an oil-only building such as a
+     shipyard included): it keeps its load, and the building keeps frame 2 from then on (traced:
+     `orc9-orc09-enter-nothing-1900` n = 910 at an orc blacksmith and n = 1367 at an orc shipyard, round-63 vectors).
+   - Otherwise (a mine or platform, or any building where a worker doesn't deliver):
      - the building's occupant count goes up by 1. If its frame is 0, the frame becomes 1 for a gold mine (type
-       0x5C) and 2 for any other building (an oil platform): its "active" look. Otherwise the frame doesn't change.
-       Every building starts with frame 0 and an occupant count of 0, and a depot's frame never changes here;
+       0x5C) and 2 for any other building (an oil platform, or a building that stores neither gold nor wood): its
+       "active" look. Otherwise the frame doesn't change. Every building starts with frame 0 and an occupant count
+       of 0, and a building entered by the delivery branch above keeps its frame;
      - if the building has trips left, the unit is now **carrying**, and the building loses one trip. If that was the
        last trip, the building **collapses** (below). Otherwise the building becomes the unit's return-to source.
+     - A building with no trips (one that stores nothing or only oil) gives nothing: the unit keeps its load and its
+       return-to source. Its count and frame are **never lowered** again, since coming out lowers only the return-to
+       source's count ("Coming out", step 2), so such a building keeps frame 2. A building that stores nothing but has
+       trips doesn't exist in the game's data (static study only).
 3. **Target check first.** Each time the logic runs, before steps 1 and 2, the target is dropped if it is **dying or
-   gone**, or no longer visible to the unit's player (the visibility part is static study only). A building in its
+   gone**, or no longer **detected** by the unit's player: the detection test of `orders/orders.md` ("Terms"); fog
+   and explored tiles play no part (the detection part is static study only). A building in its
    death animation is already lost to an entering unit. Then, with no target: a unit that already stepped in (step 1
    done) **dies**, and its target shows as none; otherwise idle becomes the pending order (traced:
    `orc9-orc09-enter-dying-1800` n = 1441, round-62 vectors; also the uncommitted `xorc8-30000` n = 19330, a
@@ -155,15 +172,23 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
 
 When the 150-cycle wait ends and the inside order's logic runs:
 
-1. The unit becomes idle (order 2) at once, and its goal is set to its own stored tile.
-2. If it is carrying, its return-to source exists, and that source is a gold mine or oil platform, the source's
-   occupant count goes down by 1: if the count is 0 it counts as 1, and when it reaches 0 the source's frame
-   becomes 0 (the "active" look ends). Both frame changes happen at the moment of going in or coming out, in that
-   unit's update.
+1. The unit becomes idle (order 2) at once, idle is also made its **pending** order, and its goal is set to its own
+   stored tile.
+2. If it is carrying, its return-to source exists, and that source is a gold mine or oil platform (whatever building or
+   unit it is coming out of), the source's occupant count goes down by 1: if the count is 0 it counts as 1, and when it
+   reaches 0 the source's frame becomes 0 (the "active" look ends). Both frame changes happen at the moment of going
+   in or coming out, in that unit's update. So a carrying worker coming out of a depot, a building that stores
+   nothing or another unit lowers its mine's count, and the building it comes out of keeps its count and frame
+   (traced: `orc9-orc09-enter-nothing-1900` n = 1060, out of an orc blacksmith; `orc9-orc09-return-nodepot-2200`
+   n = 1368, out of a peon; round-63 vectors).
 3. A **computer player's** unit (`orders/orders.md`, "Terms") hands control to the AI here (a later spec). If the AI
    gives it an order, steps 4 and 5 are skipped. Every other player's unit goes straight on to steps 4 and 5.
 4. If it is **carrying**, it looks for the nearest depot (below) and moves there in order 24 (return goods). If there
-   is none, it stays idle.
+   is none, it stays idle, and idle is its pending order, which takes over when the 25-cycle wait ends (wait 3).
+   The depot search uses the unit's tile, which is still the building's top-left tile here (the unit is placed only
+   in step 6), so a worker coming out of a shore building whose top-left tile is in another region than every depot
+   finds none (traced: `orc9-orc09-enter-nothing-1900` n = 1517 and 1542, round-63 vectors, a peon coming out of a
+   shore shipyard idle with no target although it is placed on land; which tile the search reads is static study).
 5. Otherwise, if it has a **return-to source**, it forgets it and heads back there with a harvest command (so a
    worker that just delivered goes straight back to its mine or tree).
 6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search of
@@ -196,8 +221,11 @@ When the 150-cycle wait ends and the inside order's logic runs:
    tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a
    tree at its own tile).
 
-The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
-over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
+The order given in steps 3 to 5 (the AI's, or the return or harvest command) replaces the pending idle of step 1. It
+takes over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
+With no new command the pending idle takes over the same way: still animation, wait 3, and the idle logic first runs
+3 cycles later (traced: `orc9-orc09-enter-nothing-1900` n = 1542, round-63 vectors). A computer player's unit whose AI
+gives no order in step 3 is static study only.
 
 ### Lumber
 
@@ -284,19 +312,28 @@ The computer job choice runs the same search with a larger limit (`ai/worker-ai.
 A return-goods command (command 24) is taken by a worker (peasant or peon type) or a **tanker** that is **carrying**.
 With a target unit, that unit is the target and the order becomes 24, **as given**: there is no test of the target's
 owner, its kind, or whether it accepts what is carried (traced: `orc9-orc09-return-goods-2200` n = 1150 and 1265,
-round-62 vectors). With no target, the command looks up the nearest depot. The depot becomes the target, and the order
-becomes 24. If no depot exists, the order becomes 2. What a worker sent to a building that stores nothing does on
-entering (the mine-or-platform branch of "Entering", step 2) is static study only, and so is a tanker sent to a
-building other than an oil platform delivering its oil there (as in the delivery table).
+round-62 vectors). It still gets the command check of `orders/orders.md` ("Commands forget a stale attacker"): a
+target that is dying, gone, inside something or undetected is dropped and idle becomes the **pending** order in place of
+order 24. No depot is looked up then: the unit stays in its current order, still carrying, until the pending idle takes
+over (wait 3) (traced for a target inside a gold mine: `orc9-orc09-return-nodepot-2200` n = 1374, round-63 vectors;
+static study only for a dying, gone or undetected target). With no target, the command looks up the nearest depot.
+The depot becomes the target, and the order becomes 24. If no depot exists, the order becomes 2. A worker sent to a
+building that stores neither gold nor wood goes inside and keeps its load ("Entering", step 2; traced:
+`orc9-orc09-enter-nothing-1900`, round-63 vectors). A tanker sent to a building other than an oil platform delivering
+its oil there (as in the delivery table) is static study only.
 
 While in order 24:
 
-- Each time the logic runs (after the reaction to an attacker), if the target is **dying or gone**, or busy (for
-  example inside something), the unit looks up the nearest depot ("Finding the nearest depot") and is given return
-  goods to it **as a pending order** that takes over in the same update: still animation, wait **3**, cached route
-  dropped, the new route starting from where it stands. If no depot is found, idle becomes the pending order
-  (traced for a dying depot: `orc9-orc09-enter-dying-1800` n = 1435, round-62 vectors; the busy and no-depot cases
-  are static study only).
+- While the unit is walking, only the walk runs; the order's logic runs when the walk has ended: on arrival, with no
+  route, or when the target is found dying or gone at a step boundary (`orders/orders.md`, "The reaction"). Each time the logic runs, it first runs the reaction to an attacker: a worker hit by a worker fights
+  back (command 8) instead of entering; order 24 isn't one of the orders that flee, so any other valid attacker is
+  kept; an attacker that is no longer valid, or any attacker of a tanker, is forgotten (static study only: no trace
+  has an attacker on a returning unit). Then, if the target is **dying or gone**, or busy (for example inside
+  something), the unit looks up the nearest depot ("Finding the nearest depot") and is given return goods to it **as a
+  pending order** that takes over in the same update: still animation, wait **3**, cached route dropped, the new
+  route starting from where it stands. If no depot is found, idle becomes the pending order (traced for a dying
+  depot: `orc9-orc09-enter-dying-1800` n = 1435, round-62 vectors; with no depot left, a dying great hall:
+  `orc9-orc09-return-nodepot-2200` n = 1530, round-63 vectors; the busy case is static study only).
 - If its route search finds no route, it becomes idle as an **immediate** order and its idle logic runs in the same
   update (`orders/orders.md`, "No route"). For a computer player's worker or tanker that is the job choice, whose new
   command takes over at once (wait 3).
@@ -322,7 +359,8 @@ worker also returns to a lumber mill.
 ### Delivering goods
 
 Delivery happens when a unit enters a depot, and for each builder inside a building when its construction is completed
-(`economy/build-train.md`, "Completion").
+(`economy/build-train.md`, "Completion"). A worker delivers only at a building that stores gold or wood: at an oil-only building, such as a
+shipyard, it goes inside without delivering ("Entering", step 2).
 
 | Unit and depot | Amount added to the owner's stock |
 | --- | --- |
@@ -536,6 +574,21 @@ gold, storage for wood, storage for oil, building.
 | Same trace, n = 1265: tanker 1473 (type 0x1B), carrying oil, told to return goods to its own oil platform 1468 | Order 24 at n = 1284; enters at n = 1287 with no oil delivered; at n = 1440 heads for shipyard 1499; oil +100 at n = 1599 |
 | `orc9-orc09-enter-dying-1800` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-enter-dying.txt`): lumber mill 1477 starts dying at n = 1428; peon 1482 is in order 24 to it | n = 1435: return goods to great hall 1488, still animation, wait 3; it walks from n = 1438 |
 | Same trace: peon 1478 (type 0x03), carrying lumber, starts entering mill 1477 at n = 1416 and is stepping in when the mill starts dying | 1478 dies (order 1) at n = 1441 with no target |
+
+### Round-63 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-enter-nothing-1900` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-enter-nothing.txt`), n = 452: peon 1482 (type 0x03, owner 5), carrying gold, told to return goods to orc blacksmith 1495 (type 0x53) | Order 24 from n = 464; inside (order 26) at n = 910; 1495's frame becomes 2 at n = 910 and stays 2 to the end; player 5's gold stays 1100 |
+| Same trace, n = 1060: 1482 comes out of the blacksmith, still carrying, its return-to source gold mine 1480 (type 0x5C), while peon 1478 is inside 1480 (since n = 941, frame 1) | 1480's frame becomes 0 at n = 1060; 1482 gets return goods to great hall 1488 (type 0x4B) and delivers there at n = 1201 (gold 1200). When 1478 comes out of 1480 at n = 1091 the frame stays 0 |
+| Same trace, n = 1132: peon 1478, carrying gold, told to return goods to orc shipyard 1499 (type 0x49, stores oil only) | Inside at n = 1367; 1499's frame becomes 2 and stays 2; gold stays 1200 (no delivery; the load is kept) |
+| Same trace, n = 1517: 1478 comes out of the shore shipyard (top-left (44, 78)), still carrying | Order 2, target none, wait 25, placed at (43, 80): no depot found. At n = 1542 the pending idle takes over: still animation, wait 3; the idle logic first runs 3 cycles later |
+| `orc9-orc09-return-nodepot-2200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-return-nodepot.txt`), n = 1152: peon 1482 (type 0x03, owner 5), carrying gold, told to return goods to peon 1478, which is walking | Order 24 from n = 1168; order 25 at n = 1193 at (48, 92). n = 1196: facing 0, stepping to (48, 91), 1478's tile (not facing 2 toward (49, 92), 1478's tile + (1, 1)). Inside 1478 (order 26) from n = 1218 |
+| Same trace, n = 1368: 1482 comes out of 1478, which is inside gold mine 1480 (since n = 1242) | 1480's frame drops from 1 to 0 at n = 1368 |
+| Same trace, n = 1374: 1482, idle with return goods to great hall 1488 pending, told to return goods to 1478, which is inside the gold mine | Target none in that turn record; order 2 kept; the pending idle takes over at n = 1393 (still animation, wait 3); 1482 stays idle to the end |
+| Same trace: great hall 1488 starts dying at n = 1522 while peon 1478 is returning gold to it (order 24 since n = 1417); no other depot | n = 1530: 1478 idle (order 2), target none |
+| A worker hit by an enemy peon as it reaches its depot in order 24 (static study) | It fights back (command 8) instead of entering |
+| A human player's worker in order 24 hit by an enemy archer while walking to its depot (static study) | No reaction while walking; on arrival the reaction runs, and it doesn't flee (order 24 isn't one of the flee rule's orders, `orders/orders.md`, "Fleeing") |
 
 ## Open questions
 
