@@ -46,6 +46,9 @@
   killed during a job has the job cancelled at the kill.
   2026-10-13, round-50 errata: a unit keeps through its death animation the target recorded when it dies, so a killer
   that forgot its target dies with none; `xhuman12-10000` and `xhuman8-10000` vectors.
+  2026-10-13, round-53 errata: a hammer or breath splash takes its effect slot before the splash's damage, so a killed
+  unit's explosion comes in a later slot; the strike point first makes the strike reveal of `vision/fog.md`;
+  `xorc8-10000` vector.
 
 ## Behaviour
 
@@ -132,7 +135,9 @@ When damage D from an attacker reaches a target:
 
 ### How an attack delivers damage
 
-An attacking unit plays its **attack script** (see "Attack timing" below). At the script's strike point:
+An attacking unit plays its **attack script** (see "Attack timing" below). At the script's strike point, before the
+strike itself, the **strike reveal** of `vision/fog.md` ("When sight is applied", item 4) is made when the order has a
+target unit owned by another player. Then:
 
 - **Melee:** if the type's missile weapon is "none", the damage is rolled and applied to the current target at once.
   The strike is made even if the target started dying earlier in the same cycle (killed by another unit's strike):
@@ -241,12 +246,14 @@ point. Every step that leaves the remaining distance below 50 is **counted**:
 
 - if the count has already passed the **limit**, the missile ends on this step (after moving);
 - otherwise the count goes up by 1, and when the new count is a multiple of 8 the missile **splashes** at its position,
-  if an effect slot is free. The lowest free effect slot is found first; if there is none, nothing more happens on this
-  step: no splash, no sound and no effect. Otherwise the explosion sound (`misc\explode`) plays at the missile's tile,
-  the splash below is applied (its draws included), and a cosmetic **explosion** (kind 0x17) is created in the slot
-  found, at the missile's pixel position, with its other fields zero (`spells/spells.md`, "Cosmetic effects"). It
-  changes nothing in the game, is removed in U + 50, and its first update follows `spells/spells.md`, "When a new effect
-  first runs" (it is created by another effect).
+  if an effect slot is free. The lowest free effect slot is **taken** first; if there is none, nothing more happens on
+  this step: no splash, no sound and no effect. Otherwise the explosion sound (`misc\explode`) plays at the missile's
+  tile, the splash below is applied (its draws included), and a cosmetic **explosion** (kind 0x17) is then written into
+  the slot taken, at the missile's pixel position, with its other fields zero (`spells/spells.md`, "Cosmetic effects").
+  It changes nothing in the game, is removed in U + 50, and its first update follows `spells/spells.md`, "When a new
+  effect first runs" (it is created by another effect). Because the slot is taken before the splash's damage, the death
+  explosion of a unit the splash kills takes a later slot than the splash's own explosion (traced: `xorc8-10000`,
+  vectors below).
 
 The limit is 25, or 40 if the stored damage is exactly 40. So with the default data (stored damage 8 to 16) the
 count runs 1 to 26, splashes come on counts 8, 16 and 24, and the missile ends on the step after count 26. One
@@ -464,6 +471,7 @@ target's centre):
 | Same, each of the three splash steps, with an effect slot free | `misc\explode` at the hammer's tile, the splash, then a kind 0x17 explosion at the hammer's pixel position in the lowest free effect slot, with zero fields |
 | A hammer reaches count 8 while every effect slot is in use (static study only) | No splash damage, no draws for hits, no sound, no explosion; the hammer flies on and the count keeps going |
 | `xorc10` (oracle trace), n = 329: the breath of dragon 1562 (type 0x2B; missile in effect slot 3) splashes at pixel (978, 950) | Effect slot 5: kind 0x17 at (978, 950), destination (0, 0), target null, shooter null, damage 0. Units hit: 1513 (40 to 36 HP), 1519 (40 to 27) and 1520 (60 to 58) |
+| `xorc8-10000` (oracle trace), n = 8035: the hammer of gryphon rider 1550 (effect slot 3) splashes at pixel (8, 2898) and kills goblin zeppelin 1400 (type 0x29); slots 4 and up free | Slot 4: the splash's explosion (kind 0x17) at (8, 2898); slot 5: the zeppelin's death explosion (kind 0x17) at (16, 2888) |
 
 Impact effects:
 
