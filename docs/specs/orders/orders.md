@@ -73,6 +73,11 @@
   command whenever the old target is still recorded; the no-route take-over starts the cooldown, and the skip mark lasts
   until the next logic run of any order; `orc02`, `orc02-dyingcmd-3760` and `human5-10000` vectors; open questions
   updated.
+  2026-10-13, round-49 errata: command 4 with a target unit records the target and ends at a step boundary once the
+  target is dying or lost; a computer player's command 4 keeps the remembered patrol or attack-move; the Enhanced
+  sea-only search rule applies to order 10 only; an undetected live attacker is ignored for the run and kept; the checks
+  of commands 8 and 9, the owner rule of orders 12, 15 and 16 and order 11's range check (static study); `xorc11`,
+  `xhuman7` and `xorc8` vectors; open questions.
 
 ## Behaviour
 
@@ -93,7 +98,7 @@ turned into an order by the rules in "Commands" below, and the result is normall
 | Rule | Test |
 | --- | --- |
 | An order aimed at a unit loses its target ("Arriving and losing the target", and orders 14 to 16) | **Detected** only. A target that walks into fog stays the target |
-| The same check also forgets the unit's attacker | **Detected** only |
+| The same check on the unit's attacker | An attacker that is alive but not **detected** is ignored in that run and stays recorded; only a command forgets it ("Commands forget a stale attacker") |
 | Automatic target acquisition (the candidate skip list) | **Detected** and **not hidden** |
 
 `economy/repair.md` and `orders/transports.md` use the same test: a lost target or attacker is one that is no longer
@@ -234,7 +239,7 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | Command | Result |
 | --- | --- |
 | 3, smart move (right-click) | See "Smart move" below |
-| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4 |
+| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3) |
 | 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends |
 | 8, attack | Target unit, of any owner (the player's own, an ally's and a neutral unit included): order 9. Target tile, as given, is a wall tile: order 11 ("Order 11: attacking a wall tile"). Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
 | 9 | Target unit, of any owner: order 9; target tile, as given, a wall tile: order 11; otherwise order 2 |
@@ -245,6 +250,13 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | 16 | Order 16 |
 | 17, attack ground | Order 17 if the target tile has the same region value as the unit's tile, or is already within the unit's attack range; otherwise order 18 (move into range, then attack). Details: `combat/attack-ground-demolish.md` |
 | 19, demolish | Target unit: order 20. Target tile holds a tree, rock or wall (or a reserved tree): order 20. Otherwise: order 21 |
+
+**Checks on an attack command.** Commands 8 and 9 make no check on the target unit: no owner test and no dying test (a
+dying target is handled by "Commands forget a stale attacker"). They check only the commanded unit: it must be the
+player's own, must not be the target itself, and its type must be able to attack. The attack order's logic then checks
+only that the attacker can hit the target's kind (air, sea or land), with the submarine rule of "Automatic target
+acquisition", so an air target still needs an attacker that can hit air. Orders 12, 15 and 16 have no owner test on
+their target either (static study only for this paragraph).
 
 Commands 2, 6, 23, 24, 27, 29 and the spell commands have their own handlers, covered by later specs (stop, harvest,
 return goods, repair, build and spells).
@@ -287,7 +299,8 @@ made on the tile as given.
       "Strike decision").
    3. If the goal tile is **no longer a wall** (the wall was destroyed), idle becomes the **pending** order and takes
       over in the same update (still animation, wait 3).
-   4. If the goal tile is out of the unit's attack range, idle becomes the pending order the same way.
+   4. If the goal tile is out of the unit's attack range, idle becomes the pending order the same way. This is the same
+      test as arrival, so it fails only if the unit or its goal has moved since (static study).
    5. Otherwise the unit turns to face the goal tile (ships use their own rule, as for strikes), strikes (its attack
       animation starts) and its cooldown starts again.
 5. **Blocked row A.** The pending order 11 that row A of the blocked rules gives (`movement/movement.md`) is set
@@ -366,10 +379,13 @@ The resumed order goes through the same steps as a player's command: the goal is
 stale attacker", below). A unit that resumes doesn't keep its old route (traced: `xorc01-death-coil-2500`, vectors
 below).
 
-So a unit that broke off a patrol or attack-move to fight goes back to it once the fight is over. Every command a
-unit takes in Enhanced mode first clears its remembered order (`ui/selecting-and-commanding.md`), and only commands
-5 and 8 set it again, so a move command ends a remembered attack-move: the move arrives at idle. The countdown stops
-it from re-issuing every cycle when the move can't progress.
+So a unit that broke off a patrol or attack-move to fight goes back to it once the fight is over. Every command a player
+gives in Enhanced mode first clears the unit's remembered order (`ui/selecting-and-commanding.md`), and only commands 5
+and 8 set it again, so a move command ends a remembered attack-move: the move arrives at idle. A **computer player's
+command 4** (move, attacking on the way), with a target unit or a tile, leaves the remembered order as it is, so a
+computer unit sent off its patrol by command 4 resumes the patrol when it later goes idle through a pending order with
+its countdown at 0 (traced: `xhuman7-10000`, `xorc8-10000`, vectors below). Whether a computer player's other commands
+clear it isn't known. The countdown stops it from re-issuing every cycle when the move can't progress.
 
 ### Arriving and losing the target
 
@@ -575,8 +591,8 @@ order" below). This order decides ties.
   units, shore buildings and oil platforms;
 - both are air units and the candidate can't attack;
 - it is closer than the searcher's minimum attack range (the minimum range of its missile; see `damage.md`);
-- in Enhanced mode, on attack-move or patrol, a sea unit only considers sea units, shore buildings and oil
-  platforms.
+- in Enhanced mode, on attack-move (order 10) only, a sea unit only considers sea units, shore buildings and oil
+  platforms. A sea unit on patrol (order 5) uses the ordinary skip list (traced: `xorc11-10000`, vectors below).
 
 **Distance.** The distance d is the larger of the horizontal and vertical tile distances from the searcher's tile to
 a reference tile of the candidate:
@@ -1108,6 +1124,11 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `orc02-defeat-4021`, turn n = 3602: command 8 on the player's own Zul'jin 1594 (type 0x35) for grunts 1568, 1572, 1575, 1576 and 1578 | Each records target 1594 with order 9 pending; 1575 and 1576 are in order 9 at n = 3603 |
 | `orc02-dyingcmd-3760` (oracle trace): 1594 is dying from n = 3718; the command at turn n = 3722 sends idle grunts 1572 (wait 4) and 1575 (wait 1) to attack it | n = 3723: both in order 2, target null, wait 3; two draws in that cycle, against three in `orc02-defeat-4021`, where 1575 looks around |
 | `human5-10000`, n = 2754: axe thrower 1533 (type 0x09, owner 5) in order 12 on peasant 1513, which is inside a gold mine; the new target, great hall 1525 (type 0x4A), is out of strike reach | Command switch: target 1525, it steps to (36, 99), animation 3, facing 1, wait 1 |
+| `xorc11-10000` (oracle trace, Enhanced), n = 38: computer destroyer 1542 (type 0x1E, owner 6) on patrol at (10, 24); dragon 1526 (type 0x2B, owner 5) in its box | Order 5, target 1526, wait 15 |
+| `xhuman7-10000` (oracle trace, Enhanced): submarine 1422 (type 0x26, owner 1) hits troll destroyer 1420 (type 0x1F, owner 6); at n = 52 the submarine call gives giant turtle 1511 (type 0x27, owner 6), patrolling since n = 7, command 4 on 1420 | n = 52: target 1420 (order still 5); n = 53: order 4, animation 2, wait 3, target 1420 |
+| Same: 1420 dying from n = 252; 1511 reaches its next step boundary at n = 271 | Order 5 (the patrol resumed), animation 2, wait 3, target null; it heads for (24, 60) by n = 274 |
+| Same, n = 151: submarine 1422 hits 1420 again; 1420's owner doesn't detect it | 1420 still records 1422, so there is no new call; 1511 keeps its order 4 on 1420 |
+| `xorc8-10000` (oracle trace, Enhanced): computer submarine 1473 (type 0x26, owner 2) patrols from n = 552, gets command 4 on a tile at n = 4553, is in order 12 on 1411 from n = 5433, and loses it at n = 5581 | Order 5, animation 2, wait 3, target null |
 
 ## Open questions
 
@@ -1154,5 +1175,11 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **Order 11's cooldown and range checks** ("Order 11: attacking a wall tile", steps 4.2 and 4.4) rest on static study;
   no trace reaches either on its own.
 - **The order-12 skip mark across an order change** ("Order 12 with no route", step 3) rests on static study.
+- **A computer player's other commands and the remembered order.** Only command 4 is known to keep it; whether a
+  computer player's commands 3 and 12, among others, clear it isn't known.
+- **An attacker forgotten between runs.** In `xorc6-10000` axe thrower 1475 chases gryphon rider 1467 (type 0x2A), which
+  dies at n = 5844 and is removed (order 0) from n = 5875; its slot isn't released yet. At n = 6106 1475's idle search
+  picks 1459 with order 16, as if it had no attacker recorded. A kept dying attacker doesn't explain that, and what
+  clears the record is open.
 - **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
   is open; the `human5-10000` trace fits the strike facing.
