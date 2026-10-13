@@ -773,9 +773,11 @@ impl World {
             return;
         }
         if ended {
-            // One cycle after the end step the stored damage lands, as for a non-splash missile.
-            self.missiles[n] = None;
+            // One cycle after the end step the stored damage lands, as for a non-splash missile. Round-61 errata
+            // (`xorc11-16000` n = 15733): the slot stays in use through the final hit and the effects it makes, such
+            // as a killed unit's death explosion, and is freed last, as for every other missile ("Impact effects").
             self.land(m);
+            self.missiles[n] = None;
             return;
         }
         self.rng.draw();
@@ -1763,6 +1765,36 @@ mod tests {
         let c = w.unit(a).unwrap().centre_px();
         let death = w.missiles[h + 2].as_ref().expect("A's explosion");
         assert_eq!((death.kind, death.pos), (0x17, (c.0, c.1 - 8)));
+    }
+
+    /// Damage spec, "Missile flight" (round-61 errata; the `xorc11-16000` gryphon rider 1490 vector, n = 15733): the
+    /// hammer keeps its effect slot through its final hit, so the death explosion of the unit that hit kills never
+    /// reuses the hammer's slot; the slot is free at the end of that cycle.
+    #[test]
+    fn a_hammer_keeps_its_slot_through_its_final_hit() {
+        let mut w = range();
+        w.stats.0[FOOTMAN as usize].flags |= flags::EXPLODE_WHEN_KILLED;
+        let gryphon = spawn_at(&mut w, GRYPHON, 0, (0, 7), (16, 240));
+        let a = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        launch(&mut w, gryphon, Some(a), (0, 0));
+        let h = crate::slots::PERMANENT_EFFECTS;
+        fly(&mut w, 31);
+        assert!(w.missiles[h].is_some(), "the end step is C + 30");
+        // Clear every other effect, so the hammer's is the lowest slot in use and the lowest free one is above it.
+        for n in h + 1..w.missiles.len() {
+            w.missiles[n] = None;
+        }
+        let i = w.index(a).unwrap();
+        w.units[i].hp = 1;
+        fly(&mut w, 1);
+        assert!(w.unit(a).unwrap().dying, "the final hit kills A");
+        assert!(w.missiles[h].is_none(), "the hammer's slot is freed last");
+        let c = w.unit(a).unwrap().centre_px();
+        let death = w.missiles[h + 1..]
+            .iter()
+            .flatten()
+            .find(|m| m.kind == 0x17 && m.pos == (c.0, c.1 - 8));
+        assert!(death.is_some(), "A's explosion, above the hammer's slot");
     }
 
     // ----- impact effects (damage spec, "Impact effects"; sounds spec, "Missile impacts") -----------------------
