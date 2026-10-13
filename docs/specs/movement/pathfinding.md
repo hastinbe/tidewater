@@ -29,6 +29,9 @@
   types); paladins and ogre mages count as fighters; `xhuman11-10000` vector.
   2026-10-13, round-52 errata: Step 1 names the boarding walk's transport as a target unit, so its goal zone is the
   transport's widened footprint.
+  2026-10-13, round-59 errata: a shore building's build goal (top-left in the worker's region, else the first
+  corner in it, bottom-right first); a build command's goal is pulled back; Step 1's target zone also serves a
+  picked target unit and order 4's walk while it keeps a target unit; `mp-frosty-fjords-bne-30000` vectors.
 
 ## Behaviour
 
@@ -95,12 +98,15 @@ that is S, so its checks never meet the unit's own tile.
 ### Step 1: mark the goal zone
 
 The **goal zone** is the 3 × 3 tiles centred on G. For a target unit or building, it is the target's footprint widened
-by one tile on each side. A boarding walk (order 34, `orders/transports.md`) has its transport as the target unit, so
-its zone is the transport's widened footprint even when G isn't the transport's tile. For two-tile movers the zone's
-first row and column are rounded **down** to even and its last row and column are rounded **up** to even; the zone is
-the even tiles in that range, so it can reach one tile farther out than the plain zone on the right and bottom. For
-example, for a 3 × 3 building at (6, 18) the widened footprint is columns 5 to 9 and rows 17 to 21, and a two-tile
-mover's zone is the even tiles from (4, 16) to (10, 22); with no target it is the even tiles from G − 2 to G + 2.
+by one tile on each side. This includes a target unit just picked by an attack-move and order 4's walk toward its stored
+goal while the order keeps a target unit (`orders/orders.md`, "Attack-move"): there G stays the stored goal and only the
+zone comes from the target (traced: `orc5-40000`; not yet confirmed by static study). A boarding walk (order 34,
+`orders/transports.md`) has its transport as the target unit, so its zone is the transport's widened footprint even when
+G isn't the transport's tile. For two-tile movers the zone's first row and column are rounded **down** to even and its
+last row and column are rounded **up** to even; the zone is the even tiles in that range, so it can reach one tile
+farther out than the plain zone on the right and bottom. For example, for a 3 × 3 building at (6, 18) the widened
+footprint is columns 5 to 9 and rows 17 to 21, and a two-tile mover's zone is the even tiles from (4, 16) to (10, 22);
+with no target it is the even tiles from G − 2 to G + 2.
 
 ### Step 2: the straight line
 
@@ -200,14 +206,24 @@ For a target building with footprint from x0 to x1 and y0 to y1 (inclusive), and
   - otherwise `x0 + floor(width / 2)`.
 - **Goal y:** the same rule on y.
 
-For a land unit heading to a shore building that lies in a different land region, the goal is moved to a footprint
-corner that touches the unit's region, if one exists. Regions come from the map's region data.
+**Shore building (build goal).** For a worker going to build a shore building (`economy/build-train.md`, "Placing a
+building"), the rule above is **not** used at all. The goal is:
+
+1. the planned footprint's **top-left tile**, if that tile's land region is the worker's region;
+2. otherwise the first footprint corner in the worker's region, tried in this order: **bottom-right, top-right,
+   bottom-left, top-left**;
+3. otherwise the top-left tile.
+
+The corner test is made only for unit types that move on land; a type with the sea or air flag skips it and gets the
+top-left tile. Regions come from the map's region data (traced: `mp-frosty-fjords-bne-30000`, round-59 vectors).
 
 ### Goal pulled back
 
-Every command runs this when the order it gives is one of **0 to 16, 18 to 29, 31 to 37 and 57 to 60**, whoever
-gives it (a human or a computer player). Orders 17, 30 and 38 to 56 (the spells) don't use it. It works on the goal
-tile the command stores (the command also clears the unit's blocked counter, for every order, `movement.md`):
+Every command runs this when the order it gives is one of **0 to 16, 18 to 29, 31 to 37 and 57 to 60**, whoever gives it
+(a human or a computer player). Orders 17, 30 and 38 to 56 (the spells) don't use it. A build command (order 28) is
+included: it pulls back the goal tile worked out for the site, not the site (traced: `mp-frosty-fjords-bne-30000`,
+round-59 vectors). It works on the goal tile the command stores (the command also clears the unit's blocked counter, for
+every order, `movement.md`):
 
 1. A tile is **usable** when it has none of the terrain or building bits of the unit's movement mask (units are
    ignored) and, for a unit that isn't an air unit, its region is the unit's own region.
@@ -308,11 +324,22 @@ units on the map.
 | Same, n = 442 and n = 474 | n = 442: (10, 18), facing 5. n = 474: order 25 |
 | `xhuman11-10000` (oracle trace), n = 4443: paladin 1510 (type 0x0C, owner 1) at (88, 76) in order 12 on grunt 1570 at (88, 74); dying grunt 1577 on (88, 75) | Steps north to (88, 75): facing 0, animation 3 (the paladin's search ignores enemy units) |
 
+### Round-59 vectors
+
+| Input | Expected |
+| --- | --- |
+| Shipyard (3 × 3) with top-left (120, 52); land worker in the same land region as (120, 52) | Goal (120, 52), not the bottom-left corner (120, 54) |
+| `mp-frosty-fjords-bne-30000` (oracle trace, Enhanced): computer peasant 1548 (type 0x02, owner 2) walks in order 28 to build that shipyard | From (113, 54) at n = 16464 it steps north-east: (114, 53) at n = 16480, (115, 52) at n = 16496, (116, 51) at n = 16512, then east along row 51 to (119, 51) at n = 16560; shipyard 1518 (type 0x48) placed at (120, 52) at n = 16576. Aimed at (120, 54) it would step east to (115, 53) at n = 16496 |
+| Same trace: peasant 1560 (type 0x02, owner 0) at (52, 96) given a shipyard with top-left (67, 92) at n = 16187; the raw goal (67, 92) is unusable | Pull-back: the first tile tested, (66, 92), is unusable; the second, (65, 93), is usable; stored goal (66, 92) |
+| Land worker going to build a shore building; a type with the sea or air flag going to build one | Land: corner test as above. Sea or air: the top-left tile, no corner test |
+
 ## Open questions
 
 - **Pull-back with a target unit.** For a command with a target unit the search aims at the target, so the
   pulled-back goal matters only to the arrival test; no trace shows whether that ever differs.
 - Whether two-tile movers' start tiles are always even.
+- **Shore buildings as attack targets.** The shore rule above is the build goal; whether an attack on a shore
+  building also uses it, or the ordinary building goal rule, isn't settled by any trace.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
 - **The moving-ally rule's last condition.** A state mark must be clear; what sets it isn't identified, and no
   trace has shown it set. "Not inside something" is a guess.
