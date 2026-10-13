@@ -1341,7 +1341,7 @@ impl World {
     /// becomes 4 (`orders/orders.md`, "Commands"). Round-49 errata: a target unit is recorded as the order's target,
     /// and a computer player's command 4 keeps the remembered patrol or attack-move (`xhuman7-10000` giant turtle
     /// 1511, `xorc8-10000` submarine 1473).
-    fn command_4(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) {
+    pub(crate) fn command_4(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) {
         if !self.takes_commands(i) {
             return;
         }

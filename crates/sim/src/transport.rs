@@ -241,6 +241,11 @@ impl World {
         let u = &mut self.units[i];
         u.ship.landing = !far;
         u.ship.one_tile = !far && !(even(u.tile) && even(goal));
+        // Step 5 (round-53 errata, `human13-10000` n = 3820): within the 3 tiles every run's arrival test discards
+        // the planned route, so each step is planned afresh from the current tile.
+        if !far {
+            u.path.clear();
+        }
         // Step 2: a two-tile mover starts its move animation and runs it at once; a one-tile mover keeps animation 6.
         let restart = !u.ship.one_tile;
         match self.move_toward_as(i, Goal::tile(goal, 0), restart) {
@@ -397,13 +402,17 @@ impl World {
         // Round-42 errata: order 34 is a walking order. While the unit walks to its goal only the movement runs, so
         // a unit of any player stays in order 34 (`human10-24000` grunt 1473, `human12-7000` grunt 1407); the logic
         // runs on arrival. With no route the unit restarts order 34 at once (still animation, wait 3) if the
-        // transport's destination tile is in its region, and becomes idle at once otherwise. The "not arrived" step
-        // (the boarding moves) is never reached this way, as that spec's open question says. Round-43 errata: for a
+        // transport's destination tile is in its region, and becomes idle at once otherwise. Round-43 errata: for a
         // human player's unit the restart also tells the transport to come again unless it is landing
         // (`human12-transport` transport 1428, n = 46, wait 3). Whether a computer player's restart does is open, so
         // it only restarts order 34 (`human10-24000` n = 17216 and `human12-7000` n = 6454 leave the transport be).
+        // Round-53 errata (`human13-10000` ogre 1383, n = 9154): the restarted order's logic then runs in the same
+        // update and finds the unit not arrived (step 3). A computer player's unit gets command 4 on the transport,
+        // which takes over at once (order 4, still animation, wait 3); every other player's unit gets a smart move,
+        // the boarding command again, which tells the transport to come unless it is landing.
         let dest_here = self.region_at(t.ship.dest) == here;
         let human = self.human_controlled(u.owner);
+        let computer = self.computer_player(u.owner);
         match self.move_toward(i, walk) {
             Walk::Arrived => {}
             Walk::NoPath if dest_here => {
@@ -413,6 +422,15 @@ impl World {
                     Order::Board { transport }
                 };
                 self.take_over(i, o);
+                if computer {
+                    let tile = self.units[i].tile;
+                    self.command_4(i, Some(transport), tile);
+                    if let Some(o) = self.units[i].pending.take() {
+                        self.take_over(i, o);
+                    }
+                } else if !human {
+                    self.board_command(i, transport);
+                }
                 return;
             }
             Walk::NoPath => {
@@ -443,7 +461,18 @@ impl World {
         }
         let dest_here = self.region_at(t.ship.dest) == here;
         let landing_here = matches!(t.order, Order::Land { .. }) && self.region_at(t.tile) == here;
-        if dest_here || (landing_here && self.computer_player(u.owner)) {
+        if landing_here && self.computer_player(u.owner) {
+            // Step 5 (round-53 errata, `orc14-10000` knight 1430, n = 5486): a random nearby tile, x drawn first, each
+            // offset (r mod 12) - 6 and clamped to the map's width; a move there with no target unit takes over at once.
+            let (here, w) = (u.tile, self.terrain.width as i32);
+            let x = here.0 + (self.rng.draw() % 12) as i32 - 6;
+            let y = here.1 + (self.rng.draw() % 12) as i32 - 6;
+            let to = (x.clamp(0, w - 1), y.clamp(0, w - 1));
+            self.smart_move(i, None, to);
+            if let Some(o) = self.units[i].pending.take() {
+                self.take_over(i, o);
+            }
+        } else if dest_here {
             if self.units[i].script.anim != anim::STILL {
                 self.switch_anim(i, anim::STILL);
             }
@@ -602,6 +631,29 @@ mod tests {
         // Within 3 tiles: a one-tile diagonal step (the trace's (70, 32) to (71, 31)), not the two-tile path's next step.
         assert_eq!(tiles[2], (33, 11), "{tiles:?}");
         assert_eq!(*tiles.last().unwrap(), goal, "{tiles:?}");
+    }
+
+    /// Transports spec, "Landing" step 5 (round-53 errata, `human13-10000` transport 1389, n = 3820): within 3 tiles
+    /// of its goal the landing transport discards its planned route at every step and plans afresh from its tile;
+    /// farther out it follows the route it has.
+    #[test]
+    fn a_landing_transport_within_3_tiles_plans_every_step() {
+        for (from, goal, stale, want) in [
+            ((23, 10), (21, 10), (22, 11), (22, 10)),
+            ((30, 10), (21, 10), (28, 12), (28, 12)),
+        ] {
+            let mut w = sea(20);
+            let i = ship(&mut w, from, Order::Land { goal });
+            w.units[i].ship.landing = chebyshev(from, goal) <= 3;
+            w.units[i].script.anim = if w.units[i].ship.landing {
+                anim::WORK_B
+            } else {
+                anim::MOVE
+            };
+            w.units[i].path = vec![stale];
+            w.landing(i, goal);
+            assert_eq!(w.units[i].tile, want, "from {from:?}");
+        }
     }
 
     #[test]
@@ -905,10 +957,17 @@ mod tests {
     }
 
     /// Round-43 errata: a human player's no-route restart tells the docked transport to come again (its order 32
-    /// becomes pending); a computer player's only restarts order 34 (whether it tells the transport is open).
+    /// becomes pending). Round-53 errata (`human13-10000` ogre 1383, n = 9154): the restarted order's logic runs in
+    /// the same update and finds the unit not arrived. A computer player's unit takes command 4 on the transport at
+    /// once (order 4, still animation, wait 3) and doesn't tell it; every other player's unit gets a smart move, the
+    /// boarding command again, which tells it.
     #[test]
-    fn only_a_human_players_restart_tells_the_transport() {
-        for (kind, tells) in [(controller::HUMAN, true), (controller::COMPUTER, false)] {
+    fn a_no_route_restart_runs_the_logic_in_the_same_update() {
+        for (kind, tells) in [
+            (controller::HUMAN, true),
+            (controller::PASSIVE, true),
+            (controller::COMPUTER, false),
+        ] {
             let mut w = sea(20);
             w.players[0].controller = kind;
             let t = ship(&mut w, (20, 10), Order::Docked);
@@ -931,12 +990,83 @@ mod tests {
             w.board(fi, tid);
             let u = &w.units[fi];
             assert_eq!(
-                (u.order, u.script.anim, u.script.wait),
-                (Order::Board { transport: tid }, anim::STILL, 3)
+                (u.script.anim, u.script.wait, u.pending),
+                (anim::STILL, 3, None),
+                "controller {kind}"
             );
+            if tells {
+                assert_eq!(u.order, Order::Board { transport: tid }, "controller {kind}");
+            } else {
+                assert!(
+                    matches!(u.order, Order::MoveAttack { target: Some(t), .. } if t == tid),
+                    "controller {kind}: {:?}",
+                    u.order
+                );
+            }
             let ti = w.index(tid).unwrap();
             assert_eq!(w.units[ti].pending.is_some(), tells, "controller {kind}");
         }
+    }
+
+    /// A generator state whose next two draws are `a` and `b` mod 12.
+    fn draws_mod_12(a: u32, b: u32) -> crate::Rng {
+        (0u32..)
+            .map(crate::Rng::new)
+            .find(|start| {
+                let mut r = *start;
+                r.draw() % 12 == a && r.draw() % 12 == b
+            })
+            .unwrap()
+    }
+
+    /// Order 34 on a transport landing at `ship_at`, by a unit of `kind` at `unit_at` (arrived, can't board), with
+    /// draws `a` and `b` mod 12 next. Returns the unit's order and whether it drew twice.
+    fn landing_boarder(
+        shore: i32,
+        kind: u8,
+        ship_at: (i32, i32),
+        unit_at: (i32, i32),
+        a: u32,
+        b: u32,
+    ) -> (Order, bool) {
+        let mut w = sea(shore);
+        w.players[0].controller = kind;
+        let t = ship(&mut w, ship_at, Order::Land { goal: ship_at });
+        let tid = w.units[t].id;
+        let f = w.spawn(FOOTMAN, 0, unit_at, 0).unwrap();
+        let fi = w.index(f).unwrap();
+        w.units[fi].order = Order::Board { transport: tid };
+        w.rng = draws_mod_12(a, b);
+        let mut after = w.rng;
+        after.draw();
+        after.draw();
+        w.board(fi, tid);
+        let u = &w.units[fi];
+        if matches!(u.order, Order::Move { .. }) {
+            assert_eq!((u.script.anim, u.script.wait, u.pending), (anim::STILL, 3, None));
+        }
+        (u.order, w.rng == after)
+    }
+
+    /// Round-53 errata (`orc14-10000` knight 1430, n = 5486): a computer player's unit that has arrived but can't
+    /// board, its transport landing in its region, walks to a random nearby tile: x drawn first, then y, each offset
+    /// (r mod 12) - 6 and clamped to 0 to the map's width - 1 (the width for both). The move has no target and takes
+    /// over at once. A human player's unit keeps waiting in order 34.
+    #[test]
+    fn a_computer_boarder_whose_transport_is_landing_walks_to_a_random_tile() {
+        let c = controller::COMPUTER;
+        // The vector's offsets: -3 and +5.
+        assert_eq!(
+            landing_boarder(20, c, (20, 10), (19, 9), 3, 11),
+            (Order::Move { goal: (16, 14) }, true)
+        );
+        let human = landing_boarder(20, controller::HUMAN, (20, 10), (19, 9), 3, 11);
+        assert!(matches!(human, (Order::Board { .. }, false)), "{human:?}");
+        // Clamped at 0.
+        assert_eq!(
+            landing_boarder(2, c, (2, 2), (1, 1), 0, 0),
+            (Order::Move { goal: (0, 0) }, true)
+        );
     }
 
     /// Round-52 errata (the `orc14-10000` knight 1433 vector at n = 2421, moved): a unit boarding a transport in
