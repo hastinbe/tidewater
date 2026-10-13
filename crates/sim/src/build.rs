@@ -326,6 +326,27 @@ mod tests {
             .map(|u| u.id)
     }
 
+    /// Orders spec, "A player's command forgets the attacker" (round-56 static correction): a build command keeps the
+    /// worker's recorded attacker and leaves its remembered order as it is.
+    #[test]
+    fn a_build_command_keeps_the_attacker_and_the_remembered_order() {
+        let (mut w, p) = town();
+        w.rules.enhanced = true;
+        let g = w.spawn(PEASANT, 1, (12, 12), 0).unwrap();
+        let old = Some(crate::world::Remembered::AttackMove { goal: (3, 3) });
+        let i = w.index(p).unwrap();
+        w.units[i].attacked_by = Some(g);
+        w.units[i].remembered = old;
+        build(&mut w, 0, p, (8, 8));
+        let u = w.unit(p).unwrap();
+        assert!(
+            matches!(u.pending.unwrap_or(u.order), Order::Build { .. }),
+            "{:?}",
+            u.order
+        );
+        assert_eq!((u.attacked_by, u.remembered), (Some(g), old));
+    }
+
     #[test]
     fn a_peasant_builds_a_farm_and_comes_out() {
         let (mut w, p) = town();

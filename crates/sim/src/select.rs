@@ -251,10 +251,9 @@ impl World {
             } else {
                 target
             };
-            let id = self.units[i].id;
+            // Round-56 static correction: unlike a command from target mode, the buttons or the keys, a right-click
+            // keeps the unit's recorded attacker.
             self.give_command(i, command, target, aim);
-            // Round-55 errata (static study): a right-click command forgets the attacker like any other player's command.
-            self.forget_attacker_after_command(id);
         }
     }
 
@@ -882,7 +881,7 @@ mod tests {
         }]);
         assert_eq!(record(&w, footman), None);
         assert_eq!(intent(&w, footman), Some(Order::Idle), "nothing seeds its search");
-        // A right-click is read the same way.
+        // Round-56 static correction: a right-click keeps the record.
         let i = w.index(footman).unwrap();
         w.units[i].attacked_by = Some(grunt);
         select(&mut w, &[footman]);
@@ -891,7 +890,8 @@ mod tests {
             target: None,
             tile: (2, 2),
         }]);
-        assert_eq!(record(&w, footman), None);
+        assert_eq!(record(&w, footman), Some(grunt));
+        assert!(matches!(intent(&w, footman), Some(Order::Move { .. })));
     }
 
     #[test]

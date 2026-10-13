@@ -31,8 +31,9 @@ pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// round-40 to round-49 unit state (the build goal, the hall exit mark, the search skip mark, a dying unit's reported
 /// target slot and command 4's target unit). Version 6: the unit-to-slot map keeps a released unit's entry until its
 /// slot is reused, and attacker records may name a released unit (round-51 errata). Version 7: a unit inside a
-/// collapsed mine or platform has no target (round-54 errata).
-pub const VERSION: u16 = 7;
+/// collapsed mine or platform has no target (round-54 errata). Version 8: an effect keeps its shooter's unit slot
+/// after the slot is released (round-56 errata).
+pub const VERSION: u16 = 8;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").

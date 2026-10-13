@@ -971,6 +971,14 @@ impl World {
         w.rng = start.rng;
         let setup = &start.setup;
         w.rules.enhanced = setup.enhanced;
+        w.rules.multiplayer = start.multiplayer;
+        // Unit-slots spec, "Table sizes": Classic mode has 600 unit slots and 200 effect slots.
+        if !setup.enhanced {
+            w.rules.unit_slots = slots::CLASSIC_SLOTS;
+            w.rules.effect_slots = slots::CLASSIC_EFFECTS;
+            w.slots = Slots::new(slots::CLASSIC_SLOTS);
+            w.missiles = vec![None; slots::CLASSIC_EFFECTS];
+        }
         if let Some(c) = setup.custom() {
             w.rules.fog_of_war = c.fog_of_war;
         }
@@ -1456,6 +1464,8 @@ impl World {
                 else {
                     return;
                 };
+                // Orders spec, "A player's command forgets the attacker" (round-56 static correction): a build command
+                // takes its own path, which keeps the recorded attacker and leaves the remembered order as it is.
                 if let Some(o) = self.build_command(i, kind, tile) {
                     self.command(i, o);
                 }

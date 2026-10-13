@@ -195,8 +195,19 @@ impl World {
             | Command::Pause { .. }
             | Command::Cheat { .. } => return None,
         };
-        self.units[i].remembered = if enhanced { remember } else { None };
+        self.units[i].remembered = match remember {
+            _ if !enhanced => None,
+            Some(Remembered::Patrol { to, .. }) if self.unremembered_patrol(i, to) => self.units[i].remembered,
+            r => r,
+        };
         Some(order)
+    }
+
+    /// Orders spec, "An unremembered patrol" (round-56 static correction, Enhanced): a patrol command given to an air
+    /// or sea unit whose goal (as given) is within 1 tile of the unit on both axes doesn't write the remembered order.
+    pub(crate) fn unremembered_patrol(&self, i: usize, to: (i32, i32)) -> bool {
+        let u = &self.units[i];
+        self.flags_of_unit(u) & (flags::AIR | flags::SEA) != 0 && chebyshev(u.tile, to) <= 1
     }
 
     /// Command 3 ("Smart move"). Transports and boarding come with the transports spec, so for now they move.
@@ -569,7 +580,7 @@ impl World {
                         to: self.pull_back(i, back),
                         back: here,
                     };
-                    if self.rules.enhanced {
+                    if self.rules.enhanced && !self.unremembered_patrol(i, back) {
                         self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
                     }
                     // Movement spec, "Blocked rules" (round-41 errata): the turnaround is a command.
@@ -913,11 +924,16 @@ impl World {
         }
         // Round-42 errata, "Special cases": workers and tankers of every player never run the search; the others'
         // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
-        if computer_worker || (worker_like && attacker.is_none()) {
+        // Round-56 static correction: the reaction's non-combat flee has no detection test, so a non-combat unit
+        // whose valid attacker its owner doesn't detect runs the reaction too (the "Terms" rule covers only the
+        // target search and its seed).
+        let valid = u.attacked_by.and_then(|a| self.unit(a)).is_some_and(|a| a.present());
+        let non_combat = self.non_combat(u);
+        if computer_worker || (worker_like && attacker.is_none() && !valid) {
             return false;
         }
-        if attacker.is_some() {
-            if self.non_combat(u) {
+        if attacker.is_some() || (non_combat && valid) {
+            if non_combat {
                 return self.react(i);
             }
             // Round-45 errata, "Reacting to an attacker", step 3: an invisible mage-type unit does nothing more in
@@ -1074,7 +1090,13 @@ impl World {
     pub(crate) fn react(&mut self, i: usize) -> bool {
         // "The reaction": an attacker that is no longer valid is forgotten. Round-51 errata: a dying or released one
         // too ("A recorded attacker outlives its slot"); an undetected one stays recorded.
-        let Some(a) = self.attacker(i) else {
+        // Round-56 static correction: the non-combat flee has no detection test, so a non-combat or mage-type unit
+        // goes on with a valid attacker its owner doesn't detect, and flees from it as in step 1.
+        let undetected = self.units[i]
+            .attacked_by
+            .filter(|&a| self.unit(a).is_some_and(|a| a.present()))
+            .filter(|_| self.non_combat(&self.units[i]) || self.mage_like(&self.units[i]));
+        let Some(a) = self.attacker(i).or(undetected) else {
             if self.units[i].attacked_by.is_some_and(|a| self.dying_or_gone(a)) {
                 self.units[i].attacked_by = None;
             }
@@ -1832,6 +1854,49 @@ mod tests {
         assert_eq!(w.units[i].remembered, None);
     }
 
+    /// Orders spec, "An unremembered patrol" (round-56 static correction, Enhanced): an air unit's patrol to a goal
+    /// within 1 tile on both axes leaves the remembered order as it was; a farther goal, or a land unit's, is remembered
+    /// as given.
+    #[test]
+    fn an_air_patrol_within_a_tile_is_not_remembered() {
+        const FLYER: u8 = 0x2b;
+        let mut w = map();
+        w.rules.enhanced = true;
+        w.stats.0[FLYER as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[FLYER as usize].flags = flags::AIR | flags::CAN_ATTACK;
+        let d = w.spawn(FLYER, 0, (10, 10), 0).unwrap();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let old = Some(Remembered::AttackMove { goal: (3, 3) });
+        let patrol = |w: &mut World, id: UnitId, to: (i32, i32)| {
+            let i = at(w, id);
+            w.units[i].remembered = old;
+            let c = Command::Patrol {
+                player: 0,
+                units: vec![id],
+                to,
+            };
+            w.command_order(i, &c);
+            w.units[i].remembered
+        };
+        assert_eq!(patrol(&mut w, d, (11, 9)), old, "within 1 tile on both axes");
+        assert_eq!(patrol(&mut w, d, (10, 10)), old, "its own tile");
+        assert_eq!(
+            patrol(&mut w, d, (12, 10)),
+            Some(Remembered::Patrol {
+                to: (12, 10),
+                back: (10, 10)
+            })
+        );
+        assert_eq!(
+            patrol(&mut w, f, (6, 6)),
+            Some(Remembered::Patrol {
+                to: (6, 6),
+                back: (5, 5)
+            }),
+            "a land unit"
+        );
+    }
+
     /// Movement spec test vector (round-42 errata): an idle unit with blocked counter 2 acquires a target. The resulting
     /// order is a command: counter 0, route dropped, and it takes over at once.
     #[test]
@@ -2389,6 +2454,22 @@ mod tests {
         // (r mod 8) - 2 + 4 east, (r mod 8) - 2 vertically.
         assert!((12..=19).contains(&goal.0) && (8..=15).contains(&goal.1), "{goal:?}");
         assert_eq!(w.units[i].attacked_by, None);
+    }
+
+    /// Round-56 static correction, "The reaction": the non-combat flee has no detection test, so an idle peasant flees
+    /// from a valid attacker its owner doesn't detect.
+    #[test]
+    fn a_peasant_flees_an_undetected_attacker() {
+        let mut w = map();
+        let p = w.spawn(PEASANT, 0, (10, 10), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (6, 10), 0).unwrap();
+        w.unit_visibility();
+        let (i, ai) = (at(&w, p), at(&w, a));
+        w.units[ai].detected_by &= !crate::vision::bit(0);
+        w.units[i].attacked_by = Some(a);
+        assert_eq!(w.attacker(i), None, "not detected");
+        w.react(i);
+        assert!(matches!(w.units[i].order, Order::Move { .. }), "{:?}", w.units[i].order);
     }
 
     #[test]

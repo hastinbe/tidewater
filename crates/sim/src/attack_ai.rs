@@ -1307,7 +1307,9 @@ impl World {
                 if distance(s.tile, &self.units[vi]) > HELD_ANSWER {
                     continue;
                 }
-                self.set_goal(k, GoalKind::Attack, Some(self.units[k].tile));
+                // Round-56 errata: goal attack with no tile given (step 2), so the goal is S's own tile as it
+                // stands, with no ring search and no region test.
+                self.set_goal(k, GoalKind::Attack, None);
             }
             self.command_12(k, attacker);
         }
@@ -1378,10 +1380,14 @@ impl World {
             return;
         }
         let here = self.units[i].tile;
-        self.units[i].remembered = self
-            .rules
-            .enhanced
-            .then_some(Remembered::Patrol { to: from, back: here });
+        // Round-56 static correction (orders spec, "An unremembered patrol"): an air or sea unit's patrol to a goal
+        // within 1 tile leaves the remembered order as it was.
+        if !(self.rules.enhanced && self.unremembered_patrol(i, from)) {
+            self.units[i].remembered = self
+                .rules
+                .enhanced
+                .then_some(Remembered::Patrol { to: from, back: here });
+        }
         self.command(i, Order::Patrol { to: from, back: to });
     }
 }
@@ -2327,6 +2333,26 @@ mod tests {
         assert_eq!(at(&w, close).pending, Some(Order::Chase { target: a }));
         assert_eq!(at(&w, close).goal.kind, GoalKind::Attack);
         assert_eq!(at(&w, away).pending, None);
+    }
+
+    /// Round-56 errata ("Call for help"): a held unit's goal is attack with no tile given, so the goal tile is its own
+    /// tile exactly. With the tile given, set goal's ring search would move it off the unit's own mark.
+    #[test]
+    fn a_held_answer_keeps_its_own_tile() {
+        let mut w = game();
+        let v = spawn(&mut w, FOOTMAN, 1, (12, 10));
+        let a = spawn(&mut w, ARCHER, 0, (16, 10));
+        let g = spawn(&mut w, GRUNT, 1, (10, 10));
+        w.step(&[]);
+        let u = um(&mut w, g);
+        u.held = true;
+        u.pending = None;
+        u.order = Order::Idle;
+        let here = at(&w, g).tile;
+        w.damage(ix(&w, v), 1, a);
+        let goal = at(&w, g).goal;
+        assert_eq!((goal.kind, goal.tile), (GoalKind::Attack, Some(here)));
+        assert!(!goal.needs_ferry);
     }
 
     #[test]

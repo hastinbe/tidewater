@@ -236,7 +236,10 @@ impl World {
 
     /// The order logic, run when the unit's animation signals "step done".
     pub(crate) fn order(&mut self, i: usize, fx: Effects) {
-        if self.units[i].script.anim == anim::ATTACK {
+        // Round-56 errata (animation-scripts spec, "No strike while a command waits"): while a command given to the
+        // unit hasn't taken over, the strike does nothing at all (no reveal, draw, damage, launch or cooldown).
+        let waiting = self.units[i].commanded && self.units[i].pending.is_some();
+        if self.units[i].script.anim == anim::ATTACK && !waiting {
             for _ in 0..fx.strikes {
                 self.strike(i);
             }

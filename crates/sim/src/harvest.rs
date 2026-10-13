@@ -239,11 +239,22 @@ impl World {
     /// more in the same update. A worker within 1 tile of the new tree starts chopping at once (step 2: it faces the
     /// tree, reserves it and makes its chop-sound draw), and the attack animation still restarts with wait 3. A worker
     /// further away is left as the re-aim made it (facing kept, attack animation, wait 3).
+    ///
+    /// Round-56 errata (`orc11-25000` peasant 1441, n = 10428): with no tree the worker goes idle as an immediate order
+    /// and its idle logic runs in the same update; for a computer player that is the job choice.
     fn no_route(&mut self, i: usize) {
         if self.flags_of(self.units[i].kind) & flags::PEON == 0 {
             return self.idle_at_once(i);
         }
-        self.next_tree(i, false);
+        if let Order::Harvest { chopping, .. } = &mut self.units[i].order {
+            *chopping = false;
+        }
+        // Round-56 errata (`orc11-25000` peasant 1441, n = 10428): with no tree the worker goes idle as an immediate
+        // order and its idle logic runs in the same update (a computer player's job choice may re-task it at once).
+        let Some(t) = self.nearest_tree(self.units[i].tile) else {
+            return self.idle_at_once(i);
+        };
+        self.harvest_again(i, t);
         let u = &self.units[i];
         let Order::Harvest {
             source: None,
@@ -573,13 +584,13 @@ impl World {
             if self.start_chopping(i, tree) {
                 self.switch_anim(i, anim::ATTACK);
             } else {
-                self.next_tree(i, true);
+                self.next_tree(i);
             }
             return;
         }
         if !reserved {
             self.terrain.unreserve(tree.0, tree.1);
-            return self.next_tree(i, true);
+            return self.next_tree(i);
         }
         let u = &mut self.units[i];
         if u.chop < CHOP_LIMIT {
@@ -631,15 +642,15 @@ impl World {
     /// wait 3) without running its logic; `human12-7000` peon 1572 at n = 215 and `human5-10000` peasant 1512 at
     /// n = 39.
     ///
-    /// With no tree, round-48 errata (`xhuman2-10000` peon 1530, n = 5820): from steps 2 and 4 (`pending`), idle
-    /// becomes the pending order and takes over in the same update (still animation, frame kept, wait 3) without
-    /// running the idle logic. From "No route" the spec keeps the immediate idle.
-    fn next_tree(&mut self, i: usize, pending: bool) {
+    /// With no tree, round-48 errata (`xhuman2-10000` peon 1530, n = 5820): from steps 2 and 4, idle becomes the
+    /// pending order and takes over in the same update (still animation, frame kept, wait 3) without running the idle
+    /// logic. "No route" has its own immediate idle (`no_route`).
+    fn next_tree(&mut self, i: usize) {
         if let Order::Harvest { chopping, .. } = &mut self.units[i].order {
             *chopping = false;
         }
         let Some(t) = self.nearest_tree(self.units[i].tile) else {
-            return if pending { self.idle_now(i) } else { self.idle(i) };
+            return self.idle_now(i);
         };
         self.harvest_again(i, t);
     }
@@ -1379,6 +1390,29 @@ mod tests {
             ((10, 10), 6, anim::ATTACK, 3)
         );
         assert_eq!(w.terrain.region(12, 14), Some(region::FOREST), "not reserved");
+    }
+
+    /// Round-56 errata, "No route" (`orc11-25000` peasant 1441, n = 10428, in small): with no route and no tree, the
+    /// worker goes idle as an immediate order (no pending idle, wait 1) and its idle logic runs in the same update.
+    #[test]
+    fn a_worker_with_no_route_and_no_tree_goes_idle_at_once() {
+        let mut w = land();
+        let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+        let i = w.index(p).unwrap();
+        w.units[i].gather = Gather::Lumber;
+        w.units[i].order = Order::Harvest {
+            source: None,
+            tree: (20, 20),
+            chopping: false,
+        };
+        let before = w.rng.state;
+        w.no_route(i);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 1));
+        assert_ne!(
+            w.rng.state, before,
+            "the idle logic's look-around drew in the same update"
+        );
     }
 
     /// Round-52 errata, "Coming out" (the `human13-10000` peon 1550 vector at n = 196, in small): a worker coming out

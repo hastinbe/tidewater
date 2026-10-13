@@ -9,7 +9,7 @@
 use crate::TILE_PX;
 use crate::combat;
 use crate::economy::Event;
-use crate::movement::{Goal, Walk, chebyshev};
+use crate::movement::{Goal, Walk};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::slots;
 use crate::sound::Sound;
@@ -377,6 +377,9 @@ impl World {
             return;
         }
         self.give_spell(i, spell, target, tile);
+        // Orders spec, "A player's command forgets the attacker" (round-56 static correction): a spell command given
+        // by the player forgets the record like any other unit command.
+        self.forget_attacker_after_command(unit);
     }
 
     /// Gives unit `i` a spell order (spec, "Giving the order"): the all-spells cheat's top-up, then the order becomes
@@ -499,28 +502,17 @@ impl World {
         let (caster, owner) = (self.units[i].id, self.units[i].owner);
         let unit_spell = UNIT_SPELLS.contains(&spell);
         let mut ti = None;
-        let goal = if unit_spell {
+        if unit_spell {
             match target.and_then(|t| self.index(t)).filter(|&t| self.units[t].present()) {
-                Some(t) => {
-                    ti = Some(t);
-                    self.units[t].tile
-                }
+                Some(t) => ti = Some(t),
                 None => {
                     self.idle_pending(i);
                     return;
                 }
             }
-        } else {
-            tile
-        };
-        // A strike before the caster is within the spell's radius (the animation starts with the order) is ignored.
-        if let Some(r) = radius(spell) {
-            let u = &self.units[i];
-            let bonus = i32::from(matches!(u.layer, Layer::Sea | Layer::Air));
-            if chebyshev(u.tile, goal) > r + bonus {
-                return;
-            }
         }
+        // Round-56 errata ("At the strike"): none of the strike's checks is a distance; a target that has left the
+        // radius during the casting animation is still affected (`orc14-25000`, healing, n = 18992).
         let tid = ti.map(|t| self.units[t].id);
         match spell {
             HOLY_VISION => {
@@ -791,9 +783,11 @@ impl World {
         } else {
             (owner, target, damage, pos, pos)
         };
+        let shooter = self.last_slot(owner).filter(|_| owner != UnitId(0));
         let m = crate::battle::Missile {
             kind,
             attacker: owner,
+            shooter,
             target,
             from,
             to,
@@ -808,6 +802,24 @@ impl World {
         let n = self.free_fx_slot()?;
         self.missiles[n] = Some(m);
         Some(n)
+    }
+
+    /// The unit an effect credits as its attacker (round-56 errata, "The shooter after its slot is released"): its
+    /// shooter while that unit still has the recorded slot (released or not), else whatever unit holds the slot now.
+    pub(crate) fn effect_shooter(&self, m: &crate::battle::Missile) -> UnitId {
+        let Some(slot) = m.shooter else {
+            return m.attacker;
+        };
+        if self.last_slot(m.attacker) == Some(slot) {
+            return m.attacker;
+        }
+        let lo = self.units.partition_point(|u| u.slot < slot);
+        self.units[lo..]
+            .iter()
+            .take_while(|u| u.slot == slot)
+            .map(|u| u.id)
+            .last()
+            .unwrap_or(m.attacker)
     }
 
     /// The lowest free effect slot after the permanent ones.
@@ -1175,7 +1187,7 @@ impl World {
 
     /// Returns whether the effect stays; when it doesn't, the slot has been freed.
     fn fx_update(&mut self, n: usize, m: &mut crate::battle::Missile, age: u16) -> bool {
-        let owner = m.attacker;
+        let owner = self.effect_shooter(m);
         match &mut m.fx {
             // Attack missiles are updated by `battle.rs`.
             Fx::Shot { .. } | Fx::Breath { .. } => true,
@@ -2151,6 +2163,23 @@ mod tests {
         }
     }
 
+    /// Orders spec, "A player's command forgets the attacker" (round-56 static correction): a direct spell command
+    /// forgets the caster's recorded attacker once it is given.
+    #[test]
+    fn a_direct_cast_forgets_the_attacker() {
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (5, 5), 255);
+        let g = w.spawn(0, 1, (8, 5), 0).unwrap();
+        let mi = w.index(m).unwrap();
+        w.units[mi].attacked_by = Some(g);
+        w.cast_command(0, m, SLOW, Some(g), (8, 5));
+        assert_eq!(w.unit(m).unwrap().attacked_by, None);
+        assert!(matches!(
+            w.unit(m).unwrap().pending,
+            Some(Order::Cast { spell: SLOW, .. })
+        ));
+    }
+
     /// Round-50 errata (`human14-10000` death knight 1577, n = 3740): a spell walk with no route makes the caster idle
     /// at once, and its idle logic runs in the same update (still animation, wait 1).
     #[test]
@@ -2223,7 +2252,11 @@ mod tests {
         let before = w.rng;
         strike(&mut w, p, EYE_OF_KILROGG, None, (20, 20));
         let eye = w.units.iter().find(|u| u.kind == unit::EYE).expect("an eye");
-        assert!(eye.tile != (5, 5) && chebyshev(eye.tile, (5, 5)) <= 3, "{:?}", eye.tile);
+        assert!(
+            eye.tile != (5, 5) && crate::movement::chebyshev(eye.tile, (5, 5)) <= 3,
+            "{:?}",
+            eye.tile
+        );
         assert_eq!((eye.owner, mana(&w, p)), (0, 185));
         assert_eq!(w.rng, advanced(before.state, 1), "the eye's first wait");
     }
@@ -2811,6 +2844,66 @@ mod tests {
         assert!((50..=100).contains(&lost), "{lost}");
     }
 
+    /// Round-56 errata ("At the strike"; `orc14-25000` paladin 1433, n = 18992): the strike makes no distance test, so
+    /// a target that left the radius during the casting animation is still healed, or slowed.
+    #[test]
+    fn the_strike_makes_no_distance_test() {
+        let mut w = lab(32);
+        let p = caster(&mut w, PALADIN, (5, 5), 255);
+        let k = w.spawn(KNIGHT, 0, (12, 5), 0).unwrap();
+        set_hp(&mut w, k, 85);
+        strike(&mut w, p, HEALING, Some(k), (0, 0));
+        assert_eq!(hp(&w, k), 100, "7 tiles away, past healing's radius of 6");
+        assert_eq!(fx_of_kind(&w, 9), 1);
+        let m = caster(&mut w, MAGE, (5, 10), 255);
+        let f = foe(&mut w, (17, 10));
+        strike(&mut w, m, SLOW, Some(f), (0, 0));
+        assert!(w.unit(f).unwrap().haste < 0, "12 tiles away");
+    }
+
+    /// Round-56 errata ("The shooter after its slot is released"; `xorc12-spells-1500` effect 3, n = 1166): an effect
+    /// keeps its shooter's slot after the slot is released, and its splash then credits whatever unit holds the slot.
+    #[test]
+    fn an_effect_keeps_its_shooters_released_slot() {
+        let mut w = lab(32);
+        let s = w.spawn(KNIGHT, 1, (25, 25), 0).unwrap();
+        let slot = w.unit(s).unwrap().slot;
+        let c = (5 * 32 + 16, 5 * 32 + 16);
+        let fx = Fx::Whirl {
+            line: Line::new(c, (c.0 + 32, c.1)),
+            life: 30000,
+            goal: (c.0 + 32, c.1),
+        };
+        let n = w.new_fx(12, s, None, c, 4, fx).unwrap();
+        let i = w.index(s).unwrap();
+        w.kill(i);
+        for _ in 0..5000 {
+            if w.unit(s).is_none() {
+                break;
+            }
+            w.step(&[]);
+        }
+        assert!(w.unit(s).is_none(), "the slot is released");
+        let m = w.missiles[n].clone().expect("the whirlwind goes on");
+        assert_eq!(m.shooter, Some(slot));
+        assert_eq!(w.effect_shooter(&m), s, "released, not reused: still the old shooter");
+        let u = w.spawn(KNIGHT, 1, (28, 28), 0).unwrap();
+        assert_eq!(w.unit(u).unwrap().slot, slot, "reused");
+        assert_eq!(w.effect_shooter(&m), u);
+        // A footman under the whirlwind records U as its attacker.
+        let at = (m.pos.0.div_euclid(32), m.pos.1.div_euclid(32));
+        let f = w.spawn(0, 0, at, 0).unwrap();
+        set_hp(&mut w, f, 60);
+        for _ in 0..200 {
+            if hp(&w, f) < 60 {
+                break;
+            }
+            w.step(&[]);
+        }
+        assert!(hp(&w, f) < 60, "splashed");
+        assert_eq!(w.unit(f).unwrap().attacked_by, Some(u));
+    }
+
     #[test]
     fn a_whirlwind_splashes_every_other_step() {
         let mut w = lab(32);
@@ -3036,6 +3129,7 @@ mod tests {
             *m = Some(crate::battle::Missile {
                 kind: 0x16,
                 attacker: UnitId(0),
+                shooter: None,
                 target: None,
                 from: (0, 0),
                 to: (0, 0),

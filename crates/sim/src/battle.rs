@@ -42,6 +42,10 @@ pub struct Missile {
     /// UDTA missile weapon value.
     pub kind: u8,
     pub attacker: UnitId,
+    /// The shooter's unit slot, recorded at creation and never cleared (round-56 errata, spells spec, "The shooter
+    /// after its slot is released"): the trace shows it after the slot is released, and a spell effect's splash
+    /// credits whatever unit holds the slot by then. `None` for an effect with no shooter.
+    pub shooter: Option<u16>,
     /// The unit aimed at, which a non-splash missile damages on impact wherever it is.
     pub target: Option<UnitId>,
     pub from: (i32, i32),
@@ -194,8 +198,8 @@ impl World {
         self.restarts = self.restarts.wrapping_add(1);
         self.forget_stale_attacker(i);
         self.switch_anim(i, anim::ATTACK);
-        // The one logic run that follows. Our guard: should that run itself find no route, its fallback doesn't run
-        // the logic yet again (no trace shows the case).
+        // The one logic run that follows. Round-56 static correction: that run doesn't move the unit, so it can't find
+        // "no route" again, and the logic doesn't run a third time in the update (the guard makes that hold).
         if !self.fallback_run {
             self.fallback_run = true;
             self.run_order(i);
@@ -488,6 +492,7 @@ impl World {
         let missile = Missile {
             kind: s.missile,
             attacker,
+            shooter: self.last_slot(attacker),
             target,
             from,
             to,
@@ -1185,6 +1190,37 @@ mod tests {
         assert_eq!(w.rng, before);
     }
 
+    /// Round-56 errata (damage spec, "A command waiting"; animation-scripts spec, "No strike while a command waits"): a
+    /// footman at its strike point that was given a stop command earlier in the cycle strikes nothing: no damage, no
+    /// draw, no new cooldown. Once the command has taken over, a strike works again.
+    #[test]
+    fn no_strike_while_a_command_waits() {
+        let mut w = world();
+        let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let i = w.index(UnitId(1)).unwrap();
+        w.units[i].order = Order::Attack { target: foe };
+        w.units[i].script.anim = anim::ATTACK;
+        w.command(i, Order::Idle);
+        assert!(
+            w.units[i].commanded && w.units[i].pending.is_some(),
+            "the stop waits to take over"
+        );
+        let (before, hp, cooldown) = (w.rng, w.unit(foe).unwrap().hp, w.units[i].cooldown);
+        let fx = crate::anim::Effects {
+            strikes: 1,
+            ..Default::default()
+        };
+        w.order(i, fx);
+        assert_eq!(w.rng, before, "no draw");
+        assert_eq!(w.unit(foe).unwrap().hp, hp, "no damage");
+        assert_eq!(w.units[i].cooldown, cooldown);
+        // Without the waiting command the same strike rolls its damage.
+        w.units[i].pending = None;
+        w.units[i].commanded = false;
+        w.order(i, fx);
+        assert_eq!(drawn(before, w.rng), 1, "the damage roll");
+    }
+
     /// Damage spec, "Attack timing (cooldown)": the synthetic attack loop strikes every 25 cycles, so a strike
     /// decision starts a cooldown of 26 (a footman's). `orc02-assault` footman 1582 then waits 23 three cycles after
     /// the take-over (n = 379), and archer 1584 (cooldown 66) waits 63 (n = 346), restarted at frame 0 and unturned.
@@ -1741,6 +1777,7 @@ mod tests {
         crate::Missile {
             kind,
             attacker: UnitId(0),
+            shooter: None,
             target: None,
             from: pos,
             to: pos,

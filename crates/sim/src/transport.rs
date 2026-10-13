@@ -431,9 +431,9 @@ impl World {
                         self.take_over(i, o);
                     }
                 } else {
-                    // Our reading: the unit stays in order 34 with no pending order of its own (`human12-transport`
-                    // n = 46 has the transport told again at the unit's next logic run, not after a take-over), so
-                    // the smart move here is the transport's call and the wait cap.
+                    // Round-56 answer (transports spec, "No route", static study): the smart move sets order 34
+                    // again and it takes over in the same update with no visible effect, so the unit stays in order
+                    // 34 with nothing pending, and the net result is the transport's call and the wait cap.
                     self.board_command(i, transport);
                     self.cap_smart_wait(i);
                 }

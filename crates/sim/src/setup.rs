@@ -340,6 +340,9 @@ pub struct Start {
     pub era: Era,
     /// The game's generator after the slot choice's draws.
     pub rng: Rng,
+    /// A multiplayer game (`Rules::multiplayer`). [`Start::choose`] starts a single-player game; a multiplayer start
+    /// sets this.
+    pub multiplayer: bool,
 }
 
 impl Start {
@@ -443,6 +446,7 @@ impl Start {
             resources,
             era,
             rng,
+            multiplayer: false,
         })
     }
 
@@ -973,6 +977,31 @@ mod tests {
         );
         assert_eq!(w.start.view, (3, 3));
         assert_eq!(w.start.saved_views, [(3, 3); 3]);
+    }
+
+    /// Unit-slots spec, "Table sizes": a Classic start has 600 unit slots and 200 effect slots, an Enhanced one 1600
+    /// and 400.
+    #[test]
+    fn classic_mode_has_the_smaller_tables() {
+        let m = Map {
+            size: 64,
+            owners: owners([5, 3, 3, 3, 3, 3, 3, 3]),
+            units: vec![(3, 20, kind::HUMAN_START, 0, 0)],
+            ..Default::default()
+        };
+        for (enhanced, units, effects) in [(true, 1600, 400), (false, 600, 200)] {
+            let setup = Setup {
+                enhanced,
+                ..campaign(0)
+            };
+            let w = started(&m, &setup);
+            assert_eq!(
+                (w.rules.unit_slots, w.rules.effect_slots, w.missiles.len()),
+                (units, effects, effects),
+                "enhanced {enhanced}"
+            );
+            assert!(!w.rules.multiplayer);
+        }
     }
 
     #[test]
