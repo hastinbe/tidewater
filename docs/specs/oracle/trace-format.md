@@ -21,6 +21,8 @@
   2026-10-13, round-47 errata: the `dest` of a fireball and of a flame shield bolt, as in `spells/spells.md`.
   2026-10-13, round-48 errata: the `dest`, `target` and `shooter` rows give the fields of flames and of healing and
   exorcism effects.
+  2026-10-13, round-56 errata: an effect's `shooter` keeps its slot number after that slot is released;
+  `xorc12-spells-1500` vector.
 
 ## Behaviour
 
@@ -113,7 +115,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `kind` | Missile or effect kind number (`combat/damage.md`, `spells/spells.md`) |
 | `x`, `y` | Position in pixels |
 | `dest` | Destination `[x, y]` in pixels. A blizzard shard has its chain's landing point from the moment it is created, through its initial wait (`spells/spells.md`, "Blizzard shards"); a death coil missile has its aim point from creation; a death-and-decay cloud has the target tile's centre; a whirlwind has its current goal; a fireball has its target tile's centre and a flame shield bolt (kind 3) its target unit's centre, from creation (`spells/spells.md`). A flame (kind 4), a healing (kind 9) or an exorcism (kind 8) effect has (0, 0) |
-| `target`, `shooter` | Unit slots, or `null`. A flame (kind 4) has the shielded unit as its shooter and no target; a healing or exorcism effect has neither (`spells/spells.md`) |
+| `target`, `shooter` | Unit slots, or `null`. A flame (kind 4) has the shielded unit as its shooter and no target; a healing or exorcism effect has neither (`spells/spells.md`). An effect's `shooter` is never cleared: when the shooter's slot is released (the shooter died and its body is gone), the effect still reports that slot number, whatever the slot holds later (`spells/spells.md`, "Spell effects in flight"). Compare a dead unit's `target` above |
 | `damage` | The damage value stored on the missile (`combat/damage.md`) |
 
 ### Commands
@@ -247,6 +249,7 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
 | XHuman10 (`xhuman10-spells-700`): cheat `add` `["every little thing she does"]` in turn 11; mage 1481 selected in turn 21; command 46 (polymorph) in turn 22 | Gold unchanged by the cheat. Mage `mana` 85 in `turn` n = 21, 255 in `turn` n = 22 while still in order 2; order 46 from `cycle` n = 23; the cast at n = 145 leaves 55 |
 | XHuman10 blizzard, XOrc01 death knight, XOrc12 ogre-mage: the same cheat, then command 47, 53 or 49 in turn 22 (mage 1481, death knight 1491, Dentarg 1548) | `mana` 85 before, 255 in `turn` n = 22. XOrc12: back to 255 at each later spell command (turns 62 and 102) |
 | `human06-31357`, n = 18146: body 1594 (type 105, order 0, the remove order; it died at n = 16653) still has target 1511, whose slot is released in this cycle (1511 died at n = 16726) | Its `target` stays 1511, not `null` |
+| `xorc12-spells-1500` (Enhanced), n = 1166: whirlwind effect 3 (kind 12), cast by Teron Gorefiend 1583 (type 0x15), who died at n = 633; 1583's slot is released in this cycle | Its `shooter` stays 1583, not `null`; the whirlwind goes on |
 | `xhuman10-blizzard-600`, n = 145: new shards in effect slots 4, 5 and 7, in their initial wait | `dest` is each chain's landing point: (2480, 2864), (2512, 2928) and (2576, 2800), unchanged when they start flying at n = 157 |
 
 ## Open questions
