@@ -255,10 +255,15 @@ impl World {
         // Round-52 errata (`xorc8-10000` elven destroyer 1468, n = 7372): a unit out of reach of its order-12 target
         // takes a move step, which leaves the mark set; if that step ends in idle at once, the idle logic that runs
         // straight after is the next run, skips its search and clears the mark.
+        // Round-53 errata (static study; `xorc8-10000` n = 7373): the mark is cleared only if it was set when the
+        // update began. A move step whose route search finds nothing runs order 12's fallback, whose attack-range
+        // search runs whatever the mark; a restart there sets the mark again, and the update, which began marked and
+        // took no step, clears it at its end. A mark first set in this update lasts until the next one.
         let (marked, tile, takeovers) = (self.units[i].skip_search, self.units[i].tile, self.takeovers);
+        let restarts = self.restarts;
         let move_step = marked && self.out_of_reach(i);
         self.order_logic(i);
-        let stepped = move_step && matches!(self.units[i].order, Order::Chase { .. });
+        let stepped = move_step && matches!(self.units[i].order, Order::Chase { .. }) && self.restarts == restarts;
         if marked && !stepped && self.units[i].tile == tile && self.takeovers == takeovers {
             self.units[i].skip_search = false;
         }

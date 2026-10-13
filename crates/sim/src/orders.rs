@@ -811,10 +811,13 @@ impl World {
         let (x0, y0, x1, y1) = (u.tile.0 - r, u.tile.1 - r, u.tile.0 + r + extra, u.tile.1 + r + extra);
         // "Choice" (round-44 errata, `human06-31357` ballista 1582 at n = 23683): the attacker seeds the search only
         // with a score above 0; one the unit can't attack (score 0: a kind it can't attack, or closer than its minimum
-        // range) leaves the search as if there were no attacker.
+        // range) leaves the search as if there were no attacker. Round-53 errata (`human06-31357` n = 9642,
+        // `xhuman11-10000` n = 9065): so does one the unit's owner doesn't detect or that the fog hides from it, the
+        // test of the candidate skip list (left out while loading, as there).
+        let seen = |a: &Unit| Self::detected(a, u.owner) && (self.loading || self.visible_to(u.owner, a.id));
         let mut best: Option<(i32, UnitId)> = seed
             .and_then(|a| self.unit(a))
-            .filter(|a| self.can_target_kind(u, a) && !self.inside_min_range(u, a))
+            .filter(|a| seen(a) && self.can_target_kind(u, a) && !self.inside_min_range(u, a))
             .map(|a| (self.score(u, a), a.id))
             .filter(|&(sc, _)| sc > 0);
         // "Vertical order" (round-44 errata): only dying, dead and removed entries are skipped at the front. Inside
@@ -1818,6 +1821,9 @@ mod tests {
         let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
         let g = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
         let i = at(&w, f);
+        // Seen by the footman's owner (round-53 errata: a hidden attacker doesn't seed the search).
+        let gi = at(&w, g);
+        w.units[gi].hidden_from = 0;
         w.units[i].attacked_by = Some(g);
         w.units[i].blocked = 2;
         w.units[i].path = vec![(5, 6), (5, 7)];
@@ -1835,6 +1841,8 @@ mod tests {
         let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
         let g = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
         let i = at(&w, f);
+        let gi = at(&w, g);
+        w.units[gi].hidden_from = 0;
         w.units[i].attacked_by = Some(g);
         // Order 12 (chase) rather than 16, as the footman has an attacker.
         assert!(w.acquire(i, Acquires::Idle, false));
@@ -2864,6 +2872,107 @@ mod tests {
         }
     }
 
+    /// Round-53 errata, "Order 12 with no route" step 3 (static study; `xorc8-10000` n = 7373): a marked unit out of
+    /// reach takes a move step whose search takes an enemy it has no route to; order 12's fallback then runs its
+    /// attack-range search whatever the mark, finds a unit next to it and restarts order 12 on it, setting the mark
+    /// again. The update began marked, so the mark is cleared at its end. A mark first set in an update (the same
+    /// restart from an unmarked start) lasts until the next one.
+    #[test]
+    fn a_restart_in_an_update_that_began_marked_clears_the_mark() {
+        for marked in [true, false] {
+            let mut w = map();
+            // A unit that can't attack scores below any that can, so only the attack-range search picks it.
+            w.stats.0[PEASANT as usize].flags = flags::LAND | flags::PEON;
+            let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 0, (5, 13), 0).unwrap();
+            w.spawn(FOOTMAN, 0, (9, 5), 0).unwrap();
+            let p = w.spawn(PEASANT, 0, (4, 5), 0).unwrap();
+            for y in 3..=7 {
+                for x in 6..=11 {
+                    if x == 6 && y != 5 {
+                        continue;
+                    }
+                    if x <= 7 || x == 11 || y == 3 || y == 7 {
+                        let n = w.terrain.at(x, y).unwrap();
+                        w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+                    }
+                }
+            }
+            w.unit_visibility();
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = Order::Chase { target: old };
+            u.pending = None;
+            u.skip_search = marked;
+            let fx = crate::anim::Effects {
+                step_done: true,
+                ..Default::default()
+            };
+            w.order(i, fx);
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.tile, u.script.anim),
+                (Order::Chase { target: p }, (5, 5), anim::ATTACK)
+            );
+            assert_eq!(u.skip_search, !marked, "began marked: {marked}");
+        }
+    }
+
+    /// Round-53 errata, "Choice" (`human06-31357` n = 9642, `xhuman11-10000` n = 9065, and the static-study row): the
+    /// attacker seeds the search only when the unit's owner detects it and the fog doesn't hide it. A hidden or
+    /// undetected attacker leaves the search as if there were none; it isn't fled from either ("Reacting to an
+    /// attacker", step 1, is the kind check only: the open question's reading).
+    #[test]
+    fn a_hidden_or_undetected_attacker_does_not_seed_the_search() {
+        for (hidden, detected, seeds) in [(false, true, true), (true, true, false), (false, false, false)] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (12, 5), 0).unwrap();
+            let (i, gi) = (at(&w, f), at(&w, g));
+            w.units[gi].hidden_from = if hidden { crate::vision::bit(0) } else { 0 };
+            if !detected {
+                w.units[gi].detected_by &= !crate::vision::bit(0);
+            }
+            w.units[i].attacked_by = Some(g);
+            let changed = w.acquire(i, Acquires::Idle, false);
+            let u = &w.units[i];
+            if seeds {
+                assert!(changed);
+                assert_eq!(u.order, Order::Chase { target: g });
+            } else {
+                assert!(!changed, "hidden {hidden}, detected {detected}");
+                assert_eq!((u.order, u.pending), (Order::Idle, None), "no chase and no flee");
+                assert_eq!(u.attacked_by, Some(g), "the attacker stays recorded");
+            }
+        }
+    }
+
+    /// Fog spec, "When sight is applied", item 4 (round-53 errata, the `human06-31357` vector in small): each strike
+    /// of an attack-type order on another player's unit reveals a sight-2 area at the attacker's tile for the
+    /// target's owner, before the strike. Not for a target of the attacker's own player, nor in order 14.
+    #[test]
+    fn a_strike_reveals_the_attacker_to_its_targets_owner() {
+        for (case, reveals) in [("enemy", true), ("own", false), ("tower", false)] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+            let owner = if case == "own" { 0 } else { 1 };
+            let g = w.spawn(FOOTMAN, owner, (20, 20), 0).unwrap();
+            let gi = at(&w, g);
+            assert!(w.vision.unseen_by(0, 20, 20));
+            w.units[gi].order = if case == "tower" {
+                Order::TowerWatch { target: Some(f) }
+            } else {
+                Order::Attack { target: f }
+            };
+            w.strike(gi);
+            for (t, inside) in [((20, 20), true), ((18, 20), true), ((21, 21), true), ((23, 20), false)] {
+                assert_eq!(!w.vision.unseen_by(0, t.0, t.1), reveals && inside, "{case} at {t:?}");
+            }
+            w.unit_visibility();
+            assert_eq!(w.units[gi].hidden_from & crate::vision::bit(0) == 0, reveals, "{case}");
+        }
+    }
+
     /// Round-52 errata, "Attacking without moving" (static study): in order 16 a new target out of range is taken
     /// while the unit is still cooling down (order 16 on it, the cooldown left as the wait); with no cooldown left the
     /// out-of-range rule applies (idle takes over, wait 3).
@@ -2907,6 +3016,8 @@ mod tests {
             let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
             let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
             w.unit_visibility();
+            let gi = at(&w, g);
+            w.units[gi].hidden_from = 0;
             let i = at(&w, f);
             let goal = if at_goal { (5, 5) } else { (15, 5) };
             let u = &mut w.units[i];

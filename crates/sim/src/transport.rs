@@ -1121,6 +1121,9 @@ mod tests {
         let f = w.spawn(FOOTMAN, 0, (10, 10), 0).unwrap();
         let g = w.spawn(FOOTMAN, 1, (9, 10), 0).unwrap();
         let fi = w.index(f).unwrap();
+        // Seen by the footman's owner (round-53 errata: a hidden attacker doesn't seed the search).
+        let gi = w.index(g).unwrap();
+        w.units[gi].hidden_from = 0;
         w.units[fi].order = Order::Board { transport: tid };
         w.units[fi].attacked_by = Some(g);
         assert!(w.run_transport(fi));

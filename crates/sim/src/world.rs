@@ -806,6 +806,9 @@ pub struct World {
     /// Take-overs counted so far, to tell whether a logic run ended in one (the order-12 skip mark). Not game state:
     /// not stored and left out of the hash.
     pub(crate) takeovers: u32,
+    /// Order-12 restarts by the no-route fallback counted so far, to tell whether a move step ended in one (the skip
+    /// mark). Not game state: not stored and left out of the hash.
+    pub(crate) restarts: u32,
     /// The slot whose update is running, during the cycle's walk of the unit table. Not game state: not stored and
     /// left out of the hash.
     pub(crate) updating: Option<u16>,
@@ -916,6 +919,7 @@ impl World {
             stale: BTreeMap::new(),
             casts: Default::default(),
             takeovers: 0,
+            restarts: 0,
             updating: None,
             fresh_platforms: Vec::new(),
             selections: Default::default(),

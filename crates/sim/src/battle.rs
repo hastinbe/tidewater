@@ -190,6 +190,7 @@ impl World {
         u.path.clear();
         u.blocked = 0;
         u.skip_search = true;
+        self.restarts = self.restarts.wrapping_add(1);
         self.forget_stale_attacker(i);
         let b = facing_tile_of(self.unit(target).expect("found by the search"));
         self.decide_strike(i, b, false);
@@ -348,6 +349,7 @@ impl World {
 
     /// The strike point of the attack script: a melee hit or a missile launch.
     pub(crate) fn strike(&mut self, i: usize) {
+        self.strike_reveal(i);
         let order = self.units[i].order;
         if let Order::Cast { .. } = order {
             return self.cast_strike(i);
@@ -370,6 +372,35 @@ impl World {
             }
         };
         self.hit_or_launch(i, ti, to);
+    }
+
+    /// Vision spec, "When sight is applied", item 4 (round-53 errata, `human06-31357` n = 9642): at each strike point
+    /// of an attack-type order (9, 12, 15, 16, 17, 20 and 21, and the spells Slow and Haste) whose target unit is
+    /// owned by another player, one of players 0 to 7, a sight-2 area centred on the attacker's tile is revealed for
+    /// the target's owner and its shared-vision set, before the strike itself (damage spec, "How an attack delivers
+    /// damage").
+    fn strike_reveal(&mut self, i: usize) {
+        let target = match self.units[i].order {
+            Order::Attack { target }
+            | Order::Chase { target }
+            | Order::AttackInPlace { target }
+            | Order::IdleReact { target } => Some(target),
+            Order::Demolish { at, .. } => at,
+            Order::Cast {
+                spell: crate::spells::spell::SLOW | crate::spells::spell::HASTE,
+                target,
+                ..
+            } => target,
+            // Order 17 (attack the ground) has no target unit.
+            _ => None,
+        };
+        let Some(t) = target.and_then(|t| self.unit(t)) else {
+            return;
+        };
+        let (owner, tile) = (t.owner, self.units[i].tile);
+        if owner != self.units[i].owner && owner < crate::vision::SEEN_PLAYERS {
+            self.reveal(owner, tile, 2);
+        }
     }
 
     /// A strike's hit or launch from the unit at `i` at the unit at `ti`, or at the point `to` (a wall or the ground).
