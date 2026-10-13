@@ -67,6 +67,12 @@
   2026-10-13, round-47 errata: order 12 with no route searches its attack range and attacks what it finds at once, with
   a one-run skip mark (order 9 unchanged); a command whose target unit fails the check gives a pending idle;
   `human5-10000` and `xhuman10-spells-700` vectors; two open questions.
+  2026-10-13, round-48 errata: new section "Order 11: attacking a wall tile" (wall test on the tile as given, goal
+  pulled back, idle at once with no route, pending idle when the wall is gone or out of range); an attack command on a
+  unit of any owner gives order 9; an attack command on a dying unit leaves a pending idle; the order-12 switch is a
+  command whenever the old target is still recorded; the no-route take-over starts the cooldown, and the skip mark lasts
+  until the next logic run of any order; `orc02`, `orc02-dyingcmd-3760` and `human5-10000` vectors; open questions
+  updated.
 
 ## Behaviour
 
@@ -230,8 +236,8 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | 3, smart move (right-click) | See "Smart move" below |
 | 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4 |
 | 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends |
-| 8, attack | Target unit: order 9. Target is a wall tile: order 11. Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
-| 9 | Target unit: order 9; wall tile: order 11; otherwise order 2 |
+| 8, attack | Target unit, of any owner (the player's own, an ally's and a neutral unit included): order 9. Target tile, as given, is a wall tile: order 11 ("Order 11: attacking a wall tile"). Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
+| 9 | Target unit, of any owner: order 9; target tile, as given, a wall tile: order 11; otherwise order 2 |
 | 11 | As command 9 |
 | 12 | Order 12 |
 | 13, 15 | Order 13 (stand ground) |
@@ -257,6 +263,38 @@ return goods, repair, build and spells).
 | The target can be harvested by this unit (gold mine, oil patch or platform, tree) | Harvest rules (see the economy specs) |
 | The target is its own side's unit (not a building) | Order 6 (follow) |
 | Anything else | Order 3 (move) |
+
+### Order 11: attacking a wall tile
+
+A unit in order 11 walks to within its attack range of its goal tile and strikes the tile until it is no longer a wall.
+The goal is the tile given with the command, pulled back as for every command; the wall test that chose order 11 was
+made on the tile as given.
+
+1. **The command.** Command 8 or 9 with no target unit tests the target tile **as given**. If it's a wall tile (a human
+   or an orc wall), order 11 becomes the pending order; otherwise the command gives the order of the table in
+   "Commands". Then, as for every command, the goal is **pulled back** (`movement/pathfinding.md`, "Goal pulled back")
+   and the blocked counter is cleared. So when the clicked tile lies deep in a wall, the tile the unit walks to and
+   strikes is the pulled-back goal: the wall tile nearest the unit along the line. A click on a tile that isn't a wall
+   never gives order 11, even when its pulled-back goal is a wall tile.
+2. **Walking.** Order 11 moves the unit with the normal movement rules until it's within its **attack range** of the
+   goal tile (no extra tile). Its order logic runs only once it has arrived.
+3. **No route.** If the route search finds no route, the unit becomes idle at once and its idle logic runs in the same
+   update, as in "No route" ("Arriving and losing the target"). Order 12's own no-route fallback doesn't apply to order
+   11.
+4. **On arrival**, each time its logic runs, in this order:
+   1. A dying attacker is forgotten ("A dying attacker in orders 9, 11 and 17").
+   2. While the unit is **cooling down**, it waits for the cooldown left and nothing more happens (the cooldown test of
+      "Strike decision").
+   3. If the goal tile is **no longer a wall** (the wall was destroyed), idle becomes the **pending** order and takes
+      over in the same update (still animation, wait 3).
+   4. If the goal tile is out of the unit's attack range, idle becomes the pending order the same way.
+   5. Otherwise the unit turns to face the goal tile (ships use their own rule, as for strikes), strikes (its attack
+      animation starts) and its cooldown starts again.
+5. **Blocked row A.** The pending order 11 that row A of the blocked rules gives (`movement/movement.md`) is set
+   directly, not through a command, so its goal is the blocking tile, not pulled back.
+
+Traced: `orc02-victory-7639` and `orc02-defeat-4021` (the pulled-back goal, no route, and the wall gone; vectors below).
+Steps 4.2 and 4.4 rest on static study alone: they agree with the traces, but no trace separates them.
 
 ### Pending orders and immediate orders
 
@@ -352,14 +390,20 @@ it from re-issuing every cycle when the move can't progress.
   at once (attack animation, wait 3), with the look-around draw made in that update. It also applies to a worker or
   tanker returning goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is
   the job choice, whose new command takes over in the same update (wait 3).
-- **Order 12 with no route.** Order 12, and not order 9, has its own fallback when its route search finds no route:
+- **Order 12 with no route.** Order 12, and not order 9 or 11, has its own fallback when its route search finds none:
   1. A separate target search runs ("Automatic target acquisition") with the box of the unit's **attack range**, not its
      reaction range (the extra tile for towers applies only to tower types), and with no attacker seed.
   2. If it finds a target, order 12 on that target is given **as a command** and takes over at once, in the same update:
      the unit turns to face the target as for a strike ("Strike decision"), its attack animation starts and the
      animation's first step runs in that update, leaving a wait of 1.
-  3. The unit is marked so that the **next** run of order 12's logic skips the target search at its start (and with it
-     the acquisition). The mark is cleared after that one run.
+     This is a strike, so the unit's cooldown starts in that update; the attack sound and the hit come later from the
+     attack animation (in `human5-10000` the take-over is at n = 1759, the hit at n = 1769 and the next step at n = 1774
+     with wait 10, the cooldown left).
+  3. The unit is marked so that its **next** order-logic run skips the target search at its start (and with it the
+     acquisition). The mark is cleared at the end of the next update in which the unit's order logic runs, whatever its
+     order is then; an update that ends in a pending order taking over, or in a move step, leaves it set. If the order
+     at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips its search (static study;
+     no trace separates the case of a changed order).
   4. If nothing is found, the unit goes idle at once, as above.
   Traced: `human5-10000`, vectors below. Each part is needed there: the facing, the same-update step, and a mark that
   lasts exactly one run.
@@ -408,6 +452,10 @@ of the command's order (with the resume rules of "Resuming patrol and attack-mov
 command. The pending idle takes over at the unit's next step done with wait 3, and the idle logic doesn't run in that
 update, so an idle unit makes no look-around draw there. A call for help answered against a dying attacker ends this way
 (`ai/attack-ai.md`, "Call for help"; traced: `xhuman10-spells-700`, vectors below).
+A player's attack command (8 or 9) on a **dying** unit ends the same way: it is still given to each selected unit, the
+target fails the check, and the unit is left in order 2 with no target and a pending idle, as if told to stop. Its still
+animation restarts with wait 3 when the pending idle takes over, and it makes no look-around draw in that update (traced
+with the player's own dying unit: `orc02-dyingcmd-3760`, vectors below; static study gives the same for an enemy unit).
 
 **Strike decision (attack orders 9, 11, 12, 15, 16 and 17).** Before a unit strikes, the attack cooldown of
 `combat/damage.md` ("Attack timing (cooldown)") is tested: a unit that isn't a flyer and whose wait is less than its
@@ -583,8 +631,10 @@ When the searching unit is in order 12 and the search picks a different target:
   and the unit starts its next step, toward the new target, in that update. The new order takes over at the next
   step done ("Pending orders and immediate orders") with the attack animation and wait 3, and the unit walks on at
   the run after that. A unit standing in its attack animation doesn't step: it keeps standing until the take-over.
-  This case also applies when the old target is dying, unless this unit killed it (and so forgot it) in this
-  update; the unit's animation doesn't matter.
+  This case applies whenever the unit still records an old target, whatever that target's state: dying, inside a
+  building (a worker in a gold mine, for example) or otherwise not detected. The exceptions are the next two cases: this
+  unit killed the old target (and so forgot it) in this update, or it's within strike reach of the old target. The
+  unit's animation doesn't matter (traced: `human5-10000`, vectors below).
 - **Out of reach, but within strike reach of the old target:** order 12 on the new target takes over at once
   (attack animation, wait 3), as in the next case. No step is taken in that update.
 - **The old target is gone or was forgotten** (this unit killed it, or its slot is gone): the new order takes over at
@@ -1050,6 +1100,14 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Order 9 with no route | Immediate idle (unchanged) |
 | `xhuman10-spells-700` (oracle trace): at n = 324 an axe from 1478 (type 0x09, owner 2, dying since n = 323) hits knight 1493 (type 0x06, owner 1); idle knight 1480 (type 0x06, owner 1) at (83, 90) answers with command 12 against 1478 | The target fails the check: idle becomes its pending order. n = 328, its next step done: order 2, animation 2, wait 3, target null, no look-around draw (7 draws in that cycle, not 8) |
 | An idle S next to V; V hit by a missile from A, A already dying | S answers; its order stays 2; the pending idle takes over at its next step done |
+| `orc02-victory-7639` and `orc02-defeat-4021` (oracle traces), n = 2720: grunt 1576 (type 0x01, owner 0), in order 11 since the n = 2600 command on wall tile (55, 15) | Strikes from (56, 17) at the pulled-back goal (55, 16): facing 7, animation 4, wait 1 |
+| `orc02-defeat-4021`, n = 2752: grunt 1575 at (55, 18) in order 11 finds no route | Order 2 at once, wait 1; its look-around draw is made in that update |
+| `orc02-defeat-4021`, n = 2967: grunt 1568 at (56, 15) in order 11; the wall at (55, 15) is gone | Order 2 as a pending order: still animation, wait 3 |
+| Command 8 on a tile that isn't a wall, next to a wall | Not order 11 (order 10, or order 2 for command 9), even if the pulled-back goal is a wall tile |
+| Blocked row A gives order 11 on a wall tile | Goal kept as the blocking tile (no pull-back) |
+| `orc02-defeat-4021`, turn n = 3602: command 8 on the player's own Zul'jin 1594 (type 0x35) for grunts 1568, 1572, 1575, 1576 and 1578 | Each records target 1594 with order 9 pending; 1575 and 1576 are in order 9 at n = 3603 |
+| `orc02-dyingcmd-3760` (oracle trace): 1594 is dying from n = 3718; the command at turn n = 3722 sends idle grunts 1572 (wait 4) and 1575 (wait 1) to attack it | n = 3723: both in order 2, target null, wait 3; two draws in that cycle, against three in `orc02-defeat-4021`, where 1575 looks around |
+| `human5-10000`, n = 2754: axe thrower 1533 (type 0x09, owner 5) in order 12 on peasant 1513, which is inside a gold mine; the new target, town hall 1525, is out of strike reach | Command switch: target 1525, it steps to (36, 99), animation 3, facing 1, wait 1 |
 
 ## Open questions
 
@@ -1091,7 +1149,10 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   command a unit's own order logic gives it takes over in the same update.
 - **Other rejections in the attacker seed.** Whether a candidate check other than the two named in "Choice" (for
   example the attacker standing in fog) also gives the seed a score of 0 isn't separated by any trace.
-- **A player's attack command on a dying unit.** The static reading says it becomes a pending idle like the call for
-  help's command; no trace separates it.
+- **An attack command on a dying enemy.** The pending idle of an attack command on a dying unit is traced only with the
+  player's own unit as the target (`orc02-dyingcmd-3760`); the enemy case rests on static study.
+- **Order 11's cooldown and range checks** ("Order 11: attacking a wall tile", steps 4.2 and 4.4) rest on static study;
+  no trace reaches either on its own.
+- **The order-12 skip mark across an order change** ("Order 12 with no route", step 3) rests on static study.
 - **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
   is open; the `human5-10000` trace fits the strike facing.
