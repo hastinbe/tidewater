@@ -497,7 +497,7 @@ gold, storage for wood, storage for oil, building.
 
 | Input | Expected |
 | --- | --- |
-| `mp-rose-petal-bne-10000` (oracle trace, Enhanced), n = 1731: computer peon 1567 (type 0x02, owner 3) comes out of great hall 1556 (top-left (55, 84), hall-sized exit) toward gold mine 1571 (top-left (59, 78)). Pulling back from (55, 84): the first tile tested, (58, 79), is forest; the next, (58, 80), is usable, so the goal is (58, 79) | Placed at (55, 83), facing 1 (toward (60, 79)); order 2, target 1571. Aimed at (59, 78) instead, it would come out at (59, 84) facing 0 |
+| `mp-rose-petal-bne-10000` (oracle trace, Enhanced), n = 1731: computer peasant 1567 (type 0x02, owner 3) comes out of town hall 1556 (top-left (55, 84), hall-sized exit) toward gold mine 1571 (top-left (59, 78)). Pulling back from (55, 84): the first tile tested, (58, 79), is forest; the next, (58, 80), is usable, so the goal is (58, 79) | Placed at (55, 83), facing 1 (toward (60, 79)); order 2, target 1571. Aimed at (59, 78) instead, it would come out at (59, 84) facing 0 |
 | `mp-gold-rush-bne-6000` (oracle trace, Enhanced), n = 2353: peon 1511 comes out of great hall 1534 (top-left (11, 49)) toward gold mine 1547 (top-left (6, 43)) | Placed at (10, 50), facing 7, toward (7, 44): the mine's top-left plus (1, 1), not the pulled-back goal (8, 45) plus (1, 1), which would give 0 |
 
 ## Open questions
