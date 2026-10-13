@@ -160,11 +160,15 @@ impl World {
         // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
         let owner = self.units[i].owner;
         // Round-54 errata (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit is checked too.
+        // Round-63 errata (harvest spec, "Returning goods"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374):
+        // command 24's target unit too, and a target inside something fails the check; no depot is looked up then.
         let named = match order {
-            Order::MoveAttack { target, .. } | Order::Cast { target, .. } => target,
+            Order::MoveAttack { target, .. } | Order::Cast { target, .. } | Order::ReturnGoods { depot: target } => {
+                target
+            }
             o => crate::orders::target_of(o),
         };
-        if named.is_some_and(|t| self.stale(owner, t)) {
+        if named.is_some_and(|t| self.stale_target(owner, t)) {
             self.give(i, Order::Idle);
             let u = &mut self.units[i];
             u.commanded = u.pending.is_some();
@@ -318,8 +322,8 @@ impl World {
         let order = self.units[i].order;
         match order {
             Order::AttackWall { tile } => self.attack_wall_order(i, tile),
-            // Orders spec, "The reaction": orders 23 and 27 run it each time their logic runs.
-            Order::Repair { .. } | Order::Harvest { .. } if self.react(i) => {}
+            // Orders spec, "The reaction": orders 23, 24 and 27 run it in their logic once their walk has ended
+            // (round-63 errata), so each calls it itself.
             Order::Repair { target } => self.repair_order(i, target),
             Order::Harvest { source, tree, chopping } => self.harvest_order(i, source, tree, chopping),
             Order::ReturnGoods { depot } => self.return_order(i, depot),

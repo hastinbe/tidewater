@@ -212,7 +212,6 @@ impl World {
             Order::Land { goal } => self.landing(i, goal),
             Order::PushOff => self.push_off(i),
             Order::Unload => self.unload(i),
-            Order::Board { .. } if self.react(i) => {}
             Order::Board { transport } => self.board(i, transport),
             Order::Docked | Order::Aboard { .. } => {
                 if self.units[i].script.anim != anim::STILL {
@@ -393,7 +392,10 @@ impl World {
 
     fn board(&mut self, i: usize, transport: UnitId) {
         let Some(ti) = self.index(transport).filter(|&ti| self.units[ti].present()) else {
-            self.stop(i);
+            // Not walking: the reaction runs first, as before.
+            if !self.react_at_walk_end(i) {
+                self.stop(i);
+            }
             return;
         };
         let walk = self.board_walk(i, ti);
@@ -415,7 +417,13 @@ impl World {
         let dest_here = self.region_at(t.ship.dest) == here;
         let human = self.human_controlled(u.owner);
         let computer = self.computer_player(u.owner);
-        match self.move_toward(i, walk) {
+        // Round-63 errata (orders spec, "Walking orders react only when the walk has ended"; static study only for
+        // order 34): the reaction runs only on arrival or with no route, never while walking.
+        let walked = self.move_toward(i, walk);
+        if matches!(walked, Walk::Arrived | Walk::NoPath) && self.react_at_walk_end(i) {
+            return;
+        }
+        match walked {
             Walk::Arrived => {}
             Walk::NoPath if dest_here => {
                 let o = if human {
@@ -1151,8 +1159,10 @@ mod tests {
         assert_eq!(w.units[j].order, Order::Idle);
     }
 
+    /// Orders spec, round-63 errata ("Walking orders react only when the walk has ended"; static study for order 34):
+    /// a boarding footman hit while it walks to the transport keeps walking, and its attacker stays recorded.
     #[test]
-    fn a_boarding_footman_hit_turns_on_its_attacker() {
+    fn a_boarding_footman_hit_while_walking_doesnt_react() {
         let mut w = sea(20);
         let t = ship(&mut w, (20, 10), Order::Docked);
         let tid = w.units[t].id;
@@ -1165,7 +1175,9 @@ mod tests {
         w.units[fi].order = Order::Board { transport: tid };
         w.units[fi].attacked_by = Some(g);
         assert!(w.run_transport(fi));
-        assert_eq!(w.units[fi].order, Order::Chase { target: g });
+        let u = &w.units[fi];
+        assert_eq!((u.order, u.attacked_by), (Order::Board { transport: tid }, Some(g)));
+        assert_eq!((u.tile, u.script.anim), ((11, 9), anim::MOVE), "it took a step");
     }
 
     /// Round-51 errata, orders spec "Fleeing" step 6 (`xorc8-10000` transport 1423, n = 6177): a transport flees with a

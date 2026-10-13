@@ -141,7 +141,7 @@ impl World {
         // Round-45 errata, "Commands forget a stale attacker": a target unit given with the command gets the same check
         // as the attacker, so one that is dying, dead, removed or not detected is dropped (static study only).
         let owner = u.owner;
-        let fresh = |t: Option<UnitId>| t.filter(|&t| !self.stale(owner, t));
+        let fresh = |t: Option<UnitId>| t.filter(|&t| !self.stale_target(owner, t));
         let order = match *c {
             Command::Move { to, .. } => Order::Move {
                 goal: shore(to),
@@ -508,6 +508,13 @@ impl World {
         self.unit(t).is_none_or(|t| t.dying || !Self::detected(t, owner))
     }
 
+    /// The command check of a target unit given with a command: [`World::stale`], and round-63 errata ("Commands
+    /// forget a stale attacker"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374) a target inside something (a
+    /// mine, platform, depot, transport or another unit) fails it too.
+    pub(crate) fn stale_target(&self, owner: u8, t: UnitId) -> bool {
+        self.stale(owner, t) || self.unit(t).is_some_and(|t| t.inside)
+    }
+
     /// Orders spec, "Order 12 with no route" step 3 (round-52 errata, `xorc8-10000` elven destroyer 1468, n = 7372):
     /// a unit in order 12 out of reach of a target it still holds takes a move step instead of running its order
     /// logic, and the move step's target search runs whatever the skip mark.
@@ -543,9 +550,17 @@ impl World {
         // Round-49 errata ("Commands", command 4): order 4 with a target unit ends at its run once that target is dying
         // or lost, as on arrival: idle (or the resumed order) takes over in the same update (`xhuman7-10000` giant
         // turtle 1511, n = 271).
-        let move_lost = matches!(o, Order::MoveAttack { target: Some(t), .. } if !self.holds(self.units[i].owner, t));
+        // Round-63 errata ("Smart move"; `orc9-orc09-smart-target-2100` peon 1478, n = 1877): a smart move (order 3)
+        // that keeps a target unit ends the same way, at its first step boundary where the target is dying, gone,
+        // inside something or undetected; it doesn't walk on to the stored tile.
+        let move_lost = matches!(
+            o,
+            Order::MoveAttack { target: Some(t), .. } | Order::Move { target: Some(t), .. }
+                if !self.holds(self.units[i].owner, t)
+        );
         if (lost && !search_first) || move_lost {
-            // Round-50 errata (static study): command 4's end forgets the attacker, as arrival does.
+            // Round-50 errata (static study): command 4's end forgets the attacker, as arrival does (and so does order
+            // 3's, round-63 errata).
             if move_lost {
                 self.units[i].attacked_by = None;
             }
@@ -608,12 +623,12 @@ impl World {
                     self.idle_choice(i);
                 }
             }
-            Order::Move { target: Some(t), .. } if self.unit(t).is_some() => {
+            Order::Move { target: Some(t), .. } => {
                 // Round-62 errata ("Smart move"; pathfinding spec, "Step 1"): a move that keeps a target unit walks to
                 // the route goal of the building goal rule on the target's footprint, from the unit's tile, with the
                 // target's goal zone, as any walk whose order holds a target unit. On arrival the target is dropped
-                // with the order.
-                let t = self.unit(t).expect("checked above");
+                // with the order. A lost target ended the order above.
+                let t = self.unit(t).expect("held");
                 let g = Goal {
                     zone: Some(crate::battle::goal_zone(t)),
                     ..Goal::tile(self.target_goal(&self.units[i], t), 0)
@@ -690,9 +705,7 @@ impl World {
                 Walk::Stepping | Walk::Blocked => {}
             },
             Order::Follow { target } | Order::Guard { target } => {
-                if matches!(o, Order::Follow { .. }) && self.react(i) {
-                    return true;
-                }
+                // Order 6 reacts to an attacker only when its walk has ended (`follow`, round-63 errata).
                 // "Follow": order 7 then runs the idle logic (look-around, then acquisition as for order 2), unless
                 // its follow steps gave it a new order.
                 if self.follow(i, target) && !self.look_around(i) {
@@ -715,8 +728,13 @@ impl World {
         let Some(t) = self.unit(target) else { return false };
         let (t_order, t_tile) = (t.order, t.tile);
         let u = &self.units[i];
+        let follow = matches!(u.order, Order::Follow { .. });
         let following = matches!(u.order, Order::Guard { .. }) || matches!(u.pending, Some(Order::Follow { .. }));
         if following && !followable(t_order) {
+            if follow && self.react_at_walk_end(i) {
+                return false;
+            }
+            let u = &self.units[i];
             let here = u.tile;
             self.give(
                 i,
@@ -736,13 +754,18 @@ impl World {
         };
         // Round-62 errata (`orc9-orc09-tanker-move-2200` juggernaut 1501, n = 614): the radius is 1 plus the +1 for a
         // sea or air follower, as in the general arrival test.
+        // Round-63 errata ("Walking orders react only when the walk has ended"): order 6 runs the reaction only when
+        // it is in reach or its walk found no route, never while walking (static study only).
         if !self.at_goal(i, g) {
-            if matches!(self.move_toward(i, g), Walk::NoPath) {
+            if matches!(self.move_toward(i, g), Walk::NoPath) && !(follow && self.react_at_walk_end(i)) {
                 self.stop(i);
             }
             return false;
         }
-        if matches!(u.order, Order::Follow { .. }) {
+        if follow && self.react_at_walk_end(i) {
+            return false;
+        }
+        if follow {
             if followable(t_order) {
                 self.units[i].order = Order::Guard { target };
                 self.units[i].path.clear();
@@ -1206,6 +1229,23 @@ impl World {
         }
         self.decide_strike(i, b, false);
         false
+    }
+
+    /// The reaction of a walking order (23, 24, 27, 6 or 34) in a logic run where its walk has ended: it has reached
+    /// its goal, or found no route. Round-63 errata ("Walking orders react only when the walk has ended";
+    /// `orc9-orc09-flee-walk-1200` peon 1478, n = 590): while the unit walks only the walk runs and the attacker stays
+    /// recorded; these orders call this only once the walk has ended. The arrival switch comes first: a unit still in
+    /// its move animation is switched to its order's own animation (`core/animation-scripts.md`), so a flee given
+    /// here takes over at once (still animation, wait 3).
+    ///
+    /// Our reading: the switch is made here only when an attacker is recorded. Without one the reaction does nothing,
+    /// and each order's own arrival logic starts its animation as before.
+    pub(crate) fn react_at_walk_end(&mut self, i: usize) -> bool {
+        let u = &self.units[i];
+        if u.attacked_by.is_some() && u.script.anim == anim::MOVE {
+            self.switch_anim(i, order_anim(u.order));
+        }
+        self.react(i)
     }
 
     /// The plain reaction to an attacker ("The reaction"). Returns true if the unit's order changed or it fled.
@@ -3935,5 +3975,125 @@ mod tests {
             }
         }
         assert!(arrived);
+    }
+
+    /// Round-63 vectors (`orc9-orc09-smart-target-2100` peon 1478, n = 1877; the inside and undetected cases static
+    /// study): a smart move whose target unit is dying, inside something or undetected at a step boundary ends as on
+    /// arrival: order 2, target dropped, attacker forgotten, still animation, wait 3. It doesn't walk on.
+    #[test]
+    fn a_smart_move_losing_its_target_ends_as_on_arrival() {
+        type Lose = fn(&mut World, usize);
+        let cases: [(&str, Lose); 3] = [
+            ("dying", |w, bi| w.kill(bi)),
+            ("inside", |w, bi| w.units[bi].inside = true),
+            ("undetected", |w, bi| w.units[bi].detected_by = 0),
+        ];
+        for (what, lose) in cases {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (3, 10), 0).unwrap();
+            let b = w.spawn(FARM, 0, (14, 9), 0).unwrap();
+            let a = w.spawn(ARCHER, 1, (3, 14), 0).unwrap();
+            let i = at(&w, f);
+            w.units[i].order = Order::Move {
+                goal: (14, 9),
+                target: Some(b),
+            };
+            w.units[i].attacked_by = Some(a);
+            w.start_anim(i, anim::MOVE);
+            let bi = at(&w, b);
+            lose(&mut w, bi);
+            let i = at(&w, f);
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!((u.order, u.pending, u.tile), (Order::Idle, None, (3, 10)), "{what}");
+            assert_eq!(
+                (u.script.anim, u.script.wait, u.attacked_by),
+                (anim::STILL, 3, None),
+                "{what}"
+            );
+            assert_eq!(u.recorded_target(), None, "{what}");
+        }
+    }
+
+    /// Round-63 vectors (`orc9-orc09-flee-chop-walk-900` and `orc9-orc09-flee-walk-1200` peon 1478): a lumber worker
+    /// hit while walking to its tree keeps walking with its attacker recorded; when it reaches the tree, still in its
+    /// move animation, the arrival switch and the reaction make it flee at once: order 3, still animation, wait 3.
+    #[test]
+    fn a_lumber_worker_flees_only_when_its_walk_has_ended() {
+        let mut w = map();
+        let p = w.spawn(PEASANT, 0, (5, 10), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (5, 4), 0).unwrap();
+        let i = at(&w, p);
+        w.units[i].gather = crate::world::Gather::Lumber;
+        w.units[i].order = Order::Harvest {
+            source: None,
+            tree: (12, 10),
+            chopping: false,
+        };
+        w.units[i].attacked_by = Some(a);
+        let rng = w.rng;
+        w.harvest_order(i, None, (12, 10), false);
+        let u = &w.units[i];
+        assert_eq!((u.tile, u.script.anim), ((6, 10), anim::MOVE), "a step");
+        assert_eq!((u.attacked_by, w.rng), (Some(a), rng), "no reaction while walking");
+        // It reaches the tree's side: the walk ends.
+        let u = &mut w.units[i];
+        u.tile = (11, 10);
+        u.path.clear();
+        w.harvest_order(i, None, (12, 10), false);
+        let u = &w.units[i];
+        assert!(matches!(u.order, Order::Move { target: None, .. }), "{:?}", u.order);
+        assert_eq!((u.pending, u.script.anim, u.script.wait), (None, anim::STILL, 3));
+        let mut two = rng;
+        two.draw();
+        two.draw();
+        assert_eq!(w.rng, two, "the flee's two draws");
+    }
+
+    /// Round-63 vector (static study): a human player's worker repairing (order 27) hit while walking to the building
+    /// doesn't react; it flees at its first logic run after it arrives.
+    #[test]
+    fn a_repairer_reacts_only_after_it_arrives() {
+        let mut w = map();
+        let p = w.spawn(PEASANT, 0, (3, 10), 0).unwrap();
+        let farm = w.spawn(FARM, 0, (14, 9), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (3, 4), 0).unwrap();
+        let fi = at(&w, farm);
+        w.units[fi].hp = 1;
+        let i = at(&w, p);
+        w.units[i].order = Order::Repair { target: farm };
+        w.units[i].attacked_by = Some(a);
+        w.repair_order(i, farm);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.attacked_by), (Order::Repair { target: farm }, Some(a)));
+        let u = &mut w.units[i];
+        u.tile = (13, 10);
+        u.path.clear();
+        w.repair_order(i, farm);
+        assert!(
+            matches!(w.units[i].order, Order::Move { target: None, .. }),
+            "{:?}",
+            w.units[i].order
+        );
+    }
+
+    /// Round-63 errata ("Commands forget a stale attacker"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374): a
+    /// command's target unit that is inside something fails the command check: the target is dropped and idle becomes
+    /// the pending order; the unit keeps its order.
+    #[test]
+    fn a_target_inside_something_fails_the_command_check() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (3, 10), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (6, 10), 0).unwrap();
+        let gi = at(&w, g);
+        w.units[gi].inside = true;
+        let i = at(&w, f);
+        w.command(i, Order::Attack { target: g });
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.recorded_target()),
+            (Order::Idle, Some(Order::Idle), None)
+        );
+        assert!(w.stale_target(0, g) && !w.stale(0, g));
     }
 }

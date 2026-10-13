@@ -2,7 +2,7 @@
 //!
 //! Repair is order 27: it plays the attack animation, so its logic runs once per attack loop. Each run on an arrived
 //! worker adds 4 hit points to the target; every second run on the same target, by any worker, costs 1 gold and 1
-//! lumber. Reacting to an attacker (step 1) waits on the orders spec: until then an attacked repairer keeps repairing.
+//! lumber. Step 1, the reaction to an attacker, runs only once the walk has ended (orders spec, round-63 errata).
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -49,6 +49,9 @@ impl World {
     pub(crate) fn repair_order(&mut self, i: usize, target: UnitId) {
         // 2. No target.
         let Some(ti) = self.index(target).filter(|&ti| self.units[ti].present()) else {
+            if self.react_at_walk_end(i) {
+                return;
+            }
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);
             return;
@@ -69,12 +72,19 @@ impl World {
                 range: false,
                 zone: Some(zone),
             };
-            if self.move_toward(i, g) == Walk::NoPath {
+            // Orders spec, round-63 errata ("Walking orders react only when the walk has ended"; static study only
+            // for order 27): while walking only the walk runs; with no route the reaction runs first.
+            if self.move_toward(i, g) == Walk::NoPath && !self.react_at_walk_end(i) {
                 self.go_idle(i);
                 self.switch_anim(i, anim::STILL);
             }
             return;
         }
+        // 1. Arrived: the reaction to an attacker.
+        if self.react_at_walk_end(i) {
+            return;
+        }
+        let (u, t) = (&self.units[i], &self.units[ti]);
         // 4. Full hit points.
         let max = self.stats_of(t.kind).hit_points;
         if t.hp >= max {
