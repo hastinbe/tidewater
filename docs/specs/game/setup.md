@@ -7,6 +7,8 @@
 - **Changes:** 2026-10-12, round-31 errata: the map's `SIDE` race is used as it is for all 16 slots; slots 8 to 15
   are not set to neutral.
 - **Changes:** 2026-10-12, round-35 errata: trace vectors confirm the starting alliances (no change to the rules).
+- **Changes:** 2026-10-13, round-47 errata: every slot starts a new game with the "ever had a hall" mark set (cleared
+  only in Enhanced multiplayer).
 
 ## Behaviour
 
@@ -71,6 +73,10 @@ keeps a position in the table, starting at the first entry:
   The mission entry is the one in `game/victory.md` ("Mission rules"). A map's `ALOW` section replaces all six words
   for every slot. None of the shipped maps has one, so the campaign table decides what each mission allows.
 - **Mission mode and required count:** as in `game/victory.md`.
+- **Ever had a hall:** every slot's "ever had a completed town hall, keep or castle" mark (`economy/build-train.md`,
+  "Fast first hall"; `ai/worker-ai.md`, "Farm") is **set**, for a campaign map and a custom game alike. Only an Enhanced
+  multiplayer game (a later spec) starts with every mark cleared; there the mark is set by the player's first completed
+  hall. A loaded game restores the marks as saved (traced: `orc5-10000`, `ai/worker-ai.md` vectors).
 
 ### Section effects
 
