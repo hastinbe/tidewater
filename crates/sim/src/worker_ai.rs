@@ -173,6 +173,7 @@ impl World {
         if let Choice::Order(o) = self.worker_choice(i) {
             // A computer player's command: it clears the blocked counter (movement spec, "Blocked rules").
             self.units[i].blocked = 0;
+            self.forget_stale_attacker(i);
             self.give(i, o);
             if let Some(o) = self.units[i].pending.take() {
                 self.take_over(i, o);

@@ -189,6 +189,7 @@ impl World {
                 let o = self.transport_command(ti, Some(id), tile, false);
                 // The transport's smart move is a command: it clears the blocked counter (movement spec).
                 self.units[ti].blocked = 0;
+                self.forget_stale_attacker(ti);
                 self.give(ti, o);
             }
         }

@@ -500,8 +500,10 @@ impl World {
         // Movement spec, "Blocked rules" (round-41 errata): the order given on coming out is a command.
         if next.is_some() {
             u.blocked = 0;
+            // Orders spec, "Commands forget a stale attacker" (round-45 errata).
+            self.forget_stale_attacker(i);
         }
-        let u = u.clone();
+        let u = self.units[i].clone();
         self.mark(&u, tile, Some(u.id));
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = OUT_WAIT;
@@ -548,6 +550,7 @@ impl World {
         u.carrying = true;
         u.script.frame = 0;
         u.blocked = 0;
+        self.forget_stale_attacker(i);
         self.take_over(i, Order::ReturnGoods { depot: None });
     }
 
@@ -589,6 +592,7 @@ impl World {
                 // A new harvest command: the route dropped and the blocked counter cleared (movement spec).
                 self.units[i].path.clear();
                 self.units[i].blocked = 0;
+                self.forget_stale_attacker(i);
                 self.give(i, o);
                 if let Some(o) = self.units[i].pending.take() {
                     self.units[i].commanded = false;

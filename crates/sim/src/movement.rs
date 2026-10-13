@@ -110,15 +110,16 @@ impl World {
             return;
         }
         // Orders spec, "Resuming patrol and attack-move": a pending idle may become the remembered order.
-        let order = match order {
-            Order::Idle => self.resumed(i).unwrap_or(Order::Idle),
-            o => o,
+        // Round-45 errata: the resumed order is a command, so it carries the pending-command mark.
+        let resumed = match order {
+            Order::Idle => self.resumed(i),
+            _ => None,
         };
         // Movement spec, "Blocked rules" (round-42 errata): an order made pending without a command keeps the
         // blocked counter; `command` clears it.
         let u = &mut self.units[i];
-        u.pending = Some(order);
-        u.commanded = false;
+        u.pending = Some(resumed.unwrap_or(order));
+        u.commanded = resumed.is_some();
     }
 
     /// A command's order for one unit, whoever gives it: the goal pulled back off ground the unit can't stand on
@@ -144,6 +145,8 @@ impl World {
         };
         self.units[i].blocked = 0;
         self.units[i].path.clear();
+        // Orders spec, "Commands forget a stale attacker" (round-45 errata).
+        self.forget_stale_attacker(i);
         self.give(i, order);
         let u = &mut self.units[i];
         u.commanded = u.pending == Some(order);
@@ -398,7 +401,9 @@ impl World {
             let near = if u.layer == Layer::Land { 1 } else { 2 };
             let (dx, dy) = ((u.tile.0 - g.tile.0).abs(), (u.tile.1 - g.tile.1).abs());
             if attacked && dx <= near && dy <= near {
-                self.units[i].order = Order::Idle; // G
+                // G. Round-45 errata (static study only): "stand still" becomes the pending order, so the resume rules
+                // of the orders spec apply.
+                self.give(i, Order::Idle);
             } else {
                 drop_path(self); // H, I
             }
@@ -960,8 +965,28 @@ mod tests {
         let foe = w.spawn(0, 1, (3, 1), 0).unwrap();
         let i = stepping_into(&mut w, f, (3, 1), (3, 1));
         w.units[i].attacked_by = Some(foe);
+        let before = w.units[i].order;
         w.move_toward(i, Goal::tile((3, 1), 0));
-        assert_eq!((w.units[i].order, w.units[i].script.wait), (Order::Idle, 1));
+        // Row G (round-45 errata): idle becomes the pending order; the order is unchanged in that update, wait 1.
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending, u.script.wait), (before, Some(Order::Idle), 1));
+    }
+
+    /// Row G's pending idle goes through the resume rules (round-45 errata): a remembered attack-move is given again,
+    /// as a command.
+    #[test]
+    fn row_g_resumes_a_remembered_attack_move() {
+        let mut w = field(10, 3);
+        w.rules.enhanced = true;
+        let f = w.spawn(0, 0, (2, 1), 0).unwrap();
+        let foe = w.spawn(0, 1, (3, 1), 0).unwrap();
+        let i = stepping_into(&mut w, f, (3, 1), (3, 1));
+        w.units[i].attacked_by = Some(foe);
+        w.units[i].remembered = Some(crate::world::Remembered::AttackMove { goal: (8, 1) });
+        w.move_toward(i, Goal::tile((3, 1), 0));
+        let u = &w.units[i];
+        assert_eq!(u.pending, Some(Order::AttackMove { goal: (8, 1) }));
+        assert_eq!((u.blocked, u.commanded), (0, true));
     }
 
     #[test]

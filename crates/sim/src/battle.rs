@@ -193,8 +193,8 @@ impl World {
         } else {
             Goal::tile(t.tile, 0)
         };
+        // Orders spec, "No route" (round-45 errata): a unit that goes idle with no route keeps its attacker.
         if self.move_toward(i, g) == Walk::NoPath {
-            self.units[i].attacked_by = None;
             self.idle_at_once(i);
         }
     }

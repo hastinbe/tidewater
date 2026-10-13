@@ -9,16 +9,11 @@
 //!
 //! - **orc02-victory**, **orc02-defeat**, n = 2719: at n = 2720 a computer grunt (slot 1576) attacking a wall (order
 //!   11) records tile (56, 17), facing 7, animation 4 in the game, and (57, 16), facing 1, animation 3 in ours.
-//! - **xorc01-death-coil**, n = 903: at n = 904 an ogre (slot 1489) in order 10 records tile x 56, facing 1 in the
-//!   game, and x 54, facing 7 in ours.
 //! - **xhuman10-spells**, n = 327: at n = 328 a computer catapult (slot 1480), idle, has wait 3 in the game and 1 in
 //!   ours, and the game made one draw fewer since the previous record (7 against our 8).
-//! - **xhuman10-blizzard**, n = 169: at n = 170 a new blizzard shard is in effect slot 12 in the game (kind 5) where
-//!   ours holds kind 26, and several units' hit points differ (unit 1486: 11 in the game, 38 in ours).
-//! - **xorc01-death-knight**, n = 914: at n = 915 an ogre (slot 1488) is in order 12, animation 4, wait 15 in the
-//!   game, and in order 10, animation 2, wait 3 in ours.
-//! - **xorc10-dragons**, n = 463: at n = 464 a footman (slot 1520, owner 2) at (35, 38) is in order 3 with wait 3 in
-//!   the game (two more draws: it flees again) and idle with wait 1 in ours.
+//! - **xhuman10-blizzard**, n = 308: at n = 309 a computer catapult (slot 1483), cooling down in order 16, has no
+//!   target in the game and still targets 1490 (dying since about n = 277) in ours, just after its own rock lands
+//!   near that target.
 //! - **human5**, n = 1758: at n = 1759 a grunt (slot 1531) in order 12 targets 1525, facing 5, wait 1 in the game,
 //!   and 1518, facing 2, wait 3 in ours; and a critter (slot 1538) is in order 3 in the game and 2 in ours.
 //! - **xhuman2**, n = 2486: at n = 2487 player 0 has 0 gold and 825 lumber in the game and 50 and 775 in ours, and a
@@ -27,7 +22,8 @@
 //! human01-2000, human04-3000, human01-basics, orc02-assault, xorc12-ogre-mage, orc09-naval, orc09-repair,
 //! human12-transport, human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human7-10000,
 //! xorc3, human10-24000, orc8, xhuman4, human06-31357, orc4-40000, human7-22000, human01-order15-range,
-//! human12-row-f-move and human12-row-f-landing match in full.
+//! human12-row-f-move, human12-row-f-landing, xorc01-death-coil, xorc01-death-knight and xorc10-dragons match in
+//! full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -66,7 +62,7 @@ const TRACES: [Trace; 34] = [
         "Campaign\\XOrc\\2XOrc01.pud",
         29,
         &[],
-        Some(903),
+        None,
     ),
     (
         "xhuman10-spells-700.jsonl.gz",
@@ -80,14 +76,14 @@ const TRACES: [Trace; 34] = [
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(169),
+        Some(308),
     ),
     (
         "xorc01-death-knight-2100.jsonl.gz",
         "Campaign\\XOrc\\2XOrc01.pud",
         29,
         &[],
-        Some(914),
+        None,
     ),
     (
         "xorc12-ogre-mage-180.jsonl.gz",
@@ -101,7 +97,7 @@ const TRACES: [Trace; 34] = [
         "Campaign\\XOrc\\2XOrc10.pud",
         47,
         &[],
-        Some(463),
+        None,
     ),
     ("orc09-naval-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     ("orc09-repair-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),

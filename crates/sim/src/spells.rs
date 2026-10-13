@@ -249,18 +249,18 @@ pub enum Fx {
         point: u8,
         life: u16,
     },
+    /// A blizzard shard. `landed` is 0 while it waits or flies; on landing it is set to 5 and counts down once per
+    /// update, the shard being removed when it reaches 0.
     Shard {
         line: Line,
         repeats: u8,
+        landed: u8,
     },
     Cloud,
     Whirl {
         line: Line,
         life: u16,
         goal: (i32, i32),
-    },
-    Coil {
-        line: Line,
     },
 }
 
@@ -320,6 +320,9 @@ const FLAME_PATH: [(i32, i32); 51] = [
 ];
 /// The flames' start points and lifetimes.
 const FLAMES: [(u8, u16); 5] = [(0, 512), (10, 524), (20, 518), (30, 521), (40, 527)];
+
+/// Cycles a landed blizzard shard stays before it is removed (spec, "Blizzard shards", round-45 errata).
+const SHARD_LINGER: u8 = 4;
 
 /// Effect speeds in pixels per step, kinds 0 to 28 (spec, "Data").
 const EFFECT_SPEED: [i32; 29] = [
@@ -665,7 +668,9 @@ impl World {
                     life: 800,
                     goal: c,
                 };
-                self.new_fx(kind::WHIRLWIND, caster, None, (x, y), 4, fx);
+                // Round-45 errata: a whirlwind's destination is its current goal, the target point's centre at first.
+                let n = self.new_fx(kind::WHIRLWIND, caster, None, (x, y), 4, fx);
+                self.set_dest(n, c);
             }
             HASTE => {
                 let t = ti.expect("unit spell");
@@ -709,7 +714,9 @@ impl World {
                 for _ in 0..5 {
                     let x = c.0 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
                     let y = c.1 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
-                    self.new_fx(kind::CLOUD, caster, None, (x, y), 10, Fx::Cloud);
+                    // Round-45 errata: every cloud's destination is the target tile's centre, whatever its position.
+                    let n = self.new_fx(kind::CLOUD, caster, None, (x, y), 10, Fx::Cloud);
+                    self.set_dest(n, c);
                 }
             }
             _ => self.idle_pending(i),
@@ -796,8 +803,8 @@ impl World {
         self.new_fx(kind::EXPLOSION, UnitId(0), None, pos, 0, Fx::Cosmetic);
     }
 
-    /// A spell marker (kind 0x16) on the target of slow, invisibility, bloodlust, haste or unholy armour (spec,
-    /// "Cosmetic effects"): at the unit's pixel position plus (floor(w / 2), floor(h / 2) - 4), w x h the type's box
+    /// A spell marker (kind 0x16) on the target of slow, invisibility, bloodlust, haste or unholy armour, and raise
+    /// dead's marker on each new skeleton (spec, "Cosmetic effects"; round-45 errata): at the unit's pixel position plus (floor(w / 2), floor(h / 2) - 4), w x h the type's box
     /// size, with destination (0, 0), no target, no shooter and damage 0.
     fn marker_on(&mut self, t: usize) {
         let u = &self.units[t];
@@ -806,11 +813,11 @@ impl World {
         self.new_fx(kind::BLINK, UnitId(0), None, pos, 0, Fx::Cosmetic);
     }
 
-    /// A cosmetic effect of kind 0x16 on a unit raised as a skeleton (whether it is placed as [`World::marker_on`]
-    /// places the other markers is the spec's open question; we keep the unit's centre).
-    fn blink(&mut self, t: usize) {
-        let (id, c) = (self.units[t].id, self.units[t].centre_px());
-        self.new_fx(kind::BLINK, id, None, c, 0, Fx::Cosmetic);
+    /// Sets the destination of the effect just made in slot `n`, if it was made.
+    fn set_dest(&mut self, n: Option<usize>, to: (i32, i32)) {
+        if let Some(m) = n.and_then(|n| self.missiles[n].as_mut()) {
+            m.to = to;
+        }
     }
 
     /// The exorcism or healing effect on a unit (spec, "Cosmetic effects").
@@ -831,6 +838,7 @@ impl World {
         let fx = Fx::Shard {
             line: Line::new(start, land),
             repeats,
+            landed: 0,
         };
         let Some(n) = self.new_fx(kind::SHARD, caster, None, start, 10, fx) else {
             return false;
@@ -924,7 +932,7 @@ impl World {
             let owner = self.units[i].owner;
             if let Ok(s) = self.spawn(unit::SKELETON, owner, tile, 0) {
                 let si = self.index(s).expect("just created");
-                self.blink(si);
+                self.marker_on(si);
                 let bi = self.index(b).expect("still there");
                 self.units[bi].used = true;
             }
@@ -978,7 +986,10 @@ impl World {
     }
 
     /// The caster's own missile weapon, launched as an attack would (spec: the damage draw and two scatter draws), with
-    /// the victim's share as its stored damage.
+    /// the victim's share as its stored damage. Round-45 errata, "Death coil victims": the missile is a normal missile
+    /// of kind 0x0A (damage spec, "Missile flight"; `battle.rs`): its destination is its aim point from creation, it
+    /// flies floor(D / 12) + 1 steps and its share is applied at its impact, 16 cycles after the landing step. As it
+    /// is launched, the caster's target becomes the victim (`xorc01-death-coil` death knight 1491, n = 1191).
     fn launch_coil(&mut self, caster: UnitId, victim: UnitId, share: u8) {
         let (Some(a), Some(v)) = (self.unit(caster), self.unit(victim)) else {
             return;
@@ -990,10 +1001,19 @@ impl World {
         let _ = combat::roll(&mut self.rng, basic, pierce, armour);
         to.0 += (self.rng.draw() & 7) as i32 - 3;
         to.1 += (self.rng.draw() & 7) as i32 - 3;
-        let fx = Fx::Coil {
-            line: Line::new(from, to),
-        };
-        self.new_fx(kind::COIL, caster, Some(victim), from, share, fx);
+        if let Some(ci) = self.index(caster)
+            && let Order::Cast { target, .. } = &mut self.units[ci].order
+        {
+            *target = Some(victim);
+        }
+        let line = Line::new(from, to);
+        let length = line.remaining;
+        let fx = Fx::Shot { line, length };
+        let n = self.new_fx(kind::COIL, caster, Some(victim), from, share, fx);
+        if let Some(m) = n.and_then(|n| self.missiles[n].as_mut()) {
+            m.to = to;
+            m.flight = combat::flight_steps(length, combat::flight(kind::COIL).speed) as u16;
+        }
     }
 
     /// Places up to 5 runes (spec, "Runes"); returns how many.
@@ -1224,22 +1244,31 @@ impl World {
                 }
                 *life > 0 || self.gone(n)
             }
-            Fx::Shard { line, repeats } => {
+            // Round-45 errata, "Blizzard shards": a shard lands in the same update as the flight step that takes it to or
+            // past its landing point (unclamped). Its own slot isn't free yet, so the chain's next shard takes another.
+            // It then stays, unmoving, for 4 more cycles and is removed in its 5th update after landing
+            // (`xhuman10-blizzard` slots 7 and 8, n = 170 to 175). A remaining distance of exactly 0 counts as reaching
+            // the point here; the traces don't separate it (spec, open questions).
+            Fx::Shard { line, repeats, landed } => {
+                if *landed > 0 {
+                    *landed -= 1;
+                    return *landed > 0 || self.gone(n);
+                }
                 if age < 12 {
                     return true;
                 }
+                line.step(&mut m.pos, EFFECT_SPEED[kind::SHARD as usize]);
                 if line.remaining > 0 {
-                    line.step(&mut m.pos, EFFECT_SPEED[kind::SHARD as usize]);
                     self.rng.draw();
                     return true;
                 }
+                *landed = SHARD_LINGER + 1;
                 let (pos, repeats, land) = (m.pos, *repeats, m.to);
                 self.fx_splash(pos, m.damage, owner);
-                self.gone(n);
                 if repeats > 0 && self.start_shard(owner, land, repeats - 1) {
                     self.rng.draw();
                 }
-                false
+                true
             }
             Fx::Cloud => {
                 match age {
@@ -1276,22 +1305,9 @@ impl World {
                     let y = m.pos.1 + (self.rng.draw() & 127) as i32 - 64;
                     *goal = (x, y);
                     *line = Line::new(m.pos, *goal);
+                    m.to = (x, y);
                 }
                 true
-            }
-            Fx::Coil { line } => {
-                if age == 0 {
-                    return true;
-                }
-                line.step(&mut m.pos, EFFECT_SPEED[kind::COIL as usize]);
-                self.rng.draw();
-                if line.remaining > 0 {
-                    return true;
-                }
-                if let Some(v) = m.target.and_then(|t| self.index(t)) {
-                    self.damage(v, m.damage, owner);
-                }
-                self.gone(n)
             }
         }
     }
@@ -2177,6 +2193,18 @@ mod tests {
         assert_eq!(bodies.map(|b| w.unit(b).unwrap().used), [true, true, false]);
         assert_eq!(w.rng, advanced(before, 2), "one creation draw per skeleton");
         assert_eq!(fx_of_kind(&w, 0x16), 2);
+        // Round-45 errata: each marker is placed from the new skeleton's box, like the other spell markers.
+        for s in w.units.iter().filter(|u| u.kind == unit::SKELETON) {
+            let b = w.stats_of(s.kind).box_size;
+            let pos = (s.pos.0 + b.0 as i32 / 2, s.pos.1 + b.1 as i32 / 2 - 4);
+            assert!(
+                w.missiles
+                    .iter()
+                    .flatten()
+                    .any(|m| m.kind == 0x16 && m.pos == pos && m.to == (0, 0)),
+                "{pos:?}"
+            );
+        }
         // Used bodies are not raised again.
         strike(&mut w, p, RAISE_DEAD, None, (10, 10));
         assert_eq!(w.units.iter().filter(|u| u.kind == unit::SKELETON).count(), 2);
@@ -2245,6 +2273,22 @@ mod tests {
         assert!(w.unit(v[0]).is_none_or(|u| !u.alive()));
         assert!(w.unit(v[2]).is_none_or(|u| !u.alive()));
         assert_eq!(hp(&w, v[1]), 15);
+    }
+
+    /// Round-45 errata: a coil missile's destination is its aim point (the victim's centre ± 3) from creation, and it
+    /// flies floor(D / 12) + 1 steps.
+    #[test]
+    fn a_death_coil_missile_aims_and_flies_like_a_normal_missile() {
+        let (mut w, p, v) = coil_setup(&[10, 30], 100);
+        let from = w.unit(p).unwrap().centre_px();
+        strike(&mut w, p, DEATH_COIL, None, (10, 9));
+        for m in w.missiles.iter().flatten().filter(|m| m.kind == 10) {
+            let c = w.unit(m.target.unwrap()).unwrap().centre_px();
+            assert!((-3..=4).contains(&(m.to.0 - c.0)) && (-3..=4).contains(&(m.to.1 - c.1)));
+            let d = (m.to.0 - from.0).abs().max((m.to.1 - from.1).abs());
+            assert_eq!(i32::from(m.flight), d / 12 + 1);
+        }
+        assert_eq!(coils(&w).len(), v.len());
     }
 
     #[test]
@@ -2390,6 +2434,8 @@ mod tests {
             panic!("a whirlwind")
         };
         assert_eq!((goal, life, m.damage), ((336, 656), 800, 4));
+        // Round-45 errata: its destination is its current goal.
+        assert_eq!(m.to, goal);
         // Nothing is drawn until it reaches the goal on step 54 (one step every 3 cycles).
         let at = w.rng;
         run(&mut w, 1 + 3 * 53);
@@ -2403,6 +2449,7 @@ mod tests {
         };
         assert_eq!(life, 746);
         assert_eq!(goal, (336, 592));
+        assert_eq!(m.to, goal, "the destination follows each new goal");
         assert_eq!(w.rng, advanced(at, 2));
     }
 
@@ -2524,6 +2571,9 @@ mod tests {
             (mana(&w, p), fx_of_kind(&w, 6), w.rng),
             (0, 5, advanced(before.state, 10))
         );
+        // Round-45 errata: every cloud's destination is the target tile's centre.
+        let c = (10 * 32 + 16, 10 * 32 + 16);
+        assert!(w.missiles.iter().flatten().filter(|m| m.kind == 6).all(|m| m.to == c));
         // One update to start, then it lasts until age 275: gone after simulation step 276.
         run(&mut w, 275);
         assert_eq!(fx_of_kind(&w, 6), 5);
@@ -2685,7 +2735,7 @@ mod tests {
         let mut w = lab(32);
         let id = w.spawn(0, 0, (5, 5), 0).unwrap();
         let i = w.index(id).unwrap();
-        w.blink(i);
+        w.marker_on(i);
         let n = slots::PERMANENT_EFFECTS;
         for c in 0..=20 {
             w.advance_missiles();

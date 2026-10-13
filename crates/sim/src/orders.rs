@@ -134,11 +134,15 @@ impl World {
             Command::AttackMove { to, .. } => Some(Remembered::AttackMove { goal: shore(to) }),
             _ => None,
         };
+        // Round-45 errata, "Commands forget a stale attacker": a target unit given with the command gets the same check
+        // as the attacker, so one that is dying, dead, removed or not detected is dropped (static study only).
+        let owner = u.owner;
+        let fresh = |t: Option<UnitId>| t.filter(|&t| !self.stale(owner, t));
         let order = match *c {
             Command::Move { to, .. } => Order::Move { goal: shore(to) },
             Command::Stop { .. } => Order::Idle,
             Command::Attack { target, .. } => {
-                if !self.can_attack(u, target) {
+                if !self.can_attack(u, target) || fresh(Some(target)).is_none() {
                     return None;
                 }
                 Order::Attack { target }
@@ -150,15 +154,15 @@ impl World {
             },
             Command::StandGround { .. } => Order::StandGround,
             Command::AttackGround { tile, .. } => self.attack_ground_command(i, tile),
-            Command::Demolish { target, tile, .. } => self.demolish_command(i, target, tile),
-            Command::Smart { target, tile, .. } => self.smart(i, target, tile)?,
+            Command::Demolish { target, tile, .. } => self.demolish_command(i, fresh(target), tile),
+            Command::Smart { target, tile, .. } => self.smart(i, fresh(target), tile)?,
             Command::Repair { target, .. } => {
                 if !self.is_worker(u) {
                     return None;
                 }
                 self.repair_command(i, target)?
             }
-            Command::Harvest { target, tile, .. } => self.harvest_command(i, target, tile)?,
+            Command::Harvest { target, tile, .. } => self.harvest_command(i, fresh(target), tile)?,
             Command::ReturnGoods { .. } => self.return_command(i)?,
             Command::Unload { tile, .. } => {
                 if !self.is_transport(u) {
@@ -256,22 +260,36 @@ impl World {
     /// "Resuming patrol and attack-move" (Enhanced only): when idle is about to become the unit's pending order, the
     /// remembered order to give instead, with the countdown set. `None` keeps the idle. An immediate idle never comes
     /// here.
+    ///
+    /// Round-45 errata: the resumed order is a full command. Its goal is pulled back (pathfinding spec, "Goal pulled
+    /// back"), the cached route dropped, the blocked counter cleared and the recorded attacker checked ("Commands
+    /// forget a stale attacker"; `xorc01-death-coil` ogre 1489, n = 901 to 904).
     pub(crate) fn resumed(&mut self, i: usize) -> Option<Order> {
         let u = &self.units[i];
         if !self.rules.enhanced || u.resume > 0 {
             return None;
         }
-        match u.remembered {
+        let o = match u.remembered {
             Some(Remembered::Patrol { to, back }) => {
                 self.units[i].resume = RESUME_PATROL;
-                Some(Order::Patrol { to, back })
+                Order::Patrol {
+                    to: self.pull_back(i, to),
+                    back,
+                }
             }
             Some(Remembered::AttackMove { goal }) if chebyshev(u.tile, goal) > 1 => {
                 self.units[i].resume = RESUME_ATTACK_MOVE;
-                Some(Order::AttackMove { goal })
+                Order::AttackMove {
+                    goal: self.pull_back(i, goal),
+                }
             }
-            _ => None,
-        }
+            _ => return None,
+        };
+        let u = &mut self.units[i];
+        u.path.clear();
+        u.blocked = 0;
+        self.forget_stale_attacker(i);
+        Some(o)
     }
 
     /// A pending idle that takes over in the same update (arriving, losing the target), or the resumed order.
@@ -347,6 +365,27 @@ impl World {
         None
     }
 
+    /// Orders spec, "Commands forget a stale attacker" (round-45 errata): every command given to a unit that isn't a
+    /// building forgets a recorded attacker that is dying, dead or removed, or isn't detected by the unit's owner
+    /// (`xorc01-death-knight` ogre 1489, n = 1191).
+    pub(crate) fn forget_stale_attacker(&mut self, i: usize) {
+        let u = &self.units[i];
+        if u.building {
+            return;
+        }
+        if let Some(a) = u.attacked_by
+            && self.stale(u.owner, a)
+        {
+            self.units[i].attacked_by = None;
+        }
+    }
+
+    /// Whether a unit named by a command is dying, dead, removed or not detected by `owner` ("Commands forget a stale
+    /// attacker"; the same check applies to a command's target unit).
+    pub(crate) fn stale(&self, owner: u8, t: UnitId) -> bool {
+        self.unit(t).is_none_or(|t| t.dying || !Self::detected(t, owner))
+    }
+
     /// The per-step order logic for the orders this module owns. Returns false for orders it doesn't handle.
     pub(crate) fn run_order(&mut self, i: usize) -> bool {
         let o = self.units[i].order;
@@ -376,6 +415,19 @@ impl World {
             return true;
         }
         if lost {
+            // Round-45 errata, "Losing the target while cooling down": in orders 12, 15 and 16 the cooldown test comes
+            // before the target check, so a unit still cooling down restarts its attack animation with the cooldown
+            // left as its wait, its pending order cleared, and keeps its order until the cooldown runs out
+            // (`xorc01-death-knight` ogre 1488, n = 907 to 930).
+            if self.cooling_down(i) {
+                let u = &mut self.units[i];
+                u.pending = None;
+                // A killer keeps having forgotten its victim (no target) until the run that loses it.
+                if forgot {
+                    u.forgot = Some(o);
+                }
+                return true;
+            }
             self.lose_target(i);
             return true;
         }
@@ -402,10 +454,9 @@ impl World {
                         self.idle_now(i);
                     }
                     // No route: idle as an immediate order, so the idle logic runs in the same update, straight after.
-                    Walk::NoPath => {
-                        self.units[i].attacked_by = None;
-                        self.idle_at_once(i);
-                    }
+                    // Round-45 errata: only arriving forgets the attacker; a unit with no route keeps it, and its
+                    // idle logic may react to it (`xorc10-dragons` footman 1520 flees again at n = 464).
+                    Walk::NoPath => self.idle_at_once(i),
                     Walk::Stepping | Walk::Blocked => {}
                 }
             }
@@ -425,6 +476,7 @@ impl World {
                     }
                     // Movement spec, "Blocked rules" (round-41 errata): the turnaround is a command.
                     self.units[i].blocked = 0;
+                    self.forget_stale_attacker(i);
                     self.take_over(i, swapped);
                 }
                 // "No route" (round-39 errata, `human10` and `xorc7`): an immediate idle whose idle logic runs in the
@@ -596,9 +648,12 @@ impl World {
     /// "Special cases" (round-40 errata): mages score every candidate like any other unit, and the rule is applied to
     /// the chosen target. A target that can attack and isn't a non-combat unit makes them acquire nothing.
     fn mage_refuses(&self, u: &Unit, t: &Unit) -> bool {
+        self.mage_like(u) && self.flags_of_unit(t) & flags::CAN_ATTACK != 0 && !self.non_combat(t)
+    }
+
+    /// Mage-type units: mage and death knight types, heroes included.
+    fn mage_like(&self, u: &Unit) -> bool {
         self.flags_of_unit(u) & flags::MAGE_LIKE != 0
-            && self.flags_of_unit(t) & flags::CAN_ATTACK != 0
-            && !self.non_combat(t)
     }
 
     /// The target search ("Automatic target acquisition"). `seed` starts as the best candidate; `tower` uses the
@@ -691,6 +746,7 @@ impl World {
             return false;
         }
         let u = &self.units[i];
+        let mage = self.mage_like(u);
         if let Some(a) = attacker {
             let at = self.unit(a).expect("held");
             if !self.can_target_kind(u, at) {
@@ -699,16 +755,28 @@ impl World {
             if self.non_combat(u) {
                 return self.react(i);
             }
+            // Round-45 errata, "Reacting to an attacker", step 3: an invisible mage-type unit does nothing more in
+            // that run (static study only).
+            if mage && u.invisibility > 0 {
+                return false;
+            }
         }
         if self.flags_of_unit(u) & flags::CAN_ATTACK == 0 {
             return false;
         }
-        let Some(best) = self.search(i, attacker, false) else {
+        // Round-45 errata, step 3: a mage-type unit with an attacker that finds no target it may take (or only its
+        // current one) runs the reaction instead, which treats it as a non-combat unit, so it flees
+        // (`xorc01-death-coil` death knight 1491, n = 1431).
+        let found = self
+            .search(i, attacker, false)
+            .filter(|&b| Some(b) != target_of(u.order));
+        let Some(best) = found else {
+            if mage && attacker.is_some() {
+                return self.react(i);
+            }
             return false;
         };
-        if Some(best) == target_of(u.order) {
-            return false;
-        }
+        let u = &self.units[i];
         let o = self.resulting(i, kind, best);
         let t = self.unit(best).expect("found by the search");
         // "Attacking without moving" (round-40 errata, `xhuman2` footman 1548 at n = 34): order 16 doesn't switch to a
@@ -775,6 +843,7 @@ impl World {
             u.order = o;
             u.path.clear();
             u.blocked = 0;
+            self.forget_stale_attacker(i);
             return true;
         }
         // Orders spec, "Same-update take-over": a command the unit's own logic gives it takes over at once ("Taking
@@ -782,6 +851,7 @@ impl World {
         // counter and drops the cached route.
         self.units[i].blocked = 0;
         self.units[i].path.clear();
+        self.forget_stale_attacker(i);
         self.take_over(i, o);
         true
     }
@@ -825,7 +895,8 @@ impl World {
             self.units[i].attacked_by = None;
             return false;
         }
-        if self.non_combat(u) {
+        // Round-45 errata: the reaction treats mage-type units as non-combat units, so they flee.
+        if self.non_combat(u) || self.mage_like(u) {
             return self.flee(i);
         }
         let Some(best) = self.search(i, Some(a), false) else {
@@ -2078,5 +2149,159 @@ mod tests {
         w.players[0].controller = controller::COMPUTER;
         w.units[i].attacked_by = Some(a);
         assert!(!w.flee(i));
+    }
+
+    /// Round-45 errata, "Losing the target while cooling down" (the `xorc01-death-knight` ogre 1488 vector): in orders
+    /// 12, 15 and 16 a unit whose target died while it is still cooling down keeps its order, its attack animation
+    /// restarting with the cooldown left as its wait and its pending order cleared. The first run after the cooldown
+    /// loses the target.
+    #[test]
+    fn losing_the_target_while_cooling_down_keeps_the_order() {
+        type Make = fn(UnitId) -> Order;
+        let cases: [(Make, Order); 3] = [
+            (|t| Order::Chase { target: t }, Order::Idle),
+            (|t| Order::AttackInPlace { target: t }, Order::StandGround),
+            (|t| Order::IdleReact { target: t }, Order::Idle),
+        ];
+        for (make, lost) in cases {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.step(&[]);
+            let gi = at(&w, g);
+            w.kill(gi);
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = make(g);
+            u.pending = Some(Order::Idle);
+            u.cooldown = 15;
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.frame, u.script.wait),
+                (make(g), None, anim::ATTACK, 0, 15)
+            );
+            let u = &mut w.units[i];
+            u.cooldown = 0;
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            assert_eq!(w.units[i].order, lost);
+        }
+    }
+
+    /// Round-45 errata, "Resuming patrol and attack-move": the resumed order is a full command. Its goal is pulled
+    /// back, the cached route dropped, the blocked counter cleared and a stale attacker forgotten.
+    #[test]
+    fn a_resumed_attack_move_is_a_full_command() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        // Every tile from column 12 on is blocked, so the goal is pulled back to column 12 (as for the flee move).
+        for y in 0..w.terrain.height as i32 {
+            for x in 12..w.terrain.width as i32 {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+            }
+        }
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 1, (9, 9), 0).unwrap();
+        let ai = at(&w, a);
+        w.kill(ai);
+        let i = at(&w, f);
+        let u = &mut w.units[i];
+        u.remembered = Some(Remembered::AttackMove { goal: (15, 5) });
+        u.path = vec![(6, 5)];
+        u.blocked = 3;
+        u.attacked_by = Some(a);
+        w.give(i, Order::Idle);
+        let u = &w.units[i];
+        assert_eq!(u.pending, Some(Order::AttackMove { goal: (12, 5) }));
+        assert_eq!(
+            (u.path.len(), u.blocked, u.attacked_by, u.commanded),
+            (0, 0, None, true)
+        );
+        // The remembered goal itself is kept.
+        assert_eq!(u.remembered, Some(Remembered::AttackMove { goal: (15, 5) }));
+    }
+
+    /// Round-45 errata, "Commands forget a stale attacker": a command forgets a dying attacker, and keeps a live one. A
+    /// target unit given with the command gets the same check (static study only): a smart move on a dying unit is a
+    /// move to the tile.
+    #[test]
+    fn a_command_forgets_a_dying_attacker() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 1, (9, 9), 0).unwrap();
+        let own = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].attacked_by = Some(a);
+        w.command(i, Order::Move { goal: (1, 1) });
+        assert_eq!(w.units[i].attacked_by, Some(a));
+        let ai = at(&w, a);
+        w.kill(ai);
+        w.command(i, Order::Move { goal: (2, 2) });
+        assert_eq!(w.units[i].attacked_by, None);
+        let oi = at(&w, own);
+        w.kill(oi);
+        let c = Command::Smart {
+            player: 0,
+            units: vec![f],
+            target: Some(own),
+            tile: (3, 3),
+        };
+        assert_eq!(w.command_order(i, &c), Some(Order::Move { goal: (3, 3) }));
+    }
+
+    /// Round-45 errata, "No route": a move with no route keeps its attacker, so the idle logic that runs in the same
+    /// update may react to it. Here a worker flees (the `xorc10-dragons` footman 1520 vector, n = 464).
+    #[test]
+    fn a_move_with_no_route_keeps_its_attacker_and_flees() {
+        let mut w = walled_in();
+        let p = w.spawn(PEASANT, 0, (5, 5), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 1, (9, 5), 0).unwrap();
+        w.unit_visibility();
+        let i = at(&w, p);
+        w.units[i].order = Order::Move { goal: (15, 15) };
+        w.units[i].attacked_by = Some(a);
+        let before = w.rng.state;
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert!(
+            matches!(u.order, Order::Move { goal } if goal != (15, 15)),
+            "{:?}",
+            u.order
+        );
+        assert_eq!((u.pending, u.attacked_by, u.script.wait), (None, None, 3));
+        assert_ne!(w.rng.state, before, "the flee drew");
+    }
+
+    /// Round-45 errata, "Reacting to an attacker" step 3 and "Special cases": an idle mage-type unit hit by a combat
+    /// unit, with nothing it may take in its box, runs the reaction, which treats it as a non-combat unit, so it flees
+    /// (the `xorc01-death-coil` death knight 1491 vector, n = 1431). With an enemy worker in its box that outscores
+    /// the attacker it attacks the worker.
+    #[test]
+    fn an_idle_mage_flees_its_attacker_unless_it_may_take_a_better_target() {
+        const MAGE: u8 = 0x0a;
+        for worker in [false, true] {
+            let mut w = map();
+            w.stats.0[MAGE as usize] = w.stats.0[ARCHER as usize];
+            w.stats.0[MAGE as usize].flags |= flags::MAGE_LIKE;
+            w.stats.0[PEASANT as usize].priority = w.stats.0[FOOTMAN as usize].priority + 10;
+            let m = w.spawn(MAGE, 0, (10, 10), 0).unwrap();
+            let a = w.spawn(FOOTMAN, 1, (11, 10), 0).unwrap();
+            let p = worker.then(|| w.spawn(PEASANT, 1, (9, 10), 0).unwrap());
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let i = at(&w, m);
+            let u = &mut w.units[i];
+            (u.order, u.pending, u.attacked_by) = (Order::Idle, None, Some(a));
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let o = w.units[i].order;
+            match p {
+                Some(p) => assert_eq!(o, Order::Chase { target: p }),
+                None => assert!(matches!(o, Order::Move { .. }), "{o:?}"),
+            }
+        }
     }
 }
