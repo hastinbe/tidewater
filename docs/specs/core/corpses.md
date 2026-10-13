@@ -83,8 +83,8 @@ platform's remaining oil. The platform gets the used mark, so it leaves no ruin.
 **Ruin type** by the building's width in tiles: width 1 → type 0x6A, 2 → 0x6B, 3 → 0x6C, 4 → 0x6D (width 0 would give
 0x6A). A ruin is a **water ruin** (kind 5) when the building's type has the naval movement class (class 2) in the unit
 data or the shore building flag (bit 16); otherwise it is a **land ruin** (kind 4). The layer the building stands on
-doesn't matter: the oil platform has the naval movement class, so it always leaves a water ruin (traced:
-`human12-25000`, vectors below).
+doesn't matter: the oil platform has the naval movement class, so a platform that leaves a ruin (one with no oil
+left) leaves a water ruin (traced: `human12-25000`, vectors below).
 
 When a unit becomes a dead body:
 
