@@ -24,6 +24,8 @@
   and `xhuman2-10000` vectors.
 - **Changes:** 2026-10-13, round-54 errata: the job choice's order is a command, so the cached route is dropped;
   `human12-25000` vector.
+  2026-10-13, round-58 errata: the mine score's worker term is the larger axis distance from the mine's top-left tile
+  to the worker's tile; `mp-gold-rush-bne-25000` vector (Classic-mode traces agree).
 
 ## Behaviour
 
@@ -192,8 +194,11 @@ matches:
    found, the worker goes on to gold.
 2. **Gold** otherwise, and also when the tree search found nothing: the worker switches to gold mode and finds the
    nearest depot as in step 3. Then, among gold mines that have trips left and stand in the worker's region, it takes
-   the one that minimises **d(depot, mine) + floor(d(worker, mine) / 2)**, distances in tiles as for target
-   acquisition. Only a strictly smaller value replaces the best, so the earliest in the list wins ties. Command 23 on
+   the one that minimises **d(depot, mine) + floor(d(worker, mine) / 2)**. d(depot, mine) is in tiles as for target
+   acquisition, from the depot's top-left tile. d(worker, mine) is the larger of the two axis distances between the
+   **mine's top-left tile** and the worker's tile, not measured to the mine's nearest tile (traced:
+   `mp-gold-rush-bne-25000`, vectors below). Only a strictly smaller value replaces the best, so the earliest in the
+   list wins ties. Command 23 on
    that mine, miners +1, and a **keep-clear line** is marked from the depot to the mine (below).
 3. If there is no depot or no mine, lumber is tried as in 1 (whatever T is).
 
@@ -435,6 +440,9 @@ An entry is marked done at the start of a game when either bit of its code is se
 | `human12-25000` (oracle trace): tanker 1412 (type 0x1B, owner 0) goes idle at n = 12948 when its platform collapses; at n = 12951 the job choice gives it a harvest on platform 1493 at (87, 59) | A new route: at n = 12954 tile (46, 24), facing 3, order 23 (the old route would step west to (42, 22)) |
 | `xhuman2-10000` (oracle trace), n = 2487: computer player 0 with supply S = 21 and 18 units that aren't buildings, 2 of them (1579 and 1583) dying | U = 16, so 21 > 16 + 3: no farm. It goes on to its build list: a scout tower is paid (550 gold, 200 lumber) by peon 1588; tower 1554 (type 0x41) appears at (20, 2) at n = 2707 |
 | A player with 10 units that aren't buildings, 2 of them dying | Food in use 8 |
+| Depot top-left (11, 49), worker at (11, 55), gold mine top-left (9, 43) | Depot term 4, worker term max(2, 12) = 12: score 4 + 6 = 10 (not 4 + 5 = 9) |
+| `mp-gold-rush-bne-25000` (oracle trace, Enhanced), n = 6461: computer peon 1505 comes out of lumber mill 1517 at (11, 55); its depot is great hall 1534 (11, 49). Mines 1523 (18, 55), 1528 (18, 52), 1533 (18, 49), 1548 (9, 43), 1549 (12, 43) and 1550 (15, 43) all score 10, and 1523 is first in the list | Mine 1523: placed at (14, 55), facing 2, order 2 with target 1523. With the old worker term 1548 scored 9 and won |
+| Classic mode: `mp-gold-rush-bne-classic-8000` n = 6461 (peon 505, mine 523) and `mp-gold-rush-bne-classic-20000` n = 19728 (peon 586 in great hall 590 at (11, 11): mine 582 (18, 15) scores 7 + 3 = 10, mine 575 (3, 18) 7 + 4 = 11) | The same choices as the Enhanced rule gives (582 at n = 19728). Classic-mode evidence only agrees with the rule; it isn't its source |
 
 ## Open questions
 
