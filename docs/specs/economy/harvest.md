@@ -34,6 +34,10 @@
   1501 fells its tree at n = 8036); `orc4-40000` vector.
   2026-10-13, round-46 errata: after a no-route re-aim to a tree that isn't adjacent no move starts in that update
   (default reading, open question).
+  2026-10-13, round-47 errata: the hall-sized exit is a mark set by every delivery at a gold-accepting building (a
+  completed hall's builder included) and cleared by the next come-out; order 23 at an unfinished mine or platform, or
+  with its target gone, gives a pending idle; the build-job facing on coming out and the walk goal can differ; the
+  re-aim open question is closed (static study); round-47 vectors.
 
 ## Behaviour
 
@@ -73,11 +77,16 @@ Mines aren't owned, so any worker can mine any gold mine. A worker already carry
 
 While in order 23 with a target mine or platform:
 
-- If the target is gone (dying, dead, or inside something), the unit becomes idle (order 2).
-- If the unit hasn't arrived yet (arrival radius 1, `movement/movement.md`), it moves toward the target. If its
-  route search finds no route, it looks for the nearest tree ("No route" under "Lumber"), although it is in gold mode.
-- On arrival, if the mine or platform is **completed**, its order becomes 25 (enter). An uncompleted platform (still
-  under construction) makes the unit idle instead.
+- If the target is gone (dying, dead, or inside something), idle (order 2) becomes the unit's **pending** order and
+  takes over in the same update (still animation, wait 3; `orders/orders.md`, "Taking over"). The idle logic doesn't run
+  in that update; it first runs at the still animation's next step done, so a computer player's job choice comes then
+  (static study only).
+- If the unit hasn't arrived yet (arrival radius 1, `movement/movement.md`), it moves toward the target. If its route
+  search finds no route, it looks for the nearest tree ("No route" under "Lumber"), although it is in gold mode. This is
+  the only case here that makes an immediate idle (when no tree is found).
+- On arrival, if the mine or platform is **completed**, its order becomes 25 (enter). A mine or platform that isn't
+  completed (still under construction) makes idle the unit's **pending** order instead, taken over in the same update as
+  above (wait 3), with the idle logic first running 3 cycles later (traced: `xhuman3-10000`, vectors below).
 
 ### Entering a mine, platform or depot (order 25)
 
@@ -120,19 +129,24 @@ When the 150-cycle wait ends and the inside order's logic runs:
 5. Otherwise, if it has a **return-to source**, it forgets it and heads back there with a harvest command (so a
    worker that just delivered goes straight back to its mine or tree).
 6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search of
-   `movement/placement.md` (limit 12). The search's source is sized as for a town hall (4 × 4) if the goods were just
-   delivered to a gold-accepting depot, and as for a gold mine (3 × 3) otherwise, placed at the building's top-left
-   tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. That tile is the goal its
-   new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer player's job), the site's
-   **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile; for a harvest, the
-   source's tile (a mine's top-left tile or the tree tile). With no new command (the unit stays idle), it is the unit's
-   own stored tile, from step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at
-   their first worker coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded
-   goal tile runs them all. If no tile is found, the unit dies. The placed unit then faces as `movement/placement.md`
-   says, except that a worker with a **build** job faces its **build goal tile**: the tile the build walk heads for,
-   found by the building goal rule (`movement/pathfinding.md`) from the worker's exit tile on the site's footprint. The
-   facing rule is "Facing a tile" of `core/animation-scripts.md`, from the exit tile. Every other come-out faces the
-   target as before (a building at its top-left tile plus (1, 1), a tree at its own tile).
+   `movement/placement.md` (limit 12). The search's source is placed at the building's top-left tile and sized as for a
+   town hall (4 × 4) if the unit has the **hall-sized exit mark**, which this come-out then clears, and as for a gold
+   mine (3 × 3) otherwise. The mark is set by every delivery at a building that accepts gold ("Delivering goods"), and
+   it is carried until the unit's next come-out from **any** building, a mine, a platform or a depot (traced:
+   `orc5-10000`, vectors below). It is aimed at the tile the unit is heading for, so the unit comes out on that side.
+   That tile is the goal its new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer
+   player's job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile;
+   for a harvest, the source's tile (a mine's top-left tile or the tree tile). With no new command (the unit stays
+   idle), it is the unit's own stored tile, from step 1. The comparer runs over the trace set support this: aiming
+   nowhere breaks 24 traces at their first worker coming out, aiming one tile off (the target's top-left plus (1, 1))
+   breaks 18, and the commanded goal tile runs them all. If no tile is found, the unit dies. The placed unit then faces
+   as `movement/placement.md` says, except that a worker with a **build** job faces its **build goal tile**: the tile
+   the build walk heads for, found by the building goal rule (`movement/pathfinding.md`) from the worker's exit tile on
+   the site's footprint. This is for the facing only: the walk's own goal was worked out when the build command was
+   given in step 3, from the unit's tile then, the building's top-left tile (`economy/build-train.md`, "Placing a
+   building"), so the two can differ. The facing rule is "Facing a tile" of `core/animation-scripts.md`, from the exit
+   tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a tree at its own
+   tile).
 
 The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
 over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
@@ -186,8 +200,8 @@ worker heading for a mine does this too.
   logic then **runs once more in the same update**. If the new tree tile is within 1 tile, chopping starts at once (step
   2): the worker turns to face the tree, reserves it, and the chop makes its chop-sound draw; the attack animation still
   restarts with wait 3. If the tree is further away, nothing more changes (facing kept, animation 4, wait 3): no move is
-  started in that update, and the route search and first step come at the next run (default reading; no trace separates
-  it, see Open questions). Its logic next runs 3 cycles later (traced: `orc4-40000`, round-44 vectors).
+  started in that update, and the route search and first step come at the next run (static study). Its logic next runs 3
+  cycles later (traced: `orc4-40000`, round-44 vectors).
 - While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
 - **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
 - Only the peon flag (type flags bit 8) counts. Tankers have the tanker flag (bit 9) and not the peon flag in the
@@ -242,7 +256,8 @@ worker also returns to a lumber mill.
 
 ### Delivering goods
 
-Delivery happens when a unit enters a depot.
+Delivery happens when a unit enters a depot, and for each builder inside a building when its construction is completed
+(`economy/build-train.md`, "Completion").
 
 | Unit and depot | Amount added to the owner's stock |
 | --- | --- |
@@ -253,6 +268,9 @@ Delivery happens when a unit enters a depot.
 
 - Each amount also goes into the owner's "total gathered" statistic for that resource.
 - After a delivery the carrying mark is cleared. The gather mode and return-to source stay.
+- Every delivery at a building that accepts gold (a town hall, keep or castle, of either race) sets the unit's
+  **hall-sized exit mark**, whatever its gather mode and whether or not it carries anything. Every unit starts without
+  the mark; only a come-out (order 26) uses and clears it ("Coming out", step 6).
 - **Enhanced** rules deliver only if the unit is carrying. **Classic** rules check only the gather mode, so a unit in
   gold or lumber mode delivers a full load even with empty hands, if it gets into a depot.
 - "Has a completed building" counts buildings of both races, of the owner, that have finished construction.
@@ -380,6 +398,15 @@ gold, storage for wood, storage for oil, building.
 | `human5-10000`, n = 39: peasant 1512, new tree not adjacent | Facing kept, animation 4, wait 3 |
 | `human12-7000`, n = 215: worker 1572, new tree not adjacent | Facing kept, animation 4, wait 3 |
 
+### Round-47 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc5-10000` (oracle trace): peasant 1560 (type 0x02, owner 1) built hall 1511 (inside from n = 88, let out at (105, 48) at n = 3159), then enters gold mine 1562 (type 0x5C, top-left (106, 42)) at n = 3230 | It comes out at n = 3380 at (105, 45), facing 3, order 2, wait 25, target 1511: the 4 × 4 source aimed at (106, 48) gives (105, 45) as the first free tile; the 3 × 3 source would give (105, 44) |
+| A worker delivers gold at a town hall, goes to a mine and comes out | The mine exit uses the 4 × 4 source; mark cleared |
+| The same worker's following exit from the mine | 3 × 3 source |
+| `xhuman3-10000` (oracle trace), n = 8749: computer tanker 1418 (type 0x1B, owner 3) in order 23 arrives at (108, 60) next to its platform 1404 (type 0x57), still under construction | Order 2, animation 2, wait 3, target null (pending idle). n = 8752: order 23 again, animation 4, wait 3, target 1404. n = 8755: order 2, wait 3 |
+
 ## Open questions
 
 - Step 1's new harvest command (not yet there) is from the static study only: in the traces the order's logic runs
@@ -388,9 +415,6 @@ gold, storage for wood, storage for oil, building.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
-- **Re-aim to a tree that isn't adjacent.** Whether the same-update run of order 23 starts a move toward the new tree
-  in that update isn't separated by any trace; the `human5` and `human12` vectors fit both readings. Default: no move
-  in that update.
 - **No route details.** Untraced: whether the idle after "no tree found" is pending or immediate; and whether the
   computer's job counts change when a miner becomes a lumber worker this way (the static study shows no count change
   on this path).
