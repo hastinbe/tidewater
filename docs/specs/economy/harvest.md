@@ -41,6 +41,9 @@
   2026-10-13, round-48 errata: a lumber worker that finds its tree gone and no other tree goes idle through a pending
   order (frame kept, wait 3); every entry into a gold-accepting building sets the hall-sized exit mark, gather mode none
   included, and a ship's delivery never does; `xhuman2-10000` vector; the no-route open question updated.
+  2026-10-13, round-49 errata: a tanker's harvest command on an oil platform placed in the same cycle, before the oil
+  patch's own update, fails and leaves the tanker idle; `orc12-10000` and `xhuman8-10000` vectors; open question on the
+  cause.
 
 ## Behaviour
 
@@ -70,8 +73,11 @@ A harvest command (from a smart move on a harvestable target, or the harvest but
      `movement/pathfinding.md` ("Goal pulled back"), is kept as the tree to cut, with no target unit. The pull-back
      runs whoever gives the command (a player, the computer job choice, or the order itself, below), so the tree tile
      is usually a forest tile nearer the worker, and it need not be a forest tile at all: it can be a building tile.
-3. **Tanker:** if the target is an **oil platform of the tanker's own side** and the tanker isn't carrying, the
-   platform becomes the target. Otherwise the target unit is cleared.
+3. **Tanker:** if the target is an **oil platform of the tanker's own side** and the tanker isn't carrying, the platform
+   becomes the target. Otherwise the target unit is cleared. A platform placed in this same cycle, while the oil patch
+   under it hasn't yet had its own update in this cycle, doesn't count: the target is cleared and the tanker goes idle
+   (order 2, still animation, wait 3, target null). In a later cycle the same command works as above (traced:
+   `orc12-10000`, `xhuman8-10000`, round-49 vectors; the reason is open).
 4. The order becomes 23 (harvest).
 
 Mines aren't owned, so any worker can mine any gold mine. A worker already carrying goods is never put in gold mode.
@@ -420,6 +426,13 @@ gold, storage for wood, storage for oil, building.
 | `xhuman2-10000` (oracle trace), n = 5820: computer peon 1530 (type 0x03, owner 7) at (88, 94) in order 23 finds its tree gone and no other tree | Order 2, animation 2, frame 25 kept, wait 3; the worker AI gives order 23 again at n = 5823 |
 | A worker with gather mode none enters a town hall | Hall-sized exit mark set |
 
+### Round-49 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc12-10000` (oracle trace), n = 2877: computer tanker 1409 (type 0x1B, owner 1), idle, given the harvest command on oil platform 1403 (type 0x57), placed in that cycle | Order 2, animation 2, wait 3, target null |
+| `xhuman8-10000` (oracle trace), n = 732: tanker 1468 (type 0x1B, owner 3) on platform 1466 (type 0x57), placed in that cycle | Order 2, animation 2, wait 3, target null |
+
 ## Open questions
 
 - Step 1's new harvest command (not yet there) is from the static study only: in the traces the order's logic runs
@@ -432,4 +445,5 @@ gold, storage for wood, storage for oil, building.
   the traces: a research run made it a pending idle, as in step 2, and no trace changed. The spec keeps the immediate
   idle there. Also untraced: whether the computer's job counts change when a miner becomes a lumber worker this way (the
   static study shows no count change on this path).
-
+- **A platform placed in the same cycle.** Why a tanker's harvest command on it fails ("Starting to harvest", step 3)
+  wasn't found; the rule is the narrowest one that fits both traces.
