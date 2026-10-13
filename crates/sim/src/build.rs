@@ -13,7 +13,7 @@ use tidewater_formats::udta::flags;
 
 use crate::TILE_PX;
 use crate::economy::{Event, cost};
-use crate::movement::{Goal, Walk, footprint_goal};
+use crate::movement::{Goal, Walk, chebyshev, footprint_goal};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::site::building_mask;
 use crate::terrain::bits;
@@ -44,51 +44,63 @@ impl World {
             self.pay(owner, c);
         }
         // Round-47 errata: the walk's goal is worked out now, from the worker's tile when the command is given; a
-        // computer worker coming out of a building is still at the building's top-left tile here.
+        // computer worker coming out of a building is still at the building's top-left tile here. Round-59 errata
+        // (`mp-frosty-fjords-bne-30000` peasant 1560, n = 16187): the command pulls the goal back as any command
+        // does (pathfinding spec, "Goal pulled back"); the site itself is unchanged.
         let goal = self.build_goal(i, kind, site);
         Some(Order::Build {
             kind,
             site,
-            goal: Some(goal),
+            goal: Some(self.pull_back(i, goal)),
         })
     }
 
-    /// The build walk's goal ("Placing a building"): a tile of the planned footprint, worked out from the worker's
-    /// current tile as if the building already stood at `site`. An oil platform is aimed at its top-left tile plus
-    /// (1, 1); any other building by the building goal rule (pathfinding spec), with the shore rule for a shore
-    /// building.
+    /// The build walk's goal ("Placing a building"), before any pull-back: a tile of the planned footprint, worked
+    /// out from the worker's current tile as if the building already stood at `site`. An oil platform is aimed at its
+    /// top-left tile plus (1, 1); a shore building by the shore rule ([`World::shore_build_goal`]); any other
+    /// building by the building goal rule (pathfinding spec).
     pub(crate) fn build_goal(&self, i: usize, kind: u8, site: (i32, i32)) -> (i32, i32) {
         let s = self.stats_of(kind);
         if s.flags & flags::OIL_SOURCE != 0 {
             return (site.0 + 1, site.1 + 1);
         }
-        let u = &self.units[i];
         let size = (s.size.0 as i32, s.size.1 as i32);
-        let goal = footprint_goal(u.tile, site, size);
-        // Pathfinding spec, "Building goal rule": a land unit heading to a shore building in a different land region
-        // aims at a footprint corner in its own region, if there is one. Our reading: the goal tile's region decides,
-        // and the corners are tried top-left, top-right, bottom-left, bottom-right.
-        if s.flags & flags::SHORE_BUILDING != 0 && u.layer == crate::world::Layer::Land {
-            let mine = self.terrain.region(u.tile.0, u.tile.1);
-            if self.terrain.region(goal.0, goal.1) != mine {
-                let (x1, y1) = (site.0 + size.0 - 1, site.1 + size.1 - 1);
-                if let Some(c) = [site, (x1, site.1), (site.0, y1), (x1, y1)]
-                    .into_iter()
-                    .find(|c| self.terrain.region(c.0, c.1) == mine)
-                {
-                    return c;
-                }
-            }
+        if s.flags & flags::SHORE_BUILDING != 0 {
+            return self.shore_build_goal(i, site, size);
         }
-        goal
+        footprint_goal(self.units[i].tile, site, size)
     }
 
-    /// Order 28: walk to the build goal and build on standing on it (arrival radius 0; a land unit building a shore
-    /// building gets the movement spec's +1). Round-41 errata (`xorc7` peasant 1421, n = 2028): the goal is worked
-    /// out once and stays fixed while the worker walks; round-47 errata: it is worked out when the command is given
-    /// ([`World::build_command`]), and only an order made without one works it out here. Round-42 errata: the order's own logic runs only on
-    /// arrival; the walk ends without arriving only with no route (idle at once) or at the blocked counter's limit
-    /// (idle as a pending order, `movement.rs` row C).
+    /// Pathfinding spec, "Shore building (build goal)" (round-59 errata, `mp-frosty-fjords-bne-30000`): the planned
+    /// footprint's top-left tile if it is in the worker's land region; else the first corner in that region, tried
+    /// bottom-right, top-right, bottom-left, top-left; else the top-left tile. A worker type with the sea or air flag
+    /// makes no corner test and gets the top-left tile.
+    fn shore_build_goal(&self, i: usize, site: (i32, i32), size: (i32, i32)) -> (i32, i32) {
+        let u = &self.units[i];
+        if self.stats_of(u.kind).flags & (flags::SEA | flags::AIR) != 0 {
+            return site;
+        }
+        let mine = self.terrain.region(u.tile.0, u.tile.1);
+        let (x1, y1) = (site.0 + size.0 - 1, site.1 + size.1 - 1);
+        [site, (x1, y1), (x1, site.1), (site.0, y1)]
+            .into_iter()
+            .find(|c| self.terrain.region(c.0, c.1) == mine)
+            .unwrap_or(site)
+    }
+
+    /// The arrival radius of a build walk: 0, or 1 for a land worker and a shore building (movement spec, "The +1").
+    fn build_radius(&self, i: usize, kind: u8) -> i32 {
+        let shore = self.stats_of(kind).flags & flags::SHORE_BUILDING != 0;
+        (shore && self.units[i].layer == crate::world::Layer::Land) as i32
+    }
+
+    /// Order 28: walk to the build goal and build on arriving within the arrival radius (0; a land unit building a
+    /// shore building gets the movement spec's +1). Round-41 errata (`xorc7` peasant 1421, n = 2028): the goal is
+    /// worked out once and stays fixed while the worker walks; round-47 errata: it is worked out when the command is
+    /// given ([`World::build_command`]), and only an order made without one works it out here. Round-42 errata: the
+    /// order's own logic runs only on arrival, where round-59 errata has it work the goal out again
+    /// ([`World::build_arrived`]); the walk ends without arriving only with no route (idle at once) or at the blocked
+    /// counter's limit (idle as a pending order, `movement.rs` row C).
     pub(crate) fn build_order(&mut self, i: usize, kind: u8, site: (i32, i32), goal: Option<(i32, i32)>) {
         let goal = goal.unwrap_or_else(|| self.build_goal(i, kind, site));
         self.units[i].order = Order::Build {
@@ -96,16 +108,41 @@ impl World {
             site,
             goal: Some(goal),
         };
-        let shore =
-            self.stats_of(kind).flags & flags::SHORE_BUILDING != 0 && self.units[i].layer == crate::world::Layer::Land;
-        match self.move_toward(i, Goal::tile(goal, shore as i32)) {
-            Walk::Arrived => self.raise(i, kind, site),
+        let radius = self.build_radius(i, kind);
+        match self.move_toward(i, Goal::tile(goal, radius)) {
+            Walk::Arrived => self.build_arrived(i, kind, site),
             // Round-42 errata: idle as an immediate order, whose idle logic runs in the same update (orders spec, "No
             // route"). Round-49 errata (`xhuman12-10000` n = 116, `human14-10000` n = 1040): a computer player's
             // payment isn't given back; only a failed site check refunds it.
             Walk::NoPath => self.idle_at_once(i),
             Walk::Stepping | Walk::Blocked => {}
         }
+    }
+
+    /// Round-59 errata, "Placing a building" (`mp-frosty-fjords-bne-30000` peasant 1560, n = 16734): on arrival at
+    /// the stored goal, order 28 works the goal out again from the worker's tile, not pulled back, and applies the
+    /// arrival test to it. If the worker is there, placement goes ahead; if not, the build is given again as a command
+    /// with the new goal pulled back, and that pending order takes over in the same update (still animation, wait 3).
+    ///
+    /// Our reading: giving the build again makes no new payment (a computer player paid when the AI chose the build);
+    /// the spec says nothing about paying here.
+    fn build_arrived(&mut self, i: usize, kind: u8, site: (i32, i32)) {
+        let goal = self.build_goal(i, kind, site);
+        if chebyshev(self.units[i].tile, goal) <= self.build_radius(i, kind) {
+            return self.raise(i, kind, site);
+        }
+        let again = Order::Build {
+            kind,
+            site,
+            goal: Some(self.pull_back(i, goal)),
+        };
+        // A command: the blocked counter is cleared and a stale attacker forgotten (as `World::command` does).
+        let u = &mut self.units[i];
+        u.blocked = 0;
+        u.path.clear();
+        u.pending = None;
+        self.forget_stale_attacker(i);
+        self.take_over(i, again);
     }
 
     /// Arrival at the site: pay (players other than computer players), check the site, then place the building and
@@ -690,5 +727,127 @@ mod tests {
         assert!(!u.inside && u.order == Order::Idle);
         // The open question's default: it faces the building as at completion.
         assert_eq!((u.tile, u.facing), ((7, 8), 3));
+    }
+
+    /// A 3 x 3 shore building type (a shipyard-like synthetic type).
+    const SHORE: u8 = 60;
+
+    fn shore_town() -> (World, UnitId) {
+        let (mut w, p) = town();
+        w.stats.0[SHORE as usize] = w.stats.0[kind::FARM as usize];
+        w.stats.0[SHORE as usize].size = (3, 3);
+        w.stats.0[SHORE as usize].flags = flags::BUILDING | flags::SHORE_BUILDING;
+        (w, p)
+    }
+
+    fn set_region(w: &mut World, t: (i32, i32), r: u16) {
+        let n = w.terrain.at(t.0, t.1).unwrap();
+        w.terrain.regions[n] = r;
+    }
+
+    /// Pathfinding spec, "Shore building (build goal)" and its round-59 vectors: the top-left tile if it is in the
+    /// worker's region (not the bottom-left corner), else the first corner in it (bottom-right, top-right,
+    /// bottom-left, top-left), else the top-left tile; a sea or air worker type makes no corner test.
+    #[test]
+    fn the_shore_build_goal_prefers_the_top_left_then_the_corners() {
+        let (mut w, p) = shore_town();
+        let i = w.index(p).unwrap();
+        w.units[i].tile = (5, 9);
+        let mine = w.terrain.region(5, 9).unwrap();
+        let other = mine + 1;
+        let site = (10, 5);
+        let (tl, tr, bl, br) = ((10, 5), (12, 5), (10, 7), (12, 7));
+        // The whole footprint in the worker's region: the top-left tile, though the building goal rule picks (10, 7).
+        assert_eq!(footprint_goal((5, 9), site, (3, 3)), bl);
+        assert_eq!(w.build_goal(i, SHORE, site), tl);
+        // The top-left tile in another region: the first corner in the worker's region.
+        set_region(&mut w, tl, other);
+        assert_eq!(w.build_goal(i, SHORE, site), br);
+        set_region(&mut w, br, other);
+        assert_eq!(w.build_goal(i, SHORE, site), tr);
+        set_region(&mut w, tr, other);
+        assert_eq!(w.build_goal(i, SHORE, site), bl);
+        // No corner in the worker's region: the top-left tile.
+        set_region(&mut w, bl, other);
+        assert_eq!(w.build_goal(i, SHORE, site), tl);
+        // A sea or air worker type: the top-left tile with no corner test.
+        set_region(&mut w, br, mine);
+        assert_eq!(w.build_goal(i, SHORE, site), br);
+        for f in [flags::SEA, flags::AIR] {
+            w.stats.0[PEASANT as usize].flags = flags::PEON | f;
+            assert_eq!(w.build_goal(i, SHORE, site), tl, "{f:#x}");
+        }
+    }
+
+    /// Pathfinding spec, "Goal pulled back" (round-59 errata, the `mp-frosty-fjords-bne-30000` peasant 1560 vector):
+    /// the build command stores its goal pulled back; the site is unchanged.
+    #[test]
+    fn the_build_command_pulls_the_goal_back() {
+        let (mut w, p) = shore_town();
+        let i = w.index(p).unwrap();
+        w.units[i].tile = (2, 10);
+        let site = (10, 9);
+        assert_eq!(w.build_goal(i, SHORE, site), (10, 9));
+        // The raw goal and the first tile tested unusable (a terrain bit of the worker's mask), the second usable:
+        // the goal becomes the first tile tested.
+        for t in [(10, 9), (9, 9), (9, 10)] {
+            w.terrain.set_bits(t.0, t.1, bits::OBSTACLE);
+        }
+        let pulled = w.pull_back(i, (10, 9));
+        assert!(matches!(pulled, (9, 9) | (9, 10)), "{pulled:?}");
+        assert_eq!(
+            w.build_command(i, SHORE, site),
+            Some(Order::Build {
+                kind: SHORE,
+                site,
+                goal: Some(pulled),
+            })
+        );
+    }
+
+    /// Build-train spec, "Placing a building" (round-59 errata, the `mp-frosty-fjords-bne-30000` peasant 1560 vectors
+    /// at n = 16718 to 16753): on arrival at the stored goal, order 28 works the goal out again from the worker's tile.
+    /// Within the arrival radius (1 for a land worker and a shore building) the building is placed; 2 tiles away, the
+    /// build is given again as a command with the new goal pulled back, taking over in the same update (still
+    /// animation, wait 3).
+    #[test]
+    fn order_28_works_the_goal_out_again_on_arrival() {
+        let (mut w, p) = shore_town();
+        let site = (7, 6);
+        for y in 6..9 {
+            for x in 7..10 {
+                w.terrain.clear_bits(x, y, bits::LAND);
+                w.terrain.set_bits(x, y, bits::SHORE);
+            }
+        }
+        let move_to = |w: &mut World, t: (i32, i32)| {
+            let i = w.index(p).unwrap();
+            let u = w.units[i].clone();
+            w.mark(&u, u.tile, None);
+            w.units[i].tile = t;
+            w.units[i].pos = (t.0 * TILE_PX, t.1 * TILE_PX);
+            let u = w.units[i].clone();
+            w.mark(&u, t, Some(u.id));
+            i
+        };
+        let i = move_to(&mut w, (5, 7));
+        // Arrived at the stored goal (its own tile), but the goal worked out again, (7, 6), is 2 tiles away.
+        assert_eq!(w.build_goal(i, SHORE, site), (7, 6));
+        w.build_order(i, SHORE, site, Some((5, 7)));
+        let u = &w.units[i];
+        let again = Order::Build {
+            kind: SHORE,
+            site,
+            goal: Some(w.pull_back(i, (7, 6))),
+        };
+        assert_eq!(
+            (u.order, u.pending, u.inside, u.script.anim, u.script.wait),
+            (again, None, false, anim::STILL, 3)
+        );
+        // One tile away the arrival test passes and the building goes up.
+        let i = move_to(&mut w, (6, 7));
+        w.build_order(i, SHORE, site, Some((6, 7)));
+        let u = w.unit(p).unwrap();
+        assert!(u.inside && matches!(u.order, Order::InsideSite { .. }), "{:?}", u.order);
     }
 }
