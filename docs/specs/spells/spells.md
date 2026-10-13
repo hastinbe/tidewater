@@ -23,6 +23,11 @@
   its kind-0x17 explosion has only kind and position set.
   2026-10-12, round-44 errata: a blizzard shard's destination is its landing point from creation, through its initial
   wait; `xhuman10-blizzard-600` vector.
+  2026-10-13, round-45 errata: a death coil missile's destination is its aim point from creation, it flies as a kind
+  0x0A missile with impact delay 16, and the caster's target is each victim in turn; a whirlwind's destination is its
+  current goal; every death-and-decay cloud's destination is the target tile's centre; raise dead's marker is placed
+  like the other kind 0x16 markers (open question closed); a blizzard shard lands on the step that reaches its landing
+  point, then lingers 4 cycles; trace vectors.
 
 ## Behaviour
 
@@ -137,13 +142,18 @@ allied with the caster (Enhanced mode only), owned by the caster's player, dying
 lowest first. Candidates with equal HP don't keep their scan order. The order is the one you get by going through the
 list positions from the first, and for each position comparing its candidate with every later candidate in turn,
 swapping the two whenever the one at the position has more HP. For example, scan order A (30 HP), B (30 HP), C (5 HP)
-becomes C, B, A. A budget of
-**50** is shared out in that order: each victim takes its full HP while the budget lasts; the first victim that doesn't
-fit takes what is left, and the victims after it get nothing and are dropped. For each kept victim, in order, the
-caster launches its own missile weapon at it through the normal launch of `combat/damage.md` (so the launch makes its
-usual damage draw and two scatter draws), and the missile's stored damage is then replaced by the victim's share. On
-impact the share is applied to the victim with the caster as the attacker. The caster then gains the total of the
-shares at once, capped at its maximum HP. With no candidates, the 100 mana is still spent.
+becomes C, B, A. A budget of **50** is shared out in that order: each victim takes its full HP while the budget lasts;
+the first victim that doesn't fit takes what is left, and the victims after it get nothing and are dropped. For each
+kept victim, in order, the caster launches its own missile weapon at it through the normal launch of `combat/damage.md`
+(so the launch makes its usual damage draw and two scatter draws), and the missile's stored damage is then replaced by
+the victim's share. Each coil missile is a normal missile of kind 0x0A (`combat/damage.md`, "Missile flight"): its
+destination is its aim point (the victim's centre plus the scatter) from the moment it is created; it flies N = floor(D
+/ 12) + 1 steps, landing on the step where the remaining distance goes below 0, and stays there; its share is applied at
+its impact, **16** cycles after the landing step. As each missile is launched, the caster's target becomes that victim,
+so after the launches the caster's target is the last victim, until the idle takes over (traced:
+`xorc01-death-coil-2500`, vectors below). On impact the share is applied to the victim with the caster as the attacker.
+The caster then gains the total of the shares at once, capped at its maximum HP. With no candidates, the 100 mana is
+still spent.
 
 **Runes.** The tiles tried are, in order: the target tile, then the tiles north, east, south and west of it. A rune is
 placed on a tile if the tile is on the map, no ground-layer unit or building is on it, no live rune is already there,
@@ -276,22 +286,30 @@ The shielded unit is never hurt by its own flames; its neighbours, friend or foe
 point minus (110, 170) px plus ((r mod 3) × 11 − 11) px on x, then on y (2 more draws), and flies to the landing point
 at 12 px per step (14 to 16 steps), after an initial wait of 12 cycles. Its destination is the landing point from the
 moment it is created, through the initial wait, not only once it starts flying (traced: `xhuman10-blizzard-600`, vectors
-below). It makes one draw after each step that doesn't land. When it lands it splashes with damage **10**, and then, if
-the chain has repeats left and a slot is free, it starts the next shard of the chain (repeats − 1, 2 draws) and makes
-one more draw. A chain therefore lands **11 shards** on the same point. Damage per shard: 5 to 10 within 22 px, 1 or 2
-from 23 to 42 px.
+below). It makes one draw after each step that doesn't land. It **lands in the same update** as the flight step that
+takes it to or past its landing point; that last step may overshoot, and the position isn't clamped. In that update it
+splashes with damage **10**, and then, if the chain has repeats left and a slot is free, it starts the next shard of the
+chain in the lowest free effect slot (repeats − 1, 2 draws) and makes one more draw. The landed shard's own slot isn't
+free yet, so the next shard never reuses it. The landed shard then stays where it is, unmoving, for 4 more cycles, and
+is removed in its 5th update after landing (traced: `xhuman10-blizzard-600`, vectors below). Whether a remaining
+distance of exactly 0 counts as reaching the point isn't separated by the traces (open questions). A chain therefore
+lands **11 shards** on the same point. Damage per shard: 5 to 10 within 22 px, 1 or 2 from 23 to 42 px.
 
-**Death and decay.** Each of the 5 clouds is placed at the target tile's centre plus ((r1 mod 5) − 2) × 32 px on x
-and ((r2 mod 5) − 2) × 32 on y (2 draws), and doesn't move. Counting its first update as cycle 0, its first step
-comes at cycle 18 (no effect). It then **splashes** with damage **10** at cycles 34, 58, 82, … , 250 (10 pulses, every
-24 cycles). At its next step (cycle 274) it ends, and one cycle later it touches a wall on its tile with damage 10.
+**Death and decay.** Each of the 5 clouds is placed at the target tile's centre plus ((r1 mod 5) − 2) × 32 px on x and
+((r2 mod 5) − 2) × 32 on y (2 draws), and doesn't move. Every cloud's destination is the target tile's centre, whatever
+its own position (traced: `xorc01-death-knight-2100`, vectors below). Counting its first update as cycle 0, its first
+step comes at cycle 18 (no effect). It then **splashes** with damage **10** at cycles 34, 58, 82, … , 250 (10 pulses,
+every 24 cycles). At its next step (cycle 274) it ends, and one cycle later it touches a wall on its tile with damage
+10.
 
-**Whirlwind.** Created with a lifetime of **800** and damage **4**. It starts at the target point's centre plus
-((r & 127) − 64) px on x and on y (2 draws) and walks toward the target point at 1 px per step, one step every
-3 cycles. On each step, if the lifetime is odd it splashes; the lifetime then goes down by 1, and the whirlwind ends
-when it reaches 0 (touching a wall on its final tile with damage 4). When it reaches its goal exactly, it picks a new
-goal at its position plus ((r & 127) − 64) px on x and on y (2 draws). It lasts 2400 cycles and splashes 400 times. A
-new goal equal to its position is never reached, so it then drifts east until it ends.
+**Whirlwind.** Created with a lifetime of **800** and damage **4**. It starts at the target point's centre plus ((r &
+127) − 64) px on x and on y (2 draws) and walks toward the target point at 1 px per step, one step every 3 cycles. On
+each step, if the lifetime is odd it splashes; the lifetime then goes down by 1, and the whirlwind ends when it reaches
+0 (touching a wall on its final tile with damage 4). When it reaches its goal exactly, it picks a new goal at its
+position plus ((r & 127) − 64) px on x and on y (2 draws). It lasts 2400 cycles and splashes 400 times. A new goal equal
+to its position is never reached, so it then drifts east until it ends. Its destination is always its current goal: the
+target point's centre from creation, then each new goal as it is picked (traced: `xorc01-death-knight-2100`, vectors
+below).
 
 **Cosmetic effects.** Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A change nothing but slot use, and draw no random
 number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's step
@@ -312,9 +330,10 @@ set: its destination is (0, 0), and it has no target, no shooter and damage 0, w
 marker, a rune that goes off, a missile's impact effect, a cannon's smoke, a spell marker, an explosion). Nothing is
 copied from the missile or the caster that makes it.
 
-A kind 0x16 marker "on the target" (slow, invisibility, bloodlust, haste, unholy armour) is placed at the unit's pixel
-position plus (floor(w / 2), floor(h / 2) − 4), with w × h the unit type's box size, as for kinds 8 and 9 below. Holy
-vision and polymorph keep their own positions.
+A kind 0x16 marker "on the target" (slow, invisibility, bloodlust, haste, unholy armour, and raise dead's marker on each
+new skeleton) is placed at the unit's pixel position plus (floor(w / 2), floor(h / 2) − 4), with w × h the unit type's
+box size, as for kinds 8 and 9 below. Holy vision and polymorph keep their own positions. Raise dead's marker is traced
+(`xorc01-death-knight-2100`, vectors below).
 
 Kinds 0x13 and 0x14 would also be removed at step done, but their scripts loop and never reach one. Only the map
 start creates them: they are the building fires in effect slots 0 and 1 (`core/unit-slots.md`, `ui/map-drawing.md`).
@@ -474,10 +493,20 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Custom unit data gives a farm the caster flag and magic 0; the farm is placed by the map | Mana 0 until its 256th timers pass, then 1; +1 every 40 passes after that, up to 255 |
 | Default data | No building gains mana from the timers pass |
 | `xhuman10-blizzard-600` (oracle trace), n = 145: new shards in effect slots 4, 5 and 7, waiting | Destinations (2480, 2864), (2512, 2928) and (2576, 2800), each chain's landing point, unchanged through n = 160; they start moving at n = 157, 12 cycles after creation |
+| `xorc01-death-coil-2500` (oracle trace), n = 1191: death knight 1491's coil launches effect 3 (kind 0x0A, victim 1521, share 40) and effect 4 (victim 1514, share 10) from (2320, 2224) | Destinations (2642, 2157) and (2704, 2223) from creation; the caster's target is 1514 until the idle takes over at n = 1220 |
+| Same: effect 3, D = 322 | 27 steps: lands at n = 1218 at (2644, 2152) and stays; removed at n = 1234, its impact 16 cycles after landing |
+| Same: effect 4, D = 384 | 33 steps: lands at n = 1224 at x = 2716 |
+| `xorc01-death-knight-2100` (oracle trace): whirlwind cast on tile (80, 68) at n = 1300 | n = 1318: effect 3 (kind 12) at (2614, 2171), destination (2576, 2192) |
+| A whirlwind after a new goal (x, y) is picked | Destination (x, y) |
+| `xorc01-death-knight-2100`, n = 1569: death and decay on tile (69, 68) | Every cloud (kind 6, slots 4 to 8, at (2224, 2160), (2256, 2192) and others) has destination (2224, 2192) |
+| `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
+| `xhuman10-blizzard-600`, n = 170: the shards in slots 7 and 8 step to (2585, 2809) and (2523, 2841), past their landing points (2576, 2800) and (2512, 2832) | They land in that update: the chains' next shards appear in slots 12 and 13 (destinations (2576, 2800) and (2512, 2832)), before slot 10's missile's impact effect (slot 14, kind 0x1A) |
+| Same, n = 174 and 175 | Slots 7 and 8 unmoved at n = 174; free at n = 175 |
 
 ## Open questions
 
-- Whether raise dead's marker on a new skeleton uses the same placement as the other kind 0x16 markers.
+- **Blizzard shard landing at exactly 0.** Whether a shard whose remaining distance becomes exactly 0 lands on that step
+  or one step later isn't separated by the traces.
 - Confirm the death coil order of equal-HP candidates in the running game: two 30-HP victims and one 5-HP victim
   should split the budget as the vector says (the second-found 30-HP victim gets its full 30).
 - Units created while the map loads don't get the decay countdown. What happens to a decaying type placed in the map
