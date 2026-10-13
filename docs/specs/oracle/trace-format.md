@@ -14,6 +14,8 @@
   game's own command.
   2026-10-12, round-40 errata: a `build` command's builder may be a tanker (oil platforms) as well as a worker;
   `orc09-naval` vector.
+  2026-10-12, round-44 errata: a dead unit keeps reporting a released target's slot in `target`; a blizzard shard's
+  `dest` is its landing point from creation; `human06-31357` and `xhuman10-blizzard-600` vectors.
 
 ## Behaviour
 
@@ -94,7 +96,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `frame` | Sprite frame (`core/animation-scripts.md`) |
 | `wait` | Animation wait counter (`core/animation-scripts.md`) |
 | `mana` | The unit's 8-bit mana value for spellcasters. For other units the same value may hold another counter; compare it only where a spec defines it |
-| `target` | Slot of the unit's target unit, or `null` |
+| `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit |
 | `trips` | Only for types 0x56 and 0x57 (oil platforms), 0x5C (gold mine) and 0x5D (oil patch): trips left (`economy/harvest.md`) |
 | `timers` | Only when one is running: any of `invisibility`, `unholy_armour`, `bloodlust` (cycles left) and `haste` (cycles; positive = haste, negative = slow) |
 
@@ -105,7 +107,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `slot` | Effect-table slot (`core/unit-slots.md`) |
 | `kind` | Missile or effect kind number (`combat/damage.md`, `spells/spells.md`) |
 | `x`, `y` | Position in pixels |
-| `dest` | Destination `[x, y]` in pixels |
+| `dest` | Destination `[x, y]` in pixels. A blizzard shard has its chain's landing point from the moment it is created, through its initial wait (`spells/spells.md`, "Blizzard shards") |
 | `target`, `shooter` | Unit slots, or `null` |
 | `damage` | The damage value stored on the missile (`combat/damage.md`) |
 
@@ -239,6 +241,8 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
 | Orc09 (`orc09-naval-1500`): the same cheat entry for player 5 | Player 5's gold is 1000 in `cycle` n = 11 and 11000 in `turn` n = 11 |
 | XHuman10 (`xhuman10-spells-700`): cheat `add` `["every little thing she does"]` in turn 11; mage 1481 selected in turn 21; command 46 (polymorph) in turn 22 | Gold unchanged by the cheat. Mage `mana` 85 in `turn` n = 21, 255 in `turn` n = 22 while still in order 2; order 46 from `cycle` n = 23; the cast at n = 145 leaves 55 |
 | XHuman10 blizzard, XOrc01 death knight, XOrc12 ogre-mage: the same cheat, then command 47, 53 or 49 in turn 22 (mage 1481, death knight 1491, Dentarg 1548) | `mana` 85 before, 255 in `turn` n = 22. XOrc12: back to 255 at each later spell command (turns 62 and 102) |
+| `human06-31357`, n = 18146: body 1594 (type 105, order 0, the remove order; it died at n = 16653) still has target 1511, whose slot is released in this cycle (1511 died at n = 16726) | Its `target` stays 1511, not `null` |
+| `xhuman10-blizzard-600`, n = 145: new shards in effect slots 4, 5 and 7, in their initial wait | `dest` is each chain's landing point: (2480, 2864), (2512, 2928) and (2576, 2800), unchanged when they start flying at n = 157 |
 
 ## Open questions
 
