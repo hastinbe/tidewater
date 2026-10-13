@@ -40,6 +40,9 @@
   2026-10-13, round-50 errata: a spell walk with no route goes idle at once and runs the idle logic; a flame's every
   step checks the shielded unit and an ending flame's slot is freed at its next update (static study); `human14-10000`
   vector.
+  2026-10-13, round-54 errata: a spell command's target unit gets the command check (a dead or undetected target is
+  dropped and idle becomes pending); a flame's step counts down first and a step that reaches 0 ends it without moving
+  or splashing; `xhuman10-slow-3000` vectors.
 
 ## Behaviour
 
@@ -82,7 +85,10 @@ When a spell command is given:
 
 - If the **all-spells cheat** is on (the cheat that makes every spell known for every player at once), the caster's
   mana is set to 255 first. The same cheat lets the cast buttons skip their mana test (`ui/command-buttons.md`).
-- The spell order becomes the caster's pending order (`orders/orders.md`).
+- The spell order becomes the caster's pending order (`orders/orders.md`). The target unit gets the same check as any
+  command's target (`orders/orders.md`, "Commands forget a stale attacker"): if it is dying, dead (a body or ruin) or
+  not detected, it is dropped and idle becomes the caster's pending order instead, which counts as a command and takes
+  over at the next step done with wait 3 (traced: `xhuman10-slow-3000`, vectors below).
 - For the spells aimed at a point (orders 38, 40, 41, 43, 47, 48, 50, 51, 52, 55 and 56) the caster's target unit is
   cleared and only the target tile is kept.
 
@@ -304,11 +310,13 @@ bolt's gets its first update in the cycle it is made and steps 6 cycles after cr
 before the bolt's steps 7 cycles after creation (static study). A flame doesn't look at the shielded unit during that
 wait: it checks the unit at its first step, and if the unit is dying or gone it ends there, its slot freed one update
 later (static study). In the trace a flame has the shielded unit as its shooter, no target, destination (0, 0) and
-damage 4; it follows the shielded unit. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. A flame counts its
-lifetime down by 1 each step and splashes with damage **4** whenever the new count's low 4 bits equal 1 (so about every
-16 cycles). A flame ends when its count reaches 0, or, from its first step on, as soon as the shielded unit is dying or
-gone; each step makes that check, and an ending flame's slot is freed at its next update (static study). The shielded
-unit is never hurt by its own flames; its neighbours, friend or foe, are.
+damage 4; it follows the shielded unit. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. Each step a flame
+first counts its lifetime down by 1. If the count is now 0, the flame ends at once: it doesn't move or splash on that
+step, and its slot is freed at its next update (traced: `xhuman10-slow-3000`, vectors below). Otherwise it moves with
+the shielded unit and splashes with damage **4** whenever the new count's low 4 bits equal 1 (so about every 16 cycles).
+A flame also ends, from its first step on, as soon as the shielded unit is dying or gone; each step makes that check,
+and an ending flame's slot is freed at its next update (static study). The shielded unit is never hurt by its own
+flames; its neighbours, friend or foe, are.
 
 **Blizzard shards.** Each of the 5 chains picks its landing point once, when it starts: the target tile's centre plus
 ((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the landing
@@ -507,7 +515,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Flame shield on a footman: the 5 flames at creation | Offsets from the footman's centre: (1, −34), (30, −20), (19, 8), (−11, 10), (−27, −16) (points 0, 10, 20, 30, 40) |
 | Same, the flame that started at point 10, at its 5th step | Point 15: offset (31, −5) |
 | Same, the flame that started at point 40, at its 11th step | Point 0 again (wraps after point 50): offset (1, −34) |
-| Same, the first flame (lifetime 512) | Splashes on its steps 15, 31, 47, … , 511 (32 splashes); ends at step 512 |
+| Same, the first flame (lifetime 512) | Splashes on its steps 15, 31, 47, … , 511 (32 splashes); ends at step 512 without moving, staying where step 511 left it |
 | Same, the second flame (lifetime 524) | Splashes on its steps 11, 27, … , 523 (33 splashes); ends at step 524 |
 | Death coil, candidates in scan order A (30 HP), B (30 HP), C (5 HP) | Order C, B, A. Shares C 5, B 30, A 15; the caster gains 50 |
 | Polymorph on a footman | The critter makes 2 draws (facing, then first wait). The footman plays its death animation and leaves a body with the used mark; a later raise dead skips it |
@@ -531,6 +539,8 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | `xorc01-death-knight-2100`, n = 1569: death and decay on tile (69, 68) | Every cloud (kind 6, slots 4 to 8, at (2224, 2160), (2256, 2192) and others) has destination (2224, 2192) |
 | `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
 | `xhuman10-blizzard-600`, n = 170: the shards in slots 7 and 8 step to (2585, 2809) and (2523, 2841), past their landing points (2576, 2800) and (2512, 2832) | They land in that update: the chains' next shards appear in slots 12 and 13 (destinations (2576, 2800) and (2512, 2832)), before slot 10's missile's impact effect (slot 14, kind 0x1A) |
+| `xhuman10-slow-3000` (oracle trace), n = 302: Slow from mage 1481 (type 0x0A, owner 1) on grunt 1490, dead since n = 170 and a body (type 0x69) since n = 277 | n = 302: 1481 in order 2, target null; n = 303: wait 3 (the pending idle took over) |
+| `xhuman10-slow-3000`, n = 740: the flame in effect slot 4 (shooter 1480) at (2676, 2862) on its last step | Unmoved at (2676, 2862); slot 4 free at n = 741 |
 | Same, n = 174 and 175 | Slots 7 and 8 unmoved at n = 174; free at n = 175 |
 | `xhuman10-spells-700` (oracle trace), n = 329: mage 1481 (type 0x0A) casts fireball (order 43) at catapult 1487 on tile (74, 89) | Effect 3: kind 2 at (2704, 2832), destination (2384, 2864), shooter 1481, damage 40 |
 | `xhuman10-blizzard-600` (oracle trace), n = 417: mage 1481 casts flame shield (order 42) on knight 1480 at pixel (2592, 2880) | Effect 9: kind 3 at (2704, 2832), destination (2608, 2896), target 1480, shooter 1481 |
