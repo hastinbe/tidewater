@@ -8,6 +8,8 @@
   2026-10-12, round-33 errata: starting an animation never changes the frame; the events that do are listed.
   2026-10-12, round-35 errata: new rule "Facing a tile" (eight-way, on tiles, a building faced at its top-left tile plus
   (1, 1)), with trace vectors.
+  2026-10-12, round-42 errata: warships (sea units that aren't submarines) turn broadside to strike, by a table of the
+  direction to the target and the current facing; `orc09-naval` and `human12-7000` vectors.
 
 ## Behaviour
 
@@ -91,7 +93,25 @@ So a diagonal is chosen only when the smaller distance is at least half the larg
 1), and a unit facing its own tile faces east (2). B is a target building's top-left tile plus (1, 1), any other
 target unit's own tile (for a moving unit, the tile it has claimed, `movement/movement.md`), or the target tile when
 there is no target unit. Both ends are always tiles, never pixel positions, even while either unit is between tiles.
-Ships use a different rule when they strike (`combat/attack-ground-demolish.md`); it isn't described yet.
+**Warships turn broadside to strike.** When a **sea unit that isn't a submarine** (unit flag bit 3 "sea unit" set
+and bit 6 "is a submarine" clear, in the PUD specification) decides to strike, including an attack on the ground
+(`combat/attack-ground-demolish.md`), it doesn't face its target. It takes the direction D from its tile to B by the
+rule above, and then picks its new facing from D and its **current** facing with the table below. The new facing puts
+the target on one of its sides. The table is applied at every strike decision, so a ship turns at most once per
+decision. Submarines use the ordinary rule.
+
+| D (to the target) | Current 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 (N) | 6 | 2 | 2 | 2 | 2 | 6 | 6 | 6 |
+| 1 (NE) | 7 | 7 | 3 | 3 | 3 | 3 | 7 | 7 |
+| 2 (E) | 0 | 0 | 4 | 4 | 4 | 4 | 0 | 0 |
+| 3 (SE) | 1 | 1 | 1 | 1 | 5 | 5 | 5 | 5 |
+| 4 (S) | 2 | 2 | 2 | 2 | 2 | 6 | 6 | 6 |
+| 5 (SW) | 7 | 7 | 3 | 3 | 3 | 3 | 7 | 7 |
+| 6 (W) | 0 | 0 | 4 | 4 | 4 | 4 | 0 | 0 |
+| 7 (NW) | 1 | 1 | 1 | 1 | 5 | 5 | 5 | 5 |
+
+Rows 0 and 4 differ only for current facing 0 (6 against 2).
 
 ## Data
 
@@ -203,6 +223,10 @@ instructions and signal "step done" only every two tiles.
 | Facing a tile: `human01-basics` n = 116, footman 1598 on (26, 10) (pixel (832, 320)) strikes grunt 1592, which has claimed (26, 11) (pixel (845, 365)) | dx = 0, dy = +1: facing 4 (south), not the pixel direction |
 | Facing a tile: (76, 78) → (78, 78); (87, 80) → (89, 78) | 2; 1 |
 | Facing a tile: (0, 0) → (3, 1); → (4, 1); → (−2, −5); → (−2, −6); (5, 5) → (5, 5) | 3; 2; 7; 0; 2 |
+| `orc09-naval-1500` (oracle trace), n = 270: destroyer 1497 (type 0x1F) at (66, 68) in order 9, facing 1; its target, destroyer 1506, at (66, 64), due north | Facing 2 at the strike decision |
+| `human12-7000` (oracle trace), n = 5988: destroyer 1417 (type 0x1E) at (18, 124) in order 16, facing 2; target zeppelin 1503 at (20, 120) (dx +2, dy −4: D = 1) | Facing 3 |
+| A battleship facing 0, target due south | Facing 2 |
+| A submarine facing 2, target due north | Facing 0 (the ordinary rule) |
 
 ## Open questions
 
