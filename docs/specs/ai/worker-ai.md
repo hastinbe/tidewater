@@ -17,6 +17,8 @@
 - **Changes:** 2026-10-12, round-39 errata: the site search's last test is the full site check of `ui/placing-
   buildings.md` (Allowed), including "too close" to a gold mine; `xhuman10` vectors. Creation marks for computer
   players' map buildings are confirmed as they are.
+- **Changes:** 2026-10-12, round-42 errata: the computer's site search refuses a footprint that reaches the map's last
+  column or last row; `xorc7` vector.
 
 ## Behaviour
 
@@ -261,8 +263,10 @@ uses the plain footprint.
 A position (x, y) is accepted if:
 
 - it is on the map and its region value equals the worker's;
-- the **footprint** fits on the map: width × width tiles from (x, y), or, with the border, (width + 2) × (width + 2)
-  tiles from (x − 1, y − 1) (from x or y itself where that is 0);
+- the **footprint** ends before the map's last column and last row: width × width tiles from (x, y), or, with the
+  border, (width + 2) × (width + 2) tiles from (x − 1, y − 1) (from x or y itself where that is 0). For the plain
+  footprint that means x + width and y + width are both less than the map's size, so a footprint may not touch the
+  last column or the last row;
 - no footprint tile carries a bit of the computer's placement mask: **0x0DDE** for land buildings, **0x0D11** for
   shore buildings. These are the masks of `movement/occupancy.md` plus the keep-clear bit;
 - the site check of `ui/placing-buildings.md` ("The site check") gives **Allowed** for the building type at
@@ -352,6 +356,9 @@ An entry is marked done at the start of a game when either bit of its code is se
 
 | Input | Expected |
 | --- | --- |
+| `xorc7-7000` (oracle trace), the computer's farm site search started at n = 5866 (peasant 1416) | Farm 1415 (type 0x3A) at (86, 116), the first site of ring 3; it appears at n = 6016 |
+| 128 × 128 map, farm (2 × 2) at (88, 126) | Refused (126 + 2 = 128, the map's size) |
+| Same, at (88, 125) | Accepted if the other conditions hold |
 | Computer peon, idle, not carrying, depot reachable, supply 5, food in use 3, no farm in progress, farms allowed, player had a hall, can afford | Farm: 5 + 0 ≤ 3 + 3, so a pig farm is placed, paid at once, farms in progress 1 |
 | Same, supply 9, food in use 5 | 9 > 8: no farm; goes on to the build list |
 | Same, supply 5, food in use 3, one farm in progress | 5 + 4 = 9 > 6: no farm |
