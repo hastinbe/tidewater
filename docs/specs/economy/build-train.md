@@ -40,6 +40,9 @@
   and the mana byte set to 0; `human5-10000` vector; the open question on jobs at a building's death is closed.
   2026-10-13, round-49 errata: a computer player's build walk with no route doesn't give its payment back; a tanker
   can't take a platform placed in the same cycle; `xhuman12-10000` and `human14-10000` vectors.
+  2026-10-13, round-59 errata: the shore building goal; the build command's goal is pulled back; order 28 works
+  the goal out again on arrival and, if the worker isn't there, gives the build again as a command;
+  `mp-frosty-fjords-bne-30000` vectors.
 
 ## Behaviour
 
@@ -83,18 +86,28 @@ of the planned footprint, worked out from the planned building's type and top-le
 as if the building already stood there:
 
 - a building placed on an oil patch (an oil platform): the top-left tile plus (1, 1);
-- a shore building: the shore rule of `movement/pathfinding.md` ("Building goal rule");
+- a shore building: the shore rule of `movement/pathfinding.md` ("Building goal rule", "Shore building"): the
+  top-left tile if it is in the worker's region, else the first corner in it (bottom-right, top-right, bottom-left,
+  top-left), else the top-left tile;
 - any other building: the building goal rule of `movement/pathfinding.md` on the planned footprint.
 
-The goal is worked out when the order is given, from the worker's tile **at that moment**; while the worker walks, it
-stays as it was. A computer player's worker given its build job as it comes out of a building (`economy/harvest.md`,
-"Coming out", step 3) is still at the building's top-left tile then, before it is placed outside, so its goal is worked
-out from that tile (traced: `xorc4-10000`, vectors below). The walk runs instead of the order's logic, so the goal isn't
-worked out again as the worker's own tile changes, even when the building goal rule would now pick another footprint
-tile. Order 28's logic runs only on arrival. A build walk ends without arriving in two ways, both leaving the worker
-idle: with **no route**, idle as an immediate order (`orders/orders.md`, "No route"), and at the **blocked counter's
-limit**, idle as a pending order (`movement/movement.md`, "Blocked rules", row C). The worker arrives when it **stands
-on** the goal tile; the placement check ignores the worker's own tile (below), so that doesn't stop the building.
+The build command then pulls this goal back as any command does (`movement/pathfinding.md`, "Goal pulled back"): the
+**stored goal** is the pulled-back tile, and the site itself is unchanged (traced: `mp-frosty-fjords-bne-30000`,
+round-59 vectors). The goal is worked out when the order is given, from the worker's tile **at that moment**; while the
+worker walks, it stays as it was. A computer player's worker given its build job as it comes out of a building
+(`economy/harvest.md`, "Coming out", step 3) is still at the building's top-left tile then, before it is placed outside,
+so its goal is worked out from that tile (traced: `xorc4-10000`, vectors below). The walk runs instead of the order's
+logic, so the goal isn't worked out again as the worker's own tile changes, even when the building goal rule would now
+pick another footprint tile. Order 28's logic runs only on arrival. On arrival at the stored goal it works the goal out
+**again** from the worker's current tile (the same three cases as above), **not** pulled back, and applies the arrival
+test to it (radius 0, or 1 for a land worker and a shore building, `movement/movement.md`, "The +1"). If the worker is
+there, placement goes ahead (below). If not, the build is given again as a **command**, with the new goal pulled back;
+the pending order takes over **in the same update** (still animation, wait 3), so the next step comes 3 cycles later.
+This shows only when the pull-back moved the goal by two tiles or more (traced: `mp-frosty-fjords-bne-30000`, round-59
+vectors). A build walk ends without arriving in two ways, both leaving the worker idle: with **no route**, idle as an
+immediate order (`orders/orders.md`, "No route"), and at the **blocked counter's limit**, idle as a pending order
+(`movement/movement.md`, "Blocked rules", row C). The worker arrives when it is within the arrival radius of the goal
+tile; the placement check ignores the worker's own tile (below), so that doesn't stop the building.
 
 - **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker sets
   out. A build walk that ends with **no route** doesn't give the payment back; the job choice may give the same build
@@ -298,6 +311,14 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `human5-10000` (oracle trace), n = 8086: town hall 1525 (type 0x4A, owner 0) is killed while training (order 37, mana byte 70) | Same cycle: order 1, player 0's gold 300 to 700 (the 400 paid for the unit refunded), mana byte 0 |
 | `xhuman12-10000` (oracle trace), n = 116: a computer player 6 build walk finds no route | Player 6 gold 3700 and lumber 3650: the payment made that cycle stays spent |
 | `human14-10000` (oracle trace), n = 1040: the same for computer player 5 | Player 5 gold 33556 and lumber 35906 (no refund) |
+
+### Round-59 vectors
+
+| Input | Expected |
+| --- | --- |
+| `mp-frosty-fjords-bne-30000` (oracle trace, Enhanced): computer peasant 1548 (type 0x02, owner 2) builds a shipyard with top-left (120, 52), which is in its region | Goal (120, 52) (shore rule, step 1); it walks to (119, 51) and the shipyard 1518 is placed at n = 16576 |
+| Same trace: peasant 1560 (type 0x02, owner 0) at (52, 96), given a shipyard with top-left (67, 92) at n = 16187 | Stored goal (66, 92), the raw goal (67, 92) pulled back |
+| Same: 1560 reaches (65, 93) at n = 16718, within 1 of (66, 92); its logic runs at n = 16734 | Worked out again from (65, 93): (67, 92), 2 tiles away, so the build is given again: order 28, still animation, wait 3 at n = 16734; (66, 93) at n = 16737; shipyard 1516 placed at (67, 92) at n = 16753 |
 
 ## Open questions
 
