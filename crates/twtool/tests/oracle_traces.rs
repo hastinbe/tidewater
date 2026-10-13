@@ -12,7 +12,24 @@
 //! human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human5, human7-10000, xorc3,
 //! human10-24000, orc8, xhuman2, xhuman4, human06-31357, orc4-40000, human7-22000, human01-order15-range,
 //! human12-row-f-move, human12-row-f-landing, xorc01-death-coil, xorc01-death-knight, xorc10-dragons, orc3, orc6,
-//! orc5, xorc2, xorc4, xorc5, xhuman1, xhuman3, xhuman5, xorc1-20000 and xorc10-20000 match in full.
+//! orc5, xorc2, xorc4, xorc5, xhuman1, xhuman3, xhuman5, xorc1-20000, xorc10-20000, human2, human3, human9, human11,
+//! orc1, orc7, orc10, orc11, orc12, orc13, xhuman6 and xorc9 match in full.
+//!
+//! Known gaps (the first cycle that differs; each limit is the cycle before):
+//!
+//! - human8, n = 2486: peasant 1508's idle facing (ours 5, theirs 0).
+//! - human13, n = 196: peon 1550's position (ours (78, 9), theirs (75, 8)).
+//! - human14, n = 3740: one draw fewer than the trace in that cycle.
+//! - orc14, n = 2421: unit 1433 in order 34 (boarding) steps to another tile.
+//! - xhuman7, n = 5501: dragon 1415, idle, keeps target 1425 where the trace shows none.
+//! - xhuman8, n = 6831: unit 1535, dying, keeps target 1557 where the trace shows none.
+//! - xhuman9, n = 9065: peon 1440's idle facing (ours 6, theirs 7).
+//! - xhuman11, n = 4443: unit 1510 in order 12 steps to another tile.
+//! - xhuman12, n = 1847: grunt 1476's order-12 wait (ours 3, theirs 23).
+//! - xorc6, n = 6106: axe thrower 1475's idle search gives order 12, the trace order 16 (orders spec, open question
+//!   "An attacker forgotten between runs").
+//! - xorc8, n = 6051: gryphon rider 1550's order-12 target (ours 1386, theirs 1400).
+//! - xorc11, n = 628: unit 1539 on patrol takes target 1521 (order 12) where the trace stays in order 5.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -124,4 +141,28 @@ traces! {
     xhuman5_10000: ("xhuman5-10000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
     xorc1_20000: ("xorc1-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
     xorc10_20000: ("xorc10-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    human2_10000: ("human2-10000.jsonl.gz", "Campaign\\Human\\Human02.pud", 2, &[], None),
+    human3_10000: ("human3-10000.jsonl.gz", "Campaign\\Human\\Human03.pud", 4, &[], None),
+    human8_10000: ("human8-10000.jsonl.gz", "Campaign\\Human\\Human08.pud", 14, &[], Some(2485)),
+    human9_10000: ("human9-10000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
+    human11_10000: ("human11-10000.jsonl.gz", "Campaign\\Human\\Human11.pud", 20, &[], None),
+    human13_10000: ("human13-10000.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], Some(195)),
+    human14_10000: ("human14-10000.jsonl.gz", "Campaign\\Human\\Human14.pud", 26, &[], Some(3739)),
+    orc1_10000: ("orc1-10000.jsonl.gz", "Campaign\\Orc\\Orc01.pud", 1, &[], None),
+    orc7_10000: ("orc7-10000.jsonl.gz", "Campaign\\Orc\\Orc07.pud", 13, &[], None),
+    orc10_10000: ("orc10-10000.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
+    orc11_10000: ("orc11-10000.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
+    orc12_10000: ("orc12-10000.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
+    orc13_10000: ("orc13-10000.jsonl.gz", "Campaign\\Orc\\Orc13.pud", 25, &[], None),
+    orc14_10000: ("orc14-10000.jsonl.gz", "Campaign\\Orc\\Orc14.pud", 27, &[], Some(2420)),
+    xhuman6_10000: ("xhuman6-10000.jsonl.gz", "Campaign\\XHuman\\2XHum06.pud", 38, &[], None),
+    xhuman7_10000: ("xhuman7-10000.jsonl.gz", "Campaign\\XHuman\\2XHum07.pud", 40, &[], Some(5500)),
+    xhuman8_10000: ("xhuman8-10000.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], Some(6830)),
+    xhuman9_10000: ("xhuman9-10000.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], Some(9064)),
+    xhuman11_10000: ("xhuman11-10000.jsonl.gz", "Campaign\\XHuman\\2XHum11.pud", 48, &[], Some(4442)),
+    xhuman12_10000: ("xhuman12-10000.jsonl.gz", "Campaign\\XHuman\\2XHum12.pud", 50, &[], Some(1846)),
+    xorc6_10000: ("xorc6-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc06.pud", 39, &[], Some(6105)),
+    xorc8_10000: ("xorc8-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc08.pud", 43, &[], Some(6050)),
+    xorc9_10000: ("xorc9-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
+    xorc11_10000: ("xorc11-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], Some(627)),
 }
