@@ -10,6 +10,8 @@
   (1, 1)), with trace vectors.
   2026-10-12, round-42 errata: warships (sea units that aren't submarines) turn broadside to strike, by a table of the
   direction to the target and the current facing; `orc09-naval` and `human12-7000` vectors.
+  2026-10-13, round-56 errata: the strike does nothing while a command given to the unit is waiting to take over;
+  `orc14-25000` vector.
 
 ## Behaviour
 
@@ -155,7 +157,7 @@ Each instruction is one opcode byte followed by zero to two argument bytes. "s8"
 | 8 | u8 n | Wait n, adjusted for haste only | yes |
 | 9 | u8 n | Wait n, adjusted for slow only | yes |
 | 10 | none | Play the unit's pending sound (no game-state effect) | no |
-| 11 | none | Strike: the current order's hit action (attack damage or launch, chop, and so on) | no |
+| 11 | none | Strike: the current order's hit action (attack damage or launch, chop, and so on), unless a command is waiting to take over (below) | no |
 | 12 | u8 n | Wait n (+1 if carrying), adjusted for haste and slow | yes |
 | 13 | s8 d | Move d × 2-px direction | no |
 | 14 | s8 d, u8 f | Move d × 2-px direction, then set frame f | no |
@@ -163,6 +165,12 @@ Each instruction is one opcode byte followed by zero to two argument bytes. "s8"
 | 16 to 255 | none | Ignored (one byte) | no |
 
 Setting a frame has no game-state effect; the sprite only needs redrawing if the frame actually changed.
+
+**No strike while a command waits.** A unit carries a mark from the moment it is given a command (by a player, a
+computer player's AI routine, or its own order logic) until that command's order takes over. While the mark is set,
+the strike instruction does **nothing**: no damage roll, no draw, no launch, no strike reveal, no spell effect, and the
+attack cooldown isn't started again. The take-over clears the mark, so a strike after it works as before (traced:
+`orc14-25000`, vectors below).
 
 ### Measured timings
 
@@ -227,6 +235,8 @@ instructions and signal "step done" only every two tiles.
 | `human12-7000` (oracle trace), n = 5988: destroyer 1417 (type 0x1E) at (18, 124) in order 16, facing 2; target zeppelin 1503 at (20, 120) (dx +2, dy −4: D = 1) | Facing 3 |
 | A battleship facing 0, target due south | Facing 2 |
 | A submarine facing 2, target due north | Facing 0 (the ordinary rule) |
+| `orc14-25000` (oracle trace, Enhanced), n = 12307: computer paladin 1456 (type 0x0C, owner 6) at (10, 114) in order 12 reaches its strike (animation 4, frame 40); since n = 12301 its target is paladin 1433 (owner 6), from the caster AI's healing command, which hasn't taken over yet; before that its target was peon 1448 (type 0x03, owner 0), now at (12, 115) with 11 HP | No strike: no draw, and 1448 keeps 11 HP |
+| A footman at its strike point is given a stop command earlier in the same cycle (static study) | No damage and no draw |
 
 ## Open questions
 
