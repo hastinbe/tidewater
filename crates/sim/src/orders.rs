@@ -331,16 +331,21 @@ impl World {
         }
     }
 
-    /// The unit's attacker if still good; a lost one is forgotten.
+    /// The unit's attacker if still good; a lost one is forgotten. Round-42 errata (movement spec, "Blocked rules";
+    /// "Resulting order"): a dying attacker isn't good, but its record is kept while it is dying, where it still
+    /// counts as an attacker for the resulting order. Our reading of "while it is dying" (`orc02-assault` footman
+    /// 1587, n = 940, whose attacker 1573 became a body at n = 890): until its death animation ends; dead remains are
+    /// forgotten.
     fn attacker(&mut self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
         let a = u.attacked_by?;
         if self.holds(u.owner, a) {
-            Some(a)
-        } else {
-            self.units[i].attacked_by = None;
-            None
+            return Some(a);
         }
+        if !self.unit(a).is_some_and(still_dying) {
+            self.units[i].attacked_by = None;
+        }
+        None
     }
 
     /// The per-step order logic for the orders this module owns. Returns false for orders it doesn't handle.
@@ -357,13 +362,17 @@ impl World {
         let forgot = self.units[i].forgot.take() == Some(o);
         let lost = target_of(o).is_some_and(|t| forgot || !self.holds(self.units[i].owner, t));
         // Round-40 errata: order 12 runs its target search first, and only if it finds nothing new is the target lost.
-        let chase = matches!(o, Order::Chase { .. });
-        if lost && !chase {
+        // Round-42 errata: so do orders 15 and 16, so a dying target stays the target until then.
+        let search_first = matches!(
+            o,
+            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
+        );
+        if lost && !search_first {
             self.lose_target(i);
             return true;
         }
         if let Some(kind) = self.acquires(o)
-            && self.acquire(i, kind)
+            && self.acquire(i, kind, forgot)
         {
             return true;
         }
@@ -426,7 +435,7 @@ impl World {
                 // "Follow": order 7 then runs the idle logic (look-around, then acquisition as for order 2), unless
                 // its follow steps gave it a new order.
                 if self.follow(i, target) && !self.look_around(i) {
-                    self.acquire(i, Acquires::Idle);
+                    self.acquire(i, Acquires::Idle, false);
                 }
             }
             Order::Attack { target } | Order::Chase { target } => self.attack_order(i, target),
@@ -486,10 +495,9 @@ impl World {
         let t = self.unit(target).expect("checked above");
         let u = &self.units[i];
         if self.in_range(u, t) {
-            let (uc, tc) = (u.centre_px(), t.centre_px());
             let b = crate::world::facing_tile_of(t);
             self.units[i].path.clear();
-            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
+            self.face_and_strike(i, b);
             return;
         }
         match u.order {
@@ -653,14 +661,19 @@ impl World {
     }
 
     /// Acquisition in an acquiring order, with the attacker handled first ("Reacting to an attacker"). Returns true
-    /// if the unit's order changed or it fled.
-    fn acquire(&mut self, i: usize, kind: Acquires) -> bool {
+    /// if the unit's order changed or it fled. `forgot`: the unit killed its target (and so forgot it) in this update.
+    fn acquire(&mut self, i: usize, kind: Acquires, forgot: bool) -> bool {
         let u = &self.units[i];
         let worker_like = self.flags_of_unit(u) & (flags::PEON | flags::TANKER) != 0;
         if worker_like && self.computer_player(u.owner) {
             return false;
         }
         let attacker = self.attacker(i);
+        // Round-42 errata, "Special cases": workers and tankers of every player never run the search; the others'
+        // only react to an attacker (`human06-31357` peasant 1587, n = 13557).
+        if worker_like && attacker.is_none() {
+            return false;
+        }
         let u = &self.units[i];
         if let Some(a) = attacker {
             let at = self.unit(a).expect("held");
@@ -694,9 +707,15 @@ impl World {
         // cleared; order 12 takes over at the next step done (`orc02` footman 1582, n = 570 to 586; `xhuman4`
         // footman 1497, n = 66). Our reading: the order's logic carries on in this update with the new target, as
         // the round-39 traces show (the unit keeps heading for it).
+        // Round-42 errata: the same holds for an old target that is dying, unless this unit killed it (and so forgot
+        // it); but a unit within strike reach of the old target takes the new order over at once, without a step
+        // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800).
         if let (Order::Chase { target: old }, Order::Chase { target }) = (u.order, o)
             && !reach
-            && self.holds(u.owner, old)
+            && !forgot
+            && let Some(ot) = self.unit(old)
+            && (self.holds(u.owner, old) || ot.dying)
+            && !self.within_strike_reach(u, ot)
         {
             self.units[i].order = o;
             self.command(i, o);
@@ -727,11 +746,14 @@ impl World {
             let u = &mut self.units[i];
             u.order = o;
             u.path.clear();
+            u.blocked = 0;
             return true;
         }
         // Orders spec, "Same-update take-over": a command the unit's own logic gives it takes over at once ("Taking
-        // over": the animation starts with a wait of 3). Being a command, it clears the blocked counter.
+        // over": the animation starts with a wait of 3). Being a command (round-42 errata), it clears the blocked
+        // counter and drops the cached route.
         self.units[i].blocked = 0;
+        self.units[i].path.clear();
         self.take_over(i, o);
         true
     }
@@ -754,12 +776,11 @@ impl World {
         if !reach {
             return false;
         }
-        let (uc, tc) = (u.centre_px(), t.centre_px());
         let b = crate::world::facing_tile_of(t);
         if self.cooling_down(i) {
             return true;
         }
-        self.decide_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1), false);
+        self.decide_strike(i, b, false);
         false
     }
 
@@ -926,6 +947,11 @@ impl World {
         });
         self.ylist = list;
     }
+}
+
+/// A unit in its death animation, not yet remains or being removed.
+pub(crate) fn still_dying(u: &Unit) -> bool {
+    u.dying && !u.remains && !u.removing
 }
 
 /// Chebyshev distance from `from` to `t`'s reference tile ("Distance").
@@ -1460,6 +1486,25 @@ mod tests {
         assert_eq!(w.units[i].remembered, None);
     }
 
+    /// Movement spec test vector (round-42 errata): an idle unit with blocked counter 2 acquires a target. The resulting
+    /// order is a command: counter 0, route dropped, and it takes over at once.
+    #[test]
+    fn an_acquisition_clears_the_blocked_counter_and_the_route() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+        let i = at(&w, f);
+        w.units[i].attacked_by = Some(g);
+        w.units[i].blocked = 2;
+        w.units[i].path = vec![(5, 6), (5, 7)];
+        assert!(w.acquire(i, Acquires::Idle, false));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.blocked, u.path.len(), u.script.wait),
+            (Order::Chase { target: g }, 0, 0, 3)
+        );
+    }
+
     #[test]
     fn attacked_idle_footman_chases_its_attacker() {
         let mut w = map();
@@ -1468,7 +1513,7 @@ mod tests {
         let i = at(&w, f);
         w.units[i].attacked_by = Some(g);
         // Order 12 (chase) rather than 16, as the footman has an attacker.
-        assert!(w.acquire(i, Acquires::Idle));
+        assert!(w.acquire(i, Acquires::Idle, false));
         assert_eq!(order_of(&w, f), Order::Chase { target: g });
     }
 
@@ -1595,7 +1640,7 @@ mod tests {
         w.units[i].order = Order::StandGround;
         w.units[i].attacked_by = Some(a);
         assert_eq!(w.search(i, Some(a), false), Some(a));
-        assert!(w.acquire(i, Acquires::Other));
+        assert!(w.acquire(i, Acquires::Other, false));
         assert_eq!(w.units[i].order, Order::AttackInPlace { target: a });
         // Round-41 errata: order 13 takes over in the same update (still animation, wait 3, target null).
         w.attack_in_place(i, a);

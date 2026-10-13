@@ -114,12 +114,11 @@ impl World {
             Order::Idle => self.resumed(i).unwrap_or(Order::Idle),
             o => o,
         };
-        // Movement spec, "Blocked rules": every command clears the blocked counter at once, whoever gives it and
-        // whatever the order, even in the middle of a step.
+        // Movement spec, "Blocked rules" (round-42 errata): an order made pending without a command keeps the
+        // blocked counter; `command` clears it.
         let u = &mut self.units[i];
         u.pending = Some(order);
         u.commanded = false;
-        u.blocked = 0;
     }
 
     /// A command's order for one unit, whoever gives it: the goal pulled back off ground the unit can't stand on
@@ -264,7 +263,6 @@ impl World {
         let a = crate::orders::order_anim(o);
         let u = &mut self.units[i];
         u.order = o;
-        u.path.clear();
         u.commanded = false;
         self.start_anim(i, a);
         self.units[i].script.wait = TAKEOVER_WAIT;
@@ -364,9 +362,10 @@ impl World {
             drop_path(self); // B
             1
         } else if u.blocked >= GIVE_UP {
-            let u = &mut self.units[i]; // C
+            // C. Build-train spec, "Placing a building" (round-42 errata): the idle is a pending order.
+            let u = &mut self.units[i];
             u.blocked = 0;
-            u.order = Order::Idle;
+            u.pending = Some(Order::Idle);
             LONG_WAIT
         } else if u.blocked >= LONG_WAIT_FROM {
             drop_path(self); // D
@@ -426,7 +425,9 @@ impl World {
             _ => false,
         };
         let allied = self.allied(u.owner, o.owner);
-        if attack_type && u.attacked_by.is_none() && fighter && !allied {
+        // Round-42 errata keeps a dying attacker's record; our reading of `xorc01-death-coil` (ogre 1489 at n = 886,
+        // whose attacker 1515 is dying, killed by 1496) is that the search's "no attacker" test counts only a living one.
+        if attack_type && !self.live_attacker(u) && fighter && !allied {
             return true;
         }
         allied && (o.script.anim == anim::MOVE || (o.commanded && o.pending.is_some())) && o.blocked == 0
@@ -688,9 +689,10 @@ mod tests {
         w.command(i, cast);
         let u = &w.units[i];
         assert_eq!((u.pending, u.blocked), (Some(cast), 0));
+        // Round-42 errata: an order made pending without a command keeps the counter.
         w.units[i].blocked = 5;
         w.give(i, Order::Idle);
-        assert_eq!(w.units[i].blocked, 0);
+        assert_eq!(w.units[i].blocked, 5);
     }
 
     /// Movement spec, "Blocked rules" (round-41 errata, the `orc8-10000` n = 947 vector): a pending order taking over
@@ -873,12 +875,14 @@ mod tests {
         w.take_over(i, Order::Chase { target: foe });
         let first = until(&mut w, 40, |w| w.unit(f).unwrap().blocked == 1);
         assert_eq!(w.unit(f).unwrap().order, Order::Chase { target: foe });
-        // Blocks 1 to 7 retry the next cycle, blocks 8 to 14 wait 15 cycles, block 15 gives up.
-        let more = until(&mut w, 200, |w| w.unit(f).unwrap().order == Order::Idle);
+        // Blocks 1 to 7 retry the next cycle, blocks 8 to 14 wait 15 cycles, block 15 gives up: the idle is a pending
+        // order (round-42 errata).
+        let more = until(&mut w, 200, |w| w.unit(f).unwrap().pending == Some(Order::Idle));
         let _ = first;
         assert_eq!(more, 7 + 7 * 15);
         let u = w.unit(f).unwrap();
         assert_eq!((u.blocked, u.tile), (0, (2, 1)));
+        until(&mut w, 40, |w| w.unit(f).unwrap().order == Order::Idle);
     }
 
     /// Unit `f` mid-move at `at`, its cached path pointing at `next`.

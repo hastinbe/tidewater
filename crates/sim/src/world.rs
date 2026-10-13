@@ -1759,12 +1759,12 @@ pub(crate) mod tests {
         let i = w.index(f).unwrap();
         let b = facing_tile_of(w.unit(farm).unwrap());
         assert_eq!(b, (13, 2));
-        w.face_and_strike(i, b, (100, -300));
+        w.face_and_strike(i, b);
         assert_eq!((w.units[i].facing, w.units[i].script.anim), (0, 4));
         w.units[i].tile = (20, 6);
         // Damage spec, "Attack timing (cooldown)": past the cooldown the next strike decision is reached.
         w.units[i].cooldown = 0;
-        w.face_and_strike(i, b, (0, 0));
+        w.face_and_strike(i, b);
         assert_eq!(w.units[i].facing, 7, "turns again while in animation 4");
     }
 

@@ -9,6 +9,7 @@
 //! the neutral player doesn't).
 
 use tidewater_formats::script::anim;
+use tidewater_formats::udta::flags as udta_flags;
 
 use crate::TILE_PX;
 use crate::combat::{self, missile};
@@ -16,7 +17,7 @@ use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::slots;
 use crate::spells::{Fx, Line};
 use crate::terrain::bits;
-use crate::world::{Layer, Order, Unit, UnitId, World, face_tile, facing, facing_tile_of};
+use crate::world::{Layer, Order, Unit, UnitId, World, face_tile, facing_tile_of};
 
 /// The gryphon hammer and dragon breath count their steps near the aim point from this remaining distance.
 const BREATH_NEAR: i32 = 50;
@@ -71,6 +72,23 @@ impl Missile {
     }
 }
 
+/// Animation-scripts spec, "Facing a tile" (round-42 errata): a warship's new facing when it strikes, by the direction
+/// `d` to its target (row) and its current facing (column). It puts the target on one of the ship's sides.
+const BROADSIDE: [[u8; 8]; 8] = [
+    [6, 2, 2, 2, 2, 6, 6, 6],
+    [7, 7, 3, 3, 3, 3, 7, 7],
+    [0, 0, 4, 4, 4, 4, 0, 0],
+    [1, 1, 1, 1, 5, 5, 5, 5],
+    [2, 2, 2, 2, 2, 6, 6, 6],
+    [7, 7, 3, 3, 3, 3, 7, 7],
+    [0, 0, 4, 4, 4, 4, 0, 0],
+    [1, 1, 1, 1, 5, 5, 5, 5],
+];
+
+pub(crate) fn broadside(d: u8, current: u8) -> u8 {
+    BROADSIDE[(d & 7) as usize][(current & 7) as usize]
+}
+
 /// Tiles between two footprints along the larger axis: 1 for neighbours, diagonal included.
 fn gap(a: &Unit, b: &Unit) -> i32 {
     let axis = |a0: i32, aw: u8, b0: i32, bw: u8| (b0 - (a0 + aw as i32 - 1)).max(a0 - (b0 + bw as i32 - 1)).max(0);
@@ -112,18 +130,19 @@ impl World {
         let u = &self.units[i];
         let t = self.unit(target).expect("checked above");
         if self.within_strike_reach(u, t) {
-            let (uc, tc) = (u.centre_px(), t.centre_px());
             let b = facing_tile_of(t);
             self.units[i].path.clear();
-            self.face_and_strike(i, b, (tc.0 - uc.0, tc.1 - uc.1));
+            self.face_and_strike(i, b);
             return;
         }
         let g = self.strike_goal(u, t);
         match self.move_toward(i, g) {
             // Orders spec, "No route" (round-40 errata, `xhuman4` axe thrower 1490 at n = 5): order 12 whose fallback
             // search found nothing new (its run started with that search) goes idle at once, and its idle logic runs
-            // in the same update.
-            Walk::NoPath if matches!(self.units[i].order, Order::Chase { .. }) => self.idle_at_once(i),
+            // in the same update. Round-42 errata (`orc02-assault` grunt 1573, n = 679): order 9 uses the same logic.
+            Walk::NoPath if matches!(self.units[i].order, Order::Chase { .. } | Order::Attack { .. }) => {
+                self.idle_at_once(i)
+            }
             Walk::NoPath | Walk::Arrived => {
                 self.go_idle(i);
                 self.switch_anim(i, anim::STILL);
@@ -182,9 +201,8 @@ impl World {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
         if chebyshev(u.tile, tile) <= reach {
-            let (dx, dy) = (tile.0 - u.tile.0, tile.1 - u.tile.1);
             self.units[i].path.clear();
-            self.face_and_strike(i, tile, (dx, dy));
+            self.face_and_strike(i, tile);
             return;
         }
         let g = Goal {
@@ -200,14 +218,13 @@ impl World {
     }
 
     /// Turns toward the target and plays the attack animation, starting it in the same cycle if needed. The facing
-    /// comes from "Facing a tile" (animation-scripts spec) toward tile `b`; ships use their own rule, which no spec
-    /// describes yet, so they keep ours: the direction of the pixel delta `d`.
-    pub(crate) fn face_and_strike(&mut self, i: usize, b: (i32, i32), d: (i32, i32)) {
+    /// comes from "Facing a tile" (animation-scripts spec) toward tile `b`; warships turn broadside instead.
+    pub(crate) fn face_and_strike(&mut self, i: usize, b: (i32, i32)) {
         let cast = matches!(self.units[i].order, Order::Cast { .. });
         if !cast && self.cooling_down(i) {
             return;
         }
-        self.decide_strike(i, b, d, cast);
+        self.decide_strike(i, b, cast);
         if self.units[i].script.anim != anim::ATTACK {
             self.switch_anim(i, anim::ATTACK);
         }
@@ -215,20 +232,26 @@ impl World {
 
     /// A strike decision that passed the cooldown test: the unit turns to face its target and its cooldown starts
     /// again (damage spec, "Attack timing (cooldown)"). A cast turns the same way but has no cooldown.
-    pub(crate) fn decide_strike(&mut self, i: usize, b: (i32, i32), d: (i32, i32), cast: bool) {
+    pub(crate) fn decide_strike(&mut self, i: usize, b: (i32, i32), cast: bool) {
         // Sounds spec, "Attacks": each turn to strike makes the type's attack sound pending. Our reading: casting
         // (which also turns to the target) doesn't.
         if !cast {
             self.pend_attack(i);
             self.start_cooldown(i);
         }
-        let u = &self.units[i];
-        if u.layer == Layer::Sea {
-            if u.script.anim != anim::ATTACK {
-                self.units[i].facing = facing(d.0, d.1);
-            }
+        self.units[i].facing = self.strike_facing(&self.units[i], b);
+    }
+
+    /// The facing a strike decision gives toward tile `b`: "Facing a tile" of the animation-scripts spec. Round-42
+    /// errata: a warship (a sea unit that isn't a submarine) turns broadside instead, by the direction to the target
+    /// and its current facing.
+    pub(crate) fn strike_facing(&self, u: &Unit, b: (i32, i32)) -> u8 {
+        let towards = face_tile(u.tile, b);
+        let f = self.stats_of(u.kind).flags;
+        if f & udta_flags::SEA != 0 && f & udta_flags::SUBMARINE == 0 {
+            broadside(towards, u.facing)
         } else {
-            self.units[i].facing = face_tile(u.tile, b);
+            towards
         }
     }
 
@@ -423,9 +446,15 @@ impl World {
     /// Damage spec, "Applying damage": a unit (not a building) that killed `victim` forgets it as its target at once,
     /// without changing its order. Other attackers keep it until their own next logic run. Our orders hold their
     /// target, so the forgotten one is marked: while the order is unchanged, it has no target.
+    ///
+    /// Round-42 errata: only the killer forgets the victim as its attacker at once (movement spec, "Blocked rules");
+    /// every other unit keeps that record while the victim is dying.
     fn forget_kill(&mut self, attacker: UnitId, victim: UnitId) {
         let Some(a) = self.index(attacker) else { return };
         let u = &mut self.units[a];
+        if u.attacked_by == Some(victim) {
+            u.attacked_by = None;
+        }
         if u.building || u.dying {
             return;
         }
@@ -536,12 +565,6 @@ impl World {
         self.start_anim(ti, anim::DEATH);
         if self.kill_remains(ti) {
             self.kill_passengers(ti);
-        }
-        // A dead unit is forgotten as an attacker (movement spec, "Blocked rules").
-        for o in &mut self.units {
-            if o.attacked_by == Some(unit.id) {
-                o.attacked_by = None;
-            }
         }
         self.leave_oil(ti);
         // Worker-ai spec, "Losses": too few buildings left starts the all-out attack (attack-ai spec).
@@ -729,6 +752,16 @@ mod tests {
         w.step(&[Command::Attack { player, units, target }]);
     }
 
+    /// Animation-scripts spec, the broadside table (round-42 errata): a warship facing north (0) with its target due
+    /// south (4) turns east (2); one facing east with its target due north keeps facing east; one facing south-west
+    /// (5) with its target due east (2) turns south (4) rather than turning across.
+    #[test]
+    fn warships_turn_broadside_to_strike() {
+        assert_eq!(super::broadside(4, 0), 2);
+        assert_eq!(super::broadside(0, 2), 2);
+        assert_eq!(super::broadside(2, 5), 4);
+    }
+
     /// Campaign-flow spec, test vector: a footman killed by an enemy archer.
     #[test]
     fn a_kill_credits_the_killers_player_with_the_victims_points() {
@@ -872,7 +905,7 @@ mod tests {
         let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
         let i = w.index(UnitId(1)).unwrap();
         w.units[i].order = Order::Attack { target: foe };
-        w.face_and_strike(i, (1, 0), (32, 0));
+        w.face_and_strike(i, (1, 0));
         assert_eq!((w.units[i].cooldown, w.units[i].facing), (26, 2));
         for (kind, left) in [(0usize, 23), (8, 63)] {
             w.attack_loop[kind] = if kind == 8 { 65 } else { 25 };
@@ -881,7 +914,7 @@ mod tests {
             w.units[i].script.wait = 1;
             w.units[i].script.frame = 7;
             w.units[i].facing = 5;
-            w.face_and_strike(i, (1, 0), (32, 0));
+            w.face_and_strike(i, (1, 0));
             let u = &w.units[i];
             assert_eq!(
                 (u.script.anim, u.script.frame, u.script.wait, u.facing, u.cooldown),
@@ -892,7 +925,7 @@ mod tests {
         // Steady fire: one loop later the cooldown has 1 cycle left and the wait is 1, not less, so the strike goes
         // on and the cooldown starts again (archer: 66, one strike every 65 cycles).
         w.units[i].cooldown = 1;
-        w.face_and_strike(i, (1, 0), (32, 0));
+        w.face_and_strike(i, (1, 0));
         assert_eq!((w.units[i].cooldown, w.units[i].facing), (66, 2));
     }
 

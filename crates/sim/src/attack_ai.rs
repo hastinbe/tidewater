@@ -1216,6 +1216,13 @@ impl World {
 
     // ---- The call for help --------------------------------------------------------------------------------------
 
+    /// Whether `s` has an attacker for the call for help's tests. Round-42 errata: a dying attacker's record is kept,
+    /// but our reading of `orc02-assault` (grunt 1568 at n = 969, whose attacker 1597 is dying, killed by another
+    /// unit, answers) is that only a living attacker counts here, as in step 1.
+    pub(crate) fn live_attacker(&self, s: &Unit) -> bool {
+        s.attacked_by.and_then(|a| self.unit(a)).is_some_and(|a| !gone(a))
+    }
+
     /// "Call for help": unit `vi` is notified that it was attacked by `attacker`.
     pub(crate) fn call_for_help(&mut self, vi: usize, attacker: UnitId) {
         if let Some(old) = self.units[vi].attacked_by {
@@ -1242,7 +1249,7 @@ impl World {
             for k in self.list_of(v_owner) {
                 let s = &self.units[k];
                 let f = self.unit_flags(s);
-                if k == vi || gone(s) || s.attacked_by.is_some() || f & (flags::AIR | flags::SUBMARINE) == 0 {
+                if k == vi || gone(s) || self.live_attacker(s) || f & (flags::AIR | flags::SUBMARINE) == 0 {
                     continue;
                 }
                 let d = distance(v_tile, s);
@@ -1266,17 +1273,14 @@ impl World {
         let y0 = (v_tile.1 - r).clamp(0, h - 1);
         let x1 = (v_tile.0 + v_size.0 as i32 - 1 + r).clamp(0, w - 1);
         let y1 = (v_tile.1 + v_size.1 as i32 - 1 + r).clamp(0, h - 1);
+        // Round-42 errata (`orc02-assault` grunt 1568, n = 969): only S's top-left tile is tested, and the rows reach
+        // 3 above the box's top (the vertical-order lookup's start), at least row 0.
+        let top = (y0 - 3).max(0);
         let answering: Vec<UnitId> = self
             .ylist
             .iter()
             .filter_map(|&id| self.unit(id))
-            .filter(|s| {
-                s.owner == v_owner
-                    && s.tile.0 <= x1
-                    && s.tile.0 + s.size.0 as i32 > x0
-                    && s.tile.1 <= y1
-                    && s.tile.1 + s.size.1 as i32 > y0
-            })
+            .filter(|s| s.owner == v_owner && (x0..=x1).contains(&s.tile.0) && (top..=y1).contains(&s.tile.1))
             .map(|s| s.id)
             .collect();
         for sid in answering {
@@ -1288,7 +1292,7 @@ impl World {
             let fighter = f & (flags::PEON | flags::TANKER | flags::KILLED_BY_INVISIBILITY | flags::MAGE_LIKE) == 0
                 && f & flags::CAN_ATTACK != 0
                 && f & flags::TOWER == 0;
-            if s.dying || !ready || !fighter || s.attacked_by.is_some() || k == vi || !self.candidate(s, a, s.order) {
+            if s.dying || !ready || !fighter || self.live_attacker(s) || k == vi || !self.candidate(s, a, s.order) {
                 continue;
             }
             if computer && s.held {
@@ -2249,6 +2253,25 @@ mod tests {
             assert_eq!(at(&w, k).pending, Some(Order::Chase { target: a }));
         }
         assert_eq!(at(&w, far).pending, None, "outside R = 13");
+    }
+
+    /// Round-42 errata: the box's rows reach 3 above its top. For a computer footman at (20, 20) (R = 13, rows 7 to
+    /// 33) a grunt on row 4 answers and one on row 3 doesn't.
+    #[test]
+    fn the_help_box_reaches_three_rows_higher() {
+        let mut w = game();
+        let v = spawn(&mut w, FOOTMAN, 1, (20, 20));
+        let a = spawn(&mut w, ARCHER, 0, (24, 20));
+        let inside = spawn(&mut w, GRUNT, 1, (20, 4));
+        let above = spawn(&mut w, GRUNT, 1, (22, 3));
+        w.step(&[]);
+        for u in [inside, above, v] {
+            um(&mut w, u).pending = None;
+            um(&mut w, u).order = Order::Idle;
+        }
+        w.damage(ix(&w, v), 1, a);
+        assert_eq!(at(&w, inside).pending, Some(Order::Chase { target: a }));
+        assert_eq!(at(&w, above).pending, None);
     }
 
     #[test]

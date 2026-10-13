@@ -11,7 +11,7 @@
 use crate::movement::{Goal, Walk, building_goal, chebyshev};
 use crate::sound::Sound;
 use crate::terrain::{bits, region};
-use crate::world::{Layer, Order, UnitId, World, facing};
+use crate::world::{Layer, Order, UnitId, World};
 
 /// Damage of each blast hit, applied without armour or a draw.
 pub(crate) const BLAST_DAMAGE: u8 = 200;
@@ -60,17 +60,13 @@ impl World {
         let u = &self.units[i];
         let reach = self.reach(u);
         if chebyshev(u.tile, tile) <= reach {
-            let (uc, tc) = (u.centre_px(), tile_centre(tile));
-            let d = (tc.0 - uc.0, tc.1 - uc.1);
-            // It turns to the tile on every run, even when the attack animation is already playing.
+            // It turns to the tile on every run, even when the attack animation is already playing; a warship turns
+            // broadside (round-42 errata; the table gives the same facing again at the strike decision).
+            let f = self.strike_facing(u, tile);
             let u = &mut self.units[i];
             u.path.clear();
-            u.facing = if u.layer == Layer::Sea {
-                facing(d.0, d.1)
-            } else {
-                crate::world::face_tile(u.tile, tile)
-            };
-            self.face_and_strike(i, tile, d);
+            u.facing = f;
+            self.face_and_strike(i, tile);
             return;
         }
         let g = Goal {
@@ -172,13 +168,6 @@ impl World {
         }
         self.sound_at_tile((x, y), Sound::Explode);
     }
-}
-
-fn tile_centre(t: (i32, i32)) -> (i32, i32) {
-    (
-        t.0 * crate::TILE_PX + crate::TILE_PX / 2,
-        t.1 * crate::TILE_PX + crate::TILE_PX / 2,
-    )
 }
 
 #[cfg(test)]

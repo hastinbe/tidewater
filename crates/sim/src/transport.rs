@@ -187,6 +187,8 @@ impl World {
             if !landing {
                 let (id, tile) = (self.units[i].id, self.units[i].tile);
                 let o = self.transport_command(ti, Some(id), tile, false);
+                // The transport's smart move is a command: it clears the blocked counter (movement spec).
+                self.units[ti].blocked = 0;
                 self.give(ti, o);
             }
         }
@@ -378,25 +380,26 @@ impl World {
         } else {
             t.ship.dest
         };
-        if chebyshev(u.tile, goal) > 1 {
-            // "Boarding moves": the computer players' units leave order 34. The others stay in it: in the
-            // human12-transport trace a blocked step keeps restarting the move animation with nothing taking over,
-            // while a move with no route takes the boarding command again at once (order 34, still animation,
-            // wait 3; the transport is told to come unless it is landing).
-            let computer = self.computer_player(u.owner);
-            if computer {
-                let to = t.tile;
-                self.give(i, Order::MoveAttack { goal: to });
+        // Round-42 errata: order 34 is a walking order. While the unit walks to its goal only the movement runs, so
+        // a unit of any player stays in order 34 (`human10-24000` grunt 1473, `human12-7000` grunt 1407); the logic
+        // runs on arrival. With no route the unit restarts order 34 at once (still animation, wait 3) if the
+        // transport's destination tile is in its region, and becomes idle at once otherwise. The "not arrived" step
+        // (the boarding moves) is never reached this way, as that spec's open question says. The restart is the
+        // boarding command again, so the transport is told to come unless it is landing (our reading of that spec's
+        // open question "No-route restart", traced: `human12-transport` transport 1428, n = 46, wait 3).
+        let dest_here = self.region_at(t.ship.dest) == here;
+        match self.move_toward(i, Goal::tile(goal, 1)) {
+            Walk::Arrived => {}
+            Walk::NoPath if dest_here => {
+                let o = self.board_command(i, transport);
+                self.take_over(i, o);
+                return;
             }
-            if matches!(self.move_toward(i, Goal::tile(goal, 1)), Walk::NoPath) {
-                if computer {
-                    self.stop(i);
-                } else {
-                    let o = self.board_command(i, transport);
-                    self.take_over(i, o);
-                }
+            Walk::NoPath => {
+                self.idle_at_once(i);
+                return;
             }
-            return;
+            Walk::Stepping | Walk::Blocked => return,
         }
         let (t, u) = (&self.units[ti], &self.units[i]);
         let close = (u.tile.0 - t.tile.0).abs() <= BOARD_REACH && (u.tile.1 - t.tile.1).abs() <= BOARD_REACH;

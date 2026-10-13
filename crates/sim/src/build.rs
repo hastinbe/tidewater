@@ -79,8 +79,9 @@ impl World {
     /// Order 28: walk to the build goal and build on standing on it (arrival radius 0; a land unit building a shore
     /// building gets the movement spec's +1). Round-41 errata (`xorc7` peasant 1421, n = 2028): the goal is worked
     /// out once and stays fixed while the worker walks. Our reading: it is worked out at the order's first logic run,
-    /// which for a standing worker is where it was given; the walk with our route cache only ends without arriving
-    /// when no route is found, which ends the order.
+    /// which for a standing worker is where it was given. Round-42 errata: the order's own logic runs only on
+    /// arrival; the walk ends without arriving only with no route (idle at once) or at the blocked counter's limit
+    /// (idle as a pending order, `movement.rs` row C).
     pub(crate) fn build_order(&mut self, i: usize, kind: u8, site: (i32, i32), goal: Option<(i32, i32)>) {
         let goal = goal.unwrap_or_else(|| self.build_goal(i, kind, site));
         self.units[i].order = Order::Build {
@@ -103,7 +104,9 @@ impl World {
             let c = cost(&self.stats_of(kind));
             self.refund(owner, c);
         }
-        self.stop(i);
+        // Round-42 errata: idle as an immediate order, whose idle logic runs in the same update (orders spec, "No
+        // route").
+        self.idle_at_once(i);
     }
 
     /// Arrival at the site: pay (players other than computer players), check the site, then place the building and

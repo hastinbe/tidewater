@@ -455,15 +455,19 @@ impl World {
             self.kill(i);
             return;
         };
-        // Placement spec: the unit faces its target; a target building is faced at its top-left tile plus (1, 1).
-        let face = match next {
-            Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
-            _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
-        };
         let u = &mut self.units[i];
         u.inside = false;
         u.tile = tile;
         u.pos = (tile.0 * TILE_PX, tile.1 * TILE_PX);
+        // Placement spec: the unit faces its target; a target building is faced at its top-left tile plus (1, 1).
+        // Round-42 errata (`xorc3` peon 1485, n = 9180): a worker with a build job faces its build goal tile, found
+        // by the building goal rule from its exit tile.
+        let face = match next {
+            Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
+            Some(Order::Build { kind, site, .. }) => Some(self.build_goal(i, kind, site)),
+            _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
+        };
+        let u = &mut self.units[i];
         if let Some(f) = face.filter(|&f| f != tile) {
             u.facing = crate::world::face_tile(tile, f);
         }
@@ -550,7 +554,9 @@ impl World {
         };
         match self.harvest_command(i, None, t) {
             Some(o) => {
+                // A new harvest command: the route dropped and the blocked counter cleared (movement spec).
                 self.units[i].path.clear();
+                self.units[i].blocked = 0;
                 self.give(i, o);
                 if let Some(o) = self.units[i].pending.take() {
                     self.units[i].commanded = false;

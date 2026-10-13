@@ -426,9 +426,8 @@ impl World {
                 Walk::Stepping | Walk::Blocked => return true,
             }
         }
-        let c = self.units[i].centre_px();
-        let (b, aim) = aim;
-        self.face_and_strike(i, b, (aim.0 - c.0, aim.1 - c.1));
+        let (b, _) = aim;
+        self.face_and_strike(i, b);
         true
     }
 

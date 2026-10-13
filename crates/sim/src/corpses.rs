@@ -76,6 +76,15 @@ impl World {
 
     /// The death animation's "step done" ("What a dead unit becomes").
     pub(crate) fn death_done(&mut self, i: usize) {
+        // Movement spec, "Blocked rules" (round-42 errata): units other than the killer keep a dying attacker's record
+        // until it leaves play. Our reading (`orc02-assault` grunt 1568 answering a call for help at n = 969, footman
+        // 1587 stepping at n = 940): it leaves play when its death animation ends.
+        let id = self.units[i].id;
+        for o in &mut self.units {
+            if o.attacked_by == Some(id) {
+                o.attacked_by = None;
+            }
+        }
         let u = &self.units[i];
         let s = self.stats_of(u.kind);
         // A unit inside something carries the used mark (spec, "The used mark").

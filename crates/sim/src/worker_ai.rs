@@ -171,6 +171,8 @@ impl World {
     /// without running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
     pub(crate) fn idle_choice(&mut self, i: usize) {
         if let Choice::Order(o) = self.worker_choice(i) {
+            // A computer player's command: it clears the blocked counter (movement spec, "Blocked rules").
+            self.units[i].blocked = 0;
             self.give(i, o);
             if let Some(o) = self.units[i].pending.take() {
                 self.take_over(i, o);
@@ -610,7 +612,9 @@ impl World {
         let w = st.size.0 as i32;
         let (x0, y0, x1, y1) = footprint(site, w, border);
         let (n, m) = (self.terrain.width as i32, self.terrain.height as i32);
-        if x0 < 0 || y0 < 0 || x1 > n || y1 > m {
+        // Round-42 errata (`xorc7` farm 1415): the footprint, bordered or not, must end before the map's last column
+        // and last row.
+        if x0 < 0 || y0 < 0 || x1 >= n || y1 >= m {
             return false;
         }
         let mask = if st.flags & flags::SHORE_BUILDING != 0 {
@@ -1195,6 +1199,19 @@ mod tests {
         assert!(w.site_accepted(i, t::TOWN_HALL, (40, 39), false, None));
         // A farm keeps no distance from a mine.
         assert!(w.site_accepted(i, t::FARM, (43, 32), false, None));
+    }
+
+    /// "Accepting a position" (round-42 errata): the footprint must end before the map's last row and column. On the
+    /// 64 x 64 field a 2 x 2 farm at (40, 62) covers the last row and is refused; (40, 61) and (61, 40) are accepted,
+    /// (62, 40) is refused.
+    #[test]
+    fn the_site_search_keeps_off_the_last_row_and_column() {
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        assert!(!w.site_accepted(i, t::FARM, (40, 62), false, None));
+        assert!(w.site_accepted(i, t::FARM, (40, 61), false, None));
+        assert!(!w.site_accepted(i, t::FARM, (62, 40), false, None));
+        assert!(w.site_accepted(i, t::FARM, (61, 40), false, None));
     }
 
     /// The keep-clear tiles of the whole map, row by row.
