@@ -32,6 +32,9 @@
   2026-10-13, round-59 errata: a shore building's build goal (top-left in the worker's region, else the first
   corner in it, bottom-right first); a build command's goal is pulled back; Step 1's target zone also serves a
   picked target unit and order 4's walk while it keeps a target unit; `mp-frosty-fjords-bne-30000` vectors.
+  2026-10-13, round-60 errata: the target goal zone serves every walk whose order holds a target unit (static
+  study; traced for attack-move and order 4); the shore corner goal is also the walk goal of a unit that is neither
+  sea nor air targeting a shore building, and the build goal has no sea or air test; round-60 vectors.
 
 ## Behaviour
 
@@ -98,9 +101,13 @@ that is S, so its checks never meet the unit's own tile.
 ### Step 1: mark the goal zone
 
 The **goal zone** is the 3 × 3 tiles centred on G. For a target unit or building, it is the target's footprint widened
-by one tile on each side. This includes a target unit just picked by an attack-move and order 4's walk toward its stored
-goal while the order keeps a target unit (`orders/orders.md`, "Attack-move"): there G stays the stored goal and only the
-zone comes from the target (traced: `orc5-40000`; not yet confirmed by static study). A boarding walk (order 34,
+by one tile on each side. This rule holds **whenever the walk's order holds a target unit**, whatever the order: attack
+orders, follow and guard, unit-targeted spells, a target just picked by an attack-move (orders 4, 5 and 10) and order
+4's walk toward its stored goal while it keeps a target unit (`orders/orders.md`, "Attack-move"); in the last case G
+stays the stored goal and only the zone comes from the target, where it stands now. The 3 × 3 around G is used only when
+the order holds no target unit. Traced for attack-move and order 4 (`orc12-30000` n = 23612 and `orc5-40000` n = 33260,
+round-59 vectors); **static study only** for follow, guard and unit-targeted spells, where it differs from the 3 × 3
+only for a target larger than 1 × 1 or when G isn't the target's tile. A boarding walk (order 34,
 `orders/transports.md`) has its transport as the target unit, so its zone is the transport's widened footprint even when
 G isn't the transport's tile. For two-tile movers the zone's first row and column are rounded **down** to even and its
 last row and column are rounded **up** to even; the zone is the even tiles in that range, so it can reach one tile
@@ -206,16 +213,21 @@ For a target building with footprint from x0 to x1 and y0 to y1 (inclusive), and
   - otherwise `x0 + floor(width / 2)`.
 - **Goal y:** the same rule on y.
 
-**Shore building (build goal).** For a worker going to build a shore building (`economy/build-train.md`, "Placing a
-building"), the rule above is **not** used at all. The goal is:
+**Shore building.** The rule above is **not** used for a shore building in two cases: a worker going to build one
+(`economy/build-train.md`, "Placing a building"), and a unit that is **neither a sea nor an air unit** targeting one (an
+attack, or any order with the building as its target). The goal is:
 
-1. the planned footprint's **top-left tile**, if that tile's land region is the worker's region;
-2. otherwise the first footprint corner in the worker's region, tried in this order: **bottom-right, top-right,
-   bottom-left, top-left**;
+1. the footprint's **top-left tile**, if that tile's land region is the unit's region;
+2. otherwise the first footprint corner in the unit's region, tried in this order: **bottom-right, top-right,
+   bottom-left, top-left**, each checked against the map bounds first;
 3. otherwise the top-left tile.
 
-The corner test is made only for unit types that move on land; a type with the sea or air flag skips it and gets the
-top-left tile. Regions come from the map's region data (traced: `mp-frosty-fjords-bne-30000`, round-59 vectors).
+The unit's region is the region-map value at its recorded tile (for a unit inside a transport or a building, the tile
+recorded for it). The build case has no sea or air test: every builder of a shore building uses this rule (in play only
+land workers build them). A sea or air unit targeting a shore building uses the building goal rule above. **A build
+command whose shore site has no corner in the worker's region fails silently**: the worker gets no order and nothing is
+paid (static study only). Traced: the build case `mp-frosty-fjords-bne-30000` (round-59 vectors), the attack case
+`orc9-orc09-shore-build-3000` n = 343 (round-60 vectors).
 
 ### Goal pulled back
 
@@ -333,13 +345,19 @@ units on the map.
 | Same trace: peasant 1560 (type 0x02, owner 0) at (52, 96) given a shipyard with top-left (67, 92) at n = 16187; the raw goal (67, 92) is unusable | Pull-back: the first tile tested, (66, 92), is unusable; the second, (65, 93), is usable; stored goal (66, 92) |
 | Land worker going to build a shore building; a type with the sea or air flag going to build one | Land: corner test as above. Sea or air: the top-left tile, no corner test |
 
+### Round-60 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (type 0x08, owner 0) at (61, 92) attacks shipyard 1469 (top-left (55, 86), 3 × 3); the top-left (55, 86) isn't in its region, and of the other corners only the bottom-left (55, 88) is | G = (55, 88): the archer walks on until it is within 4 of that tile |
+| A follow (order 6) of a 2 × 2 unit (static study) | Goal zone: the followed unit's footprint widened by one tile, not the 3 × 3 around G |
+| A shore building build command, no footprint corner in the worker's region (static study) | No order, nothing paid |
+
 ## Open questions
 
 - **Pull-back with a target unit.** For a command with a target unit the search aims at the target, so the
   pulled-back goal matters only to the arrival test; no trace shows whether that ever differs.
 - Whether two-tile movers' start tiles are always even.
-- **Shore buildings as attack targets.** The shore rule above is the build goal; whether an attack on a shore
-  building also uses it, or the ordinary building goal rule, isn't settled by any trace.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
 - **The moving-ally rule's last condition.** A state mark must be clear; what sets it isn't identified, and no
   trace has shown it set. "Not inside something" is a guess.
