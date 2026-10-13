@@ -32,6 +32,8 @@
   2026-10-13, round-55 errata: the sea and base-edge patrols set the unit's current patrol ends but not its remembered
   ones (Enhanced), so a patrol resumed during its first leg turns toward the unit's own tile at the command, not the far
   end; `xorc11-air-sea-3000` vector.
+  2026-10-13, round-56 errata: a held unit answering a call for help gets goal attack with no tile given, so its goal
+  tile is its own tile as it stands (no ring search); `xorc12-spells-1500` vector.
 
 ## Behaviour
 
@@ -100,9 +102,10 @@ The two marks are **needs a ferry** (with an **assigned transport**, possibly no
    The blocking test sees the occupancy marks of every unit on the tile, the unit's **own** mark included
    (`movement/occupancy.md`): the unit isn't left out. So a tile given that is the unit's own tile counts as blocked for
    a land unit standing on it, and the ring search moves the goal to the nearest tile without a blocking bit. This is
-   what happens to a hold goal set at the unit's own tile (a post that is the unit's own tile, or a held unit's goal):
-   the stored goal is the ring search's tile from then on, and the unit stands off it until something sends it there
-   (traced: `human01-order15-range-700`, vectors below).
+   what happens to a hold goal set **with** the unit's own tile given (a post that is the unit's own tile, or a held
+   unit's hold goal at map load): the stored goal is the ring search's tile from then on, and the unit stands off it
+   until something sends it there (traced: `human01-order15-range-700`, vectors below). A goal set with **no** tile
+   given takes step 2 instead, with no ring search: the call for help's goal for a held unit is one ("Call for help").
 5. If the region value (`movement/occupancy.md`) of the unit's tile equals that of the (adjusted) tile: the goal tile
    and kind are set, success.
 6. Otherwise, for a unit that is not a sea unit: the goal tile is set, the **needs a ferry** mark is set, the goal
@@ -459,7 +462,9 @@ When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applyi
      attacker that is **dying** doesn't count as one: S answers while the unit it records is still in its death
      animation (`movement/movement.md` keeps that record when another unit made the kill).
    For a computer player, a **held** S answers only if its distance to V is at most 4, and its goal is first set to
-   **attack** at its own tile. Every answering S is given command 12 against A.
+   **attack** with no tile given ("Setting a goal", step 2): the goal tile is S's own tile as it stands, with no ring
+   search and no region test, so a held S that later chases and is sent back returns to that very tile (traced:
+   `xorc12-spells-1500`, vectors below). Every answering S is given command 12 against A.
 
 ### Building think interval
 
@@ -590,6 +595,8 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `xorc11-air-sea-3000` (Enhanced): computer battleship 1539 (type 0x20, owner 6) at (6, 24) gets the sea patrol at n = 3 (anchor (21, 34), far end oil platform 1556 at (5, 19)); order 12 from n = 112; the patrol resumes at n = 1145 toward (21, 34) and turns at (20, 34) at n = 1413 | Goal (6, 24), not the platform: at n = 1643 it steps west from (12, 28) to (10, 28) |
 | Enhanced: computer warship at (6, 24) idle; sea patrol with anchor (21, 34) and far end (5, 19); it fights during the first leg, then resumes (static study) | The resumed patrol runs to (21, 34) and turns toward (6, 24); without the fight the first leg turns toward (5, 19) |
 | `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) starts at (29, 14), its hold goal set at its own tile; it chases a target to (21, 7), where the target is lost at n = 401 | The ring search moved the stored goal to (28, 14) when the goal was set. At n = 403, past its leash, it is sent back (order 3, wait 3) to (28, 14), not (29, 14): there at n = 550, idle at n = 566 (wait 3, facing 3) |
+| `xorc12-spells-1500` (oracle trace, Enhanced): computer footman 1504 (type 0x00, owner 2, held) at (93, 26) answers a call for help at n = 492 (order 12 on Teron Gorefiend 1583, type 0x15, owner 5), chases to (101, 22), goes idle at n = 641 and is sent back at n = 654 (order 4, wait 3) | Goal (93, 26), its own tile when it answered, not a ring-search tile: at n = 673 it steps to (99, 23), facing 6 |
+| A computer player's held grunt standing at (10, 10) answers a call for help (static study) | Goal kind attack, tile (10, 10) exactly; no ring search |
 | `xorc3-10000` (oracle trace): computer grunt 1455 (type 0x01, owner 3), created at (43, 11) at n = 9443 with its hold goal at (34, 9); at n = 9454 peon 1464 stands on (34, 9) | Past its leash, at n = 9454 it gets order 3 (wait 3) and walks to (34, 9) itself, the tile as given, though set goal's ring search would move the stored goal off the peon's tile; idle there at n = 9601 (wait 3) |
 | `xorc8-10000` (oracle trace, Enhanced), n = 6051: computer gryphon rider 1550 (type 0x2A, owner 2) idle at (10, 120); goblin zeppelin 1400 (type 0x29, owner 5) at (8, 120) is the nearest enemy; troll destroyer 1386 (type 0x1F, owner 5) is far away, at (106, 124) | Order 12 on 1400, animation 4, wait 3 (the zeppelin isn't skipped for being an air unit that can't attack) |
 | `xhuman7-10000` (oracle trace, Enhanced), n = 5501: computer dragon 1415 (type 0x2B, owner 5), idle | Order 2, wait 4, no pending chase (a search with the acquisition skip rules would give a pending chase on elven destroyer 1425, type 0x1E, owner 1) |
