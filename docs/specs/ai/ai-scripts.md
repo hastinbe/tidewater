@@ -6,6 +6,8 @@
   list and `AIPL` section in the public PUD specification text. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-10 errata: units left out of the army counts are held units (map-placed, `UNIT` data
   value with a non-zero low byte), not rescuable ones; slots 0x09 to 0x12 filled in.
+- **Changes:** 2026-10-13, round-60 errata: a player counts as allied with itself, so condition 7 never counts its
+  own workers (open question closed; the rule is unchanged); `human11-30000` vector.
 
 ## Behaviour
 
@@ -97,7 +99,7 @@ Multi-byte values are little-endian.
 | 4 | *p*'s **land army** ≥ slot 0x0D × slot 0x0E |
 | 5 | *p*'s **sea army** ≥ slot 0x0F × slot 0x10 |
 | 6 | *p*'s **air army** ≥ slot 0x11 × slot 0x12 |
-| 7 | Some player from 0 to 7 that *p* does not count as allied has at least one worker |
+| 7 | Some player from 0 to 7 that *p* does not count as allied has at least one worker. *p* counts as allied with itself, so its own workers never count |
 
 Comparisons are unsigned. The products are of two bytes, so up to 65025.
 
@@ -201,6 +203,8 @@ condition 0 never does. Wait counts range from 300 to 65535.
 | Attack peon owned by *p* | Counts as a worker and in the land army |
 | Condition 7, player 1 (computer, no workers of its own) allied with player 2 only; player 2 has peasants; no other player has workers | False |
 | Same, but player 3 (not allied) gets a peon | True |
+| Condition 7 for player *p* whose own workers are the only workers outside its allies (static study) | False |
+| `human11-30000` (oracle trace, Enhanced): player 4's script waits on condition 7; player 3 (passive, allied with player 4) has 6 peasants, player 1 has no peons and player 6 no workers | Never true: the script doesn't pass it, and at n = 22113 player 4's gold is still 6020 (not 5420) |
 
 ## Open questions
 
@@ -208,9 +212,6 @@ condition 0 never does. Wait counts range from 300 to 65535.
 - At game start the unit counts may still be zero when the scripts first run (the counts appear to be reset just
   before), so an opening "wait until 3" may be false at that moment and pass two cycles later instead. The vector for
   script 0 assumes the units are counted first; to check against the running game.
-- Whether a player counts as allied with itself for condition 7 (it doesn't matter for the condition: a player that
-  counts itself as allied skips itself, otherwise it tests its own workers). The evidence suggests the alliance
-  table includes the player itself.
 - Writing slots 0 to 8 or 0x23 and above would overwrite the wait counter, position or list offsets. No shipped
   script does this; what a reimplementation should do with such a script is open.
 - The meaning of slots 0x1F and 0x21, the second list, and build-list values from 0x80 up.
