@@ -55,6 +55,8 @@
   toward the pulled-back goal, still facing the depot; `xhuman12-10000` and `human13-10000` vectors.
   2026-10-13, round-54 errata: a collapse also clears the target of the unit that took the last trip (wait 1, out at its
   next step done); `human12-25000` vector.
+  2026-10-13, round-56 errata: a worker with no route and no tree goes idle as an immediate order and its idle logic
+  (for a computer player, the job choice) runs in the same update; `orc11-25000` vector.
 
 ## Behaviour
 
@@ -231,7 +233,10 @@ worker heading for a mine does this too.
   search fails again the whole sequence repeats every 3 cycles and the worker doesn't move (traced: `xhuman12-10000`,
   round-52 vectors). Its logic next runs 3 cycles later (traced: `orc4-40000`, round-44 vectors).
 - While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
-- **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
+- **No tree is found:** the unit becomes idle as an **immediate** order (order 2, still animation) and its idle logic
+  runs in the same update, as in "No route" of `orders/orders.md`. For a computer player's worker that is the job
+  choice (`ai/worker-ai.md`), which can give it a new job at once, with the job choice's own, larger tree search
+  (traced: `orc11-25000`, round-56 vectors). A human player's worker stays idle; its idle logic is the look-around.
 - Only the peon flag (type flags bit 8) counts. Tankers have the tanker flag (bit 9) and not the peon flag in the
   unit data, so they don't make this search: a tanker in order 23 with no route goes idle as in "No route" of
   `orders/orders.md`.
@@ -475,6 +480,13 @@ gold, storage for wood, storage for oil, building.
 | Input | Expected |
 | --- | --- |
 | `human12-25000` (oracle trace), n = 12948: tanker 1410 (type 0x1B, owner 0) takes the last trip of oil platform 1530, which collapses | 1410: order 26, wait 1, target null (it was in order 25 on 1530 at n = 12947) |
+
+### Round-56 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc11-25000` (oracle trace, Enhanced), n = 10428: computer peasant 1441 (type 0x02, owner 1) at (22, 122), in order 23 on gold mine 1457 (at (5, 123)) since n = 10425, finds no route and no tree within the no-route search | Immediate idle, then the same-update job choice gives a lumber job: order 23, target null, animation 4, wait 3, with one draw more than a plain idle. It then walks to a tree and is chopping at (31, 111) by n = 10728 |
+| A human player's peasant in the same position (static study) | Order 2 as an immediate order; its idle logic runs in the same update (no job choice for a human player) |
 
 ## Open questions
 
