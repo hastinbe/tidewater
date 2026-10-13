@@ -35,6 +35,9 @@
   2026-10-12, round-41 errata: a melee strike at a target that started dying earlier in the same cycle is still made and
   rolls damage; an order-12 switch to a target in reach while cooling down keeps the cooldown wait (no wait of 3); open
   question on ranged attackers.
+  2026-10-12, round-42 errata: only the killer forgets its victim as its attacker; a ranged attacker launches at a dying
+  target (traced, `xhuman4` n = 121; the open question is closed); warships turn broadside to strike (`core/animation-
+  scripts.md`).
 
 ## Behaviour
 
@@ -106,7 +109,9 @@ When damage D from an attacker reaches a target:
   (not a building), the attacker at once forgets its target, and the unit it is attacking for its command, if that
   unit is now dying, gone or not detected by the attacker's player. The attacker's order doesn't change in that step.
   Other units attacking the same target aren't touched; each forgets it on its own next logic run
-  (`orders/orders.md`, "Arriving and losing the target"). Otherwise the target's HP drops by D.
+  (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its **attacker**;
+  every other unit that recorded the victim as its attacker keeps that record while the victim is dying (it counts
+  in the resulting-order table of `orders/orders.md`). Otherwise the target's HP drops by D.
 
 ### How an attack delivers damage
 
@@ -117,7 +122,8 @@ An attacking unit plays its **attack script** (see "Attack timing" below). At th
   the damage is still rolled with its usual draws, and has no further effect. A target that is gone (its slot
   released) or inside something isn't struck, and nothing is drawn.
 - **Ranged:** otherwise a missile is launched. It starts from the attacker's centre and aims at the target's centre,
-  or at the centre of the target tile if the attacker is attacking the ground.
+  or at the centre of the target tile if the attacker is attacking the ground. As with a melee strike, the launch is
+  made even if the target is dying: it has no test of the target's state.
   - **Non-splash missile:** the damage is rolled now, against the target's current armour, and stored in the missile.
     On impact it is applied to the unit that was the target at launch. A missile aimed at a tile with no unit damages a
     wall on that tile instead.
@@ -270,10 +276,10 @@ comes before its air-layer unit. A unit already considered (the impact-tile unit
 ### Attack timing (cooldown)
 
 Each unit has an attack **cooldown**, a count of cycles. When a unit decides to strike, it turns to face its target (the
-facing rule of `core/animation-scripts.md`; ships use a different rule) and its cooldown is set to its type's **attack
-loop + 1** (the loop column of the table below): 26 for footmen and the other melee units, 66 for archers and axe
-throwers, 41 for mages and death knights, 201 for ballistas and catapults, and so on. The cooldown counts down by 1
-every cycle while it is above 0, for every unit except transports. Buildings have none.
+facing rule of `core/animation-scripts.md`; warships turn broadside instead, by the table there) and its cooldown is set
+to its type's **attack loop + 1** (the loop column of the table below): 26 for footmen and the other melee units, 66 for
+archers and axe throwers, 41 for mages and death knights, 201 for ballistas and catapults, and so on. The cooldown
+counts down by 1 every cycle while it is above 0, for every unit except transports. Buildings have none.
 
 Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a
 flyer: if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first
@@ -398,6 +404,7 @@ These are the default `unitdata.dat` values.
 | Same, n = 291 | 1598 forgets 1592 on its own logic run: order 2, wait 3 |
 | `human01-basics-9500`, n = 576: footmen 1593 and 1597 (type 0x00), both in order 9 on 1591, reach the strike point in the same cycle; 1593 strikes first and kills 1591 | 1593: target null. 1597 still strikes: both strikes roll damage, and the cycle's draws include 12374 and 6732 |
 | A melee unit whose target's slot was released before its strike point | No strike, no draws |
+| `xhuman4-7000` (oracle trace), n = 121: archers 1486 and 1501 (type 0x08) in order 16 on grunt 1505, dying since n = 119 | Both launch: new effects in slots 4 and 5, kind 0x0F, target 1505, damage 5 (shooter 1486) and 7 (shooter 1501) |
 | `orc02-assault-3000` (oracle trace), archer 1584 (type 0x08, cooldown 66) at (47, 28), n = 343 | Takes target 1578: animation 4, wait 3; cooldown set to 66 |
 | Same, n = 346 | Cooldown left 63 > wait 1: attack animation restarted, frame 0, wait 63 |
 | Same, n = 409 to 412 and n = 475 to 478 | New targets 1573 and 1564, each with wait 3 then wait 63 |
@@ -476,8 +483,6 @@ Cannon smoke and launch slots:
   attack rate is held to the normal loop.
 - The wait of 1 when the logic runs at a step done fits every observation, including steady fire with a period of
   exactly one loop, but hasn't been seen directly.
-- Whether a ranged attacker launches at a target that started dying earlier in the same cycle, as a melee attacker
-  strikes one. Only melee strikes are traced (`human01-basics` n = 576); a missile is expected to behave the same.
 - What a killer whose target was forgotten at the kill does on its next logic run. In `human01-basics` footman 1597
   stays in order 9 with no target until a new command arrives at n = 302.
 - Spell damage (fireball, death coil, blizzard, death and decay, whirlwind, flame shield, exorcism, runes) is covered
