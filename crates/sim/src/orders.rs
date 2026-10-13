@@ -552,7 +552,19 @@ impl World {
                 if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && !arriving && self.react(i) {
                     return true;
                 }
-                let walk = self.move_toward(i, Goal::tile(goal, 0));
+                // Round-59 errata, "Attack-move" (`orc5-40000` n = 33260): while order 4 keeps a target unit, its walk
+                // toward the stored goal uses the target's goal zone where the target stands now; G stays the goal.
+                let zone = match o {
+                    Order::MoveAttack { target: Some(t), .. } => self.unit(t).map(crate::battle::goal_zone),
+                    _ => None,
+                };
+                let walk = self.move_toward(
+                    i,
+                    Goal {
+                        zone,
+                        ..Goal::tile(goal, 0)
+                    },
+                );
                 match walk {
                     // "Arriving and losing the target": the unit forgets its attacker, and idle becomes its pending
                     // order and takes over in the same update (still animation, wait 3); the idle logic first runs
@@ -740,9 +752,27 @@ impl World {
         acquire::score(self.threat(u, t), self.stats_of(t.kind).priority, distance(u.tile, t))
     }
 
-    /// Whether `t` is closer than the searcher's minimum attack range (the minimum range of its missile).
+    /// Whether `t` is inside the searcher's minimum range: its distance is less than the searcher's missile's minimum
+    /// flight value minus 1 (round-59 errata, `orc5-40000` n = 21489). Catapults and ballistas (3) skip d <= 1 only;
+    /// cannons (2) and missiles with no value skip nothing, since d is at least 1.
     fn inside_min_range(&self, u: &Unit, t: &Unit) -> bool {
-        combat::splash(self.stats_of(u.kind).missile).is_some_and(|min| distance(u.tile, t) < min as i32)
+        combat::splash(self.stats_of(u.kind).missile).is_some_and(|min| distance(u.tile, t) < min as i32 - 1)
+    }
+
+    /// The acquisition kind check of the candidate skip list: [`World::can_target_kind`], plus the transport-on-shore
+    /// rule of the attack command's kind check ([`World::can_hit_kind`]).
+    ///
+    /// PROVISIONAL (round-59 errata): a transport standing on shore water can be picked by a searcher that can target
+    /// land or sea. Its only evidence is one uncommitted capture (`orc12-30000` n = 26982); drop the transport branch
+    /// here if a re-capture doesn't confirm it.
+    fn acquire_kind(&self, u: &Unit, t: &Unit) -> bool {
+        if self.can_target_kind(u, t) {
+            return true;
+        }
+        self.stats_of(u.kind).flags & flags::SUBMARINE == 0
+            && self.flags_of_unit(t) & flags::TRANSPORT != 0
+            && self.terrain.word(t.tile.0, t.tile.1) & crate::terrain::bits::SHORE != 0
+            && self.stats_of(u.kind).can_target & 3 != 0
     }
 
     /// Whether `t` passes the candidate skip list for searcher `u` ("A candidate is skipped if").
@@ -759,7 +789,7 @@ impl World {
         if !Self::detected(t, u.owner) || (!self.loading && !self.visible_to(u.owner, t.id)) {
             return false;
         }
-        if !self.can_target_kind(u, t) {
+        if !self.acquire_kind(u, t) {
             return false;
         }
         if u.layer == Layer::Air && t.layer == Layer::Air && tf & flags::CAN_ATTACK == 0 {
@@ -829,7 +859,7 @@ impl World {
         let seen = |a: &Unit| Self::detected(a, u.owner) && (self.loading || self.visible_to(u.owner, a.id));
         let mut best: Option<(i32, UnitId)> = seed
             .and_then(|a| self.unit(a))
-            .filter(|a| seen(a) && self.can_target_kind(u, a) && !self.inside_min_range(u, a))
+            .filter(|a| seen(a) && self.acquire_kind(u, a) && !self.inside_min_range(u, a))
             .map(|a| (self.score(u, a), a.id))
             .filter(|&(sc, _)| sc > 0);
         // "Vertical order" (round-44 errata): only dying, dead and removed entries are skipped at the front. Inside
@@ -3312,5 +3342,131 @@ mod tests {
             w.forget_dying_attacker(i);
             assert_eq!(w.units[i].attacked_by.is_none(), forgets, "flags {class:#x}");
         }
+    }
+
+    /// Round-59 errata, "A candidate is skipped if" and damage spec, "Missile weapon kinds": a candidate is inside the
+    /// minimum range when d < minimum flight − 1. Catapults and ballistas (3) skip d = 1 but not d = 2 (`orc5-40000`
+    /// catapult 1580 at n = 21489, d = 2: picked); cannons (2) and missiles with no value skip nothing.
+    #[test]
+    fn the_minimum_range_is_the_minimum_flight_minus_1() {
+        use crate::combat::missile;
+        let mut w = map();
+        let s = w.spawn(CATAPULT, 0, (5, 5), 0).unwrap();
+        let base = w.unit(s).unwrap().clone();
+        let at = |tile: (i32, i32)| {
+            let mut t = base.clone();
+            t.tile = tile;
+            t
+        };
+        for (m, d, skipped) in [
+            (missile::CATAPULT, 1, true),
+            (missile::CATAPULT, 2, false),
+            (missile::BALLISTA, 1, true),
+            (missile::BALLISTA, 2, false),
+            (missile::SMALL_CANNON, 1, false),
+            (missile::BIG_CANNON, 1, false),
+            (0x0f, 1, false),
+        ] {
+            w.stats.0[CATAPULT as usize].missile = m;
+            assert_eq!(
+                w.inside_min_range(&base, &at((5 + d, 5))),
+                skipped,
+                "missile {m:#x}, d = {d}"
+            );
+        }
+    }
+
+    /// Round-59 errata, "A candidate is skipped if" (PROVISIONAL, `orc12-30000` n = 26982 and the static row): a
+    /// transport standing on shore water isn't skipped for its kind by a searcher that can target land or sea; off the
+    /// shore a land-only searcher still skips it.
+    #[test]
+    fn a_transport_on_shore_water_is_a_candidate_for_a_land_searcher() {
+        const BOAT: u8 = 0x1c;
+        let mut w = map();
+        w.stats.0[BOAT as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[BOAT as usize].flags = flags::SEA | flags::TRANSPORT;
+        w.stats.0[FOOTMAN as usize].can_target = 1;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let footman = w.unit(f).unwrap().clone();
+        let boat = |tile: (i32, i32)| {
+            let mut t = footman.clone();
+            (t.kind, t.layer, t.tile) = (BOAT, Layer::Sea, tile);
+            t
+        };
+        w.terrain.set_bits(12, 12, crate::terrain::bits::SHORE);
+        assert!(!w.can_target_kind(&footman, &boat((12, 12))));
+        assert!(w.acquire_kind(&footman, &boat((12, 12))));
+        assert!(!w.acquire_kind(&footman, &boat((10, 10))));
+        // A searcher that can target neither land nor sea (air only) still skips it.
+        w.stats.0[FOOTMAN as usize].can_target = 4;
+        assert!(!w.acquire_kind(&footman, &boat((12, 12))));
+    }
+
+    /// Round-59 errata, "Attack-move" (the `orc5-40000` footman 1485 vector at n = 33260): while order 4 keeps a target
+    /// unit, its walk toward its stored goal uses the target's widened footprint (where it stands now) as the goal
+    /// zone, G staying the stored goal. Without a target the zone is the 3 x 3 around the goal; here (a walled-in goal)
+    /// the two routes differ.
+    #[test]
+    fn order_4_with_a_target_walks_with_the_targets_goal_zone() {
+        let mut steps = vec![];
+        for with_target in [true, false] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (3, 10), 0).unwrap();
+            let t = w.spawn(FOOTMAN, 0, (8, 10), 0).unwrap();
+            // A ring of obstacles around the 3 x 3 tiles of goal (12, 10).
+            for x in 10..=14 {
+                for y in 8..=12 {
+                    if x == 10 || x == 14 || y == 8 || y == 12 {
+                        w.terrain.set_bits(x, y, crate::terrain::bits::OBSTACLE);
+                    }
+                }
+            }
+            w.step(&[]);
+            let i = at(&w, f);
+            w.units[i].pending = None;
+            w.units[i].order = Order::MoveAttack {
+                goal: (12, 10),
+                target: with_target.then_some(t),
+            };
+            w.units[i].script.wait = 0;
+            let zone = with_target.then(|| crate::battle::goal_zone(w.unit(t).unwrap()));
+            let mut walk = w.clone();
+            walk.move_toward(
+                i,
+                Goal {
+                    zone,
+                    ..Goal::tile((12, 10), 0)
+                },
+            );
+            w.run_order(i);
+            let u = &w.units[i];
+            assert!(matches!(u.order, Order::MoveAttack { .. }), "{:?}", u.order);
+            assert_eq!((u.tile, &u.path), (walk.units[i].tile, &walk.units[i].path));
+            steps.push((u.tile, u.path.clone()));
+        }
+        assert_ne!(steps[0], steps[1], "the zone makes a different route");
+    }
+
+    /// Round-59 errata, "Attack-move": a unit target picked by an attack-move is headed for at its tile with the
+    /// target's goal zone (its footprint widened by one tile), not the 3 x 3 around its tile.
+    #[test]
+    fn a_picked_unit_target_is_headed_for_with_its_goal_zone() {
+        let mut w = map();
+        let a = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (9, 3), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, a);
+        w.units[i].order = Order::AttackMove { goal: (3, 20) };
+        let mut zone_walk = w.clone();
+        let goal = Goal {
+            zone: Some(crate::battle::goal_zone(w.unit(g).unwrap())),
+            ..Goal::tile((9, 3), 0)
+        };
+        assert_eq!(goal.zone, Some((8, 2, 10, 4)));
+        w.head_for(i, g);
+        zone_walk.move_toward(i, goal);
+        assert_eq!(w.units[i].path, zone_walk.units[i].path);
+        assert_eq!(w.units[i].tile, zone_walk.units[i].tile);
     }
 }

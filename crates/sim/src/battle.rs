@@ -230,14 +230,16 @@ impl World {
         let Some(t) = self.unit(target) else { return };
         // Round-44 errata (`human06-31357` axe thrower 1512, n = 16277): a building target is headed for as an attack
         // on it would: the footprint tile of the building goal rule, with the building's goal zone (its footprint
-        // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile.
-        let g = if t.building {
-            Goal {
-                zone: Some(goal_zone(t)),
-                ..Goal::tile(building_goal(self.units[i].tile, t), 0)
-            }
+        // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile; round-59 errata
+        // (`orc5-40000`): with the target's goal zone too, not the 3 x 3 around its tile.
+        let tile = if t.building {
+            building_goal(self.units[i].tile, t)
         } else {
-            Goal::tile(t.tile, 0)
+            t.tile
+        };
+        let g = Goal {
+            zone: Some(goal_zone(t)),
+            ..Goal::tile(tile, 0)
         };
         // Orders spec, "No route" (round-45 errata): a unit that goes idle with no route keeps its attacker.
         if self.move_toward(i, g) == Walk::NoPath {
