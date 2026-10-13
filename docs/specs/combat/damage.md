@@ -56,6 +56,8 @@
   2026-10-13, round-59 errata: the invulnerability cheat keeps a human player's basic damage (piercing 200 set
   after upgrades, not doubled by bloodlust); a missile's minimum flight value v skips acquisition candidates at
   d < v − 1; `human2-human02-all-out-4000` vectors.
+  2026-10-13, round-61 errata: a hammer or breath keeps its effect slot through its final hit and the effects that
+  hit makes, so a death explosion never reuses its slot; `xorc11-16000` vector.
 
 ## Behaviour
 
@@ -222,7 +224,8 @@ hit or splash, a cosmetic effect is created at the missile's final pixel positio
 
 - The effect is made whatever the damage, even 0, and whether or not anything was hit.
 - It takes the lowest free effect slot. If there is none, no effect is made. The missile's own slot is freed only
-  after this, so the effect never reuses the missile's slot.
+  after this, so the effect never reuses the missile's slot. A gryphon hammer or dragon breath likewise keeps its
+  slot until after its final hit ("Missile flight").
 - Its first update follows `spells/spells.md`, "When a new effect first runs" (it is created by another effect).
 - It is created with only its kind and position set: destination (0, 0), no target, no shooter, damage 0
   (`spells/spells.md`, "Cosmetic effects"). Nothing is copied from the missile.
@@ -275,7 +278,10 @@ The limit is 25, or 40 if the stored damage is exactly 40. So with the default d
 count runs 1 to 26, splashes come on counts 8, 16 and 24, and the missile ends on the step after count 26. One
 cycle after the end step, the stored damage is applied to the unit that was the target at launch, as for a
 non-splash missile: wherever the hammer is, with no further armour and no draw. If it had no target, a wall on its
-final tile takes the damage.
+final tile takes the damage. The missile's effect slot stays **in use** through that final hit and everything that
+follows from it (the death explosion of a unit it kills, and any other effect made then); it is freed **last**, as for
+every other missile ("Impact effects"). So a death explosion made by the final hit never reuses the missile's slot:
+it takes the lowest slot free without it (traced: `xorc11-16000` n = 15733, round-61 vectors).
 
 **Splashes** use the splash rule ("Splash on impact") with the stored damage as that rule's D (not the flight length) and these differences: **armour
 isn't subtracted**, so every unit within 42 px is hit, even with a base of 0; air-layer units are included,
@@ -538,6 +544,12 @@ Cannon smoke and launch slots:
 | `orc5-40000` (oracle trace, Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle, and transport 1516 (type 0x1C, owner 0) landing at (120, 6): d = 2, minimum flight 3 | Not skipped: order 16, animation 4, wait 3, target 1516 |
 | A ballista with an adjacent candidate, d = 1 (as in `human06-31357` n = 23683, `orders/orders.md`) | Skipped |
 | A cannon (minimum flight 2), candidate at d = 1 | Not skipped |
+
+### Round-61 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xorc11-16000` (oracle trace, Enhanced), n = 15733: the hammer of gryphon rider 1490 (type 0x2A, owner 6), in effect slot 3 (slots 0 to 2 and 4 to 6 in use), makes its final hit on catapult 1495 (type 0x05, owner 5), which dies | The death explosion (kind 0x17) is in slot 7, not slot 3; slot 3 is free at the end of that cycle |
 
 ## Open questions
 
