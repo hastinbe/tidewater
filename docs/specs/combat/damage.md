@@ -42,6 +42,8 @@
   order until the cooldown runs out.
   2026-10-13, round-47 errata: after any kill, including a splash kill of a unit other than the target, the killer
   forgets its own target and attacker if they are dying, gone or not detected; `xhuman10-blizzard-600` vector.
+  2026-10-13, round-48 errata: a killing building keeps its target and attacker records (static study); a building
+  killed during a job has the job cancelled at the kill.
 
 ## Behaviour
 
@@ -119,7 +121,10 @@ When damage D from an attacker reaches a target:
   `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched; each forgets it on its
   own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its
   **attacker**; every other unit that recorded the victim as its attacker keeps that record while the victim is dying
-  (it counts in the resulting-order table of `orders/orders.md`). Otherwise the target's HP drops by D.
+  (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a tower) makes none of these
+  checks and keeps both its records (static study). If the victim is a building with a job running, the job is cancelled
+  at the kill, with its refund (`economy/build-train.md`, "A building killed during a job"). Otherwise the target's HP
+  drops by D.
 
 ### How an attack delivers damage
 
