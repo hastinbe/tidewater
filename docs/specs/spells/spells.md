@@ -35,6 +35,8 @@
   18 cycles before their step; the flame shield bolt is removed an update after making its flames, and each flame waits
   5 cycles before its first step and reports no target and destination (0, 0); `xhuman10-spells-700` and
   `xhuman10-blizzard-600` vectors.
+  2026-10-13, round-49 errata: a flame's first step is counted from its first update, so a flame in a slot before the
+  bolt's steps a cycle later, and a flame ignores the shielded unit until its first step (both static study).
 
 ## Behaviour
 
@@ -290,13 +292,17 @@ start of every step. The bolt (effect kind 3) has the target unit's centre as it
 `xhuman10-blizzard-600`, vectors below). On the step after it arrives (remaining distance 0 or less), it makes its draw
 and creates **5 flames** on the target unit; it then stays in its slot, unmoved, and is removed at its **next update**,
 with no draw. Each flame circles the unit's centre through a fixed 51-point path (Data), one point per cycle, starting
-at points 0, 10, 20, 30 and 40. A flame first **waits 5 cycles** at its start point: it makes its first path step in its
-update 6 cycles after it was created, and its lifetime count starts with that step. In the trace a flame has the
-shielded unit as its shooter, no target, destination (0, 0) and damage 4; it follows the shielded unit. The flames'
-lifetimes are 512, 524, 518, 521 and 527 cycles. A flame counts its lifetime down by 1 each step and splashes with
-damage **4** whenever the new count's low 4 bits equal 1 (so about every 16 cycles). A flame ends when its count reaches
-0, or as soon as the shielded unit is dying or gone. The shielded unit is never hurt by its own flames; its neighbours,
-friend or foe, are.
+at points 0, 10, 20, 30 and 40. A flame first **waits** at its start point: its start step comes 5 cycles after its
+first update (A = 5, "When a new effect first runs") and its first path step one cycle later, so 6 cycles after its
+first update; its lifetime count starts with that step. The flames are made by the bolt, so a flame in a slot after the
+bolt's gets its first update in the cycle it is made and steps 6 cycles after creation (traced), and one in a slot
+before the bolt's steps 7 cycles after creation (static study). A flame doesn't look at the shielded unit during that
+wait: it checks the unit at its first step, and if the unit is dying or gone it ends there, its slot freed one update
+later (static study). In the trace a flame has the shielded unit as its shooter, no target, destination (0, 0) and
+damage 4; it follows the shielded unit. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. A flame counts its
+lifetime down by 1 each step and splashes with damage **4** whenever the new count's low 4 bits equal 1 (so about every
+16 cycles). A flame ends when its count reaches 0, or, from its first step on, as soon as the shielded unit is dying or
+gone. The shielded unit is never hurt by its own flames; its neighbours, friend or foe, are.
 
 **Blizzard shards.** Each of the 5 chains picks its landing point once, when it starts: the target tile's centre plus
 ((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the landing
