@@ -37,6 +37,9 @@
   `xhuman10-blizzard-600` vectors.
   2026-10-13, round-49 errata: a flame's first step is counted from its first update, so a flame in a slot before the
   bolt's steps a cycle later, and a flame ignores the shielded unit until its first step (both static study).
+  2026-10-13, round-50 errata: a spell walk with no route goes idle at once and runs the idle logic; a flame's every
+  step checks the shielded unit and an ending flame's slot is freed at its next update (static study); `human14-10000`
+  vector.
 
 ## Behaviour
 
@@ -93,7 +96,9 @@ Each time the order's logic runs, the caster moves toward the target until it is
   be a building.
 - **Organic-target spells** (healing, polymorph, bloodlust): the target must also have flag bit 27 (organic).
 
-If a check fails, the caster becomes idle (order 2) and no mana is spent.
+If a check fails, the caster becomes idle (order 2) and no mana is spent. If the walk toward the target finds **no
+route**, the caster becomes idle at once, as an immediate order, and its idle logic runs in the same update
+(`orders/orders.md`, "No route"; traced: `human14-10000`, vectors below).
 
 The spell takes effect at the **strike** event of the caster's attack animation (`core/animation-scripts.md`): cycle 12
 of a 40-cycle loop for mages and death knights, cycle 11 of a 25-cycle loop for paladins, and cycle 8 of a 25-cycle
@@ -302,7 +307,8 @@ later (static study). In the trace a flame has the shielded unit as its shooter,
 damage 4; it follows the shielded unit. The flames' lifetimes are 512, 524, 518, 521 and 527 cycles. A flame counts its
 lifetime down by 1 each step and splashes with damage **4** whenever the new count's low 4 bits equal 1 (so about every
 16 cycles). A flame ends when its count reaches 0, or, from its first step on, as soon as the shielded unit is dying or
-gone. The shielded unit is never hurt by its own flames; its neighbours, friend or foe, are.
+gone; each step makes that check, and an ending flame's slot is freed at its next update (static study). The shielded
+unit is never hurt by its own flames; its neighbours, friend or foe, are.
 
 **Blizzard shards.** Each of the 5 chains picks its landing point once, when it starts: the target tile's centre plus
 ((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the landing
@@ -534,6 +540,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | `xhuman10-blizzard-600`, n = 426: the flame shield bolt in effect slot 9 | Still in use at (2608, 2892), as at n = 425; free at n = 427 |
 | Same, n = 426: the flames (slots 11 and 20 to 23) | Kind 4, shooter 1480, target null, destination (0, 0), damage 4 |
 | Same, the flame in slot 11 | At (2609, 2862) from n = 426 to 431; (2612, 2862) at n = 432 |
+| `human14-10000` (oracle trace), n = 3740: death knight 1577 (type 0x0B, owner 0) in order 52 finds no route | Order 2, animation 2, wait 1; 5 random draws in that cycle, the idle look-around among them |
 
 ## Open questions
 
