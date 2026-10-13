@@ -24,6 +24,9 @@
   players, the job choice) runs in the same update; coming out, the ring search aims at the goal the new command set (a
   building's top-left tile for a build, return or mine harvest; the tree tile; with no command, the unit's own stored
   tile; static study only, untraced except for build); round-41 vectors.
+  2026-10-12, round-42 errata: a worker coming out with a build job faces its build goal tile (building goal rule from
+  its exit tile); the exit aim at the commanded goal is supported by the trace set and no longer marked static study
+  only (open question closed); `xorc3` vector.
 
 ## Behaviour
 
@@ -109,15 +112,20 @@ When the 150-cycle wait ends and the inside order's logic runs:
    is none, it stays idle.
 5. Otherwise, if it has a **return-to source**, it forgets it and heads back there with a harvest command (so a
    worker that just delivered goes straight back to its mine or tree).
-6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search
-   of `movement/placement.md` (limit 12). The search's source is sized as for a town hall (4 × 4) if the goods were
-   just delivered to a gold-accepting depot, and as for a gold mine (3 × 3) otherwise, placed at the building's
-   top-left tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. That tile is
-   the goal its new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer player's
-   job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile; for a
-   harvest, the source's tile (a mine's top-left tile or the tree tile). With no new command (the unit stays idle),
-   it is the unit's own stored tile, from step 1. Only the build case is traced; the others rest on the static study
-   alone. If no tile is found, the unit dies.
+6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search of
+   `movement/placement.md` (limit 12). The search's source is sized as for a town hall (4 × 4) if the goods were just
+   delivered to a gold-accepting depot, and as for a gold mine (3 × 3) otherwise, placed at the building's top-left
+   tile. It is aimed at the tile the unit is heading for, so the unit comes out on that side. That tile is the goal its
+   new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer player's job), the site's
+   **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile; for a harvest, the
+   source's tile (a mine's top-left tile or the tree tile). With no new command (the unit stays idle), it is the unit's
+   own stored tile, from step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at
+   their first worker coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded
+   goal tile runs them all. If no tile is found, the unit dies. The placed unit then faces as `movement/placement.md`
+   says, except that a worker with a **build** job faces its **build goal tile**: the tile the build walk heads for,
+   found by the building goal rule (`movement/pathfinding.md`) from the worker's exit tile on the site's footprint. The
+   facing rule is "Facing a tile" of `core/animation-scripts.md`, from the exit tile. Every other come-out faces the
+   target as before (a building at its top-left tile plus (1, 1), a tree at its own tile).
 
 The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
 over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
@@ -333,8 +341,15 @@ gold, storage for wood, storage for oil, building.
 | --- | --- |
 | `xorc3-10000` (oracle trace), n = 8895: computer peon 1462 (type 0x03, owner 3) in order 24 on depot 1589 finds no route | Immediate idle; the job choice in the same update gives order 24 on 1589 again: order 24, wait 3, target 1589 |
 | `xorc7-7000` (oracle trace, with a break log of the commands given): computer tanker 1587 (type 0x1A) in order 23 (harvest, not a return) on 1590, no route | The same immediate idle: at n = 1932, 1935 and 1938 the job choice in the same update gives order 23 on 1590 again (animation 4, wait 3) |
-| A human player's peon comes out of a town hall with no source and no load (static study only) | Order 2; the ring search aims at its own stored tile |
-| Same, after delivering, its return-to source a gold mine (static study only) | The ring search aims at the mine's top-left tile |
+| A human player's peon comes out of a town hall with no source and no load | Order 2; the ring search aims at its own stored tile |
+| Same, after delivering, its return-to source a gold mine | The ring search aims at the mine's top-left tile |
+
+### Round-42 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xorc3-10000` (oracle trace), n = 9180: computer peon 1485 (type 0x03, owner 2) comes out at (35, 117) with a build job | Order 2, wait 25, facing 0 (toward its build goal tile) |
+| A worker comes out at (10, 10) with a build job for a 2 × 2 site at (14, 10) | Faces its build goal tile from (10, 10): east (2) |
 
 ## Open questions
 
@@ -347,5 +362,4 @@ gold, storage for wood, storage for oil, building.
 - **No route details.** Untraced: whether the idle after "no tree found" is pending or immediate; and whether the
   computer's job counts change when a miner becomes a lumber worker this way (the static study shows no count change
   on this path).
-- **Exit aim for other orders.** Only build orders given at the exit are traced for the aim of "Coming out", step 6.
-  The aim at the goal of a return, a harvest or no command rests on the static study alone.
+
