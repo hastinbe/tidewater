@@ -61,6 +61,10 @@
   pulled back; the worker still faces the top-left tile plus (1, 1); round-58 vectors.
   2026-10-13, round-60 errata: coming out with a build job aims the exit search at the stored build goal (the
   pulled-back goal, or the shore corner), and the worker faces the same tile (static study only).
+  2026-10-13, round-62 errata: return goods given a unit takes the target as given (any carrying worker or
+  tanker, no owner or depot test), and gold taken to a wood-only depot is lost; a lost or busy depot re-issues
+  return goods at once as a pending order; entering drops a dying, gone or unseen target first, so a unit
+  stepping into a dying building dies; round-62 vectors.
 
 ## Behaviour
 
@@ -128,16 +132,24 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
    - The unit becomes **inside** the building: it is hidden, untargetable, its attacker is forgotten, and its tile
      position becomes the building's position.
    - Its order becomes 26 (inside) at once, and its wait is set to **150 cycles**.
-   - If the building is a depot that accepts what it carries, the goods are **delivered** (below), and nothing else
-     happens.
+   - If the unit is a worker and the building stores gold, wood or oil, or the unit is a tanker and the building
+     isn't an oil platform, the goods are **delivered** (below), and nothing else happens, even if the building
+     doesn't accept what the unit carries: the delivery table then adds nothing and the load is lost (traced for gold
+     at a lumber mill: `orc9-orc09-return-goods-2200` n = 1482, round-62 vectors; static study only for the other
+     cases). A tanker that enters its own oil platform takes the branch below and delivers nothing (traced: same
+     trace, n = 1287), and so does a worker at a building that stores nothing (static study only).
    - Otherwise (a mine or platform):
      - the building's occupant count goes up by 1. If its frame is 0, the frame becomes 1 for a gold mine (type
        0x5C) and 2 for any other building (an oil platform): its "active" look. Otherwise the frame doesn't change.
        Every building starts with frame 0 and an occupant count of 0, and a depot's frame never changes here;
      - if the building has trips left, the unit is now **carrying**, and the building loses one trip. If that was the
        last trip, the building **collapses** (below). Otherwise the building becomes the unit's return-to source.
-3. **If the building is gone** when the logic runs: a unit that already stepped in (step 1 done) **dies**; otherwise it
-   becomes idle.
+3. **Target check first.** Each time the logic runs, before steps 1 and 2, the target is dropped if it is **dying or
+   gone**, or no longer visible to the unit's player (the visibility part is static study only). A building in its
+   death animation is already lost to an entering unit. Then, with no target: a unit that already stepped in (step 1
+   done) **dies**, and its target shows as none; otherwise idle becomes the pending order (traced:
+   `orc9-orc09-enter-dying-1800` n = 1441, round-62 vectors; also the uncommitted `xorc8-30000` n = 19330, a
+   peasant stepping into a gold mine that had collapsed).
 
 ### Coming out (order 26)
 
@@ -269,12 +281,22 @@ The computer job choice runs the same search with a larger limit (`ai/worker-ai.
 
 ### Returning goods (order 24)
 
-A return-goods command with no target looks up the nearest depot. The depot becomes the target, and the order
-becomes 24. If no depot exists, the order becomes 2.
+A return-goods command (command 24) is taken by a worker (peasant or peon type) or a **tanker** that is **carrying**.
+With a target unit, that unit is the target and the order becomes 24, **as given**: there is no test of the target's
+owner, its kind, or whether it accepts what is carried (traced: `orc9-orc09-return-goods-2200` n = 1150 and 1265,
+round-62 vectors). With no target, the command looks up the nearest depot. The depot becomes the target, and the order
+becomes 24. If no depot exists, the order becomes 2. What a worker sent to a building that stores nothing does on
+entering (the mine-or-platform branch of "Entering", step 2) is static study only, and so is a tanker sent to a
+building other than an oil platform delivering its oil there (as in the delivery table).
 
 While in order 24:
 
-- If the target depot is gone, the unit looks for the nearest depot again and moves to it (idle if none).
+- Each time the logic runs (after the reaction to an attacker), if the target is **dying or gone**, or busy (for
+  example inside something), the unit looks up the nearest depot ("Finding the nearest depot") and is given return
+  goods to it **as a pending order** that takes over in the same update: still animation, wait **3**, cached route
+  dropped, the new route starting from where it stands. If no depot is found, idle becomes the pending order
+  (traced for a dying depot: `orc9-orc09-enter-dying-1800` n = 1435, round-62 vectors; the busy and no-depot cases
+  are static study only).
 - If its route search finds no route, it becomes idle as an **immediate** order and its idle logic runs in the same
   update (`orders/orders.md`, "No route"). For a computer player's worker or tanker that is the job choice, whose new
   command takes over at once (wait 3).
@@ -307,6 +329,7 @@ Delivery happens when a unit enters a depot, and for each builder inside a build
 | Ship (tanker) at a building that isn't an oil platform | Oil: **100**, or **125** if the owner has a completed refinery |
 | Gold mode, at a gold-storing building | Gold: **100**; **110** if the owner has a completed keep or stronghold; **120** if a completed castle or fortress (castle checked first) |
 | Lumber mode, at a gold-storing or wood-storing building | Lumber: **100**, or **125** if the owner has a completed lumber mill |
+| Gold mode, at a building that stores wood only | Nothing; the load is lost |
 | Anything else | Nothing |
 
 - Each amount also goes into the owner's "total gathered" statistic for that resource.
@@ -504,6 +527,15 @@ gold, storage for wood, storage for oil, building.
 | --- | --- |
 | `mp-rose-petal-bne-10000` (oracle trace, Enhanced), n = 1731: computer peasant 1567 (type 0x02, owner 3) comes out of town hall 1556 (top-left (55, 84), hall-sized exit) toward gold mine 1571 (top-left (59, 78)). Pulling back from (55, 84): the first tile tested, (58, 79), is forest; the next, (58, 80), is usable, so the goal is (58, 79) | Placed at (55, 83), facing 1 (toward (60, 79)); order 2, target 1571. Aimed at (59, 78) instead, it would come out at (59, 84) facing 0 |
 | `mp-gold-rush-bne-6000` (oracle trace, Enhanced), n = 2353: peon 1511 comes out of great hall 1534 (top-left (11, 49)) toward gold mine 1547 (top-left (6, 43)) | Placed at (10, 50), facing 7, toward (7, 44): the mine's top-left plus (1, 1), not the pulled-back goal (8, 45) plus (1, 1), which would give 0 |
+
+### Round-62 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-return-goods-2200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-return-goods.txt`), n = 1150: peon 1482 (type 0x03, owner 5), carrying gold, told to return goods to its own lumber mill 1477 (type 0x4D) | Target 1477 (n = 1152), not the great hall; order 24 from n = 1168; order 25 at n = 1457, inside at n = 1482; player 5's gold doesn't change; at n = 1632 it heads back to mine 1480 (order 23 from n = 1657) |
+| Same trace, n = 1265: tanker 1473 (type 0x1B), carrying oil, told to return goods to its own oil platform 1468 | Order 24 at n = 1284; enters at n = 1287 with no oil delivered; at n = 1440 heads for shipyard 1499; oil +100 at n = 1599 |
+| `orc9-orc09-enter-dying-1800` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-enter-dying.txt`): lumber mill 1477 starts dying at n = 1428; peon 1482 is in order 24 to it | n = 1435: return goods to great hall 1488, still animation, wait 3; it walks from n = 1438 |
+| Same trace: peon 1478 (type 0x03), carrying lumber, starts entering mill 1477 at n = 1416 and is stepping in when the mill starts dying | 1478 dies (order 1) at n = 1441 with no target |
 
 ## Open questions
 
