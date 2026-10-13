@@ -26,6 +26,9 @@
   attacker; the hold return's smart move to the goal tile as given is confirmed by static study (open question closed).
   2026-10-13, round-49 errata: a live attacker that V's owner doesn't detect stays recorded, so its next hit makes no
   new call; the submarine call's command 4 records V as the target and ends once V is dying.
+  2026-10-13, round-51 errata: the enemy search tests only alliance, the attack order's kind check and dying, gone or
+  inside: no fog, detection, air-against-air or minimum-range test, and no score; the nearest candidate wins (strictly
+  nearer replaces); `xorc8-10000` and `xhuman7-10000` vectors.
 
 ## Behaviour
 
@@ -404,10 +407,16 @@ Passengers keep their **attack** or **hold** goal while carried; after landing, 
 ### Enemy search
 
 Used by the post choice and the attack goal. Over players 0 to 7 in order, skipping every player that unit u's owner
-counts as allied (the alliance table; a player counts as allied with itself), and over each such player's units in
-list order: a unit is a candidate if it is alive and u's acquisition score for it would be non-zero (the "skipped
-if" rules of `orders/orders.md`, "Automatic target acquisition": detection, fog, what u can attack, minimum range).
-The result is the nearest candidate to u, **anywhere on the map** (there is no search box).
+counts as allied (the alliance table; a player counts as allied with itself), and over each such player's units in list
+order, a unit is a candidate if all of these hold:
+
+- u can attack its kind (the attack order's kind check, `orders/orders.md`, "Checks on an attack command");
+- it isn't dying, gone or inside anything.
+
+There is **no** fog test, no detection test, no air-against-air test and no minimum-range test, and no score. The result
+is the nearest candidate to u, **anywhere on the map** (there is no search box); a candidate replaces the nearest so far
+only if it is strictly nearer, so on a tie the first one visited wins. So the search can pick a unit that can't attack,
+such as a zeppelin, over a farther one that can (traced: `xorc8-10000` and `xhuman7-10000`, vectors below).
 
 ### Call for help
 
@@ -572,6 +581,8 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `human10-10000`, n = 6956: computer destroyer 1483 (type 0x1F) at (24, 8) | Order 5, wait 3; n = 6959: tile (26, 6), facing 1, animation 3 |
 | `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) starts at (29, 14), its hold goal set at its own tile; it chases a target to (21, 7), where the target is lost at n = 401 | The ring search moved the stored goal to (28, 14) when the goal was set. At n = 403, past its leash, it is sent back (order 3, wait 3) to (28, 14), not (29, 14): there at n = 550, idle at n = 566 (wait 3, facing 3) |
 | `xorc3-10000` (oracle trace): computer grunt 1455 (type 0x01, owner 3), created at (43, 11) at n = 9443 with its hold goal at (34, 9); at n = 9454 peon 1464 stands on (34, 9) | Past its leash, at n = 9454 it gets order 3 (wait 3) and walks to (34, 9) itself, the tile as given, though set goal's ring search would move the stored goal off the peon's tile; idle there at n = 9601 (wait 3) |
+| `xorc8-10000` (oracle trace, Enhanced), n = 6051: computer gryphon rider 1550 (type 0x2A, owner 2) idle at (10, 120); goblin zeppelin 1400 (type 0x29, owner 5) at (8, 120) is the nearest enemy; troll destroyer 1386 (type 0x1F, owner 5) is far away, at (106, 124) | Order 12 on 1400, animation 4, wait 3 (the zeppelin isn't skipped for being an air unit that can't attack) |
+| `xhuman7-10000` (oracle trace, Enhanced), n = 5501: computer dragon 1415 (type 0x2B, owner 5), idle | Order 2, wait 4, no pending chase (a search with the acquisition skip rules would give a pending chase on elven destroyer 1425, type 0x1E, owner 1) |
 
 ## Open questions
 
