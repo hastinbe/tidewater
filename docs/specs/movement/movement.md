@@ -20,6 +20,10 @@
   order included), by giving up and by a transport pushing off, and by nothing else; only the killer forgets its victim
   as its attacker at once; the restart in orders 30 and 31 uses animation 6 (traced: `orc8`, `human10-24000`); row F's
   own-animation condition is still untraced.
+- **Changes:** 2026-10-12, round-43 errata: row F's own-animation condition is traced for order 30
+  (`human12-row-f-move-700` and `human12-row-f-landing-700` vectors replace the static one); the call for help and the
+  route search ignore a kept dying attacker, the resulting-order table counts it, and orders 9, 11 and 17 forget it;
+  open question on when a kept dying attacker is forgotten.
 
 ## Behaviour
 
@@ -142,7 +146,10 @@ Each unit has a **blocked counter**, from 0 to 15.
 A unit's **attacker** is the enemy unit that most recently damaged it. It is recorded when the unit is notified that it
 was attacked (see the combat spec). When that unit dies, only its killer forgets it at once; any other unit keeps the
 record while it is dying (`combat/damage.md`, "Applying damage") and forgets it when it next finds it no longer valid,
-or when it leaves play. For human players, attacks by buildings are not recorded.
+or when it leaves play. For human players, attacks by buildings are not recorded. While such a dying record is kept, the
+"no attacker" tests of the call for help (`ai/attack-ai.md`, "Call for help") and of the route search
+(`movement/pathfinding.md`, "Units seen by the search") ignore it, while the resulting-order table counts it
+(`orders/orders.md`, "Resulting order"); orders 9, 11 and 17 forget it at the start of each run (`orders/orders.md`).
 
 When the next tile is blocked, the unit restarts its walking animation in place: the move animation, or animation 6 for
 an order whose own animation is 6 (orders 30 and 31). Its counter goes up by 1. Then the **first matching row** below
@@ -225,7 +232,9 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | `orc8-10000` (oracle trace): tanker 1483 (type 0x1A) blocked once on its way in, its pending order 25 takes over at n = 947 | Its counter isn't 0 after the take-over. n = 949: tanker 1479, blocked by 1483, doesn't wait (row F needs a counter of 0) and steps to (88, 102), facing 4 |
 | A unit blocked twice is given a command | Counter 0 at once |
 | A patrolling unit reaches one end | The turnaround is a command: counter 0 |
-| A transport in order 30 blocked by an allied transport in its move animation (static study only) | Row F doesn't apply (the blocked unit isn't in the move animation); a lower row does |
+| `human12-row-f-move-700` (oracle trace), n = 403: transport 1428 in order 3 at (38, 120), next tile (36, 120) held by battleship 1420 walking west | Row F: move animation, wait 15, tile (38, 120) kept; the same at n = 450 |
+| `human12-row-f-landing-700` (oracle trace), n = 435: transport 1428 in order 30 at (36, 122), next tile (34, 122) held by tanker 1425 (order 3, move animation, heading to (34, 124)) | Row F doesn't apply (animation 6 after the restart): animation 6, wait 1 |
+| Same, n = 436 | Tile (34, 120), move animation, facing 7 |
 | `orc8-10000` (oracle trace), n = 3554: transport 1454 (type 0x1C) at (86, 64) in order 30, landing, blocked by docked transport 1455 at (84, 64) | Animation 6, wait 1; n = 3555: no route, idle (order 2, animation 2, wait 1) |
 | `human10-24000` (oracle trace), n = 22388: transport 1480 (type 0x1D) in order 30 | Animation 6 (animation 3 at n = 22387); the research runs stop here without this rule |
 | `xhuman10-spells-700` (oracle trace), n = 89: grunt 1497 had been blocked twice, then acquired a target (a command); grunt 1490 (owner 2) at (78, 87) is blocked by it | 1497's counter is 0, so row F applies: 1490 steps to (79, 87), animation 3 |
@@ -244,9 +253,14 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 ## Open questions
 
 - Whether two-tile movers always keep to even tile coordinates.
-- Row F's conditions on the unit's own animation (orders 30 and 31 never wait) come from the static study only; no
-  trace shows them yet. The blocker's side is its current animation itself, read strictly; the pending-command reading
-  is the path search's rule only.
+- Row F's condition on the unit's own animation (orders 30 and 31 never wait) is traced for order 30 only
+  (`human12-row-f-landing`); order 31 rests on the static study. The blocker's side is its current animation itself,
+  read strictly; the pending-command reading is the path search's rule only.
+- **When a kept dying attacker is forgotten.** "When it leaves play" is read by the implementation as the end of the
+  dying unit's death animation (when it becomes remains or is removed). No trace isolates that moment:
+  `orc02-assault-3000` (grunt 1568 answering a call for help at n = 969 while its attacker 1597 is still dying; footman
+  1587 stepping at n = 940 after its attacker 1573 became remains at n = 890) fits it, but also fits a later end,
+  because the call for help and the route search ignore a dying attacker anyway.
 - Row F is also skipped when the blocker has one more state bit set, whose meaning hasn't been identified.
 - How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
   construction spec.
