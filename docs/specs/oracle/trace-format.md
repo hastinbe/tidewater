@@ -23,6 +23,9 @@
   exorcism effects.
   2026-10-13, round-56 errata: an effect's `shooter` keeps its slot number after that slot is released;
   `xorc12-spells-1500` vector.
+  2026-10-13: multiplayer-launch traces (still version 2): the header's `rules` row, the multiplayer fields
+  `launch_path`, `connection`, `map`, `start_seed` and `humans`, and "Multiplayer launch";
+  `mp-dark-paths-bne-1000` and `mp-dark-paths-bne-classic-1000` (Classic mode) vectors.
 
 ## Behaviour
 
@@ -62,9 +65,10 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `program` | The program and its file hash |
 | `scenario` | Free text: the map and what input was given |
 | `launch` | Free text: how the game was started (command line, clicks) |
-| `clock` | The fixed wall-clock value, in whole seconds since 1970-01-01 00:00:00, returned for every time-of-day request (`core/timing-and-rng.md`, "Seeding": single player seeds from it), or `null` when the real clock was used |
+| `clock` | The fixed wall-clock value, in whole seconds since 1970-01-01 00:00:00, returned for every time-of-day request (`core/timing-and-rng.md`, "Seeding": single player seeds from it), or `null` when the real clock was used. A multiplayer start isn't seeded from it ("Multiplayer launch") |
 | `speed` | Speed level 0 to 8 (`core/timing-and-rng.md`, "Enhanced speeds"). Pacing only; it doesn't change the simulation |
 | `enhanced` | `true` for Enhanced rules, `false` for Classic |
+| `rules` | `"enhanced"` or `"classic"`, matching `enhanced`; every version 2 trace has it. Enhanced is the default and the target. A `"classic"` trace (also `-classic` in its file name) is evidence for Classic-mode rules only and never changes an Enhanced rule |
 | `era` | Tileset: 0 forest, 1 winter, 2 wasteland, 3 swamp |
 | `map_size` | Map width = height, in tiles |
 | `local_player` | The player number the human plays |
@@ -73,6 +77,11 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `cheats` | The cheat flags on at setup, by their phrase or word as in `game/cheats.md` (for example `"tigerlily"`, mission select, which the launch uses; `"title"`, `"noglues"`); the two notices without a phrase are `"notice A"` and `"notice B"`; any other flag (none is known to be set by anything) is `"unnamed N"`, with N a number from 0 to 31 that only tells such flags apart; empty when none |
 | `unit_slots`, `effect_slots` | Table sizes (`core/unit-slots.md`, "Table sizes") |
 | `input` | The scenario's commands as given to the harness, in file order; an empty list when there is no input. Each entry has `n` (see "When a command runs"), `player` (always the local player) and the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used), and a `cheat` entry has `add` instead of `cheats` ("Cheat commands") |
+| `launch_path` | Multiplayer launch only: `"multiplayer"`. Absent from campaign traces: a missing field means a campaign start ("Multiplayer launch") |
+| `connection` | Multiplayer launch only: `"direct-connect"`, the game's two-player serial connection |
+| `map` | Multiplayer launch only: the scenario file name from the game's `Maps/` folder, for example `"Dark Paths BNE.pud"` |
+| `start_seed` | Multiplayer launch only: the lobby's start seed, 0 to 255, fixed by the harness ("Start seed") |
+| `humans` | Multiplayer launch only: human players in the lobby, 2: the traced player (`local_player`) and one idle human |
 
 ### Record fields
 
@@ -185,6 +194,39 @@ with T(0) = 0. So a select and a command handed over together run in two consecu
 The `turn` records' `commands` are the authoritative timing: a comparer applies each command in the turn where the
 trace lists it, and uses the rule above only to predict that turn or to drive its own simulation without a trace.
 
+### Multiplayer launch
+
+The default launch starts a campaign mission. The harness can also start a skirmish map through the multiplayer
+menus: a Direct Connect game between the traced player and a second human who never gives a command, plus computer
+opponents. Such a trace has the five multiplayer header fields (`launch_path` to `humans`). **Its records don't
+change**, and campaign traces don't have these fields at all. The format version stays 2.
+
+**Enhanced is still the default and the target.** A multiplayer trace is Enhanced unless Classic was explicitly
+requested. A Classic trace has `"rules": "classic"`, `"enhanced": false` and `-classic` in its file name, and is
+evidence for Classic-mode rules only.
+
+The other header fields keep their meaning. On this path, `scenario` and `launch` describe the map, the opponents and
+the menu choices. `cheats` is normally empty, since no mission-select cheat is needed. `controllers` shows both humans
+as `"human"`. `speed` is whatever the lobby set (pacing only).
+
+**Start seed.** A multiplayer game isn't seeded from the wall clock. The lobby takes a seed byte from its own message
+counter, so the real value varies from run to run; the harness fixes it so that runs repeat:
+
+1. When the game starts, the generator is seeded with `start_seed`, and the players' start locations are drawn when
+   the lobby's start locations are random.
+2. At the end of the lobby, the generator is seeded with (`start_seed` + 4) mod 256. The game runs with this seed;
+   the setup record's `rng` is the state after setup. The same byte orders the player colours.
+
+The + 4 is the relation that every observed start had between the two counter values. A comparer doesn't need to
+derive any of this: it takes the setup record as given. The fields say how to repeat the capture.
+
+**What a comparer does:**
+
+- **Idle human:** the second human gives no commands for the whole trace. Treat it as a human player with an empty
+  command list, not as a computer player.
+- **Turns:** command turns in a multiplayer game come at the network's pace, not every cycle. As before, a `turn`
+  record is written only when the turn drew random numbers or carried out commands.
+
 ### Format versions
 
 | # | Where | Version 1 | Version 2 |
@@ -220,6 +262,12 @@ The header of a run with input, and the first two `turn` records (fields abridge
 {"n":12,"kind":"turn","commands":[{"player":1,"kind":"command","command":8,"tile":[29,14],"target":1592}],"rng":…,"units":[…],"effects":[…]}
 ```
 
+The multiplayer header fields of `mp-dark-paths-bne-1000` (Enhanced; fields abridged):
+
+```json
+{"format":"tidewater-oracle-trace","version":2,"speed":8,"enhanced":true,"rules":"enhanced","local_player":1,"controllers":["human","human","computer","nobody","…"],"cheats":[],"unit_slots":1600,"effect_slots":400,"launch_path":"multiplayer","connection":"direct-connect","map":"Dark Paths BNE.pud","start_seed":1,"humans":2,…}
+```
+
 ## Test vectors
 
 These come from the first oracle trace (Human01, no input; the header's `launch` field gives the exact launch).
@@ -252,6 +300,16 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
 | `xorc12-spells-1500` (Enhanced), n = 1166: whirlwind effect 3 (kind 12), cast by Teron Gorefiend 1583 (type 0x15), who died at n = 633; 1583's slot is released in this cycle | Its `shooter` stays 1583, not `null`; the whirlwind goes on |
 | `xhuman10-blizzard-600`, n = 145: new shards in effect slots 4, 5 and 7, in their initial wait | `dest` is each chain's landing point: (2480, 2864), (2512, 2928) and (2576, 2800), unchanged when they start flying at n = 157 |
 
+These come from the multiplayer-launch traces in `oracle/traces/` (Dark Paths BNE, one computer opponent, an idle
+second human, no input, 1000 cycles).
+
+| Input | Expected |
+| --- | --- |
+| `mp-dark-paths-bne-1000` (Enhanced): `start_seed` 1 | Header `rules` `"enhanced"`, `enhanced` true, speed 8, `local_player` 1, `controllers` begin `"human"`, `"human"`, `"computer"`; 1600 / 400 slots; setup `rng` 0x2E4642F9; 13 units at setup |
+| `mp-dark-paths-bne-classic-1000` (**Classic mode**): `start_seed` 1 | Header `rules` `"classic"`, `enhanced` false, speed 6, 600 / 200 slots; setup `rng` 0x2E4642F9 and the same units and positions as the Enhanced trace; only unit slot numbers differ |
+| The same map with `start_seed` 2, Enhanced (a harness check; no trace committed) | `local_player` 2; setup `rng` 0x9FE5034A: the seed decides start locations and player numbers |
+| Either committed trace, captured twice with the same fields | Identical records |
+
 ## Open questions
 
 - **Other speeds.** Input traces so far all run at speed 8, where a command turn follows every cycle. At slower
@@ -260,6 +318,8 @@ player 1) and the other input traces in `oracle/traces/`, named by mission.
   (found in round 35).
 - **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios
   are single player for now.
+- **Setting up a multiplayer start:** should a comparer set up a multiplayer start itself (start locations from
+  the seed), or always take the setup record as given? For now it takes the setup record as given.
 - **Other kinds** (cancel, alliances, speed, transports) aren't described yet; add them when a scenario needs them.
 - **Two cheat entries handed over before the first runs:** the harness builds the second from the flags at hand-over,
   so it would drop what the first turned on. No scenario does this; the `turn` record shows what ran either way.
