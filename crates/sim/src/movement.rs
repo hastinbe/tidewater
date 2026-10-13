@@ -141,6 +141,11 @@ impl World {
                 to: self.pull_back(i, to),
                 back,
             },
+            // Orders spec, "Order 11: attacking a wall tile" (round-48 errata): the wall test was made on the tile as
+            // given; the goal is then pulled back like any other, to the wall tile nearest the unit along the line.
+            Order::AttackWall { tile } => Order::AttackWall {
+                tile: self.pull_back(i, tile),
+            },
             o => o,
         };
         self.units[i].blocked = 0;
@@ -240,6 +245,17 @@ impl World {
             self.take_over(i, o);
             return;
         }
+        // Orders spec, "Order 12 with no route" (round-48 errata, step 3): a skip mark set before this run is cleared
+        // at its end, whatever the order, unless the run ends in a take-over or a move step.
+        let (marked, tile, takeovers) = (self.units[i].skip_search, self.units[i].tile, self.takeovers);
+        self.order_logic(i);
+        if marked && self.units[i].tile == tile && self.takeovers == takeovers {
+            self.units[i].skip_search = false;
+        }
+    }
+
+    /// The order logic proper, run at a "step done" with no pending order to take over.
+    fn order_logic(&mut self, i: usize) {
         // Orders spec, "A dying attacker in orders 9, 11 and 17" (round-43 errata): their logic first forgets a
         // recorded attacker that is dying or no longer in play, before the target check.
         if matches!(
@@ -283,6 +299,7 @@ impl World {
             o => o,
         };
         let a = crate::orders::order_anim(o);
+        self.takeovers = self.takeovers.wrapping_add(1);
         let u = &mut self.units[i];
         u.order = o;
         u.commanded = false;

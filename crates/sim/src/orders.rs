@@ -141,8 +141,11 @@ impl World {
         let order = match *c {
             Command::Move { to, .. } => Order::Move { goal: shore(to) },
             Command::Stop { .. } => Order::Idle,
+            // Round-48 errata: a target unit of any owner (own, allied and neutral units included) gives order 9. A
+            // dying target is still given; `command` then finds it stale and leaves a pending idle
+            // (`orc02-dyingcmd-3760` grunts 1572 and 1575, n = 3723).
             Command::Attack { target, .. } => {
-                if !self.can_attack(u, target) || fresh(Some(target)).is_none() {
+                if !self.can_strike(u, target) {
                     return None;
                 }
                 Order::Attack { target }
@@ -410,8 +413,20 @@ impl World {
             return true;
         }
         // "Order 12 with no route" (round-47 errata): a unit marked by that fallback skips the target search (and with
-        // it the acquisition) in its next run of order 12's logic; the mark lasts that one run.
-        let skip = matches!(o, Order::Chase { .. }) && std::mem::take(&mut self.units[i].skip_search);
+        // it the acquisition) in its next order-logic run. Round-48 errata: if that run's order is idle or an attack
+        // order (2, 9, 11, 12, 13, 15, 16 or 17); `World::order` clears the mark at the run's end.
+        let skip = self.units[i].skip_search
+            && matches!(
+                o,
+                Order::Idle
+                    | Order::Attack { .. }
+                    | Order::AttackWall { .. }
+                    | Order::Chase { .. }
+                    | Order::StandGround
+                    | Order::AttackInPlace { .. }
+                    | Order::IdleReact { .. }
+                    | Order::AttackGround { .. }
+            );
         if !skip
             && let Some(kind) = self.acquires(o)
             && self.acquire(i, kind, forgot)
@@ -810,12 +825,13 @@ impl World {
         // the round-39 traces show (the unit keeps heading for it).
         // Round-42 errata: the same holds for an old target that is dying, unless this unit killed it (and so forgot
         // it); but a unit within strike reach of the old target takes the new order over at once, without a step
-        // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800).
+        // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800). Round-48 errata
+        // (`human5-10000` axe thrower 1533, n = 2754): whenever the old target is still recorded, whatever its state
+        // (dying, inside a building or otherwise not detected).
         if let (Order::Chase { target: old }, Order::Chase { target }) = (u.order, o)
             && !reach
             && !forgot
             && let Some(ot) = self.unit(old)
-            && (self.holds(u.owner, old) || ot.dying)
             && !self.within_strike_reach(u, ot)
         {
             self.units[i].order = o;

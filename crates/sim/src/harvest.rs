@@ -231,7 +231,7 @@ impl World {
         if self.flags_of(self.units[i].kind) & flags::PEON == 0 {
             return self.idle_at_once(i);
         }
-        self.next_tree(i);
+        self.next_tree(i, false);
         let u = &self.units[i];
         if let Order::Harvest {
             source: None,
@@ -338,8 +338,9 @@ impl World {
             }
         };
         // "Delivering goods" (round-47 errata): every delivery at a building that accepts gold sets the hall-sized
-        // exit mark, whatever the gather mode and whether or not the unit carries anything.
-        if !source && bf & flags::GOLD_STORAGE != 0 {
+        // exit mark, whatever the gather mode and whether or not the unit carries anything. Round-48 errata: every
+        // entry there counts, gather mode none included, and a ship's delivery never sets it.
+        if !source && !tanker && bf & flags::GOLD_STORAGE != 0 {
             self.units[i].hall_exit = true;
         }
         self.units[i].order = Order::Inside { building: b.id };
@@ -531,13 +532,13 @@ impl World {
             if self.start_chopping(i, tree) {
                 self.switch_anim(i, anim::ATTACK);
             } else {
-                self.next_tree(i);
+                self.next_tree(i, true);
             }
             return;
         }
         if !reserved {
             self.terrain.unreserve(tree.0, tree.1);
-            return self.next_tree(i);
+            return self.next_tree(i, true);
         }
         let u = &mut self.units[i];
         if u.chop < CHOP_LIMIT {
@@ -588,12 +589,16 @@ impl World {
     /// is a new harvest command to that tile, which takes over in the same update (order 23, its attack animation,
     /// wait 3) without running its logic; `human12-7000` peon 1572 at n = 215 and `human5-10000` peasant 1512 at
     /// n = 39.
-    fn next_tree(&mut self, i: usize) {
+    ///
+    /// With no tree, round-48 errata (`xhuman2-10000` peon 1530, n = 5820): from steps 2 and 4 (`pending`), idle
+    /// becomes the pending order and takes over in the same update (still animation, frame kept, wait 3) without
+    /// running the idle logic. From "No route" the spec keeps the immediate idle.
+    fn next_tree(&mut self, i: usize, pending: bool) {
         if let Order::Harvest { chopping, .. } = &mut self.units[i].order {
             *chopping = false;
         }
         let Some(t) = self.nearest_tree(self.units[i].tile) else {
-            return self.idle(i);
+            return if pending { self.idle_now(i) } else { self.idle(i) };
         };
         match self.harvest_command(i, None, t) {
             Some(o) => {
@@ -886,6 +891,29 @@ mod tests {
         }
         let u = w.unit(p).unwrap();
         assert!(matches!(u.order, Order::Harvest { tree: (12, 8), .. }), "{:?}", u.order);
+    }
+
+    /// "Lumber", step 2 (round-48 errata, `xhuman2-10000` peon 1530, n = 5820): a worker whose tree is taken and that
+    /// finds no other tree gets idle as a pending order taking over in the same update: still animation, frame kept,
+    /// wait 3.
+    #[test]
+    fn no_other_tree_takes_over_a_pending_idle_keeping_the_frame() {
+        let mut w = land();
+        forest(&mut w, 10, 8);
+        assert!(w.terrain.reserve(10, 8));
+        let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+        let i = w.index(p).unwrap();
+        w.units[i].gather = Gather::Lumber;
+        w.units[i].order = Order::Harvest {
+            source: None,
+            tree: (10, 8),
+            chopping: false,
+        };
+        w.units[i].script.frame = 25;
+        w.harvest_order(i, None, (10, 8), false);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert_eq!((u.script.anim, u.script.frame, u.script.wait), (anim::STILL, 25, 3));
     }
 
     /// "Starting to harvest", round-38 errata: the tree tile is the command's goal after the pull-back, a forest tile
@@ -1229,8 +1257,9 @@ mod tests {
         let mill = w.spawn(LUMBER_MILL, 0, (4, 12), 0).unwrap();
         let p = w.spawn(0, 0, (12, 4), 0).unwrap();
         let mark = |w: &World| w.unit(p).unwrap().hall_exit;
+        assert_eq!(w.unit(p).unwrap().gather, Gather::None);
         go_in_now(&mut w, p, hall);
-        assert!(mark(&w), "set without carrying anything");
+        assert!(mark(&w), "set without carrying anything, gather mode none");
         come_out_now(&mut w, p, hall);
         assert!(!mark(&w));
         go_in_now(&mut w, p, hall);

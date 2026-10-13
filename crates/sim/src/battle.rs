@@ -108,12 +108,19 @@ pub(crate) fn goal_zone(t: &Unit) -> (i32, i32, i32, i32) {
 impl World {
     /// Whether `u` may be ordered to attack `target`: an enemy it can reach with its weapon.
     pub fn can_attack(&self, u: &Unit, target: UnitId) -> bool {
+        self.can_strike(u, target)
+            && self
+                .unit(target)
+                .is_some_and(|t| t.present() && t.owner != u.owner && t.owner != NEUTRAL)
+    }
+
+    /// Whether `u`'s weapon can reach `target` at all, whoever owns it: another unit, and an air unit only with a
+    /// missile. Orders spec, "Commands" (round-48 errata): an attack command on a unit of any owner gives order 9, and
+    /// an attack order keeps a target of any owner.
+    pub(crate) fn can_strike(&self, u: &Unit, target: UnitId) -> bool {
         let Some(t) = self.unit(target) else { return false };
         let s = self.stats_of(u.kind);
         t.id != u.id
-            && t.present()
-            && t.owner != u.owner
-            && t.owner != NEUTRAL
             && s.flags & tidewater_formats::udta::flags::CAN_ATTACK != 0
             && (t.layer != Layer::Air || s.missile != missile::NONE)
     }
@@ -127,7 +134,7 @@ impl World {
         let target_ok = self
             .unit(target)
             .is_some_and(|t| t.present() && Self::detected(t, owner));
-        if !target_ok || !self.can_attack(&self.units[i], target) {
+        if !target_ok || !self.can_strike(&self.units[i], target) {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);
             return;
@@ -163,7 +170,8 @@ impl World {
     /// Orders spec, "Order 12 with no route" (round-47 errata; `human5-10000` grunt 1531, n = 1759): a search over
     /// the attack range box with no attacker seed. A target found gets order 12 as a command that takes over at once:
     /// the unit turns as for a strike, its attack animation starts with its first step run in this update, and its
-    /// next run of order 12's logic skips the target search. With nothing found the unit goes idle at once.
+    /// next order-logic run skips the target search. With nothing found the unit goes idle at once. Round-48 errata:
+    /// the take-over is a strike decision, so the cooldown starts in this update (and the attack sound is pending).
     fn chase_no_route(&mut self, i: usize) {
         let Some(target) = self.search_in_range(i) else {
             return self.idle_at_once(i);
@@ -179,7 +187,7 @@ impl World {
         u.skip_search = true;
         self.forget_stale_attacker(i);
         let b = facing_tile_of(self.unit(target).expect("found by the search"));
-        self.units[i].facing = self.strike_facing(&self.units[i], b);
+        self.decide_strike(i, b, false);
         self.switch_anim(i, anim::ATTACK);
     }
 
@@ -221,35 +229,37 @@ impl World {
         }
     }
 
-    /// Attack on a wall tile (order 11, from blocked row A). Our own minimal version until the orders spec lands:
-    /// approach within attack range, then strike the tile until the wall is gone.
+    /// Orders spec, "Order 11: attacking a wall tile" (round-48 errata; `orc02-defeat-4021` and `orc02-victory-7639`
+    /// grunts 1568, 1575 and 1576). The unit walks with the normal movement rules until it is within its attack range
+    /// of the goal tile (no extra tile); with no route it goes idle at once, its idle logic running in the same update
+    /// (order 12's own fallback doesn't apply). On arrival, in this order: a cooldown left is waited out; a goal tile
+    /// that is no longer a wall, or out of attack range, makes idle the pending order, taken over in the same update;
+    /// otherwise the unit faces the goal tile, strikes and starts its cooldown again. The dying-attacker step comes
+    /// first, in [`World::order`].
     pub(crate) fn attack_wall_order(&mut self, i: usize, tile: (i32, i32)) {
-        let is_wall = self
-            .terrain
-            .wall_stage(tile.0, tile.1)
-            .is_some_and(|w| w != crate::WallStage::Rubble);
-        if !is_wall {
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
-            return;
-        }
         let u = &self.units[i];
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
-        if chebyshev(u.tile, tile) <= reach {
-            self.units[i].path.clear();
-            self.face_and_strike(i, tile);
-            return;
-        }
         let g = Goal {
             tile,
             radius: reach,
             range: true,
             zone: None,
         };
-        if matches!(self.move_toward(i, g), Walk::NoPath | Walk::Arrived) {
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
+        match self.move_toward(i, g) {
+            Walk::Arrived => {}
+            Walk::NoPath => return self.idle_at_once(i),
+            Walk::Stepping | Walk::Blocked => return,
+        }
+        if self.cooling_down(i) {
+            return;
+        }
+        if !self.wall_tile(tile) || chebyshev(self.units[i].tile, tile) > reach {
+            return self.idle_now(i);
+        }
+        self.decide_strike(i, tile, false);
+        if self.units[i].script.anim != anim::ATTACK {
+            self.switch_anim(i, anim::ATTACK);
         }
     }
 
@@ -576,6 +586,12 @@ impl World {
             );
             self.splash_explosion(pos);
         }
+        // Build-train spec, "A building killed during a job" (round-48 errata, `human5-10000` great hall 1525 at
+        // n = 8086): the job is cancelled at the kill, with the cancel column's full refund, and the progress counter
+        // and mana byte go to 0.
+        if self.units[ti].building {
+            self.cancel_job(ti);
+        }
         let unit = self.units[ti].clone();
         if !self.loading {
             self.count_lost(unit.owner, unit.building);
@@ -798,6 +814,7 @@ impl World {
 mod tests {
     use crate::world::tests::{run, world};
     use crate::{Command, Layer, Order, UnitId};
+    use tidewater_formats::script::anim;
 
     fn attack(w: &mut crate::World, player: u8, units: Vec<UnitId>, target: UnitId) {
         w.step(&[Command::Attack { player, units, target }]);
@@ -811,6 +828,68 @@ mod tests {
         assert_eq!(super::broadside(4, 0), 2);
         assert_eq!(super::broadside(0, 2), 2);
         assert_eq!(super::broadside(2, 5), 4);
+    }
+
+    /// Orders spec, "Order 11: attacking a wall tile" (round-48 errata): the goal is pulled back to the wall tile
+    /// nearest the unit, which walks to within its attack range, faces the tile, strikes and starts its cooldown.
+    /// When the wall is gone, idle becomes the pending order and takes over in the same update (still, wait 3).
+    #[test]
+    fn order_11_strikes_the_pulled_back_wall_tile_until_it_is_gone() {
+        let mut w = crate::world::tests::field(16, 16);
+        for y in 3..=5 {
+            w.terrain.build_wall(8, y, false, true);
+        }
+        let f = w.spawn(0, 0, (8, 10), 0).unwrap();
+        let i = w.index(f).unwrap();
+        assert!(w.wall_tile((8, 3)));
+        w.command(i, Order::AttackWall { tile: (8, 3) });
+        let goal = Order::AttackWall { tile: (8, 5) };
+        assert_eq!(w.units[i].pending, Some(goal));
+        let mut n = 0;
+        while w.unit(f).unwrap().cooldown == 0 {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 300, "no strike");
+        }
+        let u = w.unit(f).unwrap();
+        assert_eq!(crate::movement::chebyshev(u.tile, (8, 5)), 1, "{:?}", u.tile);
+        let facing = crate::world::face_tile(u.tile, (8, 5));
+        assert_eq!((u.facing, u.order, u.script.anim), (facing, goal, anim::ATTACK));
+        while w.wall_tile((8, 5)) {
+            w.hit_wall((8, 5), 255);
+        }
+        let mut n = 0;
+        while w.unit(f).unwrap().order == goal {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 300, "still attacking");
+        }
+        let u = w.unit(f).unwrap();
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+    }
+
+    /// Orders spec, "Commands" (round-48 errata, `orc02-defeat-4021` n = 3602 and `orc02-dyingcmd-3760` n = 3723):
+    /// an attack command on the player's own unit gives order 9; on a dying unit it leaves a pending idle.
+    #[test]
+    fn an_attack_command_takes_any_owner_and_a_dying_target_leaves_a_pending_idle() {
+        let mut w = crate::world::tests::field(16, 16);
+        let a = w.spawn(0, 0, (3, 3), 0).unwrap();
+        let own = w.spawn(0, 0, (6, 3), 0).unwrap();
+        let c = Command::Attack {
+            player: 0,
+            units: vec![a],
+            target: own,
+        };
+        let i = w.index(a).unwrap();
+        let o = w.command_order(i, &c);
+        assert_eq!(o, Some(Order::Attack { target: own }));
+        w.command(i, o.unwrap());
+        assert_eq!(w.units[i].pending, Some(Order::Attack { target: own }));
+        let oi = w.index(own).unwrap();
+        w.kill(oi);
+        let o = w.command_order(i, &c).unwrap();
+        w.command(i, o);
+        assert_eq!(w.units[i].pending, Some(Order::Idle));
     }
 
     /// Campaign-flow spec, test vector: a footman killed by an enemy archer.

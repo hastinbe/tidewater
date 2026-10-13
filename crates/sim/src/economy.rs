@@ -886,6 +886,29 @@ mod tests {
         assert_eq!(w.unit(hall).unwrap().script.anim, anim::STILL);
     }
 
+    /// Round-48 errata, "A building killed during a job" (`human5-10000` great hall 1525, n = 8086): the job is
+    /// cancelled at the kill with a full refund, and the mana byte goes to 0.
+    #[test]
+    fn a_building_killed_during_a_job_refunds_it() {
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[2].gold = 400;
+        w.stats.0[2].build_time = 60;
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 2,
+        }]);
+        run(&mut w, 40);
+        assert_eq!(w.players[0].gold, 9_600);
+        assert!(w.unit(hall).unwrap().mana > 0);
+        let hi = w.index(hall).unwrap();
+        w.kill(hi);
+        let h = w.unit(hall).unwrap();
+        assert_eq!((h.mana, h.job), (0, None));
+        assert_eq!((w.players[0].gold, w.players[0].in_training), (10_000, 0));
+    }
+
     #[test]
     fn short_of_food_is_told() {
         let (mut w, hall) = town();

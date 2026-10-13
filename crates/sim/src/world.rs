@@ -341,8 +341,9 @@ pub struct Unit {
     /// The hall-sized exit mark (harvest spec, "Coming out", step 6): set by every delivery at a gold-accepting
     /// building and for a hall's builder at completion; the next come-out uses the 4 × 4 source and clears it.
     pub hall_exit: bool,
-    /// Set by order 12's no-route fallback (orders spec, "Order 12 with no route"): the next run of order 12's logic
-    /// skips its target search, and clears the mark.
+    /// Set by order 12's no-route fallback (orders spec, "Order 12 with no route"): the next order-logic run skips its
+    /// target search if its order is idle or an attack order, and the mark is cleared at the end of that run unless
+    /// it ended in a take-over or a move step.
     pub skip_search: bool,
 }
 
@@ -788,6 +789,9 @@ pub struct World {
     pub start: crate::setup::Started,
     /// The cheat flags (cheats spec); hashed once any is on.
     pub cheats: crate::cheats::Cheats,
+    /// Take-overs counted so far, to tell whether a logic run ended in one (the order-12 skip mark). Not game state:
+    /// not stored and left out of the hash.
+    pub(crate) takeovers: u32,
 }
 
 mod save;
@@ -891,6 +895,7 @@ impl World {
             sounds: Default::default(),
             stale: BTreeMap::new(),
             casts: Default::default(),
+            takeovers: 0,
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,

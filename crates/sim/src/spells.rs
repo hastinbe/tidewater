@@ -20,10 +20,19 @@ use tidewater_formats::udta::flags;
 pub const RUNE_SLOTS: usize = 50;
 const RUNE_LIFE: u16 = 2048;
 const RUNE_DAMAGE: u16 = 50;
-/// A fireball ends on the first step that starts with its count above this limit (spec, "Fireball"): the count goes
-/// up to 41 on the step after the last explosion, and the flight ends on the step after that. Its explosions are on
+/// A fireball's count limit (spec, "Fireball"): the count goes up to 41 on the step after the last explosion, and the
+/// step after that (still drawing and moving) marks it as ending instead of counting. Round-48 errata: the limit is 40
+/// for a stored damage of 40, as for every fireball, and [`FIREBALL_OTHER_LIMIT`] otherwise. Its explosions are on
 /// counts 8, 16, 24, 32 and 40.
 const FIREBALL_COUNT_LIMIT: u8 = 40;
+/// The fireball's count limit for a stored damage other than 40 (round-48 errata, static study).
+const FIREBALL_OTHER_LIMIT: u8 = 25;
+/// A flame's wait at its start point (round-48 errata): its first path step comes in its update 6 cycles after its
+/// first.
+const FLAME_FIRST_STEP: u16 = 6;
+/// Healing and exorcism (round-48 errata): their one flight step comes in their update 19 cycles after their first,
+/// after the 18 cycles of the flight animation started there.
+const WISP_STEP: u16 = 19;
 
 /// Effect kinds (spec, "Spell effects in flight" and "Cosmetic effects").
 mod kind {
@@ -238,12 +247,17 @@ pub enum Fx {
     Cosmetic,
     /// Kinds 8 and 9: one flight step, then a touch on a wall.
     Wisp,
+    /// A fireball: `ending` is set by the step after the count passed the limit; the fireball is removed at its next
+    /// update (round-48 errata).
     Fireball {
         line: Line,
         count: u8,
+        ending: bool,
     },
+    /// A flame shield bolt: `done` is set when it makes its flames; it is removed at its next update (round-48 errata).
     Bolt {
         line: Line,
+        done: bool,
     },
     Flame {
         point: u8,
@@ -556,6 +570,7 @@ impl World {
                     0,
                     Fx::Bolt {
                         line: Line::new(from, to),
+                        done: false,
                     },
                 );
                 // Round-47 errata: the bolt's destination is the target unit's centre from creation.
@@ -569,6 +584,7 @@ impl World {
                 let fx = Fx::Fireball {
                     line: Line::new(from, to),
                     count: 0,
+                    ending: false,
                 };
                 let n = self.new_fx(kind::FIREBALL, caster, None, from, 40, fx);
                 // Round-47 errata: the fireball's destination is the target tile's centre from creation.
@@ -829,8 +845,9 @@ impl World {
         let u = &self.units[t];
         let b = self.stats_of(u.kind).box_size;
         let pos = (u.pos.0 + b.0 as i32 / 2, u.pos.1 + b.1 as i32 / 2 - 4);
-        let id = u.id;
-        self.new_fx(k, id, None, pos, 0, Fx::Wisp);
+        // Round-48 errata: no shooter, no target and destination (0, 0).
+        let n = self.new_fx(k, UnitId(0), None, pos, 0, Fx::Wisp);
+        self.set_dest(n, (0, 0));
     }
 
     /// One blizzard shard of a chain: its start offset is two draws. Its destination is the chain's landing point
@@ -1167,9 +1184,11 @@ impl World {
                 }
                 age < start_cycles(m.kind) + 1 + cosmetic_waits(m.kind) || self.gone(n)
             }
+            // Round-48 errata (`xhuman10-spells-700` healing, n = 619): the first update starts the 18-cycle flight
+            // animation; the step comes 19 cycles after it, and the end in the next update.
             Fx::Wisp => match age {
-                0 => true,
-                1 => {
+                0..WISP_STEP => true,
+                WISP_STEP => {
                     self.rng.draw();
                     m.pos.0 -= 12;
                     m.pos.1 -= 12;
@@ -1181,19 +1200,28 @@ impl World {
                     self.gone(n)
                 }
             },
-            Fx::Fireball { line, count } => {
+            Fx::Fireball { line, count, ending } => {
                 if age == 0 {
                     return true;
                 }
-                self.rng.draw();
-                if *count > FIREBALL_COUNT_LIMIT {
+                // Round-48 errata (`xhuman10-spells-700` slot 3, n = 393): a fireball marked as ending is removed at
+                // its next update, with no draw and no move, touching a wall on its final tile.
+                if *ending {
                     let t = tile_of(m.pos);
                     self.hit_wall(t, m.damage);
                     return self.gone(n);
                 }
+                self.rng.draw();
                 let speed = if line.remaining < 50 { 6 } else { 12 };
                 line.step(&mut m.pos, speed);
-                if line.remaining < 50 {
+                let limit = if m.damage == 40 {
+                    FIREBALL_COUNT_LIMIT
+                } else {
+                    FIREBALL_OTHER_LIMIT
+                };
+                if *count > limit {
+                    *ending = true;
+                } else if line.remaining < 50 {
                     *count += 1;
                     // Round-40 errata: each splash follows the hammer and breath rule. It needs a free effect slot (with
                     // none, no splash or explosion on that step), and the explosion has only kind and position set.
@@ -1205,9 +1233,14 @@ impl World {
                 }
                 true
             }
-            Fx::Bolt { line } => {
+            Fx::Bolt { line, done } => {
                 if age == 0 {
                     return true;
+                }
+                // Round-48 errata (`xhuman10-blizzard-600` slot 9, n = 426): after making its flames the bolt stays,
+                // unmoved, and is removed at its next update with no draw.
+                if *done {
+                    return self.gone(n);
                 }
                 self.rng.draw();
                 if line.remaining <= 0 {
@@ -1218,24 +1251,25 @@ impl World {
                             let c = self.unit(t).expect("checked").centre_px();
                             let p = FLAME_PATH[point as usize];
                             let pos = (c.0 + p.0, c.1 + p.1);
-                            self.new_fx(kind::FLAME, t, Some(t), pos, 4, Fx::Flame { point, life });
+                            // Round-48 errata: the shielded unit is the flame's shooter; no target, destination
+                            // (0, 0).
+                            let f = self.new_fx(kind::FLAME, t, None, pos, 4, Fx::Flame { point, life });
+                            self.set_dest(f, (0, 0));
                         }
                     }
-                    return self.gone(n);
+                    *done = true;
+                    return true;
                 }
                 line.step(&mut m.pos, EFFECT_SPEED[kind::BOLT as usize]);
                 true
             }
             Fx::Flame { point, life } => {
-                if age == 0 {
+                // Round-48 errata (`xhuman10-blizzard-600` slot 11, n = 426 to 432): a flame waits at its start point
+                // and makes its first path step 6 cycles after its first update; its lifetime count starts there.
+                if age < FLAME_FIRST_STEP {
                     return true;
                 }
-                let Some(c) = m
-                    .target
-                    .and_then(|t| self.unit(t))
-                    .filter(|u| u.present())
-                    .map(|u| u.centre_px())
-                else {
+                let Some(c) = self.unit(m.attacker).filter(|u| u.present()).map(|u| u.centre_px()) else {
                     return self.gone(n);
                 };
                 *point = (*point + 1) % 51;
@@ -1961,6 +1995,12 @@ mod tests {
             flame_offsets(&w, c),
             [(1, -34), (30, -20), (19, 8), (-11, 10), (-27, -16)]
         );
+        // Round-48 errata: each flame waits at its start point and steps first 6 cycles after its first update.
+        let first = flame_offsets(&w, c);
+        run(&mut w, 5);
+        assert_eq!(flame_offsets(&w, c), first, "still waiting");
+        let m = w.missiles.iter().flatten().find(|m| m.kind == 4).unwrap();
+        assert_eq!((m.target, m.to, m.attacker), (None, (0, 0), f));
         run(&mut w, 5);
         assert!(flame_offsets(&w, c).contains(&(31, -5)), "start 10, step 5: point 15");
         run(&mut w, 6);
@@ -2359,7 +2399,11 @@ mod tests {
     fn fireball_flight_and_explosions() {
         let mut w = lab(32);
         let line = Line::new((16, 16), (216, 16));
-        let fx = Fx::Fireball { line, count: 0 };
+        let fx = Fx::Fireball {
+            line,
+            count: 0,
+            ending: false,
+        };
         let owner = UnitId(0);
         let slot = w.new_fx(2, owner, None, (16, 16), 40, fx).unwrap();
         let start = w.rng.state;
@@ -2383,7 +2427,11 @@ mod tests {
         assert_eq!(steps, [20, 28, 36, 44, 52]);
         let xs: Vec<_> = booms.iter().map(|b| b.1).collect();
         assert_eq!(xs, [214, 262, 310, 358, 406]);
-        assert_eq!(ended - 1, 54, "the flight ends at step 54");
+        assert_eq!(
+            ended - 1,
+            55,
+            "step 54 marks it as ending; it is removed at the next update"
+        );
         assert_eq!(
             w.rng,
             advanced(start, 54),
@@ -2625,9 +2673,17 @@ mod tests {
         strike(&mut w, p, HEALING, Some(k), (0, 0));
         assert_eq!(fx_of_kind(&w, 9), 1);
         assert_eq!(w.rng.state, before, "no draw at the strike");
-        run(&mut w, 2);
-        assert_eq!(w.rng, advanced(before, 1), "one flight step, one draw");
-        run(&mut w, 2);
+        // Round-48 errata (`xhuman10-spells-700`, n = 619 to 639): no shooter, target or destination; unmoved for
+        // the 18-cycle flight animation, one step 19 cycles after the first update, gone in the next.
+        let m = w.missiles.iter().flatten().find(|m| m.kind == 9).unwrap().clone();
+        assert_eq!((m.attacker, m.target, m.to), (UnitId(0), None, (0, 0)));
+        let at = |w: &World| w.missiles.iter().flatten().find(|m| m.kind == 9).map(|m| m.pos);
+        // `strike` runs the spell alone: the first update comes in the first cycle run here.
+        run(&mut w, 19);
+        assert_eq!(at(&w), Some(m.pos), "no step yet");
+        run(&mut w, 1);
+        assert_eq!(at(&w), Some((m.pos.0 - 12, m.pos.1 - 12)), "one flight step");
+        run(&mut w, 1);
         assert_eq!(fx_of_kind(&w, 9), 0);
     }
 
