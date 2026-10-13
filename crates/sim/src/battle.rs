@@ -745,10 +745,12 @@ impl World {
         self.missiles[n] = Some(m);
         // Damage spec (round-39 errata): a splash needs a free effect slot; with none, no splash, sound or effect.
         // Otherwise the explosion sound, the splash, then a cosmetic explosion (kind 0x17) in the lowest free slot.
+        // Round-53 errata: the slot is taken before the splash's damage, so a killed unit's explosion comes later.
+        // The explosion changes nothing the splash reads, so it is written into the slot at once.
         if splash && self.free_fx_slot().is_some() {
             self.sound_at_px(pos, crate::sound::Sound::Explode);
-            self.fx_splash(pos, damage, attacker);
             self.splash_explosion(pos);
+            self.fx_splash(pos, damage, attacker);
         }
     }
 
@@ -1625,6 +1627,29 @@ mod tests {
                 (0x17, pos, (0, 0), None, UnitId(0), 0)
             );
         }
+    }
+
+    /// Damage spec, "Missile flight" (round-53 errata; `xorc8-10000` n = 8035): the splash takes its effect slot
+    /// before its damage, so the death explosion of a unit it kills comes in the next slot.
+    #[test]
+    fn a_hammer_splash_takes_its_slot_before_a_kills_explosion() {
+        let mut w = range();
+        w.stats.0[FOOTMAN as usize].flags |= flags::EXPLODE_WHEN_KILLED;
+        let gryphon = spawn_at(&mut w, GRYPHON, 0, (0, 7), (16, 240));
+        let a = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+        launch(&mut w, gryphon, Some(a), (0, 0));
+        let i = w.index(a).unwrap();
+        w.units[i].hp = 1;
+        let h = crate::slots::PERMANENT_EFFECTS;
+        fly(&mut w, 11);
+        fly(&mut w, 1);
+        let pos = w.missiles[h].as_ref().unwrap().pos;
+        assert!(w.unit(a).unwrap().dying, "the splash kills A");
+        let splash = w.missiles[h + 1].as_ref().expect("the splash's explosion");
+        assert_eq!((splash.kind, splash.pos), (0x17, pos));
+        let c = w.unit(a).unwrap().centre_px();
+        let death = w.missiles[h + 2].as_ref().expect("A's explosion");
+        assert_eq!((death.kind, death.pos), (0x17, (c.0, c.1 - 8)));
     }
 
     // ----- impact effects (damage spec, "Impact effects"; sounds spec, "Missile impacts") -----------------------
