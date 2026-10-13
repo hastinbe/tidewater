@@ -29,6 +29,8 @@
 - **Changes:** 2026-10-13, round-60 errata: arrival for a unit that is neither sea nor air targeting a shore
   building is measured to the shore corner goal; row C resumes a remembered patrol or attack-move at once (wait 1);
   `xhuman8-25000` and `orc9-orc09-shore-build-3000` vectors.
+- **Changes:** 2026-10-13, round-61 errata: row C with nothing to resume keeps the restarted walking animation
+  (the round-60 text said the still animation); `orc10-10000` and `xhuman12-10000` vectors.
 
 ## Behaviour
 
@@ -169,7 +171,7 @@ applies.
 | --- | --- | --- | --- | --- |
 | A | The unit's player is a **computer player** (see "Player kinds"), the blocking tile's movement word carries bit 0x04, and the unit is not invisible and has no attacker | Its order becomes **11** (attack a wall tile, `orders/orders.md`) on that tile, as a pending order | replaced by the new order | 1 cycle |
 | B | The unit's player is a computer player, the blocking tile's movement word carries bit 0x04, and the unit is invisible or has an attacker | Keeps its order | dropped | 1 cycle |
-| C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" (idle as a pending order). Enhanced: a unit that remembers a patrol, or an attack-move more than 1 tile away, with its resume countdown 0, instead starts its still animation with wait 1 and gets the remembered order as its pending order (`orders/orders.md`, "Giving up when blocked"; traced: `xhuman8-25000` n = 11284) | kept (unused) | 15 cycles (1 when it resumes) |
+| C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" (idle as a pending order). Enhanced: a unit that remembers a patrol, or an attack-move more than 1 tile away, with its resume countdown 0, instead starts its still animation with wait 1 and gets the remembered order as its pending order (`orders/orders.md`, "Giving up when blocked"; traced: `xhuman8-25000` n = 11284). Otherwise nothing else changes: the unit keeps the walking animation restarted above (traced: `orc10-10000` n = 3505, `xhuman12-10000` n = 4144) | kept (unused) | 15 cycles (1 when it resumes) |
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
 | F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
@@ -266,6 +268,8 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | --- | --- |
 | `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 |
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (range 4) attacking shipyard 1469, corner goal (55, 88) | At (60, 91), distance 5: walks on; at (59, 91), distance 4: there |
+| `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) |
+| `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (owner 2) in order 4 gives up (row C), nothing resumed | Animation 3, wait 15 |
 
 ## Open questions
 
