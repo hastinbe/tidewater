@@ -1265,6 +1265,12 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
   confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
   command a unit's own order logic gives it takes over in the same update.
+- **The fog test in the reaction's step 1.** "Reacting to an attacker", step 1, is written as "its score for the
+  attacker would be 0", which since round 53 also covers an attacker hidden by the fog or not detected. Taken literally,
+  a combat unit hit by an attacker in fog would flee. `xhuman11-10000` n = 9065 shows no flee for paladin 1513 or grunt
+  1518, whose attacker stands in fog, so the step-1 test is read as the kind check (and minimum range) only, with a
+  hidden attacker going on to step 2 unseeded. The research notes don't state step 1's test separately; confirm before
+  relying on it.
 - **Arrival before acquiring for patrol.** Orders 4 and 10 arrive at the move goal before acquiring (`xorc11-10000`);
   whether patrol (order 5) does the same at a patrol end isn't traced.
 - **The flee move's wait cap** ("Fleeing", step 6) rests on static study; no trace shows it.
