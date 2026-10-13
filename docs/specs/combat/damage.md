@@ -38,6 +38,8 @@
   2026-10-12, round-42 errata: only the killer forgets its victim as its attacker; a ranged attacker launches at a dying
   target (traced, `xhuman4` n = 121; the open question is closed); warships turn broadside to strike (`core/animation-
   scripts.md`).
+  2026-10-13, round-45 errata: in orders 12, 15 and 16 a unit whose target is lost while it is cooling down keeps its
+  order until the cooldown runs out.
 
 ## Behaviour
 
@@ -281,16 +283,18 @@ to its type's **attack loop + 1** (the loop column of the table below): 26 for f
 archers and axe throwers, 41 for mages and death knights, 201 for ballistas and catapults, and so on. The cooldown
 counts down by 1 every cycle while it is above 0, for every unit except transports. Buildings have none.
 
-Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a
-flyer: if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first
-frame, the unit waits for the cooldown left, and the run ends. Otherwise the order goes on (range checks, friendly
-fire and so on). When the logic runs at a step done, the wait is 1 at that moment. So in steady fire nothing is
-delayed: the next strike decision comes one loop later with 1 cycle left, and a wait of 1 isn't less than 1. After a
-target switch, though, the new attack starts with most of a cooldown still to run: the run that acquires the new
-target reaches the strike decision and starts the cooldown, the order given again restarts the animation with wait
-3, and 3 cycles later the unit waits for the rest. A unit in order 12 whose search switches to a new target in reach
-while still cooling down gets no such wait of 3: the new target takes effect at once and the cooldown test restarts
-the animation with the cooldown left as its wait (`orders/orders.md`, "Resulting order").
+Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a flyer:
+if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first frame, the
+unit waits for the cooldown left, and the run ends. Otherwise the order goes on (range checks, friendly fire and so on).
+When the logic runs at a step done, the wait is 1 at that moment. So in steady fire nothing is delayed: the next strike
+decision comes one loop later with 1 cycle left, and a wait of 1 isn't less than 1. After a target switch, though, the
+new attack starts with most of a cooldown still to run: the run that acquires the new target reaches the strike decision
+and starts the cooldown, the order given again restarts the animation with wait 3, and 3 cycles later the unit waits for
+the rest. A unit in order 12 whose search switches to a new target in reach while still cooling down gets no such wait
+of 3: the new target takes effect at once and the cooldown test restarts the animation with the cooldown left as its
+wait (`orders/orders.md`, "Resulting order"). In orders 12, 15 and 16 the cooldown test comes **before** the target
+check, so a unit whose target dies or is lost while it is still cooling down keeps its order, with no target, until the
+cooldown runs out (`orders/orders.md`, "Losing the target while cooling down"; traced: `xorc01-death-knight-2100`).
 
 The **rate of fire is the length of the attack script loop** in `Rez\script.bin`, and damage happens at the script's
 strike point inside that loop. A unit that keeps attacking repeats the loop. Between loops it may re-evaluate its target
