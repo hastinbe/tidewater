@@ -19,6 +19,9 @@
   players' map buildings are confirmed as they are.
 - **Changes:** 2026-10-12, round-42 errata: the computer's site search refuses a footprint that reaches the map's last
   column or last row; `xorc7` vector.
+- **Changes:** 2026-10-13, round-47 errata: the farm's "ever had a hall" mark is set at the start of every new game
+  except Enhanced multiplayer; a killed unit leaves the food in use at the start of its death animation; `orc5-10000`
+  and `xhuman2-10000` vectors.
 
 ## Behaviour
 
@@ -79,11 +82,15 @@ made again.
 
 ### Farm
 
-Tried only if the player has ever had a completed town hall, keep or castle (the same flag as the "fast first hall" in
-`economy/build-train.md`) and the map allows farms (`ALOW` unit bit 16).
+Tried only if the player's **ever had a hall** mark is set (the mark of the "fast first hall" in
+`economy/build-train.md`) and the map allows farms (`ALOW` unit bit 16). The mark is set for every player at the start
+of a new game, except in Enhanced multiplayer, where it is set when the player's first town hall, keep or castle is
+completed (`game/setup.md`). So a computer player builds farms before its first hall is complete (traced: `orc5-10000`,
+vectors below).
 
 Let S be the player's food supply (`economy/build-train.md`, "Food"; in Enhanced mode at most 200), F the number of
-farms in progress, and U the food in use (units that are not buildings, minus skeletons, daemons and critters).
+farms in progress, and U the food in use (units that are not buildings, minus skeletons, daemons and critters). A unit
+stops counting in U when it is killed, at the start of its death animation (`economy/build-train.md`, "Food").
 
 - No farm if S ≥ 200. This applies in both modes. In Enhanced mode S is capped at 200, so the test means "the cap
   is reached"; in Classic mode S is the uncapped supply, and a computer player builds no farm once it reaches 200.
@@ -418,6 +425,9 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Hall site (40, 79), same mine | y: 79 − 3 = 76, not below the mine's end row 76. Not too close: accepted if the other tests pass |
 | `xhuman10-spells` and `xhuman10-blizzard` (oracle traces): player 2's peon 1553 looks for a new-mine hall site. The site at the mine at (16, 116) is refused by the keep-clear ring of player 6's barracks 1424 (type 0x3D) at (21, 113); mine 1514 is at (40, 73) | (43, 72) is refused as too close to mine 1514. Site **(40, 79)**: the great hall (type 0x4B) stands there by n = 551, slot 1410 in `xhuman10-spells` and 1411 in `xhuman10-blizzard` |
 | Computer peon carrying wood gets command 24 to its hall and the path search returns no steps | Its order ends; the next job choice gives command 24 to the same hall again, with no wait |
+| `orc5-10000` (oracle trace), n = 1641: computer player 1's only hall (1511, type 0x4A) is still under construction; peasant 1564 (type 0x02) comes out of 1565 and a farm is wanted | Farm started: 500 gold and 250 lumber paid at n = 1641; 1564 in order 28 at n = 1666 |
+| `xhuman2-10000` (oracle trace), n = 2487: computer player 0 with supply S = 21 and 18 units that aren't buildings, 2 of them (1579 and 1583) dying | U = 16, so 21 > 16 + 3: no farm. It goes on to its build list: a scout tower is paid (550 gold, 200 lumber) by peon 1588; tower 1554 (type 0x41) appears at (20, 2) at n = 2707 |
+| A player with 10 units that aren't buildings, 2 of them dying | Food in use 8 |
 
 ## Open questions
 
