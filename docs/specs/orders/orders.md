@@ -62,6 +62,8 @@
   lost; a resumed patrol or attack-move is a full command; every command forgets a dying, dead, removed or undetected
   attacker; a move with no route keeps its attacker; mage-type units count as non-combat in the reaction and flee; trace
   vectors.
+  2026-10-13, round-46 errata: the attacker seed's score of 0 comes only from the two rejections before scoring (a kind
+  the unit can't target, inside the minimum range); open question on other rejections.
 
 ## Behaviour
 
@@ -532,10 +534,11 @@ unit data.
 
 **Choice.** The search starts with the unit's current **attacker** (the first attacker that is still alive; see
 `ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score, but only when that score is
-**above 0**. An attacker the unit can't attack (score 0, for example one closer than the unit's minimum range) doesn't
-seed the search, which then runs as if there were no attacker; the attacker still counts for the resulting order below
-(traced: `human06-31357`, vectors below). A candidate replaces the best only with a **strictly greater** score. So on a
-tie the attacker wins, and otherwise the first candidate in vertical order wins.
+**above 0**. A scored candidate always has at least 1 ("Score"), so the attacker's score is 0 only when the candidate
+checks reject it before scoring: it is of a kind the unit **can't target**, or it is **inside the unit's minimum
+range**. Such an attacker doesn't seed the search, which then runs as if there were no attacker; the attacker still
+counts for the resulting order below (traced: `human06-31357`, vectors below). A candidate replaces the best only with a
+**strictly greater** score. So on a tie the attacker wins, and otherwise the first candidate in vertical order wins.
 
 **Resulting order** when a target is chosen:
 
@@ -1064,3 +1067,5 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
   confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
   command a unit's own order logic gives it takes over in the same update.
+- **Other rejections in the attacker seed.** Whether a candidate check other than the two named in "Choice" (for
+  example the attacker standing in fog) also gives the seed a score of 0 isn't separated by any trace.
