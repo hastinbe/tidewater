@@ -21,6 +21,8 @@
   rune vector.
   2026-10-12, round-40 errata: each fireball splash follows the hammer and breath rule: it needs a free effect slot, and
   its kind-0x17 explosion has only kind and position set.
+  2026-10-12, round-44 errata: a blizzard shard's destination is its landing point from creation, through its initial
+  wait; `xhuman10-blizzard-600` vector.
 
 ## Behaviour
 
@@ -270,12 +272,14 @@ counts its lifetime down by 1 each step and splashes with damage **4** whenever 
 The shielded unit is never hurt by its own flames; its neighbours, friend or foe, are.
 
 **Blizzard shards.** Each of the 5 chains picks its landing point once, when it starts: the target tile's centre plus
-((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the
-landing point minus (110, 170) px plus ((r mod 3) × 11 − 11) px on x, then on y (2 more draws), and flies to the
-landing point at 12 px per step (14 to 16 steps), after an initial wait of 12 cycles. It makes one draw after each
-step that doesn't land. When it lands it splashes with damage **10**, and then, if the chain has repeats left and a
-slot is free, it starts the next shard of the chain (repeats − 1, 2 draws) and makes one more draw. A chain therefore
-lands **11 shards** on the same point. Damage per shard: 5 to 10 within 22 px, 1 or 2 from 23 to 42 px.
+((r1 mod 5) − 2) × 32 px on x and ((r2 mod 5) − 2) × 32 px on y (2 draws). Each shard of the chain starts at the landing
+point minus (110, 170) px plus ((r mod 3) × 11 − 11) px on x, then on y (2 more draws), and flies to the landing point
+at 12 px per step (14 to 16 steps), after an initial wait of 12 cycles. Its destination is the landing point from the
+moment it is created, through the initial wait, not only once it starts flying (traced: `xhuman10-blizzard-600`, vectors
+below). It makes one draw after each step that doesn't land. When it lands it splashes with damage **10**, and then, if
+the chain has repeats left and a slot is free, it starts the next shard of the chain (repeats − 1, 2 draws) and makes
+one more draw. A chain therefore lands **11 shards** on the same point. Damage per shard: 5 to 10 within 22 px, 1 or 2
+from 23 to 42 px.
 
 **Death and decay.** Each of the 5 clouds is placed at the target tile's centre plus ((r1 mod 5) − 2) × 32 px on x
 and ((r2 mod 5) − 2) × 32 on y (2 draws), and doesn't move. Counting its first update as cycle 0, its first step
@@ -469,6 +473,7 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Map start, oracle trace Human01: the building fires in effect slots 0 and 1 | First update in the first start-up cycle; start step 5 cycles later, in the 4th normal cycle; never removed |
 | Custom unit data gives a farm the caster flag and magic 0; the farm is placed by the map | Mana 0 until its 256th timers pass, then 1; +1 every 40 passes after that, up to 255 |
 | Default data | No building gains mana from the timers pass |
+| `xhuman10-blizzard-600` (oracle trace), n = 145: new shards in effect slots 4, 5 and 7, waiting | Destinations (2480, 2864), (2512, 2928) and (2576, 2800), each chain's landing point, unchanged through n = 160; they start moving at n = 157, 12 cycles after creation |
 
 ## Open questions
 
