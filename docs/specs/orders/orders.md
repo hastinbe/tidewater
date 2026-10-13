@@ -82,6 +82,11 @@
   flee and no search; an out-of-reach order-12 switch while cooling down is handled as in reach, and so is a same-order
   switch in orders 15 and 16; command 4's end forgets the attacker, and the attack order's kind checks in order (both
   static study); `xorc11-10000` and `xhuman12-10000` vectors.
+  2026-10-13, round-51 errata: every target search first forgets a dying or gone attacker (the resulting order still
+  counts it in that search); orders 4 and 10 standing at their move goal arrive before acquiring; the flee move is a
+  smart move (transports land, no tree harvest, wait cap static); a recorded attacker outlives its slot's release
+  (static); the kind check's terms (layer, type flags, shore water) sharpened (static); `xorc11`, `xorc6` and `xorc8`
+  vectors; open questions on the seed's fog test, patrol arrival and the flee wait cap.
 
 ## Behaviour
 
@@ -107,6 +112,12 @@ turned into an order by the rules in "Commands" below, and the result is normall
 
 `economy/repair.md` and `orders/transports.md` use the same test: a lost target or attacker is one that is no longer
 valid or no longer **detected** by the unit's owner.
+
+**A recorded attacker outlives its slot** (static study only). Releasing a unit's slot doesn't clear other units'
+attacker records, so a record can name a slot that has been released. A released slot reads as dying or gone, so every
+test of a recorded attacker (the forget at the start of a target search, the reaction's checks, the candidate checks)
+treats it like a dying attacker, and the kind check uses the last type the slot held. If the slot is reused before the
+record is read, the record names the new unit.
 
 **Player kinds.** `movement/movement.md` ("Player kinds") names the kinds of player. The rules here use two
 different splits:
@@ -261,10 +272,11 @@ player's own, must not be the target itself, and its type must be able to attack
 only that the attacker can hit the target's kind (air, sea or land), with the submarine rule of "Automatic target
 acquisition", so an air target still needs an attacker that can hit air. Orders 12, 15 and 16 have no owner test on
 their target either. The kind check uses the attacker type's can-target value from the unit data (land, sea and air), in
-this order: an **air** target needs air; a **submarine** attacker can hit only types that are sea units, oil platforms
-or shore buildings (by the target type's own flags, not the layer it stands in); a **transport** standing on a **shore**
-tile can be hit by an attacker with either land or sea; any other target in the sea layer needs sea; and any other
-target needs land (static study only for this paragraph).
+this order: a target in the **air** layer needs air; a **submarine** attacker can hit only types that are sea units, oil
+platforms (the oil-source type) or shore buildings, all by the target type's own flags, not the layer it stands in; a
+target of a **transport** type standing on **shore water** (its own tile has the shore-water flag, the same test as a
+transport's wreck in `core/corpses.md`) can be hit by an attacker with either land or sea; any other target in the sea
+layer needs sea; and any other target needs land (static study only for this paragraph).
 
 Commands 2, 6, 23, 24, 27, 29 and the spell commands have their own handlers, covered by later specs (stop, harvest,
 return goods, repair, build and spells).
@@ -401,6 +413,9 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   takes over in the same update (still animation, wait 3). The idle logic doesn't run in that update; it first runs
   at the still animation's next step done, 3 cycles later. (Before that, at the step done, the arrival switch of
   `core/animation-scripts.md` runs the order's own animation at once, and then the order's logic runs.)
+  For orders 4 and 10 the arrival test comes before the target search: a unit in order 4 or 10 whose logic runs while it
+  stands at its move goal arrives, and runs **no** target acquisition in that run, even with a target in range (traced:
+  `xorc11-10000`, vectors below). Whether patrol (order 5) does the same at a patrol end isn't traced.
 - **No route:** if the route search finds nothing and none of the special cases of `movement/movement.md` applies (the
   harvest tree search, arrived after all, boarding, the attack-type fallbacks), the unit becomes idle as an
   **immediate** order (order 2, pending order cleared, still animation, wait 1). Only arrival makes orders 3, 4 and 10
@@ -622,6 +637,12 @@ a reference tile of the candidate:
 score = base + priority − floor(d² / 4), and at least 1. "Priority" is the candidate type's priority value in the
 unit data.
 
+**Forgetting a dying attacker first.** Every target search (acquisition, the search in the reaction and order 12's
+fallbacks) starts, for a unit that can move, by forgetting its recorded attacker if that attacker is dying or no longer
+in play. The search then runs with no attacker seed. The resulting order below is still picked from the record as it was
+before the search, so the first search after the attacker started dying can still give order 12; later searches see no
+attacker and use the "otherwise" cases (traced: `xorc6-10000`, vectors below).
+
 **Choice.** The search starts with the unit's current **attacker** (the first attacker that is still alive; see
 `ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score, but only when that score is
 **above 0**. A scored candidate always has at least 1 ("Score"), so the attacker's score is 0 only when the candidate
@@ -639,8 +660,9 @@ counts for the resulting order below (traced: `human06-31357`, vectors below). A
 | Anything else (13, 14, 15) | 15 | 15 |
 
 In every case the resulting order is given as a **command**: the blocked counter is cleared and the cached route
-dropped, as for every command. A recorded attacker that is dying counts as an attacker in the table above (only the
-killer forgets its victim as its attacker; `combat/damage.md`).
+dropped, as for every command. A recorded attacker that is dying counts as an attacker in the table above in the search
+that forgets it ("Forgetting a dying attacker first"). Its death clears no record by itself: only the killer forgets its
+victim as its attacker (`combat/damage.md`).
 
 When the searching unit's order is idle-type, the resulting order then takes over in the same update ("Same-update
 take-over"): attack animation, wait 3, and its logic first runs at that animation's next step done.
@@ -682,7 +704,8 @@ footprint widened by one tile; `movement/pathfinding.md`, "Step 1"). A unit targ
 (traced: `human06-31357`, vectors below). Order 12 takes over at the next step done (attack animation, wait 3). This
 holds even when the new target is already within strike reach: there is no strike in that update, the walk steps toward
 the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced; patrol changes no trace in the
-set.
+set. A unit in order 4 or 10 standing at its move goal doesn't search at all: it arrives ("Arriving and losing the
+target").
 
 In order 16 a new target out of range isn't taken ("Attacking without moving").
 
@@ -879,12 +902,17 @@ the unit has an attacker:
    step: facing 0 to 7 gives (k_x, k_y) = (0,−1), (1,−1), (1,0), (1,1), (0,1), (−1,1), (−1,0), (−1,−1).
    Two-tile movers (sea and air units) use twice those steps (so 8 tiles instead of 4).
 5. The tile is clamped to the map, and for two-tile movers each coordinate is rounded down to even.
-6. The unit is given a move **command** (order 3) to that tile, and its attacker is forgotten. As a command, its goal is
-   pulled back (`movement/pathfinding.md`, "Goal pulled back"), its blocked counter is cleared and its cached route
-   dropped. A unit that **isn't in its move animation** takes the move (order 3) in the same update. The take-over
-   starts the animation of order 3, which is the still animation, with wait 3, whatever animation the unit was showing
-   (attack, walking or still), and the unit steps at its next run. A unit in its move animation keeps the move pending
-   until its next step done, where it takes over the same way.
+6. The unit is given a **smart move** (command 3, "Commands") to that tile, and its attacker is forgotten. Two of the
+   smart move's parts apply. Its wait cap cuts a waiting unit's wait to at most 40 cycles for a computer player's unit
+   and 10 for every other player's unit (static study only; no trace shows it). A transport takes the transport outcome,
+   so a transport whose flee tile is on the shore lands (order 30; traced: `xorc8-10000`, vectors below). The harvest
+   outcomes need a target unit, or a mine or oil platform at the tile, so a flee never starts a tree harvest, even to a
+   tile next to a forest: every other unit gets a move (order 3). As a command, its goal is pulled back
+   (`movement/pathfinding.md`, "Goal pulled back"), its blocked counter is cleared and its cached route dropped. A unit
+   that **isn't in its move animation** takes the new order in the same update. The take-over starts that order's
+   animation (for order 3 the still animation, for order 30 the landing animation 6) with wait 3, whatever animation the
+   unit was showing (attack, walking or still), and the unit steps at its next run. A unit in its move animation keeps
+   the order pending until its next step done, where it takes over the same way.
 
 Since the attacker faces the victim, the victim runs **away from the attacker**, in the direction the attacker is
 facing, about 4 tiles further on each axis that the facing moves along (2 to 9 tiles), with a spread of −2 to +5
@@ -1153,6 +1181,10 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xhuman12-10000` (oracle trace): grunt 1476 (type 0x01, owner 2) in order 12 on farm 1455 decides a strike at n = 1844; at n = 1847, still cooling down, its search picks castle 1443 (type 0x5A), out of reach | n = 1847: order 12, target 1443, animation 4, wait 23. The strike lands: 1455 goes from 400 to 394 HP at n = 1869; 1476 steps at n = 1870 |
 | Same, n = 1841: the same switch while not cooling down | The command case: wait 3 |
 | `xhuman12-10000`, n = 5142: archer 1372 (type 0x08, owner 1) in order 16 on 1363, cooling down, picks 1480 | Order 16, target 1480, animation 4, wait 63 |
+| `xorc11-10000` (oracle trace), n = 6046: gryphon rider 1400 (type 0x2A, owner 6) in order 4 standing at its goal, (8, 24); juggernaut 1512 (type 0x21) nearby, at (4, 32) | Arrives: order 2, animation 2, wait 3, target null (no acquisition) |
+| `xorc6-10000` (oracle trace), n = 6106: axe thrower 1475 (type 0x09, owner 5) idle at (82, 90); its recorded attacker died earlier and was forgotten by an earlier search | Order 16 (not 12) on footman 1459, animation 4, wait 3 |
+| `xorc8-10000` (oracle trace), n = 6177: transport 1423 (type 0x1D, owner 5), idle at (118, 110), flees to a shore tile | Order 30, animation 6, wait 3 |
+| A peasant flees to a tile next to a forest | Order 3 (move); no harvest |
 
 ## Open questions
 
@@ -1173,7 +1205,8 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **A dying attacker elsewhere.** Traced so far: the resulting-order table counts a recorded dying attacker; orders 9,
   11 and 17 forget it at the start of each run; the call for help's "no attacker" test (`ai/attack-ai.md`) and the route
   search's (`movement/pathfinding.md`) ignore it. The static study shows that a unit given a new target by the no-route
-  rule also forgets a dying attacker at the start of the run; no trace shows it. The other places that look at the
+  rule also forgets a dying attacker at the start of the run; no trace shows it. The forget at the start of every target
+  search is traced (`xorc6-10000`, "Forgetting a dying attacker first"). The other places that look at the
   attacker (the reaction, the flee rule, the blocked rules) weren't checked one by one.
 - **Losing a target during the cooldown.** In `xorc01-death-knight-2100` n = 915 ogre 1488 keeps order 12 (target
   null, animation 4, wait 15) through its cooldown frames after its target died at another unit's hand, and goes on
@@ -1192,8 +1225,14 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
   confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
   command a unit's own order logic gives it takes over in the same update.
-- **Other rejections in the attacker seed.** Whether a candidate check other than the two named in "Choice" (for
-  example the attacker standing in fog) also gives the seed a score of 0 isn't separated by any trace.
+- **Other rejections in the attacker seed.** Static study says the seed gets every candidate check, the fog and
+  detection tests included. A fog test on the seed would fix `xhuman11-10000` n = 9065, but it breaks `human06-31357`
+  n = 9642: footman 1584 (owner 1, the human player) at (72, 7), hit by axe thrower 1516 at (68, 11), attacks it (order
+  12, animation 4, wait 3), though by the fog rules of `vision/fog.md` that tile is unseen. Why the original counts 1516
+  as seen isn't found, so "Choice" keeps only the two rejections until a capture shows the visibility masks.
+- **Arrival before acquiring for patrol.** Orders 4 and 10 arrive at the move goal before acquiring (`xorc11-10000`);
+  whether patrol (order 5) does the same at a patrol end isn't traced.
+- **The flee move's wait cap** ("Fleeing", step 6) rests on static study; no trace shows it.
 - **An attack command on a dying enemy.** The pending idle of an attack command on a dying unit is traced only with the
   player's own unit as the target (`orc02-dyingcmd-3760`); the enemy case rests on static study.
 - **Order 11's cooldown and range checks** ("Order 11: attacking a wall tile", steps 4.2 and 4.4) rest on static study;
