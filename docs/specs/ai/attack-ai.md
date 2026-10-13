@@ -17,6 +17,8 @@
   above its top; `orc02` vector.
   2026-10-12, round-43 errata: a recorded attacker that is dying doesn't stop a unit from answering a call for help;
   `orc02-assault` vector.
+  2026-10-12, round-44 errata: set goal's blocking test sees the unit's own occupancy mark, so a goal given at the
+  unit's own tile is moved by the ring search; `human01-order15-range-700` vector.
 
 ## Behaviour
 
@@ -82,6 +84,10 @@ The two marks are **needs a ferry** (with an **assigned transport**, possibly no
      open-water bit (0x40) and no bit of the sea blocking mask (0x0903). If one is found it replaces the tile;
    - any other unit: if the tile has any bit of the land blocking mask (0x09CE), the same ring search looks for a tile
      with the land bit (0x01) and no bit of the land blocking mask. If one is found it replaces the tile.
+   The blocking test sees the occupancy marks of every unit on the tile, the unit's **own** mark included
+   (`movement/occupancy.md`): the unit isn't left out. So a tile given that is the unit's own tile counts as blocked for
+   a land unit standing on it, and the ring search moves the goal to the nearest tile without a blocking bit; a leash
+   return ("Hold", step 3) then walks the unit there (traced: `human01-order15-range-700`, vectors below).
 5. If the region value (`movement/occupancy.md`) of the unit's tile equals that of the (adjusted) tile: the goal tile
    and kind are set, success.
 6. Otherwise, for a unit that is not a sea unit: the goal tile is set, the **needs a ferry** mark is set, the goal
@@ -546,6 +552,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `xorc7-7000`, n = 1002: 1423 idle again at (6, 22); tankers 1587 and 1594 both inside platform 1590 (order 26) | Patrol command toward (6, 22), its own tile: order 5, wait 3. n = 1005: order 5, wait 3 (the swap to the far end); n = 1008: animation 3, it starts walking |
 | `human10-10000`, the first tanker in the list taken and then rejected because it is inside (wrong) | Differs from the trace at n = 6907 |
 | `human10-10000`, n = 6956: computer destroyer 1483 (type 0x1F) at (24, 8) | Order 5, wait 3; n = 6959: tile (26, 6), facing 1, animation 3 |
+| `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) holding at its own tile (29, 14) flees at n = 403; its hold goal is then set at that tile | The ring search moves the goal to (28, 14): it walks back in order 3, is at (28, 14) at n = 550 and idles there at n = 566 (wait 3, facing 3) |
 
 ## Open questions
 
