@@ -16,15 +16,26 @@
 //! orc1, orc7, orc10, orc11, orc12, orc13, xhuman6, xorc9, human8, human14, xhuman8, xhuman7, xhuman9, xorc6, xorc11,
 //! xhuman12, human13, orc14, xhuman11, xorc8, human4-15000, xhuman4-15000, orc9-12000, xhuman10-12000, xorc7-15000,
 //! human8-30000, xorc12-4000, xorc09-death-knight-2500, orc10-sappers-2500, xhuman10-slow-3000, human13-subs-2000,
-//! human12-25000, human09-fleet-3000 and xorc11-air-sea-3000 match in full.
+//! human12-25000, human09-fleet-3000, xorc11-air-sea-3000, human01-walls, human06-upgrades, xorc12-spells,
+//! xhuman10-exorcism, orc13-25000, orc14-25000, xhuman11-25000 and orc11-25000 match in full.
 //!
-//! Known gaps (the limit is the last cycle that matches): none.
+//! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header and take the setup
+//! record as given: mp-dark-paths-bne-1000 (Enhanced) and mp-dark-paths-bne-classic-1000 (Classic mode) match in full,
+//! and so do mp-gold-rush-bne-6000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000 and
+//! mp-schwartzwald-bne-6000 (Enhanced). xorc12-reach-400 matches in full.
+//!
+//! Known gaps (the limit is the last cycle that matches): a computer builder let out of its finished building with a
+//! gold job comes out on another tile, or heads for another mine, than ours (open question):
+//! mp-rose-petal-bne-10000 at n = 1731 (peon 1567 from great hall 1556), and in Classic mode
+//! mp-gold-rush-bne-classic-8000 at n = 6461 (peasant 505 from 517) and mp-gold-rush-bne-classic-20000 at n = 19728
+//! (peon 586 from town hall 590).
 
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Checks one trace in full and again with RNG resync. Skips when the environment isn't set up.
-fn check(file: &str, map: &str, entry: u8, fields: &[&str], limit: Option<u32>) {
+/// Checks one trace in full and again with RNG resync. Skips when the environment isn't set up. `place` is the map
+/// and campaign entry; `None` for a multiplayer trace, whose header names its map.
+fn check(file: &str, place: Option<(&str, u8)>, fields: &[&str], limit: Option<u32>) {
     let (Some(dir), Some(install)) = (
         std::env::var_os("TIDEWATER_ORACLE_TRACES"),
         std::env::var_os("TIDEWATER_INSTALL"),
@@ -46,7 +57,14 @@ fn check(file: &str, map: &str, entry: u8, fields: &[&str], limit: Option<u32>) 
             .arg("oracle")
             .arg("--install")
             .arg(&install)
-            .args(["--map", map, "--entry", &entry.to_string()])
+            .args(place.iter().flat_map(|(map, entry)| {
+                [
+                    "--map".to_string(),
+                    map.to_string(),
+                    "--entry".to_string(),
+                    entry.to_string(),
+                ]
+            }))
             .args(fields)
             .args(&extra)
             .arg(&trace)
@@ -71,15 +89,22 @@ fn check(file: &str, map: &str, entry: u8, fields: &[&str], limit: Option<u32>) 
 
 /// One `#[test]` per row, so the harness runs the traces in parallel. Each row is: test name = (trace file, map,
 /// campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering), fields left out,
-/// the last cycle that must match (`None`: the whole trace)).
+/// the last cycle that must match (`None`: the whole trace)). A multiplayer row is `mp(trace file, fields left out,
+/// limit)`: its header names the map.
 macro_rules! traces {
-    ($($name:ident: ($file:expr, $map:expr, $entry:expr, $fields:expr, $limit:expr),)*) => {
+    ($($name:ident: $row:tt,)*) => {
         $(
             #[test]
             fn $name() {
-                check($file, $map, $entry, $fields, $limit);
+                traces!(@row $row);
             }
         )*
+    };
+    (@row (mp, $file:expr, $fields:expr, $limit:expr)) => {
+        check($file, None, $fields, $limit)
+    };
+    (@row ($file:expr, $map:expr, $entry:expr, $fields:expr, $limit:expr)) => {
+        check($file, Some(($map, $entry)), $fields, $limit)
     };
 }
 
@@ -168,4 +193,22 @@ traces! {
     human13_subs_2000: ("human13-subs-2000.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
     human09_fleet_3000: ("human09-fleet-3000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
     xorc11_air_sea_3000: ("xorc11-air-sea-3000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
+    human01_walls_4000: ("human01-walls-4000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    human06_upgrades_1500: ("human06-upgrades-1500.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    xorc12_spells_1500: ("xorc12-spells-1500.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
+    xhuman10_exorcism_3000: ("xhuman10-exorcism-3000.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    orc13_25000: ("orc13-25000.jsonl.gz", "Campaign\\Orc\\Orc13.pud", 25, &[], None),
+    orc14_25000: ("orc14-25000.jsonl.gz", "Campaign\\Orc\\Orc14.pud", 27, &[], None),
+    xhuman11_25000: ("xhuman11-25000.jsonl.gz", "Campaign\\XHuman\\2XHum11.pud", 48, &[], None),
+    orc11_25000: ("orc11-25000.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
+    mp_dark_paths_bne_1000: (mp, "mp-dark-paths-bne-1000.jsonl.gz", &[], None),
+    mp_dark_paths_bne_classic_1000: (mp, "mp-dark-paths-bne-classic-1000.jsonl.gz", &[], None),
+    xorc12_reach_400: ("xorc12-reach-400.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
+    mp_gold_rush_bne_6000: (mp, "mp-gold-rush-bne-6000.jsonl.gz", &[], None),
+    mp_great_white_north_bne_6000: (mp, "mp-great-white-north-bne-6000.jsonl.gz", &[], None),
+    mp_big_rock_candy_mountain_bne_6000: (mp, "mp-big-rock-candy-mountain-bne-6000.jsonl.gz", &[], None),
+    mp_schwartzwald_bne_6000: (mp, "mp-schwartzwald-bne-6000.jsonl.gz", &[], None),
+    mp_rose_petal_bne_10000: (mp, "mp-rose-petal-bne-10000.jsonl.gz", &[], Some(1730)),
+    mp_gold_rush_bne_classic_8000: (mp, "mp-gold-rush-bne-classic-8000.jsonl.gz", &[], Some(6460)),
+    mp_gold_rush_bne_classic_20000: (mp, "mp-gold-rush-bne-classic-20000.jsonl.gz", &[], Some(19727)),
 }
