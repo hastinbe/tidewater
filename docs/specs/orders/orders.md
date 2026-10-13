@@ -1107,7 +1107,7 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Blocked row A gives order 11 on a wall tile | Goal kept as the blocking tile (no pull-back) |
 | `orc02-defeat-4021`, turn n = 3602: command 8 on the player's own Zul'jin 1594 (type 0x35) for grunts 1568, 1572, 1575, 1576 and 1578 | Each records target 1594 with order 9 pending; 1575 and 1576 are in order 9 at n = 3603 |
 | `orc02-dyingcmd-3760` (oracle trace): 1594 is dying from n = 3718; the command at turn n = 3722 sends idle grunts 1572 (wait 4) and 1575 (wait 1) to attack it | n = 3723: both in order 2, target null, wait 3; two draws in that cycle, against three in `orc02-defeat-4021`, where 1575 looks around |
-| `human5-10000`, n = 2754: axe thrower 1533 (type 0x09, owner 5) in order 12 on peasant 1513, which is inside a gold mine; the new target, town hall 1525, is out of strike reach | Command switch: target 1525, it steps to (36, 99), animation 3, facing 1, wait 1 |
+| `human5-10000`, n = 2754: axe thrower 1533 (type 0x09, owner 5) in order 12 on peasant 1513, which is inside a gold mine; the new target, great hall 1525 (type 0x4A), is out of strike reach | Command switch: target 1525, it steps to (36, 99), animation 3, facing 1, wait 1 |
 
 ## Open questions
 
