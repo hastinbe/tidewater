@@ -27,8 +27,10 @@ use crate::campaign::{CampaignTotal, GameKind, Memory};
 pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// The layout version; raise it whenever the stored world or the structs below change. Version 2: a unit's decay
 /// periods moved into its mana byte (the separate counter is gone). Version 3: a unit's pending-command mark.
-/// Version 4: a unit's attack cooldown, a dying unit's kept target and a killer's forgotten target.
-pub const VERSION: u16 = 4;
+/// Version 4: a unit's attack cooldown, a dying unit's kept target and a killer's forgotten target. Version 5: the
+/// round-40 to round-49 unit state (the build goal, the hall exit mark, the search skip mark, a dying unit's reported
+/// target slot and command 4's target unit).
+pub const VERSION: u16 = 5;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").
