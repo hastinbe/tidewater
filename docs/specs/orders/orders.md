@@ -54,6 +54,10 @@
   check; after a target switch in orders 12, 15 and 16 the run goes on and the friendly-fire check is made on the new
   target; `orc09-naval`, `xhuman4` and `xhuman10-spells` vectors; open questions on order 15's switch and on a dying
   attacker updated.
+  2026-10-12, round-44 errata: attack-move toward a building heads for the building's goal zone; the acquisition search
+  is seeded with the attacker only when its score is above 0 (the attacker still counts for the resulting order); units
+  inside something keep their list place and coming out doesn't re-insert a unit; the flee move and the patrol
+  turnaround are commands, so their goals are pulled back; trace vectors.
 
 ## Behaviour
 
@@ -332,8 +336,9 @@ it from re-issuing every cycle when the move can't progress.
   returning goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is the job
   choice, whose new command takes over in the same update (wait 3).
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
-  other end. The new patrol takes over in the same update (still animation, wait 3); the first step comes at its next
-  logic run, 3 cycles later.
+  other end. As a command, the new goal is **pulled back** (`movement/pathfinding.md`, "Goal pulled back"), for every
+  patrol, human or computer, land or sea; the remembered ends stay as they were. The new patrol takes over in the same
+  update (still animation, wait 3); the first step comes at its next logic run, 3 cycles later.
 - **Order 18:** on arrival (in range) it becomes order 17 and attacks the ground.
 
 **Orders aimed at a unit** (follow, attack and similar) check their target every time their logic runs. The target
@@ -500,9 +505,11 @@ score = base + priority − floor(d² / 4), and at least 1. "Priority" is the ca
 unit data.
 
 **Choice.** The search starts with the unit's current **attacker** (the first attacker that is still alive; see
-`ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score. A candidate replaces the
-best only with a **strictly greater** score. So on a tie the attacker wins, and otherwise the first candidate in
-vertical order wins.
+`ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score, but only when that score is
+**above 0**. An attacker the unit can't attack (score 0, for example one closer than the unit's minimum range) doesn't
+seed the search, which then runs as if there were no attacker; the attacker still counts for the resulting order below
+(traced: `human06-31357`, vectors below). A candidate replaces the best only with a **strictly greater** score. So on a
+tie the attacker wins, and otherwise the first candidate in vertical order wins.
 
 **Resulting order** when a target is chosen:
 
@@ -536,14 +543,17 @@ When the searching unit is in order 12 and the search picks a different target:
 - **The old target is gone or was forgotten** (this unit killed it, or its slot is gone): the new order takes over at
   once (attack animation, wait 3).
 
-**Attack-move: orders 4, 5 and (Enhanced) 10.** When a unit in order 4 (move, attacking on the way), 5 (patrol) or,
-in Enhanced mode, 10 picks a target, order 12 on that target is likewise given as a command: the target is set and
-the cached route dropped at once, but the order stays 4, 5 or 10 until the next step done. The order's logic carries
-on in the same update, **heading for the new target**: a unit at a step boundary starts its next step on a new route
-toward the target, not toward the order's own goal. Order 12 takes over at the next step done (attack animation,
-wait 3). This holds even when the new target is already within strike reach: there is no strike in that update, the
-walk steps toward the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced; patrol
-changes no trace in the set.
+**Attack-move: orders 4, 5 and (Enhanced) 10.** When a unit in order 4 (move, attacking on the way), 5 (patrol) or, in
+Enhanced mode, 10 picks a target, order 12 on that target is likewise given as a command: the target is set and the
+cached route dropped at once, but the order stays 4, 5 or 10 until the next step done. The order's logic carries on in
+the same update, **heading for the new target**: a unit at a step boundary starts its next step on a new route toward
+the target, not toward the order's own goal. For a **building** target the new route is the one an attack on that
+building would take: toward the footprint tile picked by the building goal rule, with the building's goal zone (its
+footprint widened by one tile; `movement/pathfinding.md`, "Step 1"). A unit target is headed for at its tile, as before
+(traced: `human06-31357`, vectors below). Order 12 takes over at the next step done (attack animation, wait 3). This
+holds even when the new target is already within strike reach: there is no strike in that update, the walk steps toward
+the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced; patrol changes no trace in the
+set.
 
 In order 16 a new target out of range isn't taken ("Attacking without moving").
 
@@ -573,14 +583,19 @@ position defined in `movement/movement.md`):
   is swapped backwards one place at a time, but the backward walk never compares the first two entries of the list.
   Only the first step of the pass (entries 1 and 2) can change which entry is first. So an entry can move up to
   the **second** place in one pass, and reaches first place only in a later cycle.
-- Units that are dying, dead or inside something sort as if at pixel y −32768.
-- A new unit is inserted before any units with the same pixel y.
-- The search uses **tile rows**, not pixels. It skips the dying, dead and inside entries at the front. Its **top
-  row** is the box's top row − 3 (but not below 0), to catch tall buildings whose footprint reaches into the box,
-  and its **bottom row** is the box's bottom row. It visits the entries from a first entry to a last entry in list
-  order, found by the halving search below. Because a moving unit's tile changes at the start of a step while its
-  pixel y changes gradually, tile rows in the list are only nearly sorted, so this search can include or miss
-  different units than an exact partition would.
+- Units that are dying, dead or removed sort as if at pixel y −32768. A unit **inside** something (a transport, mine,
+  platform or building under construction) keeps its place: it sorts by the pixel y it had when it went in, which
+  doesn't change while it is inside.
+- A unit is put into the list only when it is created (inserted before any units with the same pixel y) or when a saved
+  game is loaded, and taken out only when its slot is released. A unit **coming out** of a building or transport isn't
+  re-inserted: it starts from its old place and moves only by the once-per-cycle sort, with the sort's one-place quirk.
+- The search uses **tile rows**, not pixels. It skips the dying, dead and removed entries at the front. Inside units are
+  visited like any entry, by their recorded tile row, so they take part in the halving search's middle tests and can
+  narrow its range; the per-candidate checks then reject them. Its **top row** is the box's top row − 3 (but not below
+  0), to catch tall buildings whose footprint reaches into the box, and its **bottom row** is the box's bottom row. It
+  visits the entries from a first entry to a last entry in list order, found by the halving search below. Because a
+  moving unit's tile changes at the start of a step while its pixel y changes gradually, tile rows in the list are only
+  nearly sorted, so this search can include or miss different units than an exact partition would.
 
 **The halving search.** "Above" means a smaller row number, "below" a larger one; a row is an entry's tile row.
 Entry positions count from the first entry after the skipped front entries ("the first") to the list's last entry.
@@ -725,11 +740,12 @@ the unit has an attacker:
    step: facing 0 to 7 gives (k_x, k_y) = (0,−1), (1,−1), (1,0), (1,1), (0,1), (−1,1), (−1,0), (−1,−1).
    Two-tile movers (sea and air units) use twice those steps (so 8 tiles instead of 4).
 5. The tile is clamped to the map, and for two-tile movers each coordinate is rounded down to even.
-6. The unit gets a move to that tile, and its attacker is forgotten. A unit that **isn't in its move animation**
-   takes the move (order 3) in the same update. The take-over starts the animation of order 3, which is the still
-   animation, with wait 3, whatever animation the unit was showing (attack, walking or still), and the unit steps at
-   its next run. A unit in its move animation keeps the move pending until its next step done, where it takes over
-   the same way.
+6. The unit is given a move **command** (order 3) to that tile, and its attacker is forgotten. As a command, its goal is
+   pulled back (`movement/pathfinding.md`, "Goal pulled back"), its blocked counter is cleared and its cached route
+   dropped. A unit that **isn't in its move animation** takes the move (order 3) in the same update. The take-over
+   starts the animation of order 3, which is the still animation, with wait 3, whatever animation the unit was showing
+   (attack, walking or still), and the unit steps at its next run. A unit in its move animation keeps the move pending
+   until its next step done, where it takes over the same way.
 
 Since the attacker faces the victim, the victim runs **away from the attacker**, in the direction the attacker is
 facing, about 4 tiles further on each axis that the facing moves along (2 to 9 tiles), with a spread of −2 to +5
@@ -955,6 +971,18 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Same cycle: 112 entries (positions 0 to 111), top row 62, bottom row 73; first entry found 69. The rows at the middles are those of the list order in the original's capture (the trace records positions, not the list order) | Last-entry search from low 69, high 111: middles 90 (row 72), 100 (row 75), 95 (row 73), 97 (row 74), 96 (row 74; the entry before is row 73): stop, last entry 95, which includes grunt 1497. Starting low at 0 would end at 92 and miss it |
 | Rows 1, 2, 5, 5, 6 (positions 0 to 4), top row 3, bottom row 5 | First entry: middles 2, 0, 1; stop at 1 (row 2 above 3, next row 5 not): first entry 2. Last entry: low 2, high 4; middles 3, 3, 4; stop at 4 (row 6 below 5, the one before not): last entry 3 |
 | Enhanced (static study only): a unit on an attack-move acquires an enemy on the way and kills it; countdown 0; the target tile more than 1 tile away | The attack-move is given again instead of the pending idle (countdown 20) |
+| `human06-31357` (oracle trace): axe thrower 1512 (owner 5) in order 4 acquires building 1583 near n = 16277 at (70, 9) | The head-for aims at the building's goal zone: its next step is (71, 8) (heading for the building's tile would give (71, 9)); order 12 at n = 16295; n = 16296 matches |
+| A unit in order 4 acquiring a unit target at a step boundary | Unchanged: the head-for aims at the target's tile |
+| `human06-31357`, n = 16816: peasant 1587 (owner 1) in order 3 after fleeing at n = 16797 | Tile (81, 4), facing 2, animation 3, wait 1 (the flee tile pulled back as a command goal) |
+| A flee tile that is usable | Kept as it is |
+| `human06-31357`, n = 23683: ballista 1582 (type 0x04, owner 1) at (84, 9) in order 16 on grunt 1515, its first attacker, adjacent (score 0, inside the minimum range); axe thrower 1516 in its box | The attacker doesn't seed the search: order 12 on 1516, animation 4, facing 7, wait 3 (order 12, not 16, because the unit still has an attacker) |
+| An attacker with score s > 0 and a box candidate with the same score | The attacker is kept (tie) |
+| `human7-22000`, n = 19787: archer 1598 idle at (11, 0); 138 units in the list, among them four orc tankers (type 0x1B) inside oil platforms (order 26, pixel y 2464 and 2592); zeppelin 1575 at recorded tile (10, 4) | The halving search's range is list positions 0 to 19 and leaves out 1575 at position 23: order 2 (not acquired). Without the inside units the range would be 0 to 23 |
+| Same, n = 19797 | The range is 0 to 20 and includes 1575: order 16 on 1575 |
+| `xhuman10-spells-700`, n = 286: ogre 1543 (type 0x07) in order 12 | Target 1529 |
+| A unit that comes out of a mine at pixel y 320, having gone in at pixel y 160 | Its list place is the one for y 160 until the sort moves it |
+| `orc09-naval-1500` (oracle trace), n = 754: computer destroyer 1460 (type 0x1E) on its sea patrol arrives at (84, 66); the far end (67, 57) is under an oil platform | The new patrol goal is pulled back to (69, 58); it steps from n = 757 and at n = 853 is at (76, 60), facing 6 |
+| A patrol whose other end is usable | Goal unchanged |
 
 ## Open questions
 
