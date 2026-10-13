@@ -3,8 +3,10 @@
 //! building", "Completion", "Cancelling construction") and `docs/specs/movement/occupancy.md` ("Building placement
 //! masks", "Entering a construction site").
 //!
-//! Not yet here: which worker may build which type (the tech tree and the command panel decide that), and walls,
-//! whose pieces become terrain on completion.
+//! A player's build command names its builder by the builder table ([`builder_of`], round-61 errata); which types the
+//! command panel offers is the tech tree's and the panel's business.
+//!
+//! Not yet here: walls, whose pieces become terrain on completion.
 //!
 //! Our choice: a failed placement tells the player with [`Event::CantPlace`].
 
@@ -26,6 +28,24 @@ const INSIDE_SITE_WAIT: u8 = 255;
 const ENTER_SITE_WAIT: u8 = 150;
 /// The oil patch type (public PUD specification).
 const OIL_PATCH: u8 = 0x5d;
+
+/// The builder table of `economy/build-train.md` (round-61 errata; unit types of the public PUD specification's unit
+/// list): the unit type that may be sent to build each building type, or `None` for a type no player's command builds.
+pub(crate) fn builder_of(kind: u8) -> Option<u8> {
+    const PEASANT: u8 = 0x02;
+    const PEON: u8 = 0x03;
+    const HUMAN_TANKER: u8 = 0x1a;
+    const ORC_TANKER: u8 = 0x1b;
+    match kind {
+        0x3a..=0x55 if kind.is_multiple_of(2) => Some(PEASANT),
+        0x3a..=0x55 => Some(PEON),
+        0x67 => Some(PEASANT),
+        0x68 => Some(PEON),
+        0x56 => Some(HUMAN_TANKER),
+        0x57 => Some(ORC_TANKER),
+        _ => None,
+    }
+}
 
 impl World {
     /// Command to build `kind` at `site` (its top-left tile). Computer players pay now; everyone else on arrival.
@@ -65,21 +85,20 @@ impl World {
         })
     }
 
-    /// A build command sent by a player, carried out in the command turn (round-60 errata, "Carrying out a player's
-    /// build command"; `orc9-orc09-shore-build-3000` peon 1482, n = 26): it must be valid (the site on the map, the
-    /// type a building of the builder's race; the caller has checked that the builder is the sender's own unit), then
-    /// the site check runs without the unexplored test, then the affordability check. On a failure the builder gets no
-    /// order and nothing is paid. Otherwise the build goes ahead as [`World::build_command`].
+    /// A build command sent by a player, carried out in the command turn (round-60 and round-61 errata, "Carrying
+    /// out a player's build command"; `orc9-orc09-shore-build-3000` peon 1482, n = 26, and the
+    /// `orc9-orc09-smart-move-2000` vectors): it must be valid ([`World::valid_build_command`]; the caller has checked
+    /// that the builder is the sender's own unit), then the site check runs without the unexplored test, then the
+    /// affordability check. On a failure the builder gets no order and nothing is paid; an invalid command does
+    /// nothing else either. Otherwise the build goes ahead as [`World::build_command`].
     ///
-    /// Not yet here: the race part of the validity test (no spec says how a building type's race is known); only
-    /// "a building" is checked. Our reading: a failed site check tells the builder's owner with [`Event::CantPlace`]
-    /// and a shortage with [`Event::CantAfford`], the client showing only the local player's.
+    /// Our reading: a failed site check tells the builder's owner with [`Event::CantPlace`] and a shortage with
+    /// [`Event::CantAfford`], the client showing only the local player's.
     pub(crate) fn player_build_command(&mut self, i: usize, kind: u8, site: (i32, i32)) -> Option<Order> {
         let u = &self.units[i];
         let (owner, id) = (u.owner, u.id);
         let s = self.stats_of(kind);
-        let on_map = self.terrain.contains(site.0, site.1);
-        if !on_map || s.flags & flags::BUILDING == 0 {
+        if !self.valid_build_command(u.kind, kind, site) {
             return None;
         }
         if self.check_site_in_turn(kind, site, id) != crate::site::SiteCheck::Allowed {
@@ -90,6 +109,18 @@ impl World {
             return None;
         }
         self.build_command(i, kind, site)
+    }
+
+    /// Step 1 of "Carrying out a player's build command" (round-61 errata), on the command as received: the site's
+    /// top-left tile is on the map; the type is from 0x3A to 0x68, has the building flag and none of the can-attack,
+    /// oil-patch and mine flags; and the builder's type is the one [`builder_of`] names for it.
+    pub(crate) fn valid_build_command(&self, builder: u8, kind: u8, site: (i32, i32)) -> bool {
+        let f = self.stats_of(kind).flags;
+        self.terrain.contains(site.0, site.1)
+            && (0x3a..=0x68).contains(&kind)
+            && f & flags::BUILDING != 0
+            && f & (flags::CAN_ATTACK | flags::OIL_PATCH | flags::MINE) == 0
+            && builder_of(kind) == Some(builder)
     }
 
     /// The build walk's goal ("Placing a building"), before any pull-back: a tile of the planned footprint, worked
@@ -365,7 +396,10 @@ mod tests {
     use crate::world::Command;
     use crate::world::tests::{field, run};
 
+    /// The test worker: a peon, so the builder table lets it build the orc farm below.
     const PEASANT: u8 = 3;
+    /// The test building, an orc farm (the builder table's peon row).
+    const FARM: u8 = kind::PIG_FARM;
 
     fn town() -> (World, UnitId) {
         let mut w = field(24, 24);
@@ -373,7 +407,8 @@ mod tests {
         w.players[1].controller = controller::COMPUTER;
         w.stats.0[PEASANT as usize] = w.stats.0[0];
         w.stats.0[PEASANT as usize].flags = flags::LAND | flags::PEON;
-        let farm = &mut w.stats.0[kind::FARM as usize];
+        w.stats.0[FARM as usize] = w.stats.0[kind::FARM as usize];
+        let farm = &mut w.stats.0[FARM as usize];
         farm.gold = 500;
         farm.lumber = 250;
         farm.build_time = 2;
@@ -390,7 +425,7 @@ mod tests {
         w.step(&[Command::Build {
             player,
             unit,
-            kind: kind::FARM,
+            kind: FARM,
             tile: site,
         }]);
     }
@@ -398,7 +433,7 @@ mod tests {
     fn farm_at(w: &World, site: (i32, i32)) -> Option<UnitId> {
         w.units
             .iter()
-            .find(|u| u.kind == kind::FARM && u.tile == site && u.present())
+            .find(|u| u.kind == FARM && u.tile == site && u.present())
             .map(|u| u.id)
     }
 
@@ -471,12 +506,12 @@ mod tests {
     #[test]
     fn the_build_walk_aims_at_a_footprint_tile() {
         let (mut w, p) = town();
-        w.stats.0[kind::FARM as usize].size = (2, 2);
+        w.stats.0[FARM as usize].size = (2, 2);
         let barracks = 60;
-        w.stats.0[barracks as usize] = w.stats.0[kind::FARM as usize];
+        w.stats.0[barracks as usize] = w.stats.0[FARM as usize];
         w.stats.0[barracks as usize].size = (3, 3);
         let i = w.index(p).unwrap();
-        assert_eq!(w.build_goal(i, kind::FARM, (5, 5)), (5, 5));
+        assert_eq!(w.build_goal(i, FARM, (5, 5)), (5, 5));
         w.units[i].tile = (6, 9);
         assert_eq!(w.build_goal(i, barracks, (5, 5)), (6, 7));
         // human01-basics: peasant 1596 on (14, 9), a barracks at (5, 8).
@@ -494,7 +529,7 @@ mod tests {
     #[test]
     fn the_builder_arrives_on_the_goal_tile_and_goes_inside_with_wait_150() {
         let (mut w, p) = town();
-        w.stats.0[kind::FARM as usize].size = (3, 3);
+        w.stats.0[FARM as usize].size = (3, 3);
         let i = w.index(p).unwrap();
         w.units[i].tile = (14, 9);
         w.units[i].pos = (14 * 32, 9 * 32);
@@ -518,7 +553,7 @@ mod tests {
     #[test]
     fn the_build_goal_stays_fixed_while_walking() {
         let (mut w, p) = town();
-        w.stats.0[kind::FARM as usize].size = (3, 3);
+        w.stats.0[FARM as usize].size = (3, 3);
         let i = w.index(p).unwrap();
         w.units[i].tile = (14, 9);
         w.units[i].pos = (14 * 32, 9 * 32);
@@ -530,7 +565,7 @@ mod tests {
             w.step(&[]);
         }
         let want = Order::Build {
-            kind: kind::FARM,
+            kind: FARM,
             site: (5, 8),
             goal: Some((7, 9)),
         };
@@ -541,7 +576,7 @@ mod tests {
         w.units[i].tile = (6, 16);
         w.units[i].pos = (6 * 32, 16 * 32);
         w.units[i].path.clear();
-        assert_ne!(w.build_goal(i, kind::FARM, (5, 8)), (7, 9));
+        assert_ne!(w.build_goal(i, FARM, (5, 8)), (7, 9));
         w.step(&[]);
         assert_eq!(w.unit(p).unwrap().order, want);
     }
@@ -551,15 +586,15 @@ mod tests {
     #[test]
     fn the_build_goal_comes_from_the_tile_when_the_command_is_given() {
         let (mut w, p) = town();
-        w.stats.0[kind::FARM as usize].size = (3, 3);
+        w.stats.0[FARM as usize].size = (3, 3);
         let i = w.index(p).unwrap();
         w.units[i].tile = (14, 9);
-        let o = w.build_command(i, kind::FARM, (5, 8)).expect("a builder");
+        let o = w.build_command(i, FARM, (5, 8)).expect("a builder");
         w.units[i].tile = (6, 16);
         assert_eq!(
             o,
             Order::Build {
-                kind: kind::FARM,
+                kind: FARM,
                 site: (5, 8),
                 goal: Some((7, 9)),
             }
@@ -667,11 +702,14 @@ mod tests {
 
     #[test]
     fn a_finished_wall_piece_becomes_wall_terrain() {
-        let (mut w, p) = town();
-        let mut wall = w.stats.0[kind::FARM as usize];
+        let (mut w, _) = town();
+        let mut wall = w.stats.0[FARM as usize];
         wall.size = (1, 1);
         w.stats.0[kind::HUMAN_WALL as usize] = wall;
         w.terrain.build_wall(9, 8, true, false);
+        // The builder table: a human wall is the peasant type's (0x02) to build.
+        w.stats.0[0x02] = w.stats.0[PEASANT as usize];
+        let p = w.spawn(0x02, 0, (2, 4), 0).unwrap();
         w.step(&[Command::Build {
             player: 0,
             unit: p,
@@ -720,7 +758,7 @@ mod tests {
         let p = w.spawn(PEASANT, 1, (12, 2), 0).unwrap();
         // The worker AI's build job (a player's build command would fail its site check in the command turn).
         let i = w.index(p).unwrap();
-        let o = w.build_command(i, kind::FARM, (20, 20)).unwrap();
+        let o = w.build_command(i, FARM, (20, 20)).unwrap();
         w.command(i, o);
         for _ in 0..300 {
             w.step(&[]);
@@ -762,6 +800,63 @@ mod tests {
             "{:?}",
             u.order
         );
+    }
+
+    /// Round-61 errata, the builder table of "Carrying out a player's build command" step 1.
+    #[test]
+    fn the_builder_table_names_one_builder_type() {
+        for (kind, builder) in [
+            (0x3a, Some(0x02)),
+            (0x3b, Some(0x03)),
+            (0x4b, Some(0x03)),
+            (0x54, Some(0x02)),
+            (0x55, Some(0x03)),
+            (0x56, Some(0x1a)),
+            (0x57, Some(0x1b)),
+            (0x58, None),
+            (0x5c, None),
+            (0x66, None),
+            (0x67, Some(0x02)),
+            (0x68, Some(0x03)),
+            (0x39, None),
+            (0x69, None),
+        ] {
+            assert_eq!(builder_of(kind), builder, "{kind:#x}");
+        }
+    }
+
+    /// Round-61 errata, "Carrying out a player's build command" step 1 (the `orc9-orc09-smart-move-2000` vectors at
+    /// n = 14 and n = 50, in small): a peon given a human farm, or a keep (no builder), on a clear site it can afford,
+    /// gets no order, pays nothing and is told nothing. The validity test comes before the site check, so an off-map
+    /// site or a building type with the mine flag fails silently too.
+    #[test]
+    fn a_build_command_naming_the_wrong_builder_does_nothing() {
+        const KEEP: u8 = 0x58;
+        let (mut w, p) = town();
+        w.stats.0[kind::FARM as usize] = w.stats.0[FARM as usize];
+        w.stats.0[KEEP as usize] = w.stats.0[FARM as usize];
+        for k in [kind::FARM, KEEP] {
+            w.step(&[Command::Build {
+                player: 0,
+                unit: p,
+                kind: k,
+                tile: (8, 8),
+            }]);
+            let u = w.unit(p).unwrap();
+            assert_eq!((u.order, u.pending), (Order::Idle, None), "{k:#x}");
+        }
+        // An off-map site is invalid before any site check: no "can't place" message.
+        build(&mut w, 0, p, (30, 8));
+        let u = w.unit(p).unwrap();
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert!(!w.events.iter().any(|e| matches!(e, Event::CantPlace { .. })));
+        assert_eq!((w.players[0].gold, w.players[0].lumber), (1000, 1000));
+        w.stats.0[FARM as usize].flags |= flags::MINE;
+        assert!(!w.valid_build_command(PEASANT, FARM, (8, 8)));
+        w.stats.0[FARM as usize].flags &= !flags::MINE;
+        assert!(w.valid_build_command(PEASANT, FARM, (8, 8)));
+        assert!(!w.valid_build_command(PEASANT, FARM, (24, 8)), "x at the map width");
+        assert!(!w.valid_build_command(0x02, FARM, (8, 8)), "a peasant for an orc farm");
     }
 
     #[test]
@@ -809,7 +904,7 @@ mod tests {
 
     fn shore_town() -> (World, UnitId) {
         let (mut w, p) = town();
-        w.stats.0[SHORE as usize] = w.stats.0[kind::FARM as usize];
+        w.stats.0[SHORE as usize] = w.stats.0[FARM as usize];
         w.stats.0[SHORE as usize].size = (3, 3);
         w.stats.0[SHORE as usize].flags = flags::BUILDING | flags::SHORE_BUILDING;
         (w, p)
