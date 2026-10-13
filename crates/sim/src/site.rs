@@ -3,9 +3,10 @@
 //! `docs/specs/movement/occupancy.md` ("Building placement masks") and the fog rules of `docs/specs/vision/fog.md`
 //! ("Placing a building").
 //!
-//! [`World::check_site`] is a pure query: it changes nothing and makes no generator draws. It is a local filter for
-//! the player's click; the worker checks the site again when it arrives (`build.rs`, `economy/build-train.md`), and
-//! that check plays no error sound.
+//! [`World::check_site`] is a pure query: it changes nothing and makes no generator draws. It filters the player's
+//! click; the build command is checked again when it is carried out ([`World::check_site_in_turn`], without the
+//! unexplored test), and the worker checks the site again when it arrives (`build.rs`, `economy/build-train.md`); that
+//! check plays no error sound.
 //!
 //! Our choice: the builder's race, which picks the foundry that gets the short oil distance, is the race of its unit
 //! type (even types human, odd types orc), as in the worker AI.
@@ -101,6 +102,17 @@ impl World {
     /// The site check for building `kind` with its top-left tile at `site`, built by `builder` ("The site check").
     /// Changes nothing. A builder that doesn't exist counts as nobody's: no fog rules, and nothing of its own ignored.
     pub fn check_site(&self, kind: u8, site: (i32, i32), builder: UnitId) -> SiteCheck {
+        self.site_check(kind, site, builder, true)
+    }
+
+    /// The site check made when a player's build command is carried out in the command turn (build-train spec,
+    /// "Carrying out a player's build command", round-60 errata): the same check **without** the unexplored test,
+    /// which is never made while commands are carried out (`human01-basics-9500` n = 19).
+    pub fn check_site_in_turn(&self, kind: u8, site: (i32, i32), builder: UnitId) -> SiteCheck {
+        self.site_check(kind, site, builder, false)
+    }
+
+    fn site_check(&self, kind: u8, site: (i32, i32), builder: UnitId, unexplored_test: bool) -> SiteCheck {
         let s = self.stats_of(kind);
         let size = (s.size.0 as i32, s.size.1 as i32);
         let tiles = || (0..size.1).flat_map(move |dy| (0..size.0).map(move |dx| (site.0 + dx, site.1 + dy)));
@@ -119,7 +131,10 @@ impl World {
         let b = self.unit(builder);
         let owner = b.map(|u| u.owner);
         // 3. Unexplored.
-        if owner == Some(self.vision.local) && !self.site_explored(site, (size.0 as u8, size.1 as u8)) {
+        if unexplored_test
+            && owner == Some(self.vision.local)
+            && !self.site_explored(site, (size.0 as u8, size.1 as u8))
+        {
             return SiteCheck::Unexplored;
         }
         // 4. The building's spacing rule.
@@ -481,6 +496,22 @@ mod tests {
         w.rules.reveal_map = false;
         let other = w.spawn(PEASANT, 1, (0, 0), 0).unwrap();
         assert_eq!(w.check_site(FARM, (x, 10), other), SiteCheck::Blocked);
+    }
+
+    /// Round-60 errata (build-train spec, "Carrying out a player's build command"; `human01-basics-9500` n = 19): the
+    /// check made in the command turn has no unexplored test; everything else is the same.
+    #[test]
+    fn the_command_turn_check_has_no_unexplored_test() {
+        let (mut w, p) = town();
+        w.rules.reveal_map = false;
+        w.reveal(0, (10, 10), 3);
+        let x = (10..30)
+            .find(|&x| !w.vision.unexplored(x, 10) && w.vision.unexplored(x + 1, 10))
+            .unwrap();
+        assert_eq!(w.check_site(FARM, (x, 10), p), SiteCheck::Unexplored);
+        assert_eq!(w.check_site_in_turn(FARM, (x, 10), p), SiteCheck::Allowed);
+        w.terrain.set_bits(x, 10, bits::OBSTACLE);
+        assert_eq!(w.check_site_in_turn(FARM, (x, 10), p), SiteCheck::Blocked);
     }
 
     #[test]

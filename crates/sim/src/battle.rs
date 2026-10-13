@@ -13,7 +13,7 @@ use tidewater_formats::udta::flags as udta_flags;
 
 use crate::TILE_PX;
 use crate::combat::{self, missile};
-use crate::movement::{Goal, Walk, building_goal, chebyshev};
+use crate::movement::{Goal, Walk, chebyshev};
 use crate::slots;
 use crate::spells::{Fx, Line};
 use crate::terrain::bits;
@@ -212,7 +212,8 @@ impl World {
     fn strike_goal(&self, u: &Unit, t: &Unit) -> Goal {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
-        let goal = if t.building { building_goal(u.tile, t) } else { t.tile };
+        // Round-60 errata: a shore building is aimed at by its shore corner goal ([`World::target_goal`]).
+        let goal = self.target_goal(u, t);
         Goal {
             tile: goal,
             radius: reach,
@@ -232,11 +233,8 @@ impl World {
         // on it would: the footprint tile of the building goal rule, with the building's goal zone (its footprint
         // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile; round-59 errata
         // (`orc5-40000`): with the target's goal zone too, not the 3 x 3 around its tile.
-        let tile = if t.building {
-            building_goal(self.units[i].tile, t)
-        } else {
-            t.tile
-        };
+        // Round-60 errata: a shore building by its shore corner goal ([`World::target_goal`]).
+        let tile = self.target_goal(&self.units[i], t);
         let g = Goal {
             zone: Some(goal_zone(t)),
             ..Goal::tile(tile, 0)
@@ -325,7 +323,13 @@ impl World {
     /// attack range.
     pub(crate) fn within_strike_reach(&self, u: &Unit, t: &Unit) -> bool {
         let up = self.players[u.owner as usize].upgrades;
-        gap(u, t) <= combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32
+        let range = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
+        // Round-60 errata, "Reach" (`orc9-orc09-shore-build-3000` archer 1476, n = 343): a unit that is neither a sea
+        // nor an air unit measures its reach to a shore building's shore corner goal.
+        if self.aims_at_shore_corner(u, t) {
+            return chebyshev(u.tile, self.target_goal(u, t)) <= range;
+        }
+        gap(u, t) <= range
     }
 
     /// Whether the cooldown test would restart `u`'s attack animation ([`World::cooling_down`]), without doing it.

@@ -8,7 +8,7 @@ use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
 
 use crate::economy::{Event, Shortage};
-use crate::movement::{Goal, Walk, building_goal, chebyshev};
+use crate::movement::{Goal, Walk, chebyshev};
 use crate::world::{Order, Unit, UnitId, World};
 
 /// Hit points one run adds.
@@ -52,7 +52,7 @@ impl World {
         };
         // 3. Not arrived: move toward the target.
         let (u, t) = (&self.units[i], &self.units[ti]);
-        let goal = if t.building { building_goal(u.tile, t) } else { t.tile };
+        let goal = self.target_goal(u, t); // Round-60 errata: a shore building by its shore corner goal.
         if chebyshev(u.tile, goal) > RADIUS {
             let zone = (
                 t.tile.0 - 1,

@@ -8,7 +8,7 @@
 //! goes idle with the immediate order 2. The blast's cosmetic explosion effects are owned by the demolisher. Order 17
 //! turns the unit to the tile on every run, even while its attack animation is already playing.
 
-use crate::movement::{Goal, Walk, building_goal, chebyshev};
+use crate::movement::{Goal, Walk, chebyshev};
 use crate::sound::Sound;
 use crate::terrain::{bits, region};
 use crate::world::{Layer, Order, UnitId, World};
@@ -110,7 +110,8 @@ impl World {
         let g = match o {
             Order::Demolish { at: Some(t), .. } => {
                 let Some(t) = self.unit(t) else { return };
-                let goal = if t.building { building_goal(u.tile, t) } else { t.tile };
+                // Round-60 errata: a shore building by its shore corner goal ([`World::target_goal`]).
+                let goal = self.target_goal(u, t);
                 Goal {
                     tile: goal,
                     radius: DEMOLISH_RADIUS,

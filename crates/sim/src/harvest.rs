@@ -528,7 +528,9 @@ impl World {
             Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile).map(|t| self.pull_back(i, t)),
             // A tree tile is already the pulled-back goal.
             Some(Order::Harvest { tree, .. }) => Some(tree),
-            // Round-40 errata: a build order aims at the site's top-left tile, not the build walk's goal tile.
+            // Round-60 errata (static study): a build order aims at the build goal the command stored (the building
+            // goal or shore corner goal, pulled back), the tile the worker also faces (`come_out_face`).
+            Some(Order::Build { goal: Some(g), .. }) => Some(g),
             Some(Order::Build { site, .. }) => Some(site),
             // Round-50 errata (`human8-10000` peasant 1508, n = 2486): a repair job aims at the building's top-left
             // tile, and the worker faces the building as any come-out faces its target.

@@ -36,6 +36,16 @@ impl World {
             return None;
         }
         let owner = u.owner;
+        // Round-60 errata (pathfinding spec, "Shore building"; static study): a shore site with no footprint corner
+        // in the worker's region fails silently: no order, nothing paid.
+        let s = self.stats_of(kind);
+        if s.flags & flags::SHORE_BUILDING != 0
+            && self
+                .shore_corner(u.tile, site, (s.size.0 as i32, s.size.1 as i32))
+                .is_none()
+        {
+            return None;
+        }
         if self.computer_player(owner) {
             let c = cost(&self.stats_of(kind));
             if !self.afford_or_tell(owner, c, false) {
@@ -55,9 +65,36 @@ impl World {
         })
     }
 
+    /// A build command sent by a player, carried out in the command turn (round-60 errata, "Carrying out a player's
+    /// build command"; `orc9-orc09-shore-build-3000` peon 1482, n = 26): it must be valid (the site on the map, the
+    /// type a building of the builder's race; the caller has checked that the builder is the sender's own unit), then
+    /// the site check runs without the unexplored test, then the affordability check. On a failure the builder gets no
+    /// order and nothing is paid. Otherwise the build goes ahead as [`World::build_command`].
+    ///
+    /// Not yet here: the race part of the validity test (no spec says how a building type's race is known); only
+    /// "a building" is checked. Our reading: a failed site check tells the builder's owner with [`Event::CantPlace`]
+    /// and a shortage with [`Event::CantAfford`], the client showing only the local player's.
+    pub(crate) fn player_build_command(&mut self, i: usize, kind: u8, site: (i32, i32)) -> Option<Order> {
+        let u = &self.units[i];
+        let (owner, id) = (u.owner, u.id);
+        let s = self.stats_of(kind);
+        let on_map = self.terrain.contains(site.0, site.1);
+        if !on_map || s.flags & flags::BUILDING == 0 {
+            return None;
+        }
+        if self.check_site_in_turn(kind, site, id) != crate::site::SiteCheck::Allowed {
+            self.events.push(Event::CantPlace { player: owner, kind });
+            return None;
+        }
+        if !self.afford_or_tell(owner, cost(&s), false) {
+            return None;
+        }
+        self.build_command(i, kind, site)
+    }
+
     /// The build walk's goal ("Placing a building"), before any pull-back: a tile of the planned footprint, worked
     /// out from the worker's current tile as if the building already stood at `site`. An oil platform is aimed at its
-    /// top-left tile plus (1, 1); a shore building by the shore rule ([`World::shore_build_goal`]); any other
+    /// top-left tile plus (1, 1); a shore building by the shore rule ([`World::shore_goal`]); any other
     /// building by the building goal rule (pathfinding spec).
     pub(crate) fn build_goal(&self, i: usize, kind: u8, site: (i32, i32)) -> (i32, i32) {
         let s = self.stats_of(kind);
@@ -66,26 +103,28 @@ impl World {
         }
         let size = (s.size.0 as i32, s.size.1 as i32);
         if s.flags & flags::SHORE_BUILDING != 0 {
-            return self.shore_build_goal(i, site, size);
+            return self.shore_goal(self.units[i].tile, site, size);
         }
         footprint_goal(self.units[i].tile, site, size)
     }
 
-    /// Pathfinding spec, "Shore building (build goal)" (round-59 errata, `mp-frosty-fjords-bne-30000`): the planned
-    /// footprint's top-left tile if it is in the worker's land region; else the first corner in that region, tried
-    /// bottom-right, top-right, bottom-left, top-left; else the top-left tile. A worker type with the sea or air flag
-    /// makes no corner test and gets the top-left tile.
-    fn shore_build_goal(&self, i: usize, site: (i32, i32), size: (i32, i32)) -> (i32, i32) {
-        let u = &self.units[i];
-        if self.stats_of(u.kind).flags & (flags::SEA | flags::AIR) != 0 {
-            return site;
-        }
-        let mine = self.terrain.region(u.tile.0, u.tile.1);
+    /// Pathfinding spec, "Shore building" (round-59 errata, `mp-frosty-fjords-bne-30000`; round-60 errata): the
+    /// footprint's top-left tile if it is in the land region of `from` (the unit's recorded tile); else the first
+    /// corner in that region, tried bottom-right, top-right, bottom-left, top-left, each checked against the map
+    /// bounds first. `None` when no corner is in the region.
+    pub(crate) fn shore_corner(&self, from: (i32, i32), site: (i32, i32), size: (i32, i32)) -> Option<(i32, i32)> {
+        let mine = self.terrain.region(from.0, from.1);
         let (x1, y1) = (site.0 + size.0 - 1, site.1 + size.1 - 1);
-        [site, (x1, y1), (x1, site.1), (site.0, y1)]
+        [site, (x1, y1), (x1, site.1), (site.0, y1), site]
             .into_iter()
-            .find(|c| self.terrain.region(c.0, c.1) == mine)
-            .unwrap_or(site)
+            .find(|c| self.terrain.contains(c.0, c.1) && self.terrain.region(c.0, c.1) == mine)
+    }
+
+    /// The shore corner goal: [`World::shore_corner`], else the top-left tile. It is the goal of every builder of a
+    /// shore building (round-60 errata: no sea or air test) and of a unit that is neither a sea nor an air unit
+    /// targeting one.
+    pub(crate) fn shore_goal(&self, from: (i32, i32), site: (i32, i32), size: (i32, i32)) -> (i32, i32) {
+        self.shore_corner(from, site, size).unwrap_or(site)
     }
 
     /// The arrival radius of a build walk: 0, or 1 for a land worker and a shore building (movement spec, "The +1").
@@ -679,7 +718,10 @@ mod tests {
             }
         }
         let p = w.spawn(PEASANT, 1, (12, 2), 0).unwrap();
-        build(&mut w, 1, p, (20, 20));
+        // The worker AI's build job (a player's build command would fail its site check in the command turn).
+        let i = w.index(p).unwrap();
+        let o = w.build_command(i, kind::FARM, (20, 20)).unwrap();
+        w.command(i, o);
         for _ in 0..300 {
             w.step(&[]);
         }
@@ -687,6 +729,39 @@ mod tests {
         assert!(!matches!(u.order, Order::Build { .. }), "{:?} at {:?}", u.order, u.tile);
         assert_eq!(farm_at(&w, (20, 20)), None);
         assert_eq!((w.players[1].gold, w.players[1].lumber), (500, 750));
+    }
+
+    /// Round-60 errata, "Carrying out a player's build command" (the `orc9-orc09-shore-build-3000` peon 1482 vector,
+    /// n = 26, and the static affordability row): a command whose site fails the check, or that the player can't
+    /// afford when it is carried out, gives the builder no order and pays nothing.
+    #[test]
+    fn a_player_build_command_is_checked_when_carried_out() {
+        let (mut w, p) = town();
+        w.terrain.set_bits(15, 15, bits::OBSTACLE);
+        build(&mut w, 0, p, (14, 14));
+        let u = w.unit(p).unwrap();
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert!(w.events.iter().any(|e| matches!(e, Event::CantPlace { player: 0, .. })));
+        assert_eq!(w.players[0].gold, 1000);
+        w.players[0].gold = 100;
+        build(&mut w, 0, p, (8, 8));
+        let u = w.unit(p).unwrap();
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert!(
+            w.events
+                .iter()
+                .any(|e| matches!(e, Event::CantAfford { player: 0, .. }))
+        );
+        assert_eq!(w.players[0].gold, 100);
+        // Affordable and clear: the build goes ahead.
+        w.players[0].gold = 1000;
+        build(&mut w, 0, p, (8, 8));
+        let u = w.unit(p).unwrap();
+        assert!(
+            matches!(u.pending.unwrap_or(u.order), Order::Build { .. }),
+            "{:?}",
+            u.order
+        );
     }
 
     #[test]
@@ -767,16 +842,61 @@ mod tests {
         assert_eq!(w.build_goal(i, SHORE, site), tr);
         set_region(&mut w, tr, other);
         assert_eq!(w.build_goal(i, SHORE, site), bl);
-        // No corner in the worker's region: the top-left tile.
+        // No corner in the worker's region: the top-left tile, and a build command fails silently (round-60 errata):
+        // no order, nothing paid.
         set_region(&mut w, bl, other);
         assert_eq!(w.build_goal(i, SHORE, site), tl);
-        // A sea or air worker type: the top-left tile with no corner test.
+        assert_eq!(w.shore_corner((5, 9), site, (3, 3)), None);
+        let gold = w.players[0].gold;
+        assert_eq!(w.build_command(i, SHORE, site), None);
+        assert_eq!(w.players[0].gold, gold);
+        // Round-60 errata: the build case has no sea or air test; every builder makes the corner test.
         set_region(&mut w, br, mine);
         assert_eq!(w.build_goal(i, SHORE, site), br);
         for f in [flags::SEA, flags::AIR] {
             w.stats.0[PEASANT as usize].flags = flags::PEON | f;
-            assert_eq!(w.build_goal(i, SHORE, site), tl, "{f:#x}");
+            assert_eq!(w.build_goal(i, SHORE, site), br, "{f:#x}");
         }
+        // Corners off the map are skipped: a footprint hanging off the right edge finds its bottom-left corner.
+        let edge = (w.terrain.width as i32 - 2, 5);
+        let mut w2 = w.clone();
+        for t in [edge, (edge.0 + 1, 5), (edge.0, 7), (edge.0 + 1, 7)] {
+            if w2.terrain.contains(t.0, t.1) {
+                set_region(&mut w2, t, other);
+            }
+        }
+        set_region(&mut w2, (edge.0, 7), mine);
+        assert_eq!(w2.shore_corner((5, 9), edge, (3, 3)), Some((edge.0, 7)));
+    }
+
+    /// Orders spec, "Reach" and movement spec, arrival at a shore building (round-60 vectors, scaled from the
+    /// `orc9-orc09-shore-build-3000` archer): a land attacker of range 4 measures to the shore corner goal, not the
+    /// footprint; a sea or air attacker measures to the footprint.
+    #[test]
+    fn reach_to_a_shore_building_is_measured_to_its_corner() {
+        let (mut w, _) = shore_town();
+        const ARCHER: u8 = 0;
+        w.stats.0[ARCHER as usize].flags = flags::LAND;
+        w.stats.0[ARCHER as usize].attack_range = 4;
+        let site = (10, 5);
+        let yard = w.spawn(SHORE, 1, site, 0).unwrap();
+        let a = w.spawn(ARCHER, 0, (15, 10), 0).unwrap();
+        let mine = w.terrain.region(15, 10).unwrap();
+        // Only the bottom-left corner (10, 7) is in the archer's region.
+        for t in [(10, 5), (12, 5), (12, 7)] {
+            set_region(&mut w, t, mine + 1);
+        }
+        let reach = |w: &World| w.within_strike_reach(w.unit(a).unwrap(), w.unit(yard).unwrap());
+        // At (15, 10) the footprint is 3 away but the corner 5: not there.
+        assert!(!reach(&w));
+        // At (14, 10) the corner is 4 away: in reach.
+        let i = w.index(a).unwrap();
+        w.units[i].tile = (14, 10);
+        assert!(reach(&w));
+        // A sea or air attacker measures to the footprint.
+        w.units[i].tile = (15, 10);
+        w.stats.0[ARCHER as usize].flags = flags::SEA;
+        assert!(reach(&w));
     }
 
     /// Pathfinding spec, "Goal pulled back" (round-59 errata, the `mp-frosty-fjords-bne-30000` peasant 1560 vector):

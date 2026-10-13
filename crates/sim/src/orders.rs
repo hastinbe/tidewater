@@ -111,7 +111,7 @@ impl World {
         }
     }
 
-    fn flags_of_unit(&self, u: &Unit) -> u32 {
+    pub(crate) fn flags_of_unit(&self, u: &Unit) -> u32 {
         self.stats_of(u.kind).flags
     }
 
@@ -217,6 +217,9 @@ impl World {
         // The command carries its target unit, if any ("Commands"): a unit standing on the target tile isn't looked
         // up, so a critter wandering onto another unit's tile gets order 3 (Human04 trace, n = 82).
         let target = target.filter(|&t| t != u.id);
+        // Round-60 errata, step 2: with no target unit, a gold mine (or the unit's own oil platform) on the goal tile
+        // becomes the target of a worker (tanker) that can harvest it.
+        let target = target.or_else(|| self.smart_building(u, tile));
         if self.is_transport(u) {
             return Some(self.transport_command(i, target, tile, false));
         }
@@ -241,6 +244,26 @@ impl World {
             Some(t) => Order::Follow { target: t.id },
             None => Order::Move { goal: tile },
         })
+    }
+
+    /// "Smart move" step 2 (round-60 errata; `orc9-orc09-shore-build-3000` peon 1478, n = 599, for the gold mine;
+    /// static study for the tanker): with no target unit, the building on the goal tile becomes the target when it is
+    /// a gold mine and the unit a worker in gold mode not carrying gold, or an oil platform of the unit's own player and
+    /// the unit a tanker not carrying oil. Anything else gives no target.
+    pub(crate) fn smart_building(&self, u: &Unit, tile: (i32, i32)) -> Option<UnitId> {
+        if u.carrying {
+            return None;
+        }
+        let at = self.occupant(Layer::Land, tile.0, tile.1).and_then(|t| self.unit(t))?;
+        let (f, af) = (self.flags_of_unit(u), self.flags_of_unit(at));
+        let takes = if f & flags::PEON != 0 {
+            u.gather == crate::world::Gather::Gold && af & flags::MINE != 0
+        } else if f & flags::TANKER != 0 {
+            af & flags::OIL_SOURCE != 0 && at.owner == u.owner
+        } else {
+            false
+        };
+        takes.then_some(at.id)
     }
 
     /// The smart move's wait cap ("Commands"): a waiting unit's wait is cut to 40 cycles for a computer player's
@@ -638,7 +661,14 @@ impl World {
             return false;
         }
         if chebyshev(u.tile, t_tile) > 1 {
-            if matches!(self.move_toward(i, Goal::tile(t_tile, 1)), Walk::NoPath) {
+            // Round-60 errata (pathfinding spec, "Step 1"; static study): the walk's order holds a target unit, so its
+            // goal zone is the target's widened footprint.
+            let zone = self.unit(target).map(crate::battle::goal_zone);
+            let g = Goal {
+                zone,
+                ..Goal::tile(t_tile, 1)
+            };
+            if matches!(self.move_toward(i, g), Walk::NoPath) {
                 self.stop(i);
             }
             return false;
@@ -759,20 +789,11 @@ impl World {
         combat::splash(self.stats_of(u.kind).missile).is_some_and(|min| distance(u.tile, t) < min as i32 - 1)
     }
 
-    /// The acquisition kind check of the candidate skip list: [`World::can_target_kind`], plus the transport-on-shore
-    /// rule of the attack command's kind check ([`World::can_hit_kind`]).
-    ///
-    /// PROVISIONAL (round-59 errata): a transport standing on shore water can be picked by a searcher that can target
-    /// land or sea. Its only evidence is one uncommitted capture (`orc12-30000` n = 26982); drop the transport branch
-    /// here if a re-capture doesn't confirm it.
+    /// The acquisition kind check of the candidate skip list and the attacker seed: the attack command's kind check
+    /// ([`World::can_hit_kind`]) in full, first match wins (round-60 errata, "Checks on an attack command"; the
+    /// transport-on-shore case is traced in acquisition, `orc12-30000` n = 26982, re-captured identically in round 60).
     fn acquire_kind(&self, u: &Unit, t: &Unit) -> bool {
-        if self.can_target_kind(u, t) {
-            return true;
-        }
-        self.stats_of(u.kind).flags & flags::SUBMARINE == 0
-            && self.flags_of_unit(t) & flags::TRANSPORT != 0
-            && self.terrain.word(t.tile.0, t.tile.1) & crate::terrain::bits::SHORE != 0
-            && self.stats_of(u.kind).can_target & 3 != 0
+        self.can_hit_kind(u, t)
     }
 
     /// Whether `t` passes the candidate skip list for searcher `u` ("A candidate is skipped if").
@@ -1203,9 +1224,16 @@ impl World {
         // transport takes the transport outcome (landing, order 30, on a shore tile: `xorc8-10000` transport 1423,
         // n = 6177); with no target unit and no mine or platform the harvest outcomes don't, so every other unit gets
         // a move (order 3), even next to a forest.
+        // Round-60 errata: the smart move's step 2 applies, so a gold-mode worker not carrying gold whose flee tile
+        // is a gold mine's harvests it (`orc9-orc09-shore-build-3000` peon 1478, n = 599), as would a tanker on its
+        // own player's oil platform (static study). That trace's peon is a player's builder that never had a harvest
+        // command, so ours is in no gather mode there and gets a move: an open question (the row stops at n = 598).
         self.cap_smart_wait(i);
+        let mine = self.smart_building(&self.units[i], to);
         let o = if self.is_transport(&self.units[i]) {
             self.transport_command(i, None, to, false)
+        } else if let Some(o) = mine.and_then(|m| self.harvest_command(i, Some(m), to)) {
+            o
         } else {
             Order::Move { goal: to }
         };
@@ -3048,6 +3076,86 @@ mod tests {
         }
     }
 
+    /// Round-60 errata, "Smart move" step 2 (`orc9-orc09-shore-build-3000` peon 1478 at n = 599, and the static
+    /// tanker row): with no target unit, a gold mine on the goal tile is the target of a gold-mode worker not carrying
+    /// gold, and an oil platform of the unit's own player that of a tanker not carrying oil; nothing else is.
+    #[test]
+    fn a_smart_move_onto_a_mine_or_own_platform_takes_it_as_the_target() {
+        const MINE: u8 = 0x5c;
+        const TANKER: u8 = 0x1a;
+        const PLATFORM: u8 = 0x5f;
+        let mut w = map();
+        for (k, f) in [
+            (MINE, flags::BUILDING | flags::MINE),
+            (PLATFORM, flags::BUILDING | flags::OIL_SOURCE),
+        ] {
+            w.stats.0[k as usize] = w.stats.0[FARM as usize];
+            w.stats.0[k as usize].flags = f;
+        }
+        w.stats.0[TANKER as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[TANKER as usize].flags = flags::LAND | flags::TANKER;
+        let mine = w.spawn(MINE, slots::NEUTRAL, (10, 10), 0).unwrap();
+        let own = w.spawn(PLATFORM, 0, (2, 10), 0).unwrap();
+        let theirs = w.spawn(PLATFORM, 1, (2, 2), 0).unwrap();
+        let p = w.spawn(PEASANT, 0, (5, 5), 0).unwrap();
+        let t = w.spawn(TANKER, 0, (6, 5), 0).unwrap();
+        let mut peon = w.unit(p).unwrap().clone();
+        peon.gather = crate::world::Gather::Gold;
+        assert_eq!(w.smart_building(&peon, (10, 10)), Some(mine));
+        assert_eq!(w.smart_building(&peon, (12, 12)), None, "off the footprint");
+        let carrying = Unit {
+            carrying: true,
+            ..peon.clone()
+        };
+        assert_eq!(w.smart_building(&carrying, (10, 10)), None);
+        let lumber = Unit {
+            gather: crate::world::Gather::Lumber,
+            ..peon.clone()
+        };
+        assert_eq!(w.smart_building(&lumber, (10, 10)), None);
+        let tanker = w.unit(t).unwrap().clone();
+        assert_eq!(w.smart_building(&tanker, (2, 10)), Some(own));
+        assert_eq!(w.smart_building(&tanker, (2, 2)), None, "another player's platform");
+        assert_eq!(w.smart_building(&tanker, (10, 10)), None);
+        let _ = theirs;
+    }
+
+    /// Round-60 errata, "Order 12 with no route" step 3 (the `orc12-30000` juggernaut 1439 vector, n = 29156): a
+    /// marked unit whose order 12 loses its target in its own logic run, its remembered patrol taking over in that
+    /// run, has the mark cleared at the end of the update. A pending order taking over before the logic runs leaves it.
+    #[test]
+    fn a_take_over_caused_by_the_logic_run_clears_the_mark() {
+        for pending in [false, true] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+            let gone = w.spawn(FOOTMAN, 0, (6, 5), 0).unwrap();
+            let gi = at(&w, gone);
+            w.units[gi].dying = true;
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = Order::Chase { target: gone };
+            u.pending = pending.then_some(Order::Idle);
+            u.remembered = Some(Remembered::Patrol {
+                to: (5, 12),
+                back: (5, 5),
+            });
+            u.skip_search = true;
+            let fx = crate::anim::Effects {
+                step_done: true,
+                ..Default::default()
+            };
+            w.order(i, fx);
+            let u = &w.units[i];
+            if pending {
+                assert_eq!(u.order, Order::Idle);
+                assert!(u.skip_search, "a pending take-over leaves the mark");
+            } else {
+                assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
+                assert!(!u.skip_search, "the logic run's own take-over clears the mark");
+            }
+        }
+    }
+
     /// Round-54 errata, "Order 12 with no route": the take-over makes no turn and no strike decision (shown by
     /// running it with the follow-up logic run held back); order 12's logic run in the same update then skips the
     /// search because of the mark, turns toward the target and starts the cooldown.
@@ -3376,9 +3484,9 @@ mod tests {
         }
     }
 
-    /// Round-59 errata, "A candidate is skipped if" (PROVISIONAL, `orc12-30000` n = 26982 and the static row): a
-    /// transport standing on shore water isn't skipped for its kind by a searcher that can target land or sea; off the
-    /// shore a land-only searcher still skips it.
+    /// Round-59 errata, "A candidate is skipped if", confirmed in round 60 (`orc12-30000` n = 26982 and the static
+    /// row): a transport standing on shore water isn't skipped for its kind by a searcher that can target land or sea;
+    /// off the shore a land-only searcher still skips it. The check is the attack command's, in full.
     #[test]
     fn a_transport_on_shore_water_is_a_candidate_for_a_land_searcher() {
         const BOAT: u8 = 0x1c;
@@ -3465,6 +3573,30 @@ mod tests {
         };
         assert_eq!(goal.zone, Some((8, 2, 10, 4)));
         w.head_for(i, g);
+        zone_walk.move_toward(i, goal);
+        assert_eq!(w.units[i].path, zone_walk.units[i].path);
+        assert_eq!(w.units[i].tile, zone_walk.units[i].tile);
+    }
+
+    /// Round-60 errata, pathfinding spec "Step 1" (static study vector): a follow (order 6) of a 2 x 2 unit walks
+    /// with the followed unit's footprint widened by one tile as its goal zone, not the 3 x 3 around its tile.
+    #[test]
+    fn a_follow_walks_with_the_targets_goal_zone() {
+        const BIG: u8 = 0x10;
+        let mut w = map();
+        w.stats.0[BIG as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[BIG as usize].size = (2, 2);
+        let a = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
+        let b = w.spawn(BIG, 0, (12, 3), 0).unwrap();
+        let i = at(&w, a);
+        w.units[i].order = Order::Follow { target: b };
+        let mut zone_walk = w.clone();
+        let goal = Goal {
+            zone: Some(crate::battle::goal_zone(w.unit(b).unwrap())),
+            ..Goal::tile((12, 3), 1)
+        };
+        assert_eq!(goal.zone, Some((11, 2, 14, 5)));
+        w.follow(i, b);
         zone_walk.move_toward(i, goal);
         assert_eq!(w.units[i].path, zone_walk.units[i].path);
         assert_eq!(w.units[i].tile, zone_walk.units[i].tile);

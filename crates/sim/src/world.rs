@@ -803,9 +803,6 @@ pub struct World {
     pub start: crate::setup::Started,
     /// The cheat flags (cheats spec); hashed once any is on.
     pub cheats: crate::cheats::Cheats,
-    /// Take-overs counted so far, to tell whether a logic run ended in one (the order-12 skip mark). Not game state:
-    /// not stored and left out of the hash.
-    pub(crate) takeovers: u32,
     /// Order-12 restarts by the no-route fallback counted so far, to tell whether a move step ended in one (the skip
     /// mark). Not game state: not stored and left out of the hash.
     pub(crate) restarts: u32,
@@ -921,7 +918,6 @@ impl World {
             sounds: Default::default(),
             stale: BTreeMap::new(),
             casts: Default::default(),
-            takeovers: 0,
             restarts: 0,
             fallback_run: false,
             updating: None,
@@ -1466,7 +1462,8 @@ impl World {
                 };
                 // Orders spec, "A player's command forgets the attacker" (round-56 static correction): a build command
                 // takes its own path, which keeps the recorded attacker and leaves the remembered order as it is.
-                if let Some(o) = self.build_command(i, kind, tile) {
+                // Round-60 errata: checked first, in the command turn ("Carrying out a player's build command").
+                if let Some(o) = self.player_build_command(i, kind, tile) {
                     self.command(i, o);
                 }
                 return;

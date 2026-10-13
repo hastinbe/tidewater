@@ -203,6 +203,27 @@ impl World {
         g
     }
 
+    /// The goal tile of an order aimed at target `t` (movement spec, "Arriving"): a mobile unit's tile; a building's
+    /// footprint tile by the building goal rule; for a unit that is neither a sea nor an air unit targeting a shore
+    /// building, the shore corner goal (round-60 errata; pathfinding spec, "Shore building"; `orc9-orc09-shore-build-3000`
+    /// n = 343).
+    pub(crate) fn target_goal(&self, u: &Unit, t: &Unit) -> (i32, i32) {
+        if !t.building {
+            t.tile
+        } else if self.aims_at_shore_corner(u, t) {
+            self.shore_goal(u.tile, t.tile, (t.size.0 as i32, t.size.1 as i32))
+        } else {
+            building_goal(u.tile, t)
+        }
+    }
+
+    /// Whether `u` aims at shore building `t` by its shore corner: `u`'s type is neither a sea nor an air unit.
+    pub(crate) fn aims_at_shore_corner(&self, u: &Unit, t: &Unit) -> bool {
+        t.building
+            && self.flags_of_unit(t) & flags::SHORE_BUILDING != 0
+            && self.flags_of_unit(u) & (flags::SEA | flags::AIR) == 0
+    }
+
     /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec, round-3 errata).
     pub(crate) fn go_idle(&mut self, i: usize) {
         let u = &mut self.units[i];
@@ -263,12 +284,15 @@ impl World {
         // update began. A move step whose route search finds nothing runs order 12's fallback, whose attack-range
         // search runs whatever the mark; a restart there sets the mark again, and the update, which began marked and
         // took no step, clears it at its end. A mark first set in this update lasts until the next one.
-        let (marked, tile, takeovers) = (self.units[i].skip_search, self.units[i].tile, self.takeovers);
+        // Round-60 errata (`orc12-30000` n = 29162): only the pending take-over above, before the logic runs, leaves
+        // the mark set; a take-over that this run itself causes (the order loses its target and the resumed or idle
+        // order takes over) still clears it.
+        let (marked, tile) = (self.units[i].skip_search, self.units[i].tile);
         let restarts = self.restarts;
         let move_step = marked && self.out_of_reach(i);
         self.order_logic(i);
         let stepped = move_step && matches!(self.units[i].order, Order::Chase { .. }) && self.restarts == restarts;
-        if marked && !stepped && self.units[i].tile == tile && self.takeovers == takeovers {
+        if marked && !stepped && self.units[i].tile == tile {
             self.units[i].skip_search = false;
         }
     }
@@ -318,7 +342,6 @@ impl World {
             o => o,
         };
         let a = crate::orders::order_anim(o);
-        self.takeovers = self.takeovers.wrapping_add(1);
         let u = &mut self.units[i];
         u.order = o;
         u.commanded = false;
@@ -427,10 +450,18 @@ impl World {
             1
         } else if u.blocked >= GIVE_UP {
             // C. Build-train spec, "Placing a building" (round-42 errata): the idle is a pending order.
-            let u = &mut self.units[i];
-            u.blocked = 0;
-            u.pending = Some(Order::Idle);
-            LONG_WAIT
+            self.units[i].blocked = 0;
+            // Round-60 errata (orders spec, "Giving up when blocked"; `xhuman8-25000` troll destroyer 1441,
+            // n = 11284): a remembered patrol or attack-move that resumes is given as a command and made the pending
+            // order, and the unit starts its still animation with wait 1 instead of 15.
+            if let Some(o) = self.resumed(i) {
+                self.units[i].pending = Some(o);
+                self.start_anim(i, anim::STILL);
+                1
+            } else {
+                self.units[i].pending = Some(Order::Idle);
+                LONG_WAIT
+            }
         } else if u.blocked >= LONG_WAIT_FROM {
             drop_path(self); // D
             LONG_WAIT
@@ -961,6 +992,42 @@ mod tests {
         let u = w.unit(f).unwrap();
         assert_eq!((u.blocked, u.tile), (0, (2, 1)));
         until(&mut w, 40, |w| w.unit(f).unwrap().order == Order::Idle);
+    }
+
+    /// Round-60 errata, row C (orders spec, "Giving up when blocked"; the `xhuman8-25000` troll destroyer 1441
+    /// vector, n = 11284): a unit that gives up at the 15th block while it remembers a patrol, its resume countdown 0,
+    /// starts its still animation with wait 1 and gets the patrol as its pending order; with the countdown running it
+    /// gives up as before (idle pending, wait 15).
+    #[test]
+    fn row_c_resumes_a_remembered_patrol_at_once() {
+        for countdown in [0, 5] {
+            let mut w = corridor(10);
+            let f = w.spawn(0, 1, (2, 1), 0).unwrap();
+            let b = w.spawn(5, 1, (3, 1), 0).unwrap();
+            let i = w.index(f).unwrap();
+            let u = &mut w.units[i];
+            u.order = Order::Patrol {
+                to: (7, 1),
+                back: (1, 1),
+            };
+            u.remembered = Some(crate::world::Remembered::Patrol {
+                to: (7, 1),
+                back: (1, 1),
+            });
+            u.resume = countdown;
+            u.blocked = 14;
+            u.path = vec![(3, 1)];
+            w.blocked(i, (3, 1), Some(b), Goal::tile((7, 1), 0));
+            let u = &w.units[i];
+            assert_eq!(u.blocked, 0);
+            if countdown == 0 {
+                assert!(matches!(u.pending, Some(Order::Patrol { .. })), "{:?}", u.pending);
+                assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 1));
+            } else {
+                assert_eq!(u.pending, Some(Order::Idle));
+                assert_eq!(u.script.wait, LONG_WAIT);
+            }
+        }
     }
 
     /// Unit `f` mid-move at `at`, its cached path pointing at `next`.

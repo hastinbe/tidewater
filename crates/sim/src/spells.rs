@@ -421,7 +421,7 @@ impl World {
             return false;
         };
         let owner = self.units[i].owner;
-        let (goal, aim) = if UNIT_SPELLS.contains(&spell) {
+        let (goal, aim, zone) = if UNIT_SPELLS.contains(&spell) {
             let ok = target.and_then(|t| self.unit(t)).filter(|t| {
                 t.present()
                     && Self::detected(t, owner)
@@ -432,12 +432,19 @@ impl World {
                 self.cast_idle(i);
                 return true;
             };
-            (t.tile, (crate::world::facing_tile_of(t), t.centre_px()))
+            // Round-60 errata (pathfinding spec, "Step 1"; static study): the walk toward a target unit uses its
+            // widened footprint as the goal zone.
+            let zone = Some(crate::battle::goal_zone(t));
+            (t.tile, (crate::world::facing_tile_of(t), t.centre_px()), zone)
         } else {
-            (tile, (tile, centre_of_tile(tile)))
+            (tile, (tile, centre_of_tile(tile)), None)
         };
         if let Some(r) = radius(spell) {
-            match self.move_toward(i, Goal::tile(goal, r)) {
+            let g = Goal {
+                zone,
+                ..Goal::tile(goal, r)
+            };
+            match self.move_toward(i, g) {
                 Walk::Arrived => {}
                 // Round-50 errata (`human14-10000` death knight 1577, n = 3740): with no route the caster goes idle
                 // at once, as an immediate order, and its idle logic runs in the same update.
