@@ -49,6 +49,8 @@
   2026-10-13, round-53 errata: a hammer or breath splash takes its effect slot before the splash's damage, so a killed
   unit's explosion comes in a later slot; the strike point first makes the strike reveal of `vision/fog.md`;
   `xorc8-10000` vector.
+  2026-10-13, round-54 errata: the killer forget runs on a missile's shooter whatever its state, so a dead shooter whose
+  missile kills forgets its target; `human13-subs-2000` vector.
 
 ## Behaviour
 
@@ -119,19 +121,21 @@ When damage D from an attacker reaches a target:
   its HP from before the blow, and its recorded target, through the death animation. A target it forgot after a kill of
   its own stays forgotten: a unit that killed its target and has had no new target since dies with no target, even
   though its order was still the attack order (traced: `xhuman12-10000`, `xhuman8-10000`, vectors below). Then, if the
-  attacker is a unit (not a building), it checks **its own** records, whichever units they are: it at once forgets its
-  target (the unit it is attacking for its command) if that unit is now dying, gone or not detected by the attacker's
-  player, and likewise forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's
-  order doesn't change in that step. The victim is dying by then, so it is always forgotten when it is the target or the
-  attacker. This applies to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other
-  than the target, even one of the shooter's own, after which a target that is dying from someone else's kill is
-  forgotten too (traced: `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched;
-  each forgets it on its own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer
-  forgets the victim as its **attacker**; every other unit that recorded the victim as its attacker keeps that record
-  while the victim is dying (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a
-  tower) makes none of these checks and keeps both its records (static study). If the victim is a building with a job
-  running, the job is cancelled at the kill, with its refund (`economy/build-train.md`, "A building killed during a
-  job"). Otherwise the target's HP drops by D.
+  attacker is a unit (not a building), it checks **its own** records, whichever units they are, whatever the attacker's
+  own state (a shooter that is itself dying or dead, its missile still in flight, makes the check too and reports no
+  target from then on; traced: `human13-subs-2000`, vectors below): it at once forgets its target (the unit it is
+  attacking for its command) if that unit is now dying, gone or not detected by the attacker's player, and likewise
+  forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's order doesn't change in
+  that step. The victim is dying by then, so it is always forgotten when it is the target or the attacker. This applies
+  to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other than the target, even one
+  of the shooter's own, after which a target that is dying from someone else's kill is forgotten too (traced:
+  `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched; each forgets it on its
+  own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its
+  **attacker**; every other unit that recorded the victim as its attacker keeps that record while the victim is dying
+  (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a tower) makes none of these
+  checks and keeps both its records (static study). If the victim is a building with a job running, the job is cancelled
+  at the kill, with its refund (`economy/build-train.md`, "A building killed during a job"). Otherwise the target's HP
+  drops by D.
 
 ### How an attack delivers damage
 
@@ -472,6 +476,7 @@ target's centre):
 | A hammer reaches count 8 while every effect slot is in use (static study only) | No splash damage, no draws for hits, no sound, no explosion; the hammer flies on and the count keeps going |
 | `xorc10` (oracle trace), n = 329: the breath of dragon 1562 (type 0x2B; missile in effect slot 3) splashes at pixel (978, 950) | Effect slot 5: kind 0x17 at (978, 950), destination (0, 0), target null, shooter null, damage 0. Units hit: 1513 (40 to 36 HP), 1519 (40 to 27) and 1520 (60 to 58) |
 | `xorc8-10000` (oracle trace), n = 8035: the hammer of gryphon rider 1550 (effect slot 3) splashes at pixel (8, 2898) and kills goblin zeppelin 1400 (type 0x29); slots 4 and up free | Slot 4: the splash's explosion (kind 0x17) at (8, 2898); slot 5: the zeppelin's death explosion (kind 0x17) at (16, 2888) |
+| `human13-subs-2000` (oracle trace): dragon 1436 (type 0x2B, owner 4) dies at n = 1476 with target 1407; its last breath, still in flight, kills gryphon rider 1407 (type 0x2A, owner 1) at n = 1487 | n = 1487: 1436 in order 1, target null (it showed 1407 at n = 1486) |
 
 Impact effects:
 
