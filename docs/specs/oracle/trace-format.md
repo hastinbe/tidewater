@@ -26,6 +26,7 @@
   2026-10-13: multiplayer-launch traces (still version 2): the header's `rules` row, the multiplayer fields
   `launch_path`, `connection`, `map`, `start_seed` and `humans`, and "Multiplayer launch";
   `mp-dark-paths-bne-1000` and `mp-dark-paths-bne-classic-1000` (Classic mode) vectors.
+  2026-10-13, round-57 answers: the start seed's + 4 is exact, not only observed.
 
 ## Behaviour
 
@@ -217,7 +218,9 @@ counter, so the real value varies from run to run; the harness fixes it so that 
 2. At the end of the lobby, the generator is seeded with (`start_seed` + 4) mod 256. The game runs with this seed;
    the setup record's `rng` is the state after setup. The same byte orders the player colours.
 
-The + 4 is the relation that every observed start had between the two counter values. A comparer doesn't need to
+The + 4 is exact: both bytes are the host's message sequence number, and exactly four host messages separate them,
+whatever the timing (static study; every observed start agrees). Any start seed from 0 to 255 occurs in real games,
+so a pinned start is one the game can produce. A comparer doesn't need to
 derive any of this: it takes the setup record as given. The fields say how to repeat the capture.
 
 **What a comparer does:**
