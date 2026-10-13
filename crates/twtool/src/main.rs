@@ -176,9 +176,10 @@ enum Cmd {
     Oracle {
         #[arg(long)]
         install: PathBuf,
-        /// The scenario's map: a path on disk or a name inside the install's archives.
+        /// The scenario's map: a path on disk or a name inside the install's archives. A multiplayer trace names its
+        /// map in its header (a skirmish map in the install's `Maps` folder), which is used when this is left out.
         #[arg(long)]
-        map: String,
+        map: Option<String>,
         /// Campaign mission table entry (as mission select starts it). By default a campaign map's own entry.
         #[arg(long)]
         entry: Option<u8>,
@@ -397,8 +398,9 @@ fn main() -> Result<()> {
                 filter: fields.as_deref().map(oracle::Filter::parse).unwrap_or_default(),
                 seed,
                 input: Vec::new(),
+                adopt_setup: false,
             };
-            if !oracle_cmd(&install, &map, entry, &trace, opts)? {
+            if !oracle_cmd(&install, map.as_deref(), entry, &trace, opts)? {
                 std::process::exit(1);
             }
         }
@@ -929,19 +931,32 @@ fn start_world(inst: &mut Install, pud: &Pud, start: &tidewater_sim::setup::Star
 /// whole trace matched.
 fn oracle_cmd(
     install: &std::path::Path,
-    map: &str,
+    map: Option<&str>,
     entry: Option<u8>,
     trace: &std::path::Path,
     mut opts: oracle::Options,
 ) -> Result<bool> {
     use tidewater_sim::setup::{Game, Setup, Start};
     let (header, records) = oracle::read(oracle::open(trace)?)?;
+    // Trace format, "Multiplayer launch": the map is a skirmish map from the install's `Maps` folder.
+    let mp_map = header
+        .multiplayer
+        .as_ref()
+        .map(|m| install.join("Maps").join(&m.map).to_string_lossy().into_owned());
+    let map = map
+        .map(str::to_string)
+        .or(mp_map)
+        .ok_or_else(|| anyhow::anyhow!("a campaign trace needs --map"))?;
+    let map = map.as_str();
+    // A multiplayer start isn't seeded from the clock ("Start seed").
     let seed = opts
         .seed
+        .or(header.multiplayer.as_ref().map(oracle::Multiplayer::game_seed))
         .or(header.clock)
         .ok_or_else(|| anyhow::anyhow!("the trace used the real clock; give --seed"))?;
     opts.seed = Some(seed);
     opts.input = header.input.clone();
+    opts.adopt_setup = header.multiplayer.is_some();
     let mut inst = Install::open(install)?;
     let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
     let mut setup = match entry {
@@ -952,7 +967,10 @@ fn oracle_cmd(
         None => Setup::for_map(map),
     };
     setup.enhanced = header.enhanced;
-    let start = Start::choose(&pud, &setup, seed)?;
+    let start = match &header.multiplayer {
+        Some(_) => multiplayer_start(&pud, &header, setup, seed)?,
+        None => Start::choose(&pud, &setup, seed)?,
+    };
     let mut w = start_world(&mut inst, &pud, &start)?;
     // Cheats on at setup, by the trace format's names ("Cheat commands", "Names"); the one-shot flags (the two notices
     // without a phrase among them) never stay on, so none is set here.
@@ -978,6 +996,64 @@ fn oracle_cmd(
     let summary = oracle::run(&mut w, records, &opts, &mut out)?;
     oracle::print_summary(&mut out, &summary)?;
     Ok(summary.diverged == 0)
+}
+
+/// Trace format, "Multiplayer launch": the comparer doesn't derive the lobby's choices (start locations, player
+/// numbers) but takes them as given: the players' controllers and races and the local player come from the header,
+/// with the second human as a human player that gives no commands. The resources are the map's, and the generator
+/// starts from the game's seed ((`start_seed` + 4) mod 256), which the map's setup then draws from.
+fn multiplayer_start(
+    pud: &Pud,
+    header: &oracle::Header,
+    setup: tidewater_sim::setup::Setup,
+    seed: u32,
+) -> Result<tidewater_sim::setup::Start> {
+    use tidewater_sim::ai::controller;
+    use tidewater_sim::setup::Start;
+    const PLAYERS: usize = 16;
+    let mut controllers = [controller::NOBODY; PLAYERS];
+    let mut races = [2u8; PLAYERS];
+    for p in 0..PLAYERS {
+        controllers[p] = match header.controllers.get(p).map(String::as_str) {
+            Some("human") => controller::HUMAN,
+            Some("computer") => controller::COMPUTER,
+            Some("passive") => controller::PASSIVE,
+            Some("nobody") | None => controller::NOBODY,
+            Some(c) => anyhow::bail!("player {p}: controller {c:?} in a multiplayer header"),
+        };
+        races[p] = match header.races.get(p).map(String::as_str) {
+            Some("human") => 0,
+            Some("orc") => 1,
+            _ => 2,
+        };
+    }
+    let local = header.local_player;
+    if controllers.get(local as usize) != Some(&controller::HUMAN) {
+        anyhow::bail!("the local player {local} isn't a human player in the header");
+    }
+    let mut resources = [(0, 0, 0); PLAYERS];
+    for (p, r) in resources.iter_mut().enumerate() {
+        let (g, l, o) = pud.start_resources(p);
+        *r = (g as u32, l as u32, o as u32);
+    }
+    let era = match header.era {
+        0 => Era::Forest,
+        1 => Era::Winter,
+        2 => Era::Wasteland,
+        3 => Era::Swamp,
+        e => anyhow::bail!("era {e}"),
+    };
+    Ok(Start {
+        setup,
+        local,
+        race_setting: races[local as usize].min(1),
+        controllers,
+        races,
+        resources,
+        era,
+        rng: tidewater_sim::Rng::new(seed),
+        multiplayer: true,
+    })
 }
 
 /// One run of a unit's animation: (cycles between the first two events, pixels moved between them, cycle of the first).

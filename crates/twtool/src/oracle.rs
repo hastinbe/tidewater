@@ -132,6 +132,30 @@ pub struct Header {
     pub version: u8,
     /// The scenario's commands in file order (version 2; empty for version 1).
     pub input: Vec<Entry>,
+    /// The `rules` row: `"enhanced"` or `"classic"`, matching `enhanced` (absent from older traces).
+    pub rules: Option<String>,
+    /// The multiplayer launch fields ("Multiplayer launch"); `None` for a campaign start.
+    pub multiplayer: Option<Multiplayer>,
+}
+
+/// The header fields of a multiplayer launch (trace format, "Multiplayer launch").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Multiplayer {
+    /// `connection`: `"direct-connect"`.
+    pub connection: String,
+    /// `map`: the scenario file name from the game's `Maps/` folder.
+    pub map: String,
+    /// `start_seed`: the lobby's start seed, 0 to 255.
+    pub start_seed: u8,
+    /// `humans`: human players in the lobby (the traced player and idle ones).
+    pub humans: u8,
+}
+
+impl Multiplayer {
+    /// The seed the game runs with ("Start seed", step 2): (`start_seed` + 4) mod 256.
+    pub fn game_seed(&self) -> u32 {
+        (self.start_seed as u32 + 4) % 256
+    }
 }
 
 fn strings(v: &Value, key: &str) -> Vec<String> {
@@ -166,12 +190,35 @@ impl Header {
             .map(|(i, e)| Entry::parse(e).with_context(|| format!("header input entry {}", i + 1)))
             .collect::<Result<Vec<_>>>()?;
         let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let enhanced = v.get("enhanced").and_then(Value::as_bool).unwrap_or(true);
+        let rules = v.get("rules").and_then(Value::as_str).map(str::to_string);
+        let want = if enhanced { "enhanced" } else { "classic" };
+        if let Some(r) = rules.as_deref()
+            && r != want
+        {
+            bail!("header `rules` {r:?} doesn't match `enhanced` {enhanced}");
+        }
+        // A missing `launch_path` means a campaign start ("Multiplayer launch").
+        let multiplayer = match v.get("launch_path").and_then(Value::as_str) {
+            None => None,
+            Some("multiplayer") => Some(Multiplayer {
+                connection: text("connection"),
+                map: v
+                    .get("map")
+                    .and_then(Value::as_str)
+                    .context("a multiplayer launch without `map`")?
+                    .to_string(),
+                start_seed: u8::try_from(int(&v, "start_seed")?).context("`start_seed` is 0 to 255")?,
+                humans: int(&v, "humans")? as u8,
+            }),
+            Some(p) => bail!("unknown `launch_path` {p:?}"),
+        };
         Ok(Header {
             scenario: text("scenario"),
             launch: text("launch"),
             clock: v.get("clock").and_then(Value::as_u64).map(|c| c as u32),
             speed: int(&v, "speed")? as u8,
-            enhanced: v.get("enhanced").and_then(Value::as_bool).unwrap_or(true),
+            enhanced,
             era: int(&v, "era")? as u8,
             map_size: int(&v, "map_size")? as u32,
             local_player: int(&v, "local_player")? as u8,
@@ -182,6 +229,8 @@ impl Header {
             effect_slots: int(&v, "effect_slots")? as usize,
             version: version as u8,
             input,
+            rules,
+            multiplayer,
         })
     }
 
@@ -207,6 +256,16 @@ impl Header {
         });
         if self.version >= 2 {
             v["input"] = Value::Array(self.input.iter().map(Entry::to_json).collect());
+        }
+        if let Some(r) = &self.rules {
+            v["rules"] = r.clone().into();
+        }
+        if let Some(m) = &self.multiplayer {
+            v["launch_path"] = "multiplayer".into();
+            v["connection"] = m.connection.clone().into();
+            v["map"] = m.map.clone().into();
+            v["start_seed"] = m.start_seed.into();
+            v["humans"] = m.humans.into();
         }
         v.to_string()
     }
@@ -815,7 +874,9 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
                 Cell::Int(m.to.0 as i64),
                 Cell::Int(m.to.1 as i64),
                 Cell::opt(m.target.and_then(slot_of)),
-                Cell::opt(slot_of(m.attacker)),
+                // Trace-format spec (round-56 errata): an effect's shooter is never cleared, even once its slot is
+                // released.
+                Cell::opt(m.shooter),
                 Cell::Int(m.damage as i64),
             ];
             (s, cells)
@@ -898,6 +959,8 @@ pub struct Options {
     pub seed: Option<u32>,
     /// The header's `input`, to check each entry's turn against T(i) (trace format, "When a command runs").
     pub input: Vec<Entry>,
+    /// Take the setup record as given (trace format, "Multiplayer launch"): see [`adopt_setup`].
+    pub adopt_setup: bool,
 }
 
 /// Per field: records that differed, first and last `n`.
@@ -1010,6 +1073,40 @@ fn print_record(out: &mut dyn Write, title: &str, theirs: &Record, diffs: &[Diff
 /// or `--resync-rng`, carrying on as the options say). Setup and turn records are compared without stepping; a turn
 /// record's commands are applied first, in the order it lists them (trace format, "When a command runs": the turn
 /// records are the authoritative timing).
+/// Trace format, "Multiplayer launch": the comparer takes the setup record as given. Our world is set up from the
+/// map and the header's players; the lobby's own draws aren't derived, so the generator's state and what setup drew
+/// for each unit (its facing and its first wait) are taken from the record, for each unit that is the same unit on
+/// both sides (slot, serial, type, owner and tile). Returns a note for each unit in the record that has no such match;
+/// the comparison then reports it.
+pub fn adopt_setup(w: &mut World, theirs: &Record) -> Vec<String> {
+    let at = |name: &str| UNIT_FIELDS.iter().position(|&f| f == name).expect("unit field");
+    let int = |cells: &[Cell], name: &str| match cells[at(name)] {
+        Cell::Int(v) => Some(v),
+        _ => None,
+    };
+    w.rng.state = theirs.rng;
+    let mut notes = Vec::new();
+    for (&slot, cells) in &theirs.units {
+        let same = |u: &tidewater_sim::Unit| {
+            u.slot == slot
+                && Some(u.id.0 as i64) == int(cells, "serial")
+                && Some(u.kind as i64) == int(cells, "type")
+                && Some(u.owner as i64) == int(cells, "owner")
+                && Some(u.tile.0 as i64) == int(cells, "tx")
+                && Some(u.tile.1 as i64) == int(cells, "ty")
+        };
+        let Some(u) = w.units.iter_mut().find(|u| same(u)) else {
+            notes.push(format!("setup: unit slot {slot} has no match in our world"));
+            continue;
+        };
+        if let (Some(facing), Some(wait)) = (int(cells, "facing"), int(cells, "wait")) {
+            u.facing = facing as u8;
+            u.script.wait = wait as u8;
+        }
+    }
+    notes
+}
+
 pub fn run(
     w: &mut World,
     records: impl Iterator<Item = Result<Record>>,
@@ -1033,6 +1130,11 @@ pub fn run(
             break;
         }
         match theirs.kind.as_str() {
+            "setup" if opts.adopt_setup => {
+                for note in adopt_setup(w, &theirs) {
+                    writeln!(out, "note: {note}")?;
+                }
+            }
             "setup" => {}
             "turn" => {
                 // One at a time: a build or job acts on the synced selection as the commands before it left it.
@@ -1675,5 +1777,63 @@ mod tests {
             "{m:?}"
         );
         assert!(!m.iter().any(|s| s.contains("era") || s.contains("map size")), "{m:?}");
+    }
+
+    /// Trace format, "Multiplayer launch": the header's launch fields are read, and the game seed is the start seed
+    /// plus 4, mod 256. A missing `launch_path` is a campaign start.
+    #[test]
+    fn reads_the_multiplayer_launch_header() {
+        let mut h = header();
+        h.rules = Some("enhanced".into());
+        h.multiplayer = Some(Multiplayer {
+            connection: "direct-connect".into(),
+            map: "Synthetic.pud".into(),
+            start_seed: 253,
+            humans: 2,
+        });
+        let back = Header::parse(&h.to_json()).unwrap();
+        assert_eq!(back.rules.as_deref(), Some("enhanced"));
+        let m = back.multiplayer.unwrap();
+        assert_eq!(m, h.multiplayer.clone().unwrap());
+        assert_eq!(m.game_seed(), 1);
+        assert_eq!(Header::parse(&header().to_json()).unwrap().multiplayer, None);
+    }
+
+    #[test]
+    fn rejects_a_rules_mismatch_and_an_unknown_launch_path() {
+        let mut h = header();
+        h.rules = Some("classic".into());
+        assert!(Header::parse(&h.to_json()).is_err(), "classic rules, enhanced true");
+        h.enhanced = false;
+        assert!(Header::parse(&h.to_json()).is_ok());
+        let mut v: Value = serde_json::from_str(&header().to_json()).unwrap();
+        v["launch_path"] = "elsewhere".into();
+        assert!(Header::parse(&v.to_string()).is_err());
+        v["launch_path"] = "multiplayer".into();
+        assert!(Header::parse(&v.to_string()).is_err(), "no `map`");
+    }
+
+    /// A multiplayer start takes the setup record as given: the generator state, and each matched unit's facing and
+    /// wait; an unmatched unit is noted.
+    #[test]
+    fn adopts_the_setup_record() {
+        let mut w = world(7);
+        let mut theirs = snapshot(&w, 0, "setup");
+        theirs.rng = 0x1234;
+        let at = |f: &str| UNIT_FIELDS.iter().position(|&x| x == f).unwrap();
+        let slot = w.units[0].slot;
+        let cells = theirs.units.get_mut(&slot).unwrap();
+        cells[at("facing")] = Cell::Int(5);
+        cells[at("wait")] = Cell::Int(9);
+        let mut stray = cells.clone();
+        stray[at("tx")] = Cell::Int(7);
+        theirs.units.insert(999, stray);
+        let notes = adopt_setup(&mut w, &theirs);
+        assert_eq!(w.rng.state, 0x1234);
+        assert_eq!((w.units[0].facing, w.units[0].script.wait), (5, 9));
+        assert_eq!(
+            notes,
+            vec!["setup: unit slot 999 has no match in our world".to_string()]
+        );
     }
 }
