@@ -15,14 +15,10 @@
 //! orc5, xorc2, xorc4, xorc5, xhuman1, xhuman3, xhuman5, xorc1-20000, xorc10-20000, human2, human3, human9, human11,
 //! orc1, orc7, orc10, orc11, orc12, orc13, xhuman6, xorc9, human8, human14, xhuman8, xhuman7, xhuman9, xorc6, xorc11,
 //! xhuman12, human13, orc14, xhuman11, xorc8, human4-15000, xhuman4-15000, orc9-12000, xhuman10-12000, xorc7-15000,
-//! human8-30000, xorc12-4000, xorc09-death-knight-2500, orc10-sappers-2500, xhuman10-slow-3000 and human13-subs-2000
-//! match in full.
+//! human8-30000, xorc12-4000, xorc09-death-knight-2500, orc10-sappers-2500, xhuman10-slow-3000, human13-subs-2000,
+//! human12-25000, human09-fleet-3000 and xorc11-air-sea-3000 match in full.
 //!
-//! Known gaps (the limit is the last cycle that matches):
-//!
-//! - human12-25000 diverges at n = 16612: an idle tanker hit by an attacker its owner doesn't detect flees in the
-//!   original; the specs ignore such an attacker in that run (open question, round 54).
-//! - human09-fleet-3000 diverges at n = 1507 and xorc11-air-sea-3000 at n = 1643, as expected for round 54.
+//! Known gaps (the limit is the last cycle that matches): none.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -166,10 +162,10 @@ traces! {
     human8_30000: ("human8-30000.jsonl.gz", "Campaign\\Human\\Human08.pud", 14, &[], None),
     xorc12_4000: ("xorc12-4000.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
     xorc09_death_knight_2500: ("xorc09-death-knight-2500.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
-    human12_25000: ("human12-25000.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], Some(16611)),
+    human12_25000: ("human12-25000.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
     orc10_sappers_2500: ("orc10-sappers-2500.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
     xhuman10_slow_3000: ("xhuman10-slow-3000.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     human13_subs_2000: ("human13-subs-2000.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
-    human09_fleet_3000: ("human09-fleet-3000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], Some(1506)),
-    xorc11_air_sea_3000: ("xorc11-air-sea-3000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], Some(1642)),
+    human09_fleet_3000: ("human09-fleet-3000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
+    xorc11_air_sea_3000: ("xorc11-air-sea-3000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
 }
