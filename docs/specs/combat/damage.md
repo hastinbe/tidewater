@@ -53,6 +53,9 @@
   missile kills forgets its target; `human13-subs-2000` vector.
   2026-10-13, round-56 errata: no strike while a command given to the attacker is waiting to take over;
   `orc14-25000` vector.
+  2026-10-13, round-59 errata: the invulnerability cheat keeps a human player's basic damage (piercing 200 set
+  after upgrades, not doubled by bloodlust); a missile's minimum flight value v skips acquisition candidates at
+  d < v − 1; `human2-human02-all-out-4000` vectors.
 
 ## Behaviour
 
@@ -81,8 +84,11 @@ byte is set. The bonus is chosen by the first matching row:
 **Bloodlust:** while an attacker's bloodlust timer is running, both basic and piercing damage are doubled, after
 upgrades.
 
-**Cheat:** with the "invulnerability and extra damage" cheat on, units of human-controlled players deal basic 0 and
-piercing 200. Computer-controlled units deal basic 0 and piercing 0, so they do no damage at all.
+**Cheat:** with the "invulnerability and extra damage" cheat on, a unit of a **human-controlled** player keeps its
+**basic** damage, worked out as usual (upgrades, then the bloodlust doubling), and its **piercing** damage is a flat
+**200**. The 200 is set after the upgrades and isn't doubled by bloodlust. Units of every other player (computer,
+passive computer, rescue, neutral) deal basic 0 and piercing 0, so they do no damage at all (traced:
+`human2-human02-all-out-4000`, round-59 vectors).
 
 A target's **armour** is its type's armour, plus an upgrade bonus if the type's "armour upgradable" byte is set:
 
@@ -395,6 +401,9 @@ One more upgrade line exists with an amount of 10 per level. Its use hasn't been
 ### Missile weapon kinds
 
 The values come from the `UDTA` missile weapon byte. The minimum flight distance is in tiles of 32 px.
+For target acquisition, a missile with minimum flight value v skips a candidate whose acquisition distance d is
+less than v − 1 (`orders/orders.md`, "Automatic target acquisition"): catapults and ballistas (3) skip d ≤ 1 only;
+cannons (2) and missiles with no value skip nothing, since d is at least 1 (traced: `orc5-40000`, round-59 vectors).
 
 | Value | Missile | Splash | Minimum flight |
 | --- | --- | --- | --- |
@@ -517,6 +526,18 @@ Cannon smoke and launch slots:
 | `xhuman8-10000` (oracle trace): juggernaut 1535 (type 0x21, owner 3) in order 12 forgets destroyer 1557 at n = 6749 and dies at n = 6831 | n = 6831: order 1, animation 1, target null |
 | `orc14-25000` (oracle trace, Enhanced), n = 12307: computer paladin 1456 (type 0x0C, owner 6) in order 12 reaches its strike with the caster AI's healing command on paladin 1433 not yet taken over; peon 1448 (type 0x03, owner 0) has 11 HP | No draw; 1448 keeps 11 HP |
 | A footman at its strike point is given a stop command earlier in the same cycle (static study) | No damage and no draw |
+
+### Round-59 vectors
+
+| Input | Expected |
+| --- | --- |
+| `human2-human02-all-out-4000` (oracle trace, Enhanced; the invulnerability cheat turned on by player 1 in turn 6), n = 514: archer 1570 (type 0x08, owner 1, human) shoots at 1593, player 0's watch tower (destroyed at n = 510, so armour 0 for this hit); no upgrades, no bloodlust, draw r = 7266 | Arrow effect 4 (kind 0x0F) with damage **158**: basic term 3 + piercing 200 = 203, h = floor(204 / 2) = 102, 102 + 7266 mod 103 = 102 + 56. With basic 0 it would be 100 + 7266 mod 101 = 195 |
+| Cheat on; a human player's footman (basic 6, piercing 3), sword level 1, bloodlust running | Basic (6 + 2) × 2 = 16, piercing 200 (not 400, not 203) |
+| Cheat on; a human player's archer (basic 3, piercing 6), arrow level 1, no bloodlust | Basic 3, piercing 200 |
+| Cheat on; a computer player's footman, any upgrades or bloodlust | Basic 0, piercing 0 |
+| `orc5-40000` (oracle trace, Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle, and transport 1516 (type 0x1C, owner 0) landing at (120, 6): d = 2, minimum flight 3 | Not skipped: order 16, animation 4, wait 3, target 1516 |
+| A ballista with an adjacent candidate, d = 1 (as in `human06-31357` n = 23683, `orders/orders.md`) | Skipped |
+| A cannon (minimum flight 2), candidate at d = 1 | Not skipped |
 
 ## Open questions
 
