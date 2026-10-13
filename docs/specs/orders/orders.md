@@ -96,6 +96,9 @@
   mark: after a move step finds no route the attack-range search runs first, the new order's logic runs in the same
   update, and the mark is cleared only if it was set when the update began (static); `human06-31357` and
   `xhuman11-10000` vectors.
+  2026-10-13, round-54 errata: a spell command's target gets the command check; the reaction's step 1 is the kind check
+  alone (open question closed); order 12's no-route take-over makes no turn or strike decision, which come from the one
+  logic run that follows in the same update (static).
 
 ## Behaviour
 
@@ -448,12 +451,13 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
 - **Order 12 with no route.** Order 12, and not order 9 or 11, has its own fallback when its route search finds none:
   1. A separate target search runs ("Automatic target acquisition") with the box of the unit's **attack range**, not its
      reaction range (the extra tile for towers applies only to tower types), and with no attacker seed.
-  2. If it finds a target, order 12 on that target is given **as a command** and takes over at once, in the same update:
-     the unit turns to face the target as for a strike ("Strike decision"), its attack animation starts and the
-     animation's first step runs in that update, leaving a wait of 1.
-     This is a strike, so the unit's cooldown starts in that update; the attack sound and the hit come later from the
-     attack animation (in `human5-10000` the take-over is at n = 1759, the hit at n = 1769 and the next step at n = 1774
-     with wait 10, the cooldown left).
+  2. If it finds a target, order 12 on that target is given **as a command** and takes over at once, in the same
+     update: its attack animation starts, the wait is set to 1 and the animation's first step runs. The take-over itself
+     makes no turn and no strike decision. The update then runs order 12's logic **once** (the move step stood in for
+     the logic earlier in the update, so this is its only run): it sees the mark of step 3 and skips its search, and its
+     strike decision turns the unit to face the target ("Strike decision") and starts the cooldown (static study for the
+     order of these parts). The attack sound and the hit come later from the attack animation (in `human5-10000` the
+     take-over is at n = 1759, the hit at n = 1769 and the next step at n = 1774 with wait 10, the cooldown left).
   3. The unit is marked so that its **next** order-logic run skips the target search at its start (and with it the
      acquisition). If the order at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips
      its search (static study; no trace separates the case of a changed order). **Clearing:** at the end of an update in
@@ -471,7 +475,7 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
      is traced: `xorc8-10000`, vectors below).
   4. If nothing is found, the unit goes idle at once, as above.
   Traced: `human5-10000`, vectors below. Each part is needed there: the facing, the same-update step, and a mark that
-  lasts exactly one run.
+  skips the search in the take-over update's run and in the next update's run, and is then cleared.
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
   other end. As a command, the new goal is **pulled back** (`movement/pathfinding.md`, "Goal pulled back"), for every
   patrol, human or computer, land or sea; the remembered ends stay as they were. The new patrol takes over in the same
@@ -512,10 +516,11 @@ player's command, a resumed patrol or attack-move, a flee move, a target search'
 command listed in `movement/movement.md`, "Blocked rules") checks the unit's recorded attacker: if the attacker is
 dying, dead or removed, or isn't detected by the unit's owner, it is forgotten. So a kept dying attacker is also
 forgotten at the unit's next command (traced: `xorc01-death-knight-2100`, vectors below). A target unit given with the
-command gets the same check: if it fails, the target is dropped and idle becomes the unit's **pending** order in place
-of the command's order (with the resume rules of "Resuming patrol and attack-move"); the command still counts as a
-command. The pending idle takes over at the unit's next step done with wait 3, and the idle logic doesn't run in that
-update, so an idle unit makes no look-around draw there. A call for help answered against a dying attacker ends this way
+command, a spell command's included (`spells/spells.md`, "Giving the order"; traced: `xhuman10-slow-3000`), gets the
+same check: if it fails, the target is dropped and idle becomes the unit's **pending** order in place of the command's
+order (with the resume rules of "Resuming patrol and attack-move"); the command still counts as a command. The pending
+idle takes over at the unit's next step done with wait 3, and the idle logic doesn't run in that update, so an idle
+unit makes no look-around draw there. A call for help answered against a dying attacker ends this way
 (`ai/attack-ai.md`, "Call for help"; traced: `xhuman10-spells-700`, vectors below).
 A player's attack command (8 or 9) on a **dying** unit ends the same way: it is still given to each selected unit, the
 target fails the check, and the unit is left in order 2 with no target and a pending idle, as if told to stop. Its still
@@ -890,12 +895,13 @@ is dealt with.
 **In the acquiring orders** (those marked "acquires", and attack-move in Enhanced mode), each time the logic runs and
 the unit has an attacker:
 
-1. If the unit couldn't target its attacker at all (its score for the attacker would be 0: for example it can't attack
-   that kind of unit), then: if the attacker is dying or no longer in play, it is forgotten, there is no flee and no
-   target search in that run, and the rest of the order's logic goes on as usual (traced: `xorc11-10000`, where a
-   battleship that has just killed its target forgets a dragon that is no longer in play, finds its target lost and
-   resumes its patrol; vectors below). Otherwise the unit runs the **flee** rule below, and nothing else happens in that
-   run.
+1. If the unit can't attack its attacker's kind (the kind check alone, air, sea or land, as in "Checks on an attack
+   command"; there is no fog, detection, alliance or minimum-range test here, so an attacker rejected from the seed only
+   by those goes on to step 2 unseeded; static study, and `xhuman11-10000` n = 9065 agrees), then: if the attacker is
+   dying or no longer in play, it is forgotten, there is no flee and no target search in that run, and the rest of the
+   order's logic goes on as usual (traced: `xorc11-10000`, where a battleship that has just killed its target forgets a
+   dragon that is no longer in play, finds its target lost and resumes its patrol; vectors below). Otherwise the unit
+   runs the **flee** rule below, and nothing else happens in that run.
 2. Otherwise, for a combat unit, the ordinary target search runs once, starting with the attacker as the best
    candidate. If the result differs from the unit's current target, the unit attacks it with the order from the
    resulting-order table, which for the idle-type orders is **12 whenever the unit has an attacker**, for human and
@@ -1265,12 +1271,6 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
   confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
   command a unit's own order logic gives it takes over in the same update.
-- **The fog test in the reaction's step 1.** "Reacting to an attacker", step 1, is written as "its score for the
-  attacker would be 0", which since round 53 also covers an attacker hidden by the fog or not detected. Taken literally,
-  a combat unit hit by an attacker in fog would flee. `xhuman11-10000` n = 9065 shows no flee for paladin 1513 or grunt
-  1518, whose attacker stands in fog, so the step-1 test is read as the kind check (and minimum range) only, with a
-  hidden attacker going on to step 2 unseeded. The research notes don't state step 1's test separately; confirm before
-  relying on it.
 - **Arrival before acquiring for patrol.** Orders 4 and 10 arrive at the move goal before acquiring (`xorc11-10000`);
   whether patrol (order 5) does the same at a patrol end isn't traced.
 - **The flee move's wait cap** ("Fleeing", step 6) rests on static study; no trace shows it.
