@@ -23,6 +23,8 @@
   2026-10-12, round-40 errata: the no-usable-tile fallback to the unit's tile plus the last step belongs to the
   transport's own pull-back in `orders/transports.md` (any command to a transport on open water with a land or shore-
   water target); the ordinary pull-back keeps the goal for transports too.
+  2026-10-12, round-43 errata: a recorded attacker that is dying doesn't count for the attack-type rule's "no attacker"
+  test; `xorc01-death-coil` vector.
 
 ## Behaviour
 
@@ -60,11 +62,12 @@ it is. Long journeys are therefore many short searches.
 Buildings and terrain always block. A tile that holds a **ground-layer unit** (land unit or ship) is treated as free
 when either of these holds:
 
-1. **Attack-type orders:** the searching unit's order carries the "acquires" mark of `orders/orders.md` (orders 2,
-   4, 5, 7, 12, 13, 14, 15 and 16, and 32, which never moves), or it is order 10 (attack-move) in Enhanced mode; it
-   has no attacker (see `movement.md`); and it is not a worker, tanker, demolition unit or spell-caster type. Orders
-   9 (attack a unit) and 11 (attack a wall) are **not** attack-type. Then **units of non-allied players are
-   ignored**, the target included: the path goes through enemies, and the unit fights whatever it meets.
+1. **Attack-type orders:** the searching unit's order carries the "acquires" mark of `orders/orders.md` (orders 2, 4, 5,
+   7, 12, 13, 14, 15 and 16, and 32, which never moves), or it is order 10 (attack-move) in Enhanced mode; it has no
+   attacker (see `movement.md`; a recorded attacker that is **dying** doesn't count); and it is not a worker, tanker,
+   demolition unit or spell-caster type. Orders 9 (attack a unit) and 11 (attack a wall) are **not** attack-type. Then
+   **units of non-allied players are ignored**, the target included: the path goes through enemies, and the unit fights
+   whatever it meets.
 2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player); it is in
    its move animation (3), **or** it has been given a command whose pending order hasn't taken over yet; its blocked
    counter is 0; and one further state mark is clear (assumed to be "not inside something"; see "Open questions").
@@ -268,6 +271,7 @@ units on the map.
 | Two-tile mover at S = (10, 10), ordered tile (13, 11) | G = (12, 10); S's distance 2. A walk ending at P = (12, 12) has distance 1 to (13, 11): accepted with progress value 1. (Measured to the rounded G it would be 2, equal, with minor-axis distance 0: rejected) |
 | `orc02-assault` (oracle trace): computer footman 1582, order 12 from n = 275, target 1575. Its search at n = 278 from (54, 27) aims at 1575's tile then, (50, 33) | Order 12 is attack-type. The stored steps run along the line: (53, 28), (53, 29), (52, 30), (51, 31). The footman follows them although 1575 moves to (51, 32) at n = 288 and (51, 31) at n = 304: n = 294 tile (53, 29), facing 4; n = 310 tile (52, 30), facing 5 |
 | A footman in order 9 (no attacker); the line to its target passes an idle enemy grunt (static study only) | The grunt's tile blocks the search; the route walks round it |
+| `xorc01-death-coil-2500` (oracle trace): ogre 1489 (type 0x07, owner 5) in order 12; its recorded attacker, skeleton 1515, is dying from n = 882 (killed by ogre 1496). At n = 886 its search picks skeleton 1522 at (54, 70) | Enemy units are ignored by its route search (the dying attacker doesn't count): n = 889, tile (55, 71), facing 7, move animation |
 | Same with order 12 | The search goes through the grunt's tile; the step itself is then blocked (`movement/movement.md`, blocked rules) |
 | `xorc01-death-coil` (oracle trace): grunt 1497 on (72, 79), order 10 since n = 353. At n = 356 the line's first tile (71, 79) holds ogre 1496 (order 10 since n = 354, still animation): blocked. Ally death knight 1491 on (71, 80) is in its move animation; (71, 78) and (70, 79) are free | Left walk (p = −1): south-west to (71, 80) (the moving death knight is ignored), north-west to (70, 79), and it succeeds there because (70, 78) is a line tile. The pair (SW, NW) is "two of W" through (71, 79), which is occupied, so no change: 2 steps, P's distance 12, score 14. Right walk (p = +1): north-west to (71, 78), succeeds there: 1 step, distance 13, score 14. The tie keeps the left walk |
 | Same, the step at n = 356 | The first step, south-west, is onto the death knight's tile: refused (`movement/movement.md`, row I). Record n = 356: order 10, animation 3, wait 1, tile (72, 79), facing 6 |
