@@ -21,9 +21,13 @@
 //! with the invulnerability cheat turned on in its commands), orc5-40000 (the game ends at n 36583), human9-30000,
 //! xhuman8-25000, human11-30000, orc7-22000, xhuman7-25000 and xorc11-16000 match in full.
 //!
-//! The commands scenarios orc9-orc09-shore-build-3000 (a refused shipyard, a shore build and an attack on it) and
+//! The commands scenarios orc9-orc09-shore-build-3000 (a refused shipyard, a shore build and an attack on it),
 //! orc9-orc09-smart-move-2000 (build commands that do nothing, and smart moves onto a gold mine and an own oil
-//! platform by empty and carrying workers and a tanker) match in full.
+//! platform by empty and carrying workers and a tanker), orc9-orc09-attack-move-1500 (complete attack-moves forgotten
+//! at countdown 0), orc9-orc09-return-goods-2200 (return goods given a lumber mill and an own oil platform),
+//! orc9-orc09-shore-no-corner-600 (a shipyard site with no corner in the worker's region), orc9-orc09-tanker-move-2200
+//! (a ship following a ship, and smart moves onto a shipyard and an oil patch that keep the target) and
+//! orc9-orc09-enter-dying-1800 (a depot dying under a returning and an entering peon) match in full.
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
@@ -239,4 +243,9 @@ traces! {
     mp_kaboom_bne_40000: (mp, "mp-kaboom-bne-40000.jsonl.gz", &[], None),
     xorc11_16000: ("xorc11-16000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
     orc9_orc09_smart_move_2000: ("orc9-orc09-smart-move-2000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_attack_move_1500: ("orc9-orc09-attack-move-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_return_goods_2200: ("orc9-orc09-return-goods-2200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_shore_no_corner_600: ("orc9-orc09-shore-no-corner-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_tanker_move_2200: ("orc9-orc09-tanker-move-2200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_enter_dying_1800: ("orc9-orc09-enter-dying-1800.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
 }
