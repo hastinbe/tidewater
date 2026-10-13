@@ -12,6 +12,8 @@
   leaving no ruin (`orc09-naval` n = 268, slot released at n = 781).
 - **Changes:** 2026-10-12, round-43 errata: a ship wreck shows frame 0 from the moment its order becomes "remove";
   bodies and ruins keep their last frame; `orc09-naval` vectors.
+- **Changes:** 2026-10-13, round-54 errata: a water ruin is chosen by the type's naval movement class (or the shore
+  building flag), not the layer; every ruin shows frame 0 in the cycle it is made; `human12-25000` vector.
 
 ## Behaviour
 
@@ -78,9 +80,11 @@ a unit that dies with it still leaves a body, which carries the mark (so a polym
 (type 0x5D) is created for the neutral player (15) at the platform's position, and the patch's oil is set to the
 platform's remaining oil. The platform gets the used mark, so it leaves no ruin.
 
-**Ruin type** by the building's width in tiles: width 1 → type 0x6A, 2 → 0x6B, 3 → 0x6C, 4 → 0x6D (width 0 would
-give 0x6A). A ruin is a **water ruin** (kind 5) when the building moved in the sea class or its type has the shore
-building flag (bit 16); otherwise it is a **land ruin** (kind 4).
+**Ruin type** by the building's width in tiles: width 1 → type 0x6A, 2 → 0x6B, 3 → 0x6C, 4 → 0x6D (width 0 would give
+0x6A). A ruin is a **water ruin** (kind 5) when the building's type has the naval movement class (class 2) in the unit
+data or the shore building flag (bit 16); otherwise it is a **land ruin** (kind 4). The layer the building stands on
+doesn't matter: the oil platform has the naval movement class, so it always leaves a water ruin (traced:
+`human12-25000`, vectors below).
 
 When a unit becomes a dead body:
 
@@ -108,7 +112,8 @@ death animation. The timers pass skips dying units and remains, so a dead caster
 - **Bodies and wrecks:** the decay animation starts and its first instruction runs **in the same cycle** as the
   death animation's "step done". So the first frame and the first wait begin in that cycle.
 - **Ruins:** the decay animation is started with an ordinary start (`core/animation-scripts.md`), so its first
-  instruction runs on the **next** cycle.
+  instruction runs on the **next** cycle. Every ruin, land or water, shows **frame 0** in the cycle it is made; its
+  first stage's frame comes with that first instruction (traced: `human12-25000`, vectors below).
 
 ### Decay stages
 
@@ -175,6 +180,7 @@ Cycle numbers count updates of the unit: update 1 is its first update after it i
 | Same trace, n = 894 (wreck 1497) and n = 1255 (wreck 1511) | Order 0, frame 0 |
 | `orc02-assault-3000` (oracle trace): the 12 bodies and the ruin that reach their last stage | Bodies frame 25, the ruin frame 1 |
 | Shipyard (shore building, 3 × 3) destroyed | Ruin type 0x6C, water ruin: frame 2 (first stage the cycle after the death step done); neutral after 100; frame 3 after 200; "remove" order after 400 |
+| `human12-25000` (oracle trace): oil platform 1530 (type 0x57, owner 0) at (33, 27) collapses at n = 12948 | n = 12948: ruin type 0x6C, order 1, animation 5 (water ruin), frame 0, wait 1; n = 12949: frame 2, wait 100 |
 | Polymorphed footman | Its death animation plays, then a human body with the used mark; it decays on the normal timetable and can't be raised |
 | Body raised by raise dead | Gets the used mark; keeps decaying and is removed on its normal timetable |
 | A slowed footman dies | The body's decay timing is unchanged (plain waits) |
