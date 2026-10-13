@@ -28,6 +28,10 @@
   50-cycle army pass tells the transport, the restart doesn't); still untraced.
   2026-10-13, round-52 errata: the boarding walk's route search has the transport as its target unit, so its goal zone
   is the transport's footprint widened by one tile; `orc14-10000` vector.
+  2026-10-13, round-53 errata: within 3 tiles of its goal a landing transport plans a new route at every step; a
+  computer unit that can't board a transport landing in its region walks to a random tile (two draws); after the
+  no-route restart the order logic runs in the same update, so a computer unit out of reach takes command 4 at once;
+  `human13-10000` and `orc14-10000` vectors; two open questions closed or narrowed.
 
 ## Behaviour
 
@@ -121,7 +125,9 @@ Each time the order's logic runs:
 4. When it **arrives**: if it has a pending order, that takes over. Otherwise it becomes order 29 if it is marked
    unload on arrival, else order 32. The unload-on-arrival mark is cleared either way.
 5. While **not arrived**, it takes the next movement step as usual (`movement/movement.md`). A step onto shore water
-   plays the docking sound.
+   plays the docking sound. Within the 3 tiles every step's arrival test also discards the planned route, so the logic
+   plans a new route from the current tile at every step, not the route of its first plan (traced: `human13-10000`,
+   vectors below).
 6. If there is **no route**:
    - on shore water: order 29 if marked unload on arrival, else order 32;
    - elsewhere on an even tile: back to the sea class, idle (order 2);
@@ -201,19 +207,24 @@ vectors below). The order's logic (the steps below) runs when the walk ends:
   restart also tells the transport to come again, as the boarding command does, unless it is landing: a docked transport
   stays in order 32, and order 32 takes over again at the end of its current wait (still animation, wait 3;
   `human12-transport`, vectors below). Whether a computer player's restart does the same isn't settled (open questions).
+  The restarted order's logic then runs **in the same update** (the steps below). A computer player's unit that isn't
+  within reach of the transport gets command 4 on it at step 3, which takes over at once: order 4, still animation, wait
+  3, target the transport (traced: `human13-10000`, vectors below).
 
 Each time the order's logic runs:
 
 1. If the transport is no longer a valid target, the unit becomes idle.
 2. **Goal:** the transport's tile if the transport stands in the unit's region; otherwise the transport's own
    destination tile (where it is heading). The arrival radius is 1 (`orders/orders.md`).
-3. **Not arrived** (static study only: no trace shows a run of the logic that finds the unit not arrived): the unit
-   is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"):
-   - a **computer player's** unit gets command 4 (move and attack on the way) and **leaves order 34**: its order
-     becomes 4 at the next step boundary. It boards only if it is given the boarding command again;
-   - **every other player's** unit (human, passive computer, passive rescue, neutral; `orders/orders.md`, "Terms")
-     gets a smart move (command 3). That is the boarding command again, so the unit **stays in order 34**, and the
-     transport is told to come again unless it is landing.
+3. **Not arrived:** the unit is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"). This step is
+   reached after a no-route restart (above):
+   - a **computer player's** unit gets command 4 (move and attack on the way) and **leaves order 34**. A unit standing
+     still, as after the restart, takes order 4 at once (still animation, wait 3, target the transport; traced:
+     `human13-10000`); a walking one at its next step boundary. It boards only if it is given the boarding command
+     again;
+   - **every other player's** unit (human, passive computer, passive rescue, neutral; `orders/orders.md`, "Terms") gets
+     a smart move (command 3). That is the boarding command again, so the unit **stays in order 34**, and the transport
+     is told to come again unless it is landing (static study only; no trace shows it).
 4. **Arrived:** the unit boards if all of these hold:
    - it is within **2 tiles** of the transport's tile on both axes;
    - the transport's order is **32** (docked);
@@ -226,8 +237,12 @@ Each time the order's logic runs:
      mark and no pointer anywhere while aboard;
    - it records the transport as its container, forgets its attacker, and gets order **36** at once.
 5. **Arrived, but can't board:**
-   - a computer player's unit whose transport is landing (order 30) in the unit's region moves to a nearby tile and
-     tries again (which tile is still open);
+   - a **computer player's** unit whose transport is landing (order 30) with the transport's tile in the same region as
+     the unit's tile walks to a random nearby tile. Two draws of the game's generator (`core/timing-and-rng.md`), x
+     first: x = the unit's tile x + (r mod 12) − 6, then y = its tile y + (r mod 12) − 6. Each coordinate is clamped to
+     0 to map width − 1 (the width for both). The unit gets a move command there with no target unit, which takes over
+     in the same update (order 3, still animation, wait 3, target null; traced: `orc14-10000`, vectors below). This test
+     comes before the next one;
    - otherwise, if the transport's destination tile is in the unit's region, the unit keeps waiting in order 34;
    - otherwise it gives up and becomes idle.
 
@@ -267,6 +282,9 @@ Each time the order's logic runs:
 | Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing, and its logic runs (static study only) | Gets a smart move again: stays in order 34, and the transport is told to come |
 | `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5) after a no-route step: order 34 restarted, animation 2, wait 3; n = 17254: order 36 (aboard) |
 | `human12-7000` (oracle trace), n = 6371: computer grunt 1407 (owner 0) walking to transport 1522 | Order 34, animation 3, tile (84, 16) |
+| `human13-10000` (oracle trace), n = 3820: transport 1389 (type 0x1D, owner 0) in order 30 at (103, 13), landing goal (101, 12) | Plans afresh: tile (102, 13), facing 6, order 30 (the route planned two steps earlier would step to (102, 12), facing 7) |
+| `orc14-10000` (oracle trace), n = 5486: computer knight 1430 (type 0x06, owner 6) at (28, 25) in order 34, can't board; transport 1435 (type 0x1C) landing (order 30) at (28, 27), in its region | Draws give offsets −3 and +5: order 3 to (25, 30), animation 2, wait 3, target null. That tile has no route: idle at n = 5489 |
+| `human13-10000` (oracle trace), n = 9154: computer ogre 1383 (type 0x07, owner 4) at (14, 2) in order 34 on transport 1388 (type 0x1D), docked at (25, 21), finds no route | Restart, then the same-update logic: order 4 on 1388, animation 2, wait 3. n = 9157: order 4 finds no route: order 2, target null |
 | `orc14-10000` (oracle trace), n = 2421: computer knight 1433 (type 0x06, owner 6) in order 34 to transport 1434 (type 0x1C) at (92, 32); its route search ran once, at n = 2409 from (86, 23), goal (91, 31) | Goal zone x 91 to 93, y 31 to 33 (the transport's footprint widened), not x 90 to 92, y 30 to 32: tile (87, 25), facing 4, order 34 |
 | `human12-transport-650` (oracle trace), n = 45: transport 1428 (owner 1, a human player) docks at (35, 114) (order 32, wait 1); in the same cycle, after it, unit 1434 (order 34 on 1428) at (34, 112) finds no route and restarts (animation 2, wait 3) | n = 46: transport order 32, still animation, wait 3 (its still animation would otherwise show wait 1 or 4) |
 | Same trace, n = 73, 76, 79 and 82: 1434 restarts again (no route), the transport's wait at 1 | n = 74, 77, 80 and 83: transport order 32, wait 3 |
@@ -286,10 +304,9 @@ Each time the order's logic runs:
 
 ## Open questions
 
-- Which tile a computer player's boarding unit moves to when its transport is landing in its region.
-- **Order 34 not arrived.** The static study shows step 3's two branches (command 4 for a computer player's unit, a
-  smart move for every other), but the logic seems to run only on arrival or with no route. Whether any path reaches
-  step 3 is open.
+- **Order 34 not arrived, for a human player's unit.** Step 3's computer branch is traced after a no-route restart
+  (`human13-10000`). The smart move for every other player's unit there is static study only; the research notes read it
+  as a plain move command, which no trace separates from the smart move.
 - **No-route restart by a computer player's unit.** A human player's restart tells the transport to come again
   (`human12-transport`). For computer players' units the traces are mixed: in `human12-7000` the restart of grunt 1407
   at n = 6403 is followed by the docked transport's take-over (wait 3 at n = 6405), and in `human10-24000` that of grunt
