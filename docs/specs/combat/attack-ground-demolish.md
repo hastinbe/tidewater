@@ -7,6 +7,8 @@
   `human12-demolition` vector.
 - **Changes:** 2026-10-12, round-42 errata: the ships' facing rule is now defined (`core/animation-scripts.md`, warships
   turn broadside).
+- **Changes:** 2026-10-13, round-54 errata: with no route a demolisher goes idle at once and its idle logic runs in the
+  same update (the plain no-route rule); `orc10-sappers-2500` vector.
 
 ## Behaviour
 
@@ -80,7 +82,10 @@ base range without range upgrades; no unit that can attack the ground has one.
 
 **Getting there.** The demolisher walks to its goal like any moving order: within 1 tile on both axes for order 20
 (for a building, measured to the footprint tile picked by the building goal rule), and onto the tile itself for order
-21. If it can't get there, the movement rules make it give up and go idle; nothing explodes.
+21. If its route search finds no route, it goes idle as an **immediate** order (order 2, still animation, wait 1) and
+its idle logic runs in the same update, with its look-around draw: the plain no-route rule of `orders/orders.md`
+("Arriving and losing the target"); order 12's fallback doesn't apply. Nothing explodes (traced: `orc10-sappers-2500`,
+vectors below).
 
 **The blast.** When it arrives, it blows up **where it stands**, not on the target. Let (x, y) be the demolisher's
 own tile. In this order:
@@ -148,6 +153,7 @@ own tile. In this order:
 | Squad blows up at (0, 0) | Neighbours with −1 are off the map and skipped; (1, 1), (0, 1), (1, 0) are tested |
 | `human12-demolition` (oracle trace), n = 239: demolition squad 1430 (type 0x0E, 40 HP) reaches (29, 100) and blasts | Killed in the same update: order 1, animation 1, HP **40**, and still 40 through its death animation, to the trace's end at n = 450 |
 | Any blast | Order of events: terrain, unit hits, squad dies (its death sound `misc\explode`), then `misc\explode` at the tile |
+| `orc10-sappers-2500` (oracle trace), n = 35: sapper 1501 (owner 0) at (78, 83) in order 20 on 1507, which it can't reach; its route search finds no route | Order 2, animation 2, wait 1, target null; its idle logic runs in that update (3 draws in the cycle, one of them its look-around draw) |
 
 ## Open questions
 
