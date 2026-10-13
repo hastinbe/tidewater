@@ -16,12 +16,16 @@
   2026-10-12, round-33 errata: the shown progress of construction and of jobs is kept in the building's mana byte;
   the construction look and a building upgrade are frames (0 and 1).
   2026-10-12, round-35 errata: the build walk's goal is the building goal rule on the planned footprint (oil platform:
-  top-left plus (1, 1); shore rule for shore buildings), recomputed each time order 28's logic runs.
+  top-left plus (1, 1); shore rule for shore buildings), recomputed each time order 28's logic runs (corrected in
+  round 41: it stays fixed while the worker walks).
   2026-10-12, round-39 errata: a builder let out of a finished building faces the building (top-left + (1, 1)) before it
   becomes idle, with trace vectors for SE, NE, E and N exits; new open question on exit facing at cancel or destroy.
   2026-10-12, round-40 errata: a failed placement on arrival makes idle take over in the same update (wait 3) and leaves
   the worker's tile marked; an upgraded tower's order 14 takes over in the same update; `xhuman2` and `human06-tech`
   vectors.
+  2026-10-12, round-41 errata: the build walk's goal stays fixed while the worker walks and is worked out again only
+  when a walk ends without arriving (the round-35 line is corrected); the oil patch under a new platform is marked used
+  and killed, leaves no ruin and its slot is released 513 cycles later; `xorc7` and `orc09-naval` vectors.
 
 ## Behaviour
 
@@ -65,9 +69,12 @@ as if the building already stood there:
 - a shore building: the shore rule of `movement/pathfinding.md` ("Building goal rule");
 - any other building: the building goal rule of `movement/pathfinding.md` on the planned footprint.
 
-The goal is worked out when the order is given and again each time order 28's logic runs, so a walk that ends
-without arriving starts again from where the worker stands. The worker arrives when it **stands on** the goal tile;
-the placement check ignores the worker's own tile (below), so that doesn't stop the building.
+The goal is worked out when the order is given, and again only when a walk ends without arriving; while the worker
+walks, it stays as it was. The walk runs instead of the order's logic, so the goal isn't worked out again as the
+worker's own tile changes, even when the building goal rule would now pick another footprint tile. When a walk ends
+without arriving, order 28's logic runs, works the goal out again and gives the walk again from where the worker stands.
+The worker arrives when it **stands on** the goal tile; the placement check ignores the worker's own tile (below), so
+that doesn't stop the building.
 
 - **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker
   sets out.
@@ -81,6 +88,9 @@ the placement check ignores the worker's own tile (below), so that doesn't stop 
 - On success, the building is created under construction (below), the cost of a player that pays on arrival is
   taken, and the worker **goes inside** the building, in order 22, the same way a worker enters a mine
   (`economy/harvest.md`, step 2 of "Entering").
+- **Oil platform:** the oil patch under the new platform is marked used and killed. It leaves no ruin: in the same
+  cycle its order becomes "remove" (order 0, animation 0, wait 1; its type and other fields kept), and its slot is
+  released 513 cycles later, as for any removed unit (`core/corpses.md`).
 
 ### Construction
 
@@ -236,6 +246,8 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `human01-basics` (oracle trace): peasant 1596 on (14, 9) is told to build a barracks (type 60, 3 × 3) at top-left (5, 8) | Goal (7, 9): x = 7 because 14 ≥ 7; y = 8 + 1 because 9 lies inside 8 to 10. Order 28 takes over at n = 19 (wait 3); the peasant walks west along row 9, one tile every 16 cycles: (13, 9) at n = 22, (12, 9) at 38, (10, 9) at 70, (7, 9) at 118. At n = 134 the barracks is placed at (5, 8) and the peasant is inside it (order 22, wait 150) |
 | A worker at (2, 2) told to build a 2 × 2 farm at (5, 5) | Goal (5, 5) |
 | A worker at (6, 9) told to build a 3 × 3 building at (5, 5) | Goal (6, 7): x = 5 + 1 (6 lies between 5 and 7), y = 7 (9 ≥ 7) |
+| `xorc7-7000` (oracle trace), n = 2028: peasant 1421 (type 0x02, owner 1) in order 28, at (95, 118), building a farm with top-left (96, 118); goal (96, 119), worked out when the order was given | It steps south-east to (96, 119), facing 3, toward the stored goal (working the goal out again from (95, 118) would give another tile) |
+| `orc09-naval-1500` (oracle trace), n = 268: a platform (slot 1468) placed on the oil patch in slot 1502 at (57, 75) | Same cycle: patch order 0, animation 0, wait 1, type 0x5D; its slot is released at n = 781 (268 + 513) |
 | `human06-tech` (oracle trace), n = 178: farm 1521 (type 0x3A, top-left (76, 5)) completes; builder 1586 | 1586 at (75, 5), facing 3 (SE, toward (77, 6)), order 2, wait 1, target null |
 | `human7` (oracle trace), n = 1251: farm 1465 (type 0x3B, top-left (63, 2)) completes; builder 1582 | 1582 at (62, 2), facing 3, order 2, wait 1, target null |
 | `xorc3` (oracle trace), n = 1295: farm 1475 (type 0x3B, top-left (27, 113)) completes; builder 1482 | 1482 at (26, 113), facing 3, order 2, wait 1, target null |
