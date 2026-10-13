@@ -7,6 +7,8 @@
   right-click actions). Not yet confirmed against the running game.
 - **Changes:** 2026-10-13, round-55 errata: each unit that takes a player's command forgets its recorded attacker
   after the command is given (traced: `human09-fleet-3000`); a right-click is read the same way (static).
+  2026-10-13, round-56 static corrections: a right-click keeps the attacker record (the round-55 reading corrected); a
+  spell command forgets it; a build command keeps it and leaves the remembered order as it is.
 
 ## Behaviour
 
@@ -219,8 +221,8 @@ When the command runs (for the issuing player):
    the target, a command is chosen by its type's **right-click action** (UDTA "2nd mouse button action"; only types
    0x00 to 0x39 have one). Under Enhanced rules the unit's remembered patrol or attack-move is forgotten first. The
    command is then given as in `orders/orders.md`. A unit whose current order can't be interrupted is skipped there.
-   After the command is given, the unit forgets its recorded attacker, as in "Which units take part in a command"
-   (static study: read as the same step; no trace has a right-click on a unit with a recorded attacker).
+   Unlike a command from target mode, the buttons or the keys, a right-click **keeps** the unit's recorded attacker
+   (static study; no trace has a right-click on a unit with a recorded attacker).
 
 | Action | Command given |
 | --- | --- |
@@ -286,6 +288,8 @@ Under Enhanced rules each unit that takes the command first forgets its remember
 forgets its recorded attacker, whatever the attacker's state, so the command's own checks still see the record
 (`orders/orders.md`, "A player's command forgets the attacker"; traced: `human09-fleet-3000`). A selected unit that
 doesn't take the command (another player's, the target itself, or one that fails the filter below) keeps its record.
+Spell commands (38 to 56) forget it like any other command here. A build command, sent from placement mode, takes a
+different path: it keeps the record and leaves the remembered order as it is (static study for these two).
 
 | Command | The unit must |
 | --- | --- |
@@ -465,8 +469,7 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
   formation offset the same way as a map click is assumed, not checked.
 - **Control groups in some network games.** In some kinds of network game, setting and recalling a group take
   another route that wasn't traced. Default: the rules above.
-- **Right-click and the attacker record.** The right-click's commands are read as carried out by the same step as a
-  button or key command, so each unit that takes one forgets its recorded attacker. No trace has a right-click on a
+- **Right-click, cast and build and the attacker record** rest on static study: no trace has one of them given to a
   unit with a recorded attacker.
 - **Box selecting with Alt and a single enemy unit** would recall a remembered group containing an enemy. That can't
   happen, because only groups of own units are stored, but this isn't tested.
