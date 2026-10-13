@@ -48,7 +48,7 @@
   orders 15 and 16 search before the lost-target check; workers and tankers never search; the search's resulting order
   is always a command (counter cleared, route dropped) and a dying recorded attacker counts in the table; order 9 with
   no route goes idle at once like order 12; a computer player's boarding unit stays in order 34 while walking; order
-  15's same-update idle is traced by an unpublished capture; the friendly-fire check isn't made while cooling down;
+  15's same-update idle is traced by `human01-order15-range-700`; the friendly-fire check isn't made while cooling down;
   Classic attack-move marked untraced; vectors and open questions.
 
 ## Behaviour
@@ -385,7 +385,7 @@ In order 16 the idle logic first runs 3 cycles after that take-over, and may pic
 search in order 16 picks a **new** target that is out of range, the unit doesn't switch to it: the out-of-range rule
 above applies instead (idle in the same update, wait 3, attacker kept), and its idle logic, 3 cycles later, attacks
 as usual. Order 15 goes to order 13 in the same update by the same path (orders 15 and 16 share one logic; the
-out-of-range branch gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by an unpublished capture
+out-of-range branch gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by `human01-order15-range-700`
 (vectors below). The logic runs at the step done that ends the attack cycle, after the cooldown frames, so a target
 that walks out of range is seen only then.
 
@@ -913,7 +913,7 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `human06-31357` (oracle trace), axe thrower 1515 (type 0x09, owner 5) in order 4 | The same sequence: target 1585 and a step to (92, 13) at n = 9343; target cleared at n = 9351; animation 2, wait 3 at n = 9359; target 1585 and a step to (92, 12) at n = 9362 |
 | `xhuman2-10000`, n = 2223 to 2232: ballista 1503 (type 0x04, owner 1) idle at (8, 119) acquires ogre 1583, 8 tiles away (within range 8), which is fighting 1503's own footman 1517 | n = 2223: order 16, animation 4, wait 3, target 1583. n = 2226: order 2, animation 2, wait 3, target null, facing 3. It acquires again at n = 2229 and drops it again at n = 2232 |
 | `human06-31357`, n = 9483: ballista 1582 (type 0x04) at (84, 9) in order 16 on 1515, which is fighting 1582's own unit 1585 | Order 2, animation 2, wait 3, target null |
-| Capture `r42-o15b` (unpublished: kept on the oracle host, not in `oracle/traces`; Human01 with input, 700 cycles; commands: n = 10 move footman 1593 to (23, 8), n = 12 footman 1598 attacks grunt 1592, n = 240 stand ground for 1593, n = 250 move 1598 to (12, 4)). 1593 stands at (21, 8) in order 13 and takes order 15 on 1592 at n = 391; 1592 walks off at n = 406 | Order 15, animation 4 to n = 418 (the attack cycle ends with its cooldown frames); n = 419: order 13, animation 2, wait 3, target null |
+| `human01-order15-range-700` (oracle trace; Human01 with input, 700 cycles; commands: n = 10 move footman 1593 to (23, 8), n = 12 footman 1598 attacks grunt 1592, n = 240 stand ground for 1593, n = 250 move 1598 to (12, 4)). 1593 stands at (21, 8) in order 13 and takes order 15 on 1592 at n = 391; 1592 walks off at n = 406 | Order 15, animation 4 to n = 418 (the attack cycle ends with its cooldown frames); n = 419: order 13, animation 2, wait 3, target null |
 | `xorc01-death-knight-2100`, n = 845: ogre 1490 (type 0x07, owner 5) in order 12 on skeleton 1516 (type 0x37, dying since n = 840, killed by another unit), switches to skeleton 1515, out of reach | Target 1515, order 12, animation 3: it steps on to (54, 72), facing 7 (the command case) |
 | A unit in order 12 kills its target, and its search picks a new one out of reach (static study only) | Take-over at once (attack animation, wait 3) |
 | `orc02-assault-3000`, n = 800: footman 1582 (owner 1) at (57, 21), next to dying grunt 1573, switches to grunt 1575, out of reach | Order 12, target 1575, animation 4, wait 3 at n = 800; first step at n = 803, to (57, 20) |
