@@ -50,6 +50,10 @@
   no route goes idle at once like order 12; a computer player's boarding unit stays in order 34 while walking; order
   15's same-update idle is traced by `human01-order15-range-700`; the friendly-fire check isn't made while cooling down;
   Classic attack-move marked untraced; vectors and open questions.
+  2026-10-12, round-43 errata: orders 9, 11 and 17 forget a dying attacker at the start of each run, before the target
+  check; after a target switch in orders 12, 15 and 16 the run goes on and the friendly-fire check is made on the new
+  target; `orc09-naval`, `xhuman4` and `xhuman10-spells` vectors; open questions on order 15's switch and on a dying
+  attacker updated.
 
 ## Behaviour
 
@@ -348,6 +352,12 @@ A target that dies keeps its HP and its own target through its death animation (
 damage"). The unit that killed it forgets it at once, in the step that applies the blow, without changing its order.
 Every other unit attacking it keeps it as its target until its own next logic run, where the target is lost as above.
 
+**A dying attacker in orders 9, 11 and 17.** Each time the logic of order 9 (attack a unit), 11 (attack a wall tile) or
+17 (attack the ground) runs, the unit first checks its recorded attacker: if the attacker is dying or no longer in play,
+the record is cleared. This comes **before** the target check, so it also applies in the run in which the unit then
+loses its target, and the idle search that follows sees no attacker (traced: `orc09-naval`, vectors below). Orders 12,
+15 and 16 don't do this at the start of their run.
+
 **Strike decision (attack orders 9, 11, 12, 15, 16 and 17).** Before a unit strikes, the attack cooldown of
 `combat/damage.md` ("Attack timing (cooldown)") is tested: a unit that isn't a flyer and whose wait is less than its
 cooldown left restarts its attack animation and waits for the cooldown left. When it strikes, it turns to face its
@@ -413,12 +423,14 @@ for a ground target), clipped to the map. It counts the units and buildings of *
 - for a human-controlled player, one such unit is enough;
 - for any player that isn't human-controlled (see "Terms"), it takes three.
 
-The check is part of the order's logic: it comes after the cooldown test and the target check, and **before** the
-range test, so it applies whether or not the target is in range. A run that is still cooling down ends at the
-cooldown test, so the check isn't made then. It isn't made again at the strike point. If the
-count is reached, the unit doesn't strike: it forgets the target, and order **2** (idle) takes over **in the same
-update** (still animation, wait 3; facing kept). Its idle logic first runs 3 cycles later and may pick the same target
-again.
+The check is part of the order's logic: it comes after the cooldown test and the target check, and **before** the range
+test, so it applies whether or not the target is in range. A run that is still cooling down ends at the cooldown test,
+so the check isn't made then. It isn't made again at the strike point. In the run in which the target search has just
+switched to a new target (orders 12, 15 and 16 search first), the run goes on with the new target: the cooldown test,
+the target check, then this check, made on the **new** target. So a ground attacker whose new target stands next to its
+own units doesn't strike it (traced for order 16: `xhuman4`, `xhuman10-spells`). If the count is reached, the unit
+doesn't strike: it forgets the target, and order **2** (idle) takes over **in the same update** (still animation, wait
+3; facing kept). Its idle logic first runs 3 cycles later and may pick the same target again.
 
 ### Boarding moves (order 34)
 
@@ -926,6 +938,13 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | An idle unit with blocked counter 2 acquires a target | Counter 0, route dropped, order 12 or 16 takes over with wait 3 |
 | `orc02-assault-3000`, n = 984: grunt 1572 (owner 0) in order 16 on footman 1582, which is dying; its recorded attacker is dying, killed by another unit | Order 12 on 1587 (not 16), animation 4, wait 3 |
 | `orc02-assault-3000`, n = 679: grunt 1573 (type 0x01, owner 0) in order 9 on 1588 finds no route | Same update: order 12 on its attacker 1586, animation 4, wait 3; 4 draws in the cycle (with the look-around draw) |
+| `orc09-naval-1500`, n = 510: destroyer 1497 (type 0x1F, owner 5) in order 9 on 1506, which is its recorded attacker and dying since n = 493 (killed by 1501) | Order 2, still animation, wait 3, target null; attacker cleared |
+| Same, n = 513 | Order 16 on 1511, animation 4, wait 3 (not order 12) |
+| A unit in order 9 whose recorded attacker is alive and whose target is valid | Attacker kept |
+| `xhuman4-7000`, n = 210: ballista 1488 (type 0x04, owner 1) in order 16 on dying 1505, cooldown over; the search switches to 1515, whose 3 × 3 area holds units of player 1 | Order 2, still animation, wait 3, target null |
+| Same, n = 213 and 216 | n = 213: order 16 on 1515, animation 4, wait 3. n = 216: order 2, wait 3 |
+| `xhuman10-spells-700`, n = 227: ballista 1483 (owner 1) in order 16; its search's new target 1475 stands next to unit 1489 of player 1 | Order 2, wait 3, target null |
+| A ballista in order 16 still cooling down whose search switches to such a target (static study only) | Keeps the new target and waits out the cooldown; no check in that run |
 | `xhuman2-10000`, n = 7: death knight 1557 (type 0x0B, owner 5) idle at (64, 59); footman 1548 outscores barracks 1554 in its box | Order 2, no target (the footman can attack, so nothing is acquired) |
 | A mage whose best candidate is a peasant (static study only) | It attacks the peasant (order 12) |
 | `xorc10-dragons-800` (oracle trace), n = 333: computer footman 1520 (owner 2) idle at (30, 30), hit by the breath splash, flees | Order 3, animation 2, wait 3; n = 336: tile (31, 31), facing 3, animation 3 |
@@ -945,15 +964,19 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   found issues commands 9 or 14 except the command stream itself (player interface or AI by number); which buttons
   or AI steps send them is still open.
 - Order 57: nothing found sets it.
-- **Target switch in orders 15 and 16.** The same-update continuation after a switch of target is shown for order
-  12 only. Research runs gave orders 15 and 16 the same treatment with no trace getting worse.
+- **Target switch in order 15.** The same-update continuation after a switch of target is traced for orders 12 and 16
+  (the friendly-fire check on the new target: `xhuman4`, `xhuman10-spells`). Research runs gave order 15 the same
+  treatment with no trace getting worse.
 - **The cleared target in order 4.** In `xhuman2` n = 2051 and `human06-31357` n = 9351 the target is cleared with
   order 4 kept. That is read as the computer player giving its order-4 move again, which hasn't been confirmed with a
   break log.
 - **Classic attack-move** (static study only, untraced). Orders 4 and 5 search in both modes, and Classic order 10
   only reacts ("Reacting to an attacker"), as this spec says. Every trace in the set is Enhanced, so none confirms it.
-- **A dying attacker elsewhere.** Only the resulting-order table is traced as treating a recorded dying attacker as
-  present; the other places that look at the attacker weren't checked one by one.
+- **A dying attacker elsewhere.** Traced so far: the resulting-order table counts a recorded dying attacker; orders 9,
+  11 and 17 forget it at the start of each run; the call for help's "no attacker" test (`ai/attack-ai.md`) and the route
+  search's (`movement/pathfinding.md`) ignore it. The static study shows that a unit given a new target by the no-route
+  rule also forgets a dying attacker at the start of the run; no trace shows it. The other places that look at the
+  attacker (the reaction, the flee rule, the blocked rules) weren't checked one by one.
 - **Losing a target during the cooldown.** In `xorc01-death-knight-2100` n = 915 ogre 1488 keeps order 12 (target
   null, animation 4, wait 15) through its cooldown frames after its target died at another unit's hand, and goes on
   only at the step done that ends the cooldown. Rules that make a cooling-down unit wait before losing its target
