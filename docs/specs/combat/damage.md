@@ -32,6 +32,9 @@
   target, no shooter, damage 0); a hammer or breath splash needs a free effect slot (none: no splash, sound or effect)
   and creates a kind 0x17 explosion there; `orc09-repair` and `xorc10` vectors.
   2026-10-12, round-40 errata: a building destroyed by a missile makes its explosion before the missile's impact effect.
+  2026-10-12, round-41 errata: a melee strike at a target that started dying earlier in the same cycle is still made and
+  rolls damage; an order-12 switch to a target in reach while cooling down keeps the cooldown wait (no wait of 3); open
+  question on ranged attackers.
 
 ## Behaviour
 
@@ -110,6 +113,9 @@ When damage D from an attacker reaches a target:
 An attacking unit plays its **attack script** (see "Attack timing" below). At the script's strike point:
 
 - **Melee:** if the type's missile weapon is "none", the damage is rolled and applied to the current target at once.
+  The strike is made even if the target started dying earlier in the same cycle (killed by another unit's strike):
+  the damage is still rolled with its usual draws, and has no further effect. A target that is gone (its slot
+  released) or inside something isn't struck, and nothing is drawn.
 - **Ranged:** otherwise a missile is launched. It starts from the attacker's centre and aims at the target's centre,
   or at the centre of the target tile if the attacker is attacking the ground.
   - **Non-splash missile:** the damage is rolled now, against the target's current armour, and stored in the missile.
@@ -276,7 +282,9 @@ fire and so on). When the logic runs at a step done, the wait is 1 at that momen
 delayed: the next strike decision comes one loop later with 1 cycle left, and a wait of 1 isn't less than 1. After a
 target switch, though, the new attack starts with most of a cooldown still to run: the run that acquires the new
 target reaches the strike decision and starts the cooldown, the order given again restarts the animation with wait
-3, and 3 cycles later the unit waits for the rest.
+3, and 3 cycles later the unit waits for the rest. A unit in order 12 whose search switches to a new target in reach
+while still cooling down gets no such wait of 3: the new target takes effect at once and the cooldown test restarts
+the animation with the cooldown left as its wait (`orders/orders.md`, "Resulting order").
 
 The **rate of fire is the length of the attack script loop** in `Rez\script.bin`, and damage happens at the script's
 strike point inside that loop. A unit that keeps attacking repeats the loop. Between loops it may re-evaluate its target
@@ -388,12 +396,15 @@ These are the default `unitdata.dat` values.
 | Target with 5 HP takes 5 damage | Dies (HP ≤ damage); its HP stays **5** during the death animation and its target is kept |
 | `human01-basics-9500` (oracle trace), n = 288: footman 1592 (HP 2 since n = 276) is killed by footman 1597; footman 1598 also attacks it | 1592: order 1, animation 1, HP 2, target 1598. 1597: target null, still order 9. 1598: target 1592 |
 | Same, n = 291 | 1598 forgets 1592 on its own logic run: order 2, wait 3 |
+| `human01-basics-9500`, n = 576: footmen 1593 and 1597 (type 0x00), both in order 9 on 1591, reach the strike point in the same cycle; 1593 strikes first and kills 1591 | 1593: target null. 1597 still strikes: both strikes roll damage, and the cycle's draws include 12374 and 6732 |
+| A melee unit whose target's slot was released before its strike point | No strike, no draws |
 | `orc02-assault-3000` (oracle trace), archer 1584 (type 0x08, cooldown 66) at (47, 28), n = 343 | Takes target 1578: animation 4, wait 3; cooldown set to 66 |
 | Same, n = 346 | Cooldown left 63 > wait 1: attack animation restarted, frame 0, wait 63 |
 | Same, n = 409 to 412 and n = 475 to 478 | New targets 1573 and 1564, each with wait 3 then wait 63 |
 | Same, n = 541 to 562 | Cooldown run out: facing 1 at n = 541; frame 25 (n = 542), frame 30 (n = 552), frame 0 with wait 44 (n = 562) |
 | Archer firing at the same target without a break | One strike every 65 cycles (frame 25 at n = 706 and n = 771 in the same trace); the cooldown never restarts the animation |
 | `orc02-assault-3000`, footman 1582 (type 0x00, cooldown 26), n = 376 and n = 402 | New targets 1578 and 1576: wait 3, then wait 23 at n = 379 and n = 405 |
+| `orc02-assault-3000`, footman 1587 in order 12, cooling down, n = 617: its search switches from 1568 to 1573, in reach | Order 12, target 1573, wait 23 (the cooldown left) in the same record; no wait of 3 |
 | `xhuman10-spells-700` (oracle trace), guard tower 1468 and cannon tower 1501 (order 14 from n = 2) | Shots at n = 5; then 1468 every 60 cycles (n = 65, 125, 185, …) and 1501 every 151 (n = 156, 307) while targets are in range |
 | Catapult (80/0, no upgrades) splash, footman 10 px from impact | v = 80 − 2 = 78, h = 39, damage 39 to 78 |
 | Same, footman 30 px from impact | base 20, v = 18, h = 9, damage 9 to 18 |
@@ -465,6 +476,8 @@ Cannon smoke and launch slots:
   attack rate is held to the normal loop.
 - The wait of 1 when the logic runs at a step done fits every observation, including steady fire with a period of
   exactly one loop, but hasn't been seen directly.
+- Whether a ranged attacker launches at a target that started dying earlier in the same cycle, as a melee attacker
+  strikes one. Only melee strikes are traced (`human01-basics` n = 576); a missile is expected to behave the same.
 - What a killer whose target was forgotten at the kill does on its next logic run. In `human01-basics` footman 1597
   stays in order 9 with no target until a new command arrives at n = 302.
 - Spell damage (fireball, death coil, blizzard, death and decay, whirlwind, flame shield, exorcism, runes) is covered
