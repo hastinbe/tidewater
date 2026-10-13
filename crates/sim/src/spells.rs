@@ -822,7 +822,8 @@ impl World {
         self.new_fx(k, id, None, pos, 0, Fx::Wisp);
     }
 
-    /// One blizzard shard of a chain: its start offset is two draws.
+    /// One blizzard shard of a chain: its start offset is two draws. Its destination is the chain's landing point
+    /// from the moment it is created, through its initial wait (round-44 errata, "Blizzard shards").
     fn start_shard(&mut self, caster: UnitId, land: (i32, i32), repeats: u8) -> bool {
         let ox = (self.rng.draw() % 3) as i32 * 11 - 11;
         let oy = (self.rng.draw() % 3) as i32 * 11 - 11;
@@ -831,7 +832,13 @@ impl World {
             line: Line::new(start, land),
             repeats,
         };
-        self.new_fx(kind::SHARD, caster, None, start, 10, fx).is_some()
+        let Some(n) = self.new_fx(kind::SHARD, caster, None, start, 10, fx) else {
+            return false;
+        };
+        if let Some(m) = self.missiles[n].as_mut() {
+            m.to = land;
+        }
+        true
     }
 
     // ----- spells --------------------------------------------------------------------------------------------
@@ -2451,6 +2458,40 @@ mod tests {
             mana(&w, p) < 25,
             "below 25 (plus a little regeneration): no third strike"
         );
+    }
+
+    #[test]
+    fn a_blizzard_shard_has_its_landing_point_as_destination_from_creation() {
+        let mut w = lab(32);
+        let p = caster(&mut w, MAGE, (5, 5), 25);
+        strike(&mut w, p, BLIZZARD, None, (10, 10));
+        // Every landing point is the target tile's centre plus a multiple of 32 in −64..=64 on each axis; each shard
+        // starts 110 ± 11 px left of and 170 ± 11 px above it, and its destination stays put through every repeat.
+        let centre = 10 * 32 + 16;
+        let lands = |w: &World| -> Vec<(i32, i32)> {
+            w.missiles
+                .iter()
+                .flatten()
+                .filter(|m| m.kind == 5)
+                .map(|m| m.to)
+                .collect()
+        };
+        let first = lands(&w);
+        assert_eq!(first.len(), 5);
+        for m in w.missiles.iter().flatten().filter(|m| m.kind == 5) {
+            let (dx, dy) = (m.to.0 - centre, m.to.1 - centre);
+            assert!(
+                dx % 32 == 0 && dy % 32 == 0 && dx.abs() <= 64 && dy.abs() <= 64,
+                "{:?}",
+                m.to
+            );
+            assert!((99..=121).contains(&(m.to.0 - m.pos.0)), "{:?} {:?}", m.pos, m.to);
+            assert!((159..=181).contains(&(m.to.1 - m.pos.1)), "{:?} {:?}", m.pos, m.to);
+        }
+        for _ in 0..200 {
+            w.step(&[]);
+            assert!(lands(&w).iter().all(|t| first.contains(t)), "{:?}", lands(&w));
+        }
     }
 
     #[test]

@@ -11,33 +11,23 @@
 //!   11) records tile (56, 17), facing 7, animation 4 in the game, and (57, 16), facing 1, animation 3 in ours.
 //! - **xorc01-death-coil**, n = 903: at n = 904 an ogre (slot 1489) in order 10 records tile x 56, facing 1 in the
 //!   game, and x 54, facing 7 in ours.
-//! - **xhuman10-spells**, n = 285: at n = 286 a computer ogre (slot 1543) in order 12 keeps footman 1529 as its target
-//!   (facing 5, wait 1) in the game, and switches to guard tower 1537, its recorded attacker (facing 3, wait 3), in
-//!   ours: two peasants that came out of a hall in that cycle still sit among the front entries of the vertical list,
-//!   so our target search visits nothing.
-//! - **xhuman10-blizzard**, n = 144: at n = 145 the blizzard shards (effect slots 4 to 9) land on other points:
-//!   (2480, 2864) in the game and (2359, 2694) in ours for slot 4.
+//! - **xhuman10-spells**, n = 327: at n = 328 a computer catapult (slot 1480), idle, has wait 3 in the game and 1 in
+//!   ours, and the game made one draw fewer since the previous record (7 against our 8).
+//! - **xhuman10-blizzard**, n = 169: at n = 170 a new blizzard shard is in effect slot 12 in the game (kind 5) where
+//!   ours holds kind 26, and several units' hit points differ (unit 1486: 11 in the game, 38 in ours).
 //! - **xorc01-death-knight**, n = 914: at n = 915 an ogre (slot 1488) is in order 12, animation 4, wait 15 in the
 //!   game, and in order 10, animation 2, wait 3 in ours.
-//! - **xorc10-dragons**, n = 367: at n = 368 a fleeing footman (slot 1520) records tile x 33, facing 3 in the game,
-//!   and x 32, facing 4 in ours.
-//! - **orc09-naval**, n = 852: at n = 853 a computer destroyer (slot 1460) on sea patrol toward oil platform 1512
-//!   steps west to (76, 60), facing 6 in the game, and north-west to (76, 58), facing 7 in ours.
+//! - **xorc10-dragons**, n = 463: at n = 464 a footman (slot 1520, owner 2) at (35, 38) is in order 3 with wait 3 in
+//!   the game (two more draws: it flees again) and idle with wait 1 in ours.
 //! - **human5**, n = 1758: at n = 1759 a grunt (slot 1531) in order 12 targets 1525, facing 5, wait 1 in the game,
 //!   and 1518, facing 2, wait 3 in ours; and a critter (slot 1538) is in order 3 in the game and 2 in ours.
 //! - **xhuman2**, n = 2486: at n = 2487 player 0 has 0 gold and 825 lumber in the game and 50 and 775 in ours, and a
 //!   worker (slot 1588) let out of a building faces 0 in the game and 7 in ours.
-//! - **human06-31357**, n = 16295: at n = 16296 an axe thrower (slot 1512) that took order 12 on building 1583 from
-//!   order 4 steps to (71, 8), facing 1 in the game, and to (71, 9), facing 2 in ours.
-//! - **orc4-40000**, n = 23679: at n = 23680 a worker (slot 1584) in order 23 faces 5 in the game and 7 in ours.
-//! - **human7-22000**, n = 19786: at n = 19787 an archer (slot 1598) is in order 2 in the game and attacks unit 1575
-//!   (order 16) in ours.
-//! - **human01-order15-range**, n = 533: at n = 534 a computer grunt (slot 1592) in order 3 records tile x 27,
-//!   facing 4 in the game, and x 28, facing 3 in ours.
 //!
-//! human01-2000, human04-3000, human01-basics, orc02-assault, xorc12-ogre-mage, orc09-repair, human12-transport,
-//! human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human7-10000, xorc3,
-//! human10-24000, orc8, xhuman4, human12-row-f-move and human12-row-f-landing match in full.
+//! human01-2000, human04-3000, human01-basics, orc02-assault, xorc12-ogre-mage, orc09-naval, orc09-repair,
+//! human12-transport, human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human7-10000,
+//! xorc3, human10-24000, orc8, xhuman4, human06-31357, orc4-40000, human7-22000, human01-order15-range,
+//! human12-row-f-move and human12-row-f-landing match in full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -83,14 +73,14 @@ const TRACES: [Trace; 34] = [
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(285),
+        Some(327),
     ),
     (
         "xhuman10-blizzard-600.jsonl.gz",
         "Campaign\\XHuman\\2XHum10.pud",
         46,
         &[],
-        Some(144),
+        Some(169),
     ),
     (
         "xorc01-death-knight-2100.jsonl.gz",
@@ -111,15 +101,9 @@ const TRACES: [Trace; 34] = [
         "Campaign\\XOrc\\2XOrc10.pud",
         47,
         &[],
-        Some(367),
+        Some(463),
     ),
-    (
-        "orc09-naval-1500.jsonl.gz",
-        "Campaign\\Orc\\Orc09.pud",
-        17,
-        &[],
-        Some(852),
-    ),
+    ("orc09-naval-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     ("orc09-repair-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     (
         "human12-transport-650.jsonl.gz",
@@ -178,28 +162,16 @@ const TRACES: [Trace; 34] = [
         Some(2486),
     ),
     ("xhuman4-7000.jsonl.gz", "Campaign\\XHuman\\2XHum04.pud", 34, &[], None),
-    (
-        "human06-31357.jsonl.gz",
-        "Campaign\\Human\\Human06.pud",
-        10,
-        &[],
-        Some(16295),
-    ),
+    ("human06-31357.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     ("human10-24000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
-    ("orc4-40000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], Some(23679)),
-    (
-        "human7-22000.jsonl.gz",
-        "Campaign\\Human\\Human07.pud",
-        12,
-        &[],
-        Some(19786),
-    ),
+    ("orc4-40000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
+    ("human7-22000.jsonl.gz", "Campaign\\Human\\Human07.pud", 12, &[], None),
     (
         "human01-order15-range-700.jsonl.gz",
         "Campaign\\Human\\Human01.pud",
         0,
         &[],
-        Some(533),
+        None,
     ),
 ];
 

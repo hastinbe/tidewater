@@ -805,12 +805,15 @@ impl World {
         }
     }
 
-    /// "Held units": a held unit that is mobile, can attack and is not a worker holds its own tile.
+    /// "Held units": a held unit that is mobile, can attack and is not a worker holds its own tile. Our reading of the
+    /// round-44 errata ("Setting a goal", step 4, and the `human01-order15-range-700` vector): the own tile is given to
+    /// set goal, whose blocking test sees the unit's own mark, so the goal moves to the nearest free tile.
     pub(crate) fn held_goal(&mut self, i: usize) {
         let u = &self.units[i];
         let f = self.unit_flags(u);
         if u.held && f & MOBILE != 0 && f & flags::CAN_ATTACK != 0 && f & flags::PEON == 0 {
-            self.set_goal(i, GoalKind::Hold, None);
+            let here = u.tile;
+            self.set_goal(i, GoalKind::Hold, Some(here));
         }
     }
 
@@ -1998,10 +2001,12 @@ mod tests {
         let g = spawn(&mut w, GRUNT, 1, (10, 10));
         um(&mut w, g).held = true;
         w.held_goal(ix(&w, g));
-        assert_eq!(
-            (at(&w, g).goal.kind, at(&w, g).goal.tile),
-            (GoalKind::Hold, Some((10, 10)))
-        );
+        // Round-44 errata: the own tile is given, and the unit's own mark blocks it, so the ring search moves the goal
+        // to a free neighbour.
+        let goal = at(&w, g).goal;
+        assert_eq!(goal.kind, GoalKind::Hold);
+        let t = goal.tile.unwrap();
+        assert!(t != (10, 10) && (t.0 - 10).abs() <= 1 && (t.1 - 10).abs() <= 1, "{t:?}");
         let p = spawn(&mut w, PEASANT, 1, (11, 10));
         um(&mut w, p).held = true;
         w.held_goal(ix(&w, p));

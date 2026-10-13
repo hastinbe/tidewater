@@ -74,12 +74,12 @@ fn the_cooldown_and_the_kept_and_forgotten_targets_come_back() {
     let attack = Order::Attack { target: UnitId(5) };
     a.units[0].cooldown = 61;
     a.units[0].forgot = Some(attack);
-    a.units[4].dying_target = Some(UnitId(3));
+    a.units[4].dying_target = Some(3);
     let mut b = field(16, 16);
     b.restore(&a.save_state(), 1).unwrap();
     assert_eq!(
         (b.units[0].cooldown, b.units[0].forgot, b.units[4].dying_target),
-        (61, Some(attack), Some(UnitId(3)))
+        (61, Some(attack), Some(3))
     );
     assert_eq!(b.units, a.units);
 }

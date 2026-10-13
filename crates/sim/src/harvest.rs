@@ -24,6 +24,8 @@ const REFINERY_LOAD: u32 = 125;
 const CHOP_LIMIT: u8 = 50;
 const INSIDE_WAIT: u8 = 150;
 const OUT_WAIT: u8 = 25;
+/// The wait a take-over starts with (orders spec, "Same-update take-over").
+const TAKEOVER_WAIT: u8 = 3;
 const TREE_RINGS: i32 = 6;
 const RADIUS: i32 = 1;
 /// Trips per unit of a map's amount byte, and the trips a 0 byte stands for.
@@ -218,11 +220,28 @@ impl World {
     /// it, which takes over in the same update; with no tree (or without the flag) it goes idle. `human5-10000`
     /// worker 1567 at n = 119 and `orc8-10000` worker 1499 from n = 754. Round-40 errata: only the peon flag counts, so
     /// a tanker goes idle as in "No route" of the orders spec (an immediate idle whose idle logic runs at once).
+    ///
+    /// Round-44 errata (`orc4-40000` peasant 1584, n = 23680): after the re-aim to a tree, order 23's logic runs once
+    /// more in the same update. A worker within 1 tile of the new tree starts chopping at once (step 2: it faces the
+    /// tree, reserves it and makes its chop-sound draw), and the attack animation still restarts with wait 3. A worker
+    /// further away is left as the re-aim made it (facing kept, attack animation, wait 3).
     fn no_route(&mut self, i: usize) {
-        if self.flags_of(self.units[i].kind) & flags::PEON != 0 {
-            self.next_tree(i);
-        } else {
-            self.idle_at_once(i);
+        if self.flags_of(self.units[i].kind) & flags::PEON == 0 {
+            return self.idle_at_once(i);
+        }
+        self.next_tree(i);
+        let u = &self.units[i];
+        if let Order::Harvest {
+            source: None,
+            tree,
+            chopping: false,
+        } = u.order
+            && u.gather == Gather::Lumber
+            && chebyshev(u.tile, tree) <= RADIUS
+            && self.start_chopping(i, tree)
+        {
+            self.start_anim(i, anim::ATTACK);
+            self.units[i].script.wait = TAKEOVER_WAIT;
         }
     }
 
@@ -499,19 +518,7 @@ impl World {
         }
         let reserved = self.terrain.region(tree.0, tree.1) == Some(region::RESERVED_FOREST);
         if !chopping {
-            if self.terrain.reserve(tree.0, tree.1) {
-                let u = &mut self.units[i];
-                u.chop = 0;
-                u.facing = crate::world::face_tile(here, tree);
-                u.return_to = Some(Source::Tree(tree));
-                u.order = Order::Harvest {
-                    source: None,
-                    tree,
-                    chopping: true,
-                };
-                u.path.clear();
-                // Sounds spec, "Workers chopping": each chop's sound is played by the chop animation.
-                self.pend_chop(i);
+            if self.start_chopping(i, tree) {
                 self.switch_anim(i, anim::ATTACK);
             } else {
                 self.next_tree(i);
@@ -542,6 +549,28 @@ impl World {
         u.script.frame = 0;
         u.blocked = 0;
         self.take_over(i, Order::ReturnGoods { depot: None });
+    }
+
+    /// "Lumber", step 2: a worker next to a tree tile that is still unreserved forest starts chopping (counter 0, faces
+    /// the tree, reserves it, takes it as its return-to source). Returns false, changing nothing, if the tile can't be
+    /// reserved. The caller starts the chop animation.
+    fn start_chopping(&mut self, i: usize, tree: (i32, i32)) -> bool {
+        if !self.terrain.reserve(tree.0, tree.1) {
+            return false;
+        }
+        let u = &mut self.units[i];
+        u.chop = 0;
+        u.facing = crate::world::face_tile(u.tile, tree);
+        u.return_to = Some(Source::Tree(tree));
+        u.order = Order::Harvest {
+            source: None,
+            tree,
+            chopping: true,
+        };
+        u.path.clear();
+        // Sounds spec, "Workers chopping": each chop's sound is played by the chop animation.
+        self.pend_chop(i);
+        true
     }
 
     /// Sends a worker to the nearest tree from its own tile, or makes it idle. "Lumber", round-38 errata: the new aim
@@ -902,23 +931,26 @@ mod tests {
 
     /// "Lumber", "No route" (round-39 errata), the `human5-10000` worker 1567 vector at n = 119: a worker in gold mode
     /// heading for a mine it has no route to looks for the nearest tree and is given a lumber harvest command to it,
-    /// which takes over in the same update (attack animation, wait 3, no target). With no tree it goes idle.
+    /// which takes over in the same update (attack animation, wait 3, no target). With no tree it goes idle. Round-44
+    /// errata (`orc4-40000` peasant 1584, n = 23680): order 23's logic then runs once more, so a worker next to the new
+    /// tree turns to it, reserves it and starts chopping, still with wait 3; one further away keeps its facing.
     #[test]
     fn a_worker_with_no_route_looks_for_the_nearest_tree() {
-        for with_tree in [true, false] {
+        for tree in [None, Some((11, 10)), Some((12, 10))] {
             let mut w = land();
-            // (10, 10) walled round; the tree at (11, 10) is part of the wall.
+            // (10, 10) walled round; a tree at (11, 10) is part of the wall.
             for (x, y) in ring((10, 10), 1) {
                 let n = w.terrain.at(x, y).unwrap();
                 w.terrain.words[n] |= bits::OBSTACLE;
             }
-            if with_tree {
-                forest(&mut w, 11, 10);
+            if let Some(t) = tree {
+                forest(&mut w, t.0, t.1);
             }
             let mine = w.spawn(MINE, 15, (18, 10), 2).unwrap();
             let p = w.spawn(0, 0, (10, 10), 0).unwrap();
             let i = w.index(p).unwrap();
             w.units[i].gather = Gather::Gold;
+            w.units[i].facing = 4;
             w.units[i].order = Order::Harvest {
                 source: Some(mine),
                 tree: (18, 10),
@@ -926,17 +958,27 @@ mod tests {
             };
             w.harvest_order(i, Some(mine), (18, 10), false);
             let u = &w.units[i];
-            if !with_tree {
+            let Some(t) = tree else {
                 assert_eq!(u.order, Order::Idle);
                 continue;
-            }
+            };
+            let adjacent = t == (11, 10);
             let want = Order::Harvest {
                 source: None,
-                tree: (11, 10),
-                chopping: false,
+                tree: t,
+                chopping: adjacent,
             };
             assert_eq!((u.order, u.pending, u.gather), (want, None, Gather::Lumber));
-            assert_eq!((u.script.anim, u.script.wait, u.tile), (anim::ATTACK, 3, (10, 10)));
+            assert_eq!(
+                (u.script.anim, u.script.frame, u.script.wait, u.tile),
+                (anim::ATTACK, 0, 3, (10, 10))
+            );
+            let reserved = w.terrain.region(t.0, t.1) == Some(region::RESERVED_FOREST);
+            assert_eq!(
+                (u.facing, reserved),
+                if adjacent { (2, true) } else { (4, false) },
+                "{t:?}"
+            );
         }
     }
 

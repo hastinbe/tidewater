@@ -751,11 +751,13 @@ fn order_cell(u: &Unit) -> Cell {
 /// The slot of the unit the order aims at, as far as our orders name one. A command sets the unit's target at once,
 /// so a pending order's target unit is shown while it waits to take over. A dying unit shows the target it had when
 /// it died, and a killer whose order is still the one whose target it forgot shows none (damage spec, "Applying
-/// damage").
+/// damage"). A dead unit (dying, remains or in its remove order) keeps reporting its target's slot after that slot is
+/// released; a live unit's target is cleared then (trace-format spec, `target`, round-44 errata).
 fn target_cell(w: &World, u: &Unit) -> Cell {
-    let id = if u.dying {
-        u.dying_target
-    } else if let (true, Some(p)) = (u.commanded, u.pending) {
+    if u.dying {
+        return Cell::opt(u.dying_target);
+    }
+    let id = if let (true, Some(p)) = (u.commanded, u.pending) {
         // A command's target replaces the old one at once, even with none (`xorc01-death-knight`, n = 82: a move
         // given to a caster that was in order 54 on a unit shows no target).
         p.target()

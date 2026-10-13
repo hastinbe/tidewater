@@ -414,7 +414,12 @@ impl World {
                     // "Arriving and losing the target": a patrol to the other end, with the tile it stands on as the new
                     // other end, takes over in the same update (still animation, wait 3); it steps at its next run.
                     let here = self.units[i].tile;
-                    let swapped = Order::Patrol { to: back, back: here };
+                    // Round-44 errata: the turnaround is a command, so for every patrol its new goal is pulled back
+                    // (pathfinding spec, "Goal pulled back"); the remembered ends stay as they were.
+                    let swapped = Order::Patrol {
+                        to: self.pull_back(i, back),
+                        back: here,
+                    };
                     if let Some(Remembered::Patrol { .. }) = self.units[i].remembered {
                         self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
                     }
@@ -548,9 +553,13 @@ impl World {
         acquire::score(self.threat(u, t), self.stats_of(t.kind).priority, distance(u.tile, t))
     }
 
+    /// Whether `t` is closer than the searcher's minimum attack range (the minimum range of its missile).
+    fn inside_min_range(&self, u: &Unit, t: &Unit) -> bool {
+        combat::splash(self.stats_of(u.kind).missile).is_some_and(|min| distance(u.tile, t) < min as i32)
+    }
+
     /// Whether `t` passes the candidate skip list for searcher `u` ("A candidate is skipped if").
     pub(crate) fn candidate(&self, u: &Unit, t: &Unit, order: Order) -> bool {
-        let s = self.stats_of(u.kind);
         let tf = self.flags_of_unit(t);
         // "Its owner is allied to the searcher's owner, or is the searcher's owner", by the searcher's owner's entry
         // of the alliance table (setup spec, "Starting alliances and shared vision").
@@ -569,9 +578,7 @@ impl World {
         if u.layer == Layer::Air && t.layer == Layer::Air && tf & flags::CAN_ATTACK == 0 {
             return false;
         }
-        if let Some(min) = combat::splash(s.missile)
-            && distance(u.tile, t) < min as i32
-        {
+        if self.inside_min_range(u, t) {
             return false;
         }
         let roaming = matches!(order, Order::AttackMove { .. } | Order::Patrol { .. });
@@ -610,8 +617,18 @@ impl World {
         };
         let extra = tower as i32;
         let (x0, y0, x1, y1) = (u.tile.0 - r, u.tile.1 - r, u.tile.0 + r + extra, u.tile.1 + r + extra);
-        let mut best: Option<(i32, UnitId)> = seed.and_then(|a| self.unit(a)).map(|a| (self.score(u, a), a.id));
-        let gone = |id: &UnitId| self.unit(*id).is_none_or(|t| !t.present());
+        // "Choice" (round-44 errata, `human06-31357` ballista 1582 at n = 23683): the attacker seeds the search only
+        // with a score above 0; one the unit can't attack (score 0: a kind it can't attack, or closer than its minimum
+        // range) leaves the search as if there were no attacker.
+        let mut best: Option<(i32, UnitId)> = seed
+            .and_then(|a| self.unit(a))
+            .filter(|a| self.can_target_kind(u, a) && !self.inside_min_range(u, a))
+            .map(|a| (self.score(u, a), a.id))
+            .filter(|&(sc, _)| sc > 0);
+        // "Vertical order" (round-44 errata): only dying, dead and removed entries are skipped at the front. Inside
+        // units keep their list place and are visited by their recorded tile row, so they take part in the halving
+        // search; the candidate checks then reject them (`human7-22000` archer 1598, n = 19787).
+        let gone = |id: &UnitId| self.unit(*id).is_none_or(|t| t.dying);
         let front = self.ylist.iter().take_while(|id| gone(id)).count();
         let list = &self.ylist[front..];
         let rows: Vec<i32> = list
@@ -854,7 +871,9 @@ impl World {
         // Round-40 errata (`xorc10` footman 1520 at n = 333, `human12` zeppelin 1503 at n = 5668): a unit that isn't in
         // its move animation takes the move in the same update (wait 3); one in its move animation keeps it pending.
         // Our reading: the take-over starts the move order's own animation, the still one, as any take-over does.
-        self.give(i, Order::Move { goal: to });
+        // Round-44 errata: the move is a command, so its goal is pulled back, its blocked counter cleared and its
+        // cached route dropped.
+        self.command(i, Order::Move { goal: to });
         if self.units[i].script.anim != anim::MOVE
             && let Some(o) = self.units[i].pending.take()
         {
@@ -940,12 +959,15 @@ impl World {
         self.ylist.insert(at, id);
     }
 
+    /// The pixel y a unit sorts by ("Vertical order", round-44 errata): dying, dead and removed units (remains and
+    /// the remove order keep the dying state) sort at −32768. A unit inside something keeps its place: its pixel y
+    /// doesn't change while it is inside, and coming out doesn't re-insert it, so it moves only by the sort.
     fn sort_y(&self, u: &Unit) -> i32 {
-        if u.present() { u.pos.1 } else { acquire::OUT_OF_LIST_Y }
+        if u.dying { acquire::OUT_OF_LIST_Y } else { u.pos.1 }
     }
 
     /// The vertical list, which is also the map view's draw list (map-drawing spec, "The draw list"): pixel y
-    /// ascending, re-sorted once per cycle, with dying, dead and inside units at the front.
+    /// ascending, re-sorted once per cycle, with dying and dead units at the front.
     pub fn draw_list(&self) -> &[UnitId] {
         &self.ylist
     }
@@ -1410,6 +1432,37 @@ mod tests {
     }
 
     #[test]
+    fn a_patrol_turnaround_pulls_its_new_goal_back() {
+        // Round-44 errata, "Order 5 (patrol)": the turnaround is a command, so its new goal is pulled back. The far end
+        // (0, 2) and (1, 2) are blocked: the new goal is (1, 2), the last blocked tile before a usable one.
+        let mut w = map();
+        for x in 0..2 {
+            let n = w.terrain.at(x, 2).unwrap();
+            w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+        }
+        let f = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+        let i = at(&w, f);
+        let out = Order::Patrol {
+            to: (5, 2),
+            back: (0, 2),
+        };
+        w.take_over(i, out);
+        let mut n = 0;
+        while order_of(&w, f) == out {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 100);
+        }
+        assert_eq!(
+            order_of(&w, f),
+            Order::Patrol {
+                to: (1, 2),
+                back: (5, 2)
+            }
+        );
+    }
+
+    #[test]
     fn a_patrol_arrival_takes_over_and_steps_three_cycles_later() {
         // The xorc10 vector: on arrival the unit is given a patrol to its other end, with its own tile as the new
         // other end; it takes over in the same update (still animation, wait 3) and steps at its next run.
@@ -1742,6 +1795,63 @@ mod tests {
         assert_eq!(w.search(i, None, true), None);
     }
 
+    /// "Attack-move" (round-44 errata, the `human06-31357` axe thrower 1512 vector at n = 16277): a building target is
+    /// headed for at the footprint tile of the building goal rule with the building's goal zone, as an attack on it
+    /// walks, not at the building's own tile. A unit target is headed for at its tile.
+    #[test]
+    fn attack_move_heads_for_a_building_as_an_attack_would() {
+        for building in [true, false] {
+            let mut w = map();
+            let a = w.spawn(ARCHER, 0, (5, 2), 0).unwrap();
+            let t = if building {
+                w.spawn(FARM, 1, (4, 6), 0).unwrap()
+            } else {
+                w.spawn(FOOTMAN, 1, (4, 6), 0).unwrap()
+            };
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let i = at(&w, a);
+            w.units[i].pending = None;
+            w.units[i].order = Order::MoveAttack { goal: (5, 20) };
+            let (mut tile_walk, mut attack_walk) = (w.clone(), w.clone());
+            w.head_for(i, t);
+            tile_walk.move_toward(i, Goal::tile((4, 6), 0));
+            let tu = tile_walk.units[i].clone();
+            let goal = Goal {
+                zone: Some(crate::battle::goal_zone(w.unit(t).unwrap())),
+                ..Goal::tile(crate::movement::building_goal((5, 2), w.unit(t).unwrap()), 0)
+            };
+            attack_walk.move_toward(i, if building { goal } else { Goal::tile((4, 6), 0) });
+            let step = w.units[i].tile;
+            assert_eq!(step, attack_walk.units[i].tile, "building {building}");
+            assert_eq!(step == tu.tile, !building, "building {building}: {step:?}");
+        }
+    }
+
+    /// "Choice" (round-44 errata, the `human06-31357` ballista 1582 vector at n = 23683): an attacker inside the
+    /// unit's minimum range scores 0 and doesn't seed the search, which then picks a box candidate; with none, nothing
+    /// is found. An attacker that can be attacked still wins a tie.
+    #[test]
+    fn an_attacker_inside_the_minimum_range_does_not_seed_the_search() {
+        let mut w = map();
+        w.stats.0[CATAPULT as usize].missile = crate::combat::missile::CATAPULT;
+        let c = w.spawn(CATAPULT, 0, (5, 5), 0).unwrap();
+        let near = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, c);
+        assert_eq!(w.search(i, Some(near), false), None);
+        let far = w.spawn(FOOTMAN, 1, (8, 5), 0).unwrap();
+        w.step(&[]);
+        let i = at(&w, c);
+        assert_eq!(w.search(i, Some(near), false), Some(far));
+        // A seed with a score above 0 is kept on a tie: a second footman at the same distance.
+        let twin = w.spawn(FOOTMAN, 1, (8, 6), 0).unwrap();
+        w.step(&[]);
+        let i = at(&w, c);
+        assert_eq!(w.search(i, Some(twin), false), Some(twin));
+    }
+
     /// "Order 14 (towers)" and the `xhuman10-spells` vector (n = 5): a tower fires at once in its logic run, stores
     /// no target, doesn't turn and has no cooldown; between step dones it does nothing.
     #[test]
@@ -1830,6 +1940,31 @@ mod tests {
     }
 
     #[test]
+    fn a_flee_move_is_a_command_whose_goal_is_pulled_back() {
+        // Round-44 errata, "Fleeing" step 6: the flee tile is pulled back off ground the unit can't stand on, and the
+        // blocked counter is cleared. Every tile from column 12 on is blocked, so the flee tile east of (10, 10) is
+        // pulled back to the last blocked tile on the line, in column 12.
+        let mut w = map();
+        for y in 0..w.terrain.height as i32 {
+            for x in 12..w.terrain.width as i32 {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+            }
+        }
+        let p = w.spawn(PEASANT, 0, (10, 10), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (6, 10), 0).unwrap();
+        let (i, ai) = (at(&w, p), at(&w, a));
+        w.units[ai].facing = 2;
+        w.units[i].attacked_by = Some(a);
+        w.units[i].blocked = 5;
+        assert!(w.flee(i));
+        let Order::Move { goal } = w.units[i].order else {
+            panic!("expected a move, got {:?}", w.units[i].order)
+        };
+        assert_eq!((goal.0, w.units[i].blocked), (12, 0), "{goal:?}");
+    }
+
+    #[test]
     fn peasant_hit_by_a_peon_hits_back() {
         let mut w = map();
         let p = w.spawn(PEASANT, 0, (10, 10), 0).unwrap();
@@ -1891,6 +2026,28 @@ mod tests {
         w.units[i].dying = true;
         w.sort_vertical();
         assert_eq!(w.draw_list()[0], b);
+    }
+
+    #[test]
+    fn inside_units_keep_their_list_place_and_coming_out_does_not_reinsert() {
+        // Orders spec, "Vertical order" (round-44 errata): a unit that goes in at pixel y 160 keeps its place while
+        // inside, and coming out at y 320 starts from that place; only the sort moves it.
+        let mut w = map();
+        let a = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+        let b = w.spawn(FOOTMAN, 0, (2, 5), 0).unwrap();
+        let c = w.spawn(FOOTMAN, 0, (2, 8), 0).unwrap();
+        assert_eq!(w.draw_list(), [a, b, c]);
+        let i = at(&w, b);
+        w.units[i].inside = true;
+        w.sort_vertical();
+        assert_eq!(w.draw_list(), [a, b, c], "inside: not moved to the front");
+        let i = at(&w, b);
+        w.units[i].inside = false;
+        w.units[i].tile = (2, 10);
+        w.units[i].pos = (64, 320);
+        assert_eq!(w.draw_list(), [a, b, c], "coming out doesn't re-insert");
+        w.sort_vertical();
+        assert_eq!(w.draw_list(), [a, c, b]);
     }
 
     #[test]

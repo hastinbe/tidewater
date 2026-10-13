@@ -332,8 +332,10 @@ pub struct Unit {
     /// The attack cooldown in cycles (damage spec, "Attack timing (cooldown)"): set to the type's attack loop + 1 at
     /// each strike decision, counted down every cycle while above 0 (not for transports).
     pub cooldown: u16,
-    /// A dying unit's target, kept through its death animation (damage spec, "Applying damage").
-    pub dying_target: Option<UnitId>,
+    /// The slot of a dying unit's target, kept through its death animation (damage spec, "Applying damage") and as
+    /// remains. Reporting only: a dead unit keeps reporting this slot after the target's slot is released (trace-format
+    /// spec, round-44 errata).
+    pub dying_target: Option<u16>,
     /// A killer's forgotten target (damage spec, "Applying damage"): while the unit's order is still this one, the
     /// order has no target.
     pub forgot: Option<Order>,

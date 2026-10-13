@@ -95,6 +95,16 @@ fn gap(a: &Unit, b: &Unit) -> i32 {
     axis(a.tile.0, a.size.0, b.tile.0, b.size.0).max(axis(a.tile.1, a.size.1, b.tile.1, b.size.1))
 }
 
+/// A target's goal zone (pathfinding spec, "Step 1"): its footprint widened by one tile on each side.
+pub(crate) fn goal_zone(t: &Unit) -> (i32, i32, i32, i32) {
+    (
+        t.tile.0 - 1,
+        t.tile.1 - 1,
+        t.tile.0 + t.size.0 as i32,
+        t.tile.1 + t.size.1 as i32,
+    )
+}
+
 impl World {
     /// Whether `u` may be ordered to attack `target`: an enemy it can reach with its weapon.
     pub fn can_attack(&self, u: &Unit, target: UnitId) -> bool {
@@ -157,17 +167,11 @@ impl World {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
         let goal = if t.building { building_goal(u.tile, t) } else { t.tile };
-        let zone = (
-            t.tile.0 - 1,
-            t.tile.1 - 1,
-            t.tile.0 + t.size.0 as i32,
-            t.tile.1 + t.size.1 as i32,
-        );
         Goal {
             tile: goal,
             radius: reach,
             range: true,
-            zone: Some(zone),
+            zone: Some(goal_zone(t)),
         }
     }
 
@@ -178,7 +182,17 @@ impl World {
     /// it waits for the take-over.
     pub(crate) fn head_for(&mut self, i: usize, target: UnitId) {
         let Some(t) = self.unit(target) else { return };
-        let g = Goal::tile(t.tile, 0);
+        // Round-44 errata (`human06-31357` axe thrower 1512, n = 16277): a building target is headed for as an attack
+        // on it would: the footprint tile of the building goal rule, with the building's goal zone (its footprint
+        // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile.
+        let g = if t.building {
+            Goal {
+                zone: Some(goal_zone(t)),
+                ..Goal::tile(building_goal(self.units[i].tile, t), 0)
+            }
+        } else {
+            Goal::tile(t.tile, 0)
+        };
         if self.move_toward(i, g) == Walk::NoPath {
             self.units[i].attacked_by = None;
             self.idle_at_once(i);
@@ -554,8 +568,11 @@ impl World {
         }
         // A computer worker's job is released when it dies (worker-ai spec).
         self.release_job(ti);
+        let u = &self.units[ti];
+        let target = u.pending.and_then(Order::target).or_else(|| u.order.target());
+        let slot = target.and_then(|t| self.unit(t)).map(|t| t.slot);
         let u = &mut self.units[ti];
-        u.dying_target = u.pending.and_then(Order::target).or_else(|| u.order.target());
+        u.dying_target = slot;
         // Unit-slots spec, "Death, corpses and release": no kill, by damage or outright, changes the HP.
         u.dying = true;
         u.order = Order::Idle;
@@ -861,7 +878,8 @@ mod tests {
         w.units[o].order = Order::Attack { target: victim };
         w.damage(v, 5, killer);
         let u = &w.units[v];
-        assert_eq!((u.dying, u.hp, u.dying_target), (true, 5, Some(other)));
+        let other_slot = w.unit(other).unwrap().slot;
+        assert_eq!((u.dying, u.hp, u.dying_target), (true, 5, Some(other_slot)));
         let attack = Order::Attack { target: victim };
         assert_eq!((w.units[k].order, w.units[k].forgot), (attack, Some(attack)));
         assert_eq!((w.units[o].order, w.units[o].forgot), (attack, None));
