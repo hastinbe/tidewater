@@ -21,6 +21,9 @@
   2026-10-12, round-42 errata: order 34 is a walking order whose logic runs on arrival, so a computer player's boarding
   unit stays in order 34 while it walks; with no route it restarts order 34 at once (destination in its region) or goes
   idle at once; step 3 is marked static study only; `human10-24000` and `human12-7000` vectors; two open questions.
+  2026-10-12, round-43 errata: a human player's no-route restart of order 34 tells the transport to come again (a docked
+  transport's order 32 takes over again with wait 3); `human12-transport` vectors; the open question on the restart now
+  covers computer players' units only.
 
 ## Behaviour
 
@@ -188,7 +191,10 @@ logic (the steps below) runs when the walk ends:
 
 - on **arrival**, the steps below run;
 - with **no route**, the unit restarts order 34 at once if the transport's destination tile is in its region, and
-  becomes idle at once otherwise (`orders/orders.md`, "No route", the boarding case).
+  becomes idle at once otherwise (`orders/orders.md`, "No route", the boarding case). For a human player's unit the
+  restart also tells the transport to come again, as the boarding command does, unless it is landing: a docked transport
+  stays in order 32, and order 32 takes over again at the end of its current wait (still animation, wait 3;
+  `human12-transport`, vectors below). Whether a computer player's restart does the same isn't settled (open questions).
 
 Each time the order's logic runs:
 
@@ -255,6 +261,9 @@ Each time the order's logic runs:
 | Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing, and its logic runs (static study only) | Gets a smart move again: stays in order 34, and the transport is told to come |
 | `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5) after a no-route step: order 34 restarted, animation 2, wait 3; n = 17254: order 36 (aboard) |
 | `human12-7000` (oracle trace), n = 6371: computer grunt 1407 (owner 0) walking to transport 1522 | Order 34, animation 3, tile (84, 16) |
+| `human12-transport-650` (oracle trace), n = 45: transport 1428 (owner 1, a human player) docks at (35, 114) (order 32, wait 1); in the same cycle, after it, unit 1434 (order 34 on 1428) at (34, 112) finds no route and restarts (animation 2, wait 3) | n = 46: transport order 32, still animation, wait 3 (its still animation would otherwise show wait 1 or 4) |
+| Same trace, n = 73, 76, 79 and 82: 1434 restarts again (no route), the transport's wait at 1 | n = 74, 77, 80 and 83: transport order 32, wait 3 |
+| Same trace, n = 26 to 44: the units' restarts while transport 1428 is landing (order 30) | The transport isn't affected: animation 6, wait 1 |
 | Transport docked at (21, 20) (odd x, one-tile mover, landing class) on shore water, smart move to an open-water tile G = (40, 20); open water (no sea-mask bit) is every tile with x ≥ 22 | Order 31, target tile G. Run 1: odd tile, so the ring search runs from (21, 20) aimed at (40, 20): start corner (22, 19), first tile tested (22, 20) passes. The target tile becomes (22, 20) (the destination stays (40, 20)); one-tile step east to (22, 20). Run 2: (22, 20) is an even open-water tile: sea class, two-tile mover, idle, then a smart move to (40, 20): order 3 |
 | Transport docked at (20, 20) (even) on shore water, smart move to G = (40, 20); open water is every tile with x ≥ 24 | Run 1: even tile but not open water. The ring search aimed at (40, 20) finds (24, 18) after 53 tests (counting repeated tiles); it becomes the target tile; two-tile mover, move animation, first step toward (24, 18). Each later run repeats the search aimed at (24, 18) before stepping. On reaching (24, 18): sea class, idle, smart move to (40, 20) |
 | Straight line, S = (20, 20), G = (25, 22) | Tiles tested: (20, 20), (21, 21), (22, 21), (23, 21), (24, 22); the walk stops at (25, 22) |
@@ -274,8 +283,11 @@ Each time the order's logic runs:
 - **Order 34 not arrived.** The static study shows step 3's two branches (command 4 for a computer player's unit, a
   smart move for every other), but the logic seems to run only on arrival or with no route. Whether any path reaches
   step 3 is open.
-- **No-route restart.** The original's no-route restart of order 34 doesn't appear to tell the transport to come
-  again, while step 3's smart move does. No trace in the set separates the two.
+- **No-route restart by a computer player's unit.** A human player's restart tells the transport to come again
+  (`human12-transport`). For computer players' units the traces are mixed: in `human12-7000` the restart of grunt 1407
+  at n = 6403 is followed by the docked transport's take-over (wait 3 at n = 6405), and in `human10-24000` that of grunt
+  1473 at n = 17251 (wait 3 at n = 17254); but after the restarts of 1473 at n = 17216 and of 1407 at n = 6454 the
+  transport's still animation runs on unchanged. What decides it is open.
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity and the exact sound rules.
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
