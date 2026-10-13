@@ -24,6 +24,8 @@
   2026-10-12, round-43 errata: a human player's no-route restart of order 34 tells the transport to come again (a docked
   transport's order 32 takes over again with wait 3); `human12-transport` vectors; the open question on the restart now
   covers computer players' units only.
+  2026-10-12, round-44 errata: the open question on a computer player's no-route restart gives the static reading (the
+  50-cycle army pass tells the transport, the restart doesn't); still untraced.
 
 ## Behaviour
 
@@ -287,7 +289,10 @@ Each time the order's logic runs:
   (`human12-transport`). For computer players' units the traces are mixed: in `human12-7000` the restart of grunt 1407
   at n = 6403 is followed by the docked transport's take-over (wait 3 at n = 6405), and in `human10-24000` that of grunt
   1473 at n = 17251 (wait 3 at n = 17254); but after the restarts of 1473 at n = 17216 and of 1407 at n = 6454 the
-  transport's still animation runs on unchanged. What decides it is open.
+  transport's still animation runs on unchanged. What decides it is open. The static study (untraced) reads it as: a
+  computer player's restart doesn't tell the transport, and the take-overs seen come from the 50-cycle army pass
+  (`ai/attack-ai.md`), which tells it. No trace separates the two readings; a capture of a computer army waiting for a
+  ferry, with the boarding unit's route blocked so it restarts, would.
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity and the exact sound rules.
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
