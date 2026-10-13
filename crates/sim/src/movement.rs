@@ -454,12 +454,22 @@ impl World {
             // Round-60 errata (orders spec, "Giving up when blocked"; `xhuman8-25000` troll destroyer 1441,
             // n = 11284): a remembered patrol or attack-move that resumes is given as a command and made the pending
             // order, and the unit starts its still animation with wait 1 instead of 15.
+            // Round-61 errata (`orc10-10000` tanker 1533, n = 3505; `xhuman12-10000` axe thrower 1521, n = 4144):
+            // when nothing resumes, idle is pending and nothing else changes, so the unit keeps the walking animation
+            // restarted above, with wait 15; only the resume case starts the still animation. A remembered
+            // attack-move that is complete (within 1 tile on both axes) is forgotten here (static study only).
             if let Some(o) = self.resumed(i) {
                 self.units[i].pending = Some(o);
                 self.start_anim(i, anim::STILL);
                 1
             } else {
-                self.units[i].pending = Some(Order::Idle);
+                let u = &mut self.units[i];
+                if let Some(crate::world::Remembered::AttackMove { goal }) = u.remembered
+                    && chebyshev(u.tile, goal) <= 1
+                {
+                    u.remembered = None;
+                }
+                u.pending = Some(Order::Idle);
                 LONG_WAIT
             }
         } else if u.blocked >= LONG_WAIT_FROM {
@@ -1024,9 +1034,36 @@ mod tests {
                 assert!(matches!(u.pending, Some(Order::Patrol { .. })), "{:?}", u.pending);
                 assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 1));
             } else {
+                // Round-61 errata: nothing resumes, so the restarted walking animation is kept, with wait 15.
                 assert_eq!(u.pending, Some(Order::Idle));
-                assert_eq!(u.script.wait, LONG_WAIT);
+                assert_eq!((u.script.anim, u.script.wait), (anim::MOVE, LONG_WAIT));
             }
+        }
+    }
+
+    /// Round-61 errata, row C with nothing to resume (orders spec, "Giving up when blocked"; the `orc10-10000` tanker
+    /// 1533 and `xhuman12-10000` axe thrower 1521 vectors): idle pending, the walking animation (3) kept, wait 15. A
+    /// remembered attack-move within 1 tile of the unit is complete and forgotten there (static study only); one
+    /// further away is kept while the countdown runs.
+    #[test]
+    fn row_c_with_nothing_to_resume_keeps_walking_and_forgets_a_complete_attack_move() {
+        for (goal, kept) in [(None, false), (Some((3, 2)), false), (Some((7, 1)), true)] {
+            let mut w = corridor(10);
+            w.rules.enhanced = true;
+            let f = w.spawn(0, 1, (2, 1), 0).unwrap();
+            let b = w.spawn(5, 1, (3, 1), 0).unwrap();
+            let i = w.index(f).unwrap();
+            let u = &mut w.units[i];
+            u.order = Order::Move { goal: (7, 1) };
+            u.remembered = goal.map(|goal| crate::world::Remembered::AttackMove { goal });
+            u.resume = if kept { 5 } else { 0 };
+            u.blocked = 14;
+            u.path = vec![(3, 1)];
+            w.blocked(i, (3, 1), Some(b), Goal::tile((7, 1), 0));
+            let u = &w.units[i];
+            assert_eq!(u.pending, Some(Order::Idle), "{goal:?}");
+            assert_eq!((u.script.anim, u.script.wait), (anim::MOVE, LONG_WAIT), "{goal:?}");
+            assert_eq!(u.remembered.is_some(), kept, "{goal:?}");
         }
     }
 
