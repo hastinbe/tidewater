@@ -57,6 +57,8 @@
   next step done); `human12-25000` vector.
   2026-10-13, round-56 errata: a worker with no route and no tree goes idle as an immediate order and its idle logic
   (for a computer player, the job choice) runs in the same update; `orc11-25000` vector.
+  2026-10-13, round-58 errata: coming out toward a gold mine, the exit search aims at the mine's top-left tile
+  pulled back; the worker still faces the top-left tile plus (1, 1); round-58 vectors.
 
 ## Behaviour
 
@@ -160,8 +162,11 @@ When the 150-cycle wait ends and the inside order's logic runs:
    player's job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile
    **pulled back** as for any command to a building (`movement/pathfinding.md`, "Goal pulled back"; traced:
    `human13-10000`, round-52 vectors), though the worker still faces the depot's top-left tile plus (1, 1); for a
-   harvest, the source's tile (a mine's top-left tile or the tree tile); for a **repair** (a computer player's job), the
-   building's top-left tile, and the worker then faces the building as any come-out faces its target (traced:
+   harvest at a gold mine (or another source that is a unit), the source's top-left tile **pulled back** in the same
+   way, though the worker still faces the source's top-left tile plus (1, 1) (traced: `mp-rose-petal-bne-10000`,
+   `mp-gold-rush-bne-6000`, round-58 vectors); for a harvest at a tree, the tree tile (already the pulled-back goal);
+   for a **repair** (a computer player's job), the building's top-left tile, and the worker then faces the building as
+   any come-out faces its target (traced:
    `human8-10000`, round-50 vectors). With no new command (the unit stays idle), it is the unit's own stored tile, from
    step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at their first worker
    coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded goal tile runs them
@@ -487,6 +492,13 @@ gold, storage for wood, storage for oil, building.
 | --- | --- |
 | `orc11-25000` (oracle trace, Enhanced), n = 10428: computer peasant 1441 (type 0x02, owner 1) at (22, 122), in order 23 on gold mine 1457 (at (5, 123)) since n = 10425, finds no route and no tree within the no-route search | Immediate idle, then the same-update job choice gives a lumber job: order 23, target null, animation 4, wait 3, with one draw more than a plain idle. It then walks to a tree and is chopping at (31, 111) by n = 10728 |
 | A human player's peasant in the same position (static study) | Order 2 as an immediate order; its idle logic runs in the same update (no job choice for a human player) |
+
+### Round-58 vectors
+
+| Input | Expected |
+| --- | --- |
+| `mp-rose-petal-bne-10000` (oracle trace, Enhanced), n = 1731: computer peon 1567 (type 0x02, owner 3) comes out of great hall 1556 (top-left (55, 84), hall-sized exit) toward gold mine 1571 (top-left (59, 78)). Pulling back from (55, 84): the first tile tested, (58, 79), is forest; the next, (58, 80), is usable, so the goal is (58, 79) | Placed at (55, 83), facing 1 (toward (60, 79)); order 2, target 1571. Aimed at (59, 78) instead, it would come out at (59, 84) facing 0 |
+| `mp-gold-rush-bne-6000` (oracle trace, Enhanced), n = 2353: peon 1511 comes out of great hall 1534 (top-left (11, 49)) toward gold mine 1547 (top-left (6, 43)) | Placed at (10, 50), facing 7, toward (7, 44): the mine's top-left plus (1, 1), not the pulled-back goal (8, 45) plus (1, 1), which would give 0 |
 
 ## Open questions
 
