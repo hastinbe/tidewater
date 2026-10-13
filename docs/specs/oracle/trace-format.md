@@ -18,6 +18,7 @@
   `dest` is its landing point from creation; `human06-31357` and `xhuman10-blizzard-600` vectors.
   2026-10-13, round-45 errata: the `dest` of death coil missiles, death-and-decay clouds and whirlwinds, and a death
   coil caster's `target`, as in `spells/spells.md`.
+  2026-10-13, round-47 errata: the `dest` of a fireball and of a flame shield bolt, as in `spells/spells.md`.
 
 ## Behaviour
 
@@ -109,7 +110,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `slot` | Effect-table slot (`core/unit-slots.md`) |
 | `kind` | Missile or effect kind number (`combat/damage.md`, `spells/spells.md`) |
 | `x`, `y` | Position in pixels |
-| `dest` | Destination `[x, y]` in pixels. A blizzard shard has its chain's landing point from the moment it is created, through its initial wait (`spells/spells.md`, "Blizzard shards"); a death coil missile has its aim point from creation; a death-and-decay cloud has the target tile's centre; a whirlwind has its current goal (`spells/spells.md`) |
+| `dest` | Destination `[x, y]` in pixels. A blizzard shard has its chain's landing point from the moment it is created, through its initial wait (`spells/spells.md`, "Blizzard shards"); a death coil missile has its aim point from creation; a death-and-decay cloud has the target tile's centre; a whirlwind has its current goal; a fireball has its target tile's centre and a flame shield bolt (kind 3) its target unit's centre, from creation (`spells/spells.md`) |
 | `target`, `shooter` | Unit slots, or `null` |
 | `damage` | The damage value stored on the missile (`combat/damage.md`) |
 
