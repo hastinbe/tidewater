@@ -4,24 +4,13 @@
 //! limit.
 //!
 //! The format-2 traces carry the player's commands in their `turn` records, which the oracle replays. They must match
-//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i). The
-//! gaps below are what the specs don't yet explain; none has been researched:
+//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i). Every
+//! trace below matches in full; a known gap gets a limit and a note here.
 //!
-//! - **orc02-victory**, **orc02-defeat**, n = 2719: at n = 2720 a computer grunt (slot 1576) attacking a wall (order
-//!   11) records tile (56, 17), facing 7, animation 4 in the game, and (57, 16), facing 1, animation 3 in ours.
-//! - **xhuman10-spells**, n = 392: at n = 393 a fireball (effect slot 3, kind 2, shooter 1481) is still in flight at
-//!   (2182, 2880) in the game and has already ended in ours.
-//! - **xhuman10-blizzard**, n = 425: at n = 426 a flame shield bolt (effect slot 9, kind 3) is still in use at
-//!   (2608, 2892) in the game, after its flames appeared, and has ended in ours; and the flames (kind 4) record
-//!   destination (0, 0) and no target in the game, and their position and the shielded unit 1480 in ours.
-//! - **human5**, n = 2753: at n = 2754 an axe thrower (slot 1533) in order 12 on great hall 1525 steps to (36, 99),
-//!   facing 1, animation 3, in the game and stays at (35, 100) to strike (facing 5, animation 4) in ours.
-//! - **xhuman2**, n = 5819: at n = 5820 an idle peasant (slot 1530, owner 7) has frame 25, wait 3 in the game and
-//!   frame 0, wait 1 in ours.
-//!
-//! human01-2000, human04-3000, human01-basics, orc02-assault, xorc12-ogre-mage, orc09-naval, orc09-repair,
-//! human12-transport, human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human7-10000,
-//! xorc3, human10-24000, orc8, xhuman4, human06-31357, orc4-40000, human7-22000, human01-order15-range,
+//! human01-2000, human04-3000, human01-basics, orc02-assault, orc02-victory, orc02-defeat, orc02-dyingcmd,
+//! xhuman10-spells, xhuman10-blizzard, xorc12-ogre-mage, orc09-naval, orc09-repair, human12-transport,
+//! human12-demolition, human06-tech, human12-7000, orc4-20000, human10-10000, xorc7, human5, human7-10000, xorc3,
+//! human10-24000, orc8, xhuman2, xhuman4, human06-31357, orc4-40000, human7-22000, human01-order15-range,
 //! human12-row-f-move, human12-row-f-landing, xorc01-death-coil, xorc01-death-knight, xorc10-dragons, orc3, orc6,
 //! orc5, xorc2, xorc4, xorc5, xhuman1, xhuman3, xhuman5, xorc1-20000 and xorc10-20000 match in full.
 
@@ -93,11 +82,12 @@ traces! {
     human04_3000: ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
     human01_basics_9500: ("human01-basics-9500.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     orc02_assault_3000: ("orc02-assault-3000.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], None),
-    orc02_victory_7639: ("orc02-victory-7639.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], Some(2719)),
-    orc02_defeat_4021: ("orc02-defeat-4021.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], Some(2719)),
+    orc02_victory_7639: ("orc02-victory-7639.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], None),
+    orc02_defeat_4021: ("orc02-defeat-4021.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], None),
+    orc02_dyingcmd_3760: ("orc02-dyingcmd-3760.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], None),
     xorc01_death_coil_2500: ("xorc01-death-coil-2500.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
-    xhuman10_spells_700: ("xhuman10-spells-700.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], Some(392)),
-    xhuman10_blizzard_600: ("xhuman10-blizzard-600.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], Some(425)),
+    xhuman10_spells_700: ("xhuman10-spells-700.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xhuman10_blizzard_600: ("xhuman10-blizzard-600.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     xorc01_death_knight_2100: ("xorc01-death-knight-2100.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
     xorc12_ogre_mage_180: ("xorc12-ogre-mage-180.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
     xorc10_dragons_800: ("xorc10-dragons-800.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
@@ -112,11 +102,11 @@ traces! {
     orc4_20000: ("orc4-20000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
     human10_10000: ("human10-10000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
     xorc7_7000: ("xorc7-7000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], None),
-    human5_10000: ("human5-10000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], Some(2753)),
+    human5_10000: ("human5-10000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
     human7_10000: ("human7-10000.jsonl.gz", "Campaign\\Human\\Human07.pud", 12, &[], None),
     orc8_10000: ("orc8-10000.jsonl.gz", "Campaign\\Orc\\Orc08.pud", 15, &[], None),
     xorc3_10000: ("xorc3-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc03.pud", 33, &[], None),
-    xhuman2_10000: ("xhuman2-10000.jsonl.gz", "Campaign\\XHuman\\2XHum02.pud", 30, &[], Some(5819)),
+    xhuman2_10000: ("xhuman2-10000.jsonl.gz", "Campaign\\XHuman\\2XHum02.pud", 30, &[], None),
     xhuman4_7000: ("xhuman4-7000.jsonl.gz", "Campaign\\XHuman\\2XHum04.pud", 34, &[], None),
     human06_31357: ("human06-31357.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human10_24000: ("human10-24000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
