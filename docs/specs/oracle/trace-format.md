@@ -30,6 +30,7 @@
   2026-10-13, round-58 errata: a comparer can derive a multiplayer setup's generator state (`game/setup.md`).
   2026-10-13, round-59 corrections: the placement draw count needs at least one opponent (none: no draw); Fixed
   Order starts make no placement draws.
+  2026-10-13, round-60 harness: the multiplayer header fields `opponents` and `starts`.
 
 ## Behaviour
 
@@ -86,6 +87,8 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `map` | Multiplayer launch only: the scenario file name from the game's `Maps/` folder, for example `"Dark Paths BNE.pud"` |
 | `start_seed` | Multiplayer launch only: the lobby's start seed, 0 to 255, fixed by the harness ("Start seed") |
 | `humans` | Multiplayer launch only: human players in the lobby, 2: the traced player (`local_player`) and one idle human |
+| `opponents` | Multiplayer launch only: the number of lobby rows set to Computer, 0 to 6. It is the count the opponent placement works from (`game/setup.md`, "Multiplayer game"), so with random starts the setup makes 1 + `opponents` placement draws when it is at least 1 (none when 0), even if a placement search fails and fewer computers are placed. Traces made before round 60 (2026-10-13) don't have it; for those, count the computer controllers after setup |
+| `starts` | Multiplayer launch only: the lobby's "Location" option, `"random"` (the default) or `"fixed"` (Fixed Order: each Computer row takes its same-numbered slot, with **no** placement draws; `game/setup.md`, "Fixed Order"). A `"fixed"` trace also has `-fixed` in its file name. Traces made before round 60 don't have it; all of them are `"random"` |
 
 ### Record fields
 
@@ -200,10 +203,10 @@ trace lists it, and uses the rule above only to predict that turn or to drive it
 
 ### Multiplayer launch
 
-The default launch starts a campaign mission. The harness can also start a skirmish map through the multiplayer
-menus: a Direct Connect game between the traced player and a second human who never gives a command, plus computer
-opponents. Such a trace has the five multiplayer header fields (`launch_path` to `humans`). **Its records don't
-change**, and campaign traces don't have these fields at all. The format version stays 2.
+The default launch starts a campaign mission. The harness can also start a skirmish map through the multiplayer menus: a
+Direct Connect game between the traced player and a second human who never gives a command, plus computer opponents.
+Such a trace has the multiplayer header fields (`launch_path` to `starts`; traces made before round 60 stop at
+`humans`). **Its records don't change**, and campaign traces don't have these fields at all. The format version stays 2.
 
 **Enhanced is still the default and the target.** A multiplayer trace is Enhanced unless Classic was explicitly
 requested. A Classic trace has `"rules": "classic"`, `"enhanced": false` and `-classic` in its file name, and is
@@ -226,11 +229,12 @@ whatever the timing (static study; every observed start agrees). Any start seed 
 so a pinned start is one the game can produce. The fields say how to repeat the capture.
 
 A comparer can derive the setup's generator state: seed with (`start_seed` + 4) mod 256, then make the opponent
-placement draws of `game/setup.md` ("Choosing the players", multiplayer: 1 + the number of opponents on every map
-traced so far, none with no opponents, none with Fixed Order) before the unit-creation draws. The opponent count is
-the number of computer controllers after setup, which undercounts the draws only if a placement search failed (not
-seen on any traced map). The setup record's `rng` checks the result. The humans' slots and
-start locations come from the lobby (a later spec): take them from the header and the setup record.
+placement draws of `game/setup.md` ("Choosing the players", multiplayer) before the unit-creation draws. With `"starts":
+"random"` the opponent placement makes 1 + `opponents` draws when `opponents` is at least 1, and none when it is 0; with
+`"starts": "fixed"` it makes none. A trace without these fields (before round 60) has random starts; take the opponent
+count from its computer controllers after setup, which undercounts the draws only if a placement search failed (not seen
+on any traced map). The setup record's `rng` checks the result. The humans' slots and start locations come from the
+lobby (a later spec): take them from the header and the setup record.
 
 **What a comparer does:**
 
@@ -321,6 +325,8 @@ second human, no input, 1000 cycles).
 | `mp-dark-paths-bne-classic-1000` (**Classic mode**): `start_seed` 1 | Header `rules` `"classic"`, `enhanced` false, speed 6, 600 / 200 slots; setup `rng` 0x2E4642F9 and the same units and positions as the Enhanced trace; only unit slot numbers differ |
 | The same map with `start_seed` 2, Enhanced (a harness check; no trace committed) | `local_player` 2; setup `rng` 0x9FE5034A: the seed decides start locations and player numbers |
 | Either committed trace, captured twice with the same fields | Identical records |
+| `mp-gold-rush-bne-fixed-6000` (Enhanced): `opponents` 2, `starts` `"fixed"` | Setup `rng` 0x0452EB91, 164 steps from 5: the 2 × 82 unit-creation draws and no placement draw |
+| `mp-dark-paths-bne-fixed-1000` and `mp-rose-petal-bne-fixed-3000` (Enhanced): `opponents` 1 and 4, `"fixed"` | 26 and 86 setup draws: 2 fewer and 5 fewer than their random-start twins (28, 91), that is 1 + `opponents` |
 
 ## Open questions
 
