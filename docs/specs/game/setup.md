@@ -9,13 +9,17 @@
 - **Changes:** 2026-10-12, round-35 errata: trace vectors confirm the starting alliances (no change to the rules).
 - **Changes:** 2026-10-13, round-47 errata: every slot starts a new game with the "ever had a hall" mark set (cleared
   only in Enhanced multiplayer).
+- **Changes:** 2026-10-13, round-58 errata: how a multiplayer start places its computer opponents (one spent draw,
+  then custom step 3 on code-5 slots: 1 + opponents draws); `mp-dark-paths-bne-1000`, `mp-gold-rush-bne-6000` and
+  `mp-rose-petal-bne-10000` vectors.
 
 ## Behaviour
 
 This spec covers how a new single-player game is built from a map file: reading the map's sections, choosing which
 player slots are played and by whom, the custom-game choices, the starting alliances, creating the map's units and
 the starting view. Loading a saved game and the multiplayer lobby (slot choice, start-position and colour shuffles,
-teams) are in later specs. Choosing a campaign mission and the briefing are in `game/campaign-flow.md`.
+teams) are in later specs; how a multiplayer start places its computer opponents is in "Choosing the players".
+Choosing a campaign mission and the briefing are in `game/campaign-flow.md`.
 
 A **campaign map** is a map started from the campaign in single player. A **custom game** is a map started from the
 custom-scenario screen in single player. **Slot** means one of the 16 players of the map file (0 to 15); 15 is
@@ -121,6 +125,16 @@ spec), not from the map.
    instead taken from the slots with code 5 that are left, the same way, with a new draw for each try. Opponents stop
    when the number is reached or no code-5 slot is left.
 4. **Custom choices** (below).
+
+**Multiplayer game.** The generator is seeded with the lobby's game seed (the lobby is a later spec). The lobby's
+humans take the slots they were given, with no draw; there is no local-slot draw (custom step 1). The computer
+opponents are then placed exactly as custom step 3 places them, and the humans' slots don't count as code 5: a draw
+r per try (with fixed start positions, no draw and r = 0), then a search from slot r mod 8 upward for code 4. When a
+search finds no code-4 slot, that draw is spent and placement moves to the code-5 slots for good, with a new draw for
+each opponent. These draws come before the unit-creation draws. Every multiplayer map traced so far has code 5 in
+all its player slots, so the first draw always finds no code-4 slot and the setup makes **1 + (number of
+opponents)** placement draws (traced: `mp-dark-paths-bne-1000`, `mp-gold-rush-bne-6000`, `mp-rose-petal-bne-10000`;
+vectors below).
 
 **Both.** Every slot that still has code 4 or 5 becomes **nobody**. Codes 2, 3, 6 and 7 are kept for now. Any other
 code is kept as it is (see the open questions).
@@ -327,6 +341,10 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | Human01 and Human04 (oracle traces), `SIDE` = 1, then 0 fourteen times, then 2 | Races: orc (slot 0), human (slots 1 to 14), neutral (slot 15) |
 | Campaign; slot 4 has code 6; its units are rescued into the local player's slot during the second start-up cycle (`human10` oracle trace: 1501 and 1505, owner 4 to 6, the local player, at n = 2) | The rescued units never pick the remaining slot-4 units (such as 1507) as targets: both directions are allied |
 | The start-up cases of the round-35 long traces (`human5`, `human7`, `orc8`, `xhuman2`, `xorc7`): units next to code-6 or code-7 units, or computer next to computer | No acquisition between them in the first 400 cycles; `human5` slot 1531 (owner 5, computer) does acquire 1529 (owner 0, code 7) at n = 6, since code 7 is allied with the local player only |
+| Multiplayer, generator seeded with 5, slot codes 0 to 7 (5, human, human, 5, 3, 3, 3, 3) (Gold Rush BNE, humans in slots 1 and 2), 2 opponents | Draw 1731 (1731 mod 8 = 3): no slot has code 4, so the draw is spent. Draw 32036 (mod 8 = 4): searching up from slot 4, the first code 5 is slot 0. Draw 21622 (mod 8 = 6): from slot 6 up, the first code 5 is slot 3. Computers in slots 0 and 3, 3 placement draws |
+| `mp-gold-rush-bne-6000` (oracle trace, Enhanced): game seed 5, humans in slots 1 and 2, 2 opponents, 82 map units | `controllers` has computers in slots 0 and 3; the setup `rng` is 167 steps from 5: 3 placement draws + 2 × 82 creation draws |
+| `mp-dark-paths-bne-1000` (oracle trace, Enhanced): game seed 5, codes (5, 5, 5, 3, 3, 3, 3, 3), humans in slots 0 and 1, 1 opponent, 13 map units | Computer in slot 2; setup `rng` 0x2E4642F9, 28 steps from 5 (2 placement + 26 creation draws) |
+| `mp-rose-petal-bne-10000` (oracle trace, Enhanced): game seed 5, codes (5, 5, 5, 5, 5, 5, 3, 3), humans in slots 0 and 4, 4 opponents, 43 map units | Computers in slots 1, 2, 3 and 5; the setup `rng` is 91 steps from 5 (5 placement + 86 creation draws) |
 
 ## Open questions
 
