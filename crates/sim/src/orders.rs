@@ -234,7 +234,7 @@ impl World {
 
     /// The smart move's wait cap ("Commands"): a waiting unit's wait is cut to 40 cycles for a computer player's
     /// unit and 10 for every other player's.
-    fn cap_smart_wait(&mut self, i: usize) {
+    pub(crate) fn cap_smart_wait(&mut self, i: usize) {
         let cap = if self.computer_player(self.units[i].owner) {
             SMART_WAIT_COMPUTER
         } else {
@@ -901,11 +901,15 @@ impl World {
         }
         let u = &self.units[i];
         let mage = self.mage_like(u);
-        if let Some(a) = attacker {
-            let at = self.unit(a).expect("held");
-            if !self.can_target_kind(u, at) {
-                return self.flee(i);
-            }
+        // Round-54 errata, step 1: the kind check alone, as in "Checks on an attack command", on the recorded attacker
+        // while it is valid; no fog or detection test, so an attacker hidden from the seed by those alone goes on to
+        // step 2 unseeded, and one whose kind the unit can't hit is fled from.
+        if let Some(at) = u.attacked_by.and_then(|a| self.unit(a)).filter(|a| a.present())
+            && !self.can_hit_kind(u, at)
+        {
+            return self.flee(i);
+        }
+        if attacker.is_some() {
             if self.non_combat(u) {
                 return self.react(i);
             }
@@ -1095,9 +1099,15 @@ impl World {
 
     /// "Fleeing". Returns true if the unit fled or turned on its attacker.
     pub(crate) fn flee(&mut self, i: usize) -> bool {
-        let Some(a) = self.attacker(i) else { return false };
+        // "The attacker must still be valid": not dying, dead or inside something.
+        let Some(a) = self.units[i]
+            .attacked_by
+            .filter(|&a| self.unit(a).is_some_and(|a| a.present()))
+        else {
+            return false;
+        };
         let u = &self.units[i];
-        let at = self.unit(a).expect("held");
+        let at = self.unit(a).expect("valid");
         if self.is_worker(u) && self.is_worker(at) {
             self.give(i, Order::Attack { target: a });
             return true;
@@ -2915,6 +2925,53 @@ mod tests {
                 (Order::Chase { target: p }, (5, 5), anim::ATTACK)
             );
             assert_eq!(u.skip_search, !marked, "began marked: {marked}");
+        }
+    }
+
+    /// Round-54 errata, "Order 12 with no route": the take-over makes no turn and no strike decision (shown by
+    /// running it with the follow-up logic run held back); order 12's logic run in the same update then skips the
+    /// search because of the mark, turns toward the target and starts the cooldown.
+    #[test]
+    fn a_no_route_take_over_turns_only_in_the_logic_run_that_follows() {
+        for held_back in [true, false] {
+            let mut w = map();
+            w.stats.0[PEASANT as usize].flags = flags::LAND | flags::PEON;
+            let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 0, (5, 13), 0).unwrap();
+            w.spawn(FOOTMAN, 0, (9, 5), 0).unwrap();
+            let p = w.spawn(PEASANT, 0, (4, 5), 0).unwrap();
+            for y in 3..=7 {
+                for x in 6..=11 {
+                    if x == 6 && y != 5 {
+                        continue;
+                    }
+                    if x <= 7 || x == 11 || y == 3 || y == 7 {
+                        let n = w.terrain.at(x, y).unwrap();
+                        w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+                    }
+                }
+            }
+            w.unit_visibility();
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = Order::Chase { target: old };
+            u.pending = None;
+            u.facing = 0;
+            u.cooldown = 0;
+            w.fallback_run = held_back;
+            let fx = crate::anim::Effects {
+                step_done: true,
+                ..Default::default()
+            };
+            w.order(i, fx);
+            let u = &w.units[i];
+            assert_eq!((u.order, u.script.anim), (Order::Chase { target: p }, anim::ATTACK));
+            if held_back {
+                assert_eq!((u.facing, u.cooldown), (0, 0), "the take-over alone");
+            } else {
+                assert_eq!(u.facing, crate::world::face_tile((5, 5), (4, 5)));
+                assert!(u.cooldown > 0);
+            }
         }
     }
 

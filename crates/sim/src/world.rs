@@ -109,8 +109,9 @@ pub enum Order {
     ReturnGoods { depot: Option<UnitId> },
     /// Order 25: step into a mine, platform or depot; `stepped` once the step in has started.
     Enter { building: UnitId, stepped: bool },
-    /// Order 26: inside a building; the coming-out search is sized by the unit's [`Unit::hall_exit`] mark.
-    Inside { building: UnitId },
+    /// Order 26: inside a building; the coming-out search is sized by the unit's [`Unit::hall_exit`] mark. `None`
+    /// once the mine or platform has collapsed, which clears the target (harvest spec, "Collapse").
+    Inside { building: Option<UnitId> },
     /// Order 11: attack a wall tile (given by blocked row A of the movement spec).
     AttackWall { tile: (i32, i32) },
     /// 17: attack the ground at `tile` (attack-ground-demolish spec).
@@ -165,9 +166,8 @@ impl Order {
             Order::TowerWatch { target } | Order::Cast { target, .. } | Order::MoveAttack { target, .. } => target,
             Order::Harvest { source, .. } => source,
             Order::ReturnGoods { depot } => depot,
-            Order::Enter { building, .. } | Order::Inside { building, .. } | Order::InsideSite { building } => {
-                Some(building)
-            }
+            Order::Enter { building, .. } | Order::InsideSite { building } => Some(building),
+            Order::Inside { building } => building,
             Order::Demolish { at, .. } => at,
             Order::Board { transport } | Order::Aboard { transport } => Some(transport),
             _ => None,
@@ -809,6 +809,9 @@ pub struct World {
     /// Order-12 restarts by the no-route fallback counted so far, to tell whether a move step ended in one (the skip
     /// mark). Not game state: not stored and left out of the hash.
     pub(crate) restarts: u32,
+    /// Set while order 12's no-route fallback runs the order's logic once after its take-over (orders spec, "Order 12
+    /// with no route", round-54 errata). Not game state: not stored and left out of the hash.
+    pub(crate) fallback_run: bool,
     /// The slot whose update is running, during the cycle's walk of the unit table. Not game state: not stored and
     /// left out of the hash.
     pub(crate) updating: Option<u16>,
@@ -920,6 +923,7 @@ impl World {
             casts: Default::default(),
             takeovers: 0,
             restarts: 0,
+            fallback_run: false,
             updating: None,
             fresh_platforms: Vec::new(),
             selections: Default::default(),

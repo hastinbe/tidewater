@@ -410,6 +410,8 @@ impl World {
         // update and finds the unit not arrived (step 3). A computer player's unit gets command 4 on the transport,
         // which takes over at once (order 4, still animation, wait 3); every other player's unit gets a smart move,
         // the boarding command again, which tells the transport to come unless it is landing.
+        // Round-54 errata (static study): that is every player that isn't a computer player, passive and rescue
+        // included, and the smart move's wait cap (10) applies.
         let dest_here = self.region_at(t.ship.dest) == here;
         let human = self.human_controlled(u.owner);
         let computer = self.computer_player(u.owner);
@@ -428,8 +430,12 @@ impl World {
                     if let Some(o) = self.units[i].pending.take() {
                         self.take_over(i, o);
                     }
-                } else if !human {
+                } else {
+                    // Our reading: the unit stays in order 34 with no pending order of its own (`human12-transport`
+                    // n = 46 has the transport told again at the unit's next logic run, not after a take-over), so
+                    // the smart move here is the transport's call and the wait cap.
                     self.board_command(i, transport);
+                    self.cap_smart_wait(i);
                 }
                 return;
             }
@@ -463,7 +469,8 @@ impl World {
         let landing_here = matches!(t.order, Order::Land { .. }) && self.region_at(t.tile) == here;
         if landing_here && self.computer_player(u.owner) {
             // Step 5 (round-53 errata, `orc14-10000` knight 1430, n = 5486): a random nearby tile, x drawn first, each
-            // offset (r mod 12) - 6 and clamped to the map's width; a move there with no target unit takes over at once.
+            // offset (r mod 12) - 6 and clamped to the map's size (round-54 errata: one size for both axes, so the
+            // width); a move there with no target unit takes over at once.
             let (here, w) = (u.tile, self.terrain.width as i32);
             let x = here.0 + (self.rng.draw() % 12) as i32 - 6;
             let y = here.1 + (self.rng.draw() % 12) as i32 - 6;

@@ -268,7 +268,10 @@ impl World {
         }
         if u.inside {
             // Only a worker inside a gold mine sees, with the mine's sight from the mine's centre.
-            let Order::Inside { building, .. } = u.order else {
+            let Order::Inside {
+                building: Some(building),
+            } = u.order
+            else {
                 return None;
             };
             let mine = self.unit(building)?;
@@ -1074,7 +1077,7 @@ mod tests {
         let p = w.spawn(FOOTMAN, 0, (20, 19), 0).unwrap();
         let i = w.index(p).unwrap();
         w.units[i].inside = true;
-        w.units[i].order = Order::Inside { building: m };
+        w.units[i].order = Order::Inside { building: Some(m) };
         assert_eq!(w.sight_of(i), Some(((21, 21), 2)));
         w.step(&[]);
         assert_eq!(touched(&w), 21);

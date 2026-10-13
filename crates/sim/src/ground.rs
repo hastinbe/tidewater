@@ -129,7 +129,9 @@ impl World {
         };
         match self.move_toward(i, g) {
             Walk::Arrived => self.blast(i),
-            Walk::NoPath => self.stop(i),
+            // Round-54 errata ("Getting there", `orc10-sappers-2500` sapper 1501, n = 35): the plain no-route rule, an
+            // immediate idle whose idle logic runs in the same update.
+            Walk::NoPath => self.idle_at_once(i),
             Walk::Stepping | Walk::Blocked => {}
         }
     }
@@ -635,6 +637,41 @@ mod tests {
         run(&mut w, 30);
         let u = w.unit(s).unwrap();
         assert_eq!((u.order, u.dying), (Order::Idle, false));
+    }
+
+    /// Round-54 errata, "Getting there" (`orc10-sappers-2500` sapper 1501, n = 35): with no route a demolisher goes
+    /// idle as an immediate order (still animation, wait 1, no target) and its idle logic runs in the same update,
+    /// with its look-around draw. Nothing explodes.
+    #[test]
+    fn a_demolisher_with_no_route_goes_idle_at_once_and_runs_the_idle_logic() {
+        for o in [
+            Order::DemolishAt { tile: (20, 20) },
+            Order::Demolish {
+                at: None,
+                tile: (20, 20),
+            },
+        ] {
+            let mut w = map();
+            let s = w.spawn(SQUAD, 0, (10, 10), 0).unwrap();
+            for y in 9..=11 {
+                for x in 9..=11 {
+                    if (x, y) != (10, 10) {
+                        w.terrain.set_bits(x, y, crate::terrain::bits::OBSTACLE);
+                    }
+                }
+            }
+            let i = at(&w, s);
+            w.units[i].order = o;
+            let before = w.rng.state;
+            w.demolish(i, o);
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.dying),
+                (Order::Idle, None, tidewater_formats::script::anim::STILL, 1, false),
+                "{o:?}"
+            );
+            assert_ne!(w.rng.state, before, "the look-around drew in the same update");
+        }
     }
 
     // ----- the blast -------------------------------------------------------------------------------------------

@@ -171,8 +171,10 @@ impl World {
     /// without running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
     pub(crate) fn idle_choice(&mut self, i: usize) {
         if let Choice::Order(o) = self.worker_choice(i) {
-            // A computer player's command: it clears the blocked counter (movement spec, "Blocked rules").
+            // A computer player's command: it clears the blocked counter (movement spec, "Blocked rules") and, round-54
+            // errata (`human12-25000` tanker 1412, n = 12951), drops the cached route.
             self.units[i].blocked = 0;
+            self.units[i].path.clear();
             self.forget_stale_attacker(i);
             self.give(i, o);
             if let Some(o) = self.units[i].pending.take() {
@@ -980,7 +982,7 @@ mod tests {
         let i = peasants(&mut w, 1)[0];
         let u = &mut w.units[i];
         (u.inside, u.hall_exit, u.tile, u.pos) = (true, true, (14, 14), (14 * 32, 14 * 32));
-        w.come_out(i, hall);
+        w.come_out(i, Some(hall));
         let u = &w.units[i];
         assert_eq!(
             (u.order, u.pending),
@@ -989,6 +991,22 @@ mod tests {
         // Aimed at (30, 30), the unit comes out on the hall's bottom-right side.
         assert_eq!(u.tile, (18, 17));
         assert_eq!(u.facing, crate::world::face_tile((18, 17), (31, 31)));
+    }
+
+    /// Round-54 errata, "The job choice gives its order as a command" (`human12-25000` tanker 1412, n = 12951): the
+    /// cached route is dropped and the blocked counter cleared, so the unit plans afresh.
+    #[test]
+    fn the_job_choice_drops_the_cached_route() {
+        let (mut w, hall) = town();
+        let i = peasants(&mut w, 1)[0];
+        let u = &mut w.units[i];
+        (u.gather, u.carrying, u.blocked) = (Gather::Gold, true, 3);
+        u.path = vec![(9, 10), (8, 10)];
+        w.idle_choice(i);
+        let u = &w.units[i];
+        assert_eq!(u.order, Order::ReturnGoods { depot: Some(hall) });
+        assert!(u.path.is_empty());
+        assert_eq!(u.blocked, 0);
     }
 
     #[test]

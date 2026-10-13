@@ -172,9 +172,10 @@ impl World {
 
     /// Orders spec, "Order 12 with no route" (round-47 errata; `human5-10000` grunt 1531, n = 1759): a search over
     /// the attack range box with no attacker seed. A target found gets order 12 as a command that takes over at once:
-    /// the unit turns as for a strike, its attack animation starts with its first step run in this update, and its
-    /// next order-logic run skips the target search. With nothing found the unit goes idle at once. Round-48 errata:
-    /// the take-over is a strike decision, so the cooldown starts in this update (and the attack sound is pending).
+    /// its attack animation starts with its first step run in this update, and its next order-logic run skips the
+    /// target search. With nothing found the unit goes idle at once. Round-54 errata: the take-over makes no turn and
+    /// no strike decision; order 12's logic then runs once in the same update, skips its search because of the mark,
+    /// and its strike decision turns the unit and starts the cooldown.
     fn chase_no_route(&mut self, i: usize) {
         // Round-51 errata, "Forgetting a dying attacker first": this search too.
         self.forget_dying_attacker(i);
@@ -192,9 +193,14 @@ impl World {
         u.skip_search = true;
         self.restarts = self.restarts.wrapping_add(1);
         self.forget_stale_attacker(i);
-        let b = facing_tile_of(self.unit(target).expect("found by the search"));
-        self.decide_strike(i, b, false);
         self.switch_anim(i, anim::ATTACK);
+        // The one logic run that follows. Our guard: should that run itself find no route, its fallback doesn't run
+        // the logic yet again (no trace shows the case).
+        if !self.fallback_run {
+            self.fallback_run = true;
+            self.run_order(i);
+            self.fallback_run = false;
+        }
     }
 
     /// The goal of a walk toward an attack target: the target's tile or, for a building, the footprint tile of the
@@ -554,7 +560,14 @@ impl World {
             self.units[a].attacked_by = None;
         }
         let u = &self.units[a];
+        // Round-54 errata (`human13-subs-2000` dragon 1436, n = 1487): a shooter that is dying or dead, its missile
+        // still in flight, checks the target it kept and reports none from then on.
         if u.dying {
+            if let Some(slot) = u.dying_target
+                && self.unit_in_slot(slot).is_none_or(|t| self.stale(owner, t.id))
+            {
+                self.units[a].dying_target = None;
+            }
             return;
         }
         if let Some(t) = crate::orders::target_of(u.order)
@@ -1072,6 +1085,33 @@ mod tests {
         w.kill(k);
         w.kill(o);
         assert_eq!((w.units[k].dying, w.units[k].dying_target), (true, None));
+        assert_eq!(w.units[o].dying_target, Some(victim_slot));
+    }
+
+    /// Round-54 errata, damage spec "Applying damage" (`human13-subs-2000` dragon 1436, n = 1487): a shooter that is
+    /// already dying when its missile kills still checks the target it kept and reports none from then on; another
+    /// dying unit that had the same target keeps it.
+    #[test]
+    fn a_dying_shooters_kill_clears_the_target_it_kept() {
+        let mut w = world();
+        let shooter = UnitId(1);
+        let victim = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let other = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let (k, v, o) = (
+            w.index(shooter).unwrap(),
+            w.index(victim).unwrap(),
+            w.index(other).unwrap(),
+        );
+        w.units[k].order = Order::Chase { target: victim };
+        w.units[o].order = Order::Chase { target: victim };
+        w.kill(k);
+        w.kill(o);
+        let victim_slot = w.units[v].slot;
+        assert_eq!(w.units[k].dying_target, Some(victim_slot));
+        w.units[v].hp = 5;
+        w.damage(v, 5, shooter);
+        assert!(w.units[v].dying);
+        assert_eq!(w.units[k].dying_target, None);
         assert_eq!(w.units[o].dying_target, Some(victim_slot));
     }
 

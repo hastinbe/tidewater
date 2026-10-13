@@ -15,6 +15,8 @@ use crate::world::{RELEASED, World};
 /// The dead body type and the first ruin type (spec, "Data").
 pub const DEAD_BODY: u8 = 0x69;
 const RUIN: u8 = 0x6a;
+/// The naval movement class in the unit data ("Ruin type").
+const NAVAL_CLASS: u8 = 2;
 const OIL_PATCH: u8 = 0x5d;
 const OIL_PLATFORMS: [u8; 2] = [0x56, 0x57];
 /// A type that makes the cosmetic explosion without the explode flag, and doesn't kill passengers.
@@ -84,13 +86,17 @@ impl World {
             if used {
                 return self.start_removal(i);
             }
-            let water = u.layer == crate::Layer::Sea || s.flags & flags::SHORE_BUILDING != 0;
+            // Round-54 errata ("Ruin type", `human12-25000` platform 1530, n = 12948): the type's naval movement class
+            // or the shore building flag picks a water ruin, not the layer the building stands on.
+            let water = s.movement_class == NAVAL_CLASS || s.flags & flags::SHORE_BUILDING != 0;
             let width = (u.size.0.max(1) - 1).min(3);
             let u = &mut self.units[i];
             u.kind = RUIN + width;
             u.facing = 0;
             u.construction = None;
             u.remains = true;
+            // Round-54 errata: every ruin shows frame 0 in the cycle it is made.
+            u.script.frame = 0;
             let k = if water { kind::WATER_RUIN } else { kind::LAND_RUIN };
             // Ruins start their decay with an ordinary start: the first stage runs on the next cycle.
             return self.start_anim(i, k);
@@ -451,5 +457,29 @@ mod tests {
         assert_eq!(fx[0].pos, (c.0, c.1 - 8));
         let i = w.index(f).unwrap();
         assert_eq!(w.units[i].layer, Layer::Land);
+    }
+
+    /// Round-54 errata, "Ruin type" and "Ruins" (`human12-25000` platform 1530, n = 12948): the naval movement class
+    /// (or the shore building flag) picks a water ruin whatever layer the building stands on, and every ruin shows
+    /// frame 0 in the cycle it is made. A platform with no oil left leaves a ruin.
+    #[test]
+    fn a_water_ruin_goes_by_the_movement_class_and_a_ruin_starts_at_frame_0() {
+        let mut w = field(16, 16);
+        let platform = OIL_PLATFORMS[1];
+        w.stats.0[platform as usize].size = (3, 3);
+        w.stats.0[platform as usize].flags |= flags::BUILDING;
+        w.stats.0[platform as usize].movement_class = NAVAL_CLASS;
+        let p = w.spawn(platform, 0, (2, 2), 0).unwrap();
+        let f = w.spawn(FARM, 1, (9, 9), 0).unwrap();
+        for (id, layer) in [(p, Layer::Land), (f, Layer::Sea)] {
+            let i = w.index(id).unwrap();
+            w.units[i].layer = layer;
+            w.units[i].script.frame = 3;
+            w.death_done(i);
+        }
+        let (pu, fu) = (w.unit(p).unwrap(), w.unit(f).unwrap());
+        assert_eq!((pu.kind, pu.script.anim, pu.script.frame), (0x6c, kind::WATER_RUIN, 0));
+        assert_eq!((fu.script.anim, fu.script.frame), (kind::LAND_RUIN, 0));
+        assert!(pu.remains && !pu.removing, "no oil left, so a ruin");
     }
 }

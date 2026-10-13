@@ -365,7 +365,7 @@ impl World {
         if !source && !tanker && bf & flags::GOLD_STORAGE != 0 {
             self.units[i].hall_exit = true;
         }
-        self.units[i].order = Order::Inside { building: b.id };
+        self.units[i].order = Order::Inside { building: Some(b.id) };
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = INSIDE_WAIT;
         if accepts {
@@ -430,13 +430,16 @@ impl World {
         self.units[i].carrying = false;
     }
 
-    /// The last trip was taken: the mine or platform is destroyed, and units inside come out at their next chance.
+    /// The last trip was taken: the mine or platform is destroyed, and every unit inside that has it as its target
+    /// (the one that took the last trip included) loses that target and comes out at its next chance (round-54
+    /// errata, `human12-25000` tanker 1410, n = 12948).
     fn collapse(&mut self, bi: usize) {
         let id = self.units[bi].id;
         for u in &mut self.units {
-            if let Order::Inside { building, .. } = u.order
-                && building == id
+            if let Order::Inside { building } = &mut u.order
+                && *building == Some(id)
             {
+                *building = None;
                 u.script.wait = u.script.wait.min(1);
             }
         }
@@ -460,9 +463,11 @@ impl World {
     }
 
     /// Order 26 when the wait inside ends ("Coming out").
-    pub(crate) fn come_out(&mut self, i: usize, building: UnitId) {
+    pub(crate) fn come_out(&mut self, i: usize, building: Option<UnitId>) {
         self.go_idle(i);
-        if let Some(bi) = self.index(building) {
+        if let Some(building) = building
+            && let Some(bi) = self.index(building)
+        {
             let carrying_from_source = self.units[i].carrying
                 && self.units[i].return_to == Some(Source::Unit(building))
                 && self.flags_of(self.units[bi].kind) & (flags::MINE | flags::OIL_SOURCE) != 0;
@@ -1161,7 +1166,7 @@ mod tests {
     /// Lets worker `p` out of `b` ("Coming out").
     fn come_out_now(w: &mut World, p: UnitId, b: UnitId) {
         let pi = w.index(p).unwrap();
-        w.come_out(pi, b);
+        w.come_out(pi, Some(b));
     }
 
     /// The mine's occupant count and frame.
@@ -1267,7 +1272,7 @@ mod tests {
         assert!(w.unit(t).unwrap().carrying);
         assert_eq!(mine_look(&w, platform), (1, 2));
         let ti = w.index(t).unwrap();
-        w.come_out(ti, platform);
+        w.come_out(ti, Some(platform));
         assert_eq!(mine_look(&w, platform), (0, 0));
     }
 
@@ -1490,5 +1495,39 @@ mod tests {
             assert_eq!(face, Some(goal));
             assert_eq!(crate::world::face_tile(exit, goal), facing);
         }
+    }
+
+    /// Round-54 errata, "Collapse" (`human12-25000` tanker 1410, n = 12948): the worker that takes the last trip loses
+    /// its target with every other unit inside (wait 1), carries its load and has no return-to source; it comes out
+    /// at its next step done and heads for a depot.
+    #[test]
+    fn a_collapse_clears_the_target_of_the_worker_that_took_the_last_trip() {
+        let mut w = land();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+        let mine = w.spawn(MINE, 15, (12, 4), 2).unwrap();
+        let a = w.spawn(0, 0, (11, 4), 0).unwrap();
+        let b = w.spawn(0, 0, (11, 5), 0).unwrap();
+        go_in_now(&mut w, a, mine);
+        let ai = w.index(a).unwrap();
+        assert_eq!(w.units[ai].order, Order::Inside { building: Some(mine) });
+        assert_eq!(w.units[ai].recorded_target(), Some(mine));
+        go_in_now(&mut w, b, mine);
+        assert!(w.unit(mine).unwrap().dying, "the last trip collapses the mine");
+        for id in [a, b] {
+            let u = w.unit(id).unwrap();
+            assert_eq!(
+                (u.order, u.recorded_target(), u.script.wait),
+                (Order::Inside { building: None }, None, 1),
+                "{id:?}"
+            );
+        }
+        let u = w.unit(b).unwrap();
+        assert!(u.carrying);
+        assert_eq!(u.return_to, None);
+        let bi = w.index(b).unwrap();
+        w.come_out(bi, None);
+        let u = w.unit(b).unwrap();
+        assert!(!u.inside);
+        assert_eq!(u.pending, Some(Order::ReturnGoods { depot: Some(hall) }));
     }
 }

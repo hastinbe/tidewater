@@ -400,9 +400,8 @@ impl World {
             Order::TowerWatch { target } => target,
             Order::Harvest { source, .. } => source,
             Order::ReturnGoods { depot } => depot,
-            Order::Enter { building, .. } | Order::Inside { building, .. } | Order::InsideSite { building } => {
-                Some(building)
-            }
+            Order::Enter { building, .. } | Order::InsideSite { building } => Some(building),
+            Order::Inside { building } => building,
             Order::Board { transport } | Order::Aboard { transport } => Some(transport),
             Order::Demolish { at, .. } => at,
             Order::Cast { target, .. } => target,

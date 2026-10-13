@@ -1279,6 +1279,12 @@ impl World {
                 if *life == 0 {
                     return self.gone(n);
                 }
+                // Round-54 errata (`xhuman10-slow-3000` slot 4, n = 740): each step counts down first, and a step that
+                // reaches 0 ends the flame without moving or splashing.
+                *life -= 1;
+                if *life == 0 {
+                    return true;
+                }
                 let Some(c) = self.unit(m.attacker).filter(|u| u.present()).map(|u| u.centre_px()) else {
                     *life = 0;
                     return true;
@@ -1286,7 +1292,6 @@ impl World {
                 *point = (*point + 1) % 51;
                 let p = FLAME_PATH[*point as usize];
                 m.pos = (c.0 + p.0, c.1 + p.1);
-                *life -= 1;
                 if *life & 15 == 1 {
                     let pos = m.pos;
                     self.fx_splash(pos, m.damage, owner);
@@ -2070,6 +2075,80 @@ mod tests {
         assert_eq!(fx_of_kind(&w, 4), 5, "ended at this step, slots still held");
         run(&mut w, 1);
         assert_eq!(fx_of_kind(&w, 4), 0);
+    }
+
+    /// Round-54 errata (`xhuman10-slow-3000` slot 4, n = 740): each flame step counts down first, and the step that
+    /// reaches 0 ends the flame where it stands, without moving or splashing; its slot is freed at its next update.
+    #[test]
+    fn a_flame_ends_without_moving_on_its_last_step() {
+        let mut w = lab(32);
+        let p = caster(&mut w, MAGE, (5, 5), 255);
+        let f = w.spawn(0, 0, (6, 5), 0).unwrap();
+        strike(&mut w, p, FLAME_SHIELD, Some(f), (0, 0));
+        let mut n = 0;
+        while fx_of_kind(&w, 4) < 5 {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 40, "the flames never came");
+        }
+        run(&mut w, 20);
+        let slot = w
+            .missiles
+            .iter()
+            .position(|m| m.as_ref().is_some_and(|m| m.kind == 4))
+            .unwrap();
+        let flame = |w: &World| w.missiles[slot].as_ref().map(|m| (m.pos, m.fx));
+        if let Some(Fx::Flame { life, .. }) = w.missiles[slot].as_mut().map(|m| &mut m.fx) {
+            *life = 2;
+        }
+        let (start, _) = flame(&w).unwrap();
+        run(&mut w, 1);
+        let (moved, fx) = flame(&w).unwrap();
+        assert_ne!(moved, start, "a count of 1 left: the flame steps");
+        assert!(matches!(fx, Fx::Flame { life: 1, .. }));
+        run(&mut w, 1);
+        let (last, fx) = flame(&w).unwrap();
+        assert_eq!(last, moved, "the step that reaches 0 doesn't move");
+        assert!(matches!(fx, Fx::Flame { life: 0, .. }));
+        run(&mut w, 1);
+        assert!(
+            w.missiles[slot].as_ref().is_none_or(|m| m.kind != 4),
+            "freed at its next update"
+        );
+    }
+
+    /// Round-54 errata, "Giving the order" (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit
+    /// gets the command check. A dying or undetected target is dropped and idle becomes the pending order, which counts
+    /// as a command; a live, detected one gives the spell order as usual.
+    #[test]
+    fn a_spell_command_on_a_dead_or_undetected_target_leaves_a_pending_idle() {
+        for case in ["live", "dying", "undetected"] {
+            let mut w = lab(32);
+            let m = caster(&mut w, MAGE, (5, 5), 255);
+            let g = w.spawn(0, 1, (8, 5), 0).unwrap();
+            let gi = w.index(g).unwrap();
+            match case {
+                "dying" => w.kill(gi),
+                "undetected" => w.units[gi].detected_by &= !crate::vision::bit(0),
+                _ => {}
+            }
+            w.cast_command(0, m, SLOW, Some(g), (8, 5));
+            let u = w.unit(m).unwrap();
+            let expected = if case == "live" {
+                Order::Cast {
+                    spell: SLOW,
+                    target: Some(g),
+                    tile: (8, 5),
+                }
+            } else {
+                Order::Idle
+            };
+            assert_eq!(
+                (u.order, u.pending, u.commanded),
+                (Order::Idle, Some(expected), true),
+                "{case}"
+            );
+        }
     }
 
     /// Round-50 errata (`human14-10000` death knight 1577, n = 3740): a spell walk with no route makes the caster idle

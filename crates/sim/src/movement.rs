@@ -156,8 +156,9 @@ impl World {
         // Round-47 errata: a target unit given with the command gets the same check. If it fails, the target is
         // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
         let owner = self.units[i].owner;
+        // Round-54 errata (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit is checked too.
         let named = match order {
-            Order::MoveAttack { target, .. } => target,
+            Order::MoveAttack { target, .. } | Order::Cast { target, .. } => target,
             o => crate::orders::target_of(o),
         };
         if named.is_some_and(|t| self.stale(owner, t)) {
