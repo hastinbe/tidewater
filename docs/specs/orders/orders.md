@@ -91,6 +91,11 @@
   16 the cooldown wins over the out-of-range rule (static); one target field, a missile copies it at launch (static); at
   the move goal the whole move step is skipped, Classic reaction included (static); "a unit that can move" is a type
   with a movement-class flag; a released slot's last type is its remains type (static); `xorc8-10000` vector.
+  2026-10-13, round-53 errata: the attacker seed is also rejected when the attacker isn't detected or is hidden by the
+  fog (round 51's test, now accepted with the strike reveal of `vision/fog.md`; open question closed); order 12's skip
+  mark: after a move step finds no route the attack-range search runs first, the new order's logic runs in the same
+  update, and the mark is cleared only if it was set when the update began (static); `human06-31357` and
+  `xhuman11-10000` vectors.
 
 ## Behaviour
 
@@ -112,7 +117,7 @@ turned into an order by the rules in "Commands" below, and the result is normall
 | --- | --- |
 | An order aimed at a unit loses its target ("Arriving and losing the target", and orders 14 to 16) | **Detected** only. A target that walks into fog stays the target |
 | The same check on the unit's attacker | An attacker that is alive but not **detected** is ignored in that run and stays recorded; only a command forgets it ("Commands forget a stale attacker") |
-| Automatic target acquisition (the candidate skip list) | **Detected** and **not hidden** |
+| Automatic target acquisition (the candidate skip list, and the attacker seed in "Choice") | **Detected** and **not hidden** |
 
 `economy/repair.md` and `orders/transports.md` use the same test: a lost target or attacker is one that is no longer
 valid or no longer **detected** by the unit's owner.
@@ -450,14 +455,20 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
      attack animation (in `human5-10000` the take-over is at n = 1759, the hit at n = 1769 and the next step at n = 1774
      with wait 10, the cooldown left).
   3. The unit is marked so that its **next** order-logic run skips the target search at its start (and with it the
-     acquisition). The mark is cleared at the end of the next update in which the unit's order logic runs, whatever its
-     order is then; an update that ends in a pending order taking over, or in a move step, leaves it set. If the order
-     at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips its search (static study;
-     no trace separates the case of a changed order). The mark gates **only** the search at the start of the order
-     logic. A unit in an attack-type order that is out of reach of its target takes a move step instead of running its
-     order logic, and the move step's own target search runs whatever the mark. That search can change the target, and
-     the move step then looks for a route to the new target; with none, the unit goes idle at once as above. The mark
-     stays set until the next run of the order logic (traced: `xorc8-10000`, vectors below).
+     acquisition). If the order at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips
+     its search (static study; no trace separates the case of a changed order). **Clearing:** at the end of an update in
+     which the unit's order logic runs and the unit doesn't step, the mark is cleared only if it was already set when
+     that update began; a mark first set in an update lasts at least until the next one. An update that ends in a
+     pending order taking over, or in a move step, leaves it set. So a mark set again in an update that began marked
+     (`xorc8-10000` n = 7373) is cleared at that update's end (static study).
+     **The mark gates only** the search at the start of the order logic. A unit in an attack-type order that is out of
+     reach of its target takes a move step instead of running its order logic, and the move step's own target search
+     runs whatever the mark. That search can change the target, and the move step then looks for a route to the new
+     target. If it finds none, the order's no-route fallback runs: for order 12, the attack-range search of step 1 runs
+     first, again whatever the mark; if it finds a target, order 12 restarts on it and takes over at once as in step 2,
+     and the mark is set again. Only if it finds none does the unit go idle at once. Either way the new order's logic
+     then runs in the same update, sees the mark and skips its search (static study for these last steps; the idle case
+     is traced: `xorc8-10000`, vectors below).
   4. If nothing is found, the unit goes idle at once, as above.
   Traced: `human5-10000`, vectors below. Each part is needed there: the facing, the same-update step, and a mark that
   lasts exactly one run.
@@ -667,10 +678,14 @@ the first search after the attacker started dying can still give order 12; later
 **Choice.** The search starts with the unit's current **attacker** (the first attacker that is still alive; see
 `ai/attack-ai.md`, "Call for help", steps 1 to 4) as the best candidate, with its own score, but only when that score is
 **above 0**. A scored candidate always has at least 1 ("Score"), so the attacker's score is 0 only when the candidate
-checks reject it before scoring: it is of a kind the unit **can't target**, or it is **inside the unit's minimum
-range**. Such an attacker doesn't seed the search, which then runs as if there were no attacker; the attacker still
-counts for the resulting order below (traced: `human06-31357`, vectors below). A candidate replaces the best only with a
-**strictly greater** score. So on a tie the attacker wins, and otherwise the first candidate in vertical order wins.
+checks reject it before scoring: it is of a kind the unit **can't target**, it is **inside the unit's minimum range**,
+it isn't **detected** by the unit's owner, or it is **hidden** from that owner by the fog ("Terms"). An attacker's
+strikes reveal its surroundings to its target's owner until the next fog refresh (`vision/fog.md`, "When sight is
+applied", item 4), so an attacker that has just struck usually passes the fog test; one that struck before a refresh and
+stands in fog doesn't. Such an attacker doesn't seed the search, which then runs as if there were no attacker; the
+attacker still counts for the resulting order below (traced: `human06-31357` and `xhuman11-10000`, vectors below). A
+candidate replaces the best only with a **strictly greater** score. So on a tie the attacker wins, and otherwise the
+first candidate in vertical order wins.
 
 **Resulting order** when a target is chosen:
 
@@ -1001,7 +1016,7 @@ Distances are in tiles; scores as defined above.
 | Human footman idle; an enemy grunt 1 tile away but in fog for the footman's owner | not a candidate (hidden); no attack |
 | Peasant hit by an enemy peon | attacks the peon back |
 | Human footman, idle (order 2), hit by an enemy grunt 1 tile away; no other enemy near | the search starts with the grunt as best; result: the grunt, order **12** (chase), not 16 |
-| Human footman standing ground (order 13) hit by an enemy archer 5 tiles away (out of range) | the archer is outside the footman's box (radius 1), but the search starts with it as the best candidate (base 65536), so the result is the archer: order 15. At the next logic run the archer is valid and detected but out of range, so the footman forgets it and order 13 takes over in the same update: still animation, wait 3, target null ("Attacking without moving") |
+| Human footman standing ground (order 13) hit by an enemy archer 5 tiles away (out of range); the archer's strike revealed its surroundings to the footman's owner (`vision/fog.md`, strike reveal) | the archer is outside the footman's box (radius 1), but the search starts with it as the best candidate (base 65536), so the result is the archer: order 15. At the next logic run the archer is valid and detected but out of range, so the footman forgets it and order 13 takes over in the same update: still animation, wait 3, target null ("Attacking without moving") |
 | Human footman idle, an enemy grunt 1 tile away; the footman gets order 16 on it; the grunt then steps 2 tiles away | Next run: out of range, so order 2 takes over and the grunt is forgotten; the footman's idle search may then pick a new target |
 | Human guard tower (range 6), attacked by an enemy catapult 8 tiles away; an enemy footman 4 tiles away | The tower ignores its attacker (no attacker seed, box of 6): it fires at the footman |
 | Human guard tower, its target walks from 6 to 7 tiles away | Next run the search doesn't find it; with nothing else in range the tower does nothing |
@@ -1204,6 +1219,9 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xhuman12-10000`, n = 5142: archer 1372 (type 0x08, owner 1) in order 16 on 1363, cooling down, picks 1480 | Order 16, target 1480, animation 4, wait 63 |
 | `xorc11-10000` (oracle trace), n = 6046: gryphon rider 1400 (type 0x2A, owner 6) in order 4 standing at its goal, (8, 24); juggernaut 1512 (type 0x21) nearby, at (4, 32) | Arrives: order 2, animation 2, wait 3, target null (no acquisition) |
 | `xorc6-10000` (oracle trace), n = 6106: axe thrower 1475 (type 0x09, owner 5) idle at (82, 90); its recorded attacker died earlier and was forgotten by an earlier search | Order 16 (not 12) on footman 1459, animation 4, wait 3 |
+| `human06-31357`, n = 9642: footman 1584 (type 0x00, owner 1, the human player) idle at (72, 7); its recorded attacker, axe thrower 1516 (type 0x09, owner 5) at (68, 11), stands in a tile its own sight doesn't cover, but 1516's strike revealed it after the last fog refresh | 1516 seeds the search: order 12 on 1516, animation 4, wait 3 |
+| `xhuman11-10000` (oracle trace), n = 9065: paladin 1513 (type 0x0C, owner 1, the human player) at (84, 67), in order 12 on 1473, which it loses, and idle grunt 1518 (owner 1) at (85, 67); their recorded attacker, catapult 1467 (type 0x05, owner 2) at (84, 59), stands in fog | The seed is rejected (hidden): 1513 goes idle (order 2, animation 2, wait 3, target null) and 1518 stays idle; no chase |
+| Same rule, an attacker that isn't detected (an invisible unit; static study only) | Not a seed |
 | `xorc8-10000` (oracle trace), n = 6177: transport 1423 (type 0x1D, owner 5), idle at (118, 110), flees to a shore tile | Order 30, animation 6, wait 3 |
 | A peasant flees to a tile next to a forest | Order 3 (move); no harvest |
 | `xorc8-10000` (oracle trace, Enhanced), n = 7372: elven destroyer 1468 (type 0x1E, owner 2, 1 HP) at (116, 116) in order 12 on fleeing transport 1402 (type 0x1D, owner 5) at (104, 114), out of reach, skip mark set by a no-route retarget at n = 7252; ogre 1392 (type 0x07, owner 5) on land at (121, 117) | The move step's search takes 1392 and finds no route: order 2 at once, animation 2, wait 1, target null; tile (116, 116), facing 7 |
@@ -1247,11 +1265,6 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
   confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
   command a unit's own order logic gives it takes over in the same update.
-- **Other rejections in the attacker seed.** Static study says the seed gets every candidate check, the fog and
-  detection tests included. A fog test on the seed would fix `xhuman11-10000` n = 9065, but it breaks `human06-31357`
-  n = 9642: footman 1584 (owner 1, the human player) at (72, 7), hit by axe thrower 1516 at (68, 11), attacks it (order
-  12, animation 4, wait 3), though by the fog rules of `vision/fog.md` that tile is unseen. Why the original counts 1516
-  as seen isn't found, so "Choice" keeps only the two rejections until a capture shows the visibility masks.
 - **Arrival before acquiring for patrol.** Orders 4 and 10 arrive at the move goal before acquiring (`xorc11-10000`);
   whether patrol (order 5) does the same at a patrol end isn't traced.
 - **The flee move's wait cap** ("Fleeing", step 6) rests on static study; no trace shows it.
