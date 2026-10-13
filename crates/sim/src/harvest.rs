@@ -245,18 +245,28 @@ impl World {
         }
         self.next_tree(i, false);
         let u = &self.units[i];
-        if let Order::Harvest {
+        let Order::Harvest {
             source: None,
             tree,
             chopping: false,
         } = u.order
-            && u.gather == Gather::Lumber
-            && chebyshev(u.tile, tree) <= RADIUS
-            && self.start_chopping(i, tree)
-        {
-            self.start_anim(i, anim::ATTACK);
-            self.units[i].script.wait = TAKEOVER_WAIT;
+        else {
+            return;
+        };
+        if u.gather != Gather::Lumber {
+            return;
         }
+        if chebyshev(u.tile, tree) <= RADIUS {
+            if self.start_chopping(i, tree) {
+                self.start_anim(i, anim::ATTACK);
+                self.units[i].script.wait = TAKEOVER_WAIT;
+            }
+            return;
+        }
+        // Round-52 errata (`xhuman12-10000` peon 1386, n = 5598): a worker further away is given the harvest command
+        // again, to the goal the first one set, so the goal is pulled back a second time (facing kept, attack
+        // animation, wait 3).
+        self.harvest_again(i, tree);
     }
 
     /// Order 24.
@@ -443,6 +453,8 @@ impl World {
             Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
             Some(Order::Build { goal: Some(g), .. }) => Some(g),
             Some(Order::Build { kind, site, .. }) => Some(self.build_goal(i, kind, site)),
+            // Round-52 errata: a return faces the depot's top-left tile plus (1, 1), not its pulled-back aim.
+            Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| (d.tile.0 + 1, d.tile.1 + 1)),
             _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
         }
     }
@@ -489,7 +501,9 @@ impl World {
             }
         };
         let aim = match next {
-            Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| d.tile),
+            // Round-52 errata (`human13-10000` peon 1550, n = 196): a return aims at the depot's top-left tile pulled
+            // back, as for any command to a building; the worker still faces the depot (`come_out_face`).
+            Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| d.tile).map(|t| self.pull_back(i, t)),
             Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile),
             Some(Order::Harvest { tree, .. }) => Some(tree),
             // Round-40 errata: a build order aims at the site's top-left tile, not the build walk's goal tile.
@@ -622,6 +636,11 @@ impl World {
         let Some(t) = self.nearest_tree(self.units[i].tile) else {
             return if pending { self.idle_now(i) } else { self.idle(i) };
         };
+        self.harvest_again(i, t);
+    }
+
+    /// A new harvest command to `t`, given by the worker's own logic, which takes over in the same update.
+    fn harvest_again(&mut self, i: usize, t: (i32, i32)) {
         match self.harvest_command(i, None, t) {
             Some(o) => {
                 // A new harvest command: the route dropped and the blocked counter cleared (movement spec).
@@ -1318,6 +1337,70 @@ mod tests {
         w.harvest_order(pi, Some(mine), (14, 4), false);
         let u = &w.units[pi];
         assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+    }
+
+    /// Round-52 errata, "No route" (the `xhuman12-10000` peon 1386 vector at n = 5598, moved to (10, 10)): the nearest
+    /// tree (12, 14) is pulled back to (11, 13); the worker isn't within reach of it, so it is given the harvest command
+    /// again and the goal is pulled back a second time, from (11, 13) to (10, 12). Facing kept, attack animation,
+    /// wait 3, no step.
+    #[test]
+    fn a_worker_out_of_reach_of_the_new_tree_has_its_goal_pulled_back_twice() {
+        let mut w = land();
+        forest(&mut w, 12, 14);
+        for (x, y) in [(11, 13), (10, 12)] {
+            let n = w.terrain.at(x, y).unwrap();
+            w.terrain.words[n] |= bits::OBSTACLE;
+        }
+        let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+        let i = w.index(p).unwrap();
+        assert_eq!(w.pull_back(i, (12, 14)), (11, 13), "the first pull-back");
+        w.units[i].gather = Gather::Lumber;
+        w.units[i].facing = 6;
+        w.units[i].order = Order::Harvest {
+            source: None,
+            tree: (20, 20),
+            chopping: false,
+        };
+        w.no_route(i);
+        let u = &w.units[i];
+        let want = Order::Harvest {
+            source: None,
+            tree: (10, 12),
+            chopping: false,
+        };
+        assert_eq!((u.order, u.pending), (want, None));
+        assert_eq!(
+            (u.tile, u.facing, u.script.anim, u.script.wait),
+            ((10, 10), 6, anim::ATTACK, 3)
+        );
+        assert_eq!(w.terrain.region(12, 14), Some(region::FOREST), "not reserved");
+    }
+
+    /// Round-52 errata, "Coming out" (the `human13-10000` peon 1550 vector at n = 196, in small): a worker coming out
+    /// of a mine with a return is placed toward the depot's top-left tile pulled back, (10, 10) here rather than the
+    /// hall's (2, 18), so it comes out on (11, 9), not (11, 10); it still faces the hall's top-left tile plus (1, 1).
+    #[test]
+    fn a_return_comes_out_toward_the_pulled_back_goal_facing_the_depot() {
+        let mut w = land();
+        for x in 3..=10 {
+            for y in 0..24 {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.words[n] |= bits::OBSTACLE;
+            }
+        }
+        let hall = w.spawn(kind::TOWN_HALL, 0, (2, 18), 0).unwrap();
+        let mine = w.spawn(MINE, 15, (12, 8), 100).unwrap();
+        let p = w.spawn(0, 0, (11, 8), 0).unwrap();
+        go_in_now(&mut w, p, mine);
+        let pi = w.index(p).unwrap();
+        assert!(w.units[pi].carrying);
+        assert_eq!(w.pull_back(pi, (2, 18)), (10, 10));
+        come_out_now(&mut w, p, mine);
+        let u = &w.units[pi];
+        assert_eq!(u.pending, Some(Order::ReturnGoods { depot: Some(hall) }));
+        assert_eq!((u.order, u.tile), (Order::Idle, (11, 9)));
+        // Toward (3, 19): south-west; toward the pulled-back goal's (11, 11) it would be south (4).
+        assert_eq!(u.facing, 5);
     }
 
     #[test]
