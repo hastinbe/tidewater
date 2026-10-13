@@ -13,6 +13,9 @@
   mid-step.
 - **Changes:** 2026-10-12, round-39 errata: the "Paths" fallbacks name the harvesting worker's nearest-tree search
   (`economy/harvest.md`).
+- **Changes:** 2026-10-12, round-41 errata: only commands clear the blocked counter; a pending order taking over doesn't
+  (a patrol's turnaround and the order given on coming out are commands). Row F also needs the blocked unit's own
+  animation to be the move animation, so it never applies in orders 30 and 31 (static study only, untraced).
 
 ## Behaviour
 
@@ -126,14 +129,17 @@ Each unit has a **blocked counter**, from 0 to 15.
   for every order, including 17, 30 and the spells), at the moment the command is given, even if the unit is in the
   middle of a step; it doesn't wait for the pending order to take over. It is also set to 0 when the unit gives up
   (below).
+- A pending order taking over doesn't clear it, nor does an order made pending without a command. A patrol's
+  turnaround and the order given on coming out of a building are commands and do clear it.
 - It is **not** reset by successful steps, so blocks add up over the whole order.
 
 A unit's **attacker** is the enemy unit that most recently damaged it. It is recorded when the unit is notified that
 it was attacked (see the combat spec), and forgotten when that unit dies or leaves play. For human players, attacks by
 buildings are not recorded.
 
-When the next tile is blocked, the unit restarts its move animation in place (or its order's work animation, if that
-order uses one) and its counter goes up by 1. Then the **first matching row** below applies.
+When the next tile is blocked, the unit restarts its walking animation in place: the move animation, or for an order
+whose own walking animation is the second walking animation (orders 30 and 31) that one. Its counter goes up by 1.
+Then the **first matching row** below applies.
 
 | # | Condition (after the counter is increased) | Outcome | Path cache | Next decision |
 | --- | --- | --- | --- | --- |
@@ -142,7 +148,7 @@ order uses one) and its counter goes up by 1. Then the **first matching row** be
 | C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" | kept (unused) | 15 cycles |
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
-| F | This unit is in its move animation. The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
+| F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
 | G | The unit has an attacker, and it is within 1 tile of its goal on both axes (land units) or within 2 tiles (sea and air units) | Stops: order becomes "stand still" | kept (unused) | 1 cycle |
 | H | The unit has an attacker, is a sea or air unit, and is within 2 tiles of its goal on x but farther on y | Keeps its order | dropped | 1 cycle |
 | I | Anything else | Keeps its order | dropped (it searches again) | 1 cycle |
@@ -209,6 +215,10 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | Footman blocked by an allied footman walking away (next step not onto it) | waits 15 cycles, keeps its path; counter +1 |
 | Two allied footmen stepping onto each other's tiles | neither waits; each drops its path and searches again next cycle (row I) |
 | Footman with counter 7 blocked by a moving ally | row D applies first: path dropped, waits 15 cycles |
+| `orc8-10000` (oracle trace): tanker 1483 (type 0x1A) blocked once on its way in, its pending order 25 takes over at n = 947 | Its counter isn't 0 after the take-over. n = 949: tanker 1479, blocked by 1483, doesn't wait (row F needs a counter of 0) and steps to (88, 102), facing 4 |
+| A unit blocked twice is given a command | Counter 0 at once |
+| A patrolling unit reaches one end | The turnaround is a command: counter 0 |
+| A transport in order 30 blocked by an allied transport in its move animation (static study only) | Row F doesn't apply (the blocked unit isn't in the move animation); a lower row does |
 | Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle |
 | Passive computer player's grunt, same situation | row A doesn't apply (not a computer player); falls through to the rows below |
 | Grunt with an attacker, blocked 1 tile from its goal | becomes idle (stand still) next cycle |
@@ -224,7 +234,9 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 ## Open questions
 
 - Whether two-tile movers always keep to even tile coordinates.
-- What makes an allied unit count as "about to move" when its state, rather than its animation, says so. Row F needs
-  the animation itself to be the move animation.
+- Row F's conditions on the unit's own animation (orders 30 and 31 never wait) come from the static study only; no
+  trace shows them yet. The blocker's side is its current animation itself, read strictly; the pending-command reading
+  is the path search's rule only.
+- Row F is also skipped when the blocker has one more state bit set, whose meaning hasn't been identified.
 - How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
   construction spec.
