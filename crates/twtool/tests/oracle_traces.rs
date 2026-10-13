@@ -17,14 +17,18 @@
 //! xhuman12, human13, orc14, xhuman11, xorc8, human4-15000, xhuman4-15000, orc9-12000, xhuman10-12000, xorc7-15000,
 //! human8-30000, xorc12-4000, xorc09-death-knight-2500, orc10-sappers-2500, xhuman10-slow-3000, human13-subs-2000,
 //! human12-25000, human09-fleet-3000, xorc11-air-sea-3000, human01-walls, human06-upgrades, xorc12-spells,
-//! xhuman10-exorcism, orc13-25000, orc14-25000, xhuman11-25000 and orc11-25000 match in full.
+//! xhuman10-exorcism, orc13-25000, orc14-25000, xhuman11-25000, orc11-25000, human2-human02-all-out-4000 (Human02
+//! with the invulnerability cheat turned on in its commands), orc5-40000 (the game ends at n 36583) and human9-30000
+//! match in full.
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
-//! humans' slots and races, the number of opponents) from the header. All match in full: mp-dark-paths-bne-1000,
+//! humans' slots and races, the computer rows) from the header. The header has no Fixed Order field yet (round-59
+//! corrections), so the starts are taken as random. All match in full: mp-dark-paths-bne-1000,
 //! mp-gold-rush-bne-6000, mp-gold-rush-bne-25000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000,
-//! mp-big-rock-candy-mountain-bne-25000, mp-schwartzwald-bne-6000, mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000
-//! and mp-rose-petal-bne-25000 (Enhanced), and mp-dark-paths-bne-classic-1000, mp-gold-rush-bne-classic-8000 and
+//! mp-big-rock-candy-mountain-bne-25000, mp-big-rock-candy-mountain-bne-40000, mp-schwartzwald-bne-6000,
+//! mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000, mp-rose-petal-bne-25000, mp-isolation-bne-30000 and
+//! mp-frosty-fjords-bne-30000 (Enhanced), and mp-dark-paths-bne-classic-1000, mp-gold-rush-bne-classic-8000 and
 //! mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
 
 use std::path::PathBuf;
@@ -212,4 +216,10 @@ traces! {
     mp_rose_petal_bne_25000: (mp, "mp-rose-petal-bne-25000.jsonl.gz", &[], None),
     mp_gold_rush_bne_25000: (mp, "mp-gold-rush-bne-25000.jsonl.gz", &[], None),
     mp_schwartzwald_bne_25000: (mp, "mp-schwartzwald-bne-25000.jsonl.gz", &[], None),
+    mp_isolation_bne_30000: (mp, "mp-isolation-bne-30000.jsonl.gz", &[], None),
+    mp_big_rock_candy_mountain_bne_40000: (mp, "mp-big-rock-candy-mountain-bne-40000.jsonl.gz", &[], None),
+    mp_frosty_fjords_bne_30000: (mp, "mp-frosty-fjords-bne-30000.jsonl.gz", &[], None),
+    human2_human02_all_out_4000: ("human2-human02-all-out-4000.jsonl.gz", "Campaign\\Human\\Human02.pud", 2, &[], None),
+    orc5_40000: ("orc5-40000.jsonl.gz", "Campaign\\Orc\\Orc05.pud", 9, &[], None),
+    human9_30000: ("human9-30000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
 }
