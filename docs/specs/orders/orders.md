@@ -58,6 +58,10 @@
   is seeded with the attacker only when its score is above 0 (the attacker still counts for the resulting order); units
   inside something keep their list place and coming out doesn't re-insert a unit; the flee move and the patrol
   turnaround are commands, so their goals are pulled back; trace vectors.
+  2026-10-13, round-45 errata: a unit cooling down keeps its attack order until the cooldown runs out when its target is
+  lost; a resumed patrol or attack-move is a full command; every command forgets a dying, dead, removed or undetected
+  attacker; a move with no route keeps its attacker; mage-type units count as non-combat in the reaction and flee; trace
+  vectors.
 
 ## Behaviour
 
@@ -306,12 +310,18 @@ something, or in order 25):
 
 | Remembered | Result |
 | --- | --- |
-| Patrol | It is sent back toward the patrol end it was heading for, and the countdown is set to **40** |
-| Attack-move, with the target tile more than 1 tile away (either axis) | The attack-move is given again, and the countdown is set to **20** |
+| Patrol | It is sent back toward the patrol end it was heading for, **as a command** (goal pulled back, cached route dropped, blocked counter cleared, attacker checked), and the countdown is set to **40** |
+| Attack-move, with the target tile more than 1 tile away (either axis) | The attack-move is given again **as a command** (goal pulled back, cached route dropped, blocked counter cleared, attacker checked), and the countdown is set to **20** |
 | Attack-move, already within 1 tile | It stays idle (the attack-move is complete) |
 
 If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
 set as usual.
+
+The resumed order goes through the same steps as a player's command: the goal is stored and pulled back
+(`movement/pathfinding.md`, "Goal pulled back"), the cached route is dropped, the blocked counter is cleared
+(`movement/movement.md`, "Blocked rules") and the recorded attacker is checked as for every command ("Commands forget a
+stale attacker", below). A unit that resumes doesn't keep its old route (traced: `xorc01-death-coil-2500`, vectors
+below).
 
 So a unit that broke off a patrol or attack-move to fight goes back to it once the fight is over. Every command a
 unit takes in Enhanced mode first clears its remembered order (`ui/selecting-and-commanding.md`), and only commands
@@ -326,15 +336,17 @@ it from re-issuing every cycle when the move can't progress.
   `core/animation-scripts.md` runs the order's own animation at once, and then the order's logic runs.)
 - **No route:** if the route search finds nothing and none of the special cases of `movement/movement.md` applies (the
   harvest tree search, arrived after all, boarding, the attack-type fallbacks), the unit becomes idle as an
-  **immediate** order (order 2, pending order cleared, still animation, wait 1). Its order is now 2, so the idle logic
-  runs in the same update, straight after; a computer worker's job choice or a critter's wander can follow in that
-  update too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to orders 3, 4, 5
-  and 10. Traces show it for patrols (`human10`, `xorc7`; vectors below). It also applies to order 12 **and order 9**
-  (which uses the same logic) when the attack-type fallback finds nothing either: the unit goes idle at once and its
-  idle logic runs in the same update, so a unit whose target is still in its search box gets order 12 again at once
-  (attack animation, wait 3), with the look-around draw made in that update. It also applies to a worker or tanker
-  returning goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is the job
-  choice, whose new command takes over in the same update (wait 3).
+  **immediate** order (order 2, pending order cleared, still animation, wait 1). Only arrival makes orders 3, 4 and 10
+  forget the attacker: a unit that goes idle with no route **keeps** it. Its order is now 2, so the idle logic runs in
+  the same update, straight after, and may react to that attacker (a unit that fled may flee again, traced:
+  `xorc10-dragons-800`, vectors below); a computer worker's job choice or a critter's wander can follow in that update
+  too. The attack-type fallbacks apply only to orders whose animation is 4, so they never apply to orders 3, 4, 5 and
+  10. Traces show it for patrols (`human10`, `xorc7`; vectors below). It also applies to order 12 **and order 9** (which
+  uses the same logic) when the attack-type fallback finds nothing either: the unit goes idle at once and its idle logic
+  runs in the same update, so a unit whose target is still in its search box gets order 12 again at once (attack
+  animation, wait 3), with the look-around draw made in that update. It also applies to a worker or tanker returning
+  goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is the job choice,
+  whose new command takes over in the same update (wait 3).
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
   other end. As a command, the new goal is **pulled back** (`movement/pathfinding.md`, "Goal pulled back"), for every
   patrol, human or computer, land or sea; the remembered ends stay as they were. The new patrol takes over in the same
@@ -353,6 +365,13 @@ In **order 12** each run first runs the target search of "Automatic target acqui
 nothing new does the lost-target rule above apply. So a chaser whose target died takes the best target in its box,
 if there is one, instead of going idle.
 
+**Losing the target while cooling down.** In orders 12, 15 and 16 each run is, in this order: the target search, the
+cooldown test of the strike decision (below), then the target check. A unit whose target has died or been lost while it
+is still cooling down stops at the cooldown test as usual: its attack animation restarts with the cooldown left as its
+wait, and its pending order is cleared. It stays in its order, with no target, until the cooldown runs out; the target
+is found lost at the first run after that, and the unit goes idle (or resumes, in Enhanced mode) then (traced:
+`xorc01-death-knight-2100`, vectors below).
+
 A target that dies keeps its HP and its own target through its death animation (`combat/damage.md`, "Applying
 damage"). The unit that killed it forgets it at once, in the step that applies the blow, without changing its order.
 Every other unit attacking it keeps it as its target until its own next logic run, where the target is lost as above.
@@ -362,6 +381,13 @@ Every other unit attacking it keeps it as its target until its own next logic ru
 the record is cleared. This comes **before** the target check, so it also applies in the run in which the unit then
 loses its target, and the idle search that follows sees no attacker (traced: `orc09-naval`, vectors below). Orders 12,
 15 and 16 don't do this at the start of their run.
+
+**Commands forget a stale attacker.** Every command given to a unit that isn't a building (a player's or a computer
+player's command, a resumed patrol or attack-move, a flee move, a target search's resulting order and every other
+command listed in `movement/movement.md`, "Blocked rules") checks the unit's recorded attacker: if the attacker is
+dying, dead or removed, or isn't detected by the unit's owner, it is forgotten. So a kept dying attacker is also
+forgotten at the unit's next command (traced: `xorc01-death-knight-2100`, vectors below). A target unit given with the
+command gets the same check (static study only).
 
 **Strike decision (attack orders 9, 11, 12, 15, 16 and 17).** Before a unit strikes, the attack cooldown of
 `combat/damage.md` ("Attack timing (cooldown)") is tested: a unit that isn't a flyer and whose wait is less than its
@@ -564,9 +590,10 @@ table; only transports use order 32, and they can't attack anyway.
 **Special cases:**
 
 - **Mages** (mage and death knight types, including heroes of those types) search like any other unit, scoring every
-  candidate. The rule is applied to the **chosen** target: if the best candidate can attack and isn't a non-combat
-  unit (workers, tankers, transports, demolition units), they acquire nothing in that run. A harmless target is never
-  chosen in place of a dangerous one that scores higher.
+  candidate. The rule is applied to the **chosen** target: if the best candidate can attack and isn't a non-combat unit
+  (workers, tankers, transports, demolition units), they acquire nothing in that run; if they have an attacker, they run
+  the reaction instead, which treats them as non-combat units, so they **flee** ("Reacting to an attacker"). A harmless
+  target is never chosen in place of a dangerous one that scores higher.
 - In Enhanced mode a **demolition unit** (dwarven demolition squad, goblin sapper) with a remembered order uses the
   target to start a demolish instead of an attack.
 - Workers and tankers of **any** player never run the search. A computer player's workers and tankers run their AI
@@ -708,14 +735,19 @@ the unit has an attacker:
    resulting-order table, which for the idle-type orders is **12 whenever the unit has an attacker**, for human and
    computer players alike. There is no second search in the same run.
 3. Workers and tankers use the reaction below instead (computer players' workers and tankers first run their AI
-   routines, a later spec). Mages use the mage rule in "Special cases".
+   routines, a later spec). A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
+   chosen target is one it may take (a non-combat unit or one that can't attack; "Special cases") and differs from its
+   current target, it attacks it; otherwise it runs the reaction, and so flees from the attacker (traced:
+   `xorc01-death-coil-2500`, vectors below). An invisible mage-type unit does nothing more in that run after the
+   attacker check (static study only).
 
 **The reaction**, used by the orders that react without acquiring (attack-move in Classic mode, demolish orders
 19 to 21) and by several other orders' logic (follow, repair, board):
 
 - If the attacker is no longer valid (dying, dead or inside something), or the unit's owner is not playing, or the
   unit is a building, or it can't attack, the attacker is simply forgotten.
-- Otherwise, if the unit is a non-combat unit (worker, tanker, transport or demolition unit), it **flees** (below).
+- Otherwise, if the unit is a non-combat unit (worker, tanker, transport, demolition unit or mage-type unit: mage and
+  death knight types, heroes included), it **flees** (below).
 - Otherwise it runs the target search (above), which starts with the attacker as the best candidate. If the result
   differs from the unit's current target, it attacks the result with order 12, whatever the resulting-order table
   says.
@@ -983,6 +1015,16 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | A unit that comes out of a mine at pixel y 320, having gone in at pixel y 160 | Its list place is the one for y 160 until the sort moves it |
 | `orc09-naval-1500` (oracle trace), n = 754: computer destroyer 1460 (type 0x1E) on its sea patrol arrives at (84, 66); the far end (67, 57) is under an oil platform | The new patrol goal is pulled back to (69, 58); it steps from n = 757 and at n = 853 is at (76, 60), facing 6 |
 | A patrol whose other end is usable | Goal unchanged |
+| `xorc01-death-knight-2100` (oracle trace): ogre 1488 (type 0x07, owner 5) in order 12 kills its target at n = 907 (target null) while cooling down | n = 915: order 12, animation 4, frame 0, wait 15, target null. n = 930: order 10 (the resumed attack-move), still animation, wait 3 |
+| `xorc01-death-coil-2500` (oracle trace): ogre 1489 (type 0x07, owner 5) loses its target at n = 901 and resumes its attack-move (order 10, wait 3) | The cached route is dropped: n = 904, it steps to (56, 70), facing 1 |
+| A resumed attack-move whose unit had a cached route and a blocked counter of 3 | Route dropped, counter 0 |
+| `xorc01-death-knight-2100`: ogre 1489 resumes its attack-move at n = 1191 while its recorded attacker, a skeleton, is dying | The attacker is forgotten. n = 1329: blocked at (67, 67), goal (68, 68), no attacker, so row I: order 10, wait 1. n = 1330: no route, immediate idle: order 2, wait 1 |
+| A command to a unit whose recorded attacker is dying | The attacker is forgotten |
+| `xorc10-dragons-800` (oracle trace): footman 1520 (type 0x00, owner 2) has fled toward (36, 38) and is at (35, 38) at n = 464 with no route on | It keeps its attacker and flees again in the same-update idle logic: order 3, still animation, wait 3, 2 draws. n = 467: (34, 39), facing 5 |
+| A move with no route for a unit whose attacker it can't target | Idle at once, then flees in the same update |
+| `xorc01-death-coil-2500` (oracle trace): death knight 1491 (type 0x0B, owner 5, the human player) idle at (72, 69), hit by a skeleton at n = 1431 | n = 1433: order 3 (flee), still animation, wait 3, 2 draws for the offset. n = 1436: (71, 69), facing 6 |
+| An idle mage hit by a footman, nothing else in its box | Flees |
+| An idle mage hit by a footman, with an enemy peasant in its box that outscores the footman | Attacks the peasant |
 
 ## Open questions
 
