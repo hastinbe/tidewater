@@ -34,174 +34,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Trace file, map, campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering),
-/// fields left out, and the last cycle that must match (`None`: the whole trace).
-type Trace = (&'static str, &'static str, u8, &'static [&'static str], Option<u32>);
-
-const TRACES: [Trace; 45] = [
-    ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
-    ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
-    (
-        "human01-basics-9500.jsonl.gz",
-        "Campaign\\Human\\Human01.pud",
-        0,
-        &[],
-        None,
-    ),
-    ("orc02-assault-3000.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], None),
-    (
-        "orc02-victory-7639.jsonl.gz",
-        "Campaign\\Orc\\Orc02.pud",
-        3,
-        &[],
-        Some(2719),
-    ),
-    (
-        "orc02-defeat-4021.jsonl.gz",
-        "Campaign\\Orc\\Orc02.pud",
-        3,
-        &[],
-        Some(2719),
-    ),
-    (
-        "xorc01-death-coil-2500.jsonl.gz",
-        "Campaign\\XOrc\\2XOrc01.pud",
-        29,
-        &[],
-        None,
-    ),
-    (
-        "xhuman10-spells-700.jsonl.gz",
-        "Campaign\\XHuman\\2XHum10.pud",
-        46,
-        &[],
-        Some(327),
-    ),
-    (
-        "xhuman10-blizzard-600.jsonl.gz",
-        "Campaign\\XHuman\\2XHum10.pud",
-        46,
-        &[],
-        Some(308),
-    ),
-    (
-        "xorc01-death-knight-2100.jsonl.gz",
-        "Campaign\\XOrc\\2XOrc01.pud",
-        29,
-        &[],
-        None,
-    ),
-    (
-        "xorc12-ogre-mage-180.jsonl.gz",
-        "Campaign\\XOrc\\2XOrc12.pud",
-        51,
-        &[],
-        None,
-    ),
-    (
-        "xorc10-dragons-800.jsonl.gz",
-        "Campaign\\XOrc\\2XOrc10.pud",
-        47,
-        &[],
-        None,
-    ),
-    ("orc09-naval-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
-    ("orc09-repair-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
-    (
-        "human12-transport-650.jsonl.gz",
-        "Campaign\\Human\\Human12.pud",
-        22,
-        &[],
-        None,
-    ),
-    (
-        "human12-demolition-450.jsonl.gz",
-        "Campaign\\Human\\Human12.pud",
-        22,
-        &[],
-        None,
-    ),
-    (
-        "human12-row-f-move-700.jsonl.gz",
-        "Campaign\\Human\\Human12.pud",
-        22,
-        &[],
-        None,
-    ),
-    (
-        "human12-row-f-landing-700.jsonl.gz",
-        "Campaign\\Human\\Human12.pud",
-        22,
-        &[],
-        None,
-    ),
-    (
-        "human06-tech-650.jsonl.gz",
-        "Campaign\\Human\\Human06.pud",
-        10,
-        &[],
-        None,
-    ),
-    ("human12-7000.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
-    ("orc4-20000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
-    ("human10-10000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
-    ("xorc7-7000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], None),
-    (
-        "human5-10000.jsonl.gz",
-        "Campaign\\Human\\Human05.pud",
-        8,
-        &[],
-        Some(1758),
-    ),
-    ("human7-10000.jsonl.gz", "Campaign\\Human\\Human07.pud", 12, &[], None),
-    ("orc8-10000.jsonl.gz", "Campaign\\Orc\\Orc08.pud", 15, &[], None),
-    ("xorc3-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc03.pud", 33, &[], None),
-    (
-        "xhuman2-10000.jsonl.gz",
-        "Campaign\\XHuman\\2XHum02.pud",
-        30,
-        &[],
-        Some(2486),
-    ),
-    ("xhuman4-7000.jsonl.gz", "Campaign\\XHuman\\2XHum04.pud", 34, &[], None),
-    ("human06-31357.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
-    ("human10-24000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
-    ("orc4-40000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
-    ("human7-22000.jsonl.gz", "Campaign\\Human\\Human07.pud", 12, &[], None),
-    (
-        "human01-order15-range-700.jsonl.gz",
-        "Campaign\\Human\\Human01.pud",
-        0,
-        &[],
-        None,
-    ),
-    ("orc3-10000.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
-    ("orc5-10000.jsonl.gz", "Campaign\\Orc\\Orc05.pud", 9, &[], Some(1640)),
-    ("orc6-10000.jsonl.gz", "Campaign\\Orc\\Orc06.pud", 11, &[], None),
-    ("xorc2-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc02.pud", 31, &[], None),
-    (
-        "xorc4-10000.jsonl.gz",
-        "Campaign\\XOrc\\2XOrc04.pud",
-        35,
-        &[],
-        Some(8070),
-    ),
-    ("xorc5-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
-    ("xhuman1-10000.jsonl.gz", "Campaign\\XHuman\\2XHum01.pud", 28, &[], None),
-    (
-        "xhuman3-10000.jsonl.gz",
-        "Campaign\\XHuman\\2XHum03.pud",
-        32,
-        &[],
-        Some(8748),
-    ),
-    ("xhuman5-10000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
-    ("xorc1-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
-    ("xorc10-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
-];
-
-#[test]
-fn compares_real_traces_when_present() {
+/// Checks one trace in full and again with RNG resync. Skips when the environment isn't set up.
+fn check(file: &str, map: &str, entry: u8, fields: &[&str], limit: Option<u32>) {
     let (Some(dir), Some(install)) = (
         std::env::var_os("TIDEWATER_ORACLE_TRACES"),
         std::env::var_os("TIDEWATER_INSTALL"),
@@ -209,44 +43,101 @@ fn compares_real_traces_when_present() {
         eprintln!("skipped: set TIDEWATER_ORACLE_TRACES and TIDEWATER_INSTALL to run");
         return;
     };
-    let mut ran = 0;
-    for (file, map, entry, fields, limit) in TRACES {
-        let trace = PathBuf::from(&dir).join(file);
-        if !trace.is_file() {
-            eprintln!("skipped {file}: not found");
-            continue;
-        }
-        let max = limit.map(|l| l.to_string());
-        let short = limit.unwrap_or(300).min(300).to_string();
-        let whole: Vec<&str> = max.iter().flat_map(|m| ["--max-cycles", m.as_str()]).collect();
-        let resync = vec!["--keep-going", "--resync-rng", "--max-cycles", short.as_str()];
-        for extra in [whole, resync] {
-            let out = Command::new(env!("CARGO_BIN_EXE_twtool"))
-                .arg("oracle")
-                .arg("--install")
-                .arg(&install)
-                .args(["--map", map, "--entry", &entry.to_string()])
-                .args(fields)
-                .args(&extra)
-                .arg(&trace)
-                .output()
-                .expect("twtool runs");
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            // 0: no divergence; 1 with a report: a divergence. An error exits 1 too, but prints no summary.
-            assert!(
-                matches!(out.status.code(), Some(0 | 1)) && stdout.contains("\ncompared "),
-                "{file} {extra:?}: status {:?}\n{stdout}\n{stderr}",
-                out.status
-            );
-            assert!(stdout.contains("divergence"), "{file}: no verdict\n{stdout}");
-            assert_eq!(out.status.code(), Some(0), "{file} {extra:?} diverges\n{stdout}");
-            assert!(
-                !stdout.contains("input timing disagrees") && !stdout.contains("not from the input"),
-                "{file}: the turn records and the input disagree\n{stdout}"
-            );
-            ran += 1;
-        }
+    let trace = PathBuf::from(&dir).join(file);
+    if !trace.is_file() {
+        eprintln!("skipped {file}: not found");
+        return;
     }
-    eprintln!("ran {ran} comparisons");
+    let max = limit.map(|l| l.to_string());
+    let short = limit.unwrap_or(300).min(300).to_string();
+    let whole: Vec<&str> = max.iter().flat_map(|m| ["--max-cycles", m.as_str()]).collect();
+    let resync = vec!["--keep-going", "--resync-rng", "--max-cycles", short.as_str()];
+    for extra in [whole, resync] {
+        let out = Command::new(env!("CARGO_BIN_EXE_twtool"))
+            .arg("oracle")
+            .arg("--install")
+            .arg(&install)
+            .args(["--map", map, "--entry", &entry.to_string()])
+            .args(fields)
+            .args(&extra)
+            .arg(&trace)
+            .output()
+            .expect("twtool runs");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // 0: no divergence; 1 with a report: a divergence. An error exits 1 too, but prints no summary.
+        assert!(
+            matches!(out.status.code(), Some(0 | 1)) && stdout.contains("\ncompared "),
+            "{file} {extra:?}: status {:?}\n{stdout}\n{stderr}",
+            out.status
+        );
+        assert!(stdout.contains("divergence"), "{file}: no verdict\n{stdout}");
+        assert_eq!(out.status.code(), Some(0), "{file} {extra:?} diverges\n{stdout}");
+        assert!(
+            !stdout.contains("input timing disagrees") && !stdout.contains("not from the input"),
+            "{file}: the turn records and the input disagree\n{stdout}"
+        );
+    }
+}
+
+/// One `#[test]` per row, so the harness runs the traces in parallel. Each row is: test name = (trace file, map,
+/// campaign mission table entry (`game/cheats.md`, mission select; `game/victory.md` numbering), fields left out,
+/// the last cycle that must match (`None`: the whole trace)).
+macro_rules! traces {
+    ($($name:ident: ($file:expr, $map:expr, $entry:expr, $fields:expr, $limit:expr),)*) => {
+        $(
+            #[test]
+            fn $name() {
+                check($file, $map, $entry, $fields, $limit);
+            }
+        )*
+    };
+}
+
+traces! {
+    human01_2000: ("human01-2000.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    human04_3000: ("human04-3000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    human01_basics_9500: ("human01-basics-9500.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    orc02_assault_3000: ("orc02-assault-3000.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], None),
+    orc02_victory_7639: ("orc02-victory-7639.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], Some(2719)),
+    orc02_defeat_4021: ("orc02-defeat-4021.jsonl.gz", "Campaign\\Orc\\Orc02.pud", 3, &[], Some(2719)),
+    xorc01_death_coil_2500: ("xorc01-death-coil-2500.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
+    xhuman10_spells_700: ("xhuman10-spells-700.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], Some(327)),
+    xhuman10_blizzard_600: ("xhuman10-blizzard-600.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], Some(308)),
+    xorc01_death_knight_2100: ("xorc01-death-knight-2100.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
+    xorc12_ogre_mage_180: ("xorc12-ogre-mage-180.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
+    xorc10_dragons_800: ("xorc10-dragons-800.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    orc09_naval_1500: ("orc09-naval-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc09_repair_600: ("orc09-repair-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    human12_transport_650: ("human12-transport-650.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    human12_demolition_450: ("human12-demolition-450.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    human12_row_f_move_700: ("human12-row-f-move-700.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    human12_row_f_landing_700: ("human12-row-f-landing-700.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    human06_tech_650: ("human06-tech-650.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human12_7000: ("human12-7000.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    orc4_20000: ("orc4-20000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
+    human10_10000: ("human10-10000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
+    xorc7_7000: ("xorc7-7000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], None),
+    human5_10000: ("human5-10000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], Some(1758)),
+    human7_10000: ("human7-10000.jsonl.gz", "Campaign\\Human\\Human07.pud", 12, &[], None),
+    orc8_10000: ("orc8-10000.jsonl.gz", "Campaign\\Orc\\Orc08.pud", 15, &[], None),
+    xorc3_10000: ("xorc3-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc03.pud", 33, &[], None),
+    xhuman2_10000: ("xhuman2-10000.jsonl.gz", "Campaign\\XHuman\\2XHum02.pud", 30, &[], Some(2486)),
+    xhuman4_7000: ("xhuman4-7000.jsonl.gz", "Campaign\\XHuman\\2XHum04.pud", 34, &[], None),
+    human06_31357: ("human06-31357.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human10_24000: ("human10-24000.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
+    orc4_40000: ("orc4-40000.jsonl.gz", "Campaign\\Orc\\Orc04.pud", 7, &[], None),
+    human7_22000: ("human7-22000.jsonl.gz", "Campaign\\Human\\Human07.pud", 12, &[], None),
+    human01_order15_range_700: ("human01-order15-range-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    orc3_10000: ("orc3-10000.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    orc5_10000: ("orc5-10000.jsonl.gz", "Campaign\\Orc\\Orc05.pud", 9, &[], Some(1640)),
+    orc6_10000: ("orc6-10000.jsonl.gz", "Campaign\\Orc\\Orc06.pud", 11, &[], None),
+    xorc2_10000: ("xorc2-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc02.pud", 31, &[], None),
+    xorc4_10000: ("xorc4-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc04.pud", 35, &[], Some(8070)),
+    xorc5_10000: ("xorc5-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
+    xhuman1_10000: ("xhuman1-10000.jsonl.gz", "Campaign\\XHuman\\2XHum01.pud", 28, &[], None),
+    xhuman3_10000: ("xhuman3-10000.jsonl.gz", "Campaign\\XHuman\\2XHum03.pud", 32, &[], Some(8748)),
+    xhuman5_10000: ("xhuman5-10000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    xorc1_20000: ("xorc1-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc01.pud", 29, &[], None),
+    xorc10_20000: ("xorc10-20000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
 }
