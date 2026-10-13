@@ -131,8 +131,9 @@ impl World {
             Order::Move { goal } => Order::Move {
                 goal: self.pull_back(i, goal),
             },
-            Order::MoveAttack { goal } => Order::MoveAttack {
+            Order::MoveAttack { goal, target } => Order::MoveAttack {
                 goal: self.pull_back(i, goal),
+                target,
             },
             Order::AttackMove { goal } => Order::AttackMove {
                 goal: self.pull_back(i, goal),
@@ -155,7 +156,11 @@ impl World {
         // Round-47 errata: a target unit given with the command gets the same check. If it fails, the target is
         // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
         let owner = self.units[i].owner;
-        if crate::orders::target_of(order).is_some_and(|t| self.stale(owner, t)) {
+        let named = match order {
+            Order::MoveAttack { target, .. } => target,
+            o => crate::orders::target_of(o),
+        };
+        if named.is_some_and(|t| self.stale(owner, t)) {
             self.give(i, Order::Idle);
             let u = &mut self.units[i];
             u.commanded = u.pending.is_some();
@@ -618,7 +623,7 @@ mod tests {
         let goal = (8, 1);
         for o in [
             Order::Idle,
-            Order::MoveAttack { goal },
+            Order::MoveAttack { goal, target: None },
             Order::Patrol { to: goal, back: (1, 1) },
             Order::Chase { target: enemy },
             Order::StandGround,

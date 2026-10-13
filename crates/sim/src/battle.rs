@@ -129,12 +129,14 @@ impl World {
     /// spec, "Arriving": the radius is the attack range, measured to the target's tile or, for a building, to the
     /// footprint tile picked by the building goal rule, re-read at every check).
     pub(crate) fn attack_order(&mut self, i: usize, target: UnitId) {
-        // Orders spec: the order loses a target its owner no longer detects (fog does not matter).
+        // Orders spec: the order loses a target its owner no longer detects (fog does not matter). Round-49 errata
+        // ("Checks on an attack command"): the order then checks only that the unit can hit the target's kind, with
+        // the submarine rule; there is no owner test.
         let owner = self.units[i].owner;
         let target_ok = self
             .unit(target)
-            .is_some_and(|t| t.present() && Self::detected(t, owner));
-        if !target_ok || !self.can_strike(&self.units[i], target) {
+            .is_some_and(|t| t.present() && Self::detected(t, owner) && self.can_target_kind(&self.units[i], t));
+        if !target_ok {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);
             return;
@@ -254,6 +256,8 @@ impl World {
         if self.cooling_down(i) {
             return;
         }
+        // Round-49 errata (step 4.4, static study): the range check is the arrival test above (no +1 with an attack
+        // range), so it fails only if the unit or its goal has moved since.
         if !self.wall_tile(tile) || chebyshev(self.units[i].tile, tile) > reach {
             return self.idle_now(i);
         }

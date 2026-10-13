@@ -410,7 +410,7 @@ impl World {
         };
         let tile = match u.order {
             Order::Move { goal }
-            | Order::MoveAttack { goal }
+            | Order::MoveAttack { goal, .. }
             | Order::AttackMove { goal }
             | Order::Land { goal }
             | Order::Patrol { to: goal, .. } => Some(goal),

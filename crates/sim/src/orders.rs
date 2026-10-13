@@ -144,8 +144,10 @@ impl World {
             // Round-48 errata: a target unit of any owner (own, allied and neutral units included) gives order 9. A
             // dying target is still given; `command` then finds it stale and leaves a pending idle
             // (`orc02-dyingcmd-3760` grunts 1572 and 1575, n = 3723).
+            // Round-49 errata, "Checks on an attack command": the command checks only the commanded unit (not the
+            // target itself, a type that can attack); what kind it can hit is the order's own check.
             Command::Attack { target, .. } => {
-                if !self.can_strike(u, target) {
+                if target == u.id || self.flags_of_unit(u) & flags::CAN_ATTACK == 0 {
                     return None;
                 }
                 Order::Attack { target }
@@ -355,14 +357,16 @@ impl World {
     /// The unit's attacker if still good; a lost one is forgotten. Round-42 errata (movement spec, "Blocked rules";
     /// "Resulting order"): a dying attacker isn't good, but its record is kept while it is dying, where it still
     /// counts as an attacker for the resulting order. Round-43 errata: it is kept until it leaves play (its slot is
-    /// released); the end of its death animation isn't a rule (movement spec, open questions).
+    /// released); the end of its death animation isn't a rule (movement spec, open questions). Round-49 errata ("Terms",
+    /// `xhuman7-10000` troll destroyer 1420): an attacker in play that the owner doesn't detect is ignored in this run
+    /// and stays recorded; only a command forgets it.
     fn attacker(&mut self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
         let a = u.attacked_by?;
         if self.holds(u.owner, a) {
             return Some(a);
         }
-        if !self.unit(a).is_some_and(|a| a.dying) {
+        if !self.unit(a).is_some_and(|a| a.dying || a.present()) {
             self.units[i].attacked_by = None;
         }
         None
@@ -408,7 +412,11 @@ impl World {
             o,
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
         );
-        if lost && !search_first {
+        // Round-49 errata ("Commands", command 4): order 4 with a target unit ends at its run once that target is dying
+        // or lost, as on arrival: idle (or the resumed order) takes over in the same update (`xhuman7-10000` giant
+        // turtle 1511, n = 271).
+        let move_lost = matches!(o, Order::MoveAttack { target: Some(t), .. } if !self.holds(self.units[i].owner, t));
+        if (lost && !search_first) || move_lost {
             self.lose_target(i);
             return true;
         }
@@ -459,7 +467,7 @@ impl World {
                     self.idle_choice(i);
                 }
             }
-            Order::Move { goal } | Order::MoveAttack { goal } | Order::AttackMove { goal } => {
+            Order::Move { goal } | Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => {
                 if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && self.react(i) {
                     return true;
                 }
@@ -652,9 +660,10 @@ impl World {
         if self.inside_min_range(u, t) {
             return false;
         }
-        let roaming = matches!(order, Order::AttackMove { .. } | Order::Patrol { .. });
+        // Round-49 errata (`xorc11-10000` destroyer 1542, n = 38): attack-move (order 10) only; a sea unit on patrol
+        // uses the ordinary skip list.
         if self.rules.enhanced
-            && roaming
+            && matches!(order, Order::AttackMove { .. })
             && u.layer == Layer::Sea
             && t.layer != Layer::Sea
             && tf & (flags::SHORE_BUILDING | flags::OIL_SOURCE) == 0
@@ -1322,7 +1331,10 @@ mod tests {
         // Human04 critters' order 3 test above), and idle takes over in the same update (still animation, wait 3).
         for o in [
             Order::Move { goal: (7, 5) },
-            Order::MoveAttack { goal: (7, 5) },
+            Order::MoveAttack {
+                goal: (7, 5),
+                target: None,
+            },
             Order::AttackMove { goal: (7, 5) },
         ] {
             let mut w = map();
@@ -1620,7 +1632,7 @@ mod tests {
         let goal = (1, 1);
         for o in [
             Order::Move { goal },
-            Order::MoveAttack { goal },
+            Order::MoveAttack { goal, target: None },
             Order::Patrol { to: goal, back: goal },
             Order::AttackMove { goal },
         ] {
@@ -1751,7 +1763,7 @@ mod tests {
         let i = at(&w, a);
         let goal = (5, 20);
         w.units[i].pending = None;
-        w.units[i].order = Order::MoveAttack { goal };
+        w.units[i].order = Order::MoveAttack { goal, target: None };
         assert!(w.within_strike_reach(&w.units[i], w.unit(g).unwrap()));
         let before = w.rng;
         assert!(w.run_order(i));
@@ -1759,7 +1771,7 @@ mod tests {
         assert_eq!(
             (u.order, u.pending, u.tile, u.script.anim),
             (
-                Order::MoveAttack { goal },
+                Order::MoveAttack { goal, target: None },
                 Some(Order::Chase { target: g }),
                 (5, 6),
                 anim::MOVE
@@ -1916,7 +1928,10 @@ mod tests {
             w.step(&[]);
             let i = at(&w, a);
             w.units[i].pending = None;
-            w.units[i].order = Order::MoveAttack { goal: (5, 20) };
+            w.units[i].order = Order::MoveAttack {
+                goal: (5, 20),
+                target: None,
+            };
             let (mut tile_walk, mut attack_walk) = (w.clone(), w.clone());
             w.head_for(i, t);
             tile_walk.move_toward(i, Goal::tile((4, 6), 0));

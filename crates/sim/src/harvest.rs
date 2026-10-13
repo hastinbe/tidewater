@@ -128,7 +128,11 @@ impl World {
                 chopping: false,
             }
         } else {
-            let platform = t.filter(|&(_, o, tf)| tf & flags::OIL_SOURCE != 0 && o == owner && !carrying);
+            // Round-49 errata (`orc12-10000` tanker 1409, `xhuman8-10000` tanker 1468): a platform placed in this
+            // cycle doesn't count while the oil patch under it is still to have its own update this cycle.
+            let platform = t.filter(|&(id, o, tf)| {
+                tf & flags::OIL_SOURCE != 0 && o == owner && !carrying && !self.platform_fresh(id)
+            });
             self.units[i].chop = 0;
             match platform {
                 Some((id, ..)) => Order::Harvest {
@@ -140,6 +144,14 @@ impl World {
             }
         };
         Some(order)
+    }
+
+    /// Whether `platform` was placed in this cycle and the oil patch under it hasn't had its own update yet: its slot
+    /// is above the one being updated (harvest spec, "Starting to harvest", step 3).
+    fn platform_fresh(&self, platform: UnitId) -> bool {
+        self.fresh_platforms
+            .iter()
+            .any(|&(p, patch)| p == platform && self.updating.is_some_and(|s| patch > s))
     }
 
     /// Command 24 ("Returning goods").

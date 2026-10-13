@@ -74,8 +74,9 @@ pub enum Order {
     Idle,
     /// 3.
     Move { goal: (i32, i32) },
-    /// 4: move, attacking on the way.
-    MoveAttack { goal: (i32, i32) },
+    /// 4: move, attacking on the way. A command 4 with a target unit walks to the target's tile and records the
+    /// unit as `target` (orders spec, "Commands", round-49 errata).
+    MoveAttack { goal: (i32, i32), target: Option<UnitId> },
     /// 5: patrol toward `to`; on arrival the ends swap.
     Patrol { to: (i32, i32), back: (i32, i32) },
     /// 6: follow a unit.
@@ -161,7 +162,7 @@ impl Order {
             | Order::AttackInPlace { target }
             | Order::IdleReact { target }
             | Order::Repair { target } => Some(target),
-            Order::TowerWatch { target } | Order::Cast { target, .. } => target,
+            Order::TowerWatch { target } | Order::Cast { target, .. } | Order::MoveAttack { target, .. } => target,
             Order::Harvest { source, .. } => source,
             Order::ReturnGoods { depot } => depot,
             Order::Enter { building, .. } | Order::Inside { building, .. } | Order::InsideSite { building } => {
@@ -792,6 +793,12 @@ pub struct World {
     /// Take-overs counted so far, to tell whether a logic run ended in one (the order-12 skip mark). Not game state:
     /// not stored and left out of the hash.
     pub(crate) takeovers: u32,
+    /// The slot whose update is running, during the cycle's walk of the unit table. Not game state: not stored and
+    /// left out of the hash.
+    pub(crate) updating: Option<u16>,
+    /// Oil platforms placed in this cycle, each with its oil patch's slot (harvest spec, "Starting to harvest", step
+    /// 3). Cleared at the start of each cycle. Not game state: not stored and left out of the hash.
+    pub(crate) fresh_platforms: Vec<(UnitId, u16)>,
 }
 
 mod save;
@@ -896,6 +903,8 @@ impl World {
             stale: BTreeMap::new(),
             casts: Default::default(),
             takeovers: 0,
+            updating: None,
+            fresh_platforms: Vec::new(),
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,
@@ -1265,6 +1274,7 @@ impl World {
         self.step_ai();
         self.army_pass();
         let refresh = self.fog_refresh();
+        self.fresh_platforms.clear();
         // Ascending slot order. A unit created during another unit's update is inserted into the table, so the walk
         // goes by slot rather than by index: a new unit in a higher slot is reached this cycle, one in a lower slot
         // isn't, and no unit is updated twice.
@@ -1274,9 +1284,11 @@ impl World {
             if refresh {
                 self.apply_unit_sight(i);
             }
+            self.updating = Some(slot);
             self.advance(i);
             i = self.units.partition_point(|u| u.slot <= slot);
         }
+        self.updating = None;
         self.advance_missiles();
         for i in 0..self.units.len() {
             if self.units[i].construction.is_some() {

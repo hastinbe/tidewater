@@ -1266,10 +1266,20 @@ impl World {
             Fx::Flame { point, life } => {
                 // Round-48 errata (`xhuman10-blizzard-600` slot 11, n = 426 to 432): a flame waits at its start point
                 // and makes its first path step 6 cycles after its first update; its lifetime count starts there.
+                // Round-49 errata (static study): it doesn't look at the shielded unit during that wait. A flame that
+                // finds the unit dying or gone at its first step ends there, its slot freed at its next update (its
+                // lifetime count is 0 only then); from then on it ends as soon as the unit is dying or gone.
                 if age < FLAME_FIRST_STEP {
                     return true;
                 }
+                if *life == 0 {
+                    return self.gone(n);
+                }
                 let Some(c) = self.unit(m.attacker).filter(|u| u.present()).map(|u| u.centre_px()) else {
+                    if age == FLAME_FIRST_STEP {
+                        *life = 0;
+                        return true;
+                    }
                     return self.gone(n);
                 };
                 *point = (*point + 1) % 51;
@@ -2012,6 +2022,30 @@ mod tests {
         run(&mut w, 540);
         assert_eq!(fx_of_kind(&w, 4), 0);
         assert_eq!(hp(&w, f), 60);
+    }
+
+    /// Round-49 errata (static study): a flame doesn't look at the shielded unit during its wait; at its first step
+    /// it finds the unit dying and ends there, its slot freed at its next update.
+    #[test]
+    fn flames_check_the_shielded_unit_from_their_first_step() {
+        let mut w = lab(32);
+        let p = caster(&mut w, MAGE, (5, 5), 255);
+        let f = w.spawn(0, 0, (6, 5), 0).unwrap();
+        strike(&mut w, p, FLAME_SHIELD, Some(f), (0, 0));
+        let mut n = 0;
+        while fx_of_kind(&w, 4) < 5 {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 40, "the flames never came");
+        }
+        let fi = w.index(f).unwrap();
+        w.kill(fi);
+        run(&mut w, 5);
+        assert_eq!(fx_of_kind(&w, 4), 5, "still waiting");
+        run(&mut w, 1);
+        assert_eq!(fx_of_kind(&w, 4), 5, "ended at the first step, slots still held");
+        run(&mut w, 1);
+        assert_eq!(fx_of_kind(&w, 4), 0);
     }
 
     #[test]

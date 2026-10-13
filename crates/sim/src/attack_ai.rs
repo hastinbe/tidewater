@@ -1335,7 +1335,9 @@ impl World {
     }
 
     /// Command 4, move attacking on the way: a non-combat unit is first handled as a smart move, then the order
-    /// becomes 4 (`orders/orders.md`, "Commands").
+    /// becomes 4 (`orders/orders.md`, "Commands"). Round-49 errata: a target unit is recorded as the order's target,
+    /// and a computer player's command 4 keeps the remembered patrol or attack-move (`xhuman7-10000` giant turtle
+    /// 1511, `xorc8-10000` submarine 1473).
     fn command_4(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) {
         if !self.takes_commands(i) {
             return;
@@ -1350,10 +1352,12 @@ impl World {
             };
             let _ = self.command_order(i, &c);
         }
-        self.units[i].remembered = None;
+        if !self.computer_player(self.units[i].owner) {
+            self.units[i].remembered = None;
+        }
         // Transports spec, "Land and shore targets" (round-40 errata): they run for every command to a transport.
         let goal = self.transport_goal(i, goal);
-        self.command(i, Order::MoveAttack { goal });
+        self.command(i, Order::MoveAttack { goal, target });
     }
 
     /// Command 12 against a unit.
@@ -1815,7 +1819,10 @@ mod tests {
         assert_eq!(at(&w, g).pending, None);
         // Moving (order 4), 2 tiles from the goal tile: within the leash, not idle.
         let u = um(&mut w, g);
-        u.order = Order::MoveAttack { goal: (12, 10) };
+        u.order = Order::MoveAttack {
+            goal: (12, 10),
+            target: None,
+        };
         u.goal.tile = Some((12, 10));
         w.run_goals();
         assert_eq!((at(&w, g).pending, at(&w, g).goal.kind), (None, GoalKind::Attack));
@@ -1824,7 +1831,13 @@ mod tests {
         u.order = Order::Idle;
         u.goal.tile = Some((30, 10));
         w.run_goals();
-        assert_eq!(at(&w, g).pending, Some(Order::MoveAttack { goal: (30, 10) }));
+        assert_eq!(
+            at(&w, g).pending,
+            Some(Order::MoveAttack {
+                goal: (30, 10),
+                target: None
+            })
+        );
         // Idle at the goal, no enemy left: becomes a roamer.
         let fi = ix(&w, foe);
         w.kill(fi);
@@ -1849,7 +1862,13 @@ mod tests {
         let want = roam_tile((10, 10), 64, r.draw(), r.draw());
         w.run_goals();
         assert_eq!(w.rng, r);
-        assert_eq!(at(&w, g).pending, Some(Order::MoveAttack { goal: want }));
+        assert_eq!(
+            at(&w, g).pending,
+            Some(Order::MoveAttack {
+                goal: want,
+                target: None
+            })
+        );
     }
 
     #[test]
@@ -2344,7 +2363,13 @@ mod tests {
         let gryphon = spawn(&mut w, GRYPHON, 1, (50, 50));
         um(&mut w, busy).attacked_by = Some(sub);
         w.damage(ix(&w, v), 1, sub);
-        assert_eq!(at(&w, gryphon).pending, Some(Order::MoveAttack { goal: (20, 20) }));
+        assert_eq!(
+            at(&w, gryphon).pending,
+            Some(Order::MoveAttack {
+                goal: (20, 20),
+                target: Some(v)
+            })
+        );
         // A destroyer attacker: no submarine call.
         let mut w = game();
         water(&mut w, 0, 64);
@@ -2353,6 +2378,83 @@ mod tests {
         let g = spawn(&mut w, GRYPHON, 1, (50, 50));
         w.damage(ix(&w, v), 1, d);
         assert_eq!(at(&w, g).pending, None);
+    }
+
+    /// Round-49 errata (`xhuman7-10000` giant turtle 1511): the submarine call's command 4 records V as its target and
+    /// keeps the computer unit's remembered patrol; once V is dying the order ends at its next run and, the countdown
+    /// being 0, the patrol resumes in its place.
+    #[test]
+    fn the_submarine_call_keeps_the_patrol_and_ends_with_its_target() {
+        let mut w = game();
+        w.rules.enhanced = true;
+        water(&mut w, 0, 64);
+        // No army pass (its goals would send the gryphon elsewhere).
+        w.army.countdown = u32::MAX;
+        let v = spawn(&mut w, DESTROYER, 1, (20, 20));
+        let sub = spawn(&mut w, SUBMARINE, 0, (22, 20));
+        let g = spawn(&mut w, GRYPHON, 1, (50, 50));
+        let patrol = Some(Remembered::Patrol {
+            to: (50, 60),
+            back: (50, 50),
+        });
+        um(&mut w, g).remembered = patrol;
+        w.damage(ix(&w, v), 1, sub);
+        let o = Order::MoveAttack {
+            goal: (20, 20),
+            target: Some(v),
+        };
+        assert_eq!((at(&w, g).pending, at(&w, g).remembered), (Some(o), patrol));
+        for _ in 0..8 {
+            w.step(&[]);
+        }
+        assert_eq!(at(&w, g).order, o);
+        let vi = ix(&w, v);
+        w.kill(vi);
+        for _ in 0..40 {
+            w.step(&[]);
+            if !matches!(at(&w, g).order, Order::MoveAttack { .. }) {
+                break;
+            }
+        }
+        assert!(matches!(at(&w, g).order, Order::Patrol { .. }), "{:?}", at(&w, g).order);
+    }
+
+    /// Round-49 errata (orders spec, "Automatic target acquisition"; `xorc11-10000` destroyer 1542): the Enhanced
+    /// sea-only rule applies to attack-move (order 10) only; a sea unit on patrol uses the ordinary skip list.
+    #[test]
+    fn the_sea_only_rule_is_for_attack_move_only() {
+        let mut w = game();
+        w.rules.enhanced = true;
+        water(&mut w, 0, 20);
+        let d = spawn(&mut w, DESTROYER, 1, (18, 20));
+        let f = spawn(&mut w, FOOTMAN, 0, (21, 20));
+        w.step(&[]);
+        let (du, fu) = (at(&w, d).clone(), at(&w, f).clone());
+        let patrol = Order::Patrol {
+            to: (18, 30),
+            back: (18, 20),
+        };
+        assert!(w.candidate(&du, &fu, patrol));
+        assert!(!w.candidate(&du, &fu, Order::AttackMove { goal: (18, 30) }));
+    }
+
+    /// Round-49 errata, "Call for help" step 1: a live attacker that V's owner doesn't detect stays recorded through
+    /// V's order logic, so its next hit makes no new call.
+    #[test]
+    fn an_undetected_attacker_stays_recorded() {
+        let mut w = game();
+        water(&mut w, 0, 64);
+        w.army.countdown = u32::MAX;
+        let v = spawn(&mut w, DESTROYER, 1, (20, 20));
+        let sub = spawn(&mut w, SUBMARINE, 0, (24, 20));
+        w.damage(ix(&w, v), 1, sub);
+        assert_eq!(at(&w, v).attacked_by, Some(sub));
+        w.step(&[]);
+        assert!(!World::detected(at(&w, sub), 1), "nothing detects the submarine");
+        for _ in 0..50 {
+            w.step(&[]);
+        }
+        assert_eq!(at(&w, v).attacked_by, Some(sub));
     }
 
     #[test]

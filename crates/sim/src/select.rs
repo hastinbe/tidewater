@@ -403,7 +403,12 @@ impl World {
                 target,
                 tile,
             },
-            4 => return self.command(i, Order::MoveAttack { goal: tile }),
+            // Orders spec, "Commands" (round-49 errata): with a target unit, the unit walks to the target's tile and
+            // records the unit as its target.
+            4 => {
+                let goal = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
+                return self.command(i, Order::MoveAttack { goal, target });
+            }
             5 => Command::Patrol {
                 player,
                 units,

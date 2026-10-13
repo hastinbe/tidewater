@@ -100,20 +100,12 @@ impl World {
             self.stats_of(kind).flags & flags::SHORE_BUILDING != 0 && self.units[i].layer == crate::world::Layer::Land;
         match self.move_toward(i, Goal::tile(goal, shore as i32)) {
             Walk::Arrived => self.raise(i, kind, site),
-            Walk::NoPath => self.give_back_and_stop(i, kind),
+            // Round-42 errata: idle as an immediate order, whose idle logic runs in the same update (orders spec, "No
+            // route"). Round-49 errata (`xhuman12-10000` n = 116, `human14-10000` n = 1040): a computer player's
+            // payment isn't given back; only a failed site check refunds it.
+            Walk::NoPath => self.idle_at_once(i),
             Walk::Stepping | Walk::Blocked => {}
         }
-    }
-
-    fn give_back_and_stop(&mut self, i: usize, kind: u8) {
-        let owner = self.units[i].owner;
-        if self.computer_player(owner) {
-            let c = cost(&self.stats_of(kind));
-            self.refund(owner, c);
-        }
-        // Round-42 errata: idle as an immediate order, whose idle logic runs in the same update (orders spec, "No
-        // route").
-        self.idle_at_once(i);
     }
 
     /// Arrival at the site: pay (players other than computer players), check the site, then place the building and
@@ -164,6 +156,8 @@ impl World {
             self.death_done(pi);
             let later = self.units[pi].slot > u.slot;
             self.units[pi].script.wait = 1 + later as u8;
+            let patch_slot = self.units[pi].slot;
+            self.fresh_platforms.push((b, patch_slot));
         }
         if pays_now {
             self.pay(u.owner, c);
@@ -531,6 +525,49 @@ mod tests {
         assert!(matches!(w.unit(t).unwrap().order, Order::Inside { .. }));
     }
 
+    /// Round-49 errata (`orc12-10000` tanker 1409, `xhuman8-10000` tanker 1468): a tanker's harvest command on a
+    /// platform placed in this cycle fails while the oil patch under it is still to have its own update.
+    #[test]
+    fn a_platform_placed_this_cycle_is_no_harvest_target_until_its_patch_updates() {
+        let (mut w, _) = town();
+        const TANKER: u8 = 0x1a;
+        const PLATFORM: u8 = 0x56;
+        let base = w.stats.0[0];
+        for (k, size, f) in [
+            (TANKER, (1, 1), flags::SEA | flags::TANKER),
+            (PLATFORM, (2, 2), flags::BUILDING | flags::OIL_SOURCE),
+            (OIL_PATCH, (2, 2), flags::BUILDING | flags::OIL_PATCH),
+        ] {
+            let s = &mut w.stats.0[k as usize];
+            *s = base;
+            s.size = size;
+            s.flags = f;
+        }
+        for y in 0..24 {
+            for x in 10..24 {
+                w.terrain.clear_bits(x, y, crate::terrain::bits::LAND);
+                w.terrain.set_bits(x, y, crate::terrain::bits::WATER);
+            }
+        }
+        let builder = w.spawn(TANKER, 0, (12, 12), 0).unwrap();
+        let patch = w.spawn(OIL_PATCH, crate::slots::NEUTRAL, (16, 16), 0).unwrap();
+        let other = w.spawn(TANKER, 0, (12, 14), 0).unwrap();
+        let patch_slot = w.unit(patch).unwrap().slot;
+        // As if the builder's update ran first in this cycle's walk, from below the patch's slot.
+        w.updating = Some(patch_slot - 1);
+        let i = w.index(builder).unwrap();
+        w.raise(i, PLATFORM, (16, 16));
+        let platform = w.units.iter().find(|u| u.kind == PLATFORM).unwrap().id;
+        let j = w.index(other).unwrap();
+        assert_eq!(w.harvest_command(j, Some(platform), (16, 16)), Some(Order::Idle));
+        // Once the patch has had its update, the same command works.
+        w.updating = Some(patch_slot);
+        assert!(matches!(
+            w.harvest_command(j, Some(platform), (16, 16)),
+            Some(Order::Harvest { source: Some(s), .. }) if s == platform
+        ));
+    }
+
     #[test]
     fn a_finished_wall_piece_becomes_wall_terrain() {
         let (mut w, p) = town();
@@ -568,6 +605,29 @@ mod tests {
         let (mut w, _) = town();
         let p = w.spawn(PEASANT, 1, (12, 2), 0).unwrap();
         build(&mut w, 1, p, (14, 14));
+        assert_eq!((w.players[1].gold, w.players[1].lumber), (500, 750));
+    }
+
+    /// Round-49 errata (`xhuman12-10000` n = 116, `human14-10000` n = 1040): a computer player's build walk that ends
+    /// with no route doesn't give the payment back.
+    #[test]
+    fn a_computer_build_walk_with_no_route_keeps_the_payment() {
+        let (mut w, _) = town();
+        for y in 0..24 {
+            for x in 18..24 {
+                w.terrain.clear_bits(x, y, crate::terrain::bits::LAND);
+                w.terrain.set_bits(x, y, crate::terrain::bits::WATER);
+                w.terrain.regions[(y * 24 + x) as usize] = 2;
+            }
+        }
+        let p = w.spawn(PEASANT, 1, (12, 2), 0).unwrap();
+        build(&mut w, 1, p, (20, 20));
+        for _ in 0..300 {
+            w.step(&[]);
+        }
+        let u = w.unit(p).unwrap();
+        assert!(!matches!(u.order, Order::Build { .. }), "{:?} at {:?}", u.order, u.tile);
+        assert_eq!(farm_at(&w, (20, 20)), None);
         assert_eq!((w.players[1].gold, w.players[1].lumber), (500, 750));
     }
 
