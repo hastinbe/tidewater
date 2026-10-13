@@ -43,6 +43,10 @@
   2026-10-13, round-59 errata: the shore building goal; the build command's goal is pulled back; order 28 works
   the goal out again on arrival and, if the worker isn't there, gives the build again as a command;
   `mp-frosty-fjords-bne-30000` vectors.
+  2026-10-13, round-60 errata: carrying out a player's build command checks the site (without the unexplored test)
+  and the cost first, giving no order on a failure; a worker coming out with a build job aims at and faces the
+  stored goal (static); a shore site with no corner in the worker's region fails silently (static);
+  `orc9-orc09-shore-build-3000` vector.
 
 ## Behaviour
 
@@ -81,6 +85,22 @@ Research and upgrades check gold, lumber and oil only.
 
 ### Placing a building
 
+**Carrying out a player's build command.** When a build command sent by a player (the click of
+`ui/placing-buildings.md`) is carried out in the command turn, it is checked first, before any order is given:
+
+1. the command must be valid: the site on the map, the builder the sender's own unit, the type a building of the
+   builder's race;
+2. the full site check of `ui/placing-buildings.md` ("The site check") runs for the builder, its own tile not
+   blocking, **except the unexplored test**, which is never made while commands are carried out;
+3. the affordability check (static study only).
+
+If step 2 or 3 fails, the builder gets **no order** and nothing is paid; the outcome's message is shown only if the
+builder belongs to the local player (traced: `orc9-orc09-shore-build-3000` n = 27, round-60 vectors; the unexplored
+test's absence: `human01-basics-9500` n = 19, whose barracks site is partly unexplored and is built). Otherwise the
+build goes ahead as below; the payment and the check on arrival are unchanged. A shore site with no footprint corner
+in the worker's region also gives no order and no payment (`movement/pathfinding.md`, "Shore building"; static
+study only).
+
 A worker ordered to build goes to the site in order 28 (arrival radius 0), with no target unit. Its goal is a tile
 of the planned footprint, worked out from the planned building's type and top-left tile and the worker's current tile
 as if the building already stood there:
@@ -96,9 +116,10 @@ The build command then pulls this goal back as any command does (`movement/pathf
 round-59 vectors). The goal is worked out when the order is given, from the worker's tile **at that moment**; while the
 worker walks, it stays as it was. A computer player's worker given its build job as it comes out of a building
 (`economy/harvest.md`, "Coming out", step 3) is still at the building's top-left tile then, before it is placed outside,
-so its goal is worked out from that tile (traced: `xorc4-10000`, vectors below). The walk runs instead of the order's
-logic, so the goal isn't worked out again as the worker's own tile changes, even when the building goal rule would now
-pick another footprint tile. Order 28's logic runs only on arrival. On arrival at the stored goal it works the goal out
+so its goal is worked out from that tile (traced: `xorc4-10000`, vectors below). It comes out aimed at this stored goal
+and faces it (`economy/harvest.md`, "Coming out", step 6; static study). The walk runs instead of the order's logic, so
+the goal isn't worked out again as the worker's own tile changes, even when the building goal rule would now pick
+another footprint tile. Order 28's logic runs only on arrival. On arrival at the stored goal it works the goal out
 **again** from the worker's current tile (the same three cases as above), **not** pulled back, and applies the arrival
 test to it (radius 0, or 1 for a land worker and a shore building, `movement/movement.md`, "The +1"). If the worker is
 there, placement goes ahead (below). If not, the build is given again as a **command**, with the new goal pulled back;
@@ -319,6 +340,14 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `mp-frosty-fjords-bne-30000` (oracle trace, Enhanced): computer peasant 1548 (type 0x02, owner 2) builds a shipyard with top-left (120, 52), which is in its region | Goal (120, 52) (shore rule, step 1); it walks to (119, 51) and the shipyard 1518 is placed at n = 16576 |
 | Same trace: peasant 1560 (type 0x02, owner 0) at (52, 96), given a shipyard with top-left (67, 92) at n = 16187 | Stored goal (66, 92), the raw goal (67, 92) pulled back |
 | Same: 1560 reaches (65, 93) at n = 16718, within 1 of (66, 92); its logic runs at n = 16734 | Worked out again from (65, 93): (67, 92), 2 tiles away, so the build is given again: order 28, still animation, wait 3 at n = 16734; (66, 93) at n = 16737; shipyard 1516 placed at (67, 92) at n = 16753 |
+
+### Round-60 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-shore-build-3000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-shore-build.txt`): player 5's peon 1482 (type 0x03) at (34, 89) is sent to build a shipyard (type 0x49) at (52, 81), too close to oil; the command is carried out at n = 26 | No order: 1482 stays in order 2 (wait 1 at n = 26, 27) and never takes order 28; nothing is paid |
+| `human01-basics-9500` (oracle trace): the barracks at (5, 8), partly unexplored when the build command is carried out | Built: no unexplored test in the command turn |
+| A player's build command it can't afford when carried out (static study) | No order, nothing paid |
 
 ## Open questions
 
