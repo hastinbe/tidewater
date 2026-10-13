@@ -1370,12 +1370,18 @@ impl World {
         }
     }
 
-    /// A patrol command toward `from`, with the patrol ends `from` and `to`.
+    /// A patrol command toward `from`, with the patrol ends `from` and `to`. Round-55 errata (orders spec, "What a
+    /// patrol remembers"; `xorc11-air-sea-3000` battleship 1539): the command remembers its goal and the tile the unit
+    /// stands on, and setting the current ends to `from` and `to` leaves that unchanged.
     fn patrol(&mut self, i: usize, from: (i32, i32), to: (i32, i32)) {
         if !self.takes_commands(i) {
             return;
         }
-        self.units[i].remembered = self.rules.enhanced.then_some(Remembered::Patrol { to: from, back: to });
+        let here = self.units[i].tile;
+        self.units[i].remembered = self
+            .rules
+            .enhanced
+            .then_some(Remembered::Patrol { to: from, back: here });
         self.command(i, Order::Patrol { to: from, back: to });
     }
 }
@@ -2381,6 +2387,54 @@ mod tests {
         let g = spawn(&mut w, GRYPHON, 1, (50, 50));
         w.damage(ix(&w, v), 1, d);
         assert_eq!(at(&w, g).pending, None);
+    }
+
+    /// Round-55 errata, "What a patrol remembers" (`xorc11-air-sea-3000` battleship 1539, and the static-study row): the
+    /// AI's patrol command remembers the anchor and the unit's own tile; the current ends are the anchor and the far
+    /// end. So the first leg turns toward the far end, but a patrol resumed during it turns toward the unit's own tile.
+    #[test]
+    fn an_ai_patrol_remembers_the_anchor_and_its_own_tile() {
+        let mut w = game();
+        w.rules.enhanced = true;
+        water(&mut w, 0, 64);
+        let d = spawn(&mut w, DESTROYER, 1, (6, 24));
+        let i = ix(&w, d);
+        w.patrol(i, (20, 34), (4, 18));
+        let u = at(&w, d);
+        assert_eq!(
+            u.pending.unwrap_or(u.order),
+            Order::Patrol {
+                to: (20, 34),
+                back: (4, 18)
+            }
+        );
+        assert_eq!(
+            u.remembered,
+            Some(Remembered::Patrol {
+                to: (20, 34),
+                back: (6, 24)
+            })
+        );
+        assert_eq!(
+            w.resumed(i),
+            Some(Order::Patrol {
+                to: (20, 34),
+                back: (6, 24)
+            })
+        );
+    }
+
+    /// Round-55 errata, "A player's command forgets the attacker" (static study): a computer player's command 4 keeps
+    /// the unit's recorded attacker.
+    #[test]
+    fn a_computer_command_4_keeps_the_attacker() {
+        let mut w = game();
+        let g = spawn(&mut w, FOOTMAN, 1, (20, 20));
+        let e = spawn(&mut w, FOOTMAN, 0, (22, 20));
+        let i = ix(&w, g);
+        w.units[i].attacked_by = Some(e);
+        w.command_4(i, None, (30, 30));
+        assert_eq!(at(&w, g).attacked_by, Some(e));
     }
 
     /// Round-49 errata (`xhuman7-10000` giant turtle 1511): the submarine call's command 4 records V as its target and

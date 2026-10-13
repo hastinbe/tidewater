@@ -563,12 +563,13 @@ impl World {
                     // other end, takes over in the same update (still animation, wait 3); it steps at its next run.
                     let here = self.units[i].tile;
                     // Round-44 errata: the turnaround is a command, so for every patrol its new goal is pulled back
-                    // (pathfinding spec, "Goal pulled back"); the remembered ends stay as they were.
+                    // (pathfinding spec, "Goal pulled back"). Round-55 errata ("What a patrol remembers"): in Enhanced
+                    // mode it remembers its new goal and the tile the unit stands on, like every patrol command.
                     let swapped = Order::Patrol {
                         to: self.pull_back(i, back),
                         back: here,
                     };
-                    if let Some(Remembered::Patrol { .. }) = self.units[i].remembered {
+                    if self.rules.enhanced {
                         self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
                     }
                     // Movement spec, "Blocked rules" (round-41 errata): the turnaround is a command.
@@ -877,15 +878,13 @@ impl World {
     fn acquire(&mut self, i: usize, kind: Acquires, forgot: bool) -> bool {
         let u = &self.units[i];
         let worker_like = self.flags_of_unit(u) & (flags::PEON | flags::TANKER) != 0;
-        if worker_like && self.computer_player(u.owner) {
+        let computer_worker = worker_like && self.computer_player(u.owner);
+        // Round-55 errata, "Reacting to an attacker", step 1 comes first for every unit and every player, workers and
+        // tankers included. A computer player's worker or tanker with no attacker runs its AI routine instead.
+        if computer_worker && u.attacked_by.is_none() {
             return false;
         }
         let attacker = self.attacker(i);
-        // Round-42 errata, "Special cases": workers and tankers of every player never run the search; the others'
-        // only react to an attacker (`human06-31357` peasant 1587, n = 13557).
-        if worker_like && attacker.is_none() {
-            return false;
-        }
         // Round-50 errata, "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a recorded
         // attacker that is dying or no longer in play, and that the unit couldn't target at all, is forgotten. There is
         // no flee and no target search in that run, and the rest of the order's logic goes on. Round-51 errata: a
@@ -903,11 +902,19 @@ impl World {
         let mage = self.mage_like(u);
         // Round-54 errata, step 1: the kind check alone, as in "Checks on an attack command", on the recorded attacker
         // while it is valid; no fog or detection test, so an attacker hidden from the seed by those alone goes on to
-        // step 2 unseeded, and one whose kind the unit can't hit is fled from.
+        // step 2 unseeded, and one whose kind the unit can't hit is fled from. Round-55 errata (`human12-25000`
+        // transport 1428, n = 16061, and tanker 1425, n = 16612): an undetected attacker is fled from too, and a
+        // computer player's worker or tanker that fails step 1 runs the flee rule and not its AI routine.
         if let Some(at) = u.attacked_by.and_then(|a| self.unit(a)).filter(|a| a.present())
             && !self.can_hit_kind(u, at)
         {
-            return self.flee(i);
+            let fled = self.flee(i);
+            return fled || computer_worker;
+        }
+        // Round-42 errata, "Special cases": workers and tankers of every player never run the search; the others'
+        // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
+        if computer_worker || (worker_like && attacker.is_none()) {
+            return false;
         }
         if attacker.is_some() {
             if self.non_combat(u) {
@@ -1100,12 +1107,14 @@ impl World {
     /// "Fleeing". Returns true if the unit fled or turned on its attacker.
     pub(crate) fn flee(&mut self, i: usize) -> bool {
         // "The attacker must still be valid": not dying, dead or inside something.
-        let Some(a) = self.units[i]
-            .attacked_by
-            .filter(|&a| self.unit(a).is_some_and(|a| a.present()))
-        else {
+        // Round-55 errata: an invalid attacker is forgotten, with no flee; there is no detection test (`human12-25000`).
+        let Some(a) = self.units[i].attacked_by else {
             return false;
         };
+        if !self.unit(a).is_some_and(|a| a.present()) {
+            self.units[i].attacked_by = None;
+            return false;
+        }
         let u = &self.units[i];
         let at = self.unit(a).expect("valid");
         if self.is_worker(u) && self.is_worker(at) {
@@ -3002,6 +3011,117 @@ mod tests {
                 assert_eq!(u.attacked_by, Some(g), "the attacker stays recorded");
             }
         }
+    }
+
+    /// A sea attacker and a tanker for the round-55 step-1 tests: kinds the footman (land only) can't hit.
+    fn with_ships(w: &mut World) -> (u8, u8) {
+        const DESTROYER: u8 = 0x1e;
+        const TANKER: u8 = 0x1a;
+        w.stats.0[DESTROYER as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[DESTROYER as usize].flags = flags::SEA | flags::CAN_ATTACK;
+        w.stats.0[DESTROYER as usize].can_target = 3;
+        w.stats.0[TANKER as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[TANKER as usize].flags = flags::LAND | flags::TANKER;
+        w.stats.0[TANKER as usize].can_target = 0;
+        w.stats.0[FOOTMAN as usize].can_target = 1;
+        (DESTROYER, TANKER)
+    }
+
+    /// Round-55 errata, "Reacting to an attacker" step 1 and "Fleeing" (`human12-25000` transport 1428 at n = 16061,
+    /// and the static-study row): step 1 looks at the record as it is, so an idle footman flees from a ship it can't
+    /// hit even when its owner doesn't detect the ship. Two flee draws, a move, the attacker forgotten.
+    #[test]
+    fn an_undetected_attacker_the_unit_cannot_hit_is_fled_from() {
+        for owner in [0, 1] {
+            let mut w = map();
+            let (destroyer, _) = with_ships(&mut w);
+            let f = w.spawn(FOOTMAN, owner, (10, 10), 0).unwrap();
+            let d = w.spawn(destroyer, 1 - owner, (14, 10), 0).unwrap();
+            let (i, di) = (at(&w, f), at(&w, d));
+            w.units[di].layer = Layer::Sea;
+            w.units[di].detected_by &= !crate::vision::bit(owner);
+            assert!(!w.holds(owner, d), "not detected");
+            w.units[i].attacked_by = Some(d);
+            let mut r = w.rng;
+            r.draw();
+            r.draw();
+            assert!(w.acquire(i, Acquires::Idle, false), "owner {owner}");
+            assert_eq!(w.rng, r, "two flee draws");
+            assert!(matches!(w.units[i].order, Order::Move { .. }), "{:?}", w.units[i].order);
+            assert_eq!(w.units[i].attacked_by, None);
+        }
+    }
+
+    /// Round-55 errata, step 1 for workers and tankers (`human12-25000` tanker 1425 at n = 16612, and the static-study
+    /// rows): a tanker can hit no kind, so with a valid attacker it always runs the flee rule, detected or not. A
+    /// computer player's tanker that fails step 1 flees only from idle, and its AI routine doesn't run either way; a
+    /// computer peon that can hit its attacker passes step 1 and its AI routine runs.
+    #[test]
+    fn workers_and_tankers_run_step_1_first() {
+        let mut w = map();
+        let (destroyer, tanker) = with_ships(&mut w);
+        let d = w.spawn(destroyer, 1, (14, 10), 0).unwrap();
+        let di = at(&w, d);
+        w.units[di].layer = Layer::Sea;
+        w.units[di].detected_by &= !crate::vision::bit(0);
+        let t = w.spawn(tanker, 0, (10, 10), 0).unwrap();
+        let ti = at(&w, t);
+        w.units[ti].attacked_by = Some(d);
+        assert!(
+            w.acquire(ti, Acquires::Idle, false),
+            "a human tanker flees from an undetected ship"
+        );
+        assert!(matches!(w.units[ti].order, Order::Move { .. }));
+        assert_eq!(w.units[ti].attacked_by, None);
+        // A computer player's tanker, not idle: no flee, and the AI routine doesn't run (the run is over).
+        let g = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
+        let c = w.spawn(tanker, 1, (5, 15), 0).unwrap();
+        let ci = at(&w, c);
+        let busy = Order::Move { goal: (20, 20) };
+        w.units[ci].order = busy;
+        w.units[ci].attacked_by = Some(g);
+        let rng = w.rng;
+        assert!(w.acquire(ci, Acquires::Idle, false));
+        assert_eq!((w.units[ci].order, w.rng), (busy, rng), "no flee");
+        // Idle, it flees.
+        w.units[ci].order = Order::Idle;
+        assert!(w.acquire(ci, Acquires::Idle, false));
+        assert!(matches!(w.units[ci].order, Order::Move { .. }));
+        // A computer peon hit by a footman: it can hit land, so step 1 passes and its AI routine runs.
+        let p = w.spawn(PEASANT, 1, (8, 18), 0).unwrap();
+        let pi = at(&w, p);
+        w.units[pi].attacked_by = Some(g);
+        assert!(!w.acquire(pi, Acquires::Idle, false));
+        assert_eq!((w.units[pi].order, w.units[pi].attacked_by), (Order::Idle, Some(g)));
+    }
+
+    /// Round-55 errata, "What a patrol remembers": in Enhanced mode each turnaround remembers its own goal and the tile
+    /// the unit stands on, even when nothing was remembered before.
+    #[test]
+    fn a_patrol_turnaround_remembers_its_goal_and_tile() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        let f = w.spawn(FOOTMAN, 1, (2, 2), 0).unwrap();
+        let i = at(&w, f);
+        let out = Order::Patrol {
+            to: (5, 2),
+            back: (9, 9),
+        };
+        w.units[i].remembered = None;
+        w.take_over(i, out);
+        let mut n = 0;
+        while order_of(&w, f) == out {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 100);
+        }
+        assert_eq!(
+            w.units[at(&w, f)].remembered,
+            Some(Remembered::Patrol {
+                to: (9, 9),
+                back: (5, 2)
+            })
+        );
     }
 
     /// Fog spec, "When sight is applied", item 4 (round-53 errata, the `human06-31357` vector in small): each strike

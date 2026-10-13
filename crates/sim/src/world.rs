@@ -1480,6 +1480,8 @@ impl World {
                 continue;
             };
             self.command(i, order);
+            // Orders spec, "A player's command forgets the attacker" (round-55 errata).
+            self.forget_attacker_after_command(id);
         }
     }
 

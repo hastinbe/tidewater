@@ -251,7 +251,19 @@ impl World {
             } else {
                 target
             };
+            let id = self.units[i].id;
             self.give_command(i, command, target, aim);
+            // Round-55 errata (static study): a right-click command forgets the attacker like any other player's command.
+            self.forget_attacker_after_command(id);
+        }
+    }
+
+    /// Orders spec, "A player's command forgets the attacker" (round-55 errata, `human09-fleet-3000` battleship 1539,
+    /// n = 1502): each unit that takes a player's command forgets its recorded attacker once the command is given,
+    /// whatever the attacker's state, so the command's own checks still saw the record.
+    pub(crate) fn forget_attacker_after_command(&mut self, id: UnitId) {
+        if let Some(i) = self.index(id) {
+            self.units[i].attacked_by = None;
         }
     }
 
@@ -384,7 +396,9 @@ impl World {
             if self.rules.enhanced {
                 self.units[i].remembered = None;
             }
+            let id = self.units[i].id;
             self.give_command(i, command, target, aim);
+            self.forget_attacker_after_command(id);
         }
     }
 
@@ -833,6 +847,51 @@ mod tests {
         }]);
         assert_eq!(intent(&w, footman), Some(Order::Idle));
         assert!(matches!(intent(&w, catapult), Some(Order::AttackGround { .. })));
+    }
+
+    /// Orders spec, "A player's command forgets the attacker" (round-55 errata, `human09-fleet-3000` battleship 1539
+    /// and the static-study rows): each unit that takes the command forgets its recorded attacker, whatever its state;
+    /// a selected unit that fails the filter keeps its record.
+    #[test]
+    fn a_taken_command_forgets_the_attacker() {
+        let mut w = map();
+        let footman = spawn(&mut w, FOOTMAN, 0, (10, 10));
+        let catapult = spawn(&mut w, CATAPULT, 0, (11, 10));
+        let grunt = spawn(&mut w, GRUNT, 1, (12, 12));
+        for id in [footman, catapult] {
+            let i = w.index(id).unwrap();
+            w.units[i].attacked_by = Some(grunt);
+        }
+        let record = |w: &World, id: UnitId| w.unit(id).unwrap().attacked_by;
+        select(&mut w, &[grunt, footman, catapult]);
+        // Attack ground: only the catapult takes it.
+        w.step(&[Command::Issue {
+            player: 0,
+            command: 17,
+            target: None,
+            tile: (20, 10),
+        }]);
+        assert_eq!(record(&w, catapult), None, "took the command");
+        assert_eq!(record(&w, footman), Some(grunt), "failed the filter");
+        // Stop, with the attacker alive, detected and within reach: forgotten.
+        w.step(&[Command::Issue {
+            player: 0,
+            command: 2,
+            target: None,
+            tile: (10, 10),
+        }]);
+        assert_eq!(record(&w, footman), None);
+        assert_eq!(intent(&w, footman), Some(Order::Idle), "nothing seeds its search");
+        // A right-click is read the same way.
+        let i = w.index(footman).unwrap();
+        w.units[i].attacked_by = Some(grunt);
+        select(&mut w, &[footman]);
+        w.step(&[Command::RightClick {
+            player: 0,
+            target: None,
+            tile: (2, 2),
+        }]);
+        assert_eq!(record(&w, footman), None);
     }
 
     #[test]
