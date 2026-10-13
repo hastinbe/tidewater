@@ -497,7 +497,7 @@ pub fn pointer(i: &PointerInput) -> Pointer {
     not(test),
     expect(
         dead_code,
-        reason = "the client's zoomable view (our extension) maps the pointer through the camera, which gives this tile at the original scale"
+        reason = "the client maps the pointer through the map camera, which also serves the `--free-zoom` development option; at the default one map pixel per screen pixel that gives this tile"
     )
 )]
 pub fn site_tile(p: (i32, i32), area: Rect, view: (i32, i32)) -> Option<(i32, i32)> {

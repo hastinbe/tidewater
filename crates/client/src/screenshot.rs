@@ -10,9 +10,8 @@
 //! Choices where the spec leaves a gap:
 //! - **Where.** The original writes into the game's folder; Tidewater never writes into the install, so the files go
 //!   to the user folder (`saves::user_dir`: the `--save-dir` folder if given, else Tidewater's user data directory).
-//! - **What.** The game screen as the window shows it, sampled back to interface pixels: the interface canvas, which
-//!   follows the window (640 × 480 when the default window fits on screen; another window size gives another
-//!   picture size). Each pixel is given the palette entry of its colour (the
+//! - **What.** The game screen as the window shows it, without the black border around it (`crate::display`), sampled
+//!   back to its 640 × 480 screen pixels. Each pixel is given the palette entry of its colour (the
 //!   nearest entry for the interface's own colours, which aren't palette entries). The palette is the one the screen
 //!   shows (grey while paused), not the negative. Only the game screen has a palette, so the key works there only.
 //! - **Key.** Print Screen, and F13 (where Mac keyboards put it).
@@ -46,14 +45,18 @@ fn print_screen(
     keys: Res<ButtonInput<KeyCode>>,
     cycling: Option<Res<Cycling>>,
     hud: Option<Res<Hud>>,
+    windows: Query<&Window>,
     dir: Res<ShotDir>,
 ) {
     if !keys.any_just_pressed([KeyCode::PrintScreen, KeyCode::F13]) {
         return;
     }
-    let (Some(cycling), Some(canvas)) = (cycling, hud.and_then(|h| h.layout).map(|l| l.canvas)) else {
+    let (Some(cycling), Some(canvas), Ok(window)) =
+        (cycling, hud.and_then(|h| h.layout).map(|l| l.canvas), windows.single())
+    else {
         return;
     };
+    let (x, y, w, h) = crate::letterbox(window).screen();
     let dir = dir.0.clone();
     let Some(name) = palette::screenshot_name(|n| dir.join(n).exists()) else {
         return;
@@ -64,7 +67,7 @@ fn print_screen(
             let Ok(img) = ev.image.clone().try_into_dynamic() else {
                 return;
             };
-            let rgba = img.to_rgba8();
+            let rgba = img.crop_imm(x, y, w, h).to_rgba8();
             let (w, h) = (rgba.width(), rgba.height());
             let px = index_pixels(rgba.as_raw(), (w, h), canvas, &pal);
             let file = encode_pcx(canvas.0 as u16, canvas.1 as u16, &px, &pal);

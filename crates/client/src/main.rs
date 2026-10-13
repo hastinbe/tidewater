@@ -10,13 +10,18 @@
 //! view), Alt+digit centres and recalls. +/- change the game speed, Ctrl+P pauses, Ctrl+C centres on the selection,
 //! F2 to F4 jump to a view position remembered with Shift, Ctrl+S mutes, Ctrl+Q or Ctrl+X quits. The view scrolls at
 //! the screen edge and with the arrow, Home, End, Page Up, Page Down and keypad keys (`screen`, spec
-//! `ui/screen-and-cursors.md`), the mouse wheel zooms, Escape cancels a panel mode and otherwise quits. On the
+//! `ui/screen-and-cursors.md`), Escape cancels a panel mode and otherwise quits. On the
 //! minimap, left click or drag moves the view. Space steps through the latest events (Enhanced rules). Messages,
 //! notices and the status bar follow `ui/messages.md` (`messages`).
+//!
+//! The 640 × 480 screen is drawn at a whole number of physical pixels per screen pixel, black-bordered in a larger
+//! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). The mouse wheel
+//! zooms only with the `--free-zoom` development option.
 
 mod campaign;
 mod chat;
 mod cheats;
+mod display;
 mod fog;
 mod frontend;
 mod gamemenu;
@@ -88,12 +93,20 @@ struct Args {
     /// never writes into the installation.
     #[arg(long)]
     save_dir: Option<PathBuf>,
-    /// Initial zoom: world pixels per screen pixel (2 shows twice as much map).
-    #[arg(long, default_value_t = 1.0)]
-    zoom: f32,
-    /// Interface scale: window pixels per interface pixel (2 shows the original 640x480 layout in the default window).
-    #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=8))]
-    ui_scale: u32,
+    /// Development aid, not part of the original: the mouse wheel zooms the map view, in powers of two from 1/4 to 8
+    /// map pixels per screen pixel. Without it the map view shows one map pixel per screen pixel, as the original.
+    #[arg(long)]
+    free_zoom: bool,
+    /// Development aid, not part of the original: the starting zoom in map pixels per screen pixel (2 shows twice as
+    /// much map), taken to the nearest power of two from 1/4 to 8. Implies `--free-zoom`.
+    #[arg(long)]
+    zoom: Option<f32>,
+    /// The window size in logical points (the system's "looks like" size) per screen pixel: N opens a 640N × 480N
+    /// window. Without it, the window is the largest whole number of physical pixels per screen pixel that fits the
+    /// monitor (on a display with 2 pixels per point, 3 gives a 960 × 720-point window). Either way the 640 × 480
+    /// screen is drawn at the largest whole number of physical pixels that fits the window, with black around it.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=8))]
+    ui_scale: Option<u32>,
     /// Development aid: order all of your units to tile `X,Y` at the start.
     #[arg(long, value_parser = parse_tile)]
     demo_move: Option<(i32, i32)>,
@@ -305,15 +318,25 @@ struct Art {
 #[derive(Component)]
 struct ViewSprite;
 
+/// The map view's zoom in map pixels per screen pixel (`display`): 1, as the original, unless `--free-zoom`.
 #[derive(Resource)]
-struct StartZoom(f32);
+struct MapZoom {
+    zoom: f32,
+    free: bool,
+    /// Mouse-wheel movement short of a step.
+    wheel: f32,
+}
+
+/// Where the screen sits in the window (`display::Letterbox`).
+fn letterbox(window: &Window) -> display::Letterbox {
+    let p = window.physical_size();
+    display::Letterbox::fit((p.x, p.y))
+}
 
 /// The interface: its art, current layout and the picture it draws into.
 #[derive(Resource)]
 struct Hud {
     art: hud::HudArt,
-    /// Window pixels per interface pixel.
-    scale: u32,
     layout: Option<hud::Layout>,
     frame: scene::Picture,
     image: Handle<Image>,
@@ -324,9 +347,11 @@ struct Hud {
 }
 
 impl Hud {
-    /// The cursor in interface pixels.
+    /// The cursor in screen pixels, through the black border (`display::Letterbox::screen_point`).
     fn cursor(&self, window: &Window) -> Option<Vec2> {
-        window.cursor_position().map(|p| p / self.scale as f32)
+        let p = window.cursor_position()?;
+        let (x, y) = letterbox(window).screen_point((p.x, p.y), window.scale_factor());
+        Some(Vec2::new(x, y))
     }
 
     /// Whether the cursor is over the map view (and not the interface).
@@ -344,6 +369,9 @@ const PLACE_Z: f32 = 11.0;
 
 #[derive(Component)]
 struct MapCamera;
+
+#[derive(Component)]
+struct HudCamera;
 
 #[derive(Component)]
 struct HudSprite;
@@ -388,18 +416,26 @@ fn main() -> Result<()> {
         .map
         .as_deref()
         .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
-    let ui_scale = args.ui_scale;
+    // Until `size_window` knows the monitor: the explicit size, or the plain 640 × 480 points.
+    let points = args.ui_scale.unwrap_or(1);
     let save_dir = args.save_dir.clone();
     let shot_dir = args.save_dir.clone();
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
             primary_window: Some(Window {
                 title,
-                resolution: (640 * ui_scale, 480 * ui_scale).into(),
+                resolution: (display::SCREEN.0 * points, display::SCREEN.1 * points).into(),
                 ..default()
             }),
             ..default()
         }))
+        .insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(WindowSizing {
+            explicit: args.ui_scale.is_some(),
+            frames: 0,
+        })
+        .add_systems(Startup, spawn_backdrop)
+        .add_systems(Update, (size_window, fit_screen).chain())
         .init_state::<frontend::AppState>()
         .insert_resource(front)
         .insert_resource(savegame::SaveFolder(saves::SaveDir::new(
@@ -494,8 +530,8 @@ struct GameArgs {
     install: PathBuf,
     map: String,
     setup: Option<tidewater_sim::setup::Setup>,
-    zoom: f32,
-    ui_scale: u32,
+    zoom: Option<f32>,
+    free_zoom: bool,
     demo_move: Option<(i32, i32)>,
     demo_fight: bool,
     demo_select: Option<usize>,
@@ -515,7 +551,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         map: map.to_string(),
         setup,
         zoom: a.zoom,
-        ui_scale: a.ui_scale,
+        free_zoom: a.free_zoom,
         demo_move: a.demo_move,
         demo_fight: a.demo_fight,
         demo_select: a.demo_select,
@@ -713,10 +749,13 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     world.insert_resource(cycling);
     world.insert_resource(Loaded(Some(scene)));
     world.insert_resource(MapSize(size));
-    world.insert_resource(StartZoom(args.zoom));
+    world.insert_resource(MapZoom {
+        zoom: display::zoom_step(args.zoom.unwrap_or(1.0), 0),
+        free: args.free_zoom || args.zoom.is_some(),
+        wheel: 0.0,
+    });
     world.insert_resource(Hud {
         art: hud_art,
-        scale: args.ui_scale,
         layout: None,
         frame: scene::Picture {
             width: 1,
@@ -793,7 +832,6 @@ fn setup(
     mut loaded: ResMut<Loaded>,
     mut images: ResMut<Assets<Image>>,
     size: Res<MapSize>,
-    zoom: Res<StartZoom>,
     mut hud: ResMut<Hud>,
     sel: Res<Selection>,
     resume_look: Option<Res<savegame::ResumeLook>>,
@@ -831,6 +869,7 @@ fn setup(
             ..default()
         },
         RenderLayers::layer(HUD_LAYER),
+        HudCamera,
     ));
     commands.spawn((
         Sprite::from_image(hud.image.clone()),
@@ -841,10 +880,8 @@ fn setup(
     commands.spawn((
         Camera2d,
         MapCamera,
-        Projection::Orthographic(OrthographicProjection {
-            scale: zoom.0,
-            ..OrthographicProjection::default_2d()
-        }),
+        // `hud_layout` sets the projection's scale from the zoom and the window.
+        Projection::Orthographic(OrthographicProjection::default_2d()),
         Transform::from_translation(world(look.x, look.y, 0.0)),
     ));
     // Kept on the CPU side too, so tiles that change in play can be redrawn.
@@ -1231,9 +1268,12 @@ fn cursor_map(window: &Window, cam: (&Camera, &GlobalTransform)) -> Option<Vec2>
     Some(Vec2::new(p.x, -p.y))
 }
 
+/// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
 fn pan_and_zoom(
     scroll: Res<AccumulatedMouseScroll>,
     size: Res<MapSize>,
+    mut zoom: ResMut<MapZoom>,
+    windows: Query<&Window>,
     mut cam: Query<(&Camera, &mut Transform, &mut Projection), With<MapCamera>>,
 ) {
     let Ok((camera, mut tf, mut proj)) = cam.single_mut() else {
@@ -1242,9 +1282,17 @@ fn pan_and_zoom(
     let Projection::Orthographic(ortho) = proj.as_mut() else {
         return;
     };
-    // + and - are the game speed keys; only the wheel zooms.
-    let zoom = -scroll.delta.y * 0.1;
-    ortho.scale = (ortho.scale * (1.0 + zoom)).clamp(0.25, 8.0);
+    // + and - are the game speed keys; only the wheel zooms, and only as a development aid.
+    if zoom.free && scroll.delta.y != 0.0 {
+        let pixels = scroll.unit == bevy::input::mouse::MouseScrollUnit::Pixel;
+        let steps = display::wheel_steps(&mut zoom.wheel, scroll.delta.y, pixels);
+        if steps != 0 {
+            zoom.zoom = display::zoom_step(zoom.zoom, steps);
+            if let Ok(window) = windows.single() {
+                ortho.scale = letterbox(window).projection_scale(zoom.zoom, window.scale_factor());
+            }
+        }
+    }
 
     // Runs every frame, so a view moved any other way (minimap, start position) is kept on the map too. The view
     // position is a whole tile (screen spec, "Layout"), so the view's top-left corner goes onto the tile grid first.
@@ -1272,46 +1320,140 @@ fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, ui: Res<PanelUi>, mut exit: M
     }
 }
 
-/// Fits the interface to the window: rebuilds the frame picture when the size changes and keeps the map camera's
-/// viewport on the map view.
+/// Lays the interface out on the 640 × 480 screen once, and keeps its cameras on the screen's place in the window
+/// (`display::Letterbox`): the interface picture at the window's whole-number scale, the map camera's viewport on the
+/// map view, and its projection at the zoom (one map pixel per screen pixel unless `--free-zoom`).
+#[allow(clippy::type_complexity)]
 fn hud_layout(
     windows: Query<&Window>,
     mut hud: ResMut<Hud>,
-    mut map_cam: Query<&mut Camera, With<MapCamera>>,
+    zoom: Res<MapZoom>,
+    mut map_cam: Query<(&mut Camera, &mut Projection), (With<MapCamera>, Without<HudCamera>)>,
+    mut hud_cam: Query<&mut Camera, (With<HudCamera>, Without<MapCamera>)>,
     mut sprite: Query<&mut Transform, With<HudSprite>>,
 ) {
-    let (Ok(window), Ok(mut cam), Ok(mut tf)) = (windows.single(), map_cam.single_mut(), sprite.single_mut()) else {
+    let (Ok(window), Ok((mut cam, mut proj)), Ok(mut hcam), Ok(mut tf)) = (
+        windows.single(),
+        map_cam.single_mut(),
+        hud_cam.single_mut(),
+        sprite.single_mut(),
+    ) else {
         return;
     };
-    let s = hud.scale;
-    let (ww, wh) = (window.width(), window.height());
-    let canvas = (
-        (ww / s as f32).ceil().max(1.0) as u32,
-        (wh / s as f32).ceil().max(1.0) as u32,
-    );
-    if hud.layout.is_some_and(|l| l.canvas == canvas) {
+    let layout = match hud.layout {
+        Some(l) => l,
+        None => {
+            let layout = hud.art.layout(display::SCREEN);
+            hud.frame = hud.art.frame(&layout);
+            hud.layout = Some(layout);
+            layout
+        }
+    };
+    let lb = letterbox(window);
+    let factor = window.scale_factor();
+    // The interface camera looks at the screen's place in the window, with the picture at the whole-number scale.
+    set_viewport(&mut hcam, lb.screen());
+    let k = lb.scale as f32 / factor;
+    tf.translation = Vec3::ZERO;
+    tf.scale = Vec3::new(k, k, 1.0);
+    let v = layout.viewport;
+    set_viewport(&mut cam, lb.rect(v.x, v.y, v.w, v.h));
+    if let Projection::Orthographic(o) = proj.as_mut() {
+        let scale = lb.projection_scale(zoom.zoom, factor);
+        if o.scale != scale {
+            o.scale = scale;
+        }
+    }
+}
+
+/// Puts a camera's viewport on a rectangle of physical window pixels, touching the camera only when it moves.
+fn set_viewport(cam: &mut Mut<Camera>, (x, y, w, h): (u32, u32, u32, u32)) {
+    let (pos, size) = (UVec2::new(x, y), UVec2::new(w.max(1), h.max(1)));
+    if cam
+        .viewport
+        .as_ref()
+        .is_some_and(|v| v.physical_position == pos && v.physical_size == size)
+    {
         return;
     }
-    let layout = hud.art.layout(canvas);
-    hud.frame = hud.art.frame(&layout);
-    hud.layout = Some(layout);
-    // Canvas pixel (0, 0) at the window's top-left corner; the HUD camera looks at the window centre.
-    let size = Vec2::new(canvas.0 as f32, canvas.1 as f32) * s as f32;
-    tf.translation = Vec3::new((size.x - ww) / 2.0, (wh - size.y) / 2.0, 0.0);
-    tf.scale = Vec3::new(s as f32, s as f32, 1.0);
-    let k = window.scale_factor() * s as f32;
-    let phys = window.physical_size();
-    let v = layout.viewport;
-    let pos = UVec2::new((v.x as f32 * k) as u32, (v.y as f32 * k) as u32).min(phys.saturating_sub(UVec2::ONE));
-    let size = UVec2::new((v.w as f32 * k) as u32, (v.h as f32 * k) as u32)
-        .min(phys - pos)
-        .max(UVec2::ONE);
     cam.viewport = Some(Viewport {
         physical_position: pos,
         physical_size: size,
         ..default()
     });
 }
+
+/// The window size at start (`display`): until the monitor is known, the window is the size `--ui-scale` gave (or
+/// 640 × 480 points); without `--ui-scale` it then becomes the largest whole number of physical pixels per screen pixel
+/// that fits the monitor, centred on it.
+#[derive(Resource)]
+struct WindowSizing {
+    explicit: bool,
+    /// Frames spent waiting for the monitor.
+    frames: u32,
+}
+
+/// Frames to wait for the monitor before keeping the starting size.
+const MONITOR_WAIT: u32 = 30;
+
+fn size_window(
+    mut sizing: ResMut<WindowSizing>,
+    monitors: Query<&bevy::window::Monitor, With<bevy::window::PrimaryMonitor>>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+) {
+    if sizing.explicit || sizing.frames > MONITOR_WAIT {
+        return;
+    }
+    sizing.frames += 1;
+    let (Ok(m), Ok(mut window)) = (monitors.single(), windows.single_mut()) else {
+        return;
+    };
+    let scale = display::monitor_scale((m.physical_width, m.physical_height), m.scale_factor);
+    let (w, h) = display::window_size(scale);
+    // In physical pixels: the window's own scale factor may not be the monitor's yet.
+    window.resolution.set_physical_resolution(w, h);
+    window.position = WindowPosition::Centered(bevy::window::MonitorSelection::Primary);
+    sizing.frames = MONITOR_WAIT + 1;
+}
+
+/// Keeps the window at least the 640 × 480 screen in physical pixels, and the front end's camera (menus, dialogs,
+/// videos) on the screen's place in the window, like the interface's (`hud_layout`).
+fn fit_screen(
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+    mut front: Query<&mut Camera, With<frontend::FrontCamera>>,
+) {
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    let f = window.scale_factor();
+    let (min_w, min_h) = (display::SCREEN.0 as f32 / f, display::SCREEN.1 as f32 / f);
+    let c = window.resize_constraints;
+    if c.min_width != min_w || c.min_height != min_h {
+        window.resize_constraints.min_width = min_w;
+        window.resize_constraints.min_height = min_h;
+    }
+    let screen = letterbox(&window).screen();
+    for mut cam in &mut front {
+        set_viewport(&mut cam, screen);
+    }
+}
+
+/// Paints the whole window black first, so the border around the screen is black (`display`).
+fn spawn_backdrop(mut commands: Commands) {
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: -1,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        RenderLayers::layer(BACKDROP_LAYER),
+        frontend::Persist,
+    ));
+}
+
+/// A layer nothing is drawn on: the backdrop camera only clears.
+const BACKDROP_LAYER: usize = 31;
 
 /// The hotkey a key press stands for.
 fn key_char(k: KeyCode) -> Option<char> {

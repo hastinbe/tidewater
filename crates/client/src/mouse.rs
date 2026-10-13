@@ -13,8 +13,8 @@
 //!   taken at most once.
 //! - The double-click time is 500 ms, as is the double-press window for control groups (the system setting isn't
 //!   specified).
-//! - The ring search's limit uses the client's view width in tiles, which zoom changes; at the original scale it is
-//!   the spec's 14.
+//! - The ring search's limit uses the client's view width in tiles: the spec's 14 at the default one map pixel per
+//!   screen pixel; only the `--free-zoom` development option changes it.
 
 use std::collections::HashMap;
 
