@@ -18,8 +18,13 @@
 //! human8-30000, xorc12-4000, xorc09-death-knight-2500, orc10-sappers-2500, xhuman10-slow-3000, human13-subs-2000,
 //! human12-25000, human09-fleet-3000, xorc11-air-sea-3000, human01-walls, human06-upgrades, xorc12-spells,
 //! xhuman10-exorcism, orc13-25000, orc14-25000, xhuman11-25000, orc11-25000, human2-human02-all-out-4000 (Human02
-//! with the invulnerability cheat turned on in its commands), orc5-40000 (the game ends at n 36583) and human9-30000
-//! match in full.
+//! with the invulnerability cheat turned on in its commands), orc5-40000 (the game ends at n 36583), human9-30000,
+//! xhuman8-25000, human11-30000, orc7-22000 and xhuman7-25000 match in full.
+//!
+//! orc9-orc09-shore-build-3000 (a commands scenario: a refused shipyard, a shore build and an attack on it) matches
+//! up to n 598. At n 599 player 5's peon 1478, the shipyard's builder, flees onto gold mine 1480; the trace has order
+//! 23 on the mine (orders spec, "Fleeing" step 6, which needs a worker in gold mode), but that peon never had a
+//! harvest command, so ours is in no gather mode and moves (order 3). How it got its gold mode is an open question.
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
@@ -224,6 +229,11 @@ traces! {
     human2_human02_all_out_4000: ("human2-human02-all-out-4000.jsonl.gz", "Campaign\\Human\\Human02.pud", 2, &[], None),
     orc5_40000: ("orc5-40000.jsonl.gz", "Campaign\\Orc\\Orc05.pud", 9, &[], None),
     human9_30000: ("human9-30000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
+    xhuman8_25000: ("xhuman8-25000.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
+    human11_30000: ("human11-30000.jsonl.gz", "Campaign\\Human\\Human11.pud", 20, &[], None),
+    orc9_orc09_shore_build_3000: ("orc9-orc09-shore-build-3000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], Some(598)),
+    orc7_22000: ("orc7-22000.jsonl.gz", "Campaign\\Orc\\Orc07.pud", 13, &[], None),
+    xhuman7_25000: ("xhuman7-25000.jsonl.gz", "Campaign\\XHuman\\2XHum07.pud", 40, &[], None),
     mp_gold_rush_bne_fixed_6000: (mp, "mp-gold-rush-bne-fixed-6000.jsonl.gz", &[], None),
     mp_dark_paths_bne_fixed_1000: (mp, "mp-dark-paths-bne-fixed-1000.jsonl.gz", &[], None),
     mp_rose_petal_bne_fixed_3000: (mp, "mp-rose-petal-bne-fixed-3000.jsonl.gz", &[], None),
