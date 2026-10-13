@@ -32,6 +32,10 @@
   on the patch's update order.
   2026-10-12, round-43 errata: a finished oil platform gives its tanker order 25 as an immediate order (move animation,
   wait 1), so order 26 follows in the next cycle; `orc09-naval` vectors.
+  2026-10-13, round-47 errata: a killed unit leaves the food in use at the start of its death animation; the "ever had a
+  hall" mark is set at the start of every new game except Enhanced multiplayer; a build walk's goal is worked out from
+  the worker's tile when the command is given; a builder inside a completed hall gets the hall-sized exit mark;
+  `xorc4-10000` vector; open question on a Classic builder's delivery.
 
 ## Behaviour
 
@@ -61,7 +65,10 @@ Research and upgrades check gold, lumber and oil only.
 
 - **Supply:** +4 for each completed farm (pig farm), +1 for each completed town hall, great hall, keep, stronghold,
   castle or fortress.
-- **In use:** the number of the owner's units that aren't buildings, minus its skeletons, daemons and critters.
+- **In use:** the number of the owner's units that aren't buildings, minus its skeletons, daemons and critters. A unit
+  stops counting when it is **killed**, at the start of its death animation, not when it leaves play; the training food
+  test and the computer players' farm rule both see the lower count while it dies (traced: `xhuman2-10000`,
+  `ai/worker-ai.md` vectors).
 - Units still being trained **don't count**. So two buildings can each start a unit when only one food is spare, and
   the player ends up over the supply.
 
@@ -75,13 +82,15 @@ as if the building already stood there:
 - a shore building: the shore rule of `movement/pathfinding.md` ("Building goal rule");
 - any other building: the building goal rule of `movement/pathfinding.md` on the planned footprint.
 
-The goal is worked out when the order is given; while the worker walks, it stays as it was. The walk runs instead of the
-order's logic, so the goal isn't worked out again as the worker's own tile changes, even when the building goal rule
-would now pick another footprint tile. Order 28's logic runs only on arrival. A build walk ends without arriving in two
-ways, both leaving the worker idle: with **no route**, idle as an immediate order (`orders/orders.md`, "No route"), and
-at the **blocked counter's limit**, idle as a pending order (`movement/movement.md`, "Blocked rules", row C). The worker
-arrives when it **stands on** the goal tile; the placement check ignores the worker's own tile (below), so that doesn't
-stop the building.
+The goal is worked out when the order is given, from the worker's tile **at that moment**; while the worker walks, it
+stays as it was. A computer player's worker given its build job as it comes out of a building (`economy/harvest.md`,
+"Coming out", step 3) is still at the building's top-left tile then, before it is placed outside, so its goal is worked
+out from that tile (traced: `xorc4-10000`, vectors below). The walk runs instead of the order's logic, so the goal isn't
+worked out again as the worker's own tile changes, even when the building goal rule would now pick another footprint
+tile. Order 28's logic runs only on arrival. A build walk ends without arriving in two ways, both leaving the worker
+idle: with **no route**, idle as an immediate order (`orders/orders.md`, "No route"), and at the **blocked counter's
+limit**, idle as a pending order (`movement/movement.md`, "Blocked rules", row C). The worker arrives when it **stands
+on** the goal tile; the placement check ignores the worker's own tile (below), so that doesn't stop the building.
 
 - **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker
   sets out.
@@ -110,9 +119,11 @@ points.)
 
 - **Starting hit points:** H₀ = min(floor(M / 10), 40).
 - **Hit points still to add:** D = M − H₀.
-- **Fast first hall (Enhanced multiplayer only):** if the owner has never had a completed town hall, keep or castle
-  (of either race), a gold-storing building's T is lowered to the same race's farm build time, if that is shorter. In
-  Enhanced mode T is at least 1.
+- **Fast first hall (Enhanced multiplayer only):** if the owner has never had a completed town hall, keep or castle (of
+  either race), a gold-storing building's T is lowered to the same race's farm build time, if that is shorter. In
+  Enhanced mode T is at least 1. The owner's **ever had a hall** mark records this: it is set for every player at the
+  start of a new game except in Enhanced multiplayer (`game/setup.md`), so this rule applies only there, until the
+  player's first hall is completed.
 - The owner's "buildings under construction" count goes up by 1.
 - The building's order is 33 (its resting order). The construction itself isn't an order: it is advanced by a
   separate pass.
@@ -143,8 +154,10 @@ completes 12 passes later, with its hit points still below M.
 
 - The building becomes completed: it plays its still animation, the under-construction count goes down by 1, and it
   now counts for food, bonuses, depots and requirements (see `economy/harvest.md` for the delivery bonuses).
-- Every unit inside it (the builder) gets any goods it carries delivered (if the building is a depot for them).
-  Then:
+- Every unit inside it (the builder) goes through delivery (`economy/harvest.md`, "Delivering goods"): it gets any goods
+  it carries delivered if the building is a depot for them, and a builder of a town hall, keep or castle gets the
+  **hall-sized exit mark**, carrying or not (`economy/harvest.md`, "Coming out", step 6). Being let out here neither
+  uses nor clears the mark. Then:
   - a **tanker** (the builder of an oil platform) gets order 25 as an **immediate order** (`orders/orders.md`, "Pending
     orders and immediate orders"): order 25's animation (3, move) starts with a wait of 1, and the order's logic runs in
     the next cycle, which takes the tanker into the new platform (order 26) to collect oil;
@@ -268,6 +281,7 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | Same, n = 469 | Tanker: order 26, still animation, wait 150 |
 | `xhuman2` (oracle trace), n = 85: computer peon 1562 (type 0x03, owner 5) at (65, 59) in order 28 arrives and the site check fails | Order 2, animation 2, wait 3; its tile stays marked (ogre 1549 is blocked by it at n = 113). n = 88: order 28 again (the computer gives the job again) |
 | `human06-tech` (oracle trace), n = 578: building 1516 at (72, 4) finishes its upgrade from type 0x40 to 0x60 | The same record: type 0x60, order 14, animation 4, wait 3 |
+| `xorc4-10000` (oracle trace): computer peasant 1580 (type 0x02, owner 2) comes out of 1565 (top-left (26, 11)) at n = 7963, at (25, 12), with a build job for a 3 × 3 site at (14, 11) | Its walk goal, worked out from (26, 11), is (16, 11), not (16, 12): it walks row 12 to (20, 12), steps north-west to (19, 11) at n = 8071, reaches (16, 11) at n = 8119 and is in order 22 at n = 8135 |
 
 ## Open questions
 
@@ -281,3 +295,6 @@ The requirement rules, the setting that turns them off and the research jobs' ef
   and be removed in the next. No trace has that order.
 - **Exit facing on cancel or destroy.** A builder let out at completion faces the building. Whether one let out of a
   cancelled or destroyed site also turns wasn't checked. Default: it turns the same way.
+- **Classic-mode builder's delivery.** Whether a builder in gold or lumber mode with empty hands gets a load delivered
+  when its building is completed in Classic mode (the static reading says yes, as for a Classic delivery on entering)
+  isn't separated by any trace.
