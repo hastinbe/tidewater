@@ -19,6 +19,9 @@
   `orc02-assault` vector.
   2026-10-12, round-44 errata: set goal's blocking test sees the unit's own occupancy mark, so a goal given at the
   unit's own tile is moved by the ring search; `human01-order15-range-700` vector.
+  2026-10-13, round-46 errata: the own-tile rule is credited to the hold goal set at the unit's own tile, not to the
+  leash return (the `human01-order15-range-700` vector corrected); hold step 3's smart move goes to the goal tile as
+  given (traced: `xorc3-10000`; static check open).
 
 ## Behaviour
 
@@ -86,8 +89,10 @@ The two marks are **needs a ferry** (with an **assigned transport**, possibly no
      with the land bit (0x01) and no bit of the land blocking mask. If one is found it replaces the tile.
    The blocking test sees the occupancy marks of every unit on the tile, the unit's **own** mark included
    (`movement/occupancy.md`): the unit isn't left out. So a tile given that is the unit's own tile counts as blocked for
-   a land unit standing on it, and the ring search moves the goal to the nearest tile without a blocking bit; a leash
-   return ("Hold", step 3) then walks the unit there (traced: `human01-order15-range-700`, vectors below).
+   a land unit standing on it, and the ring search moves the goal to the nearest tile without a blocking bit. This is
+   what happens to a hold goal set at the unit's own tile (a post that is the unit's own tile, or a held unit's goal):
+   the stored goal is the ring search's tile from then on, and the unit stands off it until something sends it there
+   (traced: `human01-order15-range-700`, vectors below).
 5. If the region value (`movement/occupancy.md`) of the unit's tile equals that of the (adjusted) tile: the goal tile
    and kind are set, success.
 6. Otherwise, for a unit that is not a sea unit: the goal tile is set, the **needs a ferry** mark is set, the goal
@@ -299,7 +304,9 @@ from the unit data, and the **leash** is floor(react range / 2) + 4.
    otherwise: S = the unit's owner's, E = the dominant owner's. If 10 × S ≥ 4 × E and the unit is not idle, stop.
    (If the block has no dominant owner, E is not a defined value; see Open questions.)
 3. If the distance from the goal tile to the unit is at least the leash: set goal (unit, hold, goal tile); on success
-   give a smart move (command 3) to the goal tile. In both cases the unit forgets its attacker.
+   give a smart move (command 3) to the goal tile. In both cases the unit forgets its attacker. The smart move goes to
+   the goal tile **as given** to set goal, not to the tile set goal stores when its ring search moves it (traced:
+   `xorc3-10000`, vectors below; the static study hasn't checked it, see Open questions).
 
 So a unit holding its post returns when it has wandered or chased past the leash, and gives up a fight early (even
 while busy) when it is badly outmatched where it stands.
@@ -552,7 +559,8 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `xorc7-7000`, n = 1002: 1423 idle again at (6, 22); tankers 1587 and 1594 both inside platform 1590 (order 26) | Patrol command toward (6, 22), its own tile: order 5, wait 3. n = 1005: order 5, wait 3 (the swap to the far end); n = 1008: animation 3, it starts walking |
 | `human10-10000`, the first tanker in the list taken and then rejected because it is inside (wrong) | Differs from the trace at n = 6907 |
 | `human10-10000`, n = 6956: computer destroyer 1483 (type 0x1F) at (24, 8) | Order 5, wait 3; n = 6959: tile (26, 6), facing 1, animation 3 |
-| `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) holding at its own tile (29, 14) flees at n = 403; its hold goal is then set at that tile | The ring search moves the goal to (28, 14): it walks back in order 3, is at (28, 14) at n = 550 and idles there at n = 566 (wait 3, facing 3) |
+| `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) starts at (29, 14), its hold goal set at its own tile; it chases a target to (21, 7), where the target is lost at n = 401 | The ring search moved the stored goal to (28, 14) when the goal was set. At n = 403, past its leash, it is sent back (order 3, wait 3) to (28, 14), not (29, 14): there at n = 550, idle at n = 566 (wait 3, facing 3) |
+| `xorc3-10000` (oracle trace): computer grunt 1455 (type 0x01, owner 3), created at (43, 11) at n = 9443 with its hold goal at (34, 9); at n = 9454 peon 1464 stands on (34, 9) | Past its leash, at n = 9454 it gets order 3 (wait 3) and walks to (34, 9) itself, the tile as given, though set goal's ring search would move the stored goal off the peon's tile; idle there at n = 9601 (wait 3) |
 
 ## Open questions
 
@@ -580,3 +588,5 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
   facing draw isn't confirmed. Neither traced map has such a unit. Default: the base box is still in its empty state
   (as for a player with no gold store), so a store found then is already outside it and its own tile is the walk's
   result; gold stores the map lists later don't count yet. Any draws come after the facing draw.
+- **The hold return's smart move.** That it goes to the goal tile as given, not the tile set goal stores, rests on
+  the `xorc3-10000` trace; the static study hasn't checked it.
