@@ -59,6 +59,8 @@
   (for a computer player, the job choice) runs in the same update; `orc11-25000` vector.
   2026-10-13, round-58 errata: coming out toward a gold mine, the exit search aims at the mine's top-left tile
   pulled back; the worker still faces the top-left tile plus (1, 1); round-58 vectors.
+  2026-10-13, round-60 errata: coming out with a build job aims the exit search at the stored build goal (the
+  pulled-back goal, or the shore corner), and the worker faces the same tile (static study only).
 
 ## Behaviour
 
@@ -159,7 +161,9 @@ When the 150-cycle wait ends and the inside order's logic runs:
    it is carried until the unit's next come-out from **any** building, a mine, a platform or a depot (traced:
    `orc5-10000`, vectors below). It is aimed at the tile the unit is heading for, so the unit comes out on that side.
    That tile is the goal its new command set in steps 3 to 5, as any command sets it: for a **build** order (a computer
-   player's job), the site's **top-left tile**, not the build walk's goal tile; for a return, the depot's top-left tile
+   player's job), the **build goal the command stored**: the building goal (for a shore building the shore
+   corner goal), pulled back (`economy/build-train.md`, "Placing a building"; static study only: no trace
+   separates this from the site's top-left tile, the aim given before round 60); for a return, the depot's top-left tile
    **pulled back** as for any command to a building (`movement/pathfinding.md`, "Goal pulled back"; traced:
    `human13-10000`, round-52 vectors), though the worker still faces the depot's top-left tile plus (1, 1); for a
    harvest at a gold mine (or another source that is a unit), the source's top-left tile **pulled back** in the same
@@ -171,12 +175,13 @@ When the 150-cycle wait ends and the inside order's logic runs:
    step 1. The comparer runs over the trace set support this: aiming nowhere breaks 24 traces at their first worker
    coming out, aiming one tile off (the target's top-left plus (1, 1)) breaks 18, and the commanded goal tile runs them
    all. If no tile is found, the unit dies. The placed unit then faces as `movement/placement.md` says, except that a
-   worker with a **build** job faces its **build goal tile**: the goal of the build walk, worked out when the build
-   command was given in step 3, while the worker was still inside, from the unit's tile then (the building's top-left
-   tile), by the building goal rule (`movement/pathfinding.md`) on the site's footprint (`economy/build-train.md`,
-   "Placing a building"). It is **not** worked out again from the exit tile, so the facing and the walk use the same
-   goal (traced: `xhuman9-10000`, round-51 vectors). The facing rule is "Facing a tile" of `core/animation-scripts.md`,
-   from the exit tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a
+   worker with a **build** job faces its **build goal tile**: the goal the build command stored when it was given in
+   step 3, while the worker was still inside, from the unit's tile then (the building's top-left tile): the building
+   goal rule (`movement/pathfinding.md`) on the site's footprint, or the shore rule, **pulled back** (static study for
+   the pull-back; `economy/build-train.md`, "Placing a building"). It is **not** worked out again from the exit
+   tile, so the facing and the walk use the same goal (traced:
+   `xhuman9-10000`, round-51 vectors). The facing rule is "Facing a tile" of `core/animation-scripts.md`, from the exit
+   tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a
    tree at its own tile).
 
 The order given in steps 3 to 5 (the AI's, or the return or harvest command) is the unit's pending order. It takes
