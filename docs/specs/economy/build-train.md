@@ -30,6 +30,8 @@
   route (idle at once) or at the blocked counter's limit (idle as a pending order), so the round-41 sentence on working
   the goal out again after such a walk is replaced; the oil patch's wait of 1 comes from its own update; open question
   on the patch's update order.
+  2026-10-12, round-43 errata: a finished oil platform gives its tanker order 25 as an immediate order (move animation,
+  wait 1), so order 26 follows in the next cycle; `orc09-naval` vectors.
 
 ## Behaviour
 
@@ -143,8 +145,9 @@ completes 12 passes later, with its hit points still below M.
   now counts for food, bonuses, depots and requirements (see `economy/harvest.md` for the delivery bonuses).
 - Every unit inside it (the builder) gets any goods it carries delivered (if the building is a depot for them).
   Then:
-  - a **tanker** (the builder of an oil platform) is set to order 25, so it starts collecting oil from the new
-    platform at once;
+  - a **tanker** (the builder of an oil platform) gets order 25 as an **immediate order** (`orders/orders.md`, "Pending
+    orders and immediate orders"): order 25's animation (3, move) starts with a wait of 1, and the order's logic runs in
+    the next cycle, which takes the tanker into the new platform (order 26) to collect oil;
   - any other unit is placed on a free tile around the building, faces the building ("Facing a tile",
     `core/animation-scripts.md`, with B the building's top-left tile + (1, 1)) and becomes idle: order 2, still
     animation, wait 1, target cleared. The tile is found by the ring search of `movement/placement.md` (limit 12,
@@ -261,7 +264,8 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | `human06-tech` (oracle trace), n = 202: builder 1528 let out at (16, 82) from a farm with top-left (17, 80) | dx 2, dy −1 to (18, 81): facing 1 (NE) |
 | `orc09-naval` (oracle trace), n = 249: builder 1587 let out at (80, 7) from a farm with top-left (81, 6) | dx 2, dy 0 to (82, 7): facing 2 (E) |
 | `xhuman2` (oracle trace), n = 3438: builder 1588 let out at (21, 4) from a tower (type 0x41) with top-left (20, 2) | dx 0, dy −1 to (21, 3): facing 0 (N) |
-| `orc09-naval` (oracle trace), n = 468: tanker 1473 let out of a finished building, set to order 25 | keeps its facing |
+| `orc09-naval` (oracle trace), n = 468: oil platform 1468 completed with tanker 1473 inside | Tanker: order 25, animation 3, wait 1, target 1468, facing kept (2) |
+| Same, n = 469 | Tanker: order 26, still animation, wait 150 |
 | `xhuman2` (oracle trace), n = 85: computer peon 1562 (type 0x03, owner 5) at (65, 59) in order 28 arrives and the site check fails | Order 2, animation 2, wait 3; its tile stays marked (ogre 1549 is blocked by it at n = 113). n = 88: order 28 again (the computer gives the job again) |
 | `human06-tech` (oracle trace), n = 578: building 1516 at (72, 4) finishes its upgrade from type 0x40 to 0x60 | The same record: type 0x60, order 14, animation 4, wait 3 |
 
