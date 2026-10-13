@@ -32,6 +32,9 @@
   computer unit that can't board a transport landing in its region walks to a random tile (two draws); after the
   no-route restart the order logic runs in the same update, so a computer unit out of reach takes command 4 at once;
   `human13-10000` and `orc14-10000` vectors; two open questions closed or narrowed.
+  2026-10-13, round-54 errata: the boarding answers: every player that isn't a computer player, passive and rescue
+  included, gets the smart move after the restart (open question closed); the random tile is clamped to the single map
+  size.
 
 ## Behaviour
 
@@ -224,7 +227,9 @@ Each time the order's logic runs:
      again;
    - **every other player's** unit (human, passive computer, passive rescue, neutral; `orders/orders.md`, "Terms") gets
      a smart move (command 3). That is the boarding command again, so the unit **stays in order 34**, and the transport
-     is told to come again unless it is landing (static study only; no trace shows it).
+     is told to come again unless the transport's order or pending order is landing (order 30). The only split is
+     computer player or not, so passive and rescue players' units take this branch too, with the smart move's wait cap
+     of 10 (static study only; no trace shows it).
 4. **Arrived:** the unit boards if all of these hold:
    - it is within **2 tiles** of the transport's tile on both axes;
    - the transport's order is **32** (docked);
@@ -240,9 +245,9 @@ Each time the order's logic runs:
    - a **computer player's** unit whose transport is landing (order 30) with the transport's tile in the same region as
      the unit's tile walks to a random nearby tile. Two draws of the game's generator (`core/timing-and-rng.md`), x
      first: x = the unit's tile x + (r mod 12) − 6, then y = its tile y + (r mod 12) − 6. Each coordinate is clamped to
-     0 to map width − 1 (the width for both). The unit gets a move command there with no target unit, which takes over
-     in the same update (order 3, still animation, wait 3, target null; traced: `orc14-10000`, vectors below). This test
-     comes before the next one;
+     0 to map size − 1 (the game keeps one size for both axes; maps are square). The unit gets a move command there with
+     no target unit, which takes over in the same update (order 3, still animation, wait 3, target null; traced:
+     `orc14-10000`, vectors below). This test comes before the next one;
    - otherwise, if the transport's destination tile is in the unit's region, the unit keeps waiting in order 34;
    - otherwise it gives up and becomes idle.
 
@@ -304,9 +309,6 @@ Each time the order's logic runs:
 
 ## Open questions
 
-- **Order 34 not arrived, for a human player's unit.** Step 3's computer branch is traced after a no-route restart
-  (`human13-10000`). The smart move for every other player's unit there is static study only; the research notes read it
-  as a plain move command, which no trace separates from the smart move.
 - **No-route restart by a computer player's unit.** A human player's restart tells the transport to come again
   (`human12-transport`). For computer players' units the traces are mixed: in `human12-7000` the restart of grunt 1407
   at n = 6403 is followed by the docked transport's take-over (wait 3 at n = 6405), and in `human10-24000` that of grunt
