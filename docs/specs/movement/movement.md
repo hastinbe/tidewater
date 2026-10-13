@@ -26,6 +26,9 @@
   open question on when a kept dying attacker is forgotten.
 - **Changes:** 2026-10-13, round-45 errata: every command forgets a recorded attacker that is dying, dead, removed or
   not detected; row G's stand still is a pending order and measures to the stored goal (static study only).
+- **Changes:** 2026-10-13, round-60 errata: arrival for a unit that is neither sea nor air targeting a shore
+  building is measured to the shore corner goal; row C resumes a remembered patrol or attack-move at once (wait 1);
+  `xhuman8-25000` and `orc9-orc09-shore-build-3000` vectors.
 
 ## Behaviour
 
@@ -98,8 +101,10 @@ moves; for attack orders the radius is the attacker's attack range (see the comb
   works;
 - for an order aimed at a **building**, the footprint tile picked by the building goal rule in `pathfinding.md`
   ("Building goal rule"), re-picked from the unit's current tile at every check. So arrival is measured to the near
-  edge of the footprint, or to its middle row or column when the unit is level with the building. (A land unit
-  heading for a shore building in another land region uses the shore-building variant of that rule.);
+  edge of the footprint, or to its middle row or column when the unit is level with the building.
+  A unit that is neither a sea nor an air unit, heading for a **shore building** (to build it or as its target),
+  uses the shore corner goal instead (`pathfinding.md`, "Shore building"), so an attack on a shore building measures
+  its reach to that tile (traced: `orc9-orc09-shore-build-3000` n = 343);
 - for **boarding** (order 34), the transport's tile if the transport stands in the unit's region, otherwise the
   tile the transport is heading for (`orders/transports.md`);
 - otherwise, the ordered tile.
@@ -164,7 +169,7 @@ applies.
 | --- | --- | --- | --- | --- |
 | A | The unit's player is a **computer player** (see "Player kinds"), the blocking tile's movement word carries bit 0x04, and the unit is not invisible and has no attacker | Its order becomes **11** (attack a wall tile, `orders/orders.md`) on that tile, as a pending order | replaced by the new order | 1 cycle |
 | B | The unit's player is a computer player, the blocking tile's movement word carries bit 0x04, and the unit is invisible or has an attacker | Keeps its order | dropped | 1 cycle |
-| C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" | kept (unused) | 15 cycles |
+| C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" (idle as a pending order). Enhanced: a unit that remembers a patrol, or an attack-move more than 1 tile away, with its resume countdown 0, instead starts its still animation with wait 1 and gets the remembered order as its pending order (`orders/orders.md`, "Giving up when blocked"; traced: `xhuman8-25000` n = 11284) | kept (unused) | 15 cycles (1 when it resumes) |
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
 | F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
@@ -254,6 +259,13 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | Town hall placed with its top-left tile at (10, 10) | Pixel position (320, 320), for as long as it stands |
 | Transport landing (order 30) whose goal is 1 tile away on both axes | General test met (radius 3); the landing logic's own test (radius 0, no +1) isn't, so it keeps moving |
 | Transport landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation |
+
+### Round-60 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 |
+| `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (range 4) attacking shipyard 1469, corner goal (55, 88) | At (60, 91), distance 5: walks on; at (59, 91), distance 4: there |
 
 ## Open questions
 
