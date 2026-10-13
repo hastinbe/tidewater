@@ -24,6 +24,8 @@
   (`human12-row-f-move-700` and `human12-row-f-landing-700` vectors replace the static one); the call for help and the
   route search ignore a kept dying attacker, the resulting-order table counts it, and orders 9, 11 and 17 forget it;
   open question on when a kept dying attacker is forgotten.
+- **Changes:** 2026-10-13, round-45 errata: every command forgets a recorded attacker that is dying, dead, removed or
+  not detected; row G's stand still is a pending order and measures to the stored goal (static study only).
 
 ## Behaviour
 
@@ -150,6 +152,9 @@ or when it leaves play. For human players, attacks by buildings are not recorded
 "no attacker" tests of the call for help (`ai/attack-ai.md`, "Call for help") and of the route search
 (`movement/pathfinding.md`, "Units seen by the search") ignore it, while the resulting-order table counts it
 (`orders/orders.md`, "Resulting order"); orders 9, 11 and 17 forget it at the start of each run (`orders/orders.md`).
+Any command given to the unit (`orders/orders.md`, "Commands forget a stale attacker") also forgets a recorded attacker
+that is dying, dead, removed or not detected by the unit's owner, so a kept dying attacker lasts at most until the
+unit's next command (traced: `xorc01-death-knight-2100`).
 
 When the next tile is blocked, the unit restarts its walking animation in place: the move animation, or animation 6 for
 an order whose own animation is 6 (orders 30 and 31). Its counter goes up by 1. Then the **first matching row** below
@@ -163,7 +168,7 @@ applies.
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
 | F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
-| G | The unit has an attacker, and it is within 1 tile of its goal on both axes (land units) or within 2 tiles (sea and air units) | Stops: order becomes "stand still" | kept (unused) | 1 cycle |
+| G | The unit has an attacker, and it is within 1 tile of its goal (the stored goal, after any pull-back) on both axes (land units) or within 2 tiles (sea and air units) | Stops: "stand still" becomes its **pending** order, so the resume rules of `orders/orders.md` apply (static study only) | kept (unused) | 1 cycle |
 | H | The unit has an attacker, is a sea or air unit, and is within 2 tiles of its goal on x but farther on y | Keeps its order | dropped | 1 cycle |
 | I | Anything else | Keeps its order | dropped (it searches again) | 1 cycle |
 
@@ -240,7 +245,7 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 | `xhuman10-spells-700` (oracle trace), n = 89: grunt 1497 had been blocked twice, then acquired a target (a command); grunt 1490 (owner 2) at (78, 87) is blocked by it | 1497's counter is 0, so row F applies: 1490 steps to (79, 87), animation 3 |
 | Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle |
 | Passive computer player's grunt, same situation | row A doesn't apply (not a computer player); falls through to the rows below |
-| Grunt with an attacker, blocked 1 tile from its goal | becomes idle (stand still) next cycle |
+| Grunt with an attacker, blocked 1 tile from its goal (static study only) | Order unchanged in that update, idle pending, wait 1; it becomes idle (stand still) next cycle |
 | Gryphon rider with an attacker, blocked 2 tiles from its goal on both axes | becomes idle |
 | Attack order, target 3 tiles away, attacker range 4 | already in range; no movement; attack starts |
 | Destroyer ordered to a tile it can only get within 1 tile of | stops when within 1 tile on both axes (radius +1) |
@@ -260,7 +265,10 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
   dying unit's death animation (when it becomes remains or is removed). No trace isolates that moment:
   `orc02-assault-3000` (grunt 1568 answering a call for help at n = 969 while its attacker 1597 is still dying; footman
   1587 stepping at n = 940 after its attacker 1573 became remains at n = 890) fits it, but also fits a later end,
-  because the call for help and the route search ignore a dying attacker anyway.
+  because the call for help and the route search ignore a dying attacker anyway. Round 45 settles one case: the unit's
+  next command forgets it ("Blocked rules"); the moment without a command is still open.
+- **Row G's pending idle** rests on the static study: no trace separates a pending from an immediate idle there, because
+  the traced case that once did no longer reaches row G once commands forget a dying attacker.
 - Row F is also skipped when the blocker has one more state bit set, whose meaning hasn't been identified.
 - How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
   construction spec.
