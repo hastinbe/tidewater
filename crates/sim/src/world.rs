@@ -382,6 +382,19 @@ impl Unit {
     pub fn present(&self) -> bool {
         !self.dying && !self.inside
     }
+
+    /// The target unit the unit records (trace-format spec, `target`): a command's target replaces the old one at
+    /// once, even with none; a killer whose order is still the one whose target it forgot records none (damage spec,
+    /// "Applying damage"); otherwise the pending order's target, or the order's.
+    pub fn recorded_target(&self) -> Option<UnitId> {
+        if let (true, Some(p)) = (self.commanded, self.pending) {
+            p.target()
+        } else if self.pending.is_none() && self.forgot == Some(self.order) {
+            None
+        } else {
+            self.pending.and_then(Order::target).or_else(|| self.order.target())
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

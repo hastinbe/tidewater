@@ -436,8 +436,10 @@ impl World {
         if let Some(r) = radius(spell) {
             match self.move_toward(i, Goal::tile(goal, r)) {
                 Walk::Arrived => {}
+                // Round-50 errata (`human14-10000` death knight 1577, n = 3740): with no route the caster goes idle
+                // at once, as an immediate order, and its idle logic runs in the same update.
                 Walk::NoPath => {
-                    self.cast_idle(i);
+                    self.idle_at_once(i);
                     return true;
                 }
                 Walk::Stepping | Walk::Blocked => return true,
@@ -1269,6 +1271,8 @@ impl World {
                 // Round-49 errata (static study): it doesn't look at the shielded unit during that wait. A flame that
                 // finds the unit dying or gone at its first step ends there, its slot freed at its next update (its
                 // lifetime count is 0 only then); from then on it ends as soon as the unit is dying or gone.
+                // Round-50 errata (static study): every step makes that check, and an ending flame (the unit dying or
+                // gone, or its count reaching 0) has its slot freed at its next update.
                 if age < FLAME_FIRST_STEP {
                     return true;
                 }
@@ -1276,11 +1280,8 @@ impl World {
                     return self.gone(n);
                 }
                 let Some(c) = self.unit(m.attacker).filter(|u| u.present()).map(|u| u.centre_px()) else {
-                    if age == FLAME_FIRST_STEP {
-                        *life = 0;
-                        return true;
-                    }
-                    return self.gone(n);
+                    *life = 0;
+                    return true;
                 };
                 *point = (*point + 1) % 51;
                 let p = FLAME_PATH[*point as usize];
@@ -1290,7 +1291,7 @@ impl World {
                     let pos = m.pos;
                     self.fx_splash(pos, m.damage, owner);
                 }
-                *life > 0 || self.gone(n)
+                true
             }
             // Round-45 errata, "Blizzard shards": a shard lands in the same update as the flight step that takes it to or
             // past its landing point (unclamped). Its own slot isn't free yet, so the chain's next shard takes another.
@@ -2046,6 +2047,58 @@ mod tests {
         assert_eq!(fx_of_kind(&w, 4), 5, "ended at the first step, slots still held");
         run(&mut w, 1);
         assert_eq!(fx_of_kind(&w, 4), 0);
+    }
+
+    /// Round-50 errata (static study): every flame step checks the shielded unit, and a flame that ends on a later
+    /// step also has its slot freed at its next update.
+    #[test]
+    fn a_flame_ending_on_a_later_step_frees_its_slot_at_its_next_update() {
+        let mut w = lab(32);
+        let p = caster(&mut w, MAGE, (5, 5), 255);
+        let f = w.spawn(0, 0, (6, 5), 0).unwrap();
+        strike(&mut w, p, FLAME_SHIELD, Some(f), (0, 0));
+        let mut n = 0;
+        while fx_of_kind(&w, 4) < 5 {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 40, "the flames never came");
+        }
+        run(&mut w, 20);
+        let fi = w.index(f).unwrap();
+        w.kill(fi);
+        run(&mut w, 1);
+        assert_eq!(fx_of_kind(&w, 4), 5, "ended at this step, slots still held");
+        run(&mut w, 1);
+        assert_eq!(fx_of_kind(&w, 4), 0);
+    }
+
+    /// Round-50 errata (`human14-10000` death knight 1577, n = 3740): a spell walk with no route makes the caster idle
+    /// at once, and its idle logic runs in the same update (still animation, wait 1).
+    #[test]
+    fn a_spell_walk_with_no_route_goes_idle_at_once() {
+        let mut w = lab(32);
+        let d = caster(&mut w, PALADIN, (5, 5), 255);
+        let f = w.spawn(0, 0, (20, 5), 0).unwrap();
+        // The caster is walled in.
+        for y in 4..=6 {
+            for x in 4..=6 {
+                if (x, y) != (5, 5) {
+                    w.terrain.set_bits(x, y, crate::terrain::bits::OBSTACLE);
+                }
+            }
+        }
+        let i = w.index(d).unwrap();
+        w.units[i].order = Order::Cast {
+            spell: HEALING,
+            target: Some(f),
+            tile: (0, 0),
+        };
+        assert!(w.run_spell(i));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.script.anim, u.script.wait),
+            (Order::Idle, None, tidewater_formats::script::anim::STILL, 1)
+        );
     }
 
     #[test]

@@ -453,7 +453,9 @@ impl World {
             return false;
         }
         let s = self.stats_of(u.kind);
-        let fighter = s.flags & (flags::PEON | flags::TANKER | flags::CASTER) == 0
+        // Round-50 errata (`xhuman11-10000` paladin 1510, n = 4443): the spell-caster exclusion is the mage-type units
+        // only (mage and death knight types); paladins and ogre mages count as fighters.
+        let fighter = s.flags & (flags::PEON | flags::TANKER | flags::MAGE_LIKE) == 0
             && !crate::orders::DEMOLITION.contains(&u.kind);
         // Pathfinding spec, "Units seen by the search": the orders with the "acquires" mark (2, 4, 5, 7, 12 to 16 and
         // 32), and attack-move (10) in Enhanced mode. Attacking a unit (9) or a wall (11) is not attack-type.
@@ -645,6 +647,14 @@ mod tests {
         w.units[i].kind = crate::orders::DEMOLITION[0];
         assert!(!seen(&mut w, Order::Chase { target: enemy }));
         w.units[i].kind = 0;
+        // Round-50 errata (`xhuman11-10000` paladin 1510): a caster that isn't mage-type (a paladin or an ogre mage)
+        // counts as a fighter; a mage-type unit sees every unit.
+        let plain = w.stats.0[0].flags;
+        w.stats.0[0].flags = plain | flags::CASTER;
+        assert!(seen(&mut w, Order::Chase { target: enemy }));
+        w.stats.0[0].flags = plain | flags::CASTER | flags::MAGE_LIKE;
+        assert!(!seen(&mut w, Order::Chase { target: enemy }));
+        w.stats.0[0].flags = plain;
         w.units[i].attacked_by = Some(enemy);
         assert!(!seen(&mut w, Order::Chase { target: enemy }));
     }

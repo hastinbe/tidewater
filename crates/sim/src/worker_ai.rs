@@ -969,6 +969,28 @@ mod tests {
         assert_eq!(w.ai[1].done, 0b10);
     }
 
+    /// Round-50 errata, harvest spec "Coming out" (`human8-10000` peasant 1508, n = 2486): a worker coming out with a
+    /// repair job aims at the building's top-left tile and faces it as any come-out faces its target.
+    #[test]
+    fn a_worker_coming_out_with_a_repair_job_aims_at_the_buildings_top_left_tile() {
+        let (mut w, hall) = town();
+        let farm = w.spawn(t::FARM, 1, (30, 30), 0).unwrap();
+        let fi = w.index(farm).unwrap();
+        w.units[fi].hp = 200;
+        let i = peasants(&mut w, 1)[0];
+        let u = &mut w.units[i];
+        (u.inside, u.hall_exit, u.tile, u.pos) = (true, true, (14, 14), (14 * 32, 14 * 32));
+        w.come_out(i, hall);
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending),
+            (Order::Idle, Some(Order::Repair { target: farm }))
+        );
+        // Aimed at (30, 30), the unit comes out on the hall's bottom-right side.
+        assert_eq!(u.tile, (18, 17));
+        assert_eq!(u.facing, crate::world::face_tile((18, 17), (31, 31)));
+    }
+
     #[test]
     fn repair_takes_the_most_annoying_safe_building() {
         let (mut w, _) = town();

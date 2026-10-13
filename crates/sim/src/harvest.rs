@@ -480,6 +480,9 @@ impl World {
             Some(Order::Harvest { tree, .. }) => Some(tree),
             // Round-40 errata: a build order aims at the site's top-left tile, not the build walk's goal tile.
             Some(Order::Build { site, .. }) => Some(site),
+            // Round-50 errata (`human8-10000` peasant 1508, n = 2486): a repair job aims at the building's top-left
+            // tile, and the worker faces the building as any come-out faces its target.
+            Some(Order::Repair { target }) => self.unit(target).map(|b| b.tile),
             _ => None,
         };
         let at = self.units[i].tile;

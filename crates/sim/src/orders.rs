@@ -417,6 +417,10 @@ impl World {
         // turtle 1511, n = 271).
         let move_lost = matches!(o, Order::MoveAttack { target: Some(t), .. } if !self.holds(self.units[i].owner, t));
         if (lost && !search_first) || move_lost {
+            // Round-50 errata (static study): command 4's end forgets the attacker, as arrival does.
+            if move_lost {
+                self.units[i].attacked_by = None;
+            }
             self.lose_target(i);
             return true;
         }
@@ -619,6 +623,28 @@ impl World {
         s.can_target & bit != 0
     }
 
+    /// Round-50 errata, "Checks on an attack command": the attack order's kind check, by the attacker type's
+    /// can-target value, in this order. An air target needs air; a submarine hits only types flagged as sea units,
+    /// oil platforms or shore buildings; a transport on a shore tile can be hit with land or sea; any other target in
+    /// the sea layer needs sea; any other target needs land.
+    pub(crate) fn can_hit_kind(&self, u: &Unit, t: &Unit) -> bool {
+        let s = self.stats_of(u.kind);
+        let tf = self.flags_of_unit(t);
+        if t.layer == Layer::Air {
+            return s.can_target & 4 != 0;
+        }
+        if s.flags & flags::SUBMARINE != 0 {
+            return tf & (flags::SEA | flags::OIL_SOURCE | flags::SHORE_BUILDING) != 0;
+        }
+        if tf & flags::TRANSPORT != 0 && self.terrain.word(t.tile.0, t.tile.1) & crate::terrain::bits::SHORE != 0 {
+            return s.can_target & 3 != 0;
+        }
+        if t.layer == Layer::Sea {
+            return s.can_target & 2 != 0;
+        }
+        s.can_target & 1 != 0
+    }
+
     fn threat(&self, u: &Unit, t: &Unit) -> Threat {
         let tf = self.flags_of_unit(t);
         Threat {
@@ -786,6 +812,19 @@ impl World {
         if worker_like && attacker.is_none() {
             return false;
         }
+        // Round-50 errata, "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a recorded
+        // attacker that is dying or no longer in play, and that the unit couldn't target at all, is forgotten. There is
+        // no flee and no target search in that run, and the rest of the order's logic goes on.
+        let u = &self.units[i];
+        if attacker.is_none()
+            && let Some(a) = u.attacked_by
+            && let Some(at) = self.unit(a)
+            && at.dying
+            && !self.can_target_kind(u, at)
+        {
+            self.units[i].attacked_by = None;
+            return false;
+        }
         let u = &self.units[i];
         let mage = self.mage_like(u);
         if let Some(a) = attacker {
@@ -837,9 +876,12 @@ impl World {
         // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800). Round-48 errata
         // (`human5-10000` axe thrower 1533, n = 2754): whenever the old target is still recorded, whatever its state
         // (dying, inside a building or otherwise not detected).
+        // Round-50 errata (`xhuman12-10000` grunt 1476, n = 1847): a unit still cooling down is handled as in reach,
+        // below, whichever out-of-reach case would otherwise apply.
         if let (Order::Chase { target: old }, Order::Chase { target }) = (u.order, o)
             && !reach
             && !forgot
+            && !self.still_cooling(u)
             && let Some(ot) = self.unit(old)
             && !self.within_strike_reach(u, ot)
         {
@@ -871,16 +913,28 @@ impl World {
             return true;
         }
         let u = &self.units[i];
-        let switching_chase = matches!((u.order, o), (Order::Chase { .. }, Order::Chase { .. }));
-        if matches!(
+        let same_order = matches!(
+            (u.order, o),
+            (Order::Chase { .. }, Order::Chase { .. })
+                | (Order::AttackInPlace { .. }, Order::AttackInPlace { .. })
+                | (Order::IdleReact { .. }, Order::IdleReact { .. })
+        );
+        let attack_order = matches!(
             u.order,
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
-        ) && self.acquiring_strike(i, o, best)
-            && switching_chase
-        {
+        );
+        let at_once = if same_order && self.still_cooling(u) {
+            // Round-50 errata: whatever the reach, the cooldown test restarts the animation with the cooldown left;
+            // a strike already decided on the old target still lands.
+            self.cooling_down(i)
+        } else {
+            attack_order && self.acquiring_strike(i, o, best) && same_order
+        };
+        if at_once {
             // Round-41 errata, "Resulting order" (`orc02-assault` footman 1587, n = 617): an order-12 switch to a
             // target in reach while still cooling down takes effect at once, and the cooldown test's restart (the
-            // cooldown left as its wait) stands; there is no wait of 3.
+            // cooldown left as its wait) stands; there is no wait of 3. Round-50 errata: so does an out-of-reach
+            // order-12 switch, and a same-order switch in orders 15 and 16 (`xhuman12-10000` archer 1372, n = 5142).
             let u = &mut self.units[i];
             u.order = o;
             u.path.clear();
@@ -1748,6 +1802,163 @@ mod tests {
             (u.order, u.facing, u.script.anim, u.script.frame, u.script.wait),
             (Order::Chase { target: g }, 0, anim::ATTACK, 0, 23)
         );
+    }
+
+    /// Round-50 errata, "Resulting order" (`xhuman12-10000` grunt 1476, n = 1847): an out-of-reach order-12 switch
+    /// while still cooling down is handled as in reach: no command, no step, no wait of 3, the cooldown left as the
+    /// wait. Not cooling down, the switch is the command case (a step toward the new target).
+    #[test]
+    fn an_out_of_reach_switch_while_cooling_down_takes_the_target_at_once() {
+        for cooling in [true, false] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 1, (5, 4), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 8), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            // The old target is out of the search's picture (dying), so the search picks g, out of reach.
+            let oi = at(&w, old);
+            w.units[oi].dying = true;
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.pending = None;
+            u.order = Order::Chase { target: old };
+            u.facing = 0;
+            u.cooldown = if cooling { 23 } else { 0 };
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            if cooling {
+                assert_eq!(
+                    (u.order, u.pending, u.tile, u.script.anim, u.script.frame, u.script.wait),
+                    (Order::Chase { target: g }, None, (5, 5), anim::ATTACK, 0, 23)
+                );
+            } else {
+                assert_eq!((u.order, u.pending), (Order::Chase { target: g }, None));
+                assert_ne!(u.script.wait, 23);
+            }
+        }
+    }
+
+    /// Round-50 errata (`xhuman12-10000` archer 1372, n = 5142): a unit in order 16 whose search gives order 16 on a
+    /// different target while it is still cooling down takes it at once with the cooldown left as its wait.
+    #[test]
+    fn an_order_16_switch_while_cooling_down_keeps_the_cooldown_wait() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let old = w.spawn(FOOTMAN, 1, (20, 20), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, f);
+        let u = &mut w.units[i];
+        u.pending = None;
+        u.order = Order::IdleReact { target: old };
+        u.cooldown = 40;
+        u.script.wait = 1;
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.script.anim, u.script.frame, u.script.wait),
+            (Order::IdleReact { target: g }, anim::ATTACK, 0, 40)
+        );
+    }
+
+    /// Round-50 errata, "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a dying attacker
+    /// the unit can't target is forgotten, with no flee and no search, and the order's logic goes on. One it can
+    /// target is kept while dying, and the search runs without it.
+    #[test]
+    fn a_dying_attacker_the_unit_cannot_target_is_forgotten_without_a_search() {
+        const FLYER: u8 = 0x2b;
+        for can_hit_air in [false, true] {
+            let mut w = map();
+            w.stats.0[FLYER as usize] = w.stats.0[FOOTMAN as usize];
+            w.stats.0[FLYER as usize].flags = flags::AIR | flags::CAN_ATTACK;
+            w.stats.0[FOOTMAN as usize].can_target = if can_hit_air { 5 } else { 1 };
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let d = w.spawn(FLYER, 1, (8, 8), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            assert_eq!(w.unit(d).unwrap().layer, Layer::Air);
+            let di = at(&w, d);
+            w.units[di].dying = true;
+            let i = at(&w, f);
+            w.units[i].pending = None;
+            w.units[i].order = Order::Idle;
+            w.units[i].attacked_by = Some(d);
+            let changed = w.acquire(i, Acquires::Idle, false);
+            let u = &w.units[i];
+            if can_hit_air {
+                // The dying attacker still counts for the resulting order (12); the command then forgets it.
+                assert!(changed, "the search runs");
+                assert_eq!((u.order, u.attacked_by), (Order::Chase { target: g }, None));
+            } else {
+                assert!(!changed, "no search");
+                assert_eq!((u.order, u.attacked_by), (Order::Idle, None));
+            }
+        }
+    }
+
+    /// Round-50 errata, "Commands", command 4 (static study): order 4's end on a dying target forgets the attacker,
+    /// as arrival does.
+    #[test]
+    fn order_4_ending_on_its_target_forgets_the_attacker() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let t = w.spawn(FOOTMAN, 1, (15, 15), 0).unwrap();
+        let a = w.spawn(FOOTMAN, 1, (20, 5), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let ti = at(&w, t);
+        w.units[ti].dying = true;
+        let i = at(&w, f);
+        w.units[i].pending = None;
+        w.units[i].order = Order::MoveAttack {
+            goal: (15, 15),
+            target: Some(t),
+        };
+        w.units[i].attacked_by = Some(a);
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!((u.order, u.attacked_by, u.script.wait), (Order::Idle, None, 3));
+    }
+
+    /// Round-50 errata, "Checks on an attack command": the kind checks in order, with a submarine judged by the target
+    /// type's flags and a transport on a shore tile hittable with land or sea.
+    #[test]
+    fn the_attack_kind_checks_go_in_order() {
+        const SUB: u8 = 0x26;
+        const BOAT: u8 = 0x1c;
+        let mut w = map();
+        w.stats.0[SUB as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[SUB as usize].flags = flags::SEA | flags::SUBMARINE | flags::CAN_ATTACK;
+        w.stats.0[SUB as usize].can_target = 2;
+        w.stats.0[BOAT as usize] = w.stats.0[FOOTMAN as usize];
+        w.stats.0[BOAT as usize].flags = flags::SEA | flags::TRANSPORT;
+        w.stats.0[FOOTMAN as usize].can_target = 1;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let base = w.unit(f).unwrap().clone();
+        let with = |kind: u8, layer: Layer, tile: (i32, i32)| {
+            let mut u = base.clone();
+            (u.kind, u.layer, u.tile) = (kind, layer, tile);
+            u
+        };
+        let footman = with(FOOTMAN, Layer::Land, (5, 5));
+        let sub = with(SUB, Layer::Sea, (5, 5));
+        let boat = with(BOAT, Layer::Sea, (10, 10));
+        let shore_boat = with(BOAT, Layer::Sea, (12, 12));
+        w.terrain.set_bits(12, 12, crate::terrain::bits::SHORE);
+        // A land attacker hits a transport only on a shore tile; a sea attacker hits it anywhere.
+        assert!(!w.can_hit_kind(&footman, &boat));
+        assert!(w.can_hit_kind(&footman, &shore_boat));
+        assert!(w.can_hit_kind(&sub, &boat));
+        // A submarine goes by the target type's flags, not its layer.
+        assert!(!w.can_hit_kind(&sub, &footman));
+        assert!(w.can_hit_kind(&sub, &with(BOAT, Layer::Land, (5, 5))));
+        // An air target needs air, whatever else.
+        assert!(!w.can_hit_kind(&footman, &with(FOOTMAN, Layer::Air, (5, 5))));
+        assert!(!w.can_hit_kind(&sub, &with(BOAT, Layer::Air, (5, 5))));
     }
 
     /// Round-41 errata, "Attack-move: orders 4, 5 and (Enhanced) 10": a unit in order 4 that picks a target already

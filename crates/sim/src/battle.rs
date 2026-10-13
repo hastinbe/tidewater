@@ -131,11 +131,12 @@ impl World {
     pub(crate) fn attack_order(&mut self, i: usize, target: UnitId) {
         // Orders spec: the order loses a target its owner no longer detects (fog does not matter). Round-49 errata
         // ("Checks on an attack command"): the order then checks only that the unit can hit the target's kind, with
-        // the submarine rule; there is no owner test.
+        // the submarine rule; there is no owner test. Round-50 errata: the kind checks in their order, with the
+        // transport-on-shore case.
         let owner = self.units[i].owner;
         let target_ok = self
             .unit(target)
-            .is_some_and(|t| t.present() && Self::detected(t, owner) && self.can_target_kind(&self.units[i], t));
+            .is_some_and(|t| t.present() && Self::detected(t, owner) && self.can_hit_kind(&self.units[i], t));
         if !target_ok {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);
@@ -312,12 +313,17 @@ impl World {
         gap(u, t) <= combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32
     }
 
+    /// Whether the cooldown test would restart `u`'s attack animation ([`World::cooling_down`]), without doing it.
+    pub(crate) fn still_cooling(&self, u: &Unit) -> bool {
+        !u.building && u.layer != Layer::Air && (u.script.wait as u16) < u.cooldown
+    }
+
     /// The strike decision's cooldown test (damage spec, "Attack timing (cooldown)"): a unit that isn't a flyer and
     /// whose wait is less than its cooldown left restarts its attack animation from its first frame and waits for the
     /// cooldown left. Returns whether it did, which ends the run.
     pub(crate) fn cooling_down(&mut self, i: usize) -> bool {
         let u = &self.units[i];
-        if u.building || u.layer == Layer::Air || u.script.wait as u16 >= u.cooldown {
+        if !self.still_cooling(u) {
             return false;
         }
         let left = u.cooldown.min(255) as u8;
@@ -622,8 +628,9 @@ impl World {
         }
         // A computer worker's job is released when it dies (worker-ai spec).
         self.release_job(ti);
-        let u = &self.units[ti];
-        let target = u.pending.and_then(Order::target).or_else(|| u.order.target());
+        // Round-50 errata (unit-slots spec, "Death"; `xhuman12-10000` grunt 1504, n = 4851): the unit keeps the target
+        // recorded at this moment, so a killer that forgot its target dies with none.
+        let target = self.units[ti].recorded_target();
         let slot = target.and_then(|t| self.unit(t)).map(|t| t.slot);
         let u = &mut self.units[ti];
         u.dying_target = slot;
@@ -1006,6 +1013,31 @@ mod tests {
             let u = &w.units[i];
             assert_eq!((u.order, u.script.wait, u.forgot), (Order::Idle, 3, None));
         }
+    }
+
+    /// Round-50 errata, damage spec "Applying damage" (`xhuman12-10000` grunt 1504, n = 4851): a killer that forgot
+    /// its target and dies before losing it dies with no target; the other attacker keeps its target in death.
+    #[test]
+    fn a_killer_that_forgot_its_target_dies_with_none() {
+        let mut w = world();
+        let killer = UnitId(1);
+        let victim = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let other = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let (k, v, o) = (
+            w.index(killer).unwrap(),
+            w.index(victim).unwrap(),
+            w.index(other).unwrap(),
+        );
+        w.units[v].hp = 5;
+        w.units[k].order = Order::Chase { target: victim };
+        w.units[o].order = Order::Chase { target: victim };
+        w.damage(v, 5, killer);
+        assert_eq!(w.units[k].forgot, Some(Order::Chase { target: victim }));
+        let victim_slot = w.units[v].slot;
+        w.kill(k);
+        w.kill(o);
+        assert_eq!((w.units[k].dying, w.units[k].dying_target), (true, None));
+        assert_eq!(w.units[o].dying_target, Some(victim_slot));
     }
 
     /// Damage spec, "Applying damage" (round-47 errata, `xhuman10-blizzard-600` vector): a kill of a unit other than

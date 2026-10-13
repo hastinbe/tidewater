@@ -757,16 +757,9 @@ fn target_cell(w: &World, u: &Unit) -> Cell {
     if u.dying {
         return Cell::opt(u.dying_target);
     }
-    let id = if let (true, Some(p)) = (u.commanded, u.pending) {
-        // A command's target replaces the old one at once, even with none (`xorc01-death-knight`, n = 82: a move
-        // given to a caster that was in order 54 on a unit shows no target).
-        p.target()
-    } else if u.pending.is_none() && u.forgot == Some(u.order) {
-        None
-    } else {
-        u.pending.and_then(Order::target).or_else(|| u.order.target())
-    };
-    Cell::opt(id.and_then(|id| w.unit(id)).map(|t| t.slot))
+    // A command's target replaces the old one at once, even with none (`xorc01-death-knight`, n = 82: a move given to
+    // a caster that was in order 54 on a unit shows no target).
+    Cell::opt(u.recorded_target().and_then(|id| w.unit(id)).map(|t| t.slot))
 }
 
 fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {
