@@ -407,8 +407,9 @@ impl Start {
 
     /// "Choosing the players", multiplayer game: the lobby's humans take their slots (and races, unless neutral:
     /// "Reading the map", `SIDE`) with no draw, then the computer opponents are placed as custom step 3 places them,
-    /// the humans' slots not counting as code 5, drawing from a generator seeded with the game's seed. The resources
-    /// and the tileset are the map's.
+    /// the humans' slots not counting as code 5, drawing from a generator seeded with the game's seed. With "Fixed
+    /// Order" each Computer row instead takes its same-numbered slot (if the map gives it code 4 or 5), with no draw.
+    /// The resources and the tileset are the map's.
     pub fn multiplayer(pud: &Pud, setup: &Setup, seed: u32, lobby: &Lobby) -> Result<Start, SetupError> {
         let (codes, mut races, resources) = from_map(pud);
         let mut humans = [false; PLAYERS];
@@ -424,14 +425,20 @@ impl Start {
         }
         let mut rng = Rng::new(seed);
         let mut computer = [false; PLAYERS];
-        place_opponents(
-            &codes,
-            &humans,
-            &mut computer,
-            lobby.opponents,
-            lobby.fixed_starts,
-            &mut rng,
-        );
+        if lobby.fixed_order {
+            // Round-59 corrections, "Fixed Order": no opponent placement and no draw; each Computer row takes the
+            // slot with its own number if the map gives that slot code 4 or 5.
+            for &row in &lobby.computers {
+                let s = row as usize;
+                let open = matches!(codes.get(s), Some(&controller::COMPUTER | &controller::HUMAN));
+                if s < PLAYABLE && open && !humans[s] {
+                    computer[s] = true;
+                }
+            }
+        } else {
+            // With no opponents placement stops before its first draw (round-59 corrections).
+            place_opponents(&codes, &humans, &mut computer, lobby.computers.len(), false, &mut rng);
+        }
         let local = lobby.local as usize;
         Ok(Start {
             setup: *setup,
@@ -475,10 +482,13 @@ pub struct Lobby {
     pub humans: Vec<(u8, u8)>,
     /// The local player's slot, one of the humans'.
     pub local: u8,
-    /// The number of computer opponents.
-    pub opponents: usize,
-    /// Fixed start positions: no placement draws, each search from slot 0.
-    pub fixed_starts: bool,
+    /// The lobby rows set to Computer. With random starts only their number matters (the opponents placed by draw);
+    /// with [`Lobby::fixed_order`] each takes the slot with its own row number.
+    pub computers: Vec<u8>,
+    /// The lobby's "Location: Fixed Order" (the fixed-starts setting): each human takes the slot of its own lobby row
+    /// (as given in `humans`), each Computer row its same-numbered slot if the map gives it code 4 or 5, and there
+    /// are no placement draws (setup spec, "Fixed Order", round-59 corrections).
+    pub fixed_order: bool,
 }
 
 /// Each slot's owner code, race and (gold, lumber, oil).
@@ -844,8 +854,9 @@ mod tests {
         Lobby {
             humans: humans.iter().map(|&s| (s, race::ORC)).collect(),
             local,
-            opponents,
-            fixed_starts: false,
+            // With random starts only the number of Computer rows matters; these row numbers are never used.
+            computers: (0..opponents as u8).map(|k| 8 + k).collect(),
+            fixed_order: false,
         }
     }
 
@@ -894,17 +905,59 @@ mod tests {
         assert!(Start::multiplayer(&pud(&m), &Setup::default(), 5, &lobby(&[0, 4], 2, 1)).is_err());
     }
 
-    /// With fixed start positions there are no placement draws: each search starts at slot 0.
+    /// Round-59 corrections (setup spec vectors, static study): with no computer opponents placement makes no draw,
+    /// so the setup's first draws are the unit-creation draws.
     #[test]
-    fn multiplayer_fixed_starts_make_no_draws() {
+    fn multiplayer_with_no_opponents_makes_no_placement_draw() {
         let m = Map {
             owners: owners([5, 5, 5, 5, 3, 3, 3, 3]),
             ..Default::default()
         };
-        let mut l = lobby(&[1, 2], 1, 2);
-        l.fixed_starts = true;
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &lobby(&[0, 1], 0, 0)).unwrap();
+        assert_eq!(s.controllers[..4], [HUMAN, HUMAN, NOBODY, NOBODY]);
+        assert_eq!(draws_from(5, &s), 0);
+    }
+
+    /// Round-59 corrections, "Fixed Order" (setup spec vectors, static study): humans in lobby rows 0 and 1 and row 2
+    /// set to Computer on a map whose slot 2 has code 5 give humans in slots 0 and 1, a computer in slot 2 and no
+    /// placement draw; a Computer row 3 whose map slot has code 3 gives no computer in slot 3.
+    #[test]
+    fn multiplayer_fixed_order_takes_same_numbered_slots_without_draws() {
+        let m = Map {
+            owners: owners([5, 5, 5, 3, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let l = Lobby {
+            humans: vec![(0, race::ORC), (1, race::ORC)],
+            local: 0,
+            computers: vec![2, 3],
+            fixed_order: true,
+        };
         let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &l).unwrap();
-        assert_eq!(s.controllers[..4], [COMPUTER, HUMAN, HUMAN, COMPUTER]);
+        assert_eq!(s.controllers[..4], [HUMAN, HUMAN, COMPUTER, 3]);
+        assert_eq!(draws_from(5, &s), 0);
+        // Random starts on the same map: the first draw finds no code 4 and is spent, then each opponent draws for a
+        // code-5 slot (only slot 2 is left, so the second try finds nothing).
+        let r = Lobby {
+            fixed_order: false,
+            ..l
+        };
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &r).unwrap();
+        assert_eq!(s.controllers[..3], [HUMAN, HUMAN, COMPUTER]);
+        assert_eq!(draws_from(5, &s), 3);
+        // Fixed Order: a code-4 slot takes its Computer row too, and a row with no Computer stays nobody.
+        let m = Map {
+            owners: owners([5, 4, 4, 5, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let l = Lobby {
+            humans: vec![(0, race::ORC)],
+            local: 0,
+            computers: vec![2],
+            fixed_order: true,
+        };
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &l).unwrap();
+        assert_eq!(s.controllers[..4], [HUMAN, NOBODY, COMPUTER, NOBODY]);
         assert_eq!(draws_from(5, &s), 0);
     }
 

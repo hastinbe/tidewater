@@ -1001,8 +1001,9 @@ fn oracle_cmd(
 /// player and the number of computer opponents, with the second human as a human player that gives no commands. The
 /// start places the opponents from the game's seed ((`start_seed` + 4) mod 256) as `game/setup.md` says ("Choosing
 /// the players", multiplayer game), and the map's units are then created from that generator; the setup record's
-/// `rng`, the header's controllers and races check the result. Our reading: the lobby's start positions are random
-/// (no header field says otherwise), so each placement try draws.
+/// `rng`, the header's controllers and races check the result. The header has no Fixed Order field yet (trace
+/// format, round-59 corrections), so the start positions are taken as random: each placement try draws, and no
+/// opponents make no draw.
 fn multiplayer_start(
     pud: &Pud,
     header: &oracle::Header,
@@ -1024,7 +1025,7 @@ fn multiplayer_start(
                 };
                 lobby.humans.push((p as u8, race));
             }
-            "computer" => lobby.opponents += 1,
+            "computer" => lobby.computers.push(p as u8),
             "passive" | "nobody" => {}
             c => anyhow::bail!("player {p}: controller {c:?} in a multiplayer header"),
         }
