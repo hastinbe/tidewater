@@ -107,6 +107,10 @@
   corrected), a cast command forgets it and a build command keeps it; an air or sea unit's patrol to a goal within 1
   tile isn't remembered; the remembered goal is the goal as given; the reaction's non-combat flee has no detection test
   and order 12's follow-up run can't reach "no route" again (open questions closed; static).
+  2026-10-13, round-59 errata: minimum range in acquisition is the missile's minimum flight value minus 1; a picked
+  target unit and order 4's walk while it keeps a target unit use the target's widened footprint as the goal zone
+  (traced, no static confirmation); the acquisition kind check uses the transport-on-shore rule (provisional);
+  `orc5-40000` vectors.
 
 ## Behaviour
 
@@ -682,9 +686,14 @@ order" below). This order decides ties.
 - it is not **detected** by the searcher's owner (Invisibility, submarines), or it is **hidden** from that owner by
   the fog (see "Terms");
 - the searcher can't attack its kind (air, sea or land, per the searcher's type). Submarines can attack only sea
-  units, shore buildings and oil platforms;
+  units, shore buildings and oil platforms. A candidate of a transport type standing on shore water can be picked
+  by a searcher that can target land **or** sea, as in the attack command's kind check ("Commands"). This last
+  rule is **provisional**: its only evidence is one capture that isn't committed (`orc12-30000` n = 26982, round-59
+  vectors); confirm it on a re-capture;
 - both are air units and the candidate can't attack;
-- it is closer than the searcher's minimum attack range (the minimum range of its missile; see `damage.md`);
+- it is inside the searcher's minimum range: its distance d (below) is less than the searcher's missile's minimum
+  flight value minus 1 (`damage.md`, "Missile weapon kinds"). So catapults and ballistas skip d ≤ 1, and cannons
+  and other missiles skip nothing (traced: `orc5-40000` n = 21489, round-59 vectors);
 - in Enhanced mode, on attack-move (order 10) only, a sea unit only considers sea units, shore buildings and oil
   platforms. A sea unit on patrol (order 5) uses the ordinary skip list (traced: `xorc11-10000`, vectors below).
 
@@ -777,8 +786,12 @@ cached route dropped at once, but the order stays 4, 5 or 10 until the next step
 the same update, **heading for the new target**: a unit at a step boundary starts its next step on a new route toward
 the target, not toward the order's own goal. For a **building** target the new route is the one an attack on that
 building would take: toward the footprint tile picked by the building goal rule, with the building's goal zone (its
-footprint widened by one tile; `movement/pathfinding.md`, "Step 1"). A unit target is headed for at its tile, as before
-(traced: `human06-31357`, vectors below). Order 12 takes over at the next step done (attack animation, wait 3). This
+footprint widened by one tile; `movement/pathfinding.md`, "Step 1"). A unit target is headed for at its tile (traced:
+`human06-31357`, vectors below), with the **target's** goal zone, as for a building: its footprint widened by one tile,
+rounded out to even for a two-tile mover (`movement/pathfinding.md`, "Step 1"), not the 3 × 3 around its tile. While
+order 4 keeps a target unit, its own walk toward its stored goal tile uses that zone too: G stays the stored goal, and
+the zone comes from the target where it stands now, which may have moved since (traced: `orc5-40000` n = 33260, round-59
+vectors; not yet confirmed by static study). Order 12 takes over at the next step done (attack animation, wait 3). This
 holds even when the new target is already within strike reach: there is no strike in that update, the walk steps toward
 the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced; patrol changes no trace in the
 set. A unit in order 4 or 10 standing at its move goal doesn't search at all: it arrives ("Arriving and losing the
@@ -1287,6 +1300,16 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | A footman hit by a footman it doesn't detect and could hit (static study) | No flee; the search ignores the attacker in that run ("Terms") |
 | A computer player's tanker in order 23 on its way to a platform, hit by a destroyer (static study) | No flee (a computer player's unit flees only from idle), and its AI routine doesn't run either |
 | A computer player's peon idle, hit by a grunt (static study) | It can hit land, so no flee from step 1: its worker AI routine runs |
+
+### Round-59 vectors (oracle traces)
+
+| Input | Expected |
+| --- | --- |
+| `orc5-40000` (Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle; transport 1516 (type 0x1C, owner 0) landing at (120, 6), d = 2 | Picked: order 16, animation 4, wait 3, target 1516 (a minimum of 3 would have skipped it) |
+| `orc5-40000` (Enhanced), n = 33260: computer footman 1485 (type 0x00, owner 0) at (43, 103) in order 4 since n = 33257, target transport 1474, stored goal (46, 106); 1474 moved to (46, 104) at n = 33258 | With the transport's widened footprint as the zone the walk finds a route: 1485 steps east to (44, 103) (animation 3, facing 2). With the 3 × 3 zone around (46, 106) there is no route and it would go idle |
+| `orc12-30000` (Enhanced; capture not committed, re-capture with the setup `rng` 0xF12C6CAA), n = 23612: computer juggernaut 1394 (owner 1, two-tile mover) at (24, 112) picks ogre 1449 at (19, 116), G = (18, 116) | Zone: even tiles of columns 18 to 20 and rows 114 to 118; first step south-west to (22, 114). The 3 × 3 zone would give W, W, W, SW |
+| `orc12-30000` (as above, **provisional**), n = 26982: computer ogre mage 1442 (owner 3) at (36, 119), idle; transport 1434 (owner 0) landing on the shore tile (29, 121) | Picked: order 16, animation 4, wait 3, target 1434 |
+| A land-only searcher; candidate a transport in the sea layer on a shore-water tile (static, provisional) | Not skipped for its kind |
 
 ## Open questions
 
