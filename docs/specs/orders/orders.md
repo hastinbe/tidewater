@@ -78,6 +78,10 @@
   sea-only search rule applies to order 10 only; an undetected live attacker is ignored for the run and kept; the checks
   of commands 8 and 9, the owner rule of orders 12, 15 and 16 and order 11's range check (static study); `xorc11`,
   `xhuman7` and `xorc8` vectors; open questions.
+  2026-10-13, round-50 errata: an attacker the unit can't target is forgotten when dying or no longer in play, with no
+  flee and no search; an out-of-reach order-12 switch while cooling down is handled as in reach, and so is a same-order
+  switch in orders 15 and 16; command 4's end forgets the attacker, and the attack order's kind checks in order (both
+  static study); `xorc11-10000` and `xhuman12-10000` vectors.
 
 ## Behaviour
 
@@ -239,7 +243,7 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | Command | Result |
 | --- | --- |
 | 3, smart move (right-click) | See "Smart move" below |
-| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3) |
+| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3). As on arrival, the unit also forgets its attacker (static study) |
 | 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends |
 | 8, attack | Target unit, of any owner (the player's own, an ally's and a neutral unit included): order 9. Target tile, as given, is a wall tile: order 11 ("Order 11: attacking a wall tile"). Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
 | 9 | Target unit, of any owner: order 9; target tile, as given, a wall tile: order 11; otherwise order 2 |
@@ -256,7 +260,11 @@ dying target is handled by "Commands forget a stale attacker"). They check only 
 player's own, must not be the target itself, and its type must be able to attack. The attack order's logic then checks
 only that the attacker can hit the target's kind (air, sea or land), with the submarine rule of "Automatic target
 acquisition", so an air target still needs an attacker that can hit air. Orders 12, 15 and 16 have no owner test on
-their target either (static study only for this paragraph).
+their target either. The kind check uses the attacker type's can-target value from the unit data (land, sea and air), in
+this order: an **air** target needs air; a **submarine** attacker can hit only types that are sea units, oil platforms
+or shore buildings (by the target type's own flags, not the layer it stands in); a **transport** standing on a **shore**
+tile can be hit by an attacker with either land or sea; any other target in the sea layer needs sea; and any other
+target needs land (static study only for this paragraph).
 
 Commands 2, 6, 23, 24, 27, 29 and the spell commands have their own handlers, covered by later specs (stop, harvest,
 return goods, repair, build and spells).
@@ -642,6 +650,10 @@ When the searching unit is in order 12 and the search picks a different target:
 - **In reach:** the order's logic continues in the same update with the new target: the cooldown test, then the
   strike decision (with its turn toward the target). If the unit is still cooling down, the new target and order
   take effect at once and the order's animation restarts with the cooldown left as its wait (no wait of 3).
+- **Out of reach while still cooling down:** handled as in reach, whichever of the out-of-reach cases below would apply:
+  the new target and order take effect at once and the attack animation restarts with the cooldown left as its wait.
+  There is no command, no wait of 3 and no step in that update, and a strike already decided on the old target still
+  lands (traced: `xhuman12-10000`, a unit within strike reach of its old target; vectors below).
 - **Out of reach:** order 12 on the new target is given as a **command**: the target changes at once, the cached
   route is dropped and the blocked counter cleared (as for every command). The logic carries on in the same update
   and the unit starts its next step, toward the new target, in that update. The new order takes over at the next
@@ -655,6 +667,10 @@ When the searching unit is in order 12 and the search picks a different target:
   (attack animation, wait 3), as in the next case. No step is taken in that update.
 - **The old target is gone or was forgotten** (this unit killed it, or its slot is gone): the new order takes over at
   once (attack animation, wait 3).
+
+The cooling-down case applies also to a unit in order 15 or 16 whose search gives the same order on a different target:
+it takes the new target at once with the cooldown left as its wait (traced for order 16: `xhuman12-10000`, vectors
+below).
 
 **Attack-move: orders 4, 5 and (Enhanced) 10.** When a unit in order 4 (move, attacking on the way), 5 (patrol) or, in
 Enhanced mode, 10 picks a target, order 12 on that target is likewise given as a command: the target is set and the
@@ -815,8 +831,12 @@ is dealt with.
 **In the acquiring orders** (those marked "acquires", and attack-move in Enhanced mode), each time the logic runs and
 the unit has an attacker:
 
-1. If the unit couldn't target its attacker at all (its score for the attacker would be 0: for example it can't
-   attack that kind of unit), it runs the **flee** rule below. Nothing else happens in that run.
+1. If the unit couldn't target its attacker at all (its score for the attacker would be 0: for example it can't attack
+   that kind of unit), then: if the attacker is dying or no longer in play, it is forgotten, there is no flee and no
+   target search in that run, and the rest of the order's logic goes on as usual (traced: `xorc11-10000`, where a
+   battleship that has just killed its target forgets a dragon that is no longer in play, finds its target lost and
+   resumes its patrol; vectors below). Otherwise the unit runs the **flee** rule below, and nothing else happens in that
+   run.
 2. Otherwise, for a combat unit, the ordinary target search runs once, starting with the attacker as the best
    candidate. If the result differs from the unit's current target, the unit attacks it with the order from the
    resulting-order table, which for the idle-type orders is **12 whenever the unit has an attacker**, for human and
@@ -1129,6 +1149,10 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Same: 1420 dying from n = 252; 1511 reaches its next step boundary at n = 271 | Order 5 (the patrol resumed), animation 2, wait 3, target null; it heads for (24, 60) by n = 274 |
 | Same, n = 151: submarine 1422 hits 1420 again; 1420's owner doesn't detect it | 1420 still records 1422, so there is no new call; 1511 keeps its order 4 on 1420 |
 | `xorc8-10000` (oracle trace, Enhanced): computer submarine 1473 (type 0x26, owner 2) patrols from n = 552, gets command 4 on a tile at n = 4553, is in order 12 on 1411 from n = 5433, and loses it at n = 5581 | Order 5, animation 2, wait 3, target null |
+| `xorc11-10000` (oracle trace), n = 628: battleship 1539 (type 0x20, owner 6), on order 12 after killing its target, with patrol remembered; its recorded attacker, dragon 1526 (type 0x2B), which it can't target, is no longer in play (order 0, owner 15) | Order 5, animation 2, wait 3, target null; no search |
+| `xhuman12-10000` (oracle trace): grunt 1476 (type 0x01, owner 2) in order 12 on farm 1455 decides a strike at n = 1844; at n = 1847, still cooling down, its search picks castle 1443 (type 0x5A), out of reach | n = 1847: order 12, target 1443, animation 4, wait 23. The strike lands: 1455 goes from 400 to 394 HP at n = 1869; 1476 steps at n = 1870 |
+| Same, n = 1841: the same switch while not cooling down | The command case: wait 3 |
+| `xhuman12-10000`, n = 5142: archer 1372 (type 0x08, owner 1) in order 16 on 1363, cooling down, picks 1480 | Order 16, target 1480, animation 4, wait 63 |
 
 ## Open questions
 
