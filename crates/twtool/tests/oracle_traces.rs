@@ -23,8 +23,10 @@
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
-//! humans' slots and races, the computer rows) from the header. The header has no Fixed Order field yet (round-59
-//! corrections), so the starts are taken as random. All match in full: mp-dark-paths-bne-1000,
+//! humans' slots and races, the computer rows) from the header. Headers from round 60 on carry `opponents` and
+//! `starts`; older ones have random starts and their computer controllers are counted. All match in full:
+//! mp-gold-rush-bne-fixed-6000, mp-dark-paths-bne-fixed-1000 and mp-rose-petal-bne-fixed-3000 (Fixed Order),
+//! mp-dark-paths-bne-1000,
 //! mp-gold-rush-bne-6000, mp-gold-rush-bne-25000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000,
 //! mp-big-rock-candy-mountain-bne-25000, mp-big-rock-candy-mountain-bne-40000, mp-schwartzwald-bne-6000,
 //! mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000, mp-rose-petal-bne-25000, mp-isolation-bne-30000 and
@@ -222,4 +224,7 @@ traces! {
     human2_human02_all_out_4000: ("human2-human02-all-out-4000.jsonl.gz", "Campaign\\Human\\Human02.pud", 2, &[], None),
     orc5_40000: ("orc5-40000.jsonl.gz", "Campaign\\Orc\\Orc05.pud", 9, &[], None),
     human9_30000: ("human9-30000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
+    mp_gold_rush_bne_fixed_6000: (mp, "mp-gold-rush-bne-fixed-6000.jsonl.gz", &[], None),
+    mp_dark_paths_bne_fixed_1000: (mp, "mp-dark-paths-bne-fixed-1000.jsonl.gz", &[], None),
+    mp_rose_petal_bne_fixed_3000: (mp, "mp-rose-petal-bne-fixed-3000.jsonl.gz", &[], None),
 }

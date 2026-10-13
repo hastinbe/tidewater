@@ -149,6 +149,12 @@ pub struct Multiplayer {
     pub start_seed: u8,
     /// `humans`: human players in the lobby (the traced player and idle ones).
     pub humans: u8,
+    /// `opponents`: the lobby rows set to Computer, 0 to 6 (round-60 harness). `None` in traces made before round 60;
+    /// for those the comparer counts the computer controllers.
+    pub opponents: Option<u8>,
+    /// `starts`: `"fixed"` (Fixed Order) is true; `"random"`, and a trace made before round 60 without the field, is
+    /// false.
+    pub fixed_order: bool,
 }
 
 impl Multiplayer {
@@ -210,6 +216,20 @@ impl Header {
                     .to_string(),
                 start_seed: u8::try_from(int(&v, "start_seed")?).context("`start_seed` is 0 to 255")?,
                 humans: int(&v, "humans")? as u8,
+                opponents: match v.get("opponents") {
+                    None => None,
+                    Some(_) => Some(
+                        u8::try_from(int(&v, "opponents")?)
+                            .ok()
+                            .filter(|&o| o <= 6)
+                            .context("`opponents` is 0 to 6")?,
+                    ),
+                },
+                fixed_order: match v.get("starts").map(Value::as_str) {
+                    None | Some(Some("random")) => false,
+                    Some(Some("fixed")) => true,
+                    Some(s) => bail!("unknown `starts` {s:?}"),
+                },
             }),
             Some(p) => bail!("unknown `launch_path` {p:?}"),
         };
@@ -266,6 +286,10 @@ impl Header {
             v["map"] = m.map.clone().into();
             v["start_seed"] = m.start_seed.into();
             v["humans"] = m.humans.into();
+            if let Some(o) = m.opponents {
+                v["opponents"] = o.into();
+                v["starts"] = if m.fixed_order { "fixed" } else { "random" }.into();
+            }
         }
         v.to_string()
     }
@@ -1749,6 +1773,8 @@ mod tests {
             map: "Synthetic.pud".into(),
             start_seed: 253,
             humans: 2,
+            opponents: None,
+            fixed_order: false,
         });
         let back = Header::parse(&h.to_json()).unwrap();
         assert_eq!(back.rules.as_deref(), Some("enhanced"));
@@ -1756,6 +1782,37 @@ mod tests {
         assert_eq!(m, h.multiplayer.clone().unwrap());
         assert_eq!(m.game_seed(), 1);
         assert_eq!(Header::parse(&header().to_json()).unwrap().multiplayer, None);
+    }
+
+    /// Trace format, round-60 harness: `opponents` and `starts`; without them (traces made before round 60) the starts
+    /// are random and the opponent count is unknown.
+    #[test]
+    fn reads_the_opponents_and_starts_fields() {
+        let mut h = header();
+        h.multiplayer = Some(Multiplayer {
+            connection: "direct-connect".into(),
+            map: "Synthetic.pud".into(),
+            start_seed: 1,
+            humans: 2,
+            opponents: Some(2),
+            fixed_order: true,
+        });
+        let m = Header::parse(&h.to_json()).unwrap().multiplayer.unwrap();
+        assert_eq!((m.opponents, m.fixed_order), (Some(2), true));
+        let mut v: Value = serde_json::from_str(&h.to_json()).unwrap();
+        v["starts"] = "random".into();
+        let m = Header::parse(&v.to_string()).unwrap().multiplayer.unwrap();
+        assert_eq!((m.opponents, m.fixed_order), (Some(2), false));
+        v["starts"] = "sideways".into();
+        assert!(Header::parse(&v.to_string()).is_err());
+        v["starts"] = "random".into();
+        v["opponents"] = 7.into();
+        assert!(Header::parse(&v.to_string()).is_err());
+        let o = v.as_object_mut().unwrap();
+        o.remove("opponents");
+        o.remove("starts");
+        let m = Header::parse(&v.to_string()).unwrap().multiplayer.unwrap();
+        assert_eq!((m.opponents, m.fixed_order), (None, false));
     }
 
     #[test]

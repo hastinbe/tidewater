@@ -996,14 +996,14 @@ fn oracle_cmd(
     Ok(summary.diverged == 0)
 }
 
-/// Trace format, "Multiplayer launch" (round-58 errata): the comparer derives the setup's generator state and the
-/// computer slots. The lobby's choices (a later spec) come from the header: the humans' slots and races, the local
-/// player and the number of computer opponents, with the second human as a human player that gives no commands. The
-/// start places the opponents from the game's seed ((`start_seed` + 4) mod 256) as `game/setup.md` says ("Choosing
-/// the players", multiplayer game), and the map's units are then created from that generator; the setup record's
-/// `rng`, the header's controllers and races check the result. The header has no Fixed Order field yet (trace
-/// format, round-59 corrections), so the start positions are taken as random: each placement try draws, and no
-/// opponents make no draw.
+/// Trace format, "Multiplayer launch" (round-58 errata, round-60 harness): the comparer derives the setup's generator
+/// state and the computer slots. The lobby's choices (a later spec) come from the header: the humans' slots and races,
+/// the local player, the number of computer opponents (`opponents`, cross-checked against the "computer"
+/// controllers; a trace made before round 60 has no `opponents`, and they are counted) and the "Location" option
+/// (`starts`: `"fixed"` is Fixed Order; `"random"` or no field, random starts), with the second human as a human
+/// player that gives no commands. The start places the opponents from the game's seed ((`start_seed` + 4) mod 256)
+/// as `game/setup.md` says ("Choosing the players", multiplayer game, and "Fixed Order"), and the map's units are then
+/// created from that generator; the setup record's `rng`, the header's controllers and races check the result.
 fn multiplayer_start(
     pud: &Pud,
     header: &oracle::Header,
@@ -1011,8 +1011,13 @@ fn multiplayer_start(
     seed: u32,
 ) -> Result<tidewater_sim::setup::Start> {
     use tidewater_sim::setup::{Lobby, Start};
+    let mp = header
+        .multiplayer
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("not a multiplayer trace"))?;
     let mut lobby = Lobby {
         local: header.local_player,
+        fixed_order: mp.fixed_order,
         ..Default::default()
     };
     for (p, c) in header.controllers.iter().enumerate().take(16) {
@@ -1028,6 +1033,18 @@ fn multiplayer_start(
             "computer" => lobby.computers.push(p as u8),
             "passive" | "nobody" => {}
             c => anyhow::bail!("player {p}: controller {c:?} in a multiplayer header"),
+        }
+    }
+    // The placement can place fewer computers than `opponents` (a failed search), never more. With Fixed Order the
+    // Computer rows are the computers' own slots; with random starts only their number matters.
+    if let Some(o) = mp.opponents {
+        let placed = lobby.computers.len();
+        anyhow::ensure!(
+            placed <= o as usize,
+            "the header has {placed} computer controllers but `opponents` {o}"
+        );
+        if !mp.fixed_order {
+            lobby.computers.resize(o as usize, 0);
         }
     }
     Start::multiplayer(pud, &setup, seed, &lobby)

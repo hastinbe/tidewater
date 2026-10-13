@@ -961,6 +961,35 @@ mod tests {
         assert_eq!(draws_from(5, &s), 0);
     }
 
+    /// Round-60 vectors (`mp-rose-petal-bne-fixed-3000`, the setup draws only): codes (5, 5, 5, 5, 5, 5, 3, 3), Fixed
+    /// Order, humans in lobby rows 0 and 1, rows 2 to 5 set to Computer: computers in slots 2 to 5 and no placement
+    /// draw, where random starts with 4 opponents make 1 + 4 = 5.
+    #[test]
+    fn fixed_order_makes_one_plus_opponents_fewer_draws() {
+        let m = Map {
+            owners: owners([5, 5, 5, 5, 5, 5, 3, 3]),
+            ..Default::default()
+        };
+        let l = Lobby {
+            humans: vec![(0, race::HUMAN), (1, race::ORC)],
+            local: 0,
+            computers: vec![2, 3, 4, 5],
+            fixed_order: true,
+        };
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &l).unwrap();
+        assert_eq!(
+            s.controllers[..8],
+            [HUMAN, HUMAN, COMPUTER, COMPUTER, COMPUTER, COMPUTER, NOBODY, NOBODY]
+        );
+        assert_eq!(draws_from(5, &s), 0);
+        let r = Lobby {
+            fixed_order: false,
+            ..l
+        };
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &r).unwrap();
+        assert_eq!(draws_from(5, &s), 5);
+    }
+
     #[test]
     fn your_race_replaces_the_local_slots() {
         let m = Map {
