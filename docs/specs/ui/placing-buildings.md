@@ -9,6 +9,8 @@
   map view.
   2026-10-13, round-60 errata: carrying out the build command checks the site again, without the unexplored
   test; the "setup-time switch" open question is closed; `orc9-orc09-shore-build-3000` vector.
+  2026-10-13, round-61 errata: the command's own validity test (the builder table) comes first; the affordability
+  check is traced.
 
 ## Behaviour
 
@@ -79,8 +81,10 @@ Both `misc\thunk` and `misc\error` are plain sounds: not placed at a tile, alway
 any sound option. The off-screen rule in `ui/sounds.md` that silences the error sound therefore never applies to it.
 
 The site check is not only a local filter. When the build command is carried out (in the command turn, for every
-player), the site check runs again for the builder, **without the unexplored test**, followed by the affordability
-check; on a failure the builder gets no order and nothing is paid, and the message is shown only to the builder's
+player), the command's own validity test comes first (the site on the map, the sender's own builder, and the builder
+table of `economy/build-train.md`; a failure does nothing, with no message). Then the site check runs again for the
+builder, **without the unexplored test**, followed by the affordability check (traced: `orc9-orc09-smart-move-2000`
+n = 10); on a failure the builder gets no order and nothing is paid, and the message is shown only to the builder's
 owner (`economy/build-train.md`, "Carrying out a player's build command"; traced: `orc9-orc09-shore-build-3000`
 n = 27). When the worker reaches the site, the game checks the placement again (`economy/build-train.md`); that
 check plays no error sound.
@@ -122,6 +126,7 @@ oil patch 2 × 2.
 | The player cancels placement mode | No sound |
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): a shipyard command at (52, 81), too close to oil, carried out at n = 26 | The peon gets no order (stays in order 2) |
 | A command whose site is partly unexplored for the builder's owner, carried out (`human01-basics-9500` n = 19) | No unexplored failure: the build goes ahead |
+| `orc9-orc09-smart-move-2000` (oracle trace, Enhanced), n = 14: a human farm command for a peon, on a clear site | The peon gets no order (the builder table) |
 
 ## Open questions
 
