@@ -348,20 +348,7 @@ pub struct Start {
 impl Start {
     /// Chooses the players of `pud` and applies the custom choices, drawing from a generator seeded with `seed`.
     pub fn choose(pud: &Pud, setup: &Setup, seed: u32) -> Result<Start, SetupError> {
-        let mut codes = [controller::NOBODY; PLAYERS];
-        for (c, &o) in codes.iter_mut().zip(pud.owners()) {
-            *c = o;
-        }
-        codes[PLAYERS - 1] = controller::PASSIVE;
-        let mut races = [race::NEUTRAL; PLAYERS];
-        for (r, &s) in races.iter_mut().zip(pud.sides()) {
-            *r = if s <= race::ORC { s } else { race::NEUTRAL };
-        }
-        let mut resources = [(DEFAULT_RESOURCES, DEFAULT_RESOURCES, DEFAULT_RESOURCES); PLAYERS];
-        for (p, r) in resources.iter_mut().enumerate() {
-            let (g, l, o) = pud.start_resources(p);
-            *r = (g as u32, l as u32, o as u32);
-        }
+        let (codes, mut races, mut resources) = from_map(pud);
         let mut rng = Rng::new(seed);
         let mut era = pud.era;
         // Chosen: the local slot and the computer opponents.
@@ -379,14 +366,11 @@ impl Start {
                 race_setting = entry & 1;
             }
             Game::Custom(c) => {
-                let taken = |computer: &[bool; PLAYERS], l: Option<usize>, s: usize| computer[s] || l == Some(s);
-                let search = |computer: &[bool; PLAYERS], l: Option<usize>, from: u32, code: u8| {
-                    (0..PLAYABLE)
-                        .map(|k| (from as usize + k) % PLAYABLE)
-                        .find(|&s| codes[s] == code && !taken(computer, l, s))
-                };
-                let r = rng.draw();
-                local = search(&computer, None, r, controller::HUMAN).ok_or(SetupError::NoLocalSlot)?;
+                let r = rng.draw() as usize;
+                local = (0..PLAYABLE)
+                    .map(|k| (r + k) % PLAYABLE)
+                    .find(|&s| codes[s] == controller::HUMAN)
+                    .ok_or(SetupError::NoLocalSlot)?;
                 if let Some(r) = c.race {
                     races[local] = r;
                 }
@@ -400,53 +384,65 @@ impl Start {
                     },
                     |n| n as usize,
                 );
-                let draw = |rng: &mut Rng| if c.fixed_starts { 0 } else { rng.draw() };
-                let (mut chosen, mut from_code_5) = (0, false);
-                while chosen < wanted {
-                    if !from_code_5 {
-                        let r = draw(&mut rng);
-                        if let Some(s) = search(&computer, Some(local), r, controller::COMPUTER) {
-                            computer[s] = true;
-                            chosen += 1;
-                            continue;
-                        }
-                        from_code_5 = true;
-                    }
-                    let r = draw(&mut rng);
-                    let Some(s) = search(&computer, Some(local), r, controller::HUMAN) else {
-                        break;
-                    };
-                    computer[s] = true;
-                    chosen += 1;
-                }
+                let mut humans = [false; PLAYERS];
+                humans[local] = true;
+                place_opponents(&codes, &humans, &mut computer, wanted, c.fixed_starts, &mut rng);
                 custom_choices(&c, setup.enhanced, &mut rng, &mut resources, &mut era);
             }
         }
-        let mut controllers = codes;
-        for (s, c) in controllers.iter_mut().enumerate() {
-            *c = if s == local {
-                controller::HUMAN
-            } else if computer[s] {
-                controller::COMPUTER
-            } else {
-                match *c {
-                    controller::COMPUTER | controller::HUMAN => controller::NOBODY,
-                    0 => controller::HUMAN,
-                    1 => controller::COMPUTER,
-                    other => other,
-                }
-            };
-        }
+        let mut humans = [false; PLAYERS];
+        humans[local] = true;
         Ok(Start {
             setup: *setup,
             local: local as u8,
             race_setting,
-            controllers,
+            controllers: controllers(codes, &humans, &computer),
             races,
             resources,
             era,
             rng,
             multiplayer: false,
+        })
+    }
+
+    /// "Choosing the players", multiplayer game: the lobby's humans take their slots (and races, unless neutral:
+    /// "Reading the map", `SIDE`) with no draw, then the computer opponents are placed as custom step 3 places them,
+    /// the humans' slots not counting as code 5, drawing from a generator seeded with the game's seed. The resources
+    /// and the tileset are the map's.
+    pub fn multiplayer(pud: &Pud, setup: &Setup, seed: u32, lobby: &Lobby) -> Result<Start, SetupError> {
+        let (codes, mut races, resources) = from_map(pud);
+        let mut humans = [false; PLAYERS];
+        for &(slot, r) in &lobby.humans {
+            let s = slot as usize;
+            humans[s] = true;
+            if r <= race::ORC {
+                races[s] = r;
+            }
+        }
+        if !lobby.humans.iter().any(|&(s, _)| s == lobby.local) {
+            return Err(SetupError::NoLocalSlot);
+        }
+        let mut rng = Rng::new(seed);
+        let mut computer = [false; PLAYERS];
+        place_opponents(
+            &codes,
+            &humans,
+            &mut computer,
+            lobby.opponents,
+            lobby.fixed_starts,
+            &mut rng,
+        );
+        let local = lobby.local as usize;
+        Ok(Start {
+            setup: *setup,
+            local: lobby.local,
+            race_setting: races[local].min(race::ORC),
+            controllers: controllers(codes, &humans, &computer),
+            races,
+            resources,
+            era: pud.era,
+            rng,
+            multiplayer: true,
         })
     }
 
@@ -470,6 +466,97 @@ impl Start {
         }
         table
     }
+}
+
+/// The lobby's choices a multiplayer start takes as given (the lobby is a later spec).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Lobby {
+    /// Each human's slot and race (0 human, 1 orc, 2 neutral).
+    pub humans: Vec<(u8, u8)>,
+    /// The local player's slot, one of the humans'.
+    pub local: u8,
+    /// The number of computer opponents.
+    pub opponents: usize,
+    /// Fixed start positions: no placement draws, each search from slot 0.
+    pub fixed_starts: bool,
+}
+
+/// Each slot's owner code, race and (gold, lumber, oil).
+type FromMap = ([u8; PLAYERS], [u8; PLAYERS], [(u32, u32, u32); PLAYERS]);
+
+/// What the map gives every start: each slot's owner code (slot 15 passive), race and resources ("Reading the map").
+fn from_map(pud: &Pud) -> FromMap {
+    let mut codes = [controller::NOBODY; PLAYERS];
+    for (c, &o) in codes.iter_mut().zip(pud.owners()) {
+        *c = o;
+    }
+    codes[PLAYERS - 1] = controller::PASSIVE;
+    let mut races = [race::NEUTRAL; PLAYERS];
+    for (r, &s) in races.iter_mut().zip(pud.sides()) {
+        *r = if s <= race::ORC { s } else { race::NEUTRAL };
+    }
+    let mut resources = [(DEFAULT_RESOURCES, DEFAULT_RESOURCES, DEFAULT_RESOURCES); PLAYERS];
+    for (p, r) in resources.iter_mut().enumerate() {
+        let (g, l, o) = pud.start_resources(p);
+        *r = (g as u32, l as u32, o as u32);
+    }
+    (codes, races, resources)
+}
+
+/// "Choosing the players", custom step 3 (also the multiplayer opponents): `wanted` opponents, each from a draw r
+/// (0 with fixed starts) and a search from slot r mod 8 upward for a code-4 slot. When a search finds none, that draw
+/// is spent and the rest come from the code-5 slots not taken by a human, a new draw per try, until none is left.
+fn place_opponents(
+    codes: &[u8; PLAYERS],
+    humans: &[bool; PLAYERS],
+    computer: &mut [bool; PLAYERS],
+    wanted: usize,
+    fixed_starts: bool,
+    rng: &mut Rng,
+) {
+    let search = |computer: &[bool; PLAYERS], from: u32, code: u8| {
+        (0..PLAYABLE)
+            .map(|k| (from as usize + k) % PLAYABLE)
+            .find(|&s| codes[s] == code && !computer[s] && !humans[s])
+    };
+    let mut draw = || if fixed_starts { 0 } else { rng.draw() };
+    let (mut chosen, mut from_code_5) = (0, false);
+    while chosen < wanted {
+        if !from_code_5 {
+            if let Some(s) = search(computer, draw(), controller::COMPUTER) {
+                computer[s] = true;
+                chosen += 1;
+                continue;
+            }
+            from_code_5 = true;
+        }
+        let Some(s) = search(computer, draw(), controller::HUMAN) else {
+            break;
+        };
+        computer[s] = true;
+        chosen += 1;
+    }
+}
+
+/// "Both": the humans human-controlled, the chosen opponents computer, every other code-4 or code-5 slot nobody;
+/// codes 0 and 1 test as human and computer, and the rest are kept.
+fn controllers(codes: [u8; PLAYERS], humans: &[bool; PLAYERS], computer: &[bool; PLAYERS]) -> [u8; PLAYERS] {
+    let mut out = codes;
+    for (s, c) in out.iter_mut().enumerate() {
+        *c = if humans[s] {
+            controller::HUMAN
+        } else if computer[s] {
+            controller::COMPUTER
+        } else {
+            match *c {
+                controller::COMPUTER | controller::HUMAN => controller::NOBODY,
+                0 => controller::HUMAN,
+                1 => controller::COMPUTER,
+                other => other,
+            }
+        };
+    }
+    out
 }
 
 /// The custom resources and terrain choices; the resource draw comes before the terrain draw.
@@ -740,6 +827,85 @@ mod tests {
         });
         assert_eq!(s.controllers[..4], [HUMAN, COMPUTER, COMPUTER, NOBODY]);
         assert_eq!(draws_made(&s), 1);
+    }
+
+    fn draws_from(seed: u32, s: &Start) -> usize {
+        let mut r = Rng::new(seed);
+        let mut n = 0;
+        while r != s.rng {
+            r.draw();
+            n += 1;
+            assert!(n < 50);
+        }
+        n
+    }
+
+    fn lobby(humans: &[u8], local: u8, opponents: usize) -> Lobby {
+        Lobby {
+            humans: humans.iter().map(|&s| (s, race::ORC)).collect(),
+            local,
+            opponents,
+            fixed_starts: false,
+        }
+    }
+
+    /// Round-58 errata, "Choosing the players", multiplayer game (the Gold Rush BNE vector): seed 5, codes
+    /// (5, human, human, 5, 3, 3, 3, 3) with the humans in slots 1 and 2, 2 opponents. Draw 1731 finds no code 4 and
+    /// is spent; 32036 (mod 8 = 4) finds slot 0; 21622 (mod 8 = 6) finds slot 3.
+    #[test]
+    fn multiplayer_opponents_spend_one_draw_then_take_code_5_slots() {
+        let m = Map {
+            owners: owners([5, 5, 5, 5, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let mut r = Rng::new(5);
+        assert_eq!([r.draw(), r.draw(), r.draw()], [1731, 32036, 21622]);
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &lobby(&[1, 2], 1, 2)).unwrap();
+        assert_eq!(
+            s.controllers[..8],
+            [COMPUTER, HUMAN, HUMAN, COMPUTER, NOBODY, NOBODY, NOBODY, NOBODY]
+        );
+        assert_eq!((s.local, s.multiplayer, draws_from(5, &s)), (1, true, 3));
+        // The lobby's race replaces the map's for the humans only.
+        assert_eq!(s.races[..4], [race::HUMAN, race::ORC, race::ORC, race::HUMAN]);
+    }
+
+    /// Round-58 vectors, `mp-dark-paths-bne-1000` and `mp-rose-petal-bne-10000` (the setup draws only): codes
+    /// (5, 5, 5, 3, ...) with humans in 0 and 1 and 1 opponent gives the computer slot 2 in 2 draws; codes
+    /// (5, 5, 5, 5, 5, 5, 3, 3) with humans in 0 and 4 and 4 opponents gives slots 1, 2, 3 and 5 in 5 draws.
+    #[test]
+    fn multiplayer_placement_makes_one_plus_opponents_draws() {
+        let m = Map {
+            owners: owners([5, 5, 5, 3, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &lobby(&[0, 1], 0, 1)).unwrap();
+        assert_eq!(s.controllers[..4], [HUMAN, HUMAN, COMPUTER, NOBODY]);
+        assert_eq!(draws_from(5, &s), 2);
+        let m = Map {
+            owners: owners([5, 5, 5, 5, 5, 5, 3, 3]),
+            ..Default::default()
+        };
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &lobby(&[0, 4], 0, 4)).unwrap();
+        let computers: Vec<usize> = (0..8).filter(|&p| s.controllers[p] == COMPUTER).collect();
+        assert_eq!(computers, [1, 2, 3, 5]);
+        assert_eq!(draws_from(5, &s), 5);
+        // A local player that isn't one of the humans can't start.
+        assert!(Start::multiplayer(&pud(&m), &Setup::default(), 5, &lobby(&[0, 4], 2, 1)).is_err());
+    }
+
+    /// With fixed start positions there are no placement draws: each search starts at slot 0.
+    #[test]
+    fn multiplayer_fixed_starts_make_no_draws() {
+        let m = Map {
+            owners: owners([5, 5, 5, 5, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let mut l = lobby(&[1, 2], 1, 2);
+        l.fixed_starts = true;
+        let s = Start::multiplayer(&pud(&m), &Setup::default(), 5, &l).unwrap();
+        assert_eq!(s.controllers[..4], [COMPUTER, HUMAN, HUMAN, COMPUTER]);
+        assert_eq!(draws_from(5, &s), 0);
     }
 
     #[test]

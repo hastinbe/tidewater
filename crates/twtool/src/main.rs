@@ -398,7 +398,6 @@ fn main() -> Result<()> {
                 filter: fields.as_deref().map(oracle::Filter::parse).unwrap_or_default(),
                 seed,
                 input: Vec::new(),
-                adopt_setup: false,
             };
             if !oracle_cmd(&install, map.as_deref(), entry, &trace, opts)? {
                 std::process::exit(1);
@@ -956,7 +955,6 @@ fn oracle_cmd(
         .ok_or_else(|| anyhow::anyhow!("the trace used the real clock; give --seed"))?;
     opts.seed = Some(seed);
     opts.input = header.input.clone();
-    opts.adopt_setup = header.multiplayer.is_some();
     let mut inst = Install::open(install)?;
     let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
     let mut setup = match entry {
@@ -998,62 +996,41 @@ fn oracle_cmd(
     Ok(summary.diverged == 0)
 }
 
-/// Trace format, "Multiplayer launch": the comparer doesn't derive the lobby's choices (start locations, player
-/// numbers) but takes them as given: the players' controllers and races and the local player come from the header,
-/// with the second human as a human player that gives no commands. The resources are the map's, and the generator
-/// starts from the game's seed ((`start_seed` + 4) mod 256), which the map's setup then draws from.
+/// Trace format, "Multiplayer launch" (round-58 errata): the comparer derives the setup's generator state and the
+/// computer slots. The lobby's choices (a later spec) come from the header: the humans' slots and races, the local
+/// player and the number of computer opponents, with the second human as a human player that gives no commands. The
+/// start places the opponents from the game's seed ((`start_seed` + 4) mod 256) as `game/setup.md` says ("Choosing
+/// the players", multiplayer game), and the map's units are then created from that generator; the setup record's
+/// `rng`, the header's controllers and races check the result. Our reading: the lobby's start positions are random
+/// (no header field says otherwise), so each placement try draws.
 fn multiplayer_start(
     pud: &Pud,
     header: &oracle::Header,
     setup: tidewater_sim::setup::Setup,
     seed: u32,
 ) -> Result<tidewater_sim::setup::Start> {
-    use tidewater_sim::ai::controller;
-    use tidewater_sim::setup::Start;
-    const PLAYERS: usize = 16;
-    let mut controllers = [controller::NOBODY; PLAYERS];
-    let mut races = [2u8; PLAYERS];
-    for p in 0..PLAYERS {
-        controllers[p] = match header.controllers.get(p).map(String::as_str) {
-            Some("human") => controller::HUMAN,
-            Some("computer") => controller::COMPUTER,
-            Some("passive") => controller::PASSIVE,
-            Some("nobody") | None => controller::NOBODY,
-            Some(c) => anyhow::bail!("player {p}: controller {c:?} in a multiplayer header"),
-        };
-        races[p] = match header.races.get(p).map(String::as_str) {
-            Some("human") => 0,
-            Some("orc") => 1,
-            _ => 2,
-        };
-    }
-    let local = header.local_player;
-    if controllers.get(local as usize) != Some(&controller::HUMAN) {
-        anyhow::bail!("the local player {local} isn't a human player in the header");
-    }
-    let mut resources = [(0, 0, 0); PLAYERS];
-    for (p, r) in resources.iter_mut().enumerate() {
-        let (g, l, o) = pud.start_resources(p);
-        *r = (g as u32, l as u32, o as u32);
-    }
-    let era = match header.era {
-        0 => Era::Forest,
-        1 => Era::Winter,
-        2 => Era::Wasteland,
-        3 => Era::Swamp,
-        e => anyhow::bail!("era {e}"),
+    use tidewater_sim::setup::{Lobby, Start};
+    let mut lobby = Lobby {
+        local: header.local_player,
+        ..Default::default()
     };
-    Ok(Start {
-        setup,
-        local,
-        race_setting: races[local as usize].min(1),
-        controllers,
-        races,
-        resources,
-        era,
-        rng: tidewater_sim::Rng::new(seed),
-        multiplayer: true,
-    })
+    for (p, c) in header.controllers.iter().enumerate().take(16) {
+        match c.as_str() {
+            "human" => {
+                let race = match header.races.get(p).map(String::as_str) {
+                    Some("human") => 0,
+                    Some("orc") => 1,
+                    _ => 2,
+                };
+                lobby.humans.push((p as u8, race));
+            }
+            "computer" => lobby.opponents += 1,
+            "passive" | "nobody" => {}
+            c => anyhow::bail!("player {p}: controller {c:?} in a multiplayer header"),
+        }
+    }
+    Start::multiplayer(pud, &setup, seed, &lobby)
+        .map_err(|_| anyhow::anyhow!("the local player {} isn't a human player in the header", lobby.local))
 }
 
 /// One run of a unit's animation: (cycles between the first two events, pixels moved between them, cycle of the first).

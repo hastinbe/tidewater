@@ -959,8 +959,6 @@ pub struct Options {
     pub seed: Option<u32>,
     /// The header's `input`, to check each entry's turn against T(i) (trace format, "When a command runs").
     pub input: Vec<Entry>,
-    /// Take the setup record as given (trace format, "Multiplayer launch"): see [`adopt_setup`].
-    pub adopt_setup: bool,
 }
 
 /// Per field: records that differed, first and last `n`.
@@ -1073,40 +1071,6 @@ fn print_record(out: &mut dyn Write, title: &str, theirs: &Record, diffs: &[Diff
 /// or `--resync-rng`, carrying on as the options say). Setup and turn records are compared without stepping; a turn
 /// record's commands are applied first, in the order it lists them (trace format, "When a command runs": the turn
 /// records are the authoritative timing).
-/// Trace format, "Multiplayer launch": the comparer takes the setup record as given. Our world is set up from the
-/// map and the header's players; the lobby's own draws aren't derived, so the generator's state and what setup drew
-/// for each unit (its facing and its first wait) are taken from the record, for each unit that is the same unit on
-/// both sides (slot, serial, type, owner and tile). Returns a note for each unit in the record that has no such match;
-/// the comparison then reports it.
-pub fn adopt_setup(w: &mut World, theirs: &Record) -> Vec<String> {
-    let at = |name: &str| UNIT_FIELDS.iter().position(|&f| f == name).expect("unit field");
-    let int = |cells: &[Cell], name: &str| match cells[at(name)] {
-        Cell::Int(v) => Some(v),
-        _ => None,
-    };
-    w.rng.state = theirs.rng;
-    let mut notes = Vec::new();
-    for (&slot, cells) in &theirs.units {
-        let same = |u: &tidewater_sim::Unit| {
-            u.slot == slot
-                && Some(u.id.0 as i64) == int(cells, "serial")
-                && Some(u.kind as i64) == int(cells, "type")
-                && Some(u.owner as i64) == int(cells, "owner")
-                && Some(u.tile.0 as i64) == int(cells, "tx")
-                && Some(u.tile.1 as i64) == int(cells, "ty")
-        };
-        let Some(u) = w.units.iter_mut().find(|u| same(u)) else {
-            notes.push(format!("setup: unit slot {slot} has no match in our world"));
-            continue;
-        };
-        if let (Some(facing), Some(wait)) = (int(cells, "facing"), int(cells, "wait")) {
-            u.facing = facing as u8;
-            u.script.wait = wait as u8;
-        }
-    }
-    notes
-}
-
 pub fn run(
     w: &mut World,
     records: impl Iterator<Item = Result<Record>>,
@@ -1130,11 +1094,6 @@ pub fn run(
             break;
         }
         match theirs.kind.as_str() {
-            "setup" if opts.adopt_setup => {
-                for note in adopt_setup(w, &theirs) {
-                    writeln!(out, "note: {note}")?;
-                }
-            }
             "setup" => {}
             "turn" => {
                 // One at a time: a build or job acts on the synced selection as the commands before it left it.
@@ -1811,29 +1770,5 @@ mod tests {
         assert!(Header::parse(&v.to_string()).is_err());
         v["launch_path"] = "multiplayer".into();
         assert!(Header::parse(&v.to_string()).is_err(), "no `map`");
-    }
-
-    /// A multiplayer start takes the setup record as given: the generator state, and each matched unit's facing and
-    /// wait; an unmatched unit is noted.
-    #[test]
-    fn adopts_the_setup_record() {
-        let mut w = world(7);
-        let mut theirs = snapshot(&w, 0, "setup");
-        theirs.rng = 0x1234;
-        let at = |f: &str| UNIT_FIELDS.iter().position(|&x| x == f).unwrap();
-        let slot = w.units[0].slot;
-        let cells = theirs.units.get_mut(&slot).unwrap();
-        cells[at("facing")] = Cell::Int(5);
-        cells[at("wait")] = Cell::Int(9);
-        let mut stray = cells.clone();
-        stray[at("tx")] = Cell::Int(7);
-        theirs.units.insert(999, stray);
-        let notes = adopt_setup(&mut w, &theirs);
-        assert_eq!(w.rng.state, 0x1234);
-        assert_eq!((w.units[0].facing, w.units[0].script.wait), (5, 9));
-        assert_eq!(
-            notes,
-            vec!["setup: unit slot 999 has no match in our world".to_string()]
-        );
     }
 }
