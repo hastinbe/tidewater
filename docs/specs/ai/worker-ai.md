@@ -22,6 +22,8 @@
 - **Changes:** 2026-10-13, round-47 errata: the farm's "ever had a hall" mark is set at the start of every new game
   except Enhanced multiplayer; a killed unit leaves the food in use at the start of its death animation; `orc5-10000`
   and `xhuman2-10000` vectors.
+- **Changes:** 2026-10-13, round-54 errata: the job choice's order is a command, so the cached route is dropped;
+  `human12-25000` vector.
 
 ## Behaviour
 
@@ -39,6 +41,10 @@ The job choice runs for a unit of a **computer-controlled** player:
 - when its idle order (order 2) logic runs (`orders/orders.md`); and
 - when it comes out of a depot after delivering goods (`economy/harvest.md`, "Coming out", step 3). If a job is given
   there, the usual return to the old source is skipped.
+
+The job choice gives its order as a **command**, so the unit's cached route is dropped and its blocked counter cleared,
+as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new route at its next movement decision
+(traced: `human12-25000`, vectors below).
 
 ### Worker: the steps, in order
 
@@ -426,6 +432,7 @@ An entry is marked done at the start of a game when either bit of its code is se
 | `xhuman10-spells` and `xhuman10-blizzard` (oracle traces): player 2's peon 1553 looks for a new-mine hall site. The site at the mine at (16, 116) is refused by the keep-clear ring of player 6's barracks 1424 (type 0x3D) at (21, 113); mine 1514 is at (40, 73) | (43, 72) is refused as too close to mine 1514. Site **(40, 79)**: the great hall (type 0x4B) stands there by n = 551, slot 1410 in `xhuman10-spells` and 1411 in `xhuman10-blizzard` |
 | Computer peon carrying wood gets command 24 to its hall and the path search returns no steps | Its order ends; the next job choice gives command 24 to the same hall again, with no wait |
 | `orc5-10000` (oracle trace), n = 1641: computer player 1's only hall (1511, type 0x4A) is still under construction; peasant 1564 (type 0x02) comes out of 1565 and a farm is wanted | Farm started: 500 gold and 250 lumber paid at n = 1641; 1564 in order 28 at n = 1666 |
+| `human12-25000` (oracle trace): tanker 1412 (type 0x1B, owner 0) goes idle at n = 12948 when its platform collapses; at n = 12951 the job choice gives it a harvest on platform 1493 at (87, 59) | A new route: at n = 12954 tile (46, 24), facing 3, order 23 (the old route would step west to (42, 22)) |
 | `xhuman2-10000` (oracle trace), n = 2487: computer player 0 with supply S = 21 and 18 units that aren't buildings, 2 of them (1579 and 1583) dying | U = 16, so 21 > 16 + 3: no farm. It goes on to its build list: a scout tower is paid (550 gold, 200 lumber) by peon 1588; tower 1554 (type 0x41) appears at (20, 2) at n = 2707 |
 | A player with 10 units that aren't buildings, 2 of them dying | Food in use 8 |
 
