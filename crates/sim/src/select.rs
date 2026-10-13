@@ -475,7 +475,9 @@ impl World {
                 target,
                 tile,
             },
-            24 => match target.filter(|&t| self.can_return_to(u, t)) {
+            // Harvest spec, "Returning goods" (round-62 errata; `orc9-orc09-return-goods-2200` n = 1150 and 1265): a
+            // target unit is taken as given, with no test of its owner, kind or what it accepts.
+            24 => match target {
                 Some(depot) => {
                     return self.command(i, Order::ReturnGoods { depot: Some(depot) });
                 }
@@ -1038,5 +1040,35 @@ mod tests {
         assert_eq!(w.units, before);
         w.step(&[Command::Pause { player: 0 }]);
         assert!(!w.paused);
+    }
+
+    /// Harvest spec, round-62 vectors (`orc9-orc09-return-goods-2200` n = 1150 and 1265): command 24 with a target unit
+    /// takes it as given: a carrying worker's gold to a lumber mill, a carrying tanker's oil to its own platform, and an
+    /// enemy's building too. A worker that carries nothing doesn't take the command.
+    #[test]
+    fn return_goods_takes_its_target_as_given() {
+        let mut w = map();
+        let peon = spawn(&mut w, PEON, 0, (1, 1));
+        let empty = spawn(&mut w, PEON, 0, (2, 1));
+        let tanker = spawn(&mut w, TANKER, 0, (30, 30));
+        let mill = spawn(&mut w, MILL, 0, (10, 10));
+        let platform = spawn(&mut w, PLATFORM, 0, (34, 30));
+        let barracks = spawn(&mut w, BARRACKS, 1, (20, 20));
+        for id in [peon, tanker] {
+            let i = w.index(id).unwrap();
+            w.units[i].carrying = true;
+            w.units[i].gather = crate::world::Gather::Gold;
+        }
+        for (unit, target) in [(peon, mill), (tanker, platform), (peon, barracks)] {
+            select(&mut w, &[unit, empty]);
+            w.step(&[Command::Issue {
+                player: 0,
+                command: 24,
+                target: Some(target),
+                tile: (0, 0),
+            }]);
+            assert_eq!(intent(&w, unit), Some(Order::ReturnGoods { depot: Some(target) }));
+            assert_eq!(intent(&w, empty), Some(Order::Idle));
+        }
     }
 }

@@ -154,9 +154,11 @@ impl World {
             .any(|&(p, patch)| p == platform && self.updating.is_some_and(|s| patch > s))
     }
 
-    /// Command 24 ("Returning goods").
+    /// Command 24 ("Returning goods") with no target unit: the nearest depot. Round-62 errata: taken by a worker or
+    /// tanker that is carrying; one with a target unit takes it as given (`select`'s command 24).
     pub(crate) fn return_command(&mut self, i: usize) -> Option<Order> {
-        if self.flags_of(self.units[i].kind) & (flags::PEON | flags::TANKER) == 0 {
+        let u = &self.units[i];
+        if self.flags_of(u.kind) & (flags::PEON | flags::TANKER) == 0 || !u.carrying {
             return None;
         }
         Some(match self.nearest_depot(&self.units[i]) {
@@ -281,19 +283,20 @@ impl World {
     }
 
     /// Order 24.
+    ///
+    /// Round-62 errata ("Returning goods"; `orc9-orc09-enter-dying-1800` peon 1482, n = 1435): a target that is dying,
+    /// gone or busy (inside something) makes the unit look up the nearest depot and be given return goods to it as a
+    /// pending order that takes over in the same update (still animation, wait 3, cached route dropped); with no depot,
+    /// idle becomes the pending order the same way. The busy and no-depot cases are static study only.
     pub(crate) fn return_order(&mut self, i: usize, depot: Option<UnitId>) {
         let found = depot.and_then(|d| self.index(d)).filter(|&di| self.units[di].present());
-        let di = match found {
-            Some(di) => di,
-            None => match self.nearest_depot(&self.units[i]).and_then(|d| self.index(d)) {
-                Some(di) => {
-                    self.units[i].order = Order::ReturnGoods {
-                        depot: Some(self.units[di].id),
-                    };
-                    di
-                }
-                None => return self.idle(i),
-            },
+        let Some(di) = found else {
+            self.units[i].path.clear();
+            match self.nearest_depot(&self.units[i]) {
+                Some(d) => self.take_over(i, Order::ReturnGoods { depot: Some(d) }),
+                None => self.idle_now(i),
+            }
+            return;
         };
         if !self.walk_to_building(i, di, false) {
             return;
@@ -313,12 +316,23 @@ impl World {
     }
 
     /// Order 25 ("Entering a mine, platform or depot").
+    ///
+    /// Round-62 errata, step 3 ("Target check first"; `orc9-orc09-enter-dying-1800` peon 1478, n = 1441): each run
+    /// first drops a target that is dying or gone, or that the unit's player no longer detects (static study only).
+    /// With no target, a unit that already stepped in dies with no target; otherwise idle becomes the pending order
+    /// and takes over in the same update.
     pub(crate) fn enter_order(&mut self, i: usize, building: UnitId, stepped: bool) {
-        let Some(bi) = self.index(building).filter(|&bi| self.units[bi].alive()) else {
+        let owner = self.units[i].owner;
+        let held = self
+            .index(building)
+            .filter(|&bi| self.units[bi].alive() && Self::detected(&self.units[bi], owner));
+        let Some(bi) = held else {
             if stepped {
+                // The dropped target shows as none when the unit dies.
+                self.units[i].order = Order::Idle;
                 self.kill(i);
             } else {
-                self.idle(i);
+                self.idle_now(i);
             }
             return;
         };
@@ -361,15 +375,22 @@ impl World {
         u.attacked_by = None;
         let (gather, owner) = (u.gather, u.owner);
         let source = bf & (flags::MINE | flags::OIL_SOURCE) != 0;
-        let accepts = if tanker {
-            bf & flags::OIL_STORAGE != 0 && !source
+        // Round-62 errata ("Entering", step 2; `orc9-orc09-return-goods-2200` n = 1287 and 1482): a worker at a
+        // building that stores gold, wood or oil, or a tanker at any building but an oil platform, takes the delivery
+        // branch even when the building doesn't accept what it carries; the delivery table then adds nothing and the
+        // load is lost. A tanker at an oil platform and a worker at a building that stores nothing take the other
+        // branch.
+        let delivers = if tanker {
+            bf & flags::OIL_SOURCE == 0
         } else {
-            match gather {
+            bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE | flags::OIL_STORAGE) != 0
+        };
+        let accepts = tanker
+            || match gather {
                 Gather::Gold => bf & flags::GOLD_STORAGE != 0,
                 Gather::Lumber => bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE) != 0,
                 Gather::None => false,
-            }
-        };
+            };
         // "Delivering goods" (round-47 errata): every delivery at a building that accepts gold sets the hall-sized
         // exit mark, whatever the gather mode and whether or not the unit carries anything. Round-48 errata: every
         // entry there counts, gather mode none included, and a ship's delivery never sets it.
@@ -379,9 +400,14 @@ impl World {
         self.units[i].order = Order::Inside { building: Some(b.id) };
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = INSIDE_WAIT;
-        if accepts {
-            self.deliver(i, owner, tanker);
-        } else if source {
+        if delivers {
+            if accepts {
+                self.deliver(i, owner, tanker);
+            } else {
+                // "Delivering goods": gold mode at a building that stores wood only, and anything else, adds nothing.
+                self.units[i].carrying = false;
+            }
+        } else {
             // "Entering", step 2: the "active" look is the building's frame, 1 for a gold mine and 2 for an oil
             // platform, set only from frame 0.
             let m = &mut self.units[bi];
@@ -1616,5 +1642,120 @@ mod tests {
         let u = w.unit(b).unwrap();
         assert!(!u.inside);
         assert_eq!(u.pending, Some(Order::ReturnGoods { depot: Some(hall) }));
+    }
+
+    /// Round-62 vector (`orc9-orc09-return-goods-2200` peon 1482, n = 1482): a worker carrying gold into a lumber mill
+    /// (wood storage only) takes the delivery branch; the table adds nothing and the load is lost.
+    #[test]
+    fn gold_taken_to_a_lumber_mill_is_lost() {
+        let mut w = land();
+        let mill = w.spawn(LUMBER_MILL, 0, (10, 4), 0).unwrap();
+        let p = w.spawn(0, 0, (9, 5), 0).unwrap();
+        let pi = w.index(p).unwrap();
+        w.units[pi].carrying = true;
+        go_in_now(&mut w, p, mill);
+        let u = w.unit(p).unwrap();
+        assert_eq!(u.order, Order::Inside { building: Some(mill) });
+        assert!(!u.carrying, "the load is lost");
+        assert_eq!((w.players[0].gold, w.players[0].gathered[0]), (0, 0));
+        assert_eq!(mine_look(&w, mill), (0, 0), "a depot's look and count don't change");
+    }
+
+    /// Round-62 vector (`orc9-orc09-return-goods-2200` tanker 1473, n = 1287): a carrying tanker that enters its own
+    /// oil platform takes the mine-or-platform branch and delivers nothing.
+    #[test]
+    fn a_tanker_at_its_own_platform_delivers_nothing() {
+        const PLATFORM: u8 = 0x56;
+        const TANKER: u8 = 9;
+        let mut w = land();
+        w.stats.0[PLATFORM as usize] = tidewater_formats::udta::UnitStats {
+            hit_points: 5000,
+            size: (3, 3),
+            flags: flags::BUILDING | flags::OIL_SOURCE,
+            ..Default::default()
+        };
+        w.stats.0[TANKER as usize] = tidewater_formats::udta::UnitStats {
+            hit_points: 90,
+            size: (1, 1),
+            flags: flags::LAND | flags::TANKER,
+            ..Default::default()
+        };
+        let platform = w.spawn(PLATFORM, 0, (14, 4), 100).unwrap();
+        let t = w.spawn(TANKER, 0, (12, 4), 0).unwrap();
+        let (ti, pi) = (w.index(t).unwrap(), w.index(platform).unwrap());
+        w.units[ti].carrying = true;
+        w.go_in(ti, pi);
+        let u = w.unit(t).unwrap();
+        assert!(u.carrying);
+        assert_eq!(
+            u.order,
+            Order::Inside {
+                building: Some(platform)
+            }
+        );
+        assert_eq!(w.players[0].oil, 0);
+        assert_eq!(mine_look(&w, platform), (1, 2));
+    }
+
+    /// Round-62 vector (`orc9-orc09-enter-dying-1800` peon 1482, n = 1435): a worker in order 24 whose depot starts
+    /// dying is given return goods to the nearest depot as a pending order that takes over in the same update (still
+    /// animation, wait 3, cached route dropped). With no depot left, idle takes over the same way.
+    #[test]
+    fn a_dying_depot_reissues_return_goods_at_once() {
+        let mut w = land();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+        let mill = w.spawn(LUMBER_MILL, 0, (16, 4), 0).unwrap();
+        let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+        let pi = w.index(p).unwrap();
+        w.units[pi].carrying = true;
+        w.units[pi].gather = Gather::Lumber;
+        w.units[pi].order = Order::ReturnGoods { depot: Some(mill) };
+        w.units[pi].path = vec![(11, 9)];
+        let mi = w.index(mill).unwrap();
+        w.kill(mi);
+        w.return_order(pi, Some(mill));
+        let u = &w.units[pi];
+        assert_eq!((u.order, u.pending), (Order::ReturnGoods { depot: Some(hall) }, None));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+        assert!(u.path.is_empty());
+        // No depot: idle.
+        let hi = w.index(hall).unwrap();
+        w.kill(hi);
+        w.return_order(pi, Some(hall));
+        let u = &w.units[pi];
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+    }
+
+    /// Round-62 vector (`orc9-orc09-enter-dying-1800` peon 1478, n = 1441): order 25 checks its target first, so a
+    /// worker already stepping into a building that has started dying dies with no target; one that hasn't stepped in
+    /// gets a pending idle that takes over in the same update.
+    #[test]
+    fn entering_a_dying_building_drops_it_first() {
+        let mut w = land();
+        let mill = w.spawn(LUMBER_MILL, 0, (10, 4), 0).unwrap();
+        let p = w.spawn(0, 0, (9, 5), 0).unwrap();
+        let q = w.spawn(0, 0, (9, 7), 0).unwrap();
+        let (pi, qi) = (w.index(p).unwrap(), w.index(q).unwrap());
+        w.units[pi].order = Order::Enter {
+            building: mill,
+            stepped: false,
+        };
+        w.enter_order(pi, mill, false);
+        w.units[qi].order = Order::Enter {
+            building: mill,
+            stepped: false,
+        };
+        let mi = w.index(mill).unwrap();
+        w.kill(mi);
+        let pi = w.index(p).unwrap();
+        w.enter_order(pi, mill, true);
+        let u = w.unit(p).unwrap();
+        assert!(u.dying);
+        assert_eq!(u.dying_target, None, "it dies with no target");
+        let qi = w.index(q).unwrap();
+        w.enter_order(qi, mill, false);
+        let u = w.unit(q).unwrap();
+        assert!(!u.dying);
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
     }
 }
