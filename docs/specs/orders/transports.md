@@ -26,6 +26,8 @@
   covers computer players' units only.
   2026-10-12, round-44 errata: the open question on a computer player's no-route restart gives the static reading (the
   50-cycle army pass tells the transport, the restart doesn't); still untraced.
+  2026-10-13, round-52 errata: the boarding walk's route search has the transport as its target unit, so its goal zone
+  is the transport's footprint widened by one tile; `orc14-10000` vector.
 
 ## Behaviour
 
@@ -188,8 +190,10 @@ computer players).
 2. The unit gets order 34.
 
 **Order 34 (board)** is a walking order. While the unit walks to its goal, only the movement runs at each step, so a
-unit of **any** player, computer players included, stays in order 34 while it walks to the transport. The order's
-logic (the steps below) runs when the walk ends:
+unit of **any** player, computer players included, stays in order 34 while it walks to the transport. The walk's route
+search has the transport as its **target unit**, so its goal zone is the transport's footprint widened by one tile on
+each side (`movement/pathfinding.md`, "Step 1"), not the 3 × 3 tiles around the goal tile (traced: `orc14-10000`,
+vectors below). The order's logic (the steps below) runs when the walk ends:
 
 - on **arrival**, the steps below run;
 - with **no route**, the unit restarts order 34 at once if the transport's destination tile is in its region, and
@@ -263,6 +267,7 @@ Each time the order's logic runs:
 | Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing, and its logic runs (static study only) | Gets a smart move again: stays in order 34, and the transport is told to come |
 | `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5) after a no-route step: order 34 restarted, animation 2, wait 3; n = 17254: order 36 (aboard) |
 | `human12-7000` (oracle trace), n = 6371: computer grunt 1407 (owner 0) walking to transport 1522 | Order 34, animation 3, tile (84, 16) |
+| `orc14-10000` (oracle trace), n = 2421: computer knight 1433 (type 0x06, owner 6) in order 34 to transport 1434 (type 0x1C) at (92, 32); its route search ran once, at n = 2409 from (86, 23), goal (91, 31) | Goal zone x 91 to 93, y 31 to 33 (the transport's footprint widened), not x 90 to 92, y 30 to 32: tile (87, 25), facing 4, order 34 |
 | `human12-transport-650` (oracle trace), n = 45: transport 1428 (owner 1, a human player) docks at (35, 114) (order 32, wait 1); in the same cycle, after it, unit 1434 (order 34 on 1428) at (34, 112) finds no route and restarts (animation 2, wait 3) | n = 46: transport order 32, still animation, wait 3 (its still animation would otherwise show wait 1 or 4) |
 | Same trace, n = 73, 76, 79 and 82: 1434 restarts again (no route), the transport's wait at 1 | n = 74, 77, 80 and 83: transport order 32, wait 3 |
 | Same trace, n = 29 to 44: the units' restarts while transport 1428 is landing (order 30) | The transport isn't affected: animation 6, wait 1 throughout |
