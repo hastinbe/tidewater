@@ -19,12 +19,11 @@
 //! human12-25000, human09-fleet-3000, xorc11-air-sea-3000, human01-walls, human06-upgrades, xorc12-spells,
 //! xhuman10-exorcism, orc13-25000, orc14-25000, xhuman11-25000, orc11-25000, human2-human02-all-out-4000 (Human02
 //! with the invulnerability cheat turned on in its commands), orc5-40000 (the game ends at n 36583), human9-30000,
-//! xhuman8-25000, human11-30000, orc7-22000 and xhuman7-25000 match in full.
+//! xhuman8-25000, human11-30000, orc7-22000, xhuman7-25000 and xorc11-16000 match in full.
 //!
-//! orc9-orc09-shore-build-3000 (a commands scenario: a refused shipyard, a shore build and an attack on it) matches
-//! up to n 598. At n 599 player 5's peon 1478, the shipyard's builder, flees onto gold mine 1480; the trace has order
-//! 23 on the mine (orders spec, "Fleeing" step 6, which needs a worker in gold mode), but that peon never had a
-//! harvest command, so ours is in no gather mode and moves (order 3). How it got its gold mode is an open question.
+//! The commands scenarios orc9-orc09-shore-build-3000 (a refused shipyard, a shore build and an attack on it) and
+//! orc9-orc09-smart-move-2000 (build commands that do nothing, and smart moves onto a gold mine and an own oil
+//! platform by empty and carrying workers and a tanker) match in full.
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
@@ -34,9 +33,9 @@
 //! mp-dark-paths-bne-1000,
 //! mp-gold-rush-bne-6000, mp-gold-rush-bne-25000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000,
 //! mp-big-rock-candy-mountain-bne-25000, mp-big-rock-candy-mountain-bne-40000, mp-schwartzwald-bne-6000,
-//! mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000, mp-rose-petal-bne-25000, mp-isolation-bne-30000 and
-//! mp-frosty-fjords-bne-30000 (Enhanced), and mp-dark-paths-bne-classic-1000, mp-gold-rush-bne-classic-8000 and
-//! mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
+//! mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000, mp-rose-petal-bne-25000, mp-isolation-bne-30000,
+//! mp-frosty-fjords-bne-30000 and mp-kaboom-bne-40000 (Enhanced), and mp-dark-paths-bne-classic-1000,
+//! mp-gold-rush-bne-classic-8000 and mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -231,10 +230,13 @@ traces! {
     human9_30000: ("human9-30000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], None),
     xhuman8_25000: ("xhuman8-25000.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
     human11_30000: ("human11-30000.jsonl.gz", "Campaign\\Human\\Human11.pud", 20, &[], None),
-    orc9_orc09_shore_build_3000: ("orc9-orc09-shore-build-3000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], Some(598)),
+    orc9_orc09_shore_build_3000: ("orc9-orc09-shore-build-3000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc7_22000: ("orc7-22000.jsonl.gz", "Campaign\\Orc\\Orc07.pud", 13, &[], None),
     xhuman7_25000: ("xhuman7-25000.jsonl.gz", "Campaign\\XHuman\\2XHum07.pud", 40, &[], None),
     mp_gold_rush_bne_fixed_6000: (mp, "mp-gold-rush-bne-fixed-6000.jsonl.gz", &[], None),
     mp_dark_paths_bne_fixed_1000: (mp, "mp-dark-paths-bne-fixed-1000.jsonl.gz", &[], None),
     mp_rose_petal_bne_fixed_3000: (mp, "mp-rose-petal-bne-fixed-3000.jsonl.gz", &[], None),
+    mp_kaboom_bne_40000: (mp, "mp-kaboom-bne-40000.jsonl.gz", &[], None),
+    xorc11_16000: ("xorc11-16000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
+    orc9_orc09_smart_move_2000: ("orc9-orc09-smart-move-2000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
 }
