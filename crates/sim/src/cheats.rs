@@ -20,7 +20,8 @@
 //! - Notices A and C, and the three developer-word notices, use our own short texts ([`Notice`], [`Word::notice`]).
 //! - "All spells" sets every spell known and allowed, every research allowed and the spells-being-researched word to
 //!   zero, for every human-controlled player (`controller` 5). The research already running in a building is left.
-//! - Invulnerability: attackers of human-controlled players deal basic 0 and piercing 200, every other attacker 0 and 0.
+//! - Invulnerability: attackers of human-controlled players keep their basic damage (upgrades, then bloodlust) and deal
+//!   a flat piercing 200 that bloodlust doesn't double; every other attacker deals 0 and 0.
 //! - Command-line words ([`from_arguments`]) only set persistent flags: one-shot codes are ignored there because no
 //!   command would ever run them, and word codes without a flag are returned for the caller to apply.
 //! - Mission select applies the number rule as `atoi` would: spaces, then decimal digits; no digits reads as 0, which
@@ -423,8 +424,9 @@ const ALL_BITS: u32 = !0;
 const LEVELLED_GROUPS: usize = 7;
 const RESOURCE_GIFT: [u32; 3] = [10_000, 5_000, 5_000];
 const OIL_GIFT: u32 = 5_000;
-/// Damage dealt under the invulnerability cheat: (basic, piercing) for human-controlled attackers.
-pub const CHEAT_DAMAGE: (u32, u32) = (0, 200);
+/// Piercing damage dealt under the invulnerability cheat by human-controlled attackers, set after upgrades and not
+/// doubled by bloodlust (their basic damage is worked out as usual).
+pub const CHEAT_PIERCING: u32 = 200;
 
 impl World {
     /// Sets the flags at the start of a game or from the program's arguments: no effects run, no notices show. Pass
@@ -556,14 +558,14 @@ impl World {
     /// An attacker's (basic, piercing) damage, with the invulnerability cheat applied ("Cheat" in the damage spec).
     pub(crate) fn attack_values(&self, a: &crate::world::Unit, s: &tidewater_formats::udta::UnitStats) -> (u32, u32) {
         let owner = &self.players[a.owner as usize];
-        if self.rules.invulnerable_cheat {
-            return if owner.controller == controller::HUMAN {
-                CHEAT_DAMAGE
-            } else {
-                (0, 0)
-            };
+        let (basic, pierce) = crate::combat::attack(a.kind, s, &owner.upgrades, a.bloodlust > 0);
+        if !self.rules.invulnerable_cheat {
+            (basic, pierce)
+        } else if owner.controller == controller::HUMAN {
+            (basic, CHEAT_PIERCING)
+        } else {
+            (0, 0)
         }
-        crate::combat::attack(a.kind, s, &owner.upgrades, a.bloodlust > 0)
     }
 }
 
@@ -815,19 +817,41 @@ mod tests {
         assert!(m.rules.fog_of_war);
     }
 
+    /// Damage spec, round-59 vectors: a human player's attacker keeps its basic damage (upgrades, then bloodlust) and
+    /// gets a flat piercing 200; anyone else's deals 0 and 0.
     #[test]
     fn invulnerability_sets_attack_values() {
         let mut w = human_world();
-        let a = w.spawn(0, 0, (1, 1), 0).unwrap();
-        let e = w.spawn(0, 1, (5, 5), 0).unwrap();
+        // Footman (basic 6, piercing 3) and archer (basic 3, piercing 6) of the synthetic table, weapons upgradable.
+        w.stats.0[0].weapons_upgradable = true;
+        w.stats.0[8].weapons_upgradable = true;
+        let footman = w.spawn(0, 0, (1, 1), 0).unwrap();
+        let archer = w.spawn(8, 0, (3, 3), 0).unwrap();
+        let computer = w.spawn(0, 1, (5, 5), 0).unwrap();
         w.players[1].controller = controller::COMPUTER;
+        for p in 0..2 {
+            w.players[p].upgrades.sword = 1;
+            w.players[p].upgrades.arrow = 1;
+        }
+        for id in [footman, computer] {
+            let i = w.index(id).unwrap();
+            w.units[i].bloodlust = 100;
+        }
         w.cheat_command(0, Flags(flag::INVULNERABLE));
         let values = |w: &World, id| {
             let u = w.unit(id).unwrap().clone();
             w.attack_values(&u, &w.stats_of(u.kind))
         };
-        assert_eq!(values(&w, a), CHEAT_DAMAGE);
-        assert_eq!(values(&w, e), (0, 0));
+        // Sword level 1 and bloodlust: basic (6 + 2) x 2 = 16, piercing 200 (not 400, not 203).
+        assert_eq!(values(&w, footman), (16, CHEAT_PIERCING));
+        // Arrow level 1, no bloodlust: basic 3, piercing 200.
+        assert_eq!(values(&w, archer), (3, CHEAT_PIERCING));
+        // A computer player's footman, upgrades and bloodlust or not: 0 and 0.
+        assert_eq!(values(&w, computer), (0, 0));
+        // Cheat off: the usual values.
+        w.cheat_command(0, Flags(0));
+        assert_eq!(values(&w, footman), (16, 6));
+        assert_eq!(values(&w, archer), (3, 7));
     }
 
     #[test]
