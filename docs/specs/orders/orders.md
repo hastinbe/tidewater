@@ -99,6 +99,10 @@
   2026-10-13, round-54 errata: a spell command's target gets the command check; the reaction's step 1 is the kind check
   alone (open question closed); order 12's no-route take-over makes no turn or strike decision, which come from the one
   logic run that follows in the same update (static).
+  2026-10-13, round-55 errata: a player's command forgets the recorded attacker of each unit that takes it; a patrol
+  command remembers its goal and the unit's own tile, and so does each turnaround; the reaction's step 1 and the flee
+  rule don't test detection, and step 1 comes before the worker and tanker branches for every player; `human09-fleet`,
+  `xorc11-air-sea` and `human12-25000` vectors.
 
 ## Behaviour
 
@@ -119,7 +123,7 @@ turned into an order by the rules in "Commands" below, and the result is normall
 | Rule | Test |
 | --- | --- |
 | An order aimed at a unit loses its target ("Arriving and losing the target", and orders 14 to 16) | **Detected** only. A target that walks into fog stays the target |
-| The same check on the unit's attacker | An attacker that is alive but not **detected** is ignored in that run and stays recorded; only a command forgets it ("Commands forget a stale attacker") |
+| The same check on the unit's attacker | An attacker that is alive but not **detected** is ignored by that run's target search and its seed ("Reacting to an attacker", step 2 on) and stays recorded; only a command forgets it ("Commands forget a stale attacker"). Step 1's kind check and the flee rule look at the record as it is, with no detection test, so a unit that can't hit an undetected attacker flees from it (traced: `human12-25000`, vectors below) |
 | Automatic target acquisition (the candidate skip list, and the attacker seed in "Choice") | **Detected** and **not hidden** |
 
 `economy/repair.md` and `orders/transports.md` use the same test: a lost target or attacker is one that is no longer
@@ -272,7 +276,7 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | --- | --- |
 | 3, smart move (right-click) | See "Smart move" below |
 | 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3). As on arrival, the unit also forgets its attacker (static study) |
-| 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends |
+| 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends: the command's goal and the tile the unit stands on when the command is given ("Resuming patrol and attack-move") |
 | 8, attack | Target unit, of any owner (the player's own, an ally's and a neutral unit included): order 9. Target tile, as given, is a wall tile: order 11 ("Order 11: attacking a wall tile"). Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
 | 9 | Target unit, of any owner: order 9; target tile, as given, a wall tile: order 11; otherwise order 2 |
 | 11 | As command 9 |
@@ -410,6 +414,15 @@ something, or in order 25):
 If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
 set as usual.
 
+**What a patrol remembers.** Every patrol command, whether from a player, a computer player or a turnaround ("Arriving
+and losing the target", order 5), remembers its goal and the tile the unit stands on when the command is given; these
+are the two ends the resumed patrol runs between. The computer players' sea patrol and base-edge patrol
+(`ai/attack-ai.md`) then set the unit's current patrol ends to their anchor and far end, but leave what was remembered
+unchanged. So the first leg of such a patrol runs to the anchor and turns toward the far end, while a patrol broken off
+during its first leg and resumed after the fight runs to the anchor and turns toward the tile the unit stood on when the
+patrol was given, not toward the far end (traced: `xorc11-air-sea-3000`, vectors below). Each turnaround is a new patrol
+command, so from the first turnaround on the remembered ends are that turnaround's goal and tile.
+
 The resumed order goes through the same steps as a player's command: the goal is stored and pulled back
 (`movement/pathfinding.md`, "Goal pulled back"), the cached route is dropped, the blocked counter is cleared
 (`movement/movement.md`, "Blocked rules") and the recorded attacker is checked as for every command ("Commands forget a
@@ -478,7 +491,8 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   skips the search in the take-over update's run and in the next update's run, and is then cleared.
 - **Order 5 (patrol):** on arrival the unit is given a patrol to its other end, with the tile it stands on as the new
   other end. As a command, the new goal is **pulled back** (`movement/pathfinding.md`, "Goal pulled back"), for every
-  patrol, human or computer, land or sea; the remembered ends stay as they were. The new patrol takes over in the same
+  patrol, human or computer, land or sea. In Enhanced mode the turnaround, like every patrol command, remembers its new
+  goal and the tile the unit stands on ("Resuming patrol and attack-move"). The new patrol takes over in the same
   update (still animation, wait 3); the first step comes at its next logic run, 3 cycles later.
 - **Order 18:** on arrival (in range) it becomes order 17 and attacks the ground.
 
@@ -510,6 +524,15 @@ Every other unit attacking it keeps it as its target until its own next logic ru
 the record is cleared. This comes **before** the target check, so it also applies in the run in which the unit then
 loses its target, and the idle search that follows sees no attacker (traced: `orc09-naval`, vectors below). Orders 12,
 15 and 16 don't do this at the start of their run.
+
+**A player's command forgets the attacker.** When a player's unit command is carried out
+(`ui/selecting-and-commanding.md`, "Which units take part in a command"), every selected unit that takes the command
+forgets its recorded attacker, whatever the attacker's state (alive, detected, in range or not). This comes after the
+command is given, so the command's own checks, including the stale-attacker check below, still see the record. A unit
+that doesn't take the command (another player's, the target itself, or one that fails the selection filter) keeps its
+record. Commands that a computer player gives keep the record, apart from the check below, as before (traced:
+`human09-fleet-3000`, vectors below). A right-click command is read as carried out the same way (static study; no trace has a right-click on
+a unit with a recorded attacker).
 
 **Commands forget a stale attacker.** Every command given to a unit that isn't a building (a player's or a computer
 player's command, a resumed patrol or attack-move, a flee move, a target search's resulting order and every other
@@ -901,13 +924,20 @@ the unit has an attacker:
    dying or no longer in play, it is forgotten, there is no flee and no target search in that run, and the rest of the
    order's logic goes on as usual (traced: `xorc11-10000`, where a battleship that has just killed its target forgets a
    dragon that is no longer in play, finds its target lost and resumes its patrol; vectors below). Otherwise the unit
-   runs the **flee** rule below, and nothing else happens in that run.
+   runs the **flee** rule below, and nothing else happens in that run. Step 1 looks at the recorded attacker as it is:
+   an attacker that the unit's owner doesn't **detect** still leads to the flee, and the "Terms" rule that ignores an
+   undetected attacker applies only from step 2 on, to the target search and its seed (traced: `human12-25000`
+   n = 16061, a transport that flees from a giant turtle it doesn't detect; vectors below). Step 1 comes first for every
+   unit with an attacker and for every player, workers and tankers included: only a unit that **can** attack its
+   attacker's kind goes on to steps 2 and 3. A tanker can attack no kind, so a tanker with a valid attacker always runs
+   the flee rule; a worker hit by a ship or a flyer flees the same way (traced: `human12-25000` n = 16612).
 2. Otherwise, for a combat unit, the ordinary target search runs once, starting with the attacker as the best
    candidate. If the result differs from the unit's current target, the unit attacks it with the order from the
    resulting-order table, which for the idle-type orders is **12 whenever the unit has an attacker**, for human and
    computer players alike. There is no second search in the same run.
-3. Workers and tankers use the reaction below instead (computer players' workers and tankers first run their AI
-   routines, a later spec). A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
+3. Workers and tankers that pass step 1 (so only workers, never tankers) use the reaction below instead
+   (computer players' workers and tankers first run their AI routines, a later spec); a computer player's worker or
+   tanker that fails step 1 runs the flee rule and not its AI routine. A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
    chosen target is one it may take (a non-combat unit or one that can't attack; "Special cases") and differs from its
    current target, it attacks it; otherwise it runs the reaction, and so flees from the attacker (traced:
    `xorc01-death-coil-2500`, vectors below). An invisible mage-type unit does nothing more in that run after the
@@ -924,7 +954,9 @@ the unit has an attacker:
   differs from the unit's current target, it attacks the result with order 12, whatever the resulting-order table
   says.
 
-**Fleeing** (the attacker must still be valid):
+**Fleeing** (the attacker must still be valid: not dying, dead or inside something; otherwise it is forgotten and there
+is no flee). The flee rule has no detection test: an attacker the unit's owner doesn't detect is fled from like any
+other (traced: `human12-25000`, vectors below).
 
 1. A worker attacked by a worker fights back (command 8 against the attacker). Done.
 2. A **computer player's** unit flees only if it is idle (order 2).
@@ -1231,6 +1263,16 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `xorc8-10000` (oracle trace), n = 6177: transport 1423 (type 0x1D, owner 5), idle at (118, 110), flees to a shore tile | Order 30, animation 6, wait 3 |
 | A peasant flees to a tile next to a forest | Order 3 (move); no harvest |
 | `xorc8-10000` (oracle trace, Enhanced), n = 7372: elven destroyer 1468 (type 0x1E, owner 2, 1 HP) at (116, 116) in order 12 on fleeing transport 1402 (type 0x1D, owner 5) at (104, 114), out of reach, skip mark set by a no-route retarget at n = 7252; ogre 1392 (type 0x07, owner 5) on land at (121, 117) | The move step's search takes 1392 and finds no route: order 2 at once, animation 2, wait 1, target null; tile (116, 116), facing 7 |
+| `human09-fleet-3000` (oracle trace, Enhanced), command at turn n = 1502: battleship 1539 (type 0x20, owner 6, the human player) at (76, 36) in order 12 on catapult 1519 (type 0x05, owner 1) at (83, 42), its recorded attacker; command 4 to (28, 40), which has no route | n = 1504: order 4, wait 3; n = 1507: order 2, wait 1, target null (the attacker was forgotten at the command, so nothing seeds the idle search) |
+| A footman with a recorded attacker (alive, detected, within its reaction range) gets a stop command from its player (static study) | The attacker is forgotten; the idle logic doesn't seed its search with it |
+| A computer player's footman with a recorded attacker gets command 4 from the attack AI (static study) | The record is kept |
+| `xorc11-air-sea-3000` (oracle trace, Enhanced): computer battleship 1539 (type 0x20, owner 6) at (6, 24) gets the sea patrol at n = 3 (anchor (21, 34), far end oil platform 1556 at (5, 19)); it leaves the patrol for order 12 at n = 112 at (10, 28), resumes it at n = 1145 (order 5, wait 3, at (10, 32)) and turns at (20, 34) at n = 1413 (order 5, still animation, wait 3) | Goal (6, 24), the tile it stood on at n = 3: at n = 1643 it steps west from (12, 28) to (10, 28), facing 6 |
+| `human12-25000` (oracle trace, Enhanced), n = 16061: transport 1428 (type 0x1C, owner 1, the human player) idle at (36, 114), hit at n = 16059 by giant turtle 1530 (type 0x27, owner 0, a computer player), which owner 1 doesn't detect | Two flee draws; order 30, animation 6, wait 3, target null; the attacker is forgotten |
+| `human12-25000`, n = 16612: tanker 1425 (type 0x1A, owner 1) idle at (32, 116), hit by giant turtle 1530 | Two flee draws; order 3, wait 3, target null |
+| A computer footman (land attacks only) idle, hit by a submarine it doesn't detect (static study) | Flees (two draws): order 3 |
+| A footman hit by a footman it doesn't detect and could hit (static study) | No flee; the search ignores the attacker in that run ("Terms") |
+| A computer player's tanker in order 23 on its way to a platform, hit by a destroyer (static study) | No flee (a computer player's unit flees only from idle), and its AI routine doesn't run either |
+| A computer player's peon idle, hit by a grunt (static study) | It can hit land, so no flee from step 1: its worker AI routine runs |
 
 ## Open questions
 
@@ -1287,3 +1329,9 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   clears the record is open.
 - **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
   is open; the `human5-10000` trace fits the strike facing.
+- **The reaction's other flee paths and detection** (static study only). The reaction's non-combat flee (a worker,
+  transport, demolition unit or mage-type unit that **can** hit its attacker) reaches the same flee rule, which has no
+  detection test. Whether the reaction ignores an undetected attacker before that point isn't traced.
+- **A right-click and the attacker record.** A right-click command is read as forgetting the attacker like any other
+  player's command ("A player's command forgets the attacker"); no trace has a right-click on a unit with a recorded
+  attacker.
