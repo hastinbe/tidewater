@@ -103,6 +103,10 @@
   command remembers its goal and the unit's own tile, and so does each turnaround; the reaction's step 1 and the flee
   rule don't test detection, and step 1 comes before the worker and tanker branches for every player; `human09-fleet`,
   `xorc11-air-sea` and `human12-25000` vectors.
+  2026-10-13, round-56 errata and static corrections: a right-click keeps the attacker record (round 55's reading
+  corrected), a cast command forgets it and a build command keeps it; an air or sea unit's patrol to a goal within 1
+  tile isn't remembered; the remembered goal is the goal as given; the reaction's non-combat flee has no detection test
+  and order 12's follow-up run can't reach "no route" again (open questions closed; static).
 
 ## Behaviour
 
@@ -423,6 +427,12 @@ during its first leg and resumed after the fight runs to the anchor and turns to
 patrol was given, not toward the far end (traced: `xorc11-air-sea-3000`, vectors below). Each turnaround is a new patrol
 command, so from the first turnaround on the remembered ends are that turnaround's goal and tile.
 
+The goal remembered is the goal **as given**, before it is pulled back (`movement/pathfinding.md`, "Goal pulled
+back"); for a transport it is the goal after the adjustment every command to a transport gets (`orders/transports.md`).
+**An unremembered patrol** (Enhanced, static study only): a patrol command given to an **air** or **sea** unit whose
+goal is within 1 tile of the unit on both axes doesn't write the remembered order, and the old remembered order stays.
+`xorc7-7000` n = 1002 (a sea patrol toward the destroyer's own tile) is such a case, with no visible effect.
+
 The resumed order goes through the same steps as a player's command: the goal is stored and pulled back
 (`movement/pathfinding.md`, "Goal pulled back"), the cached route is dropped, the blocked counter is cleared
 (`movement/movement.md`, "Blocked rules") and the recorded attacker is checked as for every command ("Commands forget a
@@ -469,7 +479,8 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
      makes no turn and no strike decision. The update then runs order 12's logic **once** (the move step stood in for
      the logic earlier in the update, so this is its only run): it sees the mark of step 3 and skips its search, and its
      strike decision turns the unit to face the target ("Strike decision") and starts the cooldown (static study for the
-     order of these parts). The attack sound and the hit come later from the attack animation (in `human5-10000` the
+     order of these parts). That run doesn't move the unit, so it can't find "no route" again, and the logic doesn't run
+     a third time in the update (static study). The attack sound and the hit come later from the attack animation (in `human5-10000` the
      take-over is at n = 1759, the hit at n = 1769 and the next step at n = 1774 with wait 10, the cooldown left).
   3. The unit is marked so that its **next** order-logic run skips the target search at its start (and with it the
      acquisition). If the order at that run is idle or an attack order (2, 9, 11, 12, 13, 15, 16 or 17), that run skips
@@ -531,8 +542,10 @@ forgets its recorded attacker, whatever the attacker's state (alive, detected, i
 command is given, so the command's own checks, including the stale-attacker check below, still see the record. A unit
 that doesn't take the command (another player's, the target itself, or one that fails the selection filter) keeps its
 record. Commands that a computer player gives keep the record, apart from the check below, as before (traced:
-`human09-fleet-3000`, vectors below). A right-click command is read as carried out the same way (static study; no trace has a right-click on
-a unit with a recorded attacker).
+`human09-fleet-3000`, vectors below). A spell command given by the player (commands 38 to 56) is a unit command like
+any other and forgets the record. Two player commands take a different path and **keep** the record: a **right-click**
+(`ui/selecting-and-commanding.md`, "What a right-click command does") and a **build** command, which also leaves the
+remembered order as it is (static study for these three; no trace has the case).
 
 **Commands forget a stale attacker.** Every command given to a unit that isn't a building (a player's or a computer
 player's command, a resumed patrol or attack-move, a flee move, a target search's resulting order and every other
@@ -949,7 +962,8 @@ the unit has an attacker:
 - If the attacker is no longer valid (dying, dead or inside something), or the unit's owner is not playing, or the
   unit is a building, or it can't attack, the attacker is simply forgotten.
 - Otherwise, if the unit is a non-combat unit (worker, tanker, transport, demolition unit or mage-type unit: mage and
-  death knight types, heroes included), it **flees** (below).
+  death knight types, heroes included), it **flees** (below). This path has no detection test either: an attacker the
+  unit's owner doesn't detect is fled from as in step 1 (static study; no trace changes).
 - Otherwise it runs the target search (above), which starts with the attacker as the best candidate. If the result
   differs from the unit's current target, it attacks the result with order 12, whatever the resulting-order table
   says.
@@ -1329,9 +1343,5 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   clears the record is open.
 - **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
   is open; the `human5-10000` trace fits the strike facing.
-- **The reaction's other flee paths and detection** (static study only). The reaction's non-combat flee (a worker,
-  transport, demolition unit or mage-type unit that **can** hit its attacker) reaches the same flee rule, which has no
-  detection test. Whether the reaction ignores an undetected attacker before that point isn't traced.
-- **A right-click and the attacker record.** A right-click command is read as forgetting the attacker like any other
-  player's command ("A player's command forgets the attacker"); no trace has a right-click on a unit with a recorded
-  attacker.
+- **A right-click, a cast and a build and the attacker record** ("A player's command forgets the attacker") rest on
+  static study; no trace has any of them on a unit with a recorded attacker.
