@@ -120,6 +120,11 @@
   gather mode, and never harvests trees or oil patches; return goods by smart move is for workers only (static);
   when a unit gives up blocked and nothing resumes, it keeps its walking animation (not the still animation), and a
   complete attack-move is forgotten (static); `orc9-orc09-smart-move-2000` vectors.
+  2026-10-13, round-62 errata: a complete attack-move is forgotten wherever idle becomes pending, only at countdown
+  0; remembering sets the countdown to 0 and it runs only while something is remembered (static); the follow
+  radius has the +1 for sea and air units, and a follower whose target can't be guarded gets a pending idle; a
+  smart move with a target unit that becomes the move keeps the target (traced for a tanker); a carrying tanker
+  onto its shipyard and a smart move onto an oil patch are traced; round-62 vectors.
 
 ## Behaviour
 
@@ -340,17 +345,29 @@ return goods, repair, build and spells).
    (and goes on down the table). Trees and oil patches never pass: a smart move never starts a tree or oil-patch
    harvest, and a forest tile gives the move. Traced: `orc9-orc09-smart-move-2000`, round-61 vectors (a worker that
    has never harvested, a worker cutting wood, a worker carrying gold, an empty tanker and a carrying tanker);
-   `orc9-orc09-shore-build-3000` n = 599. The oil-patch case is static study only.
+   `orc9-orc09-shore-build-3000` n = 599. An oil patch as the target unit gives the move (traced:
+   `orc9-orc09-tanker-move-2200` n = 1700, round-62 vectors); with no target unit, the oil-patch case is static
+   study only.
 3. Then the first matching rule applies:
 
 | Unit and target | Result |
 | --- | --- |
 | The unit is a transport | Transport rules (`orders/transports.md`) |
 | A land unit, and the target is its own side's transport | The transport is told to come; the unit gets order 34 (board) |
-| A worker (peasant or peon type) carrying goods, and the target is a depot that accepts them | Order 24 (return goods). Workers only (static study only): a tanker carrying oil sent onto a refinery or shipyard goes on down the table and gets the move |
+| A worker (peasant or peon type) carrying goods, and the target is a depot that accepts them | Order 24 (return goods). Workers only: a tanker carrying oil sent onto a refinery or shipyard goes on down the table and gets the move (traced for its own shipyard: `orc9-orc09-tanker-move-2200` n = 1265; static study for a refinery) |
 | The target passes the harvest test of step 2 | Harvest (order 23) on that building (see the economy specs) |
 | The target is its own side's unit (not a building) | Order 6 (follow) |
-| Anything else | Order 3 (move) |
+| Anything else | Order 3 (move); with a target unit, see below |
+
+**A smart move with a target unit that becomes the move** keeps that unit as the move's **target** until the move
+ends; on arrival the target is dropped with the order. Its stored goal is the target's tile, **not pulled back**
+(`movement/pathfinding.md`, "Goal pulled back"), and its route goal G comes from the building goal rule on the
+target's footprint, from the unit's tile, as for any walk whose order holds a target unit. Traced only for a
+**tanker** (a sea unit): a carrying tanker onto its own shipyard and an empty tanker onto an oil patch
+(`orc9-orc09-tanker-move-2200` n = 1265 and 1700, round-62 vectors). For **land units** (a worker carrying goods
+onto a building that doesn't accept them, any unit onto a neutral or enemy unit) it is **static study only**, and
+nothing else in a land unit's smart move changes: the rows above still come first. The target goal zone of
+`movement/pathfinding.md` ("Step 1") for this walk is static study only too (no trace needs it).
 
 ### Order 11: attacking a wall tile
 
@@ -432,7 +449,12 @@ Orders 0 and 1 also wipe the remembered order (Enhanced, below).
 ### Resuming patrol and attack-move (Enhanced only)
 
 In Enhanced mode a unit can **remember** a patrol (both ends) or an attack-move (the target tile), set by commands 5
-and 8. Each unit also has a **resume countdown**, which goes down by 1 every cycle until it reaches 0.
+and 8. Each unit also has a **resume countdown**. Each time a patrol or attack-move is remembered (commands 5 and 8
+with a tile, and every patrol turnaround), the countdown is set to **0**; the resume step below then sets it to 40
+or 20. The countdown goes down by 1 every cycle until it reaches 0, but **only while the unit remembers something**;
+with nothing remembered it stays where it is (static study only for this paragraph's countdown rules: no trace gives
+a remembering command while a countdown runs). So a unit that just resumed and is then given a new patrol or
+attack-move can resume it at its next pending idle without waiting out the old countdown.
 
 When idle (order 2) is made such a unit's **pending** order (on arriving, on losing its target, and wherever else
 idle becomes pending) and its countdown is 0, the remembered order may be given instead of the idle; it takes over in
@@ -444,20 +466,24 @@ something, or in order 25):
 | --- | --- |
 | Patrol | It is sent back toward the patrol end it was heading for, **as a command** (goal pulled back, cached route dropped, blocked counter cleared, attacker checked), and the countdown is set to **40** |
 | Attack-move, with the target tile more than 1 tile away (either axis) | The attack-move is given again **as a command** (goal pulled back, cached route dropped, blocked counter cleared, attacker checked), and the countdown is set to **20** |
-| Attack-move, already within 1 tile | It stays idle (the attack-move is complete) |
+| Attack-move, already within 1 tile | It stays idle, and the attack-move is **forgotten** (the countdown must be 0, as for every row) |
+
+With the countdown running, the pending idle is set and **nothing else happens**: the remembered order is neither
+resumed nor forgotten, so a later pending idle at countdown 0 can still resume it (if the unit is then more than 1
+tile away) or forget it (static study only: no trace has a complete attack-move with the countdown running). The
+forgetting at countdown 0 is traced: `orc9-orc09-attack-move-1500`, round-62 vectors.
 
 **Giving up when blocked.** When a unit gives up at the blocked counter's limit (`movement/movement.md`, "Blocked
 rules", row C), idle is made its pending order with these rules. If it remembers a patrol, or an attack-move whose
-target tile is more than 1 tile away on either axis, and its countdown is 0, it starts its **still** animation with
-wait **1** (not row C's 15), and the remembered order is given as a command, as in the table (countdown 40 or 20). It
-is the **pending** order and takes over at the next step done, a cycle later (traced: `xhuman8-25000` n = 11284,
-round-60 vectors). Otherwise (no remembered order, the countdown running, or the attack-move complete) idle becomes
-the pending order and **nothing else changes**: the unit keeps the walking animation the blocked step restarted (the
-move animation, or animation 6 in orders 30 and 31), with row C's wait of 15; only the resume case starts the still
-animation (traced: `orc10-10000` n = 3505 and `xhuman12-10000` n = 4144, round-61 vectors). A remembered
-attack-move that is complete (within 1 tile of its target tile on both axes) is **forgotten** there, so it can't
-resume later (static study only). Whether the other places that make idle pending share this exact step isn't
-checked (static study only for them).
+target tile is more than 1 tile away on either axis, and its countdown is 0, it starts its **still** animation with wait
+**1** (not row C's 15), and the remembered order is given as a command, as in the table (countdown 40 or 20). It is the
+**pending** order and takes over at the next step done, a cycle later (traced: `xhuman8-25000` n = 11284, round-60
+vectors). Otherwise (no remembered order, the countdown running, or the attack-move complete) idle becomes the pending
+order and **nothing else changes**: the unit keeps the walking animation the blocked step restarted (the move animation,
+or animation 6 in orders 30 and 31), with row C's wait of 15; only the resume case starts the still animation (traced:
+`orc10-10000` n = 3505 and `xhuman12-10000` n = 4144, round-61 vectors). A remembered attack-move that is complete is
+forgotten there if the countdown is 0, as everywhere idle becomes pending (the table above). Whether the other places
+that make idle pending share this exact step isn't checked (static study only for them).
 
 If nothing is resumed (no remembered order, the countdown running, or the attack-move complete), the pending idle is
 set as usual.
@@ -625,9 +651,13 @@ target (the facing rule of `core/animation-scripts.md`; ships use a different ru
 1. If the follower's order is **7**, or a follow order (6) is pending, and the followed unit's own order is **not**
    one of 2, 3, 4, 5, 6, 7 or 10, the follower is given a plain move (command 3) to **its own tile**: it stops where
    it is. (A follower in order 6 with nothing pending skips this step.)
-2. Otherwise, if the follower is outside its radius (1), it is given the follow again toward the followed unit.
+2. Otherwise, if the follower is outside its radius, it is given the follow again toward the followed unit. The
+   radius is **1**, plus the +1 of `movement/movement.md` ("The +1") for a sea or air follower, as in the general
+   arrival test: a ship following a ship is inside at 2 tiles.
 3. When it is inside the radius, a follower in order 6 becomes order **7** (guard) if the followed unit's order is
-   one of 2, 3, 4, 5, 6, 7 or 10, and idle (order 2) otherwise.
+   one of 2, 3, 4, 5, 6, 7 or 10. Otherwise idle is made its **pending** order (with the Enhanced resume, "Resuming
+   patrol and attack-move") and takes over in the same update: still animation, wait **3**. It is not a stop command
+   (traced: `orc9-orc09-tanker-move-2200` n = 614, round-62 vectors).
 
 Order 7 then also runs the idle logic (target acquisition as for order 2), so a guarding unit attacks enemies that
 come near and goes on following.
@@ -1382,8 +1412,21 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Same trace, n = 965: orc tanker 1473 (type 0x1B), stopped and empty, smart move to (58, 76), a tile of its own player's oil platform 1468 | Target 1468, wait cut to 10; order 23 on 1468 from n = 975 |
 | Same trace, n = 1262: tanker 1473 carrying oil, smart move to (58, 76) | No harvest: wait cut to 10, target cleared; order 3 at n = 1272 |
 | A smart move onto a forest tile or an oil patch, no target unit (static study for the oil patch) | The move (order 3) |
+| A smart move with an oil patch as the target unit (traced: round-62 vectors) | The move (order 3), keeping the patch as its target |
 | `orc10-10000` (oracle trace), n = 3505: computer tanker 1533 (type 0x1A, owner 1) in order 24 gives up blocked, nothing to resume | Animation 3 (the restarted move animation), wait 15; not the still animation |
 | `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (type 0x09, owner 2) in order 4 gives up blocked, nothing resumed | Animation 3, wait 15 |
+
+### Round-62 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-attack-move-1500` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-attack-move.txt`): ogre 1493 (type 0x07, owner 5) given an attack-move to (57, 91) at n = 24 (order 10 from n = 28) | Arrives at (57, 91) at n = 295 (order 2, countdown 0: the complete attack-move is forgotten) |
+| Same: 1493 then attacks player 0's archers from (60, 92) (order 12 from n = 363); at n = 653 its target is lost and idle becomes pending, 3 tiles from (57, 91) | Order 2, still animation, wait 3; the attack-move is **not** resumed (order 10 would be, had it been remembered) |
+| A unit whose remembered attack-move is complete gets a pending idle with its countdown running (static study) | Idle; the attack-move is kept, and a later pending idle at countdown 0 resumes or forgets it |
+| A unit that resumed (countdown 20) is given a new attack-move command, and soon gets a pending idle more than 1 tile from its target tile (static study) | The new attack-move resumes: the command set the countdown to 0 |
+| `orc9-orc09-tanker-move-2200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-tanker-move.txt`): juggernaut 1501 (type 0x21, owner 5) smart-moved onto its own destroyer 1497 (type 0x1F) at n = 20 (order 6 from n = 27); 1497 sails to (60, 62) and attacks without moving (order 16 from n = 359) | 1501 reaches (60, 64), 2 tiles away, inside the radius 1 + 1: at n = 614 order 2, still animation, wait 3; order 16 from n = 617. Not order 6, and not a stop command's wait 1 |
+| Same trace, n = 1265: orc tanker 1473 (type 0x1B), carrying oil, smart-moved onto its own shipyard 1499 (type 0x49) | The move: order 3 from n = 1277 with target 1499; at (48, 80) it arrives, order 2 with no target at n = 1408 |
+| Same trace, n = 1700: tanker 1473, empty, smart-moved onto oil patch 1517 (type 0x5D, top-left (47, 51)) | The move: order 3 from n = 1720 with target 1517, route goal from the building goal rule and stored goal the patch's tile, not pulled back (at n = 1819 it steps to (50, 70)); it arrives at (48, 54), order 2 with no target, at n = 2107 |
 
 ## Open questions
 
