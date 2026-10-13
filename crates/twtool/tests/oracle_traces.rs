@@ -4,8 +4,8 @@
 //! limit.
 //!
 //! The format-2 traces carry the player's commands in their `turn` records, which the oracle replays. They must match
-//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i). Every
-//! trace below matches in full; a known gap gets a limit and a note here.
+//! up to the cycle before their first known gap, and every input entry must run in its predicted turn T(i). A known
+//! gap gets a limit and a note here.
 //!
 //! human01-2000, human04-3000, human01-basics, orc02-assault, orc02-victory, orc02-defeat, orc02-dyingcmd,
 //! xhuman10-spells, xhuman10-blizzard, xorc12-ogre-mage, orc09-naval, orc09-repair, human12-transport,
@@ -14,7 +14,15 @@
 //! human12-row-f-move, human12-row-f-landing, xorc01-death-coil, xorc01-death-knight, xorc10-dragons, orc3, orc6,
 //! orc5, xorc2, xorc4, xorc5, xhuman1, xhuman3, xhuman5, xorc1-20000, xorc10-20000, human2, human3, human9, human11,
 //! orc1, orc7, orc10, orc11, orc12, orc13, xhuman6, xorc9, human8, human14, xhuman8, xhuman7, xhuman9, xorc6, xorc11,
-//! xhuman12, human13, orc14, xhuman11 and xorc8 match in full. There are no known gaps.
+//! xhuman12, human13, orc14, xhuman11, xorc8, human4-15000, xhuman4-15000, orc9-12000, xhuman10-12000, xorc7-15000,
+//! human8-30000, xorc12-4000, xorc09-death-knight-2500, orc10-sappers-2500, xhuman10-slow-3000 and human13-subs-2000
+//! match in full.
+//!
+//! Known gaps (the limit is the last cycle that matches):
+//!
+//! - human12-25000 diverges at n = 16612: an idle tanker hit by an attacker its owner doesn't detect flees in the
+//!   original; the specs ignore such an attacker in that run (open question, round 54).
+//! - human09-fleet-3000 diverges at n = 1507 and xorc11-air-sea-3000 at n = 1643, as expected for round 54.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -150,4 +158,18 @@ traces! {
     xorc8_10000: ("xorc8-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc08.pud", 43, &[], None),
     xorc9_10000: ("xorc9-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
     xorc11_10000: ("xorc11-10000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
+    human4_15000: ("human4-15000.jsonl.gz", "Campaign\\Human\\Human04.pud", 6, &[], None),
+    xhuman4_15000: ("xhuman4-15000.jsonl.gz", "Campaign\\XHuman\\2XHum04.pud", 34, &[], None),
+    orc9_12000: ("orc9-12000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    xhuman10_12000: ("xhuman10-12000.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xorc7_15000: ("xorc7-15000.jsonl.gz", "Campaign\\XOrc\\2XOrc07.pud", 41, &[], None),
+    human8_30000: ("human8-30000.jsonl.gz", "Campaign\\Human\\Human08.pud", 14, &[], None),
+    xorc12_4000: ("xorc12-4000.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
+    xorc09_death_knight_2500: ("xorc09-death-knight-2500.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
+    human12_25000: ("human12-25000.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], Some(16611)),
+    orc10_sappers_2500: ("orc10-sappers-2500.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
+    xhuman10_slow_3000: ("xhuman10-slow-3000.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    human13_subs_2000: ("human13-subs-2000.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    human09_fleet_3000: ("human09-fleet-3000.jsonl.gz", "Campaign\\Human\\Human09.pud", 16, &[], Some(1506)),
+    xorc11_air_sea_3000: ("xorc11-air-sea-3000.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], Some(1642)),
 }
