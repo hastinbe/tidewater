@@ -29,6 +29,9 @@
   only (open question closed); `xorc3` vector.
   2026-10-12, round-43 errata: felling's return command clears the blocked counter, as every command does (stated
   explicitly); round-43 vectors (`orc8`).
+  2026-10-12, round-44 errata: after the no-route re-aim to a tree, order 23's logic runs again in the same update, so a
+  worker next to the new tree starts chopping at once; the round-43 `orc8-10000` vector's evidence corrected (worker
+  1501 fells its tree at n = 8036); `orc4-40000` vector.
 
 ## Behaviour
 
@@ -175,9 +178,13 @@ simulation generator (see `core/timing-and-rng.md` and `ERRATA-round2.md`).
 search finds no route, it looks for the nearest tree ("Finding the nearest tree", below) from its own tile. A gold
 worker heading for a mine does this too.
 
-- **A tree is found:** the unit is given a **new harvest command** to that tree tile with no target unit. "Starting
-  to harvest" runs, so the gather mode becomes lumber, a target mine is dropped and the goal is pulled back. Order 23
-  takes over in the same update: attack animation (4), wait 3. Its logic next runs 3 cycles later.
+- **A tree is found:** the unit is given a **new harvest command** to that tree tile with no target unit. "Starting to
+  harvest" runs, so the gather mode becomes lumber, a target mine is dropped and the goal is pulled back. Order 23 takes
+  over in the same update: attack animation (4), wait 3. Unlike the other new harvest commands of "Lumber", order 23's
+  logic then **runs once more in the same update**. If the new tree tile is within 1 tile, chopping starts at once (step
+  2): the worker turns to face the tree, reserves it, and the chop makes its chop-sound draw; the attack animation still
+  restarts with wait 3. If the tree is further away, nothing more changes (facing kept, animation 4, wait 3). Its logic
+  next runs 3 cycles later (traced: `orc4-40000`, round-44 vectors).
 - While there is still no route, this repeats at each run, every 3 cycles, with the same tree.
 - **No tree is found:** the unit goes idle, and "No route" of `orders/orders.md` applies as before.
 - Only the peon flag (type flags bit 8) counts. Tankers have the tanker flag (bit 9) and not the peon flag in the
@@ -360,7 +367,15 @@ gold, storage for wood, storage for oil, building.
 | Input | Expected |
 | --- | --- |
 | A worker blocked 9 times on its way to a tree fells it | Its return walk starts with the blocked counter at 0 |
-| `orc8-10000` (oracle trace): computer peasant 1497 (type 0x02, owner 1) comes out of gold mine 1509 at n = 8054 (order 2, wait 25); at n = 8079 it is given the return command (order 24 on 1489, wait 3) | n = 8082: tile (123, 88), facing 4, move animation (the return command cleared its blocked counter) |
+| `orc8-10000` (oracle trace): worker 1501 fells its tree at n = 8036 with a blocked counter of 8 (the counter isn't in the trace) and is given the return command (order 24 on 1489, wait 3). Computer peasant 1497 (type 0x02, owner 1) comes out of gold mine 1509 at n = 8054 and gets its own return command at n = 8079 | 1501's return command cleared its counter. n = 8082: 1497's route search treats 1501 as a moving ally, which it does only when 1501's counter is 0: 1497 is at (123, 88), facing 4, in its move animation |
+
+### Round-44 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc4-40000` (oracle trace), n = 23680: peasant 1584 (type 0x02, owner 1) in order 23 at (3, 10) finds no route to its tree; the nearest tree is (2, 11) | Same-update logic run: facing 7 → 5 (toward the tree), animation 4, frame 0, wait 3; the tree is reserved |
+| `human5-10000`, n = 39: peasant 1512, new tree not adjacent | Facing kept, animation 4, wait 3 |
+| `human12-7000`, n = 215: worker 1572, new tree not adjacent | Facing kept, animation 4, wait 3 |
 
 ## Open questions
 
