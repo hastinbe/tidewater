@@ -35,6 +35,8 @@
   2026-10-13, round-60 errata: the target goal zone serves every walk whose order holds a target unit (static
   study; traced for attack-move and order 4); the shore corner goal is also the walk goal of a unit that is neither
   sea nor air targeting a shore building, and the build goal has no sea or air test; round-60 vectors.
+  2026-10-13, round-62 errata: a smart move with a target unit that becomes the move stores the target's tile
+  without pulling it back (traced for a tanker); the shore build with no corner is traced.
 
 ## Behaviour
 
@@ -226,8 +228,9 @@ The unit's region is the region-map value at its recorded tile (for a unit insid
 recorded for it). The build case has no sea or air test: every builder of a shore building uses this rule (in play only
 land workers build them). A sea or air unit targeting a shore building uses the building goal rule above. **A build
 command whose shore site has no corner in the worker's region fails silently**: the worker gets no order and nothing is
-paid (static study only). Traced: the build case `mp-frosty-fjords-bne-30000` (round-59 vectors), the attack case
-`orc9-orc09-shore-build-3000` n = 343 (round-60 vectors).
+paid (traced: `orc9-orc09-shore-no-corner-600` n = 20, round-62 vectors). The goal rule is traced for the build case
+`mp-frosty-fjords-bne-30000` (round-59 vectors), the attack case `orc9-orc09-shore-build-3000` n = 343 (round-60
+vectors).
 
 ### Goal pulled back
 
@@ -235,7 +238,10 @@ Every command runs this when the order it gives is one of **0 to 16, 18 to 29, 3
 (a human or a computer player). Orders 17, 30 and 38 to 56 (the spells) don't use it. A build command (order 28) is
 included: it pulls back the goal tile worked out for the site, not the site (traced: `mp-frosty-fjords-bne-30000`,
 round-59 vectors). It works on the goal tile the command stores (the command also clears the unit's blocked counter, for
-every order, `movement.md`):
+every order, `movement.md`). One exception: a smart move with a target unit that becomes the move (order 3) stores
+the target's tile **without** pulling it back, and its route goal comes from the building goal rule on the target's
+footprint (`orders/orders.md`, "Smart move"; traced for a tanker: `orc9-orc09-tanker-move-2200` n = 1700; static
+study only for land units):
 
 1. A tile is **usable** when it has none of the terrain or building bits of the unit's movement mask (units are
    ignored) and, for a unit that isn't an air unit, its region is the unit's own region.
@@ -351,7 +357,7 @@ units on the map.
 | --- | --- |
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (type 0x08, owner 0) at (61, 92) attacks shipyard 1469 (top-left (55, 86), 3 × 3); the top-left (55, 86) isn't in its region, and of the other corners only the bottom-left (55, 88) is | G = (55, 88): the archer walks on until it is within 4 of that tile |
 | A follow (order 6) of a 2 × 2 unit (static study) | Goal zone: the followed unit's footprint widened by one tile, not the 3 × 3 around G |
-| A shore building build command, no footprint corner in the worker's region (static study) | No order, nothing paid |
+| A shore building build command, no footprint corner in the worker's region (`orc9-orc09-shore-no-corner-600` n = 20: a shipyard at (22, 65), on another island's coast) | No order, nothing paid |
 
 ## Open questions
 
