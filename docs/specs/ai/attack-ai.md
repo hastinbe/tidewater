@@ -24,6 +24,8 @@
   given (traced: `xorc3-10000`; static check open).
   2026-10-13, round-47 errata: the call for help tests only whether S can target A's kind, so it answers a dying
   attacker; the hold return's smart move to the goal tile as given is confirmed by static study (open question closed).
+  2026-10-13, round-49 errata: a live attacker that V's owner doesn't detect stays recorded, so its next hit makes no
+  new call; the submarine call's command 4 records V as the target and ends once V is dying.
 
 ## Behaviour
 
@@ -411,15 +413,17 @@ The result is the nearest candidate to u, **anywhere on the map** (there is no s
 
 When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applying damage"):
 
-1. If V already has an attacker that is alive, nothing more happens (the old attacker is kept). An attacker that is
-   gone is forgotten first.
+1. If V already has an attacker that is alive, nothing more happens (the old attacker is kept). An attacker that is gone
+   is forgotten first. An attacker that is alive but not detected by V's owner (a submarine, for example) stays recorded
+   through V's order logic (`orders/orders.md`, "Terms"), so a second hit by it makes no new call (traced:
+   `xhuman7-10000`, `orders/orders.md` vectors).
 2. Nothing happens if V's owner counts A's owner as allied, or V is gone.
 3. If V's owner's controller is human and A is a building, nothing happens (the attacker is not recorded).
 4. A becomes V's attacker.
 5. **Submarine call:** if V's owner is a computer player and the **attacker A** is a submarine (flag bit 6), V's
    owner's unit nearest V that is an air unit or a submarine, has no attacker and is not V is given command 4 with V as
-   the target
-   unit.
+   the target unit. That unit records V as its target, and its order 4 ends once V is dying (`orders/orders.md`,
+   "Commands"); a computer player's command 4 keeps its remembered patrol ("Resuming patrol and attack-move").
 6. **Neighbours:** the help radius R is 13 for a computer player's V; for others, 4 if V is a sea unit, else 2. The box
    runs from V's tile − R to V's far edge (x + width − 1 + R, y + height − 1 + R), clamped to the map. A unit S of V's
    owner is in the box when its **top-left tile's** column is within the box's columns and its top-left tile's row is
