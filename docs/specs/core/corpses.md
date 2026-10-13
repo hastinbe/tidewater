@@ -10,6 +10,8 @@
 - **Changes:** 2026-10-12, round-37 errata: the dead-mage vector names the folder its trace is in.
 - **Changes:** 2026-10-12, round-41 errata: an oil patch under a new oil platform gets the used mark and is killed,
   leaving no ruin (`orc09-naval` n = 268, slot released at n = 781).
+- **Changes:** 2026-10-12, round-43 errata: a ship wreck shows frame 0 from the moment its order becomes "remove";
+  bodies and ruins keep their last frame; `orc09-naval` vectors.
 
 ## Behaviour
 
@@ -126,12 +128,19 @@ below is the time the order changes; the slot is released 513 cycles later.
 | --- | --- | --- | --- |
 | 1 Human body | 0: frame 0; 200: frame 10; 400: frame 15; 600: frame 20; 800: frame 25 | 200 | 800 |
 | 2 Orc body | 0: frame 5; 200: frame 10; 400: frame 15; 600: frame 20; 800: frame 25 | 200 | 800 |
-| 3 Ship wreck | 0: frame 30 | 100 | 200 |
+| 3 Ship wreck | 0: frame 30; 200: frame 0 (shown from the "remove" order on; see below) | 100 | 200 |
 | 4 Land ruin | 0: frame 0; 200: frame 1 | 200 | 400 |
 | 5 Water ruin | 0: frame 2; 200: frame 3 | 100 | 400 |
 
 The waits are plain waits: haste and slow don't change them. Human and orc bodies share their later frames (the
 bones stages).
+
+**A ship wreck's last frame.** When a ship wreck's order becomes "remove", its frame becomes **0** in the same cycle and
+stays 0 until the slot is released. Bodies keep frame 25 and ruins keep their last frame (1 or 3). The cause: the
+wreck's decay animation is number 3, the same number as the move animation. At its last "step done" the unit is treated
+as switching back to its own animation (`core/animation-scripts.md`, "Starting an animation", the last row), so the
+remains' animation restarts and its first instruction (frame 0) runs at once, before the order becomes "remove". The
+body and ruin animations (1, 2, 4 and 5) don't take this path.
 
 ## Data
 
@@ -162,6 +171,9 @@ Cycle numbers count updates of the unit: update 1 is its first update after it i
 | Mage killed, death step done at cycle D | No body; "remove" order at D; slot released at D + 513 |
 | Farm (2 × 2) destroyed, death step done at cycle D | Ruin type 0x6B, land ruin: frame 0 at D + 1; frame 1 and neutral at D + 201; "remove" order at D + 401; slot released at D + 914 |
 | Oil platform destroyed with 5000 oil left | An oil patch with 5000 oil appears at once, taking the next creation number; 2 draws are made at the kill; the platform plays its death animation and leaves no ruin |
+| `orc09-naval-1500` (oracle trace), n = 794: wreck 1506 reaches its last stage | Order 0, animation 0, frame 0, wait 1 (frame 30 until n = 793) |
+| Same trace, n = 894 (wreck 1497) and n = 1255 (wreck 1511) | Order 0, frame 0 |
+| `orc02-assault-3000` (oracle trace): the 12 bodies and the ruin that reach their last stage | Bodies frame 25, the ruin frame 1 |
 | Shipyard (shore building, 3 × 3) destroyed | Ruin type 0x6C, water ruin: frame 2 (first stage the cycle after the death step done); neutral after 100; frame 3 after 200; "remove" order after 400 |
 | Polymorphed footman | Its death animation plays, then a human body with the used mark; it decays on the normal timetable and can't be raised |
 | Body raised by raise dead | Gets the used mark; keeps decaying and is removed on its normal timetable |
