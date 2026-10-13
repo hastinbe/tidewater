@@ -18,6 +18,9 @@
   later in the cycle, and keeps its facing (new open question); order 32 takes over for the transport in the same update
   (wait 3); `human12-transport` unloading vectors.
   2026-10-12, round-40 errata: "Land and shore targets" runs for every command given to a transport.
+  2026-10-12, round-42 errata: order 34 is a walking order whose logic runs on arrival, so a computer player's boarding
+  unit stays in order 34 while it walks; with no route it restarts order 34 at once (destination in its region) or goes
+  idle at once; step 3 is marked static study only; `human10-24000` and `human12-7000` vectors; two open questions.
 
 ## Behaviour
 
@@ -179,12 +182,21 @@ computer players).
    target is the boarding unit (so it comes to meet it, by the rules above).
 2. The unit gets order 34.
 
-**Order 34 (board).** Each time the order's logic runs:
+**Order 34 (board)** is a walking order. While the unit walks to its goal, only the movement runs at each step, so a
+unit of **any** player, computer players included, stays in order 34 while it walks to the transport. The order's
+logic (the steps below) runs when the walk ends:
+
+- on **arrival**, the steps below run;
+- with **no route**, the unit restarts order 34 at once if the transport's destination tile is in its region, and
+  becomes idle at once otherwise (`orders/orders.md`, "No route", the boarding case).
+
+Each time the order's logic runs:
 
 1. If the transport is no longer a valid target, the unit becomes idle.
 2. **Goal:** the transport's tile if the transport stands in the unit's region; otherwise the transport's own
    destination tile (where it is heading). The arrival radius is 1 (`orders/orders.md`).
-3. **Not arrived:** the unit is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"):
+3. **Not arrived** (static study only: no trace shows a run of the logic that finds the unit not arrived): the unit
+   is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"):
    - a **computer player's** unit gets command 4 (move and attack on the way) and **leaves order 34**: its order
      becomes 4 at the next step boundary. It boards only if it is given the boarding command again;
    - **every other player's** unit (human, passive computer, passive rescue, neutral; `orders/orders.md`, "Terms")
@@ -240,7 +252,9 @@ computer players).
 | Land unit, smart move on its own side's docked transport with 6 passengers | Order 34; on arrival it can't board (no empty slot); if the transport's destination is in its region it keeps waiting, else it becomes idle |
 | Land unit (human player) in order 34 at (24, 21), in region L. Its transport is docked (order 32) at (20, 20), whose tile is in another region W, with a free slot; the transport's destination tile is (23, 20), in region L (for example left by a landing command whose route failed on the shore) | Goal: the destination (23, 20), because the transport isn't in the unit's region. The unit is within 1 tile of it, so it has arrived, but it is 4 tiles from the transport on x, so it doesn't board. The transport isn't landing and its destination is in the unit's region, so the unit keeps waiting in order 34, without moving, at every run until something changes |
 | Same, but the destination tile (23, 20) is in a third region | The unit gives up: order 2 |
-| Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing | Gets a smart move again: stays in order 34, and the transport is told to come |
+| Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing, and its logic runs (static study only) | Gets a smart move again: stays in order 34, and the transport is told to come |
+| `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5) after a no-route step: order 34 restarted, animation 2, wait 3; n = 17254: order 36 (aboard) |
+| `human12-7000` (oracle trace), n = 6371: computer grunt 1407 (owner 0) walking to transport 1522 | Order 34, animation 3, tile (84, 16) |
 | Transport docked at (21, 20) (odd x, one-tile mover, landing class) on shore water, smart move to an open-water tile G = (40, 20); open water (no sea-mask bit) is every tile with x ≥ 22 | Order 31, target tile G. Run 1: odd tile, so the ring search runs from (21, 20) aimed at (40, 20): start corner (22, 19), first tile tested (22, 20) passes. The target tile becomes (22, 20) (the destination stays (40, 20)); one-tile step east to (22, 20). Run 2: (22, 20) is an even open-water tile: sea class, two-tile mover, idle, then a smart move to (40, 20): order 3 |
 | Transport docked at (20, 20) (even) on shore water, smart move to G = (40, 20); open water is every tile with x ≥ 24 | Run 1: even tile but not open water. The ring search aimed at (40, 20) finds (24, 18) after 53 tests (counting repeated tiles); it becomes the target tile; two-tile mover, move animation, first step toward (24, 18). Each later run repeats the search aimed at (24, 18) before stepping. On reaching (24, 18): sea class, idle, smart move to (40, 20) |
 | Straight line, S = (20, 20), G = (25, 22) | Tiles tested: (20, 20), (21, 21), (22, 21), (23, 21), (24, 22); the walk stops at (25, 22) |
@@ -257,6 +271,11 @@ computer players).
 ## Open questions
 
 - Which tile a computer player's boarding unit moves to when its transport is landing in its region.
+- **Order 34 not arrived.** The static study shows step 3's two branches (command 4 for a computer player's unit, a
+  smart move for every other), but the logic seems to run only on arrival or with no route. Whether any path reaches
+  step 3 is open.
+- **No-route restart.** The original's no-route restart of order 34 doesn't appear to tell the transport to come
+  again, while step 3's smart move does. No trace in the set separates the two.
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity and the exact sound rules.
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
