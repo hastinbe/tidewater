@@ -5,6 +5,8 @@
   commanding)"), the default unit data (`unitdata.dat`: rect-selectable, flags, right-click action), the keyboard
   accelerator table of the localisation library, and the public PUD specification text (unit types, flag bits,
   right-click actions). Not yet confirmed against the running game.
+- **Changes:** 2026-10-13, round-55 errata: each unit that takes a player's command forgets its recorded attacker
+  after the command is given (traced: `human09-fleet-3000`); a right-click is read the same way (static).
 
 ## Behaviour
 
@@ -217,6 +219,8 @@ When the command runs (for the issuing player):
    the target, a command is chosen by its type's **right-click action** (UDTA "2nd mouse button action"; only types
    0x00 to 0x39 have one). Under Enhanced rules the unit's remembered patrol or attack-move is forgotten first. The
    command is then given as in `orders/orders.md`. A unit whose current order can't be interrupted is skipped there.
+   After the command is given, the unit forgets its recorded attacker, as in "Which units take part in a command"
+   (static study: read as the same step; no trace has a right-click on a unit with a recorded attacker).
 
 | Action | Command given |
 | --- | --- |
@@ -278,7 +282,10 @@ and the command goes to each unit of the issuing player's synced selection that:
 - passes the test of the first matching row below.
 
 Under Enhanced rules each unit that takes the command first forgets its remembered patrol or attack-move
-(`orders/orders.md`); commands 5 and 8 then set a new one.
+(`orders/orders.md`); commands 5 and 8 then set a new one. After the command is given, each unit that takes it also
+forgets its recorded attacker, whatever the attacker's state, so the command's own checks still see the record
+(`orders/orders.md`, "A player's command forgets the attacker"; traced: `human09-fleet-3000`). A selected unit that
+doesn't take the command (another player's, the target itself, or one that fails the filter below) keeps its record.
 
 | Command | The unit must |
 | --- | --- |
@@ -442,6 +449,8 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
 | Target-mode attack ground (command 17) with a footman and a catapult selected | Only the catapult takes it |
 | Target-mode patrol, Enhanced, flying machine and footman selected | Both patrol |
 | Target-mode patrol, Classic, flying machine and footman selected | Only the footman |
+| `human09-fleet-3000` (oracle trace, Enhanced), turn n = 1502: command 4 to (28, 40) for the human player's selection, including battleship 1539 (type 0x20, owner 6) in order 12 on its recorded attacker, catapult 1519 | 1539 takes the command and forgets 1519: with no route it is idle at n = 1507 (order 2, wait 1, target null) and nothing seeds its search |
+| Stop command with a footman selected whose recorded attacker is alive, detected and in range (static study) | The attacker is forgotten |
 | Box over a peasant inside a mine, Enhanced | Not picked |
 | Press + with speed at the top level | Nothing changes |
 
@@ -456,6 +465,9 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
   formation offset the same way as a map click is assumed, not checked.
 - **Control groups in some network games.** In some kinds of network game, setting and recalling a group take
   another route that wasn't traced. Default: the rules above.
+- **Right-click and the attacker record.** The right-click's commands are read as carried out by the same step as a
+  button or key command, so each unit that takes one forgets its recorded attacker. No trace has a right-click on a
+  unit with a recorded attacker.
 - **Box selecting with Alt and a single enemy unit** would recall a remembered group containing an enemy. That can't
   happen, because only groups of own units are stored, but this isn't tested.
 
