@@ -27,6 +27,8 @@
   test; `xorc01-death-coil` vector.
   2026-10-13, round-50 errata: the search's spell-caster exclusion is the mage-type units only (mage and death knight
   types); paladins and ogre mages count as fighters; `xhuman11-10000` vector.
+  2026-10-13, round-52 errata: Step 1 names the boarding walk's transport as a target unit, so its goal zone is the
+  transport's widened footprint.
 
 ## Behaviour
 
@@ -92,12 +94,13 @@ that is S, so its checks never meet the unit's own tile.
 
 ### Step 1: mark the goal zone
 
-The **goal zone** is the 3 × 3 tiles centred on G. For a target unit or building, it is the target's footprint
-widened by one tile on each side. For two-tile movers the zone's first row and column are rounded **down** to even
-and its last row and column are rounded **up** to even; the zone is the even tiles in that range, so it can reach one
-tile farther out than the plain zone on the right and bottom. For example, for a 3 × 3 building at (6, 18) the
-widened footprint is columns 5 to 9 and rows 17 to 21, and a two-tile mover's zone is the even tiles from (4, 16) to
-(10, 22); with no target it is the even tiles from G − 2 to G + 2.
+The **goal zone** is the 3 × 3 tiles centred on G. For a target unit or building, it is the target's footprint widened
+by one tile on each side. A boarding walk (order 34, `orders/transports.md`) has its transport as the target unit, so
+its zone is the transport's widened footprint even when G isn't the transport's tile. For two-tile movers the zone's
+first row and column are rounded **down** to even and its last row and column are rounded **up** to even; the zone is
+the even tiles in that range, so it can reach one tile farther out than the plain zone on the right and bottom. For
+example, for a 3 × 3 building at (6, 18) the widened footprint is columns 5 to 9 and rows 17 to 21, and a two-tile
+mover's zone is the even tiles from (4, 16) to (10, 22); with no target it is the even tiles from G − 2 to G + 2.
 
 ### Step 2: the straight line
 
