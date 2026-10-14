@@ -2169,4 +2169,489 @@ mod tests {
             "the same side as toward a platform still there"
         );
     }
+
+    /// Pins of the current behaviour where no oracle trace reaches (the coverage report's untraced harvest regions),
+    /// written before the B-038 refactor so that it can't change them unseen. Each test states the outcome in a few
+    /// fields and pins the whole simulation state with [`World::fingerprint`]. Where a pin differs from the spec, its
+    /// comment says so: those are open questions, not rules.
+    mod pin {
+        use super::*;
+        use crate::ai::controller;
+
+        const FOE: u8 = 8;
+
+        /// [`land_with_oil`] with player 0 human, player 1 computer, workers that can attack and a foe type (an
+        /// archer-like fighter).
+        fn arena() -> World {
+            let mut w = land_with_oil();
+            w.players[0].controller = controller::HUMAN;
+            w.players[1].controller = controller::COMPUTER;
+            w.stats.0[0].flags |= flags::CAN_ATTACK | flags::LAND;
+            w.stats.0[FOE as usize] = w.stats.0[0];
+            w.stats.0[FOE as usize].flags = flags::LAND | flags::CAN_ATTACK;
+            w
+        }
+
+        /// An enemy of `kind` far away, recorded as `p`'s attacker and seen by everyone.
+        fn attacker(w: &mut World, p: UnitId, kind: u8) -> UnitId {
+            let a = w.spawn(kind, 1, (22, 22), 0).unwrap();
+            let ai = w.index(a).unwrap();
+            w.units[ai].detected_by = 0xff;
+            let pi = w.index(p).unwrap();
+            w.units[pi].attacked_by = Some(a);
+            a
+        }
+
+        /// Walls the tiles round `c` (radius 1) so that a walk from `c` finds no route.
+        fn wall_round(w: &mut World, c: (i32, i32)) {
+            for (x, y) in ring(c, 1) {
+                let n = w.terrain.at(x, y).unwrap();
+                w.terrain.words[n] |= bits::OBSTACLE;
+            }
+        }
+
+        fn harvesting(w: &mut World, p: UnitId, source: Option<UnitId>, tree: (i32, i32), gather: Gather) -> usize {
+            let i = w.index(p).unwrap();
+            w.units[i].gather = gather;
+            w.units[i].order = Order::Harvest {
+                source,
+                tree,
+                chopping: false,
+            };
+            i
+        }
+
+        #[test]
+        fn return_command_needs_a_carrying_worker_and_a_depot() {
+            let mut w = arena();
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            let f = w.spawn(FOE, 0, (12, 10), 0).unwrap();
+            let (pi, fi) = (w.index(p).unwrap(), w.index(f).unwrap());
+            assert_eq!(w.return_command(pi), None, "not carrying");
+            w.units[fi].carrying = true;
+            assert_eq!(w.return_command(fi), None, "neither a worker nor a tanker");
+            w.units[pi].carrying = true;
+            assert_eq!(w.return_command(pi), Some(Order::Idle), "no depot");
+            let hall = w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+            let pi = w.index(p).unwrap();
+            assert_eq!(w.return_command(pi), Some(Order::ReturnGoods { depot: Some(hall) }));
+        }
+
+        /// A worker in order 23 with no target unit and not in lumber mode: a state no command makes ("Starting to
+        /// harvest" gives gold mode only with a mine). Pinned as it is: the reaction runs, then idle at once without a
+        /// take-over (no wait of 3).
+        #[test]
+        fn a_worker_with_no_target_out_of_lumber_mode_goes_idle() {
+            let mut w = arena();
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            let i = harvesting(&mut w, p, None, (16, 10), Gather::Gold);
+            w.units[i].facing = 3;
+            w.harvest_order(i, None, (16, 10), false);
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.tile, u.script.anim),
+                (Order::Idle, None, (10, 10), anim::STILL)
+            );
+            assert_eq!(w.fingerprint(), 391676241161655986);
+        }
+
+        /// "Going to a mine or platform", no route: a tanker with a target runs the reaction (which only forgets the
+        /// attacker of a unit that can't attack) before the generic no-route idle; a tanker with no target doesn't
+        /// (V87, static study), so its same-update idle logic finds the attacker still recorded.
+        #[test]
+        fn a_tanker_with_no_route_reacts_only_with_a_target() {
+            let mut prints = vec![];
+            for with_target in [true, false] {
+                let mut w = arena();
+                let platform = w.spawn(PLATFORM, 0, (16, 4), 100).unwrap();
+                let t = w.spawn(TANKER, 0, (10, 10), 0).unwrap();
+                wall_round(&mut w, (10, 10));
+                attacker(&mut w, t, FOE);
+                let source = with_target.then_some(platform);
+                let i = harvesting(&mut w, t, source, (16, 4), Gather::None);
+                w.start_anim(i, anim::MOVE);
+                w.harvest_order(i, source, (16, 4), false);
+                let u = &w.units[i];
+                // With a target the reaction forgot the attacker and the idle stays (wait 1); with none the idle
+                // logic still finds the attacker and flees.
+                if with_target {
+                    assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 1));
+                } else {
+                    assert!(matches!(u.order, Order::Move { .. }), "{:?}", u.order);
+                }
+                assert_eq!(u.attacked_by, None);
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [11896481358704396292, 13214669665595594724]);
+        }
+
+        /// "Going to a mine or platform", step 1 with an attacker: a worker whose mine is gone reacts first; hit by a
+        /// worker it fights back (pending attack) and no idle takes over.
+        #[test]
+        fn a_gold_worker_whose_mine_is_lost_reacts_first() {
+            let mut prints = vec![];
+            for hit in [true, false] {
+                let mut w = arena();
+                let mine = w.spawn(MINE, 15, (16, 4), 100).unwrap();
+                let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+                let a = hit.then(|| attacker(&mut w, p, 0));
+                let mi = w.index(mine).unwrap();
+                w.kill(mi);
+                let i = harvesting(&mut w, p, Some(mine), (16, 4), Gather::Gold);
+                w.harvest_order(i, Some(mine), (16, 4), false);
+                let u = &w.units[i];
+                match a {
+                    Some(a) => {
+                        assert!(matches!(u.order, Order::Harvest { .. }));
+                        assert_eq!(u.pending, Some(Order::Attack { target: a }));
+                    }
+                    None => assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3)),
+                }
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [7427822006686717663, 8390441432806348842]);
+        }
+
+        /// Order 23 with no route and an attacker: the code runs the reaction before the no-route rule, so a gold
+        /// worker (with its mine) or a lumber worker hit by a worker fights back and makes no tree search. The spec's
+        /// "No route" reads as the tree search first, then order 23's logic (and its reaction) in the same update; the
+        /// traced case (`orc9-orc09-flee-chop-walk-900` n = 573) doesn't separate the two.
+        #[test]
+        fn a_worker_with_no_route_and_an_attacker_reacts_before_the_tree_search() {
+            let mut prints = vec![];
+            for gold in [true, false] {
+                let mut w = arena();
+                let mine = w.spawn(MINE, 15, (16, 4), 100).unwrap();
+                forest(&mut w, 12, 12);
+                let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+                wall_round(&mut w, (10, 10));
+                let a = attacker(&mut w, p, 0);
+                let (source, goal, mode) = if gold {
+                    (Some(mine), (16, 4), Gather::Gold)
+                } else {
+                    (None, (20, 20), Gather::Lumber)
+                };
+                let i = harvesting(&mut w, p, source, goal, mode);
+                w.start_anim(i, anim::MOVE);
+                w.harvest_order(i, source, goal, false);
+                let u = &w.units[i];
+                assert_eq!(u.pending, Some(Order::Attack { target: a }), "{gold}");
+                assert_eq!(
+                    (u.order, u.gather),
+                    (
+                        Order::Harvest {
+                            source,
+                            tree: goal,
+                            chopping: false
+                        },
+                        mode
+                    )
+                );
+                assert_eq!(w.terrain.region(12, 12), Some(region::FOREST));
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [4982595562378309529, 8848653804881294756]);
+        }
+
+        /// The same with no attacker, for a gold worker: the tree search (V30), and the same-update lumber run.
+        #[test]
+        fn a_gold_worker_with_no_route_switches_to_lumber() {
+            let mut w = arena();
+            let mine = w.spawn(MINE, 15, (16, 4), 100).unwrap();
+            forest(&mut w, 12, 12);
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            wall_round(&mut w, (10, 10));
+            let i = harvesting(&mut w, p, Some(mine), (16, 4), Gather::Gold);
+            w.start_anim(i, anim::MOVE);
+            w.units[i].blocked = 4;
+            w.harvest_order(i, Some(mine), (16, 4), false);
+            let u = &w.units[i];
+            assert!(matches!(u.order, Order::Harvest { source: None, .. }), "{:?}", u.order);
+            assert_eq!((u.gather, u.blocked, u.script.wait), (Gather::Lumber, 0, 3));
+            assert_eq!(w.fingerprint(), 14908006865186026271);
+        }
+
+        /// Order 24 arriving at a depot still under construction: idle (order 2) at once, by an animation switch, not a
+        /// take-over.
+        #[test]
+        fn a_return_to_an_unfinished_depot_goes_idle() {
+            let mut w = arena();
+            let hall = w.place_building(kind::TOWN_HALL, 0, (4, 4)).unwrap();
+            let p = w.spawn(0, 0, (3, 4), 0).unwrap();
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            w.units[pi].order = Order::ReturnGoods { depot: Some(hall) };
+            w.return_order(pi, Some(hall));
+            let pi = w.index(p).unwrap();
+            let u = &w.units[pi];
+            assert_eq!((u.order, u.pending, u.script.anim), (Order::Idle, None, anim::STILL));
+            assert_eq!(w.fingerprint(), 18180086034743565868);
+        }
+
+        /// Order 24 whose depot is lost, with an attacker: the reaction runs first. Hit by a worker, it fights back,
+        /// and the cached route is kept (it is dropped only after a reaction that does nothing).
+        #[test]
+        fn a_return_whose_depot_is_lost_reacts_first() {
+            let mut w = arena();
+            w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+            let mill = w.spawn(LUMBER_MILL, 0, (16, 4), 0).unwrap();
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            let a = attacker(&mut w, p, 0);
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            w.units[pi].gather = Gather::Lumber;
+            w.units[pi].order = Order::ReturnGoods { depot: Some(mill) };
+            w.units[pi].path = vec![(11, 9)];
+            let mi = w.index(mill).unwrap();
+            w.kill(mi);
+            let pi = w.index(p).unwrap();
+            w.return_order(pi, Some(mill));
+            let u = &w.units[pi];
+            assert_eq!(u.pending, Some(Order::Attack { target: a }));
+            assert_eq!(u.path, vec![(11, 9)]);
+            assert_eq!(w.fingerprint(), 5083180129386180915);
+        }
+
+        /// Order 24's depot re-issue ("Returning goods", step 2) is made pending and taken over, but as the code
+        /// stands it isn't a command: the blocked counter is kept (the spec's "Commands given by these orders" would
+        /// clear it), and with no depot left the pending idle may resume a remembered order.
+        #[test]
+        fn a_return_whose_depot_is_lost_keeps_its_blocked_counter() {
+            let mut w = arena();
+            let hall = w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+            let mill = w.spawn(LUMBER_MILL, 0, (16, 4), 0).unwrap();
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            w.units[pi].gather = Gather::Lumber;
+            w.units[pi].blocked = 5;
+            w.units[pi].order = Order::ReturnGoods { depot: Some(mill) };
+            let mi = w.index(mill).unwrap();
+            w.kill(mi);
+            let pi = w.index(p).unwrap();
+            w.return_order(pi, Some(mill));
+            let u = &w.units[pi];
+            assert_eq!((u.order, u.blocked), (Order::ReturnGoods { depot: Some(hall) }, 5));
+            let first = w.fingerprint();
+            // No depot left, a remembered patrol: the pending idle resumes it.
+            w.units[pi].remembered = Some(crate::world::Remembered::Patrol {
+                to: (20, 10),
+                back: (10, 10),
+            });
+            w.units[pi].resume = 0;
+            let hi = w.index(hall).unwrap();
+            w.kill(hi);
+            let pi = w.index(p).unwrap();
+            w.return_order(pi, Some(hall));
+            let u = &w.units[pi];
+            assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
+            assert_eq!(u.blocked, 0, "the resumed patrol starts afresh");
+            assert_eq!([first, w.fingerprint()], [6996958735745534602, 5472781868606498703]);
+        }
+
+        /// Order 24 with no route: the generic no-route idle and the same-update idle logic, with no reaction first, so
+        /// the idle logic still finds the attacker (a fighter it can't take on alone here) and flees.
+        #[test]
+        fn a_return_with_no_route_goes_idle_at_once() {
+            let mut w = arena();
+            let hall = w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+            let p = w.spawn(0, 0, (12, 12), 0).unwrap();
+            wall_round(&mut w, (12, 12));
+            attacker(&mut w, p, FOE);
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            w.units[pi].gather = Gather::Gold;
+            w.units[pi].order = Order::ReturnGoods { depot: Some(hall) };
+            w.start_anim(pi, anim::MOVE);
+            w.return_order(pi, Some(hall));
+            let u = &w.units[pi];
+            assert!(matches!(u.order, Order::Move { .. }), "{:?}", u.order);
+            assert_eq!((u.pending, u.attacked_by), (None, None));
+            assert_eq!(w.fingerprint(), 10587118783921462611);
+        }
+
+        /// "Lumber", step 4: a chopping worker whose tile is no longer reserved drops the reservation and is sent to the
+        /// nearest tree (here the same one, a forest tile again).
+        #[test]
+        fn a_chopping_worker_whose_tree_is_unreserved_looks_for_another() {
+            let mut w = arena();
+            forest(&mut w, 10, 8);
+            forest(&mut w, 12, 8);
+            let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+            let i = harvesting(&mut w, p, None, (10, 8), Gather::Lumber);
+            w.units[i].order = Order::Harvest {
+                source: None,
+                tree: (10, 8),
+                chopping: true,
+            };
+            w.units[i].chop = 7;
+            w.harvest_order(i, None, (10, 8), true);
+            let u = &w.units[i];
+            assert_eq!(
+                u.order,
+                Order::Harvest {
+                    source: None,
+                    tree: (10, 8),
+                    chopping: false
+                }
+            );
+            assert_eq!((u.chop, u.script.anim, u.script.wait), (0, anim::ATTACK, 3));
+            assert_eq!(w.terrain.region(10, 8), Some(region::FOREST));
+            assert_eq!(w.fingerprint(), 5614337015796615819);
+        }
+
+        /// "Coming out", facing: an order 28 with no stored goal (none is made now; `build_command` stores one) faces
+        /// the building goal worked out from the exit tile.
+        #[test]
+        fn a_build_order_without_a_stored_goal_faces_a_goal_worked_out_outside() {
+            let mut w = field(32, 32);
+            w.stats.0[0].flags |= flags::PEON;
+            w.stats.0[kind::FARM as usize].size = (2, 2);
+            w.stats.0[kind::FARM as usize].flags |= flags::BUILDING;
+            let p = w.spawn(0, 0, (20, 20), 0).unwrap();
+            let i = w.index(p).unwrap();
+            w.units[i].tile = (13, 10);
+            let next = Some(Order::Build {
+                kind: kind::FARM,
+                site: (10, 10),
+                goal: None,
+            });
+            assert_eq!(w.come_out_face(i, next, Some((10, 10))), Some((11, 10)));
+        }
+
+        /// "Coming out", step 5, toward a source whose slot is gone (released, not a ruin): as the code stands the
+        /// harvest command is given with no target unit at the unit's own tile, so a worker gets lumber mode there and
+        /// a tanker order 23 with no target. The second reviewer's note reads the command check as dropping the gone
+        /// target with a pending idle instead (static study; no trace has it).
+        #[test]
+        fn coming_out_toward_a_source_whose_slot_is_gone() {
+            let mut prints = vec![];
+            for tanker in [false, true] {
+                let mut w = arena();
+                let (src_kind, worker) = if tanker { (PLATFORM, TANKER) } else { (MINE, 0) };
+                let hall = w.spawn(kind::TOWN_HALL, 0, (4, 12), 0).unwrap();
+                let src = w.spawn(src_kind, 0, (16, 4), 100).unwrap();
+                let si = w.index(src).unwrap();
+                w.kill(si);
+                assert!((0..5000).any(|_| {
+                    w.step(&[]);
+                    w.unit(src).is_none()
+                }));
+                let p = w.spawn(worker, 0, (3, 12), 0).unwrap();
+                go_in_now(&mut w, p, hall);
+                let pi = w.index(p).unwrap();
+                w.units[pi].return_to = Some(Source::Unit(src));
+                w.units[pi].carrying = false;
+                come_out_now(&mut w, p, hall);
+                let u = w.unit(p).unwrap();
+                assert!(
+                    matches!(u.pending, Some(Order::Harvest { source: None, tree, .. }) if tree == (4, 12)),
+                    "{tanker}: {:?}",
+                    u.pending
+                );
+                assert_eq!(u.gather, if tanker { Gather::Gold } else { Gather::Lumber });
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [11047150078815211316, 11680749226269963979]);
+        }
+
+        /// "Coming out" with no command and nothing pending: the facing is kept. The spec's table says it faces its
+        /// goal tile (the building's top-left tile; static study only, untraced).
+        #[test]
+        fn coming_out_with_nothing_to_do_keeps_its_facing() {
+            let mut w = land_with_shops();
+            let b = w.spawn(SHIPYARD, 0, (8, 8), 0).unwrap();
+            let p = w.spawn(0, 0, (7, 8), 0).unwrap();
+            go_in_now(&mut w, p, b);
+            let pi = w.index(p).unwrap();
+            w.units[pi].return_to = None;
+            w.units[pi].facing = 5;
+            come_out_now(&mut w, p, b);
+            let u = w.unit(p).unwrap();
+            assert_eq!((u.pending, u.facing), (None, 5));
+            assert_ne!(crate::world::face_tile(u.tile, (8, 8)), 5);
+            assert_eq!(w.fingerprint(), 15173445877571300346);
+        }
+
+        /// Order 25 losing its target before stepping in (OQ-A): a pending idle, taken over at once (V82 as written).
+        #[test]
+        fn entering_a_target_lost_before_stepping_in_takes_over_a_pending_idle() {
+            let mut w = arena();
+            let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+            let p = w.spawn(0, 0, (13, 5), 0).unwrap();
+            let pi = w.index(p).unwrap();
+            w.units[pi].order = Order::Enter {
+                building: mine,
+                stepped: false,
+            };
+            let mi = w.index(mine).unwrap();
+            w.kill(mi);
+            let pi = w.index(p).unwrap();
+            w.enter_order(pi, mine, false);
+            let u = &w.units[pi];
+            assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3));
+            assert_eq!(w.fingerprint(), 13517207483336127821);
+        }
+
+        /// Whole cycles: human workers mining, chopping (with a tree cut from under one of them), a tanker at its
+        /// platform, and a computer player's workers, run for 3000 cycles with the state pinned every 250.
+        #[test]
+        fn harvest_cycles_are_pinned() {
+            let mut w = arena();
+            w.players[1].controller = controller::COMPUTER;
+            let mine = w.spawn(MINE, 15, (16, 2), 4).unwrap();
+            w.spawn(kind::TOWN_HALL, 0, (3, 3), 0).unwrap();
+            w.spawn(LUMBER_MILL, 0, (3, 14), 0).unwrap();
+            w.spawn(SHIPYARD, 0, (14, 14), 0).unwrap();
+            for (x, y) in [
+                (9, 18),
+                (10, 18),
+                (11, 18),
+                (9, 19),
+                (10, 19),
+                (11, 19),
+                (20, 10),
+                (21, 10),
+            ] {
+                forest(&mut w, x, y);
+            }
+            let platform = w.spawn(PLATFORM, 0, (19, 18), 3).unwrap();
+            let miners = [(10, 4), (11, 6), (12, 8)].map(|t| w.spawn(0, 0, t, 0).unwrap());
+            let choppers = [(8, 15), (12, 15)].map(|t| w.spawn(0, 0, t, 0).unwrap());
+            let tanker = w.spawn(TANKER, 0, (18, 14), 0).unwrap();
+            harvest(&mut w, miners.to_vec(), Some(mine), (16, 2));
+            harvest(&mut w, choppers.to_vec(), None, (10, 18));
+            harvest(&mut w, vec![tanker], Some(platform), (19, 18));
+            let mut prints = vec![];
+            for n in 1..=3000 {
+                w.step(&[]);
+                if n == 900 {
+                    // A depot lost under a returning worker: the hall goes.
+                    if let Some(h) = w.units.iter().position(|u| u.kind == kind::TOWN_HALL) {
+                        w.kill(h);
+                    }
+                }
+                if n % 250 == 0 {
+                    prints.push(w.fingerprint());
+                }
+            }
+            assert_eq!(
+                prints,
+                [
+                    7207997613274591782,
+                    13476117557655880645,
+                    5181640389991292329,
+                    8929566194430708829,
+                    3387284651410698369,
+                    741518362166369064,
+                    9344351753719453454,
+                    7649109570281920205,
+                    14449367595918039853,
+                    5599906224186311679,
+                    17197182959073010245,
+                    12250845477640230121
+                ]
+            );
+        }
+    }
 }
