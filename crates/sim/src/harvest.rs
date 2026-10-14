@@ -206,7 +206,7 @@ impl World {
         match self.move_toward(i, Goal::tile(goal, RADIUS)) {
             Walk::Arrived if self.react_at_walk_end(i) => {}
             Walk::Arrived => self.idle_now(i),
-            Walk::NoPath => self.idle_at_once(i),
+            Walk::NoPath => self.no_route(i),
             Walk::Stepping | Walk::Blocked => {}
         }
     }
@@ -267,32 +267,26 @@ impl World {
         }
     }
 
-    /// "Lumber", "No route" (round-39 errata): a unit with the peon flag in order 23, in either gather mode, whose
-    /// route search finds no route looks for the nearest tree from its own tile and is given a new harvest command to
-    /// it, which takes over in the same update; with no tree (or without the flag) it goes idle. `human5-10000`
-    /// worker 1567 at n = 119 and `orc8-10000` worker 1499 from n = 754. Round-40 errata: only the peon flag counts, so
-    /// a tanker goes idle as in "No route" of the orders spec (an immediate idle whose idle logic runs at once).
-    ///
-    /// Round-44 errata (`orc4-40000` peasant 1584, n = 23680): after the re-aim to a tree, order 23's logic runs once
-    /// more in the same update. A worker within 1 tile of the new tree starts chopping at once (step 2: it faces the
-    /// tree, reserves it and makes its chop-sound draw), and the attack animation still restarts with wait 3. A worker
-    /// further away is left as the re-aim made it (facing kept, attack animation, wait 3).
-    ///
-    /// Round-56 errata (`orc11-25000` peasant 1441, n = 10428): with no tree the worker goes idle as an immediate order
-    /// and its idle logic runs in the same update; for a computer player that is the job choice.
+    /// "No route" (under "Lumber"): a walk in any harvest order that finds no route takes the generic no-route idle
+    /// (`orders/orders.md`: idle as an immediate order, wait 1, and the idle logic in the same update; for a computer
+    /// player's unit the job choice). The one exception is the tree search: a unit with the peon flag (only that flag
+    /// counts, so not a tanker) in order 23, in either gather mode, is given a new harvest command to the nearest tree
+    /// from its own tile, and order 23's logic then runs in the same update ([`World::lumber_after_no_route`]). With no
+    /// tree it takes the generic idle. The old order's own logic doesn't run, so neither does its reaction (V83, V87).
     fn no_route(&mut self, i: usize) {
-        if self.flags_of(self.units[i].kind) & flags::PEON == 0 {
+        let peon = self.flags_of(self.units[i].kind) & flags::PEON != 0;
+        let tree_search = peon && matches!(self.units[i].order, Order::Harvest { .. });
+        if !tree_search || !self.aim_at_nearest_tree(i) {
             return self.idle_at_once(i);
         }
-        if let Order::Harvest { chopping, .. } = &mut self.units[i].order {
-            *chopping = false;
-        }
-        // Round-56 errata (`orc11-25000` peasant 1441, n = 10428): with no tree the worker goes idle as an immediate
-        // order and its idle logic runs in the same update (a computer player's job choice may re-task it at once).
-        let Some(t) = self.nearest_tree(self.units[i].tile) else {
-            return self.idle_at_once(i);
-        };
-        self.harvest_again(i, t);
+        self.lumber_after_no_route(i);
+    }
+
+    /// "No route", a tree found: the run of order 23's logic in the same update, which is "Lumber" again. Within 1
+    /// tile of the tree, step 2 starts chopping at once, and the attack animation still restarts with wait 3 (V46).
+    /// Further away, step 1 gives the harvest command again, to the goal the first command set, so the goal is pulled
+    /// back a second time (V59, V47, V48).
+    fn lumber_after_no_route(&mut self, i: usize) {
         let u = &self.units[i];
         let Order::Harvest {
             source: None,
@@ -302,20 +296,13 @@ impl World {
         else {
             return;
         };
-        if u.gather != Gather::Lumber {
-            return;
+        if chebyshev(u.tile, tree) > RADIUS {
+            return self.harvest_again(i, tree);
         }
-        if chebyshev(u.tile, tree) <= RADIUS {
-            if self.start_chopping(i, tree) {
-                self.start_anim(i, anim::ATTACK);
-                self.units[i].script.wait = TAKEOVER_WAIT;
-            }
-            return;
+        if self.start_chopping(i, tree) {
+            self.start_anim(i, anim::ATTACK);
+            self.units[i].script.wait = TAKEOVER_WAIT;
         }
-        // Round-52 errata (`xhuman12-10000` peon 1386, n = 5598): a worker further away is given the harvest command
-        // again, to the goal the first one set, so the goal is pulled back a second time (facing kept, attack
-        // animation, wait 3).
-        self.harvest_again(i, tree);
     }
 
     /// Order 24.
@@ -343,7 +330,7 @@ impl World {
             if !arrived && self.holds(owner, self.units[di].id) {
                 // Walking: only the walk runs.
                 if self.move_toward(i, g) == Walk::NoPath {
-                    self.idle_at_once(i);
+                    self.no_route(i);
                 }
                 return;
             }
@@ -761,13 +748,22 @@ impl World {
     /// pending order and takes over in the same update (still animation, frame kept, wait 3) without running the idle
     /// logic. "No route" has its own immediate idle (`no_route`).
     fn next_tree(&mut self, i: usize) {
+        if !self.aim_at_nearest_tree(i) {
+            self.idle_now(i);
+        }
+    }
+
+    /// "Finding the nearest tree" from the unit's own tile, and a new harvest command to it. Returns false, with the
+    /// order no longer chopping, if there is none.
+    fn aim_at_nearest_tree(&mut self, i: usize) -> bool {
         if let Order::Harvest { chopping, .. } = &mut self.units[i].order {
             *chopping = false;
         }
         let Some(t) = self.nearest_tree(self.units[i].tile) else {
-            return self.idle_now(i);
+            return false;
         };
         self.harvest_again(i, t);
+        true
     }
 
     /// A new harvest command to tree tile `t`, given by the worker's own logic ("Lumber", "Every new aim is a new
