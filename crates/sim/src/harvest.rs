@@ -129,18 +129,24 @@ impl World {
             }
         } else {
             // Round-49 errata (`orc12-10000` tanker 1409, `xhuman8-10000` tanker 1468): a platform placed in this
-            // cycle doesn't count while the oil patch under it is still to have its own update this cycle.
-            let platform = t.filter(|&(id, o, tf)| {
-                tf & flags::OIL_SOURCE != 0 && o == owner && !carrying && !self.platform_fresh(id)
-            });
+            // cycle doesn't count while the oil patch under it is still to have its own update this cycle; the tanker
+            // goes idle.
+            let platform = t.filter(|&(_, o, tf)| tf & flags::OIL_SOURCE != 0 && o == owner && !carrying);
             self.units[i].chop = 0;
             match platform {
+                Some((id, ..)) if self.platform_fresh(id) => Order::Idle,
                 Some((id, ..)) => Order::Harvest {
                     source: Some(id),
                     tree: tile,
                     chopping: false,
                 },
-                None => Order::Idle,
+                // Round-64 errata (step 3; `xhuman5-30000` tanker 1542, n = 26422): otherwise the target is cleared
+                // and the order is still 23, aimed at the command's goal, pulled back as any command's goal is.
+                None => Order::Harvest {
+                    source: None,
+                    tree: self.pull_back(i, tile),
+                    chopping: false,
+                },
             }
         };
         Some(order)
@@ -181,9 +187,27 @@ impl World {
     pub(crate) fn harvest_order(&mut self, i: usize, source: Option<UnitId>, tree: (i32, i32), chopping: bool) {
         match source {
             Some(s) => self.gather_order(i, s),
+            None if self.is_tanker(&self.units[i]) => self.tanker_no_target(i, tree),
             None if self.units[i].gather == Gather::Lumber => self.lumber_order(i, tree, chopping),
             None if self.react_at_walk_end(i) => {}
             None => self.idle(i),
+        }
+    }
+
+    /// Order 23 for a tanker with no target ("A tanker with no target", round-64 errata; `xhuman5-30000` tanker 1542,
+    /// n = 26447 to 26642): its command's target was cleared, so it walks to the command's goal tile like any walking
+    /// order, and its logic runs only when it gets there. Then it finds no target: idle becomes the pending order and
+    /// takes over in the same update (still animation, wait 3), as for a target that is gone.
+    ///
+    /// Our reading (static study): arriving ends the walk, so the reaction runs first, as at a source; with no route
+    /// the tanker goes idle at once as in "No route" (a tanker makes no tree search).
+    fn tanker_no_target(&mut self, i: usize, goal: (i32, i32)) {
+        match self.move_toward(i, Goal::tile(goal, RADIUS)) {
+            Walk::Arrived if self.react_at_walk_end(i) => {}
+            Walk::Arrived => self.idle_now(i),
+            Walk::NoPath if self.react_at_walk_end(i) => {}
+            Walk::NoPath => self.no_route(i),
+            Walk::Stepping | Walk::Blocked => {}
         }
     }
 
@@ -197,7 +221,7 @@ impl World {
             }
             return;
         };
-        if !self.walk_to_building(i, si, true) {
+        if !self.walk_to_building(i, si) {
             return;
         }
         if self.units[si].construction.is_some() {
@@ -214,32 +238,32 @@ impl World {
         );
     }
 
-    /// Moves toward building `bi` (arrival radius 1). Returns whether the unit has arrived and its order's logic goes
-    /// on. A unit with no path goes idle or, in order 23 (`harvesting`), looks for the nearest tree ("No route").
+    /// Moves toward building `bi` (arrival radius 1) in order 23. Returns whether the unit has arrived and its order's
+    /// logic goes on. A unit with no path looks for the nearest tree ("No route").
     /// Once the walk has ended (arrived or no route) the reaction to an attacker runs first (round-63 errata); a
     /// reaction that changes the order ends the run.
-    fn walk_to_building(&mut self, i: usize, bi: usize, harvesting: bool) -> bool {
-        let b = &self.units[bi];
-        let g = Goal {
-            tile: building_goal(self.units[i].tile, b),
-            radius: RADIUS,
-            range: false,
-            zone: Some(zone(b)),
-        };
+    fn walk_to_building(&mut self, i: usize, bi: usize) -> bool {
+        let g = self.building_walk(i, bi);
         match self.move_toward(i, g) {
             Walk::Arrived => !self.react_at_walk_end(i),
             Walk::NoPath if self.react_at_walk_end(i) => false,
             Walk::NoPath => {
-                if harvesting {
-                    self.no_route(i);
-                } else {
-                    // Round-41 errata (`xorc3` peon 1462, n = 8895): a return with no route goes idle at once, and
-                    // its idle logic (a computer player's job choice) runs in the same update.
-                    self.idle_at_once(i);
-                }
+                self.no_route(i);
                 false
             }
             Walk::Stepping | Walk::Blocked => false,
+        }
+    }
+
+    /// The walk toward building (or unit) `bi`: the building goal rule from the unit's tile, arrival radius 1, the
+    /// target's widened footprint as the goal zone.
+    fn building_walk(&self, i: usize, bi: usize) -> Goal {
+        let b = &self.units[bi];
+        Goal {
+            tile: building_goal(self.units[i].tile, b),
+            radius: RADIUS,
+            range: false,
+            zone: Some(zone(b)),
         }
     }
 
@@ -297,57 +321,74 @@ impl World {
     /// Order 24.
     ///
     /// Round-62 errata ("Returning goods"; `orc9-orc09-enter-dying-1800` peon 1482, n = 1435): a target that is dying,
-    /// gone or busy (inside something) makes the unit look up the nearest depot and be given return goods to it as a
-    /// pending order that takes over in the same update (still animation, wait 3, cached route dropped); with no depot,
-    /// idle becomes the pending order the same way. The busy case is static study only; the no-depot case is traced in
-    /// round 63 (`orc9-orc09-return-nodepot-2200` peon 1478, n = 1530).
+    /// or gone makes the unit look up the nearest depot and be given return goods to it as a pending order that takes
+    /// over in the same update (still animation, wait 3, cached route dropped); with no depot, idle becomes the pending
+    /// order the same way (traced in round 63: `orc9-orc09-return-nodepot-2200` peon 1478, n = 1530).
     ///
-    /// Round-63 errata: while the unit walks only the walk runs. The order's logic runs on arrival, with no route, or
-    /// when the target is found dying or gone at a step boundary, and each such run first runs the reaction to an
-    /// attacker (static study only). A busy target (inside something) is found only when the logic runs, so the walk
-    /// goes on toward it until then.
+    /// Round-63 errata: while the unit walks only the walk runs, and each run of the order's logic first runs the
+    /// reaction to an attacker (static study only).
+    ///
+    /// Round-64 errata (`orc9-orc09-return-inside-1200` peon 1482, n = 558): the logic runs on arrival, or when, at a
+    /// step boundary, the target is found dying or gone, inside something or no longer detected; a target that goes
+    /// inside something while the unit walks is dropped at its next step boundary, and the unit heads for the nearest
+    /// depot. The step-boundary test isn't made on arrival: a target already inside something then is entered, and
+    /// order 25's target check drops it. A route search that finds no route doesn't run the order's logic: idle at
+    /// once, and the idle logic runs (`xorc3` peon 1462, n = 8895), with no reaction (static study only).
     pub(crate) fn return_order(&mut self, i: usize, depot: Option<UnitId>) {
-        let held = depot.and_then(|d| self.index(d)).filter(|&di| self.units[di].alive());
-        let walked = match held {
-            Some(di) => self.walk_to_building(i, di, false),
-            None => !self.react_at_walk_end(i),
-        };
-        if !walked {
-            return;
-        }
-        let Some(di) = held.filter(|&di| self.units[di].present()) else {
-            self.units[i].path.clear();
-            match self.nearest_depot(&self.units[i]) {
-                Some(d) => self.take_over(i, Order::ReturnGoods { depot: Some(d) }),
-                None => self.idle_now(i),
+        let owner = self.units[i].owner;
+        let alive = depot.and_then(|d| self.index(d)).filter(|&di| self.units[di].alive());
+        if let Some(di) = alive {
+            let g = self.building_walk(i, di);
+            let arrived = self.at_goal(i, g);
+            if !arrived && self.holds(owner, self.units[di].id) {
+                // Walking: only the walk runs.
+                if self.move_toward(i, g) == Walk::NoPath {
+                    self.idle_at_once(i);
+                }
+                return;
             }
-            return;
-        };
-        if self.units[di].construction.is_some() {
-            return self.idle(i);
+            if arrived {
+                self.units[i].path.clear();
+                if self.react_at_walk_end(i) {
+                    return;
+                }
+                if self.units[di].construction.is_some() {
+                    return self.idle(i);
+                }
+                let building = self.units[di].id;
+                // As at a mine: order 25 takes over at once and first runs at the next step done.
+                self.take_over(
+                    i,
+                    Order::Enter {
+                        building,
+                        stepped: false,
+                    },
+                );
+                return;
+            }
         }
-        let building = self.units[di].id;
-        // As at a mine: order 25 takes over at once and first runs at the next step done.
-        self.take_over(
-            i,
-            Order::Enter {
-                building,
-                stepped: false,
-            },
-        );
+        // The target is dying or gone, or was found inside something or undetected at this step boundary.
+        if self.react_at_walk_end(i) {
+            return;
+        }
+        self.units[i].path.clear();
+        match self.nearest_depot(&self.units[i]) {
+            Some(d) => self.take_over(i, Order::ReturnGoods { depot: Some(d) }),
+            None => self.idle_now(i),
+        }
     }
 
     /// Order 25 ("Entering a mine, platform or depot").
     ///
     /// Round-62 errata, step 3 ("Target check first"; `orc9-orc09-enter-dying-1800` peon 1478, n = 1441): each run
     /// first drops a target that is dying or gone, or that the unit's player no longer detects (static study only).
-    /// With no target, a unit that already stepped in dies with no target; otherwise idle becomes the pending order
+    /// Round-64 errata (static study only): and a unit target that is inside something. With no target, a unit that already stepped in dies with no target; otherwise idle becomes the pending order
     /// and takes over in the same update.
     pub(crate) fn enter_order(&mut self, i: usize, building: UnitId, stepped: bool) {
         let owner = self.units[i].owner;
         let held = self
             .index(building)
-            .filter(|&bi| self.units[bi].alive() && Self::detected(&self.units[bi], owner));
+            .filter(|&bi| self.units[bi].present() && Self::detected(&self.units[bi], owner));
         let Some(bi) = held else {
             if stepped {
                 // The dropped target shows as none when the unit dies.
@@ -643,13 +684,19 @@ impl World {
             }
             return;
         }
+        // Round-64 errata (orders spec, "The arrival switch"; `human4-15000` peon 1531, n = 638): a worker still in its
+        // move animation is switched to the chop animation before the logic runs, with or without an attacker, and
+        // starting to chop then doesn't start it a second time (static study).
+        let walked = self.units[i].script.anim == anim::MOVE;
         if self.react_at_walk_end(i) {
             return;
         }
         let reserved = self.terrain.region(tree.0, tree.1) == Some(region::RESERVED_FOREST);
         if !chopping {
             if self.start_chopping(i, tree) {
-                self.switch_anim(i, anim::ATTACK);
+                if !walked {
+                    self.switch_anim(i, anim::ATTACK);
+                }
             } else {
                 self.next_tree(i);
             }
@@ -1950,5 +1997,149 @@ mod tests {
             let pi = w.index(p).unwrap();
             w.kill(pi);
         }
+    }
+
+    /// Round-64 vectors (`orc9-orc09-return-inside-1200` peon 1482, n = 558): a worker returning goods to a unit that
+    /// goes inside a mine while the worker walks drops it at its next step boundary and is given return goods to the
+    /// nearest depot, taken over at once (still animation, wait 3). It doesn't walk on toward the unit.
+    #[test]
+    fn a_return_target_gone_inside_is_dropped_at_the_next_step_boundary() {
+        let mut w = land();
+        let hall = w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        let p = w.spawn(0, 0, (10, 12), 0).unwrap();
+        let q = w.spawn(0, 0, (12, 4), 0).unwrap();
+        let pi = w.index(p).unwrap();
+        w.units[pi].carrying = true;
+        w.units[pi].gather = Gather::Gold;
+        w.units[pi].order = Order::ReturnGoods { depot: Some(q) };
+        w.start_anim(pi, anim::MOVE);
+        w.return_order(pi, Some(q));
+        assert_eq!(w.units[pi].tile, (11, 11), "a step toward the worker");
+        go_in_now(&mut w, q, mine);
+        w.return_order(pi, Some(q));
+        let u = &w.units[pi];
+        assert_eq!((u.order, u.pending), (Order::ReturnGoods { depot: Some(hall) }, None));
+        assert_eq!((u.tile, u.script.anim, u.script.wait), ((11, 11), anim::STILL, 3));
+        assert!(u.path.is_empty());
+    }
+
+    /// Round-64 vector (static study): a worker in order 24 whose target unit is already inside a mine when it arrives
+    /// within reach starts order 25, and at its first run the target check drops the target: idle becomes the pending
+    /// order.
+    #[test]
+    fn a_return_target_inside_on_arrival_is_dropped_by_order_25() {
+        let mut w = land();
+        w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
+        let mine = w.spawn(MINE, 15, (14, 4), 100).unwrap();
+        let q = w.spawn(0, 0, (13, 4), 0).unwrap();
+        go_in_now(&mut w, q, mine);
+        let p = w.spawn(0, 0, (13, 3), 0).unwrap();
+        let pi = w.index(p).unwrap();
+        w.units[pi].carrying = true;
+        w.units[pi].order = Order::ReturnGoods { depot: Some(q) };
+        w.return_order(pi, Some(q));
+        assert_eq!(
+            w.units[pi].order,
+            Order::Enter {
+                building: q,
+                stepped: false
+            }
+        );
+        w.enter_order(pi, q, false);
+        let u = &w.units[pi];
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+        assert!(!u.inside && u.carrying);
+    }
+
+    const TANKER: u8 = 9;
+    const PLATFORM: u8 = 0x56;
+
+    /// [`land`] with a land-going tanker type and an oil platform type.
+    fn land_with_oil() -> World {
+        let mut w = land();
+        w.stats.0[PLATFORM as usize] = tidewater_formats::udta::UnitStats {
+            hit_points: 5000,
+            size: (3, 3),
+            flags: flags::BUILDING | flags::OIL_SOURCE,
+            ..Default::default()
+        };
+        w.stats.0[TANKER as usize] = tidewater_formats::udta::UnitStats {
+            hit_points: 90,
+            size: (1, 1),
+            flags: flags::LAND | flags::TANKER,
+            ..Default::default()
+        };
+        w
+    }
+
+    /// Round-64 vectors (`xhuman5-30000` tanker 1542, n = 26447 to 26642): a harvest command that clears a tanker's
+    /// target leaves order 23 with no target, aimed at the command's goal. The tanker walks there with no other logic,
+    /// and on arrival idle becomes the pending order, taken over at once (still animation, wait 3).
+    #[test]
+    fn a_tanker_with_no_target_walks_to_its_goal_then_goes_idle() {
+        let mut w = land_with_oil();
+        let t = w.spawn(TANKER, 0, (4, 10), 0).unwrap();
+        let i = w.index(t).unwrap();
+        let o = w.harvest_command(i, None, (8, 10)).unwrap();
+        assert_eq!(
+            o,
+            Order::Harvest {
+                source: None,
+                tree: (8, 10),
+                chopping: false
+            }
+        );
+        w.units[i].order = o;
+        w.harvest_order(i, None, (8, 10), false);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.tile, u.script.anim), (o, (5, 10), anim::MOVE));
+        w.units[i].tile = (7, 10);
+        w.units[i].path.clear();
+        w.harvest_order(i, None, (8, 10), false);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending, u.tile), (Order::Idle, None, (7, 10)));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+    }
+
+    /// Round-64 vectors (`xhuman5-30000` tanker 1542, n = 26422): a tanker coming out whose return-to platform is gone
+    /// is given the harvest command toward it all the same: order 23 with no target is pending, aimed at the
+    /// platform's top-left tile, and the tanker comes out on that side.
+    #[test]
+    fn a_tanker_whose_platform_collapsed_comes_out_toward_it() {
+        let out = |collapsed: bool| {
+            let mut w = land_with_oil();
+            let yard = w.spawn(SHIPYARD, 0, (10, 12), 0).unwrap();
+            let platform = w.spawn(PLATFORM, 0, (10, 2), 100).unwrap();
+            let t = w.spawn(TANKER, 0, (9, 12), 0).unwrap();
+            let (ti, yi) = (w.index(t).unwrap(), w.index(yard).unwrap());
+            w.go_in(ti, yi);
+            let ti = w.index(t).unwrap();
+            w.units[ti].return_to = Some(Source::Unit(platform));
+            w.units[ti].carrying = false;
+            if collapsed {
+                let pi = w.index(platform).unwrap();
+                w.kill(pi);
+            }
+            come_out_now(&mut w, t, yard);
+            let u = w.unit(t).unwrap();
+            assert_eq!((u.order, u.script.wait), (Order::Idle, OUT_WAIT));
+            (u.pending, u.tile, u.facing)
+        };
+        let (pending, tile, facing) = out(true);
+        assert_eq!(
+            pending,
+            Some(Order::Harvest {
+                source: None,
+                tree: (10, 2),
+                chopping: false
+            })
+        );
+        let (_, alive_tile, alive_facing) = out(false);
+        assert_eq!(
+            (tile, facing),
+            (alive_tile, alive_facing),
+            "the same side as toward a platform still there"
+        );
     }
 }
