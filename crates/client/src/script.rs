@@ -26,6 +26,8 @@ pub enum Cmd {
     Until(AppState),
     /// Wait until the game has run this many cycles.
     UntilCycle(u32),
+    /// Wait until the outcome dialog (victory or defeat) is up.
+    UntilOutcome,
     /// The pointer goes to this screen pixel (640 × 480).
     Move(f32, f32),
     Down(MouseButton),
@@ -174,11 +176,154 @@ pub fn scenes() -> Vec<Scene> {
     ]);
     campaign.extend(tap(K::Enter));
     campaign.extend([Wait(3), Shot("saved"), Wait(30), Shot("end")]);
-    vec![Scene {
-        name: "campaign",
-        start: vec![Step::Title, Step::MainMenu],
-        cmds: campaign,
-    }]
+    vec![
+        Scene {
+            name: "campaign",
+            start: vec![Step::Title, Step::MainMenu],
+            cmds: campaign,
+        },
+        Scene {
+            name: "outcome",
+            start: vec![play(0)],
+            cmds: outcome(),
+        },
+        Scene {
+            name: "ending",
+            start: vec![play(1)],
+            cmds: ending(),
+        },
+        Scene {
+            name: "load",
+            start: vec![play(0)],
+            cmds: load(),
+        },
+    ]
+}
+
+/// A campaign mission's map, started at once.
+fn play(entry: u8) -> Step {
+    Step::Play {
+        map: crate::campaign::map_name(entry),
+        setup: None,
+    }
+}
+
+/// A line typed into the chat line and sent: Enter opens it, Enter sends it.
+fn chat(line: &'static str) -> Vec<Cmd> {
+    let mut v = tap(KeyCode::Enter).to_vec();
+    v.extend([Cmd::Wait(2), Cmd::Type(line), Cmd::Wait(2)]);
+    v.extend(tap(KeyCode::Enter));
+    v
+}
+
+/// The chat line and the cheats, the victory dialog with its save dialog, the score screen, the next mission's
+/// briefing, then the defeat dialog, its score screen and the replay's briefing.
+fn outcome() -> Vec<Cmd> {
+    use Cmd::*;
+    use KeyCode as K;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5), Shot("game")];
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Type("unite the"), Wait(2), Shot("chat-typing")]);
+    v.extend([Type(" clans"), Wait(1)]);
+    v.extend(tap(K::Enter));
+    v.extend([UntilOutcome, Wait(5), Shot("victory")]);
+    v.extend(click(320.0, 229.0));
+    v.extend([Wait(3), Shot("victory-save")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("victory-again")]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::Score), Wait(20), Shot("score-counting")]);
+    v.extend(tap(K::Space));
+    v.extend([Wait(3), Shot("score-end")]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::Briefing), Wait(10), Shot("briefing-next")]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::Game), Wait(30), Shot("game-next")]);
+    v.extend(chat("you pitiful worm"));
+    v.extend([UntilOutcome, Wait(5), Shot("defeat")]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::Score), Wait(20), Shot("score-defeat")]);
+    v.extend(tap(K::Space));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::Briefing), Wait(10), Shot("briefing-replay")]);
+    v
+}
+
+/// The finale cheat: the ending's video (left at once), the finale, the credits, then the main menu and its load
+/// dialog with no saved games.
+fn ending() -> Vec<Cmd> {
+    use Cmd::*;
+    use KeyCode as K;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
+    v.extend(chat("there can be only one"));
+    v.extend([Until(AppState::Video), Wait(1)]);
+    v.extend(tap(K::Escape));
+    v.extend([
+        Until(AppState::Finale),
+        Wait(30),
+        Shot("finale"),
+        Wait(300),
+        Shot("finale-later"),
+    ]);
+    v.extend(tap(K::Space));
+    v.extend([
+        Until(AppState::Credits),
+        Wait(3),
+        Shot("credits-fade"),
+        Wait(300),
+        Shot("credits"),
+    ]);
+    v.extend(tap(K::Space));
+    v.extend([
+        Wait(3),
+        Shot("credits-closing"),
+        Until(AppState::MainMenu),
+        Wait(20),
+        Shot("menu"),
+    ]);
+    v.extend(tap(K::KeyL));
+    v.extend([Wait(3), Shot("load-empty")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("load-closed")]);
+    v
+}
+
+/// A game saved and loaded again from the game menu's load dialog, then quit to the main menu and loaded from there.
+fn load() -> Vec<Cmd> {
+    use Cmd::*;
+    use KeyCode as K;
+    let mut v = vec![
+        Move(400.0, 240.0),
+        Until(AppState::Game),
+        UntilCycle(100),
+        Shot("before-save"),
+    ];
+    v.extend(tap(K::F11));
+    v.extend([Wait(3), Type("one"), Wait(1), Shot("save-dialog")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3), Shot("saved"), UntilCycle(200), Shot("cycle-200")]);
+    v.extend(tap(K::F12));
+    v.extend([Wait(3), Shot("load-dialog")]);
+    v.extend(tap(K::Enter));
+    v.extend([
+        Wait(5),
+        Until(AppState::Game),
+        Wait(5),
+        Shot("loaded"),
+        Wait(60),
+        Shot("loaded-later"),
+    ]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::KeyQ));
+    v.extend([Release(K::ControlLeft), Wait(3), Shot("quit-confirm")]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25)]);
+    v.extend(tap(K::KeyL));
+    v.extend([Wait(3), Shot("menu-load")]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::Game), Wait(30), Shot("menu-loaded")]);
+    v
 }
 
 pub fn scene(name: &str) -> Option<Scene> {
@@ -229,6 +374,7 @@ fn drive(
     mut script: ResMut<Script>,
     state: Res<State<AppState>>,
     sim: Option<Res<crate::Sim>>,
+    dialog: Option<Res<crate::frontend::OutcomeDialog>>,
     window: Query<(Entity, &Window), With<PrimaryWindow>>,
     mut keys: ResMut<Messages<KeyboardInput>>,
     mut lost: ResMut<Messages<KeyboardFocusLost>>,
@@ -272,6 +418,11 @@ fn drive(
             }
             Cmd::UntilCycle(n) => {
                 if sim.as_ref().is_none_or(|sim| sim.world.tick < n) {
+                    break;
+                }
+            }
+            Cmd::UntilOutcome => {
+                if dialog.is_none() {
                     break;
                 }
             }
@@ -573,7 +724,9 @@ mod tests {
             assert!(s.cmds.iter().any(|c| matches!(c, Cmd::Shot(_))), "{}", s.name);
             assert_eq!(all.iter().filter(|o| o.name == s.name).count(), 1);
         }
-        assert!(scene("campaign").is_some());
+        for name in ["campaign", "outcome", "ending", "load"] {
+            assert!(scene(name).is_some(), "{name}");
+        }
     }
 
     #[test]

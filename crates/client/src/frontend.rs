@@ -898,6 +898,7 @@ fn play_video(
     front: Res<Front>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    script: Option<Res<crate::script::Script>>,
 ) {
     let mut done = pressed(&keys, &mouse);
     if let Some(mut p) = play {
@@ -905,7 +906,15 @@ fn play_video(
         if p.shown.is_some() {
             p.elapsed += time.delta_secs_f64() * 1000.0;
         }
-        let got = p.audio.as_ref().and_then(|m| m.lock().ok()?.try_recv().ok());
+        // A scripted run waits for the sound on the first frame, so that it starts on the same frame every time.
+        let got = p.audio.as_ref().and_then(|m| {
+            let rx = m.lock().ok()?;
+            if script.is_some() {
+                rx.recv().ok()
+            } else {
+                rx.try_recv().ok()
+            }
+        });
         if let Some(wav) = got {
             if let Some(bytes) = wav {
                 let h = sources.add(AudioSource { bytes: bytes.into() });
