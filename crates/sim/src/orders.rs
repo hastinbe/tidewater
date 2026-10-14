@@ -558,6 +558,16 @@ impl World {
             Order::MoveAttack { target: Some(t), .. } | Order::Move { target: Some(t), .. }
                 if !self.holds(self.units[i].owner, t)
         );
+        // Round-64 errata ("Follow (orders 6 and 7)"; static study only): order 6 whose target is found lost at a step
+        // boundary isn't walking, so its reaction runs first; when the reaction's search picks a unit, the follow
+        // steps run on it, and only otherwise is the target lost.
+        if lost && let Order::Follow { target } = o {
+            let picked = self.follow_reaction(i, target);
+            if picked != target {
+                self.follow_steps(i, picked);
+                return true;
+            }
+        }
         if (lost && !search_first) || move_lost {
             // Round-50 errata (static study): command 4's end forgets the attacker, as arrival does (and so does order
             // 3's, round-63 errata).
@@ -724,17 +734,75 @@ impl World {
 
     /// Orders 6 and 7 ("Follow"). Returns whether a guarding unit (order 7) goes on to its idle logic: it is within
     /// the radius and its follow steps gave it no new order.
+    ///
+    /// Round-64 errata ("Follow (orders 6 and 7)", "Walking orders react only when the walk has ended";
+    /// `orc9-orc09-follow-attacked-1200` grunt 1481, n = 314 to 560): while order 6 walks only the walk runs, and a
+    /// route search that finds no route makes idle an immediate order whose idle logic runs ("No route"), with no
+    /// reaction (static study only). Once it is in reach, the reaction runs first and the follow steps then run on
+    /// the target the reaction left ([`World::follow_reaction`]).
     fn follow(&mut self, i: usize, target: UnitId) -> bool {
         let Some(t) = self.unit(target) else { return false };
-        let (t_order, t_tile) = (t.order, t.tile);
+        let step_1 = matches!(self.units[i].pending, Some(Order::Follow { .. })) && !followable(t.order);
+        if matches!(self.units[i].order, Order::Follow { .. }) && !step_1 {
+            let g = self.follow_goal(t);
+            if !self.at_goal(i, g) {
+                if self.move_toward(i, g) == Walk::NoPath {
+                    self.idle_at_once(i);
+                }
+                return false;
+            }
+            let target = self.follow_reaction(i, target);
+            return self.follow_steps(i, target);
+        }
+        self.follow_steps(i, target)
+    }
+
+    /// The follow's walk toward `t`. Round-60 errata (pathfinding spec, "Step 1"; static study): the walk's order holds
+    /// a target unit, so its goal zone is the target's widened footprint. Round-62 errata (`orc9-orc09-tanker-move-2200`
+    /// juggernaut 1501, n = 614): the radius is 1 plus the +1 for a sea or air follower, as in the general arrival
+    /// test.
+    fn follow_goal(&self, t: &Unit) -> Goal {
+        Goal {
+            zone: Some(crate::battle::goal_zone(t)),
+            ..Goal::tile(t.tile, 1)
+        }
+    }
+
+    /// Order 6's reaction to an attacker, in a run where the follower isn't walking (round-64 errata, "Follow (orders
+    /// 6 and 7)"; `orc9-orc09-follow-attacked-1200` grunt 1481, n = 493): the arrival switch and the reaction run, but
+    /// any order the reaction gives is replaced by what the follow steps give. The target it set stays: an attack
+    /// command from the reaction's search (or a worker's fight-back) makes the picked unit the one followed. Returns
+    /// the target the follow steps run on.
+    ///
+    /// Our reading (static study): a flee sets no target unit, so a fleeing follower keeps following its own target.
+    fn follow_reaction(&mut self, i: usize, target: UnitId) -> UnitId {
+        if !self.react_at_walk_end(i) {
+            return target;
+        }
+        let u = &self.units[i];
+        let picked = [Some(u.order), u.pending]
+            .into_iter()
+            .flatten()
+            .find_map(|o| match o {
+                Order::Chase { target } | Order::Attack { target } => Some(target),
+                _ => None,
+            })
+            .unwrap_or(target);
+        let u = &mut self.units[i];
+        u.order = Order::Follow { target: picked };
+        u.pending = None;
+        u.commanded = false;
+        picked
+    }
+
+    /// The follow steps ("Follow (orders 6 and 7)", steps 1 to 3) on `target`.
+    fn follow_steps(&mut self, i: usize, target: UnitId) -> bool {
+        let Some(t) = self.unit(target) else { return false };
+        let (t_order, g) = (t.order, self.follow_goal(t));
         let u = &self.units[i];
         let follow = matches!(u.order, Order::Follow { .. });
         let following = matches!(u.order, Order::Guard { .. }) || matches!(u.pending, Some(Order::Follow { .. }));
         if following && !followable(t_order) {
-            if follow && self.react_at_walk_end(i) {
-                return false;
-            }
-            let u = &self.units[i];
             let here = u.tile;
             self.give(
                 i,
@@ -745,24 +813,19 @@ impl World {
             );
             return false;
         }
-        // Round-60 errata (pathfinding spec, "Step 1"; static study): the walk's order holds a target unit, so its
-        // goal zone is the target's widened footprint.
-        let zone = self.unit(target).map(crate::battle::goal_zone);
-        let g = Goal {
-            zone,
-            ..Goal::tile(t_tile, 1)
-        };
-        // Round-62 errata (`orc9-orc09-tanker-move-2200` juggernaut 1501, n = 614): the radius is 1 plus the +1 for a
-        // sea or air follower, as in the general arrival test.
-        // Round-63 errata ("Walking orders react only when the walk has ended"): order 6 runs the reaction only when
-        // it is in reach or its walk found no route, never while walking (static study only).
         if !self.at_goal(i, g) {
-            if matches!(self.move_toward(i, g), Walk::NoPath) && !(follow && self.react_at_walk_end(i)) {
+            if follow {
+                // Step 2 after the reaction picked a unit out of reach: the follow is given again toward it and
+                // takes over in the same update (order 6, still animation, wait 3; `orc9-orc09-follow-attacked-1200`
+                // grunt 1481, n = 493).
+                let u = &mut self.units[i];
+                u.path.clear();
+                u.blocked = 0;
+                self.forget_stale_attacker(i);
+                self.take_over(i, Order::Follow { target });
+            } else if self.move_toward(i, g) == Walk::NoPath {
                 self.stop(i);
             }
-            return false;
-        }
-        if follow && self.react_at_walk_end(i) {
             return false;
         }
         if follow {
@@ -1176,6 +1239,13 @@ impl World {
             u.order,
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
         );
+        // PROVISIONAL (orders spec, round-64 errata, "Automatic target acquisition", the cooling-down case; resting on
+        // the uncommitted capture `xorc5-30000` ogre 1450, n = 20526): a unit in order 16 still cooling down whose
+        // search gives order 12 keeps order 16 on the new target, waiting for the cooldown left; there is no take-over
+        // with wait 3. To revert if a re-capture disagrees, delete `keeps_16` and use `same_order` alone below.
+        let keeps_16 = matches!((u.order, o), (Order::IdleReact { .. }, Order::Chase { .. })) && self.still_cooling(u);
+        let o = if keeps_16 { Order::IdleReact { target: best } } else { o };
+        let same_order = same_order || keeps_16;
         let at_once = if same_order && self.still_cooling(u) {
             // Round-50 errata: whatever the reach, the cooldown test restarts the animation with the cooldown left;
             // a strike already decided on the old target still lands.
@@ -1231,18 +1301,19 @@ impl World {
         false
     }
 
-    /// The reaction of a walking order (23, 24, 27, 6 or 34) in a logic run where its walk has ended: it has reached
-    /// its goal, or found no route. Round-63 errata ("Walking orders react only when the walk has ended";
-    /// `orc9-orc09-flee-walk-1200` peon 1478, n = 590): while the unit walks only the walk runs and the attacker stays
-    /// recorded; these orders call this only once the walk has ended. The arrival switch comes first: a unit still in
-    /// its move animation is switched to its order's own animation (`core/animation-scripts.md`), so a flee given
-    /// here takes over at once (still animation, wait 3).
+    /// The reaction of a walking order (23, 24, 27, 6 or 34) in a logic run where its walk has ended. Round-63 errata
+    /// ("Walking orders react only when the walk has ended"; `orc9-orc09-flee-walk-1200` peon 1478, n = 590): while
+    /// the unit walks only the walk runs and the attacker stays recorded; these orders call this only once the walk has
+    /// ended. Round-64 errata: that is when the unit has reached its goal or its target was found lost at a step
+    /// boundary (and order 23's no-route re-aim); no route is not such a run for orders 24, 27 and 6, and order 34
+    /// calls this only when it has reached its transport, can't board and keeps waiting.
     ///
-    /// Our reading: the switch is made here only when an attacker is recorded. Without one the reaction does nothing,
-    /// and each order's own arrival logic starts its animation as before.
+    /// The arrival switch comes first: a unit still in its move animation is switched to its order's own animation
+    /// (`core/animation-scripts.md`), so a flee given here takes over at once (still animation, wait 3). Round-64
+    /// errata: the switch has no attacker condition (`human4-15000` peon 1531, n = 638).
     pub(crate) fn react_at_walk_end(&mut self, i: usize) -> bool {
         let u = &self.units[i];
-        if u.attacked_by.is_some() && u.script.anim == anim::MOVE {
+        if u.script.anim == anim::MOVE {
             self.switch_anim(i, order_anim(u.order));
         }
         self.react(i)
@@ -4095,5 +4166,181 @@ mod tests {
             (Order::Idle, Some(Order::Idle), None)
         );
         assert!(w.stale_target(0, g) && !w.stale(0, g));
+    }
+
+    /// A footman following its own peasant, an enemy archer that hit it 4 tiles away, everyone seen.
+    fn attacked_follower() -> (World, UnitId, UnitId, UnitId) {
+        let mut w = map();
+        w.players[1].controller = controller::NOBODY;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let p = w.spawn(PEASANT, 0, (6, 5), 0).unwrap();
+        let a = w.spawn(ARCHER, 1, (9, 5), 0).unwrap();
+        for u in &mut w.units {
+            u.hidden_from = 0;
+        }
+        let i = at(&w, f);
+        let u = &mut w.units[i];
+        u.order = Order::Follow { target: p };
+        u.pending = None;
+        u.attacked_by = Some(a);
+        w.start_anim(i, anim::MOVE);
+        (w, f, p, a)
+    }
+
+    /// Round-64 vectors (`orc9-orc09-follow-attacked-1200` grunt 1481, n = 314 to 493): a follower hit while it walks
+    /// doesn't react. Once next to the followed unit, the reaction runs but its order 12 is replaced: the follow is
+    /// given again toward the unit the search picked and takes over at once (order 6, still animation, wait 3).
+    #[test]
+    fn an_attacked_follower_follows_the_unit_its_reaction_picked() {
+        let (mut w, f, p, a) = attacked_follower();
+        // Walking: two tiles from the peasant, only the walk runs.
+        let pi = at(&w, p);
+        let unit = w.units[pi].clone();
+        w.mark(&unit, unit.tile, None);
+        w.units[pi].tile = (8, 8);
+        let unit = w.units[pi].clone();
+        w.mark(&unit, unit.tile, Some(p));
+        let i = at(&w, f);
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!((u.order, u.attacked_by), (Order::Follow { target: p }, Some(a)));
+        assert_eq!(u.script.anim, anim::MOVE);
+        // In reach.
+        let (mut w, f, _, a) = attacked_follower();
+        let i = at(&w, f);
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending), (Order::Follow { target: a }, None));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+        assert_eq!(u.recorded_target(), Some(a));
+    }
+
+    /// Round-64 vectors (`orc9-orc09-follow-attacked-1200` grunt 1481, n = 560): a follower that reaches the unit its
+    /// reaction picked, whose order is 12 (not followable), gets a pending idle taken over at once (still animation,
+    /// wait 3). The search picks its current target, so the reaction changes nothing.
+    #[test]
+    fn a_follower_next_to_the_attacker_it_picked_goes_idle() {
+        let (mut w, f, _, a) = attacked_follower();
+        let i = at(&w, f);
+        w.units[i].order = Order::Follow { target: a };
+        let ai = at(&w, a);
+        let unit = w.units[ai].clone();
+        w.mark(&unit, unit.tile, None);
+        w.units[ai].tile = (6, 6);
+        w.units[ai].order = Order::Chase { target: f };
+        let unit = w.units[ai].clone();
+        w.mark(&unit, unit.tile, Some(a));
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+    }
+
+    /// Round-64 vectors (static study): a follower whose reaction's search picks an idle unit already within the
+    /// radius guards it (order 7).
+    #[test]
+    fn a_follower_whose_reaction_picks_an_idle_unit_in_reach_guards_it() {
+        let (mut w, f, _, a) = attacked_follower();
+        let ai = at(&w, a);
+        let unit = w.units[ai].clone();
+        w.mark(&unit, unit.tile, None);
+        w.units[ai].tile = (4, 4);
+        w.units[ai].order = Order::Idle;
+        let unit = w.units[ai].clone();
+        w.mark(&unit, unit.tile, Some(a));
+        let i = at(&w, f);
+        assert!(w.run_order(i));
+        assert_eq!(w.units[i].order, Order::Guard { target: a });
+    }
+
+    /// Round-64 vectors (static study): a follower with an attacker whose route search finds no route becomes idle as
+    /// an immediate order and its idle logic runs, not order 6's reaction: the idle logic's take-over of order 12
+    /// (wait 3), not the reaction's immediate order 12 (wait 1).
+    #[test]
+    fn a_follower_with_no_route_goes_idle_at_once() {
+        let (mut w, f, p, a) = attacked_follower();
+        let pi = at(&w, p);
+        let unit = w.units[pi].clone();
+        w.mark(&unit, unit.tile, None);
+        w.units[pi].tile = (12, 5);
+        let unit = w.units[pi].clone();
+        w.mark(&unit, unit.tile, Some(p));
+        // The follower is walled in.
+        for y in 4..=6 {
+            for x in 4..=6 {
+                if (x, y) != (5, 5) {
+                    let n = w.terrain.at(x, y).unwrap();
+                    w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+                }
+            }
+        }
+        let i = at(&w, f);
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.script.anim, u.script.wait),
+            (Order::Chase { target: a }, anim::ATTACK, 3)
+        );
+    }
+
+    /// Round-64 vector (`human4-15000` peon 1531, n = 638): the arrival switch has no attacker condition. A worker
+    /// with no attacker reaching its tree in its move animation is switched to the chop animation once.
+    #[test]
+    fn a_worker_reaching_its_tree_starts_chopping_once() {
+        let mut w = map();
+        let p = w.spawn(PEASANT, 0, (5, 10), 0).unwrap();
+        let n = w.terrain.at(6, 10).unwrap();
+        w.terrain.regions[n] = crate::terrain::region::FOREST;
+        w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+        let i = at(&w, p);
+        w.units[i].gather = crate::world::Gather::Lumber;
+        w.units[i].order = Order::Harvest {
+            source: None,
+            tree: (6, 10),
+            chopping: false,
+        };
+        w.start_anim(i, anim::MOVE);
+        let mut once = w.clone();
+        once.switch_anim(i, anim::ATTACK);
+        w.harvest_order(i, None, (6, 10), false);
+        let u = &w.units[i];
+        assert!(
+            matches!(u.order, Order::Harvest { chopping: true, .. }),
+            "{:?}",
+            u.order
+        );
+        assert_eq!(u.script, once.units[i].script);
+    }
+
+    /// Round-64 vector, provisional (`xorc5-30000` ogre 1450, n = 20526, an uncommitted capture): a unit in order 16
+    /// still cooling down whose search, with an attacker, gives order 12 on another target keeps order 16 on it,
+    /// waiting for the cooldown left; with no cooldown left order 12 takes over with wait 3.
+    #[test]
+    fn order_16_cooling_down_keeps_its_order_when_the_search_gives_order_12() {
+        for cooling in [true, false] {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let old = w.spawn(FOOTMAN, 1, (5, 4), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.pending = None;
+            u.order = Order::IdleReact { target: old };
+            u.attacked_by = Some(g);
+            u.cooldown = if cooling { 23 } else { 0 };
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            if cooling {
+                assert_eq!(
+                    (u.order, u.pending, u.script.anim, u.script.frame, u.script.wait),
+                    (Order::IdleReact { target: g }, None, anim::ATTACK, 0, 23)
+                );
+            } else {
+                assert_eq!((u.order, u.script.wait), (Order::Chase { target: g }, 3));
+            }
+        }
     }
 }

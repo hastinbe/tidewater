@@ -73,10 +73,10 @@ impl World {
                 zone: Some(zone),
             };
             // Orders spec, round-63 errata ("Walking orders react only when the walk has ended"; static study only
-            // for order 27): while walking only the walk runs; with no route the reaction runs first.
-            if self.move_toward(i, g) == Walk::NoPath && !self.react_at_walk_end(i) {
-                self.go_idle(i);
-                self.switch_anim(i, anim::STILL);
+            // for order 27): while walking only the walk runs. Round-64 errata (static study only): no route is not
+            // a walk end; the worker becomes idle as an immediate order and its idle logic runs, not the reaction.
+            if self.move_toward(i, g) == Walk::NoPath {
+                self.idle_at_once(i);
             }
             return;
         }
