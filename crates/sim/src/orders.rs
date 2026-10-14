@@ -696,7 +696,7 @@ impl World {
             Order::AttackWall { tile } => self.attack_wall_order(i, tile),
             Order::AttackInPlace { target } | Order::IdleReact { target } => self.attack_in_place(i, target),
             Order::AttackGround { tile } => self.attack_ground(i, tile),
-            Order::AttackGroundMove { tile } => self.attack_ground_move(i, tile),
+            Order::AttackGroundMove { tile, goal } => self.attack_ground_move(i, tile, goal),
             Order::Demolish { .. } | Order::DemolishAt { .. } => self.demolish(i, o),
             _ => return false,
         }
@@ -4848,7 +4848,10 @@ mod tests {
             let mut prints = vec![];
             for o in [
                 Order::AttackGround { tile: (20, 20) },
-                Order::AttackGroundMove { tile: (20, 20) },
+                Order::AttackGroundMove {
+                    tile: (20, 20),
+                    goal: (20, 20),
+                },
             ] {
                 let mut w = walled_in();
                 w.rules.enhanced = true;
@@ -4864,7 +4867,14 @@ mod tests {
                 prints.push(w.fingerprint());
             }
             let (mut w, ids) = arena(&[(CATAPULT, 0, (5, 5))]);
-            let i = ready(&mut w, ids[0], Order::AttackGroundMove { tile: (5, 12) });
+            let i = ready(
+                &mut w,
+                ids[0],
+                Order::AttackGroundMove {
+                    tile: (5, 12),
+                    goal: (5, 12),
+                },
+            );
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
             prints.push(after(&mut w, 30));

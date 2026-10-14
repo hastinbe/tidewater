@@ -4,8 +4,8 @@
 //! `Terrain::blast`).
 //!
 //! Our readings: order 18 turns into order 17 in place when it arrives, and order 17's logic then runs in the same
-//! cycle (the spec says only that the unit "gets order 17"). A unit whose attack-ground or demolish walk finds no path
-//! goes idle with the immediate order 2. The blast's cosmetic explosion effects are owned by the demolisher. Order 17
+//! cycle (the spec says only that the unit "gets order 17"). A unit whose attack-ground walk finds no path goes idle
+//! with the immediate order 2. The blast's cosmetic explosion effects are owned by the demolisher. Order 17
 //! turns the unit to the tile on every run, even while its attack animation is already playing.
 
 use crate::movement::{Goal, Walk, chebyshev};
@@ -19,6 +19,8 @@ pub(crate) const BLAST_DAMAGE: u8 = 200;
 pub(crate) const BLAST_UNITS: [(i32, i32); 8] = [(1, 1), (-1, 1), (1, -1), (-1, -1), (0, 1), (0, -1), (1, 0), (-1, 0)];
 /// Order 20's arrival radius.
 const DEMOLISH_RADIUS: i32 = 1;
+/// Order 18's arrival radius at its pulled-back goal, before the +1 for sea and air units ("Order 18").
+const ORDER_18_RADIUS: i32 = 2;
 
 impl World {
     /// Command 17: order 17 when the target tile shares the unit's region value or is already in range on both axes,
@@ -30,7 +32,7 @@ impl World {
         if same_region || chebyshev(u.tile, tile) <= self.reach(u) {
             Order::AttackGround { tile }
         } else {
-            Order::AttackGroundMove { tile }
+            Order::AttackGroundMove { tile, goal: tile }
         }
     }
 
@@ -80,24 +82,26 @@ impl World {
         }
     }
 
-    /// Order 18: walk toward the stored goal; once within the type's base attack range on both axes (no range
-    /// upgrades), drop the path and attack the ground there (order 17).
-    pub(crate) fn attack_ground_move(&mut self, i: usize, tile: (i32, i32)) {
-        let base = (self.stats_of(self.units[i].kind).attack_range as i32).max(1);
-        let g = Goal {
-            tile,
-            radius: base,
-            range: true,
-            zone: None,
-        };
-        match self.move_toward(i, g) {
-            Walk::Arrived => {
-                self.units[i].order = Order::AttackGround { tile };
-                self.units[i].path.clear();
-                self.attack_ground(i, tile);
-            }
-            Walk::NoPath => self.stop(i),
-            Walk::Stepping | Walk::Blocked => {}
+    /// Order 18 ("Order 18: moving into range"; `orc9-orc09-ground-move-goals-1100`, V267 and V268): the unit has
+    /// arrived when it is within its type's base attack range (no range upgrades) of the target tile on both axes, or
+    /// when its walk toward the goal the command pulled back is within 2 tiles of it (3 for sea and air units, the +1
+    /// of the arrival test). On arrival the path is dropped and it attacks the ground at the target tile (order 17).
+    pub(crate) fn attack_ground_move(&mut self, i: usize, tile: (i32, i32), goal: (i32, i32)) {
+        let u = &self.units[i];
+        let base = (self.stats_of(u.kind).attack_range as i32).max(1);
+        let arrived = chebyshev(u.tile, tile) <= base
+            || match self.move_toward(i, Goal::tile(goal, ORDER_18_RADIUS)) {
+                Walk::Arrived => true,
+                Walk::NoPath => {
+                    self.stop(i);
+                    return;
+                }
+                Walk::Stepping | Walk::Blocked => false,
+            };
+        if arrived {
+            self.units[i].order = Order::AttackGround { tile };
+            self.units[i].path.clear();
+            self.attack_ground(i, tile);
         }
     }
 
@@ -309,10 +313,22 @@ mod tests {
         set_region(&mut w, (14, 10), 0, bits::WATER);
         assert_eq!(ground(&w, c, (14, 10)), Order::AttackGround { tile: (14, 10) });
         set_region(&mut w, (25, 10), region::FOREST, bits::OBSTACLE | bits::LAND);
-        assert_eq!(ground(&w, c, (25, 10)), Order::AttackGroundMove { tile: (25, 10) });
+        assert_eq!(
+            ground(&w, c, (25, 10)),
+            Order::AttackGroundMove {
+                tile: (25, 10),
+                goal: (25, 10)
+            }
+        );
         // In range means both axes.
         set_region(&mut w, (18, 19), region::FOREST, bits::OBSTACLE | bits::LAND);
-        assert_eq!(ground(&w, c, (18, 19)), Order::AttackGroundMove { tile: (18, 19) });
+        assert_eq!(
+            ground(&w, c, (18, 19)),
+            Order::AttackGroundMove {
+                tile: (18, 19),
+                goal: (18, 19)
+            }
+        );
         set_region(&mut w, (18, 18), region::FOREST, bits::OBSTACLE | bits::LAND);
         assert_eq!(ground(&w, c, (18, 18)), Order::AttackGround { tile: (18, 18) });
     }
@@ -343,7 +359,13 @@ mod tests {
         let s = w.spawn(SHIP, 0, (4, 10), 0).unwrap();
         assert_eq!(ground(&w, s, (7, 10)), Order::AttackGround { tile: (7, 10) });
         assert_eq!(ground(&w, s, (10, 10)), Order::AttackGround { tile: (10, 10) });
-        assert_eq!(ground(&w, s, (11, 10)), Order::AttackGroundMove { tile: (11, 10) });
+        assert_eq!(
+            ground(&w, s, (11, 10)),
+            Order::AttackGroundMove {
+                tile: (11, 10),
+                goal: (11, 10)
+            }
+        );
     }
 
     // ----- order 17 --------------------------------------------------------------------------------------------
@@ -395,7 +417,10 @@ mod tests {
         }]);
         assert_eq!(
             w.unit(c).unwrap().pending,
-            Some(Order::AttackGroundMove { tile: (25, 10) })
+            Some(Order::AttackGroundMove {
+                tile: (25, 10),
+                goal: (25, 10)
+            })
         );
         until(&mut w, 400, |w| {
             w.unit(c).unwrap().order == Order::AttackGround { tile: (25, 10) }
@@ -407,6 +432,43 @@ mod tests {
         assert!(u.path.is_empty());
         until(&mut w, 100, fired);
         assert_eq!(w.unit(c).unwrap().tile, tile);
+    }
+
+    /// "Order 18" (V268): a target far inside another region is reached by the second test, 2 tiles from the goal the
+    /// command pulled back, however far the target tile still is.
+    #[test]
+    fn order_18_arrives_within_2_of_its_pulled_back_goal() {
+        let mut w = map();
+        for y in 0..30 {
+            for x in 20..36 {
+                set_region(&mut w, (x, y), region::FOREST, bits::OBSTACLE | bits::LAND);
+            }
+        }
+        let c = w.spawn(CATAPULT, 0, (10, 10), 0).unwrap();
+        w.step(&[Command::AttackGround {
+            player: 0,
+            units: vec![c],
+            tile: (34, 10),
+        }]);
+        // The tile before the first usable one on the line back toward the catapult.
+        assert_eq!(
+            w.unit(c).unwrap().pending,
+            Some(Order::AttackGroundMove {
+                tile: (34, 10),
+                goal: (20, 10)
+            })
+        );
+        // The tile it stands on when order 18 gives way to order 17.
+        let mut last = (0, 0);
+        for _ in 0..400 {
+            let u = w.unit(c).unwrap();
+            if u.order == (Order::AttackGround { tile: (34, 10) }) {
+                break;
+            }
+            last = u.tile;
+            w.step(&[]);
+        }
+        assert_eq!(last, (18, 9));
     }
 
     #[test]

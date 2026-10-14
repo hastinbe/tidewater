@@ -117,8 +117,9 @@ pub enum Order {
     AttackWall { tile: (i32, i32) },
     /// 17: attack the ground at `tile` (attack-ground-demolish spec).
     AttackGround { tile: (i32, i32) },
-    /// 18: move into range of `tile`, then attack the ground there.
-    AttackGroundMove { tile: (i32, i32) },
+    /// 18: move into range of `tile`, then attack the ground there. `goal` is the walk's goal: `tile` pulled back when
+    /// the command is given (attack-ground-demolish spec, "Order 18", round-68 errata).
+    AttackGroundMove { tile: (i32, i32), goal: (i32, i32) },
     /// 20: demolish at unit `at`, or at the obstacle `tile` when `at` is `None`.
     Demolish { at: Option<UnitId>, tile: (i32, i32) },
     /// 21: demolish at a location.

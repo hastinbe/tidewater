@@ -415,7 +415,7 @@ impl World {
             | Order::Patrol { to: goal, .. } => Some(goal),
             Order::AttackWall { tile }
             | Order::AttackGround { tile }
-            | Order::AttackGroundMove { tile }
+            | Order::AttackGroundMove { tile, .. }
             | Order::Demolish { tile, .. }
             | Order::DemolishAt { tile }
             | Order::Cast { tile, .. } => Some(tile),

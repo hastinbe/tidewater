@@ -150,6 +150,12 @@ impl World {
             Order::AttackWall { tile } => Order::AttackWall {
                 tile: self.pull_back(i, tile),
             },
+            // Attack-ground-demolish spec, "Command 17", step 3: order 18's goal is the target tile pulled back; the
+            // target tile itself is kept (`orc9-orc09-ground-move-goals-1100` n = 22 and 42, V267 and V268).
+            Order::AttackGroundMove { tile, goal } => Order::AttackGroundMove {
+                tile,
+                goal: self.pull_back(i, goal),
+            },
             o => o,
         };
         self.command_steps(i);
