@@ -83,6 +83,9 @@
   source has nothing pending, so the idle logic runs when the 25-cycle wait ends (wait 1, no take-over); a computer
   player's AI order at a come-out is traced; a tanker in order 23 with no target and no route follows the generic
   no-route rule with no reaction (static study only); round-65 vectors.
+  2026-10-14, round-66 errata (evidence only, no rule change): a tanker given a harvest command it can't use walks to
+  the stored goal and gets the pending idle on arrival (traced with a walk); its no-route case stays static study only;
+  round-66 vectors.
 
 ## Behaviour
 
@@ -139,7 +142,8 @@ While in order 23 with a target mine or platform:
 **A tanker with no target.** A tanker in order 23 with **no** target (its command's target was cleared, "Starting to
 harvest", step 3) walks to the command's goal tile like any walking order. Its logic runs only when it gets there, and
 then finds no target: idle becomes the pending order, as for a target that is gone (still animation, wait 3; traced:
-`xhuman5-30000` n = 26447 to 26642, round-64 vectors). If its walk finds **no route**, the generic no-route rule
+`xhuman5-30000` n = 26447 to 26642, round-64 vectors, and `orc9-orc09-repair-water-1300` n = 963 to 1024, a tanker
+told to harvest a gold mine, round-66 vectors). If its walk finds **no route**, the generic no-route rule
 applies (`orders/orders.md`, "No route"): idle as an immediate order (wait 1) and the idle logic in the same update,
 which for a computer player's tanker is the job choice (`ai/worker-ai.md`, "Tankers"). Order 23's own logic doesn't run,
 so its reaction doesn't either, even with an attacker recorded (static study only).
@@ -642,6 +646,12 @@ gold, storage for wood, storage for oil, building.
 | `xhuman5-30000` (oracle trace, Enhanced, no input): computer tanker 1495 (type 0x1B, owner 7) takes the last oil of orc oil well 1554 (type 0x57; a ruin, type 0x6C, from n = 26347), delivers it at orc shipyard 1541 (type 0x49; inside, order 26, wait 150, from n = 26636) and comes out at n = 26786 at (98, 104): order 2, target none, wait 25. It isn't carrying, has no return-to source and gets no command | n = 26810: wait 1; n = 26811: order 2, wait **1** (the idle logic runs; no pending idle takes over), then wait 4 at n = 26812, 3, 2, 1, 1, 4, … |
 | `xorc4-30000` (oracle trace, Enhanced, no input), n = 27870: computer peasant 1478 (type 0x02, owner 3) comes out of keep 1512 (type 0x58) at (27, 92): order 2, target none, wait 25; its AI gives it a town hall build job (`ai/worker-ai.md`, round-65 vectors) | n = 27895: order 28 takes over (still animation, wait 3) when the 25-cycle wait ends |
 | A computer player's tanker in order 23 with no target, an attacker recorded, whose route search finds no route (static study) | Idle as an immediate order (wait 1) and the job choice in the same update; no reaction, no flee |
+
+### Round-66 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-repair-water-1300` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-repair-water.txt`), n = 962 (turn record of the input at n = 960): orc tanker 1473 (type 0x1B, owner 5), in order 23 on its oil well 1468 (type 0x57) and setting off from (48, 78), is told to harvest gold mine 1480 (type 0x5C) at (50, 91), inland | n = 963: order 23, target none (cleared by "Starting to harvest", step 3), walking. Its tile is (52, 80) from n = 992; it arrives there at n = 1024: order 2, still animation, wait 3, target none (the pending idle on arrival, not the no-route idle) |
 
 ## Open questions
 
