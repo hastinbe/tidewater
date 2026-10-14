@@ -722,15 +722,12 @@ impl World {
         }
         let area = self.terrain.region(here.0, here.1).unwrap_or(region::LAND_AREA);
         self.terrain.fell(tree.0, tree.1, area);
-        // The worker carries lumber and its frame is set to 0; the return (or idle, with no depot) takes over in the
-        // same update (orders spec, "Same-update take-over"). Taking over looks up the nearest depot. Round-43 errata:
-        // as a command, the return clears the blocked counter, so blocks met on the way to the tree don't carry over.
+        // "Lumber", step 3: the worker carries lumber, its frame is set to 0, and it is given a return command to the
+        // nearest depot (idle with none; the take-over looks it up).
         let u = &mut self.units[i];
         u.carrying = true;
         u.script.frame = 0;
-        u.blocked = 0;
-        self.forget_stale_attacker(i);
-        self.take_over(i, Order::ReturnGoods { depot: None });
+        self.order_command(i, Order::ReturnGoods { depot: None });
     }
 
     /// "Lumber", step 2: a worker next to a tree tile that is still unreserved forest starts chopping (counter 0, faces
@@ -773,21 +770,22 @@ impl World {
         self.harvest_again(i, t);
     }
 
-    /// A new harvest command to `t`, given by the worker's own logic, which takes over in the same update.
+    /// A new harvest command to tree tile `t`, given by the worker's own logic ("Lumber", "Every new aim is a new
+    /// harvest command"). Only workers reach here, and a worker always gets a harvest order.
     fn harvest_again(&mut self, i: usize, t: (i32, i32)) {
-        match self.harvest_command(i, None, t) {
-            Some(o) => {
-                // A new harvest command: the route dropped and the blocked counter cleared (movement spec).
-                self.units[i].path.clear();
-                self.units[i].blocked = 0;
-                self.forget_stale_attacker(i);
-                self.give(i, o);
-                if let Some(o) = self.units[i].pending.take() {
-                    self.units[i].commanded = false;
-                    self.take_over(i, o);
-                }
-            }
-            None => self.idle(i),
+        if let Some(o) = self.harvest_command(i, None, t) {
+            self.order_command(i, o);
+        }
+    }
+
+    /// "Commands given by these orders": a command an order's logic gives is an ordinary command (goal pulled back,
+    /// blocked counter cleared, route dropped, stale attacker forgotten, the command check on a named target), made
+    /// pending and taken over in the same update (orders spec, "Same-update take-over"), without running its logic.
+    /// Coming out is the exception: its command waits for the 25-cycle wait ([`World::come_out`]).
+    fn order_command(&mut self, i: usize, o: Order) {
+        self.command(i, o);
+        if let Some(o) = self.units[i].pending.take() {
+            self.take_over(i, o);
         }
     }
 
