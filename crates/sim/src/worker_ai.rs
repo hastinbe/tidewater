@@ -1004,6 +1004,31 @@ mod tests {
 
     /// Round-54 errata, "The job choice gives its order as a command" (`human12-25000` tanker 1412, n = 12951): the
     /// cached route is dropped and the blocked counter cleared, so the unit plans afresh.
+    /// Pin for the B-038 orders refactor: the job choice from idle is a command that takes over at once (blocked
+    /// counter cleared, route dropped, a stale attacker forgotten), with no pull-back or target check of its own.
+    #[test]
+    fn pin_the_job_choice_takes_over_at_once() {
+        let (mut w, hall) = town();
+        let pi = peasants(&mut w, 1)[0];
+        let p = w.units[pi].id;
+        let a = w.spawn(0, 0, (20, 20), 0).unwrap();
+        let ai = w.index(a).unwrap();
+        w.kill(ai);
+        let i = w.index(p).unwrap();
+        let u = &mut w.units[i];
+        (u.gather, u.carrying, u.blocked, u.attacked_by) = (Gather::Gold, true, 3, Some(a));
+        u.path = vec![(9, 10), (8, 10)];
+        w.idle_choice(i);
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.attacked_by),
+            (Order::ReturnGoods { depot: Some(hall) }, None, None)
+        );
+        assert_eq!(u.script.wait, 3);
+        crate::world::tests::run(&mut w, 60);
+        assert_eq!(w.fingerprint(), 6992507100974240);
+    }
+
     #[test]
     fn the_job_choice_drops_the_cached_route() {
         let (mut w, hall) = town();

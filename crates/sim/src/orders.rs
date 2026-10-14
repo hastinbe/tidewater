@@ -4358,4 +4358,669 @@ mod tests {
             }
         }
     }
+
+    /// Pins of the current behaviour where no oracle trace reaches (the coverage report's untraced order regions) and
+    /// on the paths the B-038 refactor merges, written before it so that it can't change them unseen. Each test states
+    /// the outcome in a few fields and pins the whole simulation state with [`World::fingerprint`]. Where a pin
+    /// differs from the spec's wording, its comment says so: those are open questions, not rules.
+    mod pin {
+        use super::*;
+
+        const FLYER: u8 = 2;
+        const MAGE: u8 = 0x0a;
+
+        /// [`map`] with player 1 passive (no AI) and one update run, so that every unit is detected and seen.
+        fn arena(units: &[(u8, u8, (i32, i32))]) -> (World, Vec<UnitId>) {
+            let mut w = map();
+            let ids = units.iter().map(|&(k, o, t)| w.spawn(k, o, t, 0).unwrap()).collect();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            (w, ids)
+        }
+
+        /// Puts unit `id` in order `o` with nothing pending, ready for a logic run.
+        fn ready(w: &mut World, id: UnitId, o: Order) -> usize {
+            let i = at(w, id);
+            let u = &mut w.units[i];
+            (u.order, u.pending, u.commanded) = (o, None, false);
+            u.script.wait = 1;
+            i
+        }
+
+        /// The whole state after `n` updates.
+        fn after(w: &mut World, n: u32) -> u64 {
+            run(w, n);
+            w.fingerprint()
+        }
+
+        #[test]
+        fn an_attack_command_on_itself_or_by_a_unit_that_cant_attack_gives_nothing() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FLYER, 0, (7, 7))]);
+            let (f, b) = (ids[0], ids[1]);
+            let i = at(&w, f);
+            let c = |target| Command::Attack {
+                player: 0,
+                units: vec![f],
+                target,
+            };
+            assert_eq!(w.command_order(i, &c(f)), None);
+            let bi = at(&w, b);
+            assert_eq!(w.command_order(bi, &c(f)), None);
+            assert_eq!(w.command_order(i, &c(b)), Some(Order::Attack { target: b }));
+            assert_eq!(w.fingerprint(), 7319360763418762381);
+        }
+
+        /// "Commands forget a stale attacker" is for units that aren't buildings: a building keeps a dead attacker.
+        #[test]
+        fn a_building_keeps_a_stale_attacker_through_a_command() {
+            let (mut w, ids) = arena(&[(FARM, 0, (5, 5)), (FOOTMAN, 1, (9, 9))]);
+            let (b, a) = (ids[0], ids[1]);
+            let ai = at(&w, a);
+            w.kill(ai);
+            let bi = at(&w, b);
+            w.units[bi].attacked_by = Some(a);
+            w.command(bi, Order::Idle);
+            assert_eq!(w.units[bi].attacked_by, Some(a));
+            assert_eq!(w.fingerprint(), 12996731913498216386);
+        }
+
+        /// A marked unit in order 12 whose target isn't held isn't out of reach: it runs its logic (losing the target)
+        /// and the mark is cleared.
+        #[test]
+        fn a_marked_chase_whose_target_is_lost_isnt_out_of_reach() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (15, 15))]);
+            let (f, g) = (ids[0], ids[1]);
+            let gi = at(&w, g);
+            w.units[gi].detected_by = 0;
+            let i = ready(&mut w, f, Order::Chase { target: g });
+            w.units[i].skip_search = true;
+            assert!(!w.out_of_reach(i));
+            w.order(
+                i,
+                Effects {
+                    step_done: true,
+                    ..Default::default()
+                },
+            );
+            let u = w.unit(f).unwrap();
+            assert_eq!((u.order, u.skip_search, u.script.wait), (Order::Idle, false, 3));
+            assert_eq!(w.fingerprint(), 14971116547516429972);
+        }
+
+        /// "Follow (orders 6 and 7)": a follower whose target is lost at a step boundary runs its reaction first; the
+        /// unit its reaction picks becomes the followed one. Cases: a combat attacker (the reaction's search gives
+        /// order 12), a worker hit by a worker (the fight-back gives order 9 pending), and that worker undetected
+        /// (the follow re-give keeps a target the command check would drop: a question for the spec).
+        #[test]
+        fn a_follower_losing_its_target_follows_what_its_reaction_picks() {
+            let mut prints = vec![];
+            for case in ["combat", "worker", "undetected worker"] {
+                let worker = case != "combat";
+                let me = if worker { PEASANT } else { FOOTMAN };
+                let (mut w, ids) = arena(&[(me, 0, (5, 5)), (FOOTMAN, 0, (9, 5)), (me, 1, (5, 8))]);
+                let (f, friend, a) = (ids[0], ids[1], ids[2]);
+                let ti = at(&w, friend);
+                w.units[ti].detected_by = 0;
+                if case == "undetected worker" {
+                    let ai = at(&w, a);
+                    w.units[ai].detected_by = 0;
+                }
+                let i = ready(&mut w, f, Order::Follow { target: friend });
+                w.units[i].attacked_by = Some(a);
+                w.units[i].blocked = 4;
+                w.units[i].path = vec![(6, 5)];
+                assert!(w.run_order(i));
+                let u = &w.units[i];
+                assert_eq!(u.order, Order::Follow { target: a }, "{case}");
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(
+                prints,
+                [18252891849351941898, 11371108981017510944, 9285152338254574234]
+            );
+        }
+
+        /// Classic attack-move (order 10) runs the reaction in its walk: a recorded attacker in reach gives order 12
+        /// at once.
+        #[test]
+        fn classic_attack_move_reacts_to_its_attacker() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (5, 6))]);
+            w.rules.enhanced = false;
+            let (f, a) = (ids[0], ids[1]);
+            let i = ready(&mut w, f, Order::AttackMove { goal: (20, 20) });
+            w.units[i].attacked_by = Some(a);
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!((u.order, u.script.wait), (Order::Chase { target: a }, 1));
+            assert_eq!(after(&mut w, 40), 2222882378599847997);
+        }
+
+        /// Order 4 with a target unit sets its goal from the target where it stands now, at every walk.
+        #[test]
+        fn order_4_with_a_target_rewrites_its_goal() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (2, 2)), (FARM, 1, (14, 14))]);
+            let (f, b) = (ids[0], ids[1]);
+            let i = ready(
+                &mut w,
+                f,
+                Order::MoveAttack {
+                    goal: (20, 20),
+                    target: Some(b),
+                },
+            );
+            assert!(w.run_order(i));
+            let Order::MoveAttack { goal, target } = w.units[i].order else {
+                panic!()
+            };
+            assert_eq!(target, Some(b));
+            assert_ne!(goal, (20, 20));
+            assert_eq!(after(&mut w, 60), 6166174053499188518);
+        }
+
+        /// The follow with no target unit returns at once; with the follow pending on a target in an order it can't
+        /// follow (step 1) the follower stops where it stands (order 3 pending); with no route it goes idle at once.
+        #[test]
+        fn follow_edges() {
+            let mut prints = vec![];
+            // Gone.
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 0, (9, 9))]);
+            let gi = at(&w, ids[1]);
+            let gone = w.units[gi].id;
+            let (slot, owner) = (w.units[gi].slot, w.units[gi].owner);
+            w.slots.release(slot, owner);
+            w.units.remove(gi);
+            w.ylist.retain(|&x| x != gone);
+            let i = ready(&mut w, ids[0], Order::Follow { target: gone });
+            assert!(!w.follow(i, gone));
+            prints.push(w.fingerprint());
+            // Step 1.
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 0, (9, 9)), (FOOTMAN, 1, (20, 20))]);
+            let ti = ready(&mut w, ids[1], Order::Attack { target: ids[2] });
+            let _ = ti;
+            let i = ready(&mut w, ids[0], Order::Follow { target: ids[1] });
+            w.units[i].pending = Some(Order::Follow { target: ids[1] });
+            assert!(w.run_order(i));
+            assert_eq!(
+                w.units[i].pending,
+                Some(Order::Move {
+                    goal: (5, 5),
+                    target: None
+                })
+            );
+            prints.push(w.fingerprint());
+            // No route.
+            let mut w = walled_in();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let t = w.spawn(FOOTMAN, 0, (15, 15), 0).unwrap();
+            w.step(&[]);
+            let i = ready(&mut w, f, Order::Follow { target: t });
+            assert!(w.run_order(i));
+            assert_eq!((w.units[i].order, w.units[i].script.wait), (Order::Idle, 1));
+            prints.push(w.fingerprint());
+            // Guard with no route.
+            let mut w = walled_in();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let t = w.spawn(FOOTMAN, 0, (15, 15), 0).unwrap();
+            w.step(&[]);
+            let i = ready(&mut w, f, Order::Guard { target: t });
+            assert!(w.run_order(i));
+            assert_eq!((w.units[i].order, w.units[i].script.wait), (Order::Idle, 1));
+            prints.push(w.fingerprint());
+            assert_eq!(
+                prints,
+                [
+                    4457170854483841466,
+                    17297753363362418897,
+                    14720844090697437625,
+                    14720844090697437625
+                ]
+            );
+        }
+
+        /// "Reacting to an attacker" step 3: an invisible mage-type unit with an attacker does nothing more in the run.
+        #[test]
+        fn an_invisible_mage_with_an_attacker_does_nothing() {
+            let mut w = map();
+            w.stats.0[MAGE as usize] = w.stats.0[ARCHER as usize];
+            w.stats.0[MAGE as usize].flags |= flags::MAGE_LIKE;
+            let m = w.spawn(MAGE, 0, (10, 10), 0).unwrap();
+            let a = w.spawn(FOOTMAN, 1, (11, 10), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let i = ready(&mut w, m, Order::Idle);
+            w.units[i].attacked_by = Some(a);
+            w.units[i].invisibility = 100;
+            w.run_order(i);
+            assert_eq!((w.units[i].order, w.units[i].attacked_by), (Order::Idle, Some(a)));
+            assert_eq!(w.fingerprint(), 17280540077217124588);
+        }
+
+        /// The acquiring strike with no target unit decides nothing; one still cooling down restarts its animation.
+        #[test]
+        fn acquiring_strike_edges() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (5, 6)), (FOOTMAN, 1, (9, 9))]);
+            let (f, g, d) = (ids[0], ids[1], ids[2]);
+            let di = at(&w, d);
+            w.units[di].hp = 0;
+            w.kill(di);
+            run(&mut w, 30);
+            let i = ready(&mut w, f, Order::Chase { target: g });
+            let gone = w.unit(d).is_none();
+            assert!(!w.acquiring_strike(i, Order::Chase { target: d }, d) || !gone);
+            w.units[i].cooldown = 20;
+            assert!(w.acquiring_strike(i, Order::Chase { target: g }, g));
+            assert_eq!(w.units[i].script.wait, 20);
+            assert_eq!(w.fingerprint(), 15835463217056360250);
+        }
+
+        /// Fleeing with no attacker recorded does nothing; the reaction forgets a dying attacker.
+        #[test]
+        fn flee_and_react_edges() {
+            let (mut w, ids) = arena(&[(PEASANT, 0, (5, 5)), (FOOTMAN, 1, (5, 7))]);
+            let (p, a) = (ids[0], ids[1]);
+            let i = ready(&mut w, p, Order::Idle);
+            assert!(!w.flee(i));
+            let ai = at(&w, a);
+            w.kill(ai);
+            let i = at(&w, p);
+            w.units[i].attacked_by = Some(a);
+            assert!(!w.react(i));
+            assert_eq!(w.units[i].attacked_by, None);
+            assert_eq!(w.fingerprint(), 10216229482647453818);
+        }
+
+        /// A released attacker slot with no last type recorded counts as a kind the unit can target.
+        #[test]
+        fn a_released_attacker_with_no_last_type_can_be_targeted() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (9, 9)), (FOOTMAN, 1, (5, 6))]);
+            let (f, d, g) = (ids[0], ids[1], ids[2]);
+            let di = at(&w, d);
+            let (slot, owner) = (w.units[di].slot, w.units[di].owner);
+            w.slots.release(slot, owner);
+            w.units.remove(di);
+            w.ylist.retain(|&x| x != d);
+            let i = ready(&mut w, f, Order::Idle);
+            w.units[i].attacked_by = Some(d);
+            assert!(w.acquire(i, Acquires::Idle, false));
+            assert_eq!(w.units[i].order, Order::Chase { target: g });
+            assert_eq!(w.fingerprint(), 112338662119734946);
+        }
+
+        /// The attack order's own checks: a target it can't hit makes it go idle with the still animation (no pending
+        /// idle, no resume: a question for the spec); with no target unit left `can_strike` is false.
+        #[test]
+        fn attack_order_edges() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FLYER, 1, (5, 6))]);
+            w.rules.enhanced = true;
+            let (f, b) = (ids[0], ids[1]);
+            let i = ready(&mut w, f, Order::Chase { target: b });
+            w.units[i].remembered = Some(Remembered::Patrol {
+                to: (15, 5),
+                back: (5, 5),
+            });
+            assert!(!w.can_strike(&w.units[i], f));
+            assert!(!w.can_strike(&w.units[i], b), "an air unit needs a missile");
+            w.attack_order(i, b);
+            let u = &w.units[i];
+            assert_eq!((u.order, u.pending, u.script.anim), (Order::Idle, None, anim::STILL));
+            assert_eq!(after(&mut w, 5), 8579443121511770218);
+        }
+
+        /// Order 12's no-route fallback in the run it guards: no second logic run.
+        #[test]
+        fn the_fallback_run_guard() {
+            let mut w = walled_in();
+            w.stats.0[FOOTMAN as usize].attack_range = 4;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let far = w.spawn(FOOTMAN, 1, (20, 20), 0).unwrap();
+            let near = w.spawn(FOOTMAN, 1, (5, 8), 0).unwrap();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            let mut prints = vec![];
+            for guarded in [false, true] {
+                let mut w = w.clone();
+                let i = ready(&mut w, f, Order::Chase { target: far });
+                w.fallback_run = guarded;
+                w.attack_order(i, far);
+                let u = &w.units[i];
+                assert_eq!((u.order, u.skip_search), (Order::Chase { target: near }, true));
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [2344322259397918515, 11511587633176998144]);
+        }
+
+        /// Heading for a target no longer in play does nothing.
+        #[test]
+        fn head_for_a_gone_target() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (9, 9))]);
+            let (f, d) = (ids[0], ids[1]);
+            let di = at(&w, d);
+            w.units.remove(di);
+            w.ylist.retain(|&x| x != d);
+            let i = ready(&mut w, f, Order::AttackMove { goal: (20, 20) });
+            w.head_for(i, d);
+            assert_eq!(w.units[i].order, Order::AttackMove { goal: (20, 20) });
+            assert_eq!(w.fingerprint(), 18323777425526606513);
+        }
+
+        /// Order 11 at its wall still cooling down restarts its attack animation and waits.
+        #[test]
+        fn order_11_cooling_down_waits() {
+            let mut w = map();
+            for y in 3..=5 {
+                w.terrain.build_wall(8, y, false, true);
+            }
+            let f = w.spawn(FOOTMAN, 0, (8, 6), 0).unwrap();
+            w.step(&[]);
+            let i = ready(&mut w, f, Order::AttackWall { tile: (8, 5) });
+            w.units[i].cooldown = 9;
+            w.attack_wall_order(i, (8, 5));
+            let u = &w.units[i];
+            assert_eq!((u.script.anim, u.script.wait), (anim::ATTACK, 9));
+            assert_eq!(w.fingerprint(), 2063841053880885618);
+        }
+
+        /// The command check: a command naming a lost target leaves a pending idle (with the resume rules), and the
+        /// animation and wait are left as they are (the spec's pending idle has the still animation and wait 1: a
+        /// question for the spec).
+        #[test]
+        fn a_command_naming_a_lost_target_leaves_a_pending_idle() {
+            let mut prints = vec![];
+            for remembered in [false, true] {
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (9, 9))]);
+                w.rules.enhanced = true;
+                let (f, g) = (ids[0], ids[1]);
+                let gi = at(&w, g);
+                w.units[gi].detected_by = 0;
+                let i = ready(
+                    &mut w,
+                    f,
+                    Order::Move {
+                        goal: (20, 5),
+                        target: None,
+                    },
+                );
+                w.start_anim(i, anim::MOVE);
+                w.units[i].script.wait = 5;
+                if remembered {
+                    w.units[i].remembered = Some(Remembered::Patrol {
+                        to: (15, 5),
+                        back: (5, 5),
+                    });
+                }
+                w.command(i, Order::Attack { target: g });
+                let u = &w.units[i];
+                let expect = if remembered {
+                    Order::Patrol {
+                        to: (15, 5),
+                        back: (5, 5),
+                    }
+                } else {
+                    Order::Idle
+                };
+                assert_eq!(
+                    (u.pending, u.commanded, u.script.anim, u.script.wait),
+                    (Some(expect), true, anim::MOVE, 5)
+                );
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [15852741303150789399, 17997252111257111540]);
+        }
+
+        /// The patrol turnaround: Enhanced (remembered), Classic (not), and an air unit whose other end is next to it
+        /// (unremembered).
+        #[test]
+        fn the_patrol_turnaround() {
+            let mut prints = vec![];
+            for (case, enhanced, kind) in [
+                ("enhanced", true, FOOTMAN),
+                ("classic", false, FOOTMAN),
+                ("air", true, FLYER),
+            ] {
+                let (mut w, ids) = arena(&[(kind, 0, (5, 5)), (FOOTMAN, 1, (22, 22))]);
+                w.rules.enhanced = enhanced;
+                let (f, a) = (ids[0], ids[1]);
+                let back = if kind == FLYER { (6, 6) } else { (2, 2) };
+                let ai = at(&w, a);
+                w.units[ai].detected_by = 0;
+                let i = ready(&mut w, f, Order::Patrol { to: (5, 5), back });
+                w.units[i].attacked_by = Some(a);
+                w.units[i].blocked = 3;
+                w.units[i].resume = 7;
+                assert!(w.run_order(i));
+                let u = &w.units[i];
+                assert!(matches!(u.order, Order::Patrol { .. }), "{case}");
+                assert_eq!((u.blocked, u.attacked_by, u.script.wait), (0, None, 3), "{case}");
+                prints.push(after(&mut w, 30));
+            }
+            assert_eq!(
+                prints,
+                [10036240654340455703, 12893702672662476768, 4691063835834938824]
+            );
+        }
+
+        /// Acquisition's take-over and the at-once switch: both are commands (blocked counter cleared, route dropped,
+        /// a stale attacker forgotten).
+        #[test]
+        fn acquisition_switches_are_commands() {
+            let mut prints = vec![];
+            for cooling in [false, true] {
+                let (mut w, ids) = arena(&[(ARCHER, 0, (5, 5)), (FOOTMAN, 1, (5, 8)), (FOOTMAN, 1, (20, 20))]);
+                let (f, g, old) = (ids[0], ids[1], ids[2]);
+                let oi = at(&w, old);
+                w.units[oi].detected_by = 0;
+                let o = if cooling {
+                    Order::AttackInPlace { target: old }
+                } else {
+                    Order::Idle
+                };
+                let i = ready(&mut w, f, o);
+                w.units[i].attacked_by = Some(old);
+                w.units[i].blocked = 3;
+                w.units[i].path = vec![(6, 5)];
+                w.units[i].cooldown = if cooling { 12 } else { 0 };
+                let acquired = w.acquire(i, if cooling { Acquires::Other } else { Acquires::Idle }, false);
+                assert!(acquired);
+                let u = &w.units[i];
+                assert_eq!(target_of(u.order), Some(g));
+                assert_eq!((u.blocked, u.path.is_empty(), u.attacked_by), (0, true, None));
+                prints.push(after(&mut w, 30));
+            }
+            assert_eq!(prints, [11347254239461764739, 9038505000538404860]);
+        }
+
+        /// The friendly-fire check calls the strike off with a take-over of idle, without the resume (a question for
+        /// the spec: every other place idle becomes pending resumes).
+        #[test]
+        fn holding_fire_doesnt_resume() {
+            let (mut w, ids) = arena(&[
+                (CATAPULT, 0, (5, 5)),
+                (FOOTMAN, 1, (5, 10)),
+                (FOOTMAN, 0, (4, 10)),
+                (FOOTMAN, 0, (6, 10)),
+            ]);
+            w.rules.enhanced = true;
+            w.stats.0[CATAPULT as usize].flags |= flags::GROUND_ATTACK;
+            let (c, g) = (ids[0], ids[1]);
+            let i = ready(&mut w, c, Order::Chase { target: g });
+            w.units[i].remembered = Some(Remembered::Patrol {
+                to: (15, 5),
+                back: (5, 5),
+            });
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!((u.order, u.script.wait), (Order::Idle, 3));
+            assert_eq!(after(&mut w, 30), 16807639186136375331);
+        }
+
+        /// Orders 17 and 18 with no route stop (an immediate idle with no idle logic run and no resume); order 18 at its
+        /// goal becomes order 17 directly.
+        #[test]
+        fn attack_ground_edges() {
+            let mut prints = vec![];
+            for o in [
+                Order::AttackGround { tile: (20, 20) },
+                Order::AttackGroundMove { tile: (20, 20) },
+            ] {
+                let mut w = walled_in();
+                w.rules.enhanced = true;
+                let f = w.spawn(CATAPULT, 0, (5, 5), 0).unwrap();
+                w.spawn(FOOTMAN, 1, (5, 8), 0).unwrap();
+                w.players[1].controller = controller::NOBODY;
+                w.step(&[]);
+                let i = ready(&mut w, f, o);
+                w.units[i].remembered = Some(Remembered::AttackMove { goal: (15, 5) });
+                assert!(w.run_order(i));
+                let u = &w.units[i];
+                assert_eq!((u.order, u.script.wait), (Order::Idle, 1));
+                prints.push(w.fingerprint());
+            }
+            let (mut w, ids) = arena(&[(CATAPULT, 0, (5, 5))]);
+            let i = ready(&mut w, ids[0], Order::AttackGroundMove { tile: (5, 12) });
+            assert!(w.run_order(i));
+            assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
+            prints.push(after(&mut w, 30));
+            assert_eq!(prints, [813356402327110097, 813356402327110097, 17189924812526471805]);
+        }
+
+        /// Blocked row G: an attacked unit blocked next to its goal makes idle pending (with the resume rules).
+        #[test]
+        fn blocked_next_to_the_goal_while_attacked() {
+            let mut prints = vec![];
+            for remembered in [false, true] {
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 0, (5, 6)), (FOOTMAN, 1, (20, 20))]);
+                w.rules.enhanced = true;
+                let (f, a) = (ids[0], ids[2]);
+                let i = ready(
+                    &mut w,
+                    f,
+                    Order::Move {
+                        goal: (5, 6),
+                        target: None,
+                    },
+                );
+                w.units[i].attacked_by = Some(a);
+                w.units[i].path = vec![(5, 6)];
+                if remembered {
+                    w.units[i].remembered = Some(Remembered::AttackMove { goal: (15, 15) });
+                }
+                assert!(w.run_order(i));
+                let u = &w.units[i];
+                assert!(u.pending.is_some(), "{:?}", u.pending);
+                prints.push(after(&mut w, 30));
+            }
+            assert_eq!(prints, [17151135786483896697, 6176801998964483653]);
+        }
+
+        /// Whole runs: two small armies of each player kind meeting under move, attack-move, patrol, follow, guard and
+        /// stand-ground commands, in both rules modes.
+        #[test]
+        fn skirmishes() {
+            let mut prints = vec![];
+            for enhanced in [true, false] {
+                for enemy in [controller::COMPUTER, controller::HUMAN] {
+                    let mut w = map();
+                    w.rules.enhanced = enhanced;
+                    let mine: Vec<UnitId> = [
+                        (FOOTMAN, (2, 2)),
+                        (ARCHER, (3, 2)),
+                        (CATAPULT, (2, 3)),
+                        (FOOTMAN, (3, 3)),
+                        (PEASANT, (4, 2)),
+                    ]
+                    .iter()
+                    .map(|&(k, t)| w.spawn(k, 0, t, 0).unwrap())
+                    .collect();
+                    let theirs: Vec<UnitId> = [
+                        (FOOTMAN, (20, 20)),
+                        (ARCHER, (21, 20)),
+                        (FOOTMAN, (20, 21)),
+                        (ARCHER, (21, 21)),
+                        (FOOTMAN, (19, 19)),
+                    ]
+                    .iter()
+                    .map(|&(k, t)| w.spawn(k, 1, t, 0).unwrap())
+                    .collect();
+                    w.players[1].controller = enemy;
+                    w.step(&[
+                        Command::AttackMove {
+                            player: 0,
+                            units: vec![mine[0], mine[1]],
+                            to: (20, 20),
+                        },
+                        Command::Patrol {
+                            player: 0,
+                            units: vec![mine[2]],
+                            to: (12, 12),
+                        },
+                        Command::Smart {
+                            player: 0,
+                            units: vec![mine[3]],
+                            target: Some(mine[0]),
+                            tile: (2, 2),
+                        },
+                        Command::Smart {
+                            player: 0,
+                            units: vec![mine[4]],
+                            target: Some(mine[2]),
+                            tile: (2, 3),
+                        },
+                        Command::Move {
+                            player: 1,
+                            units: vec![theirs[0], theirs[1]],
+                            to: (8, 8),
+                        },
+                        Command::Patrol {
+                            player: 1,
+                            units: vec![theirs[2]],
+                            to: (10, 14),
+                        },
+                        Command::StandGround {
+                            player: 1,
+                            units: vec![theirs[3]],
+                        },
+                        Command::Attack {
+                            player: 1,
+                            units: vec![theirs[4]],
+                            target: mine[4],
+                        },
+                    ]);
+                    let mut state = vec![];
+                    for _ in 0..4 {
+                        state.push(after(&mut w, 150));
+                    }
+                    prints.push(state);
+                }
+            }
+            assert_eq!(
+                prints,
+                [
+                    [
+                        7277162608704041777,
+                        2617285122733947077,
+                        9368418029386401402,
+                        8152691399419841866
+                    ],
+                    [
+                        11921765685397457864,
+                        18437048235056833595,
+                        167332719478439787,
+                        15389426019139341271
+                    ],
+                    [
+                        10034609991045078167,
+                        8930441907402343293,
+                        9688566408489220406,
+                        16824522838011754372
+                    ],
+                    [
+                        11819606290717625611,
+                        12976273793731815044,
+                        5977740692554664078,
+                        16417837326725483754
+                    ],
+                ]
+            );
+        }
+    }
 }
