@@ -559,7 +559,7 @@ pub fn setup(app: &mut App, scene: Scene, out: Out) {
             std::time::Duration::from_secs_f64(FRAME_SECS),
         ))
         .insert_resource(crate::WallClock { fixed: Some(WALL_SECS) })
-        .add_systems(Last, (note_sounds, record).chain());
+        .add_systems(Last, (note_sounds, record).chain().after(crate::shell::ComposeScreen));
 }
 
 #[cfg(test)]

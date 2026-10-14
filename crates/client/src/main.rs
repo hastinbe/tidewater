@@ -47,6 +47,7 @@ mod scene;
 mod screen;
 mod screenshot;
 mod script;
+mod shell;
 mod sound;
 mod video;
 mod view;
@@ -534,7 +535,7 @@ fn main() -> Result<()> {
             }));
         }
     }
-    app.add_plugins(script::plugin);
+    app.add_plugins(script::plugin).add_plugins(shell::plugin);
     if let Some((scene, out)) = scripted {
         script::setup(&mut app, scene, out);
     }
@@ -544,7 +545,6 @@ fn main() -> Result<()> {
             explicit: args.ui_scale.is_some(),
             frames: 0,
         })
-        .add_systems(Startup, spawn_backdrop)
         .add_systems(Update, (size_window, fit_screen).chain())
         .add_systems(
             PreUpdate,
@@ -983,9 +983,11 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
+        // It no longer draws (`shell` composes the screen); it gives the interface's place in the window.
         Camera {
             order: 1,
             clear_color: ClearColorConfig::None,
+            is_active: false,
             ..default()
         },
         RenderLayers::layer(HUD_LAYER),
@@ -997,8 +999,14 @@ fn setup(
         RenderLayers::layer(HUD_LAYER),
         HudSprite,
     ));
+    // It no longer draws (`shell` composes the screen); its place, zoom and viewport are the map view's, and it turns
+    // pointer positions into map positions.
     commands.spawn((
         Camera2d,
+        Camera {
+            is_active: false,
+            ..default()
+        },
         MapCamera,
         // `hud_layout` sets the projection's scale from the zoom and the window.
         Projection::Orthographic(OrthographicProjection::default_2d()),
@@ -1647,23 +1655,6 @@ fn mouse_lock(
         hud.locked = *locked;
     }
 }
-
-/// Paints the whole window black first, so the border around the screen is black (`display`).
-fn spawn_backdrop(mut commands: Commands) {
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: -1,
-            clear_color: ClearColorConfig::Custom(Color::BLACK),
-            ..default()
-        },
-        RenderLayers::layer(BACKDROP_LAYER),
-        frontend::Persist,
-    ));
-}
-
-/// A layer nothing is drawn on: the backdrop camera only clears.
-const BACKDROP_LAYER: usize = 31;
 
 /// The hotkey a key press stands for.
 fn key_char(k: KeyCode) -> Option<char> {

@@ -530,9 +530,12 @@ pub fn plugin(app: &mut App) {
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
+        // It no longer draws (`shell` composes the screen); it gives the screen's place in the window to the pointer,
+        // and whether the flow's layers cover what is under them.
         Camera {
             order: 10,
             clear_color: ClearColorConfig::Custom(Color::BLACK),
+            is_active: false,
             ..default()
         },
         Projection::Orthographic(OrthographicProjection {
