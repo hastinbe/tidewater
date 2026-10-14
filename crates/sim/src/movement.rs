@@ -165,7 +165,7 @@ impl World {
             }
             o => crate::orders::target_of(o),
         };
-        if named.is_some_and(|t| self.stale_target(owner, t)) {
+        if named.is_some_and(|t| self.target_lost(owner, t)) {
             self.give(i, Order::Idle);
             let u = &mut self.units[i];
             u.commanded = u.pending.is_some();

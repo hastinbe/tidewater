@@ -138,9 +138,8 @@ impl World {
         // the submarine rule; there is no owner test. Round-50 errata: the kind checks in their order, with the
         // transport-on-shore case.
         let owner = self.units[i].owner;
-        let target_ok = self
-            .unit(target)
-            .is_some_and(|t| t.present() && Self::detected(t, owner) && self.can_hit_kind(&self.units[i], t));
+        let target_ok =
+            !self.target_lost(owner, target) && self.unit(target).is_some_and(|t| self.can_hit_kind(&self.units[i], t));
         if !target_ok {
             self.go_idle(i);
             self.switch_anim(i, anim::STILL);

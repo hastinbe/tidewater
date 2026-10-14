@@ -141,7 +141,7 @@ impl World {
         // Round-45 errata, "Commands forget a stale attacker": a target unit given with the command gets the same check
         // as the attacker, so one that is dying, dead, removed or not detected is dropped (static study only).
         let owner = u.owner;
-        let fresh = |t: Option<UnitId>| t.filter(|&t| !self.stale_target(owner, t));
+        let fresh = |t: Option<UnitId>| t.filter(|&t| !self.target_lost(owner, t));
         let order = match *c {
             Command::Move { to, .. } => Order::Move {
                 goal: shore(to),
@@ -423,9 +423,13 @@ impl World {
         }
     }
 
-    /// Whether a target is still good for an order aimed at it: valid and detected by the owner. Fog doesn't matter.
-    pub(crate) fn holds(&self, owner: u8, t: UnitId) -> bool {
-        self.unit(t).is_some_and(|t| t.present() && Self::detected(t, owner))
+    /// The lost-target test ("Arriving and losing the target"; "Terms"): a target unit is lost when it is dying, gone
+    /// (dead, removed, or a released slot), inside something, or no longer detected by `owner`. Fog doesn't matter.
+    /// One test for the walk's step-boundary drop (V240), the command check of "Commands forget a stale attacker"
+    /// (V185, V245) and the follow and attack orders aimed at a unit; the same check on a recorded attacker. The
+    /// harvest orders' own target checks differ (harvest spec).
+    pub(crate) fn target_lost(&self, owner: u8, t: UnitId) -> bool {
+        self.unit(t).is_none_or(|t| !t.present() || !Self::detected(t, owner))
     }
 
     /// "Arriving and losing the target": a pending order takes over now; otherwise 15 becomes 13 and the rest 2. The
@@ -452,7 +456,7 @@ impl World {
     fn attacker(&mut self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
         let a = u.attacked_by?;
-        if self.holds(u.owner, a) {
+        if !self.target_lost(u.owner, a) {
             return Some(a);
         }
         if self.unit(a).is_some_and(|a| !a.dying && a.inside) {
@@ -507,17 +511,10 @@ impl World {
         }
     }
 
-    /// Whether a unit named by a command is dying, dead, removed or not detected by `owner` ("Commands forget a stale
-    /// attacker"; the same check applies to a command's target unit).
+    /// Whether a recorded attacker is stale ("Commands forget a stale attacker"): dying, dead, removed or not detected
+    /// by `owner`. Unlike [`World::target_lost`], an attacker inside something isn't stale.
     pub(crate) fn stale(&self, owner: u8, t: UnitId) -> bool {
         self.unit(t).is_none_or(|t| t.dying || !Self::detected(t, owner))
-    }
-
-    /// The command check of a target unit given with a command: [`World::stale`], and round-63 errata ("Commands
-    /// forget a stale attacker"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374) a target inside something (a
-    /// mine, platform, depot, transport or another unit) fails it too.
-    pub(crate) fn stale_target(&self, owner: u8, t: UnitId) -> bool {
-        self.stale(owner, t) || self.unit(t).is_some_and(|t| t.inside)
     }
 
     /// Orders spec, "Order 12 with no route" step 3 (round-52 errata, `xorc8-10000` elven destroyer 1468, n = 7372):
@@ -526,7 +523,7 @@ impl World {
     pub(crate) fn out_of_reach(&self, i: usize) -> bool {
         let u = &self.units[i];
         let Order::Chase { target } = u.order else { return false };
-        if !self.holds(u.owner, target) {
+        if self.target_lost(u.owner, target) {
             return false;
         }
         let t = self.unit(target).expect("held");
@@ -545,7 +542,7 @@ impl World {
         // and its next logic run loses it as any other attacker does. That spec leaves this run open; in
         // `human01-basics` footman 1593 kills at n = 575 and its next run, at n = 591, gives order 2 with wait 3.
         let forgot = self.units[i].forgot.take() == Some(o);
-        let lost = target_of(o).is_some_and(|t| forgot || !self.holds(self.units[i].owner, t));
+        let lost = target_of(o).is_some_and(|t| forgot || self.target_lost(self.units[i].owner, t));
         // Round-40 errata: order 12 runs its target search first, and only if it finds nothing new is the target lost.
         // Round-42 errata: so do orders 15 and 16, so a dying target stays the target until then.
         let search_first = matches!(
@@ -561,7 +558,7 @@ impl World {
         let move_lost = matches!(
             o,
             Order::MoveAttack { target: Some(t), .. } | Order::Move { target: Some(t), .. }
-                if !self.holds(self.units[i].owner, t)
+                if self.target_lost(self.units[i].owner, t)
         );
         // Round-64 errata ("Follow (orders 6 and 7)"; static study only): order 6 whose target is found lost at a step
         // boundary isn't walking, so its reaction runs first; when the reaction's search picks a unit, the follow
@@ -3549,7 +3546,7 @@ mod tests {
             let (i, di) = (at(&w, f), at(&w, d));
             w.units[di].layer = Layer::Sea;
             w.units[di].detected_by &= !crate::vision::bit(owner);
-            assert!(!w.holds(owner, d), "not detected");
+            assert!(w.target_lost(owner, d), "not detected");
             w.units[i].attacked_by = Some(d);
             let mut r = w.rng;
             r.draw();
@@ -4164,7 +4161,7 @@ mod tests {
             (u.order, u.pending, u.recorded_target()),
             (Order::Idle, Some(Order::Idle), None)
         );
-        assert!(w.stale_target(0, g) && !w.stale(0, g));
+        assert!(w.target_lost(0, g) && !w.stale(0, g));
     }
 
     /// A footman following its own peasant, an enemy archer that hit it 4 tiles away, everyone seen.

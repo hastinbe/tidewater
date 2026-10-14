@@ -286,7 +286,7 @@ impl World {
             u.order = Order::Idle;
             u.path.clear();
             let (owner, target, dest) = (u.owner, u.ship.target, u.ship.dest);
-            let target = target.filter(|&t| self.holds(owner, t));
+            let target = target.filter(|&t| !self.target_lost(owner, t));
             let o = self.transport_command(i, target, dest, false);
             self.take_over(i, o);
             return;
@@ -301,13 +301,13 @@ impl World {
         u.blocked = 0;
         let owner = u.owner;
         if let Some(t) = u.ship.target
-            && !self.holds(owner, t)
+            && self.target_lost(owner, t)
         {
             self.units[i].ship.target = None;
             self.give(i, Order::Idle);
         }
         if let Some(a) = self.units[i].attacked_by
-            && !self.holds(owner, a)
+            && self.target_lost(owner, a)
         {
             self.units[i].attacked_by = None;
         }
@@ -395,8 +395,8 @@ impl World {
         // detected by the unit's owner is forgotten, and so is the recorded attacker if it is lost in the same way;
         // idle becomes the pending order and takes over in the same update. No reaction.
         let owner = self.units[i].owner;
-        let Some(ti) = self.index(transport).filter(|_| self.holds(owner, transport)) else {
-            if self.units[i].attacked_by.is_some_and(|a| !self.holds(owner, a)) {
+        let Some(ti) = self.index(transport).filter(|_| !self.target_lost(owner, transport)) else {
+            if self.units[i].attacked_by.is_some_and(|a| self.target_lost(owner, a)) {
                 self.units[i].attacked_by = None;
             }
             self.idle_now(i);

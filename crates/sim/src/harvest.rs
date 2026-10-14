@@ -334,7 +334,7 @@ impl World {
         if self.at_goal(i, g) {
             return self.return_in_reach(i, di);
         }
-        if !self.holds(owner, self.units[di].id) {
+        if self.target_lost(owner, self.units[di].id) {
             return self.return_target_lost(i);
         }
         if self.move_toward(i, g) == Walk::NoPath {
