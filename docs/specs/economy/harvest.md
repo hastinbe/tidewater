@@ -72,6 +72,12 @@
   the command check ("inside something" fails it: pending idle, no depot search); order 24's reaction runs only when
   its walk has ended (static study only); entering's target check is detection, not fog (static study only); the
   no-depot return is traced; round-63 vectors.
+  2026-10-13, round-64 errata: order 24 drops a target that is dying, gone, inside something or undetected at the next
+  step boundary and gives return goods to the nearest depot (traced for a target gone inside); with no route its own
+  logic doesn't run; a target already inside something on arrival is dropped by order 25's target check, which counts
+  "inside something" (static study only); a tanker in order 23 with no target walks to its goal and then gets a pending
+  idle; coming out, the harvest command goes to the return-to source whatever it has become, so a tanker whose platform
+  is gone comes out toward it in order 23 with no target; round-64 vectors.
 
 ## Behaviour
 
@@ -125,6 +131,11 @@ While in order 23 with a target mine or platform:
   completed (still under construction) makes idle the unit's **pending** order instead, taken over in the same update as
   above (wait 3), with the idle logic first running 3 cycles later (traced: `xhuman3-10000`, vectors below).
 
+**A tanker with no target.** A tanker in order 23 with **no** target (its command's target was cleared, "Starting to
+harvest", step 3) walks to the command's goal tile like any walking order. Its logic runs only when it gets there, and
+then finds no target: idle becomes the pending order, as for a target that is gone (still animation, wait 3; traced:
+`xhuman5-30000` n = 26447 to 26642, round-64 vectors).
+
 ### Entering a mine, platform or depot (order 25)
 
 Order 25 can't be interrupted by new orders (see `orders/orders.md`).
@@ -161,7 +172,8 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
        source's count ("Coming out", step 2), so such a building keeps frame 2. A building that stores nothing but has
        trips doesn't exist in the game's data (static study only).
 3. **Target check first.** Each time the logic runs, before steps 1 and 2, the target is dropped if it is **dying or
-   gone**, or no longer **detected** by the unit's player: the detection test of `orders/orders.md` ("Terms"); fog
+   gone**, **inside something** (a unit target in a mine, platform, depot or transport; static study only), or no
+   longer **detected** by the unit's player: the detection test of `orders/orders.md` ("Terms"); fog
    and explored tiles play no part (the detection part is static study only). A building in its
    death animation is already lost to an entering unit. Then, with no target: a unit that already stepped in (step 1
    done) **dies**, and its target shows as none; otherwise idle becomes the pending order (traced:
@@ -190,7 +202,11 @@ When the 150-cycle wait ends and the inside order's logic runs:
    finds none (traced: `orc9-orc09-enter-nothing-1900` n = 1517 and 1542, round-63 vectors, a peon coming out of a
    shore shipyard idle with no target although it is placed on land; which tile the search reads is static study).
 5. Otherwise, if it has a **return-to source**, it forgets it and heads back there with a harvest command (so a
-   worker that just delivered goes straight back to its mine or tree).
+   worker that just delivered goes straight back to its mine or tree). The harvest command is given whatever the
+   source has become: a tanker whose platform is gone gets order 23 with no target ("Starting to harvest", step 3),
+   aimed at the platform's top-left tile pulled back (step 6), and so comes out on that side (traced: `xhuman5-30000`
+   n = 26422, a computer tanker inside a shipyard whose platform collapsed meanwhile, round-64 vectors; a computer
+   player's unit whose AI gives an order in step 3 is static study only).
 6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search of
    `movement/placement.md` (limit 12). The search's source is placed at the building's top-left tile and sized as for a
    town hall (4 × 4) if the unit has the **hall-sized exit mark**, which this come-out then clears, and as for a gold
@@ -324,20 +340,28 @@ its oil there (as in the delivery table) is static study only.
 
 While in order 24:
 
-- While the unit is walking, only the walk runs; the order's logic runs when the walk has ended: on arrival, with no
-  route, or when the target is found dying or gone at a step boundary (`orders/orders.md`, "The reaction"). Each time the logic runs, it first runs the reaction to an attacker: a worker hit by a worker fights
-  back (command 8) instead of entering; order 24 isn't one of the orders that flee, so any other valid attacker is
-  kept; an attacker that is no longer valid, or any attacker of a tanker, is forgotten (static study only: no trace
-  has an attacker on a returning unit). Then, if the target is **dying or gone**, or busy (for example inside
-  something), the unit looks up the nearest depot ("Finding the nearest depot") and is given return goods to it **as a
-  pending order** that takes over in the same update: still animation, wait **3**, cached route dropped, the new
-  route starting from where it stands. If no depot is found, idle becomes the pending order (traced for a dying
-  depot: `orc9-orc09-enter-dying-1800` n = 1435, round-62 vectors; with no depot left, a dying great hall:
-  `orc9-orc09-return-nodepot-2200` n = 1530, round-63 vectors; the busy case is static study only).
+- While the unit is walking, only the walk runs; the order's logic runs when the walk has ended: on arrival, or when,
+  at a step boundary, the target is found dying or gone, inside something, or no longer detected by the unit's player
+  (`orders/orders.md`, "The reaction"). The step-boundary test doesn't wait for arrival: a target that goes inside
+  something while the unit walks is dropped at the unit's next step boundary. A route search that finds no route
+  doesn't run the order's logic (next bullet). Each time the logic runs, it first runs the reaction to an attacker: a
+  worker hit by a worker fights back (command 8) instead of entering; order 24 isn't one of the orders that flee, so
+  any other valid attacker is kept; an attacker that is no longer valid, or any attacker of a tanker, is forgotten
+  (static study only: no trace has an attacker on a returning unit). Then, if the target was dropped at a step
+  boundary or is **dying or gone**, the unit looks up the nearest depot ("Finding the nearest depot") and is given
+  return goods to it **as a pending order** that takes over in the same update: still animation, wait **3**, cached
+  route dropped, the new route starting from where it stands. If no depot is found, idle becomes the pending order
+  (traced for a dying depot: `orc9-orc09-enter-dying-1800` n = 1435, round-62 vectors; with no depot left, a dying
+  great hall: `orc9-orc09-return-nodepot-2200` n = 1530, round-63 vectors; a target that went inside something while
+  the unit walked: `orc9-orc09-return-inside-1200` n = 558, round-64 vectors; the "no longer detected" part is static
+  study only).
 - If its route search finds no route, it becomes idle as an **immediate** order and its idle logic runs in the same
   update (`orders/orders.md`, "No route"). For a computer player's worker or tanker that is the job choice, whose new
   command takes over at once (wait 3).
-- On arrival (radius 1): if the depot is completed, the order becomes 25 (enter); otherwise 2.
+- On arrival (radius 1): if the depot is completed, the order becomes 25 (enter); otherwise 2. The step-boundary test
+  isn't made on arrival, and "inside something" isn't one of the states that send the unit to another depot, so a
+  target that is inside something when the unit arrives isn't caught by order 24: the unit starts order 25, whose
+  target check drops it ("Entering", step 3), and idle becomes the pending order (static study only).
 
 ### Finding the nearest depot
 
@@ -589,6 +613,16 @@ gold, storage for wood, storage for oil, building.
 | Same trace: great hall 1488 starts dying at n = 1522 while peon 1478 is returning gold to it (order 24 since n = 1417); no other depot | n = 1530: 1478 idle (order 2), target none |
 | A worker hit by an enemy peon as it reaches its depot in order 24 (static study) | It fights back (command 8) instead of entering |
 | A human player's worker in order 24 hit by an enemy archer while walking to its depot (static study) | No reaction while walking; on arrival the reaction runs, and it doesn't flee (order 24 isn't one of the flee rule's orders, `orders/orders.md`, "Fleeing") |
+
+### Round-64 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-return-inside-1200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-return-inside.txt`), n = 526 (the turn record of the input at n = 524): peon 1482 (type 0x03, owner 5), carrying gold and in order 24 to great hall 1488, told to return goods to peon 1478, which is walking to gold mine 1480 (type 0x5C) | Target 1478 in that turn record; the pending order 24 takes over at n = 533 (still animation, wait 3); 1482 is at tile (47, 89) from n = 536 |
+| Same trace: 1478 goes into the mine at n = 537 (order 26) while 1482 walks toward it | n = 558, 1482's next step boundary, at (47, 89): target great hall 1488 (type 0x4B), still animation, wait 3, frame 0. It walks back (order 25 from n = 693) and goes inside the hall at n = 718. It doesn't walk on toward 1478 |
+| A peon in order 24 whose target unit is already inside a mine when the peon arrives within reach (static study) | Order 25 starts; at its first run the target check drops the target; idle becomes the pending order |
+| A worker in order 24 with an attacker whose route search finds no route (static study) | Idle as an immediate order; the idle logic runs, not order 24's reaction |
+| `xhuman5-30000` (oracle trace, Enhanced, no input): computer tanker 1542 (type 0x1B, owner 7) is inside orc shipyard 1541 (type 0x49, top-left (100, 100)); its return-to source, oil platform 1554 (type 0x57, top-left (101, 85)), collapses at n = 26347 when tanker 1495 takes its last trip (ruin type 0x6C from then) | n = 26422: out at (104, 98), facing 0, order 2, target none, wait 25 (it comes out toward the platform, not on the far side of the shipyard). n = 26447: order 23 with no target takes over (wait 3); it walks north to (100, 86) by n = 26610. n = 26642: order 2, still animation, wait 3 (the pending idle) |
 
 ## Open questions
 
