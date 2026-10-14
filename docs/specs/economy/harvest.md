@@ -78,6 +78,11 @@
   "inside something" (static study only); a tanker in order 23 with no target walks to its goal and then gets a pending
   idle; coming out, the harvest command goes to the return-to source whatever it has become, so a tanker whose platform
   is gone comes out toward it in order 23 with no target; round-64 vectors.
+  2026-10-13, round-65 errata: coming out makes idle an **immediate** order, not a pending one (corrects round 63):
+  only step 4's no-depot case makes idle pending, and a unit given no command that isn't carrying and has no return-to
+  source has nothing pending, so the idle logic runs when the 25-cycle wait ends (wait 1, no take-over); a computer
+  player's AI order at a come-out is traced; a tanker in order 23 with no target and no route follows the generic
+  no-route rule with no reaction (static study only); round-65 vectors.
 
 ## Behaviour
 
@@ -134,7 +139,10 @@ While in order 23 with a target mine or platform:
 **A tanker with no target.** A tanker in order 23 with **no** target (its command's target was cleared, "Starting to
 harvest", step 3) walks to the command's goal tile like any walking order. Its logic runs only when it gets there, and
 then finds no target: idle becomes the pending order, as for a target that is gone (still animation, wait 3; traced:
-`xhuman5-30000` n = 26447 to 26642, round-64 vectors).
+`xhuman5-30000` n = 26447 to 26642, round-64 vectors). If its walk finds **no route**, the generic no-route rule
+applies (`orders/orders.md`, "No route"): idle as an immediate order (wait 1) and the idle logic in the same update,
+which for a computer player's tanker is the job choice (`ai/worker-ai.md`, "Tankers"). Order 23's own logic doesn't run,
+so its reaction doesn't either, even with an attacker recorded (static study only).
 
 ### Entering a mine, platform or depot (order 25)
 
@@ -184,8 +192,8 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
 
 When the 150-cycle wait ends and the inside order's logic runs:
 
-1. The unit becomes idle (order 2) at once, idle is also made its **pending** order, and its goal is set to its own
-   stored tile.
+1. The unit becomes idle (order 2) at once, as an immediate order (any pending order is cleared), and its goal is
+   set to its own stored tile.
 2. If it is carrying, its return-to source exists, and that source is a gold mine or oil platform (whatever building or
    unit it is coming out of), the source's occupant count goes down by 1: if the count is 0 it counts as 1, and when it
    reaches 0 the source's frame becomes 0 (the "active" look ends). Both frame changes happen at the moment of going
@@ -205,8 +213,9 @@ When the 150-cycle wait ends and the inside order's logic runs:
    worker that just delivered goes straight back to its mine or tree). The harvest command is given whatever the
    source has become: a tanker whose platform is gone gets order 23 with no target ("Starting to harvest", step 3),
    aimed at the platform's top-left tile pulled back (step 6), and so comes out on that side (traced: `xhuman5-30000`
-   n = 26422, a computer tanker inside a shipyard whose platform collapsed meanwhile, round-64 vectors; a computer
-   player's unit whose AI gives an order in step 3 is static study only).
+   n = 26422, a computer tanker inside a shipyard whose platform collapsed meanwhile, round-64 vectors). A computer
+   player's unit whose AI gives an order in step 3 is traced for a build job: `xorc4-30000` n = 27870, round-65
+   vectors.
 6. Its wait is set to **25 cycles**, and it is placed on a free tile next to the building, found by the ring search of
    `movement/placement.md` (limit 12). The search's source is placed at the building's top-left tile and sized as for a
    town hall (4 × 4) if the unit has the **hall-sized exit mark**, which this come-out then clears, and as for a gold
@@ -237,11 +246,13 @@ When the 150-cycle wait ends and the inside order's logic runs:
    tile. Every other come-out faces the target as before (a building at its top-left tile plus (1, 1), a
    tree at its own tile).
 
-The order given in steps 3 to 5 (the AI's, or the return or harvest command) replaces the pending idle of step 1. It
-takes over when the 25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update.
-With no new command the pending idle takes over the same way: still animation, wait 3, and the idle logic first runs
-3 cycles later (traced: `orc9-orc09-enter-nothing-1900` n = 1542, round-63 vectors). A computer player's unit whose AI
-gives no order in step 3 is static study only.
+The order given in steps 3 to 5 (the AI's, or the return or harvest command) is made pending. It takes over when the
+25-cycle wait ends, with a wait of 3 (`orders/orders.md`, "Taking over"), not in the same update (traced for an AI
+build job: `xorc4-30000` n = 27895, round-65 vectors). Step 4's pending idle (carrying, no depot) takes over the same
+way: still animation, wait 3, and the idle logic first runs 3 cycles later (traced: `orc9-orc09-enter-nothing-1900`
+n = 1542, round-63 vectors). A unit with no new command and no pending idle (it isn't carrying and has no return-to
+source; for a computer player's unit, its AI gave it nothing) has **nothing pending**: when the wait ends, the idle
+logic runs (wait 1), with no take-over and no wait of 3 (traced: `xhuman5-30000` n = 26811, round-65 vectors).
 
 ### Lumber
 
@@ -623,6 +634,14 @@ gold, storage for wood, storage for oil, building.
 | A peon in order 24 whose target unit is already inside a mine when the peon arrives within reach (static study) | Order 25 starts; at its first run the target check drops the target; idle becomes the pending order |
 | A worker in order 24 with an attacker whose route search finds no route (static study) | Idle as an immediate order; the idle logic runs, not order 24's reaction |
 | `xhuman5-30000` (oracle trace, Enhanced, no input): computer tanker 1542 (type 0x1B, owner 7) is inside orc shipyard 1541 (type 0x49, top-left (100, 100)); its return-to source, oil platform 1554 (type 0x57, top-left (101, 85)), collapses at n = 26347 when tanker 1495 takes its last trip (ruin type 0x6C from then) | n = 26422: out at (104, 98), facing 0, order 2, target none, wait 25 (it comes out toward the platform, not on the far side of the shipyard). n = 26447: order 23 with no target takes over (wait 3); it walks north to (100, 86) by n = 26610. n = 26642: order 2, still animation, wait 3 (the pending idle) |
+
+### Round-65 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman5-30000` (oracle trace, Enhanced, no input): computer tanker 1495 (type 0x1B, owner 7) takes the last oil of orc oil well 1554 (type 0x57; a ruin, type 0x6C, from n = 26347), delivers it at orc shipyard 1541 (type 0x49; inside, order 26, wait 150, from n = 26636) and comes out at n = 26786 at (98, 104): order 2, target none, wait 25. It isn't carrying, has no return-to source and gets no command | n = 26810: wait 1; n = 26811: order 2, wait **1** (the idle logic runs; no pending idle takes over), then wait 4 at n = 26812, 3, 2, 1, 1, 4, … |
+| `xorc4-30000` (oracle trace, Enhanced, no input), n = 27870: computer peasant 1478 (type 0x02, owner 3) comes out of keep 1512 (type 0x58) at (27, 92): order 2, target none, wait 25; its AI gives it a town hall build job (`ai/worker-ai.md`, round-65 vectors) | n = 27895: order 28 takes over (still animation, wait 3) when the 25-cycle wait ends |
+| A computer player's tanker in order 23 with no target, an attacker recorded, whose route search finds no route (static study) | Idle as an immediate order (wait 1) and the job choice in the same update; no reaction, no flee |
 
 ## Open questions
 
