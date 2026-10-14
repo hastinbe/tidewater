@@ -32,7 +32,15 @@
 //! orc9-orc09-smart-target-2100 (land smart moves onto buildings, and one whose farm dies mid-walk),
 //! orc9-orc09-flee-walk-1200 and orc9-orc09-flee-chop-walk-900 (a lumber peon hit while walking flees only when its
 //! walk ends), orc9-orc09-return-nodepot-2200 (return goods into a peon, then to one inside a mine, and with no depot
-//! left) and orc9-orc09-patrol-countdown-1500 (patrols resumed at countdown 0) match in full.
+//! left), orc9-orc09-patrol-countdown-1500 (patrols resumed at countdown 0), orc9-orc09-return-inside-1200 (return
+//! goods to a peon that goes into a mine mid-walk), orc12-orc12-board-attacked-1000 (an attacked ogre boards its
+//! transport without turning on its attacker) and orc9-orc09-follow-attacked-1200 (an attacked follower follows the
+//! archer its reaction picked) match in full.
+//!
+//! Round 64: xorc6-30000 (the game ends at n 11257) and xorc5-18500 match in full. xhuman5-30000 matches to n 26760
+//! (its tanker coming out toward a collapsed platform at n 26422 included); at n 26761 computer grunt 1480 in order 34
+//! toward landing transport 1520 gets order 4 (still animation, wait 3) where we step west, the open question on a
+//! computer unit's boarding walk at a landing transport (transports spec).
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
@@ -43,7 +51,7 @@
 //! mp-gold-rush-bne-6000, mp-gold-rush-bne-25000, mp-great-white-north-bne-6000, mp-big-rock-candy-mountain-bne-6000,
 //! mp-big-rock-candy-mountain-bne-25000, mp-big-rock-candy-mountain-bne-40000, mp-schwartzwald-bne-6000,
 //! mp-schwartzwald-bne-25000, mp-rose-petal-bne-10000, mp-rose-petal-bne-25000, mp-isolation-bne-30000,
-//! mp-frosty-fjords-bne-30000, mp-kaboom-bne-40000 and mp-kaboom-bne-70000 (Enhanced; its capture ends at n 67739, when
+//! mp-frosty-fjords-bne-30000, mp-frosty-fjords-bne-50000, mp-kaboom-bne-40000 and mp-kaboom-bne-70000 (Enhanced; its capture ends at n 67739, when
 //! the game ended), and mp-dark-paths-bne-classic-1000,
 //! mp-gold-rush-bne-classic-8000 and mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
 
@@ -261,4 +269,11 @@ traces! {
     orc9_orc09_return_nodepot_2200: ("orc9-orc09-return-nodepot-2200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_patrol_countdown_1500: ("orc9-orc09-patrol-countdown-1500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     mp_kaboom_bne_70000: (mp, "mp-kaboom-bne-70000.jsonl.gz", &[], None),
+    orc9_orc09_return_inside_1200: ("orc9-orc09-return-inside-1200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc12_orc12_board_attacked_1000: ("orc12-orc12-board-attacked-1000.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
+    orc9_orc09_follow_attacked_1200: ("orc9-orc09-follow-attacked-1200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    xorc6_30000: ("xorc6-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc06.pud", 39, &[], None),
+    xorc5_18500: ("xorc5-18500.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
+    xhuman5_30000: ("xhuman5-30000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], Some(26760)),
+    mp_frosty_fjords_bne_50000: (mp, "mp-frosty-fjords-bne-50000.jsonl.gz", &[], None),
 }
