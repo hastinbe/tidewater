@@ -391,11 +391,15 @@ impl World {
     }
 
     fn board(&mut self, i: usize, transport: UnitId) {
-        let Some(ti) = self.index(transport).filter(|&ti| self.units[ti].present()) else {
-            // Not walking: the reaction runs first, as before.
-            if !self.react_at_walk_end(i) {
-                self.stop(i);
+        // Step 1 (round-64 errata, static study only): a transport that is dying or gone, inside something or no longer
+        // detected by the unit's owner is forgotten, and so is the recorded attacker if it is lost in the same way;
+        // idle becomes the pending order and takes over in the same update. No reaction.
+        let owner = self.units[i].owner;
+        let Some(ti) = self.index(transport).filter(|_| self.holds(owner, transport)) else {
+            if self.units[i].attacked_by.is_some_and(|a| !self.holds(owner, a)) {
+                self.units[i].attacked_by = None;
             }
+            self.idle_now(i);
             return;
         };
         let walk = self.board_walk(i, ti);
@@ -417,13 +421,11 @@ impl World {
         let dest_here = self.region_at(t.ship.dest) == here;
         let human = self.human_controlled(u.owner);
         let computer = self.computer_player(u.owner);
-        // Round-63 errata (orders spec, "Walking orders react only when the walk has ended"; static study only for
-        // order 34): the reaction runs only on arrival or with no route, never while walking.
-        let walked = self.move_toward(i, walk);
-        if matches!(walked, Walk::Arrived | Walk::NoPath) && self.react_at_walk_end(i) {
-            return;
-        }
-        match walked {
+        // Round-64 errata (orders spec, "Walking orders react only when the walk has ended"; transports spec, "Order
+        // 34 (board)"): order 34 runs the reaction only when it has reached its transport, can't board and keeps
+        // waiting (step 5). A move toward the transport, no route and boarding make no reaction, so a unit with an
+        // attacker recorded boards and doesn't turn on it (`orc12-orc12-board-attacked-1000` ogre 1439, n = 661).
+        match self.move_toward(i, walk) {
             Walk::Arrived => {}
             Walk::NoPath if dest_here => {
                 let o = if human {
@@ -488,12 +490,19 @@ impl World {
                 self.take_over(i, o);
             }
         } else if dest_here {
+            // Step 5 (round-64 errata, static study only): the reaction to an attacker runs, and with no new order the
+            // unit keeps waiting.
+            self.units[i].path.clear();
+            if self.react_at_walk_end(i) {
+                return;
+            }
             if self.units[i].script.anim != anim::STILL {
                 self.switch_anim(i, anim::STILL);
             }
-            self.units[i].path.clear();
         } else {
-            self.stop(i);
+            // Step 5 (round-64 errata, static study only): giving up makes idle the pending order, taken over in the
+            // same update (still animation, wait 3).
+            self.idle_now(i);
         }
     }
 
@@ -1135,9 +1144,97 @@ mod tests {
         let f = w.spawn(FOOTMAN, 0, (19, 10), 0).unwrap();
         let fi = w.index(f).unwrap();
         w.units[fi].order = Order::Board { transport: tid };
-        // The destination is in the sea region, not the unit's: it gives up.
+        // The destination is in the sea region, not the unit's: it gives up. Round-64 errata: idle becomes the pending
+        // order, taken over in the same update (still animation, wait 3).
         w.board(fi, tid);
-        assert_eq!(w.units[fi].order, Order::Idle);
+        let u = &w.units[fi];
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+    }
+
+    /// Round-64 vectors (`orc12-orc12-board-attacked-1000` ogre 1439, n = 661): a unit with an attacker recorded that
+    /// reaches its docked transport boards it and doesn't turn on its attacker.
+    #[test]
+    fn a_boarder_with_an_attacker_boards_without_reacting() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (20, 10), Order::Docked);
+        let tid = w.units[t].id;
+        let f = w.spawn(FOOTMAN, 0, (19, 10), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (18, 10), 0).unwrap();
+        let gi = w.index(g).unwrap();
+        w.units[gi].hidden_from = 0;
+        let fi = w.index(f).unwrap();
+        w.units[fi].order = Order::Board { transport: tid };
+        w.units[fi].attacked_by = Some(g);
+        w.start_anim(fi, anim::MOVE);
+        let rng = w.rng;
+        w.board(fi, tid);
+        let u = &w.units[fi];
+        assert_eq!(
+            (u.order, u.attacked_by, u.inside),
+            (Order::Aboard { transport: tid }, None, true)
+        );
+        assert_eq!(w.rng, rng);
+    }
+
+    /// Round-64 vectors (static study): a unit in order 34 that has reached its transport, which isn't docked, with
+    /// the transport's destination in its region, runs the reaction: a combat unit whose search picks a target attacks
+    /// it (order 12). With no attacker it keeps waiting in order 34.
+    #[test]
+    fn a_waiting_boarder_runs_the_reaction() {
+        for attacked in [true, false] {
+            let mut w = sea(20);
+            let t = ship(&mut w, (20, 10), Order::Idle);
+            w.units[t].ship.dest = (18, 12);
+            let tid = w.units[t].id;
+            let f = w.spawn(FOOTMAN, 0, (19, 10), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (17, 10), 0).unwrap();
+            let gi = w.index(g).unwrap();
+            w.units[gi].hidden_from = 0;
+            let fi = w.index(f).unwrap();
+            w.units[fi].order = Order::Board { transport: tid };
+            w.units[fi].attacked_by = attacked.then_some(g);
+            w.board(fi, tid);
+            let u = &w.units[fi];
+            if attacked {
+                assert_eq!(u.order, Order::Chase { target: g });
+            } else {
+                assert_eq!((u.order, u.script.anim), (Order::Board { transport: tid }, anim::STILL));
+            }
+        }
+    }
+
+    /// Round-64 vectors (static study): a unit in order 34 whose transport dies while it walks forgets the transport
+    /// at its next step boundary and idle becomes the pending order, taken over in the same update; no reaction. An
+    /// attacker lost in the same way is forgotten too; a valid one is kept.
+    #[test]
+    fn a_lost_transport_makes_idle_pending_with_no_reaction() {
+        for attacker_dies in [false, true] {
+            let mut w = sea(20);
+            let t = ship(&mut w, (20, 10), Order::Docked);
+            let tid = w.units[t].id;
+            let f = w.spawn(FOOTMAN, 0, (10, 10), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (9, 10), 0).unwrap();
+            let gi = w.index(g).unwrap();
+            w.units[gi].hidden_from = 0;
+            if attacker_dies {
+                w.kill(gi);
+            }
+            let fi = w.index(f).unwrap();
+            w.units[fi].order = Order::Board { transport: tid };
+            w.units[fi].attacked_by = Some(g);
+            w.start_anim(fi, anim::MOVE);
+            let ti = w.index(tid).unwrap();
+            w.kill(ti);
+            let fi = w.index(f).unwrap();
+            let rng = w.rng;
+            w.board(fi, tid);
+            let u = &w.units[fi];
+            assert_eq!((u.order, u.pending, u.tile), (Order::Idle, None, (10, 10)));
+            assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+            assert_eq!(u.attacked_by, (!attacker_dies).then_some(g));
+            assert_eq!(w.rng, rng, "no reaction");
+        }
     }
 
     #[test]
