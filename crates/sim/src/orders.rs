@@ -860,12 +860,10 @@ impl World {
             if follow {
                 // Step 2 after the reaction picked a unit out of reach: the follow is given again toward it and
                 // takes over in the same update (order 6, still animation, wait 3; `orc9-orc09-follow-attacked-1200`
-                // grunt 1481, n = 493).
-                // Kept special case: the command steps without the command's target check, since the picked unit
-                // can be a worker's undetected attacker (the fight-back of "Fleeing" has no detection test), which the
-                // check would drop.
-                self.command_steps(i);
-                self.take_over(i, Order::Follow { target });
+                // grunt 1481, n = 493). It is a command with the target check ("What every command does"; round 68,
+                // code Q6), so a picked unit that fails the check (a worker's undetected attacker, say) leaves the
+                // pending idle instead, taken over the same way.
+                self.command_at_once(i, Order::Follow { target });
             } else {
                 // "No route" (V262): guard has no special case.
                 self.walk(i, g);
@@ -4465,8 +4463,9 @@ mod tests {
 
         /// "Follow (orders 6 and 7)": a follower whose target is lost at a step boundary runs its reaction first; the
         /// unit its reaction picks becomes the followed one. Cases: a combat attacker (the reaction's search gives
-        /// order 12), a worker hit by a worker (the fight-back gives order 9 pending), and that worker undetected
-        /// (the follow re-give keeps a target the command check would drop: a question for the spec).
+        /// order 12), a worker hit by a worker (the fight-back gives order 9 pending), and that worker undetected: the
+        /// follow re-give is a command with the target check ("What every command does"), which drops it, so the
+        /// pending idle takes over in the same update.
         #[test]
         fn a_follower_losing_its_target_follows_what_its_reaction_picks() {
             let mut prints = vec![];
@@ -4487,12 +4486,17 @@ mod tests {
                 w.units[i].path = vec![(6, 5)];
                 assert!(w.run_order(i));
                 let u = &w.units[i];
-                assert_eq!(u.order, Order::Follow { target: a }, "{case}");
+                let want = if case == "undetected worker" {
+                    Order::Idle
+                } else {
+                    Order::Follow { target: a }
+                };
+                assert_eq!((u.order, u.script.wait), (want, 3), "{case}");
                 prints.push(w.fingerprint());
             }
             assert_eq!(
                 prints,
-                [18252891849351941898, 11371108981017510944, 9285152338254574234]
+                [18252891849351941898, 11371108981017510944, 13359176338789130902]
             );
         }
 
