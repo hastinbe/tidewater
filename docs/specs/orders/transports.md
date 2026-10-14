@@ -37,6 +37,10 @@
   size.
   2026-10-13, round-56 answers: the boarding unit's smart move sets order 34 again and it takes over in the same update,
   with no visible effect (static).
+  2026-10-13, round-64 errata: order 34 runs the attacker reaction only when it has reached its transport, can't board
+  and keeps waiting; a lost transport, a move toward it and boarding make no reaction (traced for boarding); a lost
+  transport and giving up make idle the pending order (static study only); `orc12-orc12-board-attacked-1000` vector;
+  open question on `xhuman5-30000` n = 26761.
 
 ## Behaviour
 
@@ -207,6 +211,8 @@ each side (`movement/pathfinding.md`, "Step 1"), not the 3 × 3 tiles around the
 vectors below). The order's logic (the steps below) runs when the walk ends:
 
 - on **arrival**, the steps below run;
+- when the transport is found lost at a step boundary (the walk's own target test), step 1 below runs (static study
+  only);
 - with **no route**, the unit restarts order 34 at once if the transport's destination tile is in its region, and
   becomes idle at once otherwise (`orders/orders.md`, "No route", the boarding case). For a human player's unit the
   restart also tells the transport to come again, as the boarding command does, unless it is landing: a docked transport
@@ -216,13 +222,15 @@ vectors below). The order's logic (the steps below) runs when the walk ends:
   within reach of the transport gets command 4 on it at step 3, which takes over at once: order 4, still animation, wait
   3, target the transport (traced: `human13-10000`, vectors below).
 
-Each time the order's logic runs:
+Each time the order's logic runs (order 34's logic doesn't start with the attacker reaction; only step 5 runs it):
 
-1. If the transport is no longer a valid target, the unit becomes idle.
+1. **Transport lost:** if the transport is dying or gone, inside something or no longer detected by the unit's owner,
+   the target is forgotten, and so is the recorded attacker if it is lost in the same way, and idle becomes the
+   **pending** order. No reaction (static study only).
 2. **Goal:** the transport's tile if the transport stands in the unit's region; otherwise the transport's own
    destination tile (where it is heading). The arrival radius is 1 (`orders/orders.md`).
-3. **Not arrived:** the unit is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"). This step is
-   reached after a no-route restart (above):
+3. **Not arrived:** the unit is given a move aimed at the transport (`orders/orders.md`, "Boarding moves"), with no
+   reaction (static study only). This step is reached after a no-route restart (above):
    - a **computer player's** unit gets command 4 (move and attack on the way) and **leaves order 34**. A unit standing
      still, as after the restart, takes order 4 at once (still animation, wait 3, target the transport; traced:
      `human13-10000`); a walking one at its next step boundary. It boards only if it is given the boarding command
@@ -244,7 +252,9 @@ Each time the order's logic runs:
      names this unit (`movement/occupancy.md`);
    - its tile position and pixel position become the transport's. It is **not** entered on that tile: it sets no
      mark and no pointer anywhere while aboard;
-   - it records the transport as its container, forgets its attacker, and gets order **36** at once.
+   - it records the transport as its container, forgets its attacker, and gets order **36** at once. No reaction runs
+     first, so a unit with an attacker recorded boards and doesn't turn on it (traced:
+     `orc12-orc12-board-attacked-1000` n = 661, round-64 vectors).
 5. **Arrived, but can't board:**
    - a **computer player's** unit whose transport is landing (order 30) with the transport's tile in the same region as
      the unit's tile walks to a random nearby tile. Two draws of the game's generator (`core/timing-and-rng.md`), x
@@ -252,8 +262,10 @@ Each time the order's logic runs:
      0 to map size − 1 (the game keeps one size for both axes; maps are square). The unit gets a move command there with
      no target unit, which takes over in the same update (order 3, still animation, wait 3, target null; traced:
      `orc14-10000`, vectors below). This test comes before the next one;
-   - otherwise, if the transport's destination tile is in the unit's region, the unit keeps waiting in order 34;
-   - otherwise it gives up and becomes idle.
+   - otherwise, if the transport's destination tile is in the unit's region, the unit runs the **reaction to an
+     attacker** (`orders/orders.md`, "Reacting to an attacker") and, if that gives it no new order, keeps waiting in
+     order 34 (static study only);
+   - otherwise it gives up: idle becomes the **pending** order (static study only).
 
 ### Passengers and the transport's death
 
@@ -287,7 +299,7 @@ Each time the order's logic runs:
 | Transport docked on shore water at S, smart move to a land tile G of the same region, with no open water between | Order 32; target tile becomes S; no movement |
 | Land unit, smart move on its own side's docked transport with 6 passengers | Order 34; on arrival it can't board (no empty slot); if the transport's destination is in its region it keeps waiting, else it becomes idle |
 | Land unit (human player) in order 34 at (24, 21), in region L. Its transport is docked (order 32) at (20, 20), whose tile is in another region W, with a free slot; the transport's destination tile is (23, 20), in region L (for example left by a landing command whose route failed on the shore) | Goal: the destination (23, 20), because the transport isn't in the unit's region. The unit is within 1 tile of it, so it has arrived, but it is 4 tiles from the transport on x, so it doesn't board. The transport isn't landing and its destination is in the unit's region, so the unit keeps waiting in order 34, without moving, at every run until something changes |
-| Same, but the destination tile (23, 20) is in a third region | The unit gives up: order 2 |
+| Same, but the destination tile (23, 20) is in a third region | The unit gives up: idle becomes the pending order (order 2, still animation, wait 3 when it takes over; static study) |
 | Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing, and its logic runs (static study only) | Gets a smart move again: stays in order 34, and the transport is told to come |
 | `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5) after a no-route step: order 34 restarted, animation 2, wait 3; n = 17254: order 36 (aboard) |
 | `human12-7000` (oracle trace), n = 6371: computer grunt 1407 (owner 0) walking to transport 1522 | Order 34, animation 3, tile (84, 16) |
@@ -311,7 +323,24 @@ Each time the order's logic runs:
 | Same cycle, with each passenger's idle logic run at the unload (wrong) | 9 draws; the critter gets 25617, a wander. Differs from the trace |
 | `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8, goal (72, 29) | n = 11 (4 and 5 tiles away): ordinary two-tile step north-east to (70, 32), animation 3. n = 43 (within 3 tiles): animation 6, the landing logic steps one tile north-east to (71, 31); n = 59 (72, 30); n = 75 (72, 29) |
 
+### Round-64 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc12-orc12-board-attacked-1000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-board-attacked.txt`), n = 602 (turn record of the input at n = 600): ogre 1439 (type 0x07, owner 0, the human player), fighting player 3's ogre 1442 (type 0x07, order 12 on 1439), is smart-moved onto its own transport 1434 (type 0x1D), docked (order 32) at (28, 120). 1442 hits it again at n = 608 (hp 38) | Order 34 from n = 622; it walks (31, 119), (30, 119), (29, 119) with 1442 following and still targeting it. n = 661, at its step boundary next to the transport: aboard (order 36, target 1434, at (28, 120), still animation); no attack on 1442. n = 662: 1442 targets the transport |
+| A unit in order 34 with a valid attacker reaches its transport, which isn't docked; the transport's destination is in the unit's region (static study) | The reaction runs: a combat unit whose search picks a target attacks it (order 12); a worker hit by a worker fights back; any other non-combat unit doesn't flee (order 34 isn't one of the flee rule's orders, `orders/orders.md`, "Fleeing") and keeps its attacker. With no new order it keeps waiting in order 34 |
+| A unit in order 34 with an attacker whose transport dies while it walks (static study) | At its next step boundary the target is forgotten and idle becomes the pending order; no reaction |
+
 ## Open questions
+
+- **A computer unit's boarding walk at a landing transport** (`xhuman5-30000` n = 26761, Enhanced). Computer grunt
+  1480 (type 0x01, owner 7) is in order 34 toward transport 1520 (type 0x1D), which switches between orders 30 and 2
+  while landing near (96, 98) to (96, 100). The grunt stands at (102, 108) until its wait ends, then has order 4,
+  still animation, wait 3, target 1520; Tidewater steps west to (101, 108) instead. That outcome is the one the
+  no-route restart gives a computer unit ("Order 34 (board)", traced: `human13-10000` n = 9154), which would mean its
+  route search found no route and the transport's destination is in its region; neither the route search's result nor
+  the destination is in the trace, so which rule applies there is open. A break on the walk's no-route path, logging
+  the transport's destination and region, would settle it.
 
 - **No-route restart by a computer player's unit.** A human player's restart tells the transport to come again
   (`human12-transport`). For computer players' units the traces are mixed: in `human12-7000` the restart of grunt 1407
