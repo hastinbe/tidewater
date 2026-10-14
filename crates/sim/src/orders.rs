@@ -1252,10 +1252,9 @@ impl World {
             u.order,
             Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
         );
-        // PROVISIONAL (orders spec, round-64 errata, "Automatic target acquisition", the cooling-down case; resting on
-        // the uncommitted capture `xorc5-30000` ogre 1450, n = 20526): a unit in order 16 still cooling down whose
-        // search gives order 12 keeps order 16 on the new target, waiting for the cooldown left; there is no take-over
-        // with wait 3. To revert if a re-capture disagrees, delete `keeps_16` and use `same_order` alone below.
+        // Round-64 errata, "Automatic target acquisition", the cooling-down case (traced in round 66:
+        // `orc9-orc09-order16-keep-2000` grunt 1492, n = 937): a unit in order 16 still cooling down whose search gives
+        // order 12 keeps order 16 on the new target, waiting for the cooldown left; there is no take-over with wait 3.
         let keeps_16 = matches!((u.order, o), (Order::IdleReact { .. }, Order::Chase { .. })) && self.still_cooling(u);
         let o = if keeps_16 { Order::IdleReact { target: best } } else { o };
         let same_order = same_order || keeps_16;
@@ -4328,7 +4327,7 @@ mod tests {
         assert_eq!(u.script, once.units[i].script);
     }
 
-    /// Round-64 vector, provisional (`xorc5-30000` ogre 1450, n = 20526, an uncommitted capture): a unit in order 16
+    /// Round-64 vector, traced in round 66 (`orc9-orc09-order16-keep-2000` grunt 1492, n = 937): a unit in order 16
     /// still cooling down whose search, with an attacker, gives order 12 on another target keeps order 16 on it,
     /// waiting for the cooldown left; with no cooldown left order 12 takes over with wait 3.
     #[test]
