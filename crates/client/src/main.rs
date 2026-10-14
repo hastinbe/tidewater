@@ -21,8 +21,10 @@
 mod campaign;
 mod chat;
 mod cheats;
+mod compose;
 mod display;
 mod fog;
+mod frame;
 mod frontend;
 mod gamemenu;
 mod hud;
@@ -44,6 +46,7 @@ mod saves;
 mod scene;
 mod screen;
 mod screenshot;
+mod script;
 mod sound;
 mod video;
 mod view;
@@ -144,6 +147,18 @@ struct Args {
     /// the `--save-dir` folder if one is given, else in Tidewater's own user data directory.
     #[arg(long)]
     settings: Option<PathBuf>,
+    /// Development aid: run a scripted scene (`script`, `docs/design/client-core.md`): a fixed frame time and wall
+    /// clock, the scene's input instead of the system's, no sound, a 640 × 480 window at one pixel per screen pixel.
+    /// It writes the frame and sound fingerprints to `--script-out`, and with a window also Bevy's screenshot and the
+    /// composed frame at each of the scene's shots, compared.
+    #[arg(long, requires = "script_out")]
+    script: Option<String>,
+    /// The folder a scripted run writes to (its own saved games and settings go there too, cleared first).
+    #[arg(long, requires = "script")]
+    script_out: Option<PathBuf>,
+    /// With `--script`: no window and no GPU; the frames are only composed.
+    #[arg(long, requires = "script")]
+    headless: bool,
 }
 
 fn parse_tile(s: &str) -> Result<(i32, i32), String> {
@@ -298,7 +313,8 @@ struct TerrainArt {
 #[derive(Resource)]
 struct Cycling {
     state: palette::Cycling,
-    started: std::time::Instant,
+    /// When the game started, in ms on the app's real-time clock (`Time<Real>`): the cycles' clock starts here.
+    started_ms: u64,
     /// Per megatile, the palette entries it uses; filled on first use.
     used: Option<Vec<palette::Entries>>,
     /// The palette the screen shows now (`palette::shown`): the pictures are converted with it.
@@ -386,18 +402,46 @@ struct HudSprite;
 const HUD_LAYER: usize = 1;
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    let scripted = match (&args.script, &args.script_out) {
+        (Some(name), Some(out)) => {
+            let scene = script::scene(name).ok_or_else(|| anyhow::anyhow!("no scripted scene {name}"))?;
+            // The run's own saved games and settings, so nothing of the user's changes what it shows.
+            let saves = out.join("save");
+            if saves.exists() {
+                std::fs::remove_dir_all(&saves)?;
+            }
+            args.save_dir = Some(saves);
+            args.settings = Some(out.join("settings.txt"));
+            args.no_mouse_lock = true;
+            args.ui_scale = Some(1);
+            Some((
+                scene,
+                script::Out {
+                    dir: out.clone(),
+                    windowed: !args.headless,
+                    pictures: std::env::var_os("TIDEWATER_SCRIPT_PICTURES").is_some(),
+                    every: std::env::var("TIDEWATER_SCRIPT_PICTURES")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0),
+                },
+            ))
+        }
+        _ => None,
+    };
     let install = Install::open(&args.install)?;
     let mut front = frontend::Front::load(install)?;
     let mut flow = frontend::Flow::default();
     // The map given on the command line starts at once; otherwise the startup sequence ("Startup") or a screen
     // named by `--goto`.
-    let steps = match (&args.map, &args.goto) {
-        (Some(map), _) => vec![frontend::Step::Play {
+    let steps = match (&args.map, &args.goto, &scripted) {
+        (_, _, Some((scene, _))) => scene.start.clone(),
+        (Some(map), _, _) => vec![frontend::Step::Play {
             map: map.clone(),
             setup: args.setup,
         }],
-        (None, Some(g)) => {
+        (None, Some(g), _) => {
             let steps = frontend::goto_steps(g).map_err(anyhow::Error::msg)?;
             if let Some((what, e)) = g.split_once(':')
                 && what.starts_with("score-")
@@ -407,18 +451,21 @@ fn main() -> Result<()> {
             }
             steps
         }
-        (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
+        (None, None, _) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
     };
     flow.steps = steps.into();
     let settings = args
         .settings
         .clone()
         .unwrap_or_else(|| saves::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
-    let stored = gamemenu::Stored(prefs::Prefs::load(&settings).with_args(
-        args.mouse_scroll_speed,
-        args.key_scroll_speed,
-        args.second_mouse_style,
-    ));
+    // A scripted run starts from the default settings.
+    let prefs = if scripted.is_some() {
+        prefs::Prefs::default()
+    } else {
+        prefs::Prefs::load(&settings)
+    };
+    let stored =
+        gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
     let title = args
         .map
         .as_deref()
@@ -427,23 +474,84 @@ fn main() -> Result<()> {
     let points = args.ui_scale.unwrap_or(1);
     let save_dir = args.save_dir.clone();
     let shot_dir = args.save_dir.clone();
-    App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()).set(WindowPlugin {
-            primary_window: Some(Window {
-                title,
-                resolution: (display::SCREEN.0 * points, display::SCREEN.1 * points).into(),
+    let mut resolution = bevy::window::WindowResolution::new(display::SCREEN.0 * points, display::SCREEN.1 * points);
+    if scripted.is_some() {
+        // One physical pixel per screen pixel whatever the display, so the screen fills the window exactly.
+        resolution = resolution.with_scale_factor_override(1.0);
+    }
+    let mut window = Window {
+        title,
+        resolution,
+        ..default()
+    };
+    if scripted.is_some() {
+        // A scripted window doesn't take the keyboard from what the user is doing (its input is the scene's), and
+        // stays on top, since a covered window may not be drawn and its screenshots come out black.
+        window.focused = false;
+        window.window_level = bevy::window::WindowLevel::AlwaysOnTop;
+    }
+    let plugins = DefaultPlugins.set(ImagePlugin::default_nearest());
+    let mut app = App::new();
+    match &scripted {
+        Some((_, out)) if !out.windowed => {
+            app.add_plugins(
+                plugins
+                    .set(WindowPlugin {
+                        primary_window: Some(window),
+                        exit_condition: bevy::window::ExitCondition::DontExit,
+                        close_when_requested: false,
+                        ..default()
+                    })
+                    .set(bevy::render::RenderPlugin {
+                        render_creation: bevy::render::settings::WgpuSettings {
+                            backends: None,
+                            ..default()
+                        }
+                        .into(),
+                        ..default()
+                    })
+                    .disable::<bevy::winit::WinitPlugin>()
+                    .disable::<bevy::audio::AudioPlugin>(),
+            )
+            .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
+            .init_asset::<AudioSource>();
+        }
+        Some(_) => {
+            app.add_plugins(
+                plugins
+                    .set(WindowPlugin {
+                        primary_window: Some(window),
+                        ..default()
+                    })
+                    .disable::<bevy::audio::AudioPlugin>(),
+            )
+            .init_asset::<AudioSource>();
+        }
+        None => {
+            app.add_plugins(plugins.set(WindowPlugin {
+                primary_window: Some(window),
                 ..default()
-            }),
-            ..default()
-        }))
-        .insert_resource(ClearColor(Color::BLACK))
+            }));
+        }
+    }
+    app.add_plugins(script::plugin);
+    if let Some((scene, out)) = scripted {
+        script::setup(&mut app, scene, out);
+    }
+    app.insert_resource(ClearColor(Color::BLACK))
+        .init_resource::<WallClock>()
         .insert_resource(WindowSizing {
             explicit: args.ui_scale.is_some(),
             frames: 0,
         })
         .add_systems(Startup, spawn_backdrop)
         .add_systems(Update, (size_window, fit_screen).chain())
-        .add_systems(PreUpdate, mouse_lock.after(bevy::input::InputSystems))
+        .add_systems(
+            PreUpdate,
+            mouse_lock
+                .after(bevy::input::InputSystems)
+                .run_if(not(resource_exists::<script::Script>)),
+        )
         .init_state::<frontend::AppState>()
         .insert_resource(front)
         .insert_resource(savegame::SaveFolder(saves::SaveDir::new(
@@ -494,6 +602,7 @@ fn main() -> Result<()> {
                 quit_on_escape.run_if(frontend::game_running),
             )
                 .chain()
+                .before(gamemenu::MenuSystems)
                 .run_if(in_state(frontend::AppState::Game)),
         )
         .run();
@@ -577,12 +686,14 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         .unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&args.map));
     // A saved game builds the same game again (same start seed), then its state goes over it.
     let resume = world.resource_mut::<frontend::Flow>().resume.take();
-    let seed = resume.as_ref().map(|r| r.header.seed);
-    let mut scene = scene::load(&mut install, &args.map, &options, seed)?;
+    let wall = *world.resource::<WallClock>();
+    // Single player seeds with the time in whole seconds (`scene::load`), read through the app's wall clock.
+    let seed = resume.as_ref().map_or(wall.secs() as u32, |r| r.header.seed);
+    let mut scene = scene::load(&mut install, &args.map, &options, Some(seed))?;
     if let Some(r) = &resume {
         scene
             .world
-            .restore(&r.body.world, savegame::reseed())
+            .restore(&r.body.world, savegame::reseed(&wall))
             .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
     } else {
         // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
@@ -659,7 +770,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
             Some(r) => palette::Cycling::loaded(scene.era, &scene.palette, r.body.client.cycles_on),
             None => palette::Cycling::new(scene.era, &scene.palette),
         },
-        started: std::time::Instant::now(),
+        started_ms: real_ms(world.resource::<Time<Real>>()),
         used: None,
         shown: scene.palette.clone(),
         fade_start: None,
@@ -1045,6 +1156,8 @@ fn cycle_palette(
     menu: Option<Res<gamemenu::GameMenu>>,
     windows: Query<&Window>,
     mut images: ResMut<Assets<Image>>,
+    real: Res<Time<Real>>,
+    script: Option<Res<script::Script>>,
 ) {
     let (Some(sim), Some(mut art), Some(terrain)) = (sim, art, terrain) else {
         return;
@@ -1053,9 +1166,10 @@ fn cycle_palette(
         preference: stored.0.colour_cycling(),
         paused: sim.world.paused,
         menu_open: menu.is_some(),
-        focused: windows.single().is_ok_and(|w| w.focused),
+        // A scripted run counts as focused (`script`).
+        focused: script.is_some() || windows.single().is_ok_and(|w| w.focused),
     };
-    let now = cycling.started.elapsed().as_millis() as u64;
+    let now = real_ms(&real).saturating_sub(cycling.started_ms);
     let placing = matches!(ui.mode, panel::Mode::Place(_));
     let turned = cycling.state.frame(now, gate, placing);
     let fade_start = *cycling.fade_start.get_or_insert(now);
@@ -1324,6 +1438,25 @@ fn keep_on_map(c: f32, half: f32, len: f32) -> f32 {
     }
 }
 
+/// The app's real-time clock in whole milliseconds since the program started.
+fn real_ms(real: &Time<Real>) -> u64 {
+    real.elapsed().as_millis() as u64
+}
+
+/// The wall clock the game reads the date from (a new game's seed, a loaded game's reseed, a save's time): the
+/// system's, unless a scripted run fixes it so that its games come out the same every time.
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct WallClock {
+    pub fixed: Option<u64>,
+}
+
+impl WallClock {
+    /// Whole seconds since 1970-01-01 UTC.
+    pub fn secs(&self) -> u64 {
+        self.fixed.unwrap_or_else(|| scene::now_secs() as u64)
+    }
+}
+
 fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, ui: Res<PanelUi>, mut exit: MessageWriter<AppExit>) {
     if keys.just_pressed(KeyCode::Escape) && !ui.escape_used {
         exit.write(AppExit::Success);
@@ -1431,6 +1564,7 @@ fn size_window(
 fn fit_screen(
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
     mut front: Query<&mut Camera, With<frontend::FrontCamera>>,
+    script: Option<Res<script::Script>>,
 ) {
     let Ok(mut window) = windows.single_mut() else {
         return;
@@ -1438,7 +1572,9 @@ fn fit_screen(
     let f = window.scale_factor();
     let (min_w, min_h) = (display::SCREEN.0 as f32 / f, display::SCREEN.1 as f32 / f);
     let c = window.resize_constraints;
-    if c.min_width != min_w || c.min_height != min_h {
+    // A scripted run's window keeps its size: the system takes the minimum in its own points, which a scale
+    // override doesn't change, and would double the window on a display with two pixels per point.
+    if script.is_none() && (c.min_width != min_w || c.min_height != min_h) {
         window.resize_constraints.min_width = min_w;
         window.resize_constraints.min_height = min_h;
     }

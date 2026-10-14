@@ -93,6 +93,11 @@ struct MenuLayer;
 #[derive(Resource, Default)]
 pub struct SavingInput(savedlg::Input);
 
+/// The game menu's systems. The game screen's run before them (`main.rs`), so a key that opens or closes a menu is
+/// seen by one side only, the same way every frame (an Escape that closes a menu doesn't also reach the game).
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MenuSystems;
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<SavingInput>()
         .add_systems(OnExit(AppState::Game), close_on_exit)
@@ -108,7 +113,8 @@ pub fn plugin(app: &mut App) {
                 service_saving.run_if(resource_exists::<GameMenu>),
                 sync_settings.run_if(in_state(AppState::Game)),
             )
-                .chain(),
+                .chain()
+                .in_set(MenuSystems),
         )
         .add_systems(Update, demo_save_load.run_if(in_state(AppState::Game)));
 }

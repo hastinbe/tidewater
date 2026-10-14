@@ -25,7 +25,7 @@ use tidewater_sim::setup::Setup;
 use crate::frontend::{AppState, Flow, Step};
 use crate::savefile::{self, Body, ClientState, Header, Kind, Reason};
 use crate::saves::SaveDir;
-use crate::{Cycling, MapCamera, Sim, jukebox::Jukebox, scene};
+use crate::{Cycling, MapCamera, Sim, jukebox::Jukebox};
 
 /// The save folder in use.
 #[derive(Resource, Clone, Debug)]
@@ -142,15 +142,14 @@ pub fn capture(world: &mut World, name: &str) -> Option<Vec<u8>> {
             f.start_controllers,
         )
     };
+    let saved_at = world.resource::<crate::WallClock>().secs();
     let mut sim = world.get_resource_mut::<Sim>()?;
     // "Saving with the map revealed": the cheat is off just long enough to reset the remembered buildings.
     sim.world.prepare_save();
     let enhanced = sim.world.rules.enhanced;
     let header = Header {
         name: name.to_string(),
-        saved_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
+        saved_at,
         enhanced,
         kind: Kind::Single,
         map: origin.map,
@@ -203,8 +202,8 @@ pub fn apply_client(flow: &mut Flow, c: &ClientState) {
 }
 
 /// The seed a loaded game's generator starts from: the time in whole seconds, as for a new game.
-pub fn reseed() -> u32 {
-    scene::now_secs()
+pub fn reseed(wall: &crate::WallClock) -> u32 {
+    wall.secs() as u32
 }
 
 #[cfg(test)]
