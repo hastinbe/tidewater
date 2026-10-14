@@ -1461,7 +1461,9 @@ impl World {
             }
         }
         if own >= limit {
-            self.take_over(i, Order::Idle);
+            // Round 68 (V270, V271): idle becomes pending by the common path, with the resume step, and takes over in
+            // the same update.
+            self.idle_now(i);
             return true;
         }
         false
@@ -4817,28 +4819,53 @@ mod tests {
             assert_eq!(prints, [11347254239461764739, 9038505000538404860]);
         }
 
-        /// The friendly-fire check calls the strike off with a take-over of idle, without the resume (a question for
-        /// the spec: every other place idle becomes pending resumes).
+        /// The friendly-fire hold makes idle pending by the common path and takes it over in the same update (still
+        /// animation, wait 3): a remembered attack-move more than 1 tile away is given again (V270), a complete one is
+        /// forgotten (V271), and a remembered patrol is resumed by the same rule.
         #[test]
-        fn holding_fire_doesnt_resume() {
-            let (mut w, ids) = arena(&[
-                (CATAPULT, 0, (5, 5)),
-                (FOOTMAN, 1, (5, 10)),
-                (FOOTMAN, 0, (4, 10)),
-                (FOOTMAN, 0, (6, 10)),
-            ]);
-            w.rules.enhanced = true;
-            w.stats.0[CATAPULT as usize].flags |= flags::GROUND_ATTACK;
-            let (c, g) = (ids[0], ids[1]);
-            let i = ready(&mut w, c, Order::Chase { target: g });
-            w.units[i].remembered = Some(Remembered::Patrol {
-                to: (15, 5),
-                back: (5, 5),
-            });
-            assert!(w.run_order(i));
-            let u = &w.units[i];
-            assert_eq!((u.order, u.script.wait), (Order::Idle, 3));
-            assert_eq!(after(&mut w, 30), 16807639186136375331);
+        fn holding_fire_resumes_or_forgets() {
+            let mut prints = vec![];
+            let cases = [
+                (
+                    Remembered::AttackMove { goal: (15, 5) },
+                    Order::AttackMove { goal: (15, 5) },
+                    true,
+                ),
+                (Remembered::AttackMove { goal: (6, 5) }, Order::Idle, false),
+                (
+                    Remembered::Patrol {
+                        to: (15, 5),
+                        back: (5, 5),
+                    },
+                    Order::Patrol {
+                        to: (15, 5),
+                        back: (5, 5),
+                    },
+                    true,
+                ),
+            ];
+            for (remembered, expected, kept) in cases {
+                let (mut w, ids) = arena(&[
+                    (CATAPULT, 0, (5, 5)),
+                    (FOOTMAN, 1, (5, 10)),
+                    (FOOTMAN, 0, (4, 10)),
+                    (FOOTMAN, 0, (6, 10)),
+                ]);
+                w.rules.enhanced = true;
+                w.stats.0[CATAPULT as usize].flags |= flags::GROUND_ATTACK;
+                let (c, g) = (ids[0], ids[1]);
+                let i = ready(&mut w, c, Order::Chase { target: g });
+                w.units[i].remembered = Some(remembered);
+                assert!(w.run_order(i));
+                let u = &w.units[i];
+                assert_eq!(
+                    (u.order, u.script.anim, u.script.wait, u.pending),
+                    (expected, anim::STILL, 3, None)
+                );
+                assert_eq!(u.remembered.is_some(), kept);
+                prints.push(after(&mut w, 30));
+            }
+            assert_eq!(prints, [11384884421808526573, 177179359615400430, 8081919140856632751]);
         }
 
         /// Orders 17 and 18 with no route stop (an immediate idle with no idle logic run and no resume); order 18 at its
