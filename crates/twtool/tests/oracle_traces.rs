@@ -46,6 +46,11 @@
 //! full, and so do the commands scenarios orc9-orc09-follow-flee-1300 (a hit peon follows, guards, then flees) and
 //! orc12-orc12-guard-board-full-900 (a guard with no route, and a unit giving up at a full transport that pushes off).
 //!
+//! Round 66: orc3-30000, orc6-30000, xhuman1-30000 and xorc2-30000 match in full, and so do the commands scenarios
+//! orc9-orc09-repair-water-1300 (repair and an attack on a building with no route, and a tanker told to harvest a
+//! gold mine), orc9-orc09-order16-keep-2000 (order 16 still cooling down keeps its order when the search gives order
+//! 12, n 937) and human13-sea-fight-3000.
+//!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
 //! humans' slots and races, the computer rows) from the header. Headers from round 60 on carry `opponents` and
@@ -285,4 +290,11 @@ traces! {
     orc10_35000: ("orc10-35000.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
     orc8_30000: ("orc8-30000.jsonl.gz", "Campaign\\Orc\\Orc08.pud", 15, &[], None),
     xorc4_30000: ("xorc4-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc04.pud", 35, &[], None),
+    orc9_orc09_repair_water_1300: ("orc9-orc09-repair-water-1300.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_order16_keep_2000: ("orc9-orc09-order16-keep-2000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    human13_sea_fight_3000: ("human13-sea-fight-3000.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    orc3_30000: ("orc3-30000.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    orc6_30000: ("orc6-30000.jsonl.gz", "Campaign\\Orc\\Orc06.pud", 11, &[], None),
+    xhuman1_30000: ("xhuman1-30000.jsonl.gz", "Campaign\\XHuman\\2XHum01.pud", 28, &[], None),
+    xorc2_30000: ("xorc2-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc02.pud", 31, &[], None),
 }
