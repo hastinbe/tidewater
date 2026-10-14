@@ -136,12 +136,7 @@ impl World {
         let Some(o) = self.command_order(i, &c) else {
             return false;
         };
-        self.command(i, o);
-        let Some(o) = self.units[i].pending.take() else {
-            return false;
-        };
-        self.take_over(i, o);
-        true
+        self.command_at_once(i, o)
     }
 }
 

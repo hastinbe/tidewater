@@ -206,13 +206,8 @@ impl World {
             site,
             goal: Some(self.pull_back(i, goal)),
         };
-        // A command: the blocked counter is cleared and a stale attacker forgotten (as `World::command` does).
-        let u = &mut self.units[i];
-        u.blocked = 0;
-        u.path.clear();
-        u.pending = None;
-        self.forget_stale_attacker(i);
-        self.take_over(i, again);
+        // Orders spec, "Same-update take-over": a command that takes over at once.
+        self.command_at_once(i, again);
     }
 
     /// Arrival at the site: pay (players other than computer players), check the site, then place the building and

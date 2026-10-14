@@ -198,19 +198,27 @@ impl World {
             | Command::Pause { .. }
             | Command::Cheat { .. } => return None,
         };
-        self.units[i].remembered = match remember {
-            _ if !enhanced => None,
-            Some(Remembered::Patrol { to, .. }) if self.unremembered_patrol(i, to) => self.units[i].remembered,
-            r => {
-                // Round-62 errata ("Resuming patrol and attack-move", static study): remembering sets the countdown
-                // to 0.
-                if r.is_some() {
-                    self.units[i].resume = 0;
-                }
-                r
-            }
-        };
+        // Our own choice (module doc): every other command clears the remembered order.
+        match remember {
+            Some(r) if enhanced => self.remember(i, r),
+            _ => self.units[i].remembered = None,
+        }
         Some(order)
+    }
+
+    /// "Resuming patrol and attack-move" (Enhanced only): a patrol or attack-move is remembered and the resume countdown
+    /// set to 0 (static study only for the countdown). "An unremembered patrol" leaves the old remembered order.
+    fn remember(&mut self, i: usize, r: Remembered) {
+        if !self.rules.enhanced {
+            return;
+        }
+        if let Remembered::Patrol { to, .. } = r
+            && self.unremembered_patrol(i, to)
+        {
+            return;
+        }
+        self.units[i].remembered = Some(r);
+        self.units[i].resume = 0;
     }
 
     /// Orders spec, "An unremembered patrol" (round-56 static correction, Enhanced): a patrol command given to an air
@@ -373,10 +381,7 @@ impl World {
             }
             _ => return None,
         };
-        let u = &mut self.units[i];
-        u.path.clear();
-        u.blocked = 0;
-        self.forget_stale_attacker(i);
+        self.command_steps(i);
         Some(o)
     }
 
@@ -699,26 +704,12 @@ impl World {
             }
             Order::Patrol { to, back } => match self.move_toward(i, Goal::tile(to, 0)) {
                 Walk::Arrived => {
-                    // "Arriving and losing the target": a patrol to the other end, with the tile it stands on as the new
-                    // other end, takes over in the same update (still animation, wait 3); it steps at its next run.
+                    // "Arriving and losing the target", order 5: a patrol command to the other end, with the tile it
+                    // stands on as the new other end, which remembers like every patrol command ("What a patrol
+                    // remembers") and takes over in the same update (still animation, wait 3).
                     let here = self.units[i].tile;
-                    // Round-44 errata: the turnaround is a command, so for every patrol its new goal is pulled back
-                    // (pathfinding spec, "Goal pulled back"). Round-55 errata ("What a patrol remembers"): in Enhanced
-                    // mode it remembers its new goal and the tile the unit stands on, like every patrol command.
-                    let swapped = Order::Patrol {
-                        to: self.pull_back(i, back),
-                        back: here,
-                    };
-                    if self.rules.enhanced && !self.unremembered_patrol(i, back) {
-                        self.units[i].remembered = Some(Remembered::Patrol { to: back, back: here });
-                        // Round-62 errata (static study): every patrol turnaround that remembers sets the countdown
-                        // to 0.
-                        self.units[i].resume = 0;
-                    }
-                    // Movement spec, "Blocked rules" (round-41 errata): the turnaround is a command.
-                    self.units[i].blocked = 0;
-                    self.forget_stale_attacker(i);
-                    self.take_over(i, swapped);
+                    self.remember(i, Remembered::Patrol { to: back, back: here });
+                    self.command_at_once(i, Order::Patrol { to: back, back: here });
                 }
                 // "No route" (round-39 errata, `human10` and `xorc7`): an immediate idle whose idle logic runs in the
                 // same update, straight after.
@@ -829,10 +820,10 @@ impl World {
                 // Step 2 after the reaction picked a unit out of reach: the follow is given again toward it and
                 // takes over in the same update (order 6, still animation, wait 3; `orc9-orc09-follow-attacked-1200`
                 // grunt 1481, n = 493).
-                let u = &mut self.units[i];
-                u.path.clear();
-                u.blocked = 0;
-                self.forget_stale_attacker(i);
+                // Kept special case: the command steps without the command's target check, since the picked unit
+                // can be a worker's undetected attacker (the fight-back of "Fleeing" has no detection test), which the
+                // check would drop.
+                self.command_steps(i);
                 self.take_over(i, Order::Follow { target });
             } else if self.move_toward(i, g) == Walk::NoPath {
                 // Round-65 errata ("No route"; `orc12-orc12-guard-board-full-900` ogre 1450, n = 520): guard has no
@@ -1270,20 +1261,13 @@ impl World {
             // target in reach while still cooling down takes effect at once, and the cooldown test's restart (the
             // cooldown left as its wait) stands; there is no wait of 3. Round-50 errata: so does an out-of-reach
             // order-12 switch, and a same-order switch in orders 15 and 16 (`xhuman12-10000` archer 1372, n = 5142).
-            let u = &mut self.units[i];
-            u.order = o;
-            u.path.clear();
-            u.blocked = 0;
-            self.forget_stale_attacker(i);
+            // The command steps, with the order set at once and no take-over.
+            self.units[i].order = o;
+            self.command_steps(i);
             return true;
         }
-        // Orders spec, "Same-update take-over": a command the unit's own logic gives it takes over at once ("Taking
-        // over": the animation starts with a wait of 3). Being a command (round-42 errata), it clears the blocked
-        // counter and drops the cached route.
-        self.units[i].blocked = 0;
-        self.units[i].path.clear();
-        self.forget_stale_attacker(i);
-        self.take_over(i, o);
+        // "Same-update take-over": the order the search gives is a command that takes over at once.
+        self.command_at_once(i, o);
         true
     }
 

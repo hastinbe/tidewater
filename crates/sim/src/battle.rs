@@ -186,17 +186,14 @@ impl World {
         let Some(target) = self.search_in_range(i) else {
             return self.idle_at_once(i);
         };
-        let o = Order::Chase { target };
-        self.release_tree(i);
-        let u = &mut self.units[i];
-        u.order = o;
-        u.pending = None;
-        u.commanded = false;
-        u.path.clear();
-        u.blocked = 0;
-        u.skip_search = true;
+        // Step 2: order 12 as a command that takes over at once, as an immediate order (wait 1) whose animation's
+        // first step runs now; step 3's mark.
+        self.command(i, Order::Chase { target });
+        if let Some(o) = self.units[i].pending.take() {
+            self.immediately(i, o);
+        }
+        self.units[i].skip_search = true;
         self.restarts = self.restarts.wrapping_add(1);
-        self.forget_stale_attacker(i);
         self.switch_anim(i, anim::ATTACK);
         // The one logic run that follows. Round-56 static correction: that run doesn't move the unit, so it can't find
         // "no route" again, and the logic doesn't run a third time in the update (the guard makes that hold).

@@ -152,10 +152,7 @@ impl World {
             },
             o => o,
         };
-        self.units[i].blocked = 0;
-        self.units[i].path.clear();
-        // Orders spec, "Commands forget a stale attacker" (round-45 errata).
-        self.forget_stale_attacker(i);
+        self.command_steps(i);
         // Round-47 errata: a target unit given with the command gets the same check. If it fails, the target is
         // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
         let owner = self.units[i].owner;
@@ -177,6 +174,29 @@ impl World {
         self.give(i, order);
         let u = &mut self.units[i];
         u.commanded = u.pending == Some(order);
+    }
+
+    /// Orders spec, "What every command does", step 4 and the attacker part of step 5: the cached route is dropped,
+    /// the blocked counter cleared (movement spec, "Blocked rules") and a stale attacker forgotten ("Commands forget a
+    /// stale attacker").
+    pub(crate) fn command_steps(&mut self, i: usize) {
+        let u = &mut self.units[i];
+        u.blocked = 0;
+        u.path.clear();
+        self.forget_stale_attacker(i);
+    }
+
+    /// Orders spec, "Same-update take-over": a command the unit's own logic gives it ([`World::command`]), made pending
+    /// and taken over at once (wait 3), without its logic running. Returns whether it took over: nothing does for a
+    /// unit that can't take a pending order ("Setting a pending order"). Coming out of a building is the exception: its
+    /// command waits for the 25-cycle wait (harvest spec, "Coming out"; [`World::come_out`]).
+    pub(crate) fn command_at_once(&mut self, i: usize, o: Order) -> bool {
+        self.command(i, o);
+        let Some(o) = self.units[i].pending.take() else {
+            return false;
+        };
+        self.take_over(i, o);
+        true
     }
 
     /// "Goal pulled back": a goal tile the unit can't stand on (terrain or building bits of its mask, units ignored;

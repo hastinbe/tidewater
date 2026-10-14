@@ -10,7 +10,7 @@
 //! | Order 24, "Returning goods" | [`World::return_order`], [`World::return_in_reach`], [`World::return_target_lost`] |
 //! | Order 25, "Entering a mine, platform or depot" | [`World::enter_order`], [`World::go_in`] |
 //! | Order 26, "Coming out" | [`World::come_out`] |
-//! | "Commands given by these orders" | [`World::harvest_command`], [`World::return_command`], [`World::order_command`] |
+//! | "Commands given by these orders" | [`World::harvest_command`], [`World::return_command`], [`World::command_at_once`] |
 //! | "Walking orders" | the walk at the head of each order 23 and 24 function |
 //! | "No route" | [`World::no_route`] |
 //! | "Facing a target" | [`facing_tile`] |
@@ -734,7 +734,7 @@ impl World {
         let u = &mut self.units[i];
         u.carrying = true;
         u.script.frame = 0;
-        self.order_command(i, Order::ReturnGoods { depot: None });
+        self.command_at_once(i, Order::ReturnGoods { depot: None });
     }
 
     /// "Lumber", step 2: a worker next to a tree tile that is still unreserved forest starts chopping (counter 0, faces
@@ -786,18 +786,7 @@ impl World {
     /// harvest command"). Only workers reach here, and a worker always gets a harvest order.
     fn harvest_again(&mut self, i: usize, t: (i32, i32)) {
         if let Some(o) = self.harvest_command(i, None, t) {
-            self.order_command(i, o);
-        }
-    }
-
-    /// "Commands given by these orders": a command an order's logic gives is an ordinary command (goal pulled back,
-    /// blocked counter cleared, route dropped, stale attacker forgotten, the command check on a named target), made
-    /// pending and taken over in the same update (orders spec, "Same-update take-over"), without running its logic.
-    /// Coming out is the exception: its command waits for the 25-cycle wait ([`World::come_out`]).
-    fn order_command(&mut self, i: usize, o: Order) {
-        self.command(i, o);
-        if let Some(o) = self.units[i].pending.take() {
-            self.take_over(i, o);
+            self.command_at_once(i, o);
         }
     }
 
