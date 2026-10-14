@@ -658,13 +658,15 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   one the pull-back runs for, so the aim would be the top-left tile **pulled back**, like a return or a mine. The
   `human8-10000` trace (vector V57) doesn't separate the two: from the hall's top-left (74, 72), the farm's top-left
   (74, 59) pulls back to (74, 60), and both aims start the ring search at the same corner. If confirmed, the repair row
-  of "Coming out", step 6 folds into "aim at the goal tile".
+  of "Coming out", step 6 folds into "aim at the goal tile". Round 68: switching the code to the pulled-back aim
+  changes none of the 158 trace rows; still open.
 - **Order 25 losing its target before stepping in.** The spec makes idle the **pending** order (wait 3 when it takes
   over). The static study finds an **immediate** idle there (wait 1, idle logic at the next step done). Untraced: the
   traced cases are a unit that had already stepped in (it dies) and the command check of command 24 (vector V76),
   which is a different path. Vector V82 (static study: an order 24 target already inside something on arrival) takes
   this path, so its "pending" outcome depends on this question too. The case needs the target lost between order 25
-  taking over and its first run, before the unit steps in.
+  taking over and its first run, before the unit steps in. Round 68: switching the code to the immediate idle changes
+  none of the 158 trace rows; still open.
 - **Statements made explicit by the consolidation, static study only and untraced:** a unit coming out with no target
   (no command, or a harvest whose source is no longer a source) faces its goal tile ("Coming out", step 6; vector V84
   doesn't separate this from facing the lost platform); order 23 with a mine or platform, if its logic runs before
@@ -674,6 +676,14 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   carrying. The static study finds that test only on the worker path: a tanker entering a building that isn't an oil
   platform is paid 100 or 125 oil in both modes, carrying or not. No known command gets an empty tanker into such a
   building (command 24 needs carrying; a smart move onto a shipyard gives a move), so no outcome is known to differ.
+- **Round 68 (Enhanced, static study only).** Where the code differs from this spec, the spec governs; no trace
+  separates any of these (switching the code changes none of the 158 trace rows where it was tried). As this spec
+  reads: order 24's re-issue after its depot is lost is an ordinary command ("Commands given by these orders");
+  order 23 with no route makes the tree search before any reaction, and a walk that ends with no route runs no
+  reaction ("No route"); coming out toward a source whose slot has been released (not a ruin) gives the harvest
+  command, whose target check fails, so idle becomes pending ("Coming out", step 5); and order 23 with no target,
+  not in lumber mode, makes idle pending and it takes over in the same update ("Going to a mine or platform";
+  vectors V84 and V88).
 - **Two open questions the traces have since answered** (kept here for a reviewer to close):
   - *Lumber step 1's new harvest command* was marked static study only. It is the second command of the no-route
     re-aim to a tree that isn't adjacent, which is traced (`xhuman12-10000` n = 5598, vector V59; `human5-10000` and
@@ -716,4 +726,5 @@ round are kept with the research-side specs.
 | 64 | Order 24 drops an inside or undetected target at a step boundary; tanker with no target; harvest command on coming out whatever the source has become | "Walking orders"; "Returning goods"; "Going to a mine or platform"; "Coming out", step 5; vectors V80 to V84 |
 | 65 | Coming out makes idle an immediate order; nothing pending with no command; tanker with no target and no route | "Coming out", step 1 and after step 6; "Going to a mine or platform"; vectors V85 to V87 |
 | 66 | Tanker given a harvest command it can't use (evidence only) | "Going to a mine or platform"; vector V88 |
+| 68 | Evidence only: no trace separates the code-vs-spec harvest questions or OQ-A and OQ-B | "Open questions" |
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec |
