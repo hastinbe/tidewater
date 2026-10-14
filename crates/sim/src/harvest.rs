@@ -178,80 +178,76 @@ impl World {
         self.switch_anim(i, anim::STILL);
     }
 
-    /// Order 23.
+    /// Order 23 ("Walking orders": its logic runs only once the walk has ended, reaction first).
     ///
-    /// Round-63 errata (orders spec, "Walking orders react only when the walk has ended"): the reaction to an attacker
-    /// runs only in a run where the worker isn't walking (in reach of its source or tree, its walk ended with no
-    /// route, or its source lost), so a lumber worker walking to its tree doesn't flee (`orc9-orc09-flee-walk-1200`
-    /// and `orc9-orc09-flee-chop-walk-900` peon 1478).
+    /// A tanker and a gold-mode worker follow "Going to a mine or platform"; a lumber-mode worker "Lumber". A worker
+    /// with no target unit that isn't in lumber mode is a state no command makes ("Starting to harvest" gives gold
+    /// mode only with a mine): the code keeps its old outcome, the reaction and then idle by an animation switch.
     pub(crate) fn harvest_order(&mut self, i: usize, source: Option<UnitId>, tree: (i32, i32), chopping: bool) {
-        match source {
-            Some(s) => self.gather_order(i, s),
-            None if self.is_tanker(&self.units[i]) => self.tanker_no_target(i, tree),
-            None if self.units[i].gather == Gather::Lumber => self.lumber_order(i, tree, chopping),
-            None if self.react_at_walk_end(i) => {}
-            None => self.idle(i),
+        if source.is_some() || self.is_tanker(&self.units[i]) {
+            return self.source_order(i, source, tree);
+        }
+        if self.units[i].gather == Gather::Lumber {
+            return self.lumber_order(i, tree, chopping);
+        }
+        if !self.react_at_walk_end(i) {
+            self.idle(i);
         }
     }
 
-    /// Order 23 for a tanker with no target ("A tanker with no target", round-64 errata; `xhuman5-30000` tanker 1542,
-    /// n = 26447 to 26642): its command's target was cleared, so it walks to the command's goal tile like any walking
-    /// order, and its logic runs only when it gets there. Then it finds no target: idle becomes the pending order and
-    /// takes over in the same update (still animation, wait 3), as for a target that is gone.
+    /// "Going to a mine or platform": order 23 for a tanker, and for a worker in gold mode, toward its target unit, or
+    /// toward the command's goal tile for a tanker whose command's target was cleared ("A tanker with no target",
+    /// V84, V88). The walk runs until it ends; then, after the reaction: no target, or one dying or gone, makes idle
+    /// pending, taken over in the same update (step 1); at a completed mine or platform order 25 takes over (step 3);
+    /// at one still under construction idle is made pending as in step 1 (step 4, V52). Step 2 (the logic run out of
+    /// reach) is never reached: the walk ends only in reach, with no route, or with the target lost.
     ///
-    /// Our reading (static study): arriving ends the walk, so the reaction runs first, as at a source. Round-65
-    /// errata (static study only): with no route the generic no-route rule applies (idle as an immediate order and
-    /// the idle logic in the same update); order 23's own logic doesn't run, so neither does its reaction.
-    fn tanker_no_target(&mut self, i: usize, goal: (i32, i32)) {
-        match self.move_toward(i, Goal::tile(goal, RADIUS)) {
-            Walk::Arrived if self.react_at_walk_end(i) => {}
-            Walk::Arrived => self.idle_now(i),
-            Walk::NoPath => self.no_route(i),
-            Walk::Stepping | Walk::Blocked => {}
-        }
-    }
-
-    /// Order 23 at a mine or platform ("Gold and oil: going to the source"). Round-47 errata: a lost source, or
-    /// arriving at one that isn't completed, makes idle the pending order, taken over in the same update (wait 3)
-    /// without running the idle logic.
-    fn gather_order(&mut self, i: usize, s: UnitId) {
-        let Some(si) = self.index(s).filter(|&si| self.units[si].present()) else {
-            if !self.react_at_walk_end(i) {
-                self.idle_now(i);
-            }
-            return;
-        };
-        if !self.walk_to_building(i, si) {
-            return;
-        }
-        if self.units[si].construction.is_some() {
-            return self.idle_now(i);
-        }
-        // Order 25 takes over at once, in the same update, without running its logic (orders spec, "Taking over",
-        // and its default for "Same-update take-over"): its first run comes at the next step done.
-        self.take_over(
-            i,
-            Order::Enter {
-                building: s,
-                stepped: false,
+    /// A target found dying or gone ends the walk before it starts (step 1). A walk with no route takes "No route";
+    /// the code runs the reaction first when there is a target, and not for a tanker with no target (V87).
+    fn source_order(&mut self, i: usize, source: Option<UnitId>, goal: (i32, i32)) {
+        let target = match source {
+            Some(s) => match self.index(s).filter(|&si| self.units[si].present()) {
+                Some(si) => Some(si),
+                None => {
+                    if !self.react_at_walk_end(i) {
+                        self.idle_now(i);
+                    }
+                    return;
+                }
             },
-        );
-    }
-
-    /// Moves toward building `bi` (arrival radius 1) in order 23. Returns whether the unit has arrived and its order's
-    /// logic goes on. A unit with no path looks for the nearest tree ("No route").
-    /// Once the walk has ended (arrived or no route) the reaction to an attacker runs first (round-63 errata); a
-    /// reaction that changes the order ends the run.
-    fn walk_to_building(&mut self, i: usize, bi: usize) -> bool {
-        let g = self.building_walk(i, bi);
+            None => None,
+        };
+        let g = match target {
+            Some(si) => self.building_walk(i, si),
+            None => Goal::tile(goal, RADIUS),
+        };
         match self.move_toward(i, g) {
-            Walk::Arrived => !self.react_at_walk_end(i),
-            Walk::NoPath if self.react_at_walk_end(i) => false,
+            Walk::Arrived => {}
             Walk::NoPath => {
-                self.no_route(i);
-                false
+                if target.is_none() || !self.react_at_walk_end(i) {
+                    self.no_route(i);
+                }
+                return;
             }
-            Walk::Stepping | Walk::Blocked => false,
+            Walk::Stepping | Walk::Blocked => return,
+        }
+        if self.react_at_walk_end(i) {
+            return;
+        }
+        match target {
+            Some(si) if self.units[si].construction.is_none() => {
+                // Order 25 takes over at once, without running its logic (orders spec, "Taking over"): its first
+                // run comes at the next step done.
+                let building = self.units[si].id;
+                self.take_over(
+                    i,
+                    Order::Enter {
+                        building,
+                        stepped: false,
+                    },
+                );
+            }
+            _ => self.idle_now(i),
         }
     }
 
