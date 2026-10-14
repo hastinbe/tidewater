@@ -51,6 +51,10 @@
 //! gold mine), orc9-orc09-order16-keep-2000 (order 16 still cooling down keeps its order when the search gives order
 //! 12, n 937) and human13-sea-fight-3000.
 //!
+//! Round 68: the commands scenarios orc9-orc09-ground-move-goals-1100 (order 18 walking to its pulled-back goal and
+//! switching to order 17), orc9-orc09-hold-resume-hits-goals-1600 (the friendly-fire hold resuming and forgetting an
+//! attack-move) and orc9-orc09-lost-resume-goals-500 (a player's command whose target is inside a mine) match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -319,4 +323,7 @@ traces! {
     xhuman3_20900_22915: ("xhuman3-20900-22915.jsonl.gz", "Campaign\\XHuman\\2XHum03.pud", 32, &[], None),
     xorc5_26000_30000: ("xorc5-26000-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
     xorc10_19400_24000: ("xorc10-19400-24000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    orc9_orc09_ground_move_goals_1100: ("orc9-orc09-ground-move-goals-1100.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_hold_resume_hits_goals_1600: ("orc9-orc09-hold-resume-hits-goals-1600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_lost_resume_goals_500: ("orc9-orc09-lost-resume-goals-500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
 }
