@@ -172,7 +172,9 @@ enum Cmd {
     MpqInfo { archive: PathBuf },
     /// Compare our simulation cycle by cycle against a trace of the original game (`.jsonl` or `.jsonl.gz`, format
     /// `docs/specs/oracle/trace-format.md`) and report the first record that differs. The trace's header gives the
-    /// seed (its clock), the rules and the expected players; the map and campaign entry are named here.
+    /// seed (its clock), the rules and the expected players; the map and campaign entry are named here. A windowed
+    /// trace (header `from`) is compared from its first `n`, after its setup and start-up records; a setup-only
+    /// trace is compared on its setup record.
     Oracle {
         #[arg(long)]
         install: PathBuf,
@@ -397,7 +399,7 @@ fn main() -> Result<()> {
                 max_cycles,
                 filter: fields.as_deref().map(oracle::Filter::parse).unwrap_or_default(),
                 seed,
-                input: Vec::new(),
+                ..Default::default()
             };
             if !oracle_cmd(&install, map.as_deref(), entry, &trace, opts)? {
                 std::process::exit(1);
@@ -955,6 +957,9 @@ fn oracle_cmd(
         .ok_or_else(|| anyhow::anyhow!("the trace used the real clock; give --seed"))?;
     opts.seed = Some(seed);
     opts.input = header.input.clone();
+    // Trace format, "Windowed traces" and "Setup-only traces"; neither changes the rules.
+    opts.from = header.from;
+    opts.setup_only = header.setup_only;
     let mut inst = Install::open(install)?;
     let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
     let mut setup = match entry {

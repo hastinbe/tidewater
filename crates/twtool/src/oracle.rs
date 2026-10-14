@@ -9,6 +9,12 @@
 //! step), `core/animation-scripts.md` (pixel positions, animation, frame and wait), `orders/orders.md` ("The order
 //! list"), `economy/harvest.md` (trips) and `spells/spells.md` (mana and timers).
 //!
+//! The opt-in header fields (2026-10-14 errata, still version 2): a windowed trace (`from` = F) leaves out the
+//! records before F but the setup, the start-up and the command turns; we compare the setup and start-up records, run
+//! up to F − 1 carrying out the gap's command turns without comparing them, then compare from F on. A setup-only trace
+//! (`setup_only`) is compared on its setup record. The `extras` (`hits`, and the units' `goal`, `pending` and
+//! `transport_dest`) are read but not compared, as no spec defines their comparison yet.
+//!
 //! Scenario identity is still free text in the header (the format's open question "Scenario identity"), so the caller
 //! names the map and the campaign entry; the seed, the rules and the table sizes come from the header.
 //!
@@ -136,6 +142,13 @@ pub struct Header {
     pub rules: Option<String>,
     /// The multiplayer launch fields ("Multiplayer launch"); `None` for a campaign start.
     pub multiplayer: Option<Multiplayer>,
+    /// `from`: a windowed trace's F, the first `n` from which every `cycle` and `turn` record is written ("Windowed
+    /// traces"); `None` for a trace complete from n 0.
+    pub from: Option<u64>,
+    /// `setup_only`: the trace is the header and the `setup` record ("Setup-only traces").
+    pub setup_only: bool,
+    /// `extras`: the opt-in extras the records carry (`"goals"`, `"hits"`; "Opt-in extras"). Empty when absent.
+    pub extras: Vec<String>,
 }
 
 /// The header fields of a multiplayer launch (trace format, "Multiplayer launch").
@@ -233,6 +246,29 @@ impl Header {
             }),
             Some(p) => bail!("unknown `launch_path` {p:?}"),
         };
+        // The opt-in fields ("Windowed traces", "Setup-only traces", "Opt-in extras"); none changes the rules.
+        let from = match v.get("from") {
+            None => None,
+            Some(f) => Some(
+                f.as_u64()
+                    .filter(|&f| f >= 1)
+                    .context("`from` is a whole number of at least 1")?,
+            ),
+        };
+        let setup_only = match v.get("setup_only") {
+            None => false,
+            Some(b) => b.as_bool().context("`setup_only` is true or false")?,
+        };
+        if setup_only && from.is_some() {
+            bail!("a setup-only trace with `from`");
+        }
+        let extras = match v.get("extras") {
+            None => Vec::new(),
+            Some(e) => e
+                .as_array()
+                .and_then(|a| a.iter().map(|s| s.as_str().map(str::to_string)).collect())
+                .context("`extras` is a list of names")?,
+        };
         Ok(Header {
             scenario: text("scenario"),
             launch: text("launch"),
@@ -251,6 +287,9 @@ impl Header {
             input,
             rules,
             multiplayer,
+            from,
+            setup_only,
+            extras,
         })
     }
 
@@ -291,6 +330,15 @@ impl Header {
                 v["starts"] = if m.fixed_order { "fixed" } else { "random" }.into();
             }
         }
+        if let Some(f) = self.from {
+            v["from"] = f.into();
+        }
+        if self.setup_only {
+            v["setup_only"] = true.into();
+        }
+        if !self.extras.is_empty() {
+            v["extras"] = self.extras.clone().into();
+        }
         v.to_string()
     }
 }
@@ -310,6 +358,87 @@ pub struct Record {
     pub effects: BTreeMap<u16, Vec<Cell>>,
     /// `turn` records of format version 2: the commands carried out in the turn, in order.
     pub commands: Vec<Entry>,
+    /// The `hits` extra ("Opt-in extras"): the damage step's calls made by this record's work, in order.
+    pub hits: Vec<Hit>,
+    /// The `goals` extra per unit slot, for the units that carry it.
+    pub goals: BTreeMap<u16, Goals>,
+}
+
+/// One `hits` entry: a call of the damage step (trace format, "Hit entries"). Read, not compared: no spec defines
+/// the comparison yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct Hit {
+    /// `melee`, `missile`, `splash`, `demolish`, `exorcism` or `other`.
+    pub by: String,
+    pub attacker: Option<u16>,
+    pub target: Option<u16>,
+    /// The amount given to the damage step, before its own checks.
+    pub damage: i64,
+    /// The target's hit points before the call (only with a target).
+    pub hp: Option<i64>,
+    /// `missile` and `splash` entries: the missile's effect slot.
+    pub effect: Option<u16>,
+}
+
+impl Hit {
+    fn parse(v: &Value) -> Result<Hit> {
+        let slot = |k: &str| v.get(k).and_then(Value::as_u64).map(|s| s as u16);
+        Ok(Hit {
+            by: v.get("by").and_then(Value::as_str).context("missing `by`")?.to_string(),
+            attacker: slot("attacker"),
+            target: slot("target"),
+            damage: int(v, "damage")?,
+            hp: v.get("hp").and_then(Value::as_i64),
+            effect: slot("effect"),
+        })
+    }
+
+    #[cfg(test)]
+    fn to_json(&self) -> Value {
+        let mut o = serde_json::json!({
+            "by": self.by,
+            "attacker": self.attacker,
+            "target": self.target,
+            "damage": self.damage,
+        });
+        if let Some(hp) = self.hp {
+            o["hp"] = hp.into();
+        }
+        if matches!(self.by.as_str(), "missile" | "splash") {
+            o["effect"] = self.effect.into();
+        }
+        o
+    }
+}
+
+/// A unit's `goals` extra (trace format, "Unit fields"). Read, not compared: the stored values mean something only
+/// where a spec defines them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct Goals {
+    /// `goal`: the stored goal tile, as stored.
+    pub goal: Option<[i64; 2]>,
+    /// `pending`: the pending order number, [`Cell::Null`] for none.
+    pub pending: Option<Cell>,
+    /// `transport_dest`: a transport's destination tile, as stored.
+    pub transport_dest: Option<[i64; 2]>,
+}
+
+impl Goals {
+    /// The unit's `goals` fields, or `None` when it has none.
+    fn parse(u: &Value) -> Option<Goals> {
+        let pair = |k: &str| {
+            let a = u.get(k)?.as_array()?;
+            Some([a.first()?.as_i64()?, a.get(1)?.as_i64()?])
+        };
+        let g = Goals {
+            goal: pair("goal"),
+            pending: u.get("pending").map(|p| Cell::of(Some(p))),
+            transport_dest: pair("transport_dest"),
+        };
+        (g != Goals::default()).then_some(g)
+    }
 }
 
 const RESOURCES: [&str; 3] = ["gold", "lumber", "oil"];
@@ -328,8 +457,12 @@ impl Record {
             (0..16).map(|i| Cell::of(a.and_then(|a| a.get(i)))).collect()
         };
         let mut units = BTreeMap::new();
+        let mut goals = BTreeMap::new();
         for u in v.get("units").and_then(Value::as_array).into_iter().flatten() {
             let slot = int(u, "slot").with_context(|| format!("record n={n}: a unit"))? as u16;
+            if let Some(g) = Goals::parse(u) {
+                goals.insert(slot, g);
+            }
             let timers = u.get("timers");
             let fields = UNIT_FIELDS
                 .iter()
@@ -373,6 +506,14 @@ impl Record {
                 .flatten()
                 .map(|c| Entry::parse(c).with_context(|| format!("record n={n}: a command")))
                 .collect::<Result<_>>()?,
+            hits: v
+                .get("hits")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|h| Hit::parse(h).with_context(|| format!("record n={n}: a hit entry")))
+                .collect::<Result<_>>()?,
+            goals,
         })
     }
 
@@ -414,6 +555,17 @@ impl Record {
                 if !timers.is_empty() {
                     u.insert("timers".into(), Value::Object(timers));
                 }
+                if let Some(g) = self.goals.get(&slot) {
+                    if let Some(p) = g.goal {
+                        u.insert("goal".into(), p.to_vec().into());
+                    }
+                    if let Some(p) = &g.pending {
+                        u.insert("pending".into(), p.json().unwrap_or(Value::Null));
+                    }
+                    if let Some(p) = g.transport_dest {
+                        u.insert("transport_dest".into(), p.to_vec().into());
+                    }
+                }
                 Value::Object(u)
             })
             .collect();
@@ -443,6 +595,12 @@ impl Record {
             o.insert(
                 "commands".into(),
                 Value::Array(self.commands.iter().map(Entry::to_json).collect()),
+            );
+        }
+        if !self.hits.is_empty() {
+            o.insert(
+                "hits".into(),
+                Value::Array(self.hits.iter().map(Hit::to_json).collect()),
             );
         }
         Value::Object(o).to_string()
@@ -915,6 +1073,8 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         units,
         effects,
         commands: Vec::new(),
+        hits: Vec::new(),
+        goals: BTreeMap::new(),
     }
 }
 
@@ -983,6 +1143,10 @@ pub struct Options {
     pub seed: Option<u32>,
     /// The header's `input`, to check each entry's turn against T(i) (trace format, "When a command runs").
     pub input: Vec<Entry>,
+    /// The header's `from`: a windowed trace, compared from this `n` on ("Windowed traces").
+    pub from: Option<u64>,
+    /// The header's `setup_only`: compare the setup record only ("Setup-only traces").
+    pub setup_only: bool,
 }
 
 /// Per field: records that differed, first and last `n`.
@@ -1023,13 +1187,31 @@ pub struct Summary {
     pub replayed: usize,
     /// The input checked against the turns that ran it.
     pub timing: replay::Timing,
+    /// The last `n` read, compared or not (a windowed trace's gap turns count).
+    pub reached: u64,
+    /// A windowed trace's F (the header's `from`).
+    pub from: Option<u64>,
+    /// A windowed trace: command turns before F, replayed without comparing.
+    pub gap_turns: usize,
+    /// A windowed trace: records compared from F on.
+    pub window_records: usize,
+    /// A setup-only trace.
+    pub setup_only: bool,
+    /// Extras read and not compared: `hits` entries, and records with units carrying `goals` fields.
+    pub hits: usize,
+    pub goal_records: usize,
 }
 
 /// Context lines for a record's differences: draw counts for an rng difference, and both sides of each unit or
 /// effect involved.
-fn context(theirs: &Record, ours: &Record, diffs: &[Diff], prev: (u32, u32)) -> Vec<String> {
+fn context(theirs: &Record, ours: &Record, diffs: &[Diff], prev: Option<(u32, u32)>) -> Vec<String> {
     let mut out = Vec::new();
-    if diffs.iter().any(|d| d.scope == Scope::Global && d.field == "rng") {
+    let rng = diffs.iter().any(|d| d.scope == Scope::Global && d.field == "rng");
+    if rng && prev.is_none() {
+        // Trace format, "Windowed traces": the gap's draws aren't counted anywhere.
+        out.push("draws since the previous record: not known across the window's gap".to_string());
+    }
+    if let Some(prev) = prev.filter(|_| rng) {
         let count = |from, to| steps(from, to).map_or_else(|| "?".to_string(), |n| n.to_string());
         let mut line = format!(
             "draws since the previous record: ours {}, theirs {}",
@@ -1091,10 +1273,39 @@ fn print_record(out: &mut dyn Write, title: &str, theirs: &Record, diffs: &[Diff
     Ok(())
 }
 
+/// Steps `w` to the end of cycle `to` without comparing: normal cycles, the first one ending the start-up cycles if
+/// they haven't been ended yet (timing-and-rng spec, "Scheduler", rule 1).
+fn step_to(w: &mut World, at: &mut u64, start_up: &mut bool, to: u64) {
+    while *at < to {
+        if std::mem::take(start_up) {
+            w.end_start_up();
+        }
+        w.step(&[]);
+        *at += 1;
+    }
+}
+
+/// Carries out a `turn` record's commands one at a time (a build or job acts on the synced selection as the commands
+/// before it left it), and checks them against the input's timing.
+fn replay_turn(w: &mut World, theirs: &Record, s: &mut Summary) {
+    for c in &theirs.commands {
+        if let Some(cmd) = replay::sim_command(w, c) {
+            w.turn(std::slice::from_ref(&cmd));
+        }
+        s.replayed += 1;
+    }
+    s.timing.turn(theirs.n, &theirs.commands);
+}
+
 /// Steps `w` through the trace's records and compares each, printing the first divergence (and, with `--keep-going`
 /// or `--resync-rng`, carrying on as the options say). Setup and turn records are compared without stepping; a turn
 /// record's commands are applied first, in the order it lists them (trace format, "When a command runs": the turn
 /// records are the authoritative timing).
+///
+/// A windowed trace (`from` = F; trace format, "Windowed traces") has its setup and start-up records compared as
+/// usual. Then the cycles up to F − 1 run without comparing; each `turn` record before F has its commands carried out
+/// after the cycles up to its `n`, and isn't compared or counted. The records from F on are compared as usual. A
+/// setup-only trace has its setup record compared and nothing else ("Setup-only traces").
 pub fn run(
     w: &mut World,
     records: impl Iterator<Item = Result<Record>>,
@@ -1103,12 +1314,18 @@ pub fn run(
 ) -> Result<Summary> {
     let mut s = Summary {
         timing: replay::Timing::new(&opts.input),
+        from: opts.from,
+        setup_only: opts.setup_only,
         ..Default::default()
     };
     let seed = opts.seed.unwrap_or(w.rng.state);
-    let mut prev = (seed, seed);
+    // Theirs and ours after the previous record compared; `None` across a windowed trace's gap.
+    let mut prev = Some((seed, seed));
     let mut last_n: Option<u64> = None;
-    let mut last_kind: Option<String> = None;
+    // The cycle our world has run to, and whether a start-up cycle has run that the counter reset hasn't ended.
+    let mut at = 0u64;
+    let mut start_up = false;
+    let mut in_window = opts.from.is_none();
     // The differences of the previous record, and every place each field has differed.
     let mut before: BTreeSet<(Scope, &'static str)> = BTreeSet::new();
     let mut places: BTreeMap<String, BTreeSet<Scope>> = BTreeMap::new();
@@ -1117,18 +1334,45 @@ pub fn run(
         if opts.max_cycles.is_some_and(|m| theirs.n > m) {
             break;
         }
+        if opts.setup_only && theirs.kind != "setup" {
+            writeln!(
+                out,
+                "note: a setup-only trace has a record n={} ({}); not compared",
+                theirs.n, theirs.kind
+            )?;
+            break;
+        }
+        s.reached = s.reached.max(theirs.n);
+        s.hits += theirs.hits.len();
+        s.goal_records += usize::from(!theirs.goals.is_empty());
+        if let Some(from) = opts.from {
+            if !in_window && theirs.kind == "turn" && theirs.n < from {
+                // A command turn in the gap: run up to it and carry out its commands; it isn't compared.
+                step_to(w, &mut at, &mut start_up, theirs.n);
+                replay_turn(w, &theirs, &mut s);
+                s.gap_turns += 1;
+                prev = None;
+                continue;
+            }
+            if !in_window && theirs.n >= from {
+                in_window = true;
+                let to = if theirs.kind == "turn" { theirs.n } else { theirs.n - 1 };
+                if at < to {
+                    step_to(w, &mut at, &mut start_up, to);
+                    prev = None;
+                }
+                if prev.is_none() {
+                    // The gap is expected: the record follows the cycles just run.
+                    last_n = Some(at);
+                }
+            }
+            if in_window {
+                s.window_records += 1;
+            }
+        }
         match theirs.kind.as_str() {
             "setup" => {}
-            "turn" => {
-                // One at a time: a build or job acts on the synced selection as the commands before it left it.
-                for c in &theirs.commands {
-                    if let Some(cmd) = replay::sim_command(w, c) {
-                        w.turn(std::slice::from_ref(&cmd));
-                    }
-                    s.replayed += 1;
-                }
-                s.timing.turn(theirs.n, &theirs.commands);
-            }
+            "turn" => replay_turn(w, &theirs, &mut s),
             "startup" | "cycle" => {
                 if let Some(l) = last_n
                     && theirs.n != l + 1
@@ -1136,10 +1380,12 @@ pub fn run(
                     writeln!(out, "note: record n={} follows n={l}; stepping once", theirs.n)?;
                 }
                 // Scheduler rule 1: the counter is reset after the start-up cycles.
-                if theirs.kind == "cycle" && last_kind.as_deref() == Some("startup") {
+                if theirs.kind == "cycle" && std::mem::take(&mut start_up) {
                     w.end_start_up();
                 }
                 w.step(&[]);
+                at = theirs.n;
+                start_up |= theirs.kind == "startup";
             }
             k => {
                 writeln!(out, "note: skipping record n={} of unknown kind `{k}`", theirs.n)?;
@@ -1147,7 +1393,6 @@ pub fn run(
             }
         }
         last_n = Some(theirs.n);
-        last_kind = Some(theirs.kind.clone());
         let ours = snapshot(w, theirs.n, &theirs.kind);
         let diffs = compare(&theirs, &ours, &opts.filter, &mut s.skipped);
         s.records += 1;
@@ -1212,9 +1457,12 @@ pub fn run(
                 s.resyncs += 1;
             }
         }
-        prev = (theirs.rng, w.rng.state);
+        prev = Some((theirs.rng, w.rng.state));
+        if opts.setup_only {
+            break;
+        }
     }
-    s.timing.finish(s.last_n.unwrap_or(0));
+    s.timing.finish(s.reached);
     Ok(s)
 }
 
@@ -1227,7 +1475,7 @@ fn print_replay(out: &mut dyn Write, s: &Summary) -> Result<()> {
     }
     writeln!(out, "replayed {} commands from turn records", s.replayed)?;
     if !t.is_empty() {
-        let last = s.last_n.unwrap_or(0);
+        let last = s.reached;
         writeln!(
             out,
             "input timing: {} entries ran in turn T(i), {} disagree, {} due after n={last}",
@@ -1260,6 +1508,23 @@ pub fn print_summary(out: &mut dyn Write, s: &Summary) -> Result<()> {
             .as_ref()
             .map_or(String::new(), |(n, k)| format!("; stopped at n={n} ({k})"))
     )?;
+    if s.setup_only {
+        writeln!(out, "setup-only trace: compared the setup record only")?;
+    }
+    if let Some(from) = s.from {
+        writeln!(
+            out,
+            "windowed trace from n={from}: {} command turns before it replayed without comparing",
+            s.gap_turns
+        )?;
+        if s.window_records == 0 {
+            writeln!(
+                out,
+                "the trace ends before n={from} (last record n={}): no record from the window compared",
+                s.reached
+            )?;
+        }
+    }
     if s.diverged == 0 {
         writeln!(out, "no divergence")?;
     }
@@ -1312,6 +1577,13 @@ pub fn print_summary(out: &mut dyn Write, s: &Summary) -> Result<()> {
         }
     }
     print_replay(out, s)?;
+    if s.hits > 0 || s.goal_records > 0 {
+        writeln!(
+            out,
+            "extras read, not compared: {} hits entries, goals in {} records",
+            s.hits, s.goal_records
+        )?;
+    }
     if !s.skipped.is_empty() {
         writeln!(out, "not compared:")?;
         for k in &s.skipped {
@@ -1827,5 +2099,252 @@ mod tests {
         assert!(Header::parse(&v.to_string()).is_err());
         v["launch_path"] = "multiplayer".into();
         assert!(Header::parse(&v.to_string()).is_err(), "no `map`");
+    }
+
+    /// The synthetic world with a stride, so that its unit type takes a move command.
+    fn movable() -> World {
+        let mut w = world(7);
+        w.stride = vec![1; 110];
+        w
+    }
+
+    /// A complete version 2 trace of [`movable`] over `cycles` normal cycles, in which player 0 selects its unit in
+    /// turn `sel` and sends it east in turn `sel + 1`, both handed over after record `sel - 1`.
+    fn command_trace(cycles: u64, sel: u64) -> (Header, Vec<Record>) {
+        let mut w = movable();
+        let unit = w.units.iter().find(|u| u.owner == 0).unwrap().slot;
+        let select = serde_json::json!({"player": 0, "kind": "select", "units": [unit]});
+        let mv = serde_json::json!({"player": 0, "kind": "command", "command": 3, "tile": [6, 1]});
+        let entry = |n: Option<u64>, v: &Value| Entry {
+            n,
+            ..Entry::parse(v).unwrap()
+        };
+        let mut out = vec![snapshot(&w, 0, "setup")];
+        for n in 1..=2 + cycles {
+            if n == 3 {
+                w.end_start_up();
+            }
+            w.step(&[]);
+            out.push(snapshot(&w, n, if n <= 2 { "startup" } else { "cycle" }));
+            let ran = [(sel, &select), (sel + 1, &mv)].into_iter().find(|(t, _)| *t == n);
+            if let Some((_, v)) = ran {
+                let e = entry(None, v);
+                w.turn(&[replay::sim_command(&w, &e).unwrap()]);
+                let mut r = snapshot(&w, n, "turn");
+                r.commands = vec![e];
+                out.push(r);
+            }
+        }
+        let h = Header {
+            version: 2,
+            input: vec![entry(Some(sel - 1), &select), entry(Some(sel - 1), &mv)],
+            ..header()
+        };
+        (h, out)
+    }
+
+    /// Trace format, "Windowed traces": the header with `from` = F, then the setup and start-up records, the command
+    /// turns before F and every record from F on.
+    fn windowed(h: &Header, full: &[Record], from: u64) -> (Header, Vec<Record>) {
+        let keep = |r: &&Record| {
+            matches!(r.kind.as_str(), "setup" | "startup")
+                || (r.kind == "turn" && !r.commands.is_empty())
+                || r.n >= from
+        };
+        let h = Header {
+            from: Some(from),
+            ..h.clone()
+        };
+        (h, full.iter().filter(keep).cloned().collect())
+    }
+
+    /// Runs a trace through the JSON writer and reader against [`movable`].
+    fn run_trace(h: &Header, records: &[Record], keep_going: bool) -> (Summary, String) {
+        let mut t = h.to_json() + "\n";
+        for r in records {
+            t += &r.to_json();
+            t += "\n";
+        }
+        let (back, records) = read(reader(std::io::Cursor::new(t.into_bytes())).unwrap()).unwrap();
+        assert_eq!(&back, h);
+        let opts = Options {
+            keep_going,
+            input: back.input.clone(),
+            from: back.from,
+            setup_only: back.setup_only,
+            ..Options::default()
+        };
+        let mut w = movable();
+        let mut text = Vec::new();
+        let s = run(&mut w, records, &opts, &mut text).unwrap();
+        print_summary(&mut text, &s).unwrap();
+        (s, String::from_utf8(text).unwrap())
+    }
+
+    #[test]
+    fn windowed_trace_replays_the_gap_turns_and_compares_from_f() {
+        let (h, full) = command_trace(30, 5);
+        let (wh, win) = windowed(&h, &full, 12);
+        // Setup, two start-up records, the two command turns, then every record from n 12.
+        assert_eq!(win.len(), 5 + full.iter().filter(|r| r.n >= 12).count());
+        let (s, text) = run_trace(&wh, &win, false);
+        assert_eq!((s.diverged, s.gap_turns, s.replayed), (0, 2, 2), "{text}");
+        assert_eq!((s.records, s.window_records), (3 + win.len() - 5, win.len() - 5));
+        assert!(!text.contains("stepping once"), "{text}");
+        assert!(
+            text.contains("windowed trace from n=12: 2 command turns before it replayed without comparing"),
+            "{text}"
+        );
+        assert!(
+            text.contains("input timing: 2 entries ran in turn T(i), 0 disagree"),
+            "{text}"
+        );
+        // The gap's commands matter: without them the unit isn't sent anywhere and the window diverges at once.
+        let mut dropped = win.clone();
+        for r in &mut dropped {
+            r.commands.clear();
+        }
+        let (s, text) = run_trace(&wh, &dropped, false);
+        assert_eq!(s.stopped, Some((12, "cycle".to_string())), "{text}");
+        assert!(s.first.contains_key(&Category::Orders), "{text}");
+        assert!(text.contains("not known across the window's gap"), "{text}");
+    }
+
+    #[test]
+    fn a_windowed_trace_compares_as_its_complete_trace() {
+        let (h, mut full) = command_trace(30, 5);
+        // A divergence inside the window, after the move has started.
+        let i = full.iter().position(|r| r.n == 16 && r.kind == "cycle").unwrap();
+        let slot = *full[i].units.keys().next().unwrap();
+        set(&mut full[i], slot, "facing", 9);
+        let (wh, win) = windowed(&h, &full, 12);
+        for keep_going in [false, true] {
+            let (a, at) = run_trace(&h, &full, keep_going);
+            let (b, bt) = run_trace(&wh, &win, keep_going);
+            assert_eq!(a.stopped, b.stopped, "{at}\n{bt}");
+            assert_eq!(a.diverged, b.diverged, "{at}\n{bt}");
+            assert_eq!(a.fields, b.fields, "{at}\n{bt}");
+            assert_eq!(a.onsets, b.onsets, "{at}\n{bt}");
+            assert_eq!(a.replayed, b.replayed);
+            assert_eq!(a.first[&Category::Facing].diff, b.first[&Category::Facing].diff);
+            assert_eq!(a.first[&Category::Facing].n, 16);
+        }
+        // Unchanged, both match in full.
+        let (h, full) = command_trace(30, 5);
+        let (wh, win) = windowed(&h, &full, 12);
+        let (a, _) = run_trace(&h, &full, false);
+        let (b, _) = run_trace(&wh, &win, false);
+        assert_eq!((a.diverged, b.diverged), (0, 0));
+        assert_eq!(a.last_n, b.last_n);
+    }
+
+    #[test]
+    fn a_windowed_trace_that_ends_before_f_compares_no_window_record() {
+        let (h, full) = command_trace(30, 5);
+        let (wh, win) = windowed(&h, &full, 500);
+        assert_eq!(win.len(), 5);
+        let (s, text) = run_trace(&wh, &win, false);
+        assert_eq!(
+            (s.records, s.window_records, s.diverged, s.gap_turns),
+            (3, 0, 0, 2),
+            "{text}"
+        );
+        assert!(
+            text.contains("the trace ends before n=500 (last record n=6): no record from the window compared"),
+            "{text}"
+        );
+        assert!(text.contains("0 disagree"), "{text}");
+    }
+
+    #[test]
+    fn a_setup_only_trace_compares_the_setup_record_only() {
+        let (h, full) = command_trace(10, 5);
+        let h = Header { setup_only: true, ..h };
+        let (s, text) = run_trace(&h, &full[..1], false);
+        assert_eq!((s.records, s.diverged, s.last_n), (1, 0, Some(0)), "{text}");
+        assert!(
+            text.contains("setup-only trace: compared the setup record only"),
+            "{text}"
+        );
+        assert!(text.contains("no divergence"), "{text}");
+        // The input that never ran isn't due in a setup-only trace's single record.
+        assert!(text.contains("0 disagree"), "{text}");
+        // Its setup record diverging is still found.
+        let mut setup = full[..1].to_vec();
+        setup[0].rng ^= 1;
+        let (s, _) = run_trace(&h, &setup, false);
+        assert_eq!(s.stopped, Some((0, "setup".to_string())));
+    }
+
+    /// Trace format, "Header": `from`, `setup_only` and `extras` are read, are checked, and change nothing else.
+    #[test]
+    fn reads_the_window_setup_only_and_extras_header_fields() {
+        let h = Header {
+            from: Some(6000),
+            extras: vec!["goals".into(), "hits".into()],
+            rules: Some("enhanced".into()),
+            ..header()
+        };
+        let back = Header::parse(&h.to_json()).unwrap();
+        assert_eq!(back, h);
+        assert!(back.enhanced);
+        let s = Header {
+            setup_only: true,
+            ..header()
+        };
+        assert_eq!(Header::parse(&s.to_json()).unwrap(), s);
+        let mut v: Value = serde_json::from_str(&header().to_json()).unwrap();
+        for bad in [Value::from(0), Value::from(-3), Value::from("12"), Value::from(1.5)] {
+            v["from"] = bad;
+            assert!(Header::parse(&v.to_string()).is_err(), "{v}");
+        }
+        v["from"] = 1.into();
+        assert_eq!(Header::parse(&v.to_string()).unwrap().from, Some(1));
+        v["setup_only"] = true.into();
+        assert!(Header::parse(&v.to_string()).is_err(), "setup-only with `from`");
+        v.as_object_mut().unwrap().remove("from");
+        v["setup_only"] = "yes".into();
+        assert!(Header::parse(&v.to_string()).is_err());
+        v["setup_only"] = false.into();
+        v["extras"] = "hits".into();
+        assert!(Header::parse(&v.to_string()).is_err());
+    }
+
+    /// Trace format, "Opt-in extras": `hits` and the units' `goal`, `pending` and `transport_dest` are read and not
+    /// compared.
+    #[test]
+    fn reads_the_extras_without_comparing_them() {
+        let line = r#"{"n":936,"kind":"cycle","rng":5,"units":[{"slot":1492,"hp":52,"goal":[5,86],"pending":null},{"slot":1428,"type":28,"goal":[0,65535],"pending":3,"transport_dest":[36,114]},{"slot":7}],"effects":[],"hits":[{"by":"melee","attacker":1484,"target":1492,"damage":8,"hp":60},{"by":"missile","attacker":1483,"target":null,"damage":13,"effect":3}]}"#;
+        let r = Record::parse(line).unwrap();
+        assert_eq!(
+            r.hits[0],
+            Hit {
+                by: "melee".into(),
+                attacker: Some(1484),
+                target: Some(1492),
+                damage: 8,
+                hp: Some(60),
+                effect: None,
+            }
+        );
+        assert_eq!((r.hits[1].target, r.hits[1].effect), (None, Some(3)));
+        assert_eq!(
+            r.goals[&1492],
+            Goals {
+                goal: Some([5, 86]),
+                pending: Some(Cell::Null),
+                transport_dest: None,
+            }
+        );
+        assert_eq!(r.goals[&1428].pending, Some(Cell::Int(3)));
+        assert_eq!(r.goals[&1428].transport_dest, Some([36, 114]));
+        assert!(!r.goals.contains_key(&7));
+        assert_eq!(Record::parse(&r.to_json()).unwrap(), r);
+        let mut ours = r.clone();
+        ours.hits.clear();
+        ours.goals.clear();
+        let mut skipped = BTreeSet::new();
+        assert!(compare(&r, &ours, &Filter::default(), &mut skipped).is_empty());
+        assert!(skipped.is_empty());
     }
 }
