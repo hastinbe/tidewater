@@ -130,6 +130,10 @@
   when the walk has ended, so a lumber worker walking to its tree doesn't flee (static study only for orders 24, 27, 6
   and 34); the arrival switch makes such a flee take over at once; a commanded target unit that is inside something
   fails the command check; round-63 vectors.
+  2026-10-13, round-64 errata: order 34 runs the reaction only when it has reached its transport, can't board and keeps
+  waiting; order 6 runs the reaction but not its result, and follows (or guards) the unit the search picked; no route
+  is not a walk end for the reaction; the arrival switch has no attacker condition (wording); order 16 still cooling
+  down keeps its order when the search gives order 12 (provisional: an uncommitted capture); round-64 vectors.
 
 ## Behaviour
 
@@ -665,7 +669,18 @@ with the player's own dying unit: `orc02-dyingcmd-3760`, vectors below; static s
 cooldown left restarts its attack animation and waits for the cooldown left. When it strikes, it turns to face its
 target (the facing rule of `core/animation-scripts.md`; ships use a different rule) and its cooldown starts again.
 
-**Follow (orders 6 and 7):** each time the logic runs, with the target still valid:
+**Follow (orders 6 and 7).** In order 6 the logic first runs the attacker reaction ("Reacting to an attacker"; only
+in a run where the follower isn't walking). Any order the reaction gives is replaced by what steps 2 and 3 give, but
+the target it set stays.
+When the reaction's search attacked a unit, that attack command has already made the picked unit the target (and order
+12 the pending order), so the steps below run on the picked unit: outside the radius the follow is given again toward
+it and takes over in the same update (order 6, still animation, wait **3**, target the picked unit; the pending order
+12 is replaced); inside it, step 3 on the picked unit. So a follower that is attacked doesn't turn on its attacker at
+once: it walks next to the picked unit and then, usually, goes idle there, and its idle logic attacks 3 cycles later
+(traced: `orc9-orc09-follow-attacked-1200` n = 493 and 560, round-64 vectors; the guard case, a follower whose target
+was lost at a step boundary, and step 1 after the reaction are static study only).
+
+Then, each time the logic runs, with the target still valid:
 
 1. If the follower's order is **7**, or a follow order (6) is pending, and the followed unit's own order is **not**
    one of 2, 3, 4, 5, 6, 7 or 10, the follower is given a plain move (command 3) to **its own tile**: it stops where
@@ -705,7 +720,8 @@ gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by `human01-
 logic runs at the step done that ends the attack cycle, after the cooldown frames, so a target that walks out of range
 is seen only then. While the unit is still **cooling down**, the cooling-down rule of "Automatic target acquisition"
 wins: the search takes the new target with no range test, and the unit restarts order 16 on it with the cooldown left as
-its wait. The out-of-range idle can come only at a later run with no cooldown left (static study only).
+its wait, whatever order the search gave ("Automatic target acquisition", the cooling-down case). The out-of-range
+idle can come only at a later run with no cooldown left (static study only).
 
 **Order 14 (towers).** A tower doesn't keep a target from one run to the next. Each time its logic runs, it forgets its
 attacker and runs the target search of "Automatic target acquisition" with two differences: the box is always its
@@ -838,7 +854,7 @@ first candidate in vertical order wins.
 
 | The searching unit's order | Every other player | Computer player |
 | --- | --- | --- |
-| An idle-type order (2, 7, 16) | 12 (chase) whenever the unit has an attacker (a dying one included); otherwise 16 (attack without moving) | 12 whenever the unit has an attacker (a dying one included); otherwise 12 if the target is a building or can attack, else 16 |
+| An idle-type order (2, 7, 16) | 12 (chase) whenever the unit has an attacker (a dying one included); otherwise 16 (attack without moving). Order 16 still cooling down: stays 16 (below) | 12 whenever the unit has an attacker (a dying one included); otherwise 12 if the target is a building or can attack, else 16. Order 16 still cooling down: stays 16 (below) |
 | A moving order (4, 5, 10, 12) | 12 | 12 |
 | Anything else (13, 14, 15) | 15 | 15 |
 
@@ -848,7 +864,8 @@ that forgets it ("Forgetting a dying attacker first"). Its death clears no recor
 victim as its attacker (`combat/damage.md`).
 
 When the searching unit's order is idle-type, the resulting order then takes over in the same update ("Same-update
-take-over"): attack animation, wait 3, and its logic first runs at that animation's next step done.
+take-over"): attack animation, wait 3, and its logic first runs at that animation's next step done. The exception is a
+unit in order 16 that is still cooling down, which keeps order 16 (below).
 
 When the searching unit is in order 12 and the search picks a different target:
 
@@ -873,9 +890,20 @@ When the searching unit is in order 12 and the search picks a different target:
 - **The old target is gone or was forgotten** (this unit killed it, or its slot is gone): the new order takes over at
   once (attack animation, wait 3).
 
-The cooling-down case applies also to a unit in order 15 or 16 whose search gives the same order on a different target:
-it takes the new target at once with the cooldown left as its wait (traced for order 16: `xhuman12-10000`, vectors
-below).
+The cooling-down case applies also to a unit in order 15 or 16 whose search picks a different target, whatever order
+the table gives. The search's order is given as a command, as always, and the run goes on to the cooldown test. A unit
+(not a flyer) that is still cooling down restarts its attack animation there **in its own order** (15 or 16), with the
+cooldown left as its wait, and that restart clears the pending order, as in "Losing the target while cooling down". So
+the unit keeps its order and takes the new target at once, and the order the search gave is dropped. For a unit in
+order 16 whose search gives order **12** (it has an attacker, or it is a computer player's unit and the target is a
+building or can attack), the unit stays in **order 16** on the new target, waiting for the cooldown left: there is no
+take-over with wait 3. With no cooldown left the table applies as usual. Traced for order 16 when the search gives the
+same order: `xhuman12-10000`, vectors below. **Provisional** for order 16 when the search gives order 12: it is shown
+only by a capture that isn't committed, `xorc5-30000` n = 20526 (Enhanced, 89.6 MB; reproducible with
+`oracle/capture.sh xorc5 30000`; the committed `xorc5-18500` stops before it), and by a break capture on the search's
+attacker branch at that cycle whose log wasn't kept; it agrees with the traced restart of "Losing the target while
+cooling down". The computer-player case with no attacker is static study only, and so is order 15 (its table order
+is 15 anyway).
 
 **Attack-move: orders 4, 5 and (Enhanced) 10.** When a unit in order 4 (move, attacking on the way), 5 (patrol) or, in
 Enhanced mode, 10 picks a target, order 12 on that target is likewise given as a command: the target is set and the
@@ -1070,14 +1098,24 @@ the unit has an attacker:
 **The reaction**, used by the orders that react without acquiring (attack-move in Classic mode, demolish orders
 19 to 21) and by several other orders' logic: harvest (23), return goods (24), repair (27), follow (6) and board (34).
 
-**Walking orders react only when the walk has ended.** Orders 23, 24, 27, 6 and 34 run the reaction only in a logic run
-where the unit is **not walking**: it has reached its goal (in reach), or its walk has ended in another way (such as no
-route). While the unit is walking, only the walk runs, and the attacker stays recorded for later. **The arrival
-switch:** when the walk ends at a step done and the unit still shows its move animation, it is switched to its order's
-own animation (`core/animation-scripts.md`) **before** the order's logic runs, so a flee given there takes over at once:
-order 3, still animation, wait 3 (traced for order 23: `orc9-orc09-flee-walk-1200` n = 590 and
-`orc9-orc09-flee-chop-walk-900` n = 483 to 573, round-63 vectors; static study only for orders 24, 27, 6 and 34, where
-no trace has an attacker on a walking unit).
+**Walking orders react only when the walk has ended.** Orders 23, 24, 27 and 6 run the reaction only in a logic run
+where the unit is **not walking**: it has reached its goal (in reach), or its target was found lost at a step boundary
+(order 23's no-route re-aim also counts: `orc9-orc09-flee-chop-walk-900` n = 573). **No route is not such a run:**
+orders 24, 27 and 6 then become idle as an immediate order and the **idle** logic runs, not the order's own logic, so
+the order's reaction doesn't run ("Arriving and losing the target", "No route"; static study only, no trace has it).
+While the unit is walking, only the walk runs, and the attacker stays recorded for later. For order 6 the reaction's
+result doesn't end the run: the follow logic goes on with its current target, which the reaction's attack command has
+set to the unit the search picked ("Follow (orders 6 and 7)"). **Order 34** runs the reaction only when it has reached
+its transport, can't board and keeps waiting (`orders/transports.md`, "Order 34 (board)"): a unit that walks to its
+transport with an attacker recorded boards when it gets there and doesn't turn on its attacker (traced:
+`orc12-orc12-board-attacked-1000` n = 661, round-64 vectors). **The arrival switch:** whenever the order's logic runs
+at a step done while the unit still shows its move animation (with or without an attacker), it is switched to its
+order's own animation (`core/animation-scripts.md`) **before** the order's logic runs, so a flee given there takes over
+at once: order 3, still animation, wait 3 (traced for order 23: `orc9-orc09-flee-walk-1200` n = 590 and
+`orc9-orc09-flee-chop-walk-900` n = 483 to 573, round-63 vectors). No reaction while walking is traced for orders 23,
+6 (`orc9-orc09-follow-attacked-1200`, hit at n = 323 and 326, no reaction until n = 493) and 34
+(`orc12-orc12-board-attacked-1000`, hit at n = 608, walking from n = 622 to 661), round-64 vectors; it is static study
+only for orders 24 and 27, where no trace has an attacker on a walking unit.
 
 - If the attacker is no longer valid (dying, dead or inside something), or the unit's owner is not playing, or the
   unit is a building, or it can't attack, the attacker is simply forgotten.
@@ -1471,6 +1509,19 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | A smart move whose target unit goes into a transport or becomes undetected mid-walk (static study) | Ends as on arrival at the next step boundary: order 2, wait 3, target dropped |
 | A human player's peasant repairing (order 27) is hit by an archer while walking to the building (static study) | No reaction while walking; it flees at its first logic run after it arrives |
 
+### Round-64 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-follow-attacked-1200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-follow-attacked.txt`): grunt 1481 (type 0x01, owner 5), sent to (61, 92) at n = 22 (turn record), is attacked by player 0's archers 1475 and 1476 (type 0x08; order 12 at n = 271 and 267). At n = 302 (turn record) it is smart-moved onto its own peon 1478 (type 0x03) | Order 6 from n = 314; hit while walking (hp 55 at n = 323, 47 at n = 326) and no reaction while it walks |
+| Same trace, n = 493: 1481 at (49, 92), next to the peon at (48, 91) (order 23, sent to gold mine 1480 at n = 342), runs its logic; archer 1476 at (54, 90) | Order 6, target **1476**, still animation, wait 3 (the follow toward the unit the reaction's search picked), not order 12 |
+| Same trace, n = 560: 1481 at (52, 90) reaches 1476 at (53, 90), whose order is 12 (not followable) | Order 2, no target, still animation, wait 3 (pending idle); n = 563: its idle logic attacks 1476 (order 12, attack animation, wait 3) |
+| A follower in order 6 whose reaction's search picks a unit that is idle, and that is already within the radius (static study) | Order 7 (guard) on the picked unit |
+| A follower in order 6 with an attacker whose route search finds no route (static study) | Idle as an immediate order; the idle logic runs, not order 6's reaction |
+| `orc12-orc12-board-attacked-1000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-board-attacked.txt`): ogre 1439 (type 0x07, owner 0), fighting player 3's ogre 1442 (type 0x07), is smart-moved onto its own docked transport 1434 (type 0x1D) at n = 602 (turn record) and hit at n = 608 | Order 34 from n = 622; it walks to the transport and is aboard at n = 661 (order 36); it never turns on 1442 (`orders/transports.md`, round-64 vectors) |
+| `human4-15000` (oracle trace, Enhanced), n = 638: computer peon 1531 (type 0x03, owner 0), no attacker, reaches its tree at (75, 79) | The arrival switch with no attacker: animation 3 to 4, frame 0, wait 1 in that record (that chopping doesn't start its animation a second time is static study) |
+| `xorc5-30000` (oracle capture, Enhanced, **not committed**; reproducible with `oracle/capture.sh xorc5 30000`), n = 20526: ogre 1450 (type 0x07, owner 5, the human player) at (6, 89) in order 16, attacked by footmen 1474 at (6, 88) and 1403 at (7, 88) (type 0x00, owner 1); its target changed from 1474 to 1403 at n = 20523, and it was hit at n = 20525 (hp 82) | **Provisional.** Its search, with that attacker, picks 1474: order 16, target 1474, wait 23 (the cooldown left), not order 12 with wait 3. It goes on striking in order 16 (n = 20550: frame 25, wait 3); order 12 never appears |
+
 ## Open questions
 
 - What issues commands 9, 11, 12, 14 and 16. The game's own logic issues orders 11 (the computer players' wall rule
@@ -1528,5 +1579,9 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   clears the record is open.
 - **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
   is open; the `human5-10000` trace fits the strike facing.
+- **Order 16 still cooling down when the search gives order 12** ("Automatic target acquisition", the cooling-down
+  case) is provisional: it rests on one capture that isn't committed (`xorc5-30000` n = 20526) and a break log that
+  wasn't kept. Commit that capture (or a window of it) or re-capture the case in a short input scenario (an idle unit
+  hit while cooling down whose search picks another target).
 - **A right-click, a cast and a build and the attacker record** ("A player's command forgets the attacker") rest on
   static study; no trace has any of them on a unit with a recorded attacker.
