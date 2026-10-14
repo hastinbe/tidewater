@@ -31,6 +31,9 @@
   2026-10-13, round-59 corrections: the placement draw count needs at least one opponent (none: no draw); Fixed
   Order starts make no placement draws.
   2026-10-13, round-60 harness: the multiplayer header fields `opponents` and `starts`.
+  2026-10-14, oracle-extras errata (still version 2): opt-in windowed traces (header `from`), setup-only traces
+  (`setup_only`), and the optional `extras`: the record field `hits` and the unit fields `goal`, `pending` and
+  `transport_dest`. Default traces don't change.
 
 ## Behaviour
 
@@ -62,6 +65,27 @@ Records come in the order the work happened. Each has `n` and `kind`.
   doesn't count the start-up cycles, and may count paused ones), so a comparer should ignore it.
 - Each record is the full state at that point: it doesn't depend on earlier records.
 
+**Windowed traces.** When the header has `from` = F, the game still ran from the start, but `cycle` and `turn`
+records with n < F are left out, except that the `setup` record, the two `startup` records and every `turn` record
+that carried out commands are always written. So the file holds, in order: the header, `setup` (n 0), `startup`
+(n 1, 2), the `turn` records with commands whose n is below F, then every record with n ≥ F as in a complete trace.
+A comparer:
+
+1. Sets up from the header and compares the `setup` and `startup` records as usual.
+2. Runs the cycles up to n = F − 1 without comparing them, as normal cycles after the start-up ones
+   (`core/timing-and-rng.md`, "Scheduler", rule 1). At each `turn` record in the gap it first runs the cycles up to
+   that record's `n`, then carries out its `commands` exactly as in a complete trace. It doesn't compare these gap records (each is still full state, so a comparer may report it for information).
+3. From the record with n = F on, compares every record as usual.
+
+A gap is expected and isn't a missing record. Across the gap, the `rng` of the record before it doesn't give the
+number of draws made before the first record at F (the gap's draws aren't counted anywhere). F is at least 1; the
+harness refuses an F past the requested cycle count, but a trace that stopped early (victory, defeat, a dialog) can
+end before F, and then has no record from F on.
+
+**Setup-only traces.** When the header has `"setup_only": true`, the file is the header and the `setup` record,
+nothing else: no `startup`, `cycle` or `turn` record, and never `from`. A comparer compares the `setup` record only.
+The setup record is the same as a complete capture's of the same scenario.
+
 ### Header
 
 | Field | Meaning |
@@ -89,6 +113,12 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `humans` | Multiplayer launch only: human players in the lobby, 2: the traced player (`local_player`) and one idle human |
 | `opponents` | Multiplayer launch only: the number of lobby rows set to Computer, 0 to 6. It is the count the opponent placement works from (`game/setup.md`, "Multiplayer game"), so with random starts the setup makes 1 + `opponents` placement draws when it is at least 1 (none when 0), even if a placement search fails and fewer computers are placed. Traces made before round 60 (2026-10-13) don't have it; for those, count the computer controllers after setup |
 | `starts` | Multiplayer launch only: the lobby's "Location" option, `"random"` (the default) or `"fixed"` (Fixed Order: each Computer row takes its same-numbered slot, with **no** placement draws; `game/setup.md`, "Fixed Order"). A `"fixed"` trace also has `-fixed` in its file name. Traces made before round 60 don't have it; all of them are `"random"` |
+| `from` | Windowed trace only: F, a whole number of at least 1, the first `n` from which every `cycle` and `turn` record is written ("Windowed traces"). Absent means the trace is complete from n 0 |
+| `extras` | Only when extras are on: the optional fields this trace adds, as a sorted list from `"goals"` and `"hits"` ("Opt-in extras"). Absent means none: no record has `hits` and no unit has `goal`, `pending` or `transport_dest` |
+| `setup_only` | Only when `true`: the trace is the header and the `setup` record and nothing else ("Setup-only traces") |
+
+None of these three changes `rules`, `enhanced` or any other field: a windowed, setup-only or extras trace is Enhanced
+unless Classic was explicitly requested on the multiplayer path, exactly as a default trace.
 
 ### Record fields
 
@@ -101,6 +131,7 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `units` | Every unit-table slot not on the free list, in ascending slot order (below) |
 | `effects` | Every effect-table slot in use, in ascending slot order (below) |
 | `commands` | `turn` records only, present when the turn carried out commands: each command, in the order it ran ("Commands") |
+| `hits` | Only when `extras` has `"hits"`: the calls of the damage step made by this record's work, one entry per call in the order they happened ("Hit entries"). Absent when there was no call. The `setup` record never has it |
 
 ### Unit fields
 
@@ -122,6 +153,9 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit. A death knight casting death coil has each victim in turn as its target, as each missile is launched, and keeps the last until the idle takes over (`spells/spells.md`, "Death coil victims") |
 | `trips` | Only for types 0x56 and 0x57 (oil platforms), 0x5C (gold mine) and 0x5D (oil patch): trips left (`economy/harvest.md`) |
 | `timers` | Only when one is running: any of `invisibility`, `unholy_armour`, `bloodlust` (cycles left) and `haste` (cycles; positive = haste, negative = slow) |
+| `goal` | Only when `extras` has `"goals"`, then on every unit: `[x, y]`, the unit's **stored goal**, in tiles like `tx`, `ty`: the tile its movement aims for (`movement/movement.md`, the stored goal of the blocked rules), set when it is sent somewhere and kept afterwards. The values are as stored, each 0 to 65535: a unit that isn't moving, and every building, holds whatever was left there (for example `[0, 65535]`, off the map). Compare it only where a spec defines it |
+| `pending` | Only when `extras` has `"goals"`, then on every unit: the unit's pending order number (`orders/orders.md`, "Pending orders and immediate orders"; numbers as in `order`), or `null` when it has none |
+| `transport_dest` | Only when `extras` has `"goals"`, and only on transports (types 0x1C and 0x1D), always on those: `[x, y]`, the transport's **destination** tile (`orders/transports.md`, "What the transport stores"). As stored, like `goal`: a transport that has had no command holds leftovers |
 
 ### Effect fields
 
@@ -243,6 +277,55 @@ lobby (a later spec): take them from the header and the setup record.
 - **Turns:** command turns in a multiplayer game come at the network's pace, not every cycle. As before, a `turn`
   record is written only when the turn drew random numbers or carried out commands.
 
+### Opt-in extras
+
+The harness can add optional fields that a default trace never has. Each is opt-in and named in the header's
+`extras`: `"hits"` adds the record field `hits`, `"goals"` adds the unit fields `goal`, `pending` and
+`transport_dest`. They change nothing else: with these fields removed, a trace with extras has the same records as the
+default trace of the same scenario, but for the permanent drawing effects in effect slots 0 to 2
+(`core/unit-slots.md`), which can move by a record because watching the hits slows the game's pacing. No comparer
+checks those slots.
+
+**Hit entries.** A `hits` entry is one call of the common damage step (`combat/damage.md`, "Applying damage"), read
+before anything is applied:
+
+| Field | Meaning |
+| --- | --- |
+| `by` | What made the call: `melee`, `missile`, `splash`, `demolish`, `exorcism` or `other` (below) |
+| `attacker` | Unit slot of the attacker given to the damage step (below), or `null` when none is a unit |
+| `target` | Unit slot of the unit hit, or `null` when it isn't a unit |
+| `damage` | The amount given to the damage step, 0 to 255, before its own checks |
+| `hp` | Only when `target` isn't `null`: the target's hit points before the call |
+| `effect` | `missile` and `splash` entries only, always on those: the effect slot of the missile, or `null` |
+
+| `by` | When | `attacker` | Seen in a trace |
+| --- | --- | --- | --- |
+| `melee` | A melee unit's blow (`combat/damage.md`, "How an attack delivers damage"), one entry per blow | The striking unit | Yes |
+| `missile` | A missile reaching its target unit | The unit that fired it, as in the missile's `shooter`; it may have died since | Yes |
+| `splash` | An area missile's blast (`combat/damage.md`, "Splash on impact"): one entry per unit caught, all with the same `attacker` and `effect` | As `missile` | Yes |
+| `demolish` | A demolition squad's or sapper's blast (`combat/attack-ground-demolish.md`); up to two calls per tile | The demolisher | **No: static study only** |
+| `exorcism` | The exorcism spell (`spells/spells.md`) | The caster | **No: static study only** |
+| `other` | Any other source | Whatever unit was given, or `null` | No |
+
+The `demolish` and `exorcism` kinds, and their `attacker` meanings, come from static study only: no capture has
+written one yet (the demolition scenario's blasts hit only walls). Treat them as expected, not observed.
+
+An entry is a call, not damage done: the damage step may then do nothing (a dying or removed target, a passenger, the
+Dark Portal case, unholy armour, an amount of 0; `combat/damage.md`, "Applying damage"), and a killing call doesn't
+lower the target's hit points. Compare `hp` with the target in the same record to see what was applied; several
+entries on one target in a record each show the hit points left by the ones before. Damage that doesn't go through
+the common step is not listed: walls, runes and other direct changes.
+
+**Which record lists a call.** The record whose work made the call: a `startup`, `cycle` or `turn` record. When a turn
+made calls but gets no record (it drew no random numbers and carried out no command), its entries go with the next
+record written. In a windowed trace calls before F aren't listed, except that a `turn` record in the gap lists its
+own turn's calls.
+
+**Comparing extras.** A comparer may ignore `extras` entirely: unknown fields don't change the result. When it checks
+them, it compares `hits` only where a spec defines the calls (`combat/damage.md`), `pending` as an order number, and
+`goal` and `transport_dest` only where a spec defines the stored value (leftovers on idle units and buildings mean
+nothing).
+
 ### Format versions
 
 | # | Where | Version 1 | Version 2 |
@@ -255,6 +338,10 @@ lobby (a later spec): take them from the header and the setup record.
 
 Every version 1 field keeps its meaning. A version 2 trace without input is identical to a version 1 trace apart
 from `version` and an empty `input`.
+
+The opt-in header fields `from`, `extras` and `setup_only` and the extras' fields came later without a version change:
+a trace without them is exactly as before. A comparer must honour `from` (one that ignores it sees n jump from 2 to F
+and diverges there) and `setup_only` (it isn't a truncated trace); the extras' fields may be ignored.
 
 **Scenario files.** The harness's input lists in `oracle/` ("Input scenarios") are our own command lists and contain
 nothing from the program, so they may be used as test input like the traces. Their line format isn't part of this
@@ -282,6 +369,14 @@ The multiplayer header fields of `mp-dark-paths-bne-1000` (Enhanced; fields abri
 
 ```json
 {"format":"tidewater-oracle-trace","version":2,"speed":8,"enhanced":true,"rules":"enhanced","local_player":1,"controllers":["human","human","computer","nobody","…"],"cheats":[],"unit_slots":1600,"effect_slots":400,"launch_path":"multiplayer","connection":"direct-connect","map":"Dark Paths BNE.pud","start_seed":1,"humans":2,…}
+```
+
+A record with both extras, from `orc9-orc09-order16-keep-goals-hits-2000` (Enhanced; campaign, no `from`; fields
+abridged):
+
+```json
+{"format":"tidewater-oracle-trace","version":2,…,"enhanced":true,"rules":"enhanced",…,"extras":["goals","hits"]}
+{"n":936,"kind":"cycle",…,"units":[…,{"slot":1492,…,"hp":52,"order":16,…,"target":1485,"goal":[5,86],"pending":null},…],"effects":[…],"hits":[{"by":"melee","attacker":1484,"target":1492,"damage":8,"hp":60}]}
 ```
 
 ## Test vectors
@@ -328,6 +423,19 @@ second human, no input, 1000 cycles).
 | `mp-gold-rush-bne-fixed-6000` (Enhanced): `opponents` 2, `starts` `"fixed"` | Setup `rng` 0x0452EB91, 164 steps from 5: the 2 × 82 unit-creation draws and no placement draw |
 | `mp-dark-paths-bne-fixed-1000` and `mp-rose-petal-bne-fixed-3000` (Enhanced): `opponents` 1 and 4, `"fixed"` | 26 and 86 setup draws: 2 fewer and 5 fewer than their random-start twins (28, 91), that is 1 + `opponents` |
 
+These come from the 2026-10-14 harness checks of the opt-in extras (all Enhanced; harness checks, not committed).
+Four golden traces re-captured without extras (three campaign, one multiplayer) have every record identical to the
+committed files.
+
+| Input | Expected |
+| --- | --- |
+| `orc6-6000-8000`: Orc06, no input, `from` 6000, 8000 cycles | Records n 0, 1, 2, then 2001 records from n 6000, identical to the same records of a complete `orc6-8000` |
+| `orc9-orc09-order16-keep-goals-hits-2000`, n 936 (`cycle`) | `hits` `[{"by":"melee","attacker":1484,"target":1492,"damage":8,"hp":60}]`; unit 1492 has `hp` 52, `goal` [5, 86] and `pending` null in the same record; 59 entries in the trace, all `melee`; with the extras removed, the records equal the default capture's |
+| `xhuman10-xhuman10-spells-goals-hits-700`, n 86 | A ballista bolt (`effect` 3, `attacker` 1483) gives six `splash` entries, then a `missile` entry hits unit 1497 at `hp` 37 (50 − 13 from its splash entry just before) |
+| `human12-human12-demolition-goals-hits-450` | Transports 1428 (type 0x1C) and 1522 (type 0x1D) have `transport_dest` [36, 114] and [68, 34]; no record has `hits` (the blasts hit only walls); buildings hold leftover goals such as [0, 65535] |
+| `orc10-0`: Orc10, 0 cycles | 2 lines; header `"setup_only": true` and otherwise as `orc10-35000`'s; the setup record equals `orc10-35000`'s |
+| `mp-dark-paths-bne-goals-hits-500-1000` (multiplayer, `from` 500, both extras) | Header `"from": 500`, `"extras": ["goals","hits"]`; records n 0, 1, 2 then the 501 from n 500, equal to `mp-dark-paths-bne-1000`'s with the extras removed; no `hits` by n 1000 |
+
 ## Open questions
 
 - **Other speeds.** Input traces so far all run at speed 8, where a command turn follows every cycle. At slower
@@ -345,6 +453,8 @@ second human, no input, 1000 cycles).
 - **Cheat commands the game makes itself** (mission select sends one with the flags unchanged) would appear as a
   `cheat` entry with the same flags. None has been seen in a trace.
 - **Multiplayer cheats:** the throw-away draw when a game disables cheats hasn't been traced.
+- **Extras not yet observed:** no capture has a `demolish` or `exorcism` hit entry (static study only), and the
+  stored goal of a unit that isn't moving has no defined value.
 - Fog of war, the map's tiles (trees cut, walls) and the AI state aren't recorded yet.
 - **Scenario identity.** `scenario` and `launch` are free text, so a comparer can't yet set up the scenario from the
   header alone. Default: each comparer test names its scenario (campaign entry or map file) itself; a structured
