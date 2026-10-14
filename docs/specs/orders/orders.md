@@ -2,7 +2,7 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Consolidated 2026-10-14 into one model with no
   rule change (B-038; the review notes, with a map from every earlier rule and vector to its place here, are kept
-  with the research-side specs).
+  with the research-side specs). The consolidation was checked by a second spec-review session, 2026-10-14.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the public PUD
   specification text (unit data section), and oracle traces of the running game. Each rule says which: "traced"
   with the trace name and record number n, or "static study only". The erratum rounds each rule came from are listed
@@ -17,7 +17,7 @@ turned into an order by the rules in "Commands" below, and the result is normall
 
 ### The model
 
-A unit's update at a step done is one procedure, the same for every order ("How an update runs"):
+A unit's update at a step done follows the same steps for every order ("How an update runs"):
 
 1. If the unit has a **pending order**, it takes over, and nothing else happens for the unit in that update
    ("Taking over").
@@ -55,7 +55,8 @@ The rules below are each stated once and used by every order that reaches them:
 - **Walking and the walk's end** ("Walking orders"): one walk for every order that moves, with three ends: in reach,
   target dropped at a step boundary, no route.
 - **No route** ("Arriving and losing the target", "No route"): one immediate idle, with the listed special cases.
-- **Losing the target** ("Arriving and losing the target"): one test for orders aimed at a unit.
+- **Losing the target** ("Arriving and losing the target"): one test for the walk, the command check and the follow and
+  attack orders aimed at a unit. The harvest orders' own target checks differ (`economy/harvest.md`).
 - **Reacting to an attacker** and **automatic target acquisition**: one reaction, one flee rule and one target
   search, used by every order that acquires or reacts.
 
@@ -233,14 +234,16 @@ are made"; `core/animation-scripts.md`). At each step done, in this order:
    (the arrival test of `movement/movement.md`, "Arriving", with the exceptions in "The order list"), the walk runs
    instead of the order's logic ("Walking orders", below). If the walk ends, the update goes on to step 3; if the unit
    steps or is blocked, nothing more happens for it in that update. A unit already in reach doesn't walk at all, so
-   nothing the walk does (its target search or reaction, its target test) happens in that update.
+   nothing the walk does (its target search or reaction, its target test) happens in that update (static study only,
+   beyond the traced cases: V196 and "Walking orders react only when the walk has ended").
 3. **The arrival switch.** If the unit still shows its move animation (3), it is switched to its order's own
    animation **before** the order's logic runs (stated, with its evidence, under "Walking orders react only when the
    walk has ended" below).
 4. **The order's logic runs.** If it gives the unit a command of its own that takes over at once, the new order takes
    over now, without its logic running ("Same-update take-over").
-5. **The skip mark** of "Order 12 with no route" is cleared at the end of an update in which the order's logic ran,
-   if it was already set when the update began ("Order 12 with no route", step 3, "Clearing").
+5. **The skip mark** of "Order 12 with no route" is cleared at the end of an update in which the order's logic ran
+   and the unit didn't step, if it was already set when the update began ("Order 12 with no route", step 3,
+   "Clearing").
 
 ### Walking orders
 
@@ -392,7 +395,8 @@ every other command listed in `movement/movement.md`, "Blocked rules"):
    attacker is forgotten, and a target that fails the check is dropped and idle becomes the pending order in place of
    the command's order.
 
-A command from a player or a computer player takes over at the unit's next step done. A command that the unit's own
+A command from a player or a computer player takes over at the unit's next step done, except a computer worker's job
+choice from idle, which its idle logic gives ("Same-update take-over"). A command that the unit's own
 order logic gives it takes over either in the same update or at the next step done, as each case says ("Same-update
 take-over" lists the cases). Which goals are pulled back, and which commands keep or clear the
 remembered order (Enhanced), are given with each case below.
@@ -690,8 +694,9 @@ until it guards; then order 7's idle logic flees, and the flee move (order 3, no
 
 ### Attack orders
 
-The attack orders 9, 11, 12, 15, 16 and 17 share one run, and the idle logic (orders 2 and 13, and order 7 after its
-follow steps) is the first part of it. Each time the logic runs, in this order:
+The attack orders 9, 11, 12, 15, 16 and 17 and the idle logic (orders 2 and 13, and order 7 after its follow steps)
+make the same checks in the same order, each order making only the steps the table gives it. Each time the logic
+runs, in this order:
 
 | Step | What happens | Orders |
 | --- | --- | --- |
@@ -1155,7 +1160,6 @@ the unit has an attacker:
 When a walking unit reacts, and when it doesn't, is given in "Walking orders" and "Walking orders react only when the
 walk has ended".
 
-
 - If the attacker is no longer valid (dying, dead or inside something), or the unit's owner is not playing, or the
   unit is a building, or it can't attack, the attacker is simply forgotten.
 - Otherwise, if the unit is a non-combat unit (worker, tanker, transport, demolition unit or mage-type unit: mage and
@@ -1486,7 +1490,7 @@ row's trace starts "As" that row's ID and names the trace.
 | V199 | `xhuman11-10000` (oracle trace), n = 9065: paladin 1513 (type 0x0C, owner 1, the human player) at (84, 67), in order 12 on 1473, which it loses, and idle grunt 1518 (owner 1) at (85, 67); their recorded attacker, catapult 1467 (type 0x05, owner 2) at (84, 59), stands in fog | The seed is rejected (hidden): 1513 goes idle (order 2, animation 2, wait 3, target null) and 1518 stays idle; no chase | Trace (`xhuman11-10000`) |
 | V200 | The seed rule of V198 and V199, an attacker that isn't detected (an invisible unit; static study only) | Not a seed | Static study |
 | V214 | `orc5-40000` (Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle; transport 1516 (type 0x1C, owner 0) landing at (120, 6), d = 2 | Picked: order 16, animation 4, wait 3, target 1516 (a minimum of 3 would have skipped it) | Trace (`orc5-40000`) |
-| V217 | `orc12-30000` (as above; re-captured identically in round 60), n = 26982: computer ogre mage 1442 (owner 3) at (36, 119), idle; transport 1434 (owner 0) landing on the shore tile (29, 121) | Picked: order 16, animation 4, wait 3, target 1434 | Trace (`orc12-30000`) |
+| V217 | `orc12-30000` (as V216; re-captured identically in round 60), n = 26982: computer ogre mage 1442 (owner 3) at (36, 119), idle; transport 1434 (owner 0) landing on the shore tile (29, 121) | Picked: order 16, animation 4, wait 3, target 1434 | Trace (`orc12-30000`) |
 | V218 | A land-only searcher; candidate a transport in the sea layer on a shore-water tile (static study) | Not skipped for its kind | Static study |
 
 ### Acquisition: resulting order and target switches
@@ -1744,7 +1748,12 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   - every walking order whose target unit is lost at a step boundary ends its walk there ("Walking orders", step 2;
     traced for orders 3 and 4 here and for 23 and 24 in `economy/harvest.md`);
   - while walking, the demolish orders 20 and 21 run the reaction, order 7 runs the target search, and every order that
-    neither acquires nor reacts only forgets a dying attacker ("Walking orders", step 1);
+    neither acquires nor reacts only forgets a dying attacker ("Walking orders", step 1); for order 7 the static study
+    also finds that this search's resulting order is always 12, where "Resulting order" gives an idle-type order 16
+    when the unit has no attacker (no vector has a walking guard acquire);
+  - a unit already in reach of its goal makes none of the walk's steps in that update, so no walking search, reaction
+    or target drop ("How an update runs", step 2; traced only for the acquisition of orders 4 and 10, V196, and for
+    the walking orders' reaction, "Walking orders react only when the walk has ended");
   - order 18's switch to order 17 is a command that takes over in the same update ("What every command does").
 
 ## History
