@@ -9,6 +9,9 @@
   turn broadside).
 - **Changes:** 2026-10-13, round-54 errata: with no route a demolisher goes idle at once and its idle logic runs in the
   same update (the plain no-route rule); `orc10-sappers-2500` vector.
+- **Changes:** 2026-10-14, round-68 errata: order 18 stores the target tile pulled back as its goal and has two
+  arrival tests; its switch to order 17 is a command that takes over in the same update (wait 3, no strike in that
+  update); order 17 out of range with no route traced; `orc9-orc09-ground-move-goals-1100` vectors (Enhanced).
 
 ## Behaviour
 
@@ -37,16 +40,26 @@ any target unit it had. Then:
 1. If the target tile has the **same region value** as the unit's own tile (`movement/occupancy.md`, "How
    passability changes": the same water area, or the same land area), the order is **17**.
 2. Otherwise, if the target tile is already within the unit's attack range (both axes), the order is **17**.
-3. Otherwise the target tile is also stored as the unit's move goal, and the order is **18**.
+3. Otherwise the order is **18**. The unit's move goal is the target tile **pulled back** to a tile it can reach
+   (`movement/pathfinding.md`), and the target tile itself is kept as well (traced:
+   `orc9-orc09-ground-move-goals-1100` n = 22 and 42, vectors below).
 
 So a target the unit can reach on its own ground or water uses order 17 at once, however far away it is. Order 18
 is used only for a target in a different region (across water, on a cliff top of another land area, a forest, rock
 or wall tile, or land for a ship) that is out of range.
 
-**Order 18: moving into range.** The unit moves toward the stored goal as for a move order (the goal may be pulled
-back to a tile it can reach, `movement/pathfinding.md`). As soon as it is within its type's attack range of the
-stored goal on both axes, its path is dropped and it gets order 17 (`orders/orders.md`). This test uses the type's
-base range without range upgrades; no unit that can attack the ground has one.
+**Order 18: moving into range.** The unit walks toward its pulled-back goal as for a move order. It has arrived
+when either test passes, checked as the walk's arrival test (`orders/orders.md`, "Arrival radius exceptions"):
+
+- it is within its type's **base** attack range (without range upgrades; no unit that can attack the ground has
+  one) of the **target tile** on both axes (static study only: no trace separates this test);
+- it is within **2** tiles of the pulled-back goal on both axes, **3** for sea and air units (traced for a catapult:
+  vector below, 13 tiles from its target; the radius of 3 is static study only).
+
+On arrival its path is dropped and it is given order 17 on the target tile (not the pulled-back goal) as a command,
+which takes over in the same update: order 17, attack animation, wait 3, facing unchanged. Nothing is fired in that
+update; order 17's logic runs at the next step done, turns the unit and strikes (traced:
+`orc9-orc09-ground-move-goals-1100` n = 157 to 162).
 
 **Order 17: attacking the ground.** The order's goal is the target tile, and its radius is the unit's attack range.
 
@@ -137,7 +150,7 @@ own tile. In this order:
 | --- | --- |
 | Catapult (range 8) on land area A at (10, 10); command 17 on a grass tile of area A at (30, 10) | Order 17 at once; it walks until within 8 tiles of (30, 10) on both axes (column 22), then fires at the tile |
 | Same catapult; command 17 on a water tile at (14, 10) | Different region, in range: order 17; it fires without moving |
-| Same catapult; command 17 on a forest tile at (25, 10) | Different region, out of range: order 18 toward (25, 10); at column 17 it becomes order 17 and fires |
+| Same catapult; command 17 on a forest tile at (25, 10) | Different region, out of range: order 18, goal (25, 10) pulled back to a reachable tile beside it; at column 17 (within 8 of (25, 10)) it gets order 17 on (25, 10) and fires from its next step done |
 | Battleship on water area W; command 17 on a land tile 3 tiles away, inside its range | Order 17 at once |
 | Ballista attacking the ground at a tile where only its own footman stands | It keeps firing; the bolt's splash hurts the footman |
 | Ballista attacking the ground at an empty tile; an enemy grunt walks up and attacks it | It keeps firing at the tile and doesn't turn on the grunt |
@@ -153,13 +166,20 @@ own tile. In this order:
 | Squad blows up at (0, 0) | Neighbours with −1 are off the map and skipped; (1, 1), (0, 1), (1, 0) are tested |
 | `human12-demolition` (oracle trace), n = 239: demolition squad 1430 (type 0x0E, 40 HP) reaches (29, 100) and blasts | Killed in the same update: order 1, animation 1, HP **40**, and still 40 through its death animation, to the trace's end at n = 450 |
 | Any blast | Order of events: terrain, unit hits, squad dies (its death sound `misc\explode`), then `misc\explode` at the tile |
+| `orc9-orc09-ground-move-goals-1100` (oracle trace, Enhanced), n = 22: catapult 1486 (range 8) at (44, 87) told to attack the water tile (50, 75) (`orders/orders.md` V267) | Goal (47, 81), pulled back; order 18. It arrives at (46, 83) at n = 158, which passes both arrival tests |
+| As above, n = 42 and 879: catapult 1494 at (41, 84) told to attack the island tile (14, 70) (`orders/orders.md` V268) | Goal (25, 76), pulled back; order 18. Arrives at (27, 74), 2 tiles from the goal and 13 from the target: the goal-radius test |
+| As above, catapult 1486, n = 157 to 162 (`orders/orders.md` V269) | n = 158: order 17 on (50, 75), attack animation, wait 3, facing unchanged, no missile. n = 161: turned. n = 162: its missile is fired at (50, 75) |
+| As above, catapult 1494, n = 882: order 17 since n = 879, out of range (13 tiles), and its route search finds no route | Order 2, still animation, wait 1, goal (14, 70): idle at once (step 3 of "Order 17") |
 | `orc10-sappers-2500` (oracle trace), n = 35: sapper 1501 (owner 0) at (78, 83) in order 20 on 1507, which it can't reach; its route search finds no route | Order 2, animation 2, wait 1, target null; its idle logic runs in that update (3 draws in the cycle, one of them its look-around draw) |
 
 ## Open questions
 
 - **Order 17 when movement gives up.** A unit that can't reach range under order 17 gives up through the movement
-  rules (`movement/movement.md`, "Blocked") and goes idle. Whether it ever runs its order logic out of range in other
-  cases hasn't been traced; the result would be the same (idle).
+  rules (`movement/movement.md`, "Blocked") and goes idle. Running its logic out of range with no route is traced
+  (round 68, `orc9-orc09-ground-move-goals-1100` n = 882): idle at once. Whether the idle logic runs in that update and
+  whether a remembered order is resumed aren't separated there (a catapult makes no look-around draw and found nothing
+  to acquire); static study only.
+- **Order 18 with no route** isn't traced: the pull-back always gave a reachable goal in the round-68 trace.
 - **A second cleared value.** Command 17 also clears one more per-unit value that wasn't identified. Default: no
   visible effect.
 - **Target tile in another region but reachable.** Region values compare exactly, so a ship's target tile on another
