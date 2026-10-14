@@ -301,56 +301,57 @@ impl World {
         }
     }
 
-    /// Order 24.
-    ///
-    /// Round-62 errata ("Returning goods"; `orc9-orc09-enter-dying-1800` peon 1482, n = 1435): a target that is dying,
-    /// or gone makes the unit look up the nearest depot and be given return goods to it as a pending order that takes
-    /// over in the same update (still animation, wait 3, cached route dropped); with no depot, idle becomes the pending
-    /// order the same way (traced in round 63: `orc9-orc09-return-nodepot-2200` peon 1478, n = 1530).
-    ///
-    /// Round-63 errata: while the unit walks only the walk runs, and each run of the order's logic first runs the
-    /// reaction to an attacker (static study only).
-    ///
-    /// Round-64 errata (`orc9-orc09-return-inside-1200` peon 1482, n = 558): the logic runs on arrival, or when, at a
-    /// step boundary, the target is found dying or gone, inside something or no longer detected; a target that goes
-    /// inside something while the unit walks is dropped at its next step boundary, and the unit heads for the nearest
-    /// depot. The step-boundary test isn't made on arrival: a target already inside something then is entered, and
-    /// order 25's target check drops it. A route search that finds no route doesn't run the order's logic: idle at
-    /// once, and the idle logic runs (`xorc3` peon 1462, n = 8895), with no reaction (static study only).
+    /// Order 24 ("Returning goods"), a walking order: only the walk runs until it ends. It ends in reach of the
+    /// depot, when the walk drops the target at a step boundary (dying, gone, inside something or undetected), or with
+    /// no route ("No route"). Order 24's own test is narrower: only a target dying or gone counts as lost, and the
+    /// step-boundary test isn't made on arrival, so a target inside something then is entered and order 25's target
+    /// check drops it (V82). The three target tests stay separate.
     pub(crate) fn return_order(&mut self, i: usize, depot: Option<UnitId>) {
         let owner = self.units[i].owner;
         let alive = depot.and_then(|d| self.index(d)).filter(|&di| self.units[di].alive());
-        if let Some(di) = alive {
-            let g = self.building_walk(i, di);
-            let arrived = self.at_goal(i, g);
-            if !arrived && self.holds(owner, self.units[di].id) {
-                // Walking: only the walk runs.
-                if self.move_toward(i, g) == Walk::NoPath {
-                    self.no_route(i);
-                }
-                return;
-            }
-            if arrived {
-                self.units[i].path.clear();
-                if self.react_at_walk_end(i) {
-                    return;
-                }
-                if self.units[di].construction.is_some() {
-                    return self.idle(i);
-                }
-                let building = self.units[di].id;
-                // As at a mine: order 25 takes over at once and first runs at the next step done.
-                self.take_over(
-                    i,
-                    Order::Enter {
-                        building,
-                        stepped: false,
-                    },
-                );
-                return;
-            }
+        let Some(di) = alive else {
+            return self.return_target_lost(i);
+        };
+        let g = self.building_walk(i, di);
+        if self.at_goal(i, g) {
+            return self.return_in_reach(i, di);
         }
-        // The target is dying or gone, or was found inside something or undetected at this step boundary.
+        if !self.holds(owner, self.units[di].id) {
+            return self.return_target_lost(i);
+        }
+        if self.move_toward(i, g) == Walk::NoPath {
+            self.no_route(i);
+        }
+    }
+
+    /// "Returning goods", step 3, after the reaction (step 1): at a completed depot order 25 takes over at once and
+    /// first runs at the next step done; at one still under construction the unit goes idle. Kept as it is: that idle
+    /// is set by an animation switch, not a take-over (pinned; "otherwise 2" in the spec).
+    fn return_in_reach(&mut self, i: usize, di: usize) {
+        self.units[i].path.clear();
+        if self.react_at_walk_end(i) {
+            return;
+        }
+        if self.units[di].construction.is_some() {
+            return self.idle(i);
+        }
+        let building = self.units[di].id;
+        self.take_over(
+            i,
+            Order::Enter {
+                building,
+                stepped: false,
+            },
+        );
+    }
+
+    /// "Returning goods", step 2, after the reaction (step 1): the target is lost, so the unit is sent to the nearest
+    /// depot, taken over in the same update (wait 3, route dropped), or with none idle (V68, V77, V81).
+    ///
+    /// Kept as it is (pinned): this re-aim isn't made as an ordinary command, though "Commands given by these orders"
+    /// says it is. The blocked counter is kept, a stale attacker isn't forgotten, and the idle with no depot may
+    /// resume a remembered order. The reaction runs before the route is dropped.
+    fn return_target_lost(&mut self, i: usize) {
         if self.react_at_walk_end(i) {
             return;
         }
@@ -361,26 +362,16 @@ impl World {
         }
     }
 
-    /// Order 25 ("Entering a mine, platform or depot").
-    ///
-    /// Round-62 errata, step 3 ("Target check first"; `orc9-orc09-enter-dying-1800` peon 1478, n = 1441): each run
-    /// first drops a target that is dying or gone, or that the unit's player no longer detects (static study only).
-    /// Round-64 errata (static study only): and a unit target that is inside something. With no target, a unit that already stepped in dies with no target; otherwise idle becomes the pending order
-    /// and takes over in the same update.
+    /// Order 25 ("Entering a mine, platform or depot"). Step 3, the target check, comes first: a target dying or gone,
+    /// inside something or no longer detected is dropped ([`World::enter_target_lost`]). Then step 1 (face, step in)
+    /// and step 2 ([`World::go_in`]).
     pub(crate) fn enter_order(&mut self, i: usize, building: UnitId, stepped: bool) {
         let owner = self.units[i].owner;
         let held = self
             .index(building)
             .filter(|&bi| self.units[bi].present() && Self::detected(&self.units[bi], owner));
         let Some(bi) = held else {
-            if stepped {
-                // The dropped target shows as none when the unit dies.
-                self.units[i].order = Order::Idle;
-                self.kill(i);
-            } else {
-                self.idle_now(i);
-            }
-            return;
+            return self.enter_target_lost(i, stepped);
         };
         let tanker = self.is_tanker(&self.units[i]);
         if !stepped {
@@ -408,7 +399,19 @@ impl World {
         self.go_in(i, bi);
     }
 
-    /// Order 25, step 2: the unit goes inside, then delivers or takes a load.
+    /// "Entering", step 3, with no target: a unit that already stepped in dies, its target showing as none (V69).
+    /// One that hasn't has idle made pending, taken over in the same update (V82 as written). Kept apart: the open
+    /// question "Order 25 losing its target before stepping in" finds an immediate idle here instead.
+    fn enter_target_lost(&mut self, i: usize, stepped: bool) {
+        if stepped {
+            self.units[i].order = Order::Idle;
+            self.kill(i);
+        } else {
+            self.idle_now(i);
+        }
+    }
+
+    /// "Entering", step 2: the unit goes inside, then delivers ("Delivering goods") or takes a load.
     fn go_in(&mut self, i: usize, bi: usize) {
         let b = self.units[bi].clone();
         let bf = self.flags_of(b.kind);
