@@ -282,6 +282,9 @@ pub struct Unit {
     /// A dead body, wreck or ruin decaying (corpses spec); still `dying`.
     pub remains: bool,
     pub removing: bool,
+    /// An oil patch killed under a new platform after its own update in that cycle: its removal starts at its next
+    /// update (build-train spec, "Placing a building", round-65 errata).
+    pub removal_due: bool,
     /// Set while a building is under construction.
     pub construction: Option<Construction>,
     /// A building's training or upgrade job.
@@ -1124,6 +1127,7 @@ impl World {
             skip_search: false,
             dying: false,
             removing: false,
+            removal_due: false,
             remains: false,
             construction: None,
             job: None,
@@ -1519,6 +1523,13 @@ impl World {
         // Damage spec, "Attack timing (cooldown)": the cooldown counts down every cycle, except a transport's.
         if self.units[i].cooldown > 0 && self.stats_of(self.units[i].kind).flags & flags::TRANSPORT == 0 {
             self.units[i].cooldown -= 1;
+        }
+        // Build-train spec, "Placing a building" (round-65 errata, `xhuman5-30000` patch 1530, n = 27633): a patch
+        // killed in a lower slot than its builder starts its removal at its next update; the wait of 1 comes from
+        // that update, as for a patch in a higher slot.
+        if std::mem::take(&mut self.units[i].removal_due) {
+            self.death_done(i);
+            self.units[i].script.wait = 2;
         }
         let u = &mut self.units[i];
         // Rescue spec, "Frozen units": a frozen unit doesn't advance its animation at all.

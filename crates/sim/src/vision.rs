@@ -261,9 +261,13 @@ impl World {
     }
 
     /// The centre tile and sight value of unit `i`, if it reveals ("Sight of a unit", "Who reveals, and when").
+    ///
+    /// Round-65 errata ("When sight is applied", rule 1; `xorc4-30000` n = 19507): every unit whose slot is in use
+    /// applies its sight, a unit in its death animation included; bodies, ruins and units being removed too until the
+    /// slot is released (static study only).
     fn sight_of(&self, i: usize) -> Option<((i32, i32), u8)> {
         let u = &self.units[i];
-        if Self::is_dead(u) || u.owner >= SEEN_PLAYERS || self.kind_of(u.owner) != Kind::Human {
+        if u.script.anim == RELEASED || u.owner >= SEEN_PLAYERS || self.kind_of(u.owner) != Kind::Human {
             return None;
         }
         if u.inside {

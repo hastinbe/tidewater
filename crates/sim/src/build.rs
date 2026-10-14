@@ -253,16 +253,22 @@ impl World {
                 self.units[bi].resources = trips;
             }
             // Round-41 errata (`orc09-naval` patch 1502, n = 268): the patch is marked used and killed, and leaves no
-            // ruin: its "remove" order starts in the same cycle, with its type kept (core/corpses spec), and the
-            // cycle's record shows it with wait 1. Our reading: the removal starts as of the patch's own update this
-            // cycle, so a patch still to be updated (a higher slot than the builder's) has its first wait run there.
+            // ruin: its "remove" order starts at its own next update, with its type kept (core/corpses spec), and
+            // that update's record shows it with wait 1. A patch in a higher slot than the builder's has that update
+            // in this cycle. Round-65 errata (`xhuman5-30000` patch 1530, n = 27632): one in a lower slot has
+            // already been updated, so this cycle's record shows the killed state (order 1, animation 1, wait 1)
+            // and its removal starts in the next cycle.
             let pi = self.index(p).expect("the patch is alive");
             self.units[pi].used = true;
             self.kill_as(pi, false);
             let pi = self.index(p).expect("the patch is still in its slot");
-            self.death_done(pi);
-            let later = self.units[pi].slot > u.slot;
-            self.units[pi].script.wait = 1 + later as u8;
+            if self.units[pi].slot > u.slot {
+                self.death_done(pi);
+                self.units[pi].script.wait = 2;
+            } else {
+                self.units[pi].script.wait = 1;
+                self.units[pi].removal_due = true;
+            }
             let patch_slot = self.units[pi].slot;
             self.fresh_platforms.push((b, patch_slot));
         }
@@ -602,8 +608,8 @@ mod tests {
     }
 
     /// Round-41 errata (`orc09-naval` patch 1502): an oil platform's patch is marked used and removed with no ruin,
-    /// its type kept, with wait 1 in the cycle's record (the patch here updates before the builder, so nothing more
-    /// runs on it this cycle).
+    /// its type kept. Round-65 errata (`xhuman5-30000` patch 1530, n = 27632): the patch here is in a lower slot than
+    /// its builder, so this cycle shows it killed (wait 1) and its removal starts at its next update, with wait 1.
     #[test]
     fn a_platform_removes_its_oil_patch() {
         let (mut w, _) = town();
@@ -632,10 +638,14 @@ mod tests {
         w.raise(i, PLATFORM, (16, 16));
         let pu = w.unit(patch).unwrap();
         assert_eq!(pu.kind, OIL_PATCH);
-        assert!(pu.used && pu.removing && pu.dying, "{pu:?}");
+        assert!(pu.used && pu.dying && !pu.removing && pu.removal_due, "{pu:?}");
         assert!(pu.slot < w.unit(t).unwrap().slot);
-        assert_eq!(pu.script.wait, 1);
+        assert_eq!((pu.script.anim, pu.script.wait), (anim::DEATH, 1));
         assert!(w.unit(t).unwrap().inside);
+        w.step(&[]);
+        let pu = w.unit(patch).unwrap();
+        assert!(pu.removing && !pu.removal_due, "{pu:?}");
+        assert_eq!(pu.script.wait, 1);
         // Round-43 errata (`orc09-naval` tanker 1473, n = 468): when the platform is finished, its tanker gets order
         // 25 as an immediate order (move animation, wait 1, facing kept), and goes in at the next cycle (order 26).
         let platform = w.units.iter().find(|u| u.kind == PLATFORM).unwrap().id;

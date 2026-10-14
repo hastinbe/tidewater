@@ -633,12 +633,19 @@ impl World {
     }
 
     /// "New-mine search": the mine whose site is nearest it (at most 10 tiles), earliest on ties.
+    ///
+    /// Round-65 errata (`xorc4-30000` n = 27870): a gold store counts if any tile of its footprint is in the mine's
+    /// 13 × 13 square, not only its top-left tile.
     fn new_mine_site(&self, i: usize, hall: u8) -> Option<(i32, i32)> {
-        let stores: Vec<(i32, i32)> = self
+        // Each store's footprint as (left, top, right, bottom), inclusive.
+        let stores: Vec<(i32, i32, i32, i32)> = self
             .units
             .iter()
             .filter(|b| b.building && !b.dying && self.stats_of(b.kind).flags & flags::GOLD_STORAGE != 0)
-            .map(|b| b.tile)
+            .map(|b| {
+                let (x, y) = b.tile;
+                (x, y, x + b.size.0 as i32 - 1, y + b.size.1 as i32 - 1)
+            })
             .collect();
         let mut best: Option<(i32, (i32, i32))> = None;
         for m in self.owned(slots::NEUTRAL) {
@@ -648,7 +655,7 @@ impl World {
             let (mx, my) = m.tile;
             if stores
                 .iter()
-                .any(|&(x, y)| (mx - 5..=mx + 7).contains(&x) && (my - 5..=my + 7).contains(&y))
+                .any(|&(l, t, r, b)| l <= mx + 7 && r >= mx - 5 && t <= my + 7 && b >= my - 5)
             {
                 continue;
             }

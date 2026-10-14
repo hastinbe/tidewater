@@ -199,14 +199,14 @@ impl World {
     /// order, and its logic runs only when it gets there. Then it finds no target: idle becomes the pending order and
     /// takes over in the same update (still animation, wait 3), as for a target that is gone.
     ///
-    /// Our reading (static study): arriving ends the walk, so the reaction runs first, as at a source; with no route
-    /// the tanker goes idle at once as in "No route" (a tanker makes no tree search).
+    /// Our reading (static study): arriving ends the walk, so the reaction runs first, as at a source. Round-65
+    /// errata (static study only): with no route the generic no-route rule applies (idle as an immediate order and
+    /// the idle logic in the same update); order 23's own logic doesn't run, so neither does its reaction.
     fn tanker_no_target(&mut self, i: usize, goal: (i32, i32)) {
         match self.move_toward(i, Goal::tile(goal, RADIUS)) {
             Walk::Arrived if self.react_at_walk_end(i) => {}
             Walk::Arrived => self.idle_now(i),
-            Walk::NoPath if self.react_at_walk_end(i) => {}
-            Walk::NoPath => self.no_route(i),
+            Walk::NoPath => self.idle_at_once(i),
             Walk::Stepping | Walk::Blocked => {}
         }
     }
@@ -576,6 +576,7 @@ impl World {
     /// whatever building or unit it comes out of, and never the count of the one it comes out of
     /// (`orc9-orc09-enter-nothing-1900` n = 1060, `orc9-orc09-return-nodepot-2200` n = 1368). Step 1 makes idle the
     /// pending order too; an order given in steps 3 to 5 replaces it (`orc9-orc09-enter-nothing-1900` n = 1542).
+    /// Round-65 errata corrects that: step 1's idle is immediate, and idle is pending only in step 4's no-depot case.
     pub(crate) fn come_out(&mut self, i: usize, _building: Option<UnitId>) {
         self.go_idle(i);
         if self.units[i].carrying
@@ -658,9 +659,12 @@ impl World {
         // Steps 3 to 5: the order given is pending; the unit stays idle (order 2) until its next step done, when the
         // order takes over with a wait of 3 (Human04 trace: order 2 with the depot as target, then order 24 after the
         // 25-cycle wait).
-        // With no order given, step 1's pending idle takes over the same way (still animation, wait 3).
+        // Round-65 errata: step 1's idle is immediate. Only step 4's no-depot case (carrying) makes idle pending,
+        // taking over the same way (still animation, wait 3); a unit given nothing that isn't carrying has nothing
+        // pending, so its idle logic runs when the wait ends (`xhuman5-30000` tanker 1495, n = 26811).
+        let carrying = u.carrying;
         u.order = Order::Idle;
-        u.pending = Some(next.unwrap_or(Order::Idle));
+        u.pending = next.or(carrying.then_some(Order::Idle));
         // The order comes from a command (harvest or return), so the unit counts as about to move (pathfinding spec).
         u.commanded = next.is_some();
         // Movement spec, "Blocked rules" (round-41 errata): the order given on coming out is a command.
@@ -1886,7 +1890,7 @@ mod tests {
 
     /// Round-63 vectors (`orc9-orc09-enter-nothing-1900` n = 1517 and 1542): a carrying worker that comes out with no
     /// depot stays idle with idle as its pending order, which takes over when the 25-cycle wait ends (still animation,
-    /// wait 3). Every come-out makes idle pending, replaced by an order given there.
+    /// wait 3). Round-65 errata: only this no-depot case makes idle pending.
     #[test]
     fn coming_out_with_no_depot_takes_over_a_pending_idle() {
         let mut w = land_with_shops();
@@ -1912,6 +1916,29 @@ mod tests {
             (u.order, u.script.anim, u.script.wait),
             (Order::Idle, anim::STILL, TAKEOVER_WAIT)
         );
+    }
+
+    /// Round-65 vector (`xhuman5-30000` tanker 1495, n = 26786 to 26811): a unit that comes out given no command, not
+    /// carrying and with no return-to source, has nothing pending; when the 25-cycle wait ends its idle logic runs
+    /// with wait 1, with no take-over.
+    #[test]
+    fn coming_out_with_nothing_to_do_leaves_nothing_pending() {
+        let mut w = land_with_shops();
+        let b = w.spawn(SHIPYARD, 0, (8, 8), 0).unwrap();
+        let p = w.spawn(0, 0, (7, 8), 0).unwrap();
+        go_in_now(&mut w, p, b);
+        let pi = w.index(p).unwrap();
+        w.units[pi].return_to = None;
+        come_out_now(&mut w, p, b);
+        let u = w.unit(p).unwrap();
+        assert!(!u.inside && !u.carrying);
+        assert_eq!((u.order, u.pending), (Order::Idle, None));
+        assert_eq!((u.script.anim, u.script.wait), (anim::STILL, OUT_WAIT));
+        for _ in 0..OUT_WAIT {
+            w.step(&[]);
+        }
+        let u = w.unit(p).unwrap();
+        assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 1));
     }
 
     /// Round-63 vector (`orc9-orc09-return-nodepot-2200` peon 1482, n = 1196): stepping into a target that isn't a
