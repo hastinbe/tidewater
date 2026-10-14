@@ -171,14 +171,10 @@ impl World {
     /// without running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
     pub(crate) fn idle_choice(&mut self, i: usize) {
         if let Choice::Order(o) = self.worker_choice(i) {
-            // A computer player's command: the command steps (blocked counter cleared, round-54 errata
-            // `human12-25000` tanker 1412, n = 12951: route dropped). Kept special case: no pull-back and no target
-            // check; the job choice's orders name no target that check covers but a depot it just found.
-            self.command_steps(i);
-            self.give(i, o);
-            if let Some(o) = self.units[i].pending.take() {
-                self.take_over(i, o);
-            }
+            // A computer player's command, an ordinary one (round 68, code Q7; orders spec, "What every command does", and `ai/worker-ai.md`): the
+            // goal pulled back, the command steps (blocked counter cleared, route dropped: round-54 errata
+            // `human12-25000` tanker 1412, n = 12951) and the target check.
+            self.command_at_once(i, o);
         }
     }
 
