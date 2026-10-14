@@ -571,55 +571,17 @@ impl World {
         }
     }
 
-    /// Order 26 when the wait inside ends ("Coming out").
-    ///
-    /// Round-63 errata: step 2 lowers the count of the return-to source (a mine or platform) of a carrying unit,
-    /// whatever building or unit it comes out of, and never the count of the one it comes out of
-    /// (`orc9-orc09-enter-nothing-1900` n = 1060, `orc9-orc09-return-nodepot-2200` n = 1368). Step 1 makes idle the
-    /// pending order too; an order given in steps 3 to 5 replaces it (`orc9-orc09-enter-nothing-1900` n = 1542).
-    /// Round-65 errata corrects that: step 1's idle is immediate, and idle is pending only in step 4's no-depot case.
+    /// Order 26 when the wait inside ends ("Coming out"): step 1's immediate idle, step 2's count, the command of steps
+    /// 3 to 5, and step 6's placement, aimed at the command's goal and facing by "Facing a target". The command is
+    /// made pending and waits for the 25-cycle wait; with no command, a carrying unit (step 4, no depot) has idle
+    /// pending (V73), and any other unit has nothing pending, so its idle logic runs when the wait ends (V85).
     pub(crate) fn come_out(&mut self, i: usize, _building: Option<UnitId>) {
         self.go_idle(i);
-        if self.units[i].carrying
-            && let Some(Source::Unit(s)) = self.units[i].return_to
-            && let Some(si) = self.index(s)
-            && self.flags_of(self.units[si].kind) & (flags::MINE | flags::OIL_SOURCE) != 0
-        {
-            // A count of 0 counts as 1; reaching 0 ends the "active" look.
-            let b = &mut self.units[si];
-            b.occupants = b.occupants.max(1) - 1;
-            if b.occupants == 0 {
-                b.script.frame = 0;
-            }
-        }
-        // A computer worker chooses its job here; a job given skips the usual return (worker-ai spec).
-        let chosen = if self.chooses_jobs(i) {
-            match self.worker_choice(i) {
-                crate::worker_ai::Choice::Order(o) => Some(o),
-                _ => None,
-            }
-        } else {
-            None
-        };
-        // Where the unit heads decides which side it comes out on.
-        let next = if chosen.is_some() {
-            chosen
-        } else if self.units[i].carrying {
-            self.nearest_depot(&self.units[i])
-                .map(|d| Order::ReturnGoods { depot: Some(d) })
-        } else {
-            match self.units[i].return_to.take() {
-                Some(Source::Unit(s)) => {
-                    let tile = self.unit(s).map_or(self.units[i].tile, |s| s.tile);
-                    self.harvest_command(i, Some(s), tile)
-                }
-                Some(Source::Tree(t)) => self.harvest_command(i, None, t),
-                None => None,
-            }
-        };
+        self.leave_source(i);
+        let next = self.come_out_command(i);
         let aim = self.come_out_goal(i, next);
         let at = self.units[i].tile;
-        // Step 6 (round-47 errata): the hall-sized exit mark sizes the source as a town hall; this come-out clears it.
+        // Step 6: the hall-sized exit mark sizes the search's source as a town hall; this come-out clears it.
         let side = if std::mem::take(&mut self.units[i].hall_exit) {
             4
         } else {
@@ -640,27 +602,65 @@ impl World {
         if let Some(f) = face.filter(|&f| f != tile) {
             u.facing = crate::world::face_tile(tile, f);
         }
-        // Steps 3 to 5: the order given is pending; the unit stays idle (order 2) until its next step done, when the
-        // order takes over with a wait of 3 (Human04 trace: order 2 with the depot as target, then order 24 after the
-        // 25-cycle wait).
-        // Round-65 errata: step 1's idle is immediate. Only step 4's no-depot case (carrying) makes idle pending,
-        // taking over the same way (still animation, wait 3); a unit given nothing that isn't carrying has nothing
-        // pending, so its idle logic runs when the wait ends (`xhuman5-30000` tanker 1495, n = 26811).
         let carrying = u.carrying;
         u.order = Order::Idle;
         u.pending = next.or(carrying.then_some(Order::Idle));
-        // The order comes from a command (harvest or return), so the unit counts as about to move (pathfinding spec).
+        // "Commands given by these orders": the command marks the unit as about to move (pathfinding spec), clears
+        // the blocked counter and forgets a stale attacker. Its route was dropped by step 1's idle. The command check
+        // on a named target has nothing to drop here: a return's depot is one the depot search just found, and a
+        // harvest command names no target the check covers (as for `command`). Kept special case: done here rather
+        // than by `command`, whose pending idle (a tanker's command on a platform placed this cycle) would resume a
+        // remembered order.
         u.commanded = next.is_some();
-        // Movement spec, "Blocked rules" (round-41 errata): the order given on coming out is a command.
         if next.is_some() {
             u.blocked = 0;
-            // Orders spec, "Commands forget a stale attacker" (round-45 errata).
             self.forget_stale_attacker(i);
         }
         let u = self.units[i].clone();
         self.mark(&u, tile, Some(u.id));
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = OUT_WAIT;
+    }
+
+    /// "Coming out", step 2: a carrying unit lowers the occupant count of its return-to source, if that is a mine or
+    /// platform, whatever it comes out of (V71, V75). A count of 0 counts as 1; reaching 0 ends the "active" look.
+    fn leave_source(&mut self, i: usize) {
+        if self.units[i].carrying
+            && let Some(Source::Unit(s)) = self.units[i].return_to
+            && let Some(si) = self.index(s)
+            && self.flags_of(self.units[si].kind) & (flags::MINE | flags::OIL_SOURCE) != 0
+        {
+            let b = &mut self.units[si];
+            b.occupants = b.occupants.max(1) - 1;
+            if b.occupants == 0 {
+                b.script.frame = 0;
+            }
+        }
+    }
+
+    /// "Coming out", steps 3 to 5: a computer player's job choice (a job given skips the rest; worker-ai spec), else
+    /// a return command to the nearest depot if carrying, else a harvest command back to the return-to source, which
+    /// is forgotten. The harvest command is given whatever the source has become (V84). A source whose slot is gone
+    /// gets the command at the unit's own tile (see the pinned test; a question for the spec).
+    fn come_out_command(&mut self, i: usize) -> Option<Order> {
+        if self.chooses_jobs(i)
+            && let crate::worker_ai::Choice::Order(o) = self.worker_choice(i)
+        {
+            return Some(o);
+        }
+        if self.units[i].carrying {
+            return self
+                .nearest_depot(&self.units[i])
+                .map(|d| Order::ReturnGoods { depot: Some(d) });
+        }
+        match self.units[i].return_to.take() {
+            Some(Source::Unit(s)) => {
+                let tile = self.unit(s).map_or(self.units[i].tile, |s| s.tile);
+                self.harvest_command(i, Some(s), tile)
+            }
+            Some(Source::Tree(t)) => self.harvest_command(i, None, t),
+            None => None,
+        }
     }
 
     /// Order 23 in lumber mode ("Lumber").
