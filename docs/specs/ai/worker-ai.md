@@ -26,6 +26,8 @@
   `human12-25000` vector.
   2026-10-13, round-58 errata: the mine score's worker term is the larger axis distance from the mine's top-left tile
   to the worker's tile; `mp-gold-rush-bne-25000` vector (Classic-mode traces agree).
+  2026-10-13, round-65 errata: the new-mine search skips a mine if any tile of a gold-storing building is in its
+  13 × 13 square, not only the building's top-left tile; `xorc4-30000` vector.
 
 ## Behaviour
 
@@ -297,10 +299,12 @@ This applies to every site search: the ordinary search, the new-mine search and 
 
 The first accepted position is the site; the building's top-left is (x, y).
 
-**New-mine search** (a town hall from the build list): every gold mine with **at least 50 trips** and no
+**New-mine search** (a town hall from the build list): every gold mine with **at least 50 trips** and no tile of a
 gold-storing building within the 13 × 13 tiles from (mx − 5, my − 5) to (mx + 7, my + 7) (mine top-left (mx, my)) is
 tried, in the neutral player's list order (`core/unit-slots.md`; every gold mine belongs to the neutral player). A
-gold-storing building counts whatever its owner and even if it isn't complete. For each mine, an ordinary search
+gold-storing building (town hall, keep, castle, great hall, stronghold, fortress) counts whatever its owner and even if
+it isn't complete. A building counts if any of its tiles is in the square, not only its top-left tile (traced:
+`xorc4-30000` n = 27870, round-65 vectors). For each mine, an ordinary search
 with step 1 is made around it, and its site is kept only if the **distance from the site's top-left tile to the
 mine** is at most 10 tiles, measured as for target acquisition (the same distance the mine choice in "Harvest" uses).
 The mine whose site is nearest is chosen; only a strictly nearer site replaces the best, so the earliest mine wins
@@ -338,7 +342,7 @@ only custom unit data creates):
 | Job-choice tree search | rings while 2k + 1 < floor(3N / 4): largest radius 11, 23, 35, 47 for N = 32, 64, 96, 128 |
 | Computer placement masks | 0x0DDE land, 0x0D11 shore |
 | Keep-clear bit | 0x0400 |
-| New-mine search | mines with ≥ 50 trips; no gold store in (−5, −5) to (+7, +7); site within 10 tiles; nearest site wins |
+| New-mine search | mines with ≥ 50 trips; no gold-store tile in (−5, −5) to (+7, +7); site within 10 tiles; nearest site wins |
 | All-out attack threshold | fewer than 3 buildings other than oil platforms |
 | Build-list length | min(slot 0x22, 64) entries |
 
@@ -443,6 +447,12 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Depot top-left (11, 49), worker at (11, 55), gold mine top-left (9, 43) | Depot term 4, worker term max(2, 12) = 12: score 4 + 6 = 10 (not 4 + 5 = 9) |
 | `mp-gold-rush-bne-25000` (oracle trace, Enhanced), n = 6461: computer peon 1505 comes out of lumber mill 1517 at (11, 55); its depot is great hall 1534 (11, 49). Mines 1523 (18, 55), 1528 (18, 52), 1533 (18, 49), 1548 (9, 43), 1549 (12, 43) and 1550 (15, 43) all score 10, and 1523 is first in the list | Mine 1523: placed at (14, 55), facing 2, order 2 with target 1523. With the old worker term 1548 scored 9 and won |
 | Classic mode: `mp-gold-rush-bne-classic-8000` n = 6461 (peon 505, mine 523) and `mp-gold-rush-bne-classic-20000` n = 19728 (peasant 586 in town hall 590 at (11, 11): mine 582 (18, 15) scores 7 + 3 = 10, mine 575 (3, 18) 7 + 4 = 11) | The same choices as the Enhanced rule gives (582 at n = 19728). Classic-mode evidence only agrees with the rule; it isn't its source |
+
+### Round-65 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xorc4-30000` (oracle trace, Enhanced, no input), n = 27870: computer peasant 1478 (type 0x02, owner 3) comes out of keep 1512 (type 0x58) with a town hall build job. Gold mine 1525 (type 0x5C) has top-left (66, 62), so its square runs from (61, 57) to (73, 69); castle 1535 (type 0x5A, owner 1, 4 × 4) has its top-left at (60, 54), outside the square, and its tiles (61, 57) to (63, 57) inside. Gold mine 1508 (500 trips) is at (96, 99) | Mine 1525 is skipped. The site is (89, 105), next to mine 1508 (a break capture on the build command, whose log isn't committed). The trace shows order 28 from n = 27895 and the peasant walking east from (27, 92) along rows 92 to 94; counting only the castle's top-left tile, the site would be (72, 56), next to mine 1525, to the north-east |
 
 ## Open questions
 
