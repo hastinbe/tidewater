@@ -171,9 +171,9 @@ impl World {
     /// without running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
     pub(crate) fn idle_choice(&mut self, i: usize) {
         if let Choice::Order(o) = self.worker_choice(i) {
-            // A computer player's command, an ordinary one (round 68, code Q7; orders spec, "What every command does", and `ai/worker-ai.md`): the
-            // goal pulled back, the command steps (blocked counter cleared, route dropped: round-54 errata
-            // `human12-25000` tanker 1412, n = 12951) and the target check.
+            // A computer player's command, an ordinary one (round 68, code Q7; orders spec, "What every command
+            // does", and `ai/worker-ai.md`): the goal pulled back, the command steps (blocked counter cleared, route
+            // dropped: round-54 errata `human12-25000` tanker 1412, n = 12951) and the target check.
             self.command_at_once(i, o);
         }
     }
