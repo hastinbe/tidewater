@@ -42,7 +42,7 @@ pub struct Missile {
     /// UDTA missile weapon value.
     pub kind: u8,
     pub attacker: UnitId,
-    /// The shooter's unit slot, recorded at creation and never cleared (round-56 errata, spells spec, "The shooter
+    /// The shooter's unit slot, recorded at creation and never cleared (spells spec, "The shooter
     /// after its slot is released"): the trace shows it after the slot is released, and a spell effect's splash
     /// credits whatever unit holds the slot by then. `None` for an effect with no shooter.
     pub shooter: Option<u16>,
@@ -76,7 +76,7 @@ impl Missile {
     }
 }
 
-/// Animation-scripts spec, "Facing a tile" (round-42 errata): a warship's new facing when it strikes, by the direction
+/// Animation-scripts spec, "Facing a tile": a warship's new facing when it strikes, by the direction
 /// `d` to its target (row) and its current facing (column). It puts the target on one of the ship's sides.
 const BROADSIDE: [[u8; 8]; 8] = [
     [6, 2, 2, 2, 2, 6, 6, 6],
@@ -119,7 +119,7 @@ impl World {
     }
 
     /// Whether `u`'s weapon can reach `target` at all, whoever owns it: another unit, and an air unit only with a
-    /// missile. Orders spec, "Commands" (round-48 errata): an attack command on a unit of any owner gives order 9, and
+    /// missile. Orders spec, "Commands": an attack command on a unit of any owner gives order 9, and
     /// an attack order keeps a target of any owner.
     pub(crate) fn can_strike(&self, u: &Unit, target: UnitId) -> bool {
         let Some(t) = self.unit(target) else { return false };
@@ -133,9 +133,9 @@ impl World {
     /// spec, "Arriving": the radius is the attack range, measured to the target's tile or, for a building, to the
     /// footprint tile picked by the building goal rule, re-read at every check).
     pub(crate) fn attack_order(&mut self, i: usize, target: UnitId) {
-        // Orders spec: the order loses a target its owner no longer detects (fog does not matter). Round-49 errata
+        // Orders spec: the order loses a target its owner no longer detects (fog does not matter).
         // ("Checks on an attack command"): the order then checks only that the unit can hit the target's kind, with
-        // the submarine rule; there is no owner test. Round-50 errata: the kind checks in their order, with the
+        // the submarine rule; there is no owner test. The kind checks in their order, with the
         // transport-on-shore case.
         let owner = self.units[i].owner;
         let target_ok =
@@ -145,7 +145,7 @@ impl World {
             self.switch_anim(i, anim::STILL);
             return;
         }
-        // Orders spec, "Friendly-fire check" (round-41 errata): in order 12 it runs before the range test.
+        // Orders spec, "Friendly-fire check": in order 12 it runs before the range test.
         let tile = self.unit(target).expect("checked above").tile;
         if self.holds_fire(i, tile) {
             return;
@@ -159,9 +159,8 @@ impl World {
             return;
         }
         let g = self.strike_goal(u, t);
-        // Orders spec, "No route": order 12 has its own fallback, which goes idle at once only when it finds nothing
-        // (round-40 and round-47 errata); order 9 has the plain rule (round-42 errata, `orc02-assault` grunt 1573,
-        // n = 679).
+        // Orders spec, "No route": order 12 has its own fallback, which goes idle at once only when it finds nothing;
+        // order 9 has the plain rule (`orc02-assault` grunt 1573, n = 679).
         let chase = matches!(self.units[i].order, Order::Chase { .. });
         let walk = if chase { self.move_toward(i, g) } else { self.walk(i, g) };
         match walk {
@@ -176,14 +175,14 @@ impl World {
         }
     }
 
-    /// Orders spec, "Order 12 with no route" (round-47 errata; `human5-10000` grunt 1531, n = 1759): a search over
+    /// Orders spec, "Order 12 with no route" (`human5-10000` grunt 1531, n = 1759): a search over
     /// the attack range box with no attacker seed. A target found gets order 12 as a command that takes over at once:
     /// its attack animation starts with its first step run in this update, and its next order-logic run skips the
-    /// target search. With nothing found the unit goes idle at once. Round-54 errata: the take-over makes no turn and
+    /// target search. With nothing found the unit goes idle at once. The take-over makes no turn and
     /// no strike decision; order 12's logic then runs once in the same update, skips its search because of the mark,
     /// and its strike decision turns the unit and starts the cooldown.
     fn chase_no_route(&mut self, i: usize) {
-        // Round-51 errata, "Forgetting a dying attacker first": this search too.
+        // "Forgetting a dying attacker first": this search too.
         self.forget_dying_attacker(i);
         let Some(target) = self.search_in_range(i) else {
             return self.idle_at_once(i);
@@ -197,7 +196,7 @@ impl World {
         self.units[i].skip_search = true;
         self.restarts = self.restarts.wrapping_add(1);
         self.switch_anim(i, anim::ATTACK);
-        // The one logic run that follows. Round-56 static correction: that run doesn't move the unit, so it can't find
+        // The one logic run that follows. That run doesn't move the unit, so it can't find
         // "no route" again, and the logic doesn't run a third time in the update (the guard makes that hold).
         if !self.fallback_run {
             self.fallback_run = true;
@@ -211,7 +210,7 @@ impl World {
     fn strike_goal(&self, u: &Unit, t: &Unit) -> Goal {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
-        // Round-60 errata: a shore building is aimed at by its shore corner goal ([`World::target_goal`]).
+        // A shore building is aimed at by its shore corner goal ([`World::target_goal`]).
         let goal = self.target_goal(u, t);
         Goal {
             tile: goal,
@@ -221,28 +220,28 @@ impl World {
         }
     }
 
-    /// Orders spec, "Attack-move: orders 4, 5 and (Enhanced) 10" (round-41 errata): a unit in one of these orders
+    /// Orders spec, "Attack-move: orders 4, 5 and (Enhanced) 10": a unit in one of these orders
     /// that picked a target heads for it until order 12 takes over at its next step done, stepping even when the
     /// target is already within strike reach. Our reading: the order's own walk (radius 0) carries on toward the goal
     /// the command set, the target's tile; with no route it goes idle as the order does ("No route"), and once there
     /// it waits for the take-over.
     pub(crate) fn head_for(&mut self, i: usize, target: UnitId) {
         let Some(t) = self.unit(target) else { return };
-        // Round-44 errata (`human06-31357` axe thrower 1512, n = 16277): a building target is headed for as an attack
+        // Traced (`human06-31357` axe thrower 1512, n = 16277): a building target is headed for as an attack
         // on it would: the footprint tile of the building goal rule, with the building's goal zone (its footprint
-        // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile; round-59 errata
+        // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile
         // (`orc5-40000`): with the target's goal zone too, not the 3 x 3 around its tile.
-        // Round-60 errata: a shore building by its shore corner goal ([`World::target_goal`]).
+        // A shore building by its shore corner goal ([`World::target_goal`]).
         let tile = self.target_goal(&self.units[i], t);
         let g = Goal {
             zone: Some(goal_zone(t)),
             ..Goal::tile(tile, 0)
         };
-        // Orders spec, "No route" (round-45 errata): a unit that goes idle with no route keeps its attacker.
+        // Orders spec, "No route": a unit that goes idle with no route keeps its attacker.
         self.walk(i, g);
     }
 
-    /// Orders spec, "Order 11: attacking a wall tile" (round-48 errata; `orc02-defeat-4021` and `orc02-victory-7639`
+    /// Orders spec, "Order 11: attacking a wall tile" (`orc02-defeat-4021` and `orc02-victory-7639`
     /// grunts 1568, 1575 and 1576). The unit walks with the normal movement rules until it is within its attack range
     /// of the goal tile (no extra tile); with no route it goes idle at once, its idle logic running in the same update
     /// (order 12's own fallback doesn't apply). On arrival, in this order: a cooldown left is waited out; a goal tile
@@ -265,7 +264,7 @@ impl World {
         if self.cooling_down(i) {
             return;
         }
-        // Round-49 errata (step 4.4, static study): the range check is the arrival test above (no +1 with an attack
+        // Static study (step 4.4): the range check is the arrival test above (no +1 with an attack
         // range), so it fails only if the unit or its goal has moved since.
         if !self.wall_tile(tile) || chebyshev(self.units[i].tile, tile) > reach {
             return self.idle_now(i);
@@ -301,8 +300,8 @@ impl World {
         self.units[i].facing = self.strike_facing(&self.units[i], b);
     }
 
-    /// The facing a strike decision gives toward tile `b`: "Facing a tile" of the animation-scripts spec. Round-42
-    /// errata: a warship (a sea unit that isn't a submarine) turns broadside instead, by the direction to the target
+    /// The facing a strike decision gives toward tile `b`: "Facing a tile" of the animation-scripts spec. A
+    /// warship (a sea unit that isn't a submarine) turns broadside instead, by the direction to the target
     /// and its current facing.
     pub(crate) fn strike_facing(&self, u: &Unit, b: (i32, i32)) -> u8 {
         let towards = face_tile(u.tile, b);
@@ -319,7 +318,7 @@ impl World {
     pub(crate) fn within_strike_reach(&self, u: &Unit, t: &Unit) -> bool {
         let up = self.players[u.owner as usize].upgrades;
         let range = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
-        // Round-60 errata, "Reach" (`orc9-orc09-shore-build-3000` archer 1476, n = 343): a unit that is neither a sea
+        // "Reach" (`orc9-orc09-shore-build-3000` archer 1476, n = 343): a unit that is neither a sea
         // nor an air unit measures its reach to a shore building's shore corner goal.
         if self.aims_at_shore_corner(u, t) {
             return chebyshev(u.tile, self.target_goal(u, t)) <= range;
@@ -372,7 +371,7 @@ impl World {
             // A demolisher plays the attack animation on its way but never strikes (attack-ground-demolish spec).
             (Order::Follow { .. } | Order::Guard { .. } | Order::Demolish { .. }, _) | (_, None) => return,
             (_, Some(target)) => {
-                // Damage spec, "How an attack delivers damage" (round-41 errata, `human01-basics` n = 576): a melee
+                // Damage spec, "How an attack delivers damage" (`human01-basics` n = 576): a melee
                 // strike is made at a target that started dying earlier in the cycle, and rolls its damage to no
                 // effect; a target that is gone or inside something isn't struck. Ranged attackers are that spec's
                 // open question, where a missile is expected to behave the same; we follow that expectation.
@@ -385,7 +384,7 @@ impl World {
         self.hit_or_launch(i, ti, to);
     }
 
-    /// Vision spec, "When sight is applied", item 4 (round-53 errata, `human06-31357` n = 9642): at each strike point
+    /// Vision spec, "When sight is applied", item 4 (`human06-31357` n = 9642): at each strike point
     /// of an attack-type order (9, 12, 15, 16, 17, 20 and 21, and the spells Slow and Haste) whose target unit is
     /// owned by another player, one of players 0 to 7, a sight-2 area centred on the attacker's tile is revealed for
     /// the target's owner and its shared-vision set, before the strike itself (damage spec, "How an attack delivers
@@ -550,8 +549,8 @@ impl World {
     /// attackers keep their target until their own next logic run. Our orders hold their target, so the forgotten
     /// one is marked: while the order is unchanged, it has no target.
     ///
-    /// Round-42 errata: only the killer forgets the victim as its attacker at once (movement spec, "Blocked rules");
-    /// every other unit keeps that record while the victim is dying. Round-47 errata: this applies to every kill,
+    /// Only the killer forgets the victim as its attacker at once (movement spec, "Blocked rules");
+    /// every other unit keeps that record while the victim is dying. This applies to every kill,
     /// a splash kill of a unit other than the target included (`xhuman10-blizzard` ballista 1483, n = 309).
     fn forget_kill(&mut self, attacker: UnitId) {
         let Some(a) = self.index(attacker) else { return };
@@ -566,7 +565,7 @@ impl World {
             self.units[a].attacked_by = None;
         }
         let u = &self.units[a];
-        // Round-54 errata (`human13-subs-2000` dragon 1436, n = 1487): a shooter that is dying or dead, its missile
+        // Traced (`human13-subs-2000` dragon 1436, n = 1487): a shooter that is dying or dead, its missile
         // still in flight, checks the target it kept and reports none from then on.
         if u.dying {
             if let Some(slot) = u.dying_target
@@ -630,7 +629,7 @@ impl World {
     /// platform, which isn't a destruction).
     pub(crate) fn kill_as(&mut self, ti: usize, explodes: bool) {
         self.death_sound(ti);
-        // Unit-slots spec, "Death, corpses and release" (round-40 errata, `human5` barracks 1529 at n = 1595): a
+        // Unit-slots spec, "Death, corpses and release" (`human5` barracks 1529 at n = 1595): a
         // building other than a wall piece or one with the used mark makes a cosmetic explosion (kind 0x17) at its
         // centre, 8 px up, in the lowest free effect slot, right after its death sound.
         let u = &self.units[ti];
@@ -648,7 +647,7 @@ impl World {
             );
             self.splash_explosion(pos);
         }
-        // Build-train spec, "A building killed during a job" (round-48 errata, `human5-10000` great hall 1525 at
+        // Build-train spec, "A building killed during a job" (`human5-10000` great hall 1525 at
         // n = 8086): the job is cancelled at the kill, with the cancel column's full refund, and the progress counter
         // and mana byte go to 0.
         if self.units[ti].building {
@@ -680,7 +679,7 @@ impl World {
         }
         // A computer worker's job is released when it dies (worker-ai spec).
         self.release_job(ti);
-        // Round-50 errata (unit-slots spec, "Death"; `xhuman12-10000` grunt 1504, n = 4851): the unit keeps the target
+        // Unit-slots spec ("Death"; `xhuman12-10000` grunt 1504, n = 4851): the unit keeps the target
         // recorded at this moment, so a killer that forgot its target dies with none.
         let target = self.units[ti].recorded_target();
         let slot = target.and_then(|t| self.unit(t)).map(|t| t.slot);
@@ -768,7 +767,7 @@ impl World {
             return;
         }
         if ended {
-            // One cycle after the end step the stored damage lands, as for a non-splash missile. Round-61 errata
+            // One cycle after the end step the stored damage lands, as for a non-splash missile. Traced
             // (`xorc11-16000` n = 15733): the slot stays in use through the final hit and the effects it makes, such
             // as a killed unit's death explosion, and is freed last, as for every other missile ("Impact effects").
             self.land(m);
@@ -795,9 +794,9 @@ impl World {
         m.fx = Fx::Breath { line, count, ended };
         let (pos, damage, attacker) = (m.pos, m.damage, m.attacker);
         self.missiles[n] = Some(m);
-        // Damage spec (round-39 errata): a splash needs a free effect slot; with none, no splash, sound or effect.
+        // Damage spec: a splash needs a free effect slot; with none, no splash, sound or effect.
         // Otherwise the explosion sound, the splash, then a cosmetic explosion (kind 0x17) in the lowest free slot.
-        // Round-53 errata: the slot is taken before the splash's damage, so a killed unit's explosion comes later.
+        // The slot is taken before the splash's damage, so a killed unit's explosion comes later.
         // The explosion changes nothing the splash reads, so it is written into the slot at once.
         if splash && self.free_fx_slot().is_some() {
             self.sound_at_px(pos, crate::sound::Sound::Explode);
@@ -887,7 +886,7 @@ mod tests {
         w.step(&[Command::Attack { player, units, target }]);
     }
 
-    /// Animation-scripts spec, the broadside table (round-42 errata): a warship facing north (0) with its target due
+    /// Animation-scripts spec, the broadside table: a warship facing north (0) with its target due
     /// south (4) turns east (2); one facing east with its target due north keeps facing east; one facing south-west
     /// (5) with its target due east (2) turns south (4) rather than turning across.
     #[test]
@@ -897,7 +896,7 @@ mod tests {
         assert_eq!(super::broadside(2, 5), 4);
     }
 
-    /// Orders spec, "Order 11: attacking a wall tile" (round-48 errata): the goal is pulled back to the wall tile
+    /// Orders spec, "Order 11: attacking a wall tile": the goal is pulled back to the wall tile
     /// nearest the unit, which walks to within its attack range, faces the tile, strikes and starts its cooldown.
     /// When the wall is gone, idle becomes the pending order and takes over in the same update (still, wait 3).
     #[test]
@@ -935,7 +934,7 @@ mod tests {
         assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
     }
 
-    /// Orders spec, "Commands" (round-48 errata, `orc02-defeat-4021` n = 3602 and `orc02-dyingcmd-3760` n = 3723):
+    /// Orders spec, "Commands" (`orc02-defeat-4021` n = 3602 and `orc02-dyingcmd-3760` n = 3723):
     /// an attack command on the player's own unit gives order 9; on a dying unit it leaves a pending idle.
     #[test]
     fn an_attack_command_takes_any_owner_and_a_dying_target_leaves_a_pending_idle() {
@@ -1005,7 +1004,7 @@ mod tests {
         assert_eq!(w.players[1].buildings_lost, 1);
     }
 
-    /// Unit-slots spec, "Death, corpses and release" (round-40 errata): a destroyed building makes an explosion
+    /// Unit-slots spec, "Death, corpses and release": a destroyed building makes an explosion
     /// (kind 0x17) at its centre, 8 px up; a wall piece or a building with the used mark makes none.
     #[test]
     fn a_destroyed_building_explodes_at_its_centre() {
@@ -1071,7 +1070,7 @@ mod tests {
         }
     }
 
-    /// Round-50 errata, damage spec "Applying damage" (`xhuman12-10000` grunt 1504, n = 4851): a killer that forgot
+    /// Damage spec "Applying damage" (`xhuman12-10000` grunt 1504, n = 4851): a killer that forgot
     /// its target and dies before losing it dies with no target; the other attacker keeps its target in death.
     #[test]
     fn a_killer_that_forgot_its_target_dies_with_none() {
@@ -1096,7 +1095,7 @@ mod tests {
         assert_eq!(w.units[o].dying_target, Some(victim_slot));
     }
 
-    /// Round-54 errata, damage spec "Applying damage" (`human13-subs-2000` dragon 1436, n = 1487): a shooter that is
+    /// Damage spec "Applying damage" (`human13-subs-2000` dragon 1436, n = 1487): a shooter that is
     /// already dying when its missile kills still checks the target it kept and reports none from then on; another
     /// dying unit that had the same target keeps it.
     #[test]
@@ -1123,7 +1122,7 @@ mod tests {
         assert_eq!(w.units[o].dying_target, Some(victim_slot));
     }
 
-    /// Damage spec, "Applying damage" (round-47 errata, `xhuman10-blizzard-600` vector): a kill of a unit other than
+    /// Damage spec, "Applying damage" (`xhuman10-blizzard-600` vector): a kill of a unit other than
     /// the killer's target makes the killer forget a target that is dying from someone else's kill, and its recorded
     /// attacker if dying; a live target that isn't the victim is kept.
     #[test]
@@ -1154,7 +1153,7 @@ mod tests {
         }
     }
 
-    /// Orders spec, "Commands forget a stale attacker" (round-47 errata, `xhuman10-spells-700` knight 1480): a
+    /// Orders spec, "Commands forget a stale attacker" (`xhuman10-spells-700` knight 1480): a
     /// command whose target unit is dying makes idle the pending order instead; it still counts as a command.
     #[test]
     fn a_command_on_a_dying_target_leaves_a_pending_idle() {
@@ -1171,7 +1170,7 @@ mod tests {
         );
     }
 
-    /// Damage spec, "How an attack delivers damage" (round-41 errata): a melee strike at a target that is already
+    /// Damage spec, "How an attack delivers damage": a melee strike at a target that is already
     /// dying is still made and rolls its damage, with no effect; one at a target inside something isn't made and
     /// draws nothing.
     #[test]
@@ -1193,7 +1192,7 @@ mod tests {
         assert_eq!(w.rng, before);
     }
 
-    /// Round-56 errata (damage spec, "A command waiting"; animation-scripts spec, "No strike while a command waits"): a
+    /// Damage spec ("A command waiting"; animation-scripts spec, "No strike while a command waits"): a
     /// footman at its strike point that was given a stop command earlier in the cycle strikes nothing: no damage, no
     /// draw, no new cooldown. Once the command has taken over, a strike works again.
     #[test]
@@ -1698,7 +1697,7 @@ mod tests {
         assert!((8..=16).contains(&(60 - w.unit(b).unwrap().hp)));
     }
 
-    /// Damage spec, "Missile flight" (round-39 errata): each hammer splash with a free effect slot plays the
+    /// Damage spec, "Missile flight": each hammer splash with a free effect slot plays the
     /// explosion sound, applies the splash and creates a kind 0x17 explosion at the hammer's position, with zero
     /// fields, in the lowest free slot. With every slot in use there is no splash, no sound and no explosion.
     #[test]
@@ -1739,7 +1738,7 @@ mod tests {
         }
     }
 
-    /// Damage spec, "Missile flight" (round-53 errata; `xorc8-10000` n = 8035): the splash takes its effect slot
+    /// Damage spec, "Missile flight" (`xorc8-10000` n = 8035): the splash takes its effect slot
     /// before its damage, so the death explosion of a unit it kills comes in the next slot.
     #[test]
     fn a_hammer_splash_takes_its_slot_before_a_kills_explosion() {
@@ -1762,7 +1761,7 @@ mod tests {
         assert_eq!((death.kind, death.pos), (0x17, (c.0, c.1 - 8)));
     }
 
-    /// Damage spec, "Missile flight" (round-61 errata; the `xorc11-16000` gryphon rider 1490 vector, n = 15733): the
+    /// Damage spec, "Missile flight" (the `xorc11-16000` gryphon rider 1490 vector, n = 15733): the
     /// hammer keeps its effect slot through its final hit, so the death explosion of the unit that hit kills never
     /// reuses the hammer's slot; the slot is free at the end of that cycle.
     #[test]

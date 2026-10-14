@@ -6,6 +6,25 @@
 //! alliance table is read), and the Enhanced
 //! demolition unit that turns a found target into a demolish ("Special cases").
 //!
+//! The code follows the spec's model ("The model"): each shared rule is stated once and the orders call it.
+//!
+//! | Spec | Here |
+//! | --- | --- |
+//! | "How an update runs" | [`World::order`] (steps 1 and 5), `World::order_logic` (steps 2 to 4) |
+//! | "What every command does" | [`World::command`], [`World::command_steps`], [`World::command_at_once`] |
+//! | "Pending orders and immediate orders" | [`World::idle_now`], [`World::idle_at_once`], [`World::immediately`] |
+//! | "Resuming patrol and attack-move" | [`World::resumed`] |
+//! | "Walking orders", "No route" | [`World::walk`] (the plain rule), [`World::move_toward`] (the orders with their own) |
+//! | "Arriving and losing the target" | [`World::target_lost`], [`World::lose_target`], `World::move_order`, `World::arrive` |
+//! | "Attack orders" | [`World::run_order`], [`World::attack_order`], `World::attack_in_place` |
+//! | "Order 12 with no route" | `World::chase_no_route`, [`World::search_in_range`] |
+//! | "Follow (orders 6 and 7)" | `World::follow` |
+//! | "Automatic target acquisition" | `World::acquire`, `World::search`, `World::resulting` |
+//! | "Reacting to an attacker", "Fleeing" | [`World::react`], [`World::flee`] |
+//!
+//! Where the code keeps an outcome that the spec words differently, the comment there says so and a `pin` test holds
+//! it; those are questions for the spec, not rules.
+//!
 //! Our own choice: a player command other than patrol and attack-move clears the remembered order, so a unit sent
 //! elsewhere doesn't go back to its old patrol.
 
@@ -82,7 +101,7 @@ pub(crate) fn target_of(o: Order) -> Option<UnitId> {
 }
 
 /// Orders 12, 15 and 16: the attack orders on a target the unit's own search found. Their run makes the target search
-/// before the lost-target check ("Arriving and losing the target"; round-40 and round-42 errata), and the friendly-fire
+/// before the lost-target check ("Arriving and losing the target"), and the friendly-fire
 /// check applies to them ("Friendly-fire check (orders 12, 15 and 16)").
 fn found_target(o: Order) -> bool {
     matches!(
@@ -99,7 +118,7 @@ fn forgets_dying_attacker(o: Order) -> bool {
     )
 }
 
-/// "Order 12 with no route", step 3 (round-48 errata): the orders whose run the skip mark gates, idle and the attack
+/// "Order 12 with no route", step 3: the orders whose run the skip mark gates, idle and the attack
 /// orders 2, 9, 11, 12, 13, 15, 16 and 17.
 fn skip_mark_gates(o: Order) -> bool {
     matches!(o, Order::Idle | Order::StandGround) || forgets_dying_attacker(o) || found_target(o)
@@ -119,8 +138,8 @@ fn followable(o: Order) -> bool {
     )
 }
 
-/// The movement-class flags: the five lowest type flag bits (orders spec, "Forgetting a dying attacker first",
-/// round-52 errata). A type with any of them is "a unit that can move".
+/// The movement-class flags: the five lowest type flag bits (orders spec, "Forgetting a dying attacker first"
+/// and "Terms"). A type with any of them is "a unit that can move".
 pub(crate) const MOVEMENT_CLASS: u32 = 0x1F;
 
 impl World {
@@ -152,7 +171,7 @@ impl World {
     pub(crate) fn command_order(&mut self, i: usize, c: &Command) -> Option<Order> {
         let u = &self.units[i];
         let enhanced = self.rules.enhanced;
-        // Transports spec, "Land and shore targets" (round-40 errata): every command given to a transport runs them.
+        // Transports spec, "Land and shore targets": every command given to a transport runs them.
         let shore = |to: (i32, i32)| self.transport_goal(i, to);
         let remember = match *c {
             Command::Patrol { to, .. } => Some(Remembered::Patrol {
@@ -162,7 +181,7 @@ impl World {
             Command::AttackMove { to, .. } => Some(Remembered::AttackMove { goal: shore(to) }),
             _ => None,
         };
-        // Round-45 errata, "Commands forget a stale attacker": a target unit given with the command gets the same check
+        // "Commands forget a stale attacker": a target unit given with the command gets the same check
         // as the attacker, so one that is dying, dead, removed or not detected is dropped (static study only).
         let owner = u.owner;
         let fresh = |t: Option<UnitId>| t.filter(|&t| !self.target_lost(owner, t));
@@ -172,10 +191,10 @@ impl World {
                 target: None,
             },
             Command::Stop { .. } => Order::Idle,
-            // Round-48 errata: a target unit of any owner (own, allied and neutral units included) gives order 9. A
+            // A target unit of any owner (own, allied and neutral units included) gives order 9. A
             // dying target is still given; `command` then finds it stale and leaves a pending idle
             // (`orc02-dyingcmd-3760` grunts 1572 and 1575, n = 3723).
-            // Round-49 errata, "Checks on an attack command": the command checks only the commanded unit (not the
+            // "Checks on an attack command": the command checks only the commanded unit (not the
             // target itself, a type that can attack); what kind it can hit is the order's own check.
             Command::Attack { target, .. } => {
                 if target == u.id || self.flags_of_unit(u) & flags::CAN_ATTACK == 0 {
@@ -245,7 +264,7 @@ impl World {
         self.units[i].resume = 0;
     }
 
-    /// Orders spec, "An unremembered patrol" (round-56 static correction, Enhanced): a patrol command given to an air
+    /// Orders spec, "An unremembered patrol" (Enhanced): a patrol command given to an air
     /// or sea unit whose goal (as given) is within 1 tile of the unit on both axes doesn't write the remembered order.
     pub(crate) fn unremembered_patrol(&self, i: usize, to: (i32, i32)) -> bool {
         let u = &self.units[i];
@@ -259,7 +278,7 @@ impl World {
         // The command carries its target unit, if any ("Commands"): a unit standing on the target tile isn't looked
         // up, so a critter wandering onto another unit's tile gets order 3 (Human04 trace, n = 82).
         let target = target.filter(|&t| t != u.id);
-        // Step 2 (round-61 errata): with no target unit, the building on the goal tile becomes the target when it
+        // Step 2: with no target unit, the building on the goal tile becomes the target when it
         // passes the harvest test; otherwise there is none.
         let target = target.or_else(|| self.smart_building(u, tile));
         if self.is_transport(u) {
@@ -271,15 +290,15 @@ impl World {
             return Some(self.board_command(i, t));
         }
         let u = &self.units[i];
-        // Round-61 errata: return goods by smart move is for workers only; a tanker carrying oil sent onto a refinery
-        // or shipyard goes on down the table (round-62: traced for its own shipyard, `orc9-orc09-tanker-move-2200`).
+        // Return goods by smart move is for workers only; a tanker carrying oil sent onto a refinery
+        // or shipyard goes on down the table (traced for its own shipyard, `orc9-orc09-tanker-move-2200`).
         if let Some(t) = target
             && self.is_worker(u)
             && self.can_return_to(u, t)
         {
             return Some(Order::ReturnGoods { depot: Some(t) });
         }
-        // Round-61 errata: the harvest row is the harvest test of step 2, never a tree or an oil patch.
+        // The harvest row is the harvest test of step 2, never a tree or an oil patch.
         if let Some(t) = target
             && self.unit(t).is_some_and(|t| self.harvest_test(u, t))
         {
@@ -288,7 +307,7 @@ impl World {
         let own_unit = target
             .and_then(|t| self.unit(t))
             .filter(|t| t.owner == u.owner && !t.building && t.present());
-        // Round-62 errata ("Smart move"; `orc9-orc09-tanker-move-2200` tanker 1473, n = 1265 and 1700): a target unit
+        // Orders spec ("Smart move"; `orc9-orc09-tanker-move-2200` tanker 1473, n = 1265 and 1700): a target unit
         // that falls through to the move stays its target, and the stored goal is the target's tile (not pulled back,
         // `World::command`). Traced for a tanker; static study for land units.
         let moving_to = target.and_then(|t| self.unit(t)).map(|t| (t.id, t.tile));
@@ -305,14 +324,14 @@ impl World {
         })
     }
 
-    /// "Smart move" step 2 (round-61 errata): with no target unit, the building on the goal tile becomes the target
+    /// "Smart move" step 2: with no target unit, the building on the goal tile becomes the target
     /// when it passes the harvest test ([`World::harvest_test`]). Anything else gives no target.
     pub(crate) fn smart_building(&self, u: &Unit, tile: (i32, i32)) -> Option<UnitId> {
         let at = self.occupant(Layer::Land, tile.0, tile.1).and_then(|t| self.unit(t))?;
         (at.building && self.harvest_test(u, at)).then_some(at.id)
     }
 
-    /// The smart move's harvest test ("Smart move" step 2, round-61 errata; `orc9-orc09-smart-move-2000` vectors): a
+    /// The smart move's harvest test ("Smart move" step 2; `orc9-orc09-smart-move-2000` vectors): a
     /// worker carrying nothing on a gold mine, or a tanker not carrying oil on an oil platform of its own player. It is
     /// on the unit type and what it carries only: what the worker last harvested (its gather mode) plays no part.
     pub(crate) fn harvest_test(&self, u: &Unit, t: &Unit) -> bool {
@@ -373,11 +392,11 @@ impl World {
     /// remembered order to give instead, with the countdown set. `None` keeps the idle. An immediate idle never comes
     /// here.
     ///
-    /// Round-62 errata: with the countdown at 0, a remembered attack-move that is complete (within 1 tile on both
+    /// With the countdown at 0, a remembered attack-move that is complete (within 1 tile on both
     /// axes) is forgotten here, wherever idle becomes pending (traced: `orc9-orc09-attack-move-1500` ogre 1493). With
     /// the countdown running nothing is resumed or forgotten (static study only).
     ///
-    /// Round-45 errata: the resumed order is a full command. Its goal is pulled back (pathfinding spec, "Goal pulled
+    /// The resumed order is a full command. Its goal is pulled back (pathfinding spec, "Goal pulled
     /// back"), the cached route dropped, the blocked counter cleared and the recorded attacker checked ("Commands
     /// forget a stale attacker"; `xorc01-death-coil` ogre 1489, n = 901 to 904).
     pub(crate) fn resumed(&mut self, i: usize) -> Option<Order> {
@@ -470,12 +489,12 @@ impl World {
         }
     }
 
-    /// The unit's attacker if still good; a lost one is forgotten. Round-42 errata (movement spec, "Blocked rules";
+    /// The unit's attacker if still good; a lost one is forgotten. Movement spec ("Blocked rules";
     /// "Resulting order"): a dying attacker isn't good, but its record is kept while it is dying, where it still
-    /// counts as an attacker for the resulting order. Round-43 errata: it is kept until it leaves play (its slot is
-    /// released); the end of its death animation isn't a rule (movement spec, open questions). Round-49 errata ("Terms",
+    /// counts as an attacker for the resulting order. It is kept until it leaves play (its slot is
+    /// released); the end of its death animation isn't a rule (movement spec, open questions). Orders spec ("Terms",
     /// `xhuman7-10000` troll destroyer 1420): an attacker in play that the owner doesn't detect is ignored in this run
-    /// and stays recorded; only a command forgets it. Round-51 errata ("A recorded attacker outlives its slot"): a
+    /// and stays recorded; only a command forgets it. Orders spec ("A recorded attacker outlives its slot"): a
     /// released slot reads as a dying attacker, so its record is kept here too.
     fn attacker(&mut self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
@@ -495,9 +514,9 @@ impl World {
         self.unit(a).is_none_or(|a| a.dying)
     }
 
-    /// Round-51 errata, "Forgetting a dying attacker first": every target search of a unit that can move starts by
+    /// "Forgetting a dying attacker first": every target search of a unit that can move starts by
     /// forgetting a recorded attacker that is dying or no longer in play (`xorc6-10000` axe thrower 1475, n = 6106).
-    /// Round-52 errata: a unit can move if its type has a movement-class flag (the five lowest type flag bits).
+    /// A unit can move if its type has a movement-class flag (the five lowest type flag bits).
     pub(crate) fn forget_dying_attacker(&mut self, i: usize) {
         let u = &self.units[i];
         if self.flags_of_unit(u) & MOVEMENT_CLASS != 0
@@ -520,7 +539,7 @@ impl World {
         self.can_target_type(u, self.stats_of(kind).flags, self.layer_of(kind))
     }
 
-    /// Orders spec, "Commands forget a stale attacker" (round-45 errata): every command given to a unit that isn't a
+    /// Orders spec, "Commands forget a stale attacker": every command given to a unit that isn't a
     /// building forgets a recorded attacker that is dying, dead or removed, or isn't detected by the unit's owner
     /// (`xorc01-death-knight` ogre 1489, n = 1191).
     pub(crate) fn forget_stale_attacker(&mut self, i: usize) {
@@ -541,7 +560,7 @@ impl World {
         self.unit(t).is_none_or(|t| t.dying || !Self::detected(t, owner))
     }
 
-    /// Orders spec, "Order 12 with no route" step 3 (round-52 errata, `xorc8-10000` elven destroyer 1468, n = 7372):
+    /// Orders spec, "Order 12 with no route" step 3 (`xorc8-10000` elven destroyer 1468, n = 7372):
     /// a unit in order 12 out of reach of a target it still holds takes a move step instead of running its order
     /// logic, and the move step's target search runs whatever the skip mark.
     pub(crate) fn out_of_reach(&self, i: usize) -> bool {
@@ -575,13 +594,13 @@ impl World {
         // `human01-basics` footman 1593 kills at n = 575 and its next run, at n = 591, gives order 2 with wait 3.
         let forgot = self.units[i].forgot.take() == Some(o);
         let lost = target_of(o).is_some_and(|t| forgot || self.target_lost(self.units[i].owner, t));
-        // Round-40 errata: order 12 runs its target search first, and only if it finds nothing new is the target lost.
-        // Round-42 errata: so do orders 15 and 16, so a dying target stays the target until then.
+        // Order 12 runs its target search first, and only if it finds nothing new is the target lost.
+        // So do orders 15 and 16, so a dying target stays the target until then.
         let search_first = found_target(o);
-        // Round-49 errata ("Commands", command 4): order 4 with a target unit ends at its run once that target is dying
+        // Orders spec ("Commands", command 4): order 4 with a target unit ends at its run once that target is dying
         // or lost, as on arrival: idle (or the resumed order) takes over in the same update (`xhuman7-10000` giant
         // turtle 1511, n = 271).
-        // Round-63 errata ("Smart move"; `orc9-orc09-smart-target-2100` peon 1478, n = 1877): a smart move (order 3)
+        // Orders spec ("Smart move"; `orc9-orc09-smart-target-2100` peon 1478, n = 1877): a smart move (order 3)
         // that keeps a target unit ends the same way, at its first step boundary where the target is dying, gone,
         // inside something or undetected; it doesn't walk on to the stored tile.
         let move_lost = matches!(
@@ -589,7 +608,7 @@ impl World {
             Order::MoveAttack { target: Some(t), .. } | Order::Move { target: Some(t), .. }
                 if self.target_lost(self.units[i].owner, t)
         );
-        // Round-64 errata ("Follow (orders 6 and 7)"; static study only): order 6 whose target is found lost at a step
+        // Orders spec ("Follow (orders 6 and 7)"; static study only): order 6 whose target is found lost at a step
         // boundary isn't walking, so its reaction runs first; when the reaction's search picks a unit, the follow
         // steps run on it, and only otherwise is the target lost.
         if lost && let Order::Follow { target } = o {
@@ -600,19 +619,19 @@ impl World {
             }
         }
         if (lost && !search_first) || move_lost {
-            // Round-50 errata (static study): command 4's end forgets the attacker, as arrival does (and so does order
-            // 3's, round-63 errata).
+            // Static study only: command 4's end forgets the attacker, as arrival does (and so does order
+            // 3's).
             if move_lost {
                 self.units[i].attacked_by = None;
             }
             self.lose_target(i);
             return true;
         }
-        // "Order 12 with no route" (round-47 errata): a unit marked by that fallback skips the target search (and with
-        // it the acquisition) in its next order-logic run. Round-48 errata: if that run's order is idle or an attack
+        // "Order 12 with no route": a unit marked by that fallback skips the target search (and with
+        // it the acquisition) in its next order-logic run. If that run's order is idle or an attack
         // order (2, 9, 11, 12, 13, 15, 16 or 17); `World::order` clears the mark at the run's end.
         let skip = self.units[i].skip_search && skip_mark_gates(o) && !self.out_of_reach(i);
-        // Round-51 errata, "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): in orders 4
+        // "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): in orders 4
         // and 10 the arrival test comes before the target search, so a unit standing at its move goal arrives below
         // with no acquisition in that run.
         let arriving = match o {
@@ -627,7 +646,7 @@ impl World {
             return true;
         }
         if lost {
-            // Round-45 errata, "Losing the target while cooling down": in orders 12, 15 and 16 the cooldown test comes
+            // "Losing the target while cooling down": in orders 12, 15 and 16 the cooldown test comes
             // before the target check, so a unit still cooling down restarts its attack animation with the cooldown
             // left as its wait, its pending order cleared, and keeps its order until the cooldown runs out
             // (`xorc01-death-knight` ogre 1488, n = 907 to 930).
@@ -666,7 +685,7 @@ impl World {
                 Walk::NoPath | Walk::Stepping | Walk::Blocked => {}
             },
             Order::Follow { target } | Order::Guard { target } => {
-                // Order 6 reacts to an attacker only when its walk has ended (`follow`, round-63 errata).
+                // Order 6 reacts to an attacker only when its walk has ended (`follow`).
                 // "Follow": order 7 then runs the idle logic (look-around, then acquisition as for order 2), unless
                 // its follow steps gave it a new order.
                 if self.follow(i, target) && !self.look_around(i) {
@@ -686,13 +705,13 @@ impl World {
 
     /// The moves, orders 3, 4 and 10 ("Walking orders"; "Arriving and losing the target").
     ///
-    /// Round-52 errata (static study): in Classic mode order 10 reacts in its walk ("Walking orders", step 1), and at
+    /// Static study only: in Classic mode order 10 reacts in its walk ("Walking orders", step 1), and at
     /// the move goal the whole move step is skipped, so the reaction doesn't run there either.
     ///
-    /// A walk whose order holds a target unit heads for the target where it stands now (round-62 and round-65 errata;
+    /// A walk whose order holds a target unit heads for the target where it stands now ("Walking orders";
     /// pathfinding spec, "Step 1" and "G for a walk with a target unit"; V256): the route goal of the building goal rule
     /// on the target's footprint, from the unit's tile, with the target's goal zone. Order 4 also stores that goal
-    /// (round-59 errata, `orc5-40000` n = 33260); order 3 keeps the target's tile its command stored. A lost target
+    /// (`orc5-40000` n = 33260); order 3 keeps the target's tile its command stored. A lost target
     /// ended the order before the walk (`run_order`).
     fn move_order(&mut self, i: usize, o: Order, arriving: bool) {
         if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && !arriving && self.react(i) {
@@ -735,7 +754,7 @@ impl World {
     /// Orders 6 and 7 ("Follow"). Returns whether a guarding unit (order 7) goes on to its idle logic: it is within
     /// the radius and its follow steps gave it no new order.
     ///
-    /// Round-64 errata ("Follow (orders 6 and 7)", "Walking orders react only when the walk has ended";
+    /// Orders spec ("Follow (orders 6 and 7)", "Walking orders react only when the walk has ended";
     /// `orc9-orc09-follow-attacked-1200` grunt 1481, n = 314 to 560): while order 6 walks only the walk runs, and a
     /// route search that finds no route makes idle an immediate order whose idle logic runs ("No route"), with no
     /// reaction (static study only). Once it is in reach, the reaction runs first and the follow steps then run on
@@ -755,8 +774,8 @@ impl World {
         self.follow_steps(i, target)
     }
 
-    /// The follow's walk toward `t`. Round-60 errata (pathfinding spec, "Step 1"; static study): the walk's order holds
-    /// a target unit, so its goal zone is the target's widened footprint. Round-62 errata (`orc9-orc09-tanker-move-2200`
+    /// The follow's walk toward `t`. Pathfinding spec, "Step 1" (static study): the walk's order holds
+    /// a target unit, so its goal zone is the target's widened footprint. Traced (`orc9-orc09-tanker-move-2200`
     /// juggernaut 1501, n = 614): the radius is 1 plus the +1 for a sea or air follower, as in the general arrival
     /// test.
     fn follow_goal(&self, t: &Unit) -> Goal {
@@ -766,7 +785,7 @@ impl World {
         }
     }
 
-    /// Order 6's reaction to an attacker, in a run where the follower isn't walking (round-64 errata, "Follow (orders
+    /// Order 6's reaction to an attacker, in a run where the follower isn't walking ("Follow (orders
     /// 6 and 7)"; `orc9-orc09-follow-attacked-1200` grunt 1481, n = 493): the arrival switch and the reaction run, but
     /// any order the reaction gives is replaced by what the follow steps give. The target it set stays: an attack
     /// command from the reaction's search (or a worker's fight-back) makes the picked unit the one followed. Returns
@@ -829,13 +848,13 @@ impl World {
         }
         if follow {
             if followable(t_order) {
-                // Round-65 errata (step 3; `orc9-orc09-follow-flee-1300` peon 1478, n = 605, and
+                // Orders spec (step 3; `orc9-orc09-follow-flee-1300` peon 1478, n = 605, and
                 // `orc12-orc12-guard-board-full-900` ogre 1450, n = 220): the guard is made pending and takes over in
                 // the same update (still animation, wait 3, target kept).
                 self.units[i].path.clear();
                 self.take_over(i, Order::Guard { target });
             } else {
-                // Round-62 errata (same vector): idle is made the pending order, with the Enhanced resume, and takes
+                // Orders spec (same vector): idle is made the pending order, with the Enhanced resume, and takes
                 // over in the same update (still animation, wait 3); not a stop command.
                 self.idle_now(i);
             }
@@ -850,7 +869,7 @@ impl World {
     /// Orders 15 and 16: strike in range, never move ("Attacking without moving").
     fn attack_in_place(&mut self, i: usize, target: UnitId) {
         let Some(t) = self.unit(target) else { return };
-        // "Friendly-fire check" (round-41 errata): before the range test.
+        // "Friendly-fire check": before the range test.
         let tile = t.tile;
         if self.holds_fire(i, tile) {
             return;
@@ -864,10 +883,10 @@ impl World {
             return;
         }
         match u.order {
-            // Round-41 errata (static study only): order 15 forgets the target and order 13 takes over in the same
+            // Static study only: order 15 forgets the target and order 13 takes over in the same
             // update (still animation, wait 3), by the same path as order 16.
             Order::AttackInPlace { .. } => self.take_over(i, Order::StandGround),
-            // Round-40 errata (`xhuman4` axe thrower 1437, n = 6): order 16 forgets the target and idle takes over in
+            // Traced (`xhuman4` axe thrower 1437, n = 6): order 16 forgets the target and idle takes over in
             // the same update (still animation, wait 3); the attacker is kept.
             _ => self.idle_now(i),
         }
@@ -903,7 +922,7 @@ impl World {
         s.can_target & bit != 0
     }
 
-    /// Round-50 errata, "Checks on an attack command": the attack order's kind check, by the attacker type's
+    /// "Checks on an attack command": the attack order's kind check, by the attacker type's
     /// can-target value, in this order. An air target needs air; a submarine hits only types flagged as sea units,
     /// oil platforms or shore buildings; a transport on a shore tile can be hit with land or sea; any other target in
     /// the sea layer needs sea; any other target needs land.
@@ -939,15 +958,15 @@ impl World {
     }
 
     /// Whether `t` is inside the searcher's minimum range: its distance is less than the searcher's missile's minimum
-    /// flight value minus 1 (round-59 errata, `orc5-40000` n = 21489). Catapults and ballistas (3) skip d <= 1 only;
+    /// flight value minus 1 (`orc5-40000` n = 21489). Catapults and ballistas (3) skip d <= 1 only;
     /// cannons (2) and missiles with no value skip nothing, since d is at least 1.
     fn inside_min_range(&self, u: &Unit, t: &Unit) -> bool {
         combat::splash(self.stats_of(u.kind).missile).is_some_and(|min| distance(u.tile, t) < min as i32 - 1)
     }
 
     /// The acquisition kind check of the candidate skip list and the attacker seed: the attack command's kind check
-    /// ([`World::can_hit_kind`]) in full, first match wins (round-60 errata, "Checks on an attack command"; the
-    /// transport-on-shore case is traced in acquisition, `orc12-30000` n = 26982, re-captured identically in round 60).
+    /// ([`World::can_hit_kind`]) in full, first match wins ("Checks on an attack command"; the
+    /// transport-on-shore case is traced in acquisition, `orc12-30000` n = 26982).
     fn acquire_kind(&self, u: &Unit, t: &Unit) -> bool {
         self.can_hit_kind(u, t)
     }
@@ -975,7 +994,7 @@ impl World {
         if self.inside_min_range(u, t) {
             return false;
         }
-        // Round-49 errata (`xorc11-10000` destroyer 1542, n = 38): attack-move (order 10) only; a sea unit on patrol
+        // Traced (`xorc11-10000` destroyer 1542, n = 38): attack-move (order 10) only; a sea unit on patrol
         // uses the ordinary skip list.
         if self.rules.enhanced
             && matches!(order, Order::AttackMove { .. })
@@ -988,7 +1007,7 @@ impl World {
         true
     }
 
-    /// "Special cases" (round-40 errata): mages score every candidate like any other unit, and the rule is applied to
+    /// "Special cases": mages score every candidate like any other unit, and the rule is applied to
     /// the chosen target. A target that can attack and isn't a non-combat unit makes them acquire nothing.
     fn mage_refuses(&self, u: &Unit, t: &Unit) -> bool {
         self.mage_like(u) && self.flags_of_unit(t) & flags::CAN_ATTACK != 0 && !self.non_combat(t)
@@ -1016,7 +1035,7 @@ impl World {
         self.search_box(i, seed, r, tower as i32)
     }
 
-    /// "Order 12 with no route" (round-47 errata): the target search with the box of the unit's attack range (one
+    /// "Order 12 with no route": the target search with the box of the unit's attack range (one
     /// tile further right and down only for tower types) and no attacker seed.
     pub(crate) fn search_in_range(&self, i: usize) -> Option<UnitId> {
         let u = &self.units[i];
@@ -1028,9 +1047,9 @@ impl World {
     fn search_box(&self, i: usize, seed: Option<UnitId>, r: i32, extra: i32) -> Option<UnitId> {
         let u = &self.units[i];
         let (x0, y0, x1, y1) = (u.tile.0 - r, u.tile.1 - r, u.tile.0 + r + extra, u.tile.1 + r + extra);
-        // "Choice" (round-44 errata, `human06-31357` ballista 1582 at n = 23683): the attacker seeds the search only
+        // "Choice" (`human06-31357` ballista 1582 at n = 23683): the attacker seeds the search only
         // with a score above 0; one the unit can't attack (score 0: a kind it can't attack, or closer than its minimum
-        // range) leaves the search as if there were no attacker. Round-53 errata (`human06-31357` n = 9642,
+        // range) leaves the search as if there were no attacker. Traced (`human06-31357` n = 9642,
         // `xhuman11-10000` n = 9065): so does one the unit's owner doesn't detect or that the fog hides from it, the
         // test of the candidate skip list (left out while loading, as there).
         let seen = |a: &Unit| Self::detected(a, u.owner) && (self.loading || self.visible_to(u.owner, a.id));
@@ -1039,7 +1058,7 @@ impl World {
             .filter(|a| seen(a) && self.acquire_kind(u, a) && !self.inside_min_range(u, a))
             .map(|a| (self.score(u, a), a.id))
             .filter(|&(sc, _)| sc > 0);
-        // "Vertical order" (round-44 errata): only dying, dead and removed entries are skipped at the front. Inside
+        // "Vertical order": only dying, dead and removed entries are skipped at the front. Inside
         // units keep their list place and are visited by their recorded tile row, so they take part in the halving
         // search; the candidate checks then reject them (`human7-22000` archer 1598, n = 19787).
         let gone = |id: &UnitId| self.unit(*id).is_none_or(|t| t.dying);
@@ -1097,15 +1116,15 @@ impl World {
         let u = &self.units[i];
         let worker_like = self.flags_of_unit(u) & (flags::PEON | flags::TANKER) != 0;
         let computer_worker = worker_like && self.computer_player(u.owner);
-        // Round-55 errata, "Reacting to an attacker", step 1 comes first for every unit and every player, workers and
+        // "Reacting to an attacker", step 1 comes first for every unit and every player, workers and
         // tankers included. A computer player's worker or tanker with no attacker runs its AI routine instead.
         if computer_worker && u.attacked_by.is_none() {
             return false;
         }
         let attacker = self.attacker(i);
-        // Round-50 errata, "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a recorded
+        // "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a recorded
         // attacker that is dying or no longer in play, and that the unit couldn't target at all, is forgotten. There is
-        // no flee and no target search in that run, and the rest of the order's logic goes on. Round-51 errata: a
+        // no flee and no target search in that run, and the rest of the order's logic goes on. A
         // released slot by the last type it held.
         let u = &self.units[i];
         if attacker.is_none()
@@ -1118,9 +1137,9 @@ impl World {
         }
         let u = &self.units[i];
         let mage = self.mage_like(u);
-        // Round-54 errata, step 1: the kind check alone, as in "Checks on an attack command", on the recorded attacker
+        // Step 1: the kind check alone, as in "Checks on an attack command", on the recorded attacker
         // while it is valid; no fog or detection test, so an attacker hidden from the seed by those alone goes on to
-        // step 2 unseeded, and one whose kind the unit can't hit is fled from. Round-55 errata (`human12-25000`
+        // step 2 unseeded, and one whose kind the unit can't hit is fled from. Traced (`human12-25000`
         // transport 1428, n = 16061, and tanker 1425, n = 16612): an undetected attacker is fled from too, and a
         // computer player's worker or tanker that fails step 1 runs the flee rule and not its AI routine.
         if let Some(at) = u.attacked_by.and_then(|a| self.unit(a)).filter(|a| a.present())
@@ -1129,9 +1148,9 @@ impl World {
             let fled = self.flee(i);
             return fled || computer_worker;
         }
-        // Round-42 errata, "Special cases": workers and tankers of every player never run the search; the others'
+        // "Special cases": workers and tankers of every player never run the search; the others'
         // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
-        // Round-56 static correction: the reaction's non-combat flee has no detection test, so a non-combat unit
+        // The reaction's non-combat flee has no detection test, so a non-combat unit
         // whose valid attacker its owner doesn't detect runs the reaction too (the "Terms" rule covers only the
         // target search and its seed).
         let valid = u.attacked_by.and_then(|a| self.unit(a)).is_some_and(|a| a.present());
@@ -1143,7 +1162,7 @@ impl World {
             if non_combat {
                 return self.react(i);
             }
-            // Round-45 errata, "Reacting to an attacker", step 3: an invisible mage-type unit does nothing more in
+            // "Reacting to an attacker", step 3: an invisible mage-type unit does nothing more in
             // that run (static study only).
             if mage && u.invisibility > 0 {
                 return false;
@@ -1152,10 +1171,10 @@ impl World {
         if self.flags_of_unit(u) & flags::CAN_ATTACK == 0 {
             return false;
         }
-        // Round-45 errata, step 3: a mage-type unit with an attacker that finds no target it may take (or only its
+        // Step 3: a mage-type unit with an attacker that finds no target it may take (or only its
         // current one) runs the reaction instead, which treats it as a non-combat unit, so it flees
         // (`xorc01-death-coil` death knight 1491, n = 1431).
-        // Round-51 errata, "Forgetting a dying attacker first": the resulting order is picked from the record as it was
+        // "Forgetting a dying attacker first": the resulting order is picked from the record as it was
         // before the search.
         let attacked = u.attacked_by.is_some();
         self.forget_dying_attacker(i);
@@ -1172,26 +1191,26 @@ impl World {
         let u = &self.units[i];
         let o = self.resulting(i, kind, best, attacked);
         let t = self.unit(best).expect("found by the search");
-        // "Attacking without moving" (round-40 errata, `xhuman2` footman 1548 at n = 34): order 16 doesn't switch to a
+        // "Attacking without moving" (`xhuman2` footman 1548 at n = 34): order 16 doesn't switch to a
         // new target out of range; the target is forgotten and idle takes over in the same update, attacker kept.
-        // Round-52 errata (static study): while the unit is still cooling down, the cooling-down rule wins and the new
+        // Static study only: while the unit is still cooling down, the cooling-down rule wins and the new
         // target is taken with no range test.
         if matches!(u.order, Order::IdleReact { .. }) && !self.in_range(u, t) && !self.still_cooling(u) {
             self.idle_now(i);
             return true;
         }
         let reach = self.within_strike_reach(u, t);
-        // Round-40 errata, "Automatic target acquisition": in order 12 a new target out of reach, with the old target
+        // "Automatic target acquisition": in order 12 a new target out of reach, with the old target
         // still held, is given as a command. The target changes at once, the route is dropped and the blocked counter
         // cleared; order 12 takes over at the next step done (`orc02` footman 1582, n = 570 to 586; `xhuman4`
         // footman 1497, n = 66). Our reading: the order's logic carries on in this update with the new target, as
-        // the round-39 traces show (the unit keeps heading for it).
-        // Round-42 errata: the same holds for an old target that is dying, unless this unit killed it (and so forgot
+        // the traces show (the unit keeps heading for it).
+        // The same holds for an old target that is dying, unless this unit killed it (and so forgot
         // it); but a unit within strike reach of the old target takes the new order over at once, without a step
-        // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800). Round-48 errata
+        // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800). "Resulting order"
         // (`human5-10000` axe thrower 1533, n = 2754): whenever the old target is still recorded, whatever its state
         // (dying, inside a building or otherwise not detected).
-        // Round-50 errata (`xhuman12-10000` grunt 1476, n = 1847): a unit still cooling down is handled as in reach,
+        // Traced (`xhuman12-10000` grunt 1476, n = 1847): a unit still cooling down is handled as in reach,
         // below, whichever out-of-reach case would otherwise apply.
         if let (Order::Chase { target: old }, Order::Chase { target }) = (u.order, o)
             && !reach
@@ -1205,7 +1224,7 @@ impl World {
             self.attack_order(i, target);
             return true;
         }
-        // Attack-move: orders 4, 5 and Enhanced 10 (`xorc01-death-knight` ogre 1488, n = 718; round-41 errata,
+        // Attack-move: orders 4, 5 and Enhanced 10 (`xorc01-death-knight` ogre 1488, n = 718,
         // `xhuman2` ogre 1581 at n = 2048 in order 4): the same command, but the order stays until the next step done
         // and its logic carries on heading for the new target, even one already within strike reach
         // (`orc02-victory` axe thrower 1591, n = 4789).
@@ -1216,7 +1235,7 @@ impl World {
             self.head_for(i, target);
             return true;
         }
-        // Orders spec, "Friendly-fire check" (round-43 errata, `xhuman4` ballista 1488 at n = 210, `xhuman10-spells`
+        // Orders spec, "Friendly-fire check" (`xhuman4` ballista 1488 at n = 210, `xhuman10-spells`
         // ballista 1483 at n = 227): after a target switch in orders 12, 15 and 16 the run goes on with the new
         // target, and the check is made on it (not while still cooling down).
         let tile = t.tile;
@@ -1231,23 +1250,23 @@ impl World {
                 | (Order::IdleReact { .. }, Order::IdleReact { .. })
         );
         let attack_order = found_target(u.order);
-        // Round-64 errata, "Automatic target acquisition", the cooling-down case (traced in round 66:
+        // "Automatic target acquisition", the cooling-down case (V264,
         // `orc9-orc09-order16-keep-2000` grunt 1492, n = 937): a unit in order 16 still cooling down whose search gives
         // order 12 keeps order 16 on the new target, waiting for the cooldown left; there is no take-over with wait 3.
         let keeps_16 = matches!((u.order, o), (Order::IdleReact { .. }, Order::Chase { .. })) && self.still_cooling(u);
         let o = if keeps_16 { Order::IdleReact { target: best } } else { o };
         let same_order = same_order || keeps_16;
         let at_once = if same_order && self.still_cooling(u) {
-            // Round-50 errata: whatever the reach, the cooldown test restarts the animation with the cooldown left;
+            // Whatever the reach, the cooldown test restarts the animation with the cooldown left;
             // a strike already decided on the old target still lands.
             self.cooling_down(i)
         } else {
             attack_order && self.acquiring_strike(i, o, best) && same_order
         };
         if at_once {
-            // Round-41 errata, "Resulting order" (`orc02-assault` footman 1587, n = 617): an order-12 switch to a
+            // "Resulting order" (`orc02-assault` footman 1587, n = 617): an order-12 switch to a
             // target in reach while still cooling down takes effect at once, and the cooldown test's restart (the
-            // cooldown left as its wait) stands; there is no wait of 3. Round-50 errata: so does an out-of-reach
+            // cooldown left as its wait) stands; there is no wait of 3. So does an out-of-reach
             // order-12 switch, and a same-order switch in orders 15 and 16 (`xhuman12-10000` archer 1372, n = 5142).
             // The command steps, with the order set at once and no take-over.
             self.units[i].order = o;
@@ -1285,16 +1304,16 @@ impl World {
         false
     }
 
-    /// The reaction of a walking order (23, 24, 27, 6 or 34) in a logic run where its walk has ended. Round-63 errata
+    /// The reaction of a walking order (23, 24, 27, 6 or 34) in a logic run where its walk has ended
     /// ("Walking orders react only when the walk has ended"; `orc9-orc09-flee-walk-1200` peon 1478, n = 590): while
     /// the unit walks only the walk runs and the attacker stays recorded; these orders call this only once the walk has
-    /// ended. Round-64 errata: that is when the unit has reached its goal or its target was found lost at a step
+    /// ended. That is when the unit has reached its goal or its target was found lost at a step
     /// boundary (and order 23's no-route re-aim); no route is not such a run for orders 24, 27 and 6, and order 34
     /// calls this only when it has reached its transport, can't board and keeps waiting.
     ///
     /// The arrival switch comes first: a unit still in its move animation is switched to its order's own animation
-    /// (`core/animation-scripts.md`), so a flee given here takes over at once (still animation, wait 3). Round-64
-    /// errata: the switch has no attacker condition (`human4-15000` peon 1531, n = 638).
+    /// (`core/animation-scripts.md`), so a flee given here takes over at once (still animation, wait 3). The
+    /// switch has no attacker condition (`human4-15000` peon 1531, n = 638).
     pub(crate) fn react_at_walk_end(&mut self, i: usize) -> bool {
         let u = &self.units[i];
         if u.script.anim == anim::MOVE {
@@ -1305,9 +1324,9 @@ impl World {
 
     /// The plain reaction to an attacker ("The reaction"). Returns true if the unit's order changed or it fled.
     pub(crate) fn react(&mut self, i: usize) -> bool {
-        // "The reaction": an attacker that is no longer valid is forgotten. Round-51 errata: a dying or released one
+        // "The reaction": an attacker that is no longer valid is forgotten. A dying or released one
         // too ("A recorded attacker outlives its slot"); an undetected one stays recorded.
-        // Round-56 static correction: the non-combat flee has no detection test, so a non-combat or mage-type unit
+        // The non-combat flee has no detection test, so a non-combat or mage-type unit
         // goes on with a valid attacker its owner doesn't detect, and flees from it as in step 1.
         let undetected = self.units[i]
             .attacked_by
@@ -1329,7 +1348,7 @@ impl World {
             self.units[i].attacked_by = None;
             return false;
         }
-        // Round-45 errata: the reaction treats mage-type units as non-combat units, so they flee.
+        // The reaction treats mage-type units as non-combat units, so they flee.
         if self.non_combat(u) || self.mage_like(u) {
             return self.flee(i);
         }
@@ -1346,7 +1365,7 @@ impl World {
     /// "Fleeing". Returns true if the unit fled or turned on its attacker.
     pub(crate) fn flee(&mut self, i: usize) -> bool {
         // "The attacker must still be valid": not dying, dead or inside something.
-        // Round-55 errata: an invalid attacker is forgotten, with no flee; there is no detection test (`human12-25000`).
+        // An invalid attacker is forgotten, with no flee; there is no detection test (`human12-25000`).
         let Some(a) = self.units[i].attacked_by else {
             return false;
         };
@@ -1381,16 +1400,16 @@ impl World {
         if two {
             to = (to.0 & !1, to.1 & !1);
         }
-        // Round-40 errata (`xorc10` footman 1520 at n = 333, `human12` zeppelin 1503 at n = 5668): a unit that isn't in
+        // Traced (`xorc10` footman 1520 at n = 333, `human12` zeppelin 1503 at n = 5668): a unit that isn't in
         // its move animation takes the move in the same update (wait 3); one in its move animation keeps it pending.
         // Our reading: the take-over starts the move order's own animation, the still one, as any take-over does.
-        // Round-44 errata: the move is a command, so its goal is pulled back, its blocked counter cleared and its
+        // The move is a command, so its goal is pulled back, its blocked counter cleared and its
         // cached route dropped.
-        // Round-51 errata, "Fleeing" step 6: the move is a smart move with no target unit. Its wait cap applies, and a
+        // "Fleeing" step 6: the move is a smart move with no target unit. Its wait cap applies, and a
         // transport takes the transport outcome (landing, order 30, on a shore tile: `xorc8-10000` transport 1423,
         // n = 6177); with no target unit and no mine or platform the harvest outcomes don't, so every other unit gets
         // a move (order 3), even next to a forest.
-        // Round-60 and round-61 errata: the smart move's step 2 applies with its harvest test, so a worker carrying
+        // The smart move's step 2 applies with its harvest test, so a worker carrying
         // nothing whose flee tile is a gold mine's harvests it, whatever it last harvested
         // (`orc9-orc09-shore-build-3000` peon 1478, n = 599, a builder that never harvested), as would a tanker not
         // carrying oil on its own player's oil platform.
@@ -1414,7 +1433,7 @@ impl World {
     }
 
     /// The friendly-fire check of a ground attacker in orders 12, 15 and 16, made in the order's logic before the
-    /// range test (round-41 errata; `xhuman2` ballista 1503, n = 2226, and `human06-31357` ballista 1582, n = 9483).
+    /// range test (`xhuman2` ballista 1503, n = 2226, and `human06-31357` ballista 1582, n = 9483).
     /// Returns true if the strike is called off: the target is forgotten and idle takes over in the same update
     /// (still animation, wait 3, facing kept). Our reading of "after the cooldown test": a unit still cooling down
     /// (whose strike decision would only restart its animation) isn't checked in that run.
@@ -1485,7 +1504,7 @@ impl World {
         self.ylist.insert(at, id);
     }
 
-    /// The pixel y a unit sorts by ("Vertical order", round-44 errata): dying, dead and removed units (remains and
+    /// The pixel y a unit sorts by ("Vertical order"): dying, dead and removed units (remains and
     /// the remove order keep the dying state) sort at −32768. A unit inside something keeps its place: its pixel y
     /// doesn't change while it is inside, and coming out doesn't re-insert it, so it moves only by the sort.
     fn sort_y(&self, u: &Unit) -> i32 {
@@ -1741,7 +1760,7 @@ mod tests {
 
     #[test]
     fn take_overs_and_immediate_orders_keep_the_frame() {
-        // Animation-scripts spec, round-33 errata: no way of starting an animation changes the frame (Human04 peon
+        // Animation-scripts spec: no way of starting an animation changes the frame (Human04 peon
         // 1548 returning gold: frame 0 from the arrival switch kept through order 25's take-over at n = 374).
         let mut w = map();
         let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
@@ -1841,7 +1860,7 @@ mod tests {
         assert!(matches!(target_of(o), Some(t) if t == g), "{o:?}");
     }
 
-    /// Orders spec, no route, the round-39 patrol vectors (`human10-10000` n = 6868 and 6907, `xorc7-7000` n = 806):
+    /// Orders spec, no route, the patrol vectors (`human10-10000` n = 6868 and 6907, `xorc7-7000` n = 806):
     /// a patrol that finds no route becomes an immediate idle (order 2, wait 1), and the idle logic's look-around runs
     /// in the same update (here a turn draw).
     #[test]
@@ -1911,7 +1930,7 @@ mod tests {
 
     #[test]
     fn a_move_command_ends_a_remembered_attack_move() {
-        // Round-36 vector (the xhuman10 hero): command 8, then a move; the move arrives at idle (still animation,
+        // Vector (the xhuman10 hero): command 8, then a move; the move arrives at idle (still animation,
         // wait 3) and stays idle, because the move command cleared the remembered attack-move.
         let mut w = map();
         w.rules.enhanced = true;
@@ -2000,7 +2019,7 @@ mod tests {
 
     #[test]
     fn a_patrol_turnaround_pulls_its_new_goal_back() {
-        // Round-44 errata, "Order 5 (patrol)": the turnaround is a command, so its new goal is pulled back. The far end
+        // "Order 5 (patrol)": the turnaround is a command, so its new goal is pulled back. The far end
         // (0, 2) and (1, 2) are blocked: the new goal is (1, 2), the last blocked tile before a usable one.
         let mut w = map();
         for x in 0..2 {
@@ -2043,7 +2062,7 @@ mod tests {
                 back: (2, 2),
             },
         );
-        // Round-41 errata: the turnaround is a command, so it clears the blocked counter.
+        // The turnaround is a command, so it clears the blocked counter.
         w.units[i].blocked = 3;
         let mut n = 0;
         while order_of(&w, f)
@@ -2112,7 +2131,7 @@ mod tests {
         assert_eq!(w.units[i].remembered, None);
     }
 
-    /// Orders spec, "An unremembered patrol" (round-56 static correction, Enhanced): an air unit's patrol to a goal
+    /// Orders spec, "An unremembered patrol" (Enhanced): an air unit's patrol to a goal
     /// within 1 tile on both axes leaves the remembered order as it was; a farther goal, or a land unit's, is remembered
     /// as given.
     #[test]
@@ -2155,7 +2174,7 @@ mod tests {
         );
     }
 
-    /// Movement spec test vector (round-42 errata): an idle unit with blocked counter 2 acquires a target. The resulting
+    /// Movement spec test vector: an idle unit with blocked counter 2 acquires a target. The resulting
     /// order is a command: counter 0, route dropped, and it takes over at once.
     #[test]
     fn an_acquisition_clears_the_blocked_counter_and_the_route() {
@@ -2163,7 +2182,7 @@ mod tests {
         let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
         let g = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
         let i = at(&w, f);
-        // Seen by the footman's owner (round-53 errata: a hidden attacker doesn't seed the search).
+        // Seen by the footman's owner (a hidden attacker doesn't seed the search).
         let gi = at(&w, g);
         w.units[gi].hidden_from = 0;
         w.units[i].attacked_by = Some(g);
@@ -2191,7 +2210,7 @@ mod tests {
         assert_eq!(order_of(&w, f), Order::Chase { target: g });
     }
 
-    /// Orders spec, "Same-update take-over" (round-39 errata), the `orc02` n = 570 vector and the static-study one: a
+    /// Orders spec, "Same-update take-over", the `orc02` n = 570 vector and the static-study one: a
     /// unit in order 12 that acquires another target takes it at once. Out of reach its logic carries on in the same
     /// update and it keeps walking (a step, the move animation, no wait of 3); in reach it turns to strike, and (our
     /// reading of `orc02` n = 343) the attack animation restarts with wait 3.
@@ -2223,7 +2242,7 @@ mod tests {
         }
     }
 
-    /// Round-41 errata, "Resulting order", and the `orc02-assault` n = 617 vector: an order-12 switch to a target in
+    /// "Resulting order", and the `orc02-assault` n = 617 vector: an order-12 switch to a target in
     /// reach while still cooling down takes effect at once, and the animation restarts with the cooldown left as its
     /// wait (no wait of 3, no turn).
     #[test]
@@ -2249,7 +2268,7 @@ mod tests {
         );
     }
 
-    /// Round-50 errata, "Resulting order" (`xhuman12-10000` grunt 1476, n = 1847): an out-of-reach order-12 switch
+    /// "Resulting order" (`xhuman12-10000` grunt 1476, n = 1847): an out-of-reach order-12 switch
     /// while still cooling down is handled as in reach: no command, no step, no wait of 3, the cooldown left as the
     /// wait. Not cooling down, the switch is the command case (a step toward the new target).
     #[test]
@@ -2285,7 +2304,7 @@ mod tests {
         }
     }
 
-    /// Round-50 errata (`xhuman12-10000` archer 1372, n = 5142): a unit in order 16 whose search gives order 16 on a
+    /// Traced (`xhuman12-10000` archer 1372, n = 5142): a unit in order 16 whose search gives order 16 on a
     /// different target while it is still cooling down takes it at once with the cooldown left as its wait.
     #[test]
     fn an_order_16_switch_while_cooling_down_keeps_the_cooldown_wait() {
@@ -2309,7 +2328,7 @@ mod tests {
         );
     }
 
-    /// Round-50 errata, "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a dying attacker
+    /// "Reacting to an attacker", step 1 (`xorc11-10000` battleship 1539, n = 628): a dying attacker
     /// the unit can't target is forgotten, with no flee and no search, and the order's logic goes on. One it can
     /// target is kept while dying, and the search runs without it.
     #[test]
@@ -2345,7 +2364,7 @@ mod tests {
         }
     }
 
-    /// Round-50 errata, "Commands", command 4 (static study): order 4's end on a dying target forgets the attacker,
+    /// "Commands", command 4 (static study): order 4's end on a dying target forgets the attacker,
     /// as arrival does.
     #[test]
     fn order_4_ending_on_its_target_forgets_the_attacker() {
@@ -2369,7 +2388,7 @@ mod tests {
         assert_eq!((u.order, u.attacked_by, u.script.wait), (Order::Idle, None, 3));
     }
 
-    /// Round-50 errata, "Checks on an attack command": the kind checks in order, with a submarine judged by the target
+    /// "Checks on an attack command": the kind checks in order, with a submarine judged by the target
     /// type's flags and a transport on a shore tile hittable with land or sea.
     #[test]
     fn the_attack_kind_checks_go_in_order() {
@@ -2406,7 +2425,7 @@ mod tests {
         assert!(!w.can_hit_kind(&sub, &with(BOAT, Layer::Air, (5, 5))));
     }
 
-    /// Round-41 errata, "Attack-move: orders 4, 5 and (Enhanced) 10": a unit in order 4 that picks a target already
+    /// "Attack-move: orders 4, 5 and (Enhanced) 10": a unit in order 4 that picks a target already
     /// within strike reach doesn't strike. It gets order 12 as a command (pending, target at once), keeps order 4 and
     /// steps toward the target in the same update (the `orc02-victory` n = 4789 and `xhuman2` n = 2048 vectors).
     #[test]
@@ -2436,7 +2455,7 @@ mod tests {
         assert!(w.missiles.iter().all(Option::is_none) && w.rng == before, "no strike");
     }
 
-    /// Round-41 errata, "Friendly-fire check": made in the order's logic before the range test, so a ground attacker
+    /// "Friendly-fire check": made in the order's logic before the range test, so a ground attacker
     /// whose target stands among its own units goes idle in the same update (still animation, wait 3, facing kept),
     /// in range or not (the `xhuman2` n = 2226 vector: the ballista 8 tiles away).
     #[test]
@@ -2460,7 +2479,7 @@ mod tests {
         }
     }
 
-    /// Round-43 errata (`xhuman4` ballista 1488, n = 210): after order 16's search switches to a new target, the run
+    /// Traced (`xhuman4` ballista 1488, n = 210): after order 16's search switches to a new target, the run
     /// goes on and the friendly-fire check is made on the new target; a unit still cooling down isn't checked and keeps
     /// the new target.
     #[test]
@@ -2495,7 +2514,7 @@ mod tests {
         }
     }
 
-    /// Round-43 errata, "A dying attacker in orders 9, 11 and 17": each run first forgets a dying attacker, before the
+    /// "A dying attacker in orders 9, 11 and 17": each run first forgets a dying attacker, before the
     /// target check, so losing a dying target that is also the attacker leaves no attacker (`orc09-naval` destroyer
     /// 1497, n = 510); a living attacker is kept.
     #[test]
@@ -2540,7 +2559,7 @@ mod tests {
         assert_eq!(w.search(i, Some(a), false), Some(a));
         assert!(w.acquire(i, Acquires::Other, false));
         assert_eq!(w.units[i].order, Order::AttackInPlace { target: a });
-        // Round-41 errata: order 13 takes over in the same update (still animation, wait 3, target null).
+        // Order 13 takes over in the same update (still animation, wait 3, target null).
         w.attack_in_place(i, a);
         let u = &w.units[i];
         assert_eq!(
@@ -2567,7 +2586,7 @@ mod tests {
         assert_eq!(w.search(i, None, true), None);
     }
 
-    /// "Attack-move" (round-44 errata, the `human06-31357` axe thrower 1512 vector at n = 16277): a building target is
+    /// "Attack-move" (the `human06-31357` axe thrower 1512 vector at n = 16277): a building target is
     /// headed for at the footprint tile of the building goal rule with the building's goal zone, as an attack on it
     /// walks, not at the building's own tile. A unit target is headed for at its tile.
     #[test]
@@ -2603,7 +2622,7 @@ mod tests {
         }
     }
 
-    /// "Choice" (round-44 errata, the `human06-31357` ballista 1582 vector at n = 23683): an attacker inside the
+    /// "Choice" (the `human06-31357` ballista 1582 vector at n = 23683): an attacker inside the
     /// unit's minimum range scores 0 and doesn't seed the search, which then picks a box candidate; with none, nothing
     /// is found. An attacker that can be attacked still wins a tie.
     #[test]
@@ -2704,7 +2723,7 @@ mod tests {
         w.units[ai].facing = 2;
         w.units[i].attacked_by = Some(a);
         assert!(w.flee(i));
-        // The move takes over in the same update (round-40 errata).
+        // The move takes over in the same update.
         let Order::Move { goal, .. } = w.units[i].order else {
             panic!("expected a move, got {:?}", w.units[i].order)
         };
@@ -2714,7 +2733,7 @@ mod tests {
         assert_eq!(w.units[i].attacked_by, None);
     }
 
-    /// Round-56 static correction, "The reaction": the non-combat flee has no detection test, so an idle peasant flees
+    /// "The reaction": the non-combat flee has no detection test, so an idle peasant flees
     /// from a valid attacker its owner doesn't detect.
     #[test]
     fn a_peasant_flees_an_undetected_attacker() {
@@ -2732,7 +2751,7 @@ mod tests {
 
     #[test]
     fn a_flee_move_is_a_command_whose_goal_is_pulled_back() {
-        // Round-44 errata, "Fleeing" step 6: the flee tile is pulled back off ground the unit can't stand on, and the
+        // "Fleeing" step 6: the flee tile is pulled back off ground the unit can't stand on, and the
         // blocked counter is cleared. Every tile from column 12 on is blocked, so the flee tile east of (10, 10) is
         // pulled back to the last blocked tile on the line, in column 12.
         let mut w = map();
@@ -2775,7 +2794,7 @@ mod tests {
         w.units[i].order = Order::Follow { target: g };
         w.follow(i, g);
         assert_eq!(w.units[i].order, Order::Guard { target: g });
-        // Round-65 errata (`orc9-orc09-follow-flee-1300` peon 1478, n = 605): the guard takes over in the same update,
+        // Traced (`orc9-orc09-follow-flee-1300` peon 1478, n = 605): the guard takes over in the same update,
         // with the still animation and a wait of 3.
         assert_eq!((w.units[i].script.anim, w.units[i].script.wait), (anim::STILL, 3));
         // The guarded unit starts harvesting: a move to the guard's own tile.
@@ -2830,7 +2849,7 @@ mod tests {
 
     #[test]
     fn inside_units_keep_their_list_place_and_coming_out_does_not_reinsert() {
-        // Orders spec, "Vertical order" (round-44 errata): a unit that goes in at pixel y 160 keeps its place while
+        // Orders spec, "Vertical order": a unit that goes in at pixel y 160 keeps its place while
         // inside, and coming out at y 320 starts from that place; only the sort moves it.
         let mut w = map();
         let a = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
@@ -2880,7 +2899,7 @@ mod tests {
         assert!(!w.flee(i));
     }
 
-    /// Round-45 errata, "Losing the target while cooling down" (the `xorc01-death-knight` ogre 1488 vector): in orders
+    /// "Losing the target while cooling down" (the `xorc01-death-knight` ogre 1488 vector): in orders
     /// 12, 15 and 16 a unit whose target died while it is still cooling down keeps its order, its attack animation
     /// restarting with the cooldown left as its wait and its pending order cleared. The first run after the cooldown
     /// loses the target.
@@ -2919,7 +2938,7 @@ mod tests {
         }
     }
 
-    /// Round-45 errata, "Resuming patrol and attack-move": the resumed order is a full command. Its goal is pulled
+    /// "Resuming patrol and attack-move": the resumed order is a full command. Its goal is pulled
     /// back, the cached route dropped, the blocked counter cleared and a stale attacker forgotten.
     #[test]
     fn a_resumed_attack_move_is_a_full_command() {
@@ -2953,7 +2972,7 @@ mod tests {
         assert_eq!(u.remembered, Some(Remembered::AttackMove { goal: (15, 5) }));
     }
 
-    /// Round-45 errata, "Commands forget a stale attacker": a command forgets a dying attacker, and keeps a live one. A
+    /// "Commands forget a stale attacker": a command forgets a dying attacker, and keeps a live one. A
     /// target unit given with the command gets the same check (static study only): a smart move on a dying unit is a
     /// move to the tile.
     #[test]
@@ -2999,7 +3018,7 @@ mod tests {
         );
     }
 
-    /// Round-45 errata, "No route": a move with no route keeps its attacker, so the idle logic that runs in the same
+    /// "No route": a move with no route keeps its attacker, so the idle logic that runs in the same
     /// update may react to it. Here a worker flees (the `xorc10-dragons` footman 1520 vector, n = 464).
     #[test]
     fn a_move_with_no_route_keeps_its_attacker_and_flees() {
@@ -3025,7 +3044,7 @@ mod tests {
         assert_ne!(w.rng.state, before, "the flee drew");
     }
 
-    /// Round-45 errata, "Reacting to an attacker" step 3 and "Special cases": an idle mage-type unit hit by a combat
+    /// "Reacting to an attacker" step 3 and "Special cases": an idle mage-type unit hit by a combat
     /// unit, with nothing it may take in its box, runs the reaction, which treats it as a non-combat unit, so it flees
     /// (the `xorc01-death-coil` death knight 1491 vector, n = 1431). With an enemy worker in its box that outscores
     /// the attacker it attacks the worker.
@@ -3055,7 +3074,7 @@ mod tests {
         }
     }
 
-    /// Round-51 errata, "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): a unit in order
+    /// "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): a unit in order
     /// 4 or (Enhanced) 10 standing at its move goal arrives, with no target acquisition, even with an enemy in range.
     #[test]
     fn orders_4_and_10_at_their_goal_arrive_without_acquiring() {
@@ -3086,7 +3105,7 @@ mod tests {
         }
     }
 
-    /// Round-51 errata, "Forgetting a dying attacker first" (`xorc6-10000` axe thrower 1475, n = 6106): the search
+    /// "Forgetting a dying attacker first" (`xorc6-10000` axe thrower 1475, n = 6106): the search
     /// forgets a dying attacker, and the resulting order is picked from the record as it was before: the first search
     /// gives order 12, a later one (no attacker) order 16 for a human player's idle unit.
     #[test]
@@ -3112,7 +3131,7 @@ mod tests {
         assert_eq!(w.units[i].order, Order::IdleReact { target: g });
     }
 
-    /// Round-51 errata, "A recorded attacker outlives its slot" (static study): a released slot reads as a dying
+    /// "A recorded attacker outlives its slot" (static study): a released slot reads as a dying
     /// attacker. The first search still counts it (order 12) and forgets it; a released slot whose last type the unit
     /// can't target is forgotten by step 1 of the reaction, with no search.
     #[test]
@@ -3160,7 +3179,7 @@ mod tests {
         }
     }
 
-    /// Round-51 errata, "A recorded attacker outlives its slot": the record names the slot's new unit once the slot is
+    /// "A recorded attacker outlives its slot": the record names the slot's new unit once the slot is
     /// reused.
     #[test]
     fn a_reused_slot_gives_the_record_its_new_unit() {
@@ -3180,7 +3199,7 @@ mod tests {
         assert_eq!((w.unit(a).is_none(), w.last_slot(a)), (true, None));
     }
 
-    /// Round-51 errata, "Fleeing" step 6: the flee is a smart move with its wait cap, and a peasant fleeing toward a
+    /// "Fleeing" step 6: the flee is a smart move with its wait cap, and a peasant fleeing toward a
     /// forest gets a move (order 3), never a tree harvest.
     #[test]
     fn a_flee_toward_a_forest_is_a_move_with_the_smart_wait_cap() {
@@ -3206,7 +3225,7 @@ mod tests {
         assert_eq!(u.script.wait, SMART_WAIT_OTHER);
     }
 
-    /// Round-52 errata, "Order 12 with no route" step 3 (the `xorc8-10000` elven destroyer 1468 vector at n = 7372,
+    /// "Order 12 with no route" step 3 (the `xorc8-10000` elven destroyer 1468 vector at n = 7372,
     /// in small): a marked unit in order 12 out of reach of its target takes a move step, whose target search runs
     /// whatever the mark. It takes an enemy it has no route to and goes idle at once (still animation, wait 1, no
     /// target); the idle logic that runs straight after skips its search and clears the mark. With no such enemy the
@@ -3260,7 +3279,7 @@ mod tests {
         }
     }
 
-    /// Round-53 errata, "Order 12 with no route" step 3 (static study; `xorc8-10000` n = 7373): a marked unit out of
+    /// "Order 12 with no route" step 3 (static study; `xorc8-10000` n = 7373): a marked unit out of
     /// reach takes a move step whose search takes an enemy it has no route to; order 12's fallback then runs its
     /// attack-range search whatever the mark, finds a unit next to it and restarts order 12 on it, setting the mark
     /// again. The update began marked, so the mark is cleared at its end. A mark first set in an update (the same
@@ -3306,7 +3325,7 @@ mod tests {
         }
     }
 
-    /// Round-61 errata, "Smart move" step 2 and its harvest test (`orc9-orc09-smart-move-2000` vectors): with no
+    /// "Smart move" step 2 and its harvest test (`orc9-orc09-smart-move-2000` vectors): with no
     /// target unit, a gold mine on the goal tile is the target of a worker carrying nothing, whatever it last
     /// harvested (never harvested, or a lumber worker between loads), and an oil platform of the unit's own player
     /// that of a tanker not carrying oil; a carrying unit, another player's platform or anything else gives none.
@@ -3354,7 +3373,7 @@ mod tests {
         let _ = theirs;
     }
 
-    /// Round-61 errata, "Smart move" table: a smart move by a lumber worker between loads onto a gold mine harvests
+    /// "Smart move" table: a smart move by a lumber worker between loads onto a gold mine harvests
     /// it (order 23 on the mine, `orc9-orc09-smart-move-2000` n = 201); one carrying gold gets the move (n = 481); a
     /// smart move onto a forest tile is the move, never a tree harvest.
     #[test]
@@ -3394,7 +3413,7 @@ mod tests {
         assert!(matches!(o, Some(Order::Move { .. })), "a forest tile: {o:?}");
     }
 
-    /// Round-60 errata, "Order 12 with no route" step 3 (the `orc12-30000` juggernaut 1439 vector, n = 29156): a
+    /// "Order 12 with no route" step 3 (the `orc12-30000` juggernaut 1439 vector, n = 29156): a
     /// marked unit whose order 12 loses its target in its own logic run, its remembered patrol taking over in that
     /// run, has the mark cleared at the end of the update. A pending order taking over before the logic runs leaves it.
     #[test]
@@ -3430,7 +3449,7 @@ mod tests {
         }
     }
 
-    /// Round-54 errata, "Order 12 with no route": the take-over makes no turn and no strike decision (shown by
+    /// "Order 12 with no route": the take-over makes no turn and no strike decision (shown by
     /// running it with the follow-up logic run held back); order 12's logic run in the same update then skips the
     /// search because of the mark, turns toward the target and starts the cooldown.
     #[test]
@@ -3477,7 +3496,7 @@ mod tests {
         }
     }
 
-    /// Round-53 errata, "Choice" (`human06-31357` n = 9642, `xhuman11-10000` n = 9065, and the static-study row): the
+    /// "Choice" (`human06-31357` n = 9642, `xhuman11-10000` n = 9065, and the static-study row): the
     /// attacker seeds the search only when the unit's owner detects it and the fog doesn't hide it. A hidden or
     /// undetected attacker leaves the search as if there were none; it isn't fled from either ("Reacting to an
     /// attacker", step 1, is the kind check only: the open question's reading).
@@ -3506,7 +3525,8 @@ mod tests {
         }
     }
 
-    /// A sea attacker and a tanker for the round-55 step-1 tests: kinds the footman (land only) can't hit.
+    /// A sea attacker and a tanker for the tests of "Reacting to an attacker", step 1: kinds the footman (land only)
+    /// can't hit.
     fn with_ships(w: &mut World) -> (u8, u8) {
         const DESTROYER: u8 = 0x1e;
         const TANKER: u8 = 0x1a;
@@ -3520,7 +3540,7 @@ mod tests {
         (DESTROYER, TANKER)
     }
 
-    /// Round-55 errata, "Reacting to an attacker" step 1 and "Fleeing" (`human12-25000` transport 1428 at n = 16061,
+    /// "Reacting to an attacker" step 1 and "Fleeing" (`human12-25000` transport 1428 at n = 16061,
     /// and the static-study row): step 1 looks at the record as it is, so an idle footman flees from a ship it can't
     /// hit even when its owner doesn't detect the ship. Two flee draws, a move, the attacker forgotten.
     #[test]
@@ -3545,7 +3565,7 @@ mod tests {
         }
     }
 
-    /// Round-55 errata, step 1 for workers and tankers (`human12-25000` tanker 1425 at n = 16612, and the static-study
+    /// Step 1 for workers and tankers (`human12-25000` tanker 1425 at n = 16612, and the static-study
     /// rows): a tanker can hit no kind, so with a valid attacker it always runs the flee rule, detected or not. A
     /// computer player's tanker that fails step 1 flees only from idle, and its AI routine doesn't run either way; a
     /// computer peon that can hit its attacker passes step 1 and its AI routine runs.
@@ -3591,7 +3611,7 @@ mod tests {
         assert_eq!((w.units[pi].order, w.units[pi].attacked_by), (Order::Idle, Some(g)));
     }
 
-    /// Round-55 errata, "What a patrol remembers": in Enhanced mode each turnaround remembers its own goal and the tile
+    /// "What a patrol remembers": in Enhanced mode each turnaround remembers its own goal and the tile
     /// the unit stands on, even when nothing was remembered before.
     #[test]
     fn a_patrol_turnaround_remembers_its_goal_and_tile() {
@@ -3620,7 +3640,7 @@ mod tests {
         );
     }
 
-    /// Fog spec, "When sight is applied", item 4 (round-53 errata, the `human06-31357` vector in small): each strike
+    /// Fog spec, "When sight is applied", item 4 (the `human06-31357` vector in small): each strike
     /// of an attack-type order on another player's unit reveals a sight-2 area at the attacker's tile for the
     /// target's owner, before the strike. Not for a target of the attacker's own player, nor in order 14.
     #[test]
@@ -3646,7 +3666,7 @@ mod tests {
         }
     }
 
-    /// Round-52 errata, "Attacking without moving" (static study): in order 16 a new target out of range is taken
+    /// "Attacking without moving" (static study): in order 16 a new target out of range is taken
     /// while the unit is still cooling down (order 16 on it, the cooldown left as the wait); with no cooldown left the
     /// out-of-range rule applies (idle takes over, wait 3).
     #[test]
@@ -3678,7 +3698,7 @@ mod tests {
         }
     }
 
-    /// Round-52 errata, "Arriving and losing the target" (static study): in Classic mode a unit in order 10 at its
+    /// "Arriving and losing the target" (static study): in Classic mode a unit in order 10 at its
     /// move goal skips the whole move step, its reaction included, and arrives. Away from the goal it reacts.
     #[test]
     fn classic_attack_move_at_its_goal_arrives_without_reacting() {
@@ -3707,7 +3727,7 @@ mod tests {
         }
     }
 
-    /// Round-52 errata, "Forgetting a dying attacker first": a unit can move if its type has a movement-class flag
+    /// "Forgetting a dying attacker first": a unit can move if its type has a movement-class flag
     /// (the five lowest type flag bits). A type with none, building or not, keeps a dying attacker's record.
     #[test]
     fn only_a_type_with_a_movement_class_flag_forgets_a_dying_attacker() {
@@ -3729,7 +3749,7 @@ mod tests {
         }
     }
 
-    /// Round-59 errata, "A candidate is skipped if" and damage spec, "Missile weapon kinds": a candidate is inside the
+    /// "A candidate is skipped if" and damage spec, "Missile weapon kinds": a candidate is inside the
     /// minimum range when d < minimum flight − 1. Catapults and ballistas (3) skip d = 1 but not d = 2 (`orc5-40000`
     /// catapult 1580 at n = 21489, d = 2: picked); cannons (2) and missiles with no value skip nothing.
     #[test]
@@ -3761,7 +3781,7 @@ mod tests {
         }
     }
 
-    /// Round-59 errata, "A candidate is skipped if", confirmed in round 60 (`orc12-30000` n = 26982 and the static
+    /// "A candidate is skipped if" (`orc12-30000` n = 26982 and the static
     /// row): a transport standing on shore water isn't skipped for its kind by a searcher that can target land or sea;
     /// off the shore a land-only searcher still skips it. The check is the attack command's, in full.
     #[test]
@@ -3787,7 +3807,7 @@ mod tests {
         assert!(!w.acquire_kind(&footman, &boat((12, 12))));
     }
 
-    /// Round-59 errata, "Attack-move" (the `orc5-40000` footman 1485 vector at n = 33260): while order 4 keeps a target
+    /// "Attack-move" (the `orc5-40000` footman 1485 vector at n = 33260): while order 4 keeps a target
     /// unit, its walk toward its stored goal uses the target's widened footprint (where it stands now) as the goal
     /// zone, G staying the stored goal. Without a target the zone is the 3 x 3 around the goal; here (a walled-in goal)
     /// the two routes differ.
@@ -3832,7 +3852,7 @@ mod tests {
         assert_ne!(steps[0], steps[1], "the zone makes a different route");
     }
 
-    /// Round-59 errata, "Attack-move": a unit target picked by an attack-move is headed for at its tile with the
+    /// "Attack-move": a unit target picked by an attack-move is headed for at its tile with the
     /// target's goal zone (its footprint widened by one tile), not the 3 x 3 around its tile.
     #[test]
     fn a_picked_unit_target_is_headed_for_with_its_goal_zone() {
@@ -3855,7 +3875,7 @@ mod tests {
         assert_eq!(w.units[i].tile, zone_walk.units[i].tile);
     }
 
-    /// Round-60 errata, pathfinding spec "Step 1" (static study vector): a follow (order 6) of a 2 x 2 unit walks
+    /// Pathfinding spec "Step 1" (static study vector): a follow (order 6) of a 2 x 2 unit walks
     /// with the followed unit's footprint widened by one tile as its goal zone, not the 3 x 3 around its tile.
     #[test]
     fn a_follow_walks_with_the_targets_goal_zone() {
@@ -3879,7 +3899,7 @@ mod tests {
         assert_eq!(w.units[i].tile, zone_walk.units[i].tile);
     }
 
-    /// Round-62 vectors (`orc9-orc09-attack-move-1500` ogre 1493): an attack-move that arrives with the countdown at 0
+    /// Vectors (`orc9-orc09-attack-move-1500` ogre 1493): an attack-move that arrives with the countdown at 0
     /// is complete and forgotten, so a later pending idle 3 tiles from its target tile (losing a target) doesn't
     /// resume it.
     #[test]
@@ -3906,7 +3926,7 @@ mod tests {
         assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
     }
 
-    /// Round-62 errata (static study vector): a complete attack-move with the countdown running is kept, and a later
+    /// Static study vector: a complete attack-move with the countdown running is kept, and a later
     /// pending idle at countdown 0 resumes it once the unit is more than 1 tile away.
     #[test]
     fn a_complete_attack_move_is_kept_while_the_countdown_runs() {
@@ -3926,7 +3946,7 @@ mod tests {
         assert_eq!(w.units[i].resume, RESUME_ATTACK_MOVE);
     }
 
-    /// Round-62 errata (static study vector): a unit that resumed (countdown 20) and is given a new attack-move can
+    /// Static study vector: a unit that resumed (countdown 20) and is given a new attack-move can
     /// resume it at its next pending idle, because remembering sets the countdown to 0. The countdown runs only while
     /// something is remembered.
     #[test]
@@ -3962,7 +3982,7 @@ mod tests {
         assert_eq!(w.units[i].resume, 0);
     }
 
-    /// Round-62 vector (`orc9-orc09-tanker-move-2200` juggernaut 1501, n = 614): a sea or air follower's radius is 1
+    /// Vector (`orc9-orc09-tanker-move-2200` juggernaut 1501, n = 614): a sea or air follower's radius is 1
     /// plus the +1, so it is inside at 2 tiles; one whose target can't be guarded gets a pending idle that takes over
     /// in the same update (still animation, wait 3), not a stop command (wait 1).
     #[test]
@@ -3989,7 +4009,7 @@ mod tests {
         assert_eq!(w.units[i].order, Order::Guard { target: g });
     }
 
-    /// Round-62 errata ("Smart move"; pathfinding spec, "Goal pulled back"): a smart move with a target unit that falls
+    /// Orders spec ("Smart move"; pathfinding spec, "Goal pulled back"): a smart move with a target unit that falls
     /// through to the move keeps the target, and its stored goal is the target's tile, not pulled back; the walk ends
     /// in the target's goal zone and drops the target with the order.
     #[test]
@@ -4031,7 +4051,7 @@ mod tests {
         assert!(arrived);
     }
 
-    /// Round-63 vectors (`orc9-orc09-smart-target-2100` peon 1478, n = 1877; the inside and undetected cases static
+    /// Vectors (`orc9-orc09-smart-target-2100` peon 1478, n = 1877; the inside and undetected cases static
     /// study): a smart move whose target unit is dying, inside something or undetected at a step boundary ends as on
     /// arrival: order 2, target dropped, attacker forgotten, still animation, wait 3. It doesn't walk on.
     #[test]
@@ -4069,7 +4089,7 @@ mod tests {
         }
     }
 
-    /// Round-63 vectors (`orc9-orc09-flee-chop-walk-900` and `orc9-orc09-flee-walk-1200` peon 1478): a lumber worker
+    /// Vectors (`orc9-orc09-flee-chop-walk-900` and `orc9-orc09-flee-walk-1200` peon 1478): a lumber worker
     /// hit while walking to its tree keeps walking with its attacker recorded; when it reaches the tree, still in its
     /// move animation, the arrival switch and the reaction make it flee at once: order 3, still animation, wait 3.
     #[test]
@@ -4104,7 +4124,7 @@ mod tests {
         assert_eq!(w.rng, two, "the flee's two draws");
     }
 
-    /// Round-63 vector (static study): a human player's worker repairing (order 27) hit while walking to the building
+    /// Vector (static study): a human player's worker repairing (order 27) hit while walking to the building
     /// doesn't react; it flees at its first logic run after it arrives.
     #[test]
     fn a_repairer_reacts_only_after_it_arrives() {
@@ -4131,7 +4151,7 @@ mod tests {
         );
     }
 
-    /// Round-63 errata ("Commands forget a stale attacker"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374): a
+    /// Orders spec ("Commands forget a stale attacker"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374): a
     /// command's target unit that is inside something fails the command check: the target is dropped and idle becomes
     /// the pending order; the unit keeps its order.
     #[test]
@@ -4170,7 +4190,7 @@ mod tests {
         (w, f, p, a)
     }
 
-    /// Round-64 vectors (`orc9-orc09-follow-attacked-1200` grunt 1481, n = 314 to 493): a follower hit while it walks
+    /// Vectors (`orc9-orc09-follow-attacked-1200` grunt 1481, n = 314 to 493): a follower hit while it walks
     /// doesn't react. Once next to the followed unit, the reaction runs but its order 12 is replaced: the follow is
     /// given again toward the unit the search picked and takes over at once (order 6, still animation, wait 3).
     #[test]
@@ -4198,7 +4218,7 @@ mod tests {
         assert_eq!(u.recorded_target(), Some(a));
     }
 
-    /// Round-64 vectors (`orc9-orc09-follow-attacked-1200` grunt 1481, n = 560): a follower that reaches the unit its
+    /// Vectors (`orc9-orc09-follow-attacked-1200` grunt 1481, n = 560): a follower that reaches the unit its
     /// reaction picked, whose order is 12 (not followable), gets a pending idle taken over at once (still animation,
     /// wait 3). The search picks its current target, so the reaction changes nothing.
     #[test]
@@ -4219,7 +4239,7 @@ mod tests {
         assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
     }
 
-    /// Round-64 vectors (static study): a follower whose reaction's search picks an idle unit already within the
+    /// Vectors (static study): a follower whose reaction's search picks an idle unit already within the
     /// radius guards it (order 7).
     #[test]
     fn a_follower_whose_reaction_picks_an_idle_unit_in_reach_guards_it() {
@@ -4236,7 +4256,7 @@ mod tests {
         assert_eq!(w.units[i].order, Order::Guard { target: a });
     }
 
-    /// Round-64 vectors (static study): a follower with an attacker whose route search finds no route becomes idle as
+    /// Vectors (static study): a follower with an attacker whose route search finds no route becomes idle as
     /// an immediate order and its idle logic runs, not order 6's reaction: the idle logic's take-over of order 12
     /// (wait 3), not the reaction's immediate order 12 (wait 1).
     #[test]
@@ -4266,7 +4286,7 @@ mod tests {
         );
     }
 
-    /// Round-64 vector (`human4-15000` peon 1531, n = 638): the arrival switch has no attacker condition. A worker
+    /// Vector (`human4-15000` peon 1531, n = 638): the arrival switch has no attacker condition. A worker
     /// with no attacker reaching its tree in its move animation is switched to the chop animation once.
     #[test]
     fn a_worker_reaching_its_tree_starts_chopping_once() {
@@ -4295,7 +4315,7 @@ mod tests {
         assert_eq!(u.script, once.units[i].script);
     }
 
-    /// Round-64 vector, traced in round 66 (`orc9-orc09-order16-keep-2000` grunt 1492, n = 937): a unit in order 16
+    /// Vector, traced (`orc9-orc09-order16-keep-2000` grunt 1492, n = 937): a unit in order 16
     /// still cooling down whose search, with an attacker, gives order 12 on another target keeps order 16 on it,
     /// waiting for the cooldown left; with no cooldown left order 12 takes over with wait 3.
     #[test]

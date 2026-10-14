@@ -110,12 +110,12 @@ impl World {
             return;
         }
         // Orders spec, "Resuming patrol and attack-move": a pending idle may become the remembered order.
-        // Round-45 errata: the resumed order is a command, so it carries the pending-command mark.
+        // The resumed order is a command, so it carries the pending-command mark.
         let resumed = match order {
             Order::Idle => self.resumed(i),
             _ => None,
         };
-        // Movement spec, "Blocked rules" (round-42 errata): an order made pending without a command keeps the
+        // Movement spec, "Blocked rules": an order made pending without a command keeps the
         // blocked counter; `command` clears it.
         let u = &mut self.units[i];
         u.pending = Some(resumed.unwrap_or(order));
@@ -128,7 +128,7 @@ impl World {
     /// `xorc01-death-coil` (death knight 1491, n = 353): the command also drops the unit's cached route.
     pub(crate) fn command(&mut self, i: usize, order: Order) {
         let order = match order {
-            // Round-62 errata (pathfinding spec, "Goal pulled back"): a smart move with a target unit that becomes the
+            // Pathfinding spec ("Goal pulled back"): a smart move with a target unit that becomes the
             // move stores the target's tile without pulling it back.
             Order::Move { goal, target: None } => Order::Move {
                 goal: self.pull_back(i, goal),
@@ -145,7 +145,7 @@ impl World {
                 to: self.pull_back(i, to),
                 back,
             },
-            // Orders spec, "Order 11: attacking a wall tile" (round-48 errata): the wall test was made on the tile as
+            // Orders spec, "Order 11: attacking a wall tile": the wall test was made on the tile as
             // given; the goal is then pulled back like any other, to the wall tile nearest the unit along the line.
             Order::AttackWall { tile } => Order::AttackWall {
                 tile: self.pull_back(i, tile),
@@ -153,11 +153,11 @@ impl World {
             o => o,
         };
         self.command_steps(i);
-        // Round-47 errata: a target unit given with the command gets the same check. If it fails, the target is
+        // A target unit given with the command gets the same check. If it fails, the target is
         // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
         let owner = self.units[i].owner;
-        // Round-54 errata (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit is checked too.
-        // Round-63 errata (harvest spec, "Returning goods"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374):
+        // Traced (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit is checked too.
+        // Harvest spec ("Returning goods"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374):
         // command 24's target unit too, and a target inside something fails the check; no depot is looked up then.
         let named = match order {
             Order::MoveAttack { target, .. } | Order::Cast { target, .. } | Order::ReturnGoods { depot: target } => {
@@ -203,7 +203,7 @@ impl World {
     /// another region for a unit that doesn't fly) is pulled back toward the unit. The line's k steps (one tile each,
     /// even for a two-tile mover) are subtracted from the goal in their order, first step first, and the first k − 1
     /// tiles so made are tested: at the first usable one the goal becomes the tile tested just before it (the goal
-    /// itself for the first). With none usable the goal is kept, for transports too (round-40 errata).
+    /// itself for the first). With none usable the goal is kept, for transports too.
     pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
         let u = &self.units[i];
         let mask = u.layer.mask() & !(bits::UNIT | bits::AIR_UNIT);
@@ -232,7 +232,7 @@ impl World {
 
     /// The goal tile of an order aimed at target `t` (movement spec, "Arriving"): a mobile unit's tile; a building's
     /// footprint tile by the building goal rule; for a unit that is neither a sea nor an air unit targeting a shore
-    /// building, the shore corner goal (round-60 errata; pathfinding spec, "Shore building"; `orc9-orc09-shore-build-3000`
+    /// building, the shore corner goal (pathfinding spec, "Shore building"; `orc9-orc09-shore-build-3000`
     /// n = 343).
     pub(crate) fn target_goal(&self, u: &Unit, t: &Unit) -> (i32, i32) {
         if !t.building {
@@ -251,7 +251,7 @@ impl World {
             && self.flags_of_unit(u) & (flags::SEA | flags::AIR) == 0
     }
 
-    /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec, round-3 errata).
+    /// Ends the unit's order. Going idle makes no draw (timing-and-rng spec).
     pub(crate) fn go_idle(&mut self, i: usize) {
         let u = &mut self.units[i];
         u.order = Order::Idle;
@@ -282,9 +282,11 @@ impl World {
         }
     }
 
-    /// The order logic, run when the unit's animation signals "step done".
+    /// The update at a "step done" (orders spec, "How an update runs"): a pending order takes over (step 1); otherwise
+    /// the order's logic runs with its walk and arrival switch (steps 2 to 4, [`World::order_logic`]), and the skip
+    /// mark is cleared at the end (step 5).
     pub(crate) fn order(&mut self, i: usize, fx: Effects) {
-        // Round-56 errata (animation-scripts spec, "No strike while a command waits"): while a command given to the
+        // Animation-scripts spec ("No strike while a command waits"): while a command given to the
         // unit hasn't taken over, the strike does nothing at all (no reveal, draw, damage, launch or cooldown).
         let waiting = self.units[i].commanded && self.units[i].pending.is_some();
         if self.units[i].script.anim == anim::ATTACK && !waiting {
@@ -302,37 +304,30 @@ impl World {
             self.take_over(i, o);
             return;
         }
-        // Orders spec, "Order 12 with no route" (round-48 errata, step 3): a skip mark set before this run is cleared
-        // at its end, whatever the order, unless the run ends in a take-over or a move step.
-        // Round-52 errata (`xorc8-10000` elven destroyer 1468, n = 7372): a unit out of reach of its order-12 target
-        // takes a move step, which leaves the mark set; if that step ends in idle at once, the idle logic that runs
-        // straight after is the next run, skips its search and clears the mark.
-        // Round-53 errata (static study; `xorc8-10000` n = 7373): the mark is cleared only if it was set when the
-        // update began. A move step whose route search finds nothing runs order 12's fallback, whose attack-range
-        // search runs whatever the mark; a restart there sets the mark again, and the update, which began marked and
-        // took no step, clears it at its end. A mark first set in this update lasts until the next one.
-        // Round-60 errata (`orc12-30000` n = 29162): only the pending take-over above, before the logic runs, leaves
-        // the mark set; a take-over that this run itself causes (the order loses its target and the resumed or idle
-        // order takes over) still clears it.
         let (marked, tile) = (self.units[i].skip_search, self.units[i].tile);
         let restarts = self.restarts;
         let move_step = marked && self.out_of_reach(i);
         self.order_logic(i);
+        // Step 5, "Order 12 with no route" step 3, "Clearing" (V203, V219): a mark set when the update began is
+        // cleared at its end unless the unit stepped. Out of reach of its order-12 target the unit takes a move step
+        // (still order 12, no fallback restart), which leaves the mark; a take-over the run itself caused clears it,
+        // and a mark first set in this update (a fallback restart in an unmarked update) lasts until the next one.
         let stepped = move_step && matches!(self.units[i].order, Order::Chase { .. }) && self.restarts == restarts;
         if marked && !stepped && self.units[i].tile == tile {
             self.units[i].skip_search = false;
         }
     }
 
-    /// The order logic proper, run at a "step done" with no pending order to take over.
+    /// "How an update runs", steps 2 to 4: each order's logic, which walks, makes the arrival switch and runs the
+    /// order's own part; a command it gives itself can take over at once ("Same-update take-over").
     fn order_logic(&mut self, i: usize) {
         if self.run_order(i) || self.run_transport(i) || self.run_spell(i) {
             return;
         }
         let order = self.units[i].order;
         match order {
-            // Orders spec, "The reaction": orders 23, 24 and 27 run it in their logic once their walk has ended
-            // (round-63 errata), so each calls it itself.
+            // Orders spec, "The reaction": orders 23, 24 and 27 run it in their logic once their walk has ended,
+            // so each calls it itself.
             Order::Repair { target } => self.repair_order(i, target),
             Order::Harvest { source, tree, chopping } => self.harvest_order(i, source, tree, chopping),
             Order::ReturnGoods { depot } => self.return_order(i, depot),
@@ -345,8 +340,8 @@ impl World {
     }
 
     /// A pending order replaces the current one: its animation starts with a first wait of 3 and nothing else
-    /// happens this cycle (movement spec, "When decisions are made"). It doesn't clear the blocked counter (round-41
-    /// errata): only commands do.
+    /// happens this cycle (movement spec, "When decisions are made"). It doesn't clear the blocked counter
+    /// ("Taking over"): only commands do.
     pub(crate) fn take_over(&mut self, i: usize, o: Order) {
         self.release_tree(i);
         // Orders spec, "Taking over": a return with no depot looks one up, or becomes idle.
@@ -452,7 +447,7 @@ impl World {
     /// The blocked rules: the move animation restarts in place, the counter goes up, and the first matching row
     /// decides (movement spec, "Blocked rules").
     fn blocked(&mut self, i: usize, next: (i32, i32), blocker: Option<UnitId>, g: Goal) {
-        // Round-41 errata: the walking animation restarts in place, which for orders 30 and 31 is their own (the
+        // The walking animation restarts in place, which for orders 30 and 31 is their own (the
         // second walking animation).
         let walking = match self.units[i].order {
             Order::Land { .. } | Order::PushOff => crate::orders::order_anim(self.units[i].order),
@@ -477,14 +472,14 @@ impl World {
             drop_path(self); // B
             1
         } else if u.blocked >= GIVE_UP {
-            // C. Build-train spec, "Placing a building" (round-42 errata): the idle is a pending order.
+            // C. Build-train spec, "Placing a building": the idle is a pending order.
             self.units[i].blocked = 0;
-            // Round-60 errata (orders spec, "Giving up when blocked"; `xhuman8-25000` troll destroyer 1441,
+            // Orders spec ("Giving up when blocked"; `xhuman8-25000` troll destroyer 1441,
             // n = 11284): a remembered patrol or attack-move that resumes is given as a command and made the pending
             // order, and the unit starts its still animation with wait 1 instead of 15.
-            // Round-61 errata (`orc10-10000` tanker 1533, n = 3505; `xhuman12-10000` axe thrower 1521, n = 4144):
+            // Traced (`orc10-10000` tanker 1533, n = 3505; `xhuman12-10000` axe thrower 1521, n = 4144):
             // when nothing resumes, idle is pending and nothing else changes, so the unit keeps the walking animation
-            // restarted above, with wait 15; only the resume case starts the still animation. Round-62 errata: a
+            // restarted above, with wait 15; only the resume case starts the still animation. A
             // remembered attack-move that is complete is forgotten only with the countdown at 0, as everywhere idle
             // becomes pending (`resumed`).
             if let Some(o) = self.resumed(i) {
@@ -499,8 +494,8 @@ impl World {
             drop_path(self); // D
             LONG_WAIT
         } else if b.is_some_and(|b| {
-            // E: the blocker is dying or leaving play. F: this unit in its move animation after the restart (round-41
-            // errata; round 43: a transport in a plain move waits, a landing one doesn't), and an ally walking away
+            // E: the blocker is dying or leaving play. F: this unit in its move animation after the restart (a
+            // transport in a plain move waits, a landing one doesn't), and an ally walking away
             // (its next step isn't onto us).
             b.dying
                 || b.removing
@@ -516,7 +511,7 @@ impl World {
             let near = if u.layer == Layer::Land { 1 } else { 2 };
             let (dx, dy) = ((u.tile.0 - g.tile.0).abs(), (u.tile.1 - g.tile.1).abs());
             if attacked && dx <= near && dy <= near {
-                // G. Round-45 errata (static study only): "stand still" becomes the pending order, so the resume rules
+                // G. Static study only: "stand still" becomes the pending order, so the resume rules
                 // of the orders spec apply.
                 self.give(i, Order::Idle);
             } else {
@@ -531,13 +526,13 @@ impl World {
     /// search"): enemies are those of non-allied players, and moving allies include the unit's own player.
     fn ignored_by_search(&self, u: &Unit, other: UnitId) -> bool {
         let Some(o) = self.unit(other) else { return true };
-        // The searcher's own tile is no exception (round-38 errata): it is free only under the moving-ally case
+        // The searcher's own tile is no exception: it is free only under the moving-ally case
         // below; `orc4-20000` peasant 1578 at n = 6811, just taken over (wait 3, not moving), blocks its own walk.
         if o.layer == Layer::Air {
             return false;
         }
         let s = self.stats_of(u.kind);
-        // Round-50 errata (`xhuman11-10000` paladin 1510, n = 4443): the spell-caster exclusion is the mage-type units
+        // Traced (`xhuman11-10000` paladin 1510, n = 4443): the spell-caster exclusion is the mage-type units
         // only (mage and death knight types); paladins and ogre mages count as fighters.
         let fighter = s.flags & (flags::PEON | flags::TANKER | flags::MAGE_LIKE) == 0
             && !crate::orders::DEMOLITION.contains(&u.kind);
@@ -558,7 +553,7 @@ impl World {
             _ => false,
         };
         let allied = self.allied(u.owner, o.owner);
-        // Round-43 errata: a kept dying attacker doesn't count for the "no attacker" test (`xorc01-death-coil` ogre
+        // A kept dying attacker doesn't count for the "no attacker" test (`xorc01-death-coil` ogre
         // 1489 at n = 886, whose attacker 1515 is dying, killed by 1496).
         if attack_type && !self.live_attacker(u) && fighter && !allied {
             return true;
@@ -731,7 +726,7 @@ mod tests {
         w.units[i].kind = crate::orders::DEMOLITION[0];
         assert!(!seen(&mut w, Order::Chase { target: enemy }));
         w.units[i].kind = 0;
-        // Round-50 errata (`xhuman11-10000` paladin 1510): a caster that isn't mage-type (a paladin or an ogre mage)
+        // Traced (`xhuman11-10000` paladin 1510): a caster that isn't mage-type (a paladin or an ogre mage)
         // counts as a fighter; a mage-type unit sees every unit.
         let plain = w.stats.0[0].flags;
         w.stats.0[0].flags = plain | flags::CASTER;
@@ -781,7 +776,7 @@ mod tests {
         }
     }
 
-    /// Pathfinding spec, "Goal pulled back", the `orc8` vectors (round-39 errata): the line's steps are subtracted
+    /// Pathfinding spec, "Goal pulled back", the `orc8` vectors: the line's steps are subtracted
     /// from the goal first step first. From (123, 96) to the tree (124, 90) the steps are N, N, NE, N, N, N; with a
     /// 3 x 3 church at (124, 91) the tested tiles are (124, 91) and (124, 92), buildings, then (123, 93), usable: goal
     /// (124, 92), not the (124, 93) that walking the line's own tiles back would give. From (123, 93) (steps NE, N,
@@ -809,7 +804,7 @@ mod tests {
     }
 
     /// Pathfinding spec, the k − 1 vector: from (0, 0) to (0, 3) with (0, 1) to (0, 3) all unusable, only (0, 2) and
-    /// (0, 1) are tested; none is usable, so the goal is kept, for a transport too (round-40 errata: the fallback to
+    /// (0, 1) are tested; none is usable, so the goal is kept, for a transport too (the fallback to
     /// the unit's tile plus the last step belongs to the transport's own pull-back).
     #[test]
     fn the_pull_back_tests_k_minus_1_tiles_and_keeps_the_goal() {
@@ -843,13 +838,13 @@ mod tests {
         w.command(i, cast);
         let u = &w.units[i];
         assert_eq!((u.pending, u.blocked), (Some(cast), 0));
-        // Round-42 errata: an order made pending without a command keeps the counter.
+        // An order made pending without a command keeps the counter.
         w.units[i].blocked = 5;
         w.give(i, Order::Idle);
         assert_eq!(w.units[i].blocked, 5);
     }
 
-    /// Movement spec, "Blocked rules" (round-41 errata, the `orc8-10000` n = 947 vector): a pending order taking over
+    /// Movement spec, "Blocked rules" (the `orc8-10000` n = 947 vector): a pending order taking over
     /// doesn't clear the blocked counter; only commands do.
     #[test]
     fn a_take_over_keeps_the_blocked_counter() {
@@ -875,7 +870,7 @@ mod tests {
         assert_eq!(w.units[i].blocked, 0);
     }
 
-    /// Movement spec, "Blocked rules", row F (round-41 errata; traced in round 43 by `human12-row-f-move` and
+    /// Movement spec, "Blocked rules", row F (traced by `human12-row-f-move` and
     /// `human12-row-f-landing`): the blocked unit itself must be in its move animation, which a transport in order 30
     /// or 31 never is (it restarts its own walking animation), so it doesn't wait for an ally walking away; a unit in
     /// an ordinary walk does.
@@ -907,7 +902,7 @@ mod tests {
         }
     }
 
-    /// Pathfinding spec, round-38 errata, the `orc4-20000` vectors: the searcher's own tile is free only under the
+    /// Pathfinding spec, the `orc4-20000` vectors: the searcher's own tile is free only under the
     /// moving-ally case (in its move animation with blocked counter 0, or with a command pending).
     #[test]
     fn the_searchers_own_tile_follows_the_unit_rules() {
@@ -1070,7 +1065,7 @@ mod tests {
         let first = until(&mut w, 40, |w| w.unit(f).unwrap().blocked == 1);
         assert_eq!(w.unit(f).unwrap().order, Order::Chase { target: foe });
         // Blocks 1 to 7 retry the next cycle, blocks 8 to 14 wait 15 cycles, block 15 gives up: the idle is a pending
-        // order (round-42 errata).
+        // order.
         let more = until(&mut w, 200, |w| w.unit(f).unwrap().pending == Some(Order::Idle));
         let _ = first;
         assert_eq!(more, 7 + 7 * 15);
@@ -1079,7 +1074,7 @@ mod tests {
         until(&mut w, 40, |w| w.unit(f).unwrap().order == Order::Idle);
     }
 
-    /// Round-60 errata, row C (orders spec, "Giving up when blocked"; the `xhuman8-25000` troll destroyer 1441
+    /// Row C (orders spec, "Giving up when blocked"; the `xhuman8-25000` troll destroyer 1441
     /// vector, n = 11284): a unit that gives up at the 15th block while it remembers a patrol, its resume countdown 0,
     /// starts its still animation with wait 1 and gets the patrol as its pending order; with the countdown running it
     /// gives up as before (idle pending, wait 15).
@@ -1109,17 +1104,17 @@ mod tests {
                 assert!(matches!(u.pending, Some(Order::Patrol { .. })), "{:?}", u.pending);
                 assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 1));
             } else {
-                // Round-61 errata: nothing resumes, so the restarted walking animation is kept, with wait 15.
+                // Nothing resumes, so the restarted walking animation is kept, with wait 15.
                 assert_eq!(u.pending, Some(Order::Idle));
                 assert_eq!((u.script.anim, u.script.wait), (anim::MOVE, LONG_WAIT));
             }
         }
     }
 
-    /// Round-61 errata, row C with nothing to resume (orders spec, "Giving up when blocked"; the `orc10-10000` tanker
+    /// Row C with nothing to resume (orders spec, "Giving up when blocked"; the `orc10-10000` tanker
     /// 1533 and `xhuman12-10000` axe thrower 1521 vectors): idle pending, the walking animation (3) kept, wait 15. A
     /// remembered attack-move within 1 tile of the unit is complete and forgotten there; one further away is kept while
-    /// the countdown runs. Round-62 errata: a complete one is forgotten only at countdown 0, and kept while it runs.
+    /// the countdown runs. A complete one is forgotten only at countdown 0, and kept while it runs.
     #[test]
     fn row_c_with_nothing_to_resume_keeps_walking_and_forgets_a_complete_attack_move() {
         for (goal, countdown, kept) in [
@@ -1215,12 +1210,12 @@ mod tests {
         w.units[i].attacked_by = Some(foe);
         let before = w.units[i].order;
         w.move_toward(i, Goal::tile((3, 1), 0));
-        // Row G (round-45 errata): idle becomes the pending order; the order is unchanged in that update, wait 1.
+        // Row G: idle becomes the pending order; the order is unchanged in that update, wait 1.
         let u = &w.units[i];
         assert_eq!((u.order, u.pending, u.script.wait), (before, Some(Order::Idle), 1));
     }
 
-    /// Row G's pending idle goes through the resume rules (round-45 errata): a remembered attack-move is given again,
+    /// Row G's pending idle goes through the resume rules: a remembered attack-move is given again,
     /// as a command.
     #[test]
     fn row_g_resumes_a_remembered_attack_move() {

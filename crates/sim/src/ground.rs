@@ -61,7 +61,7 @@ impl World {
         let reach = self.reach(u);
         if chebyshev(u.tile, tile) <= reach {
             // It turns to the tile on every run, even when the attack animation is already playing; a warship turns
-            // broadside (round-42 errata; the table gives the same facing again at the strike decision).
+            // broadside (the table gives the same facing again at the strike decision).
             let f = self.strike_facing(u, tile);
             let u = &mut self.units[i];
             u.path.clear();
@@ -110,7 +110,7 @@ impl World {
         let g = match o {
             Order::Demolish { at: Some(t), .. } => {
                 let Some(t) = self.unit(t) else { return };
-                // Round-60 errata: a shore building by its shore corner goal ([`World::target_goal`]).
+                // A shore building by its shore corner goal ([`World::target_goal`]).
                 let goal = self.target_goal(u, t);
                 Goal {
                     tile: goal,
@@ -128,7 +128,7 @@ impl World {
             Order::DemolishAt { tile } => Goal::tile(tile, 0),
             _ => return,
         };
-        // Round-54 errata ("Getting there", `orc10-sappers-2500` sapper 1501, n = 35): the plain no-route rule.
+        // Orders spec ("Getting there", `orc10-sappers-2500` sapper 1501, n = 35): the plain no-route rule.
         if self.walk(i, g) == Walk::Arrived {
             self.blast(i);
         }
@@ -637,7 +637,7 @@ mod tests {
         assert_eq!((u.order, u.dying), (Order::Idle, false));
     }
 
-    /// Round-54 errata, "Getting there" (`orc10-sappers-2500` sapper 1501, n = 35): with no route a demolisher goes
+    /// "Getting there" (`orc10-sappers-2500` sapper 1501, n = 35): with no route a demolisher goes
     /// idle as an immediate order (still animation, wait 1, no target) and its idle logic runs in the same update,
     /// with its look-around draw. Nothing explodes.
     #[test]
