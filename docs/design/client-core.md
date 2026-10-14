@@ -12,15 +12,16 @@ Backlog item B-039. Nothing here changes game behaviour; where a step can't stay
 
 ## What we need from you
 
-- [ ] **Nick:** the frame format. Indexed frame with a palette, or RGBA? [Recommendation: RGBA in phase 2; indexed
-      once the interface's own colours are palette entries, after a spec read of `docs/specs/ui/*`.]
-- [ ] **Nick:** draw the pointer in the core on every screen, not only in a game? Ports without a system pointer
-      (consoles, handhelds) need it, and the flow's screens would then show the game's arrow instead of the system's.
-      [Recommendation: yes, the normal arrow, per `ui/screen-and-cursors.md` "Pointer shapes".]
-- [ ] **Nick:** the output sample rate of the mixer. [Recommendation: 22,050 Hz stereo, 16-bit, the rate of the
-      music files (`ui/music.md`); shells resample if the device needs it.]
-- [ ] **Nick:** the 3DS. Its top screen is 400 × 240; a 640 × 480 game needs a scaled or panned view there.
-      [Recommendation: leave the 3DS out of the core's requirements; decide after the SDL3 trial.]
+All four questions are decided (2026-10-14):
+
+- [x] **Nick:** the frame format. **Decided: RGBA for now.** An indexed frame with a palette comes later, after a
+      spec read of `docs/specs/ui/*`.
+- [x] **Nick:** draw the pointer in the core on every screen, not only in a game? **Decided: yes.** The core draws
+      the game's normal arrow on every screen, per `ui/screen-and-cursors.md` "Pointer shapes". The flow's screens
+      show the game's arrow instead of the system's, so the frame snapshot is re-blessed once, in its own commit.
+- [x] **Nick:** the output sample rate of the mixer. **Decided: 22,050 Hz stereo, 16-bit,** the rate of the music
+      files (`ui/music.md`); shells resample if the device needs it.
+- [x] **Nick:** the 3DS. **Decided: out of the core's requirements for now;** revisit after the SDL3 trial.
 
 ## Short answers
 
