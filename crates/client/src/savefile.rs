@@ -33,8 +33,8 @@ pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// slot is reused, and attacker records may name a released unit (round-51 errata). Version 7: a unit inside a
 /// collapsed mine or platform has no target (round-54 errata). Version 8: an effect keeps its shooter's unit slot
 /// after the slot is released (round-56 errata). Version 9: a move (order 3) may keep a target unit (round-62 errata,
-/// "Smart move").
-pub const VERSION: u16 = 9;
+/// "Smart move"). Version 10: order 18 keeps its pulled-back goal beside the target tile (round-68 errata).
+pub const VERSION: u16 = 10;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").
