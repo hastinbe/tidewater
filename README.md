@@ -16,7 +16,7 @@ The window opens at the largest whole-number scale of the 640 × 480 screen that
 resized window keeps a whole-number scale with a black border around the screen.
 
 During a game the pointer is locked to the window, as it would be in full screen, so pushing it against an edge
-scrolls the map. Switching to another app (Cmd-Tab) or holding Cmd frees it, and clicking back in locks it again;
+scrolls the map; the game menus free it. Switching to another app (Cmd-Tab) or holding Cmd frees it, and clicking back in locks it again;
 `--no-mouse-lock` turns this off.
 
 The arrow keys and the screen edge scroll the map, `+`/`-` change the game speed, Escape quits. The map view shows

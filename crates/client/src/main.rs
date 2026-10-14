@@ -1459,9 +1459,12 @@ const LOCK_MODE: CursorGrabMode = if cfg!(target_os = "macos") {
 /// Locks the pointer to the window during a game and frees it otherwise (`display::lock_wanted`). With the system
 /// pointer held still, moves the locked pointer by the mouse's motion and keeps it on the screen; when the lock ends,
 /// puts the system pointer where ours was.
+#[allow(clippy::too_many_arguments)]
 fn mouse_lock(
     opts: Res<Opts>,
     state: Res<State<frontend::AppState>>,
+    dialog: Option<Res<frontend::OutcomeDialog>>,
+    menu: Option<Res<gamemenu::GameMenu>>,
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     mut locked: ResMut<frontend::LockedPointer>,
@@ -1473,7 +1476,8 @@ fn mouse_lock(
     };
     let want = display::lock_wanted(display::LockInput {
         enabled: !opts.0.no_mouse_lock,
-        in_game: *state.get() == frontend::AppState::Game && hud.as_ref().is_some_and(|h| h.art.has_pointers()),
+        // The game menus and the outcome dialog use the system's pointer (`frontend::show_cursor`).
+        in_game: frontend::game_running(state, dialog, menu) && hud.as_ref().is_some_and(|h| h.art.has_pointers()),
         focused: window.focused,
         held_free: keys.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]),
     });

@@ -14,7 +14,8 @@
 //!   map pixels per screen pixel.
 //! - **Mouse lock.** In a game the pointer is kept in the window, as a full-screen game's pointer can't leave the
 //!   screen, so pushing it against an edge scrolls the view however fast the mouse moves (as StarCraft's windowed
-//!   "W-Mode" and Diablo II: Resurrected's "lock cursor" option do). [`lock_wanted`] says when: only during a game, only
+//!   "W-Mode" and Diablo II: Resurrected's "lock cursor" option do). [`lock_wanted`] says when: only while a game runs (not while a game menu or the outcome dialog is
+//!   up, which use the system's pointer), only
 //!   while the window has the focus (switching away, Cmd-Tab, frees it; a click back in locks it again), and not while
 //!   Cmd (the Windows key elsewhere) is held. Where the system can confine the pointer to the window, it does; macOS
 //!   can't, so there the system pointer is held still and the game's own pointer moves by the mouse's motion, kept on
