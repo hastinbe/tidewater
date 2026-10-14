@@ -51,6 +51,10 @@
 //! gold mine), orc9-orc09-order16-keep-2000 (order 16 still cooling down keeps its order when the search gives order
 //! 12, n 937) and human13-sea-fight-3000.
 //!
+//! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
+//! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
+//! xorc10-19400-24000 match to their ends.
+//!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
 //! humans' slots and races, the computer rows) from the header. Headers from round 60 on carry `opponents` and
@@ -83,7 +87,9 @@ fn check(file: &str, place: Option<(&str, u8)>, fields: &[&str], limit: Option<u
         return;
     }
     let max = limit.map(|l| l.to_string());
-    let short = limit.unwrap_or(300).min(300).to_string();
+    // The short resync pass covers the first 300 compared cycles: from the window's start in a windowed trace.
+    let from = window_start(&trace);
+    let short = limit.unwrap_or(u32::MAX).min(from + 300).to_string();
     let whole: Vec<&str> = max.iter().flat_map(|m| ["--max-cycles", m.as_str()]).collect();
     let resync = vec!["--keep-going", "--resync-rng", "--max-cycles", short.as_str()];
     for extra in [whole, resync] {
@@ -119,6 +125,18 @@ fn check(file: &str, place: Option<(&str, u8)>, fields: &[&str], limit: Option<u
             "{file}: the turn records and the input disagree\n{stdout}"
         );
     }
+}
+
+/// A windowed trace's first compared cycle (the header's `from`), or 0 for a whole trace.
+fn window_start(trace: &std::path::Path) -> u32 {
+    use std::io::BufRead;
+    let file = std::fs::File::open(trace).expect("trace opens");
+    let mut header = String::new();
+    std::io::BufReader::new(flate2::read::GzDecoder::new(file))
+        .read_line(&mut header)
+        .expect("trace header reads");
+    let v: serde_json::Value = serde_json::from_str(&header).expect("trace header parses");
+    v.get("from").and_then(|f| f.as_u64()).map_or(0, |f| f as u32)
 }
 
 /// One `#[test]` per row, so the harness runs the traces in parallel. Each row is: test name = (trace file, map,
@@ -297,4 +315,8 @@ traces! {
     orc6_30000: ("orc6-30000.jsonl.gz", "Campaign\\Orc\\Orc06.pud", 11, &[], None),
     xhuman1_30000: ("xhuman1-30000.jsonl.gz", "Campaign\\XHuman\\2XHum01.pud", 28, &[], None),
     xorc2_30000: ("xorc2-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc02.pud", 31, &[], None),
+    xhuman3_15500_17000: ("xhuman3-15500-17000.jsonl.gz", "Campaign\\XHuman\\2XHum03.pud", 32, &[], None),
+    xhuman3_20900_22915: ("xhuman3-20900-22915.jsonl.gz", "Campaign\\XHuman\\2XHum03.pud", 32, &[], None),
+    xorc5_26000_30000: ("xorc5-26000-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
+    xorc10_19400_24000: ("xorc10-19400-24000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
 }
