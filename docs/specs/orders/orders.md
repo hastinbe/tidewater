@@ -37,7 +37,7 @@ The orders fall into a few families. Each family's logic is built from the share
 | Idle and standing | 2, 13, 16 | Look-around (2 and 13), then attacker check and target search ("Idle look-around", "Automatic target acquisition") | 12, 15, 16, 3 (flee) |
 | Attack | 9, 11, 12, 15, 16, 17 | The attack run: search or forget, cooldown, target and range checks, strike ("Attack orders") | 2, 13, the pending order |
 | Tower | 14 | Forgets the attacker, searches its attack range, fires ("Attacking without moving") | 14 |
-| Move into range | 18 | Gives order 17 on its stored point | 17 |
+| Move into range | 18 | Walks to the pulled-back goal; on arrival gives order 17 on the target tile ("Arriving and losing the target") | 17 |
 | Boarding | 34 | `orders/transports.md`; the boarding move ("Boarding moves") | 34, 4, 36 |
 | Harvest, return, enter, inside | 23, 24, 25, 26 | `economy/harvest.md` | |
 | Repair, build, demolish, spells | 27, 28, 20, 21, 38 to 56 | Their own specs | |
@@ -206,8 +206,13 @@ Orders that count as **stationary or followable** (used by the follow rules belo
 
 - The **+1** that sea and air units get on the radius doesn't apply to orders **28** (build), **30** (transport
   landing) and **31** (transport pushing off).
-- Order **18** counts as arrived as soon as the unit is within its **attack range** of the stored ground point on both
-  axes, whatever the table radius says. The cached path is dropped at that moment.
+- Order **18** has two arrival tests, and either one is enough: the unit is within its type's **base attack range**
+  (no range upgrades) of the **target tile** (the tile commanded) on both axes; or it is within the table radius
+  (**2**, plus the +1 of `movement/movement.md` for sea and air units, so 3) of its **stored goal**, which the command
+  pulled back (`movement/pathfinding.md`, "Goal pulled back"). The cached path is dropped at arrival. Traced:
+  `orc9-orc09-ground-move-goals-1100`, vectors V267 and V268. The radius test is separated by V268 (13 tiles from the
+  target tile); the base-range test is static study only (in V267 both tests pass in the same update), and so is the
+  radius 3 for sea and air units (no trace has a ship in order 18).
 
 ### Orders given when a unit is created
 
@@ -401,8 +406,8 @@ order logic gives it takes over either in the same update or at the next step do
 take-over" lists the cases). Which goals are pulled back, and which commands keep or clear the
 remembered order (Enhanced), are given with each case below.
 
-That order 18's switch to order 17 goes through these steps, and takes over in the same update, is static study only
-("Arriving and losing the target", order 18).
+Order 18's switch to order 17 goes through these steps and takes over in the same update (traced:
+`orc9-orc09-ground-move-goals-1100` n = 158, vector V269; "Arriving and losing the target", order 18).
 
 **A player's command forgets the attacker.** When a player's unit command is carried out
 (`ui/selecting-and-commanding.md`, "Which units take part in a command"), every selected unit that takes the command
@@ -426,7 +431,12 @@ also fails it (traced for command 24, return goods, given a peon inside a gold m
 n = 1374, vector V245; static study only for the other commands, which share the check): if it fails, the target is dropped and idle becomes the unit's **pending** order in place of the command's
 order (with the resume rules of "Resuming patrol and attack-move"); the command still counts as a command. The pending
 idle takes over at the unit's next step done with wait 3, and the idle logic doesn't run in that update, so an idle
-unit makes no look-around draw there. A call for help answered against a dying attacker ends this way
+unit makes no look-around draw there. A **player's** command clears the remembered order before this check (in
+Enhanced mode, "Resuming patrol and attack-move"), so after a player's command there is nothing to resume: a unit on
+an attack-move told to attack a unit that is inside something keeps walking until its next step done, then idles
+there, and the attack-move isn't resumed (traced: `orc9-orc09-lost-resume-goals-500` n = 332 to 346, vector V272). A
+resume here needs a command from the game's own logic (a call for help, a resumed order) to a unit that still
+remembers an order; that case is static study only. A call for help answered against a dying attacker ends this way
 (`ai/attack-ai.md`, "Call for help"; traced: `xhuman10-spells-700`, vector V177).
 A player's attack command (8 or 9) on a **dying** unit ends the same way: it is still given to each selected unit, the
 target fails the check, and the unit is left in order 2 with no target and a pending idle, as if told to stop. Its still
@@ -465,9 +475,11 @@ without running its logic. The traces confirm it for the critter's wander, a com
 going idle on arriving at the end of a move ("Arriving and losing the target"), a harvest or return order that reaches
 its building (order 25: wait 3, animation 3), felling a tree (`economy/harvest.md`), a lumber worker's own new aim (a
 new harvest command: order 23, animation 4, wait 3; `economy/harvest.md`, "Lumber"), the order an idle unit's target
-search gives (12, 15 or 16; "Automatic target acquisition") and the guard a follower is given inside its radius
-(order 7, wait 3; "Follow (orders 6 and 7)"). Coming out of a building is the exception: the order given
-then stays pending through a 25-cycle wait (`economy/harvest.md`, "Coming out").
+search gives (12, 15 or 16; "Automatic target acquisition"), the guard a follower is given inside its radius
+(order 7, wait 3; "Follow (orders 6 and 7)"), order 18's switch to order 17 (order 17, attack animation, wait 3;
+vector V269) and the friendly-fire hold's pending idle or resumed order (vectors V270 and V271). Coming out of a
+building is the exception: the order given then stays pending through a 25-cycle wait (`economy/harvest.md`,
+"Coming out").
 
 **Immediate orders** (used for dying, giving up and a move with no route; a move that arrives goes idle through a
 pending order instead): the order is set at once, the pending order is
@@ -626,8 +638,12 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   patrol, human or computer, land or sea. In Enhanced mode the turnaround, like every patrol command, remembers its new
   goal and the tile the unit stands on ("Resuming patrol and attack-move"). The new patrol takes over in the same
   update (still animation, wait 3); the first step comes at its next logic run, 3 cycles later.
-- **Order 18:** on arrival (in range) it becomes order 17 and attacks the ground. It is given order 17 on its stored
-  ground point as a command, which takes over in the same update (static study only; see "Open questions").
+- **Order 18:** it walks to the goal the command pulled back and arrives by either test of "The order list" (arrival
+  radius exceptions). On arrival it is given order 17 on the **target tile** as a command (order 17's goal is the
+  target tile, not pulled back: `movement/pathfinding.md`), which takes over in the same update: attack animation (4),
+  wait 3, facing unchanged. It doesn't strike in that update: order 17's logic first runs at its next step done, where
+  the unit turns to the target tile and its attack starts (`combat/attack-ground-demolish.md`). Traced:
+  `orc9-orc09-ground-move-goals-1100` n = 157 to 162, vector V269.
 
 **Orders aimed at a unit** (follow, attack and similar) check their target every time their logic runs. The target
 is **lost** if it is no longer valid (dead, removed or inside something) or is no longer **detected** by the unit's
@@ -808,8 +824,14 @@ so the check isn't made then. It isn't made again at the strike point. In the ru
 switched to a new target (orders 12, 15 and 16 search first), the run goes on with the new target: the cooldown test,
 the target check, then this check, made on the **new** target. So a ground attacker whose new target stands next to its
 own units doesn't strike it (traced for order 16: `xhuman4`, `xhuman10-spells`). If the count is reached, the unit
-doesn't strike: it forgets the target, and order **2** (idle) takes over **in the same update** (still animation, wait
-3; facing kept). Its idle logic first runs 3 cycles later and may pick the same target again.
+doesn't strike: it forgets the target, and idle becomes its **pending** order by the common path, with the resume
+rules of "Resuming patrol and attack-move"; the pending order takes over **in the same update** (still animation,
+wait 3; facing kept). So with nothing to resume, order **2** (idle) takes over; its idle logic first runs 3 cycles
+later and may pick the same target again. In Enhanced mode a remembered attack-move or patrol is given again as a
+command instead, and takes over in the same update (traced: a catapult on an attack-move, order 12 on a footman that
+stands next to the catapult's own units: order 10, still animation, wait 3, no target, goal the attack-move's tile;
+`orc9-orc09-hold-resume-hits-goals-1600` n = 960, vector V270). A complete attack-move (within 1 tile) is forgotten
+there and the unit stays idle (same trace, n = 1112, vector V271).
 
 ### Boarding moves (order 34)
 
@@ -1302,6 +1324,7 @@ row's trace starts "As" that row's ID and names the trace.
 | V205 | A footman with a recorded attacker (alive, detected, within its reaction range) gets a stop command from its player (static study) | The attacker is forgotten; the idle logic doesn't seed its search with it | Static study |
 | V206 | A computer player's footman with a recorded attacker gets command 4 from the attack AI (static study) | The record is kept | Static study |
 | V245 | `orc9-orc09-return-nodepot-2200` (oracle trace, Enhanced), n = 1374: peon 1482 (type 0x03), idle with return goods to its great hall pending, told to return goods to peon 1478, which is inside a gold mine | Target none in the same turn record; order 2 kept; the pending idle takes over at n = 1393 (still animation, wait 3) | Trace (`orc9-orc09-return-nodepot-2200`) |
+| V272 | `orc9-orc09-lost-resume-goals-500` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-lost-resume.txt`): grunt 1481 (type 0x01, owner 5) on an attack-move to (8, 87) since n = 30; at turn n = 332 (input at n = 330) the player tells it to attack peon 1482, which is inside gold mine 1480 (order 26) | n = 332: order 10, move animation, wait 1, target none, goal (50, 91) (the peon's tile), pending 2. n = 346, its next step done: order 2, still animation, wait 3, nothing pending; the attack-move isn't resumed (the player's command forgot it) | Trace (`orc9-orc09-lost-resume-goals-500`) |
 
 ### Resuming patrol and attack-move
 
@@ -1339,6 +1362,9 @@ row's trace starts "As" that row's ID and names the trace.
 | V047 | Transport landing (order 30), goal 2 tiles away on both axes | The general test (radius 3) is met, so the landing logic runs; its own test (radius 0) isn't, so it steps on | Example |
 | V048 | Transport landing (order 30), goal 5 tiles away | An ordinary two-tile step, move animation 3; the landing logic doesn't run | Example |
 | V049 | `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8 (animation 6, wait 3), goal (72, 29) | n = 11 (4 and 5 tiles away): two-tile step north-east to (70, 32), animation 3. n = 43 (within 3): animation 6, one-tile step to (71, 31) (the goal is odd); n = 59 (72, 30); n = 75 (72, 29) | Trace (`human12-transport`) |
+| V267 | `orc9-orc09-ground-move-goals-1100` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-ground-move.txt`): catapult 1486 (type 0x05, owner 5, base range 8) at (44, 87) told to attack the ground at the water tile (50, 75) (turn n = 22, input at n = 20) | n = 22: goal (47, 81) (pulled back), order 18 pending; order 18 from n = 27. It walks via (45, 86), (46, 85), (46, 84) and arrives at (46, 83) at n = 158: 8 from (50, 75) and 2 from (47, 81) on the larger axis, so both arrival tests pass there | Trace (`orc9-orc09-ground-move-goals-1100`) |
+| V268 | As V267 (`orc9-orc09-ground-move-goals-1100`): catapult 1494 (type 0x05, owner 5) at (41, 84) told to attack the ground at the island tile (14, 70) (turn n = 42, input at n = 40) | n = 42: goal (25, 76) (pulled back), order 18 from n = 44. Arrives at (27, 74) at n = 879, 2 from (25, 76) and 13 from (14, 70): the goal-radius test. At (28, 73), 3 from the goal, it walked on | Trace (`orc9-orc09-ground-move-goals-1100`) |
+| V269 | As V267 (`orc9-orc09-ground-move-goals-1100`), catapult 1486, n = 157 to 162 | n = 157: order 18, move animation, wait 1, facing 0, goal (47, 81). n = 158: order 17, attack animation, wait 3, facing 0 (unchanged), goal (50, 75). n = 161: facing 1 (turned at order 17's first run), wait 1. n = 162: wait 4, and its missile (shooter 1486) appears, aimed at (50, 75) | Trace (`orc9-orc09-ground-move-goals-1100`) |
 
 ### Walking toward a target
 
@@ -1455,6 +1481,8 @@ row's trace starts "As" that row's ID and names the trace.
 | V140 | As V139 (`xhuman4-7000`), ballista 1488, n = 213 and 216 | n = 213: order 16 on 1515, animation 4, wait 3. n = 216: order 2, wait 3 | Trace (`xhuman4-7000`) |
 | V141 | `xhuman10-spells-700`, n = 227: ballista 1483 (owner 1) in order 16; its search's new target 1475 stands next to unit 1489 of player 1 | Order 2, wait 3, target null | Trace (`xhuman10-spells-700`) |
 | V142 | A ballista in order 16 still cooling down whose search switches to such a target (static study only) | Keeps the new target and waits out the cooldown; no check in that run | Static study |
+| V270 | `orc9-orc09-hold-resume-hits-goals-1600` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-hold-resume.txt`): catapult 1494 (type 0x05, owner 5, the human player) on an attack-move to (8, 87) (order 10 from n = 24); its walking search picks footman 1485 (owner 0), which fights grunts of player 5 near (5, 86) | n = 957: order 12, attack animation, wait 3, target 1485, goal (5, 86). n = 960: fire held: order 10, still animation, wait 3, target none, goal (8, 87) (the attack-move given again). n = 963: order 10, move animation, wait 1, a step to (12, 89); the walking search pends 12 on 1485 again. The same repeats at n = 995/998, 1033/1036 and 1071/1074 | Trace (`orc9-orc09-hold-resume-hits-goals-1600`) |
+| V271 | As V270 (`orc9-orc09-hold-resume-hits-goals-1600`), catapult 1494 at (9, 87), 1 tile from (8, 87) | n = 1109: order 12, wait 3, target 1485. n = 1112: fire held: order 2, still animation, wait 3, target none, goal (5, 86) (the attack-move is complete, so it is forgotten). From n = 1115 its idle logic picks 1485 (order 16, wait 3) and holds again at n = 1118: orders 16 and 2 alternate every 3 cycles | Trace (`orc9-orc09-hold-resume-hits-goals-1600`) |
 
 ### Boarding moves
 
@@ -1711,13 +1739,15 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 - **Invisible units acquire nothing.** "Reacting to an attacker", step 3, says an invisible mage-type unit does
   nothing more in a run after the attacker check. The static study finds the same for every invisible unit that isn't
   a worker or tanker, in the order's logic and in the walk: after step 1 it makes no target search and no reaction. No
-  vector has an invisible unit of another type.
+  vector has an invisible unit of another type. Round 68: switching the code to the static reading changes none of the
+  158 trace rows (no trace has an invisible unit of another type); still open.
 - **A mage with an attacker flees after choosing a harmless target.** "Special cases" and "Reacting to an attacker",
   step 3, say a mage-type unit attacks a chosen target it may take, and runs the reaction only otherwise. The static
   study finds that the reaction runs after the search in both cases, so a mage with a valid attacker it can flee from
   flees, and the flee move replaces the attack. Vector V174 (an example, untraced: an idle mage hit by a footman
   attacks a peasant that outscores the footman) takes the spec's reading; V144 (no attacker), V172 and V173 fit both.
-  Keep V174 until a trace decides.
+  Round 68: the static study again finds the reaction after the search; switching the code changes no trace row, and
+  staging the case failed. Keep V174 until a trace decides.
 - **Commands that do nothing.** The static study finds that a command changes nothing at all (no target, goal, route,
   counter or attacker) for a unit whose order is 0, 1, 22, 25, 26, 36, 37 or 57. "Setting a pending order" names dying
   or dead units, units inside something and order 25; the static list adds a worker inside a building it is
@@ -1736,15 +1766,20 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   disagrees: it finds the check after the kind check but before the lost-target and range checks, made on the target's
   tile even when the target is lost. The outcomes differ only for a ground attacker whose target is lost, whose search
   found nothing new, and whose own units stand around the lost target's tile: idle (2) at once, rather than the lost
-  rule (the pending order, or stand ground, 13, for order 15). V139 to V141 fit both readings.
+  rule (the pending order, or stand ground, 13, for order 15). V139 to V141 fit both readings. Round 68: the static
+  study confirms its reading and switching the code changes no trace row; a trace needs a catapult in order 15 whose
+  target is lost during its cooldown, with its own units around the target's tile and nothing else in range.
 - **Statements made explicit by the consolidation, static study only and untraced:**
   - every place that makes idle the pending order shares the resume step of "Giving up when blocked" (the still
-    animation with wait 1, then the remembered order as a command; "Resuming patrol and attack-move");
+    animation with wait 1, then the remembered order as a command; "Resuming patrol and attack-move"); traced since
+    round 68 for the friendly-fire hold (V270, V271), and a player's command that fails the target check has nothing
+    to resume (V272);
   - a pending idle that takes over makes a unit that can move forget its target ("Taking over"); the traced
     take-overs of a pending idle that show the target show it null (for example V136 and V199);
   - the attack run ("Attack orders"): orders 9 and 17 make the cooldown test before the target checks; a target that
     fails the kind check gives a pending idle; and in orders 9 and 12 a valid target out of range when the logic runs
-    is attacked again as a command;
+    is attacked again as a command (round 68: no trace separates these; where a unit that has arrived is out of its
+    strike's reach, the ending other than the kind check isn't settled);
   - every walking order whose target unit is lost at a step boundary ends its walk there ("Walking orders", step 2;
     traced for orders 3 and 4 here and for 23 and 24 in `economy/harvest.md`);
   - while walking, the demolish orders 20 and 21 run the reaction, order 7 runs the target search, and every order that
@@ -1753,8 +1788,17 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
     when the unit has no attacker (no vector has a walking guard acquire);
   - a unit already in reach of its goal makes none of the walk's steps in that update, so no walking search, reaction
     or target drop ("How an update runs", step 2; traced only for the acquisition of orders 4 and 10, V196, and for
-    the walking orders' reaction, "Walking orders react only when the walk has ended");
-  - order 18's switch to order 17 is a command that takes over in the same update ("What every command does").
+    the walking orders' reaction, "Walking orders react only when the walk has ended").
+
+Order 18's switch to order 17, listed here before round 68, is now traced (V269).
+
+Round 68 (Enhanced):
+
+- **Order 18's arrival by base range.** Order 18 arrives within base range of the target tile or within the goal
+  radius of the pulled-back goal ("Arrival radius exceptions"). Only the goal-radius test is separated by a trace
+  (V268); the base-range test and the sea and air radius of 3 rest on static study.
+- **Order 18 with no route** isn't traced: in `orc9-orc09-ground-move-goals-1100` the pull-back always gave a
+  reachable goal.
 
 ## History
 
@@ -1800,4 +1844,5 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 64 | Order 34 reacts only when waiting at its transport; order 6 runs the reaction but not its result; no route isn't a walk end for the reaction; order 16 cooling down keeps its order | "Walking orders react only when the walk has ended"; "Follow (orders 6 and 7)"; "Resulting order"; vectors V248 to V255 |
 | 65 | A walk with a target unit heads for the target where it stands; follower inside the radius guards in the same update; guard with no route | "Walking orders"; "Attack-move: orders 4, 5 and (Enhanced) 10"; "Follow (orders 6 and 7)"; "No route"; vectors V256 to V263 |
 | 66 | Evidence only: order 16 keep traced; repair and order 9 with no route traced | "Resulting order"; "No route"; vectors V264 to V266 |
+| 68 | Order 18 walks to the pulled-back goal and arrives by base range or goal radius; its switch to 17 is a command taking over in the same update (wait 3); the friendly-fire hold makes idle pending with the resume step; a player's command forgets the remembered order before the target check | "Arrival radius exceptions"; "Arriving and losing the target"; "Friendly-fire check"; "Same-update take-over"; "Commands forget a stale attacker"; vectors V267 to V272 |
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec; "The model", "How an update runs", "Walking orders", "What every command does" and "Attack orders" are new and restate rules already given elsewhere |
