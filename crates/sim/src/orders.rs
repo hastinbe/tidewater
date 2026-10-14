@@ -428,10 +428,36 @@ impl World {
         Some(o)
     }
 
-    /// A pending idle that takes over in the same update (arriving, losing the target), or the resumed order.
+    /// The common pending idle (orders spec, "Giving up when blocked" and "Resuming patrol and attack-move"): idle
+    /// becomes the pending order, or, when a remembered order resumes, the unit starts its still animation with wait 1
+    /// and the remembered order is the pending order, given as a command. Returns whether it resumed. The caller makes
+    /// sure the unit can take a pending order.
+    pub(crate) fn pending_idle(&mut self, i: usize) -> bool {
+        match self.resumed(i) {
+            Some(o) => {
+                self.start_anim(i, anim::STILL);
+                let u = &mut self.units[i];
+                u.script.wait = 1;
+                u.pending = Some(o);
+                u.commanded = true;
+                true
+            }
+            None => {
+                let u = &mut self.units[i];
+                u.pending = Some(Order::Idle);
+                u.commanded = false;
+                false
+            }
+        }
+    }
+
+    /// A pending idle that takes over in the same update (arriving, losing the target), or the resumed order. Like any
+    /// pending order it replaces one already pending, so nothing is left pending after the take-over.
     pub(crate) fn idle_now(&mut self, i: usize) {
-        let o = self.resumed(i).unwrap_or(Order::Idle);
-        self.take_over(i, o);
+        self.pending_idle(i);
+        if let Some(o) = self.units[i].pending.take() {
+            self.take_over(i, o);
+        }
     }
 
     /// "No route": idle as an immediate order, and the idle logic runs in the same update, straight after.
@@ -4710,9 +4736,10 @@ mod tests {
             assert_eq!(w.fingerprint(), 2063841053880885618);
         }
 
-        /// The command check: a command naming a lost target leaves a pending idle (with the resume rules), and the
-        /// animation and wait are left as they are (the spec's pending idle has the still animation and wait 1: a
-        /// question for the spec).
+        /// The command check: a command naming a lost target leaves a pending idle by the common path. With nothing to
+        /// resume the animation and wait are left as they are; a game-logic command to a unit that remembers an order
+        /// resumes it with the resume step (still animation, wait 1; orders spec, "Commands forget a stale attacker"
+        /// and "Giving up when blocked", static study only).
         #[test]
         fn a_command_naming_a_lost_target_leaves_a_pending_idle() {
             let mut prints = vec![];
@@ -4748,13 +4775,14 @@ mod tests {
                 } else {
                     Order::Idle
                 };
+                let (a, wait) = if remembered { (anim::STILL, 1) } else { (anim::MOVE, 5) };
                 assert_eq!(
                     (u.pending, u.commanded, u.script.anim, u.script.wait),
-                    (Some(expect), true, anim::MOVE, 5)
+                    (Some(expect), true, a, wait)
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [15852741303150789399, 17997252111257111540]);
+            assert_eq!(prints, [15852741303150789399, 10802931257681061788]);
         }
 
         /// The patrol turnaround: Enhanced (remembered), Classic (not), and an air unit whose other end is next to it

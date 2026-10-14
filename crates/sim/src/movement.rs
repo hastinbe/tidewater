@@ -109,17 +109,17 @@ impl World {
         if self.units[i].dying || inside {
             return;
         }
-        // Orders spec, "Resuming patrol and attack-move": a pending idle may become the remembered order.
-        // The resumed order is a command, so it carries the pending-command mark.
-        let resumed = match order {
-            Order::Idle => self.resumed(i),
-            _ => None,
-        };
+        // Orders spec, "Resuming patrol and attack-move": a pending idle goes by the common path, which may resume
+        // the remembered order as a command (round 68, code question 1).
+        if order == Order::Idle {
+            self.pending_idle(i);
+            return;
+        }
         // Movement spec, "Blocked rules": an order made pending without a command keeps the
         // blocked counter; `command` clears it.
         let u = &mut self.units[i];
-        u.pending = Some(resumed.unwrap_or(order));
-        u.commanded = resumed.is_some();
+        u.pending = Some(order);
+        u.commanded = false;
     }
 
     /// A command's order for one unit, whoever gives it: the goal pulled back off ground the unit can't stand on
@@ -488,14 +488,7 @@ impl World {
             // restarted above, with wait 15; only the resume case starts the still animation. A
             // remembered attack-move that is complete is forgotten only with the countdown at 0, as everywhere idle
             // becomes pending (`resumed`).
-            if let Some(o) = self.resumed(i) {
-                self.units[i].pending = Some(o);
-                self.start_anim(i, anim::STILL);
-                1
-            } else {
-                self.units[i].pending = Some(Order::Idle);
-                LONG_WAIT
-            }
+            if self.pending_idle(i) { 1 } else { LONG_WAIT }
         } else if u.blocked >= LONG_WAIT_FROM {
             drop_path(self); // D
             LONG_WAIT

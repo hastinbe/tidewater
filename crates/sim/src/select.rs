@@ -837,6 +837,30 @@ mod tests {
         assert!(!filter(&w, flyer, 5) && filter(&w, footman, 5), "Classic patrol");
     }
 
+    /// Orders spec, "Commands forget a stale attacker" (V272): a player's command clears the remembered order before
+    /// the target check, so an attack on a target inside something leaves a plain pending idle with nothing to
+    /// resume.
+    #[test]
+    fn a_players_command_on_a_lost_target_has_nothing_to_resume() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        let footman = spawn(&mut w, FOOTMAN, 0, (10, 10));
+        let grunt = spawn(&mut w, GRUNT, 1, (14, 10));
+        let gi = w.index(grunt).unwrap();
+        w.units[gi].inside = true;
+        let i = w.index(footman).unwrap();
+        w.units[i].remembered = Some(crate::world::Remembered::AttackMove { goal: (30, 10) });
+        select(&mut w, &[footman]);
+        w.step(&[Command::Issue {
+            player: 0,
+            command: 8,
+            target: Some(grunt),
+            tile: (14, 10),
+        }]);
+        let u = w.unit(footman).unwrap();
+        assert_eq!((intent(&w, footman), u.remembered), (Some(Order::Idle), None));
+    }
+
     #[test]
     fn target_mode_attack_ground_reaches_only_the_catapult() {
         let mut w = map();
