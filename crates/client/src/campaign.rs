@@ -11,7 +11,11 @@
 //! - The movie archive is always available (a video the install lacks is skipped); the startup intro plays when the
 //!   "play the intro" bit is set, which is every start (it isn't stored; `--no-intro` clears it).
 //! - Ctrl isn't read at startup (the window doesn't exist yet), only at the later checks.
-//! - The title and act screen tick is the normal game speed's cycle (40 ms).
+//! - The menu timer ([`MenuTimer`]) gives its first tick at once, as if the last one were long ago; when the clock went
+//!   back it restarts with a tick at once (the next tick due at the current time).
+//! - A fade blocks for its whole frame schedule: one 16 ms frame per frame time ([`fade_blocks_ms`]), which gives the
+//!   spec's 272, 320, 416 and 624 ms; a key or click during a blocking fade waits and is handled when it ends.
+//! - The title's music starts when its fade-in ends (the fade blocks, and the spec names the music after it).
 //! - The ending videos are `HVict_M` / `OVict_M` (ToD) and `HVicX_M` / `OrcX_M` (BDP), before the finale.
 //! - A type change doesn't count as a building lost; gathered resources are deliveries (`tidewater_sim`).
 //! - A restart from the game menu puts the campaign total back as a defeat does.
@@ -92,7 +96,7 @@ pub fn startup_videos(i: StartupInput) -> (Vec<u8>, bool) {
 
 /// The title picture.
 pub const TITLE_PICTURE: &str = "Art\\Title_Rel_BNE.pcx";
-/// The title stays this many ticks unless a key or click ends it.
+/// The title stays this many menu-timer ticks unless a key or click ends it.
 pub const TITLE_TICKS: u32 = 100;
 /// The title's fade in, and its fade out when it ran its time.
 pub const TITLE_FADE_MS: u32 = 250;
@@ -104,10 +108,134 @@ pub fn title_fade_out_ms(skipped: bool) -> u32 {
     if skipped { 1 } else { TITLE_FADE_MS }
 }
 
-/// The tick of the title and the act screen: an open question ("Tick lengths"). Our default: the cycle time of the
-/// normal game speed under Enhanced rules.
-pub fn screen_tick_ms() -> u32 {
-    tidewater_sim::timing::ENHANCED_MS[tidewater_sim::timing::NORMAL as usize]
+/// What the title asks its screen to do ("Startup", step 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TitleCue {
+    /// The fade-in ended: music track 22 starts.
+    Music,
+    /// The picture fades out over this many ms.
+    FadeOut(u32),
+    /// The fade-out ended: the main menu opens.
+    Done,
+}
+
+/// The title: a 250 ms fade-in, then 100 menu-timer ticks or a key or click (Shift, Ctrl and Alt alone don't count;
+/// the caller filters them), then the fade-out. Times are ms on the menu timer's clock.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TitleRun {
+    ticks: u32,
+    /// The running fade blocks until then.
+    blocked_until: Option<f64>,
+    fading_out: bool,
+    /// A key or click is waiting.
+    input: bool,
+    done: bool,
+}
+
+impl TitleRun {
+    /// The title opens at `now`: its fade-in starts.
+    pub fn new(now: f64) -> Self {
+        TitleRun {
+            ticks: 0,
+            blocked_until: Some(now + fade_blocks_ms(TITLE_FADE_MS) as f64),
+            fading_out: false,
+            input: false,
+            done: false,
+        }
+    }
+
+    /// Runs the title at `now`; `input` is a key or click since the last call.
+    pub fn update(&mut self, timer: &mut MenuTimer, now: f64, input: bool) -> Vec<TitleCue> {
+        let mut out = Vec::new();
+        self.input |= input;
+        if self.done {
+            return out;
+        }
+        if let Some(end) = self.blocked_until {
+            if now < end {
+                return out;
+            }
+            self.blocked_until = None;
+            if self.fading_out {
+                self.done = true;
+                out.push(TitleCue::Done);
+                return out;
+            }
+            out.push(TitleCue::Music);
+        }
+        // Waiting input is handled before ticks.
+        let skipped = std::mem::take(&mut self.input);
+        if !skipped {
+            while self.ticks < TITLE_TICKS && timer.poll(now) {
+                self.ticks += 1;
+            }
+            if self.ticks < TITLE_TICKS {
+                return out;
+            }
+        }
+        let ms = title_fade_out_ms(skipped);
+        self.fading_out = true;
+        self.blocked_until = Some(now + fade_blocks_ms(ms) as f64);
+        out.push(TitleCue::FadeOut(ms));
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The menu timer and fades ("Terms")
+
+/// The menu timer's period in ms.
+pub const MENU_TICK_MS: f64 = 100.0;
+/// A tick later than this after its due time restarts the schedule.
+pub const MENU_LATE_MS: f64 = 300.0;
+/// A due time further ahead of the clock than this means the clock went back.
+pub const MENU_AHEAD_MS: f64 = 200.0;
+
+/// The 100 ms real-time menu timer that drives the title and the act screen ("Terms", "Menu timer"). The caller asks
+/// for ticks with [`MenuTimer::poll`] only while no input is waiting and no fade runs, with a real-time clock in ms;
+/// the game speed, the game cycle and the frame rate don't enter. One timer serves every screen, so its schedule
+/// carries over from one screen to the next.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MenuTimer {
+    /// When the next tick is due; `None` before the first tick (our choice: as if the last were long ago).
+    due: Option<f64>,
+}
+
+impl MenuTimer {
+    /// Whether a tick comes at `now`. A tick makes the next one due 100 ms after this one was due, or at once if this
+    /// one came more than 300 ms late; so late ticks come back to back until the timer catches up, and a long wait is
+    /// not made up. A due time more than 200 ms ahead of `now` (the clock went back) restarts the schedule at `now`.
+    pub fn poll(&mut self, now: f64) -> bool {
+        let due = match self.due {
+            None => f64::NEG_INFINITY,
+            Some(d) if d - now > MENU_AHEAD_MS => now,
+            Some(d) => d,
+        };
+        if now < due {
+            self.due = Some(due);
+            return false;
+        }
+        self.due = Some(if now - due > MENU_LATE_MS {
+            now
+        } else {
+            due + MENU_TICK_MS
+        });
+        true
+    }
+
+    /// When the next tick is due, once a tick has come.
+    pub fn due(&self) -> Option<f64> {
+        self.due
+    }
+}
+
+/// The least length of a fade frame in ms ("Terms", "Fade").
+pub const FADE_FRAME_MS: u32 = 16;
+
+/// How long a fade of `ms` blocks: 16 ms frames at fade times 0, 16, 32, ... and a last one at exactly `ms` ("Terms",
+/// "Fade": about `ms` + 16; 250 takes 272, 300 takes 320, 400 takes 416 and 600 takes 624).
+pub fn fade_blocks_ms(ms: u32) -> u32 {
+    (1 + ms.div_ceil(FADE_FRAME_MS)) * FADE_FRAME_MS
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -314,24 +442,29 @@ impl Memory {
 
 /// The act screen's countdown.
 pub const ACT_TICKS: u8 = 60;
-/// When the picture fades in (and the act sound plays).
+/// When the picture fades in (and, once that fade ends, the act sound plays).
 pub const ACT_PICTURE_AT: u8 = 50;
 /// The text's fade-in at 60, and the picture's at 50.
 pub const ACT_TEXT_FADE_MS: u32 = 300;
 pub const ACT_PICTURE_FADE_MS: u32 = 600;
+/// The fade to black when the screen closes ("Closing").
+pub const ACT_CLOSE_FADE_MS: u32 = 400;
 /// The palette entries that hold the text colours (white while the rest is black, at 60).
 pub const ACT_TEXT_COLOURS: std::ops::RangeInclusive<u8> = 1..=3;
 
 /// What happens on an act screen tick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActEvent {
-    /// The picture fades in over 600 ms and the act sound plays.
+    /// At 60: the text fades in over 300 ms.
+    Text,
+    /// At 50: the picture fades in over 600 ms; the act sound plays when that fade ends.
     Picture,
+    /// The countdown reached 0.
     Close,
 }
 
-/// The act screen's countdown from 60 to 0, one step per tick. At 60 (when it opens) only the text shows and fades
-/// in over 300 ms.
+/// The act screen's countdown from 60 to 0, one step per menu-timer tick: the tick at 60 fades the text in, the one at
+/// 50 the picture, and the one at 1 brings the countdown to 0, which closes the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActTimer {
     pub count: u8,
@@ -350,23 +483,118 @@ impl Default for ActTimer {
 impl ActTimer {
     /// One tick.
     pub fn tick(&mut self) -> Option<ActEvent> {
+        let at = self.count;
         self.ticks += 1;
         self.count = self.count.saturating_sub(1);
-        match self.count {
-            ACT_PICTURE_AT => Some(ActEvent::Picture),
-            0 => Some(ActEvent::Close),
+        match (at, self.count) {
+            (ACT_TICKS, _) => Some(ActEvent::Text),
+            (ACT_PICTURE_AT, _) => Some(ActEvent::Picture),
+            (_, 0) => Some(ActEvent::Close),
             _ => None,
         }
     }
 
-    /// Esc, Enter, Space or a click close the screen, but not on its first tick.
+    /// Esc, Enter, Space or a click close the screen, but not on its first tick (nor before it).
     pub fn may_close_early(&self) -> bool {
         self.ticks >= 1
     }
 
-    /// Whether the picture is showing (from 50 on).
+    /// Whether the picture is showing (its fade began at 50).
     pub fn picture_shown(&self) -> bool {
-        self.count <= ACT_PICTURE_AT
+        self.count < ACT_PICTURE_AT
+    }
+}
+
+/// What the act screen asks its screen to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActCue {
+    /// The text fades in over 300 ms (the rest stays black).
+    TextFadeIn,
+    /// The picture fades in over 600 ms.
+    PictureFadeIn,
+    /// The picture's fade ended: the act sound plays.
+    ActSound,
+    /// The screen closes: everything fades to black over 400 ms.
+    FadeToBlack,
+    /// The fade to black ended: a fade of all sound (`ui/music.md`). Once that has ended, the video after (if any)
+    /// or the briefing follows.
+    FadeAllSound,
+}
+
+/// The act screen's run ("Act screens": "Timing", "Closing", "Closing early"): the countdown on the menu timer, the
+/// blocking fades, waiting input and the close. Times are ms on the menu timer's clock.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ActRun {
+    pub timer: ActTimer,
+    /// The running fade blocks until then, and this cue follows it.
+    blocked: Option<(f64, Option<ActCue>)>,
+    /// A key or click is waiting.
+    input: bool,
+    closing: bool,
+    done: bool,
+}
+
+impl ActRun {
+    /// Runs the screen at `now`; `input` is Esc, Enter, Space or a click since the last call.
+    pub fn update(&mut self, menu: &mut MenuTimer, now: f64, input: bool) -> Vec<ActCue> {
+        let mut out = Vec::new();
+        self.input |= input;
+        while !self.done {
+            if let Some((end, then)) = self.blocked {
+                if now < end {
+                    break;
+                }
+                self.blocked = None;
+                if let Some(c) = then {
+                    out.push(c);
+                    self.done = c == ActCue::FadeAllSound;
+                    continue;
+                }
+            }
+            // Waiting input is handled before ticks; before the first tick it is dropped.
+            if std::mem::take(&mut self.input) && self.timer.may_close_early() {
+                self.close(now, &mut out);
+                continue;
+            }
+            if !menu.poll(now) {
+                break;
+            }
+            match self.timer.tick() {
+                Some(ActEvent::Text) => {
+                    out.push(ActCue::TextFadeIn);
+                    self.block(now, ACT_TEXT_FADE_MS, None);
+                }
+                Some(ActEvent::Picture) => {
+                    out.push(ActCue::PictureFadeIn);
+                    self.block(now, ACT_PICTURE_FADE_MS, Some(ActCue::ActSound));
+                }
+                Some(ActEvent::Close) => self.close(now, &mut out),
+                None => {}
+            }
+        }
+        out
+    }
+
+    fn block(&mut self, now: f64, ms: u32, then: Option<ActCue>) {
+        self.blocked = Some((now + fade_blocks_ms(ms) as f64, then));
+    }
+
+    fn close(&mut self, now: f64, out: &mut Vec<ActCue>) {
+        if !self.closing {
+            self.closing = true;
+            out.push(ActCue::FadeToBlack);
+            self.block(now, ACT_CLOSE_FADE_MS, Some(ActCue::FadeAllSound));
+        }
+    }
+
+    /// The screen is closing (its fade to black began).
+    pub fn closing(&self) -> bool {
+        self.closing
+    }
+
+    /// The fade to black ended and the fade of all sound began.
+    pub fn done(&self) -> bool {
+        self.done
     }
 }
 
@@ -1114,11 +1342,213 @@ mod tests {
         assert!(!t.picture_shown());
         let events: Vec<_> = (0..60).map(|_| t.tick()).collect();
         assert!(t.may_close_early());
-        assert_eq!(events[9], Some(ActEvent::Picture), "at 50");
-        assert_eq!(events[59], Some(ActEvent::Close), "at 0");
-        assert_eq!(events.iter().flatten().count(), 2);
+        assert_eq!(events[0], Some(ActEvent::Text), "at 60");
+        assert_eq!(events[10], Some(ActEvent::Picture), "at 50");
+        assert_eq!(events[59], Some(ActEvent::Close), "the tick at 1 brings it to 0");
+        assert_eq!(events.iter().flatten().count(), 3);
+        assert!(t.picture_shown());
         assert_eq!(act_sound(HUMAN), "Sfx\\hact.wav");
         assert_eq!(act_sound(ORC), "Sfx\\oact.wav");
+    }
+
+    #[test]
+    fn the_menu_timer_ticks_every_100_ms_of_its_due_time() {
+        let mut m = MenuTimer::default();
+        assert!(m.poll(1_000.0), "the first tick comes at once");
+        assert!(m.poll(1_000.0), "and the schedule restarts: the next is due at once");
+        assert!(!m.poll(1_099.0));
+        assert!(m.poll(1_100.0));
+        // Late by up to 300 ms: the late ticks come back to back until caught up.
+        let ticks = std::iter::from_fn(|| m.poll(1_450.0).then_some(())).count();
+        assert_eq!(ticks, 3, "due at 1200, 1300 and 1400");
+        assert_eq!(m.due(), Some(1_500.0), "no time lost");
+        // Exactly 300 ms late still catches up.
+        assert!(m.poll(1_800.0));
+        assert_eq!(m.due(), Some(1_600.0));
+    }
+
+    #[test]
+    fn a_tick_more_than_300_ms_late_restarts_the_schedule() {
+        let mut m = MenuTimer::default();
+        m.poll(0.0);
+        m.poll(0.0);
+        assert_eq!(m.due(), Some(100.0));
+        assert!(m.poll(401.0), "301 ms late");
+        assert_eq!(m.due(), Some(401.0), "the next tick is due at once");
+        assert!(m.poll(401.0));
+        assert_eq!(m.due(), Some(501.0), "the lost time isn't made up");
+        assert!(!m.poll(401.0));
+    }
+
+    #[test]
+    fn the_clock_going_back_restarts_the_schedule_at_the_current_time() {
+        let mut m = MenuTimer::default();
+        m.poll(1_000.0);
+        m.poll(1_000.0);
+        assert_eq!(m.due(), Some(1_100.0));
+        assert!(!m.poll(900.0), "200 ms ahead: wait");
+        assert!(m.poll(899.0), "more than 200 ms ahead: due now");
+        assert_eq!(m.due(), Some(999.0));
+    }
+
+    #[test]
+    fn fades_block_for_their_frames() {
+        assert_eq!(fade_blocks_ms(250), 272);
+        assert_eq!(fade_blocks_ms(300), 320);
+        assert_eq!(fade_blocks_ms(400), 416);
+        assert_eq!(fade_blocks_ms(600), 624);
+        assert_eq!(fade_blocks_ms(1), 32, "a frame at 0 and one at 1");
+    }
+
+    /// Runs an act screen opened at 0 ms, 1 ms at a time until its fade of all sound begins, with input at the given
+    /// times. Returns the cues and the time of each tick by the countdown it was taken at (index 60 to 1).
+    fn run_act(mut menu: MenuTimer, input_at: &[u32]) -> (Vec<(u32, ActCue)>, [Option<u32>; 61]) {
+        let mut run = ActRun::default();
+        let mut cues = Vec::new();
+        let mut ticks = [None; 61];
+        for t in 0..20_000u32 {
+            let before = run.timer.count;
+            for c in run.update(&mut menu, t as f64, input_at.contains(&t)) {
+                cues.push((t, c));
+            }
+            // At most one fade per update, so a tick at countdown n is the only change from it.
+            for n in (run.timer.count + 1..=before).rev() {
+                ticks[n as usize] = Some(t);
+            }
+            if run.done() {
+                break;
+            }
+        }
+        (cues, ticks)
+    }
+
+    #[test]
+    fn act_screen_timeline_vector() {
+        // "Act screen timeline": the screen opens long after the last menu-timer tick.
+        let (cues, ticks) = run_act(MenuTimer::default(), &[]);
+        assert_eq!(
+            cues,
+            [
+                (0, ActCue::TextFadeIn),
+                (1_120, ActCue::PictureFadeIn),
+                (1_744, ActCue::ActSound),
+                (6_444, ActCue::FadeToBlack),
+                (6_860, ActCue::FadeAllSound),
+            ]
+        );
+        assert_eq!(ticks[60], Some(0));
+        assert_eq!(
+            (ticks[59], ticks[58]),
+            (Some(320), Some(320)),
+            "back to back after the text fade"
+        );
+        assert_eq!((ticks[57], ticks[51]), (Some(420), Some(1_020)));
+        assert_eq!(ticks[50], Some(1_120));
+        assert_eq!(
+            (ticks[49], ticks[48]),
+            (Some(1_744), Some(1_744)),
+            "back to back after the picture fade"
+        );
+        assert_eq!((ticks[47], ticks[1]), (Some(1_844), Some(6_444)));
+        // The orc act sound (110,852 samples at 22,050 Hz) has ended when the fade of all sound begins.
+        let sound_ends = cues[2].0 + 110_852 * 1_000 / 22_050;
+        assert_eq!(sound_ends, 6_771, "about 6.77 s");
+        assert!(sound_ends < cues[4].0);
+        // The fade of all sound from full volume: its last step 540 ms later, so the briefing opens at about 7.4 s.
+        let mut music = crate::music::Music::new(100);
+        music.start(Some(20));
+        music.fade_stop(true, None);
+        let ms = (1..).find(|_| music.update(1, None).contains(&crate::music::Action::Stop));
+        assert_eq!(ms.map(|ms| 6_860 + ms), Some(7_400));
+    }
+
+    #[test]
+    fn act_screen_opened_soon_after_a_tick_catches_up_instead() {
+        let mut menu = MenuTimer::default();
+        menu.poll(-150.0);
+        menu.poll(-150.0);
+        assert_eq!(menu.due(), Some(-50.0));
+        let (cues, ticks) = run_act(menu, &[]);
+        assert_eq!(ticks[60], Some(0));
+        assert_eq!((ticks[59], ticks[58], ticks[57]), (Some(320), Some(320), Some(320)));
+        assert_eq!(ticks[56], Some(350));
+        let close = cues.iter().find(|c| c.1 == ActCue::FadeToBlack).unwrap().0;
+        assert_eq!(close, 6_274, "0.17 s earlier, within the spec's 6.24 to 6.32 s");
+    }
+
+    #[test]
+    fn a_key_closes_the_act_screen_but_not_before_its_first_tick() {
+        // A key with the first tick is dropped.
+        let (cues, _) = run_act(MenuTimer::default(), &[0]);
+        assert_eq!(cues[0], (0, ActCue::TextFadeIn));
+        assert_eq!(cues[3].1, ActCue::FadeToBlack);
+        assert_eq!(cues[3].0, 6_444);
+        // A key during the text fade waits for it, then closes: no picture, no act sound.
+        let (cues, ticks) = run_act(MenuTimer::default(), &[100]);
+        assert_eq!(
+            cues,
+            [
+                (0, ActCue::TextFadeIn),
+                (320, ActCue::FadeToBlack),
+                (736, ActCue::FadeAllSound)
+            ]
+        );
+        assert_eq!(ticks[59], None, "input is handled before ticks");
+        // A key after the picture: the act sound still plays until the fade to black ends.
+        let (cues, _) = run_act(MenuTimer::default(), &[2_000]);
+        assert_eq!(
+            &cues[2..],
+            [
+                (1_744, ActCue::ActSound),
+                (2_000, ActCue::FadeToBlack),
+                (2_416, ActCue::FadeAllSound)
+            ]
+        );
+    }
+
+    fn run_title(input_at: Option<u32>) -> Vec<(u32, TitleCue)> {
+        let mut menu = MenuTimer::default();
+        let mut run = TitleRun::new(0.0);
+        let mut out = Vec::new();
+        for t in 0..20_000u32 {
+            for c in run.update(&mut menu, t as f64, input_at == Some(t)) {
+                out.push((t, c));
+                if c == TitleCue::Done {
+                    return out;
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn title_runs_100_ticks_after_its_fade_in() {
+        // The fade-in blocks 272 ms; the first tick comes at once, the next back to back, then 98 × 100 ms.
+        assert_eq!(
+            run_title(None),
+            [
+                (272, TitleCue::Music),
+                (10_072, TitleCue::FadeOut(250)),
+                (10_344, TitleCue::Done)
+            ]
+        );
+        assert_eq!(
+            run_title(Some(5_000)),
+            [
+                (272, TitleCue::Music),
+                (5_000, TitleCue::FadeOut(1)),
+                (5_032, TitleCue::Done)
+            ]
+        );
+        // A key during the fade-in waits for it.
+        assert_eq!(
+            run_title(Some(100)),
+            [
+                (272, TitleCue::Music),
+                (272, TitleCue::FadeOut(1)),
+                (304, TitleCue::Done)
+            ]
+        );
     }
 
     #[test]

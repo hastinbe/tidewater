@@ -8,7 +8,8 @@
 //! briefing and the score screen are our own, and the menu has only what the flow needs (New Campaign, Load Game,
 //! Quit; N, L and Q are our keys for them). The main menu and the credits fade in and out (`ui/palette-effects.md`,
 //! "Screen fades": 200 ms and 100 ms) like the title and act screens; the new-campaign choices, which the fade table
-//! doesn't name, don't fade.
+//! doesn't name, don't fade. The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
+//! `campaign::MenuTimer`, one for every screen), and their fades block it; fades run on real time.
 //!
 //! Entry points other screens reuse: [`restart`] (the game menu's restart: back to "Starting a mission"),
 //! [`end_with`] (a game's end, through the victory or defeat dialog's Continue), and [`to_main_menu`].
@@ -33,7 +34,7 @@ use tidewater_formats::tbl::StringTable;
 use tidewater_sim::setup::Setup;
 use tidewater_sim::victory::Outcome;
 
-use crate::campaign::{self as cf, Act, ActEvent, ActTimer, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
+use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::hud::{self, Rect};
 use crate::jukebox::{self, Jukebox};
 use crate::palette::fades;
@@ -484,6 +485,7 @@ pub fn game_running(
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Jukebox>()
+        .init_resource::<MenuClock>()
         .init_resource::<LockedPointer>()
         .add_systems(Update, jukebox::play_music)
         .add_systems(Startup, spawn_camera)
@@ -730,11 +732,20 @@ struct Fade {
     ms: f64,
 }
 
-/// Screen time in ms since the screen opened.
+/// Screen time in ms since the screen opened (real time, as the fades' lengths are).
 #[derive(Resource, Default)]
 struct Clock(f64);
 
-fn apply_fades(time: Res<Time>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut Sprite)>) {
+/// The menu timer (`campaign::MenuTimer`, spec "Terms"), one for every screen, on the real-time clock of [`real_ms`].
+#[derive(Resource, Default)]
+struct MenuClock(cf::MenuTimer);
+
+/// Real time in ms since the program started: the menu timer's clock.
+fn real_ms(time: &Time<Real>) -> f64 {
+    time.elapsed_secs_f64() * 1000.0
+}
+
+fn apply_fades(time: Res<Time<Real>>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut Sprite)>) {
     let Some(mut clock) = clock else { return };
     clock.0 += time.delta_secs_f64() * 1000.0;
     for (f, mut s) in &mut q {
@@ -937,53 +948,57 @@ fn play_video(
 // The title
 
 #[derive(Resource)]
-struct TitleScreen {
-    /// When the fade-out ends.
-    closing: Option<f64>,
-}
+struct TitleScreen(cf::TitleRun);
 
 fn enter_title(
     mut commands: Commands,
+    time: Res<Time<Real>>,
     mut front: ResMut<Front>,
     mut images: ResMut<Assets<Image>>,
-    mut music: ResMut<Jukebox>,
-    layers: Query<(Entity, &Layer)>,
 ) {
     let p = picture(&mut front.install, cf::TITLE_PICTURE, None);
     spawn_layer(&mut commands, &mut images, p, 0, AppState::Title, None);
     commands.insert_resource(Clock(0.0));
-    commands.insert_resource(TitleScreen { closing: None });
-    let _ = layers;
+    commands.insert_resource(TitleScreen(cf::TitleRun::new(real_ms(&time))));
     fade_in_new_screen(&mut commands, cf::TITLE_FADE_MS);
-    music.start(Some(cf::TITLE_MUSIC));
+}
+
+/// A key or click ends the title; Shift, Ctrl and Alt alone don't.
+fn title_input(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> bool {
+    const MODIFIERS: [KeyCode; 6] = [
+        KeyCode::ShiftLeft,
+        KeyCode::ShiftRight,
+        KeyCode::ControlLeft,
+        KeyCode::ControlRight,
+        KeyCode::AltLeft,
+        KeyCode::AltRight,
+    ];
+    mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().any(|k| !MODIFIERS.contains(k))
 }
 
 #[allow(clippy::too_many_arguments)]
 fn run_title(
     mut commands: Commands,
+    time: Res<Time<Real>>,
     clock: Res<Clock>,
+    mut menu_timer: ResMut<MenuClock>,
     mut title: ResMut<TitleScreen>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     layers: Query<(Entity, &Layer)>,
+    mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let now = clock.0;
-    match title.closing {
-        None => {
-            let skipped = pressed(&keys, &mouse) || keys.get_just_pressed().next().is_some();
-            let ran = now >= (cf::TITLE_TICKS * cf::screen_tick_ms()) as f64;
-            if skipped || ran {
-                let ms = cf::title_fade_out_ms(skipped && !ran);
-                fade_layer(&mut commands, &layers, 0, 1.0, 0.0, now, ms);
-                title.closing = Some(now + ms as f64);
-            }
+    let input = title_input(&keys, &mouse);
+    for cue in title.0.update(&mut menu_timer.0, real_ms(&time), input) {
+        match cue {
+            cf::TitleCue::Music => music.start(Some(cf::TITLE_MUSIC)),
+            cf::TitleCue::FadeOut(ms) => fade_layer(&mut commands, &layers, 0, 1.0, 0.0, clock.0, ms),
+            cf::TitleCue::Done => go_on(&mut flow, &front, &keys, &mut next, &mut exit),
         }
-        Some(end) if now >= end => go_on(&mut flow, &front, &keys, &mut next, &mut exit),
-        Some(_) => {}
     }
 }
 
@@ -1282,10 +1297,12 @@ fn run_new_campaign(
 #[derive(Resource)]
 struct ActScreen {
     act: Act,
-    timer: ActTimer,
-    /// Screen time of the next tick.
-    next_tick: f64,
+    run: cf::ActRun,
 }
+
+/// The act sound, stopped by the close's fade of all sound if it is still playing.
+#[derive(Component)]
+struct ActSound;
 
 fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, mut images: ResMut<Assets<Image>>) {
     let Some(Step::Act(a)) = flow.current else { return };
@@ -1316,68 +1333,78 @@ fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, 
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(ActScreen {
         act: a,
-        timer: ActTimer::default(),
-        next_tick: cf::screen_tick_ms() as f64,
+        run: cf::ActRun::default(),
     });
-    // At 60 only the text shows, fading in.
+    // Black until the first tick fades the text in.
     commands.queue(|w: &mut World| {
         let mut q = w.query::<(Entity, &Layer)>();
-        let es: Vec<(Entity, u8)> = q.iter(w).map(|(e, l)| (e, l.0)).collect();
-        for (e, l) in es {
-            let f = if l == 1 {
-                Fade {
-                    from: 0.0,
-                    to: 1.0,
-                    at: 0.0,
-                    ms: cf::ACT_TEXT_FADE_MS as f64,
-                }
-            } else {
-                Fade {
-                    from: 0.0,
-                    to: 0.0,
-                    at: 0.0,
-                    ms: 1.0,
-                }
-            };
-            w.entity_mut(e).insert(f);
+        let es: Vec<Entity> = q.iter(w).map(|(e, _)| e).collect();
+        for e in es {
+            w.entity_mut(e).insert(Fade {
+                from: 0.0,
+                to: 0.0,
+                at: 0.0,
+                ms: 1.0,
+            });
         }
     });
 }
 
+/// The act screen on the menu timer (`campaign::ActRun`): its fades, the act sound when the picture's fade ends, and
+/// the close: a fade to black, then a fade of all sound that stops the act sound if it still plays; the video after
+/// (if any) or the briefing follows once the music's fade has ended.
 #[allow(clippy::too_many_arguments)]
 fn run_act(
     mut commands: Commands,
+    time: Res<Time<Real>>,
     clock: Res<Clock>,
+    mut menu_timer: ResMut<MenuClock>,
     mut act: ResMut<ActScreen>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     layers: Query<(Entity, &Layer)>,
+    sounds: Query<Entity, With<ActSound>>,
+    mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let mut close = pressed(&keys, &mouse) && act.timer.may_close_early();
-    while clock.0 >= act.next_tick && !close {
-        act.next_tick += cf::screen_tick_ms() as f64;
-        match act.timer.tick() {
-            Some(ActEvent::Picture) => {
-                fade_layer(&mut commands, &layers, 0, 0.0, 1.0, clock.0, cf::ACT_PICTURE_FADE_MS);
-                let race = cf::race_of(act.act.entry);
-                play_once(
-                    &mut commands,
-                    &mut front,
-                    &mut sources,
-                    cf::act_sound(race),
-                    AppState::Act,
-                );
+    let act = &mut *act;
+    let input = pressed(&keys, &mouse);
+    for cue in act.run.update(&mut menu_timer.0, real_ms(&time), input) {
+        match cue {
+            cf::ActCue::TextFadeIn => fade_layer(&mut commands, &layers, 1, 0.0, 1.0, clock.0, cf::ACT_TEXT_FADE_MS),
+            cf::ActCue::PictureFadeIn => {
+                fade_layer(&mut commands, &layers, 0, 0.0, 1.0, clock.0, cf::ACT_PICTURE_FADE_MS)
             }
-            Some(ActEvent::Close) => close = true,
-            None => {}
+            cf::ActCue::ActSound => {
+                if let Some(h) = front.sound(&mut sources, cf::act_sound(cf::race_of(act.act.entry))) {
+                    commands.spawn((
+                        AudioPlayer(h),
+                        PlaybackSettings::DESPAWN,
+                        ActSound,
+                        DespawnOnExit(AppState::Act),
+                    ));
+                }
+            }
+            cf::ActCue::FadeToBlack => {
+                // The fades block, so every layer that shows is fully in: the text, and the picture from 50 on.
+                fade_layer(&mut commands, &layers, 1, 1.0, 0.0, clock.0, cf::ACT_CLOSE_FADE_MS);
+                if act.run.timer.picture_shown() {
+                    fade_layer(&mut commands, &layers, 0, 1.0, 0.0, clock.0, cf::ACT_CLOSE_FADE_MS);
+                }
+            }
+            cf::ActCue::FadeAllSound => {
+                for e in &sounds {
+                    commands.entity(e).despawn();
+                }
+                music.fade_stop(true, None);
+            }
         }
     }
-    if close {
+    if act.run.done() && !music.music().fading() {
         // The window close is the only quit request here (open question default).
         if let Some(v) = flow.memory.video_after(&act.act, false) {
             flow.steps.push_front(Step::Video(v));
