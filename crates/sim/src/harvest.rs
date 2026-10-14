@@ -1,10 +1,28 @@
 //! Gathering gold, lumber and oil. Spec: `docs/specs/economy/harvest.md`.
 //!
+//! The code follows the spec's model ("The model"): four orders, each with its own function, and the shared rules,
+//! each stated once.
+//!
+//! | Spec | Here |
+//! | --- | --- |
+//! | Order 23, "Going to a mine or platform" (tanker and gold worker) | [`World::source_order`] |
+//! | Order 23, "Lumber" | [`World::lumber_order`] |
+//! | Order 24, "Returning goods" | [`World::return_order`], [`World::return_in_reach`], [`World::return_target_lost`] |
+//! | Order 25, "Entering a mine, platform or depot" | [`World::enter_order`], [`World::go_in`] |
+//! | Order 26, "Coming out" | [`World::come_out`] |
+//! | "Commands given by these orders" | [`World::harvest_command`], [`World::return_command`], [`World::order_command`] |
+//! | "Walking orders" | the walk at the head of each order 23 and 24 function |
+//! | "No route" | [`World::no_route`] |
+//! | "Facing a target" | [`facing_tile`] |
+//!
+//! Where the code keeps an outcome that the spec words differently, or that a spec open question disputes, the
+//! comment there says so and a test pins it; those are questions for the spec, not rules.
+//!
 //! Not yet here:
 //! - The AI hand-off of computer players' units coming out (ai spec to come); their units carry on as anyone else's.
 //!
 //! A unit that arrives at its mine, platform or depot starts order 25 in the same decision, rather than waiting for
-//! another step done (orders spec, "Same-update take-over", confirmed by the round-33 errata).
+//! another step done (orders spec, "Same-update take-over").
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -100,7 +118,7 @@ impl World {
             }
     }
 
-    /// Command 23 ("Starting to harvest").
+    /// Command 23 ("Starting to harvest"), whoever gives it.
     pub(crate) fn harvest_command(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) -> Option<Order> {
         let u = &self.units[i];
         let f = self.flags_of(u.kind);
@@ -119,8 +137,7 @@ impl World {
             let u = &mut self.units[i];
             u.chop = 0;
             u.gather = if mine.is_some() { Gather::Gold } else { Gather::Lumber };
-            // A lumber worker's tree tile is the command's goal after the pull-back ("Starting to harvest", round-38
-            // errata), whoever gives the command; `human12-7000` peon 1572: tree (105, 0) becomes (104, 1).
+            // Step 2: a lumber worker's tree tile is the command's goal after the pull-back.
             let tree = if mine.is_some() { tile } else { self.pull_back(i, tile) };
             Order::Harvest {
                 source: mine.map(|(id, ..)| id),
@@ -128,9 +145,8 @@ impl World {
                 chopping: false,
             }
         } else {
-            // Round-49 errata (`orc12-10000` tanker 1409, `xhuman8-10000` tanker 1468): a platform placed in this
-            // cycle doesn't count while the oil patch under it is still to have its own update this cycle; the tanker
-            // goes idle.
+            // Step 3: a platform placed in this cycle doesn't count while the oil patch under it is still to have its
+            // own update this cycle; the tanker goes idle (V55, V56).
             let platform = t.filter(|&(_, o, tf)| tf & flags::OIL_SOURCE != 0 && o == owner && !carrying);
             self.units[i].chop = 0;
             match platform {
@@ -140,8 +156,8 @@ impl World {
                     tree: tile,
                     chopping: false,
                 },
-                // Round-64 errata (step 3; `xhuman5-30000` tanker 1542, n = 26422): otherwise the target is cleared
-                // and the order is still 23, aimed at the command's goal, pulled back as any command's goal is.
+                // Step 3: otherwise the target is cleared and the order is still 23, aimed at the command's goal,
+                // pulled back as any command's goal is ("A tanker with no target").
                 None => Order::Harvest {
                     source: None,
                     tree: self.pull_back(i, tile),
@@ -160,8 +176,8 @@ impl World {
             .any(|&(p, patch)| p == platform && self.updating.is_some_and(|s| patch > s))
     }
 
-    /// Command 24 ("Returning goods") with no target unit: the nearest depot. Round-62 errata: taken by a worker or
-    /// tanker that is carrying; one with a target unit takes it as given (`select`'s command 24).
+    /// Command 24 ("Returning goods", "The command") with no target unit: the nearest depot, or idle with none. Taken
+    /// by a worker or tanker that is carrying; one with a target unit takes it as given (`select`'s command 24).
     pub(crate) fn return_command(&mut self, i: usize) -> Option<Order> {
         let u = &self.units[i];
         if self.flags_of(u.kind) & (flags::PEON | flags::TANKER) == 0 || !u.carrying {
@@ -173,6 +189,8 @@ impl World {
         })
     }
 
+    /// Idle by an animation switch rather than a take-over: the outcome the code keeps for order 24 at a depot under
+    /// construction and for order 23's unreachable no-target, non-lumber worker (both pinned).
     fn idle(&mut self, i: usize) {
         self.go_idle(i);
         self.switch_anim(i, anim::STILL);
@@ -426,12 +444,11 @@ impl World {
         u.attacked_by = None;
         let (gather, owner) = (u.gather, u.owner);
         let source = bf & (flags::MINE | flags::OIL_SOURCE) != 0;
-        // Round-62 errata ("Entering", step 2; `orc9-orc09-return-goods-2200` n = 1287 and 1482): a worker at a
-        // building that stores gold, wood or oil, or a tanker at any building but an oil platform, takes the delivery
-        // branch even when the building doesn't accept what it carries; the delivery table then adds nothing and the
-        // load is lost. A tanker at an oil platform takes the other branch. Round-63 errata
-        // (`orc9-orc09-enter-nothing-1900` n = 910 and 1367): so does a worker at a building that stores neither gold nor wood (an oil-only shipyard
-        // included); it keeps its load and its return-to source, and the building's frame becomes 2.
+        // Delivery branch: a worker at a building that stores gold or wood, or a tanker at any building but an oil
+        // platform, even when the building doesn't accept what it carries; the delivery table then adds nothing and
+        // the load is lost (V66). Source branch: anything else, a tanker at an oil platform (V67) and a worker at a
+        // building that stores neither gold nor wood included; that worker keeps its load and its return-to source,
+        // and the building's frame becomes 2 (V70, V72).
         let delivers = if tanker {
             bf & flags::OIL_SOURCE == 0
         } else {
@@ -443,9 +460,9 @@ impl World {
                 Gather::Lumber => bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE) != 0,
                 Gather::None => false,
             };
-        // "Delivering goods" (round-47 errata): every delivery at a building that accepts gold sets the hall-sized
-        // exit mark, whatever the gather mode and whether or not the unit carries anything. Round-48 errata: every
-        // entry there counts, gather mode none included, and a ship's delivery never sets it.
+        // "Delivering goods": every delivery at a building that accepts gold sets the hall-sized exit mark, whatever
+        // the gather mode and whether or not the unit carries anything, gather mode none included (V54); a ship's
+        // delivery never sets it.
         if !source && !tanker && bf & flags::GOLD_STORAGE != 0 {
             self.units[i].hall_exit = true;
         }
@@ -485,6 +502,7 @@ impl World {
     /// "Delivering goods".
     pub(crate) fn deliver(&mut self, i: usize, owner: u8, tanker: bool) {
         let u = &self.units[i];
+        // Enhanced rules deliver only if the unit is carrying; Classic rules check only the gather mode.
         if self.rules.enhanced && !u.carrying {
             return;
         }
@@ -520,9 +538,9 @@ impl World {
         self.units[i].carrying = false;
     }
 
-    /// The last trip was taken: the mine or platform is destroyed, and every unit inside that has it as its target
-    /// (the one that took the last trip included) loses that target and comes out at its next chance (round-54
-    /// errata, `human12-25000` tanker 1410, n = 12948).
+    /// "Mine and platform amounts": the last trip was taken, so the mine or platform is destroyed, and every unit
+    /// inside that has it as its target (the one that took the last trip included) loses that target and comes out at
+    /// its next chance.
     fn collapse(&mut self, bi: usize) {
         let id = self.units[bi].id;
         for u in &mut self.units {
@@ -666,7 +684,10 @@ impl World {
         }
     }
 
-    /// Order 23 in lumber mode ("Lumber").
+    /// Order 23 in lumber mode ("Lumber"). More than 1 tile from the tree only the walk runs ("Walking orders"; step 1's
+    /// new harvest command is given only by the same-update run after "No route", [`World::lumber_after_no_route`]).
+    /// Once in reach, after the reaction: step 2 (start chopping, or the nearest tree), step 3 (count up, or fell and
+    /// return) and step 4 (the reservation lost: the nearest tree).
     fn lumber_order(&mut self, i: usize, tree: (i32, i32), chopping: bool) {
         let here = self.units[i].tile;
         if chebyshev(here, tree) > RADIUS {
@@ -675,9 +696,8 @@ impl World {
             }
             return;
         }
-        // Round-64 errata (orders spec, "The arrival switch"; `human4-15000` peon 1531, n = 638): a worker still in its
-        // move animation is switched to the chop animation before the logic runs, with or without an attacker, and
-        // starting to chop then doesn't start it a second time (static study).
+        // Orders spec, "The arrival switch": a worker still in its move animation is switched to the chop animation
+        // before the logic runs, with or without an attacker, and starting to chop then doesn't start it again.
         let walked = self.units[i].script.anim == anim::MOVE;
         if self.react_at_walk_end(i) {
             return;
@@ -740,14 +760,9 @@ impl World {
         true
     }
 
-    /// Sends a worker to the nearest tree from its own tile, or makes it idle. "Lumber", round-38 errata: the new aim
-    /// is a new harvest command to that tile, which takes over in the same update (order 23, its attack animation,
-    /// wait 3) without running its logic; `human12-7000` peon 1572 at n = 215 and `human5-10000` peasant 1512 at
-    /// n = 39.
-    ///
-    /// With no tree, round-48 errata (`xhuman2-10000` peon 1530, n = 5820): from steps 2 and 4, idle becomes the
-    /// pending order and takes over in the same update (still animation, frame kept, wait 3) without running the idle
-    /// logic. "No route" has its own immediate idle (`no_route`).
+    /// "Lumber", steps 2 and 4: a new harvest command to the nearest tree, or with none idle made pending and taken
+    /// over in the same update (still animation, frame kept, wait 3), without running the idle logic (V53). "No route"
+    /// has the generic immediate idle instead ([`World::no_route`]).
     fn next_tree(&mut self, i: usize) {
         if !self.aim_at_nearest_tree(i) {
             self.idle_now(i);
