@@ -4,8 +4,8 @@
 `advance(real_time_elapsed, input) -> Frame`. The shell (Bevy today; SDL3 or miniquad after the phase 3 trial) only
 shows a 640 × 480 frame, polls input, pulls mixed audio, reads and writes files, and knows the time. Phase 1 is done:
 a frame snapshot guards every step, and Bevy already shows one composed 640 × 480 picture instead of stacking
-sprites. Phase 2 moves the loop, input, audio and storage behind the platform trait, about 5 to 7 days of Nick's time
-with Claude (4 to 5 weeks by hand).
+sprites. Phase 2 moves the loop, input, audio and storage behind the platform trait: about 5 to 7 days of Claude's
+work, of which Nick's part is a few hours of playtests and reviews (4 to 5 weeks by hand).
 
 Backlog item B-039. Nothing here changes game behaviour; where a step can't stay pixel-identical, the table in
 [What can't stay identical](#what-cant-stay-identical) says why.
