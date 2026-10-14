@@ -5,6 +5,8 @@
   its addendum) and the music files from `Install.mpq` (`Music\*.WAV`, measured for format and length). Not yet
   confirmed against the running game.
 - **Changes:** 2026-10-12: the disco cheat's typing now cites `game/cheats.md`.
+- **Changes:** 2026-10-14: round-67 errata (`ERRATA-round67-flow.md`; static study only): an act screen closing is a
+  fade of all sound; the fade's first step comes at once, so 28 steps take 540 ms, not 560 ms (24 steps 460 ms).
 
 ## Behaviour
 
@@ -80,10 +82,12 @@ happens until it ends. A **fade of all sound** does the same while all sound eff
 | Campaign finale starts | fade of all sound |
 | A custom game starts from the custom-scenario screen | fade of all sound |
 | Disco cheat toggled while music is playing | fade of all sound |
+| An act screen closes, after its fade to black (`game/campaign-flow.md`) | fade of all sound |
 
 The fade starts from the current attenuation and, every 20 ms, lowers it by 0.10 dB, then 0.20 dB, then 0.30 dB, and
 so on (each step 0.10 dB bigger). It ends at the first step that takes it below −40.00 dB; music is then silent
-and the track closed. From full volume (−0.20 dB) this takes 28 steps (560 ms).
+and the track closed. The first step comes at once and the next ones 20 ms apart, so from full volume (−0.20 dB) it
+takes 28 steps over 540 ms.
 
 ### The game's track
 
@@ -204,7 +208,7 @@ All music files are PCM WAV, 22,050 Hz, 16-bit stereo (88,200 bytes per second; 
 | Gap between chained tracks | 2,000 ms |
 | End-fade window | last 616,000 bytes of audio (6.984 s) |
 | End-fade step | −0.10 dB every 20 ms, until below −33.96 dB |
-| Fade-stop steps | every 20 ms, −0.10 dB × n on step n, until below −40.00 dB |
+| Fade-stop steps | the first at once, then every 20 ms, −0.10 dB × n on step n, until below −40.00 dB |
 | Silent | −100.00 dB |
 | Tides of Darkness bump | tracks 0 and 6 become 1 and 7 when campaign entry < 28 |
 | Remembered music volume for Ctrl+M at start-up | 25 |
@@ -242,8 +246,8 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
 | Music volume 100, track 3 near its end | Fade starts 616,000 bytes before the end; silent after 338 × 20 ms; then 2 s gap; track 4 |
 | Briefing as human | Track 20: plays the file from the start, then loops from 3.020 s with no gap |
 | Main menu opens while the title music still plays | Title music carries on, not restarted |
-| Fade stop at volume 100 (−20) | 28 steps, 560 ms; −20 − 10 × (1 + … + 28) = −4080 |
-| Fade stop at volume 25 (−1204) | 24 steps, 480 ms; −1204 − 3000 = −4204 |
+| Fade stop at volume 100 (−20) | 28 steps, the last at 540 ms; −20 − 10 × (1 + … + 28) = −4080 |
+| Fade stop at volume 25 (−1204) | 24 steps, the last at 460 ms; −1204 − 3000 = −4204 |
 | Music volume 50 | Attenuation −6.02 dB |
 | Ctrl+M with music volume 75, then Ctrl+M again | Music stops; then volume 75 again and the current track restarts from its start |
 | Sound dialog: music volume 0 applied (countdown ends), then 40 applied | The current track starts from its start |
