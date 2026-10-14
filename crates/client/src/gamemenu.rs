@@ -41,7 +41,7 @@ use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{self, AppState, FRONT_LAYER, Flow, Front, FrontCamera, Persist};
+use crate::frontend::{self, AppState, FRONT_LAYER, Flow, Front, FrontCamera, LockedPointer, Persist};
 use crate::hud::{self, Rect};
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
@@ -760,6 +760,7 @@ fn open_from_outcome(
 }
 
 /// Collects the typed text, keys, pointer and wheel for the save dialog.
+#[allow(clippy::too_many_arguments)]
 fn gather_saving_input(
     mut input: ResMut<SavingInput>,
     mut typed: MessageReader<KeyboardInput>,
@@ -768,8 +769,9 @@ fn gather_saving_input(
     mouse_in: Res<ButtonInput<MouseButton>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: Res<LockedPointer>,
 ) {
-    input.0 = saving_input(&mut typed, &mut wheel, &keys, &mouse_in, &window, &cam);
+    input.0 = saving_input(&mut typed, &mut wheel, &keys, &mouse_in, &window, &cam, &locked);
 }
 
 /// One frame's input for a save or load dialog (also the main menu's load dialog, `frontend`).
@@ -780,9 +782,10 @@ pub(crate) fn saving_input(
     mouse_in: &ButtonInput<MouseButton>,
     window: &Query<&Window, With<PrimaryWindow>>,
     cam: &Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: &LockedPointer,
 ) -> savedlg::Input {
     let mut i = savedlg::Input {
-        pointer: frontend::pointer(window, cam).map(|p| (p.x, p.y)),
+        pointer: frontend::pointer(window, cam, locked).map(|p| (p.x, p.y)),
         click: mouse_in.just_released(MouseButton::Left),
         enter: keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]),
         escape: keys.just_pressed(KeyCode::Escape),
@@ -829,6 +832,7 @@ fn run_menu(
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: Res<LockedPointer>,
     layer: Query<Entity, With<MenuLayer>>,
     mouse_in: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -844,7 +848,7 @@ fn run_menu(
     let title_h = front.big.height as i32;
     let line_h = front.font.height as i32 + 4;
     let built = m.build(title_h, line_h, kind);
-    let at = frontend::pointer(&window, &cam);
+    let at = frontend::pointer(&window, &cam, &locked);
 
     // The delayed application of the sound dialog's changes.
     if m.delay.tick() {

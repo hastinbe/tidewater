@@ -484,6 +484,7 @@ pub fn game_running(
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Jukebox>()
+        .init_resource::<LockedPointer>()
         .add_systems(Update, jukebox::play_music)
         .add_systems(Startup, spawn_camera)
         .add_systems(OnEnter(AppState::Video), enter_video)
@@ -666,14 +667,27 @@ fn pressed(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> boo
         || keys.any_just_pressed([KeyCode::Escape, KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space])
 }
 
+/// The pointer while the mouse lock (`main.rs`, `mouse_lock`) holds the system's pointer still: its place in logical
+/// window points, moved by the mouse's motion. `None` while the lock is off, when the system's pointer is used.
+#[derive(Resource, Clone, Copy, Default)]
+pub struct LockedPointer(pub Option<Vec2>);
+
+impl LockedPointer {
+    /// The pointer in logical window points: the locked one, or the system's.
+    pub fn at(&self, window: &Window) -> Option<Vec2> {
+        self.0.or_else(|| window.cursor_position())
+    }
+}
+
 /// The pointer in screen pixels (640x480).
 pub(crate) fn pointer(
     window: &Query<&Window, With<PrimaryWindow>>,
     cam: &Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: &LockedPointer,
 ) -> Option<Vec2> {
     let w = window.single().ok()?;
     let (c, t) = cam.single().ok()?;
-    let p = c.viewport_to_world_2d(t, w.cursor_position()?).ok()?;
+    let p = c.viewport_to_world_2d(t, locked.at(w)?).ok()?;
     Some(Vec2::new(p.x + W as f32 / 2.0, H as f32 / 2.0 - p.y))
 }
 
@@ -1100,6 +1114,7 @@ fn run_menu(
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut flow: ResMut<Flow>,
@@ -1124,7 +1139,7 @@ fn run_menu(
         }
         return;
     }
-    let at = pointer(&window, &cam);
+    let at = pointer(&window, &cam, &locked);
     // The menu is drawn before its fade-in, but takes no input until the fade ends.
     let pick = menu_input(&mut menu, &front, &mut images, at, &mouse, &keys, "Tidewater");
     if clock.0 < fades::MENUS as f64 {
@@ -1177,10 +1192,11 @@ fn run_menu_load(
     (mut typed, mut wheel): (MessageReader<KeyboardInput>, MessageReader<MouseWheel>),
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
-    let input = crate::gamemenu::saving_input(&mut typed, &mut wheel, &keys, &mouse, &window, &cam);
+    let input = crate::gamemenu::saving_input(&mut typed, &mut wheel, &keys, &mouse, &window, &cam, &locked);
     let load = &mut *load;
     let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot);
     let before = snap(&load.ui);
@@ -1224,13 +1240,14 @@ fn run_new_campaign(
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let at = pointer(&window, &cam);
+    let at = pointer(&window, &cam, &locked);
     let pick = menu_input(&mut menu, &front, &mut images, at, &mouse, &keys, "Choose a campaign");
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let steps = match pick {
@@ -1610,6 +1627,7 @@ fn run_dialog(
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut flow: ResMut<Flow>,
@@ -1620,7 +1638,7 @@ fn run_dialog(
         let p = draw_dialog(&front, &dialog);
         set_image(&mut images, &dialog.image, p);
     }
-    let at = pointer(&window, &cam).filter(|_| mouse.just_released(MouseButton::Left));
+    let at = pointer(&window, &cam, &locked).filter(|_| mouse.just_released(MouseButton::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
     let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([KeyCode::Enter, KeyCode::KeyC]) {
         Some(cf::DialogButton::Continue)

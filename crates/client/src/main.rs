@@ -54,9 +54,10 @@ use anyhow::Result;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
-use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::window::{CursorGrabMode, CursorOptions};
 use clap::Parser;
 use panel::PanelState;
 use std::collections::HashMap;
@@ -126,6 +127,10 @@ struct Args {
     /// placement click there at the start.
     #[arg(long, value_parser = parse_tile)]
     demo_site: Option<(i32, i32)>,
+    /// Don't lock the pointer to the window during a game (not part of the original, which runs full screen; see
+    /// `display`, "Mouse lock"). Cmd (the Windows key elsewhere) frees it while held, and switching away frees it.
+    #[arg(long)]
+    no_mouse_lock: bool,
     /// The Preferences dialog's second mouse style: right click centres the view instead of giving a command.
     #[arg(long)]
     second_mouse_style: bool,
@@ -344,12 +349,14 @@ struct Hud {
     map: (u32, u32),
     /// The minimap: its redraw countdown, terrain picture and last picture (`minimap`).
     minimap: minimap::Minimap,
+    /// The locked pointer (`frontend::LockedPointer`), copied here by `mouse_lock`.
+    locked: frontend::LockedPointer,
 }
 
 impl Hud {
     /// The cursor in screen pixels, through the black border (`display::Letterbox::screen_point`).
     fn cursor(&self, window: &Window) -> Option<Vec2> {
-        let p = window.cursor_position()?;
+        let p = self.locked.at(window)?;
         let (x, y) = letterbox(window).screen_point((p.x, p.y), window.scale_factor());
         Some(Vec2::new(x, y))
     }
@@ -436,6 +443,7 @@ fn main() -> Result<()> {
         })
         .add_systems(Startup, spawn_backdrop)
         .add_systems(Update, (size_window, fit_screen).chain())
+        .add_systems(PreUpdate, mouse_lock.after(bevy::input::InputSystems))
         .init_state::<frontend::AppState>()
         .insert_resource(front)
         .insert_resource(savegame::SaveFolder(saves::SaveDir::new(
@@ -765,6 +773,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         image: Handle::default(),
         map: (0, 0),
         minimap: minimap::Minimap::new(0),
+        locked: frontend::LockedPointer::default(),
     });
     world.insert_resource(Time::<Fixed>::from_hz(hz));
     world.insert_resource(selection);
@@ -1173,6 +1182,7 @@ fn draw_view(
     art: Option<Res<Art>>,
     sel: Res<Selection>,
     ui: Res<PanelUi>,
+    hud: Res<Hud>,
     windows: Query<&Window>,
     cams: Query<(&Camera, &Transform, &Projection, &GlobalTransform), With<MapCamera>>,
     mut images: ResMut<Assets<Image>>,
@@ -1187,7 +1197,7 @@ fn draw_view(
     let (l, t, r, b) = view_px(camera, tf, proj, map);
     let mut canvas = view::Canvas::new(l, t, r - l, b - t);
     let drag = match (sel.drag_from, windows.single()) {
-        (Some(from), Ok(window)) => cursor_map(window, (camera, gtf)).map(|p| (px(from), px(p))),
+        (Some(from), Ok(window)) => cursor_map(window, &hud.locked, (camera, gtf)).map(|p| (px(from), px(p))),
         _ => None,
     };
     let local = view::Local {
@@ -1263,8 +1273,8 @@ fn draw_placement(
 }
 
 /// The cursor position in map pixels (y down), if it is over the window.
-fn cursor_map(window: &Window, cam: (&Camera, &GlobalTransform)) -> Option<Vec2> {
-    let p = cam.0.viewport_to_world_2d(cam.1, window.cursor_position()?).ok()?;
+fn cursor_map(window: &Window, locked: &frontend::LockedPointer, cam: (&Camera, &GlobalTransform)) -> Option<Vec2> {
+    let p = cam.0.viewport_to_world_2d(cam.1, locked.at(window)?).ok()?;
     Some(Vec2::new(p.x, -p.y))
 }
 
@@ -1435,6 +1445,66 @@ fn fit_screen(
     let screen = letterbox(&window).screen();
     for mut cam in &mut front {
         set_viewport(&mut cam, screen);
+    }
+}
+
+/// How the system holds the pointer while it is locked (`display`, "Mouse lock"): macOS can't confine it to the
+/// window, so there it is held still and our pointer moves by the mouse's motion.
+const LOCK_MODE: CursorGrabMode = if cfg!(target_os = "macos") {
+    CursorGrabMode::Locked
+} else {
+    CursorGrabMode::Confined
+};
+
+/// Locks the pointer to the window during a game and frees it otherwise (`display::lock_wanted`). With the system
+/// pointer held still, moves the locked pointer by the mouse's motion and keeps it on the screen; when the lock ends,
+/// puts the system pointer where ours was.
+fn mouse_lock(
+    opts: Res<Opts>,
+    state: Res<State<frontend::AppState>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    motion: Res<AccumulatedMouseMotion>,
+    mut locked: ResMut<frontend::LockedPointer>,
+    hud: Option<ResMut<Hud>>,
+    mut windows: Query<(&mut Window, &mut CursorOptions), With<bevy::window::PrimaryWindow>>,
+) {
+    let Ok((mut window, mut cursor)) = windows.single_mut() else {
+        return;
+    };
+    let want = display::lock_wanted(display::LockInput {
+        enabled: !opts.0.no_mouse_lock,
+        in_game: *state.get() == frontend::AppState::Game && hud.as_ref().is_some_and(|h| h.art.has_pointers()),
+        focused: window.focused,
+        held_free: keys.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]),
+    });
+    let mode = if want { LOCK_MODE } else { CursorGrabMode::None };
+    if cursor.grab_mode != mode {
+        cursor.grab_mode = mode;
+    }
+    if LOCK_MODE == CursorGrabMode::Locked {
+        let (lb, f) = (letterbox(&window), window.scale_factor());
+        locked.0 = match (want, locked.0) {
+            (true, None) => {
+                let (x, y) = window
+                    .cursor_position()
+                    .map_or_else(|| lb.centre(f), |p| lb.keep_on_screen((p.x, p.y), f));
+                Some(Vec2::new(x, y))
+            }
+            (true, Some(p)) => {
+                let (x, y) = lb.keep_on_screen((p.x + motion.delta.x, p.y + motion.delta.y), f);
+                Some(Vec2::new(x, y))
+            }
+            (false, Some(p)) => {
+                window.set_cursor_position(Some(p));
+                None
+            }
+            (false, None) => None,
+        };
+    }
+    if let Some(mut hud) = hud
+        && hud.locked.0 != locked.0
+    {
+        hud.locked = *locked;
     }
 }
 
@@ -1767,7 +1837,7 @@ fn mouse_input(
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
-    let at = cursor_map(window, (camera, gt));
+    let at = cursor_map(window, &hud.locked, (camera, gt));
     let view = view_tiles(camera, &tf, proj);
     // Development aid (`--demo-site`): one placement click, after the first fog refresh so the site is explored.
     if ui.demo_click

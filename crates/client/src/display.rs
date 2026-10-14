@@ -12,6 +12,13 @@
 //! - **Zoom.** The map view draws one map pixel per screen pixel, as the original does. The `--free-zoom` development
 //!   option (not part of the original) zooms with the mouse wheel in powers of two, from [`MIN_ZOOM`] to [`MAX_ZOOM`]
 //!   map pixels per screen pixel.
+//! - **Mouse lock.** In a game the pointer is kept in the window, as a full-screen game's pointer can't leave the
+//!   screen, so pushing it against an edge scrolls the view however fast the mouse moves (as StarCraft's windowed
+//!   "W-Mode" and Diablo II: Resurrected's "lock cursor" option do). [`lock_wanted`] says when: only during a game, only
+//!   while the window has the focus (switching away, Cmd-Tab, frees it; a click back in locks it again), and not while
+//!   Cmd (the Windows key elsewhere) is held. Where the system can confine the pointer to the window, it does; macOS
+//!   can't, so there the system pointer is held still and the game's own pointer moves by the mouse's motion, kept on
+//!   the screen ([`Letterbox::keep_on_screen`]). `--no-mouse-lock` turns it off.
 
 /// The screen in its own pixels.
 pub const SCREEN: (u32, u32) = (640, 480);
@@ -94,10 +101,50 @@ impl Letterbox {
         )
     }
 
+    /// A window point in logical points (`factor` physical pixels each) kept on the screen, still in logical points:
+    /// a point on the black border or outside the window goes to the nearest screen edge. The locked pointer lives here.
+    pub fn keep_on_screen(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
+        let s = self.scale as f32;
+        let on = |p: f32, offset: u32, len: u32| {
+            let lo = offset as f32 / factor;
+            p.clamp(lo, lo + (len as f32 - 0.001) * s / factor)
+        };
+        (
+            on(point.0, self.offset.0, SCREEN.0),
+            on(point.1, self.offset.1, SCREEN.1),
+        )
+    }
+
+    /// The middle of the screen in logical points.
+    pub fn centre(&self, factor: f32) -> (f32, f32) {
+        let s = self.scale as f32;
+        (
+            (self.offset.0 as f32 + SCREEN.0 as f32 * s / 2.0) / factor,
+            (self.offset.1 as f32 + SCREEN.1 as f32 * s / 2.0) / factor,
+        )
+    }
+
     /// The map camera's projection scale (map pixels per logical point) for `zoom` map pixels per screen pixel.
     pub fn projection_scale(&self, zoom: f32, factor: f32) -> f32 {
         zoom * factor / self.scale as f32
     }
+}
+
+/// What decides the mouse lock.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LockInput {
+    /// Not turned off with `--no-mouse-lock`.
+    pub enabled: bool,
+    /// A game is on screen, drawing its own pointer.
+    pub in_game: bool,
+    pub focused: bool,
+    /// Cmd (the Windows key elsewhere) is held: the pointer is free while it is.
+    pub held_free: bool,
+}
+
+/// Whether the pointer is locked to the window (module doc, "Mouse lock").
+pub fn lock_wanted(i: LockInput) -> bool {
+    i.enabled && i.in_game && i.focused && !i.held_free
 }
 
 /// The zoom after `steps` mouse-wheel steps (positive zooms in: fewer map pixels per screen pixel): powers of two
@@ -192,6 +239,37 @@ mod tests {
         // No border at factor 1.
         let lb = Letterbox::fit((1280, 960));
         assert_eq!(lb.screen_point((300.0, 200.0), 1.0), (150.0, 100.0));
+    }
+
+    #[test]
+    fn locked_pointer_stays_on_the_screen() {
+        // Full screen on the Retina laptop at factor 2: the screen is logical 116..1396 across, 11..971 down.
+        let lb = Letterbox::fit((3024, 1964));
+        assert_eq!(lb.keep_on_screen((500.0, 300.0), 2.0), (500.0, 300.0));
+        let (x, y) = lb.keep_on_screen((-40.0, 2000.0), 2.0);
+        assert_eq!(x, 116.0);
+        assert!(y < 971.0 && y > 970.99);
+        // Kept points are screen pixels 0 and 479, never past the edge.
+        assert_eq!(lb.screen_point((x, y), 2.0).1.floor(), 479.0);
+        let (x, _) = lb.keep_on_screen((5000.0, 0.0), 2.0);
+        assert_eq!(lb.screen_point((x, 0.0), 2.0).0.floor(), 639.0);
+        assert_eq!(lb.centre(2.0), (756.0, 491.0));
+        assert_eq!(lb.screen_point(lb.centre(2.0), 2.0), (320.0, 240.0));
+    }
+
+    #[test]
+    fn lock_only_in_a_focused_game() {
+        let on = LockInput {
+            enabled: true,
+            in_game: true,
+            focused: true,
+            held_free: false,
+        };
+        assert!(lock_wanted(on));
+        assert!(!lock_wanted(LockInput { enabled: false, ..on }));
+        assert!(!lock_wanted(LockInput { in_game: false, ..on }));
+        assert!(!lock_wanted(LockInput { focused: false, ..on }));
+        assert!(!lock_wanted(LockInput { held_free: true, ..on }));
     }
 
     #[test]
