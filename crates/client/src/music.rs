@@ -8,7 +8,8 @@
 //! ([`crate::sound::Shuffle`], the one the sound variants use); music never touches the synced game generator.
 //!
 //! Choices of our own where the spec leaves a gap: fades are not blocking, they run over the following `update` calls
-//! (20 ms per step, as specified), and a start that must follow a fade waits for it; the position of an open track is
+//! (the first step at once when the fade begins, the next ones 20 ms apart, as specified), and a start that must
+//! follow a fade waits for it, as must a screen that the spec has wait for a fade (the act screen's close); the position of an open track is
 //! reported by the caller in bytes of audio, and an empty sink counts as the end; a loop track's loop point is
 //! reached by a seek when the caller reports that the position wrapped (a loop that restarts from the start of the
 //! file, then jumps to the loop point, which only differs for track 20); the chain gap counts from the next
@@ -440,19 +441,41 @@ impl Music {
         out
     }
 
-    /// Begins a fade stop, or a fade of all sound, after which `then` starts (if not started). The fade runs over the
-    /// following [`Music::update`] calls.
+    /// Begins a fade stop, or a fade of all sound, after which `then` starts (if not started). The first step is taken
+    /// at once; the rest run over the following [`Music::update`] calls, 20 ms apart.
     pub fn fade_stop(&mut self, all_sound: bool, then: Option<u8>) -> Vec<Action> {
         let mut out = Vec::new();
         if all_sound {
             out.push(Action::CutEffects);
         }
         if self.open.is_some() {
-            self.fade = Some(Fade { steps: 0, then });
+            // The first step comes at once; the next ones 20 ms apart, counted from now.
+            self.carry = 0;
+            let mut fade = Fade { steps: 0, then };
+            if self.fade_step(&mut fade, &mut out) {
+                self.fade = Some(fade);
+                out.push(Action::SetAttenuation(self.atten));
+            }
         } else if let Some(t) = then {
             self.begin(Some(t), true, &mut out);
         }
         out
+    }
+
+    /// One step of a fade stop. At the first step below the floor the fade ends: the track closes and the fade's
+    /// track starts (if given and not started). Returns whether the fade goes on.
+    fn fade_step(&mut self, fade: &mut Fade, out: &mut Vec<Action>) -> bool {
+        fade.steps += 1;
+        self.atten = fade_stop_step(self.atten, fade.steps);
+        if self.atten >= FADE_STOP_FLOOR {
+            return true;
+        }
+        self.fade = None;
+        self.close(out);
+        if let Some(t) = fade.then {
+            self.begin(Some(t), true, out);
+        }
+        false
     }
 
     /// Applies the music volume `v` ("Volume"): 0 closes the track and forgets the restart; a nonzero volume sets the
@@ -518,14 +541,7 @@ impl Music {
         self.carry %= STEP_MS;
         if let Some(mut fade) = self.fade {
             for _ in 0..steps {
-                fade.steps += 1;
-                self.atten = fade_stop_step(self.atten, fade.steps);
-                if self.atten < FADE_STOP_FLOOR {
-                    self.fade = None;
-                    self.close(&mut out);
-                    if let Some(t) = fade.then {
-                        self.begin(Some(t), true, &mut out);
-                    }
+                if !self.fade_step(&mut fade, &mut out) {
                     return out;
                 }
             }
@@ -814,7 +830,8 @@ mod tests {
     fn a_fade_stop_runs_in_20_ms_steps() {
         let mut m = Music::new(100);
         m.start(Some(3));
-        m.fade_stop(false, None);
+        let first = m.fade_stop(false, None);
+        assert_eq!(first, vec![Action::SetAttenuation(-30)], "the first step comes at once");
         assert!(m.fading());
         let mut frames = 0;
         let mut stopped = false;
@@ -823,7 +840,7 @@ mod tests {
             frames += 1;
             stopped = a.contains(&Action::Stop);
         }
-        assert_eq!(frames, 28, "560 ms");
+        assert_eq!(frames, 27, "28 steps, the last at 540 ms");
         assert!(!m.started() && !m.fading());
         assert_eq!(m.attenuation(), SILENT);
         // At volume 25: 24 steps.
@@ -831,7 +848,7 @@ mod tests {
         q.start(Some(3));
         q.fade_stop(false, None);
         let frames = (1..).find(|_| q.update(20, at(0)).contains(&Action::Stop)).unwrap();
-        assert_eq!(frames, 24);
+        assert_eq!(frames, 23, "24 steps, the last at 460 ms");
     }
 
     #[test]
@@ -859,7 +876,10 @@ mod tests {
                 break;
             }
         }
-        assert_eq!(frames, 80, "28 steps of 20 ms is 560 ms, 80 frames of 7 ms");
+        assert_eq!(
+            frames, 78,
+            "the last of 28 steps is at 540 ms, in the 78th frame of 7 ms"
+        );
     }
 
     #[test]
@@ -979,7 +999,11 @@ mod tests {
         m.start(Some(4));
         let (track, a) = m.disco(true, 4);
         assert_eq!(track, DISCO);
-        assert_eq!(a, vec![Action::CutEffects]);
+        assert_eq!(
+            a,
+            vec![Action::CutEffects, Action::SetAttenuation(-30)],
+            "the first step at once"
+        );
         let mut loaded_track = None;
         for _ in 0..40 {
             loaded_track = loaded_track.or(loaded(&m.update(20, at(0))));
