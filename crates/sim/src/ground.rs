@@ -3,10 +3,9 @@
 //! ("Commands") and the blast's terrain steps of `docs/specs/movement/occupancy.md` ("Rock", steps 1 to 3, in
 //! `Terrain::blast`).
 //!
-//! Our readings: order 18 turns into order 17 in place when it arrives, and order 17's logic then runs in the same
-//! cycle (the spec says only that the unit "gets order 17"). A unit whose attack-ground walk finds no path goes idle
-//! with the immediate order 2. The blast's cosmetic explosion effects are owned by the demolisher. Order 17
-//! turns the unit to the tile on every run, even while its attack animation is already playing.
+//! Our readings: a unit whose attack-ground walk finds no path goes idle with the immediate order 2. The blast's
+//! cosmetic explosion effects are owned by the demolisher. Order 17 turns the unit to the tile on every run, even while
+//! its attack animation is already playing.
 
 use crate::movement::{Goal, Walk, chebyshev};
 use crate::sound::Sound;
@@ -85,7 +84,9 @@ impl World {
     /// Order 18 ("Order 18: moving into range"; `orc9-orc09-ground-move-goals-1100`, V267 and V268): the unit has
     /// arrived when it is within its type's base attack range (no range upgrades) of the target tile on both axes, or
     /// when its walk toward the goal the command pulled back is within 2 tiles of it (3 for sea and air units, the +1
-    /// of the arrival test). On arrival the path is dropped and it attacks the ground at the target tile (order 17).
+    /// of the arrival test). On arrival the path is dropped and order 17 on the target tile is given as a command that
+    /// takes over in the same update (attack animation, wait 3, facing unchanged); its logic, which turns and strikes,
+    /// first runs at the next step done (V269).
     pub(crate) fn attack_ground_move(&mut self, i: usize, tile: (i32, i32), goal: (i32, i32)) {
         let u = &self.units[i];
         let base = (self.stats_of(u.kind).attack_range as i32).max(1);
@@ -99,9 +100,8 @@ impl World {
                 Walk::Stepping | Walk::Blocked => false,
             };
         if arrived {
-            self.units[i].order = Order::AttackGround { tile };
             self.units[i].path.clear();
-            self.attack_ground(i, tile);
+            self.command_at_once(i, Order::AttackGround { tile });
         }
     }
 

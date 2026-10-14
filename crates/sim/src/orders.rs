@@ -4842,7 +4842,7 @@ mod tests {
         }
 
         /// Orders 17 and 18 with no route stop (an immediate idle with no idle logic run and no resume); order 18 at its
-        /// goal becomes order 17 directly.
+        /// goal gives order 17 as a command that takes over in the same update (attack animation, wait 3; V269).
         #[test]
         fn attack_ground_edges() {
             let mut prints = vec![];
@@ -4878,7 +4878,7 @@ mod tests {
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
             prints.push(after(&mut w, 30));
-            assert_eq!(prints, [813356402327110097, 813356402327110097, 17189924812526471805]);
+            assert_eq!(prints, [813356402327110097, 813356402327110097, 9455504928621546046]);
         }
 
         /// Blocked row G: an attacked unit blocked next to its goal makes idle pending (with the resume rules).
