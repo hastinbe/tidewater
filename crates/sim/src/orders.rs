@@ -659,10 +659,21 @@ impl World {
                     return true;
                 }
                 // Round-59 errata, "Attack-move" (`orc5-40000` n = 33260): while order 4 keeps a target unit, its walk
-                // toward the stored goal uses the target's goal zone where the target stands now; G stays the goal.
-                let zone = match o {
-                    Order::MoveAttack { target: Some(t), .. } => self.unit(t).map(crate::battle::goal_zone),
-                    _ => None,
+                // uses the target's goal zone where the target stands now. Round-65 errata (pathfinding spec, "G for
+                // a walk with a target unit"; `xhuman5-30000` grunt 1480, n = 26764): every walk also sets G again
+                // from the target where it stands now (for a building, the building goal rule's tile; static
+                // study), so the goal the command stored and its pull-back last only until the first walk.
+                let (goal, zone) = match o {
+                    Order::MoveAttack { target: Some(t), .. } => {
+                        let t = self.unit(t).expect("held");
+                        let g = self.target_goal(&self.units[i], t);
+                        let zone = crate::battle::goal_zone(t);
+                        if let Order::MoveAttack { goal, .. } = &mut self.units[i].order {
+                            *goal = g;
+                        }
+                        (g, Some(zone))
+                    }
+                    _ => (goal, None),
                 };
                 let walk = self.move_toward(
                     i,
@@ -824,17 +835,19 @@ impl World {
                 self.forget_stale_attacker(i);
                 self.take_over(i, Order::Follow { target });
             } else if self.move_toward(i, g) == Walk::NoPath {
-                self.stop(i);
+                // Round-65 errata ("No route"; `orc12-orc12-guard-board-full-900` ogre 1450, n = 520): guard has no
+                // special case, so it goes idle at once and its idle logic runs in the same update.
+                self.idle_at_once(i);
             }
             return false;
         }
         if follow {
             if followable(t_order) {
-                self.units[i].order = Order::Guard { target };
+                // Round-65 errata (step 3; `orc9-orc09-follow-flee-1300` peon 1478, n = 605, and
+                // `orc12-orc12-guard-board-full-900` ogre 1450, n = 220): the guard is made pending and takes over in
+                // the same update (still animation, wait 3, target kept).
                 self.units[i].path.clear();
-                if self.units[i].script.anim != anim::STILL {
-                    self.switch_anim(i, anim::STILL);
-                }
+                self.take_over(i, Order::Guard { target });
             } else {
                 // Round-62 errata (same vector): idle is made the pending order, with the Enhanced resume, and takes
                 // over in the same update (still animation, wait 3); not a stop command.
@@ -2795,6 +2808,9 @@ mod tests {
         w.units[i].order = Order::Follow { target: g };
         w.follow(i, g);
         assert_eq!(w.units[i].order, Order::Guard { target: g });
+        // Round-65 errata (`orc9-orc09-follow-flee-1300` peon 1478, n = 605): the guard takes over in the same update,
+        // with the still animation and a wait of 3.
+        assert_eq!((w.units[i].script.anim, w.units[i].script.wait), (anim::STILL, 3));
         // The guarded unit starts harvesting: a move to the guard's own tile.
         let gi = at(&w, g);
         w.units[gi].order = Order::ReturnGoods { depot: None };

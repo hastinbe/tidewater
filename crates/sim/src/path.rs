@@ -294,7 +294,9 @@ pub fn search(req: &Request, map: &impl Map) -> Vec<u8> {
         if !req.contains(n) || map.blocked(n.0, n.1) {
             let prefix = &full[..i];
             let line_tiles = tiles(&Request { start: at, ..*req }, &full[i..]);
-            let line_tiles = &line_tiles[1..];
+            // Round-65 errata ("Step 2"; `xhuman5-30000` n = 26761): the line tiles stop before G, which counts only
+            // through the goal zone.
+            let line_tiles = &line_tiles[1..line_tiles.len() - 1];
             let left = walk(req, map, prefix, d, line_tiles, -1);
             if let Some((s, score)) = &left
                 && *score < GOOD_SCORE
