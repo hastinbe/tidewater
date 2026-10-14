@@ -37,6 +37,12 @@
   sea nor air targeting a shore building, and the build goal has no sea or air test; round-60 vectors.
   2026-10-13, round-62 errata: a smart move with a target unit that becomes the move stores the target's tile
   without pulling it back (traced for a tanker); the shore build with no corner is traced.
+  2026-10-13, round-65 errata: when the line is blocked, the line tiles stop **before** G, which counts only if it is
+  in the goal zone (traced: `xhuman5-30000` n = 26761, a boarding walk aimed at its transport's destination); a walk
+  whose order holds a target unit sets G again from the target, where it stands now, every time it runs, so a
+  command's stored goal and its pull-back last only until the first walk (traced for order 4 on a transport; static
+  study only for other orders and for building targets); the open question on the pull-back with a target unit is
+  closed; the `orc09-repair-600` vector no longer lists G as a line tile (same result); round-65 vectors.
 
 ## Behaviour
 
@@ -105,9 +111,8 @@ that is S, so its checks never meet the unit's own tile.
 The **goal zone** is the 3 × 3 tiles centred on G. For a target unit or building, it is the target's footprint widened
 by one tile on each side. This rule holds **whenever the walk's order holds a target unit**, whatever the order: attack
 orders, follow and guard, unit-targeted spells, a target just picked by an attack-move (orders 4, 5 and 10) and order
-4's walk toward its stored goal while it keeps a target unit (`orders/orders.md`, "Attack-move"); in the last case G
-stays the stored goal and only the zone comes from the target, where it stands now. The 3 × 3 around G is used only when
-the order holds no target unit. Traced for attack-move and order 4 (`orc12-30000` n = 23612 and `orc5-40000` n = 33260,
+4's walk while it keeps a target unit (`orders/orders.md`, "Attack-move"). The 3 × 3 around G is used only when the
+order holds no target unit. Traced for attack-move and order 4 (`orc12-30000` n = 23612 and `orc5-40000` n = 33260,
 round-59 vectors); **static study only** for follow, guard and unit-targeted spells, where it differs from the 3 × 3
 only for a target larger than 1 × 1 or when G isn't the target's tile. A boarding walk (order 34,
 `orders/transports.md`) has its transport as the target unit, so its zone is the transport's widened footprint even when
@@ -117,13 +122,29 @@ farther out than the plain zone on the right and bottom. For example, for a 3 ×
 footprint is columns 5 to 9 and rows 17 to 21, and a two-tile mover's zone is the even tiles from (4, 16) to (10, 22);
 with no target it is the even tiles from G − 2 to G + 2.
 
+**G for a walk with a target unit.** Each time the walk runs, G is set again from the order's target unit, where it
+stands now, and the zone comes from the target there:
+
+- a **transport** target: its tile; in order 34 (board), its tile if it stands in the unit's region, otherwise its
+  destination tile (`orders/transports.md`, "Order 34 (board)", step 2);
+- a **building** target: the tile the building goal rule picks on its footprint ("Building goal rule", below); that
+  it is worked out again at each walk is static study only;
+- any other target unit: its tile.
+
+So a goal the command stored, and its pull-back ("Goal pulled back"), lasts only until the first walk. Traced for order
+4 on a transport (`xhuman5-30000` n = 26764, round-65 vectors: the walk heads for the transport's tile, not the
+pulled-back goal); **static study only** for other orders, which can differ only when their target has moved off the
+stored goal, and for building targets. An order with no target unit keeps its stored goal.
+
 ### Step 2: the straight line
 
 Walk from S toward G with the line rule below, one step vector at a time.
 
 - If the next tile is blocked, stop. The **last free tile** is T, and the **blocked direction** is the direction from
-  T toward the blocked tile. The remaining line tiles, from the blocked tile up to G, join the goal zone; the search
-  calls these "line tiles".
+  T toward the blocked tile. The remaining line tiles, from the blocked tile up to **but not including** G, join the
+  goal zone; the search calls these "line tiles". G itself counts only if it is in the goal zone. With no target unit
+  the zone is the 3 × 3 around G, so G is always in it; this matters only when G is outside the target's zone, as for
+  a boarding walk aimed at its transport's destination (traced: `xhuman5-30000` n = 26761, round-65 vectors).
 - If 20 steps were taken, or G was reached, the line is the result. Even if G is farther than 20 steps, the path is
   the first 20 steps of the line.
 
@@ -262,7 +283,10 @@ The tested tiles are the line's own tiles in reverse when the line has a single 
 are symmetric. They differ when a diagonal step is not in the middle of the run.
 
 The search then aims at this stored goal, rounded down to even for a two-tile mover; the arrival test uses the stored
-goal, not rounded, with the radius rules of `movement.md`. A transport sent to a land or shore-water tile from open
+goal, not rounded, with the radius rules of `movement.md`. For an order that holds a target unit, the walk sets the
+goal again from the target at its first run ("Step 1", "G for a walk with a target unit"), so the pulled-back goal is
+only kept by orders with no target unit (traced for order 4 on a transport: `xhuman5-30000` n = 26764, round-65
+vectors; static study for other orders). A transport sent to a land or shore-water tile from open
 water follows the same rule, with the additions of `orders/transports.md` ("Land and shore targets").
 
 ## Data
@@ -332,7 +356,7 @@ units on the map.
 | `orc4-20000` (oracle trace): computer peasant 1578 (type 0x02) idle on (6, 6), given lumber at n = 6808 (order 23, animation 4, wait 3, taken over: no pending order); search at n = 6811 toward (4, 3) | The line's first step NW onto (5, 5) (worker 1539) is blocked, so T = S. Left walk: W to (5, 6); from there N, NW, W, SW, S, SE (footman 1585 on (6, 7)) and E (S itself, which blocks) are blocked, NE onto (6, 5) is free, and C's neighbour N, (5, 5), is a line tile: the walk succeeds at (5, 6). Route W; equal distance 3, minor-axis 1 against 2, so progress 1, score 2: used at once. Trace: W to (5, 6) at n = 6811, NE to (6, 5) at 6827, NW to (5, 4) at 6843 |
 | Same unit in its move animation with blocked counter 0 (static study only) | Its own tile is free: the left walk reaches S and fails ("N is T") |
 | Same unit in its move animation with blocked counter 2 (static study only) | Its own tile blocks |
-| `orc09-repair-600` (oracle trace) n = 5: computer peasant 1587 (type 0x02) in order 28, S = (89, 4), G = (82, 6), the "Building goal rule" tile of its farm site (81, 6) (`ai/worker-ai.md`); town hall 1592 covers x 85 to 88, y 2 to 5; peasant 1584 is idle on (89, 5) | Line dx −7, dy 2, e = 3: the first step W onto (88, 4) is the hall, so T = S, blocked direction W; line tiles (88, 4), (87, 5), (86, 5), (85, 5), (84, 6), (83, 6), (82, 6). Left walk SE, SW, W, W, W, W, succeeding at C = (85, 6) (its W neighbour (84, 6) is a line tile); (SE, SW) isn't made "two of S" because (89, 5) holds 1584; L 6, progress 3, score 9. Right walk N, N, NW, W, W, W, SW, S, S to P = (84, 4): L 9, progress 2, score 11. The left walk is used: first step SE to (90, 5), facing 3 |
+| `orc09-repair-600` (oracle trace) n = 5: computer peasant 1587 (type 0x02) in order 28, S = (89, 4), G = (82, 6), the "Building goal rule" tile of its farm site (81, 6) (`ai/worker-ai.md`); town hall 1592 covers x 85 to 88, y 2 to 5; peasant 1584 is idle on (89, 5) | Line dx −7, dy 2, e = 3: the first step W onto (88, 4) is the hall, so T = S, blocked direction W; line tiles (88, 4), (87, 5), (86, 5), (85, 5), (84, 6), (83, 6) (G = (82, 6) itself is in the goal zone). Left walk SE, SW, W, W, W, W, succeeding at C = (85, 6) (its W neighbour (84, 6) is a line tile); (SE, SW) isn't made "two of S" because (89, 5) holds 1584; L 6, progress 3, score 9. Right walk N, N, NW, W, W, W, SW, S, S to P = (84, 4): L 9, progress 2, score 11. The left walk is used: first step SE to (90, 5), facing 3 |
 | `human10-10000` (oracle trace) n = 6804: computer destroyer 1483 (type 0x1F, two-tile) on (24, 12); at n = 6801 its player gives it a patrol to (22, 9), which the pull-back keeps (line steps NW, NW, N; the k − 1 = 2 tiles tested, (23, 10) and (24, 11), are both shipyard 1580's, 3 × 3 at (22, 9)) | G = (22, 8); zone the even tiles x 20 to 24, y 6 to 10. The line's first step NW onto (22, 10) is blocked. The left walk follows the coast south from S (24, 14) and doesn't score below 8. Right walk: N onto (24, 10) is the shipyard, NE onto (26, 10) is free, then NW onto (24, 8), water and in the zone: route NE, NW, L 2, progress 2 (P's distance to (22, 9)), score 4. Trace: (26, 10), facing 1, animation 3 |
 | `xorc01-death-coil` (oracle trace), n = 353: the attack-tile command given in turn 352 reaches the six selected units; death knight 1491, in its move animation on (71, 80) since n = 341, blocked once at n = 304 (counter 1) | Its counter is 0 at once, while its order 10 is still pending, so grunt 1497's search at n = 356 ignores it (the vector above) |
 | A unit given a spell command (order 38 to 56) with blocked counter 5 (static study only) | Counter 0; the goal is not pulled back |
@@ -359,10 +383,17 @@ units on the map.
 | A follow (order 6) of a 2 × 2 unit (static study) | Goal zone: the followed unit's footprint widened by one tile, not the 3 × 3 around G |
 | A shore building build command, no footprint corner in the worker's region (`orc9-orc09-shore-no-corner-600` n = 20: a shipyard at (22, 65), on another island's coast) | No order, nothing paid |
 
+### Round-65 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman5-30000` (oracle trace, Enhanced, no input), n = 26761: computer grunt 1480 (type 0x01, owner 7) at (102, 108) in order 34 on orc transport 1520 (type 0x1D, owner 7), which is landing (order 30) at (96, 98); walk goal (100, 106), the transport's destination, in the grunt's region (a break capture whose log isn't committed; research notes, "Round 65"); axethrower 1587 (type 0x09, owner 7) at (101, 107). The zone is 1520's widened footprint, so (100, 106) is outside it | The line's first step onto (101, 107) is blocked; the only line tile is (101, 107) (not G), which is blocked, so both walks fail: no route. The no-route restart then gives command 4: order 4, still animation, wait 3, target 1520 in that record (`orders/transports.md`). Counting G as a line tile, a walk succeeds and the grunt steps west to (101, 108) |
+| Same trace, n = 26764: 1480 in order 4 on 1520 since n = 26761; 1520 at (96, 98); the command stored the transport's tile pulled back | The walk's G is (96, 98), 1520's tile (the same kind of break capture): the grunt steps north to (102, 107), facing 0. Aimed at the pulled-back goal it would step west |
+| A unit in order 6 whose followed unit has moved off the goal the follow command stored (static study) | Its walk aims at the followed unit's current tile, with that unit's widened footprint as the zone |
+| A unit in order 12 on a building (static study) | Each walk's G is the tile the building goal rule picks on the footprint |
+
 ## Open questions
 
-- **Pull-back with a target unit.** For a command with a target unit the search aims at the target, so the
-  pulled-back goal matters only to the arrival test; no trace shows whether that ever differs.
 - Whether two-tile movers' start tiles are always even.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
 - **The moving-ally rule's last condition.** A state mark must be clear; what sets it isn't identified, and no
