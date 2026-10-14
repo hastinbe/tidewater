@@ -390,6 +390,18 @@ impl World {
         chebyshev(u.tile, g.tile) <= self.arrival_radius(u, &g)
     }
 
+    /// Orders spec, "Walking orders" step 4 with the plain "No route" rule ("Arriving and losing the target"): one
+    /// movement decision toward `g`; with no route the unit goes idle as an immediate order and its idle logic runs in
+    /// the same update, straight after. The orders with their own no-route case (order 12's fallback, the harvest
+    /// tree search, transports, orders 17 and 18) call [`World::move_toward`] instead.
+    pub(crate) fn walk(&mut self, i: usize, g: Goal) -> Walk {
+        let w = self.move_toward(i, g);
+        if w == Walk::NoPath {
+            self.idle_at_once(i);
+        }
+        w
+    }
+
     /// One movement decision toward `g`: arrive, step, or apply the blocked rules.
     pub(crate) fn move_toward(&mut self, i: usize, g: Goal) -> Walk {
         self.move_toward_as(i, g, false)

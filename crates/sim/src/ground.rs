@@ -128,12 +128,9 @@ impl World {
             Order::DemolishAt { tile } => Goal::tile(tile, 0),
             _ => return,
         };
-        match self.move_toward(i, g) {
-            Walk::Arrived => self.blast(i),
-            // Round-54 errata ("Getting there", `orc10-sappers-2500` sapper 1501, n = 35): the plain no-route rule, an
-            // immediate idle whose idle logic runs in the same update.
-            Walk::NoPath => self.idle_at_once(i),
-            Walk::Stepping | Walk::Blocked => {}
+        // Round-54 errata ("Getting there", `orc10-sappers-2500` sapper 1501, n = 35): the plain no-route rule.
+        if self.walk(i, g) == Walk::Arrived {
+            self.blast(i);
         }
     }
 

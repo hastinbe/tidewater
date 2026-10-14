@@ -8,7 +8,7 @@ use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
 
 use crate::economy::{Event, Shortage};
-use crate::movement::{Goal, Walk, chebyshev};
+use crate::movement::{Goal, chebyshev};
 use crate::world::{Order, Unit, UnitId, World};
 
 /// Hit points one run adds.
@@ -75,9 +75,7 @@ impl World {
             // Orders spec, round-63 errata ("Walking orders react only when the walk has ended"; static study only
             // for order 27): while walking only the walk runs. Round-64 errata (static study only): no route is not
             // a walk end; the worker becomes idle as an immediate order and its idle logic runs, not the reaction.
-            if self.move_toward(i, g) == Walk::NoPath {
-                self.idle_at_once(i);
-            }
+            self.walk(i, g);
             return;
         }
         // 1. Arrived: the reaction to an attacker.

@@ -179,13 +179,11 @@ impl World {
             goal: Some(goal),
         };
         let radius = self.build_radius(i, kind);
-        match self.move_toward(i, Goal::tile(goal, radius)) {
-            Walk::Arrived => self.build_arrived(i, kind, site),
-            // Round-42 errata: idle as an immediate order, whose idle logic runs in the same update (orders spec, "No
-            // route"). Round-49 errata (`xhuman12-10000` n = 116, `human14-10000` n = 1040): a computer player's
-            // payment isn't given back; only a failed site check refunds it.
-            Walk::NoPath => self.idle_at_once(i),
-            Walk::Stepping | Walk::Blocked => {}
+        // Round-42 errata: the plain no-route rule (orders spec, "No route"). Round-49 errata (`xhuman12-10000`
+        // n = 116, `human14-10000` n = 1040): a computer player's payment isn't given back; only a failed site check
+        // refunds it.
+        if self.walk(i, Goal::tile(goal, radius)) == Walk::Arrived {
+            self.build_arrived(i, kind, site);
         }
     }
 

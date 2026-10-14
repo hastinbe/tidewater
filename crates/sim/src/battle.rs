@@ -159,17 +159,20 @@ impl World {
             return;
         }
         let g = self.strike_goal(u, t);
-        match self.move_toward(i, g) {
-            // Orders spec, "No route" (round-40 errata, `xhuman4` axe thrower 1490 at n = 5): order 12 goes idle at
-            // once, its idle logic running in the same update, when its own fallback (round-47 errata) finds nothing.
-            // Round-42 errata (`orc02-assault` grunt 1573, n = 679): order 9, with no such fallback, goes idle at once.
-            Walk::NoPath if matches!(self.units[i].order, Order::Chase { .. }) => self.chase_no_route(i),
-            Walk::NoPath if matches!(self.units[i].order, Order::Attack { .. }) => self.idle_at_once(i),
-            Walk::NoPath | Walk::Arrived => {
+        // Orders spec, "No route": order 12 has its own fallback, which goes idle at once only when it finds nothing
+        // (round-40 and round-47 errata); order 9 has the plain rule (round-42 errata, `orc02-assault` grunt 1573,
+        // n = 679).
+        let chase = matches!(self.units[i].order, Order::Chase { .. });
+        let walk = if chase { self.move_toward(i, g) } else { self.walk(i, g) };
+        match walk {
+            Walk::NoPath if chase => self.chase_no_route(i),
+            // Kept as the code has it: arrived at the strike goal but out of strike reach, the unit goes idle with
+            // the still animation (no pending idle, no resume, no idle logic).
+            Walk::Arrived => {
                 self.go_idle(i);
                 self.switch_anim(i, anim::STILL);
             }
-            Walk::Stepping | Walk::Blocked => {}
+            Walk::NoPath | Walk::Stepping | Walk::Blocked => {}
         }
     }
 
@@ -236,9 +239,7 @@ impl World {
             ..Goal::tile(tile, 0)
         };
         // Orders spec, "No route" (round-45 errata): a unit that goes idle with no route keeps its attacker.
-        if self.move_toward(i, g) == Walk::NoPath {
-            self.idle_at_once(i);
-        }
+        self.walk(i, g);
     }
 
     /// Orders spec, "Order 11: attacking a wall tile" (round-48 errata; `orc02-defeat-4021` and `orc02-victory-7639`
@@ -258,10 +259,8 @@ impl World {
             range: true,
             zone: None,
         };
-        match self.move_toward(i, g) {
-            Walk::Arrived => {}
-            Walk::NoPath => return self.idle_at_once(i),
-            Walk::Stepping | Walk::Blocked => return,
+        if self.walk(i, g) != Walk::Arrived {
+            return;
         }
         if self.cooling_down(i) {
             return;

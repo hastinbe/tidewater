@@ -635,71 +635,8 @@ impl World {
                     self.idle_choice(i);
                 }
             }
-            Order::Move { target: Some(t), .. } => {
-                // Round-62 errata ("Smart move"; pathfinding spec, "Step 1"): a move that keeps a target unit walks to
-                // the route goal of the building goal rule on the target's footprint, from the unit's tile, with the
-                // target's goal zone, as any walk whose order holds a target unit. On arrival the target is dropped
-                // with the order. A lost target ended the order above.
-                let t = self.unit(t).expect("held");
-                let g = Goal {
-                    zone: Some(crate::battle::goal_zone(t)),
-                    ..Goal::tile(self.target_goal(&self.units[i], t), 0)
-                };
-                match self.move_toward(i, g) {
-                    Walk::Arrived => {
-                        self.units[i].attacked_by = None;
-                        self.idle_now(i);
-                    }
-                    Walk::NoPath => self.idle_at_once(i),
-                    Walk::Stepping | Walk::Blocked => {}
-                }
-            }
-            Order::Move { goal, .. } | Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => {
-                // Round-52 errata (static study): at the move goal the whole move step is skipped, so the Classic
-                // reaction doesn't run there either.
-                if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && !arriving && self.react(i) {
-                    return true;
-                }
-                // Round-59 errata, "Attack-move" (`orc5-40000` n = 33260): while order 4 keeps a target unit, its walk
-                // uses the target's goal zone where the target stands now. Round-65 errata (pathfinding spec, "G for
-                // a walk with a target unit"; `xhuman5-30000` grunt 1480, n = 26764): every walk also sets G again
-                // from the target where it stands now (for a building, the building goal rule's tile; static
-                // study), so the goal the command stored and its pull-back last only until the first walk.
-                let (goal, zone) = match o {
-                    Order::MoveAttack { target: Some(t), .. } => {
-                        let t = self.unit(t).expect("held");
-                        let g = self.target_goal(&self.units[i], t);
-                        let zone = crate::battle::goal_zone(t);
-                        if let Order::MoveAttack { goal, .. } = &mut self.units[i].order {
-                            *goal = g;
-                        }
-                        (g, Some(zone))
-                    }
-                    _ => (goal, None),
-                };
-                let walk = self.move_toward(
-                    i,
-                    Goal {
-                        zone,
-                        ..Goal::tile(goal, 0)
-                    },
-                );
-                match walk {
-                    // "Arriving and losing the target": the unit forgets its attacker, and idle becomes its pending
-                    // order and takes over in the same update (still animation, wait 3); the idle logic first runs
-                    // at the next step done.
-                    Walk::Arrived => {
-                        self.units[i].attacked_by = None;
-                        self.idle_now(i);
-                    }
-                    // No route: idle as an immediate order, so the idle logic runs in the same update, straight after.
-                    // Round-45 errata: only arriving forgets the attacker; a unit with no route keeps it, and its
-                    // idle logic may react to it (`xorc10-dragons` footman 1520 flees again at n = 464).
-                    Walk::NoPath => self.idle_at_once(i),
-                    Walk::Stepping | Walk::Blocked => {}
-                }
-            }
-            Order::Patrol { to, back } => match self.move_toward(i, Goal::tile(to, 0)) {
+            Order::Move { .. } | Order::MoveAttack { .. } | Order::AttackMove { .. } => self.move_order(i, o, arriving),
+            Order::Patrol { to, back } => match self.walk(i, Goal::tile(to, 0)) {
                 Walk::Arrived => {
                     // "Arriving and losing the target", order 5: a patrol command to the other end, with the tile it
                     // stands on as the new other end, which remembers like every patrol command ("What a patrol
@@ -708,10 +645,8 @@ impl World {
                     self.remember(i, Remembered::Patrol { to: back, back: here });
                     self.command_at_once(i, Order::Patrol { to: back, back: here });
                 }
-                // "No route" (round-39 errata, `human10` and `xorc7`): an immediate idle whose idle logic runs in the
-                // same update, straight after.
-                Walk::NoPath => self.idle_at_once(i),
-                Walk::Stepping | Walk::Blocked => {}
+                // "No route" (V101 to V103): the plain rule.
+                Walk::NoPath | Walk::Stepping | Walk::Blocked => {}
             },
             Order::Follow { target } | Order::Guard { target } => {
                 // Order 6 reacts to an attacker only when its walk has ended (`follow`, round-63 errata).
@@ -731,6 +666,54 @@ impl World {
         true
     }
 
+    /// The moves, orders 3, 4 and 10 ("Walking orders"; "Arriving and losing the target").
+    ///
+    /// Round-52 errata (static study): in Classic mode order 10 reacts in its walk ("Walking orders", step 1), and at
+    /// the move goal the whole move step is skipped, so the reaction doesn't run there either.
+    ///
+    /// A walk whose order holds a target unit heads for the target where it stands now (round-62 and round-65 errata;
+    /// pathfinding spec, "Step 1" and "G for a walk with a target unit"; V256): the route goal of the building goal rule
+    /// on the target's footprint, from the unit's tile, with the target's goal zone. Order 4 also stores that goal
+    /// (round-59 errata, `orc5-40000` n = 33260); order 3 keeps the target's tile its command stored. A lost target
+    /// ended the order before the walk (`run_order`).
+    fn move_order(&mut self, i: usize, o: Order, arriving: bool) {
+        if matches!(o, Order::AttackMove { .. }) && !self.rules.enhanced && !arriving && self.react(i) {
+            return;
+        }
+        let (goal, target) = match o {
+            Order::Move { goal, target } | Order::MoveAttack { goal, target } => (goal, target),
+            Order::AttackMove { goal } => (goal, None),
+            _ => unreachable!("not a move"),
+        };
+        let g = match target {
+            Some(t) => {
+                let t = self.unit(t).expect("held");
+                let tile = self.target_goal(&self.units[i], t);
+                let zone = Some(crate::battle::goal_zone(t));
+                if let Order::MoveAttack { goal, .. } = &mut self.units[i].order {
+                    *goal = tile;
+                }
+                Goal {
+                    zone,
+                    ..Goal::tile(tile, 0)
+                }
+            }
+            None => Goal::tile(goal, 0),
+        };
+        // No route: the plain rule (V170: the unit keeps its attacker, and its idle logic may react to it).
+        if self.walk(i, g) == Walk::Arrived {
+            self.arrive(i);
+        }
+    }
+
+    /// "Arriving and losing the target", orders 3, 4 and 10 on arrival: the unit forgets its attacker, and idle becomes
+    /// its pending order (with the Enhanced resume) and takes over in the same update (still animation, wait 3); the idle
+    /// logic first runs at the next step done.
+    fn arrive(&mut self, i: usize) {
+        self.units[i].attacked_by = None;
+        self.idle_now(i);
+    }
+
     /// Orders 6 and 7 ("Follow"). Returns whether a guarding unit (order 7) goes on to its idle logic: it is within
     /// the radius and its follow steps gave it no new order.
     ///
@@ -745,9 +728,7 @@ impl World {
         if matches!(self.units[i].order, Order::Follow { .. }) && !step_1 {
             let g = self.follow_goal(t);
             if !self.at_goal(i, g) {
-                if self.move_toward(i, g) == Walk::NoPath {
-                    self.idle_at_once(i);
-                }
+                self.walk(i, g);
                 return false;
             }
             let target = self.follow_reaction(i, target);
@@ -822,10 +803,9 @@ impl World {
                 // check would drop.
                 self.command_steps(i);
                 self.take_over(i, Order::Follow { target });
-            } else if self.move_toward(i, g) == Walk::NoPath {
-                // Round-65 errata ("No route"; `orc12-orc12-guard-board-full-900` ogre 1450, n = 520): guard has no
-                // special case, so it goes idle at once and its idle logic runs in the same update.
-                self.idle_at_once(i);
+            } else {
+                // "No route" (V262): guard has no special case.
+                self.walk(i, g);
             }
             return false;
         }

@@ -444,15 +444,9 @@ impl World {
                 zone,
                 ..Goal::tile(goal, r)
             };
-            match self.move_toward(i, g) {
-                Walk::Arrived => {}
-                // Round-50 errata (`human14-10000` death knight 1577, n = 3740): with no route the caster goes idle
-                // at once, as an immediate order, and its idle logic runs in the same update.
-                Walk::NoPath => {
-                    self.idle_at_once(i);
-                    return true;
-                }
-                Walk::Stepping | Walk::Blocked => return true,
+            // Round-50 errata (`human14-10000` death knight 1577, n = 3740): the plain no-route rule.
+            if self.walk(i, g) != Walk::Arrived {
+                return true;
             }
         }
         let (b, _) = aim;
