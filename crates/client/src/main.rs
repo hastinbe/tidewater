@@ -30,6 +30,7 @@ mod gamemenu;
 mod hud;
 mod info;
 mod jukebox;
+mod mapview;
 mod menu;
 mod messages;
 mod minimap;
@@ -57,7 +58,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -391,11 +391,16 @@ impl Hud {
 const VIEW_Z: f32 = 10.0;
 const PLACE_Z: f32 = 11.0;
 
-#[derive(Component)]
-struct MapCamera;
+/// The map view's geometry (`mapview`), while a game is on.
+#[derive(Resource, Deref, DerefMut)]
+pub(crate) struct GameView(pub mapview::MapView);
 
-#[derive(Component)]
-struct HudCamera;
+/// The end of a frame for the map view: what it drew is what the pointer is read against next (`mapview`).
+fn end_view_frame(view: Option<ResMut<GameView>>) {
+    if let Some(mut v) = view {
+        v.end_frame();
+    }
+}
 
 #[derive(Component)]
 struct HudSprite;
@@ -572,6 +577,7 @@ fn main() -> Result<()> {
         .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
         .add_plugins(screenshot::plugin)
         .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
+        .add_systems(PostUpdate, end_view_frame)
         .add_systems(
             Update,
             // Input and game-time systems stop while a menu or outcome dialog is open; drawing goes on, so the map and
@@ -922,6 +928,7 @@ fn end_game(mut commands: Commands, q: GameEntities) {
         commands.entity(e).despawn();
     }
     commands.remove_resource::<Sim>();
+    commands.remove_resource::<GameView>();
     commands.remove_resource::<Loaded>();
     commands.remove_resource::<savegame::GameClock>();
     commands.remove_resource::<savegame::PauseCounts>();
@@ -982,36 +989,13 @@ fn setup(
         RenderAssetUsages::default(),
     ));
     commands.spawn((
-        Camera2d,
-        // It no longer draws (`shell` composes the screen); it gives the interface's place in the window.
-        Camera {
-            order: 1,
-            clear_color: ClearColorConfig::None,
-            is_active: false,
-            ..default()
-        },
-        RenderLayers::layer(HUD_LAYER),
-        HudCamera,
-    ));
-    commands.spawn((
         Sprite::from_image(hud.image.clone()),
         Transform::default(),
         RenderLayers::layer(HUD_LAYER),
         HudSprite,
     ));
-    // It no longer draws (`shell` composes the screen); its place, zoom and viewport are the map view's, and it turns
-    // pointer positions into map positions.
-    commands.spawn((
-        Camera2d,
-        Camera {
-            is_active: false,
-            ..default()
-        },
-        MapCamera,
-        // `hud_layout` sets the projection's scale from the zoom and the window.
-        Projection::Orthographic(OrthographicProjection::default_2d()),
-        Transform::from_translation(world(look.x, look.y, 0.0)),
-    ));
+    // `hud_layout` puts the view on the screen and sets its zoom.
+    commands.insert_resource(GameView(mapview::MapView::new((look.x, look.y))));
     // Kept on the CPU side too, so tiles that change in play can be redrawn.
     let terrain = images.add(image_with(scene.terrain, RenderAssetUsages::default()));
     commands.spawn((
@@ -1089,7 +1073,7 @@ fn tick(
     mut hud: ResMut<Hud>,
     mut cycling: ResMut<Cycling>,
     art: Option<Res<TerrainArt>>,
-    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+    view: Option<Res<GameView>>,
     mut cheat_queue: ResMut<cheats::Queue>,
     stored: Res<gamemenu::Stored>,
 ) {
@@ -1109,8 +1093,8 @@ fn tick(
         time.set_timestep(step);
     }
     // Minimap spec, "When it is redrawn": the countdown runs in the game cycle, after the units are updated.
-    if let (Some(art), Ok((camera, tf, proj))) = (art, cam.single()) {
-        let (l, t, r, b) = view_tiles(camera, tf, proj);
+    if let (Some(art), Some(view)) = (art, view) {
+        let (l, t, r, b) = view.tiles();
         let at = (l.floor().max(0.0) as i32, t.floor().max(0.0) as i32);
         let size = ((r - l).round().max(1.0) as i32, (b - t).round().max(1.0) as i32);
         hud.minimap
@@ -1267,18 +1251,6 @@ fn redraw_terrain(
     }
 }
 
-/// The map pixels in view, clipped to the map: left, top, right and bottom (exclusive).
-fn view_px(camera: &Camera, tf: &Transform, proj: &Projection, map: (i32, i32)) -> (i32, i32, i32, i32) {
-    let (l, t, r, b) = view_tiles(camera, tf, proj);
-    let p = TILE_PX as f32;
-    (
-        ((l * p).floor() as i32).clamp(0, map.0),
-        ((t * p).floor() as i32).clamp(0, map.1),
-        ((r * p).ceil() as i32).clamp(0, map.0),
-        ((b * p).ceil() as i32).clamp(0, map.1),
-    )
-}
-
 /// Puts a picture into a sprite's image and sizes the sprite to it.
 fn show_picture(images: &mut Assets<Image>, sprite: &mut Sprite, width: i32, height: i32, rgba: Vec<u8>) {
     let (w, h) = (width.max(1) as u32, height.max(1) as u32);
@@ -1306,20 +1278,22 @@ fn draw_view(
     ui: Res<PanelUi>,
     hud: Res<Hud>,
     windows: Query<&Window>,
-    cams: Query<(&Camera, &Transform, &Projection, &GlobalTransform), With<MapCamera>>,
+    view: Option<Res<GameView>>,
     mut images: ResMut<Assets<Image>>,
-    mut shown: Query<(&mut Sprite, &mut Transform), (With<ViewSprite>, Without<MapCamera>)>,
+    mut shown: Query<(&mut Sprite, &mut Transform), With<ViewSprite>>,
 ) {
-    let (Some(mut sim), Some(art)) = (sim, art) else { return };
-    let (Ok((camera, tf, proj, gtf)), Ok((mut sprite, mut at))) = (cams.single(), shown.single_mut()) else {
+    let (Some(mut sim), Some(art), Some(view)) = (sim, art, view) else {
+        return;
+    };
+    let Ok((mut sprite, mut at)) = shown.single_mut() else {
         return;
     };
     let v = &sim.world.vision;
     let map = (v.width as i32 * TILE_PX, v.height as i32 * TILE_PX);
-    let (l, t, r, b) = view_px(camera, tf, proj, map);
+    let (l, t, r, b) = view.pixels(map);
     let mut canvas = view::Canvas::new(l, t, r - l, b - t);
     let drag = match (sel.drag_from, windows.single()) {
-        (Some(from), Ok(window)) => cursor_map(window, &hud.locked, (camera, gtf)).map(|p| (px(from), px(p))),
+        (Some(from), Ok(window)) => cursor_map(window, &hud.locked, &view).map(|p| (px(from), px(p))),
         _ => None,
     };
     let local = view::Local {
@@ -1394,10 +1368,58 @@ fn draw_placement(
     vis.set_if_neq(Visibility::Inherited);
 }
 
-/// The cursor position in map pixels (y down), if it is over the window.
-fn cursor_map(window: &Window, locked: &frontend::LockedPointer, cam: (&Camera, &GlobalTransform)) -> Option<Vec2> {
-    let p = cam.0.viewport_to_world_2d(cam.1, locked.at(window)?).ok()?;
-    Some(Vec2::new(p.x, -p.y))
+/// The cursor position in map pixels (y down), if it is over the window: by the view the last frame drew
+/// (`mapview::MapView::drawn`), through [`camera_point`].
+fn cursor_map(window: &Window, locked: &frontend::LockedPointer, view: &mapview::MapView) -> Option<Vec2> {
+    let p = locked.at(window)?;
+    let (r, centre, zoom) = view.drawn()?;
+    let lb = letterbox(window);
+    let factor = window.scale_factor();
+    let at = camera_point(
+        p,
+        lb.rect(r.x, r.y, r.w, r.h),
+        factor,
+        zoom * factor / lb.scale as f32,
+        None,
+        Vec2::new(centre.0, -centre.1),
+    );
+    Some(Vec2::new(at.x, -at.y))
+}
+
+/// A window point (logical points) as a 2D camera turns it into a world point (y up), step by step as Bevy's
+/// `Camera::viewport_to_world_2d` does, so that the float results, and with them the frames, stay as they were when
+/// cameras gave them (`docs/design/client-core.md`, step 2). The camera looks at `centre` through a viewport of
+/// physical window pixels `(x, y, w, h)`, with its projection's scale and, for the flow's screen, a minimum 640 × 480
+/// area (`min_area`); the exact form is `mapview::MapView::pointer_map`.
+pub(crate) fn camera_point(
+    p: Vec2,
+    (x, y, w, h): (u32, u32, u32, u32),
+    factor: f32,
+    scale: f32,
+    min_area: Option<Vec2>,
+    centre: Vec2,
+) -> Vec2 {
+    use bevy::math::{Affine3A, Vec3A, proj};
+    let (pos, size) = (UVec2::new(x, y), UVec2::new(w.max(1), h.max(1)));
+    let min = pos.as_vec2() / factor;
+    let max = (pos + size).as_vec2() / factor;
+    let rel = (p - min) / (max - min);
+    let mut ndc = rel * 2.0 - Vec2::ONE;
+    ndc.y = -ndc.y;
+    // The projection's area (`OrthographicProjection::update`), centred.
+    let logical = size.as_vec2() / factor;
+    let (pw, ph) = match min_area {
+        None => (logical.x, logical.y),
+        Some(m) if logical.x * m.y > m.x * logical.y => (logical.x * m.y / logical.y, m.y),
+        Some(m) => (m.x, logical.y * m.x / logical.x),
+    };
+    let (ox, oy) = (pw * 0.5, ph * 0.5);
+    let area = Rect::new(scale * -ox, scale * -oy, scale * (pw - ox), scale * (ph - oy));
+    // A 2D camera's near and far planes, swapped as Bevy does.
+    let clip_from_view = proj::orthographic(area.min.x, area.max.x, area.min.y, area.max.y, 1000.0, -1000.0);
+    let view = clip_from_view.inverse().project_point3a(Vec3A::new(ndc.x, ndc.y, 1.0));
+    let world = Affine3A::from_translation(centre.extend(0.0)).transform_point3a(view);
+    Vec2::new(world.x, world.y)
 }
 
 /// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
@@ -1406,44 +1428,24 @@ fn pan_and_zoom(
     size: Res<MapSize>,
     mut zoom: ResMut<MapZoom>,
     windows: Query<&Window>,
-    mut cam: Query<(&Camera, &mut Transform, &mut Projection), With<MapCamera>>,
+    view: Option<ResMut<GameView>>,
 ) {
-    let Ok((camera, mut tf, mut proj)) = cam.single_mut() else {
-        return;
-    };
-    let Projection::Orthographic(ortho) = proj.as_mut() else {
-        return;
-    };
+    let Some(mut view) = view else { return };
     // + and - are the game speed keys; only the wheel zooms, and only as a development aid.
     if zoom.free && scroll.delta.y != 0.0 {
         let pixels = scroll.unit == bevy::input::mouse::MouseScrollUnit::Pixel;
         let steps = display::wheel_steps(&mut zoom.wheel, scroll.delta.y, pixels);
         if steps != 0 {
             zoom.zoom = display::zoom_step(zoom.zoom, steps);
-            if let Ok(window) = windows.single() {
-                ortho.scale = letterbox(window).projection_scale(zoom.zoom, window.scale_factor());
+            if windows.single().is_ok() {
+                view.zoom = zoom.zoom;
             }
         }
     }
 
     // Runs every frame, so a view moved any other way (minimap, start position) is kept on the map too. The view
-    // position is a whole tile (screen spec, "Layout"), so the view's top-left corner goes onto the tile grid first.
-    let half = camera.logical_viewport_size().unwrap_or(Vec2::ZERO) * ortho.scale / 2.0;
-    let t = TILE_PX as f32;
-    let left = ((tf.translation.x - half.x) / t).round() * t;
-    let top = ((-tf.translation.y - half.y) / t).round() * t;
-    tf.translation.x = keep_on_map(left + half.x, half.x, size.0.x);
-    tf.translation.y = -keep_on_map(top + half.y, half.y, size.0.y);
-}
-
-/// A view centre on one axis that keeps a view of half-width `half` inside a map `len` long; a map narrower than
-/// the view is centred.
-fn keep_on_map(c: f32, half: f32, len: f32) -> f32 {
-    if 2.0 * half >= len {
-        len / 2.0
-    } else {
-        c.clamp(half, len - half)
-    }
+    // position is a whole tile (screen spec, "Layout").
+    view.keep_on_map((size.0.x, size.0.y));
 }
 
 /// The app's real-time clock in whole milliseconds since the program started.
@@ -1471,24 +1473,16 @@ fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, ui: Res<PanelUi>, mut exit: M
     }
 }
 
-/// Lays the interface out on the 640 × 480 screen once, and keeps its cameras on the screen's place in the window
-/// (`display::Letterbox`): the interface picture at the window's whole-number scale, the map camera's viewport on the
-/// map view, and its projection at the zoom (one map pixel per screen pixel unless `--free-zoom`).
-#[allow(clippy::type_complexity)]
+/// Lays the interface out on the 640 × 480 screen once, and keeps the map view on its place in the layout at the
+/// zoom (one map pixel per screen pixel unless `--free-zoom`).
 fn hud_layout(
     windows: Query<&Window>,
     mut hud: ResMut<Hud>,
     zoom: Res<MapZoom>,
-    mut map_cam: Query<(&mut Camera, &mut Projection), (With<MapCamera>, Without<HudCamera>)>,
-    mut hud_cam: Query<&mut Camera, (With<HudCamera>, Without<MapCamera>)>,
-    mut sprite: Query<&mut Transform, With<HudSprite>>,
+    view: Option<ResMut<GameView>>,
+    sprite: Query<(), With<HudSprite>>,
 ) {
-    let (Ok(window), Ok((mut cam, mut proj)), Ok(mut hcam), Ok(mut tf)) = (
-        windows.single(),
-        map_cam.single_mut(),
-        hud_cam.single_mut(),
-        sprite.single_mut(),
-    ) else {
+    let (Ok(_), Some(mut view), Ok(())) = (windows.single(), view, sprite.single()) else {
         return;
     };
     let layout = match hud.layout {
@@ -1500,38 +1494,19 @@ fn hud_layout(
             layout
         }
     };
-    let lb = letterbox(window);
-    let factor = window.scale_factor();
-    // The interface camera looks at the screen's place in the window, with the picture at the whole-number scale.
-    set_viewport(&mut hcam, lb.screen());
-    let k = lb.scale as f32 / factor;
-    tf.translation = Vec3::ZERO;
-    tf.scale = Vec3::new(k, k, 1.0);
     let v = layout.viewport;
-    set_viewport(&mut cam, lb.rect(v.x, v.y, v.w, v.h));
-    if let Projection::Orthographic(o) = proj.as_mut() {
-        let scale = lb.projection_scale(zoom.zoom, factor);
-        if o.scale != scale {
-            o.scale = scale;
-        }
+    let rect = mapview::ScreenRect {
+        x: v.x.max(0),
+        y: v.y.max(0),
+        w: v.w.max(1),
+        h: v.h.max(1),
+    };
+    if view.rect != Some(rect) {
+        view.rect = Some(rect);
     }
-}
-
-/// Puts a camera's viewport on a rectangle of physical window pixels, touching the camera only when it moves.
-fn set_viewport(cam: &mut Mut<Camera>, (x, y, w, h): (u32, u32, u32, u32)) {
-    let (pos, size) = (UVec2::new(x, y), UVec2::new(w.max(1), h.max(1)));
-    if cam
-        .viewport
-        .as_ref()
-        .is_some_and(|v| v.physical_position == pos && v.physical_size == size)
-    {
-        return;
+    if view.zoom != zoom.zoom {
+        view.zoom = zoom.zoom;
     }
-    cam.viewport = Some(Viewport {
-        physical_position: pos,
-        physical_size: size,
-        ..default()
-    });
 }
 
 /// The window size at start (`display`): until the monitor is known, the window is the size `--ui-scale` gave (or
@@ -1567,13 +1542,8 @@ fn size_window(
     sizing.frames = MONITOR_WAIT + 1;
 }
 
-/// Keeps the window at least the 640 × 480 screen in physical pixels, and the front end's camera (menus, dialogs,
-/// videos) on the screen's place in the window, like the interface's (`hud_layout`).
-fn fit_screen(
-    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
-    mut front: Query<&mut Camera, With<frontend::FrontCamera>>,
-    script: Option<Res<script::Script>>,
-) {
+/// Keeps the window at least the 640 × 480 screen in physical pixels.
+fn fit_screen(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>, script: Option<Res<script::Script>>) {
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
@@ -1585,10 +1555,6 @@ fn fit_screen(
     if script.is_none() && (c.min_width != min_w || c.min_height != min_h) {
         window.resize_constraints.min_width = min_w;
         window.resize_constraints.min_height = min_h;
-    }
-    let screen = letterbox(&window).screen();
-    for mut cam in &mut front {
-        set_viewport(&mut cam, screen);
     }
 }
 
@@ -1935,9 +1901,8 @@ fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, kind: u8, tile:
 }
 
 /// Moves the map view's centre to map pixel `c`; `pan_and_zoom` keeps it on the map.
-fn centre_view(tf: &mut Transform, c: Vec2) {
-    tf.translation.x = c.x;
-    tf.translation.y = -c.y;
+fn centre_view(view: &mut mapview::MapView, c: Vec2) {
+    view.centre = (c.x, c.y);
 }
 
 /// The mouse on the map view, minimap and panel by the handler table (`mouse::action`, spec
@@ -1949,7 +1914,7 @@ fn mouse_input(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time<Real>>,
     windows: Query<&Window>,
-    mut cams: Query<(&Camera, &GlobalTransform, &mut Transform, &Projection), With<MapCamera>>,
+    view: Option<ResMut<GameView>>,
     sim: Option<ResMut<Sim>>,
     art: Option<Res<Art>>,
     mut sel: ResMut<Selection>,
@@ -1958,18 +1923,17 @@ fn mouse_input(
     mut scr: ResMut<ScreenUi>,
 ) {
     scr.pointer = None;
-    let (Some(mut sim), Ok(window), Ok((camera, gt, mut tf, proj)), Some(layout)) =
-        (sim, windows.single(), cams.single_mut(), hud.layout)
-    else {
+    let (Some(mut sim), Ok(window), Some(mut gv), Some(layout)) = (sim, windows.single(), view, hud.layout) else {
         return;
     };
+    let mv = &mut gv.0;
     let (sim, sel, ui, art) = (&mut *sim, &mut *sel, &mut *ui, art.as_deref());
     let enhanced = sim.world.rules.enhanced;
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
-    let at = cursor_map(window, &hud.locked, (camera, gt));
-    let view = view_tiles(camera, &tf, proj);
+    let at = cursor_map(window, &hud.locked, mv);
+    let view = mv.tiles();
     // Development aid (`--demo-site`): one placement click, after the first fog refresh so the site is explored.
     if ui.demo_click
         && let panel::Mode::Place(kind) = ui.mode
@@ -1993,7 +1957,7 @@ fn mouse_input(
     }
     // Minimap spec, "Moving the view with the minimap": presses in screen pixels.
     let width = hud.map.0;
-    let geom = view_geom(camera, &tf, proj, hud.map);
+    let geom = mv.geom(hud.map);
     let pointer = hud.cursor(window).map(|c| (c.x.floor() as i32, c.y.floor() as i32));
     let regions = mouse::Regions::of_layout(&layout);
     let on_minimap = hud
@@ -2006,12 +1970,7 @@ fn mouse_input(
         && buttons.pressed(MouseButton::Left)
         && let Some(p) = pointer
     {
-        move_view(
-            camera,
-            &mut tf,
-            proj,
-            minimap::view_for_press(width, p, geom.tiles, geom.max()),
-        );
+        mv.move_to(minimap::view_for_press(width, p, geom.tiles, geom.max()));
     }
     let mode = match ui.mode {
         panel::Mode::Target(_) => mouse::ModeKind::Target,
@@ -2099,17 +2058,12 @@ fn mouse_input(
             }
             mouse::Action::CentreView => {
                 if let Some(t) = map_tile {
-                    centre_view(&mut tf, Vec2::new(t.0 as f32 + 0.5, t.1 as f32 + 0.5) * TILE_PX as f32);
+                    centre_view(mv, Vec2::new(t.0 as f32 + 0.5, t.1 as f32 + 0.5) * TILE_PX as f32);
                 }
             }
             mouse::Action::MoveView => {
                 if let Some(p) = pointer {
-                    move_view(
-                        camera,
-                        &mut tf,
-                        proj,
-                        minimap::view_for_press(width, p, geom.tiles, geom.max()),
-                    );
+                    mv.move_to(minimap::view_for_press(width, p, geom.tiles, geom.max()));
                     sel.minimap_held = b == mouse::Button::Left;
                 }
             }
@@ -2171,11 +2125,12 @@ fn keys_input(
     ui: Res<PanelUi>,
     hud: Res<Hud>,
     mut scr: ResMut<ScreenUi>,
-    mut cams: Query<(&Camera, &mut Transform, &Projection), With<MapCamera>>,
+    view: Option<ResMut<GameView>>,
 ) {
-    let (Some(mut sim), Ok((camera, mut tf, proj))) = (sim, cams.single_mut()) else {
+    let (Some(mut sim), Some(mut gv)) = (sim, view) else {
         return;
     };
+    let mv = &mut gv.0;
     if ui.consumed {
         return;
     }
@@ -2187,8 +2142,8 @@ fn keys_input(
     {
         let now = (time.elapsed_secs_f64() * 1000.0) as u64;
         if let Some(v) = h.space(now, sim.world.rules.enhanced) {
-            let geom = view_geom(camera, &tf, proj, hud.map);
-            move_view(camera, &mut tf, proj, geom.clamp(v));
+            let geom = mv.geom(hud.map);
+            mv.move_to(geom.clamp(v));
         }
     }
     let m = mouse::KeyMods {
@@ -2206,7 +2161,7 @@ fn keys_input(
             mouse::KeyAction::Speed(faster) => sim.pending.push(Command::Speed { player: human, faster }),
             mouse::KeyAction::Pause => sim.pending.push(Command::Pause { player: human }),
             mouse::KeyAction::Group(key, g) => {
-                let view = view_tiles(camera, &tf, proj);
+                let view = mv.tiles();
                 let group = sim.world.selections[human as usize]
                     .groups
                     .get(g as usize)
@@ -2219,7 +2174,7 @@ fn keys_input(
                 });
                 if let Some(t) = plan.view {
                     let c = Vec2::new((t.0 + half) as f32 + 0.5, (t.1 + half) as f32 + 0.5);
-                    centre_view(&mut tf, c * TILE_PX as f32);
+                    centre_view(mv, c * TILE_PX as f32);
                 }
                 if let Some(units) = plan.select {
                     if let Some(&first) = units.first() {
@@ -2240,7 +2195,7 @@ fn keys_input(
                 if let Some(u) = sel.units.first().and_then(|&id| sim.world.unit(id))
                     && (u.owner == human || u.invisibility == 0)
                 {
-                    centre_view(&mut tf, Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32));
+                    centre_view(mv, Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32));
                 }
             }
             // Game-menu spec, Ctrl+M: the stored music volume swaps with 0; `sync_settings` passes it to the music.
@@ -2248,32 +2203,15 @@ fn keys_input(
                 stored.0.toggle_music();
             }
             mouse::KeyAction::GotoView(n) => {
-                let geom = view_geom(camera, &tf, proj, hud.map);
-                move_view(camera, &mut tf, proj, geom.clamp(scr.views[n as usize]));
+                let geom = mv.geom(hud.map);
+                mv.move_to(geom.clamp(scr.views[n as usize]));
             }
             mouse::KeyAction::RememberView(n) => {
-                scr.views[n as usize] = view_geom(camera, &tf, proj, hud.map).pos;
+                scr.views[n as usize] = mv.geom(hud.map).pos;
             }
             _ => {}
         }
     }
-}
-
-/// The main view in tiles: left, top, right, bottom.
-fn view_tiles(camera: &Camera, tf: &Transform, proj: &Projection) -> (f32, f32, f32, f32) {
-    let zoom = match proj {
-        Projection::Orthographic(o) => o.scale,
-        _ => 1.0,
-    };
-    let half = camera.logical_viewport_size().unwrap_or(Vec2::ONE) * zoom / 2.0;
-    let centre = Vec2::new(tf.translation.x, -tf.translation.y);
-    let t = TILE_PX as f32;
-    (
-        (centre.x - half.x) / t,
-        (centre.y - half.y) / t,
-        (centre.x + half.x) / t,
-        (centre.y + half.y) / t,
-    )
 }
 
 /// Plays the cues the sim queued since the last frame (sounds spec, "How a sound is played"), and shows their
@@ -2283,16 +2221,16 @@ fn play_sounds(
     sim: Option<ResMut<Sim>>,
     mut speaker: ResMut<Speaker>,
     mut sources: ResMut<Assets<AudioSource>>,
-    cam: Query<(&Camera, &Transform, &Projection), With<MapCamera>>,
+    view: Option<Res<GameView>>,
 ) {
-    let (Some(mut sim), Ok((camera, tf, proj))) = (sim, cam.single()) else {
+    let (Some(mut sim), Some(view)) = (sim, view) else {
         return;
     };
     let ui_sounds = std::mem::take(&mut sim.ui_sounds);
     if sim.world.sounds.cues.is_empty() && ui_sounds.is_empty() {
         return;
     }
-    let (l, t, r, b) = view_tiles(camera, tf, proj);
+    let (l, t, r, b) = view.tiles();
     let view = sound::View {
         x: l.floor() as i32,
         y: t.floor() as i32,
@@ -2345,7 +2283,7 @@ fn info_input(
     mut ui: ResMut<PanelUi>,
     mut panel: ResMut<InfoPanel>,
     scr: Res<ScreenUi>,
-    mut cam: Query<&mut Transform, With<MapCamera>>,
+    view: Option<ResMut<GameView>>,
 ) {
     panel.hover = None;
     let (Some(mut sim), Ok(window), Some(l)) = (sim, windows.single(), hud.layout) else {
@@ -2391,10 +2329,9 @@ fn info_input(
         }
         info::Click::Unload { transport, place } => sim.unload_one.push((transport, place)),
         info::Click::Centre(id) => {
-            if let (Some(u), Ok(mut tf)) = (sim.world.unit(id), cam.single_mut()) {
+            if let (Some(u), Some(mut view)) = (sim.world.unit(id), view) {
                 let (x, y) = u.centre_px();
-                tf.translation.x = x as f32;
-                tf.translation.y = -(y as f32);
+                view.centre = (x as f32, y as f32);
             }
         }
         info::Click::Nothing => {}
@@ -2450,29 +2387,6 @@ fn update_info(sim: Option<Res<Sim>>, mut sel: ResMut<Selection>, mut panel: Res
     });
 }
 
-/// The view position, its size in tiles and the map's (screen spec, "Layout"), from the map camera.
-fn view_geom(camera: &Camera, tf: &Transform, proj: &Projection, map: (u32, u32)) -> screen::ViewGeom {
-    let (l, t, r, b) = view_tiles(camera, tf, proj);
-    let size = |n: f32| {
-        let n = n.round() as i32;
-        // Before the camera has a viewport: the original screen's view.
-        if n < 1 { minimap::VIEW_TILES } else { n }
-    };
-    screen::ViewGeom {
-        pos: (l.round() as i32, t.round() as i32),
-        tiles: (size(r - l), size(b - t)),
-        map: (map.0 as i32, map.1 as i32),
-    }
-}
-
-/// Moves the map view so that its top-left tile is `pos`; `pan_and_zoom` keeps it on the map.
-fn move_view(camera: &Camera, tf: &mut Transform, proj: &Projection, pos: (i32, i32)) {
-    let (l, t, _, _) = view_tiles(camera, tf, proj);
-    let px = TILE_PX as f32;
-    tf.translation.x += (pos.0 as f32 - l) * px;
-    tf.translation.y -= (pos.1 as f32 - t) * px;
-}
-
 /// Scrolling at the screen edge and with the keys (`screen`, spec `ui/screen-and-cursors.md`, "Scrolling"); also sets
 /// the scrolling edge that blocks this frame's clicks.
 #[allow(clippy::too_many_arguments)]
@@ -2483,15 +2397,13 @@ fn scroll_view(
     sim: Option<Res<Sim>>,
     hud: Res<Hud>,
     mut scr: ResMut<ScreenUi>,
-    mut cams: Query<(&Camera, &mut Transform, &Projection), With<MapCamera>>,
+    view: Option<ResMut<GameView>>,
 ) {
     scr.edge = (0, 0);
-    let (Some(sim), Ok(window), Ok((camera, mut tf, proj)), Some(l)) =
-        (sim, windows.single(), cams.single_mut(), hud.layout)
-    else {
+    let (Some(sim), Ok(window), Some(mut view), Some(l)) = (sim, windows.single(), view, hud.layout) else {
         return;
     };
-    let geom = view_geom(camera, &tf, proj, hud.map);
+    let geom = view.geom(hud.map);
     // No menus or demo yet: only a pause blocks scrolling.
     let blocked = sim.world.paused;
     if !blocked && let Some(c) = hud.cursor(window) {
@@ -2535,7 +2447,7 @@ fn scroll_view(
         blocked,
     };
     if let Some(d) = scr.scroller.update(input) {
-        move_view(camera, &mut tf, proj, geom.step(d));
+        view.move_to(geom.step(d));
     }
 }
 
@@ -2676,13 +2588,31 @@ fn draw_hud(
 
 #[cfg(test)]
 mod tests {
-    use super::keep_on_map;
+    use super::*;
 
     #[test]
-    fn the_view_stays_on_the_map() {
-        assert_eq!(keep_on_map(10.0, 100.0, 1000.0), 100.0);
-        assert_eq!(keep_on_map(990.0, 100.0, 1000.0), 900.0);
-        assert_eq!(keep_on_map(500.0, 100.0, 1000.0), 500.0);
-        assert_eq!(keep_on_map(10.0, 600.0, 1000.0), 500.0, "a small map is centred");
+    fn a_camera_point_is_the_exact_point_give_or_take_rounding() {
+        // The map view at factor 2 and scale 2 (`display::Letterbox`): screen pixel (620, 460) is 220 pixels right of
+        // and 220 below the view's centre, at one map pixel per screen pixel.
+        let lb = display::Letterbox::fit((1280, 960));
+        let at = camera_point(
+            Vec2::new(620.0, 460.0),
+            lb.rect(176, 16, 448, 448),
+            2.0,
+            1.0 * 2.0 / lb.scale as f32,
+            None,
+            Vec2::new(1000.0, -500.0),
+        );
+        assert!((at - Vec2::new(1220.0, -720.0)).abs().max_element() < 1e-3, "{at}");
+        // The flow's screen: the window's middle is the screen's.
+        let at = camera_point(
+            Vec2::new(320.0, 240.0),
+            lb.screen(),
+            2.0,
+            1.0,
+            Some(Vec2::new(640.0, 480.0)),
+            Vec2::ZERO,
+        );
+        assert!(at.abs().max_element() < 1e-3, "{at}");
     }
 }

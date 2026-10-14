@@ -2,17 +2,17 @@
 //! window's whole-number scale with black around it (`display::Letterbox`). This is the first step of the
 //! engine-neutral client core (`docs/design/client-core.md`): Bevy no longer stacks the screen's layers itself.
 //!
-//! The layers are still kept in Bevy's world as sprites, and the cameras that used to draw them still give the
-//! pointer's place, but none of them draws: [`compose_screen`] reads the layers and places them on the screen the way
-//! the cameras did, in the same order:
+//! The layers are still kept in Bevy's world as sprites, but nothing draws them: [`compose_screen`] reads the layers
+//! and places them on the screen the way the cameras that used to draw them did, in the same order. The map view's
+//! place, centre and zoom are the core's (`mapview`, step 2 of the design); there are no game cameras any more.
 //!
 //! | Order | Layer | Placed |
 //! |---|---|---|
-//! | 1 | Map sprites: terrain, map view, placement image (by z) | In the map view (`hud::Layout::viewport`), around the map camera's centre, at the zoom |
+//! | 1 | Map sprites: terrain, map view, placement image (by z) | In the map view (`hud::Layout::viewport`), around the view's centre, at the zoom |
 //! | 2 | The interface picture (`Hud`) | Centred on the screen, one texel per screen pixel |
 //! | 3 | The flow's layers (`frontend`, `gamemenu`: screens, dialogs, menus), by z | Centred on the screen at their size, with their fade |
 //!
-//! Outside a game the flow's camera cleared the screen before its layers, so only they show there.
+//! Outside a game the flow's screen is cleared before its layers (`frontend::FrontScreen`), so only they show there.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -21,8 +21,8 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::compose::{self, Clip, Frame, Placed};
-use crate::frontend::{FRONT_LAYER, FrontCamera, Persist};
-use crate::{HUD_LAYER, Hud, MapCamera};
+use crate::frontend::{FRONT_LAYER, FrontScreen, Persist};
+use crate::{GameView, HUD_LAYER, Hud};
 
 /// The render layer only the screen's own camera and picture are on.
 const SCREEN_LAYER: usize = 30;
@@ -104,8 +104,8 @@ fn compose_screen(
     screen: Res<Screen>,
     windows: Query<&Window, With<PrimaryWindow>>,
     hud: Option<Res<Hud>>,
-    map_cam: Query<(&GlobalTransform, &Projection), With<MapCamera>>,
-    front_cam: Query<&Camera, With<FrontCamera>>,
+    map_view: Option<Res<GameView>>,
+    front_screen: Res<FrontScreen>,
     sprites: Query<
         (
             Entity,
@@ -117,27 +117,23 @@ fn compose_screen(
         Without<ScreenSprite>,
     >,
 ) {
-    let Ok(window) = windows.single() else { return };
-    let lb = crate::letterbox(window);
-    let factor = window.scale_factor() as f64;
-    // Outside a game the flow's camera clears the screen first (`frontend::camera_clear`).
-    let front_clears = front_cam
-        .iter()
-        .any(|c| !matches!(c.clear_color, ClearColorConfig::None));
+    if windows.single().is_err() {
+        return;
+    }
+    // Outside a game the flow's screen clears the screen first (`frontend::camera_clear`).
+    let front_clears = front_screen.clears;
     let (center_x, center_y) = (compose::W as f64 / 2.0, compose::H as f64 / 2.0);
     let mut map = Vec::new();
     let mut interface = Vec::new();
     let mut front = Vec::new();
     // The map view: its rectangle on the screen, the map pixel at its centre, and map pixels per screen pixel.
-    let view = match (hud.as_ref().and_then(|h| h.layout), map_cam.single()) {
-        (Some(layout), Ok((tf, Projection::Orthographic(o)))) => {
+    let view = match (hud.as_ref().and_then(|h| h.layout), map_view) {
+        (Some(layout), Some(mv)) => {
             let v = layout.viewport;
-            let t = tf.translation();
-            let per_px = o.scale as f64 * lb.scale as f64 / factor;
             Some((
                 Clip::new(v.x.max(0), v.y.max(0), v.w.max(1) as i32, v.h.max(1) as i32),
-                (t.x as f64, -t.y as f64),
-                per_px,
+                (mv.centre.0 as f64, mv.centre.1 as f64),
+                mv.zoom as f64,
             ))
         }
         _ => None,

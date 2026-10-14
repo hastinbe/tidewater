@@ -124,11 +124,6 @@ impl Letterbox {
             (self.offset.1 as f32 + SCREEN.1 as f32 * s / 2.0) / factor,
         )
     }
-
-    /// The map camera's projection scale (map pixels per logical point) for `zoom` map pixels per screen pixel.
-    pub fn projection_scale(&self, zoom: f32, factor: f32) -> f32 {
-        zoom * factor / self.scale as f32
-    }
 }
 
 /// What decides the mouse lock.
@@ -271,16 +266,6 @@ mod tests {
         assert!(!lock_wanted(LockInput { in_game: false, ..on }));
         assert!(!lock_wanted(LockInput { focused: false, ..on }));
         assert!(!lock_wanted(LockInput { held_free: true, ..on }));
-    }
-
-    #[test]
-    fn map_projection_draws_one_map_pixel_per_screen_pixel() {
-        // Scale 3 on a factor-2 display: a screen pixel is 1.5 points, so 1/1.5 map pixels per point.
-        let lb = Letterbox::fit((1920, 1440));
-        assert!((lb.projection_scale(1.0, 2.0) - 2.0 / 3.0).abs() < 1e-6);
-        // So the 448-pixel map view, 448 × 3 / 2 points wide, shows 448 map pixels: 14 tiles.
-        assert!((448.0 * 3.0 / 2.0 * lb.projection_scale(1.0, 2.0) - 448.0).abs() < 1e-3);
-        assert_eq!(Letterbox::fit((1280, 960)).projection_scale(2.0, 1.0), 1.0);
     }
 
     #[test]

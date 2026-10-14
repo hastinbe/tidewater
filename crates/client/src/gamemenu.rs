@@ -41,7 +41,7 @@ use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{self, AppState, FRONT_LAYER, Flow, Front, FrontCamera, LockedPointer, Persist};
+use crate::frontend::{self, AppState, FRONT_LAYER, Flow, Front, FrontScreen, LockedPointer, Persist};
 use crate::hud::{self, Rect};
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
@@ -774,7 +774,7 @@ fn gather_saving_input(
     keys: Res<ButtonInput<KeyCode>>,
     mouse_in: Res<ButtonInput<MouseButton>>,
     window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
 ) {
     input.0 = saving_input(&mut typed, &mut wheel, &keys, &mouse_in, &window, &cam, &locked);
@@ -787,7 +787,7 @@ pub(crate) fn saving_input(
     keys: &ButtonInput<KeyCode>,
     mouse_in: &ButtonInput<MouseButton>,
     window: &Query<&Window, With<PrimaryWindow>>,
-    cam: &Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: &FrontScreen,
     locked: &LockedPointer,
 ) -> savedlg::Input {
     let mut i = savedlg::Input {
@@ -837,7 +837,7 @@ fn run_menu(
     mut flow: ResMut<Flow>,
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     layer: Query<Entity, With<MenuLayer>>,
     mouse_in: Res<ButtonInput<MouseButton>>,

@@ -25,7 +25,7 @@ use tidewater_sim::setup::Setup;
 use crate::frontend::{AppState, Flow, Step};
 use crate::savefile::{self, Body, ClientState, Header, Kind, Reason};
 use crate::saves::SaveDir;
-use crate::{Cycling, MapCamera, Sim, jukebox::Jukebox};
+use crate::{Cycling, GameView, Sim, jukebox::Jukebox};
 
 /// The save folder in use.
 #[derive(Resource, Clone, Debug)]
@@ -128,11 +128,9 @@ pub fn capture(world: &mut World, name: &str) -> Option<Vec<u8>> {
     let clock_ms = world.get_resource::<GameClock>().map(|c| c.ms(Instant::now()));
     let pause_counts = world.get_resource::<PauseCounts>().map(|p| p.0);
     let music = world.resource::<Jukebox>().music().current();
-    let screen = {
-        let mut q = world.query_filtered::<&Transform, With<MapCamera>>();
-        q.single(world)
-            .map_or((0, 0), |t| (t.translation.x as i32, -t.translation.y as i32))
-    };
+    let screen = world
+        .get_resource::<GameView>()
+        .map_or((0, 0), |v| (v.centre.0 as i32, v.centre.1 as i32));
     let (game, total, memory, start_controllers) = {
         let f = world.resource::<Flow>();
         (

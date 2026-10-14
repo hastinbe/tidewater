@@ -20,7 +20,6 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::ScalingMode;
 use bevy::camera::visibility::RenderLayers;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseWheel;
@@ -456,8 +455,29 @@ pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Ste
 #[derive(Component)]
 pub struct Persist;
 
-#[derive(Component)]
-pub(crate) struct FrontCamera;
+/// The flow's screen (`docs/design/client-core.md`, step 2): whether its layers cover what is under them (outside a
+/// game, and over a game only where they are drawn), and whether the pointer can be read on it yet. The pointer is
+/// read from the end of the program's first frame on, as when a camera gave it.
+#[derive(Resource)]
+pub struct FrontScreen {
+    pub clears: bool,
+    ready: bool,
+}
+
+impl Default for FrontScreen {
+    fn default() -> FrontScreen {
+        FrontScreen {
+            clears: true,
+            ready: false,
+        }
+    }
+}
+
+fn front_screen_ready(mut screen: ResMut<FrontScreen>) {
+    if !screen.ready {
+        screen.ready = true;
+    }
+}
 
 /// A front-end picture layer: 0 the background, 1 the overlay drawn over it.
 #[derive(Component)]
@@ -487,8 +507,9 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Jukebox>()
         .init_resource::<MenuClock>()
         .init_resource::<LockedPointer>()
+        .init_resource::<FrontScreen>()
+        .add_systems(PostUpdate, front_screen_ready)
         .add_systems(Update, jukebox::play_music)
-        .add_systems(Startup, spawn_camera)
         .add_systems(OnEnter(AppState::Video), enter_video)
         .add_systems(OnEnter(AppState::Title), enter_title)
         .add_systems(OnEnter(AppState::MainMenu), enter_menu)
@@ -527,39 +548,9 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn((
-        Camera2d,
-        // It no longer draws (`shell` composes the screen); it gives the screen's place in the window to the pointer,
-        // and whether the flow's layers cover what is under them.
-        Camera {
-            order: 10,
-            clear_color: ClearColorConfig::Custom(Color::BLACK),
-            is_active: false,
-            ..default()
-        },
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::AutoMin {
-                min_width: W as f32,
-                min_height: H as f32,
-            },
-            ..OrthographicProjection::default_2d()
-        }),
-        RenderLayers::layer(FRONT_LAYER),
-        FrontCamera,
-        Persist,
-    ));
-}
-
-/// The front camera clears to black except over the game screen.
-fn camera_clear(state: Res<State<AppState>>, mut cams: Query<&mut Camera, With<FrontCamera>>) {
-    for mut c in &mut cams {
-        c.clear_color = if *state.get() == AppState::Game {
-            ClearColorConfig::None
-        } else {
-            ClearColorConfig::Custom(Color::BLACK)
-        };
-    }
+/// The flow's screen clears to black except over the game screen.
+fn camera_clear(state: Res<State<AppState>>, mut screen: ResMut<FrontScreen>) {
+    screen.clears = *state.get() != AppState::Game;
 }
 
 fn show_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) {
@@ -687,13 +678,24 @@ impl LockedPointer {
 /// The pointer in screen pixels (640x480).
 pub(crate) fn pointer(
     window: &Query<&Window, With<PrimaryWindow>>,
-    cam: &Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: &FrontScreen,
     locked: &LockedPointer,
 ) -> Option<Vec2> {
     let w = window.single().ok()?;
-    let (c, t) = cam.single().ok()?;
-    let p = c.viewport_to_world_2d(t, locked.at(w)?).ok()?;
-    Some(Vec2::new(p.x + W as f32 / 2.0, H as f32 / 2.0 - p.y))
+    let p = locked.at(w)?;
+    if !cam.ready {
+        return None;
+    }
+    // The flow's camera looked at the screen's place in the window, at least 640 × 480 across.
+    let at = crate::camera_point(
+        p,
+        crate::letterbox(w).screen(),
+        w.scale_factor(),
+        1.0,
+        Some(Vec2::new(W as f32, H as f32)),
+        Vec2::ZERO,
+    );
+    Some(Vec2::new(at.x + W as f32 / 2.0, H as f32 / 2.0 - at.y))
 }
 
 pub(crate) fn centred(dst: &mut Picture, font: &Font, y: i32, s: &str) {
@@ -1140,7 +1142,7 @@ fn run_menu(
     folder: Res<crate::savegame::SaveFolder>,
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1218,7 +1220,7 @@ fn run_menu_load(
     mut images: ResMut<Assets<Image>>,
     (mut typed, mut wheel): (MessageReader<KeyboardInput>, MessageReader<MouseWheel>),
     window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1266,7 +1268,7 @@ fn run_new_campaign(
     front: Res<Front>,
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1597,7 +1599,7 @@ fn watch_outcome(
     sim: Option<Res<crate::Sim>>,
     dialog: Option<Res<OutcomeDialog>>,
     mut images: ResMut<Assets<Image>>,
-    mut cams: Query<&mut Camera, With<FrontCamera>>,
+    mut screen: ResMut<FrontScreen>,
     mut music: ResMut<Jukebox>,
 ) {
     let (Some(sim), None) = (sim, dialog) else { return };
@@ -1606,9 +1608,7 @@ fn watch_outcome(
     };
     // Music spec: a game that ends fades all sound before the score screen.
     music.fade_stop(true, None);
-    for mut c in &mut cams {
-        c.clear_color = ClearColorConfig::None;
-    }
+    screen.clears = false;
     let image = spawn_layer(&mut commands, &mut images, blank(), 1, AppState::Game, None);
     commands.insert_resource(OutcomeDialog {
         victory: o == Outcome::Victory,
@@ -1665,7 +1665,7 @@ fn run_dialog(
     mut front: ResMut<Front>,
     mut images: ResMut<Assets<Image>>,
     window: Query<&Window, With<PrimaryWindow>>,
-    cam: Query<(&Camera, &GlobalTransform), With<FrontCamera>>,
+    cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,

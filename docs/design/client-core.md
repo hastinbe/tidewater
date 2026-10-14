@@ -180,7 +180,7 @@ the snapshot didn't change.
 | Step | Moves | From → to | Snapshot |
 |---|---|---|---|
 | 1 ✓ | Frame composition | Bevy cameras and sprites → `compose` + `shell` | unchanged |
-| 2 | Map view geometry and the pointer | Map, interface and flow cameras → a `MapView` (centre, zoom, view rectangle) and `display::Letterbox` | unchanged |
+| 2 ✓ | Map view geometry and the pointer | Map, interface and flow cameras → a `MapView` (centre, zoom, view rectangle) and `display::Letterbox` | unchanged |
 | 3 | The layers | Sprites and image assets → pictures the core owns (`Screen`: map, interface, flow layers) | unchanged |
 | 4 | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
 | 5 | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
@@ -197,6 +197,7 @@ Each step lands with the snapshot unchanged, or blessed with the reason in the c
 | What | Why | Plan |
 |---|---|---|
 | Fade colours | Already changed in step 1: the GPU's tint differed by 1 step in some values; the CPU's is exact. | Accepted. |
+| Pointer positions | The pointer's map and screen positions are still reached by a 2D camera's float steps (`main.rs`, `camera_point`), now without a camera. The exact form (`mapview::MapView::pointer_map`) lands one map pixel off at some points: a drag rectangle's edge in the campaign scene moved by a pixel in frames 642 and 643. | Switch to the exact form when the shell is thinned (step 9), and bless the snapshot then, saying why. |
 | An indexed frame | The interface's own colours and grey fades aren't palette entries. | Keep RGBA until a spec read of `docs/specs/ui/*` (`game-menu.md`, `palette-effects.md`) gives the original's palette colours. |
 | The pointer outside a game | The flow's screens and the game menu show the system pointer today; a core-drawn arrow is a visible change. | Ask Nick (above). |
 | Music timing | The jukebox follows the device's play position today, which depends on the sound device's latency. | The mixer's position is exact; loop points move by the old latency. |
