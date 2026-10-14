@@ -81,6 +81,30 @@ pub(crate) fn target_of(o: Order) -> Option<UnitId> {
     }
 }
 
+/// Orders 12, 15 and 16: the attack orders on a target the unit's own search found. Their run makes the target search
+/// before the lost-target check ("Arriving and losing the target"; round-40 and round-42 errata), and the friendly-fire
+/// check applies to them ("Friendly-fire check (orders 12, 15 and 16)").
+fn found_target(o: Order) -> bool {
+    matches!(
+        o,
+        Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
+    )
+}
+
+/// "Attack orders", step 2 for orders 9, 11 and 17: instead of a target search, a dying attacker is forgotten.
+fn forgets_dying_attacker(o: Order) -> bool {
+    matches!(
+        o,
+        Order::Attack { .. } | Order::AttackWall { .. } | Order::AttackGround { .. }
+    )
+}
+
+/// "Order 12 with no route", step 3 (round-48 errata): the orders whose run the skip mark gates, idle and the attack
+/// orders 2, 9, 11, 12, 13, 15, 16 and 17.
+fn skip_mark_gates(o: Order) -> bool {
+    matches!(o, Order::Idle | Order::StandGround) || forgets_dying_attacker(o) || found_target(o)
+}
+
 /// Orders a follower keeps following ("Follow").
 fn followable(o: Order) -> bool {
     matches!(
@@ -533,6 +557,14 @@ impl World {
     /// The per-step order logic for the orders this module owns. Returns false for orders it doesn't handle.
     pub(crate) fn run_order(&mut self, i: usize) -> bool {
         let o = self.units[i].order;
+        // Orders spec, "A dying attacker in orders 9, 11 and 17" (V136, V137): their logic first forgets a recorded
+        // attacker that is dying or no longer in play, before the target check.
+        if forgets_dying_attacker(o)
+            && let Some(a) = self.units[i].attacked_by
+            && self.dying_or_gone(a)
+        {
+            self.units[i].attacked_by = None;
+        }
         // "Idle look-around": the first thing each run of the idle logic (orders 2 and 13) does. A critter that
         // wanders is in its move now, so the rest of the idle logic doesn't run on the old order.
         if matches!(o, Order::Idle | Order::StandGround) && self.look_around(i) {
@@ -545,10 +577,7 @@ impl World {
         let lost = target_of(o).is_some_and(|t| forgot || self.target_lost(self.units[i].owner, t));
         // Round-40 errata: order 12 runs its target search first, and only if it finds nothing new is the target lost.
         // Round-42 errata: so do orders 15 and 16, so a dying target stays the target until then.
-        let search_first = matches!(
-            o,
-            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
-        );
+        let search_first = found_target(o);
         // Round-49 errata ("Commands", command 4): order 4 with a target unit ends at its run once that target is dying
         // or lost, as on arrival: idle (or the resumed order) takes over in the same update (`xhuman7-10000` giant
         // turtle 1511, n = 271).
@@ -582,19 +611,7 @@ impl World {
         // "Order 12 with no route" (round-47 errata): a unit marked by that fallback skips the target search (and with
         // it the acquisition) in its next order-logic run. Round-48 errata: if that run's order is idle or an attack
         // order (2, 9, 11, 12, 13, 15, 16 or 17); `World::order` clears the mark at the run's end.
-        let skip = self.units[i].skip_search
-            && matches!(
-                o,
-                Order::Idle
-                    | Order::Attack { .. }
-                    | Order::AttackWall { .. }
-                    | Order::Chase { .. }
-                    | Order::StandGround
-                    | Order::AttackInPlace { .. }
-                    | Order::IdleReact { .. }
-                    | Order::AttackGround { .. }
-            )
-            && !self.out_of_reach(i);
+        let skip = self.units[i].skip_search && skip_mark_gates(o) && !self.out_of_reach(i);
         // Round-51 errata, "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): in orders 4
         // and 10 the arrival test comes before the target search, so a unit standing at its move goal arrives below
         // with no acquisition in that run.
@@ -657,6 +674,7 @@ impl World {
                 }
             }
             Order::Attack { target } | Order::Chase { target } => self.attack_order(i, target),
+            Order::AttackWall { tile } => self.attack_wall_order(i, tile),
             Order::AttackInPlace { target } | Order::IdleReact { target } => self.attack_in_place(i, target),
             Order::AttackGround { tile } => self.attack_ground(i, tile),
             Order::AttackGroundMove { tile } => self.attack_ground_move(i, tile),
@@ -1202,11 +1220,7 @@ impl World {
         // ballista 1483 at n = 227): after a target switch in orders 12, 15 and 16 the run goes on with the new
         // target, and the check is made on it (not while still cooling down).
         let tile = t.tile;
-        if matches!(
-            u.order,
-            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
-        ) && self.holds_fire(i, tile)
-        {
+        if found_target(u.order) && self.holds_fire(i, tile) {
             return true;
         }
         let u = &self.units[i];
@@ -1216,10 +1230,7 @@ impl World {
                 | (Order::AttackInPlace { .. }, Order::AttackInPlace { .. })
                 | (Order::IdleReact { .. }, Order::IdleReact { .. })
         );
-        let attack_order = matches!(
-            u.order,
-            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
-        );
+        let attack_order = found_target(u.order);
         // Round-64 errata, "Automatic target acquisition", the cooling-down case (traced in round 66:
         // `orc9-orc09-order16-keep-2000` grunt 1492, n = 937): a unit in order 16 still cooling down whose search gives
         // order 12 keeps order 16 on the new target, waiting for the cooldown left; there is no take-over with wait 3.
@@ -1409,11 +1420,7 @@ impl World {
     /// (whose strike decision would only restart its animation) isn't checked in that run.
     pub(crate) fn holds_fire(&mut self, i: usize, at: (i32, i32)) -> bool {
         let u = &self.units[i];
-        let in_order = matches!(
-            u.order,
-            Order::Chase { .. } | Order::AttackInPlace { .. } | Order::IdleReact { .. }
-        );
-        if !in_order || self.flags_of_unit(u) & flags::GROUND_ATTACK == 0 {
+        if !found_target(u.order) || self.flags_of_unit(u) & flags::GROUND_ATTACK == 0 {
             return false;
         }
         if !u.building && u.layer != Layer::Air && (u.script.wait as u16) < u.cooldown {

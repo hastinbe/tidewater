@@ -326,22 +326,11 @@ impl World {
 
     /// The order logic proper, run at a "step done" with no pending order to take over.
     fn order_logic(&mut self, i: usize) {
-        // Orders spec, "A dying attacker in orders 9, 11 and 17" (round-43 errata): their logic first forgets a
-        // recorded attacker that is dying or no longer in play, before the target check.
-        if matches!(
-            self.units[i].order,
-            Order::Attack { .. } | Order::AttackWall { .. } | Order::AttackGround { .. }
-        ) && let Some(a) = self.units[i].attacked_by
-            && self.unit(a).is_none_or(|a| a.dying)
-        {
-            self.units[i].attacked_by = None;
-        }
         if self.run_order(i) || self.run_transport(i) || self.run_spell(i) {
             return;
         }
         let order = self.units[i].order;
         match order {
-            Order::AttackWall { tile } => self.attack_wall_order(i, tile),
             // Orders spec, "The reaction": orders 23, 24 and 27 run it in their logic once their walk has ended
             // (round-63 errata), so each calls it itself.
             Order::Repair { target } => self.repair_order(i, target),
