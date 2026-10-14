@@ -133,12 +133,15 @@
   2026-10-13, round-64 errata: order 34 runs the reaction only when it has reached its transport, can't board and keeps
   waiting; order 6 runs the reaction but not its result, and follows (or guards) the unit the search picked; no route
   is not a walk end for the reaction; the arrival switch has no attacker condition (wording); order 16 still cooling
-  down keeps its order when the search gives order 12 (provisional: an uncommitted capture); round-64 vectors.
+  down keeps its order when the search gives order 12; round-64 vectors.
   2026-10-13, round-65 errata: a walk whose order holds a target unit heads for the target where it stands now, not
   for the stored goal (traced for order 4 on a transport; static study only for other orders and for building
   targets); a follower inside the radius gets guard (order 7) as a pending order that takes over in the same update
   (still animation, wait 3); a guard with no route follows the generic no-route rule (traced, no rule change); the
   computer player's boarding move is traced; round-65 vectors.
+  2026-10-14, round-66 errata (evidence only, no rule change): order 16 still cooling down keeps its order when the
+  search gives order 12 is traced and no longer provisional (`orc9-orc09-order16-keep-2000` n = 937); repair (order 27)
+  and order 9 with a building target, with no route, are traced to follow the generic no-route rule; round-66 vectors.
 
 ## Behaviour
 
@@ -570,7 +573,8 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   the job choice, whose new command takes over in the same update (wait 3). Guard (order 7) has no special case
   either: a guarding unit with no route goes idle at once, forgets its target and runs the idle logic, look-around
   draw included, in the same update (traced: `orc12-orc12-guard-board-full-900` n = 520, round-65 vectors). Repair
-  (order 27) is the same (static study only).
+  (order 27) is the same (traced: `orc9-orc09-repair-water-1300` n = 887, round-66 vectors; that it doesn't react is
+  static study only). Order 9 with a building target is traced too (same trace, n = 942).
 - **A shore building as the target.** A unit that is neither a sea nor an air unit, with a shore building as its
   target, walks to the shore corner goal (`movement/pathfinding.md`, "Shore building") and is within reach when the
   larger of its x and y distances to that tile is at most its attack range (`movement/movement.md`, "Arriving").
@@ -914,11 +918,10 @@ the unit keeps its order and takes the new target at once, and the order the sea
 order 16 whose search gives order **12** (it has an attacker, or it is a computer player's unit and the target is a
 building or can attack), the unit stays in **order 16** on the new target, waiting for the cooldown left: there is no
 take-over with wait 3. With no cooldown left the table applies as usual. Traced for order 16 when the search gives the
-same order: `xhuman12-10000`, vectors below. **Provisional** for order 16 when the search gives order 12: it is shown
-only by a capture that isn't committed, `xorc5-30000` n = 20526 (Enhanced, 89.6 MB; reproducible with
-`oracle/capture.sh xorc5 30000`; the committed `xorc5-18500` stops before it), and by a break capture on the search's
-attacker branch at that cycle whose log wasn't kept; it agrees with the traced restart of "Losing the target while
-cooling down". The computer-player case with no attacker is static study only, and so is order 15 (its table order
+same order: `xhuman12-10000`, vectors below. Traced for order 16 when the search gives order 12:
+`orc9-orc09-order16-keep-2000` n = 937 (round-66 vectors; with this rule off the comparison fails there), and the
+uncommitted capture `xorc5-30000` n = 20526 (round-64 vectors). It agrees with the traced restart of "Losing the target
+while cooling down". The computer-player case with no attacker is static study only, and so is order 15 (its table order
 is 15 anyway).
 
 **Attack-move: orders 4, 5 and (Enhanced) 10.** When a unit in order 4 (move, attacking on the way), 5 (patrol) or, in
@@ -1541,7 +1544,7 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | A follower in order 6 with an attacker whose route search finds no route (static study) | Idle as an immediate order; the idle logic runs, not order 6's reaction |
 | `orc12-orc12-board-attacked-1000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-board-attacked.txt`): ogre 1439 (type 0x07, owner 0), fighting player 3's ogre 1442 (type 0x07), is smart-moved onto its own docked transport 1434 (type 0x1D) at n = 602 (turn record) and hit at n = 608 | Order 34 from n = 622; it walks to the transport and is aboard at n = 661 (order 36); it never turns on 1442 (`orders/transports.md`, round-64 vectors) |
 | `human4-15000` (oracle trace, Enhanced), n = 638: computer peon 1531 (type 0x03, owner 0), no attacker, reaches its tree at (75, 79) | The arrival switch with no attacker: animation 3 to 4, frame 0, wait 1 in that record (that chopping doesn't start its animation a second time is static study) |
-| `xorc5-30000` (oracle capture, Enhanced, **not committed**; reproducible with `oracle/capture.sh xorc5 30000`), n = 20526: ogre 1450 (type 0x07, owner 5, the human player) at (6, 89) in order 16, attacked by footmen 1474 at (6, 88) and 1403 at (7, 88) (type 0x00, owner 1); its target changed from 1474 to 1403 at n = 20523, and it was hit at n = 20525 (hp 82) | **Provisional.** Its search, with that attacker, picks 1474: order 16, target 1474, wait 23 (the cooldown left), not order 12 with wait 3. It goes on striking in order 16 (n = 20550: frame 25, wait 3); order 12 never appears |
+| `xorc5-30000` (oracle capture, Enhanced, **not committed**; reproducible with `oracle/capture.sh xorc5 30000`), n = 20526: ogre 1450 (type 0x07, owner 5, the human player) at (6, 89) in order 16, attacked by footmen 1474 at (6, 88) and 1403 at (7, 88) (type 0x00, owner 1); its target changed from 1474 to 1403 at n = 20523, and it was hit at n = 20525 (hp 82) | Traced (also shown by `orc9-orc09-order16-keep-2000`, round-66 vectors). Its search, with that attacker, picks 1474: order 16, target 1474, wait 23 (the cooldown left), not order 12 with wait 3. It goes on striking in order 16 (n = 20550: frame 25, wait 3); order 12 never appears |
 
 ### Round-65 vectors
 
@@ -1554,7 +1557,15 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | Same trace, n = 608 | Order 3, still animation, wait 3, target none (the flee from order 7's idle logic); it is at (50, 89) from n = 611 |
 | `orc12-orc12-guard-board-full-900` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-guard-board-full.txt`), n = 202 (turn record of the input at n = 200): ogre 1450 (type 0x07, owner 0) smart-moved onto goblin zeppelin 1455 (type 0x29), idle at (18, 116) | Order 6 from n = 205; n = 220, at (19, 117): order 7, still animation, wait 3, target 1455 |
 | Same trace, n = 502 (turn record of the input at n = 500): 1455 told to fly to (10, 108), over the sea | Order 3 from n = 503; 1450 walks after it to (18, 116) (n = 508). n = 520: 1450 finds no route: order 2, wait 1, target none, and the look-around draw in that cycle (4 draws in the cycle) |
-| A peasant repairing (order 27) whose route search finds no route (static study) | Idle as an immediate order (wait 1), target forgotten; the idle logic runs in the same update; no reaction |
+| A peasant repairing (order 27) whose route search finds no route (traced: `orc9-orc09-repair-water-1300` n = 887, round-66 vectors; "no reaction" is static study only) | Idle as an immediate order (wait 1), target forgotten; the idle logic runs in the same update; no reaction |
+
+### Round-66 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc9-orc09-order16-keep-2000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-order16-keep.txt`), n = 936: grunt 1492 (type 0x01, owner 5, the human player) at (6, 87) in order 16 on footman 1485 (type 0x00, owner 0) since n = 934, wait 1, still cooling down; footman 1484 (type 0x00, owner 0) at (5, 88), in order 12 on 1492, strikes it (hp 60 to 52) | n = 937: order 16, target 1484, wait 23 (the cooldown left), animation 4, frame 0, facing 7; not order 12 with wait 3. It goes on striking in order 16 (n = 967: frame 35, wait 3) and kills 1484 (order 1 at n = 1070); from n = 937 to 2000 it is only ever in order 16 or 2. With this rule off the comparison fails at n = 937 |
+| `orc9-orc09-repair-water-1300` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-repair-water.txt`), n = 722 (turn record of the input at n = 720): peon 1478 (type 0x03, owner 5) at (38, 92) told to repair its own oil well 1468 (type 0x57) on the patch at (57, 75), out at sea | Order 27 from n = 724 (animation 4, wait 3); it walks to (48, 83) on the shore. n = 887: order 2, wait 1, target none (the immediate idle) |
+| Same trace, n = 762 (turn record of the input at n = 760): grunt 1481 (type 0x01, owner 5) at (42, 91) told to attack player 0's shipyard 1503 (type 0x48) at (84, 63), on another island | Order 9 from n = 763 (animation 4, wait 3); it walks to (53, 84) on the shore. n = 942: order 2, wait 1, target none |
 
 ## Open questions
 
@@ -1613,9 +1624,5 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
   clears the record is open.
 - **Facing in order 12's no-route take-over.** Where the facing comes from when the take-over isn't a strike decision
   is open; the `human5-10000` trace fits the strike facing.
-- **Order 16 still cooling down when the search gives order 12** ("Automatic target acquisition", the cooling-down
-  case) is provisional: it rests on one capture that isn't committed (`xorc5-30000` n = 20526) and a break log that
-  wasn't kept. Commit that capture (or a window of it) or re-capture the case in a short input scenario (an idle unit
-  hit while cooling down whose search picks another target).
 - **A right-click, a cast and a build and the attacker record** ("A player's command forgets the attacker") rest on
   static study; no trace has any of them on a unit with a recorded attacker.
