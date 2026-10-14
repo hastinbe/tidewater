@@ -134,6 +134,11 @@
   waiting; order 6 runs the reaction but not its result, and follows (or guards) the unit the search picked; no route
   is not a walk end for the reaction; the arrival switch has no attacker condition (wording); order 16 still cooling
   down keeps its order when the search gives order 12 (provisional: an uncommitted capture); round-64 vectors.
+  2026-10-13, round-65 errata: a walk whose order holds a target unit heads for the target where it stands now, not
+  for the stored goal (traced for order 4 on a transport; static study only for other orders and for building
+  targets); a follower inside the radius gets guard (order 7) as a pending order that takes over in the same update
+  (still animation, wait 3); a guard with no route follows the generic no-route rule (traced, no rule change); the
+  computer player's boarding move is traced; round-65 vectors.
 
 ## Behaviour
 
@@ -449,8 +454,9 @@ runs at the next step done of its animation. Only a step done with no pending or
 without running its logic. The traces confirm it for the critter's wander, a computer worker's job choice from idle,
 going idle on arriving at the end of a move ("Arriving and losing the target"), a harvest or return order that reaches
 its building (order 25: wait 3, animation 3), felling a tree (`economy/harvest.md`), a lumber worker's own new aim (a
-new harvest command: order 23, animation 4, wait 3; `economy/harvest.md`, "Lumber") and the order an idle unit's target
-search gives (12, 15 or 16; "Automatic target acquisition"). Coming out of a building is the exception: the order given
+new harvest command: order 23, animation 4, wait 3; `economy/harvest.md`, "Lumber"), the order an idle unit's target
+search gives (12, 15 or 16; "Automatic target acquisition") and the guard a follower is given inside its radius
+(order 7, wait 3; "Follow (orders 6 and 7)"). Coming out of a building is the exception: the order given
 then stays pending through a 25-cycle wait (`economy/harvest.md`, "Coming out").
 
 **Immediate orders** (used for dying, giving up and a move with no route; a move that arrives goes idle through a
@@ -561,7 +567,10 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   once and its idle logic runs in the same update, so a unit whose target is still in its search box gets order 12 again
   at once (attack animation, wait 3), with the look-around draw made in that update. It also applies to a worker or
   tanker returning goods (order 24, `economy/harvest.md`): for a computer player's worker or tanker the idle logic is
-  the job choice, whose new command takes over in the same update (wait 3).
+  the job choice, whose new command takes over in the same update (wait 3). Guard (order 7) has no special case
+  either: a guarding unit with no route goes idle at once, forgets its target and runs the idle logic, look-around
+  draw included, in the same update (traced: `orc12-orc12-guard-board-full-900` n = 520, round-65 vectors). Repair
+  (order 27) is the same (static study only).
 - **A shore building as the target.** A unit that is neither a sea nor an air unit, with a shore building as its
   target, walks to the shore corner goal (`movement/pathfinding.md`, "Shore building") and is within reach when the
   larger of its x and y distances to that tile is at most its attack range (`movement/movement.md`, "Arriving").
@@ -688,13 +697,18 @@ Then, each time the logic runs, with the target still valid:
 2. Otherwise, if the follower is outside its radius, it is given the follow again toward the followed unit. The
    radius is **1**, plus the +1 of `movement/movement.md` ("The +1") for a sea or air follower, as in the general
    arrival test: a ship following a ship is inside at 2 tiles.
-3. When it is inside the radius, a follower in order 6 becomes order **7** (guard) if the followed unit's order is
-   one of 2, 3, 4, 5, 6, 7 or 10. Otherwise idle is made its **pending** order (with the Enhanced resume, "Resuming
-   patrol and attack-move") and takes over in the same update: still animation, wait **3**. It is not a stop command
-   (traced: `orc9-orc09-tanker-move-2200` n = 614, round-62 vectors).
+3. When it is inside the radius, a follower in order 6 is given order **7** (guard) as its **pending** order, which
+   takes over in the same update (still animation, wait **3**, target kept; its logic first runs 3 cycles later), if
+   the followed unit's order is one of 2, 3, 4, 5, 6, 7 or 10 (traced: `orc9-orc09-follow-flee-1300` n = 605 and
+   `orc12-orc12-guard-board-full-900` n = 220, round-65 vectors). Otherwise idle is made its **pending** order (with
+   the Enhanced resume, "Resuming patrol and attack-move") and takes over in the same update: still animation, wait
+   **3**. It is not a stop command (traced: `orc9-orc09-tanker-move-2200` n = 614, round-62 vectors).
 
 Order 7 then also runs the idle logic (target acquisition as for order 2), so a guarding unit attacks enemies that
-come near and goes on following.
+come near and goes on following. A follower in order 6 never flees: order 6 isn't one of the flee rule's orders
+("Fleeing", rule 3), and the reaction's result isn't used anyway. A non-combat follower that was hit keeps following
+until it guards; then order 7's idle logic flees, and the flee move (order 3, no target) ends the follow (traced:
+`orc9-orc09-follow-flee-1300` n = 482 to 608, round-65 vectors).
 
 ### Attacking without moving (orders 14, 15 and 16)
 
@@ -761,14 +775,16 @@ doesn't strike: it forgets the target, and order **2** (idle) takes over **in th
 Order 34 is a walking order: while the unit walks to its goal only the movement runs at each step, and the order's logic
 runs when the unit arrives (`orders/transports.md`). So a unit of **any** player, computer players included, stays in
 order 34 while it walks to the transport; traces show it for computer players (vectors in `orders/transports.md`). The
-moves below are given only when the order's logic runs and finds the unit not yet arrived. The static study shows them,
-but no trace shows such a run:
+moves below are given only when the order's logic runs and finds the unit not yet arrived. The computer players' move
+is traced after a no-route restart (`orders/transports.md`: `human13-10000` n = 9154 and `xhuman5-30000` n = 26761);
+the other players' move is static study only:
 
 - **Every player except computer players** (human players, passive computer players, neutral; see "Terms"): a smart
   move (command 3). It meets the boarding rule of "Smart move" again, so the unit **stays in order 34** and the
   transport is told to come again (unless it is landing).
 - **Computer players:** command 4 (move and attack on the way). The unit **leaves order 34**: its order becomes 4,
-  aimed at the transport's tile. A non-combat unit is first handled as a smart move, as for any command 4, but its
+  aimed at the transport's tile, wherever the transport stands at each walk ("Attack-move"). A non-combat unit is
+  first handled as a smart move, as for any command 4, but its
   order still becomes 4. It boards only if it is later given the boarding command again.
 
 ### Automatic target acquisition
@@ -914,10 +930,15 @@ building would take: toward the footprint tile picked by the building goal rule,
 footprint widened by one tile; `movement/pathfinding.md`, "Step 1"). A unit target is headed for at its tile (traced:
 `human06-31357`, vectors below), with the **target's** goal zone, as for a building: its footprint widened by one tile,
 rounded out to even for a two-tile mover (`movement/pathfinding.md`, "Step 1"), not the 3 × 3 around its tile. While
-order 4 keeps a target unit, its own walk toward its stored goal tile uses that zone too: G stays the stored goal, and
-the zone comes from the target where it stands now, which may have moved since (traced: `orc5-40000` n = 33260 and
-`orc12-30000` n = 23612, round-59 vectors; static study agrees). The zone rule is wider: it serves every walk whose
-order holds a target unit (`movement/pathfinding.md`, "Step 1"). Order 12 takes over at the next step done (attack
+order 4 keeps a target unit, its own walk uses that zone too, and G is the target's tile where it stands now (for a
+building, the tile the building goal rule picks; static study), not the stored goal, and the zone comes from the target
+there. Every walk sets G again from the target, so the goal the command stored, and its pull-back, last only until the
+first walk (traced: `xhuman5-30000` n = 26764, order 4 on a transport, round-65 vectors). The zone is traced at
+`orc5-40000` n = 33260 and `orc12-30000` n = 23612 (round-59 vectors); they don't separate G from the stored goal:
+in `orc12-30000` G is the picked ogre's tile (rounded to even) either way, and in `orc5-40000` the transport has moved
+two tiles off the stored goal, but both goals give the same first step. The zone rule and the goal rule are wider: they
+serve every walk whose order holds a target unit (`movement/pathfinding.md`, "Step 1"; static study only for orders
+other than 4 and for building targets). Order 12 takes over at the next step done (attack
 animation, wait 3). This holds even when the new target is already within strike reach: there is no strike in that
 update, the walk steps toward the target, and order 12 takes over at the next step done. Orders 4 and 10 are traced;
 patrol changes no trace in the set. A unit in order 4 or 10 standing at its move goal doesn't search at all: it arrives
@@ -1521,6 +1542,19 @@ trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. Th
 | `orc12-orc12-board-attacked-1000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-board-attacked.txt`): ogre 1439 (type 0x07, owner 0), fighting player 3's ogre 1442 (type 0x07), is smart-moved onto its own docked transport 1434 (type 0x1D) at n = 602 (turn record) and hit at n = 608 | Order 34 from n = 622; it walks to the transport and is aboard at n = 661 (order 36); it never turns on 1442 (`orders/transports.md`, round-64 vectors) |
 | `human4-15000` (oracle trace, Enhanced), n = 638: computer peon 1531 (type 0x03, owner 0), no attacker, reaches its tree at (75, 79) | The arrival switch with no attacker: animation 3 to 4, frame 0, wait 1 in that record (that chopping doesn't start its animation a second time is static study) |
 | `xorc5-30000` (oracle capture, Enhanced, **not committed**; reproducible with `oracle/capture.sh xorc5 30000`), n = 20526: ogre 1450 (type 0x07, owner 5, the human player) at (6, 89) in order 16, attacked by footmen 1474 at (6, 88) and 1403 at (7, 88) (type 0x00, owner 1); its target changed from 1474 to 1403 at n = 20523, and it was hit at n = 20525 (hp 82) | **Provisional.** Its search, with that attacker, picks 1474: order 16, target 1474, wait 23 (the cooldown left), not order 12 with wait 3. It goes on striking in order 16 (n = 20550: frame 25, wait 3); order 12 never appears |
+
+### Round-65 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman5-30000` (oracle trace, Enhanced, no input), n = 26761: computer grunt 1480 (type 0x01, owner 7) at (102, 108) gets command 4 on orc transport 1520 (type 0x1D, owner 7), landing (order 30) at (96, 98) (the no-route restart, `orders/transports.md`) | Order 4, still animation, wait 3, target 1520. n = 26764: it steps north to (102, 107), facing 0: its walk aims at 1520's tile (96, 98) (a break capture shows that goal), not at the goal the command stored and pulled back, toward which it would step west |
+| `orc9-orc09-follow-flee-1300` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-follow-flee.txt`), n = 472 (turn record of the input at n = 470): peon 1478 (type 0x03, owner 5) smart-moved onto its own grunt 1481 (type 0x01), idle at (50, 90) | Order 6 from n = 474, target 1481 |
+| Same trace, n = 482 and 483: player 0's archers 1475 and 1476 (type 0x08) hit 1478 (hp 30 to 23 to 17) | It keeps order 6 and target 1481 (no flee) |
+| Same trace, n = 605: 1478 at (51, 89), next to 1481 (order 2) | Order 7, still animation, **wait 3**, target 1481 (the guard takes over in the same update) |
+| Same trace, n = 608 | Order 3, still animation, wait 3, target none (the flee from order 7's idle logic); it is at (50, 89) from n = 611 |
+| `orc12-orc12-guard-board-full-900` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-guard-board-full.txt`), n = 202 (turn record of the input at n = 200): ogre 1450 (type 0x07, owner 0) smart-moved onto goblin zeppelin 1455 (type 0x29), idle at (18, 116) | Order 6 from n = 205; n = 220, at (19, 117): order 7, still animation, wait 3, target 1455 |
+| Same trace, n = 502 (turn record of the input at n = 500): 1455 told to fly to (10, 108), over the sea | Order 3 from n = 503; 1450 walks after it to (18, 116) (n = 508). n = 520: 1450 finds no route: order 2, wait 1, target none, and the look-around draw in that cycle (4 draws in the cycle) |
+| A peasant repairing (order 27) whose route search finds no route (static study) | Idle as an immediate order (wait 1), target forgotten; the idle logic runs in the same update; no reaction |
 
 ## Open questions
 
