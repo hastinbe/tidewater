@@ -37,10 +37,14 @@
 //! transport without turning on its attacker) and orc9-orc09-follow-attacked-1200 (an attacked follower follows the
 //! archer its reaction picked) match in full.
 //!
-//! Round 64: xorc6-30000 (the game ends at n 11257) and xorc5-18500 match in full. xhuman5-30000 matches to n 26760
-//! (its tanker coming out toward a collapsed platform at n 26422 included); at n 26761 computer grunt 1480 in order 34
-//! toward landing transport 1520 gets order 4 (still animation, wait 3) where we step west, the open question on a
-//! computer unit's boarding walk at a landing transport (transports spec).
+//! Round 64: xorc6-30000 (the game ends at n 11257) and xorc5-18500 match in full.
+//!
+//! Round 65: xhuman5-30000 (its boarding grunt finding no route because the goal isn't a line tile at n 26761, order
+//! 4's walk heading for the transport where it stands at n 26764, a tanker coming out with nothing pending at n 26811
+//! and an oil patch below its builder's slot at n 27632), orc10-35000, orc8-30000 and xorc4-30000 (dying units'
+//! sight at a fog refresh, n 19507, and the new-mine search counting a castle by its footprint, n 27870) match in
+//! full, and so do the commands scenarios orc9-orc09-follow-flee-1300 (a hit peon follows, guards, then flees) and
+//! orc12-orc12-guard-board-full-900 (a guard with no route, and a unit giving up at a full transport that pushes off).
 //!
 //! The multiplayer-launch traces (trace format, "Multiplayer launch") name their map in the header. The comparer
 //! derives the setup's generator state and computer slots (round-58 errata) and takes only the lobby's choices (the
@@ -274,6 +278,11 @@ traces! {
     orc9_orc09_follow_attacked_1200: ("orc9-orc09-follow-attacked-1200.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     xorc6_30000: ("xorc6-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc06.pud", 39, &[], None),
     xorc5_18500: ("xorc5-18500.jsonl.gz", "Campaign\\XOrc\\2XOrc05.pud", 37, &[], None),
-    xhuman5_30000: ("xhuman5-30000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], Some(26760)),
+    xhuman5_30000: ("xhuman5-30000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
     mp_frosty_fjords_bne_50000: (mp, "mp-frosty-fjords-bne-50000.jsonl.gz", &[], None),
+    orc9_orc09_follow_flee_1300: ("orc9-orc09-follow-flee-1300.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc12_orc12_guard_board_full_900: ("orc12-orc12-guard-board-full-900.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
+    orc10_35000: ("orc10-35000.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
+    orc8_30000: ("orc8-30000.jsonl.gz", "Campaign\\Orc\\Orc08.pud", 15, &[], None),
+    xorc4_30000: ("xorc4-30000.jsonl.gz", "Campaign\\XOrc\\2XOrc04.pud", 35, &[], None),
 }
