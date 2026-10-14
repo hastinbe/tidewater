@@ -21,6 +21,9 @@
   change).
 - **Changes:** 2026-10-13, round-53 errata: a fourth item in "When sight is applied": an attack-type strike reveals a
   sight-2 area around the attacker to the target's owner until the next refresh; `human06-31357` vector.
+- **Changes:** 2026-10-13, round-65 errata: at a fog refresh every unit whose slot is in use applies its sight, a
+  unit in its death animation included (traced: `xorc4-30000` n = 19507); bodies, ruins and units being removed too,
+  until the slot is released (static study only); `xorc4-30000` vector.
 
 ## Behaviour
 
@@ -155,9 +158,11 @@ For a 1 × 1 unit that is its own tile; for a 2 × 2 building at (x, y), (x + 1,
 
 **When sight is applied:**
 
-1. **Fog refresh cycles.** In phase 4, each unit that isn't dead or removed applies its sight, when it is updated and
-   before its order runs. A unit inside a building or transport doesn't, with one exception: a worker inside a
-   **gold mine** reveals with the gold mine's sight, centred on the gold mine's centre tile.
+1. **Fog refresh cycles.** In phase 4, each unit whose slot is in use applies its sight, when it is updated and before
+   its order runs. That includes a unit in its **death animation** (order 1; traced: `xorc4-30000` n = 19507, vectors
+   below) and, from static study only, bodies, ruins and units being removed (order 0), until the slot is released
+   (`core/corpses.md`). A unit inside a building or transport doesn't, with one exception: a worker inside a **gold
+   mine** reveals with the gold mine's sight, centred on the gold mine's centre tile.
 2. **Each movement step.** When a human player's unit moves onto a new tile, its sight is applied at once from the
    new tile (`movement/movement.md`).
 3. **A worker entering a building.** A worker that goes inside a mine, depot or construction site reveals a sight-3
@@ -298,6 +303,13 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 | Human player places a farm on explored but unseen tiles where an enemy unit stands | The enemy unit doesn't block the placement |
 | `xhuman10-spells-700` (oracle trace), computer player 2's grunt 1475, axe thrower 1496 and ogres 1538 and 1543; player 1's units in range | n = 1: order 2, animation 2, wait 1, no target (everything is hidden in the first start-up cycle); n = 2: wait 4; n = 6: order 12, animation 4, wait 3, targets 1492, 1492, 1536 and 1542 |
 | `human06-31357` (oracle trace): axe thrower 1516 (type 0x09, owner 5) at (68, 11) in order 12 on footman 1584 (owner 1, the human player) at (72, 7) strikes after a fog refresh; (68, 11) is otherwise unseen by player 1 | The strike reveals a sight-2 area around (68, 11) for player 1; at n = 9642 footman 1584's search takes 1516 as its attacker seed: order 12, animation 4, wait 3 |
+
+### Round-65 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xorc4-30000` (oracle trace, Enhanced, no input; local player 5): axethrowers 1592 and 1594 (type 0x09, owner 5) at (91, 2) and (91, 4) and ogre 1583 (type 0x07, owner 5) at (89, 13) are dying (order 1, animation 1) through the fog refresh at n = 19501; archer 1474 (type 0x08, owner 2) attacks from (87, 8), and at n = 19506 its tile is (88, 7) while its drawn position is still in tile (87, 8) | The dying units' sight is applied at the refresh, so (87, 8) is seen by player 5. n = 19507: axethrower 1585 (type 0x09, owner 5), idle at (92, 3), takes order 16 on 1474 (animation 4, wait 3). Without the dying units' sight 1474 fails the fog test and 1585 stays idle |
+| A human player's unit being removed (order 0, its slot not yet released) through a fog refresh (static study) | It applies its sight (only human players' units reveal, so a body or ruin that has turned neutral reveals nothing) |
 
 ## Open questions
 
