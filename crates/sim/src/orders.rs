@@ -4662,8 +4662,9 @@ mod tests {
             assert_eq!(w.fingerprint(), 112338662119734946);
         }
 
-        /// The attack order's own checks: a target it can't hit makes it go idle with the still animation (no pending
-        /// idle, no resume: a question for the spec); with no target unit left `can_strike` is false.
+        /// The attack order's own checks: a target that fails the kind check gives a pending idle, with the resume step,
+        /// taken over in the same update (orders spec, "Attack orders", step 5); with no target unit left `can_strike` is
+        /// false.
         #[test]
         fn attack_order_edges() {
             let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FLYER, 1, (5, 6))]);
@@ -4678,8 +4679,15 @@ mod tests {
             assert!(!w.can_strike(&w.units[i], b), "an air unit needs a missile");
             w.attack_order(i, b);
             let u = &w.units[i];
-            assert_eq!((u.order, u.pending, u.script.anim), (Order::Idle, None, anim::STILL));
-            assert_eq!(after(&mut w, 5), 8579443121511770218);
+            let patrol = Order::Patrol {
+                to: (15, 5),
+                back: (5, 5),
+            };
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait),
+                (patrol, None, anim::STILL, 3)
+            );
+            assert_eq!(after(&mut w, 5), 12103132756565971291);
         }
 
         /// Order 12's no-route fallback in the run it guards: no second logic run.

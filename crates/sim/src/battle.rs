@@ -140,9 +140,12 @@ impl World {
         let owner = self.units[i].owner;
         let target_ok =
             !self.target_lost(owner, target) && self.unit(target).is_some_and(|t| self.can_hit_kind(&self.units[i], t));
+        // Orders spec, "Attack orders" (step 5): a target that fails the kind check gives a pending idle, by the common
+        // path with the resume step, taken over in the same update as order 11's steps 4.3 and 4.4 do (round 68, code
+        // Q3; static study only).
         if !target_ok {
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
+            self.units[i].path.clear();
+            self.idle_now(i);
             return;
         }
         // Orders spec, "Friendly-fire check": in order 12 it runs before the range test.
