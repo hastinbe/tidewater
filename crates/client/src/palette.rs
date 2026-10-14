@@ -407,8 +407,10 @@ pub mod fades {
     pub const CREDITS: u32 = 100;
     pub const TITLE: u32 = 250;
     pub const TITLE_CUT_SHORT_OUT: u32 = 1;
-    pub const ACT_IN: u32 = 300;
-    pub const ACT_OUT: u32 = 600;
+    /// The act screen: the text fades in at countdown 60, the picture at 50, and the close fades out.
+    pub const ACT_TEXT_IN: u32 = 300;
+    pub const ACT_PICTURE_IN: u32 = 600;
+    pub const ACT_CLOSE_OUT: u32 = 400;
     pub const MENUS: u32 = 200;
 }
 

@@ -445,10 +445,10 @@ pub const ACT_TICKS: u8 = 60;
 /// When the picture fades in (and, once that fade ends, the act sound plays).
 pub const ACT_PICTURE_AT: u8 = 50;
 /// The text's fade-in at 60, and the picture's at 50.
-pub const ACT_TEXT_FADE_MS: u32 = 300;
-pub const ACT_PICTURE_FADE_MS: u32 = 600;
+pub const ACT_TEXT_FADE_MS: u32 = crate::palette::fades::ACT_TEXT_IN;
+pub const ACT_PICTURE_FADE_MS: u32 = crate::palette::fades::ACT_PICTURE_IN;
 /// The fade to black when the screen closes ("Closing").
-pub const ACT_CLOSE_FADE_MS: u32 = 400;
+pub const ACT_CLOSE_FADE_MS: u32 = crate::palette::fades::ACT_CLOSE_OUT;
 /// The palette entries that hold the text colours (white while the rest is black, at 60).
 pub const ACT_TEXT_COLOURS: std::ops::RangeInclusive<u8> = 1..=3;
 
