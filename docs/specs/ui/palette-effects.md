@@ -4,6 +4,8 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 27 (colour cycling
   and palette effects; gap 12)"), the tileset palettes and tiles (`Art\bgs\<era>\*.ppl`, `*.vr4`) and the unit
   sprites (`Art\unit\**\*.grp`), scanned for the cycled palette entries. Not yet confirmed against the running game.
+- **Changes:** 2026-10-14, round-68 errata (finding 10): the act-screen row now gives the three fades of
+  `game/campaign-flow.md`, "The act screen" (text in 300 ms, picture in 600 ms, out 400 ms); static study only.
 
 ## Behaviour
 
@@ -110,7 +112,7 @@ A **fade-in** starts from all black, with the new screen already drawn, and ends
 | Game end | out, 1 ms (after the greyscale is removed if the game was paused) |
 | Credits | in and out, 100 ms |
 | Title | in and out, 250 ms; out 1 ms if a key or click cut it short (`game/campaign-flow.md`) |
-| Act screen | 300 ms and 600 ms (`game/campaign-flow.md`) |
+| Act screen | in 300 ms (text only, at countdown 60); in 600 ms (picture, at countdown 50, then the act sound); out 400 ms when it closes, however it closes, then a fade of all sound (`game/campaign-flow.md`) |
 | Main menu, custom-scenario and multiplayer screens | in and out, 200 ms |
 
 ### Screenshot flash
