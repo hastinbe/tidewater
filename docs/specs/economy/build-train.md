@@ -50,6 +50,9 @@
   2026-10-13, round-61 errata: the build command's validity test names its builder by a builder table (not the
   builder's race); the affordability check on carrying it out is traced; `orc9-orc09-smart-move-2000` vectors.
   2026-10-13, round-62: the shore site with no corner is traced (`orc9-orc09-shore-no-corner-600`).
+  2026-10-13, round-65 errata: an oil patch in a lower slot than its builder shows order 1 (animation 1, wait 1) in the
+  cycle the platform is placed and starts its removal in the next (traced: `xhuman5-30000` n = 27632); the open
+  question on the patch's update order is closed; round-65 vectors.
 
 ## Behaviour
 
@@ -165,11 +168,14 @@ tile; the placement check ignores the worker's own tile (below), so that doesn't
 - On success, the building is created under construction (below), the cost of a player that pays on arrival is
   taken, and the worker **goes inside** the building, in order 22, the same way a worker enters a mine
   (`economy/harvest.md`, step 2 of "Entering").
-- **Oil platform:** the oil patch under the new platform is marked used and killed. It leaves no ruin: in the same
-  cycle its order becomes "remove" (order 0, animation 0, wait 1; its type and other fields kept), and its slot is
-  released 513 cycles later, as for any removed unit (`core/corpses.md`). The patch's wait of 1 comes from its own
-  update, which follows the builder's in that cycle; after that the wait keeps counting down (0 at the next cycle,
-  then 255).
+- **Oil platform:** the oil patch under the new platform is marked used and killed. It leaves no ruin: at its own
+  next update its order becomes "remove" (order 0, animation 0, wait 1; its type and other fields kept), and its slot
+  is released 513 cycles after that, as for any removed unit (`core/corpses.md`). If the patch's slot comes after the
+  builder's, that update is in the same cycle, so the removal starts there; the patch's wait of 1 comes from that
+  update, and after it the wait keeps counting down (0 at the next cycle, then 255). If the patch's slot comes
+  **before** the builder's, it has already been updated in that cycle: its record for that cycle shows the killed
+  state, **order 1, animation 1, wait 1**, and its removal starts in the next cycle, with the slot released 513
+  cycles after that (traced: `xhuman5-30000` n = 27632, round-65 vectors).
   A tanker given the harvest command on the new platform in that same cycle doesn't take it as its target
   (`economy/harvest.md`, "Starting to harvest", step 3).
 
@@ -384,6 +390,12 @@ The values of M and T in these vectors are examples, not quoted from the game da
 | --- | --- |
 | `orc9-orc09-shore-no-corner-600` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-shore-no-corner.txt`), n = 20: player 5's peon 1478 (type 0x03) at (38, 92) sent to build a shipyard (type 0x49) at (22, 65), on the coast of another island: no footprint corner in its region | 1478 stays in order 2; gold and lumber stay 1000 |
 
+### Round-65 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman5-30000` (oracle trace, Enhanced, no input), n = 27632: computer tanker 1542 (type 0x1B, owner 7) starts orc oil well 1594 (type 0x57) on oil patch 1530 (type 0x5D, owner 15) at (75, 107); the patch's slot is lower than the builder's | 1542: order 22, wait 150, target 1594. Patch 1530: order 1, animation 1, wait 1 at n = 27632; order 0, animation 0, wait 1 at n = 27633; wait 0 at n = 27634; its slot is released at n = 28146 (27633 + 513) |
+
 ## Open questions
 
 The requirement rules, the setting that turns them off and the research jobs' effects are in `economy/tech-tree.md`.
@@ -391,8 +403,6 @@ The requirement rules, the setting that turns them off and the research jobs' ef
 - Whether eyes of Kilrogg and other summoned units count as food in use.
 - **Upgrade picture.** Which frame of the new type's graphics a building upgrade shows with frame 1 (a construction
   stage of the new type, or something else) wasn't checked. Default: frame 1 of the new type's picture.
-- **The oil patch's update order.** A patch updated before its builder in a cycle would show order 1 for that cycle
-  and be removed in the next. No trace has that order.
 - **Exit facing on cancel or destroy.** A builder let out at completion faces the building. Whether one let out of a
   cancelled or destroyed site also turns wasn't checked. Default: it turns the same way.
 - **Classic-mode builder's delivery.** Whether a builder in gold or lumber mode with empty hands gets a load delivered
