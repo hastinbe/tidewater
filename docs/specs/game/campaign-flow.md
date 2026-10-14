@@ -9,6 +9,10 @@
 - **Changes:** 2026-10-12: the skip-setting open question is closed by `game/cheats.md`: the developer words `noglues`
   (act screen, briefing and score screen) and `title` (startup videos) turn the two settings on and off, and both
   survive into later games.
+- **Changes:** 2026-10-14: round-67 errata (`ERRATA-round67-flow.md`; static study only): the act screen's and the
+  title's tick is the 100 ms real-time menu timer; fades block it; the act sound starts when the picture's fade-in
+  ends; the act screen closes with a 400 ms fade to black and a fade of all sound; act screen timeline vector. The
+  "Tick lengths" open question is closed.
 
 ## Behaviour
 
@@ -32,6 +36,17 @@ Game text is given by string table and entry number, counting from 1.
 - **Skip setting:** a setting that, when on, skips the act screen, the briefing and the score screen. What turns it
   on is the `noglues` developer word, typed or given when the program starts (`game/cheats.md`, "Word codes"). It
   is off in a normal game and, once on, stays on across games.
+- **Menu timer:** the real-time clock that drives menus, dialogs, the title and the act screen (static study only).
+  While no key or mouse input is waiting, it gives a tick whenever the clock reaches the next tick's due time, and
+  each tick makes the next one due 100 ms after it was due. If a tick comes more than 300 ms after its due time, the
+  schedule restarts: the next tick is due at once (so two ticks come back to back) and the lost time is not made up.
+  Otherwise late ticks come back to back until the timer has caught up. If the next due time is more than 200 ms
+  ahead of the clock (the clock went back), the schedule restarts at the current time. The game speed setting, the
+  game cycle and the screen refresh have no effect on it.
+- **Fade:** a palette fade (in from black, to a new palette, or out to black) of d ms. It blocks: nothing else runs
+  and no menu-timer ticks are handled until it ends. It is drawn in frames of at least 16 ms and ends with one frame
+  at exactly d, so it takes about d + 16 ms (250 ms takes about 272, 300 about 320, 400 about 416, 600 about 624)
+  (static study only).
 
 ### Videos
 
@@ -59,7 +74,8 @@ Videos are played full screen from the `Smk` folder. Any key or mouse click skip
    available and the "play the intro" preference bit is set, the bit is cleared and video 1 plays. So the intro
    plays once, on the first start.
 2. Unless Ctrl is held, the title picture `Art\Title_Rel_BNE.pcx` fades in over 250 ms, music track 22 starts, and
-   the title stays for 100 ticks or until a key or click. It then fades out over 250 ms, or at once (1 ms) if a key or
+   the title stays for 100 menu-timer ticks (about 9.8 to 9.9 s; the first tick comes at once) or until a key or
+   click (Shift, Ctrl and Alt don't count). It then fades out over 250 ms, or at once (1 ms) if a key or
    click ended it.
 3. The main menu opens.
 
@@ -120,9 +136,17 @@ last act shown since the program started (so replaying an act's first mission af
 
 - The first act line is the act number, the second its title. The picture's palette is taken from the act-1 picture
   of the same campaign and side.
-- **Timing.** The screen runs a countdown from 60 to 0, one step per tick. At 60 the palette is black with only the
-  text colours (entries 1 to 3) white, so the text shows first, and fades in over 300 ms. At 50 the picture fades in
-  over 600 ms and the act sound plays (`Sfx\hact.wav` for human, `Sfx\oact.wav` for orc). At 0 the screen closes.
+- **Timing.** The screen runs a countdown from 60 to 0, one step per menu-timer tick (100 ms of real time; see
+  "Terms"), 60 ticks in all. At 60 the palette is black with only the text colours (entries 1 to 3) white, so the
+  text shows first, and fades in over 300 ms. At 50 the picture fades in over 600 ms; when the fade ends, the act
+  sound plays (`Sfx\hact.wav` for human, `Sfx\oact.wav` for orc). At 0 the screen closes. The screen doesn't wait
+  for the act sound. The fades block the screen and its timer, so the countdown pauses during each fade; after it,
+  the timer catches up or restarts its schedule as described under "Terms". From the first tick the screen stays
+  about 6.4 s before it starts to close (vector under "Test vectors").
+- **Closing.** However the screen closes (the countdown at 0, or a key or click), it fades to black over 400 ms,
+  then all sound fades out (a fade of all sound, `ui/music.md`): effects still playing stop, and a started music
+  track fades out and closes. Then the video after (if any) or the briefing follows. So no music is playing when
+  the briefing opens, and the briefing always starts track 20 or 21.
 - **Closing early.** Esc, Enter, Space or a mouse click close it, but not on its first tick. A quit request quits
   the program.
 - **Video after.** After the screen closes, the act's video plays if it has one, it isn't the video played last, and
@@ -298,8 +322,11 @@ mission the same way, with no score screen: the flow goes straight back to "Star
 | Rank thresholds | 2000, 5000, 8000, 18000, 28000, 40000, 55000, 70000, 85000, 105000, 125000, 145000, 165000, 185000, 205000, 230000, 255000, 280000, 300000 |
 | Rank entry | 2i + 1 + race (`rank_txt.tbl`), cheat 39 |
 | Narration gap | 255 ms |
-| Act screen countdown | 60 ticks; fade 300 ms at 60, 600 ms at 50 |
-| Title | 100 ticks, fades 250 ms |
+| Menu timer tick | 100 ms of real time; a tick more than 300 ms late restarts the schedule (next tick due at once) |
+| Fade frame | at least 16 ms; a fade of d ms ends with a frame at exactly d (about d + 16 ms in all) |
+| Act screen countdown | 60 menu-timer ticks; fade 300 ms at 60, 600 ms at 50 (then the act sound); close: fade to black 400 ms, then a fade of all sound |
+| Act sounds | `Sfx\oact.wav` 110,852 samples, `Sfx\hact.wav` 110,617 samples, at 22,050 Hz (5.027 s and 5.017 s) |
+| Title | 100 menu-timer ticks, fades 250 ms (the fade out 1 ms if a key or click ended it) |
 | Credits scroll | one step per 40 ms |
 
 ## Test vectors
@@ -329,6 +356,30 @@ mission the same way, with no score screen: the flow goes straight back to "Star
 | Single player, slot 1 a computer allied with the local player | Row label `network.tbl` entry 36 |
 | BDP orc campaign, slot 0 local, slot 3 orc computer | Names `network.tbl` entries 94 and 97 |
 
+### Act screen timeline (static study only)
+
+Times from the first tick, rounded to 10 ms, with 16 ms fade frames. The screen is assumed to open more than 300 ms
+after the last menu-timer tick (the menu closing and the loading take longer), so the first tick comes at once and
+the next one is due at the same moment.
+
+| Time | Tick at countdown | What happens |
+| --- | --- | --- |
+| 0.00 s | 60 | Black; the text fades in (about 0.32 s) |
+| 0.32 s | 59, 58 | The timer is 320 ms late, so its schedule restarts: two ticks back to back |
+| 0.42 to 1.02 s | 57 to 51 | One tick every 100 ms; text only |
+| 1.12 s | 50 | The picture fades in (about 0.62 s) |
+| 1.74 s | | The act sound starts (orc 5.03 s, human 5.02 s; it ends at about 6.77 s) |
+| 1.74 s | 49, 48 | The schedule restarts again: two ticks back to back |
+| 1.84 to 6.44 s | 47 to 1 | One tick every 100 ms; the tick at 1 brings the countdown to 0 |
+| 6.44 s | 0 | The screen closes: fade to black (about 0.42 s) |
+| 6.86 s | | Effects still playing stop (the act sound has ended); a started music track fades out (28 steps, about 0.54 s from full volume) |
+| about 6.9 s (no music started) to 7.4 s (music at full volume) | | The briefing opens (or the act's video plays) |
+
+- If the screen opens less than 300 ms after the last menu-timer tick, the late ticks after the text fade are caught
+  up instead, and every later row comes 0.12 to 0.2 s earlier (the close at about 6.24 to 6.32 s).
+- A key or click (from countdown 59 on) skips to the 6.44 s row at once. Before countdown 50 that means the picture
+  never shows and the act sound never plays.
+
 ## Open questions
 
 - **BDP intro without the movie archive.** The program checks for the movie archive (on the original CD) before the
@@ -337,7 +388,6 @@ mission the same way, with no score screen: the flow goes straight back to "Star
 - **"Play the intro" preference.** Where the preference bit is first set (for the one-time intro) wasn't traced.
 - **Quit requests.** Several screens treat one dialog event as "quit the program". Which user action causes it
   (closing the window, a system menu) wasn't traced.
-- **Tick lengths.** The act screen's and the title's tick length wasn't found.
 - **Units lost and type changes.** Whether a type change (an upgrade such as town hall to keep) counts as a building
   lost, through the per-type count going down, wasn't checked.
 - **Gathered resources.** Whether gold, lumber and oil count deliveries only, or also other income (such as
