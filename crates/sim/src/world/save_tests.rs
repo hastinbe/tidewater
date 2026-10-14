@@ -188,3 +188,28 @@ fn building_looks_and_progress_bytes_come_back() {
     let u = &b.units[farm];
     assert_eq!((u.script.frame, u.occupants, u.mana), (1, 2, 37));
 }
+
+#[test]
+fn the_fingerprint_follows_the_whole_state() {
+    let (mut a, mut b) = (battle(), battle());
+    assert_eq!(a.fingerprint(), b.fingerprint());
+    run(&mut a, 40);
+    run(&mut b, 40);
+    assert_eq!(
+        a.fingerprint(),
+        b.fingerprint(),
+        "the same steps give the same fingerprint"
+    );
+    let before = (b.fingerprint(), b.state_hash());
+    b.players[3].oil += 1;
+    assert_ne!(b.fingerprint(), before.0);
+    b.players[3].oil -= 1;
+    assert_eq!((b.fingerprint(), b.state_hash()), before);
+    // A stored field the sync hash leaves out still counts.
+    b.next_id += 1;
+    assert_eq!(b.state_hash(), before.1);
+    assert_ne!(b.fingerprint(), before.0);
+    b.next_id -= 1;
+    b.rng.draw();
+    assert_ne!(b.fingerprint(), before.0);
+}

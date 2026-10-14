@@ -126,6 +126,29 @@ impl World {
         postcard::to_allocvec(&(self.saved_ref(), terrain)).expect("encoding to memory")
     }
 
+    /// A fingerprint of the whole simulation state, for snapshot tests that pin behaviour across refactors: FNV-1a
+    /// over the saved state ([`World::save_state`], which covers every stored field including the private ones and
+    /// the terrain's changing part), the sync hash ([`World::state_hash`]), the generator, the cheat state, the sound
+    /// state and the spell counts. Every part is ordered (vectors, arrays and `BTreeMap`s), so the value doesn't
+    /// depend on hash-map order or addresses. It follows the representation: renaming, adding or reordering a stored
+    /// field changes it even when behaviour doesn't. The queues the client drains (`events`, `sounds.cues`) are
+    /// left to the caller.
+    pub fn fingerprint(&self) -> u64 {
+        let fnv = |h: u64, bytes: &[u8]| {
+            bytes
+                .iter()
+                .fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
+        };
+        let mut h = fnv(0xcbf2_9ce4_8422_2325, &self.save_state());
+        h = fnv(h, &self.state_hash().to_le_bytes());
+        h = fnv(h, &self.rng.state.to_le_bytes());
+        h = fnv(
+            h,
+            format!("{:?}|{:?}|{:?}", self.cheats, self.sounds, self.casts).as_bytes(),
+        );
+        h
+    }
+
     /// Puts a stored world over `self`, which must be the template the same map and set-up build. `seed` starts the
     /// random generator afresh. Cheats start as for a new game. A Classic save restarts the cycle count at 0 and
     /// clears the score counters.

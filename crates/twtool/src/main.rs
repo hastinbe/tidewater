@@ -2,6 +2,7 @@
 
 mod oracle;
 mod replay;
+mod snapshot;
 
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -122,6 +123,31 @@ enum Cmd {
         /// the nearest of its side's oil platforms.
         #[arg(long)]
         harvest: bool,
+    },
+    /// Run every campaign and custom map in each mode (move, fight, harvest, ai) and print a fingerprint of the
+    /// simulation every `--every` cycles: the behaviour snapshot `tests/snapshot.rs` checks. See `src/snapshot.rs`.
+    Snapshot {
+        #[arg(long)]
+        install: PathBuf,
+        #[arg(long, default_value_t = 30_000)]
+        cycles: u32,
+        #[arg(long, default_value_t = 2500)]
+        every: u32,
+        /// Modes to run, comma-separated.
+        #[arg(long, default_value = "move,fight,harvest,ai")]
+        modes: String,
+        /// Only maps whose name contains this (case-insensitive).
+        #[arg(long)]
+        map: Option<String>,
+        /// Threads; all the machine's by default.
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// Add each part of the behaviour fingerprint to each line.
+        #[arg(long)]
+        parts: bool,
+        /// Write here instead of standard output.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Print the unit stats table (`rez\\unitdata.dat`) as TSV.
     Units {
@@ -346,6 +372,34 @@ fn main() -> Result<()> {
             };
             let setup = setup.unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&map));
             sim(&install, &map, &setup, player, (x, y), ticks, seed, mode)?
+        }
+        Cmd::Snapshot {
+            install,
+            cycles,
+            every,
+            modes,
+            map,
+            jobs,
+            parts,
+            out,
+        } => {
+            let opts = snapshot::Options {
+                cycles,
+                every,
+                jobs: jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get())),
+                modes: modes
+                    .split(',')
+                    .map(|m| snapshot::Mode::parse(m.trim()))
+                    .collect::<Result<_>>()?,
+                filter: map,
+                parts,
+            };
+            let mut text = snapshot::snapshot(&install, &opts)?.join("\n");
+            text.push('\n');
+            match out {
+                Some(path) => std::fs::write(path, text)?,
+                None => print!("{text}"),
+            }
         }
         Cmd::Units { install } => {
             let mut inst = Install::open(&install)?;
@@ -661,50 +715,27 @@ fn grp_sheet(install: &std::path::Path, out: &std::path::Path, era: &str, cols: 
     write_png(out, stride, rows * cell, &px, &pal, false)
 }
 
-/// What `twtool sim` orders the player's units to do.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SimMode {
-    Move,
-    Fight,
-    Harvest,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn sim(
-    install: &std::path::Path,
-    map: &str,
-    setup: &tidewater_sim::setup::Setup,
-    player: Option<u8>,
-    to: (i32, i32),
-    ticks: u32,
-    seed: u32,
-    mode: SimMode,
-) -> Result<()> {
-    use tidewater_sim::Command;
-    let mut inst = Install::open(install)?;
-    let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
-    let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
-    let mut build = || start_world(&mut inst, &pud, &start);
-    let mut w = build()?;
-    let player = player.unwrap_or(start.local);
-    println!(
-        "setup {:?}: local player {}, race setting {}, view {:?}, {} sounds, controllers {:?}",
-        setup.game,
-        start.local,
-        start.race_setting,
-        w.start.view,
-        if w.start.orc_sounds { "orc" } else { "human" },
-        w.players.iter().map(|p| p.controller).collect::<Vec<_>>()
-    );
-    let units: Vec<_> = w
-        .units
+/// The player's units (not buildings) that `twtool sim` gives orders to.
+fn own_units(w: &tidewater_sim::World, player: u8) -> Vec<tidewater_sim::UnitId> {
+    w.units
         .iter()
         .filter(|u| u.owner == player && !u.building)
         .map(|u| u.id)
-        .collect();
-    let before: Vec<_> = units.iter().map(|&id| w.unit(id).map(|u| u.tile)).collect();
+        .collect()
+}
+
+/// The orders `twtool sim` gives in `mode`: one move of all `units` to `to`, or each unit against the nearest enemy,
+/// or each worker to the nearest mine or tree and each tanker to its side's nearest oil platform.
+fn sim_orders(
+    w: &tidewater_sim::World,
+    player: u8,
+    units: &[tidewater_sim::UnitId],
+    mode: SimMode,
+    to: (i32, i32),
+) -> Vec<tidewater_sim::Command> {
+    use tidewater_sim::Command;
     let dist = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
-    let orders: Vec<Command> = if mode == SimMode::Harvest {
+    if mode == SimMode::Harvest {
         let (mw, mh) = (w.terrain.width as i32, w.terrain.height as i32);
         let sites: Vec<(i32, i32)> = w
             .units
@@ -755,10 +786,49 @@ fn sim(
     } else {
         vec![Command::Move {
             player,
-            units: units.clone(),
+            units: units.to_vec(),
             to,
         }]
-    };
+    }
+}
+
+/// What `twtool sim` orders the player's units to do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SimMode {
+    Move,
+    Fight,
+    Harvest,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sim(
+    install: &std::path::Path,
+    map: &str,
+    setup: &tidewater_sim::setup::Setup,
+    player: Option<u8>,
+    to: (i32, i32),
+    ticks: u32,
+    seed: u32,
+    mode: SimMode,
+) -> Result<()> {
+    let mut inst = Install::open(install)?;
+    let pud = Pud::parse(&read_file_or_entry(&mut inst, map)?)?;
+    let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
+    let mut build = || start_world(&mut inst, &pud, &start);
+    let mut w = build()?;
+    let player = player.unwrap_or(start.local);
+    println!(
+        "setup {:?}: local player {}, race setting {}, view {:?}, {} sounds, controllers {:?}",
+        setup.game,
+        start.local,
+        start.race_setting,
+        w.start.view,
+        if w.start.orc_sounds { "orc" } else { "human" },
+        w.players.iter().map(|p| p.controller).collect::<Vec<_>>()
+    );
+    let units = own_units(&w, player);
+    let before: Vec<_> = units.iter().map(|&id| w.unit(id).map(|u| u.tile)).collect();
+    let orders = sim_orders(&w, player, &units, mode, to);
     w.step(&orders);
     let start = std::time::Instant::now();
     for _ in 1..ticks {
