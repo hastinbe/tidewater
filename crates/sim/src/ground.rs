@@ -3,9 +3,10 @@
 //! ("Commands") and the blast's terrain steps of `docs/specs/movement/occupancy.md` ("Rock", steps 1 to 3, in
 //! `Terrain::blast`).
 //!
-//! Our readings: a unit whose attack-ground walk finds no path goes idle with the immediate order 2. The blast's
-//! cosmetic explosion effects are owned by the demolisher. Order 17 turns the unit to the tile on every run, even while
-//! its attack animation is already playing.
+//! A unit whose attack-ground walk finds no path takes the general no-route rule (orders spec, "No route": the
+//! immediate order 2, then the idle logic in the same update). Our readings: the blast's cosmetic explosion effects
+//! are owned by the demolisher. Order 17 turns the unit to the tile on every run, even while its attack animation is
+//! already playing.
 
 use crate::movement::{Goal, Walk, chebyshev};
 use crate::sound::Sound;
@@ -76,8 +77,12 @@ impl World {
             range: true,
             zone: None,
         };
-        if matches!(self.move_toward(i, g), Walk::NoPath | Walk::Arrived) {
-            self.stop(i);
+        // Orders spec, "No route" (round 68, code Q4): idle as an immediate order, and the idle logic runs in the same
+        // update. Arriving out of reach (not expected with the range goal) keeps the plain immediate idle.
+        match self.move_toward(i, g) {
+            Walk::NoPath => self.idle_at_once(i),
+            Walk::Arrived => self.stop(i),
+            Walk::Stepping | Walk::Blocked => {}
         }
     }
 
@@ -93,10 +98,7 @@ impl World {
         let arrived = chebyshev(u.tile, tile) <= base
             || match self.move_toward(i, Goal::tile(goal, ORDER_18_RADIUS)) {
                 Walk::Arrived => true,
-                Walk::NoPath => {
-                    self.stop(i);
-                    return;
-                }
+                Walk::NoPath => return self.idle_at_once(i),
                 Walk::Stepping | Walk::Blocked => false,
             };
         if arrived {

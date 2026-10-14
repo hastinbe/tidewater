@@ -4904,7 +4904,8 @@ mod tests {
             assert_eq!(prints, [11384884421808526573, 177179359615400430, 8081919140856632751]);
         }
 
-        /// Orders 17 and 18 with no route stop (an immediate idle with no idle logic run and no resume); order 18 at its
+        /// Orders 17 and 18 with no route take the general no-route rule (orders spec, "No route": an immediate idle,
+        /// no resume, and the idle logic in the same update, here picking the footman in range); order 18 at its
         /// goal gives order 17 as a command that takes over in the same update (attack animation, wait 3; V269).
         #[test]
         fn attack_ground_edges() {
@@ -4919,14 +4920,15 @@ mod tests {
                 let mut w = walled_in();
                 w.rules.enhanced = true;
                 let f = w.spawn(CATAPULT, 0, (5, 5), 0).unwrap();
-                w.spawn(FOOTMAN, 1, (5, 8), 0).unwrap();
+                let near = w.spawn(FOOTMAN, 1, (5, 8), 0).unwrap();
                 w.players[1].controller = controller::NOBODY;
                 w.step(&[]);
                 let i = ready(&mut w, f, o);
                 w.units[i].remembered = Some(Remembered::AttackMove { goal: (15, 5) });
                 assert!(w.run_order(i));
                 let u = &w.units[i];
-                assert_eq!((u.order, u.script.wait), (Order::Idle, 1));
+                assert_eq!((u.order, u.script.wait), (Order::IdleReact { target: near }, 3));
+                assert!(u.remembered.is_some());
                 prints.push(w.fingerprint());
             }
             let (mut w, ids) = arena(&[(CATAPULT, 0, (5, 5))]);
@@ -4941,7 +4943,7 @@ mod tests {
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
             prints.push(after(&mut w, 30));
-            assert_eq!(prints, [813356402327110097, 813356402327110097, 9455504928621546046]);
+            assert_eq!(prints, [360005440253050447, 360005440253050447, 9455504928621546046]);
         }
 
         /// Blocked row G: an attacked unit blocked next to its goal makes idle pending (with the resume rules).
