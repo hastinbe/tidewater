@@ -47,10 +47,10 @@ pub fn trips(map_value: u16) -> u32 {
     }
 }
 
-/// The tile a unit faces when it turns to a building: its top-left tile plus (1, 1), as `economy/repair.md` and
-/// `movement/placement.md` state for facing a target building.
-fn facing_point(b: &Unit) -> (i32, i32) {
-    (b.tile.0 + 1, b.tile.1 + 1)
+/// "Facing a target": the tile a unit turns to when it steps in, starts to chop or comes out. A building target at
+/// its top-left tile + (1, 1), any other target unit at its own tile, and with no target the unit's goal tile.
+fn facing_tile(target: Option<&Unit>, goal: Option<(i32, i32)>) -> Option<(i32, i32)> {
+    target.map(crate::world::facing_tile_of).or(goal)
 }
 
 fn zone(b: &Unit) -> (i32, i32, i32, i32) {
@@ -384,10 +384,9 @@ impl World {
         };
         let tanker = self.is_tanker(&self.units[i]);
         if !stepped {
-            // Round-63 errata (step 1; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1196): a target that isn't a
-            // building (command 24 takes any unit) is faced at its own tile.
-            let b = &self.units[bi];
-            let aim = if b.building { facing_point(b) } else { b.tile };
+            // Step 1: the unit faces its target ("Facing a target"; a unit that isn't a building, which command 24 can
+            // name, at its own tile: V74).
+            let aim = crate::world::facing_tile_of(&self.units[bi]);
             let u = self.units[i].clone();
             self.mark(&u, u.tile, None);
             let u = &mut self.units[i];
@@ -534,22 +533,41 @@ impl World {
         self.kill(bi);
     }
 
-    /// The tile a unit coming out faces, for the order it was given (`next`) and the tile it aims at (`aim`).
-    /// Placement spec: the unit faces its target; a target building is faced at its top-left tile plus (1, 1).
-    /// Round-42 errata (`xorc3` peon 1485, n = 9180): a worker with a build job faces its build goal tile. Round-51
-    /// errata (`xhuman9-10000` peon 1440, n = 9065): the goal worked out when the command was given, while the worker
-    /// was still inside, not one worked out again from its exit tile.
+    /// "Coming out", step 6, facing: "Facing a target" from the exit tile, with the target unit of the order given
+    /// (`next`: a return's depot, a harvest's source, a repair's building) and its goal tile (`aim`).
+    ///
+    /// Kept special case: an order 28 with no stored goal faces the building goal worked out from the exit tile. No
+    /// command makes one now (`build_command` always stores its goal, V58), so this is never reached.
     fn come_out_face(&self, i: usize, next: Option<Order>, aim: Option<(i32, i32)>) -> Option<(i32, i32)> {
+        let target = match next {
+            Some(Order::Build { kind, site, goal: None }) => return Some(self.build_goal(i, kind, site)),
+            Some(
+                Order::ReturnGoods { depot: Some(t) }
+                | Order::Harvest { source: Some(t), .. }
+                | Order::Repair { target: t },
+            ) => self.unit(t),
+            _ => None,
+        };
+        facing_tile(target, aim)
+    }
+
+    /// "Coming out", step 6, aim: the goal tile the command of steps 3 to 5 stored ("Commands given by these orders"),
+    /// so the unit comes out on that side. A target unit's top-left tile pulled back (a return's depot, V60; a
+    /// harvest's source, V64, V65), a tree tile (already the pulled-back goal), a build job's stored goal (V58). With
+    /// no command, none: the search is aimed at the unit's own tile.
+    ///
+    /// Kept special cases: a computer player's repair job aims at the building's top-left tile, not pulled back
+    /// (V57; open question "Repair aim on coming out"); an order 28 with no stored goal (never made now) at its site.
+    fn come_out_goal(&self, i: usize, next: Option<Order>) -> Option<(i32, i32)> {
         match next {
-            Some(Order::Harvest { tree, source: None, .. }) => Some(tree),
+            Some(Order::ReturnGoods { depot: Some(t) } | Order::Harvest { source: Some(t), .. }) => {
+                self.unit(t).map(|t| self.pull_back(i, t.tile))
+            }
+            Some(Order::Harvest { tree, .. }) => Some(tree),
             Some(Order::Build { goal: Some(g), .. }) => Some(g),
-            Some(Order::Build { kind, site, .. }) => Some(self.build_goal(i, kind, site)),
-            // Round-52 errata: a return faces the depot's top-left tile plus (1, 1), not its pulled-back aim.
-            Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| (d.tile.0 + 1, d.tile.1 + 1)),
-            // Round-58 errata: a harvest at a source that is a unit faces its top-left tile plus (1, 1), not its
-            // pulled-back aim.
-            Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| (s.tile.0 + 1, s.tile.1 + 1)),
-            _ => aim.map(|t| (t.0 + 1, t.1 + 1)),
+            Some(Order::Build { site, .. }) => Some(site),
+            Some(Order::Repair { target }) => self.unit(target).map(|b| b.tile),
+            _ => None,
         }
     }
 
@@ -599,24 +617,7 @@ impl World {
                 None => None,
             }
         };
-        let aim = match next {
-            // Round-52 errata (`human13-10000` peon 1550, n = 196): a return aims at the depot's top-left tile pulled
-            // back, as for any command to a building; the worker still faces the depot (`come_out_face`).
-            Some(Order::ReturnGoods { depot: Some(d) }) => self.unit(d).map(|d| d.tile).map(|t| self.pull_back(i, t)),
-            // Round-58 errata (`mp-rose-petal-bne-10000` peasant 1567, n = 1731): a harvest at a gold mine (or another
-            // source that is a unit) aims at the source's top-left tile pulled back in the same way.
-            Some(Order::Harvest { source: Some(s), .. }) => self.unit(s).map(|s| s.tile).map(|t| self.pull_back(i, t)),
-            // A tree tile is already the pulled-back goal.
-            Some(Order::Harvest { tree, .. }) => Some(tree),
-            // Round-60 errata (static study): a build order aims at the build goal the command stored (the building
-            // goal or shore corner goal, pulled back), the tile the worker also faces (`come_out_face`).
-            Some(Order::Build { goal: Some(g), .. }) => Some(g),
-            Some(Order::Build { site, .. }) => Some(site),
-            // Round-50 errata (`human8-10000` peasant 1508, n = 2486): a repair job aims at the building's top-left
-            // tile, and the worker faces the building as any come-out faces its target.
-            Some(Order::Repair { target }) => self.unit(target).map(|b| b.tile),
-            _ => None,
-        };
+        let aim = self.come_out_goal(i, next);
         let at = self.units[i].tile;
         // Step 6 (round-47 errata): the hall-sized exit mark sizes the source as a town hall; this come-out clears it.
         let side = if std::mem::take(&mut self.units[i].hall_exit) {
@@ -722,6 +723,7 @@ impl World {
         }
         let u = &mut self.units[i];
         u.chop = 0;
+        // "Facing a target": no target unit, so the tree tile.
         u.facing = crate::world::face_tile(u.tile, tree);
         u.return_to = Some(Source::Tree(tree));
         u.order = Order::Harvest {
@@ -1678,7 +1680,7 @@ mod tests {
             if hall == (114, 109) {
                 assert_eq!(w.build_goal(i, kind::FARM, site), (111, 110));
             }
-            let face = w.come_out_face(i, next, Some(site));
+            let face = w.come_out_face(i, next, w.come_out_goal(i, next));
             assert_eq!(face, Some(goal));
             assert_eq!(crate::world::face_tile(exit, goal), facing);
         }
