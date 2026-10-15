@@ -192,15 +192,17 @@ impl World {
         true
     }
 
-    /// "Losing a unit from the selection": a unit that is dying, dead, removed or inside something leaves every
-    /// player's synced selection. Under Enhanced rules the rest close up; under Classic rules its place stays empty.
+    /// "Losing a unit from the selection": a unit that is dying, dead, removed, inside something or entering a mine,
+    /// platform or depot ([`Unit::stays_selected`]) leaves every player's synced selection. Under Enhanced rules the
+    /// rest close up; under Classic rules its place stays empty. Run at the end of the cycle: no command reads the
+    /// selection between order 25 being given and then.
     pub(crate) fn prune_selections(&mut self) {
         let enhanced = self.rules.enhanced;
         for p in 0..PLAYERS {
             let places = self.selections[p].places;
             let keep: Vec<bool> = places
                 .iter()
-                .map(|id| id.is_none_or(|id| self.unit(id).is_some_and(|u| u.present())))
+                .map(|id| id.is_none_or(|id| self.unit(id).is_some_and(|u| u.stays_selected())))
                 .collect();
             if keep.iter().all(|&k| k) {
                 continue;
@@ -1023,6 +1025,41 @@ mod tests {
             } else {
                 assert_eq!(&places[..3], &[None, Some(units[1]), Some(units[2])]);
             }
+        }
+    }
+
+    /// V93: a selected peon reaching its completed great hall in order 24 leaves the selection in the update order 25
+    /// is given, before it steps in.
+    #[test]
+    fn a_unit_leaves_the_selection_when_it_starts_entering() {
+        for enhanced in [true, false] {
+            let mut w = map();
+            w.rules.enhanced = enhanced;
+            let hall = spawn(&mut w, HALL, 0, (10, 10));
+            let p = spawn(&mut w, PEON, 0, (7, 11));
+            let f = spawn(&mut w, FOOTMAN, 0, (1, 1));
+            select(&mut w, &[p, f]);
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            w.command(pi, Order::ReturnGoods { depot: Some(hall) });
+            let mut entered = false;
+            for _ in 0..60 {
+                w.step(&[]);
+                let u = w.unit(p).unwrap();
+                if let Order::Enter { stepped, .. } = u.order {
+                    assert!(!stepped && !u.inside, "still outside");
+                    let places = w.selections[0].places;
+                    if enhanced {
+                        assert_eq!(&places[..2], &[Some(f), None]);
+                    } else {
+                        assert_eq!(&places[..2], &[None, Some(f)]);
+                    }
+                    entered = true;
+                    break;
+                }
+                assert_eq!(w.selection(0), vec![p, f], "kept while it walks");
+            }
+            assert!(entered);
         }
     }
 

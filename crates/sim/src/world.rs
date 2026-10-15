@@ -391,6 +391,13 @@ impl Unit {
         !self.dying && !self.inside
     }
 
+    /// Whether the unit stays in selections and groups ("Losing a unit from the selection" in the selecting spec):
+    /// present, and not entering a mine, platform or depot. Order 25 counts from the update it is given, before the
+    /// unit steps in (harvest spec, "Entering"; V93), and can't be interrupted, so the unit never comes back.
+    pub fn stays_selected(&self) -> bool {
+        self.present() && !matches!(self.order, Order::Enter { .. })
+    }
+
     /// The target unit the unit records (trace-format spec, `target`): a command's target replaces the old one at
     /// once, even with none; a killer whose order is still the one whose target it forgot records none (damage spec,
     /// "Applying damage"); otherwise the pending order's target, or the order's.
