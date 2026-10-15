@@ -212,7 +212,7 @@ struct PanelUi {
     mode: panel::Mode,
     /// A panel click or key was handled this frame; the map must not also act on it.
     consumed: bool,
-    /// Escape was used by the panel this frame and must not quit.
+    /// Escape was used by the panel this frame (a hotkey, or leaving a mode).
     escape_used: bool,
     /// The menu button was pressed (`gamemenu` opens the game menu).
     menu_requested: bool,
@@ -634,7 +634,6 @@ fn frame_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
                 draw_hud,
             )
                 .chain(),
-            quit_on_escape.run_if(frontend::game_running),
         )
             .chain()
             .run_if(game()),
@@ -1463,13 +1462,6 @@ impl WallClock {
     /// Whole seconds since 1970-01-01 UTC.
     pub fn secs(&self) -> u64 {
         self.fixed.unwrap_or_else(|| scene::now_secs() as u64)
-    }
-}
-
-fn quit_on_escape(ui: Res<PanelUi>, mut exit: MessageWriter<AppExit>, input: Res<PlayerInput>) {
-    let keys = &input.keys;
-    if keys.just_pressed(Key::Escape) && !ui.escape_used {
-        exit.write(AppExit::Success);
     }
 }
 

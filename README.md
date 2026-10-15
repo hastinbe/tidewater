@@ -19,7 +19,7 @@ During a game the pointer is locked to the window, as it would be in full screen
 scrolls the map; the game menus free it. Switching to another app (Cmd-Tab) or holding Cmd frees it, and clicking back in locks it again;
 `--no-mouse-lock` turns this off.
 
-The arrow keys and the screen edge scroll the map, `+`/`-` change the game speed, Escape quits. The map view shows
+The arrow keys and the screen edge scroll the map, `+`/`-` change the game speed, F10 opens the game menu (Escape closes it). The map view shows
 the same area as the original; `--free-zoom` (a development aid, not part of the original) lets the mouse wheel zoom. See [CLEANROOM.md](CLEANROOM.md) for how the
 project keeps its code its own.
 
