@@ -19,25 +19,25 @@ sound	20	d0e6afe865a35291	0.7516	Loop
 shot	66	title	6f6247d659ff1640
 frames	16-67	6f6247d659ff1640
 frames	68-69	156ed4086987e325
-frames	70-70	86d6d6437f8dc132
-frames	71-71	0bba11af2e1bf5ef
-frames	72-72	ff0520ba82c4ed20
-frames	73-73	f025346611f9ced2
-frames	74-74	8ae0ef757cb46e14
-frames	75-75	e2b4dc2d84d42511
-frames	76-76	4fee0d47b8cf36e1
-shot	77	menu-fade	1eb1aa1df7776238
-frames	77-77	1eb1aa1df7776238
-frames	78-78	ee8df0e09afeb931
-frames	79-79	43de2fcb7df2d772
-frames	80-80	711a298a2ace39eb
-frames	81-97	fd0dd16fe6f097cf
-shot	100	menu-hover	b7b23f5ab68dc1bb
-frames	98-102	b7b23f5ab68dc1bb
-frames	103-105	fbebdf5dabe39bcb
-shot	107	campaigns	e97d1ec78eb52c8f
-frames	106-108	e97d1ec78eb52c8f
-frames	109-109	e779054bf63cf769
+frames	70-70	dea26e54b3c12c41
+frames	71-71	e2aa8138ad662af6
+frames	72-72	8917823d3bdbbdf5
+frames	73-73	1122c0f340a92357
+frames	74-74	b657c68f08b87963
+frames	75-75	4d0b3cc3af483eb5
+frames	76-76	d79a35fbfe7828b3
+shot	77	menu-fade	f1f8d777d067b04d
+frames	77-77	f1f8d777d067b04d
+frames	78-78	1c016ef4fb28060e
+frames	79-79	c75e7abf173b98fc
+frames	80-80	72478de0c5b6dca7
+frames	81-97	d40dce8233ecfffd
+shot	100	menu-hover	1fe6a312035874f9
+frames	98-102	1fe6a312035874f9
+frames	103-105	73da205f8e8029e9
+shot	107	campaigns	b253212e25203abd
+frames	106-108	b253212e25203abd
+frames	109-109	ebfde4ffa7e76caf
 frames	110-110	156ed4086987e325
 frames	111-111	15f6528fabef7a71
 frames	112-112	4ec044410112b933

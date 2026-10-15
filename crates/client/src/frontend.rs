@@ -1175,7 +1175,7 @@ fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[(&str, Option<char>)
         menuscreen::draw_heading(&mut bg, &front.font, &palette, menuscreen::BUTTON_TOP - 30, h);
     }
     if opening.version_line {
-        version_line(&mut bg, &front.small);
+        version_line(&mut bg, &front.small, &palette);
     }
     let image = spawn_layer(commands, pictures, dup(&bg), 0, state, None);
     commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
@@ -1213,50 +1213,17 @@ pub(crate) fn pointer_leaving(states: &Machine) -> bool {
         .is_some_and(|to| !menuscreen::pointer_stays(menu_screen(states.get()), menu_screen(to)))
 }
 
-/// Where the version line's text pixels start on the 640 × 480 menu picture: their top-left (screen spec, "Pointer and
-/// fades", round 72). It is drawn into the picture, so it moves with the picture wherever the picture is shown.
-pub(crate) const VERSION_LINE_AT: (i32, i32) = (60, 460);
-
-/// The version line's face colour (round 72); its shading is black, and it has no other colours.
-const VERSION_FACE: [u8; 3] = [255, 251, 243];
-
 /// Our version line's text. The original shows its own name and version there; this program must not claim to be
 /// the original, so it shows our name and version instead.
 pub(crate) fn version_text() -> String {
     format!("Tidewater v{}", env!("CARGO_PKG_VERSION"))
 }
 
-/// The version line's shade colours: the face's shades (1 to 4) in the face colour, the shadow (5 on) black.
-fn version_colours() -> [[u8; 3]; 8] {
-    let mut c = [[0u8; 3]; 8];
-    c[1..5].fill(VERSION_FACE);
-    c
-}
-
-/// Where the version line's cell starts so that its text pixels' top-left is at [`VERSION_LINE_AT`].
-fn version_line_origin(font: &Font, s: &str) -> (i32, i32) {
-    let colours = version_colours();
-    let style = hud::TextStyle {
-        colours: &colours,
-        space: None,
-        rows: (i32::MIN, i32::MAX),
-    };
-    let (l, t) = hud::ink_box(font, s, &style).map_or((0, 0), |(l, t, _, _)| (l, t));
-    (VERSION_LINE_AT.0 - l, VERSION_LINE_AT.1 - t)
-}
-
-/// Draws the version line over the menu picture. Which font the original uses is an open question (screen spec, "Version
-/// line font": none of the `Art\*.fnt` fonts); ours is the smallest font we draw, `Art\font10x.fnt`, whose capitals
-/// are 12 pixels high with their shadow, as the measured line is.
-fn version_line(dst: &mut Picture, font: &Font) {
-    let s = version_text();
-    let colours = version_colours();
-    let style = hud::TextStyle {
-        colours: &colours,
-        space: None,
-        rows: (i32::MIN, i32::MAX),
-    };
-    hud::text_styled(dst, font, version_line_origin(font, &s), &s, &style);
+/// Draws the version line into the menu picture (screen spec, "Pointer and fades" and "Text colours", round 73): in
+/// `Art\font10x.fnt` (`Front::small`) at its glyph cell (`menuscreen::draw_version_line`). It is part of the picture,
+/// so it moves with the picture wherever the picture is shown, and fades in with it.
+fn version_line(dst: &mut Picture, font: &Font, pal: &Palette) {
+    menuscreen::draw_version_line(dst, font, pal, &version_text());
 }
 
 /// Hover, redraw, and the item clicked (or chosen by its number key).
@@ -2647,49 +2614,6 @@ mod tests {
         assert_eq!(f.steps, [Step::Mission(6)]);
         to_main_menu(&mut f);
         assert_eq!(f.steps, [Step::MainMenu]);
-    }
-
-    /// A synthetic font: every glyph from '!' a 3 × 4 box of shade 1 with a shade-5 bottom row, drawn at offset
-    /// (1, 2) in its cell; the space has no glyph.
-    pub(super) fn boxes(height: u8) -> Font {
-        let g = tidewater_formats::fnt::Glyph {
-            width: 3,
-            height: 4,
-            x: 1,
-            y: 2,
-            shades: vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 5, 5],
-        };
-        let mut glyphs = vec![None];
-        glyphs.extend((33..=126).map(|_| Some(g.clone())));
-        Font {
-            first: 32,
-            max_width: 4,
-            height,
-            glyphs,
-        }
-    }
-
-    #[test]
-    fn the_version_line_sits_at_60_460_on_the_menu_picture() {
-        // Screen spec, "Pointer and fades" (round 72): the text pixels' top-left is (60, 460) on the picture.
-        let font = boxes(14);
-        assert_eq!(
-            version_line_origin(&font, "Ab"),
-            (59, 458),
-            "the cell starts left of and above the ink"
-        );
-        let mut p = blank();
-        version_line(&mut p, &font);
-        let px = |x: u32, y: u32| {
-            let i = ((y * p.width + x) * 4) as usize;
-            [p.rgba[i], p.rgba[i + 1], p.rgba[i + 2]]
-        };
-        assert_eq!(px(60, 460), VERSION_FACE, "face colour at the top-left");
-        assert_eq!(px(60, 463), [0, 0, 0], "black shading below the face");
-        let inked = |x: u32, y: u32| p.rgba[((y * p.width + x) * 4 + 3) as usize] != 0;
-        assert!(!(0..640).any(|x| inked(x, 459)), "nothing above row 460");
-        assert!(!(0..480).any(|y| inked(59, y)), "nothing left of x 60");
-        assert!(inked(60, 463), "the shading is drawn");
     }
 
     #[test]

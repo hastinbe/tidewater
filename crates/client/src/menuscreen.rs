@@ -106,8 +106,15 @@ pub(crate) const DISABLED_FACE: u8 = 102;
 /// pixels are known only from captures (spec "Menu button face"); ours is flat.
 pub(crate) const FACE_NEAR: [u8; 3] = [111, 0, 0];
 
-/// The pixels a space leaves between the glyphs either side of it in `font12x` ("Text colours").
+/// The pixels a space leaves between the glyphs either side of it ("Text colours"): `font12x`, and `font10x`.
 pub(crate) const SPACE_12X: u32 = 10;
+pub(crate) const SPACE_10X: u32 = 8;
+
+/// The version line's shades ("Text colours"): the white map, so its face is entry 246 (255, 251, 243) with grey
+/// (111, 111, 111) edges in entry 104 at shade 4 (the original's text has no shade-3 pixels; ours takes the map's 108).
+pub(crate) const VERSION: ShadeMap = WHITE;
+/// The version line's glyph cell top-left on the 640 × 480 menu picture, in `font10x` ("Pointer and fades", round 73).
+pub(crate) const VERSION_CELL: (i32, i32) = (60, 460);
 
 /// The main menu's buttons ("Buttons", from `rez\MainMenu.bin`): 224 × 28, left edge 208, tops 36 apart from 240.
 pub(crate) const BUTTON_W: u32 = 224;
@@ -226,6 +233,11 @@ pub(crate) fn draw_text(
 pub(crate) fn draw_heading(dst: &mut Picture, font: &Font, pal: &Palette, y: i32, s: &str) {
     let x = (dst.width as i32 - text_width(font, s, SPACE_12X) as i32) / 2;
     draw_text(dst, font, pal, (x, y), s, WHITE, SPACE_12X);
+}
+
+/// Draws the version line `s` in `font10x` with its glyph cell at [`VERSION_CELL`], spaces leaving 8 pixels.
+pub(crate) fn draw_version_line(dst: &mut Picture, font: &Font, pal: &Palette, s: &str) {
+    draw_text(dst, font, pal, VERSION_CELL, s, VERSION, SPACE_10X);
 }
 
 /// Draws a menu button: the outer ring, a black ring inside it, the face, and the label in `font12x` centred on it, its
@@ -433,6 +445,27 @@ mod tests {
         assert_eq!(px(&p, 27, 18), pal.0[108], "grey label");
         assert_eq!(px(&p, 31, 19), pal.0[102]);
         assert_eq!(px(&p, 30, 18), pal.0[108], "no white hotkey on a disabled button");
+    }
+
+    #[test]
+    fn the_version_line_has_its_cell_at_60_460() {
+        // "Pointer and fades" (round 73): font10x, glyph cell top-left (60, 460), 1 pixel between glyphs and 8 at a
+        // space; shades 1 and 2 entry 246, 4 entry 104 (the grey edges), 5 black.
+        assert_eq!(VERSION_CELL, (60, 460));
+        assert_eq!(space_advance(SPACE_10X), 7);
+        let (pal, f) = (palette(), font());
+        let mut p = blank(640, 480);
+        draw_version_line(&mut p, &f, &pal, "A B");
+        assert_eq!(px(&p, 60, 460), pal.0[246], "shade 1 at the cell's top-left");
+        assert_eq!(px(&p, 61, 460), pal.0[246], "shade 2");
+        assert_eq!(px(&p, 61, 461), pal.0[104], "shade 4: grey");
+        assert_eq!(px(&p, 60, 462), pal.0[0], "shade 5: black");
+        // "A" is 2 pixels wide and leaves 1, the space 7 more: 8 pixels between "A" and "B".
+        assert_eq!(px(&p, 70, 460), pal.0[246], "B");
+        assert!((62..70).all(|x| p.rgba[((460 * 640 + x) * 4 + 3) as usize] == 0));
+        let inked = |x: u32, y: u32| p.rgba[((y * p.width + x) * 4 + 3) as usize] != 0;
+        assert!(!(0..640).any(|x| inked(x, 459)), "nothing above row 460");
+        assert!(!(0..480).any(|y| inked(59, y)), "nothing left of x 60");
     }
 
     #[test]
