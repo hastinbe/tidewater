@@ -1237,6 +1237,24 @@ mod tests {
         assert_eq!(w.unit(p).unwrap().chop - c0, 10);
     }
 
+    /// Occupancy spec, "Reservation": a woodcutter that dies while chopping gives its tree back, so the tile is free
+    /// forest again for the next worker.
+    #[test]
+    fn a_killed_woodcutter_releases_its_tree() {
+        let mut w = land();
+        forest(&mut w, 10, 8);
+        let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+        harvest(&mut w, vec![p], None, (10, 8));
+        for _ in 0..30 {
+            w.step(&[]);
+        }
+        assert_eq!(w.terrain.region(10, 8), Some(region::RESERVED_FOREST));
+        let i = w.index(p).unwrap();
+        w.kill(i);
+        assert_eq!(w.terrain.region(10, 8), Some(region::FOREST));
+        assert_eq!(w.nearest_tree((10, 9)), Some((10, 8)));
+    }
+
     #[test]
     fn felling_a_tree_takes_over_the_return_in_the_same_update() {
         // Human04 n = 1913: when the tree falls, order 24 takes over at once (wait 3, the still animation) and its

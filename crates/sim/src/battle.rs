@@ -675,6 +675,9 @@ impl World {
         }
         // A computer worker's job is released when it dies (worker-ai spec).
         self.release_job(ti);
+        // A woodcutter killed while chopping frees the tree it reserved, as every other way of leaving the chopping
+        // state does (harvest spec, "Lumber"): the order is cleared just below, so this is the last chance.
+        self.release_tree(ti);
         // Unit-slots spec ("Death"; `xhuman12-10000` grunt 1504, n = 4851): the unit keeps the target
         // recorded at this moment, so a killer that forgot its target dies with none.
         let target = self.units[ti].recorded_target();
