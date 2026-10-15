@@ -104,6 +104,7 @@ pub fn run(core: Core, title: String, ui_scale: Option<u32>, headless: bool) {
         })
         .insert_resource(LockedPointer(None))
         .insert_resource(CoreRes(core))
+        .insert_resource(Stats::default())
         .add_systems(Startup, spawn_screen)
         .add_systems(First, take_system_input.after(MessageUpdateSystems))
         .add_systems(PreUpdate, run_core.after(bevy::input::InputSystems))
@@ -148,10 +149,15 @@ impl Platform for BevyWindow<'_> {
     }
 }
 
+/// Frame times for measuring the shell (`host::FrameStats`).
+#[derive(Resource, Default)]
+struct Stats(crate::host::FrameStats);
+
 /// One frame of the core, and what it asked of the window.
 #[allow(clippy::too_many_arguments)]
 fn run_core(
     mut core: ResMut<CoreRes>,
+    mut stats: ResMut<Stats>,
     real: Res<Time<Real>>,
     mut windows: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut locked: ResMut<LockedPointer>,
@@ -162,6 +168,7 @@ fn run_core(
     screen: Option<Res<Screen>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let started = std::time::Instant::now();
     let lock_enabled = !core.opts.no_mouse_lock;
     let mut platform = BevyWindow {
         window: windows.single_mut().ok().map(|(w, c)| (w.into_inner(), c.into_inner())),
@@ -176,6 +183,7 @@ fn run_core(
     if let Some(mut img) = screen.and_then(|s| images.get_mut(&s.image)) {
         img.data = Some(core.frame.rgba.clone());
     }
+    stats.0.frame(real.delta(), started.elapsed());
     let Ok((mut window, mut cursor)) = windows.single_mut() else {
         return;
     };
