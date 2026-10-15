@@ -1,4 +1,4 @@
-//! The saved-game file (spec `docs/specs/game/save-load.md`). Bevy-free.
+//! The saved-game file (spec `docs/specs/game/save-load.md`). SDL-free.
 //!
 //! The spec describes behaviour, not a layout, and Tidewater doesn't read the original game's saved games, so the
 //! layout is our own:

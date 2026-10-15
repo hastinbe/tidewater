@@ -1,5 +1,5 @@
 //! Turns a map file into the starting [`World`] plus ready-to-upload RGBA images: the terrain and, per unit type and
-//! owner, the frames the client shows. No Bevy types here, so this stays testable and reusable by a headless renderer.
+//! owner, the frames the client shows. No SDL types here, so this stays testable and reusable by a headless renderer.
 
 use std::collections::HashMap;
 

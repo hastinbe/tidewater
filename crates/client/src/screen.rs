@@ -2,7 +2,7 @@
 //! item and the large-number placeholder), the menu and pause buttons, scrolling at the screen edge and with the keys,
 //! which pointer shows when, and the placement site under the pointer's hot spot. The saved views F2 to F4 are game
 //! setup's `Started::saved_views`, kept by the client.
-//! The 640 × 480 layout itself is [`crate::hud::Layout`]. No Bevy types here.
+//! The 640 × 480 layout itself is [`crate::hud::Layout`]. No SDL types here.
 //!
 //! Our readings where the spec leaves room:
 //! - On a canvas larger than 640 × 480 the right and bottom edge zones are the last 10 pixels of the canvas, as they

@@ -1,9 +1,9 @@
-//! Which music track plays when, how it ends, fades and how loud it is. Spec: `docs/specs/ui/music.md`. No Bevy types
+//! Which music track plays when, how it ends, fades and how loud it is. Spec: `docs/specs/ui/music.md`. No SDL types
 //! here; `jukebox.rs` plays the result in the core's mixer.
 //!
 //! [`Music`] is the state machine: the track table ("Data"), the start rules (same track, the *Tides of Darkness*
 //! bump, volume 0), the two "start if silent" tests, the fades, the chain gap, the volume table and the armed
-//! restart-on-raise rule ("Volume"). The Bevy layer calls [`Music::update`] every frame with the playback position and
+//! restart-on-raise rule ("Volume"). The client calls [`Music::update`] every frame with the playback position and
 //! applies the [`Action`]s it returns. The track draw for a non-campaign game uses the setup-shuffle generator
 //! ([`crate::sound::Shuffle`], the one the sound variants use); music never touches the synced game generator.
 //!
@@ -239,7 +239,7 @@ pub fn wav_data_len(bytes: &[u8]) -> Option<u32> {
     None
 }
 
-/// What the Bevy layer must do.
+/// What the client must do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     /// Close the open track at once.

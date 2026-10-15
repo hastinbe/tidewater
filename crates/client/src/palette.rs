@@ -1,5 +1,5 @@
 //! Colour cycling and palette effects as `docs/specs/ui/palette-effects.md` describes them: the 8 cycles per era, the
-//! real-time step rule, the placement pulse, screen fades and the screenshot flash. No Bevy types here.
+//! real-time step rule, the placement pulse, screen fades and the screenshot flash. No SDL types here.
 //!
 //! [`Cycling`] owns the current 256-entry palette: it starts as the era's base palette, and every turn of a cycle
 //! changes entries of it. The caller converts indexed pictures with [`Cycling::palette`] each frame (see `main.rs`).

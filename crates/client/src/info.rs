@@ -6,7 +6,7 @@
 //! name-line wrapping, the level line, the statistic rows with their bonuses, the building cases, the progress and
 //! health bar arithmetic, the speeds worked out from the animation scripts, and the per-type change checks. It reads
 //! the sim only in [`facts`], [`owner_facts`] and [`watch`], and draws nothing: `hud` draws, `main` owns the input.
-//! No Bevy types here.
+//! No SDL types here.
 //!
 //! Element positions are the spec's table ("Panel elements"), which gives the layout `statport.bin` holds; the client
 //! uses the spec's numbers rather than reading that file. Our reading of the spec where it is open is marked

@@ -1,4 +1,4 @@
-//! Which sound file plays for each sound cue of the sim, and how loud. Spec: `docs/specs/ui/sounds.md`. No Bevy types
+//! Which sound file plays for each sound cue of the sim, and how loud. Spec: `docs/specs/ui/sounds.md`. No SDL types
 //! here; `main.rs` plays the result.
 //!
 //! The sim (`tidewater_sim::sound`) says what happened. This module does the rest of the spec: the file tables ("Data"),

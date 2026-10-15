@@ -1,5 +1,5 @@
 //! Fog of war as the map view draws it (`docs/specs/ui/map-drawing.md`, "Fog"; the maps themselves are the sim's,
-//! `vision/fog.md`, "The fog maps"; the minimap is in `crate::minimap`). No Bevy types here.
+//! `vision/fog.md`, "The fog maps"; the minimap is in `crate::minimap`). No SDL types here.
 //!
 //! Each tile in view gets the picture for its visible-map code v and explored-map code e: black, a black
 //! checkerboard on the even pixels, or the fog shapes of the tileset. Shape c (1 to 15) is bytes 1024·c to

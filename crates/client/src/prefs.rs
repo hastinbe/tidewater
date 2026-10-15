@@ -1,5 +1,5 @@
 //! The player's stored settings (spec `docs/specs/ui/game-menu.md`, "Stored settings"): game speed, the two scroll
-//! speeds, the two volumes, the next tip number and the option bits. No Bevy types here.
+//! speeds, the two volumes, the next tip number and the option bits. No SDL types here.
 //!
 //! Choices where the spec leaves a gap:
 //! - The text form is `name=value` lines. Unknown names, bad numbers and numbers outside their range fall back to

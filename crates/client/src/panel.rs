@@ -4,7 +4,7 @@
 //! rules that pick the set to show and fill its slots, the parsing of the string table entries behind every button
 //! (hotkey, cost kind, text) and what a click or hotkey does. It reads the local player's state only through the
 //! [`PanelState`] trait, so the sim can change underneath it, and it draws nothing: `hud` draws the icons and `main`
-//! owns the input. No Bevy types here.
+//! owns the input. No SDL types here.
 //!
 //! Our reading of the spec where it is open is marked "Our reading:" at the place it applies.
 

@@ -5,7 +5,7 @@
 //!
 //! The rules read the units through a [`Board`], a snapshot of what the local player may know about each unit, so
 //! they can be tested on synthetic boards. What runs inside a cycle (the synced selection, the right-click command and
-//! the command filter) is in the sim (`tidewater_sim::select`). No Bevy types here.
+//! the command filter) is in the sim (`tidewater_sim::select`). No SDL types here.
 //!
 //! Our readings where the spec leaves room:
 //! - A selection box spans `left ..= left + box width` (and the same for y), so a point on either edge is inside.

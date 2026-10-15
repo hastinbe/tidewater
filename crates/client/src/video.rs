@@ -1,4 +1,4 @@
-//! Video playback helpers, Bevy-free: Smacker frames to RGBA, the frame clock, and the audio track gathered into a
+//! Video playback helpers, SDL-free: Smacker frames to RGBA, the frame clock, and the audio track gathered into a
 //! WAV file the audio player can take. The Smacker reader is `tidewater_formats::smk` (format notes and sources in
 //! its module doc). The WAV layout written here is the canonical RIFF/WAVE PCM layout (public: the "Multimedia
 //! Programming Interface and Data Specifications 1.0", 1991, "WAVE" chapter).

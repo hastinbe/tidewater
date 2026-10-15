@@ -1,6 +1,6 @@
 //! How the 640 × 480 screen (spec `docs/specs/ui/screen-and-cursors.md`, "Layout") goes into the window: the window
 //! size, the whole-number scale and the black letterbox around it, the pointer's way back to screen pixels, and the
-//! map view's zoom. No Bevy types here.
+//! map view's zoom. No SDL types here.
 //!
 //! Our choices (the original runs full screen at 640 × 480, so it has none of these):
 //! - **Scale.** The screen is drawn at a whole number of physical pixels per screen pixel, the largest that fits the

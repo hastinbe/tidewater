@@ -1,4 +1,4 @@
-//! Drawing the map view (spec `docs/specs/ui/map-drawing.md`). No Bevy types here.
+//! Drawing the map view (spec `docs/specs/ui/map-drawing.md`). No SDL types here.
 //!
 //! The view is drawn in palette indices into a [`Canvas`] that covers the part of the map on screen, in map pixels.
 //! The terrain tiles are a separate picture underneath, so the canvas starts out transparent and holds the layers

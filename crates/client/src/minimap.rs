@@ -2,7 +2,7 @@
 //! game-cycle countdown, with a terrain picture rebuilt on every sixth redraw. The fog maps it samples are in
 //! `docs/specs/vision/fog.md` ("The minimap"); the attack mark is in `docs/specs/ui/messages.md` ("Attacks on the
 //! minimap"); its place on the screen is in `docs/specs/ui/screen-and-cursors.md`. The sim keeps the attack marks and
-//! the remembered buildings ([`tidewater_sim::minimap`]); this module draws. No Bevy types here.
+//! the remembered buildings ([`tidewater_sim::minimap`]); this module draws. No SDL types here.
 //!
 //! The terrain sample uses the tileset layout described in `tidewater_formats::tileset` (megatiles of 4 × 4 minitile
 //! references, minitiles of 8 × 8 palette indices).

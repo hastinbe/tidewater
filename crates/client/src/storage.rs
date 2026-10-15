@@ -1,6 +1,6 @@
 //! Storage (`docs/design/client-core.md`, migration step 8): everything the core reads or writes outside itself goes
 //! through [`Storage`], which the shell provides. The installation's files, the saved games, the settings file,
-//! Print Screen pictures and the wall clock. Bevy-free.
+//! Print Screen pictures and the wall clock. SDL-free.
 //!
 //! [`Desktop`] is the desktop's: the installation folder given on the command line, the save folder and the user
 //! folder (`saves`: `--save-dir`, else Tidewater's per-user data directory) and the system clock.

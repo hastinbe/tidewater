@@ -1,5 +1,5 @@
 //! The save and load dialogs' layout, input and drawing (spec `docs/specs/game/save-load.md`, "Save dialog" and "Load
-//! dialog"); the rules are in [`crate::saves`]. Bevy-free: `gamemenu.rs` feeds it the frame's input and shows the
+//! dialog"); the rules are in [`crate::saves`]. SDL-free: `gamemenu.rs` feeds it the frame's input and shows the
 //! picture it draws.
 //!
 //! The dialog files (`savegame.bin`, `loadgame.bin`, `loadgamt.bin`) have no layout spec, so ours is our own, drawn like

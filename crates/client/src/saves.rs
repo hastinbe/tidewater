@@ -1,5 +1,5 @@
 //! The save folder, the saved-game list and the rules of the save and load dialogs (spec
-//! `docs/specs/game/save-load.md`). Bevy-free; `gamemenu.rs` draws the dialogs and `savegame.rs` collects and applies
+//! `docs/specs/game/save-load.md`). SDL-free; `gamemenu.rs` draws the dialogs and `savegame.rs` collects and applies
 //! the game's state.
 //!
 //! Choices where the spec leaves a gap:

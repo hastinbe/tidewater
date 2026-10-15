@@ -1,4 +1,4 @@
-//! Workers and tankers carrying goods (spec `docs/specs/ui/carried-goods.md`). No Bevy types here.
+//! Workers and tankers carrying goods (spec `docs/specs/ui/carried-goods.md`). No SDL types here.
 //!
 //! A worker or tanker that carries a load is drawn from a carrying sprite file; the frame numbers, facing columns and
 //! mirroring stay as they are, only the file changes ([`file_for`]). The file is chosen again only when the unit's

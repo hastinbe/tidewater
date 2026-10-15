@@ -1,6 +1,6 @@
 //! The game menu's rules (spec `docs/specs/ui/game-menu.md`): which screen is open and where "back" goes, the keys in
 //! the menus, the end-scenario choices by kind of game, the objectives entry, and the rules for the values the
-//! settings dialogs edit. No Bevy types here; `gamemenu` draws it and applies the results.
+//! settings dialogs edit. No SDL types here; `gamemenu` draws it and applies the results.
 //!
 //! Choices where the spec leaves a gap:
 //! - The client plays one human player, so the game always counts as single player: the menu stops the game, there is

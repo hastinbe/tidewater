@@ -1,7 +1,7 @@
 //! Messages, notices, the status bar and the event history, from `docs/specs/ui/messages.md`: the 12-line message
 //! list and the notice line over the map view (real-time expiry, emptied in place), how a message is split to the
 //! 428-pixel width, the status bar's text, cost items and fixed prompts, and the Enhanced event history that the space
-//! key steps through. The attack mark on the minimap is in [`crate::minimap`]. No Bevy types here.
+//! key steps through. The attack mark on the minimap is in [`crate::minimap`]. No SDL types here.
 //!
 //! Texts are string-table entries numbered from 1: [`Text::Stat`] for `Rez\stat_txt.tbl`, [`Text::Net`] for
 //! `Rez\network.tbl`.

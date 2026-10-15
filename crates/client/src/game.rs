@@ -1,5 +1,5 @@
 //! The game screen (`docs/design/client-core.md`): loading a map or a saved game, the cycle loop, the map view, the
-//! interface and the player's input. Bevy-free; the core calls these each frame (`core::frame_systems`).
+//! interface and the player's input. SDL-free; the core calls these each frame (`core::frame_systems`).
 //!
 //! Controls follow `docs/specs/ui/selecting-and-commanding.md` (`mouse`): left click or drag selects (Shift adds or
 //! removes, Ctrl or a double-click takes all of the type on screen, Alt recalls the remembered group), right click

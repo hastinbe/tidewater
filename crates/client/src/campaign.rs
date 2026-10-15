@@ -3,7 +3,7 @@
 //! `docs/specs/game/campaign-flow.md`. Mission entries are those of `docs/specs/game/victory.md` ("Mission rules").
 //!
 //! Game text is named by string table and entry number counting from 1, as in the spec; [`text_index`] turns an
-//! entry into a table index. No Bevy types here.
+//! entry into a table index. No SDL types here.
 //!
 //! Defaults for the spec's open questions:
 //! - The skip setting and the setting that skips the startup videos are off: the developer words that turn them on

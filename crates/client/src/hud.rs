@@ -10,7 +10,7 @@
 //! The resource bar, the menu and pause buttons and the pointer follow `docs/specs/ui/screen-and-cursors.md` (rules in
 //! [`crate::screen`]); the message area and the status bar follow `docs/specs/ui/messages.md` (rules in
 //! [`crate::messages`]). Button frames, the menu button labels and the text colours of the colour codes are our own
-//! choices that follow the look of the game. No Bevy types here.
+//! choices that follow the look of the game. No SDL types here.
 
 use anyhow::{Context, Result, bail};
 use tidewater_formats::fnt::Font;
