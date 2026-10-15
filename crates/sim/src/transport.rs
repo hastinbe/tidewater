@@ -367,10 +367,12 @@ impl World {
             u.ship.landing = false;
             u.ship.one_tile = false;
             u.order = Order::Idle;
-            u.path.clear();
             let (owner, target, dest) = (u.owner, u.ship.target, u.ship.dest);
             let target = target.filter(|&t| !self.target_lost(owner, t));
             let o = self.transport_command(i, target, dest, false);
+            // The smart move is a command (round 70, M6): the command steps clear the blocked counter, drop the cached
+            // path and forget a stale attacker, as for the smart move a boarding unit gives its transport.
+            self.command_steps(i);
             self.take_over(i, o);
             return;
         }
@@ -1586,7 +1588,12 @@ mod tests {
                 let s = state(&w, i);
                 let u = &w.units[i];
                 match case {
-                    "done" => assert!(matches!(s.0, Order::Follow { .. } | Order::Move { .. }), "{s:?}"),
+                    "done" => {
+                        assert!(matches!(s.0, Order::Follow { .. } | Order::Move { .. }), "{s:?}");
+                        // Round 70, M6: the smart move is a command, so the blocked counter is cleared.
+                        assert_eq!(u.blocked, 0);
+                    }
+                    "done lost target" => assert_eq!((u.blocked, u.attacked_by), (0, None)),
                     // Round 70, M4: no tile docks as a pending order (wait 3), no route as an immediate one (wait 1).
                     "no tile" => assert_eq!((s.0, s.1, s.2), (Order::Docked, anim::STILL, 3)),
                     "no route" => assert_eq!((s.0, s.1, s.2, u.pending), (Order::Docked, anim::STILL, 1, None)),
@@ -1598,8 +1605,8 @@ mod tests {
             pinned(
                 &prints,
                 &[
-                    16765959437576330595,
-                    11085463737746716969,
+                    14320566839559005311,
+                    1746130242313106533,
                     10784298048555584413,
                     849440101615960998,
                     14606876485362511777,
