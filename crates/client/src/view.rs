@@ -25,7 +25,8 @@
 //! - **Effect frames:** the sim has no animation state for effects yet, so an effect draws frame number 0 in the
 //!   facing column of its flight direction (from its start to its aim point; north for one that doesn't move).
 //! - **Building fires and the ground marker** are drawn by the client: the fires' shared animation steps one frame
-//!   every [`FIRE_WAIT`] cycles, and the marker (`Marker`) shows its frame 0.
+//!   every [`FIRE_WAIT`] cycles, and the marker ([`Marker`]) grows, holds and shrinks its X by the spec's frame
+//!   table ("Overlays").
 //! - **Building states in the background:** a building that is dead, removed or inside something isn't drawn; a dying
 //!   one (a ruin) is (the spec's default). A remembered look is set for every building, in the view or not.
 
@@ -530,8 +531,10 @@ pub fn direction_facing(d: (i32, i32)) -> u8 {
     ((a / std::f64::consts::FRAC_PI_4).round() as i64).rem_euclid(8) as u8
 }
 
-/// The ground marker (effect slot 2, "Overlays"): made at a map pixel, then counted in game cycles. With its first
-/// update in cycle U it is drawn after the updates of U + 1 to U + 13.
+/// The ground marker (effect slot 2, "Overlays"): made at a map pixel by the local player's own click, then counted
+/// in game cycles. With its first update in cycle U it is drawn after the updates of U + 1 to U + 13, growing the X of
+/// `blackx.grp` (frames 0 to 3), holding it and shrinking it again ([`Marker::FRAMES`]). There is one marker: a new
+/// click replaces it, so its sequence starts again at the new spot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Marker {
     pub at: (i32, i32),
@@ -542,6 +545,14 @@ pub struct Marker {
 impl Marker {
     /// Updates the marker is drawn after: the second to the fourteenth.
     pub const SHOWN: std::ops::RangeInclusive<u32> = 2..=14;
+    /// The frame drawn after each of those updates (U + 1 to U + 13).
+    pub const FRAMES: [u8; 13] = [0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 2, 1, 0];
+
+    /// The frame of `blackx.grp` drawn now, `None` while it isn't drawn. It has no facing: column 0, never mirrored.
+    pub fn frame(&self) -> Option<u8> {
+        self.showing()
+            .then(|| Self::FRAMES[(self.updates - Self::SHOWN.start()) as usize])
+    }
 
     pub fn new(at: (i32, i32)) -> Self {
         Marker { at, updates: 0 }
@@ -556,6 +567,21 @@ impl Marker {
     pub fn showing(&self) -> bool {
         Self::SHOWN.contains(&self.updates)
     }
+}
+
+/// The marker's drawing step: its frame of `blackx.grp` in column 0, not mirrored, in the tileset palette with no team
+/// colour; `None` while it isn't drawn.
+fn marker_op(art: &Art, mk: Marker) -> Option<Op> {
+    let sheet = Sheet::Effect(MARKER);
+    let (frame, mirrored) = sheet_frame(true, 0, mk.frame()?, art.frames(sheet))?;
+    Some(Op::Sprite {
+        sheet,
+        frame,
+        mirrored,
+        centre: mk.at,
+        lift: 0,
+        base: RAMP,
+    })
 }
 
 /// Everything one picture of the view needs, as plain values.
@@ -863,18 +889,7 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
         f.fog = Some((v.width, codes));
     }
     // Layers 8 and 9.
-    f.marker = local.marker.filter(Marker::showing).and_then(|mk| {
-        let sheet = Sheet::Effect(MARKER);
-        let (frame, mirrored) = sheet_frame(false, 0, 0, art.frames(sheet))?;
-        Some(Op::Sprite {
-            sheet,
-            frame,
-            mirrored,
-            centre: mk.at,
-            lift: 0,
-            base: RAMP,
-        })
-    });
+    f.marker = local.marker.and_then(|mk| marker_op(art, mk));
     f.drag = local.drag;
     let _ = view;
     (f, stop)
@@ -1180,6 +1195,64 @@ mod tests {
         }
         // Hidden from the update in U + 14.
         assert!(!m.update() && !m.showing());
+    }
+
+    /// The marker's frames after the next 13 updates.
+    fn marker_frames(m: &mut Marker) -> Vec<Option<u8>> {
+        (0..13)
+            .map(|_| {
+                m.update();
+                m.frame()
+            })
+            .collect()
+    }
+
+    const MARKER_SEQUENCE: [u8; 13] = [0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 2, 1, 0];
+
+    #[test]
+    fn the_ground_marker_grows_holds_and_shrinks() {
+        // Map-drawing spec, test vector: frames 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 2, 1, 0 after U + 1 to U + 13.
+        let mut m = Marker::new((40, 40));
+        m.update();
+        assert_eq!(m.frame(), None, "not drawn after its first update");
+        assert_eq!(marker_frames(&mut m), MARKER_SEQUENCE.map(Some));
+        m.update();
+        assert_eq!(m.frame(), None, "hidden from the update in U + 14");
+    }
+
+    #[test]
+    fn a_new_click_restarts_the_marker_at_the_new_spot() {
+        // Shown at frame 3 (cycle U + 6), then a right-click elsewhere with its first update in cycle V.
+        let mut m = Marker::new((40, 40));
+        for _ in 0..7 {
+            m.update();
+        }
+        assert_eq!(m.frame(), Some(3));
+        m = Marker::new((200, 120));
+        m.update();
+        assert_eq!((m.at, m.frame()), ((200, 120), None), "not drawn after the update of V");
+        assert_eq!(marker_frames(&mut m), MARKER_SEQUENCE.map(Some));
+    }
+
+    #[test]
+    fn the_marker_draws_its_frame_in_column_0_unmirrored() {
+        let art = Art {
+            effects: HashMap::from([(MARKER, sheet(8, 8, &[((0, 0), (8, 8), 77); 4]))]),
+            ..Default::default()
+        };
+        let drawn = |updates| match marker_op(&art, Marker { at: (16, 16), updates }) {
+            Some(Op::Sprite {
+                frame, mirrored, base, ..
+            }) => Some((frame, mirrored, base)),
+            _ => None,
+        };
+        assert_eq!(
+            drawn(7),
+            Some((3, false, RAMP)),
+            "cycle U + 6: the whole X, no team colour"
+        );
+        assert_eq!(drawn(13), Some((1, false, RAMP)));
+        assert_eq!(drawn(15), None);
     }
 
     fn black_tile_shapes() -> fog::Shapes {
