@@ -19,18 +19,18 @@ sound	20	d0e6afe865a35291	0.7516	Loop
 shot	66	title	6f6247d659ff1640
 frames	16-67	6f6247d659ff1640
 frames	68-69	156ed4086987e325
-frames	70-70	d11b15a8c5676b61
-frames	71-71	f6021c347c5bc1e4
-frames	72-72	95c8f3c4a710b00c
-frames	73-73	28ef49d294e8d825
-frames	74-74	10bd8201304a8e74
-frames	75-75	7a6e870e3c60a6db
-frames	76-76	2409d6dfa09e8025
-shot	77	menu-fade	76179bda5d9d9d2f
-frames	77-77	76179bda5d9d9d2f
-frames	78-78	ea0812e99a69ffb1
-frames	79-79	ab5bd691e069e781
-frames	80-80	eb4ec0d898000f9e
+frames	70-70	9e0a578814af0a3b
+frames	71-71	ccc874b4ac0a9538
+frames	72-72	185d0aff4c5e30f3
+frames	73-73	2cf3fb5befbd2e2d
+frames	74-74	b1d50de0fa210d1c
+frames	75-75	e0058450b5b945a9
+frames	76-76	43883d3cce61952c
+shot	77	menu-fade	16925f234b8227b3
+frames	77-77	16925f234b8227b3
+frames	78-78	99485fbbb19f0a59
+frames	79-79	2fc0bb5bd713a690
+frames	80-80	ddb7390045c36e2b
 frames	81-97	b05180aa0ffb75ff
 shot	100	menu-hover	6ce50b679314d3c6
 frames	98-101	6ce50b679314d3c6

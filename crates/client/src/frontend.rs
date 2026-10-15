@@ -1090,7 +1090,17 @@ fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
         .collect()
 }
 
-fn open_menu(commands: &mut Commands, front: &mut Front, pictures: &mut Pictures, labels: &[&str], state: AppState) {
+/// Opens a menu screen: the darkened title picture with `heading` drawn over it, then its buttons. The heading is part
+/// of the picture, so it fades in with it, as the version line does (screen spec, "Pointer and fades"); the buttons
+/// are drawn by [`menu_input`] once the fade-in has ended.
+fn open_menu(
+    commands: &mut Commands,
+    front: &mut Front,
+    pictures: &mut Pictures,
+    heading: &str,
+    labels: &[&str],
+    state: AppState,
+) {
     let mut bg = picture(&mut front.install, cf::TITLE_PICTURE, None);
     // Darkened so the buttons read.
     for px in bg.rgba.chunks_exact_mut(4) {
@@ -1100,12 +1110,14 @@ fn open_menu(commands: &mut Commands, front: &mut Front, pictures: &mut Pictures
     }
     // Below the title picture's logo.
     let top = 300 - labels.len() as i32 * 10;
+    let items = menu_items(labels, top);
+    centred(&mut bg, &front.font, top - 26, heading);
     let image = spawn_layer(commands, pictures, dup(&bg), 0, state, None);
     commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
     let menu = Menu {
         image,
         background: bg,
-        items: menu_items(labels, top),
+        items,
         hot: None,
         drawn: None,
         closing: None,
@@ -1121,13 +1133,10 @@ fn menu_input(
     at: Option<Vec2>,
     mouse: &Buttons<Button>,
     keys: &Buttons<Key>,
-    heading: &str,
 ) -> Option<usize> {
     menu.hot = at.and_then(|p| menu.items.iter().position(|(r, _)| r.contains(p.x, p.y)));
     if menu.drawn != Some(menu.hot) {
         let mut p = dup(&menu.background);
-        let top = menu.items.first().map_or(200, |(r, _)| r.y) - 26;
-        centred(&mut p, &front.font, top, heading);
         for (i, (r, l)) in menu.items.iter().enumerate() {
             button(&mut p, &front.font, *r, l, menu.hot == Some(i));
         }
@@ -1166,6 +1175,7 @@ pub(crate) fn enter_menu(c: &mut Core) {
         commands,
         front,
         pictures,
+        "Tidewater",
         &["New Campaign", "Load Game", "Quit"],
         AppState::MainMenu,
     );
@@ -1212,13 +1222,14 @@ fn run_menu(c: &mut Core) {
         }
         return;
     }
-    // Screen spec, "Pointer and fades": the buttons (and our heading) aren't drawn during the fade-in, which shows the
-    // picture alone, and the menu takes no input until the fade ends.
+    // Screen spec, "Pointer and fades": the buttons aren't drawn during the fade-in, which shows the picture and our
+    // heading (the version line's stand-in) fading in together, and the menu takes no input until the fade ends. The
+    // buttons and the pointer appear on the frame that ends it.
     if clock.0 < fades::MENUS as f64 {
         return;
     }
     let at = pointer(input, cam);
-    let pick = menu_input(menu, front, pictures, at, mouse, keys, "Tidewater");
+    let pick = menu_input(menu, front, pictures, at, mouse, keys);
     let pick = pick
         .or(keys.just_pressed(Key::Letter('N')).then_some(0))
         .or(keys.just_pressed(Key::Letter('L')).then_some(1))
@@ -1312,7 +1323,14 @@ pub(crate) fn enter_new_campaign(c: &mut Core) {
     } = c;
     let mut labels: Vec<&str> = Choice::ALL.iter().map(|c| c.label()).collect();
     labels.push("Cancel");
-    open_menu(commands, front, pictures, &labels, AppState::NewCampaign);
+    open_menu(
+        commands,
+        front,
+        pictures,
+        "Choose a campaign",
+        &labels,
+        AppState::NewCampaign,
+    );
 }
 
 fn run_new_campaign(c: &mut Core) {
@@ -1333,7 +1351,7 @@ fn run_new_campaign(c: &mut Core) {
     let keys = &input.keys;
     let mouse = &input.mouse;
     let at = pointer(input, cam);
-    let pick = menu_input(menu, front, pictures, at, mouse, keys, "Choose a campaign");
+    let pick = menu_input(menu, front, pictures, at, mouse, keys);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = match pick {
         Some(i) if i < 4 => {
