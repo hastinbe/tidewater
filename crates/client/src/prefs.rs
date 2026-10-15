@@ -110,16 +110,16 @@ impl Prefs {
     }
 
     /// Reads the settings file at program start ("Loading"); no file, or one that can't be read, gives the defaults.
-    pub fn load(path: &std::path::Path) -> Self {
-        std::fs::read_to_string(path).map_or_else(|_| Self::default(), |s| Self::from_text(&s))
+    pub fn load(storage: &dyn crate::storage::Storage) -> Self {
+        storage
+            .read_settings()
+            .and_then(|b| String::from_utf8(b).ok())
+            .map_or_else(Self::default, |s| Self::from_text(&s))
     }
 
     /// Writes the settings file ("Saving": when the program exits normally).
-    pub fn store(&self, path: &std::path::Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(path, self.to_text())
+    pub fn store(&self, storage: &dyn crate::storage::Storage) -> std::io::Result<()> {
+        storage.write_settings(self.to_text().as_bytes())
     }
 
     /// Reads the text form: every setting takes its default, then the stored value when it is in range.
@@ -316,15 +316,16 @@ mod tests {
     fn the_settings_file_round_trips_and_a_missing_one_gives_defaults() {
         let dir = std::env::temp_dir().join(format!("tidewater-prefs-{}", std::process::id()));
         let path = dir.join("sub").join("settings.txt");
-        assert_eq!(Prefs::load(&path), Prefs::default());
+        let storage = crate::storage::Desktop::new(dir.join("install"), dir.join("Save"), path, dir.clone());
+        assert_eq!(Prefs::load(&storage), Prefs::default());
         let mut p = Prefs {
             game_speed: 7,
             digital_volume: 30,
             ..Prefs::default()
         };
         p.set(bit::COLOUR_CYCLING, false);
-        p.store(&path).unwrap();
-        assert_eq!(Prefs::load(&path), p);
+        p.store(&storage).unwrap();
+        assert_eq!(Prefs::load(&storage), p);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

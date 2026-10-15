@@ -54,10 +54,12 @@ mod script;
 mod shell;
 mod sound;
 mod states;
+mod storage;
 mod video;
 mod view;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -67,7 +69,7 @@ use clap::Parser;
 use clock::FrameClock;
 use input::{Button, Key};
 use panel::PanelState;
-use shell::{CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
+use shell::{CoreTime, Held, PlayerInput, ScreenLayer, ScreenPictures, Store};
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::Event;
@@ -439,7 +441,22 @@ fn main() -> Result<()> {
         }
         _ => None,
     };
-    let install = Install::open(&args.install)?;
+    // The desktop's storage (`storage`): a scripted run uses its own folder and a wall clock that stands still.
+    let settings = args
+        .settings
+        .clone()
+        .unwrap_or_else(|| storage::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
+    let mut desktop = storage::Desktop::new(
+        &args.install,
+        args.save_dir.clone().unwrap_or_else(storage::default_save_dir),
+        settings,
+        storage::user_dir(args.save_dir.as_deref()),
+    );
+    if scripted.is_some() {
+        desktop = desktop.with_fixed_clock(script::WALL_SECS);
+    }
+    let store = Store(Arc::new(desktop));
+    let install = storage::open_install(&store.0)?;
     let mut front = frontend::Front::load(install)?;
     let mut flow = frontend::Flow::default();
     // The map given on the command line starts at once; otherwise the startup sequence ("Startup") or a screen
@@ -463,15 +480,11 @@ fn main() -> Result<()> {
         (None, None, _) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
     };
     flow.steps = steps.into();
-    let settings = args
-        .settings
-        .clone()
-        .unwrap_or_else(|| saves::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
     // A scripted run starts from the default settings.
     let prefs = if scripted.is_some() {
         prefs::Prefs::default()
     } else {
-        prefs::Prefs::load(&settings)
+        prefs::Prefs::load(&*store.0)
     };
     let stored =
         gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
@@ -481,8 +494,6 @@ fn main() -> Result<()> {
         .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
     // Until `size_window` knows the monitor: the explicit size, or the plain 640 × 480 points.
     let points = args.ui_scale.unwrap_or(1);
-    let save_dir = args.save_dir.clone();
-    let shot_dir = args.save_dir.clone();
     let mut resolution = bevy::window::WindowResolution::new(display::SCREEN.0 * points, display::SCREEN.1 * points);
     if scripted.is_some() {
         // One physical pixel per screen pixel whatever the display, so the screen fills the window exactly.
@@ -548,7 +559,6 @@ fn main() -> Result<()> {
         script::setup(&mut app, scene, out);
     }
     app.insert_resource(ClearColor(Color::BLACK))
-        .init_resource::<WallClock>()
         .insert_resource(WindowSizing {
             explicit: args.ui_scale.is_some(),
             frames: 0,
@@ -560,12 +570,9 @@ fn main() -> Result<()> {
                 .run_if(not(resource_exists::<script::Script>)),
         )
         .insert_resource(front)
-        .insert_resource(savegame::SaveFolder(saves::SaveDir::new(
-            save_dir.unwrap_or_else(saves::default_dir),
-        )))
+        .insert_resource(store)
         .insert_resource(flow)
         .insert_resource(stored)
-        .insert_resource(SettingsFile(settings))
         .add_systems(Last, store_settings.before(shell::ComposeScreen))
         .insert_resource(Opts(args))
         .add_plugins(frontend::plugin)
@@ -573,7 +580,6 @@ fn main() -> Result<()> {
         .add_systems(StateTransition, run_transitions)
         .add_plugins(cheats::plugin)
         .add_plugins(chat::plugin)
-        .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
         .add_systems(Last, screenshot::write_shot.after(shell::ComposeScreen))
         .add_systems(
             RunFixedMainLoop,
@@ -645,17 +651,44 @@ fn frame_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         .chain()
 }
 
-/// Where the stored settings live (`prefs`).
-#[derive(Resource)]
-struct SettingsFile(PathBuf);
-
 /// "Saving": the settings are written when the program exits normally, not on an error exit.
-fn store_settings(mut exits: MessageReader<AppExit>, file: Res<SettingsFile>, stored: Res<gamemenu::Stored>) {
+fn store_settings(mut exits: MessageReader<AppExit>, store: Res<Store>, stored: Res<gamemenu::Stored>) {
     if exits.read().any(|e| *e == AppExit::Success)
-        && let Err(e) = stored.0.store(&file.0)
+        && let Err(e) = stored.0.store(&*store.0)
     {
-        eprintln!("can't write the settings to {}: {e}", file.0.display());
+        eprintln!("can't write the settings: {e}");
     }
+}
+
+/// Writes the running game as `name` (the typed name; `stem` is the file name without the extension).
+pub(crate) fn save_game(world: &mut bevy::prelude::World, stem: &str, name: &str) -> Result<(), savefile::Reason> {
+    let store = world.resource::<Store>().clone();
+    let bytes = capture_game(world, name).ok_or(savefile::Reason::WriteFailed)?;
+    store.folder().write(stem, savefile::Kind::Single, &bytes)
+}
+
+/// The bytes of the running game as a saved game (`savegame::capture`), or `None` outside a game.
+pub(crate) fn capture_game(world: &mut bevy::prelude::World, name: &str) -> Option<Vec<u8>> {
+    let origin = world.get_resource::<Held<savegame::GameOrigin>>()?.0.clone();
+    let cycles_on = world.get_resource::<Cycling>()?.state.cycler().on_set();
+    let now = world.resource::<CoreTime>().elapsed();
+    let clock_ms = world.get_resource::<Held<savegame::GameClock>>().map(|c| c.ms(now));
+    let pause_counts = world.get_resource::<Held<savegame::PauseCounts>>().map(|p| p.0.0);
+    let music = world.resource::<jukebox::Jukebox>().music().current();
+    let screen = world
+        .get_resource::<GameView>()
+        .map_or((0, 0), |v| (v.centre.0 as i32, v.centre.1 as i32));
+    let client = savegame::client_state(
+        world.resource::<frontend::Flow>(),
+        cycles_on,
+        music,
+        screen,
+        clock_ms,
+        pause_counts,
+    );
+    let saved_at = world.resource::<Store>().wall_clock_secs();
+    let mut sim = world.get_resource_mut::<Sim>()?;
+    Some(savegame::capture(&mut sim.world, &origin, client, name, saved_at))
 }
 
 /// The command line, kept for starting games.
@@ -742,7 +775,6 @@ fn start_game(world: &mut bevy::prelude::World) {
 
 /// The game options `load_game` reads from the command line.
 struct GameArgs {
-    install: PathBuf,
     map: String,
     setup: Option<tidewater_sim::setup::Setup>,
     zoom: Option<f32>,
@@ -762,7 +794,6 @@ struct GameArgs {
 fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewater_sim::setup::Setup>) -> Result<()> {
     let a = &world.resource::<Opts>().0;
     let args = GameArgs {
-        install: a.install.clone(),
         map: map.to_string(),
         setup,
         zoom: a.zoom,
@@ -778,30 +809,32 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         key_scroll_speed: a.key_scroll_speed.unwrap_or(screen::DEFAULT_SPEED),
         demo_outcome: a.demo_outcome.as_deref().map(|o| o == "victory"),
     };
-    let mut install = Install::open(&args.install)?;
+    let store = world.resource::<Store>().clone();
+    let mut install = storage::open_install(&store.0)?;
     let options = args
         .setup
         .unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&args.map));
     // A saved game builds the same game again (same start seed), then its state goes over it.
     let resume = world.resource_mut::<frontend::Flow>().resume.take();
-    let wall = *world.resource::<WallClock>();
-    // Single player seeds with the time in whole seconds (`scene::load`), read through the app's wall clock.
-    let seed = resume.as_ref().map_or(wall.secs() as u32, |r| r.header.seed);
-    let mut scene = scene::load(&mut install, &args.map, &options, Some(seed))?;
+    // Single player seeds with the time in whole seconds (`core/timing-and-rng.md`, "Seeding"), read through the
+    // storage's wall clock.
+    let wall = store.wall_clock_secs();
+    let seed = resume.as_ref().map_or(wall as u32, |r| r.header.seed);
+    let mut scene = scene::load(&mut install, &*store.0, &args.map, &options, seed)?;
     if let Some(r) = &resume {
         scene
             .world
-            .restore(&r.body.world, savegame::reseed(&wall))
+            .restore(&r.body.world, savegame::reseed(wall))
             .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
     } else {
         // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
         scene.world.start_up();
     }
-    world.insert_resource(savegame::GameOrigin {
+    world.insert_resource(Held(savegame::GameOrigin {
         map: args.map.clone(),
         setup: options,
         seed: scene.seed,
-    });
+    }));
     println!(
         "{:?} map, {} units, you are player {}: {}",
         scene.era,
@@ -953,7 +986,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     }
     if let Some(r) = &resume {
         let (x, y) = r.body.client.screen;
-        world.insert_resource(savegame::ResumeLook(Vec2::new(x as f32, y as f32)));
+        world.insert_resource(Held(savegame::ResumeLook((x as f32, y as f32))));
     }
     // The game clock starts now, from a loaded game's saved reading (Classic saves have none: 0).
     let (clock, pauses) = savegame::clock_and_pauses(
@@ -961,8 +994,8 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         resume.as_ref().and_then(|r| r.body.client.pause_counts),
         world.resource::<CoreTime>().elapsed(),
     );
-    world.insert_resource(clock);
-    world.insert_resource(pauses);
+    world.insert_resource(Held(clock));
+    world.insert_resource(Held(pauses));
     world.insert_resource(cycling);
     world.insert_resource(Loaded(Some(scene)));
     world.insert_resource(MapSize(size));
@@ -998,7 +1031,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
 type GameEntities<'w, 's> = Query<'w, 's, Entity, (Or<(With<ScreenLayer>, With<Camera>)>, Without<frontend::Persist>)>;
 
 /// The game clock stops when the game ends (`savegame::GameClock`).
-fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>, time: Res<CoreTime>) {
+fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<Held<savegame::GameClock>>>, time: Res<CoreTime>) {
     if let (Some(sim), Some(mut clock)) = (sim, clock)
         && sim.world.victory.over
     {
@@ -1015,8 +1048,8 @@ fn end_game(mut commands: Commands, q: GameEntities, mut audio: ResMut<shell::Co
     commands.remove_resource::<Sim>();
     commands.remove_resource::<GameView>();
     commands.remove_resource::<Loaded>();
-    commands.remove_resource::<savegame::GameClock>();
-    commands.remove_resource::<savegame::PauseCounts>();
+    commands.remove_resource::<Held<savegame::GameClock>>();
+    commands.remove_resource::<Held<savegame::PauseCounts>>();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1027,7 +1060,7 @@ fn setup(
     size: Res<MapSize>,
     mut hud: ResMut<Hud>,
     sel: Res<Selection>,
-    resume_look: Option<Res<savegame::ResumeLook>>,
+    resume_look: Option<Res<Held<savegame::ResumeLook>>>,
 ) {
     let Some(scene) = loaded.0.take() else { return };
     // Start the view on the selection if there is one, else on game setup's starting view: its top-left tile, with
@@ -1039,8 +1072,8 @@ fn setup(
         |u| Vec2::new(u.centre_px().0 as f32, u.centre_px().1 as f32),
     );
     // A loaded game starts the view where the saved game's view was.
-    let look = resume_look.map_or(look, |r| r.0);
-    commands.remove_resource::<savegame::ResumeLook>();
+    let look = resume_look.map_or(look, |r| Vec2::new(r.0.0.0, r.0.0.1));
+    commands.remove_resource::<Held<savegame::ResumeLook>>();
     hud.map = (
         scene.terrain.width / TILE_PX as u32,
         scene.terrain.height / TILE_PX as u32,
@@ -1507,20 +1540,6 @@ fn pan_and_zoom(
 /// The app's real-time clock in whole milliseconds since the program started.
 fn real_ms(real: &FrameClock) -> u64 {
     real.elapsed().as_millis() as u64
-}
-
-/// The wall clock the game reads the date from (a new game's seed, a loaded game's reseed, a save's time): the
-/// system's, unless a scripted run fixes it so that its games come out the same every time.
-#[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct WallClock {
-    pub fixed: Option<u64>,
-}
-
-impl WallClock {
-    /// Whole seconds since 1970-01-01 UTC.
-    pub fn secs(&self) -> u64 {
-        self.fixed.unwrap_or_else(|| scene::now_secs() as u64)
-    }
 }
 
 /// Lays the interface out on the 640 × 480 screen once, and keeps the map view on its place in the layout at the

@@ -108,24 +108,42 @@ samples too (the audio snapshot).
 
 ## Storage
 
+Done in step 8 (`crates/client/src/storage.rs`). Everything the core reads or writes outside itself goes through one
+trait the shell provides:
+
 ```rust
-pub trait Storage {
-    /// The installation's files, opened for reading with seeking (the MPQ reader seeks).
-    fn install(&mut self, name: &str) -> io::Result<Box<dyn ReadSeek>>;
-    fn saves(&mut self) -> io::Result<Vec<SaveEntry>>;            // name, size, time
-    fn read_save(&mut self, name: &str) -> io::Result<Vec<u8>>;
-    fn write_save(&mut self, name: &str, bytes: &[u8]) -> io::Result<()>;
-    fn delete_save(&mut self, name: &str) -> io::Result<()>;
-    fn read_settings(&mut self) -> io::Result<Option<Vec<u8>>>;
-    fn write_settings(&mut self, bytes: &[u8]) -> io::Result<()>;
-    fn write_screenshot(&mut self, name: &str, bytes: &[u8]) -> io::Result<()>;
-    fn wall_clock_secs(&self) -> u64;                             // for seeds and save times
+pub trait Storage: Send + Sync {
+    /// The installation's files, opened for reading with seeking (the MPQ reader seeks); `None` when there is none.
+    fn install(&self, name: &str) -> io::Result<Option<Box<dyn ReadSeek>>>;
+    /// A map the user named by its own path (`--map`); `None` when there is no such file.
+    fn user_map(&self, path: &str) -> io::Result<Option<Vec<u8>>>;
+    fn saves(&self) -> Vec<String>;                                // file names, in the folder's order
+    fn read_save(&self, file: &str) -> io::Result<Vec<u8>>;
+    fn write_save(&self, file: &str, bytes: &[u8]) -> Result<(), WriteError>; // whole, or no file
+    fn delete_save(&self, file: &str) -> io::Result<()>;
+    fn read_settings(&self) -> Option<Vec<u8>>;
+    fn write_settings(&self, bytes: &[u8]) -> io::Result<()>;
+    fn has_screenshot(&self, name: &str) -> bool;
+    fn write_screenshot(&self, name: &str, bytes: &[u8]) -> io::Result<()>;
+    fn wall_clock_secs(&self) -> u64;                              // for seeds and save times
 }
 ```
 
-Today these are `std::fs` calls in `saves.rs`, `prefs.rs`, `screenshot.rs` and `tidewater_formats::install`. The
-installation needs one change in `crates/formats`: `Install` and the MPQ reader take a `Read + Seek` source instead of
-a path. The web shell can then read a folder the user picks; iOS and Android read the app's documents.
+| Part | Before | Now |
+|---|---|---|
+| Installation | `Install::open(path)`, `std::fs` reads | `tidewater_formats::install::Files` (`open(name) -> Option<Box<dyn ReadSeek>>`); `Install::from_files`, `Archive::from_reader`. `Install::open` and `Archive::open` are kept (a `Folder`), so `twtool` and the simulation's tests are unchanged |
+| Saved games | `saves::SaveDir` over a folder path | `SaveDir` over `Storage`; an entry names its file, not a path |
+| Settings | `prefs::Prefs::load/store(path)` | `load/store(&dyn Storage)` |
+| Screenshots | `std::fs` in `screenshot` | `Storage::write_screenshot` |
+| Wall clock | `WallClock` resource, `scene::now_secs` | `Storage::wall_clock_secs`; a scripted run's `Desktop` has a fixed clock |
+| Folders | `saves::default_dir`, `saves::user_dir` | `storage::default_save_dir`, `storage::user_dir`: the desktop's choice, the same folders as before |
+
+`storage::Desktop` is the desktop's: the installation folder given on the command line, the save folder, the
+settings file and the user folder exactly as before, and the system clock. The methods take `&self` so that the core
+and the installation reader can share one `Arc<dyn Storage>`; a platform that has to change state to read or write
+keeps it inside. `savegame` is Bevy-free: the shell gathers the running game's parts and `savegame::capture` encodes
+them (format v10, unchanged). The snapshot hashes every file a scripted run writes (its saved games and the load
+scene's screenshot), so step 8 is checked to write them byte for byte as before.
 
 ## Lifecycle
 
@@ -147,7 +165,7 @@ The five operations, as the shell implements them. The core sees only `Input`, `
 | Show a frame | `shell.rs`: the frame into one texture, one sprite at the whole-number scale | `fn present(&mut self, frame: &Frame)` |
 | Poll input | Bevy input messages, the mouse lock | `fn poll(&mut self) -> Input` |
 | Pull audio | Bevy audio | the audio callback calls `Core::mix` |
-| Files | `std::fs` | `impl Storage` |
+| Files | `storage::Desktop` | `impl Storage` |
 | Time | `Time<Real>` | `fn now(&self) -> Duration` |
 
 ## Safety net (phase 1, done)
@@ -186,7 +204,7 @@ the snapshot didn't change.
 | 5 ✓ | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
 | 6 ✓ | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
 | 7 ✓ | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts and mixed sound unchanged; loop points exact (below) |
-| 8 | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged |
+| 8 ✓ | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged, saved games and screenshots byte for byte |
 | 9 | Bevy shell thin | What's left of `main.rs` → `bevy_shell` (window, letterbox, input, audio, files) | unchanged |
 | 10 | Trial shells (phase 3) | SDL3 and miniquad shells, measured | must pass the snapshot |
 

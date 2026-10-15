@@ -9,7 +9,8 @@
 //!
 //! Choices where the spec leaves a gap:
 //! - **Where.** The original writes into the game's folder; Tidewater never writes into the install, so the files go
-//!   to the user folder (`saves::user_dir`: the `--save-dir` folder if given, else Tidewater's user data directory).
+//!   to the storage's (`storage`); the desktop's is the user folder (`storage::user_dir`: the `--save-dir` folder if
+//!   given, else Tidewater's user data directory).
 //! - **What.** The game screen as the window shows it, without the black border around it (`crate::display`): the
 //!   composed 640 × 480 screen of the frame the key was pressed in. Each pixel is given the palette entry of its colour (the
 //!   nearest entry for the interface's own colours, which aren't palette entries). The palette is the one the screen
@@ -19,7 +20,6 @@
 //!   file is written.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use bevy::ecs::schedule::ScheduleConfigs;
 use bevy::ecs::system::ScheduleSystem;
@@ -29,15 +29,11 @@ use tidewater_formats::tileset::Palette;
 use crate::frontend::{AppState, in_screen};
 use crate::input::Key;
 use crate::palette::{self, Rgb};
-use crate::shell::PlayerInput;
+use crate::shell::{PlayerInput, Store};
 use crate::{Cycling, Hud};
 
 /// Frames the negative palette shows after a screenshot is written.
 pub const FLASH_FRAMES: u8 = 3;
-
-/// Where Print Screen pictures go.
-#[derive(Resource, Clone)]
-pub struct ShotDir(pub PathBuf);
 
 /// A screenshot asked for this frame: written once the frame is composed.
 #[derive(Resource)]
@@ -56,7 +52,7 @@ fn print_screen(
     mut commands: Commands,
     cycling: Option<Res<Cycling>>,
     hud: Option<Res<Hud>>,
-    dir: Res<ShotDir>,
+    store: Res<Store>,
     input: Res<PlayerInput>,
 ) {
     let keys = &input.keys;
@@ -66,7 +62,7 @@ fn print_screen(
     let (Some(cycling), Some(canvas)) = (cycling, hud.and_then(|h| h.layout).map(|l| l.canvas)) else {
         return;
     };
-    let Some(name) = palette::screenshot_name(|n| dir.0.join(n).exists()) else {
+    let Some(name) = palette::screenshot_name(|n| store.has_screenshot(n)) else {
         return;
     };
     commands.insert_resource(PendingShot {
@@ -90,15 +86,13 @@ pub(crate) fn write_shot(world: &mut World) {
         &shot.pal,
     );
     let file = encode_pcx(shot.canvas.0 as u16, shot.canvas.1 as u16, &px, &shot.pal);
-    let dir = world.resource::<ShotDir>().0.clone();
-    let path = dir.join(&shot.name);
-    match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, file)) {
+    match world.resource::<Store>().write_screenshot(&shot.name, &file) {
         Ok(()) => {
             if let Some(mut cycling) = world.get_resource_mut::<Cycling>() {
                 cycling.flash = FLASH_FRAMES;
             }
         }
-        Err(e) => eprintln!("can't write {}: {e}", path.display()),
+        Err(e) => eprintln!("can't write {}: {e}", shot.name),
     }
 }
 

@@ -4,7 +4,7 @@
 //!
 //! Choices where the spec leaves a gap:
 //! - **Where.** The spec's `Save` folder "inside the game's folder" would put files into the install, which Tidewater
-//!   never writes to. The folder is `Save` inside our own per-user data directory ([`default_dir`], from the
+//!   never writes to. The folder is `Save` inside our own per-user data directory (`storage::default_save_dir`, from the
 //!   `directories` crate), overridable with `--save-dir`. The spec's "open question: Folder in a network session" has the
 //!   same answer.
 //! - **Typed characters.** "Printable, from space up to code 127": we take codes 0x20 to 0x7e (127 is not printable).
@@ -24,9 +24,11 @@
 //! Not yet here: the multiplayer parts are logic and tests only ([`may_save`], [`BnetWait`], [`multiplayer_target`]); the
 //! client has no multiplayer.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 
 use crate::savefile::{self, Header, Kind, Reason};
+use crate::storage::{Storage, WriteError};
 
 /// Saved games of one kind that take part.
 pub const MAX_SAVES: usize = 100;
@@ -37,27 +39,6 @@ pub const MAX_NAME: usize = 27;
 pub const BNET_WAIT_SECS: f64 = 120.0;
 /// Network entry 105's characters, used when the table can't be read.
 pub const FORBIDDEN: &str = "*\\/:><|&+^?\"";
-
-/// The default save folder: `Save` in the user's data directory for Tidewater.
-pub fn default_dir() -> PathBuf {
-    directories::ProjectDirs::from("", "", "Tidewater")
-        .map_or_else(|| PathBuf::from("Save"), |d| d.data_dir().join("Save"))
-}
-
-/// The folder for the program's other files (the settings file, Print Screen pictures): the folder given with
-/// `--save-dir`, so a run with its own save folder writes nothing else; otherwise the folder that holds the default
-/// save folder (the original keeps them in the game's folder, which holds `Save`; we never write into the install).
-pub fn user_dir(save_dir: Option<&Path>) -> PathBuf {
-    match save_dir {
-        Some(d) => d.to_path_buf(),
-        None => {
-            let d = default_dir();
-            d.parent()
-                .filter(|p| !p.as_os_str().is_empty())
-                .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Names
@@ -106,7 +87,8 @@ pub fn fill(template: &str, name: &str) -> String {
 pub struct Entry {
     /// The file name without folder and extension: what the list shows.
     pub stem: String,
-    pub path: PathBuf,
+    /// The file name in the save folder.
+    pub file: String,
     /// The name typed when it was saved.
     pub stored_name: String,
     pub saved_at: u64,
@@ -118,30 +100,33 @@ pub fn sort_newest_first(entries: &mut [Entry]) {
     entries.sort_by_key(|e| std::cmp::Reverse(e.saved_at));
 }
 
-/// The save folder.
-#[derive(Clone, Debug)]
+/// The save folder, in the storage the shell gives (`storage`).
+#[derive(Clone)]
 pub struct SaveDir {
-    pub root: PathBuf,
+    storage: Arc<dyn Storage>,
+}
+
+impl std::fmt::Debug for SaveDir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SaveDir")
+    }
 }
 
 impl SaveDir {
-    pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+    pub fn new(storage: Arc<dyn Storage>) -> Self {
+        Self { storage }
     }
 
-    pub fn path_of(&self, stem: &str, kind: Kind) -> PathBuf {
-        self.root.join(format!("{stem}.{}", kind.extension()))
+    pub fn file_of(stem: &str, kind: Kind) -> String {
+        format!("{stem}.{}", kind.extension())
     }
 
     /// The saved games of `kind` that can be loaded under the rules `enhanced`, newest first, at most [`MAX_SAVES`].
     /// A file that isn't a valid saved game of this mode is not listed.
     pub fn list(&self, kind: Kind, enhanced: bool) -> Vec<Entry> {
-        let Ok(dir) = std::fs::read_dir(&self.root) else {
-            return Vec::new();
-        };
         let mut found = Vec::new();
-        for item in dir.flatten() {
-            let path = item.path();
+        for file in self.storage.saves() {
+            let path = Path::new(&file);
             let ext_ok = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -149,10 +134,12 @@ impl SaveDir {
             let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
                 continue;
             };
-            if !ext_ok || !path.is_file() {
+            if !ext_ok {
                 continue;
             }
-            let Ok(bytes) = std::fs::read(&path) else { continue };
+            let Ok(bytes) = self.storage.read_save(&file) else {
+                continue;
+            };
             let Ok((h, _)) = savefile::read_header(&bytes, enhanced) else {
                 continue;
             };
@@ -161,7 +148,7 @@ impl SaveDir {
             }
             found.push(Entry {
                 stem,
-                path,
+                file,
                 stored_name: h.name,
                 saved_at: h.saved_at,
                 race: h.race,
@@ -176,25 +163,21 @@ impl SaveDir {
 
     /// Writes a saved game; a partly written file is deleted.
     pub fn write(&self, stem: &str, kind: Kind, bytes: &[u8]) -> Result<(), Reason> {
-        std::fs::create_dir_all(&self.root).map_err(|_| Reason::CantCreate)?;
-        let path = self.path_of(stem, kind);
-        let mut file = std::fs::File::create(&path).map_err(|_| Reason::CantCreate)?;
-        let written = std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all());
-        if written.is_err() {
-            drop(file);
-            let _ = std::fs::remove_file(&path);
-            return Err(Reason::WriteFailed);
-        }
-        Ok(())
+        self.storage
+            .write_save(&Self::file_of(stem, kind), bytes)
+            .map_err(|e| match e {
+                WriteError::CantCreate => Reason::CantCreate,
+                WriteError::WriteFailed => Reason::WriteFailed,
+            })
     }
 
     pub fn delete(&self, e: &Entry) -> std::io::Result<()> {
-        std::fs::remove_file(&e.path)
+        self.storage.delete_save(&e.file)
     }
 
     /// Reads and checks a saved game for loading.
-    pub fn read(path: &Path, enhanced: bool) -> Result<(Header, savefile::Body), Reason> {
-        let bytes = std::fs::read(path).map_err(|_| Reason::CantOpen)?;
+    pub fn read(&self, file: &str, enhanced: bool) -> Result<(Header, savefile::Body), Reason> {
+        let bytes = self.storage.read_save(file).map_err(|_| Reason::CantOpen)?;
         savefile::decode(&bytes, enhanced)
     }
 }
@@ -557,7 +540,7 @@ mod tests {
     fn entry(stem: &str, at: u64) -> Entry {
         Entry {
             stem: stem.into(),
-            path: PathBuf::from(format!("{stem}.sav")),
+            file: format!("{stem}.sav"),
             stored_name: stem.into(),
             saved_at: at,
             race: 0,
@@ -749,10 +732,21 @@ mod tests {
         assert_eq!(order, ["b", "d", "a", "c"]);
     }
 
+    /// A save folder on disk at `root`.
+    fn folder(root: &Path) -> SaveDir {
+        SaveDir::new(Arc::new(crate::storage::Desktop::new(
+            root.join("install"),
+            root.to_path_buf(),
+            root.join("settings.txt"),
+            root.to_path_buf(),
+        )))
+    }
+
     #[test]
     fn the_folder_lists_only_this_kind_under_these_rules() {
         let t = tempfile::tempdir().unwrap();
-        let dir = SaveDir::new(t.path().join("Save"));
+        let root = t.path().join("Save");
+        let dir = folder(&root);
         assert!(dir.list(Kind::Single, true).is_empty(), "no folder yet");
         dir.write("Siege", Kind::Single, &bytes("Siege", 10, true, Kind::Single))
             .unwrap();
@@ -762,8 +756,9 @@ mod tests {
             .unwrap();
         dir.write("Classic", Kind::Single, &bytes("Classic", 40, false, Kind::Single))
             .unwrap();
-        std::fs::write(dir.root.join("junk.sav"), b"not a saved game").unwrap();
-        std::fs::write(dir.root.join("notes.txt"), b"x").unwrap();
+        std::fs::write(root.join("junk.sav"), b"not a saved game").unwrap();
+        std::fs::write(root.join("notes.txt"), b"x").unwrap();
+        std::fs::create_dir(root.join("folder.sav")).unwrap();
         let names = |l: Vec<Entry>| l.into_iter().map(|e| e.stem).collect::<Vec<_>>();
         assert_eq!(
             names(dir.list(Kind::Single, true)),
@@ -779,13 +774,10 @@ mod tests {
         let e = dir.list(Kind::Single, true).remove(0);
         assert_eq!(e.stored_name, "Newer");
         assert_eq!(e.race, 1);
-        let (h, _) = SaveDir::read(&e.path, true).unwrap();
+        let (h, _) = dir.read(&e.file, true).unwrap();
         assert_eq!(h.name, "Newer");
-        assert_eq!(SaveDir::read(&e.path, false).unwrap_err(), Reason::OtherRules);
-        assert_eq!(
-            SaveDir::read(&dir.root.join("none.sav"), true).unwrap_err(),
-            Reason::CantOpen
-        );
+        assert_eq!(dir.read(&e.file, false).unwrap_err(), Reason::OtherRules);
+        assert_eq!(dir.read("none.sav", true).unwrap_err(), Reason::CantOpen);
         dir.delete(&e).unwrap();
         assert_eq!(names(dir.list(Kind::Single, true)), ["Siege"]);
     }
@@ -793,7 +785,7 @@ mod tests {
     #[test]
     fn overwriting_replaces_the_file_and_a_hundred_are_the_most_listed() {
         let t = tempfile::tempdir().unwrap();
-        let dir = SaveDir::new(t.path());
+        let dir = folder(t.path());
         for i in 0..105u64 {
             dir.write(&format!("g{i}"), Kind::Single, &bytes("g", i, true, Kind::Single))
                 .unwrap();
@@ -809,7 +801,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let blocker = t.path().join("Save");
         std::fs::write(&blocker, b"a file where the folder should be").unwrap();
-        let dir = SaveDir::new(&blocker);
+        let dir = folder(&blocker);
         assert_eq!(dir.write("x", Kind::Single, &[1]), Err(Reason::CantCreate));
     }
 

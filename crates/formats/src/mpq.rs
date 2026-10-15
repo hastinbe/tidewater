@@ -123,9 +123,15 @@ pub struct BlockEntry {
 const HASH_EMPTY: u32 = 0xFFFF_FFFF;
 const HASH_DELETED: u32 = 0xFFFF_FFFE;
 
-/// An open MPQ archive. Reads go straight to the file; nothing but the tables is cached.
+/// What an archive reads from: a file, or any other source that can seek (a web shell's picked folder, a mobile app's
+/// documents).
+pub trait ReadSeek: Read + Seek + Send + Sync {}
+
+impl<T: Read + Seek + Send + Sync> ReadSeek for T {}
+
+/// An open MPQ archive. Reads go straight to the source; nothing but the tables is cached.
 pub struct Archive {
-    file: File,
+    file: Box<dyn ReadSeek>,
     base: u64,
     sector_size: usize,
     hashes: Vec<HashEntry>,
@@ -140,8 +146,12 @@ fn words(buf: &[u8]) -> impl Iterator<Item = u32> + '_ {
 
 impl Archive {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let mut file = File::open(path)?;
-        let len = file.metadata()?.len();
+        Self::from_reader(Box::new(File::open(path)?))
+    }
+
+    /// Opens an archive read from `file`.
+    pub fn from_reader(mut file: Box<dyn ReadSeek>) -> Result<Self> {
+        let len = file.seek(SeekFrom::End(0))?;
         // The header sits at offset 0 or at a later 512-byte boundary (e.g. after an installer stub).
         let mut base = 0u64;
         let mut hdr = [0u8; 32];

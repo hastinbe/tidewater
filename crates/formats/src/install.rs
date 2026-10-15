@@ -2,10 +2,15 @@
 //!
 //! Lookup order (highest priority first): loose files under the install directory, `War2Patch.mpq`, `War2Dat.mpq`,
 //! `Install.mpq`. Names use backslashes and are case-insensitive, as in the archives.
+//!
+//! The files come from a [`Files`]: a [`Folder`] on disk ([`Install::open`]), or whatever a platform gives
+//! ([`Install::from_files`]).
 
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use crate::mpq::{Archive, ArchiveSet, MpqError};
+use crate::mpq::{Archive, ArchiveSet, MpqError, ReadSeek};
 use crate::pud::Era;
 use crate::tileset::{ChangeTable, ChangeTables, Tileset, TilesetError};
 
@@ -19,10 +24,42 @@ pub enum InstallError {
     Io(#[from] std::io::Error),
     #[error("no data archives found in {0}")]
     NoArchives(PathBuf),
+    #[error("no data archives found")]
+    NoArchivesInFiles,
+}
+
+/// The installation's files, by name (components separated by `\` or `/`, matched in any letter case).
+pub trait Files: Send + Sync {
+    /// Opens the file `name`, or `None` when there is no such file.
+    fn open(&self, name: &str) -> std::io::Result<Option<Box<dyn ReadSeek>>>;
+}
+
+/// The installation as a folder on disk.
+pub struct Folder {
+    root: PathBuf,
+}
+
+impl Folder {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
+impl Files for Folder {
+    fn open(&self, name: &str) -> std::io::Result<Option<Box<dyn ReadSeek>>> {
+        match find_case_insensitive(&self.root, name) {
+            Some(p) => Ok(Some(Box::new(File::open(p)?))),
+            None => Ok(None),
+        }
+    }
 }
 
 pub struct Install {
-    root: PathBuf,
+    files: Box<dyn Files>,
     archives: ArchiveSet,
 }
 
@@ -30,28 +67,38 @@ pub struct Install {
 const ARCHIVES: [&str; 3] = ["Install.mpq", "War2Dat.mpq", "War2Patch.mpq"];
 
 impl Install {
+    /// The installation in the folder `root`.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, InstallError> {
         let root = root.as_ref().to_path_buf();
+        Self::from_files(Box::new(Folder::new(root.clone()))).map_err(|e| match e {
+            InstallError::NoArchivesInFiles => InstallError::NoArchives(root),
+            e => e,
+        })
+    }
+
+    /// The installation whose files `files` gives.
+    pub fn from_files(files: Box<dyn Files>) -> Result<Self, InstallError> {
         let mut list = Vec::new();
         for name in ARCHIVES {
-            if let Some(p) = find_case_insensitive(&root, name) {
-                list.push(Archive::open(p)?);
+            if let Some(f) = files.open(name)? {
+                list.push(Archive::from_reader(f)?);
             }
         }
         if list.is_empty() {
-            return Err(InstallError::NoArchives(root));
+            return Err(InstallError::NoArchivesInFiles);
         }
         Ok(Self {
-            root,
+            files,
             archives: ArchiveSet::new(list),
         })
     }
 
     /// Reads a game file by its archive name, e.g. `rez\unitdata.dat`.
     pub fn read(&mut self, name: &str) -> Result<Vec<u8>, InstallError> {
-        let rel: PathBuf = name.split(['\\', '/']).collect();
-        if let Some(p) = find_case_insensitive(&self.root, &rel.to_string_lossy()) {
-            return Ok(std::fs::read(p)?);
+        if let Some(mut f) = self.files.open(name)? {
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes)?;
+            return Ok(bytes);
         }
         Ok(self.archives.read(name)?)
     }
@@ -112,4 +159,44 @@ fn find_case_insensitive(root: &Path, rel: &str) -> Option<PathBuf> {
         cur = entry.path();
     }
     cur.is_file().then_some(cur)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    /// Files held in memory, as a platform without a file system would give them.
+    struct Memory(Vec<(&'static str, &'static [u8])>);
+
+    impl Files for Memory {
+        fn open(&self, name: &str) -> std::io::Result<Option<Box<dyn ReadSeek>>> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                .map(|(_, b)| Box::new(Cursor::new(b.to_vec())) as Box<dyn ReadSeek>))
+        }
+    }
+
+    #[test]
+    fn files_without_archives_are_no_installation() {
+        let files = Memory(vec![("rez\\unitdata.dat", b"x")]);
+        assert!(matches!(
+            Install::from_files(Box::new(files)),
+            Err(InstallError::NoArchivesInFiles)
+        ));
+        let dir = std::env::temp_dir().join(format!("tidewater-install-{}", std::process::id()));
+        assert!(matches!(Install::open(&dir), Err(InstallError::NoArchives(p)) if p == dir));
+    }
+
+    #[test]
+    fn an_archive_without_a_header_is_refused() {
+        let files = Memory(vec![("INSTALL.MPQ", b"not an archive")]);
+        assert!(matches!(
+            Install::from_files(Box::new(files)),
+            Err(InstallError::Mpq(MpqError::NoHeader))
+        ));
+    }
 }

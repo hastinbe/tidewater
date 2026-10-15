@@ -328,13 +328,12 @@ impl SaveUi {
 mod tests {
     use super::*;
     use crate::saves::{Confirm, Entry, FORBIDDEN};
-    use std::path::PathBuf;
 
     fn entries(n: usize) -> Vec<Entry> {
         (0..n)
             .map(|i| Entry {
                 stem: format!("g{i}"),
-                path: PathBuf::from(format!("g{i}.sav")),
+                file: format!("g{i}.sav"),
                 stored_name: format!("g{i}"),
                 saved_at: 1000 - i as u64,
                 race: 0,

@@ -1114,7 +1114,7 @@ fn run_menu(
     clock: Res<Clock>,
     layers: Query<(Entity, &Layer)>,
     front: Res<Front>,
-    folder: Res<crate::savegame::SaveFolder>,
+    folder: Res<crate::shell::Store>,
     mut pictures: ResMut<ScreenPictures>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
@@ -1162,7 +1162,7 @@ fn run_menu(
         Some(0) => close(&mut commands, &mut menu, MenuPick::NewCampaign),
         Some(1) => {
             // Loading from the main menu is single player, and every single-player game is Enhanced.
-            let entries = folder.0.list(crate::savefile::Kind::Single, true);
+            let entries = folder.folder().list(crate::savefile::Kind::Single, true);
             let ui = SaveUi::new(saves::Dialog::open(saves::Mode::Load, entries, saves::FORBIDDEN));
             let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
             let image = pictures.add(pic);
@@ -1197,6 +1197,7 @@ fn run_menu_load(
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     input: Res<PlayerInput>,
+    store: Res<crate::shell::Store>,
 ) {
     let input = crate::gamemenu::saving_input(&input, &mut cursors, &window, &cam, &locked);
     let load = &mut *load;
@@ -1210,7 +1211,7 @@ fn run_menu_load(
             commands.remove_resource::<MenuLoad>();
             return;
         }
-        saves::Step::Load(entry) => match saves::SaveDir::read(&entry.path, true) {
+        saves::Step::Load(entry) => match store.folder().read(&entry.file, true) {
             Ok((header, body)) => {
                 commands.remove_resource::<MenuLoad>();
                 let end = fade_out_all(&mut commands, &layers, clock.0, fades::MENUS);

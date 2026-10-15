@@ -112,7 +112,7 @@ pub(crate) fn cheat_system() -> ScheduleConfigs<ScheduleSystem> {
 fn play_disco(
     mut queue: ResMut<Queue>,
     sim: Option<Res<crate::Sim>>,
-    origin: Option<Res<crate::savegame::GameOrigin>>,
+    origin: Option<Res<crate::shell::Held<crate::savegame::GameOrigin>>>,
     speaker: Option<ResMut<crate::Speaker>>,
     mut jukebox: ResMut<crate::jukebox::Jukebox>,
 ) {

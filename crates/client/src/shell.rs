@@ -39,6 +39,22 @@ use crate::input::{Button, Input, Key, KeyEvent, Wheel};
 use crate::layers::{Layer, PictureId, Pictures, Plane};
 use crate::{GameView, Hud};
 
+/// The storage the shell gives the core (`storage`, migration step 8): the installation, saves, settings, screenshots
+/// and the wall clock.
+#[derive(Resource, Clone, Deref)]
+pub struct Store(pub std::sync::Arc<dyn crate::storage::Storage>);
+
+impl Store {
+    /// The save folder.
+    pub fn folder(&self) -> crate::saves::SaveDir {
+        crate::saves::SaveDir::new(self.0.clone())
+    }
+}
+
+/// One of the core's own values kept as a Bevy resource, until the core holds its state itself (step 9).
+#[derive(Resource, Deref, DerefMut)]
+pub struct Held<T: Send + Sync + 'static>(pub T);
+
 /// The render layer only the screen's own camera and picture are on.
 const SCREEN_LAYER: usize = 30;
 

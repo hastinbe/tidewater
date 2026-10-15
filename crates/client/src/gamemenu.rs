@@ -49,8 +49,9 @@ use crate::mouse;
 use crate::prefs::{self, Prefs, bit};
 use crate::savedlg::{self, SaveUi};
 use crate::savefile;
-use crate::savegame::{self, SaveFolder};
+use crate::savegame;
 use crate::saves::{self, SaveDir};
+use crate::shell::Store;
 use crate::shell::{PlayerInput, ScreenLayer, ScreenPictures};
 use crate::{PanelUi, ScreenUi, Sim, Speaker};
 
@@ -617,7 +618,7 @@ fn open_requests(
     mut stored: ResMut<Stored>,
     mut front: ResMut<Front>,
     flow: Res<Flow>,
-    folder: Res<SaveFolder>,
+    folder: Res<Store>,
     mut pictures: ResMut<ScreenPictures>,
     mut demo_done: Local<bool>,
     input: Res<PlayerInput>,
@@ -695,7 +696,7 @@ fn open_requests(
         &mut front,
         &sim,
         &flow,
-        &folder.0,
+        &folder.folder(),
         false,
     );
 }
@@ -753,7 +754,7 @@ fn open_from_outcome(
     mut stored: ResMut<Stored>,
     mut front: ResMut<Front>,
     flow: Res<Flow>,
-    folder: Res<SaveFolder>,
+    folder: Res<Store>,
     mut pictures: ResMut<ScreenPictures>,
 ) {
     let Some(sim) = sim else { return };
@@ -769,7 +770,7 @@ fn open_from_outcome(
         &mut front,
         &sim,
         &flow,
-        &folder.0,
+        &folder.folder(),
         true,
     );
 }
@@ -847,7 +848,7 @@ fn run_menu(
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     layer: Query<Entity, With<MenuLayer>>,
-    folder: Res<SaveFolder>,
+    folder: Res<Store>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
@@ -961,7 +962,7 @@ fn run_menu(
     match act {
         Act::Open(s) => {
             m.nav.open_child(s);
-            enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.0);
+            enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.folder());
         }
         Act::CloseAll => {
             m.nav.close();
@@ -975,7 +976,7 @@ fn run_menu(
             if m.nav.back() {
                 close(&mut commands, &layer);
             } else {
-                enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.0);
+                enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.folder());
             }
         }
         Act::Ok => {
@@ -1023,16 +1024,16 @@ fn demo_save_load(world: &mut World) {
     if let Ok(name) = std::env::var("TIDEWATER_DEMO_SAVE")
         && tick == 200
     {
-        let r = savegame::save_game(world, &saves::file_stem(&name), &name);
+        let r = crate::save_game(world, &saves::file_stem(&name), &name);
         info!("demo save {name}: {r:?}");
     }
     if let Ok(name) = std::env::var("TIDEWATER_DEMO_LOAD")
         && tick >= 300
     {
-        let folder = world.resource::<SaveFolder>().0.clone();
+        let folder = world.resource::<Store>().folder();
         let enhanced = world.resource::<Sim>().world.rules.enhanced;
-        match SaveDir::read(
-            &folder.path_of(&saves::file_stem(&name), savefile::Kind::Single),
+        match folder.read(
+            &SaveDir::file_of(&saves::file_stem(&name), savefile::Kind::Single),
             enhanced,
         ) {
             Ok((header, body)) => {
@@ -1055,7 +1056,7 @@ fn run_saving(
     input: Res<SavingInput>,
     front: Res<Front>,
     mut pictures: ResMut<ScreenPictures>,
-    folder: Res<SaveFolder>,
+    folder: Res<Store>,
     sim: Res<Sim>,
     layer: Query<Entity, With<MenuLayer>>,
 ) {
@@ -1083,8 +1084,8 @@ fn run_saving(
         }
         saves::Step::Delete(e) => {
             // A file that can't be removed simply stays in the list.
-            let _ = folder.0.delete(&e);
-            let entries = folder.0.list(savefile::Kind::Single, sim.world.rules.enhanced);
+            let _ = folder.folder().delete(&e);
+            let entries = folder.folder().list(savefile::Kind::Single, sim.world.rules.enhanced);
             if let Some(ui) = m.save.as_mut() {
                 ui.dialog.relist(entries);
             }
@@ -1109,13 +1110,13 @@ fn service_saving(world: &mut World) {
         return;
     };
     match req {
-        saves::Step::Write { stem, name } => match savegame::save_game(world, &stem, &name) {
+        saves::Step::Write { stem, name } => match crate::save_game(world, &stem, &name) {
             Ok(()) => finish_save(world),
             Err(reason) => fail(world, reason, &stem),
         },
         saves::Step::Load(entry) => {
             let enhanced = world.resource::<Sim>().world.rules.enhanced;
-            match SaveDir::read(&entry.path, enhanced) {
+            match world.resource::<Store>().folder().read(&entry.file, enhanced) {
                 Ok((header, body)) => {
                     world.resource_scope(|world, mut flow: Mut<Flow>| {
                         let mut next = world.resource_mut::<AppStates>();
