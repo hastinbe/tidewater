@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::audio::{self, VoiceId};
 use crate::core::Core;
+use crate::frontend::Front;
 use crate::music::{self, Action, Music, Playback};
 use crate::sound::Shuffle;
 
@@ -120,6 +121,11 @@ impl Jukebox {
 /// `Music` folder, sets its loudness and stops it. The open track's position is the mixer's, so it runs on the mixer's
 /// clock; a loop track loops in the mixer, from its loop point, without a gap (`audio`), so the loop point needs no
 /// seek.
+///
+/// The starts and stops asked for since the last frame are applied first, so the frame's checks measure the voice of
+/// the track that is open now, never the one a start has just replaced (a new track was otherwise measured at the old
+/// one's position: started near the old one's end, it began its end fade at once, and started after the old one had
+/// ended, it counted as ended itself).
 pub fn play_music(c: &mut Core) {
     let Core {
         time,
@@ -132,6 +138,8 @@ pub fn play_music(c: &mut Core) {
     jb.carry += time.delta();
     let ms = jb.carry.as_millis() as u32;
     jb.carry -= Duration::from_millis(ms as u64);
+    let pending = std::mem::take(&mut jb.pending);
+    apply(jb, front, core, pending);
     let length = jb.length;
     // A voice the mixer no longer has has played to its end.
     let playback = jb.voice.filter(|_| length > 0).map(|v| Playback {
@@ -140,8 +148,19 @@ pub fn play_music(c: &mut Core) {
             .map_or(length, |frame| frame as u32 * music::BYTES_PER_FRAME),
         length,
     });
-    let mut actions = std::mem::take(&mut jb.pending);
-    actions.extend(jb.music.update(ms, playback));
+    let actions = jb.music.update(ms, playback);
+    apply(jb, front, core, actions);
+    if let Some(v) = jb.voice
+        && jb.applied != Some(jb.atten)
+    {
+        core.set_gain(v, audio::attenuation_gain(jb.atten));
+        jb.applied = Some(jb.atten);
+    }
+}
+
+/// Applies the music's actions in the mixer. A load puts the new track in the mixer's music slot, which stops the old
+/// one (`audio`, "The music slot").
+fn apply(jb: &mut Jukebox, front: &mut Front, core: &mut audio::Audio, actions: Vec<Action>) {
     for action in actions {
         match action {
             Action::Stop => {
@@ -183,10 +202,124 @@ pub fn play_music(c: &mut Core) {
             Action::CutEffects => {}
         }
     }
-    if let Some(v) = jb.voice
-        && jb.applied != Some(jb.atten)
-    {
-        core.set_gain(v, audio::attenuation_gain(jb.atten));
-        jb.applied = Some(jb.atten);
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use crate::args::Args;
+    use crate::audio::Group;
+    use crate::frontend::AppState;
+    use crate::host;
+
+    /// A screen the run showed, with the open music track on its last frame.
+    #[derive(Debug, PartialEq)]
+    struct Visit {
+        state: AppState,
+        track: Option<u8>,
+    }
+
+    /// Runs a scripted scene (`script`) without a window on the install in `TIDEWATER_INSTALL` (`None` without one)
+    /// and checks at every frame that at most one music track sounds, and none while the music has no track open.
+    /// Returns the screens it went through.
+    fn run(scene: &str) -> Option<Vec<Visit>> {
+        let Some(install) = std::env::var_os("TIDEWATER_INSTALL") else {
+            eprintln!("skipped: set TIDEWATER_INSTALL to run");
+            return None;
+        };
+        let out = tempfile::tempdir().expect("a temporary folder");
+        let mut argv: Vec<std::ffi::OsString> = vec!["tidewater".into(), "--install".into(), install];
+        argv.extend(["--script", scene, "--headless", "--script-out"].map(Into::into));
+        argv.push(out.path().into());
+        let core = host::launch(Args::parse_from(argv)).expect("the client starts").core;
+        let mut visits: Vec<Visit> = Vec::new();
+        let mut frame = 0;
+        host::run_headless_watched(core, |c| {
+            frame += 1;
+            let state = c.states.get();
+            let track = c.jukebox.music().open_track();
+            let live = c.audio.playing_in(Group::Music);
+            assert!(
+                live <= 1,
+                "{scene}, frame {frame} ({state:?}): {live} music tracks sound at once"
+            );
+            assert!(
+                track.is_some() || live == 0,
+                "{scene}, frame {frame} ({state:?}): music sounds with no track open"
+            );
+            match visits.last_mut() {
+                Some(v) if v.state == state => v.track = track,
+                _ => visits.push(Visit { state, track }),
+            }
+        });
+        Some(visits)
+    }
+
+    fn states(visits: &[Visit]) -> Vec<AppState> {
+        visits.iter().map(|v| v.state).collect()
+    }
+
+    /// The open track on each game's last frame.
+    fn game_tracks(visits: &[Visit]) -> Vec<Option<u8>> {
+        visits
+            .iter()
+            .filter(|v| v.state == AppState::Game)
+            .map(|v| v.track)
+            .collect()
+    }
+
+    /// The playtest: a campaign's game, back to the main menu by Ctrl+Q, the other race's campaign through its act
+    /// screen and briefing into its game. The first game's track never sounds with another.
+    #[test]
+    fn one_music_track_from_a_campaign_quit_into_the_other_campaign() {
+        let Some(visits) = run("music-quit") else { return };
+        use AppState::*;
+        assert_eq!(
+            states(&visits),
+            [
+                Boot,
+                MainMenu,
+                NewCampaign,
+                Act,
+                Briefing,
+                Game,
+                MainMenu,
+                NewCampaign,
+                Act,
+                Briefing,
+                Game
+            ]
+        );
+        // Tides of Darkness, the first missions: human track 0 and orc track 6, bumped to 1 and 7 (`ui/music.md`).
+        assert_eq!(game_tracks(&visits), [Some(1), Some(7)]);
+    }
+
+    /// The other ways back to the main menu and on into a game.
+    #[test]
+    fn one_music_track_through_the_other_ways_back() {
+        let Some(visits) = run("music-back") else { return };
+        use AppState::*;
+        assert_eq!(
+            states(&visits),
+            [
+                Boot,
+                MainMenu,
+                NewCampaign,
+                MainMenu,
+                NewCampaign,
+                Act,
+                Briefing,
+                Game,
+                // The restart shows the briefing again.
+                Briefing,
+                Game,
+                MainMenu,
+                NewCampaign,
+                // Ctrl held: no act screen or briefing.
+                Game
+            ]
+        );
+        assert_eq!(game_tracks(&visits), [Some(7), Some(7), Some(1)]);
     }
 }

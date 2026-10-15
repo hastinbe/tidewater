@@ -209,6 +209,17 @@ pub fn scenes() -> Vec<Scene> {
             start: crate::frontend::startup_steps(false, false, true),
             cmds: flow(),
         },
+        // Not in the frame snapshot: `jukebox`'s tests run these to check the music at every frame.
+        Scene {
+            name: "music-quit",
+            start: vec![Step::MainMenu],
+            cmds: music_quit(),
+        },
+        Scene {
+            name: "music-back",
+            start: vec![Step::MainMenu],
+            cmds: music_back(),
+        },
     ]
 }
 
@@ -273,6 +284,100 @@ fn flow() -> Vec<Cmd> {
     v.extend([Wait(3), Shot("quit-confirm")]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// The new-campaign dialog's rows (`frontend`'s menu layout): the Tides of Darkness orc and human campaigns.
+const TOD_ORC_ROW: f32 = 264.0;
+const TOD_HUMAN_ROW: f32 = 300.0;
+/// The main menu's New Campaign button.
+const NEW_CAMPAIGN_ROW: f32 = 254.0;
+
+/// From the main menu: New Campaign, the campaign in `row`, its act screen and briefing (each closed by a key), to the
+/// game.
+fn new_campaign(row: f32) -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Until(AppState::MainMenu), Wait(25)];
+    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
+    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v.extend(click(320.0, row));
+    v.extend([Until(AppState::Act), Wait(40)]);
+    v.extend(tap(Key::Space));
+    v.extend([Until(AppState::Briefing), Wait(10)]);
+    v.extend(tap(Key::Space));
+    v.extend([Until(AppState::Game), Wait(60)]);
+    v
+}
+
+/// Ctrl+`k`.
+fn ctrl(k: Key) -> Vec<Cmd> {
+    let mut v = vec![Cmd::Press(Key::ControlLeft), Cmd::Wait(1)];
+    v.extend(tap(k));
+    v.extend([Cmd::Release(Key::ControlLeft), Cmd::Wait(3)]);
+    v
+}
+
+/// The music playtest: the human campaign's first mission, Ctrl+Q and its confirm back to the main menu, then the orc
+/// campaign through its act screen and briefing into its game.
+fn music_quit() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(320.0, 240.0)];
+    v.extend(new_campaign(TOD_HUMAN_ROW));
+    v.push(Shot("first-game"));
+    v.extend(ctrl(Key::Letter('Q')));
+    v.extend(tap(Key::Enter));
+    v.extend(new_campaign(TOD_ORC_ROW));
+    v.push(Shot("second-game"));
+    v
+}
+
+/// The other ways back: the campaign choice's Escape, an act screen and a briefing closed by Escape, a restart
+/// (Ctrl+R), the game menu's end menu "Quit to Main Menu", and a campaign started with Ctrl held (no act screen or
+/// briefing, so the last game's track is still playing when the next game starts).
+fn music_back() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
+    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
+    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::MainMenu), Wait(25)]);
+    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
+    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v.extend(click(320.0, TOD_ORC_ROW));
+    v.extend([Until(AppState::Act), Wait(40)]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::Briefing), Wait(10)]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::Game), Wait(60), Shot("orc-game")]);
+    // A restart shows the mission's briefing again.
+    v.extend(ctrl(K::Letter('R')));
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::Briefing), Wait(10)]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::Game), Wait(60), Shot("restarted")]);
+    v.extend(tap(K::F(10)));
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3), Move(320.0, 258.0), Wait(1)]);
+    v.extend(click(320.0, 258.0)); // Quit to Main Menu
+    v.extend([Wait(3)]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25)]);
+    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
+    v.extend([
+        Until(AppState::NewCampaign),
+        Wait(2),
+        Move(320.0, TOD_HUMAN_ROW),
+        Wait(1),
+    ]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(click(320.0, TOD_HUMAN_ROW));
+    v.extend([
+        Until(AppState::Game),
+        Release(K::ControlLeft),
+        Wait(60),
+        Shot("human-game"),
+    ]);
     v
 }
 

@@ -146,10 +146,17 @@ impl Platform for NoWindow {
 
 /// Runs a scripted scene without a window, sound device or GPU until it ends: each frame is composed and recorded
 /// (`script::record`); the settings are written if the program ends on its own.
-pub fn run_headless(mut core: Core) {
+pub fn run_headless(core: Core) {
+    run_headless_watched(core, |_| {});
+}
+
+/// [`run_headless`], with `watch` called after each frame has run and before its sound is mixed (tests check the core's
+/// state at every frame with it).
+pub(crate) fn run_headless_watched(mut core: Core, mut watch: impl FnMut(&Core)) {
     let mut first = true;
     loop {
         core.advance(scripted_elapsed(first), &mut NoWindow);
+        watch(&core);
         first = false;
         let exiting = std::mem::take(&mut core.exit);
         if exiting {

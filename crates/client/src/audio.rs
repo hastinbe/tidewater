@@ -14,6 +14,11 @@
 //! 16.16 fixed-point gain; voices are summed and the sum clipped to 16 bits. A looping voice goes on from its loop
 //! point the sample after its last one, so a loop has no gap. A voice that starts past its sound's end is silent.
 //! These are our own: the original's mixing is the sound card driver's and isn't specified.
+//!
+//! **The music slot.** Music is one streamed track at a time (`ui/music.md`, "Behaviour"; "Starting a track", step 3:
+//! the old track stops at once, without a fade, when a new one loads). The mixer holds it in one slot: a voice of
+//! [`Group::Music`] is only ever started by [`Mixer::play`], which first stops the one already there, so no screen,
+//! game or bug elsewhere can layer a second track over the first.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -169,7 +174,11 @@ pub struct Mixer {
 
 impl Mixer {
     /// Starts `sound` at sample frame `start` with a 16.16 `gain`; a looping voice goes on from frame `loop_from`.
+    /// A [`Group::Music`] voice takes the music slot: the track already in it stops first.
     pub fn play(&mut self, sound: &Sound, gain: i32, loop_from: Option<usize>, start: usize, group: Group) -> VoiceId {
+        if group == Group::Music {
+            self.stop_group(Group::Music);
+        }
         let id = VoiceId(self.next);
         self.next += 1;
         let len = sound.frames.len();
@@ -215,6 +224,11 @@ impl Mixer {
     #[allow(dead_code)]
     pub fn playing(&self) -> usize {
         self.voices.len()
+    }
+
+    /// Voices of `group` playing.
+    pub fn playing_in(&self, group: Group) -> usize {
+        self.voices.iter().filter(|v| v.group == group).count()
     }
 
     /// Mixes the next `out.len() / 2` sample frames into `out` (interleaved left, right).
@@ -325,7 +339,7 @@ impl Audio {
         self.output.lock().play(sound, gain, None, start, group)
     }
 
-    /// Starts a music track: looping from `loop_from`, or once.
+    /// Starts a music track in the music slot, looping from `loop_from` or once; the track already there stops.
     pub fn play_music(&mut self, sound: &Sound, volume: f32, gain: i32, loop_from: Option<usize>) -> VoiceId {
         self.starts.push(Start {
             hash: sound.hash,
@@ -359,6 +373,11 @@ impl Audio {
 
     pub fn position(&self, id: VoiceId) -> Option<usize> {
         self.output.lock().position(id)
+    }
+
+    /// Voices of `group` playing (at most one for [`Group::Music`]).
+    pub fn playing_in(&self, group: Group) -> usize {
+        self.output.lock().playing_in(group)
     }
 
     /// The sounds started since the last call.
@@ -523,6 +542,23 @@ mod tests {
         assert_eq!(m.position(id), Some(1), "the position wraps to the loop point");
         let whole = m.play(&s, UNITY, Some(0), 4, Group::Music);
         assert_eq!(m.position(whole), Some(1), "a start past the end wraps round the loop");
+    }
+
+    #[test]
+    fn a_music_start_replaces_the_track_in_the_slot() {
+        let mut a = Audio::default();
+        let s = sound(&[[1, 1]; 10]);
+        let effect = a.play(&s, 1.0, UNITY, Mode::Despawn, Group::Effect, 0);
+        let first = a.play_music(&s, 1.0, UNITY, Some(0));
+        let second = a.play_music(&s, 1.0, UNITY, None);
+        assert_eq!(a.position(first), None, "the old track stopped at once");
+        assert_eq!(a.position(second), Some(0));
+        assert_eq!(a.playing_in(Group::Music), 1);
+        // A voice started as music by any other way takes the slot too.
+        let third = a.play(&s, 1.0, UNITY, Mode::Once, Group::Music, 0);
+        assert_eq!((a.position(second), a.position(third)), (None, Some(0)));
+        assert_eq!(a.playing_in(Group::Music), 1);
+        assert_eq!(a.position(effect), Some(0), "other sounds play on");
     }
 
     #[test]
