@@ -714,7 +714,7 @@ impl World {
                 let (w, u) = (self.w, self.u);
                 self.terrain(x, y) || w.occupant(u.layer, x, y).is_some_and(|o| !w.ignored_by_search(u, o))
             }
-            fn blocked_strict(&self, x: i32, y: i32) -> bool {
+            fn blocked_for_shortening(&self, x: i32, y: i32) -> bool {
                 let (w, u) = (self.w, self.u);
                 self.terrain(x, y) || w.occupant(u.layer, x, y).is_some_and(|o| o != u.id)
             }

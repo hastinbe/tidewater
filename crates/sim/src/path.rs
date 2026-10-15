@@ -74,18 +74,20 @@ impl Request {
     }
 }
 
-/// Tile tests the search needs. `blocked` applies the search's unit-ignoring rules; `blocked_strict` (for the
-/// shortening's new tiles) counts every unit.
+/// Two of the three tile tests ("The model", "Three tile tests"), kept apart; the third, usable for the pull-back, is
+/// the pull-back's own ([`crate::movement::pulled_back`]).
 pub trait Map {
+    /// Blocked for the search (Steps 2 and 3): the unit's blocking mask, after the rules of "Units seen by the search".
     fn blocked(&self, x: i32, y: i32) -> bool;
-    fn blocked_strict(&self, x: i32, y: i32) -> bool;
+    /// Not free for shortening (Step 4's swap and two-of entries): blocked with no unit ignored.
+    fn blocked_for_shortening(&self, x: i32, y: i32) -> bool;
 }
 
 impl<F: Fn(i32, i32) -> bool> Map for F {
     fn blocked(&self, x: i32, y: i32) -> bool {
         self(x, y)
     }
-    fn blocked_strict(&self, x: i32, y: i32) -> bool {
+    fn blocked_for_shortening(&self, x: i32, y: i32) -> bool {
         self(x, y)
     }
 }
@@ -161,7 +163,7 @@ fn shorten(req: &Request, map: &impl Map, mut steps: Vec<u8>) -> Option<Vec<u8>>
             let (a, b) = (steps[j], steps[j + 1]);
             let at = tiles(req, &steps[..j]).pop().expect("start");
             let usable = |t: (i32, i32), steps: &[u8]| {
-                req.contains(t) && !map.blocked_strict(t.0, t.1) && !tiles(req, steps).contains(&t)
+                req.contains(t) && !map.blocked_for_shortening(t.0, t.1) && !tiles(req, steps).contains(&t)
             };
             match merge(a, b) {
                 Merge::Reverse => return None,
@@ -279,48 +281,82 @@ fn walk(
     Some((steps, score))
 }
 
-/// Searches a path: up to [`MAX_STEPS`] step directions from the start. Empty means no path.
-pub fn search(req: &Request, map: &impl Map) -> Vec<u8> {
-    if req.enhanced && req.start == req.goal {
-        return Vec::new();
-    }
+/// Step 2's outcome.
+enum Line {
+    /// Not blocked: the line's first [`MAX_STEPS`] steps are the result.
+    Clear(Vec<u8>),
+    /// Blocked: the steps up to T, the blocked direction from T, and the line tiles that join the goal zone.
+    Blocked {
+        prefix: Vec<u8>,
+        dir: u8,
+        line_tiles: Vec<(i32, i32)>,
+    },
+}
+
+/// Step 2, the straight line by the line rule, one step vector at a time, until a blocked tile, 20 steps or G.
+fn straight_line(req: &Request, map: &impl Map) -> Line {
     let full = line(req.start, req.goal, req.stride);
     let mut at = req.start;
     for (i, &d) in full.iter().enumerate() {
         if i == MAX_STEPS {
-            return full[..MAX_STEPS].to_vec();
+            return Line::Clear(full[..MAX_STEPS].to_vec());
         }
         let n = req.step(at, d);
         if !req.contains(n) || map.blocked(n.0, n.1) {
-            let prefix = &full[..i];
-            let line_tiles = tiles(&Request { start: at, ..*req }, &full[i..]);
-            // Round-65 errata ("Step 2"; `xhuman5-30000` n = 26761): the line tiles stop before G, which counts only
-            // through the goal zone.
-            let line_tiles = &line_tiles[1..line_tiles.len() - 1];
-            let left = walk(req, map, prefix, d, line_tiles, -1);
-            if let Some((s, score)) = &left
-                && *score < GOOD_SCORE
-            {
-                return s.iter().copied().take(MAX_STEPS).collect();
-            }
-            let right = walk(req, map, prefix, d, line_tiles, 1);
-            let chosen = match (left, right) {
-                (Some(l), Some(r)) => {
-                    if r.1 < l.1 {
-                        r.0
-                    } else {
-                        l.0
-                    }
-                }
-                (Some(l), None) => l.0,
-                (None, Some(r)) => r.0,
-                (None, None) => prefix.to_vec(),
+            // The line tiles run from the blocked tile up to but not including G, which counts only through the
+            // goal zone (pathfinding V51).
+            let tiles = tiles(&Request { start: at, ..*req }, &full[i..]);
+            return Line::Blocked {
+                prefix: full[..i].to_vec(),
+                dir: d,
+                line_tiles: tiles[1..tiles.len() - 1].to_vec(),
             };
-            return chosen.into_iter().take(MAX_STEPS).collect();
         }
         at = n;
     }
-    full
+    Line::Clear(full)
+}
+
+/// Step 5 after a left walk that didn't score below [`GOOD_SCORE`]: the right walk if it is accepted and the left
+/// isn't, or it scores strictly lower; else the left walk; with both rejected, the line's steps up to T.
+fn choose(left: Option<(Vec<u8>, i32)>, right: Option<(Vec<u8>, i32)>, prefix: Vec<u8>) -> Vec<u8> {
+    match (left, right) {
+        (Some(l), Some(r)) => {
+            if r.1 < l.1 {
+                r.0
+            } else {
+                l.0
+            }
+        }
+        (Some(l), None) => l.0,
+        (None, Some(r)) => r.0,
+        (None, None) => prefix,
+    }
+}
+
+/// Searches a path ("The model"): up to [`MAX_STEPS`] step directions from the start. Empty means no path.
+pub fn search(req: &Request, map: &impl Map) -> Vec<u8> {
+    // "Inputs", edge cases: in Enhanced mode S = G is no path.
+    if req.enhanced && req.start == req.goal {
+        return Vec::new();
+    }
+    let (prefix, dir, line_tiles) = match straight_line(req, map) {
+        Line::Clear(steps) => return steps,
+        Line::Blocked {
+            prefix,
+            dir,
+            line_tiles,
+        } => (prefix, dir, line_tiles),
+    };
+    // Steps 3 to 5: the left walk, used at once if it scores below 8; then the right walk.
+    let left = walk(req, map, &prefix, dir, &line_tiles, -1);
+    if let Some((s, score)) = &left
+        && *score < GOOD_SCORE
+    {
+        return s.iter().copied().take(MAX_STEPS).collect();
+    }
+    let right = walk(req, map, &prefix, dir, &line_tiles, 1);
+    choose(left, right, prefix).into_iter().take(MAX_STEPS).collect()
 }
 
 #[cfg(test)]
