@@ -145,12 +145,11 @@ impl World {
                 chopping: false,
             }
         } else {
-            // Step 3: a platform placed in this cycle doesn't count while the oil patch under it is still to have its
-            // own update this cycle; the tanker goes idle (V55, V56).
+            // Step 3. A platform created earlier in this cycle is still undetected (fog spec, "A unit created during
+            // a cycle"), so the command's target check drops it and makes idle pending (V55, V56, V90).
             let platform = t.filter(|&(_, o, tf)| tf & flags::OIL_SOURCE != 0 && o == owner && !carrying);
             self.units[i].chop = 0;
             match platform {
-                Some((id, ..)) if self.platform_fresh(id) => Order::Idle,
                 Some((id, ..)) => Order::Harvest {
                     source: Some(id),
                     tree: tile,
@@ -166,14 +165,6 @@ impl World {
             }
         };
         Some(order)
-    }
-
-    /// Whether `platform` was placed in this cycle and the oil patch under it hasn't had its own update yet: its slot
-    /// is above the one being updated (harvest spec, "Starting to harvest", step 3).
-    fn platform_fresh(&self, platform: UnitId) -> bool {
-        self.fresh_platforms
-            .iter()
-            .any(|&(p, patch)| p == platform && self.updating.is_some_and(|s| patch > s))
     }
 
     /// Command 24 ("Returning goods", "The command") with no target unit: the nearest depot, or idle with none. Taken
@@ -628,11 +619,9 @@ impl World {
         u.order = Order::Idle;
         u.pending = next.or(carrying.then_some(Order::Idle));
         // "Commands given by these orders": the command marks the unit as about to move (pathfinding spec), clears
-        // the blocked counter and forgets a stale attacker. Its route was dropped by step 1's idle. The command check
-        // on a named target has nothing to drop here: a return's depot is one the depot search just found, and a
-        // harvest command names no target the check covers (as for `command`). Kept special case: done here rather
-        // than by `command`, whose pending idle (a tanker's command on a platform placed this cycle) would resume a
-        // remembered order.
+        // the blocked counter and forgets a stale attacker. Its route was dropped by step 1's idle, and the command
+        // check on a named target was made by [`World::come_out_command`]. Done here rather than by `command`: the
+        // command waits for the 25-cycle wait, not the next step done.
         u.commanded = next.is_some();
         if next.is_some() {
             u.blocked = 0;
@@ -660,11 +649,24 @@ impl World {
         }
     }
 
+    /// "Coming out", steps 3 to 5, with the command's target check ("Commands given by these orders"): a target that
+    /// fails it (a platform a computer tanker's job choice names in the cycle it was created, not yet detected; fog
+    /// spec, "A unit created during a cycle") is dropped and idle is made pending by the common path, as for
+    /// [`World::command`].
+    fn come_out_command(&mut self, i: usize) -> Option<Order> {
+        let o = self.come_out_order(i)?;
+        if self.named_target_lost(self.units[i].owner, o) {
+            self.pending_idle(i);
+            return self.units[i].pending;
+        }
+        Some(o)
+    }
+
     /// "Coming out", steps 3 to 5: a computer player's job choice (a job given skips the rest; worker-ai spec), else
     /// a return command to the nearest depot if carrying, else a harvest command back to the return-to source, which
     /// is forgotten. The harvest command is given whatever the source has become (V84); toward a source whose slot is
     /// gone its target check fails and idle is made pending.
-    fn come_out_command(&mut self, i: usize) -> Option<Order> {
+    fn come_out_order(&mut self, i: usize) -> Option<Order> {
         if self.chooses_jobs(i)
             && let crate::worker_ai::Choice::Order(o) = self.worker_choice(i)
         {

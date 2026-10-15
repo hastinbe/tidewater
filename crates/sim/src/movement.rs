@@ -220,16 +220,7 @@ impl World {
         // A target unit given with the command gets the same check. If it fails, the target is
         // dropped and idle becomes the pending order instead (with the resume rules); it still counts as a command.
         let owner = self.units[i].owner;
-        // Traced (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit is checked too.
-        // Harvest spec ("Returning goods"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374):
-        // command 24's target unit too, and a target inside something fails the check; no depot is looked up then.
-        let named = match order {
-            Order::MoveAttack { target, .. } | Order::Cast { target, .. } | Order::ReturnGoods { depot: target } => {
-                target
-            }
-            o => crate::orders::target_of(o),
-        };
-        if named.is_some_and(|t| self.target_lost(owner, t)) {
+        if self.named_target_lost(owner, order) {
             self.give(i, Order::Idle);
             let u = &mut self.units[i];
             u.commanded = u.pending.is_some();
@@ -238,6 +229,23 @@ impl World {
         self.give(i, order);
         let u = &mut self.units[i];
         u.commanded = u.pending == Some(order);
+    }
+
+    /// Orders spec, "What every command does", step 5's target check: whether the command's target unit fails the
+    /// lost-target test for `owner`. Traced (`xhuman10-slow-3000` mage 1481, n = 302): a spell command's target unit is
+    /// checked too. Harvest spec ("Returning goods"; `orc9-orc09-return-nodepot-2200` peon 1482, n = 1374): command
+    /// 24's target unit too, and a target inside something fails the check; no depot is looked up then. Harvest spec
+    /// ("Starting to harvest", step 3; V55, V56): command 23's mine or platform too, so one created earlier in this
+    /// cycle, not yet detected (fog spec, "A unit created during a cycle"), fails it.
+    pub(crate) fn named_target_lost(&self, owner: u8, order: Order) -> bool {
+        let named = match order {
+            Order::MoveAttack { target, .. }
+            | Order::Cast { target, .. }
+            | Order::ReturnGoods { depot: target }
+            | Order::Harvest { source: target, .. } => target,
+            o => crate::orders::target_of(o),
+        };
+        named.is_some_and(|t| self.target_lost(owner, t))
     }
 
     /// Orders spec, "What every command does", step 4 and the attacker part of step 5: the cached route is dropped,

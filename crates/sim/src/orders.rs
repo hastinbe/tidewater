@@ -1682,6 +1682,33 @@ mod tests {
         assert!(matches!(order_of(&w, computer), Order::Chase { target } if target == human));
     }
 
+    /// Fog spec, "A unit created during a cycle" (V91): a computer player's attack command on an enemy unit created
+    /// earlier in the same cycle drops the target, which nobody detects yet, and idle becomes the pending order. In the
+    /// next cycle, after the detection phase, the same command works. A unit created outside a cycle (here, by the
+    /// test before the first step) is detected by everyone at once.
+    #[test]
+    fn a_unit_created_during_a_cycle_is_undetected_until_the_next_detection_phase() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+        assert_eq!(w.unit(f).unwrap().detected_by, 0xff);
+        w.in_cycle = true;
+        let foe = w.spawn(FOOTMAN, 0, (9, 5), 0).unwrap();
+        assert_eq!(w.unit(foe).unwrap().detected_by, 0, "not even its owner detects it");
+        let i = at(&w, f);
+        w.command(i, Order::Attack { target: foe });
+        let u = w.unit(f).unwrap();
+        assert_eq!(
+            (u.order, u.pending, u.commanded),
+            (Order::Idle, Some(Order::Idle), true)
+        );
+        w.in_cycle = false;
+        w.detection();
+        assert_eq!(w.unit(foe).unwrap().detected_by, 0xff);
+        let i = at(&w, f);
+        w.command(i, Order::Attack { target: foe });
+        assert_eq!(w.unit(f).unwrap().pending, Some(Order::Attack { target: foe }));
+    }
+
     #[test]
     fn hidden_enemies_are_not_candidates() {
         let mut w = map();

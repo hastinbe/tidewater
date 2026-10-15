@@ -820,9 +820,10 @@ pub struct World {
     /// The slot whose update is running, during the cycle's walk of the unit table. Not game state: not stored and
     /// left out of the hash.
     pub(crate) updating: Option<u16>,
-    /// Oil platforms placed in this cycle, each with its oil patch's slot (harvest spec, "Starting to harvest", step
-    /// 3). Cleared at the start of each cycle. Not game state: not stored and left out of the hash.
-    pub(crate) fresh_platforms: Vec<(UnitId, u16)>,
+    /// Set from the detection phase to the end of a cycle: a unit created meanwhile starts with an empty detected-by
+    /// set (fog spec, "A unit created during a cycle"). Not game state: always clear between cycles, so not stored
+    /// and left out of the hash.
+    pub(crate) in_cycle: bool,
 }
 
 mod save;
@@ -929,7 +930,7 @@ impl World {
             restarts: 0,
             fallback_run: false,
             updating: None,
-            fresh_platforms: Vec::new(),
+            in_cycle: false,
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,
@@ -1149,7 +1150,10 @@ impl World {
             marks: 0,
             decays,
             decay_count: if decays { s.decay_rate } else { 0 },
-            detected_by: 0xff,
+            // Fog spec, "A unit created during a cycle": nobody detects it, its owner included, until the next
+            // detection phase. One created outside a cycle (the map's units, a test's) is detected by everyone, as
+            // that phase would make it.
+            detected_by: if self.in_cycle { 0 } else { 0xff },
             // Unit-slots spec, "Creating a unit": hidden from every player, computers included, until the next
             // visibility pass (fog spec, "Unit visibility"), so no target search finds it before then.
             hidden_from: 0xff,
@@ -1333,10 +1337,10 @@ impl World {
             return;
         }
         self.detection();
+        self.in_cycle = true;
         self.step_ai();
         self.army_pass();
         let refresh = self.fog_refresh();
-        self.fresh_platforms.clear();
         // Ascending slot order. A unit created during another unit's update is inserted into the table, so the walk
         // goes by slot rather than by index: a new unit in a higher slot is reached this cycle, one in a lower slot
         // isn't, and no unit is updated twice.
@@ -1377,6 +1381,7 @@ impl World {
         }
         self.units.retain(|u| u.script.anim != RELEASED);
         self.sound_tick();
+        self.in_cycle = false;
         self.tick += 1;
     }
 

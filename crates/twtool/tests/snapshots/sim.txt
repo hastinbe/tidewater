@@ -1213,7 +1213,7 @@ Campaign\XHuman\2XHum04.pud	move	0	f6ddd6935c4bee3c	649649011abaf2ae	175
 Campaign\XHuman\2XHum04.pud	move	2500	01dccddc47962427	58d693e6184b3b37	177
 Campaign\XHuman\2XHum04.pud	move	5000	cd27f5d046619e5e	13382993d174e645	186
 Campaign\XHuman\2XHum04.pud	move	7500	2eeb0b146c58bd79	9da711e019dd976a	191
-Campaign\XHuman\2XHum04.pud	move	10000	683f7674d89e4ec2	adadd32191fe9f77	195
+Campaign\XHuman\2XHum04.pud	move	10000	683f7674d89e4ec2	6509f4e86fd75838	195
 Campaign\XHuman\2XHum04.pud	move	12500	89fb99a25864720b	8425a8ffc72171a7	199
 Campaign\XHuman\2XHum04.pud	move	15000	49252797ab0b0233	5d2b6d8cb9fec92d	202
 Campaign\XHuman\2XHum04.pud	move	17500	e9720695cd572843	cde54c459f2f7d58	200
@@ -1272,8 +1272,8 @@ Campaign\XHuman\2XHum05.pud	fight	17500	6623f90ba7ef8260	257ba0903d1a3096	132
 Campaign\XHuman\2XHum05.pud	fight	20000	29be520f2937a11e	a86a7cbb5cd5d7dc	141
 Campaign\XHuman\2XHum05.pud	fight	22500	60d5d9fc30fc0049	539dafbeb4e943d9	146
 Campaign\XHuman\2XHum05.pud	fight	25000	421db6ac429d76da	4f1100906df5ac66	155
-Campaign\XHuman\2XHum05.pud	fight	27500	0fd7108b7420ca30	a955141fc83bca16	152
-Campaign\XHuman\2XHum05.pud	fight	30000	b9a646a9fd1bfc9b	1d5e41aec8b8a297	146
+Campaign\XHuman\2XHum05.pud	fight	27500	c693478d49ec4436	faa60a3deb3e258f	152
+Campaign\XHuman\2XHum05.pud	fight	30000	7896d0a078578c4f	d4224db20ecfc90e	145
 Campaign\XHuman\2XHum05.pud	harvest	0	67dee27dd251eb8c	167f5c2780ed4787	94
 Campaign\XHuman\2XHum05.pud	harvest	2500	2e74eee857deaa9c	cd7a10002b91e5ce	104
 Campaign\XHuman\2XHum05.pud	harvest	5000	c4d54e84d767bda0	567806529f0769ef	109
@@ -2672,7 +2672,7 @@ Maps\Classic\Death in the middle.pud	fight	7500	309618964fc33403	eee82b867776a92
 Maps\Classic\Death in the middle.pud	fight	10000	8a6f1eb152f0afc0	d7e2b36f5aef2b7f	15
 Maps\Classic\Death in the middle.pud	fight	12500	fa3720220b0d5253	04787465eb9a2095	17
 Maps\Classic\Death in the middle.pud	fight	15000	d42dd72a4454e2e6	c98e8e99c54a8447	20
-Maps\Classic\Death in the middle.pud	fight	17500	856c70a12415322e	ed58973acc352494	24
+Maps\Classic\Death in the middle.pud	fight	17500	856c70a12415322e	e833b412bd7b33e5	24
 Maps\Classic\Death in the middle.pud	fight	20000	dea52ae13291af45	047ea4503b27b0f0	24
 Maps\Classic\Death in the middle.pud	fight	22500	1d134d98ffeca122	73bdbbf2e5b49e9f	28
 Maps\Classic\Death in the middle.pud	fight	25000	fa2d7a406783a28b	adea43b34a84931b	32
@@ -3995,7 +3995,7 @@ Maps\Classic\Expansion\Passes.pud	ai	0	4c291696a9913030	7f5d4aef73e33bf7	17
 Maps\Classic\Expansion\Passes.pud	ai	2500	3ca0a631fdf4c2ef	85a566916ab89fc0	20
 Maps\Classic\Expansion\Passes.pud	ai	5000	46bae3f9d3d66aff	23c248ac4fa03ce9	29
 Maps\Classic\Expansion\Passes.pud	ai	7500	78b04a0f07fc83ca	e7464c46a2a30be9	34
-Maps\Classic\Expansion\Passes.pud	ai	10000	845b4a1e55d2ade3	1cdcf6e9e54995b5	40
+Maps\Classic\Expansion\Passes.pud	ai	10000	845b4a1e55d2ade3	082cf92181372446	40
 Maps\Classic\Expansion\Passes.pud	ai	12500	547c1ff1b1ee60f8	56fdf28f25239cda	48
 Maps\Classic\Expansion\Passes.pud	ai	15000	22d7ff8aef335d8f	ca35f687e76f0218	58
 Maps\Classic\Expansion\Passes.pud	ai	17500	839da1b14231e28c	8c370ee93a6ee3ff	63
@@ -5164,7 +5164,7 @@ Maps\Classic\Expansion\Scenario\MinasTir.pud	move	30000	a3ef5a65a4643187	243a585
 Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	0	4630b6df77fdec8b	f9b9829deccef248	155
 Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	2500	08f855e6561ca208	6706f4770a7fbe1b	148
 Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	5000	8d46798853a5408a	1406c896a6c3c27b	146
-Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	7500	7cae34a5be3ac433	967382fa162890a8	155
+Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	7500	7cae34a5be3ac433	0220cb606b167864	155
 Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	10000	b2e4903b9fe52f37	a98abd1f26c59bc6	170
 Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	12500	c55bd488fc80dbe0	1e8cdc8c8f4fa8b8	190
 Maps\Classic\Expansion\Scenario\MinasTir.pud	fight	15000	555630c50ac49bbc	d3a7ece19df49a7e	216
@@ -7990,7 +7990,7 @@ Maps\Dark Paths BNE.pud	harvest	10000	568fd4aabeb9bb8e	84c749395d1773fd	22
 Maps\Dark Paths BNE.pud	harvest	12500	1d168c06311093b3	3b168322c297d444	25
 Maps\Dark Paths BNE.pud	harvest	15000	142ac978579c5857	caa0060ed04d297c	30
 Maps\Dark Paths BNE.pud	harvest	17500	44dc44e47769d523	79d319b12125acc8	37
-Maps\Dark Paths BNE.pud	harvest	20000	ae68a0436dfc6c69	835b4327d8b3f3d2	42
+Maps\Dark Paths BNE.pud	harvest	20000	ae68a0436dfc6c69	7ab58cba7233a771	42
 Maps\Dark Paths BNE.pud	harvest	22500	8bcc0def5876296b	000db6f258b8ec38	42
 Maps\Dark Paths BNE.pud	harvest	25000	fbdda4af35537019	9f5076f1b9f69e35	43
 Maps\Dark Paths BNE.pud	harvest	27500	006708d63d13b98b	02e10e8adacfe057	44
@@ -8561,7 +8561,7 @@ Maps\Ladder\Forest Trail BNE.pud	harvest	7500	098475c1d2dcaa6a	c182643472926408	
 Maps\Ladder\Forest Trail BNE.pud	harvest	10000	e89404cd16b00c4e	b18493beaf20cc52	33
 Maps\Ladder\Forest Trail BNE.pud	harvest	12500	34ae0a395f2d430f	11153eecdab22b4c	37
 Maps\Ladder\Forest Trail BNE.pud	harvest	15000	78077f62a2d88526	cd3ed12896249cb5	39
-Maps\Ladder\Forest Trail BNE.pud	harvest	17500	5e22ae8fd0f2af2b	076eac676d73ce4f	41
+Maps\Ladder\Forest Trail BNE.pud	harvest	17500	5e22ae8fd0f2af2b	0eb83d2d250d3c37	41
 Maps\Ladder\Forest Trail BNE.pud	harvest	20000	b8bceda1cc0ca5bd	a5786bdebdfb308d	45
 Maps\Ladder\Forest Trail BNE.pud	harvest	22500	6e7026dbac666a09	26b943f71c781190	50
 Maps\Ladder\Forest Trail BNE.pud	harvest	25000	e01f337f70f9bee1	3cb34140611f4183	58
@@ -8623,7 +8623,7 @@ Maps\Ladder\Frog Legs BNE.pud	ai	0	55cd15f6a63caeaa	88d034a3589051b8	57
 Maps\Ladder\Frog Legs BNE.pud	ai	2500	b5f11d883ac8ef5a	9961746e2debc2ae	81
 Maps\Ladder\Frog Legs BNE.pud	ai	5000	4fb5e0f98affb47f	3b275e21e5d4d320	101
 Maps\Ladder\Frog Legs BNE.pud	ai	7500	62492c20878f2ebd	67d9199e408e2934	127
-Maps\Ladder\Frog Legs BNE.pud	ai	10000	36fea1734850f136	b70aa8fcad9b0413	129
+Maps\Ladder\Frog Legs BNE.pud	ai	10000	36fea1734850f136	33fd28c90b86803c	129
 Maps\Ladder\Frog Legs BNE.pud	ai	12500	aafb1841435ca23b	9a662c65c4163d21	161
 Maps\Ladder\Frog Legs BNE.pud	ai	15000	693825cd5f926898	f747d3df31c95f3f	189
 Maps\Ladder\Frog Legs BNE.pud	ai	17500	2f8045073930fe2f	113e5ea6005c192e	206
@@ -9871,7 +9871,7 @@ Maps\Stir Crazy BNE.pud	ai	0	6140724c87291924	d35ecbf8550129ff	28
 Maps\Stir Crazy BNE.pud	ai	2500	30ca1738c50026a3	fba477311db0cee0	35
 Maps\Stir Crazy BNE.pud	ai	5000	3c1edb7a3045f239	2a2c4864889bdd1d	42
 Maps\Stir Crazy BNE.pud	ai	7500	6596025dc520b46f	ff59a45499419226	59
-Maps\Stir Crazy BNE.pud	ai	10000	53e985c097326799	ba2916893f90aabd	83
+Maps\Stir Crazy BNE.pud	ai	10000	53e985c097326799	64a85eeef93d90e4	83
 Maps\Stir Crazy BNE.pud	ai	12500	a756ba594f5877f9	260b3f712c426b9f	109
 Maps\Stir Crazy BNE.pud	ai	15000	68fca119da8394b1	d3d992b0f9ec843e	124
 Maps\Stir Crazy BNE.pud	ai	17500	a5aa7cee3efae958	ceca60d2c2ac108e	129
@@ -10134,7 +10134,7 @@ Maps\Winding ways BNE.pud	ai	7500	50c1a32942c21974	8f00763d83e84c08	51
 Maps\Winding ways BNE.pud	ai	10000	834861fab27cc3c3	77818531e570e787	64
 Maps\Winding ways BNE.pud	ai	12500	f513b78325dea34a	63d5edda983436a5	66
 Maps\Winding ways BNE.pud	ai	15000	1330aa4c28a0b579	05bcebbbcd41c941	77
-Maps\Winding ways BNE.pud	ai	17500	d34544de7b9adaf7	4f1b84017980cb3d	90
+Maps\Winding ways BNE.pud	ai	17500	d34544de7b9adaf7	dbcc9893997c05bf	90
 Maps\Winding ways BNE.pud	ai	20000	59b531af37c260a2	3426ea289a31176b	109
 Maps\Winding ways BNE.pud	ai	22500	d3eb5fb1619a8187	a73ba43194fcf97c	121
 Maps\Winding ways BNE.pud	ai	25000	33421fdaa33e78f9	5d6a3cf97ce06a65	125

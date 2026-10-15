@@ -262,8 +262,6 @@ impl World {
                 self.units[pi].script.wait = 1;
                 self.units[pi].removal_due = true;
             }
-            let patch_slot = self.units[pi].slot;
-            self.fresh_platforms.push((b, patch_slot));
         }
         if pays_now {
             self.pay(u.owner, c);
@@ -660,47 +658,65 @@ mod tests {
         assert!(matches!(w.unit(t).unwrap().order, Order::Inside { .. }));
     }
 
-    /// Round-49 errata (`orc12-10000` tanker 1409, `xhuman8-10000` tanker 1468): a tanker's harvest command on a
-    /// platform placed in this cycle fails while the oil patch under it is still to have its own update.
+    /// Harvest spec, "Starting to harvest", step 3 (`orc12-10000` tanker 1409, `xhuman8-10000` tanker 1468, V55,
+    /// V56; V90): a tanker's harvest command on a platform created earlier in the same cycle fails the command's
+    /// target check, since nobody detects the platform yet (fog spec, "A unit created during a cycle"), whether or not
+    /// the oil patch under it has already had its update in this cycle (`patch_done`; V90 is the case where it has).
+    /// Idle is made pending and, given by the computer tanker's job choice from idle, takes over at once (still
+    /// animation, wait 3, no target). After the next detection phase the same command works.
     #[test]
-    fn a_platform_placed_this_cycle_is_no_harvest_target_until_its_patch_updates() {
-        let (mut w, _) = town();
+    fn a_platform_placed_this_cycle_is_no_harvest_target_until_the_next_detection() {
         const TANKER: u8 = 0x1a;
         const PLATFORM: u8 = 0x56;
-        let base = w.stats.0[0];
-        for (k, size, f) in [
-            (TANKER, (1, 1), flags::SEA | flags::TANKER),
-            (PLATFORM, (2, 2), flags::BUILDING | flags::OIL_SOURCE),
-            (OIL_PATCH, (2, 2), flags::BUILDING | flags::OIL_PATCH),
-        ] {
-            let s = &mut w.stats.0[k as usize];
-            *s = base;
-            s.size = size;
-            s.flags = f;
-        }
-        for y in 0..24 {
-            for x in 10..24 {
-                w.terrain.clear_bits(x, y, crate::terrain::bits::LAND);
-                w.terrain.set_bits(x, y, crate::terrain::bits::WATER);
+        for patch_done in [false, true] {
+            let (mut w, _) = town();
+            let base = w.stats.0[0];
+            for (k, size, f) in [
+                (TANKER, (1, 1), flags::SEA | flags::TANKER),
+                (PLATFORM, (2, 2), flags::BUILDING | flags::OIL_SOURCE),
+                (OIL_PATCH, (2, 2), flags::BUILDING | flags::OIL_PATCH),
+            ] {
+                let s = &mut w.stats.0[k as usize];
+                *s = base;
+                s.size = size;
+                s.flags = f;
             }
+            for y in 0..24 {
+                for x in 10..24 {
+                    w.terrain.clear_bits(x, y, crate::terrain::bits::LAND);
+                    w.terrain.set_bits(x, y, crate::terrain::bits::WATER);
+                }
+            }
+            let builder = w.spawn(TANKER, 0, (12, 12), 0).unwrap();
+            let patch = w.spawn(OIL_PATCH, crate::slots::NEUTRAL, (16, 16), 0).unwrap();
+            let other = w.spawn(TANKER, 0, (12, 14), 0).unwrap();
+            let ps = w.unit(patch).unwrap().slot;
+            // The builder's update, in the middle of a cycle.
+            w.in_cycle = true;
+            w.updating = Some(w.unit(builder).unwrap().slot);
+            let i = w.index(builder).unwrap();
+            w.raise(i, PLATFORM, (16, 16));
+            let platform = w.units.iter().find(|u| u.kind == PLATFORM).unwrap().id;
+            assert_eq!(w.unit(platform).unwrap().detected_by, 0);
+            // The harvesting tanker's update, before or after the patch's.
+            w.updating = Some(if patch_done { ps + 1 } else { ps - 1 });
+            let j = w.index(other).unwrap();
+            let o = w.harvest_command(j, Some(platform), (16, 16)).unwrap();
+            assert!(w.command_at_once(j, o));
+            let u = w.unit(other).unwrap();
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait),
+                (Order::Idle, None, anim::STILL, 3),
+                "{patch_done}"
+            );
+            // The next cycle's detection phase: the same command works.
+            w.detection();
+            let j = w.index(other).unwrap();
+            let o = w.harvest_command(j, Some(platform), (16, 16)).unwrap();
+            assert!(matches!(o, Order::Harvest { source: Some(s), .. } if s == platform));
+            assert!(w.command_at_once(j, o));
+            assert_eq!(w.unit(other).unwrap().order, o);
         }
-        let builder = w.spawn(TANKER, 0, (12, 12), 0).unwrap();
-        let patch = w.spawn(OIL_PATCH, crate::slots::NEUTRAL, (16, 16), 0).unwrap();
-        let other = w.spawn(TANKER, 0, (12, 14), 0).unwrap();
-        let patch_slot = w.unit(patch).unwrap().slot;
-        // As if the builder's update ran first in this cycle's walk, from below the patch's slot.
-        w.updating = Some(patch_slot - 1);
-        let i = w.index(builder).unwrap();
-        w.raise(i, PLATFORM, (16, 16));
-        let platform = w.units.iter().find(|u| u.kind == PLATFORM).unwrap().id;
-        let j = w.index(other).unwrap();
-        assert_eq!(w.harvest_command(j, Some(platform), (16, 16)), Some(Order::Idle));
-        // Once the patch has had its update, the same command works.
-        w.updating = Some(patch_slot);
-        assert!(matches!(
-            w.harvest_command(j, Some(platform), (16, 16)),
-            Some(Order::Harvest { source: Some(s), .. }) if s == platform
-        ));
     }
 
     #[test]
