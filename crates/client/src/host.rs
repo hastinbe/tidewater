@@ -1,0 +1,234 @@
+//! What every platform shell shares (`docs/design/client-core.md`, "Platform trait"), with no engine types: the
+//! start of the program from its command line ([`launch`]), a scripted run's frame time ([`scripted_elapsed`]), the
+//! run without a window ([`run_headless`]), the mouse lock's pointer ([`LockedPointer`]) and a name for a key the
+//! core doesn't know ([`other_key`]).
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Result;
+
+use crate::args::Args;
+use crate::core::{Core, Platform};
+use crate::input::{Buttons, Key, WindowGeom};
+use crate::storage::Store;
+use crate::{display, frontend, gamemenu, prefs, script, storage};
+
+/// The program, started from its command line, and what its window asks for.
+pub struct Launch {
+    pub core: Core,
+    /// The window's first title.
+    pub title: String,
+    /// `--ui-scale`: the window's size in logical points per screen pixel, if given.
+    pub ui_scale: Option<u32>,
+    /// A scripted run without a window (`--script` with `--headless`).
+    pub headless: bool,
+}
+
+/// Starts the program from its command line: the desktop's storage (`storage::Desktop`), the installation, the
+/// flow's first steps (a map, a `--goto` screen, a scripted scene or the startup sequence) and the stored settings.
+/// A scripted run gets its own save folder and settings, a wall clock that stands still and no mouse lock.
+pub fn launch(mut args: Args) -> Result<Launch> {
+    let scripted = match (&args.script, &args.script_out) {
+        (Some(name), Some(out)) => {
+            let scene = script::scene(name).ok_or_else(|| anyhow::anyhow!("no scripted scene {name}"))?;
+            // The run's own saved games and settings, so nothing of the user's changes what it shows.
+            let saves = out.join("save");
+            if saves.exists() {
+                std::fs::remove_dir_all(&saves)?;
+            }
+            args.save_dir = Some(saves);
+            args.settings = Some(out.join("settings.txt"));
+            args.no_mouse_lock = true;
+            args.ui_scale = Some(1);
+            Some((
+                scene,
+                script::Out {
+                    dir: out.clone(),
+                    windowed: !args.headless,
+                    pictures: std::env::var_os("TIDEWATER_SCRIPT_PICTURES").is_some(),
+                    every: std::env::var("TIDEWATER_SCRIPT_PICTURES")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0),
+                },
+            ))
+        }
+        _ => None,
+    };
+    // The desktop's storage (`storage`): a scripted run uses its own folder and a wall clock that stands still.
+    let settings = args
+        .settings
+        .clone()
+        .unwrap_or_else(|| storage::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
+    let mut desktop = storage::Desktop::new(
+        &args.install,
+        args.save_dir.clone().unwrap_or_else(storage::default_save_dir),
+        settings,
+        storage::user_dir(args.save_dir.as_deref()),
+    );
+    if scripted.is_some() {
+        desktop = desktop.with_fixed_clock(script::WALL_SECS);
+    }
+    let store = Store(Arc::new(desktop));
+    let install = storage::open_install(&store.0)?;
+    let mut front = frontend::Front::load(install)?;
+    let mut flow = frontend::Flow::default();
+    // The map given on the command line starts at once; otherwise the startup sequence ("Startup") or a screen
+    // named by `--goto`.
+    let steps = match (&args.map, &args.goto, &scripted) {
+        (_, _, Some((scene, _))) => scene.start.clone(),
+        (Some(map), _, _) => vec![frontend::Step::Play {
+            map: map.clone(),
+            setup: args.setup,
+        }],
+        (None, Some(g), _) => {
+            let steps = frontend::goto_steps(g).map_err(anyhow::Error::msg)?;
+            if let Some((what, e)) = g.split_once(':')
+                && what.starts_with("score-")
+            {
+                let e: u8 = e.parse()?;
+                frontend::synthetic_score(&mut flow, &mut front, e, what == "score-victory");
+            }
+            steps
+        }
+        (None, None, _) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
+    };
+    flow.steps = steps.into();
+    // A scripted run starts from the default settings.
+    let prefs = if scripted.is_some() {
+        prefs::Prefs::default()
+    } else {
+        prefs::Prefs::load(&*store.0)
+    };
+    let stored =
+        gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
+    let title = args
+        .map
+        .as_deref()
+        .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
+    let (ui_scale, headless) = (args.ui_scale, args.headless && scripted.is_some());
+    let run = scripted.map(|(scene, out)| script::Run::new(scene, out));
+    let core = Core::new(args, store, front, flow, stored, run);
+    Ok(Launch {
+        core,
+        title,
+        ui_scale,
+        headless,
+    })
+}
+
+/// A scripted run's frame time: none for the first frame (the clock's first frame reports none, as the Bevy shell's
+/// did), then a fixed [`script::FRAME_SECS`], so a run comes out the same every time.
+pub fn scripted_elapsed(first: bool) -> Duration {
+    if first {
+        Duration::ZERO
+    } else {
+        Duration::from_secs_f64(script::FRAME_SECS)
+    }
+}
+
+/// The window a run without one reports: 640 × 480 physical pixels at one per point, the scripted window's.
+struct NoWindow;
+
+impl Platform for NoWindow {
+    fn window(&self) -> Option<WindowGeom> {
+        Some(WindowGeom {
+            size: display::SCREEN,
+            factor: 1.0,
+        })
+    }
+
+    fn pointer(&mut self, _keys: &Buttons<Key>, _game_pointer: bool) -> (Option<(f32, f32)>, bool) {
+        (None, false)
+    }
+}
+
+/// Runs a scripted scene without a window, sound device or GPU until it ends: each frame is composed and recorded
+/// (`script::record`); the settings are written if the program ends on its own.
+pub fn run_headless(mut core: Core) {
+    let mut first = true;
+    loop {
+        core.advance(scripted_elapsed(first), &mut NoWindow);
+        first = false;
+        let exiting = std::mem::take(&mut core.exit);
+        if exiting {
+            core.store_settings();
+        }
+        let output = core.audio.output();
+        let finished = match core.script.as_mut() {
+            Some(run) => script::record(run, Some(&core.frame), &output, exiting).finished,
+            None => false,
+        };
+        if finished || exiting {
+            return;
+        }
+    }
+}
+
+/// The pointer while the mouse lock holds the system's still (`display`, "Mouse lock"), in the window's logical
+/// points: the game's own pointer, moved by the mouse's motion and kept on the screen.
+#[derive(Default)]
+pub struct LockedPointer(pub Option<(f32, f32)>);
+
+impl LockedPointer {
+    /// One frame of a lock that holds the system's pointer still: `want` the lock this frame, `system` the system's
+    /// pointer (`None` outside the window), `motion` the mouse's motion since the last frame in logical points.
+    /// Returns where to put the system's pointer when the lock ends (where ours was).
+    pub fn update(
+        &mut self,
+        want: bool,
+        system: Option<(f32, f32)>,
+        motion: (f32, f32),
+        lb: &display::Letterbox,
+        factor: f32,
+    ) -> Option<(f32, f32)> {
+        let (next, warp) = match (want, self.0) {
+            (true, None) => (
+                Some(system.map_or_else(|| lb.centre(factor), |p| lb.keep_on_screen(p, factor))),
+                None,
+            ),
+            (true, Some(p)) => (Some(lb.keep_on_screen((p.0 + motion.0, p.1 + motion.1), factor)), None),
+            (false, Some(p)) => (None, Some(p)),
+            (false, None) => (None, None),
+        };
+        self.0 = next;
+        warp
+    }
+}
+
+/// A key the core has no name for, by the shell's own name for it: the same name gives the same key.
+pub fn other_key(name: &str) -> Key {
+    Key::Other(1 + (script::fnv64(name.as_bytes()) % u32::MAX as u64) as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_locked_pointer_moves_by_the_motion_and_stays_on_the_screen() {
+        let lb = display::Letterbox::fit((1280, 960));
+        let mut p = LockedPointer::default();
+        assert_eq!(p.update(true, Some((100.0, 100.0)), (0.0, 0.0), &lb, 2.0), None);
+        assert_eq!(p.0, Some((100.0, 100.0)));
+        p.update(true, None, (-500.0, 20.0), &lb, 2.0);
+        assert_eq!(p.0, Some((0.0, 120.0)));
+        assert_eq!(p.update(false, None, (0.0, 0.0), &lb, 2.0), Some((0.0, 120.0)));
+        assert_eq!(p.0, None);
+    }
+
+    #[test]
+    fn a_locked_pointer_starts_in_the_middle_without_the_system_s() {
+        let lb = display::Letterbox::fit((640, 480));
+        let mut p = LockedPointer::default();
+        p.update(true, None, (0.0, 0.0), &lb, 1.0);
+        assert_eq!(p.0, Some((320.0, 240.0)));
+    }
+
+    #[test]
+    fn a_scripted_run_s_first_frame_has_no_time() {
+        assert_eq!(scripted_elapsed(true), Duration::ZERO);
+        assert!(scripted_elapsed(false) > Duration::ZERO);
+    }
+}

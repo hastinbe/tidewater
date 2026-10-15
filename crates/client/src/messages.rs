@@ -32,7 +32,7 @@ pub const NOTICE_TOP: i32 = 434;
 /// Text left edge and clip edge (428 pixels of text).
 pub const LEFT: i32 = 186;
 pub const CLIP_RIGHT: i32 = 614;
-#[cfg_attr(not(test), expect(dead_code, reason = "no chat line or network game yet"))]
+// Only the chat line will use it (none yet); reachable from the library's `Core`, so not dead code.
 pub const WIDTH: u32 = 428;
 /// Characters a line holds.
 pub const MAX_CHARS: usize = 99;
@@ -154,7 +154,7 @@ pub struct Line {
 }
 
 /// Splits `text` into pieces that each fit [`WIDTH`] pixels, by `width` (a string's width in the font).
-#[cfg_attr(not(test), expect(dead_code, reason = "no chat line or network game yet"))]
+// Only the chat line will use it (none yet); reachable from the library's `Core`, so not dead code.
 pub fn split(text: &str, width: &dyn Fn(&str) -> u32) -> Vec<String> {
     let mut pieces = Vec::new();
     for para in text.split('\n') {
@@ -231,7 +231,7 @@ impl Messages {
     }
 
     /// Adds a message to the list: split to the width, each piece scrolling the list up by one.
-    #[cfg_attr(not(test), expect(dead_code, reason = "no chat line or network game yet"))]
+    // Only the chat line will use it (none yet); reachable from the library's `Core`, so not dead code.
     pub fn add(&mut self, text: &str, colour: u8, ttl: u64, now: u64, width: &dyn Fn(&str) -> u32) {
         for piece in split(text, width) {
             self.list.rotate_left(1);

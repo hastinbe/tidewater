@@ -4,16 +4,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "tidewater_client"
+path = "src/lib.rs"
+
 [[bin]]
 name = "tidewater"
 path = "src/main.rs"
+required-features = ["bevy"]
+
+[features]
+default = ["bevy"]
+# The Bevy shell (`shell.rs`) and the `tidewater` binary. The trial shells (`crates/shell-*`) link the core without it.
+bevy = ["dep:bevy"]
 
 [dependencies]
 serde.workspace = true
 postcard.workspace = true
 directories.workspace = true
 anyhow.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, optional = true }
 clap.workspace = true
 glam.workspace = true
 png.workspace = true
