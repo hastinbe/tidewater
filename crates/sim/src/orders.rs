@@ -2,9 +2,8 @@
 //!
 //! Transports and boarding are in `transport.rs`, attacking the ground (17, 18) and demolition (19 to 21) in
 //! `ground.rs`. Not yet here: spells, the computer players' worker and tanker routines (they skip the search, as
-//! the spec says, and do nothing instead), alliances outside target acquisition (there only the owner's entry of the
-//! alliance table is read), and the Enhanced
-//! demolition unit that turns a found target into a demolish ("Special cases").
+//! the spec says, and do nothing instead), and alliances outside target acquisition (there only the owner's entry of
+//! the alliance table is read).
 //!
 //! The code follows the spec's model ("The model"): each shared rule is stated once and the orders call it.
 //!
@@ -1200,6 +1199,22 @@ impl World {
         {
             let fled = self.flee(i);
             return fled || computer_worker;
+        }
+        // "Special cases" (round 71, S1; static study): in Enhanced mode a demolition unit with a remembered order runs
+        // the target search after step 1, and a unit found that isn't its current target is given command 19 on it
+        // (order 20, demolish at the unit). Nothing else of the acquisition runs, the reaction and its flee included,
+        // whatever the search finds. Our reading of "nothing else happens in that run": as for step 1's flee, a run
+        // that gives no command goes on with the rest of the order's logic (a patrol still walks).
+        if self.rules.enhanced && DEMOLITION.contains(&u.kind) && u.remembered.is_some() {
+            self.forget_dying_attacker(i);
+            let current = target_of(self.units[i].order);
+            let Some(best) = self.search(i, attacker, false).filter(|&b| Some(b) != current) else {
+                return false;
+            };
+            let tile = self.unit(best).expect("found by the search").tile;
+            let o = self.demolish_command(i, Some(best), tile);
+            self.command(i, o);
+            return true;
         }
         // "Special cases": workers and tankers of every player never run the search; the others'
         // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
@@ -4683,6 +4698,54 @@ mod tests {
             assert_eq!(target, Some(b));
             assert_ne!(goal, (20, 20));
             assert_eq!(after(&mut w, 60), 6166174053499188518);
+        }
+
+        /// "Special cases" (round 71, S1): an Enhanced demolition unit with a remembered order, idle, gives itself
+        /// command 19 (order 20) on what its search finds; with nothing found it does nothing more, not even flee from
+        /// an attacker it doesn't detect. Without a remembered order, or in Classic mode, it flees as before.
+        #[test]
+        fn an_enhanced_demolition_unit_demolishes_what_it_finds() {
+            const SQUAD: u8 = DEMOLITION[0];
+            for (case, enhanced, remembered, enemy_near) in [
+                ("finds", true, true, true),
+                ("nothing found", true, true, false),
+                ("not remembered", true, false, false),
+                ("classic", false, true, false),
+            ] {
+                let near = if enemy_near { (6, 6) } else { (20, 20) };
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, near), (FOOTMAN, 1, (14, 10))]);
+                w.rules.enhanced = enhanced;
+                let si = at(&w, ids[0]);
+                w.units[si].kind = SQUAD;
+                w.stats.0[SQUAD as usize] = w.stats.0[FOOTMAN as usize];
+                let (s, e, a) = (ids[0], ids[1], ids[2]);
+                let ai = at(&w, a);
+                w.units[ai].detected_by = 0;
+                let i = ready(&mut w, s, Order::Idle);
+                w.units[i].remembered = remembered.then_some(Remembered::Patrol { to: (2, 2), back: (5, 5) });
+                w.units[i].attacked_by = Some(a);
+                let ran = w.run_order(i);
+                let u = &w.units[i];
+                match case {
+                    "finds" => {
+                        assert!(ran, "{case}");
+                        let tile = w.unit(e).unwrap().tile;
+                        assert_eq!(
+                            (u.order, u.pending, u.commanded),
+                            (Order::Idle, Some(Order::Demolish { at: Some(e), tile }), true),
+                            "{case}"
+                        );
+                    }
+                    "nothing found" => {
+                        assert_eq!((u.order, u.pending), (Order::Idle, None), "{case}");
+                        assert_eq!(u.attacked_by, Some(a), "no flee: {case}");
+                    }
+                    _ => {
+                        assert!(ran, "{case}");
+                        assert!(matches!(u.pending.or(Some(u.order)), Some(Order::Move { .. })), "flees: {case}");
+                    }
+                }
+            }
         }
 
         /// The follow with no target unit returns at once; with the follow pending on a target in an order it can't
