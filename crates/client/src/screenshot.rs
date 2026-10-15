@@ -10,8 +10,8 @@
 //! Choices where the spec leaves a gap:
 //! - **Where.** The original writes into the game's folder; Tidewater never writes into the install, so the files go
 //!   to the user folder (`saves::user_dir`: the `--save-dir` folder if given, else Tidewater's user data directory).
-//! - **What.** The game screen as the window shows it, without the black border around it (`crate::display`), sampled
-//!   back to its 640 × 480 screen pixels. Each pixel is given the palette entry of its colour (the
+//! - **What.** The game screen as the window shows it, without the black border around it (`crate::display`): the
+//!   composed 640 × 480 screen of the frame the key was pressed in. Each pixel is given the palette entry of its colour (the
 //!   nearest entry for the interface's own colours, which aren't palette entries). The palette is the one the screen
 //!   shows (grey while paused), not the negative. Only the game screen has a palette, so the key works there only.
 //! - **Key.** Print Screen, and F13 (where Mac keyboards put it).
@@ -24,7 +24,6 @@ use std::path::PathBuf;
 use bevy::ecs::schedule::ScheduleConfigs;
 use bevy::ecs::system::ScheduleSystem;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use tidewater_formats::tileset::Palette;
 
 use crate::frontend::{AppState, in_screen};
@@ -40,6 +39,14 @@ pub const FLASH_FRAMES: u8 = 3;
 #[derive(Resource, Clone)]
 pub struct ShotDir(pub PathBuf);
 
+/// A screenshot asked for this frame: written once the frame is composed.
+#[derive(Resource)]
+pub struct PendingShot {
+    name: String,
+    canvas: (u32, u32),
+    pal: Palette,
+}
+
 /// The screenshot key (`frame_systems` in `main.rs` has the order).
 pub(crate) fn shot_system() -> ScheduleConfigs<ScheduleSystem> {
     print_screen.run_if(in_screen(AppState::Game))
@@ -49,7 +56,6 @@ fn print_screen(
     mut commands: Commands,
     cycling: Option<Res<Cycling>>,
     hud: Option<Res<Hud>>,
-    windows: Query<&Window>,
     dir: Res<ShotDir>,
     input: Res<PlayerInput>,
 ) {
@@ -57,34 +63,43 @@ fn print_screen(
     if !keys.any_just_pressed([Key::PrintScreen, Key::F(13)]) {
         return;
     }
-    let (Some(cycling), Some(canvas), Ok(window)) =
-        (cycling, hud.and_then(|h| h.layout).map(|l| l.canvas), windows.single())
-    else {
+    let (Some(cycling), Some(canvas)) = (cycling, hud.and_then(|h| h.layout).map(|l| l.canvas)) else {
         return;
     };
-    let (x, y, w, h) = crate::letterbox(window).screen();
-    let dir = dir.0.clone();
-    let Some(name) = palette::screenshot_name(|n| dir.join(n).exists()) else {
+    let Some(name) = palette::screenshot_name(|n| dir.0.join(n).exists()) else {
         return;
     };
-    let pal = cycling.shown.clone();
-    commands.spawn(Screenshot::primary_window()).observe(
-        move |ev: On<ScreenshotCaptured>, mut cycling: ResMut<Cycling>| {
-            let Ok(img) = ev.image.clone().try_into_dynamic() else {
-                return;
-            };
-            let rgba = img.crop_imm(x, y, w, h).to_rgba8();
-            let (w, h) = (rgba.width(), rgba.height());
-            let px = index_pixels(rgba.as_raw(), (w, h), canvas, &pal);
-            let file = encode_pcx(canvas.0 as u16, canvas.1 as u16, &px, &pal);
-            let path = dir.join(&name);
-            let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, file));
-            match written {
-                Ok(()) => cycling.flash = FLASH_FRAMES,
-                Err(e) => eprintln!("can't write {}: {e}", path.display()),
-            }
-        },
+    commands.insert_resource(PendingShot {
+        name,
+        canvas,
+        pal: cycling.shown.clone(),
+    });
+}
+
+/// Writes the screenshot asked for from the frame just composed (the 640 × 480 screen, without the window's border),
+/// and starts the flash.
+pub(crate) fn write_shot(world: &mut World) {
+    let Some(shot) = world.remove_resource::<PendingShot>() else {
+        return;
+    };
+    let frame = &world.resource::<crate::shell::Screen>().frame;
+    let px = index_pixels(
+        &frame.rgba,
+        (crate::display::SCREEN.0, crate::display::SCREEN.1),
+        shot.canvas,
+        &shot.pal,
     );
+    let file = encode_pcx(shot.canvas.0 as u16, shot.canvas.1 as u16, &px, &shot.pal);
+    let dir = world.resource::<ShotDir>().0.clone();
+    let path = dir.join(&shot.name);
+    match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, file)) {
+        Ok(()) => {
+            if let Some(mut cycling) = world.get_resource_mut::<Cycling>() {
+                cycling.flash = FLASH_FRAMES;
+            }
+        }
+        Err(e) => eprintln!("can't write {}: {e}", path.display()),
+    }
 }
 
 /// The palette entry for each pixel of a `to`-sized picture sampled from an RGBA picture of size `from` (nearest

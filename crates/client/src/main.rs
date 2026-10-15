@@ -574,6 +574,7 @@ fn main() -> Result<()> {
         .add_plugins(cheats::plugin)
         .add_plugins(chat::plugin)
         .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
+        .add_systems(Last, screenshot::write_shot.after(shell::ComposeScreen))
         .add_systems(
             RunFixedMainLoop,
             run_cycles.in_set(bevy::app::RunFixedMainLoopSystems::BeforeFixedMainLoop),
@@ -958,7 +959,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     let (clock, pauses) = savegame::clock_and_pauses(
         resume.as_ref().and_then(|r| r.body.client.clock_ms),
         resume.as_ref().and_then(|r| r.body.client.pause_counts),
-        std::time::Instant::now(),
+        world.resource::<CoreTime>().elapsed(),
     );
     world.insert_resource(clock);
     world.insert_resource(pauses);
@@ -997,11 +998,11 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
 type GameEntities<'w, 's> = Query<'w, 's, Entity, (Or<(With<ScreenLayer>, With<Camera>)>, Without<frontend::Persist>)>;
 
 /// The game clock stops when the game ends (`savegame::GameClock`).
-fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>) {
+fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>, time: Res<CoreTime>) {
     if let (Some(sim), Some(mut clock)) = (sim, clock)
         && sim.world.victory.over
     {
-        clock.stop(std::time::Instant::now());
+        clock.stop(time.elapsed());
     }
 }
 
