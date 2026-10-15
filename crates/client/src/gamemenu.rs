@@ -38,7 +38,9 @@ use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{self, AppState, Flow, Front, FrontScreen, LockedPointer, Persist};
+use crate::frontend::{
+    self, AppState, AppStates, Flow, Front, FrontScreen, LockedPointer, OwnedBy, Persist, in_screen,
+};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Input, Key, LogCursor};
 use crate::layers::PictureId;
@@ -99,8 +101,7 @@ pub struct SavingInput(savedlg::Input);
 pub struct MenuSystems;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<SavingInput>()
-        .add_systems(OnExit(AppState::Game), close_on_exit);
+    app.init_resource::<SavingInput>();
 }
 
 /// The game menu's systems, in order, with the points where their commands take effect (`frame_systems` in `main.rs`
@@ -117,7 +118,7 @@ pub(crate) fn menu_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::
         run_saving.run_if(resource_exists::<GameMenu>),
         ApplyDeferred,
         service_saving.run_if(resource_exists::<GameMenu>),
-        sync_settings.run_if(in_state(AppState::Game)),
+        sync_settings.run_if(in_screen(AppState::Game)),
     )
         .chain()
         .in_set(MenuSystems)
@@ -125,7 +126,7 @@ pub(crate) fn menu_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::
 
 /// The saving and loading development aid (`demo_save_load`; `frame_systems` in `main.rs` has the order).
 pub(crate) fn demo_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
-    demo_save_load.run_if(in_state(AppState::Game))
+    demo_save_load.run_if(in_screen(AppState::Game))
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -718,7 +719,7 @@ fn open_menu(
     commands.spawn((
         ScreenLayer(crate::layers::Layer::new(image, crate::layers::Plane::Flow, 2.0)),
         Persist,
-        DespawnOnExit(AppState::Game),
+        OwnedBy(AppState::Game),
         MenuLayer,
     ));
     let mut m = GameMenu {
@@ -819,7 +820,7 @@ pub(crate) fn saving_input(
     i
 }
 
-fn close_on_exit(mut commands: Commands) {
+pub(crate) fn close_on_exit(mut commands: Commands) {
     commands.remove_resource::<GameMenu>();
 }
 
@@ -847,7 +848,7 @@ fn run_menu(
     locked: Res<LockedPointer>,
     layer: Query<Entity, With<MenuLayer>>,
     folder: Res<SaveFolder>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1036,7 +1037,7 @@ fn demo_save_load(world: &mut World) {
         ) {
             Ok((header, body)) => {
                 world.resource_scope(|world, mut flow: Mut<Flow>| {
-                    let mut next = world.resource_mut::<NextState<AppState>>();
+                    let mut next = world.resource_mut::<AppStates>();
                     savegame::load_game(&mut flow, &mut next, header, body);
                 });
                 info!("demo load {name}");
@@ -1117,7 +1118,7 @@ fn service_saving(world: &mut World) {
             match SaveDir::read(&entry.path, enhanced) {
                 Ok((header, body)) => {
                     world.resource_scope(|world, mut flow: Mut<Flow>| {
-                        let mut next = world.resource_mut::<NextState<AppState>>();
+                        let mut next = world.resource_mut::<AppStates>();
                         savegame::load_game(&mut flow, &mut next, header, body);
                     });
                     remove_menu(world);

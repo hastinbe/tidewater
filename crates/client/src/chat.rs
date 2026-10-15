@@ -135,7 +135,7 @@ pub fn plugin(app: &mut App) {
             .after(crate::shell::ReadInput)
             // The pointer lock reads the held keys before the chat line takes the typing keys.
             .after(crate::mouse_lock)
-            .run_if(in_state(frontend::AppState::Game)),
+            .run_if(frontend::in_screen(frontend::AppState::Game)),
     );
 }
 
@@ -148,7 +148,7 @@ fn chat_keys(
     mut queue: ResMut<cheats::Queue>,
     mut stored: ResMut<Stored>,
     mut local: ResMut<LocalSettings>,
-    state: Res<State<frontend::AppState>>,
+    state: Res<frontend::AppStates>,
     dialog: Option<Res<frontend::OutcomeDialog>>,
     menu: Option<Res<crate::gamemenu::GameMenu>>,
     mut input: ResMut<PlayerInput>,

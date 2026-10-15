@@ -52,6 +52,7 @@ mod screenshot;
 mod script;
 mod shell;
 mod sound;
+mod states;
 mod video;
 mod view;
 
@@ -557,7 +558,6 @@ fn main() -> Result<()> {
                 .after(shell::ReadInput)
                 .run_if(not(resource_exists::<script::Script>)),
         )
-        .init_state::<frontend::AppState>()
         .insert_resource(front)
         .insert_resource(savegame::SaveFolder(saves::SaveDir::new(
             save_dir.unwrap_or_else(saves::default_dir),
@@ -569,8 +569,7 @@ fn main() -> Result<()> {
         .insert_resource(Opts(args))
         .add_plugins(frontend::plugin)
         .add_plugins(gamemenu::plugin)
-        .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
-        .add_systems(OnExit(frontend::AppState::Game), end_game)
+        .add_systems(StateTransition, run_transitions)
         .add_plugins(cheats::plugin)
         .add_plugins(chat::plugin)
         .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
@@ -581,6 +580,8 @@ fn main() -> Result<()> {
         .add_systems(PostUpdate, end_view_frame)
         .add_systems(Update, frame_systems());
     shell::one_order(&mut app);
+    let hooks = register_hooks(app.world_mut());
+    app.insert_resource(hooks);
     app.run();
     Ok(())
 }
@@ -594,7 +595,7 @@ fn main() -> Result<()> {
 /// dialog. The game menu's systems (`gamemenu::MenuSystems`) come last, so a key that opens or closes a menu is seen
 /// by one side only.
 fn frame_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
-    let game = || in_state(frontend::AppState::Game);
+    let game = || frontend::in_screen(frontend::AppState::Game);
     (
         jukebox::play_music,
         frontend::fade_systems(),
@@ -659,6 +660,67 @@ fn store_settings(mut exits: MessageReader<AppExit>, file: Res<SettingsFile>, st
 #[derive(Resource)]
 struct Opts(Args);
 
+/// The flow's hooks (`states::Hook`), each a system registered once before the first frame.
+#[derive(Resource)]
+struct Hooks(HashMap<states::Hook, bevy::ecs::system::SystemId>);
+
+fn register_hooks(world: &mut bevy::prelude::World) -> Hooks {
+    use states::Hook::*;
+    let mut ids = HashMap::new();
+    for hook in states::HOOKS {
+        let id = match hook {
+            StopMusic => world.register_system(frontend::stop_music),
+            CameraClear => world.register_system(frontend::camera_clear),
+            StartGame => world.register_system(start_game),
+            SetupGame => world.register_system(setup),
+            EndGame => world.register_system(end_game),
+            CloseDialog => world.register_system(frontend::close_dialog),
+            CloseGameMenu => world.register_system(gamemenu::close_on_exit),
+            CloseMenuLoad => world.register_system(frontend::close_menu_load),
+            EnterVideo => world.register_system(frontend::enter_video),
+            EnterTitle => world.register_system(frontend::enter_title),
+            EnterMenu => world.register_system(frontend::enter_menu),
+            EnterNewCampaign => world.register_system(frontend::enter_new_campaign),
+            EnterAct => world.register_system(frontend::enter_act),
+            EnterBriefing => world.register_system(frontend::enter_briefing),
+            EnterScore => world.register_system(frontend::enter_score),
+            EnterFinale => world.register_system(frontend::enter_finale),
+            EnterCredits => world.register_system(frontend::enter_credits),
+        };
+        ids.insert(hook, id);
+    }
+    Hooks(ids)
+}
+
+/// The flow's change of screen, if one was asked for (`states`): the leaving screen's hooks, its own layers and
+/// sounds (the last made first), then the entering screen's hooks. Each hook's commands take effect as it ends.
+fn run_transitions(world: &mut bevy::prelude::World) {
+    let Some(t) = world.resource_mut::<frontend::AppStates>().take_transition() else {
+        return;
+    };
+    let run = |world: &mut bevy::prelude::World, hook: states::Hook| {
+        let id = world.resource::<Hooks>().0[&hook];
+        if let Err(e) = world.run_system(id) {
+            error!("the flow's hook {hook:?} didn't run: {e}");
+        }
+    };
+    for &hook in states::on_exit(t.exited) {
+        run(world, hook);
+    }
+    let mut owned = world.query::<(Entity, &frontend::OwnedBy)>();
+    let gone: Vec<Entity> = owned
+        .iter(world)
+        .filter(|(_, o)| o.0 == t.exited)
+        .map(|(e, _)| e)
+        .collect();
+    for e in gone.into_iter().rev() {
+        world.despawn(e);
+    }
+    for &hook in states::on_enter(t.entered) {
+        run(world, hook);
+    }
+}
+
 /// Loads the game the flow asks for and inserts the game screen's resources (`setup` then spawns its entities). A
 /// map that fails to load goes back to the main menu.
 fn start_game(world: &mut bevy::prelude::World) {
@@ -670,7 +732,7 @@ fn start_game(world: &mut bevy::prelude::World) {
         world.insert_resource(Loaded(None));
         frontend::to_main_menu(&mut world.resource_mut::<frontend::Flow>());
         world
-            .resource_mut::<NextState<frontend::AppState>>()
+            .resource_mut::<frontend::AppStates>()
             .set(frontend::AppState::Boot);
     }
 }
@@ -1564,7 +1626,7 @@ const LOCK_MODE: CursorGrabMode = if cfg!(target_os = "macos") {
 #[allow(clippy::too_many_arguments)]
 fn mouse_lock(
     opts: Res<Opts>,
-    state: Res<State<frontend::AppState>>,
+    state: Res<frontend::AppStates>,
     dialog: Option<Res<frontend::OutcomeDialog>>,
     menu: Option<Res<gamemenu::GameMenu>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -2465,7 +2527,7 @@ fn draw_hud(
     scr: Res<ScreenUi>,
     cycling: Res<Cycling>,
     mut pictures: ResMut<ScreenPictures>,
-    state: Res<State<frontend::AppState>>,
+    state: Res<frontend::AppStates>,
     dialog: Option<Res<frontend::OutcomeDialog>>,
     menu: Option<Res<gamemenu::GameMenu>>,
 ) {

@@ -184,7 +184,7 @@ the snapshot didn't change.
 | 3 ✓ | The layers | Sprites and image assets → pictures the core owns (`Screen`: map, interface, flow layers) | unchanged |
 | 4 ✓ | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
 | 5 ✓ | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
-| 6 | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
+| 6 ✓ | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
 | 7 | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts unchanged; music timing changes (below) |
 | 8 | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged |
 | 9 | Bevy shell thin | What's left of `main.rs` → `bevy_shell` (window, letterbox, input, audio, files) | unchanged |
@@ -233,6 +233,24 @@ own, and none of them shares data that matters:
 | `StateTransition` | 9 | Bevy's own state systems among themselves. |
 | `RunFixedMainLoop` | 5: `run_cycles` against the gizmo contexts | We draw no gizmos. |
 | `PreUpdate` | 2: `mouse_lock` against IME and UI focus | We use neither. |
+
+### The flow's states (step 6)
+
+The flow's state machine is `states.rs` (no engine types): the screen that shows, the change asked for (the last ask in
+a frame wins; asking for the screen that shows leaves and enters it again), and the hooks each screen runs when it is
+left and entered, as data (`states::on_exit`, `states::on_enter`). A change takes effect where Bevy's did, between the
+frame's input and its game cycles, at most one a frame, in Bevy's order:
+
+1. The state becomes the new one; the leaving hooks already see it (`camera_clear` reads it).
+2. The leaving screen's hooks. Leaving a game: `camera_clear`, `close_dialog`, the game menu's close, `end_game`.
+3. The leaving screen's layers and sounds (`frontend::OwnedBy`, in place of `DespawnOnExit`) go, the last made
+   first, as Bevy's did.
+4. The entering screen's hooks. Entering a game: `stop_music`, `camera_clear`, `start_game`, `setup`.
+
+The Bevy shell runs each hook as a system registered once at startup (`main.rs`, `register_hooks`), so a hook's
+commands take effect as it ends. Bevy applied an `OnExit` or `OnEnter` schedule's commands at its end instead; no hook
+reads what an earlier hook of the same change commands, so the two are the same. The hooks are registered before
+the first frame, so the screens' entities keep their order.
 
 ### What can't stay identical
 

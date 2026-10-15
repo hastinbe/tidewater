@@ -27,7 +27,7 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use tidewater_formats::tileset::Palette;
 
-use crate::frontend::AppState;
+use crate::frontend::{AppState, in_screen};
 use crate::input::Key;
 use crate::palette::{self, Rgb};
 use crate::shell::PlayerInput;
@@ -42,7 +42,7 @@ pub struct ShotDir(pub PathBuf);
 
 /// The screenshot key (`frame_systems` in `main.rs` has the order).
 pub(crate) fn shot_system() -> ScheduleConfigs<ScheduleSystem> {
-    print_screen.run_if(in_state(AppState::Game))
+    print_screen.run_if(in_screen(AppState::Game))
 }
 
 fn print_screen(

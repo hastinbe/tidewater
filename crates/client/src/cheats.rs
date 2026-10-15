@@ -25,7 +25,7 @@ use tidewater_sim::cheats::{self, Context, Flags, Line, MissionSelect, Word};
 use tidewater_sim::economy::Event;
 use tidewater_sim::{Command, Rules};
 
-use crate::frontend::{self, AppState, Flow, Front, Step};
+use crate::frontend::{self, AppState, AppStates, Flow, Front, Step, in_screen};
 use crate::input::Key;
 use crate::shell::PlayerInput;
 
@@ -100,12 +100,12 @@ pub fn plugin(app: &mut App) {
 
 /// The disco cheat's music (`frame_systems` in `main.rs` has the order).
 pub(crate) fn disco_system() -> ScheduleConfigs<ScheduleSystem> {
-    play_disco.run_if(in_state(AppState::Game))
+    play_disco.run_if(in_screen(AppState::Game))
 }
 
 /// The cheats typed this frame.
 pub(crate) fn cheat_system() -> ScheduleConfigs<ScheduleSystem> {
-    run.run_if(in_state(AppState::Game))
+    run.run_if(in_screen(AppState::Game))
 }
 
 /// The disco cheat changes the game's track (music spec, "Disco cheat").
@@ -134,7 +134,7 @@ fn run(
     mut queue: ResMut<Queue>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {

@@ -42,25 +42,25 @@ use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
 use crate::shell::{CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
+use crate::states::Machine;
 use crate::video;
 
 const W: u32 = 640;
 const H: u32 = 480;
 
-#[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum AppState {
-    #[default]
-    Boot,
-    Video,
-    Title,
-    MainMenu,
-    NewCampaign,
-    Act,
-    Briefing,
-    Game,
-    Score,
-    Finale,
-    Credits,
+pub use crate::states::AppState;
+
+/// The flow's state machine (`states`): the screen that shows and the change asked for.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct AppStates(pub Machine);
+
+/// A layer or sound that belongs to a screen and goes when the screen is left (`states`, a change's step 3).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnedBy(pub AppState);
+
+/// A run condition: `state` shows.
+pub fn in_screen(state: AppState) -> impl FnMut(Res<AppStates>) -> bool + Clone {
+    move |states: Res<AppStates>| states.get() == state
 }
 
 /// One step of the flow.
@@ -290,7 +290,7 @@ pub(crate) fn go_on(
     flow: &mut Flow,
     front: &Front,
     keys: &Buttons<Key>,
-    next: &mut NextState<AppState>,
+    next: &mut Machine,
     exit: &mut MessageWriter<AppExit>,
 ) {
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
@@ -505,11 +505,11 @@ pub struct OutcomeDialog {
 
 /// Whether the game screen runs (not while the outcome dialog or, in single player, a game menu is up).
 pub fn game_running(
-    state: Res<State<AppState>>,
+    state: Res<AppStates>,
     dialog: Option<Res<OutcomeDialog>>,
     menu: Option<Res<crate::gamemenu::GameMenu>>,
 ) -> bool {
-    *state.get() == AppState::Game && dialog.is_none() && menu.is_none()
+    state.get() == AppState::Game && dialog.is_none() && menu.is_none()
 }
 
 pub fn plugin(app: &mut App) {
@@ -517,25 +517,8 @@ pub fn plugin(app: &mut App) {
         .init_resource::<MenuClock>()
         .init_resource::<LockedPointer>()
         .init_resource::<FrontScreen>()
-        .add_systems(PostUpdate, front_screen_ready)
-        .add_systems(OnEnter(AppState::Video), enter_video)
-        .add_systems(OnEnter(AppState::Title), enter_title)
-        .add_systems(OnEnter(AppState::MainMenu), enter_menu)
-        .add_systems(OnExit(AppState::MainMenu), |mut c: Commands| {
-            c.remove_resource::<MenuLoad>()
-        })
-        .add_systems(OnEnter(AppState::NewCampaign), enter_new_campaign)
-        .add_systems(OnEnter(AppState::Act), enter_act)
-        .add_systems(OnEnter(AppState::Briefing), enter_briefing)
-        .add_systems(OnEnter(AppState::Score), enter_score)
-        .add_systems(OnEnter(AppState::Finale), enter_finale)
-        .add_systems(OnEnter(AppState::Credits), enter_credits)
-        // The flow's music stops before the game starts its own (`start_game`).
-        .add_systems(
-            OnEnter(AppState::Game),
-            (stop_music, camera_clear).chain().before(crate::start_game),
-        )
-        .add_systems(OnExit(AppState::Game), (camera_clear, close_dialog));
+        .init_resource::<AppStates>()
+        .add_systems(PostUpdate, front_screen_ready);
 }
 
 /// The fades, run first in the frame (`frame_systems` in `main.rs` has the order).
@@ -547,7 +530,7 @@ pub(crate) fn fade_systems() -> ScheduleConfigs<ScheduleSystem> {
 pub(crate) fn outcome_systems() -> ScheduleConfigs<ScheduleSystem> {
     (
         run_dialog.run_if(resource_exists::<OutcomeDialog>.and_then(not(resource_exists::<crate::gamemenu::GameMenu>))),
-        watch_outcome.run_if(in_state(AppState::Game)),
+        watch_outcome.run_if(in_screen(AppState::Game)),
     )
         .chain()
 }
@@ -555,30 +538,30 @@ pub(crate) fn outcome_systems() -> ScheduleConfigs<ScheduleSystem> {
 /// The flow's screens, each in its own state: at most one of them runs in a frame.
 pub(crate) fn screen_systems() -> ScheduleConfigs<ScheduleSystem> {
     (
-        run_scroller.run_if(in_state(AppState::Finale)),
-        run_scroller.run_if(in_state(AppState::Credits)),
-        run_score.run_if(in_state(AppState::Score)),
-        run_briefing.run_if(in_state(AppState::Briefing)),
-        run_act.run_if(in_state(AppState::Act)),
-        run_new_campaign.run_if(in_state(AppState::NewCampaign)),
-        run_menu_load.run_if(in_state(AppState::MainMenu).and_then(resource_exists::<MenuLoad>)),
-        run_menu.run_if(in_state(AppState::MainMenu).and_then(not(resource_exists::<MenuLoad>))),
-        run_title.run_if(in_state(AppState::Title)),
-        play_video.run_if(in_state(AppState::Video)),
-        boot.run_if(in_state(AppState::Boot)),
+        run_scroller.run_if(in_screen(AppState::Finale)),
+        run_scroller.run_if(in_screen(AppState::Credits)),
+        run_score.run_if(in_screen(AppState::Score)),
+        run_briefing.run_if(in_screen(AppState::Briefing)),
+        run_act.run_if(in_screen(AppState::Act)),
+        run_new_campaign.run_if(in_screen(AppState::NewCampaign)),
+        run_menu_load.run_if(in_screen(AppState::MainMenu).and_then(resource_exists::<MenuLoad>)),
+        run_menu.run_if(in_screen(AppState::MainMenu).and_then(not(resource_exists::<MenuLoad>))),
+        run_title.run_if(in_screen(AppState::Title)),
+        play_video.run_if(in_screen(AppState::Video)),
+        boot.run_if(in_screen(AppState::Boot)),
     )
         .chain()
 }
 
 /// The flow's screen clears to black except over the game screen.
-fn camera_clear(state: Res<State<AppState>>, mut screen: ResMut<FrontScreen>) {
-    screen.clears = *state.get() != AppState::Game;
+pub(crate) fn camera_clear(state: Res<AppStates>, mut screen: ResMut<FrontScreen>) {
+    screen.clears = state.get() != AppState::Game;
 }
 
 fn boot(
     mut flow: ResMut<Flow>,
     front: Res<Front>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -614,7 +597,7 @@ fn spawn_layer(
     let id = pictures.add(p);
     let mut place = ScreenPlace::new(id, Plane::Flow, layer as f32);
     place.size = size.map(|s| (s.x, s.y));
-    commands.spawn((ScreenLayer(place), Layer(layer), Persist, DespawnOnExit(state)));
+    commands.spawn((ScreenLayer(place), Layer(layer), Persist, OwnedBy(state)));
     id
 }
 
@@ -796,7 +779,7 @@ fn fade_layer(commands: &mut Commands, q: &Query<(Entity, &Layer)>, layer: u8, f
 
 /// The game screen opens: the screen's own music closes at once so the game's track can start (`music.rs`, "Our choice
 /// for the campaign flow").
-fn stop_music(mut music: ResMut<Jukebox>) {
+pub(crate) fn stop_music(mut music: ResMut<Jukebox>) {
     music.start(None);
 }
 
@@ -808,7 +791,7 @@ fn play_once(
     state: AppState,
 ) {
     if let Some(h) = front.sound(assets, name) {
-        commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN, DespawnOnExit(state)));
+        commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN, OwnedBy(state)));
     }
 }
 
@@ -827,7 +810,7 @@ struct VideoPlay {
     audio: Option<Mutex<Receiver<Option<Vec<u8>>>>>,
 }
 
-fn enter_video(
+pub(crate) fn enter_video(
     mut commands: Commands,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
@@ -885,7 +868,7 @@ fn play_video(
     mut sources: ResMut<Assets<AudioSource>>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     script: Option<Res<crate::script::Script>>,
     input: Res<PlayerInput>,
@@ -912,7 +895,7 @@ fn play_video(
                 let h = sources.add(AudioSource { bytes: bytes.into() });
                 let mut s = PlaybackSettings::DESPAWN;
                 s.start_position = Some(Duration::from_secs_f64(p.elapsed / 1000.0));
-                commands.spawn((AudioPlayer(h), s, DespawnOnExit(AppState::Video)));
+                commands.spawn((AudioPlayer(h), s, OwnedBy(AppState::Video)));
             }
             p.audio = None;
         }
@@ -954,7 +937,7 @@ fn play_video(
 #[derive(Resource)]
 struct TitleScreen(cf::TitleRun);
 
-fn enter_title(
+pub(crate) fn enter_title(
     mut commands: Commands,
     time: Res<CoreTime>,
     mut front: ResMut<Front>,
@@ -991,7 +974,7 @@ fn run_title(
     mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1112,7 +1095,7 @@ fn menu_input(
     None
 }
 
-fn enter_menu(
+pub(crate) fn enter_menu(
     mut commands: Commands,
     mut front: ResMut<Front>,
     mut pictures: ResMut<ScreenPictures>,
@@ -1142,7 +1125,7 @@ fn run_menu(
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mut flow: ResMut<Flow>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1193,7 +1176,7 @@ fn run_menu(
                     ScreenLayer(ScreenPlace::new(image, Plane::Flow, 1.0)),
                     Layer(1),
                     Persist,
-                    DespawnOnExit(AppState::MainMenu),
+                    OwnedBy(AppState::MainMenu),
                 ))
                 .id();
             commands.insert_resource(MenuLoad { ui, image, layer });
@@ -1251,7 +1234,11 @@ fn run_menu_load(
     }
 }
 
-fn enter_new_campaign(mut commands: Commands, mut front: ResMut<Front>, mut pictures: ResMut<ScreenPictures>) {
+pub(crate) fn enter_new_campaign(
+    mut commands: Commands,
+    mut front: ResMut<Front>,
+    mut pictures: ResMut<ScreenPictures>,
+) {
     let mut labels: Vec<&str> = Choice::ALL.iter().map(|c| c.label()).collect();
     labels.push("Cancel");
     open_menu(&mut commands, &mut front, &mut pictures, &labels, AppState::NewCampaign);
@@ -1266,7 +1253,7 @@ fn run_new_campaign(
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mut flow: ResMut<Flow>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1314,7 +1301,12 @@ struct ActScreen {
 #[derive(Component)]
 struct ActSound;
 
-fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, mut pictures: ResMut<ScreenPictures>) {
+pub(crate) fn enter_act(
+    mut commands: Commands,
+    flow: Res<Flow>,
+    mut front: ResMut<Front>,
+    mut pictures: ResMut<ScreenPictures>,
+) {
     let Some(Step::Act(a)) = flow.current else { return };
     let pal = cf::art(cf::act_palette_picture(&a));
     let p = picture(&mut front.install, &cf::art(a.picture), Some(&pal));
@@ -1376,7 +1368,7 @@ fn run_act(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1396,7 +1388,7 @@ fn run_act(
                         AudioPlayer(h),
                         PlaybackSettings::DESPAWN,
                         ActSound,
-                        DespawnOnExit(AppState::Act),
+                        OwnedBy(AppState::Act),
                     ));
                 }
             }
@@ -1455,7 +1447,7 @@ const BRIEF_OBJECTIVES: Rect = Rect {
     h: 380,
 };
 
-fn enter_briefing(
+pub(crate) fn enter_briefing(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
@@ -1534,7 +1526,7 @@ fn run_briefing(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1666,7 +1658,7 @@ fn run_dialog(
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     mut flow: ResMut<Flow>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1697,8 +1689,12 @@ fn run_dialog(
     }
 }
 
-fn close_dialog(mut commands: Commands) {
+pub(crate) fn close_dialog(mut commands: Commands) {
     commands.remove_resource::<OutcomeDialog>();
+}
+
+pub(crate) fn close_menu_load(mut commands: Commands) {
+    commands.remove_resource::<MenuLoad>();
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1719,7 +1715,7 @@ struct ScoreScreen {
 /// Bars then the score count, one step a tick ("The score screen").
 const SCORE_TICK_MS: f64 = 40.0;
 
-fn enter_score(
+pub(crate) fn enter_score(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
@@ -1802,7 +1798,7 @@ fn run_score(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
 ) {
@@ -1918,7 +1914,7 @@ fn open_scroller(
     });
 }
 
-fn enter_finale(
+pub(crate) fn enter_finale(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
@@ -1962,7 +1958,7 @@ fn enter_finale(
     music.fade_stop(true, Some(e.music));
 }
 
-fn enter_credits(
+pub(crate) fn enter_credits(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
@@ -1998,12 +1994,11 @@ fn run_scroller(
     clock: Res<Clock>,
     mut s: ResMut<Scroller>,
     mut pictures: ResMut<ScreenPictures>,
-    state: Res<State<AppState>>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
     mut music: ResMut<Jukebox>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     layers: Query<(Entity, &Layer)>,
     input: Res<PlayerInput>,
@@ -2020,7 +2015,7 @@ fn run_scroller(
     }
     while s.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = s.voice.pop_front().unwrap();
-        play_once(&mut commands, &mut front, &mut sources, &f, *state.get());
+        play_once(&mut commands, &mut front, &mut sources, &f, next.get());
     }
     s.scroll.at(now as u64);
     if s.drawn != Some(s.scroll.moved) {
@@ -2039,7 +2034,7 @@ fn run_scroller(
         s.drawn = Some(s.scroll.moved);
     }
     if pressed(keys, mouse) || cf::briefing_closes(&s.scroll, now as u64, s.narration_ms) {
-        if *state.get() == AppState::Credits {
+        if next.get() == AppState::Credits {
             // Music spec: the credits' close fades all sound.
             music.fade_stop(true, None);
             s.closing = Some(fade_out_all(&mut commands, &layers, now, fades::CREDITS));

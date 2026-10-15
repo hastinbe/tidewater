@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::compose::{Frame, H, W};
-use crate::frontend::{AppState, LockedPointer, Step};
+use crate::frontend::{AppState, AppStates, LockedPointer, Step};
 use crate::input::{Button, Key, KeyEvent, Wheel};
 use crate::shell::{PlayerInput, ReadInput};
 
@@ -494,7 +494,7 @@ pub fn plugin(app: &mut App) {
 #[allow(clippy::too_many_arguments)]
 fn drive(
     mut script: ResMut<Script>,
-    state: Res<State<AppState>>,
+    state: Res<AppStates>,
     sim: Option<Res<crate::Sim>>,
     dialog: Option<Res<crate::frontend::OutcomeDialog>>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -525,7 +525,7 @@ fn drive(
                 s.waiting = None;
             }
             Cmd::Until(want) => {
-                if *state.get() != want {
+                if state.get() != want {
                     break;
                 }
             }

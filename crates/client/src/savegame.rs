@@ -25,6 +25,7 @@ use tidewater_sim::setup::Setup;
 use crate::frontend::{AppState, Flow, Step};
 use crate::savefile::{self, Body, ClientState, Header, Kind, Reason};
 use crate::saves::SaveDir;
+use crate::states::Machine;
 use crate::{Cycling, GameView, Sim, jukebox::Jukebox};
 
 /// The save folder in use.
@@ -181,7 +182,7 @@ impl Body {
 }
 
 /// Starts the game in `file`: the flow plays its map next, and the state to enter is `Boot`, which takes that step.
-pub fn load_game(flow: &mut Flow, next: &mut NextState<AppState>, header: Header, body: Body) {
+pub fn load_game(flow: &mut Flow, next: &mut Machine, header: Header, body: Body) {
     flow.steps.clear();
     flow.steps.push_back(Step::Play {
         map: header.map.clone(),

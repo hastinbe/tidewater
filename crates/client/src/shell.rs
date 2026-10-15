@@ -33,7 +33,7 @@ use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::clock::FrameClock;
 use crate::compose::{self, Clip, Frame, Placed};
-use crate::frontend::{AppState, Front, FrontScreen, LockedPointer, OutcomeDialog, Persist};
+use crate::frontend::{AppState, AppStates, Front, FrontScreen, LockedPointer, OutcomeDialog, Persist};
 use crate::gamemenu::GameMenu;
 use crate::input::{Button, Input, Key, KeyEvent, Wheel};
 use crate::layers::{Layer, PictureId, Pictures, Plane};
@@ -244,7 +244,7 @@ fn compose_screen(
         });
     }
     // The pointer: the interface picture has it while the game runs; otherwise the normal arrow goes on top.
-    let in_game = *pointer.state.get() == AppState::Game;
+    let in_game = pointer.state.get() == AppState::Game;
     let hud_draws = hud.as_ref().is_some_and(|h| h.art.has_pointers())
         && in_game
         && pointer.dialog.is_none()
@@ -282,7 +282,7 @@ fn compose_screen(
 /// What decides the pointer the screen draws.
 #[derive(SystemParam)]
 struct PointerState<'w> {
-    state: Res<'w, State<AppState>>,
+    state: Res<'w, AppStates>,
     dialog: Option<Res<'w, OutcomeDialog>>,
     menu: Option<Res<'w, GameMenu>>,
     front: Option<Res<'w, Front>>,
