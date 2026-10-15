@@ -9,6 +9,15 @@
   under "History" at the end.
 - **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`, M8; static study): the open question on blocked row A's
   order 11 records the round-70 restatement and its trace request; step 5 and V183 are unchanged (spec review).
+- **Changes:** 2026-10-15 (round 71, orders audit, `ERRATA-audit-orders.md`): a lost target's pending 13 or 2
+  takes over in the same update with wait 3, and a pending order with wait 3 (erratum 1, traced, V273; V022 made
+  explicit); a transport settles or docks when a pending idle takes over (erratum 2, static); follow step 1 is a
+  whole smart move (erratum 3, static); a player's command clears a transport's unload-on-arrival mark (erratum 5, in
+  `orders/transports.md`); an air or sea unit's patrol within 1 tile of it on either axis isn't remembered (erratum 6,
+  traced, V274); the open question on a mage fleeing notes the undetected-attacker case; the Enhanced demolition
+  unit's search is spelled out (S1, static); static vectors V275 and V276. Reviewed by a spec-review session,
+  2026-10-15: erratum 4 (a pending return with no target as a command) is static study against the stated take-over
+  rules, so it isn't accepted; "Taking over" is unchanged and the reading is an open question (V277 there).
 
 ## Behaviour
 
@@ -459,7 +468,8 @@ animation starts with a first wait of 3 cycles).
 **Taking over.** When the pending order takes over:
 
 - if it is 24 (return goods) and has no target, the nearest suitable depot is looked up. If there is none, the order
-  becomes 2 instead; otherwise the depot becomes the target;
+  becomes 2 instead; otherwise the depot becomes the target (round 71's static reading gives a return command here;
+  see "Open questions");
 - the order's animation starts with a wait of 3;
 - a tree the unit had reserved is released (see `occupancy.md`);
 - the blocked counter is **not** cleared: only commands clear it (`movement/movement.md`, "Blocked rules"). A
@@ -467,7 +477,13 @@ animation starts with a first wait of 3 cycles).
 - the cached route (`movement/movement.md`) is **kept**. Only commands drop it. The next step uses the cached route
   if its goal still applies;
 - when the order taking over is idle (2), a unit that can move forgets its target (static study only; see "Open
-  questions").
+  questions"), and a transport settles or docks exactly as for an immediate idle (below): on an even tile that isn't
+  shore water it returns to the sea class as a two-tile mover, otherwise order **32** takes over instead of 2 (still
+  animation, wait 3). The same check runs at every step done of a transport that is idle with nothing pending, before
+  its idle logic; with the take-over and the immediate idle both checked, no case is known that leaves a transport
+  idle on such a tile for it to find (static study only, round 71, `ERRATA-audit-orders.md`, erratum 2; no trace has
+  a transport going idle by a pending order on an odd or shore-water tile, and a sea-class move can't end on shore
+  water, which blocks ships).
 
 The take-over replaces the logic run of that step done: the new order's logic doesn't run in that update, and first
 runs at the next step done of its animation. Only a step done with no pending order runs the order's logic.
@@ -479,9 +495,9 @@ its building (order 25: wait 3, animation 3), felling a tree (`economy/harvest.m
 new harvest command: order 23, animation 4, wait 3; `economy/harvest.md`, "Lumber"), the order an idle unit's target
 search gives (12, 15 or 16; "Automatic target acquisition"), the guard a follower is given inside its radius
 (order 7, wait 3; "Follow (orders 6 and 7)"), order 18's switch to order 17 (order 17, attack animation, wait 3;
-vector V269) and the friendly-fire hold's pending idle or resumed order (vectors V270 and V271). Coming out of a
-building is the exception: the order given then stays pending through a 25-cycle wait (`economy/harvest.md`,
-"Coming out").
+vector V269), the friendly-fire hold's pending idle or resumed order (vectors V270 and V271) and the pending 13 or 2
+set when a target is lost ("Arriving and losing the target", vector V273). Coming out of a building is the exception:
+the order given then stays pending through a 25-cycle wait (`economy/harvest.md`, "Coming out").
 
 **Immediate orders** (used for dying, giving up and a move with no route; a move that arrives goes idle through a
 pending order instead): the order is set at once, the pending order is
@@ -549,9 +565,16 @@ command, so from the first turnaround on the remembered ends are that turnaround
 
 The goal remembered is the goal **as given**, before it is pulled back (`movement/pathfinding.md`, "Goal pulled
 back"); for a transport it is the goal after the adjustment every command to a transport gets (`orders/transports.md`).
-**An unremembered patrol** (Enhanced, static study only): a patrol command given to an **air** or **sea** unit whose
-goal is within 1 tile of the unit on both axes doesn't write the remembered order, and the old remembered order stays.
-`xorc7-7000` n = 1002 (a sea patrol toward the destroyer's own tile) is such a case, with no visible effect.
+**An unremembered patrol** (Enhanced): a patrol command given to an **air** or **sea** unit whose goal (as given) is
+within 1 tile of the unit on **either** axis (its x distance or its y distance is at most 1) doesn't write the
+remembered order, and the old remembered order stays. A player's patrol command has already cleared the old one (every
+command a player gives does, below), so after it the unit remembers nothing; a turnaround keeps whatever was remembered
+before (whether a computer player's patrol clears it first isn't known, below). So such a unit remembers a patrol only
+when the goal is more than 1 tile away on both axes: a ship sent on patrol straight along its own column or row doesn't
+remember it, nor does its turnaround, which is a patrol command too (static study for the turnaround; traced for the
+command: `orc09-sea-patrol-axis-2000`, vector V274; round 71, `ERRATA-audit-orders.md`, erratum 6, which corrects the
+earlier "on both axes"). `xorc7-7000` n = 1002 (a sea patrol toward the destroyer's own tile) is such a case, with no
+visible effect.
 
 The resumed order goes through the same steps as a player's command: the goal is stored and pulled back
 (`movement/pathfinding.md`, "Goal pulled back"), the cached route is dropped, the blocked counter is cleared
@@ -652,8 +675,13 @@ is **lost** if it is no longer valid (dead, removed or inside something) or is n
 owner (see "Terms"). Fog over the target doesn't matter: a target that walks into fog stays the target. When the
 target is lost:
 
-1. If a pending order exists, it takes over now.
-2. Otherwise, order 15 (attacking in place) becomes **13** (stand ground), and every other order becomes **2**.
+1. If a pending order exists, it takes over now, as a pending order does at a step done: its animation starts with
+   wait **3** (static study only: no trace has a pending order at that point).
+2. Otherwise the target is forgotten and a new pending order is set: **13** (stand ground) for order 15 (attacking in
+   place), **2** (idle) for every other order, with the Enhanced resume for idle ("Resuming patrol and
+   attack-move"). It takes over in the same update: still animation, wait **3**, target null. Order 15 thus ends
+   the same way whether its target is lost or walks out of range ("Attacking without moving"; traced:
+   `human01-order15-lost-700` n = 469, vector V273).
 
 In **order 12** each run first runs the target search of "Automatic target acquisition". Only if the search finds
 nothing new does the lost-target rule above apply. So a chaser whose target died takes the best target in its box,
@@ -692,8 +720,11 @@ was lost at a step boundary, and step 1 after the reaction are static study only
 Then, each time the logic runs, with the target still valid:
 
 1. If the follower's order is **7**, or a follow order (6) is pending, and the followed unit's own order is **not**
-   one of 2, 3, 4, 5, 6, 7 or 10, the follower is given a plain move (command 3) to **its own tile**: it stops where
-   it is. (A follower in order 6 with nothing pending skips this step.)
+   one of 2, 3, 4, 5, 6, 7 or 10, the follower is given a smart move (command 3, "Smart move") to **its own tile**,
+   with no target unit: it stops where it is. (A follower in order 6 with nothing pending skips this step.) It is the
+   whole smart move, as for the flee ("Fleeing", step 6): its wait cap applies, and a transport takes the transport
+   outcome (`orders/transports.md`, "Commands given to a transport"; on shore water that is landing where it stands,
+   order 30), not a plain move (static study only, round 71, `ERRATA-audit-orders.md`, erratum 3).
 2. Otherwise, if the follower is outside its radius, it is given the follow again toward the followed unit. The
    radius is **1**, plus the +1 of `movement/movement.md` ("The +1") for a sea or air follower, as in the general
    arrival test: a ship following a ship is inside at 2 tiles.
@@ -1021,7 +1052,12 @@ table; only transports use order 32, and they can't attack anyway.
   the reaction instead, which treats them as non-combat units, so they **flee** ("Reacting to an attacker"). A harmless
   target is never chosen in place of a dangerous one that scores higher.
 - In Enhanced mode a **demolition unit** (dwarven demolition squad, goblin sapper) with a remembered order uses the
-  target to start a demolish instead of an attack.
+  target to start a demolish instead of an attack. In an acquiring order's run (after step 1 of "Reacting to an
+  attacker" when it has an attacker, which still comes first), it runs the target search; if the search finds a unit
+  that isn't its current target, it is given command 19 on it (order 20, demolish at the unit). Whatever the search
+  finds, nothing found included, **nothing else happens in that run**, the reaction and its flee included. Without
+  a remembered order (or in Classic mode) it reacts as the other non-combat units do and flees (round 71,
+  `ERRATA-audit-orders.md`, S1; static study only).
 - Workers and tankers of **any** player never run the search. A computer player's workers and tankers run their AI
   routines here instead (later spec); every other player's use the reaction ("Reacting to an attacker") when they
   have an attacker, and acquire nothing otherwise.
@@ -1279,6 +1315,7 @@ row's trace starts "As" that row's ID and names the trace.
 | V085 | Human04, critter slot 1580, moving to (63, 43) | n = 58: order 2, animation 2, wait 3. n = 61: idle logic, no wander (wait 1 at n = 61 and 62) | Trace (Human04) |
 | V086 | Human04, peon 1548, harvest order 23, reaches the mine | n = 89: order 25, animation 3, wait 3 | Trace (Human04) |
 | V087 | Human04, peons 1548 and 1531, return order 24, reach the depot | Order 25, animation 3, wait 3 at n = 374 (1548, great hall) and n = 1938 (1531, lumber mill) | Trace (Human04) |
+| V275 | A transport whose pending idle takes over while it stands on an odd tile, or on shore water (static study; a constructed state: no known play reaches it, since ships rest on even tiles and a sea-class move can't end on shore water) | Order 32 takes over instead of 2: still animation, wait 3. On an even open-water tile: order 2, sea class, two-tile mover | Static study |
 
 ### Commands
 
@@ -1334,6 +1371,7 @@ row's trace starts "As" that row's ID and names the trace.
 | --- | --- | --- | --- |
 | V023 | Enhanced, footman on attack-move kills a target 10 tiles short of the goal and goes idle, countdown 0 | attack-move re-issued; countdown 20 | Example |
 | V152 | Enhanced (static study only): a unit on an attack-move acquires an enemy on the way and kills it; countdown 0; the target tile more than 1 tile away | The attack-move is given again instead of the pending idle (countdown 20) | Static study |
+| V274 | `orc09-sea-patrol-axis-2000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-sea-patrol-axis.txt`): juggernaught 1501 (type 0x21, owner 5) moves to (66, 76), and at n = 650 (scenario line; turn record n = 652, order 5 from n = 656) is given a patrol to (66, 62), straight north along its own column (x distance 0, y distance 14). It fights player 0's destroyers 1506 and 1511 in order 12 and kills the second at n = 1578 | n = 1795, when its order 12 ends: order 2, still animation, wait 3, target null; the patrol isn't resumed, since it was never remembered (a remembered patrol would give order 5 here) | Trace (`orc09-sea-patrol-axis-2000`) |
 | V166 | `xorc01-death-coil-2500` (oracle trace): ogre 1489 (type 0x07, owner 5) loses its target at n = 901 and resumes its attack-move (order 10, wait 3) | The cached route is dropped: n = 904, it steps to (56, 70), facing 1 | Trace (`xorc01-death-coil-2500`) |
 | V167 | A resumed attack-move whose unit had a cached route and a blocked counter of 3 | Route dropped, counter 0 | Example |
 | V168 | `xorc01-death-knight-2100`: ogre 1489 resumes its attack-move at n = 1191 while its recorded attacker, a skeleton, is dying | The attacker is forgotten. n = 1329: blocked at (67, 67), goal (68, 68), no attacker, so row I: order 10, wait 1. n = 1330: no route, immediate idle: order 2, wait 1 | Trace (`xorc01-death-knight-2100`) |
@@ -1419,12 +1457,13 @@ row's trace starts "As" that row's ID and names the trace.
 | ID | Input | Expected | Source |
 | --- | --- | --- | --- |
 | V021 | Attack target dies, no pending order, order 9 | order 2 | Example |
-| V022 | Attack target dies, no pending order, order 15 | order 13 | Example |
+| V022 | Attack target dies, no pending order, order 15 | order 13 taken over in the same update: still animation, wait 3, target null | Example |
 | V030 | Human footman attacking an enemy grunt (order 9); the grunt walks into fog | the grunt stays the target | Example |
 | V031 | Human footman attacking an enemy mage (order 9); the mage casts Invisibility on itself | the target is lost at the next check: order 2 (or the pending order) | Example |
 | V097 | `human01-basics-9500` (oracle trace), n = 288: footman 1597 kills footman 1592; footman 1598 also targets 1592 | 1597: target null at once, still order 9. 1598: keeps target 1592 until its logic runs at n = 291, then order 2, wait 3 | Trace (`human01-basics-9500`) |
 | V113 | A unit in order 12 whose target died, with nothing in its search box (static study only) | Order 2, wait 3, as before | Static study |
 | V129 | Order 16, target dead, nothing else in range | Order 2 takes over (lost target) | Example |
+| V273 | `human01-order15-lost-700` (oracle trace, Enhanced; scenario `oracle/scenarios/human01-order15-lost.txt`; scenario lines: n = 10 move footman 1593 to (27, 10), n = 12 footman 1598 attacks grunt 1592, n = 200 stand ground for 1593). 1593 stops at (22, 6) and stands ground; 1592 kills 1598, comes for 1593, and 1593 takes order 15 on it at n = 416. 1593's own strike kills 1592 at n = 454 (target null, order 15 kept, wait 5) | n = 469, the next step done: order 13, animation 2, wait 3, target null | Trace (`human01-order15-lost-700`) |
 | V136 | `orc09-naval-1500`, n = 510: destroyer 1497 (type 0x1F, owner 5) in order 9 on 1506, which is its recorded attacker and dying since n = 493 (killed by 1501) | Order 2, still animation, wait 3, target null; attacker cleared | Trace (`orc09-naval-1500`) |
 | V137 | As V136 (`orc09-naval-1500`), destroyer 1497, n = 513 | Order 16 on 1511, animation 4, wait 3 (not order 12) | Trace (`orc09-naval-1500`) |
 | V138 | A unit in order 9 whose recorded attacker is alive and whose target is valid | Attacker kept | Example |
@@ -1437,6 +1476,7 @@ row's trace starts "As" that row's ID and names the trace.
 | V052 | Footman guarding (order 7) a peasant that starts harvesting (order 23) | the footman is given a move to its own tile and stops | Example |
 | V053 | Footman following (order 6, nothing pending) a peasant that is harvesting, arrives within 1 tile | idle (order 2) | Example |
 | V054 | Footman follows a footman that is moving (order 3), and arrives within 1 tile | order 7 (guard) | Example |
+| V276 | A human player's ogre guarding a grunt (order 7) in its still animation with 14 cycles left on the wait; the grunt is given stand ground (order 13, outside the followable list) (static study) | The move to its own tile is a smart move: pending, and the wait drops to 10 (the smart move's cap) | Static study |
 | V237 | `orc9-orc09-tanker-move-2200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-tanker-move.txt`): juggernaut 1501 (type 0x21, owner 5) smart-moved onto its own destroyer 1497 (type 0x1F) at n = 20 (order 6 from n = 27); 1497 sails to (60, 62) and attacks without moving (order 16 from n = 359) | 1501 reaches (60, 64), 2 tiles away, inside the radius 1 + 1: at n = 614 order 2, still animation, wait 3; order 16 from n = 617. Not order 6, and not a stop command's wait 1 | Trace (`orc9-orc09-tanker-move-2200`) |
 | V248 | `orc9-orc09-follow-attacked-1200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-follow-attacked.txt`): grunt 1481 (type 0x01, owner 5), sent to (61, 92) at n = 22 (turn record), is attacked by player 0's archers 1475 and 1476 (type 0x08; order 12 at n = 271 and 267). At n = 302 (turn record) it is smart-moved onto its own peon 1478 (type 0x03) | Order 6 from n = 314; hit while walking (hp 55 at n = 323, 47 at n = 326) and no reaction while it walks | Trace (`orc9-orc09-follow-attacked-1200`) |
 | V249 | As V248 (`orc9-orc09-follow-attacked-1200`), n = 493: 1481 at (49, 92), next to the peon at (48, 91) (order 23, sent to gold mine 1480 at n = 342), runs its logic; archer 1476 at (54, 90) | Order 6, target **1476**, still animation, wait 3 (the follow toward the unit the reaction's search picked), not order 12 | Trace (`orc9-orc09-follow-attacked-1200`) |
@@ -1749,7 +1789,10 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   flees, and the flee move replaces the attack. Vector V174 (an example, untraced: an idle mage hit by a footman
   attacks a peasant that outscores the footman) takes the spec's reading; V144 (no attacker), V172 and V173 fit both.
   Round 68: the static study again finds the reaction after the search; switching the code changes no trace row, and
-  staging the case failed. Keep V174 until a trace decides.
+  staging the case failed. Keep V174 until a trace decides. Round 71 (orders audit, static study): the reaction
+  also runs when the search finds nothing and the attacker isn't **detected** (the reaction has no detection test),
+  so the static reading has an idle mage flee from an undetected valid attacker too; the spec's reading (react only
+  with a detected attacker) stands until the same trace decides.
 - **Commands that do nothing.** The static study finds that a command changes nothing at all (no target, goal, route,
   counter or attacker) for a unit whose order is 0, 1, 22, 25, 26, 36, 37 or 57. "Setting a pending order" names dying
   or dead units, units inside something and order 25; the static list adds a worker inside a building it is
@@ -1814,6 +1857,20 @@ Found by the second review of the movement consolidation (static study, 2026-10-
   unit that row A sends at a wall and that is blocked again on its way (its counter would then start from 0 if the
   static reading holds).
 
+Found by the round-71 orders audit (static study, 2026-10-15; the rules above are unchanged):
+
+- **A pending return with no target may be given as a command.** "Taking over" says that when return goods (24)
+  with no target takes over, the nearest suitable depot becomes the target (or the order becomes 2 with none), and
+  that a take-over keeps the cached route and the blocked counter. The static study (`ERRATA-audit-orders.md`,
+  erratum 4) finds a **return command** to that depot instead, with the command's steps ("What every command does":
+  goal pulled back, cached route dropped, blocked counter cleared, attacker checked), and, with no depot, idle made
+  the pending order with the Enhanced resume. That is static study against a stated rule, so the spec keeps
+  governing until a trace decides. Vector V277 (static study, untraced; it takes the static reading): a peon comes
+  out of a gold mine with a recorded attacker that is now dying, its pending order a return (24) with no target; the
+  static reading has the return take over toward the nearest hall as a return command with the attacker forgotten,
+  where the spec's take-over has no attacker check. Trace request (T7 in `ERRATA-audit-orders.md`): a worker coming
+  out of a mine with a dying attacker recorded, or with a cached route or blocked counter that a command would reset.
+
 ## History
 
 Erratum rounds that shaped this spec and the sections where their content now lives. The erratum notes for each
@@ -1861,3 +1918,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 68 | Order 18 walks to the pulled-back goal and arrives by base range or goal radius; its switch to 17 is a command taking over in the same update (wait 3); the friendly-fire hold makes idle pending with the resume step; a player's command forgets the remembered order before the target check | "Arrival radius exceptions"; "Arriving and losing the target"; "Friendly-fire check"; "Same-update take-over"; "Commands forget a stale attacker"; vectors V267 to V272 |
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec; "The model", "How an update runs", "Walking orders", "What every command does" and "Attack orders" are new and restate rules already given elsewhere |
 | 70 | Evidence only: round 70 restated the static reading of blocked row A (order 11 through a command); step 5 and V183 are unchanged until a trace decides (spec review) | "Open questions" |
+| 71 | Orders audit: lost target's take-over waits 3 (traced); unremembered patrol on either axis (traced); transport settle at an idle take-over; follow step 1 a smart move; Enhanced demolition unit's search (static). Spec review: a pending return with no target as a command (static) not accepted, kept as an open question | "Arriving and losing the target"; "Taking over"; "Same-update take-over"; "Follow (orders 6 and 7)"; "An unremembered patrol"; "Open questions"; "Automatic target acquisition" (S1); vectors V022, V273 to V276, V277 (open question) |

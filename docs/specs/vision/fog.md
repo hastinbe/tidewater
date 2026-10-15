@@ -27,6 +27,10 @@
 - **Changes:** 2026-10-15, harvest audit round 70 (`ERRATA-audit-harvest.md`, erratum 2; static study, reviewed by a
   spec-review session): a unit created during a cycle has an empty detected-by set until the next detection phase;
   vector below.
+- **Changes:** 2026-10-15, round 71 (`ERRATA-round71.md`, Q1 and Q2; static study): the command turn after a unit's
+  creation cycle comes before the next detection phase, so a command in it also finds the unit undetected; the map's
+  units' starting set makes no difference. Reviewed by a spec-review session, 2026-10-15 (the command turn's place in
+  the cycle is stated here, since `core/timing-and-rng.md` doesn't give it).
 
 ## Behaviour
 
@@ -215,7 +219,13 @@ logic) drops the target and makes idle pending ("Commands forget a stale attacke
 builder's link to its new construction site is set without a detection test, so building isn't affected. (Static
 study, and the oracle traces behind `economy/harvest.md` vectors V55 and V56; a scan of every committed trace finds
 no unit other than a builder targeting a unit in the cycle it was created. Audit round 70, erratum 2 in
-`specs/ERRATA-audit-harvest.md`.)
+`specs/ERRATA-audit-harvest.md`.) The players' commands are carried out (the **command turn**) at the start of a
+cycle, before its phase 1; `core/timing-and-rng.md` doesn't list the turn among its phases. So the command turn
+after the creation cycle comes **before** the detection phase that first detects the new unit, and a player's
+command carried out in that turn also finds it undetected; from that cycle's phase 1 on it is detected as usual
+(static study, round 71, `ERRATA-round71.md`, Q1). A unit placed before the first cycle (the map's units) is
+detected by the first start-up cycle's phase 1, before any test can look at it, so its starting set makes no
+difference (Q2).
 
 ### Unit visibility (phase 5)
 
