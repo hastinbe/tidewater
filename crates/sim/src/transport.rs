@@ -931,6 +931,49 @@ mod tests {
         assert!(!u.ship.landing && !u.ship.one_tile);
     }
 
+    /// Orders spec, "Taking over" (round 71, V275): a transport whose pending idle takes over settles on an even tile
+    /// that isn't shore water (order 2, sea class, two-tile mover) and otherwise docks (order 32): still animation,
+    /// wait 3 either way. An idle transport's step done makes the same check before its idle logic.
+    #[test]
+    fn a_pending_idle_settles_or_docks_a_transport() {
+        for (tile, want) in [
+            ((31, 11), Order::Docked),
+            ((30, 11), Order::Docked),
+            ((20, 10), Order::Docked),
+            ((30, 10), Order::Idle),
+        ] {
+            let mut w = sea(20);
+            let i = ship(
+                &mut w,
+                tile,
+                Order::Move {
+                    goal: (40, 20),
+                    target: None,
+                },
+            );
+            let u = &mut w.units[i];
+            (u.ship.landing, u.ship.one_tile) = (true, true);
+            w.idle_now(i);
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait),
+                (want, None, anim::STILL, 3),
+                "{tile:?}"
+            );
+            if want == Order::Idle {
+                assert!(!u.ship.landing && !u.ship.one_tile);
+            }
+            // The step done of an idle transport: a constructed state, idle on that tile.
+            let u = &mut w.units[i];
+            (u.order, u.ship.landing, u.ship.one_tile) = (Order::Idle, true, true);
+            u.script.wait = 1;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!(u.order, want, "{tile:?}");
+            assert_eq!(!u.ship.landing && !u.ship.one_tile, want == Order::Idle, "{tile:?}");
+        }
+    }
+
     /// "Clearing the mark" (V39): a player's command clears the unload-on-arrival mark before anything else, so a
     /// smart move after an unload to the same shore tile lands without unloading; an unload command sets it again. A
     /// computer player's routine (command 4 here) leaves it.

@@ -421,6 +421,9 @@ impl World {
             },
             o => o,
         };
+        // "Taking over" (round 71, static study; V275): a transport whose pending idle takes over settles or docks as
+        // for an immediate idle.
+        let o = if o == Order::Idle { self.idle_or_docked(i) } else { o };
         let a = crate::orders::order_anim(o);
         let u = &mut self.units[i];
         u.order = o;

@@ -372,20 +372,27 @@ impl World {
         u.path.clear();
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = 1;
-        // A transport settles on an even tile that isn't shore water, and otherwise waits docked.
+        self.units[i].order = self.idle_or_docked(i);
+    }
+
+    /// Idle for a unit about to go idle (an immediate idle, a pending idle taking over, an idle transport's step
+    /// done; orders spec, "Taking over" and "Pending orders and immediate orders"): a transport settles on an even
+    /// tile that isn't shore water, back in the sea class as a two-tile mover, and otherwise docks (order 32 instead
+    /// of 2). Every other unit stays idle.
+    pub(crate) fn idle_or_docked(&mut self, i: usize) -> Order {
         let u = &self.units[i];
-        if self.is_transport(u) {
-            let t = u.tile;
-            let settles =
-                t.0 & 1 == 0 && t.1 & 1 == 0 && self.terrain.word(t.0, t.1) & crate::terrain::bits::SHORE == 0;
-            let u = &mut self.units[i];
-            if settles {
-                u.ship.landing = false;
-                u.ship.one_tile = false;
-            } else {
-                u.order = Order::Docked;
-            }
+        if !self.is_transport(u) {
+            return Order::Idle;
         }
+        let t = u.tile;
+        let settles = t.0 & 1 == 0 && t.1 & 1 == 0 && self.terrain.word(t.0, t.1) & crate::terrain::bits::SHORE == 0;
+        if !settles {
+            return Order::Docked;
+        }
+        let u = &mut self.units[i];
+        u.ship.landing = false;
+        u.ship.one_tile = false;
+        Order::Idle
     }
 
     /// "Resuming patrol and attack-move" (Enhanced only): when idle is about to become the unit's pending order, the
@@ -628,6 +635,13 @@ impl World {
             && self.dying_or_gone(a)
         {
             self.units[i].attacked_by = None;
+        }
+        // "Taking over" (round 71, static study): every step done of a transport idle with nothing pending makes the
+        // settle-or-dock check before its idle logic. Our reading for docking there (no known play reaches it): order
+        // 32 is set and the still animation runs on with its wait; the run ends, as order 32 has no logic.
+        if o == Order::Idle && self.idle_or_docked(i) == Order::Docked {
+            self.units[i].order = Order::Docked;
+            return true;
         }
         // "Idle look-around": the first thing each run of the idle logic (orders 2 and 13) does. A critter that
         // wanders is in its move now, so the rest of the idle logic doesn't run on the old order.
