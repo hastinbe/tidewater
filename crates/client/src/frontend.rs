@@ -496,11 +496,12 @@ pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
 
 /// The picture whose palette colours a screen's pointer: the pointer is drawn into the 8-bit screen, so its pixels are
 /// the screen's palette entries ("Colours"). Our menus are drawn over the title picture, so it gives theirs. The
-/// credits have no picture of their own here, so they take the title picture's too (open question for the spec).
+/// credits are drawn over their own picture (`campaign::CREDITS_PICTURE`), which gives theirs.
 pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
     match (state, &flow.current, &flow.score) {
         (AppState::Briefing, Some(Step::Briefing(e)), _) => cf::briefing_background(*e),
         (AppState::Score, _, Some(s)) => cf::score_background(s.race, s.victory),
+        (AppState::Credits, _, _) => cf::CREDITS_PICTURE,
         _ => cf::TITLE_PICTURE,
     }
 }
@@ -2063,11 +2064,13 @@ pub(crate) fn enter_credits(c: &mut Core) {
     let lines = table(&mut front.install, name).map_or(Vec::new(), |t| {
         (0..t.0.len()).filter_map(|i| t.text(i)).collect::<Vec<_>>()
     });
+    // Screen spec, "Pointers outside a game": the credits show their own picture, in its palette.
+    let bg = picture(&mut front.install, cf::CREDITS_PICTURE, None);
     open_scroller(
         commands,
         pictures,
         front,
-        blank(),
+        bg,
         &lines,
         rect(80, 0, 480, H),
         Vec::new(),
@@ -2212,6 +2215,9 @@ mod tests {
             pointer_palette(AppState::Score, &f),
             cf::score_background(cf::HUMAN, true)
         );
+        // Main menu, Show Credits clicked: the credits picture's own palette.
+        f.current = Some(Step::Credits { bdp: false });
+        assert_eq!(pointer_palette(AppState::Credits, &f), "Art\\credits.pcx");
     }
 
     #[test]

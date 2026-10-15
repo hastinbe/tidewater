@@ -1078,6 +1078,8 @@ pub const FINALE_DIALOG: &str = "rez\\finaldlg.bin";
 pub const FINALE_TABLE: &str = "rez\\finale.tbl";
 /// The credits move one step every 40 ms.
 pub const CREDITS_STEP_MS: u32 = 40;
+/// The credits' own picture, whose palette they are shown in (`ui/screen-and-cursors.md`, "Pointers outside a game").
+pub const CREDITS_PICTURE: &str = "Art\\credits.pcx";
 
 pub fn ending(bdp: bool, race: u8) -> Ending {
     let human = race == HUMAN;
