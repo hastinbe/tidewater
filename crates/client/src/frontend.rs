@@ -459,14 +459,14 @@ impl Default for FrontScreen {
 /// The pointer of a screen around a game (screen spec, "Pointers outside a game").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FlowPointer {
-    /// No pointer: the title picture and the act screens.
+    /// No pointer: the videos, the title picture and the act screens.
     Hidden,
     /// The orc normal arrow (`o_arrow.cur`) for every race and campaign: the main menu and the campaign choices.
     OrcArrow,
     /// The 3D arrow (`arrow_3d.cur`): the briefing, the score screen and the credits.
     Arrow3d,
-    /// A screen the spec doesn't name (the videos, the finale): our default, the human normal arrow in the title
-    /// picture's palette, as before the spec.
+    /// A screen the spec doesn't name for certain (the finale dialog): our default, the human normal arrow in the
+    /// title picture's palette, as before the spec.
     Default,
 }
 
@@ -483,13 +483,14 @@ impl FlowPointer {
 }
 
 /// The pointer each screen state shows. The game screen's pointer follows the in-game rules (`hud`), so `Default`
-/// there is never drawn.
+/// there is never drawn. Videos show none: the introduction was seen with none, and the spec makes that the default
+/// for every video (round 70).
 pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
     match state {
-        AppState::Title | AppState::Act => FlowPointer::Hidden,
+        AppState::Video | AppState::Title | AppState::Act => FlowPointer::Hidden,
         AppState::MainMenu | AppState::NewCampaign => FlowPointer::OrcArrow,
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
-        AppState::Boot | AppState::Video | AppState::Finale | AppState::Game => FlowPointer::Default,
+        AppState::Boot | AppState::Finale | AppState::Game => FlowPointer::Default,
     }
 }
 
@@ -2163,6 +2164,11 @@ mod tests {
             "title picture, any frame: no pointer"
         );
         assert_eq!(flow_pointer(S::Act), FlowPointer::Hidden);
+        assert_eq!(
+            flow_pointer(S::Video),
+            FlowPointer::Hidden,
+            "introduction video, pointer moved over it: no pointer (and the default for every video)"
+        );
         for s in [S::MainMenu, S::NewCampaign] {
             assert_eq!(
                 flow_pointer(s),
@@ -2176,8 +2182,7 @@ mod tests {
         assert_eq!(FlowPointer::OrcArrow.file(), Some("o_arrow.cur"));
         assert_eq!(FlowPointer::Arrow3d.file(), Some("arrow_3d.cur"));
         assert_eq!(FlowPointer::Hidden.file(), None);
-        // Not named by the spec: the videos and the finale keep the human arrow (`Front::arrow`).
-        assert_eq!(flow_pointer(S::Video), FlowPointer::Default);
+        // Not settled by the spec: the finale dialog keeps the human arrow (`Front::arrow`).
         assert_eq!(flow_pointer(S::Finale), FlowPointer::Default);
         // In a game (and its victory or defeat dialog) the in-game rules give the race arrow: a human campaign's is
         // the human normal arrow.

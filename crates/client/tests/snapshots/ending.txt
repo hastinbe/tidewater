@@ -7,10 +7,9 @@ frames	8-10	030e6f78d43d6093
 frames	11-12	32f6c14c1f6008b8
 sound	14	c5439eac4ec44163	1.0000	Despawn
 frames	13-13	3f77e90baa3af244
-frames	14-15	9d511ccebcaa2d63
 sound	17	4394ae10eb7661e5	0.7516	Once
 sound	17	b076732c68240875	1.0000	Despawn
-frames	16-16	7e067dcfb82d18a6
+frames	14-16	7e067dcfb82d18a6
 frames	17-19	ceec481ca7c66bd0
 frames	20-23	f898ba567b3cc948
 frames	24-26	fb344c2bdc3768ed
