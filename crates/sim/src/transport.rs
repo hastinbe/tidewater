@@ -187,9 +187,10 @@ impl World {
             if !landing {
                 let (id, tile) = (self.units[i].id, self.units[i].tile);
                 let o = self.transport_command(ti, Some(id), tile, false);
-                // The transport's smart move is a command: it clears the blocked counter (movement spec).
-                self.units[ti].blocked = 0;
-                self.forget_stale_attacker(ti);
+                // The transport's smart move is a command: the command steps clear the blocked counter (movement spec),
+                // forget a stale attacker and drop the cached route, as every command does (orders spec, "What every
+                // command does"; round 68, code Q8).
+                self.command_steps(ti);
                 self.give(ti, o);
             }
         }
@@ -920,6 +921,23 @@ mod tests {
             );
         }
         assert_eq!(w.rng.state, rng, "no idle logic runs at the unload");
+    }
+
+    /// Orders spec, "What every command does" (round 68, code Q8): the transport's smart move from a boarding command
+    /// drops its cached route and clears its blocked counter.
+    #[test]
+    fn the_board_command_drops_the_transports_route() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (20, 10), Order::Docked);
+        let tid = w.units[t].id;
+        w.units[t].path = vec![(21, 10)];
+        w.units[t].blocked = 3;
+        let f = w.spawn(FOOTMAN, 0, (14, 10), 0).unwrap();
+        let fi = w.index(f).unwrap();
+        assert_eq!(w.board_command(fi, tid), Order::Board { transport: tid });
+        let tr = &w.units[w.index(tid).unwrap()];
+        assert!(tr.pending.is_some());
+        assert_eq!((tr.path.is_empty(), tr.blocked), (true, 0));
     }
 
     #[test]
