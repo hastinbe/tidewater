@@ -1,38 +1,52 @@
 # Movement: tile steps, paths, arrival and blocking
 
-- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
-- **Sources:** static study of the 2.02 program (research notes under `research/notes/`), and per-type step timings
-  computed from `Rez\script.bin` (see `specs/core/animation-scripts.md`). The path search is in `pathfinding.md`
-  and tile blocking is in `occupancy.md`. Not yet confirmed against the running game.
-- **Changes:** 2026-10-12: the open question on how owner codes map to player kinds is closed by `game/setup.md`.
-- **Changes:** 2026-10-12, round-35 errata: the corridor vector uses order 12, since order 9 isn't attack-type for the
-  path search; a vector for order 9 is added.
-- **Changes:** 2026-10-12, round-36 errata: a landing transport's general radius is 3 (no +1); the landing logic checks
-  the exact goal.
-- **Changes:** 2026-10-12, round-37 errata: every command clears the blocked counter at once, for any order and even in
-  mid-step.
-- **Changes:** 2026-10-12, round-39 errata: the "Paths" fallbacks name the harvesting worker's nearest-tree search
-  (`economy/harvest.md`).
-- **Changes:** 2026-10-12, round-41 errata: only commands clear the blocked counter; a pending order taking over doesn't
-  (a patrol's turnaround and the order given on coming out are commands). Row F also needs the blocked unit's own
-  animation to be the move animation, so it never applies in orders 30 and 31 (static study only, untraced).
-- **Changes:** 2026-10-12, round-42 errata: the blocked counter is cleared by every command (a target search's resulting
-  order included), by giving up and by a transport pushing off, and by nothing else; only the killer forgets its victim
-  as its attacker at once; the restart in orders 30 and 31 uses animation 6 (traced: `orc8`, `human10-24000`); row F's
-  own-animation condition is still untraced.
-- **Changes:** 2026-10-12, round-43 errata: row F's own-animation condition is traced for order 30
-  (`human12-row-f-move-700` and `human12-row-f-landing-700` vectors replace the static one); the call for help and the
-  route search ignore a kept dying attacker, the resulting-order table counts it, and orders 9, 11 and 17 forget it;
-  open question on when a kept dying attacker is forgotten.
-- **Changes:** 2026-10-13, round-45 errata: every command forgets a recorded attacker that is dying, dead, removed or
-  not detected; row G's stand still is a pending order and measures to the stored goal (static study only).
-- **Changes:** 2026-10-13, round-60 errata: arrival for a unit that is neither sea nor air targeting a shore
-  building is measured to the shore corner goal; row C resumes a remembered patrol or attack-move at once (wait 1);
-  `xhuman8-25000` and `orc9-orc09-shore-build-3000` vectors.
-- **Changes:** 2026-10-13, round-61 errata: row C with nothing to resume keeps the restarted walking animation
-  (the round-60 text said the still animation); `orc10-10000` and `xhuman12-10000` vectors.
+- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Consolidated 2026-10-14 into one model with no
+  rule change (B-038; the review notes, with a map from every earlier rule and vector to its place here, are kept
+  with the research-side specs).
+- **Sources:** static study of the 2.02 program (research notes under `research/notes/`), per-type step timings
+  computed from `Rez\script.bin` (see `specs/core/animation-scripts.md`), and oracle traces of the running game. Each
+  rule says which: "traced" with the trace name and record number n, or "static study only"; a rule with neither is
+  from the static study. The path search is in `pathfinding.md` and tile blocking is in `occupancy.md`. The erratum
+  rounds each rule came from are listed under "History" at the end.
 
 ## Behaviour
+
+### The model
+
+Every moving unit walks the same way, whatever its order. Its order logic decides where to go
+(`orders/orders.md`, "Walking orders"); this spec says how the unit gets there. At each step boundary of a unit that
+is walking ("When decisions are made"), in this order:
+
+1. **Arrival.** The unit is tested against its order's arrival radius and its goal ("Arriving"). If it is there, its
+   cached path is dropped and the walk ends. The goal is the one the route search aims at (`pathfinding.md`,
+   "Inputs").
+2. **Next direction.** Otherwise it takes the next direction from its cached path; if the cache is used up, a new
+   path is searched first ("Paths"). If the search returns no steps, the unit can't move and its order's no-route
+   rule applies.
+3. **Blocked test.** The next tile is tested against the blocking mask for the unit's layer. If it is blocked, the
+   step doesn't happen and the first matching row of the blocked rules applies ("Blocked rules").
+4. **The step.** Otherwise the step starts: the tile changes at once and the move animation carries the pixel
+   position across ("Positions and steps").
+
+The same procedure serves every walker: land units step one tile, sea and air units two. A transport landing or
+pushing off takes its steps and meets blocks the same way; only its goals, step size and arrival test are its own
+(`orders/transports.md`, "Moving near the shore").
+
+**One counter, one table.** The blocked rules use one **blocked counter** per unit. Only three things clear it: a
+command (any command, at the moment it is given), giving up (row C) and a transport pushing off picking a new water
+tile. Every block adds 1, and successful steps don't reset it. The rows of the table are tested in order, and fall
+into groups:
+
+| Rows | What they are about |
+| --- | --- |
+| A, B | A computer player's unit blocked by a wall tile carrying bit 0x04 |
+| C, D | The counter: give up at 15, search again after a 15-cycle wait from 8 |
+| E, F | A blocker that is about to leave the tile: wait 15 cycles for it |
+| G, H | A unit with an attacker, near its goal: stop, or search again |
+| I | Anything else: search again next cycle |
+
+Because the counter rows come before the waiting rows, a unit blocked 8 times or more is handled by row C or D
+before rows E and F are tested, so it drops its path even when its blocker is moving off (V12).
 
 ### Positions and steps
 
@@ -227,51 +241,64 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
 
 ## Test vectors
 
-| Input | Expected |
-| --- | --- |
-| Idle footman ordered 5 tiles east over open ground | the order takes over at the idle animation's next boundary (up to 5 cycles later); 3 cycles after that the first step starts and the tile changes; 4 further tile changes follow, 16 cycles apart; it arrives at the boundary 16 cycles after the 5th step began |
-| Knight, same order | 5 steps of 12 cycles (60 cycles) |
-| Footman moving diagonally 3 tiles north-east | 3 diagonal steps of 16 cycles; each step moves +32 px x and −32 px y |
-| Unit given a new order mid-step | finishes the current step; the new order takes over at the next step boundary |
-| Footman (human player, no attacker) on a move order in a corridor one tile wide; the next tile holds an enemy catapult standing ground (it can't fire at an adjacent unit, so the footman never gets an attacker) | block 1 (row I): path dropped. Next cycle the search sees the catapult: the line is blocked at its first tile and both walks fail or are rejected, so the result is empty and the move order ends (idle) |
-| Footman (human player, no attacker) chasing a found target (order 12) beyond such a catapult, in a corridor one tile wide | The search ignores the catapult (attack-type order, non-allied unit), so it keeps returning a path through it, and each step is blocked. Blocks 1 to 7: row I, searches again next cycle; blocks 8 to 14: row D, waits 15 cycles each; block 15: row C, "stand still", counter 0 |
-| The same footman with an attack order on that enemy (order 9, not attack-type; `movement/pathfinding.md`) | The search sees the catapult, as for the move order: the route is blocked at its first tile and both walks fail or are rejected |
-| Footman attacking a 4 × 4 town hall whose footprint is (10, 10) to (13, 13), starting at (6, 11), nothing else in the way | Goal (10, 12) (west edge, middle row; a footprint tile). The straight line (`pathfinding.md`) is blocked at the goal itself, with T = (9, 12); the walk from T goes north to (9, 11), inside the goal zone. After shortening the path is (7, 11), (8, 11), (9, 11). At (9, 11) the re-picked goal is still (10, 12), at distance 1 on both axes, so it stops and attacks there after 3 steps |
-| Same, but a route around exists | block 1: searches again next cycle and walks round the blocker; the counter stays at 1 for the rest of the order |
-| Footman blocked by an allied footman walking away (next step not onto it) | waits 15 cycles, keeps its path; counter +1 |
-| Two allied footmen stepping onto each other's tiles | neither waits; each drops its path and searches again next cycle (row I) |
-| Footman with counter 7 blocked by a moving ally | row D applies first: path dropped, waits 15 cycles |
-| `orc8-10000` (oracle trace): tanker 1483 (type 0x1A) blocked once on its way in, its pending order 25 takes over at n = 947 | Its counter isn't 0 after the take-over. n = 949: tanker 1479, blocked by 1483, doesn't wait (row F needs a counter of 0) and steps to (88, 102), facing 4 |
-| A unit blocked twice is given a command | Counter 0 at once |
-| A patrolling unit reaches one end | The turnaround is a command: counter 0 |
-| `human12-row-f-move-700` (oracle trace), n = 403: transport 1428 in order 3 at (38, 120), next tile (36, 120) held by battleship 1420 walking west | Row F: move animation, wait 15, tile (38, 120) kept; the same at n = 450 |
-| `human12-row-f-landing-700` (oracle trace), n = 435: transport 1428 in order 30 at (36, 122), next tile (34, 122) held by tanker 1425 (order 3, move animation, heading to (34, 124)) | Row F doesn't apply (animation 6 after the restart): animation 6, wait 1 |
-| Same, n = 436 | Tile (34, 120), move animation, facing 7 |
-| `orc8-10000` (oracle trace), n = 3554: transport 1454 (type 0x1C) at (86, 64) in order 30, landing, blocked by docked transport 1455 at (84, 64) | Animation 6, wait 1; n = 3555: no route, idle (order 2, animation 2, wait 1) |
-| `human10-24000` (oracle trace), n = 22388: transport 1480 (type 0x1D) in order 30 | Animation 6 (animation 3 at n = 22387); the research runs stop here without this rule |
-| `xhuman10-spells-700` (oracle trace), n = 89: grunt 1497 had been blocked twice, then acquired a target (a command); grunt 1490 (owner 2) at (78, 87) is blocked by it | 1497's counter is 0, so row F applies: 1490 steps to (79, 87), animation 3 |
-| Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle |
-| Passive computer player's grunt, same situation | row A doesn't apply (not a computer player); falls through to the rows below |
-| Grunt with an attacker, blocked 1 tile from its goal (static study only) | Order unchanged in that update, idle pending, wait 1; it becomes idle (stand still) next cycle |
-| Gryphon rider with an attacker, blocked 2 tiles from its goal on both axes | becomes idle |
-| Attack order, target 3 tiles away, attacker range 4 | already in range; no movement; attack starts |
-| Destroyer ordered to a tile it can only get within 1 tile of | stops when within 1 tile on both axes (radius +1) |
-| Footman at rest on tile (5, 7) | Pixel position (160, 224) |
-| Footman stepping from (5, 7) to (6, 7) | At the step start: tile (6, 7), pixel (160, 224). The pixel x then grows by the move animation's moves (for a footman, moves of 2 or 3 px at a time, 32 px over the 16-cycle loop; `core/animation-scripts.md`) and reaches (192, 224) when the step's loop ends |
-| Town hall placed with its top-left tile at (10, 10) | Pixel position (320, 320), for as long as it stands |
-| Transport landing (order 30) whose goal is 1 tile away on both axes | General test met (radius 3); the landing logic's own test (radius 0, no +1) isn't, so it keeps moving |
-| Transport landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation |
+Vector IDs are stable: they number the vectors in the order the spec held them before the consolidation, so the
+review file can map each one. "Source" says whether a vector is from an oracle trace (the trace is named in the
+row and in the Source column), from static study, or a worked example of the rules. A row that builds on another
+row starts "As" that row's ID, and names the trace when that row is from one.
 
-### Round-60 vectors
+### Steps and timing
 
-| Input | Expected |
-| --- | --- |
-| `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 |
-| `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (range 4) attacking shipyard 1469, corner goal (55, 88) | At (60, 91), distance 5: walks on; at (59, 91), distance 4: there |
-| `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) |
-| `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (owner 2) in order 4 gives up (row C), nothing resumed | Animation 3, wait 15 |
+| ID | Input | Expected | Source |
+| --- | --- | --- | --- |
+| V01 | Idle footman ordered 5 tiles east over open ground | the order takes over at the idle animation's next boundary (up to 5 cycles later); 3 cycles after that the first step starts and the tile changes; 4 further tile changes follow, 16 cycles apart; it arrives at the boundary 16 cycles after the 5th step began | Example |
+| V02 | As V01, but a knight | 5 steps of 12 cycles (60 cycles) | Example |
+| V03 | Footman moving diagonally 3 tiles north-east | 3 diagonal steps of 16 cycles; each step moves +32 px x and −32 px y | Example |
+| V04 | Unit given a new order mid-step | finishes the current step; the new order takes over at the next step boundary | Example |
+| V28 | Footman at rest on tile (5, 7) | Pixel position (160, 224) | Example |
+| V29 | Footman stepping from (5, 7) to (6, 7) | At the step start: tile (6, 7), pixel (160, 224). The pixel x then grows by the move animation's moves (for a footman, moves of 2 or 3 px at a time, 32 px over the 16-cycle loop; `core/animation-scripts.md`) and reaches (192, 224) when the step's loop ends | Example |
+| V30 | Town hall placed with its top-left tile at (10, 10) | Pixel position (320, 320), for as long as it stands | Example |
 
+### Arrival
+
+| ID | Input | Expected | Source |
+| --- | --- | --- | --- |
+| V08 | Footman attacking a 4 × 4 town hall whose footprint is (10, 10) to (13, 13), starting at (6, 11), nothing else in the way | Goal (10, 12) (west edge, middle row; a footprint tile). The straight line (`pathfinding.md`) is blocked at the goal itself, with T = (9, 12); the walk from T goes north to (9, 11), inside the goal zone. After shortening the path is (7, 11), (8, 11), (9, 11). At (9, 11) the re-picked goal is still (10, 12), at distance 1 on both axes, so it stops and attacks there after 3 steps | Example |
+| V26 | Attack order, target 3 tiles away, attacker range 4 | already in range; no movement; attack starts | Example |
+| V27 | Destroyer ordered to a tile it can only get within 1 tile of | stops when within 1 tile on both axes (radius +1) | Example |
+| V31 | Transport landing (order 30) whose goal is 1 tile away on both axes | General test met (radius 3); the landing logic's own test (radius 0, no +1) isn't, so it keeps moving | Example |
+| V32 | Transport landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation | Example |
+| V34 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (range 4) attacking shipyard 1469, corner goal (55, 88) | At (60, 91), distance 5: walks on; at (59, 91), distance 4: there | Trace (`orc9-orc09-shore-build-3000`) |
+
+### Blocking and the counter
+
+| ID | Input | Expected | Source |
+| --- | --- | --- | --- |
+| V05 | Footman (human player, no attacker) on a move order in a corridor one tile wide; the next tile holds an enemy catapult standing ground (it can't fire at an adjacent unit, so the footman never gets an attacker) | block 1 (row I): path dropped. Next cycle the search sees the catapult: the line is blocked at its first tile and both walks fail or are rejected, so the result is empty and the move order ends (idle) | Example |
+| V06 | Footman (human player, no attacker) chasing a found target (order 12) beyond such a catapult, in a corridor one tile wide | The search ignores the catapult (attack-type order, non-allied unit), so it keeps returning a path through it, and each step is blocked. Blocks 1 to 7: row I, searches again next cycle; blocks 8 to 14: row D, waits 15 cycles each; block 15: row C, "stand still", counter 0 | Example |
+| V07 | As V06, but with an attack order on the catapult (order 9, not attack-type; `movement/pathfinding.md`) | The search sees the catapult, as for the move order: the route is blocked at its first tile and both walks fail or are rejected | Example |
+| V09 | As V05, but a route around exists | block 1: searches again next cycle and walks round the blocker; the counter stays at 1 for the rest of the order | Example |
+| V10 | Footman blocked by an allied footman walking away (next step not onto it) | waits 15 cycles, keeps its path; counter +1 | Example |
+| V11 | Two allied footmen stepping onto each other's tiles | neither waits; each drops its path and searches again next cycle (row I) | Example |
+| V12 | Footman with counter 7 blocked by a moving ally | row D applies first: path dropped, waits 15 cycles | Example |
+| V13 | `orc8-10000` (oracle trace): tanker 1483 (type 0x1A) blocked once on its way in, its pending order 25 takes over at n = 947 | Its counter isn't 0 after the take-over. n = 949: tanker 1479, blocked by 1483, doesn't wait (row F needs a counter of 0) and steps to (88, 102), facing 4 | Trace (`orc8-10000`) |
+| V14 | A unit blocked twice is given a command | Counter 0 at once | Example |
+| V15 | A patrolling unit reaches one end | The turnaround is a command: counter 0 | Example |
+| V16 | `human12-row-f-move-700` (oracle trace), n = 403: transport 1428 in order 3 at (38, 120), next tile (36, 120) held by battleship 1420 walking west | Row F: move animation, wait 15, tile (38, 120) kept; the same at n = 450 | Trace (`human12-row-f-move-700`) |
+| V17 | `human12-row-f-landing-700` (oracle trace), n = 435: transport 1428 in order 30 at (36, 122), next tile (34, 122) held by tanker 1425 (order 3, move animation, heading to (34, 124)) | Row F doesn't apply (animation 6 after the restart): animation 6, wait 1 | Trace (`human12-row-f-landing-700`) |
+| V18 | As V17 (`human12-row-f-landing-700`), n = 436 | Tile (34, 120), move animation, facing 7 | Trace (`human12-row-f-landing-700`) |
+| V19 | `orc8-10000` (oracle trace), n = 3554: transport 1454 (type 0x1C) at (86, 64) in order 30, landing, blocked by docked transport 1455 at (84, 64) | Animation 6, wait 1; n = 3555: no route, idle (order 2, animation 2, wait 1) | Trace (`orc8-10000`) |
+| V20 | `human10-24000` (oracle trace), n = 22388: transport 1480 (type 0x1D) in order 30 | Animation 6 (animation 3 at n = 22387); the research runs stop here without this rule | Trace (`human10-24000`) |
+| V21 | `xhuman10-spells-700` (oracle trace), n = 89: grunt 1497 had been blocked twice, then acquired a target (a command); grunt 1490 (owner 2) at (78, 87) is blocked by it | 1497's counter is 0, so row F applies: 1490 steps to (79, 87), animation 3 | Trace (`xhuman10-spells-700`) |
+| V22 | Computer grunt on a move order (not invisible, no attacker) blocked by a wall tile carrying bit 0x04 | pending order 11 on that wall tile; acts again next cycle | Example |
+| V23 | As V22, but a passive computer player's grunt | row A doesn't apply (not a computer player); falls through to the rows below | Example |
+| V24 | Grunt with an attacker, blocked 1 tile from its goal (static study only) | Order unchanged in that update, idle pending, wait 1; it becomes idle (stand still) next cycle | Static study |
+| V25 | Gryphon rider with an attacker, blocked 2 tiles from its goal on both axes | becomes idle | Example |
+| V33 | `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 | Trace (`xhuman8-25000`) |
+| V35 | `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) | Trace (`orc10-10000`) |
+| V36 | `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (owner 2) in order 4 gives up (row C), nothing resumed | Animation 3, wait 15 | Trace (`xhuman12-10000`) |
 ## Open questions
+
+Carried over:
 
 - Whether two-tile movers always keep to even tile coordinates.
 - Row F's condition on the unit's own animation (orders 30 and 31 never wait) is traced for order 30 only
@@ -281,10 +308,41 @@ Step durations per unit type are in `specs/core/animation-scripts.md` ("Measured
   dying unit's death animation (when it becomes remains or is removed). No trace isolates that moment:
   `orc02-assault-3000` (grunt 1568 answering a call for help at n = 969 while its attacker 1597 is still dying; footman
   1587 stepping at n = 940 after its attacker 1573 became remains at n = 890) fits it, but also fits a later end,
-  because the call for help and the route search ignore a dying attacker anyway. Round 45 settles one case: the unit's
+  because the call for help and the route search ignore a dying attacker anyway. One case is settled: the unit's
   next command forgets it ("Blocked rules"); the moment without a command is still open.
 - **Row G's pending idle** rests on the static study: no trace separates a pending from an immediate idle there, because
   the traced case that once did no longer reaches row G once commands forget a dying attacker.
 - Row F is also skipped when the blocker has one more state bit set, whose meaning hasn't been identified.
 - How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
   construction spec.
+
+Found by the consolidation (static study, 2026-10-14; the rules above are unchanged):
+
+- **Row A's order 11 may be given as a command.** Row A says the order becomes 11 "as a pending order", and
+  `orders/orders.md` ("Order 11: attacking a wall tile", step 5) says it is set directly, not through a command. The
+  static study instead finds the steps of a command there (`orders/orders.md`, "What every command does"): the
+  blocked counter is cleared and the unit is marked as having a pending command, which the path search reads
+  (`pathfinding.md`, "Units seen by the search"). The goal is the same either way: the pull-back on a one-step line
+  tests only the goal tile, which is kept, so the goal stays the blocking tile. What differs is the counter (0, not
+  the count that reached row A) and the mark. No trace has a unit blocked again after row A. Recommendation: a trace
+  of a computer unit that row A sends at a wall and that is blocked again on its way.
+
+## History
+
+Erratum rounds that shaped this spec and the sections where their content now lives. The erratum notes for each
+round are kept with the research-side specs.
+
+| Round | Content | Now in |
+| --- | --- | --- |
+| 2026-10-12 (no round) | The open question on how owner codes map to player kinds is closed by `game/setup.md` | "Player kinds" |
+| 35 | The corridor vector uses order 12, since order 9 isn't attack-type for the path search; a vector for order 9 is added | V06, V07 |
+| 36 | A landing transport's general radius is 3 (no +1); the landing logic checks the exact goal | "The +1"; V31, V32 |
+| 37 | Every command clears the blocked counter at once, for any order and even in mid-step | "Blocked rules"; V14 |
+| 39 | The "Paths" fallbacks name the harvesting worker's nearest-tree search (`economy/harvest.md`) | "Paths" |
+| 41 | Only commands clear the blocked counter; a pending order taking over doesn't (a patrol's turnaround and the order given on coming out are commands). Row F also needs the blocked unit's own animation to be the move animation, so it never applies in orders 30 and 31 | "Blocked rules", row F; V13, V15 |
+| 42 | The blocked counter is cleared by every command (a target search's resulting order included), by giving up and by a transport pushing off, and by nothing else; only the killer forgets its victim as its attacker at once; the restart in orders 30 and 31 uses animation 6 (traced: `orc8`, `human10-24000`) | "Blocked rules"; V19, V20, V21 |
+| 43 | Row F's own-animation condition is traced for order 30 (the `human12-row-f-move-700` and `human12-row-f-landing-700` vectors replace the static one); the call for help and the route search ignore a kept dying attacker, the resulting-order table counts it, and orders 9, 11 and 17 forget it; open question on when a kept dying attacker is forgotten | "Blocked rules"; V16 to V18; "Open questions" |
+| 45 | Every command forgets a recorded attacker that is dying, dead, removed or not detected; row G's stand still is a pending order and measures to the stored goal (static study only) | "Blocked rules", row G; "Open questions" |
+| 60 | Arrival for a unit that is neither sea nor air targeting a shore building is measured to the shore corner goal; row C resumes a remembered patrol or attack-move at once (wait 1); `xhuman8-25000` and `orc9-orc09-shore-build-3000` vectors | "Arriving"; row C; V33, V34 |
+| 61 | Row C with nothing to resume keeps the restarted walking animation (the round-60 text said the still animation); `orc10-10000` and `xhuman12-10000` vectors | Row C; V35, V36 |
+| B-038 (2026-10-14) | Consolidated into one model: "The model" added; vectors given IDs, a Source column and topic groups; the round citations moved here; one open question added. No rule changed | Whole spec |
