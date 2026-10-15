@@ -63,6 +63,11 @@
 //! docks with its passengers aboard, n 427) and orc09-sea-patrol-axis-2000 (a sea patrol along the ship's own column
 //! isn't remembered, so its fight ends idle, n 1795) match in full.
 //!
+//! Round 72: the commands scenario orc11-orc11-sapper-attack-move-goals-1500 (Enhanced goblin sappers: one on a
+//! remembered patrol demolishes the unit its search finds, n 426 to 443; two in order 4 with nothing remembered take
+//! no target while walking, before and after a hit at n 323) matches in full. The spec's open question on the hit
+//! sapper not fleeing after it arrives (T14) doesn't cut it short here: order 4's arrival forgets the attacker.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -338,4 +343,5 @@ traces! {
     human01_order15_lost_700: ("human01-order15-lost-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     human12_unload_then_move_900: ("human12-unload-then-move-900.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
     orc09_sea_patrol_axis_2000: ("orc09-sea-patrol-axis-2000.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc11_orc11_sapper_attack_move_goals_1500: ("orc11-orc11-sapper-attack-move-goals-1500.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
 }

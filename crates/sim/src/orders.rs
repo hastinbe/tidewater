@@ -1220,12 +1220,16 @@ impl World {
         }
         // "Special cases": workers and tankers of every player never run the search; the others'
         // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
+        // Nor does an Enhanced demolition unit with nothing remembered (round 72, traced: V279,
+        // `orc11-orc11-sapper-attack-move-goals-1500` sappers 1580 and 1575 in order 4): with an attacker it reacts
+        // as the other non-combat units do, and with none it acquires nothing.
         // The reaction's non-combat flee has no detection test, so a non-combat unit
         // whose valid attacker its owner doesn't detect runs the reaction too (the "Terms" rule covers only the
         // target search and its seed).
         let valid = u.attacked_by.and_then(|a| self.unit(a)).is_some_and(|a| a.present());
         let non_combat = self.non_combat(u);
-        if computer_worker || (worker_like && attacker.is_none() && !valid) {
+        let never_searches = worker_like || (self.rules.enhanced && DEMOLITION.contains(&u.kind));
+        if computer_worker || (never_searches && attacker.is_none() && !valid) {
             return false;
         }
         if attacker.is_some() || (non_combat && valid) {
@@ -4752,6 +4756,39 @@ mod tests {
                             "flees: {case}"
                         );
                     }
+                }
+            }
+        }
+
+        /// "Special cases" (round 72, traced: V279): an Enhanced demolition unit with nothing remembered and no
+        /// attacker, walking a move attacking on the way (order 4), takes no target although an enemy stands next to
+        /// it; it walks on. In Classic mode the rule doesn't apply and it takes the enemy as before.
+        #[test]
+        fn an_enhanced_demolition_unit_with_nothing_remembered_takes_no_target() {
+            const SQUAD: u8 = DEMOLITION[0];
+            for enhanced in [true, false] {
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (6, 6))]);
+                w.rules.enhanced = enhanced;
+                let (s, e) = (ids[0], ids[1]);
+                let si = at(&w, s);
+                w.units[si].kind = SQUAD;
+                w.stats.0[SQUAD as usize] = w.stats.0[FOOTMAN as usize];
+                let walk = Order::MoveAttack {
+                    goal: (14, 5),
+                    target: None,
+                };
+                let i = ready(&mut w, s, walk);
+                w.units[i].remembered = None;
+                w.run_order(i);
+                let u = &w.units[i];
+                if enhanced {
+                    assert_eq!((u.order, u.pending, u.commanded), (walk, None, false), "walks on");
+                } else {
+                    assert_eq!(
+                        target_of(u.pending.unwrap_or(u.order)),
+                        Some(e),
+                        "classic takes the enemy"
+                    );
                 }
             }
         }
