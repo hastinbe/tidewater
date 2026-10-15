@@ -580,6 +580,18 @@ impl World {
         }
     }
 
+    /// A recorded attacker that fails the lost-target test ([`World::target_lost`]: dying, gone, inside something or
+    /// not detected) is forgotten: pushing off's step 3 (transports spec) and order 25's target check (harvest spec,
+    /// "Entering", step 3).
+    pub(crate) fn forget_lost_attacker(&mut self, i: usize) {
+        let owner = self.units[i].owner;
+        if let Some(a) = self.units[i].attacked_by
+            && self.target_lost(owner, a)
+        {
+            self.units[i].attacked_by = None;
+        }
+    }
+
     /// Whether a recorded attacker is stale ("Commands forget a stale attacker"): dying, dead, removed or not detected
     /// by `owner`. Unlike [`World::target_lost`], an attacker inside something isn't stale.
     pub(crate) fn stale(&self, owner: u8, t: UnitId) -> bool {

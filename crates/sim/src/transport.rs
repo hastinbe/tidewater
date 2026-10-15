@@ -399,11 +399,7 @@ impl World {
             self.units[i].ship.target = None;
             self.give(i, Order::Idle);
         }
-        if let Some(a) = self.units[i].attacked_by
-            && self.target_lost(owner, a)
-        {
-            self.units[i].attacked_by = None;
-        }
+        self.forget_lost_attacker(i);
         // Steps 4 and 5: on an even tile a two-tile mover, on an odd tile the step size unchanged; the class unchanged;
         // the tile pick above dropped the cached route, so the step searches afresh; no route docks.
         let pushing_off = NearShore {

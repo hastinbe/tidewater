@@ -374,10 +374,11 @@ impl World {
         }
     }
 
-    /// Order 25 ("Entering a mine, platform or depot"). Step 3, the target check, comes first: a target dying or gone,
-    /// inside something or no longer detected is dropped ([`World::enter_target_lost`]). Then step 1 (face, step in)
-    /// and step 2 ([`World::go_in`]).
+    /// Order 25 ("Entering a mine, platform or depot"). Step 3, the target check, comes first: a lost attacker is
+    /// forgotten (audit round 70, erratum 9), then a target dying or gone, inside something or no longer detected is
+    /// dropped ([`World::enter_target_lost`]). Then step 1 (face, step in) and step 2 ([`World::go_in`]).
     pub(crate) fn enter_order(&mut self, i: usize, building: UnitId, stepped: bool) {
+        self.forget_lost_attacker(i);
         let owner = self.units[i].owner;
         let held = self
             .index(building)
@@ -2541,6 +2542,34 @@ mod tests {
             );
             assert_eq!((u.blocked, u.path.clone(), u.attacked_by), (5, vec![(11, 9)], Some(a)));
             assert_eq!(w.fingerprint(), 5698017457373773504);
+        }
+
+        /// "Entering", step 3 (audit round 70, erratum 9): order 25 first forgets an attacker that is dying, gone,
+        /// inside something or not detected, then checks its target; a valid attacker is kept.
+        #[test]
+        fn entering_forgets_a_lost_attacker_first() {
+            let mut prints = vec![];
+            for lost in [true, false] {
+                let mut w = arena();
+                let mill = w.spawn(LUMBER_MILL, 0, (10, 4), 0).unwrap();
+                let p = w.spawn(0, 0, (9, 7), 0).unwrap();
+                let a = attacker(&mut w, p, FOE);
+                if lost {
+                    let ai = w.index(a).unwrap();
+                    w.units[ai].inside = true;
+                }
+                let pi = w.index(p).unwrap();
+                w.units[pi].order = Order::Enter {
+                    building: mill,
+                    stepped: false,
+                };
+                w.enter_order(pi, mill, false);
+                let u = &w.units[pi];
+                assert_eq!(u.attacked_by, (!lost).then_some(a));
+                assert!(matches!(u.order, Order::Enter { .. }), "{:?}", u.order);
+                prints.push(w.fingerprint());
+            }
+            assert_eq!(prints, [6632463806858412694, 1148254371029060525]);
         }
 
         /// V95 ("Lumber", step 3; audit round 70, erratum 8): felling with no depot gives no command. Idle becomes the
