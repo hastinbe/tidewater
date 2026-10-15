@@ -24,19 +24,21 @@ before writing any code, and follow it exactly.
   `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
   whole-map behaviour snapshot `tests/snapshot.rs` checks).
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
-- `crates/client`: the Bevy game client (`tidewater` binary). `scene.rs` builds the map and unit images, `hud.rs`
+- `crates/client`: the game client (`tidewater` binary): an engine-neutral core (`core.rs`: `Core::advance` runs a
+  frame) in a Bevy shell (`shell.rs`, the only module that uses Bevy: window, input events, mouse lock, sound device).
+  `game.rs` runs the game screen, `args.rs` holds the command line. `scene.rs` builds the map and unit images, `hud.rs`
   lays out and draws the interface (frame, minimap, resources, selection, command buttons) into one picture, `panel.rs` holds the command panel's button sets and rules, `info.rs` the unit information panel's rules; all are Bevy-free.
   `campaign.rs` holds the campaign flow's rules, `video.rs` the Smacker playback helpers and `display.rs` the window
   scale, black border, map zoom and mouse-lock rules (all Bevy-free);
   `frontend.rs` runs the screens around a game (videos, title, menu, act screens, briefings, the outcome dialogs,
-  the score screen, endings, credits) as app states (`states.rs`, the flow's state machine, Bevy-free), and the game screen's systems run only in `AppState::Game`.
+  the score screen, endings, credits) as the flow's states (`states.rs`), and the game screen's systems run only in `AppState::Game`.
   `--goto SCREEN` opens a flow screen directly for development.
   `audio.rs` (Bevy-free) decodes WAV sounds and mixes them at 22,050 Hz stereo; the Bevy shell streams the mixer to the device.
   `storage.rs` (Bevy-free) is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
-  The window shows one 640 × 480 picture composed on the CPU (`compose.rs`, Bevy-free; `shell.rs` places the layers
-  and shows it). `script.rs` runs scripted scenes (`--script NAME --script-out DIR [--headless]`) for the frame
-  snapshot `tests/frames.rs`; the plan to move the rest into an engine-neutral core is `docs/design/client-core.md`.
+  The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, `shell.rs`
+  shows it). `script.rs` runs scripted scenes (`--script NAME --script-out DIR [--headless]`) for the frame
+  snapshot `tests/frames.rs`; the design of the core and its shells is `docs/design/client-core.md`.
 - `docs/specs/`: reviewed behaviour specifications, the only source for engine behaviour.
 
 ## Workflow

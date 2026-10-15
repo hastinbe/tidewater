@@ -1,11 +1,10 @@
 # Design: an engine-neutral client core
 
-**Bottom line.** The client becomes a plain-Rust core that the host calls once per frame:
-`advance(real_time_elapsed, input) -> Frame`. The shell (Bevy today; SDL3 or miniquad after the phase 3 trial) only
-shows a 640 × 480 frame, polls input, pulls mixed audio, reads and writes files, and knows the time. Phase 1 is done:
-a frame snapshot guards every step, and Bevy already shows one composed 640 × 480 picture instead of stacking
-sprites. Phase 2 moves the loop, input, audio and storage behind the platform trait: about 5 to 7 days of Claude's
-work, of which Nick's part is a few hours of playtests and reviews (4 to 5 weeks by hand).
+**Bottom line.** The client is a plain-Rust core that the host calls once per frame:
+`advance(real_time_elapsed, platform) -> &Frame`. The shell (Bevy today; SDL3 or miniquad after the phase 3 trial)
+only shows a 640 × 480 frame, hands over input, pulls mixed audio, provides the files, and knows the time. Phases 1
+and 2 are done (steps 1 to 9): a frame and audio snapshot guards every step, and Bevy is left only in `shell.rs`
+(625 lines). Next is step 10, the trial shells.
 
 Backlog item B-039. Nothing here changes game behaviour; where a step can't stay pixel-identical, the table in
 [What can't stay identical](#what-cant-stay-identical) says why.
@@ -31,26 +30,33 @@ All four questions are decided (2026-10-14):
 | Is the composed frame faithful? | **Yes.** In a window at one pixel per screen pixel, Bevy's screenshot equals the composed frame at all 28 shots. |
 | Is the snapshot deterministic? | **Yes,** after one fix: an Escape that closed the game menu could also quit, depending on system order. |
 | How fast is the snapshot? | **Fast.** The 1,372-frame scene runs in about 5 s in release, 80 s in a debug build. |
-| What still needs Bevy? | **Most glue.** About 6,900 lines in 8 modules (state, input, audio, time, files); see [Migration plan](#migration-plan). |
+| What still needs Bevy? | **Only the shell.** Since step 9, `shell.rs` (625 lines: window, input events, the mouse lock, the sound device) is the only module that uses Bevy; before phase 2 it was 8,464 lines in 12 modules. |
 
 ## Core API
 
 The host drives the loop. The core never blocks, never reads the clock and never touches a device.
 
 ```rust
-pub struct Core { /* flow, game, interface, mixer, storage */ }
+// As built in step 9 (`core.rs`):
+pub struct Core {
+    pub input: Input,         // the shell puts the system's events in between frames
+    pub audio: Audio,         // the mixer; `audio.output()` is what the device callback pulls (`Output::mix`)
+    pub frame: Frame,         // the screen composed by the last `advance`
+    pub cursor_visible: bool, // false: the screen draws its own pointer
+    pub title: Option<String>,
+    pub exit: bool,           // the program asked to end normally
+    /* flow, game, interface, storage */
+}
 
 impl Core {
-    pub fn new(storage: Box<dyn Storage>, settings: Settings) -> Result<Core>;
-    /// Runs the game for `elapsed` real time with this frame's input; returns the screen to show.
-    pub fn advance(&mut self, elapsed: Duration, input: &Input) -> &Frame;
-    /// Fills `out` with mixed sound (interleaved stereo at `Core::SAMPLE_RATE`). Called by the audio callback.
-    pub fn mix(&self, out: &mut [i16]);
-    pub fn suspend(&mut self);
-    pub fn resume(&mut self);
-    /// True once the player has quit.
-    pub fn finished(&self) -> bool;
+    pub fn new(opts: Args, store: Store, front: Front, flow: Flow, stored: Stored, script: Option<script::Run>) -> Core;
+    /// Runs one frame, `elapsed` real time after the last; returns the screen to show.
+    pub fn advance(&mut self, elapsed: Duration, platform: &mut dyn Platform) -> &Frame;
+    /// "Saving": the settings, on a normal exit.
+    pub fn store_settings(&self);
 }
+
+// The proposal still to come: suspend(), resume(), and an indexed frame.
 
 pub struct Frame {
     pub pixels: Pixels,         // 640 × 480
@@ -158,25 +164,41 @@ Mobile shells call `suspend` when sent to the background. A long frame (a debugg
 
 ## Platform trait
 
-The five operations, as the shell implements them. The core sees only `Input`, `Storage` and the time it is given.
+The core sees only `Input`, `Storage`, the time it is given and, during a frame, `core::Platform`:
 
-| Operation | Bevy shell (now) | Shape |
+```rust
+pub trait Platform {
+    /// The window: its size in physical pixels and its scale, `None` without one.
+    fn window(&self) -> Option<WindowGeom>;
+    /// The pointer in the window's logical points and whether the window has the focus, once a frame after the keys
+    /// are applied. `game_pointer`: the game draws its own pointer, so the platform may lock the system's.
+    fn pointer(&mut self, keys: &Buttons<Key>, game_pointer: bool) -> (Option<(f32, f32)>, bool);
+}
+```
+
+A shell for step 10 does six things around `Core::advance`:
+
+| Operation | Bevy shell (`shell.rs`, step 9) | What a new shell writes |
 |---|---|---|
-| Show a frame | `shell.rs`: the frame into one texture, one sprite at the whole-number scale | `fn present(&mut self, frame: &Frame)` |
-| Poll input | Bevy input messages, the mouse lock | `fn poll(&mut self) -> Input` |
-| Pull audio | Bevy audio | the audio callback calls `Core::mix` |
-| Files | `storage::Desktop` | `impl Storage` |
-| Time | `Time<Real>` | `fn now(&self) -> Duration` |
+| Input events | `take_system_input`: key, button, wheel and focus-lost events into `Core::input` between frames | the same calls: `Input::key`, `button`, `wheel`, `focus_lost`; `key_of` is the key map |
+| Frame | `run_core`: `core.advance(Time<Real>.delta(), &mut platform)` | `advance(elapsed, &mut platform)` once a frame |
+| Window and pointer | `Platform` over the primary window; the mouse lock (`display::lock_wanted`) inside `pointer` | `impl Platform` |
+| Show | the frame into one texture, one sprite at the whole-number scale (`display::Letterbox`); `cursor_visible`, `title` after the frame | upload `Core::frame` (RGBA, 640 × 480) and scale it |
+| Sound | a `Decodable` that never ends pulls `Output::mix` 256 sample frames at a time | the device callback calls `Output::mix` (22,050 Hz stereo) |
+| Files, exit | `storage::Desktop`; `Core::exit` becomes `AppExit`; `store_settings` on a normal exit | the same `Desktop`; end the loop on `exit` |
+
+A scripted run needs one more call after each frame: `script::record(run, frame, output, exiting)`, which also says
+when the run is done; with a window, `script::compare_shot` takes the window's own picture of each shot.
 
 ## Safety net (phase 1, done)
 
 | Part | What it does | Where |
 |---|---|---|
 | Compositor | Places pictures on the screen: nearest texel at pixel centres, transparent texels skipped, grey tint in linear light. No engine types. | `crates/client/src/compose.rs` |
-| Scripted scenes | Feed the scene's input into the core's `Input` (`input.rs`, held in `shell::PlayerInput`), with a fixed frame time (1/60 s), a fixed wall clock and no sound device. `--script NAME --script-out DIR [--headless]`. | `script.rs` |
+| Scripted scenes | Feed the scene's input into the core's `Input` (`input.rs`, held in `Core::input`), with a fixed frame time (1/60 s), a fixed wall clock and no sound device. `--script NAME --script-out DIR [--headless]`. | `script.rs` |
 | Frame snapshot | Hashes every frame (runs of equal frames on one line), every shot and every sound start, without a window. Skips without `TIDEWATER_INSTALL`; `TIDEWATER_SNAPSHOT_BLESS=1` blesses. | `tests/frames.rs`, `tests/snapshots/campaign.txt` |
 | Bevy comparison | Ignored test: runs the scenes in a window at one pixel per screen pixel and compares Bevy's screenshot with the composed frame at each shot. | `tests/frames.rs` (`-- --ignored`) |
-| Recorded frame | The frame the screen composed (`shell::shown_frame`), for the snapshot and the comparison. Until step 3 a world composer recomposed what Bevy's cameras and sprites would show (`frame.rs`, now gone); both gave the same frames. | `shell.rs` |
+| Recorded frame | The frame the screen composed (`Core::frame`, recorded by `script::record`), for the snapshot and the comparison. Until step 3 a world composer recomposed what Bevy's cameras and sprites would show (`frame.rs`, now gone); both gave the same frames. | `shell.rs` |
 
 The `campaign` scene, 1,372 frames: title fade and title, main menu fade and hover, campaign choice, act screen (text
 and picture), briefing (two shots), the first mission's fade-in, drag selection, a right-click command, movement, key
@@ -205,7 +227,7 @@ the snapshot didn't change.
 | 6 ✓ | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
 | 7 ✓ | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts and mixed sound unchanged; loop points exact (below) |
 | 8 ✓ | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged, saved games and screenshots byte for byte |
-| 9 | Bevy shell thin | What's left of `main.rs` → `bevy_shell` (window, letterbox, input, audio, files) | unchanged |
+| 9 ✓ | Bevy shell thin | What's left of `main.rs` → `core.rs` (`Core::advance`), `game.rs`, `args.rs`; Bevy only in `shell.rs` (window, letterbox, input events, mouse lock, sound device) | unchanged (after the pointer re-bless, below) |
 | 10 | Trial shells (phase 3) | SDL3 and miniquad shells, measured | must pass the snapshot |
 
 Each step lands with the snapshot unchanged, or blessed with the reason in the commit.
@@ -213,15 +235,16 @@ Each step lands with the snapshot unchanged, or blessed with the reason in the c
 ### Time and system order (step 5)
 
 **Time.** The core's clock (`clock.rs`) takes each frame's real time from the shell and keeps Bevy's rules: the frame's
-game time is capped at 250 ms, whole steps of it run the game's cycles (`run_cycles` in `main.rs`, before the frame's
+game time is capped at 250 ms, whole steps of it run the game's cycles (in `Core::advance`, before the frame's
 `Update` systems, as `FixedUpdate` did), the step is 64 a second until a game sets its own, and the input logs age only
 after a frame that ran a step, as Bevy's message buffers did. No system reads Bevy's `Time` any more; the shell feeds
-the clock from `Time<Real>` (`shell::advance_clock`).
+the clock from `Time<Real>` (`shell::run_core`).
 
-**One order.** Every schedule runs on one thread, in the order its graph gives (`shell::one_order`). The frame's
-`Update` systems are one chain (`frame_systems` in `main.rs`), and the points where their commands take effect are
-written in it (after `play_sounds` and between the game menu's systems, where Bevy had put them). The order is the one
-Bevy's graph gave, with the two changes the snapshot showed the old multithreaded runs had:
+**One order.** Since step 9 the order is the code's: `Core::advance` calls the frame's steps and
+`core::frame_systems` calls the systems one after another, with the points where their deferred changes
+(`core::Commands`) take effect written in it (after `play_sounds` and between the game menu's systems, where Bevy had
+put them). Until step 9 every schedule ran on one thread in its graph's order (`shell::one_order`). The order is the
+one Bevy's graph gave, with the two changes the snapshot showed the old multithreaded runs had:
 
 | Pair | Shares | Order and why |
 |---|---|---|
@@ -239,8 +262,8 @@ Bevy's graph gave, with the two changes the snapshot showed the old multithreade
 | `store_settings`, `record` (scripted runs) | the world | Settings first, then the screen is composed and recorded. |
 | The clock and input systems, Bevy's message update | the world | After the message update. |
 
-Bevy's ambiguity check (`TIDEWATER_ORDER_CHECK=1`, built with `--features bevy/debug`), over the five scenes: 434
-pairs before this step, 65 after, none of them between two of our systems. The 65 are a system of ours against Bevy's
+Bevy's ambiguity check (`TIDEWATER_ORDER_CHECK=1`, built with `--features bevy/debug`; gone in step 9, when no
+schedule of ours was left to check), over the five scenes: 434 pairs before step 5, 65 after, none of them between two of our systems. The 65 are a system of ours against Bevy's
 own, and none of them shares data that matters:
 
 | Schedule | Pairs | Why the order doesn't matter |
@@ -265,10 +288,9 @@ frame's input and its game cycles, at most one a frame, in Bevy's order:
    first, as Bevy's did.
 4. The entering screen's hooks. Entering a game: `stop_music`, `camera_clear`, `start_game`, `setup`.
 
-The Bevy shell runs each hook as a system registered once at startup (`main.rs`, `register_hooks`), so a hook's
-commands take effect as it ends. Bevy applied an `OnExit` or `OnEnter` schedule's commands at its end instead; no hook
-reads what an earlier hook of the same change commands, so the two are the same. The hooks are registered before
-the first frame, so the screens' entities keep their order.
+Each hook is a plain function (`core::run_hook`), and its deferred changes take effect as it ends. Bevy applied an
+`OnExit` or `OnEnter` schedule's commands at its end instead; no hook reads what an earlier hook of the same change
+commands, so the two are the same.
 
 ### Sound (step 7)
 
@@ -307,12 +329,15 @@ frame as Bevy's query listed its sound entities (by kind, in the order each kind
 | Game clock | The game clock (saved in Enhanced saves) read the system's monotonic clock; the core may read only the time the shell gives it. | Done before step 8: it reads the core's clock (`FrameClock::elapsed`), at most a frame behind the system's. A scripted run's saves now come out the same every time, so the snapshot can hash them. |
 | Screenshots | Print Screen captured the window through Bevy, and the flash started when the capture came back, a frame or two later; a run without a window wrote nothing. | Done before step 8: the picture is the composed frame of the frame the key was pressed in (the same pixels), and the flash starts in the next frame. |
 | `--zoom` above 1 in a big window | The map is now composed at screen resolution, so zooming out at 3× no longer shows the extra detail. | Development aid only; accepted. |
+| A hook or system that couldn't run (step 9) | Bevy logged a hook system that failed to run, and skipped a system whose resource was missing. The plain functions return early on a missing part (`let Core { sim: Some(..), .. } = c else { return }`) and log nothing. | Accepted: no scene logged either, and the frames show no difference. |
+| Development output (step 9) | The demo save and load (`TIDEWATER_DEMO_SAVE`, `TIDEWATER_DEMO_LOAD`) logged through Bevy's `info!` and `error!`; a scripted run's pictures (`TIDEWATER_SCRIPT_PICTURES`, the windowed comparison's) were PNG files written by Bevy's image crate. Now `eprintln!` and the `png` crate. | Accepted: the same pixels, the PNG files' bytes may differ; the snapshot hashes neither. |
+| Window changes within a frame (step 9) | `size_window`, `fit_screen`, the title and the system pointer's visibility were set by systems mid-frame; an exit request was written mid-frame. The shell now applies them right after `Core::advance`. | Accepted: the window system sees window changes at the frame's end either way; the settings and a scripted run's record see an exit in the same frame as before. |
 
 ### Risks
 
 | Risk | Mitigation |
 |---|---|
-| Hidden system-order dependencies. Bevy runs unordered systems in any order; one was a real bug (an Escape could close the game menu and quit). | Done in step 5: one thread, one order, every pair listed ("Time and system order"). Run the ambiguity check again after each step. |
+| Hidden system-order dependencies. Bevy runs unordered systems in any order; one was a real bug (an Escape could close the game menu and quit). | Done in step 5: one thread, one order, every pair listed ("Time and system order"). Since step 9 the order is plain calls, so there is nothing left to be ambiguous. |
 | The snapshot covers one scene | Add scenes before the steps that touch them: score screen, outcome dialogs, load dialog, chat, cheats, endings, credits, videos (needs the core's video sound). |
 | A full 640 × 480 RGBA composition per frame on handhelds | Measure in phase 3; compose only changed layers, or go indexed. |
 | Memory: Bevy's client is about 450 MB | The core alone should be far smaller; measure in phase 3. |
