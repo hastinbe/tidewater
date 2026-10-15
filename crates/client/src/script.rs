@@ -327,7 +327,8 @@ fn outcome() -> Vec<Cmd> {
 }
 
 /// The finale cheat: the ending's video (left at once), the finale, the credits, then the main menu and its load
-/// dialog with no saved games.
+/// dialog with no saved games; then the main menu's Show Credits (C): the credits screen's fade-in and its first page,
+/// closed with Space.
 fn ending() -> Vec<Cmd> {
     use Cmd::*;
     use Key as K;
@@ -362,6 +363,16 @@ fn ending() -> Vec<Cmd> {
     v.extend([Wait(3), Shot("load-empty")]);
     v.extend(tap(K::Escape));
     v.extend([Wait(3), Shot("load-closed")]);
+    v.extend(tap(K::Letter('C')));
+    v.extend([
+        Until(AppState::Credits),
+        Wait(3),
+        Shot("show-credits-fade"),
+        Wait(60),
+        Shot("show-credits"),
+    ]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::MainMenu), Wait(20), Shot("menu-after-credits")]);
     v
 }
 

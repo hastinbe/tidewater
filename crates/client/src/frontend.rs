@@ -6,7 +6,7 @@
 //! Every screen is drawn in software into 640x480 pictures shown by one camera on its own render layer, above the
 //! game's cameras. The dialog files (`rez\*.bin`) aren't specified yet, so the layouts of the menu, the dialogs, the
 //! briefing and the score screen are our own, and the menu has only what the flow needs (New Campaign, Load Game,
-//! Quit; N, L and Q are our keys for them). The main menu and the credits fade in and out (`ui/palette-effects.md`,
+//! Show Credits, Quit; N, L, C and Q are our keys for them). The main menu and the credits fade in and out (`ui/palette-effects.md`,
 //! "Screen fades": 200 ms and 100 ms) like the title and act screens; the new-campaign choices, which the fade table
 //! doesn't name, don't fade. The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
 //! `campaign::MenuTimer`, one for every screen), and their fades block it; fades run on real time.
@@ -1084,6 +1084,8 @@ struct Menu {
 enum MenuPick {
     NewCampaign,
     Load(Box<crate::savegame::Resume>),
+    /// Show Credits: the credits screen (spec "Credits screen"), then the main menu again.
+    ShowCredits,
     Quit,
 }
 
@@ -1237,7 +1239,7 @@ pub(crate) fn enter_menu(c: &mut Core) {
         front,
         pictures,
         None,
-        &["New Campaign", "Load Game", "Quit"],
+        &["New Campaign", "Load Game", "Show Credits", "Quit"],
         AppState::MainMenu,
     );
     fade_in_new_screen(commands, fades::MENUS);
@@ -1279,6 +1281,10 @@ fn run_menu(c: &mut Core) {
                 go_on(flow, front, keys, next, exit);
             }
             MenuPick::Load(r) => crate::savegame::load_game(flow, next, r.header, r.body),
+            MenuPick::ShowCredits => {
+                flow.steps = VecDeque::from([Step::ShowCredits, Step::MainMenu]);
+                go_on(flow, front, keys, next, exit);
+            }
             MenuPick::Quit => *exit = true,
         }
         return;
@@ -1294,7 +1300,8 @@ fn run_menu(c: &mut Core) {
     let pick = pick
         .or(keys.just_pressed(Key::Letter('N')).then_some(0))
         .or(keys.just_pressed(Key::Letter('L')).then_some(1))
-        .or(keys.just_pressed(Key::Letter('Q')).then_some(2));
+        .or(keys.just_pressed(Key::Letter('C')).then_some(2))
+        .or(keys.just_pressed(Key::Letter('Q')).then_some(3));
     let close = |commands: &mut Commands, menu: &mut Menu, pick: MenuPick| {
         let end = fade_out_all(commands, layers, clock.0, fades::MENUS);
         menu.closing = Some((end, pick));
@@ -1315,6 +1322,7 @@ fn run_menu(c: &mut Core) {
             );
             commands.queue(move |c| c.screens.menu_load = Some(MenuLoad { ui, image }));
         }
+        Some(2) => close(commands, menu, MenuPick::ShowCredits),
         Some(_) => close(commands, menu, MenuPick::Quit),
         None => {}
     }
