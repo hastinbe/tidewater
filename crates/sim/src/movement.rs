@@ -158,6 +158,13 @@ impl World {
             .is_some_and(|p| matches!(p.controller, controller::COMPUTER | controller::RESCUE_ACTIVE))
     }
 
+    /// Whether a unit goes for bit-0x04 walls: it is not invisible and has no attacker. The one condition shared by
+    /// blocked row A (against row B) and the path search's mask drop (movement spec, "Blocked rules"; pathfinding
+    /// spec, "Inputs"); the player kinds they apply to differ ("Player kinds").
+    fn goes_for_walls(u: &Unit) -> bool {
+        u.invisibility == 0 && u.attacked_by.is_none()
+    }
+
     /// Gives a unit a new order: it waits as the pending order until the next "step done".
     pub(crate) fn give(&mut self, i: usize, order: Order) {
         // Orders 25 and 26 can't be interrupted (harvest spec, "Entering"), and dying units take no orders.
@@ -608,13 +615,11 @@ impl World {
         // Rows A and B are for computer players only, unlike the search's bit-0x04 drop ("Player kinds", V23).
         let computer = self.computer_player(u.owner);
         let wall = self.terrain.word(next.0, next.1) & HUMAN_WALL != 0;
-        // Invisibility isn't modelled yet: no unit is invisible.
-        let invisible = false;
         let attacked = u.attacked_by.is_some();
         let b = blocker.and_then(|b| self.unit(b));
         let near = if u.layer == Layer::Land { 1 } else { 2 };
         let (dx, dy) = ((u.tile.0 - g.tile.0).abs(), (u.tile.1 - g.tile.1).abs());
-        if computer && wall && !invisible && !attacked {
+        if computer && wall && Self::goes_for_walls(u) {
             Row::A
         } else if computer && wall {
             Row::B
@@ -703,7 +708,7 @@ impl World {
             req.zone = z;
         }
         // Units of players that aren't human-controlled drop bit 0x04 from their mask, unless invisible or attacked.
-        let drop_wall = !self.human_controlled(u.owner) && u.attacked_by.is_none();
+        let drop_wall = !self.human_controlled(u.owner) && Self::goes_for_walls(u);
         let mask = Self::movement_class(u) & if drop_wall { !HUMAN_WALL } else { !0 };
         struct Search<'a> {
             w: &'a World,
@@ -1498,6 +1503,27 @@ mod tests {
             );
         }
 
+        /// Row B, not row A, for an invisible computer unit with no attacker (movement spec, "Blocked rules"): it keeps
+        /// its order, drops its path and acts again next cycle. Once visible, the same block is row A.
+        #[test]
+        fn an_invisible_computer_unit_takes_row_b() {
+            for invisible in [true, false] {
+                let mut w = arena();
+                w.terrain.set_bits(5, 3, 0x8d);
+                let f = w.spawn(0, 1, (4, 3), 0).unwrap();
+                let i = walking(&mut w, f, (9, 3), (5, 3), 0);
+                w.units[i].invisibility = if invisible { 100 } else { 0 };
+                assert_eq!(w.move_toward(i, Goal::tile((9, 3), 0)), Walk::Blocked);
+                let order = w.units[i].order;
+                let pending = (!invisible).then_some(Order::AttackWall { tile: (5, 3) });
+                assert_eq!(
+                    outcome(&w, i),
+                    (order, pending, 1, anim::MOVE, 1, 0),
+                    "invisible {invisible}"
+                );
+            }
+        }
+
         /// V37 (round 72, static study only): the blocked counter is a 4-bit count. A computer unit with an attacker,
         /// blocked by a bit-0x04 wall tile with its counter at 15, takes row B and wraps the counter to 0 (no row C).
         /// Blocked next, with no attacker, by an enemy standing still, its counter goes to 1 and row I applies.
@@ -1669,11 +1695,18 @@ mod tests {
 
         /// The search mask's bit-0x04 drop is for every player that isn't human-controlled, with no attacker: a tile
         /// carrying only 0x04 is seen through by a computer, passive computer or neutral unit, not by a human player's
-        /// unit or an attacked one (pathfinding spec, "Inputs"; movement spec, "Player kinds").
+        /// unit, an attacked one or an invisible one (pathfinding spec, "Inputs"; movement spec, "Player kinds").
         #[test]
         fn the_search_drops_bit_4_for_every_player_not_human_controlled() {
             let mut routes = vec![];
-            for (owner, attacked) in [(1, false), (2, false), (4, false), (3, false), (1, true)] {
+            for (owner, attacked, invisible) in [
+                (1, false, false),
+                (2, false, false),
+                (4, false, false),
+                (3, false, false),
+                (1, true, false),
+                (1, false, true),
+            ] {
                 let mut w = arena();
                 w.players[4].controller = controller::NOBODY;
                 for y in 0..8 {
@@ -1685,13 +1718,16 @@ mod tests {
                 if attacked {
                     w.units[i].attacked_by = Some(foe);
                 }
+                if invisible {
+                    w.units[i].invisibility = 100;
+                }
                 let u = w.units[i].clone();
                 routes.push(w.plan(&u, Goal::tile((9, 3), 0)));
             }
             let through = vec![(5, 3), (6, 3), (7, 3), (8, 3), (9, 3)];
             assert_eq!(routes[..3], [through.clone(), through.clone(), through]);
             // The others find no way through and keep the straight line's prefix (the fallback).
-            assert_eq!(routes[3..], [vec![(5, 3)], vec![(5, 3)]], "{routes:?}");
+            assert_eq!(routes[3..], [vec![(5, 3)], vec![(5, 3)], vec![(5, 3)]], "{routes:?}");
         }
 
         /// The search's three tile tests on one map: the walk sees an ally with a command pending as free, the
