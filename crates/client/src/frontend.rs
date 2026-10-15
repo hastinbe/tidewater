@@ -459,14 +459,14 @@ impl Default for FrontScreen {
 /// The pointer of a screen around a game (screen spec, "Pointers outside a game").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FlowPointer {
-    /// No pointer: the videos, the title picture and the act screens.
+    /// No pointer: the videos, the title picture, the act screens and the campaign finale.
     Hidden,
     /// The orc normal arrow (`o_arrow.cur`) for every race and campaign: the main menu and the campaign choices.
     OrcArrow,
     /// The 3D arrow (`arrow_3d.cur`): the briefing, the score screen and the credits.
     Arrow3d,
-    /// A screen the spec doesn't name for certain (the finale dialog): our default, the human normal arrow in the
-    /// title picture's palette, as before the spec.
+    /// A screen with no pointer of its own (the start-up state, and the game, whose pointer follows the in-game
+    /// rules): the human normal arrow in the title picture's palette.
     Default,
 }
 
@@ -484,13 +484,16 @@ impl FlowPointer {
 
 /// The pointer each screen state shows. The game screen's pointer follows the in-game rules (`hud`), so `Default`
 /// there is never drawn. Videos show none: the introduction was seen with none, and the spec makes that the default
-/// for every video (round 70).
+/// for every video (round 70). The campaign finale shows none (round 72: the ToD human finale's picture, with the
+/// mouse moved; the spec's default for the other finales and for the finale once its text scrolls). The credits page
+/// that follows the finale (our `Step::Credits` after `Step::Finale`) wasn't observed; it keeps the credits screen's
+/// 3D arrow, as before.
 pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
     match state {
-        AppState::Video | AppState::Title | AppState::Act => FlowPointer::Hidden,
+        AppState::Video | AppState::Title | AppState::Act | AppState::Finale => FlowPointer::Hidden,
         AppState::MainMenu | AppState::NewCampaign => FlowPointer::OrcArrow,
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
-        AppState::Boot | AppState::Finale | AppState::Game => FlowPointer::Default,
+        AppState::Boot | AppState::Game => FlowPointer::Default,
     }
 }
 
@@ -2215,8 +2218,15 @@ mod tests {
         assert_eq!(FlowPointer::OrcArrow.file(), Some("o_arrow.cur"));
         assert_eq!(FlowPointer::Arrow3d.file(), Some("arrow_3d.cur"));
         assert_eq!(FlowPointer::Hidden.file(), None);
-        // Not settled by the spec: the finale dialog keeps the human arrow (`Front::arrow`).
-        assert_eq!(flow_pointer(S::Finale), FlowPointer::Default);
+        // Round 72: no pointer on the campaign finale, even when the mouse moves (the spec's default for every
+        // finale and for its scrolling text).
+        assert_eq!(
+            flow_pointer(S::Finale),
+            FlowPointer::Hidden,
+            "campaign finale: no pointer"
+        );
+        // Pinned, not in the spec: the credits page after the finale keeps the credits screen's 3D arrow.
+        assert_eq!(flow_pointer(S::Credits), FlowPointer::Arrow3d);
         // In a game (and its victory or defeat dialog) the in-game rules give the race arrow: a human campaign's is
         // the human normal arrow.
         assert_eq!(crate::screen::Pointer::Arrow.file(false), "h_arrow.cur");
