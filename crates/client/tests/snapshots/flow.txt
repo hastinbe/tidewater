@@ -50,17 +50,17 @@ frames	235-235	1eb1aa1df7776238
 frames	236-236	ee8df0e09afeb931
 frames	237-237	43de2fcb7df2d772
 frames	238-238	711a298a2ace39eb
-frames	239-254	8089bb621569b34c
-shot	258	campaigns	bec44ea4160e8bb4
-frames	255-259	bec44ea4160e8bb4
-shot	286	menu-again	8089bb621569b34c
-frames	260-286	8089bb621569b34c
-frames	287-288	645f3434495a0fb8
-frames	289-291	eeb1e3d7334471fc
-frames	292-292	2fb8def161ad9506
-frames	293-293	6e311309b23ec112
+frames	239-254	fd0dd16fe6f097cf
+shot	258	campaigns	3b07e038b9fb8244
+frames	255-259	3b07e038b9fb8244
+shot	286	menu-again	fd0dd16fe6f097cf
+frames	260-286	fd0dd16fe6f097cf
+frames	287-288	b7b23f5ab68dc1bb
+frames	289-291	fbebdf5dabe39bcb
+frames	292-292	6e44217ca2aa8f2b
+frames	293-293	4ef40f5a954c61e7
 sound	295	6e6a464a7cbedc22	1.0000	Despawn
-frames	294-294	aa899a0bc0646ca0
+frames	294-294	eb51dbe03dba848d
 frames	295-299	64280724d722d013
 frames	300-304	337a3fd35e7f490d
 frames	305-309	7d0403852ea01de6
@@ -208,5 +208,5 @@ frames	679-679	1eb1aa1df7776238
 frames	680-680	ee8df0e09afeb931
 frames	681-681	43de2fcb7df2d772
 frames	682-682	711a298a2ace39eb
-shot	698	menu-end	868eb1a1c992a2d8
-frames	683-698	868eb1a1c992a2d8
+shot	698	menu-end	9a72f177e06cfa05
+frames	683-698	9a72f177e06cfa05

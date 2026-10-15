@@ -40,7 +40,7 @@ frames	583-583	1eb1aa1df7776238
 frames	584-584	ee8df0e09afeb931
 frames	585-585	43de2fcb7df2d772
 frames	586-586	711a298a2ace39eb
-frames	587-601	a511b71f40e3e094
+frames	587-601	cd4b4fa95476e2e9
 shot	606	menu-load	0b3bb9b14e4b4377
 frames	602-606	0b3bb9b14e4b4377
 frames	607-607	9ff3ee17e850caeb

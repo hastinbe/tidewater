@@ -82,8 +82,8 @@ pub fn scenes() -> Vec<Scene> {
     campaign.extend([Shot("title")]);
     campaign.extend(tap(K::Space));
     campaign.extend([Until(AppState::MainMenu), Wait(6), Shot("menu-fade"), Wait(20)]);
-    campaign.extend([Move(320.0, 284.0), Wait(2), Shot("menu-hover")]);
-    campaign.extend(click(320.0, 284.0));
+    campaign.extend([Move(320.0, 254.0), Wait(2), Shot("menu-hover")]);
+    campaign.extend(click(320.0, 254.0));
     campaign.extend([
         Until(AppState::NewCampaign),
         Wait(2),
@@ -231,7 +231,7 @@ fn flow() -> Vec<Cmd> {
     v.extend([Until(AppState::NewCampaign), Wait(2), Shot("campaigns")]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
-    v.extend(click(320.0, 284.0));
+    v.extend(click(320.0, 254.0));
     v.extend([Until(AppState::NewCampaign), Wait(2), Move(320.0, 408.0), Wait(1)]);
     v.extend(click(320.0, 372.0));
     v.extend([Until(AppState::Video), Wait(60), Shot("bdp-intro")]);

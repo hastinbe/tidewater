@@ -25,6 +25,7 @@ use tidewater_formats::install::Install;
 use tidewater_formats::pcx::Pcx;
 use tidewater_formats::smk::{Smacker, YScale};
 use tidewater_formats::tbl::StringTable;
+use tidewater_formats::tileset::Palette;
 use tidewater_sim::setup::Setup;
 use tidewater_sim::victory::Outcome;
 
@@ -589,8 +590,8 @@ pub struct Screens {
     video: Option<VideoPlay>,
     title: Option<TitleScreen>,
     menu: Option<Menu>,
-    /// The menu picture as last loaded, kept for the switches between the menus drawn on it.
-    menu_picture: Option<Picture>,
+    /// The menu picture as last loaded, with its palette, kept for the switches between the menus drawn on it.
+    menu_picture: Option<(Picture, Palette)>,
     menu_load: Option<MenuLoad>,
     act: Option<ActScreen>,
     briefing: Option<Briefing>,
@@ -1079,7 +1080,11 @@ fn run_title(c: &mut Core) {
 struct Menu {
     image: PictureId,
     background: Picture,
-    items: Vec<(Rect, String)>,
+    /// The menu picture's palette: the buttons and text are drawn in its entries (screen spec, "Menu screens").
+    palette: Palette,
+    items: Vec<MenuItem>,
+    /// The focused button (the yellow ring): the first when the menu opens.
+    focus: usize,
     hot: Option<usize>,
     drawn: Option<Option<usize>>,
     /// The main menu's fade-out: when it ends, and what was chosen.
@@ -1102,12 +1107,41 @@ struct MenuLoad {
     image: PictureId,
 }
 
-fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
-    labels
+/// A menu button: its place, label, hotkey letter (drawn white in the label) and whether it can be used.
+struct MenuItem {
+    r: Rect,
+    label: String,
+    key: Option<char>,
+    enabled: bool,
+}
+
+/// A menu's buttons in the main menu's column (`menuscreen::button_rects`), from their labels and hotkeys.
+fn menu_items(font: &Font, labels: &[(&str, Option<char>)]) -> Vec<MenuItem> {
+    let widest = labels
         .iter()
-        .enumerate()
-        .map(|(i, l)| (rect(170, top + i as i32 * 36, 300, 28), l.to_string()))
+        .map(|(l, _)| menuscreen::text_width(font, l, menuscreen::SPACE_12X))
+        .max()
+        .unwrap_or(0);
+    menuscreen::button_rects(labels.len(), widest)
+        .into_iter()
+        .zip(labels)
+        .map(|(r, &(l, key))| MenuItem {
+            r,
+            label: l.to_string(),
+            key,
+            enabled: true,
+        })
         .collect()
+}
+
+/// The menu picture as RGBA, with its palette (black and an all-black palette if the install lacks it).
+fn menu_art(install: &mut Install) -> (Picture, Palette) {
+    let pal = install
+        .read(cf::MENU_PICTURE)
+        .ok()
+        .and_then(|d| Pcx::parse(&d).ok()?.palette)
+        .unwrap_or(Palette([[0; 3]; 256]));
+    (picture(install, cf::MENU_PICTURE, None), pal)
 }
 
 /// Opens a menu screen: the menu picture (`campaign::MENU_PICTURE`, in its own palette: screen spec, "Menu screens")
@@ -1115,7 +1149,7 @@ fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
 /// buttons. The heading and the version line are part of the picture, so they
 /// fade in with it (screen spec, "Pointer and fades"); the buttons are drawn by [`menu_input`] once the fade-in has
 /// ended.
-fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[&str], state: AppState) {
+fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[(&str, Option<char>)], state: AppState) {
     let screen = menu_screen(state).expect("a menu screen");
     let opening = screen.opening(menu_screen(c.states.previous()));
     let Core {
@@ -1127,18 +1161,18 @@ fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[&str], state: AppSta
     } = c;
     // Screen spec, "Menu screens": the picture is loaded when the menu screen opens, and a switch between the menus on
     // it keeps it.
-    let mut bg = match (&screens.menu_picture, opening.reload) {
-        (Some(p), false) => dup(p),
+    let (mut bg, palette) = match (&screens.menu_picture, opening.reload) {
+        (Some((p, pal)), false) => (dup(p), pal.clone()),
         _ => {
-            let p = picture(&mut front.install, cf::MENU_PICTURE, None);
-            screens.menu_picture = Some(dup(&p));
-            p
+            let (p, pal) = menu_art(&mut front.install);
+            screens.menu_picture = Some((dup(&p), pal.clone()));
+            (p, pal)
         }
     };
-    let top = 300 - labels.len() as i32 * 10;
-    let items = menu_items(labels, top);
+    let items = menu_items(&front.font, labels);
     if let Some(h) = heading {
-        centred(&mut bg, &front.font, top - 26, h);
+        // Our place for it: above the buttons.
+        menuscreen::draw_heading(&mut bg, &front.font, &palette, menuscreen::BUTTON_TOP - 30, h);
     }
     if opening.version_line {
         version_line(&mut bg, &front.small);
@@ -1148,7 +1182,9 @@ fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[&str], state: AppSta
     let menu = Menu {
         image,
         background: bg,
+        palette,
         items,
+        focus: 0,
         hot: None,
         drawn: None,
         closing: None,
@@ -1232,11 +1268,16 @@ fn menu_input(
     mouse: &Buttons<Button>,
     keys: &Buttons<Key>,
 ) -> Option<usize> {
-    menu.hot = at.and_then(|p| menu.items.iter().position(|(r, _)| r.contains(p.x, p.y)));
+    menu.hot = at.and_then(|p| menu.items.iter().position(|it| it.enabled && it.r.contains(p.x, p.y)));
     if menu.drawn != Some(menu.hot) {
         let mut p = dup(&menu.background);
-        for (i, (r, l)) in menu.items.iter().enumerate() {
-            button(&mut p, &front.font, *r, l, menu.hot == Some(i));
+        for (i, it) in menu.items.iter().enumerate() {
+            let state = menuscreen::ButtonState {
+                enabled: it.enabled,
+                hover: menu.hot == Some(i),
+                focused: menu.focus == i,
+            };
+            menuscreen::draw_button(&mut p, &front.font, &menu.palette, it.r, &it.label, it.key, state);
         }
         set_image(pictures, &menu.image, p);
         menu.drawn = Some(menu.hot);
@@ -1250,7 +1291,7 @@ fn menu_input(
         Key::Digit(6),
     ];
     if let Some(i) = DIGITS.iter().position(|&k| keys.just_pressed(k))
-        && i < menu.items.len()
+        && menu.items.get(i).is_some_and(|it| it.enabled)
     {
         return Some(i);
     }
@@ -1265,7 +1306,12 @@ pub(crate) fn enter_menu(c: &mut Core) {
     open_menu(
         c,
         None,
-        &["New Campaign", "Load Game", "Show Credits", "Quit"],
+        &[
+            ("New Campaign", Some('N')),
+            ("Load Game", Some('L')),
+            ("Show Credits", Some('C')),
+            ("Quit", Some('Q')),
+        ],
         AppState::MainMenu,
     );
 }
@@ -1409,8 +1455,8 @@ fn run_menu_load(c: &mut Core) {
 }
 
 pub(crate) fn enter_new_campaign(c: &mut Core) {
-    let mut labels: Vec<&str> = Choice::ALL.iter().map(|c| c.label()).collect();
-    labels.push("Cancel");
+    let mut labels: Vec<(&str, Option<char>)> = Choice::ALL.iter().map(|c| (c.label(), None)).collect();
+    labels.push(("Cancel", None));
     open_menu(c, Some("Choose a campaign"), &labels, AppState::NewCampaign);
 }
 

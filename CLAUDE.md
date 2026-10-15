@@ -35,7 +35,7 @@ before writing any code, and follow it exactly.
   scale, black border, map zoom and mouse-lock rules;
   `frontend.rs` runs the screens around a game (videos, title, menu, act screens, briefings, the outcome dialogs,
   the score screen, endings, credits) as the flow's states (`states.rs`), and the game screen's systems run only in `AppState::Game`.
-  `menuscreen.rs` holds the menu screens' rules (the shared menu picture, which switches fade).
+  `menuscreen.rs` holds the menu screens' rules (the shared menu picture, which switches fade, button and text colours).
   `--goto SCREEN` opens a flow screen directly for development.
   `audio.rs` decodes WAV sounds and mixes them at 22,050 Hz stereo; the shell streams the mixer to the device.
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,

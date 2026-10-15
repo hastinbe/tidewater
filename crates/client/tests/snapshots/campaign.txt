@@ -31,13 +31,13 @@ frames	77-77	1eb1aa1df7776238
 frames	78-78	ee8df0e09afeb931
 frames	79-79	43de2fcb7df2d772
 frames	80-80	711a298a2ace39eb
-frames	81-97	8089bb621569b34c
-shot	100	menu-hover	645f3434495a0fb8
-frames	98-102	645f3434495a0fb8
-frames	103-105	eeb1e3d7334471fc
-shot	107	campaigns	5a1f59cedd7df7b8
-frames	106-108	5a1f59cedd7df7b8
-frames	109-109	f0ac02258e63986c
+frames	81-97	fd0dd16fe6f097cf
+shot	100	menu-hover	b7b23f5ab68dc1bb
+frames	98-102	b7b23f5ab68dc1bb
+frames	103-105	fbebdf5dabe39bcb
+shot	107	campaigns	e97d1ec78eb52c8f
+frames	106-108	e97d1ec78eb52c8f
+frames	109-109	e779054bf63cf769
 frames	110-110	156ed4086987e325
 frames	111-111	15f6528fabef7a71
 frames	112-112	4ec044410112b933
