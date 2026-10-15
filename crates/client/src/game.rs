@@ -1221,11 +1221,14 @@ fn feedback(sim: &mut Sim, sel: &mut Selection, target: Option<(UnitId, u8)>, at
     }
 }
 
-/// Where a command click's ground marker goes: the clicked map pixel on the map view, or the tile's pixel position
-/// plus 8 on each axis on the minimap (selecting spec, "Right-click on the minimap"). A target-mode click on the
-/// minimap makes one there too (our default: the map-drawing spec names only the map view for target mode).
-fn mark_spot(at: Option<Vec2>, tile: (i32, i32)) -> (i32, i32) {
-    at.map_or((tile.0 * TILE_PX + 8, tile.1 * TILE_PX + 8), px)
+/// Where a command click's ground marker goes: the clicked map pixel on the map view; on the minimap, the tile's pixel
+/// position plus `minimap_offset` on each axis: 8 for a right-click (selecting spec, "Right-click on the minimap"), 0
+/// for a target-mode left click (tile × 32, "Target mode and placement mode clicks").
+fn mark_spot(at: Option<Vec2>, tile: (i32, i32), minimap_offset: i32) -> (i32, i32) {
+    at.map_or(
+        (tile.0 * TILE_PX + minimap_offset, tile.1 * TILE_PX + minimap_offset),
+        px,
+    )
 }
 
 /// The unit a map click at `at` (map pixels) on `tile` targets, with its flash colour.
@@ -1261,7 +1264,7 @@ fn right_click(
         tile,
     });
     sim.world.acknowledge(sel.units[0]);
-    let mark = mark_spot(at, tile);
+    let mark = mark_spot(at, tile, 8);
     feedback(sim, sel, target, mark);
 }
 
@@ -1284,7 +1287,7 @@ fn target_click(
     if let Some(c) = panel::target_command(t, human, hit.map(|h| h.0), tile) {
         sim.pending.push(c);
         sim.world.acknowledge(primary);
-        let mark = mark_spot(at, tile);
+        let mark = mark_spot(at, tile, 0);
         feedback(sim, sel, hit, mark);
     }
 }
@@ -2008,8 +2011,18 @@ mod tests {
 
     #[test]
     fn the_marker_goes_at_the_click_or_the_minimap_tile() {
-        assert_eq!(mark_spot(Some(Vec2::new(100.7, 41.2)), (3, 1)), (100, 41));
-        assert_eq!(mark_spot(None, (3, 1)), (104, 40), "minimap: the tile's pixel plus 8");
+        assert_eq!(mark_spot(Some(Vec2::new(100.7, 41.2)), (3, 1), 8), (100, 41));
+        assert_eq!(mark_spot(Some(Vec2::new(100.7, 41.2)), (3, 1), 0), (100, 41));
+        assert_eq!(
+            mark_spot(None, (3, 1), 8),
+            (104, 40),
+            "minimap right-click: the tile's pixel plus 8"
+        );
+        assert_eq!(
+            mark_spot(None, (3, 1), 0),
+            (96, 32),
+            "minimap target-mode click: tile × 32, no + 8"
+        );
     }
 
     #[test]

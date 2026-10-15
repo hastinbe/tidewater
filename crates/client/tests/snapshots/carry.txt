@@ -438,3 +438,13 @@ frames	3405-3406	b422fa41ef5d10ad
 frames	3407-3413	f573f7bae6dc0b1d
 shot	3414	carrying-walk	38bb838de799a5ad
 frames	3414-3414	38bb838de799a5ad
+frames	3415-3416	0e0a477005de68c0
+frames	3417-3417	69b693a2b7e3c41c
+shot	3420	minimap-target	20168a754786d65e
+sound	3421	6d68456e7a9601ee	0.9882	Despawn
+frames	3418-3420	20168a754786d65e
+frames	3421-3421	1818b6927e4916df
+frames	3422-3423	0fc23f5ebe547e7e
+frames	3424-3425	616b7a618d411ea2
+shot	3430	minimap-target-marker	95fde096ad54fbcc
+frames	3426-3430	95fde096ad54fbcc

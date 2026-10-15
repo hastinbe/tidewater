@@ -475,6 +475,12 @@ fn carry() -> Vec<Cmd> {
         Shot("marker-shrinks"),
     ]);
     v.extend([Wait(20), Shot("carrying-walk")]);
+    // The move command's target mode, then a left click on the minimap inside the view's rectangle: the marker goes at
+    // the clicked tile's top-left pixel.
+    v.extend(tap(Key::Letter('M')));
+    v.extend([Wait(2), Move(90.0, 60.0), Wait(2), Shot("minimap-target")]);
+    v.extend(click(90.0, 60.0));
+    v.extend([Wait(8), Shot("minimap-target-marker")]);
     v
 }
 
