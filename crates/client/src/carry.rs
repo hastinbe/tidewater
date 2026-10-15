@@ -2,15 +2,18 @@
 //!
 //! A worker or tanker that carries a load is drawn from a carrying sprite file; the frame numbers, facing columns and
 //! mirroring stay as they are, only the file changes ([`file_for`]). The file is chosen again only when the unit's
-//! carrying mark changes (with its current animation) or an animation is started by an order taking over or the unit
-//! going idle (with the new order's animation, "The order list" of `orders/orders.md`); between those moments the
-//! unit keeps its file ([`Carried`]). A worker whose file is chosen with animation 4 (attack, chop, mine) shows the
-//! plain file, so a carrying worker given an attack, harvest or repair order shows no load until it next goes idle or
-//! takes an order with another animation.
+//! carrying mark changes (with its current animation), an animation is started by an order taking over or the unit
+//! going idle (with the new order's animation, "The order list" of `orders/orders.md`), or, for a worker, its
+//! animation switches within an order to the move animation for a step or back to the order's own animation (with
+//! the animation switched to); between those moments the unit keeps its file ([`Carried`]). A worker whose file is
+//! chosen with animation 4 (attack, chop, mine) shows the plain file, so a carrying worker given an attack walks with
+//! its load, swings without it (also through the take-over's wait, before its first step), and carries it again once
+//! it stops.
 //!
 //! The client sees the world once a game cycle, after its update ([`Carried::update`]). A cycle in which both the mark
 //! changes and an order takes over (a worker felling its share of a tree, then given its return order in the same
-//! update) chooses with the new order's animation, as the take-over comes last. A killed unit counts as not carrying
+//! update) chooses with the new order's animation, as the take-over comes last. A worker's animation switch is seen as
+//! its animation number differing from the last look's; one seen in the same look as a take-over came after it. A killed unit counts as not carrying
 //! (the mark is cleared at the kill), so it dies in the plain file's death frames.
 //!
 //! Files (spec "Data"): `peong.grp` (gold), `peonl.grp` (lumber) and `tankero.grp` (oil), in `Art\Unit\Human\` for
@@ -201,6 +204,8 @@ impl Look {
 pub struct Chosen {
     carrying: bool,
     order: Discriminant<Order>,
+    /// The animation running at the last look.
+    anim: u8,
     pub file: Option<CarryFile>,
 }
 
@@ -210,24 +215,31 @@ impl Chosen {
         Chosen {
             carrying: look.carrying,
             order: std::mem::discriminant(&look.order),
+            anim: look.anim,
             file: look.file(order_animation(&look.order)),
         }
     }
 
     /// The unit seen again a cycle later ("When the file is chosen"): the mark changed (chosen with the current
-    /// animation), then an order took over (chosen with its animation); otherwise the file stays.
+    /// animation), then an order took over (chosen with its animation), then a worker's animation switched to its move
+    /// animation or back to its order's own (chosen with the animation switched to); otherwise the file stays.
     pub fn next(self, look: &Look) -> Chosen {
         let mut file = self.file;
         if look.carrying != self.carrying {
             file = look.file(look.anim);
         }
         let order = std::mem::discriminant(&look.order);
+        let own = order_animation(&look.order);
         if order != self.order {
-            file = look.file(order_animation(&look.order));
+            file = look.file(own);
+        }
+        if look.carrier == Carrier::Worker && look.anim != self.anim && (look.anim == MOVE || look.anim == own) {
+            file = look.file(look.anim);
         }
         Chosen {
             carrying: look.carrying,
             order,
+            anim: look.anim,
             file,
         }
     }
@@ -377,26 +389,54 @@ mod tests {
     }
 
     #[test]
-    fn a_carrying_peasant_given_an_attack_shows_no_load_until_idle() {
-        let c = Chosen::first(&look(PEASANT, true, Gather::Lumber, STILL, Order::Idle));
-        assert_eq!(path(&c).as_deref(), Some("Art\\Unit\\Human\\peonl.grp"));
+    fn a_carrying_peon_given_an_attack_walks_with_its_load_and_swings_without_it() {
+        // The round-70 vector (Orc01): a peon carrying gold given an attack on a grunt; later stop; later a move.
+        let gold = Some("Art\\Unit\\Orc\\peong.grp");
+        let c = Chosen::first(&look(PEON, true, Gather::Gold, STILL, Order::Idle));
+        assert_eq!(path(&c).as_deref(), gold);
         let attack = Order::Attack { target: UnitId(7) };
-        let c = c.next(&look(PEASANT, true, Gather::Lumber, STILL, attack));
+        // The take-over starts animation 4: the plain file through its wait of 3 cycles.
+        let c = c.next(&look(PEON, true, Gather::Gold, ATTACK, attack));
         assert_eq!(c.file, None, "chosen with the attack order's animation 4");
-        // Walking to the target (move steps) and swinging: still the plain file.
-        let c = c.next(&look(PEASANT, true, Gather::Lumber, MOVE, attack));
-        let c = c.next(&look(PEASANT, true, Gather::Lumber, ATTACK, attack));
+        let c = c.next(&look(PEON, true, Gather::Gold, ATTACK, attack));
         assert_eq!(c.file, None);
-        let c = c.next(&look(PEASANT, true, Gather::Lumber, STILL, Order::Idle));
-        assert_eq!(path(&c).as_deref(), Some("Art\\Unit\\Human\\peonl.grp"));
+        // The first step's move animation: load in hand while it walks.
+        let c = c.next(&look(PEON, true, Gather::Gold, MOVE, attack));
+        assert_eq!(path(&c).as_deref(), gold);
+        let c = c.next(&look(PEON, true, Gather::Gold, MOVE, attack));
+        assert_eq!(path(&c).as_deref(), gold);
+        // At the grunt, its attack animation: swinging from the plain file.
+        let c = c.next(&look(PEON, true, Gather::Gold, ATTACK, attack));
+        assert_eq!(c.file, None);
+        // After the stop: the carrying file (frame 0 + column).
+        let c = c.next(&look(PEON, true, Gather::Gold, STILL, Order::Idle));
+        assert_eq!(path(&c).as_deref(), gold);
+        // Walking on the move: the carrying file.
+        let mv = Order::Move {
+            goal: (9, 9),
+            target: None,
+        };
+        let c = c.next(&look(PEON, true, Gather::Gold, STILL, mv));
+        let c = c.next(&look(PEON, true, Gather::Gold, MOVE, mv));
+        assert_eq!(path(&c).as_deref(), gold);
     }
 
     #[test]
-    fn a_gold_carrying_peasant_sent_to_a_tree_shows_the_plain_file() {
-        let c = Chosen::first(&look(PEASANT, true, Gather::Gold, STILL, Order::Idle));
-        assert_eq!(path(&c).as_deref(), Some("Art\\Unit\\Human\\peong.grp"));
-        let c = c.next(&look(PEASANT, true, Gather::Gold, MOVE, HARVEST_TREE));
-        assert_eq!(c.file, None, "order 23 takes over with animation 4");
+    fn a_carrying_peasant_given_an_attack_shows_its_lumber_while_walking() {
+        let lumber = Some("Art\\Unit\\Human\\peonl.grp");
+        let c = Chosen::first(&look(PEASANT, true, Gather::Lumber, STILL, Order::Idle));
+        let attack = Order::Attack { target: UnitId(7) };
+        let c = c.next(&look(PEASANT, true, Gather::Lumber, ATTACK, attack));
+        assert_eq!(c.file, None);
+        let c = c.next(&look(PEASANT, true, Gather::Lumber, MOVE, attack));
+        assert_eq!(path(&c).as_deref(), lumber, "walking");
+        let c = c.next(&look(PEASANT, true, Gather::Lumber, ATTACK, attack));
+        assert_eq!(c.file, None, "swinging");
+        // Walking again after the target moved away.
+        let c = c.next(&look(PEASANT, true, Gather::Lumber, MOVE, attack));
+        assert_eq!(path(&c).as_deref(), lumber);
+        let c = c.next(&look(PEASANT, true, Gather::Lumber, STILL, Order::Idle));
+        assert_eq!(path(&c).as_deref(), lumber, "idle after the attack");
     }
 
     #[test]
