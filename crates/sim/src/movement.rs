@@ -397,35 +397,67 @@ impl World {
         self.move_toward_as(i, g, false)
     }
 
-    /// [`World::move_toward`]; with `restart`, a step starts the move animation and runs it at once even if it is
-    /// already playing (a two-tile transport landing or pushing off, transports spec, "Landing" step 2 and "Pushing
-    /// off" step 4).
+    /// [`World::move_toward`]: the walk at a step boundary (movement spec, "The model"), its four steps in order. With
+    /// `restart`, a step starts the move animation and runs it at once even if it is already playing (a two-tile
+    /// transport landing or pushing off, transports spec, "Moving near the shore").
     pub(crate) fn move_toward_as(&mut self, i: usize, g: Goal, restart: bool) -> Walk {
-        let u = &self.units[i];
-        if chebyshev(u.tile, g.tile) <= self.arrival_radius(u, &g) {
+        // 1. Arrival: measured to the stored goal, not the one the search rounds to even (pathfinding spec, "One walk
+        // goal"; V20 there).
+        if self.at_goal(i, g) {
             self.units[i].path.clear();
             return Walk::Arrived;
         }
-        if u.path.is_empty() {
+        // 2. Next direction: from the cached path, searched first when it is used up; no steps is no route.
+        let Some(next) = self.next_tile(i, g) else {
+            return Walk::NoPath;
+        };
+        // 3. Blocked test.
+        if let Some(blocker) = self.step_blocked(i, next) {
+            self.blocked(i, next, blocker, g);
+            return Walk::Blocked;
+        }
+        // 4. The step.
+        self.take_step(i, next, restart);
+        Walk::Stepping
+    }
+
+    /// The walk's step 2 ("Paths"): the next tile of the cached path, searched first if the cache is used up. `None`
+    /// when the search returns no steps.
+    fn next_tile(&mut self, i: usize, g: Goal) -> Option<(i32, i32)> {
+        if self.units[i].path.is_empty() {
             let path = self.plan(&self.units[i], g);
             if path.is_empty() {
-                return Walk::NoPath;
+                return None;
             }
             self.units[i].path = path;
         }
-        let u = &self.units[i];
-        let next = u.path[0];
-        let occupant = self.occupant(u.layer, next.0, next.1).filter(|&o| o != u.id);
-        // Transports spec, "Landing": a landing transport moves in the landing class, which may enter shore water.
-        let class = if u.ship.landing {
+        Some(self.units[i].path[0])
+    }
+
+    /// The movement class a unit moves in (occupancy spec): its layer's, or the landing class while a transport lands
+    /// and after it has landed (transports spec, "Moving near the shore").
+    fn movement_class(u: &Unit) -> u16 {
+        if u.ship.landing {
             crate::terrain::mask::LANDING
         } else {
             u.layer.mask()
-        };
-        if occupant.is_some() || !self.terrain_allows_mask(class, next.0, next.1) {
-            self.blocked(i, next, occupant, g);
-            return Walk::Blocked;
         }
+    }
+
+    /// The walk's step 3, the step's own tile test ("Paths"; pathfinding spec, "Three tile tests"): any other unit on
+    /// the next tile blocks it, and so does terrain of the unit's movement class. `Some` with the blocking unit, if
+    /// any, when the step is blocked.
+    fn step_blocked(&self, i: usize, next: (i32, i32)) -> Option<Option<UnitId>> {
+        let u = &self.units[i];
+        let occupant = self.occupant(u.layer, next.0, next.1).filter(|&o| o != u.id);
+        let free = occupant.is_none() && self.terrain_allows_mask(Self::movement_class(u), next.0, next.1);
+        (!free).then_some(occupant)
+    }
+
+    /// The walk's step 4 ("Positions and steps"): the old tile is left and the new one entered at once, the unit
+    /// faces the step, a human player's sight is applied from the new tile, and the move animation carries the pixel
+    /// position across.
+    fn take_step(&mut self, i: usize, next: (i32, i32), restart: bool) {
         let unit = self.units[i].clone();
         self.mark(&unit, unit.tile, None);
         let u = &mut self.units[i];
@@ -437,17 +469,18 @@ impl World {
         // Vision spec, "When sight is applied": a unit that moves onto a new tile reveals from it at once.
         self.apply_unit_sight(i);
         // A transport moving as a one-tile unit keeps its order's animation (6 for orders 30 and 31): only a two-tile
-        // mover starts the move animation (transports spec, "Landing" step 2 and "Pushing off" step 4).
+        // mover starts the move animation (transports spec, "Moving near the shore", "Animation").
         if (restart || unit.script.anim != anim::MOVE) && !unit.ship.one_tile {
             self.switch_anim(i, anim::MOVE);
         }
-        // Sounds spec, "Docking": a transport moving onto a shore-water tile.
-        if self.stats_of(unit.kind).flags & tidewater_formats::udta::flags::TRANSPORT != 0
-            && self.terrain.word(next.0, next.1) & crate::terrain::bits::SHORE != 0
+        // Sounds spec, "Docking": a transport moving onto a shore-water tile. Transports spec ("Moving near the
+        // shore", "Docking sound") puts pushing off's sound on the step leaving shore water instead; we keep one rule
+        // for both until the docking sound is implemented (open question there).
+        if self.stats_of(unit.kind).flags & flags::TRANSPORT != 0
+            && self.terrain.word(next.0, next.1) & bits::SHORE != 0
         {
             self.sound_on(i, crate::sound::Sound::Dock);
         }
-        Walk::Stepping
     }
 
     /// The blocked rules: the move animation restarts in place, the counter goes up, and the first matching row
@@ -577,12 +610,7 @@ impl World {
         }
         // Units of players that aren't human-controlled drop bit 0x04 from their mask, unless invisible or attacked.
         let drop_wall = !self.human_controlled(u.owner) && u.attacked_by.is_none();
-        let class = if u.ship.landing {
-            crate::terrain::mask::LANDING
-        } else {
-            u.layer.mask()
-        };
-        let mask = class & if drop_wall { !HUMAN_WALL } else { !0 };
+        let mask = Self::movement_class(u) & if drop_wall { !HUMAN_WALL } else { !0 };
         struct Search<'a> {
             w: &'a World,
             u: &'a Unit,
