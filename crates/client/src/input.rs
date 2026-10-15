@@ -10,7 +10,8 @@
 //! - [`Log`]: the typed key events and wheel steps stay readable for two updates of the log
 //!   ([`Input::update_logs`]), and each reader keeps its own place ([`LogCursor`]), so a reader that starts late still
 //!   sees what came in just before.
-//! - The pointer isn't here yet: it still goes through the mouse lock and the letterbox (`frontend::pointer`).
+//! - The pointer and the window: the shell sets [`Input::pointer`] once a frame, after the mouse lock, with the
+//!   window's size and scale ([`Input::window`]) that turn it into screen and map positions.
 
 use std::collections::HashSet;
 
@@ -215,6 +216,15 @@ impl<T> Log<T> {
     }
 }
 
+/// The window the screen shows in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowGeom {
+    /// Its size in physical pixels.
+    pub size: (u32, u32),
+    /// Physical pixels per logical point.
+    pub factor: f32,
+}
+
 /// The player's input.
 #[derive(Clone, Debug, Default)]
 pub struct Input {
@@ -226,6 +236,13 @@ pub struct Input {
     pub scroll: f32,
     /// Whether the last of this frame's wheel steps was in pixels.
     pub scroll_pixels: bool,
+    /// The pointer in the window's logical points (the locked pointer while the mouse lock holds the system's still),
+    /// `None` when it is outside the window.
+    pub pointer: Option<(f32, f32)>,
+    /// The window, `None` without one.
+    pub window: Option<WindowGeom>,
+    /// The window has the keyboard focus (a scripted run counts as focused).
+    pub focused: bool,
     /// This frame's events, applied to the keys and buttons by [`Input::begin_frame`].
     pending: Vec<Event>,
 }

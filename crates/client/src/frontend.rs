@@ -21,7 +21,6 @@ use std::sync::mpsc::{Receiver, channel};
 use bevy::ecs::schedule::ScheduleConfigs;
 use bevy::ecs::system::ScheduleSystem;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use tidewater_formats::fnt::Font;
 use tidewater_formats::install::Install;
 use tidewater_formats::pcx::Pcx;
@@ -648,21 +647,17 @@ impl LockedPointer {
 }
 
 /// The pointer in screen pixels (640x480).
-pub(crate) fn pointer(
-    window: &Query<&Window, With<PrimaryWindow>>,
-    cam: &FrontScreen,
-    locked: &LockedPointer,
-) -> Option<Vec2> {
-    let w = window.single().ok()?;
-    let p = locked.at(w)?;
+pub(crate) fn pointer(input: &crate::input::Input, cam: &FrontScreen) -> Option<Vec2> {
+    let w = input.window?;
+    let p = input.pointer?;
     if !cam.ready {
         return None;
     }
     // The flow's camera looked at the screen's place in the window, at least 640 × 480 across.
     let at = crate::camera_point(
-        p,
-        crate::letterbox(w).screen(),
-        w.scale_factor(),
+        Vec2::new(p.0, p.1),
+        crate::display::Letterbox::fit(w.size).screen(),
+        w.factor,
         1.0,
         Some(Vec2::new(W as f32, H as f32)),
         Vec2::ZERO,
@@ -1116,9 +1111,7 @@ fn run_menu(
     front: Res<Front>,
     folder: Res<crate::shell::Store>,
     mut pictures: ResMut<ScreenPictures>,
-    window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
-    locked: Res<LockedPointer>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -1144,7 +1137,7 @@ fn run_menu(
         }
         return;
     }
-    let at = pointer(&window, &cam, &locked);
+    let at = pointer(&input, &cam);
     // The menu is drawn before its fade-in, but takes no input until the fade ends.
     let pick = menu_input(&mut menu, &front, &mut pictures, at, mouse, keys, "Tidewater");
     if clock.0 < fades::MENUS as f64 {
@@ -1193,13 +1186,11 @@ fn run_menu_load(
     front: Res<Front>,
     mut pictures: ResMut<ScreenPictures>,
     mut cursors: Local<(LogCursor, LogCursor)>,
-    window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
-    locked: Res<LockedPointer>,
     input: Res<PlayerInput>,
     store: Res<crate::shell::Store>,
 ) {
-    let input = crate::gamemenu::saving_input(&input, &mut cursors, &window, &cam, &locked);
+    let input = crate::gamemenu::saving_input(&input, &mut cursors, &cam);
     let load = &mut *load;
     let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot);
     let before = snap(&load.ui);
@@ -1245,9 +1236,7 @@ fn run_new_campaign(
     mut menu: ResMut<Menu>,
     front: Res<Front>,
     mut pictures: ResMut<ScreenPictures>,
-    window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
-    locked: Res<LockedPointer>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -1255,7 +1244,7 @@ fn run_new_campaign(
 ) {
     let keys = &input.keys;
     let mouse = &input.mouse;
-    let at = pointer(&window, &cam, &locked);
+    let at = pointer(&input, &cam);
     let pick = menu_input(&mut menu, &front, &mut pictures, at, mouse, keys, "Choose a campaign");
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = match pick {
@@ -1638,9 +1627,7 @@ fn run_dialog(
     sim: Option<Res<crate::Sim>>,
     mut front: ResMut<Front>,
     mut pictures: ResMut<ScreenPictures>,
-    window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
-    locked: Res<LockedPointer>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -1652,7 +1639,7 @@ fn run_dialog(
         let p = draw_dialog(&front, &dialog);
         set_image(&mut pictures, &dialog.image, p);
     }
-    let at = pointer(&window, &cam, &locked).filter(|_| mouse.just_released(Button::Left));
+    let at = pointer(&input, &cam).filter(|_| mouse.just_released(Button::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
     let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([Key::Enter, Key::Letter('C')]) {
         Some(cf::DialogButton::Continue)

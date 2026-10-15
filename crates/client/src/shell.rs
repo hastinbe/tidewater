@@ -95,6 +95,7 @@ pub fn plugin(app: &mut App) {
                 .after(MessageUpdateSystems),
         )
         .add_systems(PreUpdate, begin_input_frame.in_set(ReadInput))
+        .add_systems(PreUpdate, set_pointer.after(ReadInput))
         .init_resource::<ScreenPictures>()
         .add_systems(Startup, spawn_screen)
         .add_systems(Last, (compose_screen, show_screen).chain().in_set(ComposeScreen));
@@ -249,7 +250,7 @@ fn compose_screen(
     front_screen: Res<FrontScreen>,
     layers: Query<(Entity, &ScreenLayer)>,
 ) {
-    let Ok((window, mut cursor)) = windows.single_mut() else {
+    let Ok((_, mut cursor)) = windows.single_mut() else {
         return;
     };
     // Outside a game the flow's screen clears the screen first (`frontend::camera_clear`).
@@ -349,8 +350,10 @@ fn compose_screen(
         (_, Some(f)) if !in_game => f.arrow.as_ref(),
         _ => None,
     };
-    if let (Some((pic, hot)), Some(p)) = (arrow, pointer.locked.at(window)) {
-        let (x, y) = crate::letterbox(window).screen_point((p.x, p.y), window.scale_factor());
+    if let (Some((pic, hot)), Some(p)) = (arrow, pointer.input.pointer)
+        && let Some(w) = pointer.input.window
+    {
+        let (x, y) = crate::display::Letterbox::fit(w.size).screen_point(p, w.factor);
         let (x, y) = (x.floor() as i32 - hot.0, y.floor() as i32 - hot.1);
         frame.draw(&Placed {
             rgba: &pic.rgba,
@@ -380,7 +383,7 @@ struct PointerState<'w> {
     dialog: Option<Res<'w, OutcomeDialog>>,
     menu: Option<Res<'w, GameMenu>>,
     front: Option<Res<'w, Front>>,
-    locked: Res<'w, LockedPointer>,
+    input: Res<'w, PlayerInput>,
 }
 
 /// The frame the window shows this frame, at one window pixel per screen pixel: what a scripted run records. `None`
@@ -513,6 +516,23 @@ fn age_input(mut input: ResMut<PlayerInput>) {
 
 fn begin_input_frame(mut input: ResMut<PlayerInput>) {
     input.begin_frame();
+}
+
+/// The frame's pointer, window and focus (`Input::pointer`), after the mouse lock (`main.rs`, `mouse_lock`) or the
+/// scripted run (`script`) has placed the pointer.
+pub fn set_pointer(
+    window: Query<&Window, With<PrimaryWindow>>,
+    locked: Res<LockedPointer>,
+    script: Option<Res<crate::script::Script>>,
+    mut input: ResMut<PlayerInput>,
+) {
+    let w = window.single().ok();
+    input.window = w.map(|w| crate::input::WindowGeom {
+        size: (w.physical_width(), w.physical_height()),
+        factor: w.scale_factor(),
+    });
+    input.pointer = w.and_then(|w| locked.at(w)).map(|p| (p.x, p.y));
+    input.focused = script.is_some() || w.is_some_and(|w| w.focused);
 }
 
 /// A key by its place.

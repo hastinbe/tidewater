@@ -34,13 +34,10 @@
 //! - The dialogs' own art, and the "Network" button of the Battle.net options menu.
 
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{
-    self, AppState, AppStates, Flow, Front, FrontScreen, LockedPointer, OwnedBy, Persist, in_screen,
-};
+use crate::frontend::{self, AppState, AppStates, Flow, Front, FrontScreen, OwnedBy, Persist, in_screen};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Input, Key, LogCursor};
 use crate::layers::PictureId;
@@ -780,12 +777,10 @@ fn open_from_outcome(
 fn gather_saving_input(
     mut saving: ResMut<SavingInput>,
     mut cursors: Local<(LogCursor, LogCursor)>,
-    window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
-    locked: Res<LockedPointer>,
     input: Res<PlayerInput>,
 ) {
-    saving.0 = saving_input(&input, &mut cursors, &window, &cam, &locked);
+    saving.0 = saving_input(&input, &mut cursors, &cam);
 }
 
 /// One frame's input for a save or load dialog (also the main menu's load dialog, `frontend`).
@@ -793,13 +788,11 @@ fn gather_saving_input(
 pub(crate) fn saving_input(
     input: &Input,
     (typed, wheel): &mut (LogCursor, LogCursor),
-    window: &Query<&Window, With<PrimaryWindow>>,
     cam: &FrontScreen,
-    locked: &LockedPointer,
 ) -> savedlg::Input {
     let (keys, mouse_in) = (&input.keys, &input.mouse);
     let mut i = savedlg::Input {
-        pointer: frontend::pointer(window, cam, locked).map(|p| (p.x, p.y)),
+        pointer: frontend::pointer(input, cam).map(|p| (p.x, p.y)),
         click: mouse_in.just_released(Button::Left),
         enter: keys.any_just_pressed([Key::Enter, Key::NumpadEnter]),
         escape: keys.just_pressed(Key::Escape),
@@ -844,9 +837,7 @@ fn run_menu(
     mut front: ResMut<Front>,
     mut flow: ResMut<Flow>,
     mut pictures: ResMut<ScreenPictures>,
-    window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
-    locked: Res<LockedPointer>,
     layer: Query<Entity, With<MenuLayer>>,
     folder: Res<Store>,
     mut next: ResMut<AppStates>,
@@ -863,7 +854,7 @@ fn run_menu(
     let title_h = front.big.height as i32;
     let line_h = front.font.height as i32 + 4;
     let built = m.build(title_h, line_h, kind);
-    let at = frontend::pointer(&window, &cam, &locked);
+    let at = frontend::pointer(&input, &cam);
 
     // The delayed application of the sound dialog's changes.
     if m.delay.tick() {

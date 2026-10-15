@@ -504,7 +504,6 @@ fn drive(
     mut input: ResMut<PlayerInput>,
     mut motion: ResMut<Messages<MouseMotion>>,
     mut locked: ResMut<LockedPointer>,
-    hud: Option<ResMut<crate::Hud>>,
 ) {
     input.clear_events();
     motion.clear();
@@ -572,9 +571,6 @@ fn drive(
     let f = w.scale_factor();
     let at = |p: f32, offset: u32| (offset as f32 + p * lb.scale as f32) / f;
     locked.0 = Some(Vec2::new(at(s.pointer.x, lb.offset.0), at(s.pointer.y, lb.offset.1)));
-    if let Some(mut hud) = hud {
-        hud.locked = *locked;
-    }
 }
 
 /// FNV-1a, 64 bits: the frame and sound fingerprints.

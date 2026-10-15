@@ -373,21 +373,19 @@ struct Hud {
     map: (u32, u32),
     /// The minimap: its redraw countdown, terrain picture and last picture (`minimap`).
     minimap: minimap::Minimap,
-    /// The locked pointer (`frontend::LockedPointer`), copied here by `mouse_lock`.
-    locked: frontend::LockedPointer,
 }
 
 impl Hud {
     /// The cursor in screen pixels, through the black border (`display::Letterbox::screen_point`).
-    fn cursor(&self, window: &Window) -> Option<Vec2> {
-        let p = self.locked.at(window)?;
-        let (x, y) = letterbox(window).screen_point((p.x, p.y), window.scale_factor());
+    fn cursor(&self, input: &input::Input) -> Option<Vec2> {
+        let (w, p) = (input.window?, input.pointer?);
+        let (x, y) = display::Letterbox::fit(w.size).screen_point(p, w.factor);
         Some(Vec2::new(x, y))
     }
 
     /// Whether the cursor is over the map view (and not the interface).
-    fn over_map(&self, window: &Window) -> bool {
-        match (self.layout, self.cursor(window)) {
+    fn over_map(&self, input: &input::Input) -> bool {
+        match (self.layout, self.cursor(input)) {
             (Some(l), Some(p)) => l.viewport.contains(p.x, p.y),
             _ => false,
         }
@@ -567,6 +565,7 @@ fn main() -> Result<()> {
             PreUpdate,
             mouse_lock
                 .after(shell::ReadInput)
+                .before(shell::set_pointer)
                 .run_if(not(resource_exists::<script::Script>)),
         )
         .insert_resource(front)
@@ -1015,7 +1014,6 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         image: None,
         map: (0, 0),
         minimap: minimap::Minimap::new(0),
-        locked: frontend::LockedPointer::default(),
     });
     world.resource_mut::<CoreTime>().restart_steps(hz);
     world.insert_resource(selection);
@@ -1238,10 +1236,9 @@ fn cycle_palette(
     ui: Res<PanelUi>,
     stored: Res<gamemenu::Stored>,
     menu: Option<Res<gamemenu::GameMenu>>,
-    windows: Query<&Window>,
+    input: Res<PlayerInput>,
     mut pictures: ResMut<ScreenPictures>,
     real: Res<CoreTime>,
-    script: Option<Res<script::Script>>,
 ) {
     let (Some(sim), Some(mut art), Some(terrain)) = (sim, art, terrain) else {
         return;
@@ -1250,8 +1247,7 @@ fn cycle_palette(
         preference: stored.0.colour_cycling(),
         paused: sim.world.paused,
         menu_open: menu.is_some(),
-        // A scripted run counts as focused (`script`).
-        focused: script.is_some() || windows.single().is_ok_and(|w| w.focused),
+        focused: input.focused,
     };
     let now = real_ms(&real).saturating_sub(cycling.started_ms);
     let placing = matches!(ui.mode, panel::Mode::Place(_));
@@ -1367,8 +1363,8 @@ fn draw_view(
     art: Option<Res<Art>>,
     sel: Res<Selection>,
     ui: Res<PanelUi>,
-    hud: Res<Hud>,
-    windows: Query<&Window>,
+    _hud: Res<Hud>,
+    input: Res<PlayerInput>,
     view: Option<Res<GameView>>,
     mut pictures: ResMut<ScreenPictures>,
     mut shown: Query<&mut ScreenLayer, With<ViewLayer>>,
@@ -1383,8 +1379,8 @@ fn draw_view(
     let map = (v.width as i32 * TILE_PX, v.height as i32 * TILE_PX);
     let (l, t, r, b) = view.pixels(map);
     let mut canvas = view::Canvas::new(l, t, r - l, b - t);
-    let drag = match (sel.drag_from, windows.single()) {
-        (Some(from), Ok(window)) => cursor_map(window, &hud.locked, &view).map(|p| (px(from), px(p))),
+    let drag = match (sel.drag_from, input.window) {
+        (Some(from), Some(_)) => cursor_map(&input, &view).map(|p| (px(from), px(p))),
         _ => None,
     };
     let local = view::Local {
@@ -1425,14 +1421,14 @@ fn draw_placement(
     ui: Res<PanelUi>,
     sel: Res<Selection>,
     hud: Res<Hud>,
-    windows: Query<&Window>,
+    input: Res<PlayerInput>,
     mut ghost: Query<&mut ScreenLayer, With<Ghost>>,
 ) {
     let Ok(mut layer) = ghost.single_mut() else {
         return;
     };
     let (Some(sim), Some(art)) = (sim, art) else { return };
-    let over = windows.single().is_ok_and(|w| hud.over_map(w));
+    let over = hud.over_map(&input);
     let pointer = ui.site.filter(|_| over).or(ui.demo_pointer);
     let builder = sel.units.first().and_then(|&id| sim.world.unit(id));
     let (panel::Mode::Place(kind), Some(tile), Some(b)) = (ui.mode, pointer, builder) else {
@@ -1460,13 +1456,14 @@ fn draw_placement(
 
 /// The cursor position in map pixels (y down), if it is over the window: by the view the last frame drew
 /// (`mapview::MapView::drawn`), through [`camera_point`].
-fn cursor_map(window: &Window, locked: &frontend::LockedPointer, view: &mapview::MapView) -> Option<Vec2> {
-    let p = locked.at(window)?;
+fn cursor_map(input: &input::Input, view: &mapview::MapView) -> Option<Vec2> {
+    let w = input.window?;
+    let p = input.pointer?;
     let (r, centre, zoom) = view.drawn()?;
-    let lb = letterbox(window);
-    let factor = window.scale_factor();
+    let lb = display::Letterbox::fit(w.size);
+    let factor = w.factor;
     let at = camera_point(
-        p,
+        Vec2::new(p.0, p.1),
         lb.rect(r.x, r.y, r.w, r.h),
         factor,
         zoom * factor / lb.scale as f32,
@@ -1517,7 +1514,6 @@ fn pan_and_zoom(
     input: Res<PlayerInput>,
     size: Res<MapSize>,
     mut zoom: ResMut<MapZoom>,
-    windows: Query<&Window>,
     view: Option<ResMut<GameView>>,
 ) {
     let Some(mut view) = view else { return };
@@ -1526,7 +1522,7 @@ fn pan_and_zoom(
         let steps = display::wheel_steps(&mut zoom.wheel, input.scroll, input.scroll_pixels);
         if steps != 0 {
             zoom.zoom = display::zoom_step(zoom.zoom, steps);
-            if windows.single().is_ok() {
+            if input.window.is_some() {
                 view.zoom = zoom.zoom;
             }
         }
@@ -1545,13 +1541,13 @@ fn real_ms(real: &FrameClock) -> u64 {
 /// Lays the interface out on the 640 × 480 screen once, and keeps the map view on its place in the layout at the
 /// zoom (one map pixel per screen pixel unless `--free-zoom`).
 fn hud_layout(
-    windows: Query<&Window>,
+    input: Res<PlayerInput>,
     mut hud: ResMut<Hud>,
     zoom: Res<MapZoom>,
     view: Option<ResMut<GameView>>,
     sprite: Query<(), With<HudLayer>>,
 ) {
-    let (Ok(_), Some(mut view), Ok(())) = (windows.single(), view, sprite.single()) else {
+    let (Some(_), Some(mut view), Ok(())) = (input.window, view, sprite.single()) else {
         return;
     };
     let layout = match hud.layout {
@@ -1685,11 +1681,6 @@ fn mouse_lock(
             (false, None) => None,
         };
     }
-    if let Some(mut hud) = hud
-        && hud.locked.0 != locked.0
-    {
-        hud.locked = *locked;
-    }
 }
 
 /// The hotkey a key press stands for.
@@ -1705,7 +1696,6 @@ fn key_char(k: Key) -> Option<char> {
 /// placement mode (`panel`, spec `ui/command-buttons.md`).
 #[allow(clippy::too_many_arguments)]
 fn panel_input(
-    windows: Query<&Window>,
     sim: Option<ResMut<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
@@ -1718,14 +1708,14 @@ fn panel_input(
     ui.consumed = false;
     ui.escape_used = false;
     ui.tooltip = None;
-    let (Some(mut sim), Ok(window)) = (sim, windows.single()) else {
+    let (Some(mut sim), Some(_)) = (sim, input.window) else {
         return;
     };
     // Screen spec: at a scrolling edge, clicks on the panel do nothing.
     let pressed = buttons.just_pressed(Button::Left) && scr.edge == (0, 0);
     // The menu and pause buttons (screen spec, "Menu buttons").
     if pressed
-        && let Some(c) = hud.cursor(window)
+        && let Some(c) = hud.cursor(&input)
         && let Some(b) = screen::menu_button_at((c.x, c.y), pause_button(&sim))
     {
         if b == screen::MenuButton::Pause {
@@ -1755,7 +1745,7 @@ fn panel_input(
         let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
         let label = |n: u16| panel::parse_label(&hud.art.string(n));
         let mut effect = panel::Effect::Nothing;
-        if let (Some(l), Some(c)) = (hud.layout, hud.cursor(window))
+        if let (Some(l), Some(c)) = (hud.layout, hud.cursor(&input))
             && let Some(n) = panel::slot_at((l.buttons.x, l.buttons.y), (c.x, c.y))
             && let Some(en) = slots[n]
         {
@@ -1942,7 +1932,6 @@ fn centre_view(view: &mut mapview::MapView, c: Vec2) {
 #[allow(clippy::too_many_arguments)]
 fn mouse_input(
     time: Res<CoreTime>,
-    windows: Query<&Window>,
     view: Option<ResMut<GameView>>,
     sim: Option<ResMut<Sim>>,
     art: Option<Res<Art>>,
@@ -1955,7 +1944,7 @@ fn mouse_input(
     let keys = &input.keys;
     let buttons = &input.mouse;
     scr.pointer = None;
-    let (Some(mut sim), Ok(window), Some(mut gv), Some(layout)) = (sim, windows.single(), view, hud.layout) else {
+    let (Some(mut sim), Some(_), Some(mut gv), Some(layout)) = (sim, input.window, view, hud.layout) else {
         return;
     };
     let mv = &mut gv.0;
@@ -1964,7 +1953,7 @@ fn mouse_input(
     let shift = keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let alt = keys.any_pressed([Key::AltLeft, Key::AltRight]);
-    let at = cursor_map(window, &hud.locked, mv);
+    let at = cursor_map(&input, mv);
     let view = mv.tiles();
     // Development aid (`--demo-site`): one placement click, after the first fog refresh so the site is explored.
     if ui.demo_click
@@ -1990,10 +1979,10 @@ fn mouse_input(
     // Minimap spec, "Moving the view with the minimap": presses in screen pixels.
     let width = hud.map.0;
     let geom = mv.geom(hud.map);
-    let pointer = hud.cursor(window).map(|c| (c.x.floor() as i32, c.y.floor() as i32));
+    let pointer = hud.cursor(&input).map(|c| (c.x.floor() as i32, c.y.floor() as i32));
     let regions = mouse::Regions::of_layout(&layout);
     let on_minimap = hud
-        .cursor(window)
+        .cursor(&input)
         .is_some_and(|c| regions.at((c.x, c.y)) == mouse::Region::Minimap);
     let minimap_tile = pointer
         .filter(|_| on_minimap)
@@ -2013,7 +2002,7 @@ fn mouse_input(
     // Screen spec, "Placement": the site follows the hot spot's tile while the pointer is in the map view.
     if !matches!(ui.mode, panel::Mode::Place(_)) {
         ui.site = None;
-    } else if hud.over_map(window) && map_tile.is_some() {
+    } else if hud.over_map(&input) && map_tile.is_some() {
         ui.site = map_tile;
     }
     // Screen spec, "Pointer shapes".
@@ -2048,7 +2037,7 @@ fn mouse_input(
         });
         scr.pointer = Some((shape, p));
     }
-    let Some(cursor) = hud.cursor(window).filter(|_| !ui.consumed) else {
+    let Some(cursor) = hud.cursor(&input).filter(|_| !ui.consumed) else {
         return;
     };
     let region = regions.at((cursor.x, cursor.y));
@@ -2289,7 +2278,6 @@ fn play_sounds(
 /// unloads or centres the view (`info::click`).
 #[allow(clippy::too_many_arguments)]
 fn info_input(
-    windows: Query<&Window>,
     sim: Option<ResMut<Sim>>,
     mut sel: ResMut<Selection>,
     hud: Res<Hud>,
@@ -2302,11 +2290,11 @@ fn info_input(
     let keys = &input.keys;
     let buttons = &input.mouse;
     panel.hover = None;
-    let (Some(mut sim), Ok(window), Some(l)) = (sim, windows.single(), hud.layout) else {
+    let (Some(mut sim), Some(_), Some(l)) = (sim, input.window, hud.layout) else {
         return;
     };
     let slot = hud
-        .cursor(window)
+        .cursor(&input)
         .and_then(|c| info::slot_at((c.x - l.info.x as f32, c.y - l.info.y as f32)))
         .filter(|&n| panel.slots[n].is_some());
     let slots = panel.slots;
@@ -2408,7 +2396,6 @@ fn update_info(sim: Option<Res<Sim>>, mut sel: ResMut<Selection>, mut panel: Res
 #[allow(clippy::too_many_arguments)]
 fn scroll_view(
     time: Res<CoreTime>,
-    windows: Query<&Window>,
     sim: Option<Res<Sim>>,
     hud: Res<Hud>,
     mut scr: ResMut<ScreenUi>,
@@ -2417,13 +2404,13 @@ fn scroll_view(
 ) {
     let keys = &input.keys;
     scr.edge = (0, 0);
-    let (Some(sim), Ok(window), Some(mut view), Some(l)) = (sim, windows.single(), view, hud.layout) else {
+    let (Some(sim), Some(_), Some(mut view), Some(l)) = (sim, input.window, view, hud.layout) else {
         return;
     };
     let geom = view.geom(hud.map);
     // No menus or demo yet: only a pause blocks scrolling.
     let blocked = sim.world.paused;
-    if !blocked && let Some(c) = hud.cursor(window) {
+    if !blocked && let Some(c) = hud.cursor(&input) {
         let canvas = (l.canvas.0 as i32, l.canvas.1 as i32);
         scr.edge = screen::edge((c.x.floor() as i32, c.y.floor() as i32), canvas, &geom);
     }
