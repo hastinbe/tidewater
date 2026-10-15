@@ -255,7 +255,62 @@ fn text_in(dst: &mut Picture, font: &Font, x: i32, y: i32, s: &str, colours: &[[
 
 /// Draws `text` at `at` in the given shade colours, leaving out pixels right of `clip`.
 fn text_clipped(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, colours: &[[u8; 3]; 8], clip: i32) -> u32 {
+    let style = TextStyle {
+        colours,
+        space: None,
+        rows: (i32::MIN, i32::MAX),
+    };
+    set_text(dst, font, at, s, &style, clip)
+}
+
+/// How a line of text is set where the defaults don't do: its shade colours (by font shade, see `fnt`), the advance of
+/// a space (the font's own if `None`), and the rows it may draw in (inclusive; a glyph crossing either is cut there).
+#[derive(Clone, Copy, Debug)]
+pub struct TextStyle<'a> {
+    pub colours: &'a [[u8; 3]; 8],
+    pub space: Option<u32>,
+    pub rows: (i32, i32),
+}
+
+impl TextStyle<'_> {
+    /// The advance of `c` in `font`.
+    pub fn advance(&self, font: &Font, c: u8) -> u32 {
+        match (c, self.space) {
+            (b' ', Some(s)) => s,
+            _ => font.advance(c),
+        }
+    }
+}
+
+/// Draws `s` with its cell's top-left at `at` in `style`; returns its width.
+pub fn text_styled(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, style: &TextStyle) -> u32 {
+    set_text(dst, font, at, s, style, i32::MAX)
+}
+
+/// The box `(left, top, right, bottom)` of the pixels `s` draws in `style`, from its cell's top-left (all inclusive),
+/// or `None` if it draws none.
+pub fn ink_box(font: &Font, s: &str, style: &TextStyle) -> Option<(i32, i32, i32, i32)> {
+    let mut pen = 0i32;
+    let mut b: Option<(i32, i32, i32, i32)> = None;
+    for c in s.bytes() {
+        if let Some(g) = font.glyph(c) {
+            for gy in 0..g.height as i32 {
+                for gx in 0..g.width as i32 {
+                    if g.shades[(gy * g.width as i32 + gx) as usize] != 0 {
+                        let (x, y) = (pen + g.x as i32 + gx, g.y as i32 + gy);
+                        b = Some(b.map_or((x, y, x, y), |(l, t, r, bt)| (l.min(x), t.min(y), r.max(x), bt.max(y))));
+                    }
+                }
+            }
+        }
+        pen += style.advance(font, c) as i32;
+    }
+    b
+}
+
+fn set_text(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, style: &TextStyle, clip: i32) -> u32 {
     let (x, y) = at;
+    let (top, bottom) = style.rows;
     let mut pen = x;
     for c in s.bytes() {
         if let Some(g) = font.glyph(c) {
@@ -266,15 +321,22 @@ fn text_clipped(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, colours
                         continue;
                     }
                     let (dx, dy) = (pen + g.x as i32 + gx, y + g.y as i32 + gy);
-                    if dx <= clip && dx >= 0 && dy >= 0 && (dx as u32) < dst.width && (dy as u32) < dst.height {
+                    if dx <= clip
+                        && dy >= top
+                        && dy <= bottom
+                        && dx >= 0
+                        && dy >= 0
+                        && (dx as u32) < dst.width
+                        && (dy as u32) < dst.height
+                    {
                         let d = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
-                        let col = colours[shade as usize];
+                        let col = style.colours[shade as usize];
                         dst.rgba[d..d + 4].copy_from_slice(&[col[0], col[1], col[2], 255]);
                     }
                 }
             }
         }
-        pen += font.advance(c) as i32;
+        pen += style.advance(font, c) as i32;
     }
     (pen - x) as u32
 }
