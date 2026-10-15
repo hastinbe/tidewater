@@ -34,6 +34,8 @@ pub enum AppState {
 pub struct Machine {
     current: AppState,
     next: Option<AppState>,
+    /// The screen shown before the current one (`Boot` at first): an entering screen's hooks see where it came from.
+    previous: AppState,
 }
 
 /// A change of screen: the state left and the state entered (the same for a screen entered again).
@@ -59,10 +61,21 @@ impl Machine {
         self.next.is_some()
     }
 
+    /// The screen a change asked for and not yet made goes to.
+    pub fn asked(&self) -> Option<AppState> {
+        self.next
+    }
+
+    /// The screen shown before the current one.
+    pub fn previous(&self) -> AppState {
+        self.previous
+    }
+
     /// Takes the change asked for, if any, and makes its state the current one.
     pub fn take_transition(&mut self) -> Option<Transition> {
         let entered = self.next.take()?;
         let exited = std::mem::replace(&mut self.current, entered);
+        self.previous = exited;
         Some(Transition { exited, entered })
     }
 }
@@ -190,6 +203,11 @@ mod tests {
             })
         );
         assert_eq!(m.get(), AppState::Title);
+        assert_eq!(
+            m.previous(),
+            AppState::Boot,
+            "the entering screen sees where it came from"
+        );
         assert_eq!(m.take_transition(), None, "one change per ask");
     }
 
@@ -198,7 +216,9 @@ mod tests {
         let mut m = Machine::default();
         m.set(AppState::Title);
         m.set(AppState::MainMenu);
+        assert_eq!(m.asked(), Some(AppState::MainMenu));
         assert_eq!(m.take_transition().map(|t| t.entered), Some(AppState::MainMenu));
+        assert_eq!(m.asked(), None);
     }
 
     #[test]

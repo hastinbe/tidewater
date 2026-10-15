@@ -6,9 +6,10 @@
 //! Every screen is drawn in software into 640x480 pictures shown by one camera on its own render layer, above the
 //! game's cameras. The dialog files (`rez\*.bin`) aren't specified yet, so the layouts of the menu, the dialogs, the
 //! briefing and the score screen are our own, and the menu has only what the flow needs (New Campaign, Load Game,
-//! Show Credits, Quit; N, L, C and Q are our keys for them). The main menu and the credits fade in and out (`ui/palette-effects.md`,
-//! "Screen fades": 200 ms and 100 ms) like the title and act screens; the new-campaign choices, which the fade table
-//! doesn't name, don't fade. The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
+//! Show Credits, Quit; N, L, C and Q are our keys for them). The main menu and the campaign choices are drawn on the
+//! menu picture (`menuscreen`): a switch between them doesn't fade, and the main menu fades in over 200 ms from any
+//! other screen. The main menu fades out when it leaves the menus, and the credits fade in and out
+//! (`ui/palette-effects.md`, "Screen fades": 200 ms and 100 ms), like the title and act screens. The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
 //! `campaign::MenuTimer`, one for every screen), and their fades block it; fades run on real time.
 //!
 //! Entry points other screens reuse: [`restart`] (the game menu's restart: back to "Starting a mission"),
@@ -34,6 +35,7 @@ use crate::core::{Commands, Core, add_layer, remove_layers};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
 use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Pictures, Plane, Role, Stack};
+use crate::menuscreen::{self, MenuScreen};
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
@@ -587,6 +589,8 @@ pub struct Screens {
     video: Option<VideoPlay>,
     title: Option<TitleScreen>,
     menu: Option<Menu>,
+    /// The menu picture as last loaded, kept for the switches between the menus drawn on it.
+    menu_picture: Option<Picture>,
     menu_load: Option<MenuLoad>,
     act: Option<ActScreen>,
     briefing: Option<Briefing>,
@@ -1080,11 +1084,12 @@ struct Menu {
     drawn: Option<Option<usize>>,
     /// The main menu's fade-out: when it ends, and what was chosen.
     closing: Option<(f64, MenuPick)>,
+    /// When the menu's fade-in ends (0 for none): its buttons are drawn and it takes input from then on.
+    ready_at: f64,
 }
 
 /// What the main menu does once its fade-out ends.
 enum MenuPick {
-    NewCampaign,
     Load(Box<crate::savegame::Resume>),
     /// Show Credits: the credits screen (spec "Credits screen"), then the main menu again.
     ShowCredits,
@@ -1110,20 +1115,33 @@ fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
 /// buttons. The heading and the version line are part of the picture, so they
 /// fade in with it (screen spec, "Pointer and fades"); the buttons are drawn by [`menu_input`] once the fade-in has
 /// ended.
-fn open_menu(
-    commands: &mut Commands,
-    front: &mut Front,
-    pictures: &mut Pictures,
-    heading: Option<&str>,
-    labels: &[&str],
-    state: AppState,
-) {
-    let mut bg = picture(&mut front.install, cf::MENU_PICTURE, None);
+fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[&str], state: AppState) {
+    let screen = menu_screen(state).expect("a menu screen");
+    let opening = screen.opening(menu_screen(c.states.previous()));
+    let Core {
+        commands,
+        front,
+        pictures,
+        screens,
+        ..
+    } = c;
+    // Screen spec, "Menu screens": the picture is loaded when the menu screen opens, and a switch between the menus on
+    // it keeps it.
+    let mut bg = match (&screens.menu_picture, opening.reload) {
+        (Some(p), false) => dup(p),
+        _ => {
+            let p = picture(&mut front.install, cf::MENU_PICTURE, None);
+            screens.menu_picture = Some(dup(&p));
+            p
+        }
+    };
     let top = 300 - labels.len() as i32 * 10;
     let items = menu_items(labels, top);
-    match heading {
-        Some(h) => centred(&mut bg, &front.font, top - 26, h),
-        None => version_line(&mut bg, &front.small),
+    if let Some(h) = heading {
+        centred(&mut bg, &front.font, top - 26, h);
+    }
+    if opening.version_line {
+        version_line(&mut bg, &front.small);
     }
     let image = spawn_layer(commands, pictures, dup(&bg), 0, state, None);
     commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
@@ -1134,8 +1152,29 @@ fn open_menu(
         hot: None,
         drawn: None,
         closing: None,
+        ready_at: opening.fade_in_ms as f64,
     };
     commands.queue(move |c| c.screens.menu = Some(menu));
+    if opening.fade_in_ms > 0 {
+        fade_in_new_screen(commands, opening.fade_in_ms);
+    }
+}
+
+/// The menu screen a flow state shows, if it is one on the menu picture.
+pub(crate) fn menu_screen(state: AppState) -> Option<MenuScreen> {
+    match state {
+        AppState::MainMenu => Some(MenuScreen::Main),
+        AppState::NewCampaign => Some(MenuScreen::Campaign),
+        _ => None,
+    }
+}
+
+/// Whether the screen that shows hides its pointer on the frame a change of screen is asked for: every change does but
+/// a switch between the menus on the menu picture, which has no fade (`menuscreen::pointer_stays`).
+pub(crate) fn pointer_leaving(states: &Machine) -> bool {
+    states
+        .asked()
+        .is_some_and(|to| !menuscreen::pointer_stays(menu_screen(states.get()), menu_screen(to)))
 }
 
 /// Where the version line's text pixels start on the 640 × 480 menu picture: their top-left (screen spec, "Pointer and
@@ -1222,23 +1261,13 @@ fn menu_input(
 }
 
 pub(crate) fn enter_menu(c: &mut Core) {
-    let Core {
-        commands,
-        front,
-        pictures,
-        jukebox: music,
-        ..
-    } = c;
-    music.start_unless_playing(cf::TITLE_MUSIC);
+    c.jukebox.start_unless_playing(cf::TITLE_MUSIC);
     open_menu(
-        commands,
-        front,
-        pictures,
+        c,
         None,
         &["New Campaign", "Load Game", "Show Credits", "Quit"],
         AppState::MainMenu,
     );
-    fade_in_new_screen(commands, fades::MENUS);
 }
 
 fn run_menu(c: &mut Core) {
@@ -1272,10 +1301,6 @@ fn run_menu(c: &mut Core) {
         }
         let Some((_, pick)) = menu.closing.take() else { return };
         match pick {
-            MenuPick::NewCampaign => {
-                flow.steps = VecDeque::from([Step::NewCampaign]);
-                go_on(flow, front, keys, next, exit);
-            }
             MenuPick::Load(r) => crate::savegame::load_game(flow, next, r.header, r.body),
             MenuPick::ShowCredits => {
                 flow.steps = VecDeque::from([Step::ShowCredits, Step::MainMenu]);
@@ -1288,7 +1313,7 @@ fn run_menu(c: &mut Core) {
     // Screen spec, "Pointer and fades": the buttons aren't drawn during the fade-in, which shows the picture and the
     // version line fading in together, and the menu takes no input until the fade ends. The
     // buttons and the pointer appear on the frame that ends it.
-    if clock.0 < fades::MENUS as f64 {
+    if clock.0 < menu.ready_at {
         return;
     }
     let at = pointer(input, cam);
@@ -1303,7 +1328,11 @@ fn run_menu(c: &mut Core) {
         menu.closing = Some((end, pick));
     };
     match pick {
-        Some(0) => close(commands, menu, MenuPick::NewCampaign),
+        // Screen spec, "Menu screens": the campaign menu is on the same picture, so the switch has no fade.
+        Some(0) => {
+            flow.steps = VecDeque::from([Step::NewCampaign]);
+            go_on(flow, front, keys, next, exit);
+        }
         Some(1) => {
             // Loading from the main menu is single player, and every single-player game is Enhanced.
             let entries = folder.folder().list(crate::savefile::Kind::Single, true);
@@ -1380,27 +1409,18 @@ fn run_menu_load(c: &mut Core) {
 }
 
 pub(crate) fn enter_new_campaign(c: &mut Core) {
-    let Core {
-        commands,
-        front,
-        pictures,
-        ..
-    } = c;
     let mut labels: Vec<&str> = Choice::ALL.iter().map(|c| c.label()).collect();
     labels.push("Cancel");
-    open_menu(
-        commands,
-        front,
-        pictures,
-        Some("Choose a campaign"),
-        &labels,
-        AppState::NewCampaign,
-    );
+    open_menu(c, Some("Choose a campaign"), &labels, AppState::NewCampaign);
 }
 
 fn run_new_campaign(c: &mut Core) {
     let Core {
-        screens: Screens { menu: Some(menu), .. },
+        screens: Screens {
+            menu: Some(menu),
+            clock: Some(clock),
+            ..
+        },
         front,
         pictures,
         front_screen: cam,
@@ -1413,6 +1433,9 @@ fn run_new_campaign(c: &mut Core) {
     else {
         return;
     };
+    if clock.0 < menu.ready_at {
+        return;
+    }
     let keys = &input.keys;
     let mouse = &input.mouse;
     let at = pointer(input, cam);

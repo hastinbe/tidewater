@@ -542,7 +542,12 @@ fn compose_screen(c: &mut Core) {
     let (arrow, hidden) = match hud {
         _ if hud_draws => (None, false),
         Some(h) if in_game => (h.art.pointer(crate::screen::Pointer::Arrow), false),
-        _ if !in_game => match frontend::screen_pointer(&c.front_screen, &c.front, &c.layers, c.states.leaving()) {
+        _ if !in_game => match frontend::screen_pointer(
+            &c.front_screen,
+            &c.front,
+            &c.layers,
+            frontend::pointer_leaving(&c.states),
+        ) {
             Ok(p) => (p, false),
             Err(()) => (None, true),
         },

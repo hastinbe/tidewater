@@ -26,6 +26,7 @@ mod jukebox;
 mod layers;
 mod mapview;
 mod menu;
+mod menuscreen;
 mod messages;
 mod minimap;
 mod mouse;
