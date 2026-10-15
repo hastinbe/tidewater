@@ -151,13 +151,19 @@ impl World {
         (g, None)
     }
 
-    /// The goal tile of a command other than the smart move and unload: [`World::land_and_shore`] for a transport,
-    /// the tile itself for any other unit.
-    pub(crate) fn transport_goal(&self, i: usize, to: (i32, i32)) -> (i32, i32) {
+    /// The goal tile and target unit of a command other than the smart move and unload. Giving a transport any command
+    /// records the three things, after the land and shore steps ([`World::record_command`]; round 70, M7: every
+    /// command, a computer player's move or attack included). Any other unit's command goes on as given.
+    pub(crate) fn command_goal(
+        &mut self,
+        i: usize,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    ) -> ((i32, i32), Option<UnitId>) {
         if self.is_transport(&self.units[i]) {
-            self.land_and_shore(i, to, None).0
+            self.record_command(i, target, tile)
         } else {
-            to
+            (tile, target)
         }
     }
 
@@ -1748,10 +1754,57 @@ mod tests {
             // target unit.
             let f = w.spawn(FOOTMAN, 0, (14, 4), 0).unwrap();
             let fi = w.index(f).unwrap();
-            assert_eq!(w.transport_goal(fi, (20, 4)), (20, 4));
+            assert_eq!(w.command_goal(fi, Some(f), (20, 4)), ((20, 4), Some(f)));
             let i = ship(&mut w, (10, 6), Order::Docked);
             assert_eq!(w.land_and_shore(i, (20, 4), Some(f)), ((20, 4), None));
             assert_eq!(w.land_and_shore(i, (4, 6), Some(f)), ((4, 6), Some(f)));
+        }
+
+        /// "What the transport stores" (round 70, M7): every command given to a transport records its target unit,
+        /// target tile and destination, after the land and shore steps: a player's move, attack-move and patrol, and
+        /// a computer player's command 4 and patrol.
+        #[test]
+        fn every_command_records_the_three_things() {
+            for case in [
+                "move",
+                "attack-move",
+                "patrol",
+                "command 4",
+                "ai patrol",
+                "command 4 on land",
+            ] {
+                let mut w = sea(20);
+                let i = ship(&mut w, (30, 10), Order::Idle);
+                let id = w.units[i].id;
+                let mate = w.spawn(SHIP, 0, (40, 20), 0).unwrap();
+                let i = w.index(id).unwrap();
+                let u = &mut w.units[i];
+                u.ship.target = Some(mate);
+                u.ship.target_tile = (1, 1);
+                u.ship.dest = (1, 1);
+                let to = (36, 14);
+                let units = vec![id];
+                let player = 0;
+                match case {
+                    "move" => w.step(&[crate::world::Command::Move { player, units, to }]),
+                    "attack-move" => w.step(&[crate::world::Command::AttackMove { player, units, to }]),
+                    "patrol" => w.step(&[crate::world::Command::Patrol { player, units, to }]),
+                    "command 4" => w.command_4(i, Some(mate), to),
+                    "ai patrol" => w.patrol(i, to, (30, 10)),
+                    _ => w.command_4(i, None, (10, 10)),
+                }
+                let s = &w.unit(id).unwrap().ship;
+                let want = match case {
+                    "command 4" => (Some(mate), (40, 20), (40, 20)),
+                    // A land tile from open water: no target unit, pulled back to the shore water.
+                    "command 4 on land" => (None, s.target_tile, s.target_tile),
+                    _ => (None, to, to),
+                };
+                assert_eq!((s.target, s.target_tile, s.dest), want, "{case}");
+                if case == "command 4 on land" {
+                    assert!(w.shore_water(s.target_tile), "{:?}", s.target_tile);
+                }
+            }
         }
 
         /// Order 34's runs, each pinned: a lost transport (V33), no route with the destination in the unit's region

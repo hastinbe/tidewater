@@ -169,16 +169,20 @@ impl World {
 
     /// The player's command for one unit, turned into an order ("Commands"); `None` leaves the unit alone.
     pub(crate) fn command_order(&mut self, i: usize, c: &Command) -> Option<Order> {
+        // Transports spec, "What the transport stores" and "Land and shore targets": every command given to a
+        // transport records its target, tile and destination and runs them ([`World::command_goal`]). The smart move
+        // and unload do so in their own rules ([`World::transport_command`]).
+        let goal = match *c {
+            Command::Move { to, .. } | Command::AttackMove { to, .. } | Command::Patrol { to, .. } => {
+                self.command_goal(i, None, to).0
+            }
+            _ => (0, 0),
+        };
         let u = &self.units[i];
         let enhanced = self.rules.enhanced;
-        // Transports spec, "Land and shore targets": every command given to a transport runs them.
-        let shore = |to: (i32, i32)| self.transport_goal(i, to);
         let remember = match *c {
-            Command::Patrol { to, .. } => Some(Remembered::Patrol {
-                to: shore(to),
-                back: u.tile,
-            }),
-            Command::AttackMove { to, .. } => Some(Remembered::AttackMove { goal: shore(to) }),
+            Command::Patrol { .. } => Some(Remembered::Patrol { to: goal, back: u.tile }),
+            Command::AttackMove { .. } => Some(Remembered::AttackMove { goal }),
             _ => None,
         };
         // "Commands forget a stale attacker": a target unit given with the command gets the same check
@@ -186,10 +190,7 @@ impl World {
         let owner = u.owner;
         let fresh = |t: Option<UnitId>| t.filter(|&t| !self.target_lost(owner, t));
         let order = match *c {
-            Command::Move { to, .. } => Order::Move {
-                goal: shore(to),
-                target: None,
-            },
+            Command::Move { .. } => Order::Move { goal, target: None },
             Command::Stop { .. } => Order::Idle,
             // A target unit of any owner (own, allied and neutral units included) gives order 9. A
             // dying target is still given; `command` then finds it stale and leaves a pending idle
@@ -202,11 +203,8 @@ impl World {
                 }
                 Order::Attack { target }
             }
-            Command::AttackMove { to, .. } => Order::AttackMove { goal: shore(to) },
-            Command::Patrol { to, .. } => Order::Patrol {
-                to: shore(to),
-                back: u.tile,
-            },
+            Command::AttackMove { .. } => Order::AttackMove { goal },
+            Command::Patrol { .. } => Order::Patrol { to: goal, back: u.tile },
             Command::StandGround { .. } => Order::StandGround,
             Command::AttackGround { tile, .. } => self.attack_ground_command(i, tile),
             Command::Demolish { target, tile, .. } => self.demolish_command(i, fresh(target), tile),

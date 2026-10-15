@@ -1360,8 +1360,9 @@ impl World {
         if !self.computer_player(self.units[i].owner) {
             self.units[i].remembered = None;
         }
-        // Transports spec, "Land and shore targets" (round-40 errata): they run for every command to a transport.
-        let goal = self.transport_goal(i, goal);
+        // Transports spec, "What the transport stores" and "Land and shore targets" (round-40 errata; round 70, M7):
+        // every command to a transport records the three things and runs them.
+        let (goal, target) = self.command_goal(i, target, goal);
         self.command(i, Order::MoveAttack { goal, target });
     }
 
@@ -1375,14 +1376,17 @@ impl World {
     /// A patrol command toward `from`, with the patrol ends `from` and `to`. Round-55 errata (orders spec, "What a
     /// patrol remembers"; `xorc11-air-sea-3000` battleship 1539): the command remembers its goal and the tile the unit
     /// stands on, and setting the current ends to `from` and `to` leaves that unchanged.
-    fn patrol(&mut self, i: usize, from: (i32, i32), to: (i32, i32)) {
+    pub(crate) fn patrol(&mut self, i: usize, from: (i32, i32), to: (i32, i32)) {
         if !self.takes_commands(i) {
             return;
         }
         let here = self.units[i].tile;
         // Round-56 static correction (orders spec, "An unremembered patrol"): an air or sea unit's patrol to a goal
         // within 1 tile leaves the remembered order as it was.
-        if !(self.rules.enhanced && self.unremembered_patrol(i, from)) {
+        let unremembered = self.rules.enhanced && self.unremembered_patrol(i, from);
+        // Transports spec, "What the transport stores" (round 70, M7): as for a player's patrol command.
+        let (from, _) = self.command_goal(i, None, from);
+        if !unremembered {
             self.units[i].remembered = self
                 .rules
                 .enhanced
