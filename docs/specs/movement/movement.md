@@ -2,7 +2,7 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Consolidated 2026-10-14 into one model with no
   rule change (B-038; the review notes, with a map from every earlier rule and vector to its place here, are kept
-  with the research-side specs).
+  with the research-side specs). The consolidation was checked by a second spec-review session, 2026-10-14.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), per-type step timings
   computed from `Rez\script.bin` (see `specs/core/animation-scripts.md`), and oracle traces of the running game. Each
   rule says which: "traced" with the trace name and record number n, or "static study only"; a rule with neither is
@@ -19,7 +19,8 @@ is walking ("When decisions are made"), in this order:
 
 1. **Arrival.** The unit is tested against its order's arrival radius and its goal ("Arriving"). If it is there, its
    cached path is dropped and the walk ends. The goal is the one the route search aims at (`pathfinding.md`,
-   "Inputs").
+   "Inputs"), before the search rounds it to even for a two-tile mover: the arrival test uses the stored goal, not
+   the rounded one.
 2. **Next direction.** Otherwise it takes the next direction from its cached path; if the cache is used up, a new
    path is searched first ("Paths"). If the search returns no steps, the unit can't move and its order's no-route
    rule applies.
@@ -28,7 +29,7 @@ is walking ("When decisions are made"), in this order:
 4. **The step.** Otherwise the step starts: the tile changes at once and the move animation carries the pixel
    position across ("Positions and steps").
 
-The same procedure serves every walker: land units step one tile, sea and air units two. A transport landing or
+Every walker follows the same steps: land units step one tile, sea and air units two. A transport landing or
 pushing off takes its steps and meets blocks the same way; only its goals, step size and arrival test are its own
 (`orders/transports.md`, "Moving near the shore").
 
@@ -275,7 +276,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | --- | --- | --- | --- |
 | V05 | Footman (human player, no attacker) on a move order in a corridor one tile wide; the next tile holds an enemy catapult standing ground (it can't fire at an adjacent unit, so the footman never gets an attacker) | block 1 (row I): path dropped. Next cycle the search sees the catapult: the line is blocked at its first tile and both walks fail or are rejected, so the result is empty and the move order ends (idle) | Example |
 | V06 | Footman (human player, no attacker) chasing a found target (order 12) beyond such a catapult, in a corridor one tile wide | The search ignores the catapult (attack-type order, non-allied unit), so it keeps returning a path through it, and each step is blocked. Blocks 1 to 7: row I, searches again next cycle; blocks 8 to 14: row D, waits 15 cycles each; block 15: row C, "stand still", counter 0 | Example |
-| V07 | As V06, but with an attack order on the catapult (order 9, not attack-type; `movement/pathfinding.md`) | The search sees the catapult, as for the move order: the route is blocked at its first tile and both walks fail or are rejected | Example |
+| V07 | As V06, but with an attack order on the target beyond the catapult (order 9, not attack-type; `movement/pathfinding.md`) | The search sees the catapult, as for the move order: the route is blocked at its first tile and both walks fail or are rejected | Example |
 | V09 | As V05, but a route around exists | block 1: searches again next cycle and walks round the blocker; the counter stays at 1 for the rest of the order | Example |
 | V10 | Footman blocked by an allied footman walking away (next step not onto it) | waits 15 cycles, keeps its path; counter +1 | Example |
 | V11 | Two allied footmen stepping onto each other's tiles | neither waits; each drops its path and searches again next cycle (row I) | Example |
@@ -296,6 +297,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V33 | `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 | Trace (`xhuman8-25000`) |
 | V35 | `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) | Trace (`orc10-10000`) |
 | V36 | `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (owner 2) in order 4 gives up (row C), nothing resumed | Animation 3, wait 15 | Trace (`xhuman12-10000`) |
+
 ## Open questions
 
 Carried over:
@@ -321,11 +323,13 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 - **Row A's order 11 may be given as a command.** Row A says the order becomes 11 "as a pending order", and
   `orders/orders.md` ("Order 11: attacking a wall tile", step 5) says it is set directly, not through a command. The
   static study instead finds the steps of a command there (`orders/orders.md`, "What every command does"): the
-  blocked counter is cleared and the unit is marked as having a pending command, which the path search reads
-  (`pathfinding.md`, "Units seen by the search"). The goal is the same either way: the pull-back on a one-step line
-  tests only the goal tile, which is kept, so the goal stays the blocking tile. What differs is the counter (0, not
-  the count that reached row A) and the mark. No trace has a unit blocked again after row A. Recommendation: a trace
-  of a computer unit that row A sends at a wall and that is blocked again on its way.
+  blocked counter is cleared, the target unit is dropped, the command's attacker and target check runs, and the unit
+  is marked as having a pending command, which the path search reads (`pathfinding.md`, "Units seen by the search").
+  The goal is the same either way: the pull-back on a one-step line tests only the goal tile, which is kept, so the
+  goal stays the blocking tile. What differs is the counter (0, not the count that reached row A), the target unit
+  and the mark. The two specs contradict each other here; `orders/orders.md` records the same question under "Open
+  questions", and its step 5 and V183 keep governing until a trace decides. No trace has a unit blocked again after
+  row A. Recommendation: a trace of a computer unit that row A sends at a wall and that is blocked again on its way.
 
 ## History
 

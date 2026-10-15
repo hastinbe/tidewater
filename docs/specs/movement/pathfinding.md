@@ -2,7 +2,7 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Consolidated 2026-10-14 into one model with no
   rule change (B-038; the review notes, with a map from every earlier rule and vector to its place here, are kept
-  with the research-side specs).
+  with the research-side specs). The consolidation was checked by a second spec-review session, 2026-10-14.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`) and oracle traces of the
   running game. Each rule says which: "traced" with the trace name and record number n, or "static study only"; a
   rule with neither is from the static study. The vectors without a trace come from a small research model of the
@@ -57,7 +57,7 @@ mover), by the transport's pull-back, and by the transport's land-first test (`o
 line"). The last three always take one-tile steps.
 
 **One pull-back, two settings.** The command's pull-back ("Goal pulled back") and the transport's pull-back
-(`orders/transports.md`, "Land and shore targets", step 2.1) are the same procedure: test the goal, then the goal
+(`orders/transports.md`, "Land and shore targets", step 2.1) follow the same steps: test the goal, then the goal
 minus the line's steps in their order, stopping before the unit's tile; at the first usable tile, the goal becomes
 the tile tested just before it. They differ only in two settings:
 
@@ -66,7 +66,7 @@ the tile tested just before it. They differ only in two settings:
 | Mask for "usable" | the terrain and building bits of the unit's own mask | the sea mask without the unit bit (0x0803) |
 | No usable tile | the goal is kept | the tile tested last, which is the unit's tile plus the line's last step |
 
-That they are one procedure is static study only; the traced cases agree (`xorc7`, `orc8`, Human04).
+That they follow the same steps is static study only; the traced cases agree (`xorc7`, `orc8`, Human04).
 
 ### Inputs
 
@@ -421,6 +421,7 @@ row that builds on another row starts "As" that row's ID, and names the trace wh
 | V47 | Land worker going to build a shore building; a type with the sea or air flag going to build one | Land: corner test as above. Sea or air: the top-left tile, no corner test | Example |
 | V48 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (type 0x08, owner 0) at (61, 92) attacks shipyard 1469 (top-left (55, 86), 3 × 3); the top-left (55, 86) isn't in its region, and of the other corners only the bottom-left (55, 88) is | G = (55, 88): the archer walks on until it is within 4 of that tile | Trace (`orc9-orc09-shore-build-3000`) |
 | V50 | A shore building build command, no footprint corner in the worker's region (`orc9-orc09-shore-no-corner-600` n = 20: a shipyard at (22, 65), on another island's coast) | No order, nothing paid | Trace (`orc9-orc09-shore-no-corner-600`) |
+
 ## Open questions
 
 Carried over:
@@ -434,8 +435,8 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 
 - **Statements made explicit by the consolidation, static study only:** the search and the arrival test of
   `movement.md` read one walk goal for every kind of goal, differing only in the rounding ("The model", "One walk
-  goal"; traced for the cases each rule names); and the command's pull-back and the transport's pull-back are one
-  procedure with two settings, the mask and the fallback when no tile is usable ("The model", "One pull-back, two
+  goal"; traced for the cases each rule names); and the command's pull-back and the transport's pull-back follow
+  the same steps with two settings, the mask and the fallback when no tile is usable ("The model", "One pull-back, two
   settings"; the traced cases `xorc7`, `orc8` and Human04 agree). The static study found no case where either
   reading changes an outcome.
 

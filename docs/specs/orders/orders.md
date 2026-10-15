@@ -1800,6 +1800,16 @@ Round 68 (Enhanced):
 - **Order 18 with no route** isn't traced: in `orc9-orc09-ground-move-goals-1100` the pull-back always gave a
   reachable goal.
 
+Found by the second review of the movement consolidation (static study, 2026-10-14; the rules above are unchanged):
+
+- **Row A's order 11 may be given as a command.** "Order 11: attacking a wall tile", step 5, and V183 say the pending
+  order 11 of blocked row A (`movement/movement.md`) is set directly, not through a command. The static study finds
+  the steps of a command there ("What every command does"): the pull-back runs but keeps the blocking tile, the
+  blocked counter is cleared, the target unit is dropped, and the unit is marked as having a pending command. The goal
+  is the same either way; the counter, the target unit and the mark differ. `movement/movement.md` records the same
+  question under "Open questions". Step 5 and V183 keep governing until a trace decides; a trace needs a computer unit
+  that row A sends at a wall and that is blocked again on its way.
+
 ## History
 
 Erratum rounds that shaped this spec and the sections where their content now lives. The erratum notes for each

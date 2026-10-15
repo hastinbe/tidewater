@@ -2,7 +2,7 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Consolidated 2026-10-14 into one model with no
   rule change (B-038; the review notes, with a map from every earlier rule and vector to its place here, are kept
-  with the research-side specs).
+  with the research-side specs). The consolidation was checked by a second spec-review session, 2026-10-14.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the unit flags in the
   public PUD specification text, and oracle traces of the running game (for "Land and shore targets", the
   research-side command logs and map dumps of Human04). Each rule says which: "traced" with the trace name and record
@@ -49,8 +49,9 @@ A transport goes round one cycle, and every order in this spec is a stage of it:
 
 Four rules are shared by the stages and stated once:
 
-- **One set of command rules.** Every command given to a transport records the same three things, adjusts a land or
-  shore target the same way, and picks the stage by one table, first match wins ("Commands given to a transport").
+- **One set of command rules.** Every command given to a transport records the same three things and adjusts a land
+  or shore target the same way; a smart move or the unload command then picks the stage by one table, first match
+  wins ("Commands given to a transport").
   A command that a stage gives the transport itself (pushing off's smart move to the destination, a boarding unit
   calling it) goes through the same rules.
 - **Moving near the shore.** Landing and pushing off move the transport by their own logic, with their own step size,
@@ -59,8 +60,9 @@ Four rules are shared by the stages and stated once:
 - **One ring search, three settings.** Picking a shore tile for a land target, picking an open-water tile to push off
   to, and placing a passenger ashore all use the ring search of `movement/placement.md`, with the settings in "Data".
 - **Giving up.** A stage that can't go on ends in one of two ways: the transport docks (order 32), or the unit
-  becomes idle (order 2). Each stage's steps say which; the waits these take over with are not all stated (see "Open
-  questions").
+  becomes idle (order 2). The one exception: landing with no route while on shore water and marked unload on arrival
+  unloads instead (order 29; "Landing (order 30)", step 6). Each stage's steps say which; the waits these take over
+  with are not all stated (see "Open questions").
 
 ### Moving near the shore
 
@@ -234,8 +236,9 @@ V15). The order's logic (the steps below) runs when the walk ends:
   the unit has just been found not to have arrived, so a human player's transport call is step 3's smart move
   (static study only). A computer player's unit that isn't within reach of the transport gets command 4 on it at
   step 3, which takes over at once: order 4, still animation, wait 3, target the transport (traced: `human13-10000`,
-  V14; and `xhuman5-30000` n = 26761, where the walk aimed at a landing transport's destination finds no route because the destination, outside the transport's zone, isn't a
-  line tile: `movement/pathfinding.md`, "Step 2", V34).
+  V14; and `xhuman5-30000` n = 26761, V34 below, where the walk aimed at a landing transport's destination finds no
+  route because the destination, outside the transport's zone, isn't a line tile: `movement/pathfinding.md`,
+  "Step 2", V51).
 
 Each time the order's logic runs (order 34's logic doesn't start with the attacker reaction; only step 5 runs it):
 
@@ -307,6 +310,7 @@ Each time the order's logic runs (order 34's logic doesn't start with the attack
 | Pull-back usable test | region of the transport's tile, 0x0803 clear |
 | Boarding distance | at most 2 tiles from the transport's tile on each axis |
 | Transport must be in order | 32 to accept a passenger; 29 or 32 to unload one |
+
 ## Test vectors
 
 Vector IDs are stable: they number the vectors in the order the spec held them before the consolidation, so the
@@ -376,6 +380,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V36 | `orc12-orc12-guard-board-full-900` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-guard-board-full.txt`), n = 22 (turn record of the input at n = 20): four peons (type 0x03) and two goblin sappers (type 0x0F) are told to board orc transport 1434 (type 0x1D, owner 0), docked (order 32) from n = 78 | All six aboard (order 36) by n = 300: the transport is full | Trace (`orc12-orc12-guard-board-full-900`) |
 | V37 | As V36 (`orc12-orc12-guard-board-full-900`), n = 302 (turn record of the input at n = 300): ogre 1443 (type 0x07, owner 0) told to board 1434 | Order 34 from n = 303; it waits next to the transport at (20, 121) from n = 342 | Trace (`orc12-orc12-guard-board-full-900`) |
 | V38 | As V36 (`orc12-orc12-guard-board-full-900`), n = 602 (turn record of the input at n = 600): 1434 told to move to (26, 118) | n = 607: 1434 pushes off (order 31); in the same cycle 1443 gives up: order 2, still animation, wait 3, target none | Trace (`orc12-orc12-guard-board-full-900`) |
+
 ## Open questions
 
 Carried over:
@@ -401,9 +406,11 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   at a step boundary, step 1 runs, and V33 gives the outcome (target forgotten, idle pending, no reaction). The static
   study reads it differently: the walk's own target test drops the transport first, and step 1's test passes when
   there is no target at all, so step 1 doesn't fire. The logic then goes on with no transport: measured to the last
-  stored goal, a unit not in reach is given its move (step 3) with no target unit, aimed at tile (0, 0), and a unit in
-  reach tests a transport that isn't there. Untraced either way; V31's transport doesn't die. Recommendation: a trace
-  that sinks a transport while a unit walks to it, for a human player's unit and a computer player's unit.
+  stored goal, a unit not in reach is given its move (step 3) with no target unit, aimed at tile (0, 0) (order 4 for
+  a computer player's unit, order 3 for any other), and a unit in reach tests a transport that isn't
+  there, with an undefined outcome. Untraced either way; V31's transport doesn't die. The step-1 bullet and V33 keep
+  governing until a trace decides. Recommendation: a trace that sinks a transport while a unit walks to it, for a
+  human player's unit and a computer player's unit.
 - **Same-update take-over after a block in orders 30 and 31.** When the landing or push-off logic is blocked, the
   blocked rules run inside the order's logic, which then counts as having given the unit an order. So the pending idle
   that rows C and G give takes over **in the same update** (still animation, wait 3), not at the next step done as for
@@ -416,11 +423,11 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 - **Landing and pushing off forget a dying attacker.** Both forget a recorded attacker that is dying at each run, as
   the walk does for orders that neither acquire nor react (`orders/orders.md`, "Walking orders", step 1). Landing's
   steps don't say so. No outcome is known to differ: the attacker reaction doesn't run in either order.
-- **Pushing off's tile pick is a command's tail.** Besides dropping the cached path and clearing the blocked counter
-  (step 2), picking a tile also pulls the new target tile back (`movement/pathfinding.md`, "Goal pulled back") and
-  checks the attacker and the target as a command does. The found tile is even open water, so the pull-back keeps it
-  unless it lies in another region than the transport; the check overlaps step 3. No known case has the tile in
-  another region.
+- **Pushing off's tile pick makes the last steps of a command.** Besides dropping the cached path and clearing the
+  blocked counter (step 2), picking a tile also pulls the new target tile back (`movement/pathfinding.md`, "Goal
+  pulled back") and checks the attacker and the target as a command does. The found tile is even open water, so the
+  pull-back keeps it unless it lies in another region than the transport; the check overlaps step 3. No known case has
+  the tile in another region.
 - **Step 3's "a walking one at its next step boundary".** The static study finds no way to reach step 3 with the unit
   walking: the order's logic runs only when the walk has ended, and command 4 always takes over in the same update.
   If confirmed, the clause can go.
@@ -436,7 +443,10 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   separate them. Untraced.
 - **Statements made explicit by the consolidation, static study only and untraced:** the no-route restart of order 34
   always reaches step 3, so a human player's transport call is step 3's smart move, and a computer player's unit gets
-  command 4 there ("Order 34 (board)"). The open question on a computer player's restart (above) is unchanged.
+  command 4 there ("Order 34 (board)"). The open question on a computer player's restart (above) is unchanged. This
+  doesn't explain `human10-24000` n = 17216 (V10: a computer grunt's order 34 restarted with wait 3, where step 3
+  would give command 4) or the restart of 1407 at n = 6454 carried over above; V10 and those records keep governing,
+  so either they aren't the walk's no-route restart or the statement is wrong.
 
 ## History
 
