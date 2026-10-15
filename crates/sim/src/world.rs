@@ -1504,6 +1504,7 @@ impl World {
             if u.owner != player || u.dying || u.building || self.stride_of(u.kind) == 0 {
                 continue;
             }
+            self.players_command_clears_mark(i);
             let Some(order) = self.command_order(i, c) else {
                 continue;
             };

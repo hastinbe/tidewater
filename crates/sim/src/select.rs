@@ -409,6 +409,8 @@ impl World {
         if u.dying || u.building || self.stride_of(u.kind) == 0 {
             return;
         }
+        self.players_command_clears_mark(i);
+        let u = &self.units[i];
         let (player, units) = (u.owner, vec![u.id]);
         let c = match command {
             2 => Command::Stop { player, units },

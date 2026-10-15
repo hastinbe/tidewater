@@ -167,6 +167,15 @@ impl World {
         }
     }
 
+    /// "Clearing the mark" (round 71, traced: `human12-unload-then-move-900` n = 427, V39): every command a player
+    /// gives a transport (from the command stream, a right-click or the buttons) first clears its unload-on-arrival
+    /// mark, before anything else the command does; an unload command then sets it again ([`World::transport_command`]).
+    /// The computer players' own routines don't come here. Our reading: a command the unit then refuses (an attack by
+    /// a transport, say) still clears it, since the rule names every command.
+    pub(crate) fn players_command_clears_mark(&mut self, i: usize) {
+        self.units[i].ship.unload = false;
+    }
+
     /// A smart move (or, with `unload`, command 29) given to a transport ("Commands given to a transport"): the three
     /// things recorded with the land and shore steps ([`World::record_command`]), the unload-on-arrival mark, then the
     /// stage table ([`World::stage`]).
@@ -911,6 +920,43 @@ mod tests {
         );
         assert_eq!(u.tile, (22, 20));
         assert!(!u.ship.landing && !u.ship.one_tile);
+    }
+
+    /// "Clearing the mark" (V39): a player's command clears the unload-on-arrival mark before anything else, so a
+    /// smart move after an unload to the same shore tile lands without unloading; an unload command sets it again. A
+    /// computer player's routine (command 4 here) leaves it.
+    #[test]
+    fn a_players_command_clears_the_unload_mark() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (24, 10), Order::Idle);
+        let tid = w.units[t].id;
+        let unload = crate::Command::Unload {
+            player: 0,
+            units: vec![tid],
+            tile: (20, 10),
+        };
+        let smart = crate::Command::Smart {
+            player: 0,
+            units: vec![tid],
+            target: None,
+            tile: (20, 10),
+        };
+        let stop = crate::Command::Stop {
+            player: 0,
+            units: vec![tid],
+        };
+        let mark = |w: &World| w.unit(tid).unwrap().ship.unload;
+        w.turn(std::slice::from_ref(&unload));
+        assert!(mark(&w));
+        w.turn(std::slice::from_ref(&smart));
+        assert!(!mark(&w), "the smart move cleared it");
+        assert!(matches!(w.unit(tid).unwrap().pending, Some(Order::Land { .. })));
+        w.turn(&[unload.clone(), stop]);
+        assert!(!mark(&w), "a stop clears it too");
+        w.turn(&[unload]);
+        let ti = w.index(tid).unwrap();
+        w.command_4(ti, None, (20, 10));
+        assert!(mark(&w), "a computer routine's command keeps it");
     }
 
     #[test]
@@ -1924,12 +1970,20 @@ mod tests {
                 run(&mut w, 300);
                 let t = w.unit(tid).unwrap();
                 assert_eq!((t.order, t.tile), (Order::Idle, (24, 4)));
+                // Transports spec, "Clearing the mark" (V39): the stream's smart move clears the mark the computer
+                // player's ferry set when its passengers boarded, so that transport docks at the far shore with them
+                // aboard, and the ferry takes them back and unloads them on the near shore.
                 for &f in &feet {
-                    assert_eq!(w.unit(f).unwrap().tile.0, 38, "unloaded on the far shore");
+                    let x = w.unit(f).unwrap().tile.0;
+                    if kind == controller::HUMAN {
+                        assert_eq!(x, 38, "unloaded on the far shore");
+                    } else {
+                        assert!(x < 10, "unloaded on the near shore: {x}");
+                    }
                 }
                 prints.push(w.fingerprint());
             }
-            pinned(&prints, &[9945149469627751725, 3374970938713905961]);
+            pinned(&prints, &[9945149469627751725, 15425780563369519976]);
         }
     }
 }
