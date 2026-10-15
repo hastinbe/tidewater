@@ -9,6 +9,9 @@
   fade of all sound; the fade's first step comes at once, so 28 steps take 540 ms, not 560 ms (24 steps 460 ms).
 - **Changes:** 2026-10-15: round-69 errata (`ERRATA-round69.md`, finding 4; victory observed on the running game,
   Enhanced campaign launch): the music while the outcome dialog is up, and the order of the fades after it closes.
+- **Changes:** 2026-10-15: round-70 errata (`ERRATA-round70.md`, findings I6, I7 and R1): the defeat path watched
+  (Orc01, twice); the first fade blocks the whole program; the second fade has nothing left to fade and returns at
+  once (static study). Reviewed by a spec-review session, 2026-10-15; the button name follows `game/campaign-flow.md`.
 
 ## Behaviour
 
@@ -98,19 +101,24 @@ When a single-player game is won or lost, the game shows its victory or defeat d
 starts, nothing fades, and the game's track keeps playing. Since the music keeps running, a track that reaches its end
 under the dialog fades and moves on to the next one as in "End of a track" (static study; not seen).
 
-When the player closes the dialog with the button that ends the game (the victory dialog's "Victory", which
-`game/campaign-flow.md` calls Continue; the defeat dialog's "OK"):
+When the player closes the dialog with the button that ends the game (the victory dialog's "Victory" or the defeat
+dialog's "OK", `game/campaign-flow.md`):
 
-1. A fade of all sound from the current volume (28 steps over 540 ms from full volume), which blocks.
+1. A fade of all sound from the current volume (28 steps over 540 ms from full volume), which blocks: the program
+   does nothing else until it ends, so the picture stays as it is and no input is read. The wait is there only while
+   music is playing; with no music it returns at once (static study, round 70).
 2. The game ends: the screen fades to black in 1 ms (`ui/palette-effects.md`, "Game end"), and a second fade of all
-   sound runs. The music is already closed by then, so nothing more is heard.
+   sound runs. The music is already closed by then, so it only stops any sound effects still playing (none, since
+   the first fade cut them) and returns at once, with no wait (static study). Leaving it out changes nothing that can
+   be heard or seen.
 3. The score screen opens and starts its track at once: 14 or 15 for a victory, 12 or 13 for a defeat (the local
    player's race). With the skip setting on there is no score screen (`game/campaign-flow.md`), so no score track.
 
 So the in-game track is heard until the click and is silent before the score screen's track starts; the two never
 overlap. The victory path through "Victory" was seen on the running game (a Human01 campaign mission, Enhanced; the
 events came in this order within about 45 ms, since the container had no sound device and the fades returned at
-once). The defeat dialog takes the same path in the program but wasn't watched.
+once). The defeat path through "OK" was seen in round 70 (Orc01, Enhanced, twice): the same events in the same order,
+with track 13.
 
 ### The game's track
 
@@ -279,6 +287,7 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
 | Score screen, human victory | Track 14 plays once (16.61 s), fading over its last 6.98 s, then silence |
 | Human campaign mission won; the victory dialog stays up 30 s, then "Victory" clicked | The game's track plays on for the whole 30 s with no change; at the click a fade of all sound (540 ms at full volume), a 1 ms fade to black, then track 14 starts as the score screen opens |
 | Human campaign mission lost; "OK" clicked on the defeat dialog | As above, then track 12 (static study only) |
+| Orc campaign mission (Orc01) lost through the defeat cheat; the defeat dialog stays up 8 s, then "OK" clicked | Nothing starts or fades while the dialog is up; at the click a fade of all sound, the game end, a second fade of all sound, the score screen, then track 13 starts (seen on the running game, round 70, twice; about 40 ms in all with no sound device) |
 
 ## Open questions
 
@@ -295,8 +304,7 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
   string table) on the message line. Default: play from wherever the data is.
 - **Running game.** Only the order of the music events around the victory dialog has been watched (round 69); the
   rest hasn't, and nothing has been heard. The fades in particular should be checked by ear.
-- **Outcome dialog: fade lengths.** The 540 ms of the first fade of all sound after the dialog is static study (the
-  watched run had no sound device). Whether the second fade, with the music already closed, ends at its first step or
-  waits again isn't known. Default: it ends at once.
-- **Outcome dialog: other paths.** The defeat dialog, and the victory dialog's save path (a save, then the game ends
-  with a victory), weren't watched. Default: the same sequence as "Victory".
+- **Outcome dialog: fade length.** The 540 ms of the first fade of all sound after the dialog is static study (the
+  watched runs had no sound device). The second fade returns at once (static study, round 70).
+- **Outcome dialog: save path.** The victory dialog's save path (a save, then the game ends with a victory) wasn't
+  watched. Default: the same sequence as "Victory".

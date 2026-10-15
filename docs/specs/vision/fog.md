@@ -24,6 +24,9 @@
 - **Changes:** 2026-10-13, round-65 errata: at a fog refresh every unit whose slot is in use applies its sight, a
   unit in its death animation included (traced: `xorc4-30000` n = 19507); bodies, ruins and units being removed too,
   until the slot is released (static study only); `xorc4-30000` vector.
+- **Changes:** 2026-10-15, harvest audit round 70 (`ERRATA-audit-harvest.md`, erratum 2; static study, reviewed by a
+  spec-review session): a unit created during a cycle has an empty detected-by set until the next detection phase;
+  vector below.
 
 ## Behaviour
 
@@ -204,6 +207,16 @@ Each cycle, each unit gets a **detected-by** set of players. Rules, first match 
 
 In Enhanced mode the set is then widened: every player in the shared-vision set of a detecting player also detects.
 
+**A unit created during a cycle** (trained, built, a new construction site or oil platform, or any other new unit)
+starts with an **empty** detected-by set, and this phase first fills it in at the start of the next cycle. For the
+rest of its first cycle no player detects it, its owner included, so every "detected" test fails for it
+(`orders/orders.md`, "Terms"): a command aimed at it later in that cycle (by a computer player or by a unit's own
+logic) drops the target and makes idle pending ("Commands forget a stale attacker"), and target searches skip it. A
+builder's link to its new construction site is set without a detection test, so building isn't affected. (Static
+study, and the oracle traces behind `economy/harvest.md` vectors V55 and V56; a scan of every committed trace finds
+no unit other than a builder targeting a unit in the cycle it was created. Audit round 70, erratum 2 in
+`specs/ERRATA-audit-harvest.md`.)
+
 ### Unit visibility (phase 5)
 
 Each cycle, each unit gets a **hidden-from** set of players. A unit that is dead, removed or inside something is
@@ -301,6 +314,7 @@ Coordinates are (x, y); y grows downwards. "Fresh map" means fog on and nothing 
 | Human archer searching for a target; the only enemy in range is hidden from its owner | No target found |
 | Human player places a farm whose site includes an unexplored tile | Refused |
 | Human player places a farm on explored but unseen tiles where an enemy unit stands | The enemy unit doesn't block the placement |
+| A computer player's footman given an attack command (command 8) by its AI on an enemy unit trained earlier in the same cycle (static study; audit round 70, V91) | The command's target check drops the target: idle becomes the footman's pending order. In the next cycle the same command works |
 | `xhuman10-spells-700` (oracle trace), computer player 2's grunt 1475, axe thrower 1496 and ogres 1538 and 1543; player 1's units in range | n = 1: order 2, animation 2, wait 1, no target (everything is hidden in the first start-up cycle); n = 2: wait 4; n = 6: order 12, animation 4, wait 3, targets 1492, 1492, 1536 and 1542 |
 | `human06-31357` (oracle trace): axe thrower 1516 (type 0x09, owner 5) at (68, 11) in order 12 on footman 1584 (owner 1, the human player) at (72, 7) strikes after a fog refresh; (68, 11) is otherwise unseen by player 1 | The strike reveals a sight-2 area around (68, 11) for player 1; at n = 9642 footman 1584's search takes 1516 as its attacker seed: order 12, animation 4, wait 3 |
 

@@ -13,6 +13,10 @@
   title's tick is the 100 ms real-time menu timer; fades block it; the act sound starts when the picture's fade-in
   ends; the act screen closes with a 400 ms fade to black and a fade of all sound; act screen timeline vector. The
   "Tick lengths" open question is closed.
+- **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`): button names from the dialog data: the briefing's button
+  is "Continue" (`rez\hdisptch.bin`, `rez\odisptch.bin`), the victory dialog's are "Victory" and "Save Game"
+  (`rez\wmission.bin`), the defeat dialog's is "OK" (`rez\lmission.bin`). No rule change. Reviewed by a
+  spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -178,7 +182,8 @@ The briefing is shown for mission entries 0 to 51. It uses `rez\hdisptch.bin` fo
   the text finishes scrolling about when the narration ends.
 - **Music:** if no music is playing, track 20 (human) or 21 (orc) starts.
 - **Closing.** The briefing closes by itself once the text has scrolled out of the panel and the narration has
-  finished. The OK button closes it at once. A quit request quits the program.
+  finished. Its **Continue** button (the dialog data's only button) closes it at once. A quit request quits the
+  program.
 
 ### The victory and defeat dialogs
 
@@ -186,11 +191,11 @@ When `game/victory.md` decides the outcome:
 
 - **Victory, single player.** Any open menu is closed and the victory dialog (`rez\wmission.bin`) is
   shown over the game, with the race's small picture (`art\h144x64.bmp` or `art\o144x64.bmp`). It has two choices:
-  - **Continue** ends the game with a victory;
-  - **Save** opens the save dialog (a later spec). After a save the game ends with a victory. If the save is
+  - **Victory** (hotkey V) ends the game with a victory;
+  - **Save Game** (hotkey F11) opens the save dialog (a later spec). After a save the game ends with a victory. If the save is
     cancelled, the victory dialog is shown again.
 - **Defeat, single player.** The game is marked as lost first, menus are closed, and the defeat dialog
-  (`rez\lmission.bin`, same picture) is shown. Its only button ends the game.
+  (`rez\lmission.bin`, same picture) is shown. Its only button, **OK** (hotkey O), ends the game.
 - **Multiplayer.** No dialog: the game ends at once with the result.
 
 ### The score screen

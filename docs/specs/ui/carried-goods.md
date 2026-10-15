@@ -8,6 +8,11 @@
   and observation of the running game (a Human01 peasant carrying lumber, Enhanced campaign launch). Round-69 errata
   (`ERRATA-round69.md`, finding 3). Only the lumber walk was seen on the running game; the rest is file data and
   static study, as each test vector says.
+- **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`, finding R4; observed on the running game): a worker's file
+  is also chosen again when its animation switches between walking and its order's own animation within an order. A
+  carrying peon given an attack was seen walking with its load and swinging without it. The old text said the plain
+  file shows for the whole order; that rule and its harvest-command vector are withdrawn. Reviewed by a spec-review
+  session, 2026-10-15.
 
 ## Behaviour
 
@@ -55,13 +60,17 @@ The file is chosen again only at these moments; between them the unit keeps the 
 - **An animation is started** by an order taking over or the unit going idle (`core/animation-scripts.md`, "Running
   a script"). The rule above is applied with the animation being started: the animation of the new order in the
   order list of `orders/orders.md`.
+- **Workers only: the animation switches within an order.** When a worker starts its move animation for a step, or
+  switches back to its order's own animation on arrival (`orders/orders.md`, "Walking orders"), the rule above is
+  applied with the animation being switched to. Tankers don't need this: their file doesn't depend on the animation.
 
-A unit that switches to its move animation for a step, or back to its order's own animation on arrival, within the
-same order doesn't have its file chosen again. So a carrying worker whose new order has animation 4 (an attack, a
-harvest order 23 or a repair order 27, for example) is chosen with animation 4 and shows the plain file (no load in its
-hands) while it walks to its target and works there. It shows the carrying file again when it next goes idle or takes
-an order with another animation. A carrying worker walking home in a return order (animation 2) or a move order shows
-the carrying file throughout.
+So a carrying worker given an attack walks to its target drawn from the carrying file (load in its hands), and shows
+the plain file from the update in which it switches to its attack animation at the target. (The attack order's
+take-over starts animation 4, so the plain file shows for the take-over's wait of 3 cycles before the first step's
+move animation chooses the carrying file again; static study, too short to see in the round-70 captures.) If it then stops or goes
+idle, it shows the carrying file again (it still carries the load). A carrying worker walking home in a return order
+or a move order shows the carrying file throughout. The interface refuses a harvest command for a carrying worker
+(`economy/harvest.md`, V94), so "carrying and chopping" doesn't come up from the player's input.
 
 ### Frames while carrying
 
@@ -109,8 +118,8 @@ In the carrying files, frames 25 to 49 are exact copies of frames 0 to 24 and fr
 | Peasant fells its share of a tree (gather mode lumber), then walks south toward the town hall | Column 4 plus the move script's frame numbers (4, then 9, 14, 4, 19, 24 repeating) from `Human\peonl.grp`, not mirrored. Seen on the running game (Human01) |
 | Peon comes out of a gold mine with a load, facing west | Frames from `Orc\peong.grp`, column 2, mirrored (static study) |
 | Peon carrying gold delivers it at a great hall | Comes out drawn from `Orc\peon.grp` (static study) |
-| Peasant carrying lumber is given an attack command on a grunt | `Human\peon.grp` from the attack order's take-over (walking and swinging); after the attack ends and it goes idle, `Human\peonl.grp` frame 0 + column (static study) |
-| Peasant carrying gold is given a harvest command on a tree | `Human\peon.grp` from the take-over of order 23 (animation 4) while it walks and chops (static study) |
+| Peon carrying gold (Orc01, Enhanced) is given an attack command (A, then a left click) on an own grunt about 7 tiles away; later the stop command; later a move command | Walking to the grunt: `Orc\peong.grp` (load in hand) on every frame seen. Swinging at the grunt: `Orc\peon.grp`. After the stop: `Orc\peong.grp` frame 0 + column; walking on the move: `Orc\peong.grp`. Seen on the running game (round 70) |
+| Peasant carrying lumber is given an attack command on a grunt | Walking: `Human\peonl.grp`; swinging: `Human\peon.grp`; idle after the attack: `Human\peonl.grp` frame 0 + column (static study; the orc gold case above was seen) |
 | Peasant carrying gold is killed | Death frames 50, 55, 60 + column from `Human\peon.grp` (static study) |
 | Orc tanker leaves an oil platform with oil | `Orc\tankero.grp` until it delivers; `Orc\tanker.grp` after (static study) |
 | Human tanker carrying oil is sunk | Death frames 5, 10 + column from `Human\tanker.grp` (static study) |
@@ -118,10 +127,8 @@ In the carrying files, frames 25 to 49 are exact copies of frames 0 to 24 and fr
 
 ## Open questions
 
-- **Not yet seen on the running game:** the gold file, the tanker files and the animation-4 exception (a carrying
-  worker given an attack or a harvest command). A worker chopping a tree isn't carrying yet (the mark is set when it
-  fells its share), so the exception shows only for a worker that already carries a load. Trace request: stage a
-  carrying worker given an attack, and a carrying tanker, in Human01 or Orc09, and capture the framebuffer while they
-  walk.
+- **Not yet seen on the running game:** the tanker files. The gold file and the animation-4 exception were seen in
+  round 70 (Orc01). Trace request: a carrying tanker in a mission with oil (Orc04 or Human04), framebuffer capture
+  while it walks to its depot.
 - **Other worker types.** Custom data could give the peon flag to other types; they would use the orc folder and
   must have matching files there. Not tested.

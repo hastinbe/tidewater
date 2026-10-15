@@ -7,6 +7,8 @@
   specification text (unit data section), and oracle traces of the running game. Each rule says which: "traced"
   with the trace name and record number n, or "static study only". The erratum rounds each rule came from are listed
   under "History" at the end.
+- **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`, M8; static study): the open question on blocked row A's
+  order 11 records the round-70 restatement and its trace request; step 5 and V183 are unchanged (spec review).
 
 ## Behaviour
 
@@ -1807,8 +1809,10 @@ Found by the second review of the movement consolidation (static study, 2026-10-
   the steps of a command there ("What every command does"): the pull-back runs but keeps the blocking tile, the
   blocked counter is cleared, the target unit is dropped, and the unit is marked as having a pending command. The goal
   is the same either way; the counter, the target unit and the mark differ. `movement/movement.md` records the same
-  question under "Open questions". Step 5 and V183 keep governing until a trace decides; a trace needs a computer unit
-  that row A sends at a wall and that is blocked again on its way.
+  question under "Open questions". Round 70 (`ERRATA-round70.md`, M8) restated the static reading with no new
+  trace; under the round-68 ruling step 5 and V183 keep governing until a trace decides. Trace request: a computer
+  unit that row A sends at a wall and that is blocked again on its way (its counter would then start from 0 if the
+  static reading holds).
 
 ## History
 
@@ -1856,3 +1860,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 66 | Evidence only: order 16 keep traced; repair and order 9 with no route traced | "Resulting order"; "No route"; vectors V264 to V266 |
 | 68 | Order 18 walks to the pulled-back goal and arrives by base range or goal radius; its switch to 17 is a command taking over in the same update (wait 3); the friendly-fire hold makes idle pending with the resume step; a player's command forgets the remembered order before the target check | "Arrival radius exceptions"; "Arriving and losing the target"; "Friendly-fire check"; "Same-update take-over"; "Commands forget a stale attacker"; vectors V267 to V272 |
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec; "The model", "How an update runs", "Walking orders", "What every command does" and "Attack orders" are new and restate rules already given elsewhere |
+| 70 | Evidence only: round 70 restated the static reading of blocked row A (order 11 through a command); step 5 and V183 are unchanged until a trace decides (spec review) | "Open questions" |

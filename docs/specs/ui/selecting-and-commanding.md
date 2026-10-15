@@ -11,6 +11,11 @@
   spell command forgets it; a build command keeps it and leaves the remembered order as it is.
   2026-10-15, round-69 errata (`ERRATA-round69.md`, finding 2; static study): the ground marker is the local
   player's only.
+  2026-10-15, round-70 errata (`ERRATA-round70.md`, finding I1; static study): a target-mode left click on the
+  minimap also makes the ground marker, at the clicked tile's top-left pixel.
+  2026-10-15, harvest audit round 70 (`ERRATA-audit-harvest.md`, erratum 5; static study): a unit leaves the
+  selections and groups when it starts entering a mine, oil platform or depot, not only once it is inside. Both
+  round-70 changes reviewed by a spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -40,8 +45,9 @@ rules" and "Classic rules" are the two rule sets of `core/timing-and-rng.md`, wh
 2. If exactly one unit is selected and it is dying or dead, nothing more happens.
 3. The change is sent (unless the rule says otherwise), each unit is marked as selected, and the panel is rebuilt.
 
-**Losing a unit from the selection.** When a unit dies, enters a gold mine or oil platform, or goes inside
-something:
+**Losing a unit from the selection.** When a unit dies, **starts entering** a mine, oil platform or depot
+(order 25 is given, before the step-in; `economy/harvest.md`, "Entering"), or goes inside something (static
+study; audit round 70, erratum 5; trace request T3: a framebuffer capture of a selected worker stepping into a hall):
 
 - it is removed from every remembered group (below);
 - it is removed from every player's synced selection. Under Enhanced rules the remaining units close up; under
@@ -270,8 +276,9 @@ group keeps its shape when sent somewhere away from it; a group spread wide conv
 - ends target mode;
 - sends the mode's command with the tile and target, and plays the acknowledgement.
 
-A left click on the minimap gives the tile under the click with no target. A right click on the map view, the panel
-or elsewhere ends the mode without sending anything.
+A left click on the minimap gives the tile under the click with no target, and makes the ground marker at that
+tile's pixel position (tile × 32 on each axis, with no + 8, unlike the minimap right-click; static study). A right
+click on the map view, the panel or elsewhere ends the mode without sending anything.
 
 **Placement mode:** a left click on the map view runs the site check of `ui/placing-buildings.md` ("The click").
 A failed check plays the error sound, shows its message and leaves placement mode **on**, so the player can click

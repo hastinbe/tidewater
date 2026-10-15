@@ -10,6 +10,8 @@
   2026-10-15, round-69 errata (`ERRATA-round69.md`, finding 2; observed on the running game): the ground marker's
   frame sequence, and that only the local player's own clicks (right-clicks and target-mode clicks) make it. A
   carrying worker's or tanker's picture is its carrying file ("Terms", `ui/carried-goods.md`).
+  2026-10-15, round-70 errata (`ERRATA-round70.md`, finding I1; static study): a target-mode left click on the
+  minimap makes the marker too (reviewed by a spec-review session, 2026-10-15).
 
 ## Behaviour
 
@@ -299,7 +301,7 @@ After the fog:
    | Frame | 0 | 1 | 2 | 3 | 2 | 1 | 0 | not drawn |
 
    Only the local player's own clicks make it: a right-click on the map view or minimap, or a left click on the map
-   view in target mode (`ui/selecting-and-commanding.md`, "Feedback" and "Target mode and placement mode clicks").
+   view or the minimap in target mode (`ui/selecting-and-commanding.md`, "Feedback" and "Target mode and placement mode clicks").
    Carrying out a command never does, so other players' and computer players' commands show no marker. There is one
    marker: a new click moves it to the new spot and starts the sequence again from its first update. The pointer is
    drawn over it.

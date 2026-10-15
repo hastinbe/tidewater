@@ -11,6 +11,10 @@
   settings"): both default to 4 and are kept with the player's stored settings.
 - **Changes:** 2026-10-15, round-69 errata (`ERRATA-round69.md`, finding 1; observed on the running game, Enhanced
   campaign launch): the pointer on the flow screens, its colours, and how it hides through screen fades.
+- **Changes:** 2026-10-15, round-70 errata (`ERRATA-round70.md`, findings I2 to I4, R1 to R3; observed on the
+  running game, Enhanced): no pointer during the introduction video; the credits, load-game and multiplayer menu
+  screens and the defeat dialog watched; the version line shows during the menu fade-in. Reviewed by a spec-review
+  session, 2026-10-15.
 
 ## Behaviour
 
@@ -177,13 +181,15 @@ No pointer is animated.
 
 | Screen | Pointer | Colours | Seen on the running game |
 | --- | --- | --- | --- |
+| Introduction video | none (hidden) | | yes (other videos and the campaign finale: not watched, see "Open questions") |
 | Title picture | none (hidden) | | yes |
-| Main menu, single-player menu, campaign menu, custom-scenario setup | orc normal arrow (`o_arrow.cur`) for every race and campaign | the menu picture's palette | yes |
+| Main menu, single-player menu, campaign menu, custom-scenario setup, load-game screen, the multiplayer menus up to and including the connection-method screen (Enhanced or Classic choice, connection method, direct-connection setup) and their small dialogs (name entry, "Unable to locate IPX network") | orc normal arrow (`o_arrow.cur`) for every race and campaign | the menu picture's palette | yes |
 | Act screen | none (hidden) | | yes |
 | Mission briefing | 3D arrow (`arrow_3d.cur`) | the briefing picture's palette | yes |
 | Score screen | 3D arrow (`arrow_3d.cur`) | the score picture's palette | yes (human victory) |
-| Credits | 3D arrow (`arrow_3d.cur`) | the credits picture's palette | no (static study) |
-| In a game, and the game's own dialogs (including the victory and defeat dialog) | the in-game rules above (race arrow while a dialog is open) | the tileset palette | yes (the defeat dialog wasn't watched) |
+| Credits (picture `Art\credits.pcx`) | 3D arrow (`arrow_3d.cur`) | the credits picture's palette | yes |
+| In a game, and the game's own dialogs (including the victory and defeat dialog) | the in-game rules above (race arrow while a dialog is open) | the tileset palette | yes (human victory dialog, orc defeat dialog) |
+| Battle.net screens, multiplayer game setup and lobby | not known | | no (not reachable in the oracle) |
 
 The menus' arrow is the orc one because the main menu sets the interface race to orc each time it opens; the race of
 a game is set again when the game starts. The 3D arrow (hot spot (0, 0), 15 × 21) uses only palette indices 6 to 13,
@@ -196,8 +202,10 @@ the indices in the pointer file. It has no palette of its own.
 
 - When a screen starts its fade-out (the click or key that closes it), the pointer disappears at once. The fade
   lengths are in `ui/palette-effects.md` ("Screen fades").
-- It stays hidden through the fade to black, any black gap, and the next screen's fade-in. On the main menu the
-  buttons are also not drawn during the fade-in.
+- It stays hidden through the fade to black, any black gap, and the next screen's fade-in. On the menu screens the
+  buttons are also not drawn during the fade-in: the fade-in shows the picture and the version line
+  ("Warcraft II BNE v2.02", bottom left, drawn by the program over the picture), which fade in together. The buttons
+  and the pointer appear on the frame that ends the fade-in.
 - It appears, at full colour, when the next screen's fade-in has ended (on the frame that shows the screen at its own
   palette).
 - Screens with no fade-in (the briefing, and the score screen after the game's 1 ms fade-out) or a 10 ms one (the
@@ -280,6 +288,13 @@ describes.
 | Briefing, Continue clicked | Pointer gone from that frame; the game shows the in-game race arrow from its first frame |
 | Victory dialog in a human campaign mission | Human normal arrow (`h_arrow.cur`), tileset palette |
 | Score screen, first frame | 3D arrow at full colour |
+| Introduction video playing, pointer moved over it | No pointer drawn (round 70, seen) |
+| Main menu, Show Credits clicked | Credits picture `Art\credits.pcx` with its own palette; 3D arrow, exact pixel match (round 70, seen) |
+| Credits, OK clicked | Pointer gone through the fade-out and the main menu's fade-in; the fade-in frames show the picture and the version line at the same brightness, no buttons; buttons and the orc arrow appear on the first full-colour frame (round 70, seen) |
+| Single-player menu, Load Game clicked | Load-game screen, orc arrow, menu palette (round 70, seen) |
+| Main menu, Multi Player Game, Enhanced, then each connection screen | Orc arrow, menu palette, on every screen up to the IPX error dialog (round 70, seen) |
+| Orc campaign mission lost (defeat dialog up) | Orc normal arrow (`o_arrow.cur`), game palette (round 70, seen; shape match) |
+| Orc defeat, score screen | Picture `Art\olosglu.pcx`, 3D arrow, exact pixel match (round 70, seen) |
 
 ## Open questions
 
@@ -289,8 +304,10 @@ describes.
 - **Unused pointers.** A second arrow (`h_arrow2.cur`, `o_arrow2.cur`) and a cross (`cross.cur`) are loaded. No
   use of them was found in a game or on the flow screens. The 3D arrow is the briefing, score and credits pointer
   (above); it is also set when the game screen opens and replaced at the first input check.
-- **Flow screens not observed.** The credits, the load-game screens, the multiplayer screens and Battle.net weren't
-  watched. Default: the credits as in the table; the others like the main menu (orc arrow, hidden through fades).
+- **Flow screens not observed.** Battle.net, the multiplayer game setup and the lobby weren't reached: the oracle
+  has no IPX network or serial port, and Battle.net needs a live connection to an outside service, which wasn't
+  attempted. The other videos and the campaign finale weren't played (the introduction showed no pointer). Default:
+  like the main menu (orc arrow, hidden through fades), and no pointer on any video.
 - **Network wait.** The length of the retry period that brings up the watch wasn't measured.
 - **Text placement.** The exact vertical pixel of the bar text (centred, with a 2-pixel offset in the program's
   arithmetic) and the font's baseline belong to the drawing spec.

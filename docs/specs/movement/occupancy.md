@@ -11,6 +11,8 @@
   2026-10-11, round-7 errata: the run-time marks table lists 0x0400, the computer players' keep-clear mark.
   2026-10-12, round-13 errata: "Rock" step 4 now points to the blast's damage rules.
   2026-10-12, round-38 errata: the keep-clear mark's description includes the creation marks of `ai/worker-ai.md`.
+  2026-10-15, harvest audit round 70 (`ERRATA-audit-harvest.md`, erratum 7; static study, reviewed by a spec-review
+  session): leaving the chopping state other than by felling also forgets the return-to source.
 
 ## Behaviour
 
@@ -176,7 +178,9 @@ with adjacent walls.
 
 **Reservation:** when a woodcutter commits to a tree tile, that tile's region value becomes "reserved forest". The
 value goes back to "forest" when the woodcutter dies, goes idle, or takes another order while still holding the
-reservation. A free tree is a tile whose value is "forest" (not "reserved").
+reservation. A free tree is a tile whose value is "forest" (not "reserved"). Leaving the chopping state this way (any
+way but felling) also makes the woodcutter forget its return-to source (`../economy/harvest.md`, "Gather mode and
+carried goods"); no reachable case is known where that shows (static study; audit round 70, erratum 7).
 
 **Felling:** when the woodcutter finishes its strikes (the count is in `../economy/harvest.md`), the game updates the
 3 × 3 block centred on the felled tile. It visits the block row by row from the top-left, clipped at the map edge.

@@ -8,6 +8,11 @@
   research-side command logs and map dumps of Human04). Each rule says which: "traced" with the trace name and record
   number n, or "static study only"; a rule with neither is from the static study. The erratum rounds each rule came
   from are listed under "History" at the end.
+- **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`, M1 to M7): V10's n = 17216 record explained by break
+  captures (a re-issued boarding command, not a restart); static study: the docking sound on ordinary steps, far
+  landing steps don't restart the animation, the push-off and unload waits, push-off "done" clears the blocked
+  counter, every command records the transport's target, tile and destination. Reviewed by a spec-review session,
+  2026-10-15 (the push-off and unload waits keep their trace request under "Open questions").
 
 ## Behaviour
 
@@ -61,8 +66,7 @@ Four rules are shared by the stages and stated once:
   to, and placing a passenger ashore all use the ring search of `movement/placement.md`, with the settings in "Data".
 - **Giving up.** A stage that can't go on ends in one of two ways: the transport docks (order 32), or the unit
   becomes idle (order 2). The one exception: landing with no route while on shore water and marked unload on arrival
-  unloads instead (order 29; "Landing (order 30)", step 6). Each stage's steps say which; the waits these take over
-  with are not all stated (see "Open questions").
+  unloads instead (order 29; "Landing (order 30)", step 6). Each stage's steps say which, and with which wait.
 
 ### Moving near the shore
 
@@ -72,21 +76,26 @@ blocked and row F never applying (`movement/movement.md`, "Blocked rules").
 
 | Point | Landing (order 30) | Pushing off (order 31) |
 | --- | --- | --- |
-| When its own logic moves the transport | within 3 tiles of the goal; farther out, ordinary two-tile steps in the sea class | always |
+| When its own logic moves the transport | within 3 tiles of the goal; farther out, ordinary two-tile steps in the sea class, which don't restart the move animation at each step (it runs on as for any walking unit; static study, round 70) | always |
 | Movement class | the landing class | unchanged (the landing class after a landing) |
 | Step size | two-tile while both its tile and its goal tile are even; otherwise one-tile | two-tile on an even tile; otherwise unchanged |
 | Animation | two-tile: the move animation, run at once; one-tile: its own animation 6 | the same |
 | Route | a new route from the current tile at every step | the ring search before every step, then its cached path or a new search |
 | End test | the goal tile exactly (radius 0, no +1) | an even tile of open water |
-| No route | step 6 of "Landing (order 30)" | docks (order 32) |
-| Docking sound | on a step **onto** shore water | on a step **leaving** a shore-water tile |
+| No route | step 6 of "Landing (order 30)" | docks at once (order 32 as an immediate order: still animation, wait 1) |
+| Docking sound | on a step **onto** shore water | on a step **leaving** a shore-water tile (whatever the tile stepped onto) |
+
+The docking sound also plays on a transport's **ordinary** steps (any order, including order 30 farther than 3 tiles
+out): on every step onto a shore-water tile, as in landing. Pushing off is the only case that tests the tile being
+left instead (static study, round 70).
 
 ### Commands given to a transport
 
 A smart move (command 3) to a transport, or the **unload** command (command 29), is decided as follows. G is the
 target tile and S the transport's tile.
 
-**What the transport stores.** Giving a transport any command records three things: the **target unit** (if the
+**What the transport stores.** Giving a transport any command (every command, including a computer player's move or
+attack; static study, round 70) records three things: the **target unit** (if the
 command has one), the **target tile** (the target unit's tile, or the command's tile), and the **destination**, a
 copy of the target tile made at that moment. Later steps may change the target tile (docking at S, pushing off), but
 they never change the destination, which is what "its destination tile" means below.
@@ -164,14 +173,17 @@ Order 31 moves the transport by itself: it is not a moving order in the sense of
 movement logic (path cache, arrival test) doesn't run for it. Instead, each time the order's logic runs:
 
 1. **Done:** if the transport stands on an even tile of **open water**, it returns to the sea class, becomes a
-   two-tile mover and becomes idle, and is then given a smart move to its **destination** tile, with the same
-   **target unit** if it still has one (a smart move with a target unit aims at that unit's current tile instead).
-   The command rules above then run again from open water. Nothing else happens in this run.
+   two-tile mover and becomes idle (an immediate order), and is then given a smart move to its **destination** tile,
+   with the same **target unit** if it still has one (a smart move with a target unit aims at that unit's current
+   tile instead). The smart move is a command, so everything a command does applies (`orders/orders.md`, "What every
+   command does"): among other things the cached path is dropped and the **blocked counter is cleared** (static
+   study, round 70). The command rules above then run again from open water. Nothing else happens in this run.
 2. **Pick a tile:** otherwise it runs the push-off ring search of `movement/placement.md`: a 1 × 1 source at the
    transport's tile, aimed at its current **target tile**, limit **10** (5 rings); a tile passes when both
-   coordinates are even and no bit of the sea mask (0x0903) is set. If none passes, the transport docks (order 32)
-   and the run ends. If one passes, it becomes the target tile (the destination is not touched), the cached path is
-   dropped and the blocked counter is cleared.
+   coordinates are even and no bit of the sea mask (0x0903) is set. If none passes, the transport docks: order 32
+   becomes the **pending** order and takes over in the same update (still animation, wait 3; static study, round 70,
+   untraced), and the run ends. If one passes, it becomes the target tile (the destination is not touched), the
+   cached path is dropped and the blocked counter is cleared.
 3. **Forget lost targets:** a target unit or attacker that is no longer valid or no longer detected by the
    transport's owner (fog doesn't matter; see `vision/fog.md`, "What uses vision") is forgotten. If the target unit
    was forgotten, idle (order 2) is made the pending order, so the push-off ends at the next step boundary.
@@ -180,7 +192,8 @@ movement logic (path cache, arrival test) doesn't run for it. Instead, each time
    transport that docked on an odd tile (a one-tile mover after landing) keeps one-tile steps until it reaches an
    even tile. Its movement class is not changed: it stays in the class it had (the landing class after a landing).
 5. **Step:** it takes one step toward the target tile, using its cached path or a new search (`movement/pathfinding.md`).
-   If the search finds no route, it docks (order 32). If the next tile is blocked, the blocked rules of
+   If the search finds no route, it docks at once (order 32 as an **immediate** order: still animation, wait 1;
+   static study, round 70, untraced). If the next tile is blocked, the blocked rules of
    `movement/movement.md` apply. Otherwise the step is taken as described in `movement/movement.md` (leaving a
    shore-water tile plays the docking sound).
 
@@ -191,7 +204,8 @@ and re-runs the ring search before every step, now aimed at the tile it found la
 
 When the order's logic runs, if the transport stands on shore water, its passengers are put ashore **from slot 6
 down to slot 1**. Then order 32 (docked) takes over in the same update, as a pending order does: still animation,
-wait 3. It doesn't wait for a later step. If it isn't on shore water, it just becomes order 32.
+wait 3. It doesn't wait for a later step. If it isn't on shore water, no passenger is put ashore and order 32 takes
+over the same way (pending, same update, still animation, wait 3; static study, round 70, untraced).
 
 **One passenger** is put ashore like this, and only while the transport's order is 29 or 32:
 
@@ -364,7 +378,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V07 | Land unit (human player) in order 34 at (24, 21), in region L. Its transport is docked (order 32) at (20, 20), whose tile is in another region W, with a free slot; the transport's destination tile is (23, 20), in region L (for example left by a landing command whose route failed on the shore) | Goal: the destination (23, 20), because the transport isn't in the unit's region. The unit is within 1 tile of it, so it has arrived, but it is 4 tiles from the transport on x, so it doesn't board. The transport isn't landing and its destination is in the unit's region, so the unit keeps waiting in order 34, without moving, at every run until something changes | Example |
 | V08 | As V07, but the destination tile (23, 20) is in a third region | The unit gives up: idle becomes the pending order (order 2, still animation, wait 3 when it takes over; static study) | Static study |
 | V09 | Passive computer player's grunt in order 34, transport 5 tiles away on the shore, not landing, and its logic runs (static study only) | Gets a smart move again: stays in order 34, and the transport is told to come | Static study |
-| V10 | `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5) after a no-route step: order 34 restarted, animation 2, wait 3; n = 17254: order 36 (aboard) | Trace (`human10-24000`) |
+| V10 | `human10-24000` (oracle trace): computer grunt 1473 (type 0x01, owner 1) at (6, 4) gets order 34 on transport 1480 (docked at (23, 7)) at n = 16951 | Order 34 throughout, walking round a wall (animation 3 from n = 16954); n = 17216 at (20, 5): order 34, animation 2, wait 3, the take-over of the boarding command that the computer player's AI gave again at n = 17201 while the grunt walked (pending order 34; break captures, round 70), not a no-route restart; n = 17254: order 36 (aboard) | Trace (`human10-24000`; break captures `human10` n = 17190 to 17270) |
 | V11 | `human12-7000` (oracle trace), n = 6371: computer grunt 1407 (owner 0) walking to transport 1522 | Order 34, animation 3, tile (84, 16) | Trace (`human12-7000`) |
 | V13 | `orc14-10000` (oracle trace), n = 5486: computer knight 1430 (type 0x06, owner 6) at (28, 25) in order 34, can't board; transport 1435 (type 0x1C) landing (order 30) at (28, 27), in its region | Draws give offsets −3 and +5: order 3 to (25, 30), animation 2, wait 3, target null. That tile has no route: idle at n = 5489 | Trace (`orc14-10000`) |
 | V14 | `human13-10000` (oracle trace), n = 9154: computer ogre 1383 (type 0x07, owner 4) at (14, 2) in order 34 on transport 1388 (type 0x1D), docked at (25, 21), finds no route | Restart, then the same-update logic: order 4 on 1388, animation 2, wait 3. n = 9157: order 4 finds no route: order 2, target null | Trace (`human13-10000`) |
@@ -386,15 +400,15 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 Carried over:
 
 - **No-route restart by a computer player's unit.** A human player's restart tells the transport to come again
-  (`human12-transport`). For computer players' units the traces are mixed: in `human12-7000` the restart of grunt 1407
-  at n = 6403 is followed by the docked transport's take-over (wait 3 at n = 6405), and in `human10-24000` that of grunt
-  1473 at n = 17251 (wait 3 at n = 17254); but after the restarts of 1473 at n = 17216 and of 1407 at n = 6454 the
-  transport's still animation runs on unchanged. What decides it is open. The static study (untraced) reads it as: a
-  computer player's restart doesn't tell the transport, and the take-overs seen come from the 50-cycle army pass
-  (`ai/attack-ai.md`), which tells it. No trace separates the two readings; a capture of a computer army waiting for a
-  ferry, with the boarding unit's route blocked so it restarts, would.
+  (`human12-transport`). For computer players' units, round 70's break captures of `human10` showed that grunt 1473's
+  records at n = 17216 and 17251 aren't restarts at all: both are take-overs of the boarding command that the computer
+  player's AI gave it again (at n = 17201 while it walked, and at n = 17251), and the transport's take-over at
+  n = 17254 follows the second of these. So the static reading gains support: a computer player's restart doesn't
+  tell the transport, and the take-overs seen come from the AI giving the boarding command again (`ai/attack-ai.md`).
+  `human12-7000` (1407 at n = 6403 and 6454) wasn't recaptured. A capture of a computer army waiting for a ferry, with
+  the boarding unit's route blocked so it really restarts, would settle it.
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
-- The docking sound's identity and the exact sound rules.
+- The docking sound's identity. Its rules are now in "Moving near the shore" (static study, round 70).
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
 - **Passenger facing.** The static study shows no turn when a passenger is put ashore (an earlier text said it faces
   its target). The `human12-transport` passengers keep their boarding facing, which doesn't settle it. A trace where a
@@ -415,11 +429,12 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   blocked rules run inside the order's logic, which then counts as having given the unit an order. So the pending idle
   that rows C and G give takes over **in the same update** (still animation, wait 3), not at the next step done as for
   a walking unit. No trace has a transport give up or stop with an attacker while landing or pushing off.
-- **The waits when a transport docks or goes idle.** The spec says only "docks (order 32)" or "idle". The static study
-  finds: pushing off with no tile found makes order 32 the **pending** order and it takes over in the same update
-  (wait 3); pushing off with no route makes order 32 an **immediate** order (wait 1); landing's arrival and its
-  no-route outcomes (orders 29, 32 and 2) are immediate orders. The Human04 vector V24 (order 32 at n = 36) and
-  `orc8-10000` (movement V19: idle, wait 1) fit this; the push-off cases are untraced.
+- **The waits when a transport docks or goes idle** are now in the steps (round 70, static study): pushing off with
+  no tile found docks as a pending order (same update, wait 3), with no route as an immediate order (wait 1);
+  unloading docks as a pending order (same update, wait 3) on or off shore water; landing's arrival and no-route
+  outcomes (orders 29, 32 and 2) are immediate orders. The Human04 vector V24 (order 32 at n = 36) and `orc8-10000`
+  (movement V19: idle, wait 1) fit this; the push-off and unload cases are untraced. Trace request: a transport told
+  to push off toward a tile with no open water in 5 rings, and one told to unload on open water.
 - **Landing and pushing off forget a dying attacker.** Both forget a recorded attacker that is dying at each run, as
   the walk does for orders that neither acquire nor react (`orders/orders.md`, "Walking orders", step 1). Landing's
   steps don't say so. No outcome is known to differ: the attacker reaction doesn't run in either order.
@@ -431,9 +446,6 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 - **Step 3's "a walking one at its next step boundary".** The static study finds no way to reach step 3 with the unit
   walking: the order's logic runs only when the walk has ended, and command 4 always takes over in the same update.
   If confirmed, the clause can go.
-- **Unloading off shore water.** "Unloading (order 29)" says the transport "just becomes order 32" there. The static
-  study finds the same pending order 32 that takes over in the same update (still animation, wait 3) as on shore
-  water. Untraced.
 - **Order 30 with no route farther than 3 tiles from its goal.** "Landing (order 30)" says the landing logic runs only
   within 3 tiles. The static study finds that when the ordinary walk finds no route farther out, the landing logic
   runs in that update too: it plans again in the landing class and, if it also finds no route, applies its own step 6
@@ -443,10 +455,9 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   separate them. Untraced.
 - **Statements made explicit by the consolidation, static study only and untraced:** the no-route restart of order 34
   always reaches step 3, so a human player's transport call is step 3's smart move, and a computer player's unit gets
-  command 4 there ("Order 34 (board)"). The open question on a computer player's restart (above) is unchanged. This
-  doesn't explain `human10-24000` n = 17216 (V10: a computer grunt's order 34 restarted with wait 3, where step 3
-  would give command 4) or the restart of 1407 at n = 6454 carried over above; V10 and those records keep governing,
-  so either they aren't the walk's no-route restart or the statement is wrong.
+  command 4 there ("Order 34 (board)"). Round 70 removed the conflict with V10: its n = 17216 record is the take-over
+  of a re-issued boarding command, not a restart (break captures). The record of 1407 at `human12-7000` n = 6454 is
+  still unexplained and likely the same.
 
 ## History
 
@@ -472,3 +483,4 @@ round are kept with the research-side specs.
 | 64 | Order 34 runs the attacker reaction only when it has reached its transport, can't board and keeps waiting; a lost transport, a move toward it and boarding make no reaction (traced for boarding); a lost transport and giving up make idle the pending order (static study only); `orc12-orc12-board-attacked-1000` vector; open question on `xhuman5-30000` n = 26761 | "Order 34 (board)", steps 1, 3, 4 and 5; V31 to V33 |
 | 65 | The open question on `xhuman5-30000` n = 26761 is closed: the boarding walk aimed at the transport's destination finds no route because G isn't a line tile (`movement/pathfinding.md`), and the no-route restart gives command 4; the boarding walk's goal is set again from the transport at every walk (step 2); giving up is traced (the pending idle takes over in the same update); vectors | "Order 34 (board)", steps 2 and 5; V34 to V38 |
 | B-038 (2026-10-14) | Consolidated into one model: "The model" (the cycle and its four shared rules) and "Moving near the shore" added; vectors given IDs, a Source column and topic groups; the round citations moved here; one statement made explicit and eight open questions added. No rule changed | Whole spec |
+| 70 | V10 explained (re-issued boarding command, break captures); docking sound on ordinary steps; far landing steps; push-off and unload waits; push-off done clears the counter; every command records target, tile and destination (static study) | "Moving near the shore"; "Pushing off"; "Unloading"; "What the transport stores"; V10; "Open questions" |

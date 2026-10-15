@@ -8,6 +8,8 @@
   rule says which: "traced" with the trace name and record number n, or "static study only"; a rule with neither is
   from the static study. The path search is in `pathfinding.md` and tile blocking is in `occupancy.md`. The erratum
   rounds each rule came from are listed under "History" at the end.
+- **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`, M8; static study): the open question on row A's order 11
+  now records the round-70 restatement and its trace request; row A and V22 are unchanged (spec review).
 
 ## Behaviour
 
@@ -327,9 +329,10 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   is marked as having a pending command, which the path search reads (`pathfinding.md`, "Units seen by the search").
   The goal is the same either way: the pull-back on a one-step line tests only the goal tile, which is kept, so the
   goal stays the blocking tile. What differs is the counter (0, not the count that reached row A), the target unit
-  and the mark. The two specs contradict each other here; `orders/orders.md` records the same question under "Open
-  questions", and its step 5 and V183 keep governing until a trace decides. No trace has a unit blocked again after
-  row A. Recommendation: a trace of a computer unit that row A sends at a wall and that is blocked again on its way.
+  and the mark. Round 70 (`ERRATA-round70.md`, M8) restated this static reading with no new trace; under the
+  round-68 ruling row A, V22, step 5 and V183 keep governing until a trace decides. No trace has a unit blocked again
+  after row A. Trace request: a computer unit that row A sends at a wall and that is blocked again on its way (its
+  counter would then start from 0 if the static reading holds).
 
 ## History
 
@@ -350,3 +353,4 @@ round are kept with the research-side specs.
 | 60 | Arrival for a unit that is neither sea nor air targeting a shore building is measured to the shore corner goal; row C resumes a remembered patrol or attack-move at once (wait 1); `xhuman8-25000` and `orc9-orc09-shore-build-3000` vectors | "Arriving"; row C; V33, V34 |
 | 61 | Row C with nothing to resume keeps the restarted walking animation (the round-60 text said the still animation); `orc10-10000` and `xhuman12-10000` vectors | Row C; V35, V36 |
 | B-038 (2026-10-14) | Consolidated into one model: "The model" added; vectors given IDs, a Source column and topic groups; the round citations moved here; one open question added. No rule changed | Whole spec |
+| 70 | Evidence only: round 70 restated the static reading of row A (order 11 through a command); the rule is unchanged until a trace decides (spec review) | "Open questions" |

@@ -3,6 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Consolidated 2026-10-14 into one model with no
   rule change (B-038; the review notes, with a map from every earlier rule and vector to its place here, are kept
   with the research-side specs). The consolidation was checked by a second spec-review session, 2026-10-14.
+  **Audit round 70 edits** (`specs/ERRATA-audit-harvest.md`), reviewed by a spec-review session, 2026-10-15: errata 1,
+  2, 5 and 7 to 10 applied; errata 3 and 4 are static study against rules this spec states, so the rules stay and
+  both remain open questions (the round-68 ruling).
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the public PUD
   specification text (UNIT section and unit data flags), and oracle traces of the running game. Each rule says which:
   "traced" with the trace name and record number n, or "static study only". The erratum rounds each rule came from are
@@ -115,10 +118,10 @@ own commands) does the following:
      forest tile at all: it can be a building tile.
 3. **Tanker:** if the target is an **oil platform of the tanker's own side** and the tanker isn't carrying, the platform
    becomes the target. Otherwise the target unit is cleared (and the tanker still gets order 23, "Going to a mine or
-   platform"). A platform placed in this same cycle, while the oil patch under it hasn't yet had its own update in this
-   cycle, doesn't count: the target is cleared and the tanker goes idle (order 2, still animation, wait 3, target
-   null). In a later cycle the same command works as above (traced: `orc12-10000`, `xhuman8-10000`, vectors V55 and
-   V56; the reason is open).
+   platform"). A platform created earlier in this same cycle isn't yet detected by anyone (`vision/fog.md`, "A unit
+   created during a cycle"), so the command's own target check drops it and makes idle pending: the tanker goes idle
+   (order 2, still animation, wait 3, target null). In a later cycle the same command works as above (traced:
+   `orc12-10000`, `xhuman8-10000`, vectors V55 and V56; the reason is static study, audit round 70, erratum 2).
 4. The order becomes 23 (harvest).
 
 Mines aren't owned, so any worker can mine any gold mine. A worker already carrying goods is never put in gold mode.
@@ -175,9 +178,12 @@ While in order 23 in lumber mode, each time the order's logic runs (after the re
      is set to 0. It is given a return command to the nearest depot (order 24), or becomes idle if there is none, and
      that order takes over in the same update: order 24, its still animation, wait 3 (`orders/orders.md`,
      "Same-update take-over"). As a command, it clears the blocked counter, so blocks met on the way to the tree don't
-     carry over into the walk back.
-4. **Chopping, but the tile is no longer reserved:** the reservation is dropped, and the worker looks for the nearest
-   tree from its own tile, as in step 2.
+     carry over into the walk back. With no depot, **no command** is given: idle becomes the pending order and takes
+     over in the same update (still animation, wait 3), so the blocked counter, the cached route and a stale attacker
+     are kept, and a remembered order may resume (static study only; audit round 70, erratum 8).
+4. **Chopping, but the tile is no longer reserved:** the reservation is dropped and the return-to source forgotten
+   (as whenever a worker leaves the chopping state other than by felling; `movement/occupancy.md`), and the worker
+   looks for the nearest tree from its own tile, as in step 2.
 
 **Every new aim is a new harvest command.** Whenever these steps send the worker to a tile (step 1, and the nearest
 tree of steps 2 and 4), they give it a **new harvest command** to that tile, as a player would ("Commands given by
@@ -193,7 +199,11 @@ for workers; see `core/animation-scripts.md`). The tree falls on the 51st run af
 
 **Chop sound.** The run that starts chopping and each counting run pick a chop sound at random (one of 4); the felling
 run picks none (which runs draw is static study only). That draw uses the **setup-shuffle generator**, not the
-simulation generator (see `core/timing-and-rng.md`).
+simulation generator (see `core/timing-and-rng.md`). It is made in the simulation update, whether or not the sound is
+heard: an off-screen or unheard chop still advances the setup-shuffle generator. The drawn sound is held as the unit's
+pending sound (`ui/sounds.md`) until its animation plays it; a command given to the unit later in the same update
+clears the pending sound, so that sound is never played, but the draw stays made (static study only; audit round 70,
+erratum 10).
 
 #### No route
 
@@ -281,8 +291,13 @@ unit's next step boundary). Each time the logic runs:
    pending order (traced for a dying depot: `orc9-orc09-enter-dying-1800` n = 1435, vector V68; with no depot left, a
    dying great hall: `orc9-orc09-return-nodepot-2200` n = 1530, vector V77; a target that went inside something while
    the unit walked: `orc9-orc09-return-inside-1200` n = 558, vector V81; the "no longer detected" part is static study
-   only).
-3. **Otherwise (arrival, radius 1):** if the depot is completed, the order becomes 25 (enter); otherwise 2.
+   only). That pending idle comes with **no command**, so none of the command's steps run: the cached route isn't
+   dropped, the blocked counter isn't cleared and a stale attacker isn't forgotten; a remembered order may resume, as
+   for every pending idle (static study only; audit round 70, erratum 8).
+3. **Otherwise (arrival, radius 1):** if the depot is completed, the order becomes 25 (enter). Otherwise (a building
+   still under construction) idle becomes the **pending** order and takes over in the same update: still animation,
+   wait 3, target none; the unit keeps its load (traced: `orc9-orc09-carry-chop-1400` n = 566, vector V89; audit
+   round 70, erratum 1).
 
 The step-boundary test isn't made on arrival, and step 2 tests only "dying or gone", so a target that is inside
 something when the unit arrives isn't caught by order 24: the unit starts order 25, whose target check drops it
@@ -311,7 +326,9 @@ is still the building's top-left tile ("Coming out", step 4).
 
 ### Entering a mine, platform or depot (order 25)
 
-Order 25 can't be interrupted by new orders (see `orders/orders.md`).
+Order 25 can't be interrupted by new orders (see `orders/orders.md`). When order 25 is given (on arrival by order 23
+or 24), the unit leaves every selection and group (`ui/selecting-and-commanding.md`, "Losing a unit from the
+selection"), before it steps in (static study only; audit round 70, erratum 5).
 
 1. **First time the order's logic runs:**
    - The unit turns to face its target ("Facing a target": a building at its top-left tile + (1, 1); a target that is
@@ -346,14 +363,15 @@ Order 25 can't be interrupted by new orders (see `orders/orders.md`).
        return-to source. Its count and frame are **never lowered** again, since coming out lowers only the return-to
        source's count ("Coming out", step 2), so such a building keeps frame 2. A building that stores nothing but has
        trips doesn't exist in the game's data (static study only).
-3. **Target check first.** Each time the logic runs, before steps 1 and 2, the target is dropped if it is **dying or
-   gone**, **inside something** (a unit target in a mine, platform, depot or transport; static study only), or no
+3. **Target check first.** Each time the logic runs, before steps 1 and 2, a recorded attacker that is dying, gone,
+   inside something or not detected by the unit's player is forgotten (static study only; audit round 70, erratum 9).
+   Then the target is dropped if it is **dying or gone**, **inside something** (a unit target in a mine, platform, depot or transport; static study only), or no
    longer **detected** by the unit's player: the detection test of `orders/orders.md` ("Terms"); fog and explored tiles
    play no part (the detection part is static study only). A building in its death animation is already lost to an
    entering unit. Then, with no target: a unit that already stepped in (step 1 done) **dies**, and its target shows as
-   none; otherwise idle becomes the pending order (traced: `orc9-orc09-enter-dying-1800` n = 1441, vector V69; also the
-   uncommitted `xorc8-30000` n = 19330, a peasant stepping into a gold mine that had collapsed; see "Open questions"
-   for the not-yet-stepped-in case).
+   none; otherwise idle becomes the pending order (traced: `orc9-orc09-enter-dying-1800` n = 1441, vector V69; also
+   the uncommitted `xorc8-30000` n = 19330, a peasant stepping into a gold mine that had collapsed; see "Open
+   questions" for the not-yet-stepped-in case).
 
 ### Delivering goods
 
@@ -377,7 +395,8 @@ building that stores gold or wood: at an oil-only building, such as a shipyard, 
   uses and clears it ("Coming out", step 6). Entering such a building always counts as a delivery here, so a unit with
   gather mode none gets the mark too (vector V54). A ship's delivery never sets it (static study).
 - **Enhanced** rules deliver only if the unit is carrying. **Classic** rules check only the gather mode, so a unit in
-  gold or lumber mode delivers a full load even with empty hands, if it gets into a depot.
+  gold or lumber mode delivers a full load even with empty hands, if it gets into a depot. (Whether a tanker is
+  tested at all is an open question: "Tanker delivery and the carrying test".)
 - "Has a completed building" counts buildings of both races, of the owner, that have finished construction.
 - The source always loses exactly one trip per load, whatever bonus the delivery gets.
 
@@ -488,6 +507,7 @@ as" that row and names the trace, since the regrouping moved rows away from the 
 | --- | --- | --- | --- |
 | V55 | `orc12-10000` (oracle trace), n = 2877: computer tanker 1409 (type 0x1B, owner 1), idle, given the harvest command on oil platform 1403 (type 0x57), placed in that cycle | Order 2, animation 2, wait 3, target null | Trace |
 | V56 | `xhuman8-10000` (oracle trace), n = 732: tanker 1468 (type 0x1B, owner 3) on platform 1466 (type 0x57), placed in that cycle | Order 2, animation 2, wait 3, target null | Trace |
+| V90 | A computer player's tanker given a harvest command on its side's oil platform created earlier in the same cycle, where the oil patch's slot comes **before** the slot of the tanker that places the platform, and the harvesting tanker's slot after both (so the patch has already had its update in that cycle; static study) | Order 2, still animation, wait 3, target null, as V55: the platform isn't yet detected. The pre-audit rule ("the patch hasn't had its update") would have let the command work here, so this case separates the two (trace request T1) | Static study |
 
 ### Going to a mine or platform
 
@@ -510,6 +530,7 @@ as" that row and names the trace, since the regrouping moved rows away from the 
 | V29 | Lumber worker arrives next to its tree tile; the tile was cut meanwhile; a tree 2 rings away | Same-update take-over: order 23, animation 4, wait 3; its route starts 3 cycles later | Example |
 | V44 | A worker blocked 9 times on its way to a tree fells it | Its return walk starts with the blocked counter at 0 | Example |
 | V45 | `orc8-10000` (oracle trace): worker 1501 fells its tree at n = 8036 with a blocked counter of 8 (the counter isn't in the trace) and is given the return command (order 24 on 1489, wait 3). Computer peasant 1497 (type 0x02, owner 1) comes out of gold mine 1509 at n = 8054 and gets its own return command at n = 8079 | 1501's return command cleared its counter. n = 8082: 1497's route search treats 1501 as a moving ally, which it does only when 1501's counter is 0: 1497 is at (123, 88), facing 4, in its move animation | Trace |
+| V95 | A peon fells its tree when its owner has no completed depot in its region (static study) | No command: idle pending, taken over in the same update (still animation, wait 3); blocked counter and recorded attacker kept | Static study |
 | V53 | `xhuman2-10000` (oracle trace), n = 5820: computer peon 1530 (type 0x03, owner 7) at (88, 94) in order 23 finds its tree gone and no other tree | Order 2, animation 2, frame 25 kept, wait 3; the worker AI gives order 23 again at n = 5823 | Trace |
 
 ### No route
@@ -551,7 +572,9 @@ as" that row and names the trace, since the regrouping moved rows away from the 
 | V79 | A human player's worker in order 24 hit by an enemy archer while walking to its depot (static study) | No reaction while walking; on arrival the reaction runs, and it doesn't flee (order 24 isn't one of the flee rule's orders, `orders/orders.md`, "Fleeing") | Static study |
 | V80 | `orc9-orc09-return-inside-1200` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-return-inside.txt`), n = 526 (the turn record of the input at n = 524): peon 1482 (type 0x03, owner 5), carrying gold and in order 24 to great hall 1488, told to return goods to peon 1478, which is walking to gold mine 1480 (type 0x5C) | Target 1478 in that turn record; the pending order 24 takes over at n = 533 (still animation, wait 3); 1482 is at tile (47, 89) from n = 536 | Trace |
 | V81 | Same trace: 1478 goes into the mine at n = 537 (order 26) while 1482 walks toward it | n = 558, 1482's next step boundary, at (47, 89): target great hall 1488 (type 0x4B), still animation, wait 3, frame 0. It walks back (order 25 from n = 693) and goes inside the hall at n = 718. It doesn't walk on toward 1478 | Trace |
-| V82 | A peon in order 24 whose target unit is already inside a mine when the peon arrives within reach (static study) | Order 25 starts; at its first run the target check drops the target; idle becomes the pending order | Static study |
+| V82 | A peon in order 24 whose target unit is already inside a mine when the peon arrives within reach (static study) | Order 25 starts; at its first run the target check drops the target; idle becomes the pending order (see "Open questions": the static study reads an immediate idle here) | Static study |
+| V89 | `orc9-orc09-carry-chop-1400` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-carry-chop.txt`): peon 1482 (type 0x03, owner 5), carrying gold, told at n = 477 to return goods to pig farm site 1473 (type 0x3B, top-left (44, 89)), still under construction | n = 497: order 24, still animation, wait 3. Walks (48, 91), (47, 91), (46, 91). n = 566: order 2, still animation, wait 3, target none; gold unchanged, load kept | Trace |
+| V94 | Same trace, n = 652: 1482, idle and carrying gold at (46, 91), is sent a harvest command on tree tile (48, 93) | Nothing changes (the selection filter refuses command 23 for a carrying unit). Command 24 with no target at n = 762: target great hall 1488 in that record, order 24 at n = 764 (wait 3); gold delivered at n = 946; out at n = 1096 toward gold mine 1480 (order 23 from n = 1121) | Trace |
 
 ### Finding the nearest depot
 
@@ -565,6 +588,7 @@ as" that row and names the trace, since the regrouping moved rows away from the 
 
 | ID | Input | Expected | Source |
 | --- | --- | --- | --- |
+| V93 | A selected peon reaches its completed great hall in order 24 (static study) | It leaves the selection in the update order 25 is given, before it steps in | Static study |
 | V16 | Peasant walks into a gold mine | one move loop to step in (16 cycles, or 22 if carrying), then 150 cycles inside | Example |
 | V17 | Mine destroyed while a worker is stepping in | the worker dies | Example |
 | V23 | Human04, peon 1531 returning lumber, at (76, 78); lumber mill slot 1560, top-left (77, 77) | Order 25 takes over at n = 1938. First run at n = 1941: facing 2 (east, toward (78, 78); facing the top-left tile would be 1), tile (77, 78). Goes in at n = 1963: order 26, wait 150, tile (77, 77) | Trace |
@@ -643,10 +667,10 @@ Carried over:
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
-- **A platform placed in the same cycle.** Why a tanker's harvest command on it fails ("Starting to harvest", step 3)
-  wasn't found; the rule is the narrowest one that fits both traces. In both, the oil patch's slot comes after the
-  builder's and the tanker's; whether a platform is usable at once when the builder's slot comes after the patch's is
-  untraced.
+- **A platform placed in the same cycle.** Closed by the audit (round 70, erratum 2): a unit created during a cycle
+  isn't detected until the next cycle (`vision/fog.md`). Untraced: the case that separates this from the pre-audit
+  rule, where the oil patch has already had its update when the platform is placed (vector V90). Trace request (T1
+  in `specs/ERRATA-audit-harvest.md`): such a case, or any command aimed at a unit in the cycle it was created.
 - **Other AI jobs at a come-out.** Only the repair job's aim is traced; the aims for the AI's other jobs (attack,
   patrol) aren't checked.
 - **Job counts on the no-route switch.** Whether the computer's job counts change when a miner becomes a lumber worker
@@ -662,9 +686,12 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   of "Coming out", step 6 folds into "aim at the goal tile". Round 68: switching the code to the pulled-back aim
   changes none of the 158 trace rows; still open.
 - **Order 25 losing its target before stepping in.** The spec makes idle the **pending** order (wait 3 when it takes
-  over). The static study finds an **immediate** idle there (wait 1, idle logic at the next step done). Untraced: the
-  traced cases are a unit that had already stepped in (it dies) and the command check of command 24 (vector V76),
-  which is a different path. Vector V82 (static study: an order 24 target already inside something on arrival) takes
+  over). The static study finds an **immediate** idle there (wait 1, idle logic at the next step done); the round-70
+  audit (erratum 3) restates that reading with no new trace, so under the round-68 ruling the spec and V82 keep
+  governing. Trace request (T2 in `specs/ERRATA-audit-harvest.md`): command 24 aimed at another worker, timed so
+  that the target worker goes into its mine in the 3 cycles after the returning worker's order 25 takes over.
+  Untraced: the traced cases are a unit that had already stepped in (it dies) and the command check of command 24
+  (vector V76), which is a different path. Vector V82 (static study: an order 24 target already inside something on arrival) takes
   this path, so its "pending" outcome depends on this question too. The case needs the target lost between order 25
   taking over and its first run, before the unit steps in. Round 68: switching the code to the immediate idle changes
   none of the 158 trace rows; still open.
@@ -674,8 +701,11 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   the unit is in reach, gives the harvest command again ("Going to a mine or platform", step 2; no known case reaches
   it); and the felling run makes no chop-sound draw ("Lumber", "Chop sound").
 - **Tanker delivery and the carrying test.** "Delivering goods" says Enhanced rules deliver only if the unit is
-  carrying. The static study finds that test only on the worker path: a tanker entering a building that isn't an oil
-  platform is paid 100 or 125 oil in both modes, carrying or not. No known command gets an empty tanker into such a
+  carrying, and that rule governs (the round-68 ruling). The round-70 audit (erratum 4) restates the static study
+  below; its vector V92 (an empty tanker inside its side's shipyard is paid 100 or 125 oil in either rule set) is
+  not in force. No trace is possible with known commands; record one if a way is found. The static study finds that
+  test only on the worker path: a tanker entering a building that isn't an oil platform is paid 100 or 125 oil in
+  both modes, carrying or not. No known command gets an empty tanker into such a
   building (command 24 needs carrying; a smart move onto a shipyard gives a move), so no outcome is known to differ.
 - **Round 68 (Enhanced, static study only).** Where the code differs from this spec, the spec governs; no trace
   separates any of these (switching the code changes none of the 158 trace rows where it was tried). As this spec
@@ -730,3 +760,4 @@ round are kept with the research-side specs.
 | 68 | Evidence only: no trace separates the code-vs-spec harvest questions or OQ-A and OQ-B | "Open questions" |
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec |
 | 69 | Link to the carrying graphics (no rule change) | "Lumber", step 3; `ui/carried-goods.md` |
+| 70 (audit) | B-040 harvest audit (`specs/ERRATA-audit-harvest.md`), reviewed: pending idle at an unfinished depot (traced); new units undetected in their first cycle; selection lost when entering starts; return-to forgotten on leaving the chopping state; no-depot idles without command steps; order 25 forgets a stale attacker; chop-sound draw timing. Errata 3 (order 25's immediate idle) and 4 (tanker delivery) stay open questions | "Starting to harvest", step 3; "Lumber", steps 3 and 4, "Chop sound"; "Returning goods", steps 2 and 3; "Entering"; vectors V89, V90, V93 to V95; "Open questions" |
