@@ -171,10 +171,11 @@ While in order 23 in lumber mode, each time the order's logic runs (after the re
 3. **Chopping**, and the tree tile is still reserved:
    - While the counter is below **50**, it goes up by 1. A cheat sets it straight to 50.
    - When the counter is already 50, the tree is **felled** (`movement/occupancy.md` gives the map changes). The
-     worker is now carrying lumber (its graphic changes to the carrying one) and its frame is set to 0. It is given
-     a return command to the nearest depot (order 24), or becomes idle if there is none, and that order takes over in
-     the same update: order 24, its still animation, wait 3 (`orders/orders.md`, "Same-update take-over"). As a command,
-     it clears the blocked counter, so blocks met on the way to the tree don't carry over into the walk back.
+     worker is now carrying lumber (its graphic changes to the carrying one, `ui/carried-goods.md`) and its frame
+     is set to 0. It is given a return command to the nearest depot (order 24), or becomes idle if there is none, and
+     that order takes over in the same update: order 24, its still animation, wait 3 (`orders/orders.md`,
+     "Same-update take-over"). As a command, it clears the blocked counter, so blocks met on the way to the tree don't
+     carry over into the walk back.
 4. **Chopping, but the tile is no longer reserved:** the reservation is dropped, and the worker looks for the nearest
    tree from its own tile, as in step 2.
 
@@ -728,3 +729,4 @@ round are kept with the research-side specs.
 | 66 | Tanker given a harvest command it can't use (evidence only) | "Going to a mine or platform"; vector V88 |
 | 68 | Evidence only: no trace separates the code-vs-spec harvest questions or OQ-A and OQ-B | "Open questions" |
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec |
+| 69 | Link to the carrying graphics (no rule change) | "Lumber", step 3; `ui/carried-goods.md` |

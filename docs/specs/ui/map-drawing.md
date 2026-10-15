@@ -7,6 +7,9 @@
 - **Changes:** 2026-10-12, round-24 errata: the effect sprite file of each kind (Data), and when a new effect starts
   showing (its start step); the ground marker shows for 13 cycles each time it is made.
   2026-10-12, round-30 errata: the bob value's source is now `orders/orders.md`, "Idle look-around".
+  2026-10-15, round-69 errata (`ERRATA-round69.md`, finding 2; observed on the running game): the ground marker's
+  frame sequence, and that only the local player's own clicks (right-clicks and target-mode clicks) make it. A
+  carrying worker's or tanker's picture is its carrying file ("Terms", `ui/carried-goods.md`).
 
 ## Behaviour
 
@@ -30,7 +33,8 @@ again each frame, which gives the same picture.
 - **Building:** a type with the building flag (PUD flag bit 5). Everything else is a **unit**.
 - **Air unit:** a unit whose movement layer is air.
 - **Picture:** the sprite file a unit or building is drawn from. It is its type's sprite, replaced while it shows a
-  construction site (`economy/build-train.md`) and by the remains' sprite after death (`core/corpses.md`).
+  construction site (`economy/build-train.md`), by the remains' sprite after death (`core/corpses.md`), and by the
+  carrying file while a worker or tanker carries a load (`ui/carried-goods.md`).
 - **Frame number:** the frame set by the animation scripts (`core/animation-scripts.md`).
 - **Facing:** 0 to 7, 0 = north, clockwise.
 - **Effect:** an entry in the effect slots of `core/unit-slots.md` (missiles, explosions, spell effects and the three
@@ -285,6 +289,20 @@ After the fog:
    is made again it shows from the cycle after its first update for 13 cycles: with its first update in cycle U, it
    is drawn after the updates of U + 1 to U + 13 and hidden from the update in U + 14 (1 cycle of start animation,
    then the restart's wait of 1 and 12 cycles of waits).
+
+   `blackx.grp` holds 4 frames of 32 × 32: frame 0 is a few scattered pixels and the frames grow to frame 3, the
+   whole X. The marker has no facing (column 0, never mirrored) and is drawn in the tileset palette with no team
+   colour. Its animation grows the X, holds it and shrinks it again:
+
+   | Drawn after the update of | U + 1, U + 2 | U + 3 | U + 4 | U + 5 to U + 10 | U + 11 | U + 12 | U + 13 | U + 14 on |
+   | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+   | Frame | 0 | 1 | 2 | 3 | 2 | 1 | 0 | not drawn |
+
+   Only the local player's own clicks make it: a right-click on the map view or minimap, or a left click on the map
+   view in target mode (`ui/selecting-and-commanding.md`, "Feedback" and "Target mode and placement mode clicks").
+   Carrying out a command never does, so other players' and computer players' commands show no marker. There is one
+   marker: a new click moves it to the new spot and starts the sequence again from its first update. The pointer is
+   drawn over it.
 3. **The selection rectangle:** while the left button is held after a press on the map
    (`ui/selecting-and-commanding.md`), a 1-pixel outline in colour 250 from the press point to the pointer, both
    corners included. It disappears when the button is released.
@@ -375,6 +393,9 @@ footprint (32 × width by 32 × height pixels) follows the pointer.
 | Placing a shipyard on dry land far from water (no shore) | All 9 tiles in colour 10 |
 | Command with no target given at a ground pixel | The ground marker is drawn there, over the fog and the message lines |
 | The ground marker's first update is in cycle U | Not drawn after U; drawn after U + 1 to U + 13; hidden from the update in U + 14 |
+| The ground marker's first update is in cycle U | Frames 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 2, 1, 0 after the updates of U + 1 to U + 13 |
+| Ground marker shown, frame 3 (cycle U + 6); a new right-click on empty ground elsewhere, first update in cycle V | Never drawn at the old spot again; at the new spot not drawn after the update of V, then frames 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 2, 1, 0 after the updates of V + 1 to V + 13 |
+| A computer player's unit given a move | No ground marker |
 | A ballista impact effect, drawn | `Art\Unit\Other\cathit.grp` |
 
 ## Open questions

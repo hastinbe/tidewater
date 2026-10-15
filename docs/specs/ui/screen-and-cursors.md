@@ -5,9 +5,12 @@
   scrolling, cursors)"), the screen layout files in `rez\` (`infobox.bin`, `infobox2.bin`, `textbox.bin`,
   `sidebox.bin`, `stat_f10.bin`, `spd_dlg.bin`), the screen pictures in `Art\`, the resource icons `Art\icons.grp`
   (frame sizes) and the pointer files `Art\*.cur`.
-  Not yet confirmed against the running game.
+  The in-game rules are not yet confirmed against the running game; the pointers outside a game were watched in
+  round 69 (the table says which).
 - **Changes:** 2026-10-12: the default-scroll-speeds open question is closed by `ui/game-menu.md` ("Stored
   settings"): both default to 4 and are kept with the player's stored settings.
+- **Changes:** 2026-10-15, round-69 errata (`ERRATA-round69.md`, finding 1; observed on the running game, Enhanced
+  campaign launch): the pointer on the flow screens, its colours, and how it hides through screen fades.
 
 ## Behaviour
 
@@ -170,6 +173,39 @@ The shape is chosen each time input is read. The first rule that applies wins:
 While the game is paused or a menu is open, the map's pointer rules aren't used and the pointer is the normal arrow.
 No pointer is animated.
 
+**Pointers outside a game.** The screens before and after a game use a fixed pointer each, not the rules above:
+
+| Screen | Pointer | Colours | Seen on the running game |
+| --- | --- | --- | --- |
+| Title picture | none (hidden) | | yes |
+| Main menu, single-player menu, campaign menu, custom-scenario setup | orc normal arrow (`o_arrow.cur`) for every race and campaign | the menu picture's palette | yes |
+| Act screen | none (hidden) | | yes |
+| Mission briefing | 3D arrow (`arrow_3d.cur`) | the briefing picture's palette | yes |
+| Score screen | 3D arrow (`arrow_3d.cur`) | the score picture's palette | yes (human victory) |
+| Credits | 3D arrow (`arrow_3d.cur`) | the credits picture's palette | no (static study) |
+| In a game, and the game's own dialogs (including the victory and defeat dialog) | the in-game rules above (race arrow while a dialog is open) | the tileset palette | yes (the defeat dialog wasn't watched) |
+
+The menus' arrow is the orc one because the main menu sets the interface race to orc each time it opens; the race of
+a game is set again when the game starts. The 3D arrow (hot spot (0, 0), 15 × 21) uses only palette indices 6 to 13,
+which every briefing and score picture shares, so it looks the same on all of them.
+
+**Colours.** The pointer is drawn into the 8-bit screen picture, so its pixels are the current palette's entries at
+the indices in the pointer file. It has no palette of its own.
+
+**Pointer and fades.** The pointer never fades with the screen:
+
+- When a screen starts its fade-out (the click or key that closes it), the pointer disappears at once. The fade
+  lengths are in `ui/palette-effects.md` ("Screen fades").
+- It stays hidden through the fade to black, any black gap, and the next screen's fade-in. On the main menu the
+  buttons are also not drawn during the fade-in.
+- It appears, at full colour, when the next screen's fade-in has ended (on the frame that shows the screen at its own
+  palette).
+- Screens with no fade-in (the briefing, and the score screen after the game's 1 ms fade-out) or a 10 ms one (the
+  game) show the pointer from their first frame.
+
+So no frame ever shows a pointer in a partly faded palette, and no pointer at all (not even the watch) shows while
+one screen gives way to the next.
+
 | Pointer | File (human; orc if race) | Hot spot (x, y) | Size |
 | --- | --- | --- | --- |
 | Normal arrow (race) | `h_arrow.cur`; `o_arrow.cur` | (3, 2) | 28 × 32; 26 × 32 |
@@ -236,15 +272,25 @@ describes.
 | Normal mode, pointer over an own footman | Magnifying glass |
 | Orc player, normal mode, pointer over empty ground | Orc normal arrow |
 | Placement mode, pointer at screen (300, 100), view (10, 20) | Site top-left tile (13, 22) |
+| Human campaign, main menu after the title | Orc normal arrow, colours from the menu picture's palette |
+| Main menu, a button that opens another menu screen clicked | Pointer gone from the first frame of the 200 ms fade-out until the next screen's fade-in has ended; then the orc arrow at full colour |
+| Custom-scenario setup, Cancel clicked | Pointer gone through the 200 ms fade-out and the main menu's 200 ms fade-in; back on the frame that shows the main menu at its own palette |
+| Title picture, any frame | No pointer |
+| Mission briefing, first frame | 3D arrow at full colour |
+| Briefing, Continue clicked | Pointer gone from that frame; the game shows the in-game race arrow from its first frame |
+| Victory dialog in a human campaign mission | Human normal arrow (`h_arrow.cur`), tileset palette |
+| Score screen, first frame | 3D arrow at full colour |
 
 ## Open questions
 
 - **The large-number placeholder.** Values of 1,000,000 or more show a fixed six-character word from the program,
   not from a string table. The implementation needs its own placeholder text.
 - **The two extra multiplayer bar areas** (`infobox2.bin` items 5 and 6) weren't traced.
-- **Unused pointers.** A second arrow (`h_arrow2.cur`, `o_arrow2.cur`), a cross (`cross.cur`) and a 3D arrow
-  (`arrow_3d.cur`) are loaded. The 3D arrow is set when the game screen opens and replaced at the first input
-  check. No in-game use of the others was found; they may belong to the menus.
+- **Unused pointers.** A second arrow (`h_arrow2.cur`, `o_arrow2.cur`) and a cross (`cross.cur`) are loaded. No
+  use of them was found in a game or on the flow screens. The 3D arrow is the briefing, score and credits pointer
+  (above); it is also set when the game screen opens and replaced at the first input check.
+- **Flow screens not observed.** The credits, the load-game screens, the multiplayer screens and Battle.net weren't
+  watched. Default: the credits as in the table; the others like the main menu (orc arrow, hidden through fades).
 - **Network wait.** The length of the retry period that brings up the watch wasn't measured.
 - **Text placement.** The exact vertical pixel of the bar text (centred, with a 2-pixel offset in the program's
   arithmetic) and the font's baseline belong to the drawing spec.

@@ -9,6 +9,8 @@
   after the command is given (traced: `human09-fleet-3000`); a right-click is read the same way (static).
   2026-10-13, round-56 static corrections: a right-click keeps the attacker record (the round-55 reading corrected); a
   spell command forgets it; a build command keeps it and leaves the remembered order as it is.
+  2026-10-15, round-69 errata (`ERRATA-round69.md`, finding 2; static study): the ground marker is the local
+  player's only.
 
 ## Behaviour
 
@@ -207,7 +209,9 @@ Otherwise:
   acknowledgement plays (`ui/sounds.md`, "Acknowledging orders").
 - **Feedback:** a target unit flashes for 31 cycles. The flash uses palette colour 250 if the unit is the local
   player's own, 251 if allied, and 249 otherwise. With no target, a ground marker (effect kind 0x1C) appears at the
-  cursor's pixel.
+  cursor's pixel. The marker is made here, by the local player's click, not when the command is carried out, so
+  only the local player ever sees it, and only for their own clicks (right-clicks, and target-mode clicks below). Its
+  frames and lifetime are in `ui/map-drawing.md` ("Overlays").
 
 **Right-click on the minimap** (first mouse style): the same test on the primary unit. The command is sent for the
 tile under the click, with no target. The marker appears at that tile's pixel position plus 8 on each axis.
