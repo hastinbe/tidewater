@@ -24,7 +24,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const SCENES: &[&str] = &["campaign", "outcome", "ending", "load", "build", "flow"];
+const SCENES: &[&str] = &["campaign", "outcome", "ending", "load", "build", "carry", "flow"];
 
 fn on(var: &str) -> bool {
     std::env::var_os(var).is_some_and(|v| !v.is_empty() && v != "0")

@@ -200,6 +200,11 @@ pub fn scenes() -> Vec<Scene> {
             cmds: build(),
         },
         Scene {
+            name: "carry",
+            start: vec![play(0)],
+            cmds: carry(),
+        },
+        Scene {
             name: "flow",
             start: crate::frontend::startup_steps(false, false, true),
             cmds: flow(),
@@ -441,6 +446,35 @@ fn build() -> Vec<Cmd> {
     v.extend([Wheel(1.0), Wait(2), Shot("load-wheel-up")]);
     v.extend(tap(K::Escape));
     v.extend([Wait(3), Shot("load-closed")]);
+    v
+}
+
+/// Carried goods and the ground marker: a peasant sent to a tree fells it and walks home carrying lumber, then is given
+/// a move on open ground with a right-click, whose marker grows, holds and shrinks.
+fn carry() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
+    // A peasant sent to a tree fells it and walks home with lumber.
+    v.extend(click(416.0, 318.0));
+    v.extend([
+        Wait(3),
+        Move(565.0, 85.0),
+        Down(Button::Right),
+        Wait(1),
+        Up(Button::Right),
+    ]);
+    v.extend([UntilCycle(1400), Shot("carrying-lumber")]);
+    // A move click on open ground: the marker grows, holds and shrinks while the load is carried.
+    v.extend([Move(470.0, 330.0), Down(Button::Right), Wait(1), Up(Button::Right)]);
+    v.extend([
+        Wait(3),
+        Shot("marker-grows"),
+        Wait(10),
+        Shot("marker-holds"),
+        Wait(14),
+        Shot("marker-shrinks"),
+    ]);
+    v.extend([Wait(20), Shot("carrying-walk")]);
     v
 }
 
