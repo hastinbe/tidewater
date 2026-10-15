@@ -202,7 +202,76 @@ pub fn scenes() -> Vec<Scene> {
             start: vec![play(0)],
             cmds: build(),
         },
+        Scene {
+            name: "flow",
+            start: crate::frontend::startup_steps(false, false, true),
+            cmds: flow(),
+        },
     ]
+}
+
+/// The flow's state changes: the startup videos (one video straight after another), the title, the main menu and the
+/// campaign choices and back, a Beyond the Dark Portal campaign with its intro video, act screen and briefing. Then in
+/// the game: an unused Escape (nothing happens), the game menu opened and closed with Escape, the `noglues` cheat so
+/// that a restart, a chosen mission and a surrender's replay go from one game straight into the next, and the quit to
+/// the main menu.
+fn flow() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::Video), Wait(60), Shot("logo")];
+    v.extend(tap(K::Escape));
+    v.extend([Wait(5), Shot("intro-start"), Wait(120), Shot("intro")]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::Title), Wait(30), Shot("title")]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::MainMenu), Wait(25)]);
+    v.extend(tap(K::Letter('N')));
+    v.extend([Until(AppState::NewCampaign), Wait(2), Shot("campaigns")]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
+    v.extend(click(320.0, 284.0));
+    v.extend([Until(AppState::NewCampaign), Wait(2), Move(320.0, 408.0), Wait(1)]);
+    v.extend(click(320.0, 372.0));
+    v.extend([Until(AppState::Video), Wait(60), Shot("bdp-intro")]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::Act), Wait(40), Shot("act")]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::Briefing), Wait(10), Shot("briefing")]);
+    v.extend(tap(K::Space));
+    v.extend([Until(AppState::Game), Move(400.0, 240.0), Wait(30), Shot("game")]);
+    // An Escape nothing uses does nothing; in the game menu it returns to the game.
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("escape-unused")]);
+    v.extend(tap(K::F(10)));
+    v.extend([Wait(3), Shot("game-menu")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("menu-closed")]);
+    v.extend(chat("noglues"));
+    v.extend([Wait(5), Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('R')));
+    v.extend([Release(K::ControlLeft), Wait(3), Shot("restart-confirm")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(30), Shot("restarted")]);
+    v.extend(chat("tigerlily"));
+    v.extend(chat("human2"));
+    v.extend([Wait(30), Shot("chosen-mission")]);
+    v.extend(tap(K::F(10)));
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3), Shot("end-menu"), Move(320.0, 226.0), Wait(1)]);
+    v.extend(click(320.0, 226.0)); // Surrender
+    v.extend([Wait(3), Shot("surrender-confirm")]);
+    v.extend(tap(K::Enter));
+    v.extend([UntilOutcome, Wait(5), Shot("defeat")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(30), Shot("replay")]);
+    v.extend(tap(K::F(10)));
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3), Move(320.0, 258.0), Wait(1)]);
+    v.extend(click(320.0, 258.0)); // Quit to Main Menu
+    v.extend([Wait(3), Shot("quit-confirm")]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
 }
 
 /// A campaign mission's map, started at once.
