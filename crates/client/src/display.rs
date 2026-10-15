@@ -91,14 +91,21 @@ impl Letterbox {
         self.rect(0, 0, SCREEN.0, SCREEN.1)
     }
 
+    /// A window point in logical points (`factor` physical pixels each) in screen pixels, not kept on the screen: a
+    /// point on the black border is outside 640 × 480.
+    pub fn screen_of(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
+        let s = self.scale as f32;
+        let on = |p: f32, offset: u32| (p * factor - offset as f32) / s;
+        (on(point.0, self.offset.0), on(point.1, self.offset.1))
+    }
+
     /// A window point in logical points (`factor` physical pixels each) in screen pixels, kept on the screen: a point
     /// on the black border goes to the nearest screen edge.
     pub fn screen_point(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
-        let s = self.scale as f32;
-        let on = |p: f32, offset: u32, len: u32| ((p * factor - offset as f32) / s).clamp(0.0, len as f32 - 0.001);
+        let (x, y) = self.screen_of(point, factor);
         (
-            on(point.0, self.offset.0, SCREEN.0),
-            on(point.1, self.offset.1, SCREEN.1),
+            x.clamp(0.0, SCREEN.0 as f32 - 0.001),
+            y.clamp(0.0, SCREEN.1 as f32 - 0.001),
         )
     }
 

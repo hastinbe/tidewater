@@ -1455,58 +1455,11 @@ fn draw_placement(
 }
 
 /// The cursor position in map pixels (y down), if it is over the window: by the view the last frame drew
-/// (`mapview::MapView::drawn`), through [`camera_point`].
+/// (`mapview::MapView::pointer_map`).
 fn cursor_map(input: &input::Input, view: &mapview::MapView) -> Option<Vec2> {
-    let w = input.window?;
-    let p = input.pointer?;
-    let (r, centre, zoom) = view.drawn()?;
-    let lb = display::Letterbox::fit(w.size);
-    let factor = w.factor;
-    let at = camera_point(
-        Vec2::new(p.0, p.1),
-        lb.rect(r.x, r.y, r.w, r.h),
-        factor,
-        zoom * factor / lb.scale as f32,
-        None,
-        Vec2::new(centre.0, -centre.1),
-    );
-    Some(Vec2::new(at.x, -at.y))
-}
-
-/// A window point (logical points) as a 2D camera turns it into a world point (y up), step by step as Bevy's
-/// `Camera::viewport_to_world_2d` does, so that the float results, and with them the frames, stay as they were when
-/// cameras gave them (`docs/design/client-core.md`, step 2). The camera looks at `centre` through a viewport of
-/// physical window pixels `(x, y, w, h)`, with its projection's scale and, for the flow's screen, a minimum 640 × 480
-/// area (`min_area`); the exact form is `mapview::MapView::pointer_map`.
-pub(crate) fn camera_point(
-    p: Vec2,
-    (x, y, w, h): (u32, u32, u32, u32),
-    factor: f32,
-    scale: f32,
-    min_area: Option<Vec2>,
-    centre: Vec2,
-) -> Vec2 {
-    use bevy::math::{Affine3A, Vec3A, proj};
-    let (pos, size) = (UVec2::new(x, y), UVec2::new(w.max(1), h.max(1)));
-    let min = pos.as_vec2() / factor;
-    let max = (pos + size).as_vec2() / factor;
-    let rel = (p - min) / (max - min);
-    let mut ndc = rel * 2.0 - Vec2::ONE;
-    ndc.y = -ndc.y;
-    // The projection's area (`OrthographicProjection::update`), centred.
-    let logical = size.as_vec2() / factor;
-    let (pw, ph) = match min_area {
-        None => (logical.x, logical.y),
-        Some(m) if logical.x * m.y > m.x * logical.y => (logical.x * m.y / logical.y, m.y),
-        Some(m) => (m.x, logical.y * m.x / logical.x),
-    };
-    let (ox, oy) = (pw * 0.5, ph * 0.5);
-    let area = Rect::new(scale * -ox, scale * -oy, scale * (pw - ox), scale * (ph - oy));
-    // A 2D camera's near and far planes, swapped as Bevy does.
-    let clip_from_view = proj::orthographic(area.min.x, area.max.x, area.min.y, area.max.y, 1000.0, -1000.0);
-    let view = clip_from_view.inverse().project_point3a(Vec3A::new(ndc.x, ndc.y, 1.0));
-    let world = Affine3A::from_translation(centre.extend(0.0)).transform_point3a(view);
-    Vec2::new(world.x, world.y)
+    let (w, p) = (input.window?, input.pointer?);
+    let (x, y) = view.pointer_map(display::Letterbox::fit(w.size).screen_of(p, w.factor))?;
+    Some(Vec2::new(x, y))
 }
 
 /// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
@@ -2595,28 +2548,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_camera_point_is_the_exact_point_give_or_take_rounding() {
+    fn the_pointer_is_the_exact_point() {
         // The map view at factor 2 and scale 2 (`display::Letterbox`): screen pixel (620, 460) is 220 pixels right of
         // and 220 below the view's centre, at one map pixel per screen pixel.
-        let lb = display::Letterbox::fit((1280, 960));
-        let at = camera_point(
-            Vec2::new(620.0, 460.0),
-            lb.rect(176, 16, 448, 448),
-            2.0,
-            1.0 * 2.0 / lb.scale as f32,
-            None,
-            Vec2::new(1000.0, -500.0),
-        );
-        assert!((at - Vec2::new(1220.0, -720.0)).abs().max_element() < 1e-3, "{at}");
+        let mut input = input::Input::default();
+        input.window = Some(input::WindowGeom {
+            size: (1280, 960),
+            factor: 2.0,
+        });
+        input.pointer = Some((620.0, 460.0));
+        let mut view = mapview::MapView::new((1000.0, 500.0));
+        view.rect = Some(mapview::ScreenRect {
+            x: 176,
+            y: 16,
+            w: 448,
+            h: 448,
+        });
+        view.end_frame();
+        let at = cursor_map(&input, &view).unwrap();
+        assert!((at - Vec2::new(1220.0, 720.0)).abs().max_element() < 1e-3, "{at}");
         // The flow's screen: the window's middle is the screen's.
-        let at = camera_point(
-            Vec2::new(320.0, 240.0),
-            lb.screen(),
-            2.0,
-            1.0,
-            Some(Vec2::new(640.0, 480.0)),
-            Vec2::ZERO,
-        );
-        assert!(at.abs().max_element() < 1e-3, "{at}");
+        input.pointer = Some((320.0, 240.0));
+        let (x, y) = display::Letterbox::fit((1280, 960)).screen_of(input.pointer.unwrap(), 2.0);
+        assert!((x - 320.0).abs() < 1e-3 && (y - 240.0).abs() < 1e-3, "{x} {y}");
     }
 }

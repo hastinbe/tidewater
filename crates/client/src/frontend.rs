@@ -653,16 +653,8 @@ pub(crate) fn pointer(input: &crate::input::Input, cam: &FrontScreen) -> Option<
     if !cam.ready {
         return None;
     }
-    // The flow's camera looked at the screen's place in the window, at least 640 × 480 across.
-    let at = crate::camera_point(
-        Vec2::new(p.0, p.1),
-        crate::display::Letterbox::fit(w.size).screen(),
-        w.factor,
-        1.0,
-        Some(Vec2::new(W as f32, H as f32)),
-        Vec2::ZERO,
-    );
-    Some(Vec2::new(at.x + W as f32 / 2.0, H as f32 / 2.0 - at.y))
+    let (x, y) = crate::display::Letterbox::fit(w.size).screen_of(p, w.factor);
+    Some(Vec2::new(x, y))
 }
 
 pub(crate) fn centred(dst: &mut Picture, font: &Font, y: i32, s: &str) {

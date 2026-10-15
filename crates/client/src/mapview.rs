@@ -25,7 +25,6 @@ pub struct ScreenRect {
 }
 
 impl ScreenRect {
-    #[cfg(test)]
     fn centre(&self) -> (f32, f32) {
         (self.x as f32 + self.w as f32 / 2.0, self.y as f32 + self.h as f32 / 2.0)
     }
@@ -131,15 +130,13 @@ impl MapView {
 
     /// The view as the last frame drew it, which pointer positions are read against: its place on the screen, centre
     /// and zoom; `None` before a frame has ended. A pointer at screen pixel `p` is over map pixel
-    /// `centre + (p - rect's centre) × zoom` ([`MapView::pointer_map`]); the Bevy shell reaches the same point by a
-    /// camera's float steps instead, so that the frames stay as they were (`main.rs`, `cursor_map`).
+    /// `centre + (p - rect's centre) × zoom` ([`MapView::pointer_map`]).
     pub fn drawn(&self) -> Option<(ScreenRect, (f32, f32), f32)> {
         let r = self.rect.filter(|_| self.ready)?;
         Some((r, self.drawn.0, self.drawn.1))
     }
 
     /// The map position under a pointer at screen pixel `p` (not kept on the screen), by the view the last frame drew.
-    #[cfg(test)]
     pub fn pointer_map(&self, p: (f32, f32)) -> Option<(f32, f32)> {
         let (r, (mx, my), zoom) = self.drawn()?;
         let (cx, cy) = r.centre();

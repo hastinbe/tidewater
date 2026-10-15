@@ -247,7 +247,7 @@ frames	637-638	ca69298e76b11da5
 shot	641	drag	c58ad91f0bd30e82
 frames	639-641	c58ad91f0bd30e82
 sound	644	f8787214968df8ae	0.9882	Despawn
-frames	642-643	e0491ecd17979513
+frames	642-643	993928b86d7a3fe4
 shot	646	selected	f27a7747b020ab16
 sound	647	2aaf429cb022bada	0.9882	Despawn
 frames	644-646	f27a7747b020ab16
