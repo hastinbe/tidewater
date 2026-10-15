@@ -36,6 +36,29 @@ pub(crate) enum Walk {
     NoPath,
 }
 
+/// The rows of the blocked rules (movement spec, "Blocked rules"), tested in this order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Row {
+    /// A computer player's unit, a wall tile with bit 0x04, not invisible and no attacker: attack the wall.
+    A,
+    /// As A, but invisible or with an attacker: search again.
+    B,
+    /// Counter 15: give up.
+    C,
+    /// Counter 8 to 14: search again after 15 cycles.
+    D,
+    /// The blocker is dying or leaving play: wait 15 cycles.
+    E,
+    /// An ally walking away: wait 15 cycles.
+    F,
+    /// An attacker, near the goal: stand still.
+    G,
+    /// An attacker, a sea or air unit within 2 tiles of the goal on x but farther on y: search again.
+    H,
+    /// Anything else: search again next cycle.
+    I,
+}
+
 /// Where a moving unit is heading.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Goal {
@@ -483,11 +506,11 @@ impl World {
         }
     }
 
-    /// The blocked rules: the move animation restarts in place, the counter goes up, and the first matching row
-    /// decides (movement spec, "Blocked rules").
+    /// The blocked rules (movement spec, "Blocked rules"): the walking animation restarts in place, the counter goes
+    /// up, and the first matching row of the table decides ([`World::blocked_row`]) and sets the next decision.
     fn blocked(&mut self, i: usize, next: (i32, i32), blocker: Option<UnitId>, g: Goal) {
-        // The walking animation restarts in place, which for orders 30 and 31 is their own (the
-        // second walking animation).
+        // The walking animation restarts in place: the move animation, or animation 6 for orders 30 and 31, whose own
+        // animation it is (V19, V20).
         let walking = match self.units[i].order {
             Order::Land { .. } | Order::PushOff => crate::orders::order_anim(self.units[i].order),
             _ => anim::MOVE,
@@ -495,63 +518,88 @@ impl World {
         self.start_anim(i, walking);
         let u = &mut self.units[i];
         u.blocked = (u.blocked + 1).min(GIVE_UP);
+        let drop_path = |w: &mut World| w.units[i].path.clear();
+        let wait = match self.blocked_row(i, next, blocker, g) {
+            Row::A => {
+                // Order 11 on the blocking tile as a pending order, set directly (orders spec, "Order 11", step 5;
+                // V22). Movement spec open question 1 (static study): the program gives it as a command; kept as
+                // the specs' rule until a trace decides.
+                self.units[i].pending = Some(Order::AttackWall { tile: next });
+                drop_path(self);
+                1
+            }
+            Row::B | Row::H | Row::I => {
+                drop_path(self);
+                1
+            }
+            Row::C => {
+                // Giving up clears the counter, and idle becomes the pending order (orders spec, "Giving up when
+                // blocked"): a remembered patrol or attack-move that resumes instead is given as a command and starts
+                // the still animation with wait 1 (V33); with nothing to resume the walking animation restarted above
+                // is kept, with wait 15 (V35, V36).
+                self.units[i].blocked = 0;
+                if self.pending_idle(i) { 1 } else { LONG_WAIT }
+            }
+            Row::D => {
+                drop_path(self);
+                LONG_WAIT
+            }
+            Row::E | Row::F => LONG_WAIT,
+            Row::G => {
+                // Static study only (V24): "stand still" becomes the pending order, so the resume rules of the orders
+                // spec apply.
+                self.give(i, Order::Idle);
+                1
+            }
+        };
+        self.units[i].script.wait = wait;
+    }
+
+    /// The first row of the blocked rules that matches, the counter already increased. `next` is the blocked tile,
+    /// `blocker` the unit on it, if any, and `g` the stored goal (row G measures to it).
+    fn blocked_row(&self, i: usize, next: (i32, i32), blocker: Option<UnitId>, g: Goal) -> Row {
         let u = &self.units[i];
-        let wall = self.terrain.word(next.0, next.1) & HUMAN_WALL != 0;
+        // Rows A and B are for computer players only, unlike the search's bit-0x04 drop ("Player kinds", V23).
         let computer = self.computer_player(u.owner);
+        let wall = self.terrain.word(next.0, next.1) & HUMAN_WALL != 0;
+        // Invisibility isn't modelled yet: no unit is invisible.
         let invisible = false;
         let attacked = u.attacked_by.is_some();
         let b = blocker.and_then(|b| self.unit(b));
-        let drop_path = |w: &mut World| w.units[i].path.clear();
-        let wait = if computer && wall && !invisible && !attacked {
-            // Row A: attack the wall tile.
-            self.units[i].pending = Some(Order::AttackWall { tile: next });
-            drop_path(self);
-            1
+        let near = if u.layer == Layer::Land { 1 } else { 2 };
+        let (dx, dy) = ((u.tile.0 - g.tile.0).abs(), (u.tile.1 - g.tile.1).abs());
+        if computer && wall && !invisible && !attacked {
+            Row::A
         } else if computer && wall {
-            drop_path(self); // B
-            1
+            Row::B
         } else if u.blocked >= GIVE_UP {
-            // C. Build-train spec, "Placing a building": the idle is a pending order.
-            self.units[i].blocked = 0;
-            // Orders spec ("Giving up when blocked"; `xhuman8-25000` troll destroyer 1441,
-            // n = 11284): a remembered patrol or attack-move that resumes is given as a command and made the pending
-            // order, and the unit starts its still animation with wait 1 instead of 15.
-            // Traced (`orc10-10000` tanker 1533, n = 3505; `xhuman12-10000` axe thrower 1521, n = 4144):
-            // when nothing resumes, idle is pending and nothing else changes, so the unit keeps the walking animation
-            // restarted above, with wait 15; only the resume case starts the still animation. A
-            // remembered attack-move that is complete is forgotten only with the countdown at 0, as everywhere idle
-            // becomes pending (`resumed`).
-            if self.pending_idle(i) { 1 } else { LONG_WAIT }
+            Row::C
         } else if u.blocked >= LONG_WAIT_FROM {
-            drop_path(self); // D
-            LONG_WAIT
-        } else if b.is_some_and(|b| {
-            // E: the blocker is dying or leaving play. F: this unit in its move animation after the restart (a
-            // transport in a plain move waits, a landing one doesn't), and an ally walking away
-            // (its next step isn't onto us).
-            b.dying
-                || b.removing
-                || (u.script.anim == anim::MOVE
-                    && self.allied(u.owner, b.owner)
-                    && b.script.anim == anim::MOVE
-                    && b.blocked == 0
-                    && !b.inside
-                    && b.path.first().is_some_and(|&t| t != u.tile))
-        }) {
-            LONG_WAIT
+            Row::D
+        } else if b.is_some_and(|b| b.dying || b.removing) {
+            Row::E
+        } else if b.is_some_and(|b| self.waits_for(u, b)) {
+            Row::F
+        } else if attacked && dx <= near && dy <= near {
+            Row::G
+        } else if attacked && u.layer != Layer::Land && dx <= 2 {
+            Row::H
         } else {
-            let near = if u.layer == Layer::Land { 1 } else { 2 };
-            let (dx, dy) = ((u.tile.0 - g.tile.0).abs(), (u.tile.1 - g.tile.1).abs());
-            if attacked && dx <= near && dy <= near {
-                // G. Static study only: "stand still" becomes the pending order, so the resume rules
-                // of the orders spec apply.
-                self.give(i, Order::Idle);
-            } else {
-                drop_path(self); // H, I
-            }
-            1
-        };
-        self.units[i].script.wait = wait;
+            Row::I
+        }
+    }
+
+    /// Row F: this unit is in its move animation after the restart (so never in orders 30 and 31, V17), and blocker
+    /// `b` is an ally (or of the same player) walking away: in its move animation, counter 0, not inside anything, its
+    /// next cached step not onto this unit's tile (V10, V11, V13, V16, V21). This is not the search's moving-ally rule
+    /// ([`World::ignored_by_search`]): row F tests the move animation alone, not the pending-command mark.
+    fn waits_for(&self, u: &Unit, b: &Unit) -> bool {
+        u.script.anim == anim::MOVE
+            && self.allied(u.owner, b.owner)
+            && b.script.anim == anim::MOVE
+            && b.blocked == 0
+            && !b.inside
+            && b.path.first().is_some_and(|&t| t != u.tile)
     }
 
     /// Whether the path search treats a ground unit on a tile as free (pathfinding spec, "Units seen by the
