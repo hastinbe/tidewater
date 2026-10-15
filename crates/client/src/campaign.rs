@@ -1103,6 +1103,132 @@ pub const CREDITS_STEP_MS: u32 = 40;
 /// The credits' own picture, whose palette they are shown in (`ui/screen-and-cursors.md`, "Pointers outside a game").
 pub const CREDITS_PICTURE: &str = "Art\\credits.pcx";
 
+// ---------------------------------------------------------------------------------------------------------------
+// The credits screen (spec "Credits screen", round 72)
+
+/// The credits screen's text: `rez\creditsBNE.tbl`. The spec numbers this table's entries from 0 (its title and body
+/// pairs are entries 0 and 1, 2 and 3, 4 and 5 of the table's six), so they are table indices here.
+pub const CREDITS_TABLE: &str = "rez\\creditsBNE.tbl";
+
+/// A page of the credits screen: its picture and the table indices of its title and its body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CreditsPage {
+    pub picture: &'static str,
+    pub title: usize,
+    pub body: usize,
+}
+
+/// The pages in order. What follows the last one wasn't watched (spec "Credits after page 2"): the screen closes when
+/// its body has scrolled off, as the credits did before the spec.
+pub const CREDITS_PAGES: [CreditsPage; 1] = [CreditsPage {
+    picture: CREDITS_PICTURE,
+    title: 0,
+    body: 1,
+}];
+
+/// The rows text shows in, inclusive: a line crossing either is cut there. There is no horizontal cut.
+pub const CREDITS_ROWS: (i32, i32) = (80, 354);
+/// The title's font, and the body's.
+pub const CREDITS_TITLE_FONT: &str = "Art\\font32.fnt";
+pub const CREDITS_BODY_FONT: &str = "Art\\font12x.fnt";
+/// The left edge of a title line and of a body line, and of a body line that begins with a tab (a 34-pixel indent).
+pub const CREDITS_X: i32 = 140;
+pub const CREDITS_TAB_X: i32 = 174;
+/// The title's line pitch (font32's height) and the body's (an empty line takes one too).
+pub const CREDITS_TITLE_PITCH: i32 = 35;
+pub const CREDITS_BODY_PITCH: i32 = 25;
+/// The title's first cell top on the first full frame after the fade-in, before the text has moved.
+pub const CREDITS_TITLE_TOP: i32 = 274;
+/// How far below the title's first cell top the body's first line (after its leading newlines) has its cell top.
+pub const CREDITS_BODY_BELOW_TITLE: i32 = 129;
+/// The pixels a space leaves between the glyphs either side of it: body font (font12x) and title font (font32).
+pub const CREDITS_BODY_SPACE: u32 = 10;
+pub const CREDITS_TITLE_SPACE: u32 = 18;
+/// The width the title wraps at, from [`CREDITS_X`]. Not measured (spec "Credits title wrap": between about 315 and 450
+/// pixels); our choice is 360, the column from x 140 to 499 that leaves 140 pixels on either side, which gives the
+/// two-line titles the spec saw.
+pub const CREDITS_TITLE_WRAP: u32 = 360;
+/// The colours of the fonts' shades: the face (1 to 4) in greys, the shadow (5) black. Shades 6 and 7 aren't used by
+/// the fonts; black.
+pub const CREDITS_SHADES: [[u8; 3]; 8] = [
+    [0, 0, 0],
+    [255, 255, 255],
+    [219, 219, 219],
+    [187, 187, 187],
+    [155, 155, 155],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+];
+
+/// The advance of a space that leaves `gap` pixels between the glyphs either side of it: a glyph's own advance already
+/// leaves 1 pixel after it (`fnt`).
+pub fn credits_space_advance(gap: u32) -> u32 {
+    gap.saturating_sub(1)
+}
+
+/// One line of a credits page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreditsLine {
+    pub text: String,
+    pub title: bool,
+    /// Its cell's left edge.
+    pub x: i32,
+    /// Its cell top before the text has moved, from the page's title top.
+    pub y: i32,
+}
+
+/// A credits page's lines: the title wrapped by `wrap` (to [`CREDITS_TITLE_WRAP`]) at [`CREDITS_TITLE_PITCH`], then the
+/// body from [`CREDITS_BODY_BELOW_TITLE`] at [`CREDITS_BODY_PITCH`], an empty line taking one pitch and a line that
+/// begins with a tab starting at [`CREDITS_TAB_X`]. The body's leading newlines are where the spec's offset is
+/// measured from, so they take no room; its trailing empty lines are left out. Body lines aren't wrapped (the spec
+/// gives none; the table's fit).
+pub fn credits_lines(title: &str, body: &str, wrap: &dyn Fn(&str) -> Vec<String>) -> Vec<CreditsLine> {
+    let mut out: Vec<CreditsLine> = wrap(title)
+        .into_iter()
+        .enumerate()
+        .map(|(i, text)| CreditsLine {
+            text,
+            title: true,
+            x: CREDITS_X,
+            y: i as i32 * CREDITS_TITLE_PITCH,
+        })
+        .collect();
+    let body = body.trim_start_matches('\n').trim_end_matches(['\n', '\0']);
+    if body.is_empty() {
+        return out;
+    }
+    for (i, line) in body.split('\n').enumerate() {
+        let (x, text) = match line.strip_prefix('\t') {
+            Some(rest) => (CREDITS_TAB_X, rest),
+            None => (CREDITS_X, line),
+        };
+        if text.is_empty() {
+            continue;
+        }
+        out.push(CreditsLine {
+            text: text.to_string(),
+            title: false,
+            x,
+            y: CREDITS_BODY_BELOW_TITLE + i as i32 * CREDITS_BODY_PITCH,
+        });
+    }
+    out
+}
+
+/// The steps (1 pixel each) after which a page's last line has scrolled off the top: its cell, `cell_h` high, has
+/// left the text window. A page with no lines is done at once.
+pub fn credits_page_steps(lines: &[CreditsLine], cell_h: i32) -> u32 {
+    lines
+        .last()
+        .map_or(0, |l| (CREDITS_TITLE_TOP + l.y + cell_h - CREDITS_ROWS.0).max(0) as u32)
+}
+
+/// The steps the text has moved `elapsed_ms` after it started: one per [`CREDITS_STEP_MS`].
+pub fn credits_moved(elapsed_ms: f64) -> u32 {
+    (elapsed_ms.max(0.0) / CREDITS_STEP_MS as f64) as u32
+}
+
 pub fn ending(bdp: bool, race: u8) -> Ending {
     let human = race == HUMAN;
     let k = race as u16 + if bdp { 2 } else { 0 };
@@ -1725,5 +1851,102 @@ mod tests {
         assert_eq!(wrap("a\n\nb", 9, &w), ["a", "", "b"]);
         assert_eq!(wrap("x\u{4}y\u{1} z", 9, &w), ["xy z"]);
         assert_eq!(wrap("toolongword b", 3, &w), ["toolongword", "b"]);
+    }
+
+    // The spec's "Credits screen" (round 72).
+
+    #[test]
+    fn credits_page_lines_are_placed_as_the_spec_measured() {
+        // A title wrapped onto two lines, then a body with the table's two leading newlines, a heading, a tabbed name,
+        // a blank line, another heading, and trailing newlines.
+        let wrap_at_space = |s: &str| s.splitn(2, ' ').map(str::to_string).collect::<Vec<_>>();
+        let lines = credits_lines("First Second", "\n\nHead\n\tName\n\nNext\n\n\n", &wrap_at_space);
+        let got: Vec<(&str, bool, i32, i32)> = lines.iter().map(|l| (l.text.as_str(), l.title, l.x, l.y)).collect();
+        assert_eq!(
+            got,
+            [
+                // Title: x 140, pitch 35.
+                ("First", true, 140, 0),
+                ("Second", true, 140, 35),
+                // Body: first line 129 below the title's first cell top; pitch 25; a tab starts at x 174.
+                ("Head", false, 140, 129),
+                ("Name", false, 174, 154),
+                // An empty line takes one pitch: the heading after it is 50 below the line before it.
+                ("Next", false, 140, 204),
+            ]
+        );
+    }
+
+    #[test]
+    fn credits_title_starts_inside_the_window_and_the_text_moves_one_step_per_40_ms() {
+        assert_eq!(CREDITS_TITLE_TOP, 274);
+        assert_eq!(CREDITS_ROWS, (80, 354));
+        assert!(CREDITS_ROWS.0 < CREDITS_TITLE_TOP && CREDITS_TITLE_TOP < CREDITS_ROWS.1);
+        assert_eq!(credits_moved(0.0), 0);
+        assert_eq!(credits_moved(39.9), 0);
+        assert_eq!(credits_moved(40.0), 1);
+        assert_eq!(credits_moved(41.0 * 37.0), 37);
+        assert_eq!(credits_moved(-5.0), 0, "nothing moves before the start (the fade-in)");
+    }
+
+    #[test]
+    fn a_credits_page_is_done_when_its_last_line_has_left_the_window() {
+        let line = |y| CreditsLine {
+            text: "x".into(),
+            title: false,
+            x: CREDITS_X,
+            y,
+        };
+        // Last cell top at 274 + 204 = 478; with a 17-pixel cell its bottom passes row 80 after 478 + 17 - 80 steps.
+        assert_eq!(credits_page_steps(&[line(0), line(204)], 17), 415);
+        assert_eq!(credits_page_steps(&[], 17), 0);
+    }
+
+    #[test]
+    fn credits_spaces_and_colours() {
+        // A glyph leaves 1 pixel after itself, so a space that leaves 10 (font12x) or 18 (font32) advances 9 or 17.
+        assert_eq!(credits_space_advance(CREDITS_BODY_SPACE), 9);
+        assert_eq!(credits_space_advance(CREDITS_TITLE_SPACE), 17);
+        assert_eq!(
+            CREDITS_SHADES[1..6],
+            [
+                [255, 255, 255],
+                [219, 219, 219],
+                [187, 187, 187],
+                [155, 155, 155],
+                [0, 0, 0]
+            ]
+        );
+        assert_eq!((CREDITS_X, CREDITS_TAB_X), (140, 174));
+        assert_eq!((CREDITS_TITLE_PITCH, CREDITS_BODY_PITCH), (35, 25));
+        assert_eq!(
+            (CREDITS_TITLE_FONT, CREDITS_BODY_FONT),
+            ("Art\\font32.fnt", "Art\\font12x.fnt")
+        );
+    }
+
+    #[test]
+    fn credits_title_wraps_as_the_spec_saw() {
+        // Pinned: our wrap width (not measured): 360 pixels from x 140. A synthetic measure of 15 pixels a character
+        // stands in for the font: 21 characters (315) fit, 30 (450) don't, the spec's bounds.
+        let w = |s: &str| s.len() as u32 * 15;
+        assert_eq!(CREDITS_TITLE_WRAP, 360);
+        assert_eq!(
+            wrap("aaaaaaaaaa aaaaaaaaaa aaaaaaaa", CREDITS_TITLE_WRAP, &w),
+            ["aaaaaaaaaa aaaaaaaaaa", "aaaaaaaa"]
+        );
+    }
+
+    #[test]
+    fn credits_screen_page_one() {
+        assert_eq!(CREDITS_TABLE, "rez\\creditsBNE.tbl");
+        assert_eq!(
+            CREDITS_PAGES[0],
+            CreditsPage {
+                picture: "Art\\credits.pcx",
+                title: 0,
+                body: 1
+            }
+        );
     }
 }

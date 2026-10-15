@@ -280,6 +280,11 @@ impl TextStyle<'_> {
             _ => font.advance(c),
         }
     }
+
+    /// The width of `s` set on one line.
+    pub fn width(&self, font: &Font, s: &str) -> u32 {
+        s.bytes().map(|c| self.advance(font, c)).sum()
+    }
 }
 
 /// Draws `s` with its cell's top-left at `at` in `style`; returns its width.
@@ -871,5 +876,50 @@ mod tests {
         assert_eq!(lines, (String::new(), "abcdefghijklm".to_string()));
         let lines = crate::info::name_lines("abcdef ghijklmnop", &width);
         assert_eq!(lines, ("abcdef".to_string(), "ghijklmnop".to_string()));
+    }
+
+    #[test]
+    fn styled_text_takes_its_space_and_is_cut_at_its_rows() {
+        // One 2 × 4 glyph of shade 1 at offset (0, 0) for every character from '!'; the space has none.
+        let g = tidewater_formats::fnt::Glyph {
+            width: 2,
+            height: 4,
+            x: 0,
+            y: 0,
+            shades: vec![1; 8],
+        };
+        let mut glyphs = vec![None];
+        glyphs.extend((33..=126).map(|_| Some(g.clone())));
+        let font = Font {
+            first: 32,
+            max_width: 2,
+            height: 6,
+            glyphs,
+        };
+        let mut colours = [[0u8; 3]; 8];
+        colours[1] = [9, 9, 9];
+        let style = TextStyle {
+            colours: &colours,
+            space: Some(9),
+            rows: (11, 12),
+        };
+        // 'a' advances 3 (2 + 1), the space 9: a 1 + 9 = 10-pixel gap before 'b'.
+        assert_eq!(style.width(&font, "a b"), 3 + 9 + 3);
+        assert_eq!(ink_box(&font, "a b", &style), Some((0, 0, 13, 3)));
+        let mut p = Picture {
+            width: 20,
+            height: 20,
+            rgba: vec![0; 20 * 20 * 4],
+        };
+        assert_eq!(text_styled(&mut p, &font, (0, 10), "a b", &style), 15);
+        let inked = |x: u32, y: u32| p.rgba[((y * 20 + x) * 4 + 3) as usize] != 0;
+        assert!(
+            !inked(0, 10) && inked(0, 11) && inked(0, 12) && !inked(0, 13),
+            "only rows 11 and 12"
+        );
+        assert!(
+            inked(12, 11) && !inked(11, 11) && !inked(3, 11),
+            "'b' 10 pixels after 'a'"
+        );
     }
 }

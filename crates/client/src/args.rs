@@ -15,7 +15,8 @@ pub struct Args {
     pub map: Option<String>,
     /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `mission:E`, `act:E`,
     /// `briefing:E`, `score-victory:E` or `score-defeat:E` (synthetic statistics), `ending:E`, `credits:tod`,
-    /// `credits:bdp` or `video:N`, with E a mission entry (0 to 51).
+    /// `credits:bdp` (the credits page after a finale), `show-credits` (the main menu's credits screen) or `video:N`,
+    /// with E a mission entry (0 to 51).
     #[arg(long)]
     pub goto: Option<String>,
     /// Don't play the intro video at startup (the "play the intro" preference bit cleared).

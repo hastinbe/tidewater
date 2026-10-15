@@ -70,9 +70,12 @@ pub enum Step {
         bdp: bool,
         race: u8,
     },
+    /// The credits page after a finale (`crdt_lst.tbl` or `crelst2x.tbl`).
     Credits {
         bdp: bool,
     },
+    /// The credits screen the main menu's Show Credits opens (`rez\creditsBNE.tbl`, spec "Credits screen").
+    ShowCredits,
 }
 
 /// The score screen's content.
@@ -259,7 +262,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
                 continue;
             }
             Step::Finale { .. } => AppState::Finale,
-            Step::Credits { .. } => AppState::Credits,
+            Step::Credits { .. } | Step::ShowCredits => AppState::Credits,
         };
         flow.current = Some(step);
         return Some(state);
@@ -395,6 +398,7 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
             }]
         }
         "credits" => vec![Step::Credits { bdp: arg == "bdp" }, Step::MainMenu],
+        "show-credits" => vec![Step::ShowCredits, Step::MainMenu],
         "video" => vec![Step::Video(num()?), Step::MainMenu],
         _ => return Err(format!("unknown screen {what}")),
     })
@@ -587,6 +591,7 @@ pub struct Screens {
     briefing: Option<Briefing>,
     score: Option<ScoreScreen>,
     scroller: Option<Scroller>,
+    credits: Option<CreditsScreen>,
     load_cursors: (LogCursor, LogCursor),
 }
 
@@ -612,7 +617,11 @@ pub(crate) fn screen_systems(c: &mut Core) {
         run_scroller(c);
     }
     if state(c) == AppState::Credits {
-        run_scroller(c);
+        if c.flow.current == Some(Step::ShowCredits) {
+            run_credits(c);
+        } else {
+            run_scroller(c);
+        }
     }
     if state(c) == AppState::Score {
         run_score(c);
@@ -2132,6 +2141,10 @@ pub(crate) fn enter_finale(c: &mut Core) {
 }
 
 pub(crate) fn enter_credits(c: &mut Core) {
+    if c.flow.current == Some(Step::ShowCredits) {
+        enter_show_credits(c);
+        return;
+    }
     let Core {
         commands,
         flow,
@@ -2225,6 +2238,163 @@ fn run_scroller(c: &mut Core) {
             return;
         }
         go_on(flow, front, keys, next, exit);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The credits screen (spec "Credits screen"; rules in `campaign`)
+
+/// A page of the credits screen, ready to draw.
+struct CreditsSheet {
+    background: Picture,
+    lines: Vec<cf::CreditsLine>,
+    /// The steps after which its last line has scrolled off the top.
+    steps: u32,
+}
+
+struct CreditsScreen {
+    image: PictureId,
+    pages: Vec<CreditsSheet>,
+    page: usize,
+    /// When the shown page's text started moving, in screen time.
+    start: f64,
+    /// The page and steps last drawn.
+    drawn: (usize, u32),
+    /// The fade-out: when it ends.
+    closing: Option<f64>,
+}
+
+/// The style of a credits line: its font's space, the greys, and the text window's rows.
+fn credits_style(title: bool) -> hud::TextStyle<'static> {
+    let gap = if title {
+        cf::CREDITS_TITLE_SPACE
+    } else {
+        cf::CREDITS_BODY_SPACE
+    };
+    hud::TextStyle {
+        colours: &cf::CREDITS_SHADES,
+        space: Some(cf::credits_space_advance(gap)),
+        rows: cf::CREDITS_ROWS,
+    }
+}
+
+/// The credits fonts as the rest of the screens load them: the title's is `Front::big` (`Art\font32.fnt`), the body's
+/// `Front::font` (`Art\font12x.fnt`).
+fn credits_font(front: &Front, title: bool) -> &Font {
+    if title { &front.big } else { &front.font }
+}
+
+/// A credits page's picture with its text moved up `moved` steps.
+fn draw_credits(front: &Front, sheet: &CreditsSheet, moved: u32) -> Picture {
+    let mut p = dup(&sheet.background);
+    let (top, bottom) = cf::CREDITS_ROWS;
+    for l in &sheet.lines {
+        let font = credits_font(front, l.title);
+        let y = cf::CREDITS_TITLE_TOP + l.y - moved as i32;
+        // Lines wholly outside the window draw nothing (the style's rows cut the rest).
+        if y > bottom || y + 2 * font.height as i32 <= top {
+            continue;
+        }
+        hud::text_styled(&mut p, font, (l.x, y), &l.text, &credits_style(l.title));
+    }
+    p
+}
+
+fn credits_sheet(front: &mut Front, table: Option<&StringTable>, page: &cf::CreditsPage) -> CreditsSheet {
+    let text = |i: usize| table.and_then(|t| t.text(i)).unwrap_or_default();
+    let (title, body) = (text(page.title), text(page.body));
+    let title_style = credits_style(true);
+    let big = &front.big;
+    let wrap = |s: &str| cf::wrap(s, cf::CREDITS_TITLE_WRAP, &|t: &str| title_style.width(big, t));
+    let lines = cf::credits_lines(&title, &body, &wrap);
+    let steps = cf::credits_page_steps(&lines, front.font.height as i32);
+    CreditsSheet {
+        background: picture(&mut front.install, page.picture, None),
+        lines,
+        steps,
+    }
+}
+
+fn enter_show_credits(c: &mut Core) {
+    let Core {
+        commands,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
+    let table = table(&mut front.install, cf::CREDITS_TABLE);
+    let pages: Vec<CreditsSheet> = cf::CREDITS_PAGES
+        .iter()
+        .map(|p| credits_sheet(front, table.as_ref(), p))
+        .collect();
+    let image = spawn_layer(
+        commands,
+        pictures,
+        draw_credits(front, &pages[0], 0),
+        0,
+        AppState::Credits,
+        None,
+    );
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let screen = CreditsScreen {
+        image,
+        pages,
+        page: 0,
+        // Palette-effects spec: nothing else runs during a fade, so the text starts moving when the fade-in ends.
+        start: fades::CREDITS as f64,
+        drawn: (0, 0),
+        closing: None,
+    };
+    commands.queue(move |c| c.screens.credits = Some(screen));
+    fade_in_new_screen(commands, fades::CREDITS);
+    music.start_unless_started(crate::music::CREDITS_TRACK);
+}
+
+/// One frame of the credits screen: the text moves up one step per 40 ms; a key or click (once the fade-in has ended)
+/// or the last page's body scrolling off closes it with its fade-out and a fade of all sound, then the flow goes on.
+fn run_credits(c: &mut Core) {
+    let Core {
+        commands,
+        screens: Screens {
+            clock: Some(clock),
+            credits: Some(s),
+            ..
+        },
+        pictures,
+        flow,
+        front,
+        jukebox: music,
+        states: next,
+        exit,
+        layers,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
+    let now = clock.0;
+    if let Some(end) = s.closing {
+        if now >= end {
+            go_on(flow, front, &input.keys, next, exit);
+        }
+        return;
+    }
+    if now < s.start {
+        return;
+    }
+    let moved = cf::credits_moved(now - s.start);
+    let done = moved >= s.pages[s.page].steps;
+    let shown = moved.min(s.pages[s.page].steps);
+    if s.drawn != (s.page, shown) {
+        set_image(pictures, &s.image, draw_credits(front, &s.pages[s.page], shown));
+        s.drawn = (s.page, shown);
+    }
+    if done || pressed(&input.keys, &input.mouse) {
+        // Music spec: the credits' close fades all sound.
+        music.fade_stop(true, None);
+        s.closing = Some(fade_out_all(commands, layers, now, fades::CREDITS));
     }
 }
 
@@ -2379,6 +2549,7 @@ mod tests {
         assert!(goto_steps("act:3").is_err());
         assert!(goto_steps("nope").is_err());
         assert_eq!(goto_steps("credits:bdp").unwrap()[0], Step::Credits { bdp: true });
+        assert_eq!(goto_steps("show-credits").unwrap(), [Step::ShowCredits, Step::MainMenu]);
     }
 
     #[test]
