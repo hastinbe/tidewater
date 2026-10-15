@@ -366,17 +366,21 @@ impl World {
     /// "Returning goods", step 2, after the reaction (step 1): the target is lost, so the unit is sent to the nearest
     /// depot, taken over in the same update (wait 3, route dropped), or with none idle (V68, V77, V81).
     ///
-    /// Kept as it is (pinned): this re-aim isn't made as an ordinary command, though "Commands given by these orders"
-    /// says it is. The blocked counter is kept, a stale attacker isn't forgotten, and the idle with no depot may
-    /// resume a remembered order. The reaction runs before the route is dropped.
+    /// The re-aim is an ordinary command ("Commands given by these orders"; round 68, harvest (a)): the command steps
+    /// (blocked counter cleared, route dropped, stale attacker forgotten) and the target check. With no depot the
+    /// command's order is 2, made pending by the common path (so a remembered order may resume).
     fn return_target_lost(&mut self, i: usize) {
         if self.react_at_walk_end(i) {
             return;
         }
-        self.units[i].path.clear();
         match self.nearest_depot(&self.units[i]) {
-            Some(d) => self.take_over(i, Order::ReturnGoods { depot: Some(d) }),
-            None => self.idle_now(i),
+            Some(d) => {
+                self.command_at_once(i, Order::ReturnGoods { depot: Some(d) });
+            }
+            None => {
+                self.command_steps(i);
+                self.idle_now(i);
+            }
         }
     }
 
@@ -2411,11 +2415,11 @@ mod tests {
             assert_eq!(w.fingerprint(), 5083180129386180915);
         }
 
-        /// Order 24's depot re-issue ("Returning goods", step 2) is made pending and taken over, but as the code
-        /// stands it isn't a command: the blocked counter is kept (the spec's "Commands given by these orders" would
-        /// clear it), and with no depot left the pending idle may resume a remembered order.
+        /// Order 24's depot re-issue ("Returning goods", step 2) is an ordinary command taken over in the same update
+        /// ("Commands given by these orders"): the blocked counter is cleared, and with no depot left the pending idle
+        /// may resume a remembered order.
         #[test]
-        fn a_return_whose_depot_is_lost_keeps_its_blocked_counter() {
+        fn a_return_whose_depot_is_lost_is_given_again_as_a_command() {
             let mut w = arena();
             let hall = w.spawn(kind::TOWN_HALL, 0, (2, 2), 0).unwrap();
             let mill = w.spawn(LUMBER_MILL, 0, (16, 4), 0).unwrap();
@@ -2430,7 +2434,10 @@ mod tests {
             let pi = w.index(p).unwrap();
             w.return_order(pi, Some(mill));
             let u = &w.units[pi];
-            assert_eq!((u.order, u.blocked), (Order::ReturnGoods { depot: Some(hall) }, 5));
+            assert_eq!(
+                (u.order, u.blocked, u.script.wait),
+                (Order::ReturnGoods { depot: Some(hall) }, 0, 3)
+            );
             let first = w.fingerprint();
             // No depot left, a remembered patrol: the pending idle resumes it.
             w.units[pi].remembered = Some(crate::world::Remembered::Patrol {
@@ -2445,7 +2452,7 @@ mod tests {
             let u = &w.units[pi];
             assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
             assert_eq!(u.blocked, 0, "the resumed patrol starts afresh");
-            assert_eq!([first, w.fingerprint()], [6996958735745534602, 5472781868606498703]);
+            assert_eq!([first, w.fingerprint()], [5763721113784088958, 5472781868606498703]);
         }
 
         /// Order 24 with no route: the generic no-route idle and the same-update idle logic, with no reaction first, so
