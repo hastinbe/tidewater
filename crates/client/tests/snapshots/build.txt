@@ -1,6 +1,7 @@
 # frame and sound fingerprints of the scripted scene `build` (hashes only)
 sound	2	3bb3724654d4194d	0.7516	Once
-frames	1-2	156ed4086987e325
+frames	1-1	bfb365cd2df24cda
+frames	2-2	156ed4086987e325
 frames	3-3	2ab4d7048026f340
 frames	4-7	c2e52e287af839f4
 sound	9	b18b87133dda1256	0.9882	Despawn
@@ -74,20 +75,20 @@ frames	165-166	ed93f19ea5950c37
 frames	167-168	c41bfaababb3967e
 shot	170	wheel-on-map	129ce3ef67719e47
 frames	169-170	129ce3ef67719e47
-frames	171-174	e9a84b59f97d1e74
-frames	175-175	5bf43e658ab9fb40
-frames	176-176	129ce3ef67719e47
+frames	171-174	1905face54f9b953
+frames	175-175	21382124a85a05cf
+frames	176-176	ae0b8053d52ca69d
 frames	177-178	6a738872651b448d
 frames	179-179	3f2ebc60ac7cddc1
-frames	180-183	0bd8c0979503422a
-frames	184-184	298265b5d2b430ba
-frames	185-185	3f2ebc60ac7cddc1
+frames	180-183	2024083c34c4a8a9
+frames	184-184	9846c71016e278d1
+frames	185-185	99e496f5487d940b
 frames	186-188	ec3de2ccf6664bdd
-shot	193	load-list	d51dde2f33867f05
-shot	196	load-wheel-down	d51dde2f33867f05
-shot	199	load-wheel-up	d51dde2f33867f05
-frames	189-199	d51dde2f33867f05
-frames	200-200	fcb8b22144dc2ac6
+shot	193	load-list	f5589327878d6cf6
+shot	196	load-wheel-down	f5589327878d6cf6
+shot	199	load-wheel-up	f5589327878d6cf6
+frames	189-199	f5589327878d6cf6
+frames	200-200	3d495d7d2bb22168
 frames	201-202	fce349d18757657a
 shot	204	load-closed	2f07cf3d8862cf6b
 frames	203-204	2f07cf3d8862cf6b

@@ -1544,7 +1544,7 @@ fn mouse_lock(
     };
     let want = display::lock_wanted(display::LockInput {
         enabled: !opts.0.no_mouse_lock,
-        // The game menus and the outcome dialog use the system's pointer (`frontend::show_cursor`).
+        // The game menus and the outcome dialog are unlocked; the screen draws the arrow there (`shell`).
         in_game: frontend::game_running(state, dialog, menu) && hud.as_ref().is_some_and(|h| h.art.has_pointers()),
         focused: window.focused,
         held_free: keys.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]),
@@ -2482,7 +2482,12 @@ fn draw_hud(
     scr: Res<ScreenUi>,
     cycling: Res<Cycling>,
     mut pictures: ResMut<ScreenPictures>,
+    state: Res<State<frontend::AppState>>,
+    dialog: Option<Res<frontend::OutcomeDialog>>,
+    menu: Option<Res<gamemenu::GameMenu>>,
 ) {
+    // While a menu or dialog is open the screen draws the normal arrow instead (`shell`).
+    let running = frontend::game_running(state, dialog, menu);
     let (Some(sim), Some(layout)) = (sim, hud.layout) else {
         return;
     };
@@ -2532,7 +2537,7 @@ fn draw_hud(
             messages: &scr.messages,
             paused: sim.world.paused,
             pause_button: pause_button(&sim),
-            pointer: scr.pointer.filter(|_| hud.art.has_pointers()),
+            pointer: scr.pointer.filter(|_| running && hud.art.has_pointers()),
             minimap: &hud.minimap.pixels,
             buttons: &buttons,
         },

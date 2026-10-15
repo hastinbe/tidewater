@@ -290,6 +290,14 @@ fn text_top(font: &Font, r: Rect) -> i32 {
     r.y + (r.h as i32 - font.height as i32) / 2
 }
 
+/// The pointer `Art\{name}` in `pal`, with its hot spot, if the install has it.
+pub fn load_pointer(install: &mut Install, name: &str, pal: &Palette) -> Option<(Picture, (i32, i32))> {
+    let c = Cursor::parse(&install.read(&format!("Art\\{name}")).ok()?).ok()?;
+    let (w, h) = (c.image.width as u32, c.image.height as u32);
+    let pic = indexed(w, h, &c.image.pixels, pal, true, None);
+    Some((pic, (c.hotspot.0 as i32, c.hotspot.1 as i32)))
+}
+
 fn indexed(width: u32, height: u32, idx: &[u8], pal: &Palette, transparent0: bool, owner: Option<u8>) -> Picture {
     Picture {
         width,
@@ -381,14 +389,8 @@ impl HudArt {
         let mut pointers = std::collections::HashMap::new();
         for ptr in crate::screen::Pointer::all() {
             let name = ptr.file(race != 0);
-            if let Some(c) = install
-                .read(&format!("Art\\{name}"))
-                .ok()
-                .and_then(|d| Cursor::parse(&d).ok())
-            {
-                let (w, h) = (c.image.width as u32, c.image.height as u32);
-                let pic = indexed(w, h, &c.image.pixels, pal, true, None);
-                pointers.insert(name, (pic, (c.hotspot.0 as i32, c.hotspot.1 as i32)));
+            if let Some(p) = load_pointer(install, name, pal) {
+                pointers.insert(name, p);
             }
         }
 
@@ -446,6 +448,11 @@ impl HudArt {
     /// Entry `n` of `rez\network.tbl`, counting from 1.
     pub fn net_string(&self, n: u16) -> String {
         self.network.text((n as usize).wrapping_sub(1)).unwrap_or_default()
+    }
+
+    /// Pointer `p` of the local race, with its hot spot, if the install has it.
+    pub fn pointer(&self, p: crate::screen::Pointer) -> Option<&(Picture, (i32, i32))> {
+        self.pointers.get(p.file(self.orc))
     }
 
     /// Whether every pointer of the race was found, so the client can draw the pointer itself.
@@ -574,7 +581,7 @@ impl HudArt {
 
     /// The pointer, its hot spot on the mouse position.
     fn draw_pointer(&self, pic: &mut Picture, p: crate::screen::Pointer, at: (i32, i32)) {
-        if let Some((img, hot)) = self.pointers.get(p.file(self.orc)) {
+        if let Some((img, hot)) = self.pointer(p) {
             blit(pic, at.0 - hot.0, at.1 - hot.1, img);
         }
     }

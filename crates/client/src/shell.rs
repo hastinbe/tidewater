@@ -14,17 +14,23 @@
 //! | 3 | Flow | The flow's layers (`frontend`, `gamemenu`: screens, dialogs, menus), by z | Centred on the screen at their size, with their fade |
 //!
 //! Outside a game the flow's screen is cleared before its layers (`frontend::FrontScreen`), so only they show there.
+//!
+//! The pointer goes on top of everything: while the game runs the interface picture has it (`hud`); everywhere else
+//! the screen draws the normal arrow (screen spec, "Pointer shapes": the local race's in a game, the human one outside
+//! it), and the system's pointer is hidden whenever the screen draws one.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::system::SystemParam;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::compose::{self, Clip, Frame, Placed};
-use crate::frontend::{FrontScreen, Persist};
+use crate::frontend::{AppState, Front, FrontScreen, LockedPointer, OutcomeDialog, Persist};
+use crate::gamemenu::GameMenu;
 use crate::layers::{Layer, PictureId, Pictures, Plane};
 use crate::{GameView, Hud};
 
@@ -123,15 +129,16 @@ fn compose_screen(
     mut images: ResMut<Assets<Image>>,
     pictures: Res<ScreenPictures>,
     mut screen: ResMut<Screen>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    pointer: PointerState,
     hud: Option<Res<Hud>>,
     map_view: Option<Res<GameView>>,
     front_screen: Res<FrontScreen>,
     layers: Query<(Entity, &ScreenLayer)>,
 ) {
-    if windows.single().is_err() {
+    let Ok((window, mut cursor)) = windows.single_mut() else {
         return;
-    }
+    };
     // Outside a game the flow's screen clears the screen first (`frontend::camera_clear`).
     let front_clears = front_screen.clears;
     let (center_x, center_y) = (compose::W as f64 / 2.0, compose::H as f64 / 2.0);
@@ -217,10 +224,50 @@ fn compose_screen(
             tint: l.tint,
         });
     }
+    // The pointer: the interface picture has it while the game runs; otherwise the normal arrow goes on top.
+    let in_game = *pointer.state.get() == AppState::Game;
+    let hud_draws = hud.as_ref().is_some_and(|h| h.art.has_pointers())
+        && in_game
+        && pointer.dialog.is_none()
+        && pointer.menu.is_none();
+    let arrow = match (&hud, &pointer.front) {
+        _ if hud_draws => None,
+        (Some(h), _) if in_game => h.art.pointer(crate::screen::Pointer::Arrow),
+        (_, Some(f)) if !in_game => f.arrow.as_ref(),
+        _ => None,
+    };
+    if let (Some((pic, hot)), Some(p)) = (arrow, pointer.locked.at(window)) {
+        let (x, y) = crate::letterbox(window).screen_point((p.x, p.y), window.scale_factor());
+        let (x, y) = (x.floor() as i32 - hot.0, y.floor() as i32 - hot.1);
+        frame.draw(&Placed {
+            rgba: &pic.rgba,
+            width: pic.width,
+            height: pic.height,
+            origin: (x as f64, y as f64),
+            scale: (1.0, 1.0),
+            clip: Clip::SCREEN,
+            tint: 1.0,
+        });
+    }
+    // The system's pointer shows only where the screen has no pointer of its own.
+    let visible = !hud_draws && arrow.is_none();
+    if cursor.visible != visible {
+        cursor.visible = visible;
+    }
     if let Some(mut img) = images.get_mut(&screen.image) {
         img.data = Some(frame.rgba.clone());
     }
     screen.frame = frame;
+}
+
+/// What decides the pointer the screen draws.
+#[derive(SystemParam)]
+struct PointerState<'w> {
+    state: Res<'w, State<AppState>>,
+    dialog: Option<Res<'w, OutcomeDialog>>,
+    menu: Option<Res<'w, GameMenu>>,
+    front: Option<Res<'w, Front>>,
+    locked: Res<'w, LockedPointer>,
 }
 
 /// The frame the window shows this frame, at one window pixel per screen pixel: what a scripted run records. `None`

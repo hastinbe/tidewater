@@ -22,7 +22,7 @@ use std::time::Duration;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
-use bevy::window::{CursorOptions, PrimaryWindow};
+use bevy::window::PrimaryWindow;
 use tidewater_formats::fnt::Font;
 use tidewater_formats::install::Install;
 use tidewater_formats::pcx::Pcx;
@@ -136,6 +136,9 @@ pub struct Front {
     pub small: Font,
     pub huge: Font,
     pub network: StringTable,
+    /// The normal arrow the core draws outside a game (screen spec, "Pointer shapes"), with its hot spot: the human
+    /// one, in the title screen's palette.
+    pub arrow: Option<(Picture, (i32, i32))>,
     sources: HashMap<String, Option<Handle<AudioSource>>>,
 }
 
@@ -160,6 +163,11 @@ impl Front {
         )?;
         let small = font(&mut install, &["Art\\font10x.fnt", "Art\\font12x.fnt"])?;
         let network = table(&mut install, "rez\\network.tbl").unwrap_or(StringTable(Vec::new()));
+        let arrow = install
+            .read(cf::TITLE_PICTURE)
+            .ok()
+            .and_then(|d| Pcx::parse(&d).ok()?.palette)
+            .and_then(|pal| hud::load_pointer(&mut install, crate::screen::Pointer::Arrow.file(false), &pal));
         Ok(Front {
             install,
             font: f,
@@ -167,6 +175,7 @@ impl Front {
             small,
             huge,
             network,
+            arrow,
             sources: HashMap::new(),
         })
     }
@@ -540,7 +549,6 @@ pub fn plugin(app: &mut App) {
                 run_dialog.run_if(
                     resource_exists::<OutcomeDialog>.and_then(not(resource_exists::<crate::gamemenu::GameMenu>)),
                 ),
-                show_cursor.run_if(not(game_running)),
                 apply_fades,
             ),
         );
@@ -549,14 +557,6 @@ pub fn plugin(app: &mut App) {
 /// The flow's screen clears to black except over the game screen.
 fn camera_clear(state: Res<State<AppState>>, mut screen: ResMut<FrontScreen>) {
     screen.clears = *state.get() != AppState::Game;
-}
-
-fn show_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) {
-    for mut c in &mut cursor {
-        if !c.visible {
-            c.visible = true;
-        }
-    }
 }
 
 fn boot(
