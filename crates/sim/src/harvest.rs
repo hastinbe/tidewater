@@ -351,21 +351,26 @@ impl World {
     /// "Returning goods", step 2, after the reaction (step 1): the target is lost, so the unit is sent to the nearest
     /// depot, taken over in the same update (wait 3, route dropped), or with none idle (V68, V77, V81).
     ///
-    /// The re-aim is an ordinary command ("Commands given by these orders"; round 68, harvest (a)): the command steps
-    /// (blocked counter cleared, route dropped, stale attacker forgotten) and the target check. With no depot the
-    /// command's order is 2, made pending by the common path (so a remembered order may resume).
+    /// The re-aim is [`World::return_to_nearest_depot`].
     fn return_target_lost(&mut self, i: usize) {
         if self.react_at_walk_end(i) {
             return;
         }
+        self.return_to_nearest_depot(i);
+    }
+
+    /// A carrying worker sent back to the nearest depot by its own logic ("Returning goods", step 2, and "Lumber",
+    /// step 3): with a depot, an ordinary return command to it ("Commands given by these orders"; round 68, harvest
+    /// (a)), taken over in the same update (wait 3; the command steps clear the blocked counter, drop the route and
+    /// forget a stale attacker). With none, **no command**: the common pending idle, taken over in the same update, so
+    /// the blocked counter, the route and a stale attacker are kept and a remembered order may resume (V77, V95;
+    /// audit round 70, erratum 8).
+    fn return_to_nearest_depot(&mut self, i: usize) {
         match self.nearest_depot(&self.units[i]) {
             Some(d) => {
                 self.command_at_once(i, Order::ReturnGoods { depot: Some(d) });
             }
-            None => {
-                self.command_steps(i);
-                self.idle_now(i);
-            }
+            None => self.idle_now(i),
         }
     }
 
@@ -743,12 +748,11 @@ impl World {
         }
         let area = self.terrain.region(here.0, here.1).unwrap_or(region::LAND_AREA);
         self.terrain.fell(tree.0, tree.1, area);
-        // "Lumber", step 3: the worker carries lumber, its frame is set to 0, and it is given a return command to the
-        // nearest depot (idle with none; the take-over looks it up).
+        // "Lumber", step 3: the worker carries lumber, its frame is set to 0, and it is sent back to the nearest depot.
         let u = &mut self.units[i];
         u.carrying = true;
         u.script.frame = 0;
-        self.command_at_once(i, Order::ReturnGoods { depot: None });
+        self.return_to_nearest_depot(i);
     }
 
     /// "Lumber", step 2: a worker next to a tree tile that is still unreserved forest starts chopping (counter 0, faces
@@ -2470,6 +2474,63 @@ mod tests {
             assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
             assert_eq!(u.blocked, 0, "the resumed patrol starts afresh");
             assert_eq!([first, w.fingerprint()], [5763721113784088958, 5472781868606498703]);
+        }
+
+        /// V77 ("Returning goods", step 2; audit round 70, erratum 8): order 24 losing its last depot gives no
+        /// command. Idle becomes the pending order and takes over in the same update (still animation, wait 3); the
+        /// blocked counter, the cached route and a stale attacker are kept.
+        #[test]
+        fn a_return_with_no_depot_left_goes_idle_without_the_command_steps() {
+            let mut w = arena();
+            let mill = w.spawn(LUMBER_MILL, 0, (16, 4), 0).unwrap();
+            let p = w.spawn(0, 0, (10, 10), 0).unwrap();
+            let a = attacker(&mut w, p, FOE);
+            let ai = w.index(a).unwrap();
+            w.units[ai].detected_by = 0;
+            let pi = w.index(p).unwrap();
+            w.units[pi].carrying = true;
+            w.units[pi].gather = Gather::Lumber;
+            w.units[pi].blocked = 5;
+            w.units[pi].path = vec![(11, 9)];
+            w.units[pi].order = Order::ReturnGoods { depot: Some(mill) };
+            let mi = w.index(mill).unwrap();
+            w.kill(mi);
+            let pi = w.index(p).unwrap();
+            w.return_order(pi, Some(mill));
+            let u = &w.units[pi];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait),
+                (Order::Idle, None, anim::STILL, 3)
+            );
+            assert_eq!((u.blocked, u.path.clone(), u.attacked_by), (5, vec![(11, 9)], Some(a)));
+            assert_eq!(w.fingerprint(), 5698017457373773504);
+        }
+
+        /// V95 ("Lumber", step 3; audit round 70, erratum 8): felling with no depot gives no command. Idle becomes the
+        /// pending order and takes over in the same update (still animation, wait 3); the blocked counter is kept.
+        /// (A recorded attacker would make the chopping worker react before it fells: V77 above pins the attacker.)
+        #[test]
+        fn felling_with_no_depot_goes_idle_without_the_command_steps() {
+            let mut w = arena();
+            forest(&mut w, 10, 8);
+            let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+            harvest(&mut w, vec![p], None, (10, 8));
+            for _ in 0..30 {
+                w.step(&[]);
+            }
+            let pi = w.index(p).unwrap();
+            w.units[pi].chop = 50;
+            w.units[pi].blocked = 4;
+            assert!((0..100).any(|_| {
+                w.step(&[]);
+                w.unit(p).unwrap().carrying
+            }));
+            let u = w.unit(p).unwrap();
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.blocked),
+                (Order::Idle, None, anim::STILL, 3, 4)
+            );
+            assert_eq!(w.fingerprint(), 17895261273044921256);
         }
 
         /// Order 24 with no route: the generic no-route idle and the same-update idle logic, with no reaction first, so

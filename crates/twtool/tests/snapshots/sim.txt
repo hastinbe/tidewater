@@ -2016,15 +2016,15 @@ Campaign\XOrc\2XOrc12.pud	fight	25000	44adb86eed6d0e78	201e8dd0159613de	331
 Campaign\XOrc\2XOrc12.pud	fight	27500	67760f4345777147	dc625a52674c92b6	331
 Campaign\XOrc\2XOrc12.pud	fight	30000	0f241d397a2e828c	b4b6e06fbe3cd2ab	331
 Campaign\XOrc\2XOrc12.pud	harvest	0	260f0b4c4c986380	78dddc8e2275d9e4	272
-Campaign\XOrc\2XOrc12.pud	harvest	2500	6fcc74181ef4e625	54348938fc45a092	282
-Campaign\XOrc\2XOrc12.pud	harvest	5000	412a528aac546ec6	aedc05348aff0874	306
-Campaign\XOrc\2XOrc12.pud	harvest	7500	680f55ff7fcd90ec	12cf38a0de4d71fc	330
-Campaign\XOrc\2XOrc12.pud	harvest	10000	9f5a5f29bf1c79ff	d3cadcb47bfb1177	348
-Campaign\XOrc\2XOrc12.pud	harvest	12500	6f9fd8c8459c0b49	c37b0e6661104a14	341
-Campaign\XOrc\2XOrc12.pud	harvest	15000	6ae00f17c41254be	1bcbdd69d32928c5	351
-Campaign\XOrc\2XOrc12.pud	harvest	17500	9c46bdfc4fa39f64	0bf7b2498da7fceb	350
-Campaign\XOrc\2XOrc12.pud	harvest	20000	285a2ae5e5a508ff	1451d9578d797e54	343
-Campaign\XOrc\2XOrc12.pud	harvest	22500	78b008a4ec9b7479	ae48695256c7a4e5	335
+Campaign\XOrc\2XOrc12.pud	harvest	2500	6fcc74181ef4e625	7ed4cf6930974b13	282
+Campaign\XOrc\2XOrc12.pud	harvest	5000	412a528aac546ec6	97b83039ff21b11c	306
+Campaign\XOrc\2XOrc12.pud	harvest	7500	680f55ff7fcd90ec	20829a2b7bbef0ee	330
+Campaign\XOrc\2XOrc12.pud	harvest	10000	9f5a5f29bf1c79ff	c677c38470f448fc	348
+Campaign\XOrc\2XOrc12.pud	harvest	12500	6f9fd8c8459c0b49	a2f033c9fc138856	341
+Campaign\XOrc\2XOrc12.pud	harvest	15000	6ae00f17c41254be	e768398e1b8a3fd9	351
+Campaign\XOrc\2XOrc12.pud	harvest	17500	9c46bdfc4fa39f64	da166525b6dff7eb	350
+Campaign\XOrc\2XOrc12.pud	harvest	20000	285a2ae5e5a508ff	07264fcf12008549	343
+Campaign\XOrc\2XOrc12.pud	harvest	22500	78b008a4ec9b7479	18df819c695efb1b	335
 Campaign\XOrc\2XOrc12.pud	harvest	25000	2341b9d52443ccca	7c194605aa444884	335
 Campaign\XOrc\2XOrc12.pud	harvest	27500	cf77f3f047c9b902	18c8dc6bdc6f6da4	318
 Campaign\XOrc\2XOrc12.pud	harvest	30000	4f818e62a60405e4	1571921a35d8dc5b	318
@@ -4044,7 +4044,7 @@ Maps\Classic\Expansion\Plots.pud	harvest	25000	22bea5962dd6fd8f	29fa024cf16c90ff
 Maps\Classic\Expansion\Plots.pud	harvest	27500	21de11de9c7e3253	160ae929a114066c	49
 Maps\Classic\Expansion\Plots.pud	harvest	30000	a68f87e3c51508fa	a86b4e33756f95a4	52
 Maps\Classic\Expansion\Plots.pud	ai	0	a0dbba3687b69b68	5f31dfe56652072d	32
-Maps\Classic\Expansion\Plots.pud	ai	2500	3a8b7cde7c3c7d06	022d481f3af8a6ae	39
+Maps\Classic\Expansion\Plots.pud	ai	2500	3a8b7cde7c3c7d06	801a6d96f70101b5	39
 Maps\Classic\Expansion\Plots.pud	ai	5000	d0e9611c703f6e62	fcdf6bc45051f7df	46
 Maps\Classic\Expansion\Plots.pud	ai	7500	873e4b789ed58561	143e2c2645ab256a	60
 Maps\Classic\Expansion\Plots.pud	ai	10000	ba94f20e2c5f8a98	d1c6c5e5385d2bb6	74
@@ -9378,14 +9378,14 @@ Maps\Scenario\Fire in the Water BNE.pud	fight	2500	dde080a5df1dbc74	a8bc850eb9aa
 Maps\Scenario\Fire in the Water BNE.pud	fight	5000	1a4047219ace7a89	1dd1dbefcb148cb6	48
 Maps\Scenario\Fire in the Water BNE.pud	fight	7500	25cf1edf5fe74911	93f50664e59040c2	52
 Maps\Scenario\Fire in the Water BNE.pud	fight	10000	0e7c72fae7c6ee07	566512ce298caeba	53
-Maps\Scenario\Fire in the Water BNE.pud	fight	12500	475f866d8f27a8a0	5e59d98518f0f6b8	56
-Maps\Scenario\Fire in the Water BNE.pud	fight	15000	18bbaa400e3c6891	79476b91fb6594c8	55
-Maps\Scenario\Fire in the Water BNE.pud	fight	17500	38f27d0688c0a5bf	ce0918df854c6f27	55
-Maps\Scenario\Fire in the Water BNE.pud	fight	20000	c5e41664f7af34ae	7926757e1ea62666	55
-Maps\Scenario\Fire in the Water BNE.pud	fight	22500	2be6afed31d2504f	d87f8e248a2e5e4f	55
-Maps\Scenario\Fire in the Water BNE.pud	fight	25000	498411f0836d9d76	5fcc51dfa67e50b0	55
-Maps\Scenario\Fire in the Water BNE.pud	fight	27500	cf8f24af561ee8b6	f3e6e80b615ae55c	55
-Maps\Scenario\Fire in the Water BNE.pud	fight	30000	2b46f704f00239d4	3d7127f326aa1edf	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	12500	475f866d8f27a8a0	6014ab3be368a31b	56
+Maps\Scenario\Fire in the Water BNE.pud	fight	15000	18bbaa400e3c6891	e1abaabc4356d8d3	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	17500	38f27d0688c0a5bf	95e021a6a82e16f7	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	20000	c5e41664f7af34ae	161e1266fc1a7181	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	22500	2be6afed31d2504f	ad6a52da2827cc7e	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	25000	498411f0836d9d76	af2a995f90abfc0b	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	27500	cf8f24af561ee8b6	57a667a2e6cd575a	55
+Maps\Scenario\Fire in the Water BNE.pud	fight	30000	2b46f704f00239d4	fd262b5192b709cb	55
 Maps\Scenario\Fire in the Water BNE.pud	harvest	0	4abdb1c95cfaa5d7	0b477f92069a2043	41
 Maps\Scenario\Fire in the Water BNE.pud	harvest	2500	134ec10ae98b782c	3b039d37b43de922	45
 Maps\Scenario\Fire in the Water BNE.pud	harvest	5000	bbfd00274aa67386	c42af901e88bf35a	48
