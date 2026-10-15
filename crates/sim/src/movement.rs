@@ -168,7 +168,7 @@ impl World {
             return;
         }
         // Orders spec, "Resuming patrol and attack-move": a pending idle goes by the common path, which may resume
-        // the remembered order as a command (round 68, code question 1).
+        // the remembered order as a command.
         if order == Order::Idle {
             self.pending_idle(i);
             return;

@@ -269,7 +269,9 @@ impl World {
     }
 
     /// The walk toward building (or unit) `bi`: the building goal rule from the unit's tile, arrival radius 1, the
-    /// target's widened footprint as the goal zone.
+    /// target's widened footprint as the goal zone. Kept apart from the one walk goal ([`World::target_walk`]): it never
+    /// takes the shore corner goal. No harvest walk has a land unit aim at a shore building (only tankers use the
+    /// refinery), so the two agree wherever we know the outcome.
     fn building_walk(&self, i: usize, bi: usize) -> Goal {
         let b = &self.units[bi];
         Goal {

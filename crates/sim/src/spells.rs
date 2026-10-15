@@ -432,8 +432,9 @@ impl World {
                 self.cast_idle(i);
                 return true;
             };
-            // Round-60 errata (pathfinding spec, "Step 1"; static study): the walk toward a target unit uses its
-            // widened footprint as the goal zone.
+            // Pathfinding spec, "Step 1" (static study): the walk toward a target unit uses its widened footprint
+            // as the goal zone. The target is never a building here, so this is the one walk goal
+            // ([`World::target_walk`]) built by hand: the goal tile is also the aim, and the radius is the spell's.
             let zone = Some(crate::battle::goal_zone(t));
             (t.tile, (crate::world::facing_tile_of(t), t.centre_px()), zone)
         } else {

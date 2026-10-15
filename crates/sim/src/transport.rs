@@ -1,10 +1,14 @@
-//! Transports: the command rules, landing, pushing off, unloading and boarding. Spec: `docs/specs/orders/transports.md`.
+//! Transports: the command rules, landing, pushing off, unloading and boarding. Spec: `docs/specs/orders/transports.md`,
+//! whose "The model" section names the stages: boarding (order 34), docked (32), pushing off (31), sailing (3 and 6),
+//! landing (30) and unloading (29). Landing and pushing off are two parameter sets of the ordinary walk
+//! ([`NearShore`]).
 //!
-//! Not yet here: the docking sound, and a passenger dying aboard by other means than its transport's death (Enhanced
-//! mode empties its slot; nothing but the transport's death kills a passenger yet).
+//! Not yet here: a passenger dying aboard by other means than its transport's death (Enhanced mode empties its slot;
+//! nothing but the transport's death kills a passenger yet).
 //!
-//! Our choices for the spec's open questions: a computer player's unit whose transport is landing in its region waits
-//! in order 34; the unload command's tile is used as given; a passenger is put ashore facing as it was.
+//! Our choices for the spec's open questions: the unload command's tile is used as given; a passenger is put ashore
+//! facing as it was; a transport lost while a unit walks to it is step 1 of order 34 (V33, not the static reading in the
+//! open question "A transport lost while the unit walks to it"); the docking sound plays on any transport step onto shore water, pushing off's too.
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -129,8 +133,8 @@ impl World {
     }
 
     /// "Land and shore targets": for a target tile `g` with the land or shore-water bit, the target unit is dropped
-    /// and, for a transport on open water, the tile is pulled back to shore. Round-40 errata: this runs for every
-    /// command given to a transport, not only the smart move and unload.
+    /// and, for a transport on open water, the tile is pulled back to shore. This runs for every command given to a
+    /// transport, not only the smart move and unload.
     pub(crate) fn land_and_shore(
         &self,
         i: usize,
@@ -229,7 +233,7 @@ impl World {
                 let o = self.transport_command(ti, Some(id), tile, false);
                 // The transport's smart move is a command: the command steps clear the blocked counter (movement spec),
                 // forget a stale attacker and drop the cached route, as every command does (orders spec, "What every
-                // command does"; round 68, code Q8).
+                // command does").
                 self.command_steps(ti);
                 self.give(ti, o);
             }
@@ -405,7 +409,8 @@ impl World {
     }
 
     /// Order 29 ("Unloading"): every passenger from slot 6 down to slot 1, then order 32 takes over in the same update
-    /// as a pending order does (still animation, wait 3; round-39 errata). Off shore water it just becomes order 32.
+    /// as a pending order does (still animation, wait 3; V27). Off shore water it just becomes order 32, set at once
+    /// (the open question "Unloading off shore water" reads a pending order 32 there too; untraced).
     fn unload(&mut self, i: usize) {
         if !self.shore_water(self.units[i].tile) {
             self.dock(i);
@@ -441,18 +446,18 @@ impl World {
         u.path.clear();
         let unit = self.units[pi].clone();
         self.mark(&unit, to, Some(unit.id));
-        // An immediate idle (round-39 errata): still animation with a wait of 1, no turn, and the idle logic not run
+        // An immediate idle (V27 to V29): still animation with a wait of 1, no turn, and the idle logic not run
         // here. The passenger's own update, later in the cycle, runs it.
         self.start_anim(pi, anim::STILL);
         self.apply_unit_sight(pi);
         self.units[i].passengers[slot] = None;
     }
 
-    /// Order 34 ("Order 34 (board)").
-    /// The boarding walk of unit `i` to the transport at `ti`: the transport's tile when it is in the unit's region,
-    /// else its destination tile, with arrival radius 1. Round-52 errata (`orc14-10000` knight 1433, n = 2421): the
-    /// walk's route search has the transport as its target unit, so its goal zone is the transport's footprint widened
-    /// by one tile (pathfinding spec, "Step 1"), even when the goal isn't the transport's tile.
+    /// The boarding walk of unit `i` to the transport at `ti` ("Order 34 (board)", step 2): the transport's tile when
+    /// it is in the unit's region, else its destination tile, with arrival radius 1. A special case of the one walk
+    /// goal ([`World::target_walk`]): the goal isn't always the target's tile, but the route search still has the
+    /// transport as its target unit, so its goal zone is the transport's footprint widened by one tile (pathfinding
+    /// spec, "Step 1"; V15).
     fn board_walk(&self, i: usize, ti: usize) -> Goal {
         let (t, u) = (&self.units[ti], &self.units[i]);
         let goal = if self.region_at(t.tile) == self.region_at(u.tile) {
@@ -466,10 +471,13 @@ impl World {
         }
     }
 
+    /// Order 34 ("Order 34 (board)"): a walking order whose logic runs when the walk has ended.
     fn board(&mut self, i: usize, transport: UnitId) {
-        // Step 1 (round-64 errata, static study only): a transport that is dying or gone, inside something or no longer
-        // detected by the unit's owner is forgotten, and so is the recorded attacker if it is lost in the same way;
-        // idle becomes the pending order and takes over in the same update. No reaction.
+        // Step 1 (static study only; V33, which governs over the static reading in the open question "A
+        // transport lost while the unit walks to it"): a transport that
+        // is dying or gone, inside something or no longer detected by the unit's owner is forgotten, and so is the
+        // recorded attacker if it is lost in the same way; idle becomes the pending order and takes over in the same
+        // update. No reaction.
         let owner = self.units[i].owner;
         let Some(ti) = self.index(transport).filter(|_| !self.target_lost(owner, transport)) else {
             if self.units[i].attacked_by.is_some_and(|a| self.target_lost(owner, a)) {
@@ -481,35 +489,29 @@ impl World {
         let walk = self.board_walk(i, ti);
         let (t, u) = (&self.units[ti], &self.units[i]);
         let here = self.region_at(u.tile);
-        // Round-42 errata: order 34 is a walking order. While the unit walks to its goal only the movement runs, so
-        // a unit of any player stays in order 34 (`human10-24000` grunt 1473, `human12-7000` grunt 1407); the logic
-        // runs on arrival. With no route the unit restarts order 34 at once (still animation, wait 3) if the
-        // transport's destination tile is in its region, and becomes idle at once otherwise. Round-43 errata: for a
-        // human player's unit the restart also tells the transport to come again unless it is landing
-        // (`human12-transport` transport 1428, n = 46, wait 3). Whether a computer player's restart does is open, so
-        // it only restarts order 34 (`human10-24000` n = 17216 and `human12-7000` n = 6454 leave the transport be).
-        // Round-53 errata (`human13-10000` ogre 1383, n = 9154): the restarted order's logic then runs in the same
-        // update and finds the unit not arrived (step 3). A computer player's unit gets command 4 on the transport,
-        // which takes over at once (order 4, still animation, wait 3); every other player's unit gets a smart move,
-        // the boarding command again, which tells the transport to come unless it is landing.
-        // Round-54 errata (static study): that is every player that isn't a computer player, passive and rescue
-        // included, and the smart move's wait cap (10) applies.
+        // While the unit walks only the movement runs, so a unit of any player stays in order 34 (V10, V11). With no
+        // route it restarts order 34 at once (still animation, wait 3) if the transport's destination tile is in its
+        // region, and becomes idle at once otherwise.
         let dest_here = self.region_at(t.ship.dest) == here;
         let human = self.human_controlled(u.owner);
         let computer = self.computer_player(u.owner);
-        // Round-64 errata (orders spec, "Walking orders react only when the walk has ended"; transports spec, "Order
-        // 34 (board)"): order 34 runs the reaction only when it has reached its transport, can't board and keeps
-        // waiting (step 5). A move toward the transport, no route and boarding make no reaction, so a unit with an
-        // attacker recorded boards and doesn't turn on it (`orc12-orc12-board-attacked-1000` ogre 1439, n = 661).
+        // The reaction runs only in step 5: a move toward the transport, no route and boarding make none, so a unit
+        // with an attacker recorded boards and doesn't turn on it (V31).
         match self.move_toward(i, walk) {
             Walk::Arrived => {}
             Walk::NoPath if dest_here => {
+                // The restart: for a human player's unit it also tells the transport to come again unless it is
+                // landing (V16 to V18); whether a computer player's does is open, so it doesn't.
                 let o = if human {
                     self.board_command(i, transport)
                 } else {
                     Order::Board { transport }
                 };
                 self.take_over(i, o);
+                // The restarted logic runs in the same update and reaches step 3 (not arrived). A computer player's
+                // unit gets command 4 on the transport, which takes over at once (V14, V34). The reviewers' note asks
+                // to follow V10 (order 34 kept, wait 3) for a computer player's unit instead; V10 and V14 disagree,
+                // and the traces pass as it is, so this stays a question for the spec.
                 if computer {
                     let tile = self.units[i].tile;
                     self.command_4(i, Some(transport), tile);
@@ -517,9 +519,9 @@ impl World {
                         self.take_over(i, o);
                     }
                 } else {
-                    // Round-56 answer (transports spec, "No route", static study): the smart move sets order 34
-                    // again and it takes over in the same update with no visible effect, so the unit stays in order
-                    // 34 with nothing pending, and the net result is the transport's call and the wait cap.
+                    // Every other player's unit, passive and rescue included, gets the smart move, the boarding command
+                    // again (static study): order 34 again, taken over in the same update with no visible effect,
+                    // so the net result is the transport's call and the smart move's wait cap.
                     self.board_command(i, transport);
                     self.cap_smart_wait(i);
                 }
@@ -554,9 +556,8 @@ impl World {
         let dest_here = self.region_at(t.ship.dest) == here;
         let landing_here = matches!(t.order, Order::Land { .. }) && self.region_at(t.tile) == here;
         if landing_here && self.computer_player(u.owner) {
-            // Step 5 (round-53 errata, `orc14-10000` knight 1430, n = 5486): a random nearby tile, x drawn first, each
-            // offset (r mod 12) - 6 and clamped to the map's size (round-54 errata: one size for both axes, so the
-            // width); a move there with no target unit takes over at once.
+            // Step 5 (V13): a random nearby tile, x drawn first, each offset (r mod 12) - 6 and clamped to the map's
+            // size (one size for both axes, so the width); a move there with no target unit takes over at once.
             let (here, w) = (u.tile, self.terrain.width as i32);
             let x = here.0 + (self.rng.draw() % 12) as i32 - 6;
             let y = here.1 + (self.rng.draw() % 12) as i32 - 6;
@@ -566,8 +567,8 @@ impl World {
                 self.take_over(i, o);
             }
         } else if dest_here {
-            // Step 5 (round-64 errata, static study only): the reaction to an attacker runs, and with no new order the
-            // unit keeps waiting.
+            // Step 5 (static study only; V07, V32): the reaction to an attacker runs, and with no new order the unit
+            // keeps waiting.
             self.units[i].path.clear();
             if self.react_at_walk_end(i) {
                 return;
@@ -576,8 +577,8 @@ impl World {
                 self.switch_anim(i, anim::STILL);
             }
         } else {
-            // Step 5 (round-64 errata, static study only): giving up makes idle the pending order, taken over in the
-            // same update (still animation, wait 3).
+            // Step 5 (V08, V38): giving up makes idle the pending order, taken over in the same update (still
+            // animation, wait 3).
             self.idle_now(i);
         }
     }

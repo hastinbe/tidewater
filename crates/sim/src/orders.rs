@@ -799,7 +799,9 @@ impl World {
     /// The follow's walk toward `t`. Pathfinding spec, "Step 1" (static study): the walk's order holds
     /// a target unit, so its goal zone is the target's widened footprint. Traced (`orc9-orc09-tanker-move-2200`
     /// juggernaut 1501, n = 614): the radius is 1 plus the +1 for a sea or air follower, as in the general arrival
-    /// test.
+    /// test. Kept apart from the one walk goal ([`World::target_walk`]): the goal is the target's own tile, even
+    /// for a building, not [`World::target_goal`] (our reading of "toward the followed unit"; untraced for a
+    /// building).
     fn follow_goal(&self, t: &Unit) -> Goal {
         Goal {
             zone: Some(crate::battle::goal_zone(t)),
