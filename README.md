@@ -1,8 +1,8 @@
 # Tidewater
 
-A clean-room reimplementation of the *Warcraft II: Battle.net Edition* engine in Rust and [Bevy](https://bevyengine.org),
-including *Beyond the Dark Portal*. It contains no game data: you need your own copy of the game (for example from
-GOG), and Tidewater reads its files at run time.
+A clean-room reimplementation of the *Warcraft II: Battle.net Edition* engine in Rust, including *Beyond the Dark
+Portal*: an engine-neutral game core shown in an [SDL 3](https://libsdl.org) window. It contains no game data: you need
+your own copy of the game (for example from GOG), and Tidewater reads its files at run time.
 
 Status: early. The data readers work; the client shows a map and you can select units and move them. Game rules
 beyond movement are not implemented yet.
@@ -10,6 +10,11 @@ beyond movement are not implemented yet.
 ```sh
 cargo run --release -p tidewater-client -- --install <game directory> [map.pud]
 ```
+
+Building needs Rust (the toolchain in `rust-toolchain.toml`), **CMake** and a **C compiler**: SDL 3 is built from its
+source and linked into the program, so no SDL install is needed. On macOS, `xcode-select --install` and
+`brew install cmake`; on Debian or Ubuntu, `apt install build-essential cmake` plus the X11, Wayland and ALSA or
+PulseAudio development headers SDL's own build lists.
 
 The window opens at the largest whole-number scale of the 640 × 480 screen that fits your monitor (for example
 960 × 720 points on a Retina laptop); `--ui-scale N` asks for a 640N × 480N-point window instead. A larger or

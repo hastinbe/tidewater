@@ -2,22 +2,30 @@
 
 **Bottom line.** The client is a plain-Rust core that the host calls once per frame:
 `advance(real_time_elapsed, platform) -> &Frame`. The shell only shows a 640 × 480 frame, hands over input, pulls
-mixed audio, provides the files, and knows the time. All three phases are done (steps 1 to 10). **We recommend SDL 3
-as the shell:** in the phase 3 trial it showed the same pixels as Bevy at half the memory, under half the CPU and a
-quarter of the sound latency, with nothing missing, and it reaches every port target. Making it the default is about
-a day with Claude. Bevy stays the default until you decide ([Trial shells](#trial-shells-phase-3)).
+mixed audio, provides the files, and knows the time. All three phases are done (steps 1 to 11). **SDL 3 is the only
+shell** (decided 2026-10-15): the `tidewater` binary is the core in an SDL 3 window, through our own thin wrapper over
+`sdl3-sys`. Bevy and the miniquad trial shell are removed. The frame and audio snapshots didn't change, and every
+build now needs CMake and a C compiler ([SDL 3, the only shell](#sdl-3-the-only-shell-step-11)).
 
 Backlog item B-039. Nothing here changes game behaviour; where a step can't stay pixel-identical, the table in
 [What can't stay identical](#what-cant-stay-identical) says why.
 
 ## What we need from you
 
-- [ ] **Nick:** the shell to keep. **[Recommended: SDL 3;** drop the miniquad shell and, once the SDL shell is the
-      default, the Bevy one.]
-- [ ] **Nick:** the SDL wrapper. **[Recommended: keep our own `sdl.rs`** over `sdl3-sys` (520 lines, every `unsafe`
-      in one file) rather than the `sdl3` crate's larger safe API, until a port needs more of SDL.]
+- [ ] **Nick:** touchpad scrolling. SDL reports a touchpad's scroll as fractions of a wheel step, which the shell
+      takes as steps, so a touchpad scrolls faster than in the Bevy shell (which counted 50 pixels a step).
+      **[Recommended: accept it** until someone plays with a touchpad and finds it too fast; then scale it in the
+      shell.]
+- [ ] **Nick:** CI. The repository has no CI config. **[Recommended: none yet;** if one is added, it installs CMake
+      and a C compiler ([Building](#building)).]
 
-The four earlier questions are decided (2026-10-14):
+Decided 2026-10-15:
+
+- [x] **Nick:** the shell to keep. **Decided: SDL 3,** the only shell. The miniquad and Bevy shells are removed.
+- [x] **Nick:** the SDL wrapper. **Decided: our own** thin safe wrapper over `sdl3-sys` (`shell/sdl.rs`, every
+      `unsafe` in one file), no third-party SDL wrapper crate.
+
+Decided 2026-10-14:
 
 - [x] **Nick:** the frame format. **Decided: RGBA for now.** An indexed frame with a palette comes later, after a
       spec read of `docs/specs/ui/*`.
@@ -36,9 +44,9 @@ The four earlier questions are decided (2026-10-14):
 | Is the composed frame faithful? | **Yes.** In a window at one pixel per screen pixel, Bevy's screenshot equals the composed frame at all 28 shots. |
 | Is the snapshot deterministic? | **Yes,** after one fix: an Escape that closed the game menu could also quit, depending on system order. |
 | How fast is the snapshot? | **Fast.** The 1,372-frame scene runs in about 5 s in release, 80 s in a debug build. |
-| What still needs Bevy? | **Only the shell.** Since step 9, `shell.rs` (633 lines: window, input events, the mouse lock, the sound device) is the only module that uses Bevy; before phase 2 it was 8,464 lines in 12 modules. Without the default `bevy` feature the core builds without it. |
-| Do the trial shells show the same game? | **Yes.** SDL 3 and miniquad give 0 differing pixels at every shot of all six scenes, and the same frame and audio fingerprints. |
-| Which shell is lightest? | **miniquad, closely followed by SDL 3.** Both use about 145 MB and 30 to 40% of a core; Bevy uses 280 to 315 MB and 86%. |
+| What still needs Bevy? | **Nothing.** Bevy is gone (step 11). Before phase 2 it was in 8,464 lines in 12 modules; after step 9 only `shell.rs` (633 lines) used it. |
+| Does the SDL 3 shell show the same game? | **Yes.** 0 differing pixels at all 100 shots of the seven scenes, and the same frame and audio fingerprints, windowed and headless. |
+| What did dropping Bevy save? | **Most of the cost.** See [After the removal](#after-the-removal): the binary, the build, the memory and the CPU. |
 
 ## Core API
 
@@ -184,16 +192,16 @@ pub trait Platform {
 }
 ```
 
-A shell for step 10 does six things around `Core::advance`:
+A shell does six things around `Core::advance`:
 
-| Operation | Bevy shell (`shell.rs`, step 9) | What a new shell writes |
+| Operation | SDL 3 shell (`crates/client/src/shell/main.rs`) | What another shell writes |
 |---|---|---|
-| Input events | `take_system_input`: key, button, wheel and focus-lost events into `Core::input` between frames | the same calls: `Input::key`, `button`, `wheel`, `focus_lost`; `key_of` is the key map |
-| Frame | `run_core`: `core.advance(Time<Real>.delta(), &mut platform)` | `advance(elapsed, &mut platform)` once a frame |
-| Window and pointer | `Platform` over the primary window; the mouse lock (`display::lock_wanted`) inside `pointer` | `impl Platform` |
-| Show | the frame into one texture, one sprite at the whole-number scale (`display::Letterbox`); `cursor_visible`, `title` after the frame | upload `Core::frame` (RGBA, 640 × 480) and scale it |
-| Sound | a `Decodable` that never ends pulls `Output::mix` 256 sample frames at a time | the device callback calls `Output::mix` (22,050 Hz stereo) |
-| Files, exit | `storage::Desktop`; `Core::exit` becomes `AppExit`; `store_settings` on a normal exit | the same `Desktop`; end the loop on `exit` |
+| Input events | `Shell::take_events`: key (with its typed text), button, wheel and focus-lost events into `Core::input` between frames | the same calls: `Input::key`, `button`, `wheel`, `focus_lost`; `key_of` is the key map |
+| Frame | `core.advance(elapsed, &mut shell)` once a frame, the real time since the last | the same |
+| Window and pointer | `impl Platform for Shell`; the mouse lock (`display::lock_wanted`) inside `pointer`: relative mode on macOS, the grab elsewhere | `impl Platform` |
+| Show | the frame into one streaming texture, drawn at the whole-number scale (`display::Letterbox`) on black; `cursor_visible`, `title` after the frame | upload `Core::frame` (RGBA, 640 × 480) and scale it |
+| Sound | an SDL audio stream whose callback calls `Output::mix` for what the device needs; SDL converts the rate | the device callback calls `Output::mix` (22,050 Hz stereo) |
+| Files, exit | `storage::Desktop` (`host::launch`); `store_settings` on `Core::exit` or the window's close; then the loop ends | the same `Desktop`; end the loop on `exit` |
 
 A scripted run needs one more call after each frame: `script::record(run, frame, output, exiting)`, which also says
 when the run is done; with a window, `script::compare_shot` takes the window's own picture of each shot.
@@ -205,8 +213,8 @@ when the run is done; with a window, `script::compare_shot` takes the window's o
 | Compositor | Places pictures on the screen: nearest texel at pixel centres, transparent texels skipped, grey tint in linear light. No engine types. | `crates/client/src/compose.rs` |
 | Scripted scenes | Feed the scene's input into the core's `Input` (`input.rs`, held in `Core::input`), with a fixed frame time (1/60 s), a fixed wall clock and no sound device. `--script NAME --script-out DIR [--headless]`. | `script.rs` |
 | Frame snapshot | Hashes every frame (runs of equal frames on one line), every shot and every sound start, without a window. Skips without `TIDEWATER_INSTALL`; `TIDEWATER_SNAPSHOT_BLESS=1` blesses. | `tests/frames.rs`, `tests/snapshots/campaign.txt` |
-| Bevy comparison | Ignored test: runs the scenes in a window at one pixel per screen pixel and compares Bevy's screenshot with the composed frame at each shot. | `tests/frames.rs` (`-- --ignored`) |
-| Recorded frame | The frame the screen composed (`Core::frame`, recorded by `script::record`), for the snapshot and the comparison. Until step 3 a world composer recomposed what Bevy's cameras and sprites would show (`frame.rs`, now gone); both gave the same frames. | `shell.rs` |
+| Window comparison | Ignored test: runs the scenes in the SDL window at one pixel per screen pixel and compares the window's own pixels (read back before each shot is shown) with the composed frame at each shot. Until step 11 it compared Bevy's screenshot. | `tests/frames.rs` (`-- --ignored`) |
+| Recorded frame | The frame the screen composed (`Core::frame`, recorded by `script::record`), for the snapshot and the comparison. Until step 3 a world composer recomposed what Bevy's cameras and sprites would show (`frame.rs`, now gone); both gave the same frames. | `script.rs` |
 
 The `campaign` scene, 1,372 frames: title fade and title, main menu fade and hover, campaign choice, act screen (text
 and picture), briefing (two shots), the first mission's fade-in, drag selection, a right-click command, movement, key
@@ -223,7 +231,129 @@ wheel turn and a typed name, saving.
 The composed frames were also checked equal to the layered composition at all 1,372 frames before the switch, and
 the snapshot didn't change.
 
+## SDL 3, the only shell (step 11)
+
+**Bottom line.** The `tidewater` binary is the core in an SDL 3 window. It does everything the Bevy shell did, with
+one small difference in touchpad scrolling. Bevy, the miniquad trial shell and its `cpal` sound code are removed, and
+`cargo tree` shows no `bevy`, `wgpu`, `winit` or `miniquad`. The frame and audio snapshots are unchanged, headless and
+windowed. Every build now needs CMake and a C compiler.
+
+### Layout
+
+| Part | Where | Why |
+|---|---|---|
+| The core | `crates/client`, the library (`lib.rs`) | Unchanged. It forbids `unsafe` code itself (`#![forbid(unsafe_code)]`). |
+| The shell | `crates/client`, the `tidewater` binary: `src/shell/main.rs` (the loop, input, mouse lock, sound) and `src/shell/sdl.rs` (our thin safe wrapper over `sdl3-sys`, every `unsafe` block of the program) | See below. |
+| Shared start-up | `crates/client/src/host.rs` | Start-up from the command line (`host::launch`), the headless scripted loop, the mouse lock's pointer (`LockedPointer`), frame statistics (`FrameStats`, which the shell still reports with `TIDEWATER_FRAME_STATS=1`). |
+| Default build | every crate (the workspace has no `default-members` any more) | A plain `cargo build` or `cargo test` builds and tests the shell. |
+
+**Why the shell lives in the client crate, not in a crate of its own.** Three reasons:
+
+1. **The frame snapshot runs the binary it is next to.** `tests/frames.rs` starts `CARGO_BIN_EXE_tidewater`, which
+   Cargo gives only to tests of the package that has the binary. In the client crate the test is unchanged; a separate
+   shell crate would have to take the test with it, or find the binary by path.
+2. **There is one shell.** The trial needed a crate each so that each built without the others; with one shell, a
+   second crate is a manifest and a name to keep in step with nothing.
+3. **The safety boundary stays where it was.** The library forbids `unsafe`; only `shell/sdl.rs` allows it. The
+   crate's lint is `deny` rather than `forbid` so that one module can.
+
+The cost: building the client library also builds SDL, since a package's dependencies are shared by its targets. No
+other crate depends on the client. If a port ever needs the core without SDL (a platform SDL doesn't reach), the
+shell moves into its own crate then.
+
+### Building
+
+The runbook for a new machine. SDL 3 is built from its source (`sdl3-sys` with `build-from-source`, `link-static`,
+`no-default-subsystems`, `sdl-audio`, `sdl-render`) and linked into the binary, so no SDL install is needed, but CMake
+and a C compiler are.
+
+| System | Install first | Tested |
+|---|---|---|
+| macOS | Xcode's command line tools (`xcode-select --install`), CMake (`brew install cmake`) | Yes |
+| Debian or Ubuntu | `build-essential cmake pkg-config` and the development headers SDL's `docs/README-linux.md` lists for X11, Wayland, ALSA or PulseAudio | No |
+| Windows | Visual Studio's C++ build tools, CMake | No |
+
+1. Install the tools in the table.
+2. `cargo build --release`. The first build compiles SDL (its C source is about 25 s of a 47 s clean release
+   build); later builds reuse it.
+3. `cargo run --release -p tidewater-client -- --install <game directory>`.
+4. To check a change: the full check in `CLAUDE.md`'s workflow, including
+   `cargo test --release -p tidewater-client --test frames` with `TIDEWATER_INSTALL` set.
+5. To check the window itself (it opens windows on top for about a minute and a half):
+   `cargo test --release -p tidewater-client --test frames -- --ignored`.
+
+**CI.** The repository has no CI config. One would install CMake and a C compiler besides Rust, and could run the
+headless snapshot only where an installation is available.
+
+### Parity with the Bevy shell
+
+Checked line by line against `shell.rs` as it was at the end of step 10.
+
+| Bevy shell did | SDL 3 shell | Carried over |
+|---|---|---|
+| Window at `--ui-scale` points, or the largest whole scale that fits the monitor, centred (`size_window`) | The same from `display::monitor_scale` and the window's display, before the first frame rather than after up to 30 frames | Yes |
+| Minimum size of one screen in physical pixels (`fit_screen`); a scripted window keeps its size | `set_min_size` in points from the pixel density; a scripted window isn't resizable | Yes |
+| Whole-number scale, black border (`show_screen`, `display::Letterbox`) | `Renderer::draw`: clear to black, the texture at `Letterbox::screen()`, nearest texel | Yes |
+| A scripted window at one pixel per point, on top, not taking the keyboard | `high_density` off, `always_on_top`, `not_focusable` | Yes |
+| Title and system pointer after each frame (`Core::title`, `cursor_visible`) | `set_title`, `show_cursor` after each frame | Yes |
+| Mouse lock: `Locked` on macOS (our pointer moved by the motion, put back where ours was on release), `Confined` elsewhere; Cmd frees it; `--no-mouse-lock` | Relative mode on macOS with `LockedPointer` and a warp on release; the mouse grab elsewhere; the same `display::lock_wanted` | Yes (the grab is untested off macOS) |
+| Focus: `KeyboardFocusLost` releases held keys; `Window::focused` gates the palette | `SDL_EVENT_WINDOW_FOCUS_LOST` calls `focus_lost`; the input-focus flag goes to `pointer` | Yes |
+| Key map by place, typed text with the key, repeats passed on | `key_of` by USB usage (SDL's scancodes), the same keys including F13 to F15 and the numpad; text events joined to the key before them; repeats passed on | Yes. Keys the core doesn't name get other `Key::Other` numbers (by SDL's name instead of Bevy's); nothing gives those numbers a meaning |
+| Wheel in lines, or in pixels from a touchpad (`WHEEL_PIXELS`, 50 a step) | SDL's `y`, in steps; a touchpad's comes as fractions | Partly: see below |
+| Mouse buttons left, right, middle, back, forward, others | SDL's 1 to 5 and beyond, mapped to the same `Button`s | Yes |
+| Sound: a never-ending `Decodable` pulling `Output::mix` 256 sample frames at a time through rodio | An SDL audio stream whose callback calls `Output::mix` for what the device asks; no sound device in scripted runs | Yes (lower latency, see the trial's measurements) |
+| `store_settings` on `AppExit::Success` (the program's exit, the window closed) | On `Core::exit`, the window's close button and the system's quit | Yes |
+| Scripted runs: fixed frame time, `script::record` each frame, `script::compare_shot` on Bevy's screenshot | `host::scripted_elapsed`, `script::record`, `compare_shot` on `SDL_RenderReadPixels` before the frame is shown | Yes |
+| `--headless`: a Bevy app without a window, sound or GPU | `host::run_headless`, without SDL at all | Yes |
+| Frame statistics (`TIDEWATER_FRAME_STATS`) | The same `host::FrameStats`, plus the audio callback's count and gaps on exit | Yes |
+| Every command-line option (`args.rs`), including `--no-mouse-lock`, `--goto`, `--script`, `--script-out`, `--headless`, `--free-zoom`, `--zoom` | The same `Args`, parsed by `host::launch` | Yes |
+
+**Not carried over: touchpad scroll speed.** SDL 3 has no pixel unit for the wheel: on macOS it reports a touchpad's
+precise scroll as a tenth of its points, as fractions of a step. The shell passes them as steps, so 10 points of
+touchpad travel make one step where Bevy needed 50 pixels (25 points on a display with two pixels per point): about
+2.5 times as fast there. A mouse wheel is unchanged. It matters only for the `--free-zoom` development aid; the save
+dialog's list moves one row per wheel event either way.
+
+### Gamepads (later)
+
+Not built in yet (`no-default-subsystems` leaves the joystick subsystem out). When the core's pad input lands
+(`Input::pads`, "Input model"):
+
+1. **Build:** add `sdl-joystick` (and `sdl-hidapi` for the common pads' drivers) to `sdl3-sys`'s features in
+   `crates/client/Cargo.toml`.
+2. **Wrapper (`shell/sdl.rs`):** `SDL_INIT_GAMEPAD` in `Sdl::init`; open pads on `SDL_EVENT_GAMEPAD_ADDED`, close them
+   on `..._REMOVED`; `poll` returns their button and axis events.
+3. **Shell (`shell/main.rs`):** `take_events` hands them to the core as `PadState`s, as it does keys.
+4. **Core:** the rules (the drawn pointer, A and B as the buttons, Start as F10) stay in the core, so every port
+   behaves the same.
+
+### After the removal
+
+Measured once more on 2026-10-15, the same way as the trial ([Measurements](#measurements)): the same M2 Pro, a
+release build, the first human mission (`--goto mission:0 --ui-scale 1 --no-mouse-lock`, with its own save folder and
+settings file) left idle for 60 s at 120 frames a second.
+
+| Measure | Bevy (trial) | SDL 3 (trial) | SDL 3, the only shell |
+|---|---|---|---|
+| Release binary, unstripped / stripped | 138.1 / 85.0 MB | 5.3 / 4.4 MB | 5.3 / 4.4 MB |
+| Clean release build, `-p tidewater-client` | 207 s | 42 s | 47 s |
+| Release rebuild after touching `core.rs` | 9 s | 4 s | 4 s |
+| `target/` after the clean release build | 1.9 GB | 235 MB | 241 MB |
+| RSS at 30 s / 60 s | 314 / 279 MB | 146 / 147 MB | 133 / 152 MB |
+| CPU (`ps` %cpu at 30 s / 60 s) | 86 / 86% | 40 / 37% | 43 / 38% |
+| CPU time over the run's last 50 s | 43.7 s (87%) | 18.9 s (38%) | 20.8 s (42%) |
+| Frame interval, p50 / p99 (steady windows) | 8.33 / 8.9 ms | 8.33 / 8.9 ms | 8.33 / 8.8 to 9.3 ms |
+| Work per frame, mean / p99 | 1.6 / 1.9 ms | 2.5 / 3.7 ms | 2.2 to 2.9 / 3.6 to 3.9 ms |
+| Sound callback period, longest gap | 46 ms | 11.6 ms, 11.8 ms | 11.6 ms (5,133 calls), 13.2 ms |
+
+The shell is the trial's, so the numbers are the trial's within the machine's noise; the clean build is a few seconds
+slower because the client crate now builds SDL itself. The size of a debug `target/` for the whole workspace, with
+the full check run, is about 1.6 GB (1.3 GB debug, 264 MB release).
+
 ## Trial shells (phase 3)
+
+*History: the trial as measured on 2026-10-14, before the decision. Step 11 made SDL 3 the only shell and removed the
+Bevy and miniquad shells; [SDL 3, the only shell](#sdl-3-the-only-shell-step-11) describes the program as it is now.*
 
 **Bottom line.** Pick SDL 3. Both trial shells show exactly the Bevy shell's pixels and sound. SDL 3 halves Bevy's
 memory and CPU, cuts the sound latency from about 50 ms to about 12 ms, and needs no workaround anywhere. miniquad
@@ -339,7 +469,7 @@ The costs: CMake and a C compiler at build time (SDL's C source adds about 25 s 
 lines of `unsafe` wrapper to review, all in `sdl.rs`. miniquad would win if the web were the main target; the core's
 threads have to be dealt with for the web on any shell.
 
-Next steps if you agree, about a day with Claude (two by hand):
+Next steps as proposed (1 and 2 are done: step 11; 3 waits for the core's pad input):
 
 1. Make `tidewater-sdl3` the `tidewater` binary and run the frame snapshot's windowed comparison through it.
 2. Remove the miniquad shell, then the Bevy shell and the `bevy` feature.
@@ -359,6 +489,7 @@ Next steps if you agree, about a day with Claude (two by hand):
 | 8 ✓ | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged, saved games and screenshots byte for byte |
 | 9 ✓ | Bevy shell thin | What's left of `main.rs` → `core.rs` (`Core::advance`), `game.rs`, `args.rs`; Bevy only in `shell.rs` (window, letterbox, input events, mouse lock, sound device) | unchanged (after the pointer re-bless, below) |
 | 10 ✓ | Trial shells (phase 3) | The core a library; SDL 3 and miniquad shells beside the Bevy one, measured ([Trial shells](#trial-shells-phase-3)) | unchanged; both shells match it, headless and windowed |
+| 11 ✓ | SDL 3, the only shell | The SDL 3 shell becomes the `tidewater` binary; the Bevy and miniquad shells go ([SDL 3, the only shell](#sdl-3-the-only-shell-step-11)) | unchanged, headless and windowed |
 
 Each step lands with the snapshot unchanged, or blessed with the reason in the commit.
 
@@ -483,6 +614,6 @@ Claude does the engineering; Nick reviews and decides.
 | 7–8 (audio, storage) | 1–2 days | 1 week |
 | 9 (thin Bevy shell) | half a day | 2 days |
 | 10 (trial shells, measured) | 1 day | 4–5 days |
-| SDL 3 as the only shell (proposed) | 1 day | 2 days |
+| 11 (SDL 3 as the only shell, done) | 1 day | 2 days |
 
 Claude doesn't speed up the reviews, the decisions above, or checking the trial shells on real devices.
