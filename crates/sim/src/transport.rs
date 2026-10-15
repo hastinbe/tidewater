@@ -155,7 +155,9 @@ impl World {
         }
     }
 
-    /// A smart move (or, with `unload`, command 29) given to a transport ("Commands given to a transport").
+    /// A smart move (or, with `unload`, command 29) given to a transport ("Commands given to a transport"): the three
+    /// things recorded with the land and shore steps ([`World::record_command`]), the unload-on-arrival mark, then the
+    /// stage table ([`World::stage`]).
     pub(crate) fn transport_command(
         &mut self,
         i: usize,
@@ -163,18 +165,34 @@ impl World {
         tile: (i32, i32),
         unload: bool,
     ) -> Order {
+        let (g, target) = self.record_command(i, target, tile);
+        if unload && self.shore_water(g) {
+            self.units[i].ship.unload = true;
+        }
+        self.stage(i, g, target)
+    }
+
+    /// "What the transport stores" and "Land and shore targets": the target unit, the target tile (the target unit's
+    /// tile, or the command's) and the destination, after a land or shore-water target tile has dropped the target
+    /// unit and, from open water, been pulled back to shore ([`World::land_and_shore`]). Returns the target tile and
+    /// unit the command goes on with.
+    fn record_command(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) -> ((i32, i32), Option<UnitId>) {
         let g = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
-        let s = self.units[i].tile;
         let (g, target) = self.land_and_shore(i, g, target);
         let u = &mut self.units[i];
         u.ship.target = target;
         u.ship.target_tile = g;
         u.ship.dest = g;
-        let docking = matches!(u.order, Order::Land { .. } | Order::PushOff | Order::Docked);
-        if unload && self.shore_water(g) {
-            self.units[i].ship.unload = true;
-        }
+        (g, target)
+    }
+
+    /// The stage table of a smart move or the unload command, first match wins, with G = `g` and S the transport's
+    /// tile ("Commands given to a transport").
+    fn stage(&mut self, i: usize, g: (i32, i32), target: Option<UnitId>) -> Order {
+        let s = self.units[i].tile;
         let (shore_s, shore_g) = (self.shore_water(s), self.shore_water(g));
+        // S is shore water, G in its region, and the straight line meets land of G's region first: G = S lands at
+        // once (V01), anything else stays docked at S (V05, V26).
         if shore_s && self.region_at(g) == self.region_at(s) && self.land_first(s, g) {
             if g == s {
                 return Order::Land { goal: s };
@@ -182,9 +200,11 @@ impl World {
             self.units[i].ship.target_tile = s;
             return Order::Docked;
         }
-        if docking || shore_s {
+        // Orders 30, 31 and 32, or S shore water: push off first (V04).
+        if matches!(self.units[i].order, Order::Land { .. } | Order::PushOff | Order::Docked) || shore_s {
             return Order::PushOff;
         }
+        // G not shore water: follow a unit of the transport's own side that isn't a building, else move (V03).
         if !shore_g {
             let owner = self.units[i].owner;
             let own_unit = target
@@ -195,6 +215,7 @@ impl World {
                 None => Order::Move { goal: g, target: None },
             };
         }
+        // G shore water: land at G (V02, V25).
         Order::Land { goal: g }
     }
 
