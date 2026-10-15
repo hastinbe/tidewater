@@ -17,7 +17,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
-use std::time::Duration;
 
 use bevy::ecs::schedule::ScheduleConfigs;
 use bevy::ecs::system::ScheduleSystem;
@@ -130,7 +129,7 @@ pub struct Flow {
     pub cheat_flags: tidewater_sim::cheats::Flags,
 }
 
-/// The installation, fonts and tables the screens use, and audio sources by name.
+/// The installation, fonts and tables the screens use, and their sounds by name.
 #[derive(Resource)]
 pub struct Front {
     pub install: Install,
@@ -142,8 +141,7 @@ pub struct Front {
     /// The normal arrow the core draws outside a game (screen spec, "Pointer shapes"), with its hot spot: the human
     /// one, in the title screen's palette.
     pub arrow: Option<(Picture, (i32, i32))>,
-    sources: HashMap<String, Option<Handle<AudioSource>>>,
-    /// The same sounds decoded for the core's mixer.
+    /// Sounds decoded for the mixer, by name; `None` for one the install lacks, so it is looked up once.
     sounds: HashMap<String, Option<Sound>>,
 }
 
@@ -181,20 +179,8 @@ impl Front {
             huge,
             network,
             arrow,
-            sources: HashMap::new(),
             sounds: HashMap::new(),
         })
-    }
-
-    fn sound(&mut self, assets: &mut Assets<AudioSource>, name: &str) -> Option<Handle<AudioSource>> {
-        let install = &mut self.install;
-        self.sources
-            .entry(name.to_string())
-            .or_insert_with(|| {
-                let bytes = install.read(name).ok()?;
-                Some(assets.add(AudioSource { bytes: bytes.into() }))
-            })
-            .clone()
     }
 
     /// A sound decoded for the mixer (`None` if the install lacks it or it isn't PCM WAV).
@@ -796,17 +782,8 @@ pub(crate) fn stop_music(mut music: ResMut<Jukebox>) {
     music.start(None);
 }
 
-fn play_once(
-    commands: &mut Commands,
-    front: &mut Front,
-    assets: &mut Assets<AudioSource>,
-    audio: &mut Audio,
-    name: &str,
-    state: AppState,
-) {
-    if let Some(h) = front.sound(assets, name) {
-        commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN, OwnedBy(state)));
-    }
+/// Plays a sound of the screen shown in `state` once; it stops if the screen is left first.
+fn play_once(front: &mut Front, audio: &mut Audio, name: &str, state: AppState) {
     if let Some(s) = front.core_sound(name) {
         audio.play(&s, 1.0, UNITY, Mode::Despawn, Group::Screen(state), 0);
     }
@@ -882,7 +859,6 @@ fn play_video(
     time: Res<CoreTime>,
     play: Option<ResMut<VideoPlay>>,
     mut pictures: ResMut<ScreenPictures>,
-    mut sources: ResMut<Assets<AudioSource>>,
     mut audio: ResMut<CoreAudio>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
@@ -915,10 +891,6 @@ fn play_video(
                     let start = (p.elapsed * crate::audio::SAMPLE_RATE as f64 / 1000.0).round() as usize;
                     audio.play(&s, 1.0, UNITY, Mode::Despawn, Group::Screen(AppState::Video), start);
                 }
-                let h = sources.add(AudioSource { bytes: bytes.into() });
-                let mut s = PlaybackSettings::DESPAWN;
-                s.start_position = Some(Duration::from_secs_f64(p.elapsed / 1000.0));
-                commands.spawn((AudioPlayer(h), s, OwnedBy(AppState::Video)));
             }
             p.audio = None;
         }
@@ -1320,10 +1292,6 @@ struct ActScreen {
     run: cf::ActRun,
 }
 
-/// The act sound, stopped by the close's fade of all sound if it is still playing.
-#[derive(Component)]
-struct ActSound;
-
 pub(crate) fn enter_act(
     mut commands: Commands,
     flow: Res<Flow>,
@@ -1386,11 +1354,9 @@ fn run_act(
     mut menu_timer: ResMut<MenuClock>,
     mut act: ResMut<ActScreen>,
     layers: Query<(Entity, &Layer)>,
-    sounds: Query<Entity, With<ActSound>>,
     mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
-    mut sources: ResMut<Assets<AudioSource>>,
     mut audio: ResMut<CoreAudio>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -1411,14 +1377,6 @@ fn run_act(
                 if let Some(s) = front.core_sound(name) {
                     audio.play(&s, 1.0, UNITY, Mode::Despawn, Group::Act, 0);
                 }
-                if let Some(h) = front.sound(&mut sources, name) {
-                    commands.spawn((
-                        AudioPlayer(h),
-                        PlaybackSettings::DESPAWN,
-                        ActSound,
-                        OwnedBy(AppState::Act),
-                    ));
-                }
             }
             cf::ActCue::FadeToBlack => {
                 // The fades block, so every layer that shows is fully in: the text, and the picture from 50 on.
@@ -1428,9 +1386,6 @@ fn run_act(
                 }
             }
             cf::ActCue::FadeAllSound => {
-                for e in &sounds {
-                    commands.entity(e).despawn();
-                }
                 audio.stop_group(Group::Act);
                 music.fade_stop(true, None);
             }
@@ -1548,13 +1503,11 @@ fn shade(p: &mut Picture, r: Rect) {
 
 #[allow(clippy::too_many_arguments)]
 fn run_briefing(
-    mut commands: Commands,
     clock: Res<Clock>,
     mut b: ResMut<Briefing>,
     mut pictures: ResMut<ScreenPictures>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
-    mut sources: ResMut<Assets<AudioSource>>,
     mut audio: ResMut<CoreAudio>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -1565,14 +1518,7 @@ fn run_briefing(
     let now = clock.0;
     while b.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = b.voice.pop_front().unwrap();
-        play_once(
-            &mut commands,
-            &mut front,
-            &mut sources,
-            &mut audio,
-            &f,
-            AppState::Briefing,
-        );
+        play_once(&mut front, &mut audio, &f, AppState::Briefing);
     }
     b.scroll.at(now as u64);
     if b.drawn != Some(b.scroll.moved) {
@@ -1828,13 +1774,11 @@ fn draw_score(front: &Front, s: &ScoreData, bg: &Picture, ticks: u32, bars_done_
 
 #[allow(clippy::too_many_arguments)]
 fn run_score(
-    mut commands: Commands,
     clock: Res<Clock>,
     mut sc: ResMut<ScoreScreen>,
     mut pictures: ResMut<ScreenPictures>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
-    mut sources: ResMut<Assets<AudioSource>>,
     mut audio: ResMut<CoreAudio>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -1864,28 +1808,14 @@ fn run_score(
         // Once the bars have grown, the score counts on from the next tick.
         if sc.bars_done_at.is_none() && bars_done(&s, sc.ticks) {
             sc.bars_done_at = Some(sc.ticks);
-            play_once(
-                &mut commands,
-                &mut front,
-                &mut sources,
-                &mut audio,
-                cf::NUMBERS_SOUND,
-                AppState::Score,
-            );
+            play_once(&mut front, &mut audio, cf::NUMBERS_SOUND, AppState::Score);
         }
     }
     if sc.drawn != Some(sc.ticks) {
         let (p, finished) = draw_score(&front, &s, &sc.background, sc.ticks, sc.bars_done_at);
         if finished && !sc.finished {
             sc.finished = true;
-            play_once(
-                &mut commands,
-                &mut front,
-                &mut sources,
-                &mut audio,
-                cf::RANK_SOUND,
-                AppState::Score,
-            );
+            play_once(&mut front, &mut audio, cf::RANK_SOUND, AppState::Score);
         }
         set_image(&mut pictures, &sc.image, p);
         sc.drawn = Some(sc.ticks);
@@ -2042,7 +1972,6 @@ fn run_scroller(
     mut pictures: ResMut<ScreenPictures>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
-    mut sources: ResMut<Assets<AudioSource>>,
     mut audio: ResMut<CoreAudio>,
     mut music: ResMut<Jukebox>,
     mut next: ResMut<AppStates>,
@@ -2062,7 +1991,7 @@ fn run_scroller(
     }
     while s.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = s.voice.pop_front().unwrap();
-        play_once(&mut commands, &mut front, &mut sources, &mut audio, &f, next.get());
+        play_once(&mut front, &mut audio, &f, next.get());
     }
     s.scroll.at(now as u64);
     if s.drawn != Some(s.scroll.moved) {

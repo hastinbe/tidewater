@@ -1,5 +1,5 @@
 //! The Bevy side of the music (`music.rs`, spec `docs/specs/ui/music.md`): one resource that owns the state machine
-//! and the player entity, and the system that runs it every frame. Every screen starts and stops music through the
+//! and the open track's voice in the core's mixer (`audio`), and the system that runs it every frame. Every screen starts and stops music through the
 //! methods here; the music files are read from the install's `Music` folder through the front end's [`Front`].
 //!
 //! The game menu's sound dialog changes the volume through [`Jukebox::set_volume`] (the same call for the countdown
@@ -7,29 +7,25 @@
 
 use std::time::Duration;
 
-use bevy::audio::{AudioSink, AudioSinkPlayback, Volume};
 use bevy::prelude::*;
 
 use crate::audio::{self, VoiceId};
-use crate::frontend::{Front, Persist};
+use crate::frontend::Front;
 use crate::music::{self, Action, Music, Playback};
 use crate::shell::{CoreAudio, CoreTime};
 use crate::sound::Shuffle;
 
-/// The music state machine and the entity that plays the open track.
+/// The music state machine and the open track's voice.
 #[derive(Resource, Default)]
 pub struct Jukebox {
     music: Music,
     /// Actions to apply on the next frame (from starts and key presses).
     pending: Vec<Action>,
-    /// The entity playing the open track.
-    player: Option<Entity>,
-    /// The open track's voice in the core's mixer, and the attenuation last given to it.
+    /// The open track's voice in the core's mixer.
     voice: Option<VoiceId>,
-    voice_atten: Option<i32>,
     /// Bytes of audio in the open track's file.
     length: u32,
-    /// The attenuation the music asks for, and the one last given to the sink.
+    /// The attenuation the music asks for, and the one last given to the voice.
     atten: i32,
     applied: Option<i32>,
     /// Frame time not yet handed to the music, below a millisecond.
@@ -123,41 +119,28 @@ impl Jukebox {
     }
 }
 
-/// Marks the entity that plays the music.
-#[derive(Component)]
-pub struct MusicPlayer;
-
-/// Runs the music each frame and applies what it asks for: loads a file from the install's `Music` folder, sets its
-/// loudness, seeks to a loop point and stops it.
-pub fn play_music(
-    mut commands: Commands,
-    time: Res<CoreTime>,
-    mut jb: ResMut<Jukebox>,
-    mut front: ResMut<Front>,
-    mut sources: ResMut<Assets<AudioSource>>,
-    mut sinks: Query<&mut AudioSink, With<MusicPlayer>>,
-    mut core: ResMut<CoreAudio>,
-) {
+/// Runs the music each frame and applies what it asks for in the core's mixer: loads a file from the install's
+/// `Music` folder, sets its loudness and stops it. The open track's position is the mixer's, so it runs on the mixer's
+/// clock; a loop track loops in the mixer, from its loop point, without a gap (`audio`), so the loop point needs no
+/// seek.
+pub fn play_music(time: Res<CoreTime>, mut jb: ResMut<Jukebox>, mut front: ResMut<Front>, mut core: ResMut<CoreAudio>) {
     let jb = &mut *jb;
     jb.carry += time.delta();
     let ms = jb.carry.as_millis() as u32;
     jb.carry -= Duration::from_millis(ms as u64);
-    let playback = jb.player.and_then(|e| sinks.get(e).ok()).and_then(|sink| {
-        let length = jb.length;
-        let bytes = (sink.position().as_secs_f64() * music::BYTES_PER_SECOND as f64) as u32;
-        (length > 0).then_some(Playback {
-            position: if sink.empty() { length } else { bytes },
-            length,
-        })
+    let length = jb.length;
+    // A voice the mixer no longer has has played to its end.
+    let playback = jb.voice.filter(|_| length > 0).map(|v| Playback {
+        position: core
+            .position(v)
+            .map_or(length, |frame| frame as u32 * music::BYTES_PER_FRAME),
+        length,
     });
     let mut actions = std::mem::take(&mut jb.pending);
     actions.extend(jb.music.update(ms, playback));
     for action in actions {
         match action {
             Action::Stop => {
-                if let Some(e) = jb.player.take() {
-                    commands.entity(e).despawn();
-                }
                 if let Some(v) = jb.voice.take() {
                     core.stop(v);
                 }
@@ -168,63 +151,38 @@ pub fn play_music(
                 attenuation,
                 ..
             } => {
-                if let Some(e) = jb.player.take() {
-                    commands.entity(e).despawn();
-                }
                 if let Some(v) = jb.voice.take() {
                     core.stop(v);
                 }
                 jb.atten = attenuation;
-                jb.applied = Some(attenuation);
                 jb.length = 0;
                 // Our choice: the whole file is read at once; a file the install lacks leaves the music silent.
-                let Ok(bytes) = front.install.read(&music::path(track)) else {
+                let Some(bytes) = front.install.read(&music::path(track)).ok() else {
+                    continue;
+                };
+                let Some(sound) = audio::Sound::from_wav(&bytes) else {
                     continue;
                 };
                 jb.length = music::wav_data_len(&bytes).unwrap_or(0);
-                if let Some(s) = audio::Sound::from_wav(&bytes) {
-                    let loop_from = match music::TRACKS[track as usize].end {
-                        music::End::Loop { point } => Some(point as usize),
-                        _ => None,
-                    }
-                    .filter(|_| looped);
-                    let volume = Volume::Decibels(music::decibels(attenuation)).to_linear();
-                    jb.voice = Some(core.play_music(&s, volume, audio::attenuation_gain(attenuation), loop_from));
-                    jb.voice_atten = Some(attenuation);
-                }
-                let settings = if looped {
-                    PlaybackSettings::LOOP
-                } else {
-                    PlaybackSettings::ONCE
+                let loop_from = match music::TRACKS[track as usize].end {
+                    music::End::Loop { point } if looped => Some(point as usize),
+                    _ => None,
                 };
-                let volume = Volume::Decibels(music::decibels(attenuation));
-                let h = sources.add(AudioSource { bytes: bytes.into() });
-                jb.player = Some(
-                    commands
-                        .spawn((AudioPlayer(h), settings.with_volume(volume), MusicPlayer, Persist))
-                        .id(),
-                );
+                let volume = audio::decibels_to_linear(music::decibels(attenuation));
+                jb.voice = Some(core.play_music(&sound, volume, audio::attenuation_gain(attenuation), loop_from));
+                jb.applied = Some(attenuation);
             }
             Action::SetAttenuation(a) => jb.atten = a,
-            Action::SeekLoop { frame } => {
-                if let Some(sink) = jb.player.and_then(|e| sinks.get_mut(e).ok()) {
-                    let _ = sink.try_seek(Duration::from_secs_f64(frame as f64 / 22_050.0));
-                }
-            }
+            // The mixer loops from the loop point itself.
+            Action::SeekLoop { .. } => {}
             // The game's sound effects aren't cut during a fade of all sound yet.
             Action::CutEffects => {}
         }
     }
     if let Some(v) = jb.voice
-        && jb.voice_atten != Some(jb.atten)
+        && jb.applied != Some(jb.atten)
     {
         core.set_gain(v, audio::attenuation_gain(jb.atten));
-        jb.voice_atten = Some(jb.atten);
-    }
-    if jb.applied != Some(jb.atten)
-        && let Some(mut sink) = jb.player.and_then(|e| sinks.get_mut(e).ok())
-    {
-        sink.set_volume(Volume::Decibels(music::decibels(jb.atten)));
         jb.applied = Some(jb.atten);
     }
 }

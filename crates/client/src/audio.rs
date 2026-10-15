@@ -207,7 +207,6 @@ impl Mixer {
     }
 
     /// The next sample frame voice `id` plays, within its sound; `None` once it has ended or been stopped.
-    #[allow(dead_code)] // the music reads it once the mixer plays (step 7's switch)
     pub fn position(&self, id: VoiceId) -> Option<usize> {
         self.voices.iter().find(|v| v.id == id).map(|v| v.at)
     }
@@ -245,6 +244,11 @@ impl Mixer {
             o[1] = (s[1] >> 16).clamp(i16::MIN as i64, i16::MAX as i64) as i16;
         }
     }
+}
+
+/// A loudness in decibels as a linear factor (the snapshot's sound lines give music loudness this way).
+pub fn decibels_to_linear(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
 }
 
 /// The 16.16 gain of a level from 0 to 255 (a sound effect's level: linear loudness, our choice).
@@ -353,7 +357,6 @@ impl Audio {
         self.output.lock().set_gain(id, gain);
     }
 
-    #[allow(dead_code)] // the music reads it once the mixer plays (step 7's switch)
     pub fn position(&self, id: VoiceId) -> Option<usize> {
         self.output.lock().position(id)
     }

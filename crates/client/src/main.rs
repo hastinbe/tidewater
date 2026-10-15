@@ -202,9 +202,7 @@ struct Sim {
 struct Speaker {
     director: sound::Director,
     install: Install,
-    /// Archive name to source; `None` for a file the install doesn't have, so it is looked up once.
-    sources: HashMap<String, Option<Handle<AudioSource>>>,
-    /// The same sounds decoded for the core's mixer.
+    /// Archive name to sound; `None` for a file the install doesn't have, so it is looked up once.
     sounds: HashMap<String, Option<audio::Sound>>,
     /// Ctrl+S turned the sounds off.
     muted: bool,
@@ -524,8 +522,7 @@ fn main() -> Result<()> {
                     .disable::<bevy::winit::WinitPlugin>()
                     .disable::<bevy::audio::AudioPlugin>(),
             )
-            .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
-            .init_asset::<AudioSource>();
+            .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO));
         }
         Some(_) => {
             app.add_plugins(
@@ -535,14 +532,15 @@ fn main() -> Result<()> {
                         ..default()
                     })
                     .disable::<bevy::audio::AudioPlugin>(),
-            )
-            .init_asset::<AudioSource>();
+            );
         }
         None => {
             app.add_plugins(plugins.set(WindowPlugin {
                 primary_window: Some(window),
                 ..default()
             }));
+            // A scripted run mixes the sound itself (`script`); otherwise the device pulls it.
+            shell::play_core_audio(&mut app);
         }
     }
     app.add_plugins(script::plugin).add_plugins(shell::plugin);
@@ -879,7 +877,6 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     let mut speaker = Speaker {
         director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         install,
-        sources: HashMap::new(),
         sounds: HashMap::new(),
         muted: false,
     };
@@ -997,15 +994,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
 }
 
 /// The game screen's entities: everything drawn or heard that isn't the front end's.
-type GameEntities<'w, 's> = Query<
-    'w,
-    's,
-    Entity,
-    (
-        Or<(With<ScreenLayer>, With<Camera>, With<AudioPlayer>)>,
-        Without<frontend::Persist>,
-    ),
->;
+type GameEntities<'w, 's> = Query<'w, 's, Entity, (Or<(With<ScreenLayer>, With<Camera>)>, Without<frontend::Persist>)>;
 
 /// The game clock stops when the game ends (`savegame::GameClock`).
 fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>) {
@@ -2229,10 +2218,8 @@ fn keys_input(
 /// Plays the cues the sim queued since the last frame (sounds spec, "How a sound is played"), and shows their
 /// subtitles on the notice line.
 fn play_sounds(
-    mut commands: Commands,
     sim: Option<ResMut<Sim>>,
     mut speaker: ResMut<Speaker>,
-    mut sources: ResMut<Assets<AudioSource>>,
     view: Option<Res<GameView>>,
     mut audio: ResMut<shell::CoreAudio>,
 ) {
@@ -2267,34 +2254,13 @@ fn play_sounds(
         let install = &mut sp.install;
         let decoded = sp
             .sounds
-            .entry(path.clone())
+            .entry(path)
             .or_insert_with_key(|p| audio::Sound::from_wav(&install.read(p).ok()?))
             .clone();
         if let Some(s) = decoded {
-            let group = audio::Group::Effect;
-            audio.play(
-                &s,
-                level as f32 / 255.0,
-                audio::level_gain(level),
-                audio::Mode::Despawn,
-                group,
-                0,
-            );
-        }
-        let handle = sp
-            .sources
-            .entry(path)
-            .or_insert_with_key(|p| {
-                let bytes = install.read(p).ok()?;
-                Some(sources.add(AudioSource { bytes: bytes.into() }))
-            })
-            .clone();
-        if let Some(h) = handle {
             // Our choice: a level maps linearly to loudness (the game's volume table isn't specified).
-            commands.spawn((
-                AudioPlayer(h),
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(level as f32 / 255.0)),
-            ));
+            let (volume, gain) = (level as f32 / 255.0, audio::level_gain(level));
+            audio.play(&s, volume, gain, audio::Mode::Despawn, audio::Group::Effect, 0);
         }
     }
 }

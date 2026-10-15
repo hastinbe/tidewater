@@ -664,34 +664,11 @@ pub struct Out {
     pub every: u32,
 }
 
-/// Notes the sounds started this frame: the sound's bytes' fingerprint, its loudness and whether it loops.
-fn note_sounds(
-    script: Res<Script>,
-    started: Query<(&AudioPlayer, &PlaybackSettings), Added<AudioPlayer>>,
-    sources: Res<Assets<AudioSource>>,
-    mut rec: ResMut<Record>,
-    mut audio: ResMut<crate::shell::CoreAudio>,
-) {
-    let mut lines = Vec::new();
-    for (player, settings) in &started {
-        let bytes = sources.get(&player.0).map_or(0, |s| fnv64(&s.bytes));
-        let volume = match settings.volume {
-            bevy::audio::Volume::Linear(v) => v,
-            v => v.to_linear(),
-        };
-        lines.push(format!(
-            "sound\t{}\t{bytes:016x}\t{volume:.4}\t{:?}",
-            script.frame, settings.mode
-        ));
-    }
+/// Notes the sounds started this frame in the core's mixer: the sound's bytes' fingerprint, its loudness and how it
+/// plays.
+fn note_sounds(script: Res<Script>, mut rec: ResMut<Record>, mut audio: ResMut<crate::shell::CoreAudio>) {
     let starts = audio.take_starts();
-    let core = rec.start_lines(script.frame, starts);
-    if core != lines {
-        eprintln!(
-            "frame {}: the mixer's starts {core:?} differ from Bevy's {lines:?}",
-            script.frame
-        );
-    }
+    let lines = rec.start_lines(script.frame, starts);
     rec.lines.extend(lines);
 }
 

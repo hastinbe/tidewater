@@ -84,6 +84,79 @@ pub fn plugin(app: &mut App) {
         .add_systems(Last, (compose_screen, show_screen).chain().in_set(ComposeScreen));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Sound
+
+/// Sample frames mixed at a time for the device: about 12 ms.
+const STREAM_CHUNK: usize = 256;
+
+/// The core's mixed sound as a Bevy audio source that never ends: the device pulls it through Bevy's audio output
+/// (rodio), which resamples it to the device's rate.
+#[derive(Asset, TypePath)]
+pub struct CoreStream(crate::audio::Output);
+
+impl bevy::audio::Decodable for CoreStream {
+    type Decoder = StreamDecoder;
+
+    fn decoder(&self) -> StreamDecoder {
+        StreamDecoder {
+            output: self.0.clone(),
+            buf: vec![0; STREAM_CHUNK * 2],
+            at: STREAM_CHUNK * 2,
+        }
+    }
+}
+
+/// Pulls [`STREAM_CHUNK`] sample frames at a time from the mixer and hands them out one sample at a time.
+pub struct StreamDecoder {
+    output: crate::audio::Output,
+    buf: Vec<i16>,
+    at: usize,
+}
+
+impl Iterator for StreamDecoder {
+    type Item = bevy::audio::Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.at == self.buf.len() {
+            self.output.mix(&mut self.buf);
+            self.at = 0;
+        }
+        let s = self.buf[self.at];
+        self.at += 1;
+        Some(s as bevy::audio::Sample / 32_768.0)
+    }
+}
+
+impl bevy::audio::Source for StreamDecoder {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> bevy::audio::ChannelCount {
+        bevy::audio::ChannelCount::new(2).expect("two channels")
+    }
+
+    fn sample_rate(&self) -> bevy::audio::SampleRate {
+        bevy::audio::SampleRate::new(crate::audio::SAMPLE_RATE).expect("a rate")
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+/// Plays the core's mixer on the sound device (Bevy's audio output must be in the app).
+pub fn play_core_audio(app: &mut App) {
+    use bevy::audio::AddAudioSource;
+    app.add_audio_source::<CoreStream>().add_systems(Startup, start_stream);
+}
+
+fn start_stream(mut commands: Commands, audio: Res<CoreAudio>, mut streams: ResMut<Assets<CoreStream>>) {
+    let h = streams.add(CoreStream(audio.output()));
+    commands.spawn((AudioPlayer(h), PlaybackSettings::ONCE, Persist));
+}
+
 fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let frame = Frame::black();
     let image = images.add(Image::new(

@@ -96,15 +96,15 @@ pub struct Input {
 
 ## Audio
 
-| Part | Today | In the core |
+| Part | Before step 7 | Now (`audio.rs`) |
 |---|---|---|
-| Sound effects | One Bevy `AudioPlayer` per start, volume `level / 255` | The mixer: per start a voice with its level; overlapping sounds all play, as now |
-| Music | Bevy sink; the jukebox reads the sink's play position | The mixer's own position, so the jukebox runs on the core's clock |
-| Video sound | A decoding thread feeds Bevy | Decoded in the core with the video frames |
-| Output | Bevy (rodio) | `Core::mix`, pulled by the shell's audio callback, 22,050 Hz stereo |
+| Sound effects | One Bevy `AudioPlayer` per start, volume `level / 255` | A voice per start in the mixer, gain `level / 255`; overlapping sounds all play, as before |
+| Music | Bevy sink; the jukebox read the sink's play position and seeked to a loop point | The music's voice; the jukebox reads the mixer's position, and the mixer loops from the loop point itself |
+| Video sound | A decoding thread fed Bevy | The same thread decodes it for the mixer; it starts where the picture is |
+| Output | Bevy (rodio) | The mixer, pulled by the shell (`Output::mix`), 22,050 Hz stereo 16-bit |
 
-The snapshot hashes sound *starts* today (frame, a hash of the sound's bytes, level, mode). Once the mixer is in the
-core it can also hash the mixed samples.
+The snapshot hashes sound *starts* (frame, a hash of the sound's bytes, loudness, mode) and, since step 7, the mixed
+samples too (the audio snapshot).
 
 ## Storage
 
@@ -185,7 +185,7 @@ the snapshot didn't change.
 | 4 ✓ | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
 | 5 ✓ | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
 | 6 ✓ | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
-| 7 | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts unchanged; music timing changes (below) |
+| 7 ✓ | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts and mixed sound unchanged; loop points exact (below) |
 | 8 | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged |
 | 9 | Bevy shell thin | What's left of `main.rs` → `bevy_shell` (window, letterbox, input, audio, files) | unchanged |
 | 10 | Trial shells (phase 3) | SDL3 and miniquad shells, measured | must pass the snapshot |
@@ -252,6 +252,28 @@ commands take effect as it ends. Bevy applied an `OnExit` or `OnEnter` schedule'
 reads what an earlier hook of the same change commands, so the two are the same. The hooks are registered before
 the first frame, so the screens' entities keep their order.
 
+### Sound (step 7)
+
+**The mixer** (`audio.rs`, no engine types) decodes PCM WAV files (8 or 16 bits, mono or stereo, any rate, resampled
+once to 22,050 Hz by linear interpolation) and mixes its voices in whole numbers: a 16.16 gain each, the sum clipped
+to 16 bits. A voice belongs to a group and stops with it: the music's track, a game's effects (stopped by
+`end_game`), a screen's own sounds (stopped when the flow leaves the screen) and the act screen's sound (also stopped
+by its fade of all sound). The mixer sits behind a lock, so the shell's audio thread can pull it.
+
+| Part | How |
+|---|---|
+| Effect levels and modes | A sound effect's level is its gain (`level / 255`); the flow's sounds play at full gain, once. |
+| Music fades | `music.rs` is unchanged: a fade stop is 28 steps over 540 ms, the first at once; the jukebox gives the voice the new gain on the frame the step falls in, as it gave the sink. |
+| Loop points | The mixer loops a looping track from its loop point the sample after the last one, on its own clock; the jukebox's seek is gone. |
+| Video sound | The decoding thread is kept; its WAV goes to the mixer, starting at the picture's position. A scripted run waits for it on the video's first frame, as before. |
+| Device output (Bevy shell) | A Bevy audio source that never ends (`shell::CoreStream`, a `Decodable`) pulls 256 sample frames (12 ms) at a time; Bevy's rodio output resamples to the device's rate. Measured: rodio's device callbacks come every 46 ms, so the sound is about 46 to 58 ms behind the mixer. No cpal code of our own was needed. |
+| Scripted runs | No device: the recorder mixes each frame's share after the frame (367 or 368 sample frames at 60 frames a second, the fractions carried), so a sound started in a frame starts at that frame's first sample. |
+
+**The audio snapshot** (`tests/snapshots/{scene}-audio.txt`) holds a fingerprint per second of the mixed sound; it
+was blessed with the mixer fed alongside Bevy, before Bevy's sound was removed, and the switch left it, the sound
+lines and the frames unchanged in all six scenes. The sound lines now come from the mixer's starts, ordered within a
+frame as Bevy's query listed its sound entities (by kind, in the order each kind first started, then by start).
+
 ### What can't stay identical
 
 | What | Why | Plan |
@@ -261,8 +283,9 @@ the first frame, so the screens' entities keep their order.
 | An indexed frame | The interface's own colours and grey fades aren't palette entries. | Keep RGBA until a spec read of `docs/specs/ui/*` (`game-menu.md`, `palette-effects.md`) gives the original's palette colours. |
 | The pointer outside a game | The flow's screens, the game menu and the outcome dialog showed the system pointer; the core now draws the normal arrow there (`shell`), a visible change. | Done: the frame snapshot was re-blessed once for it, in its own commit ("the core draws the pointer on every screen"). |
 | Keys pressed in the same frame | Bevy's `ButtonInput` lists the keys that went down in a frame in hash order; `input::Buttons` lists them in the order they were pressed. The two differ only when two keys go down in the same frame, and only a system that takes the first of them could tell. | Accepted: press order is the defined one. |
-| Music timing | The jukebox follows the device's play position today, which depends on the sound device's latency. | The mixer's position is exact; loop points move by the old latency. |
-| Mixed sound | Rodio resamples and mixes its own way. | Compare sound starts, not samples. |
+| Music timing | Before step 7 the jukebox followed the sink's play position, which ran ahead of what was heard by the device's buffer, and a looping track played on from the file's start until the next frame saw the wrap and seeked to the loop point. | Done: the mixer's position is the one the jukebox reads, and a loop jumps to its loop point on the exact sample. A loop point (only track 20, HWARROOM, has one past the start) no longer plays up to a frame plus the device latency (about 17 to 60 ms) of the file's start first. No scene reaches a loop, so neither snapshot shows it. |
+| Mixed sound | Rodio resampled and mixed in floating point; the mixer resamples once by linear interpolation and mixes in whole numbers. The sound out of the speakers differs by rounding. | Accepted; the audio snapshot hashes the mixer's samples. |
+| Music in scripted runs | A scripted run had no sound device, so the jukebox saw no position: an end fade or a chained track never came. Now it sees the mixer's. | Accepted: no scene plays a track near its end, so the sound lines didn't change. |
 | `--zoom` above 1 in a big window | The map is now composed at screen resolution, so zooming out at 3× no longer shows the extra detail. | Development aid only; accepted. |
 
 ### Risks

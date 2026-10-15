@@ -1,5 +1,5 @@
 //! Which music track plays when, how it ends, fades and how loud it is. Spec: `docs/specs/ui/music.md`. No Bevy types
-//! here; `main.rs` plays the result.
+//! here; `jukebox.rs` plays the result in the core's mixer.
 //!
 //! [`Music`] is the state machine: the track table ("Data"), the start rules (same track, the *Tides of Darkness*
 //! bump, volume 0), the two "start if silent" tests, the fades, the chain gap, the volume table and the armed
@@ -10,9 +10,9 @@
 //! Choices of our own where the spec leaves a gap: fades are not blocking, they run over the following `update` calls
 //! (the first step at once when the fade begins, the next ones 20 ms apart, as specified), and a start that must
 //! follow a fade waits for it, as must a screen that the spec has wait for a fade (the act screen's close); the position of an open track is
-//! reported by the caller in bytes of audio, and an empty sink counts as the end; a loop track's loop point is
-//! reached by a seek when the caller reports that the position wrapped (a loop that restarts from the start of the
-//! file, then jumps to the loop point, which only differs for track 20); the chain gap counts from the next
+//! reported by the caller in bytes of audio, and a voice that has played out counts as the end; a loop track loops in
+//! the core's mixer from its loop point, without a gap (`audio`), and the [`Action::SeekLoop`] asked for when the
+//! position wraps is left for a player that can't loop from a point (the mixer ignores it); the chain gap counts from the next
 //! `update` after the one that saw the end (the spec's "first check after the end"); a track that reached its end
 //! stays open and "started" until something closes it; the music draw is made by the caller right after game setup
 //! (open question "Order of the music draw"); the whole file is read into memory at load (the "streaming" is the

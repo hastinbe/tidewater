@@ -31,6 +31,7 @@ before writing any code, and follow it exactly.
   `frontend.rs` runs the screens around a game (videos, title, menu, act screens, briefings, the outcome dialogs,
   the score screen, endings, credits) as app states (`states.rs`, the flow's state machine, Bevy-free), and the game screen's systems run only in `AppState::Game`.
   `--goto SCREEN` opens a flow screen directly for development.
+  `audio.rs` (Bevy-free) decodes WAV sounds and mixes them at 22,050 Hz stereo; the Bevy shell streams the mixer to the device.
   The window shows one 640 × 480 picture composed on the CPU (`compose.rs`, Bevy-free; `shell.rs` places the layers
   and shows it). `script.rs` runs scripted scenes (`--script NAME --script-out DIR [--headless]`) for the frame
   snapshot `tests/frames.rs`; the plan to move the rest into an engine-neutral core is `docs/design/client-core.md`.
