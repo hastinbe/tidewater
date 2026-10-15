@@ -8,7 +8,7 @@ use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
 
 use crate::economy::{Event, Shortage};
-use crate::movement::{Goal, chebyshev};
+use crate::movement::chebyshev;
 use crate::world::{Order, Unit, UnitId, World};
 
 /// Hit points one run adds.
@@ -60,18 +60,7 @@ impl World {
         let (u, t) = (&self.units[i], &self.units[ti]);
         let goal = self.target_goal(u, t); // Round-60 errata: a shore building by its shore corner goal.
         if chebyshev(u.tile, goal) > RADIUS {
-            let zone = (
-                t.tile.0 - 1,
-                t.tile.1 - 1,
-                t.tile.0 + t.size.0 as i32,
-                t.tile.1 + t.size.1 as i32,
-            );
-            let g = Goal {
-                tile: goal,
-                radius: RADIUS,
-                range: false,
-                zone: Some(zone),
-            };
+            let g = self.target_walk(u, t, RADIUS);
             // Orders spec, round-63 errata ("Walking orders react only when the walk has ended"; static study only
             // for order 27): while walking only the walk runs. Round-64 errata (static study only): no route is not
             // a walk end; the worker becomes idle as an immediate order and its idle logic runs, not the reaction.

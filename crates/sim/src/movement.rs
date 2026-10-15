@@ -294,6 +294,17 @@ impl World {
         }
     }
 
+    /// One walk goal (pathfinding spec, "The model"; "G for a walk with a target unit"): the walk toward target unit
+    /// `t`, set again from where `t` stands every time the walk runs. Its goal is [`World::target_goal`], which the
+    /// arrival test measures to and the search alone rounds to even; its goal zone is `t`'s footprint widened by one
+    /// tile ("Step 1").
+    pub(crate) fn target_walk(&self, u: &Unit, t: &Unit, radius: i32) -> Goal {
+        Goal {
+            zone: Some(crate::battle::goal_zone(t)),
+            ..Goal::tile(self.target_goal(u, t), radius)
+        }
+    }
+
     /// Whether `u` aims at shore building `t` by its shore corner: `u`'s type is neither a sea nor an air unit.
     pub(crate) fn aims_at_shore_corner(&self, u: &Unit, t: &Unit) -> bool {
         t.building

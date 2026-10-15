@@ -751,15 +751,11 @@ impl World {
         let g = match target {
             Some(t) => {
                 let t = self.unit(t).expect("held");
-                let tile = self.target_goal(&self.units[i], t);
-                let zone = Some(crate::battle::goal_zone(t));
+                let g = self.target_walk(&self.units[i], t, 0);
                 if let Order::MoveAttack { goal, .. } = &mut self.units[i].order {
-                    *goal = tile;
+                    *goal = g.tile;
                 }
-                Goal {
-                    zone,
-                    ..Goal::tile(tile, 0)
-                }
+                g
             }
             None => Goal::tile(goal, 0),
         };

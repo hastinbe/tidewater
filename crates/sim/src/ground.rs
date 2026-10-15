@@ -117,18 +117,7 @@ impl World {
             Order::Demolish { at: Some(t), .. } => {
                 let Some(t) = self.unit(t) else { return };
                 // A shore building by its shore corner goal ([`World::target_goal`]).
-                let goal = self.target_goal(u, t);
-                Goal {
-                    tile: goal,
-                    radius: DEMOLISH_RADIUS,
-                    range: false,
-                    zone: Some((
-                        t.tile.0 - 1,
-                        t.tile.1 - 1,
-                        t.tile.0 + t.size.0 as i32,
-                        t.tile.1 + t.size.1 as i32,
-                    )),
-                }
+                self.target_walk(u, t, DEMOLISH_RADIUS)
             }
             Order::Demolish { at: None, tile } => Goal::tile(tile, DEMOLISH_RADIUS),
             Order::DemolishAt { tile } => Goal::tile(tile, 0),

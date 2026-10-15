@@ -214,12 +214,9 @@ impl World {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
         // A shore building is aimed at by its shore corner goal ([`World::target_goal`]).
-        let goal = self.target_goal(u, t);
         Goal {
-            tile: goal,
-            radius: reach,
             range: true,
-            zone: Some(goal_zone(t)),
+            ..self.target_walk(u, t, reach)
         }
     }
 
@@ -235,11 +232,7 @@ impl World {
         // widened by one tile; pathfinding spec, "Step 1"). A unit target is headed for at its tile
         // (`orc5-40000`): with the target's goal zone too, not the 3 x 3 around its tile.
         // A shore building by its shore corner goal ([`World::target_goal`]).
-        let tile = self.target_goal(&self.units[i], t);
-        let g = Goal {
-            zone: Some(goal_zone(t)),
-            ..Goal::tile(tile, 0)
-        };
+        let g = self.target_walk(&self.units[i], t, 0);
         // Orders spec, "No route": a unit that goes idle with no route keeps its attacker.
         self.walk(i, g);
     }
