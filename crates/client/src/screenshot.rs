@@ -26,7 +26,9 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use tidewater_formats::tileset::Palette;
 
 use crate::frontend::AppState;
+use crate::input::Key;
 use crate::palette::{self, Rgb};
+use crate::shell::PlayerInput;
 use crate::{Cycling, Hud};
 
 /// Frames the negative palette shows after a screenshot is written.
@@ -42,13 +44,14 @@ pub fn plugin(app: &mut App) {
 
 fn print_screen(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
     cycling: Option<Res<Cycling>>,
     hud: Option<Res<Hud>>,
     windows: Query<&Window>,
     dir: Res<ShotDir>,
+    input: Res<PlayerInput>,
 ) {
-    if !keys.any_just_pressed([KeyCode::PrintScreen, KeyCode::F13]) {
+    let keys = &input.keys;
+    if !keys.any_just_pressed([Key::PrintScreen, Key::F(13)]) {
         return;
     }
     let (Some(cycling), Some(canvas), Ok(window)) =

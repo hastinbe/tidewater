@@ -33,8 +33,6 @@
 //!   permission check (no multiplayer).
 //! - The dialogs' own art, and the "Network" button of the Battle.net options menu.
 
-use bevy::input::keyboard::KeyboardInput;
-use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
@@ -42,6 +40,7 @@ use tidewater_sim::victory::Outcome;
 use crate::campaign as cf;
 use crate::frontend::{self, AppState, Flow, Front, FrontScreen, LockedPointer, Persist};
 use crate::hud::{self, Rect};
+use crate::input::{Button, Input, Key, LogCursor};
 use crate::layers::PictureId;
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
@@ -50,7 +49,7 @@ use crate::savedlg::{self, SaveUi};
 use crate::savefile;
 use crate::savegame::{self, SaveFolder};
 use crate::saves::{self, SaveDir};
-use crate::shell::{ScreenLayer, ScreenPictures};
+use crate::shell::{PlayerInput, ScreenLayer, ScreenPictures};
 use crate::{PanelUi, ScreenUi, Sim, Speaker};
 
 /// The stored settings in force.
@@ -603,7 +602,6 @@ fn slider_track(r: Rect) -> Rect {
 #[allow(clippy::too_many_arguments)]
 fn open_requests(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
     sim: Option<Res<Sim>>,
     mut ui: Option<ResMut<PanelUi>>,
     mut stored: ResMut<Stored>,
@@ -612,7 +610,9 @@ fn open_requests(
     folder: Res<SaveFolder>,
     mut pictures: ResMut<ScreenPictures>,
     mut demo_done: Local<bool>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
     let Some(sim) = sim else { return };
     let mut asked = ui
         .as_mut()
@@ -640,9 +640,9 @@ fn open_requests(
         };
     }
     let m = mouse::KeyMods {
-        shift: keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
-        ctrl: keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]),
-        alt: keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]),
+        shift: keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]),
+        ctrl: keys.any_pressed([Key::ControlLeft, Key::ControlRight]),
+        alt: keys.any_pressed([Key::AltLeft, Key::AltRight]),
     };
     for &k in keys.get_just_pressed() {
         let Some(key) = crate::game_key(k) else { continue };
@@ -767,46 +767,44 @@ fn open_from_outcome(
 /// Collects the typed text, keys, pointer and wheel for the save dialog.
 #[allow(clippy::too_many_arguments)]
 fn gather_saving_input(
-    mut input: ResMut<SavingInput>,
-    mut typed: MessageReader<KeyboardInput>,
-    mut wheel: MessageReader<MouseWheel>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse_in: Res<ButtonInput<MouseButton>>,
+    mut saving: ResMut<SavingInput>,
+    mut cursors: Local<(LogCursor, LogCursor)>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
+    input: Res<PlayerInput>,
 ) {
-    input.0 = saving_input(&mut typed, &mut wheel, &keys, &mouse_in, &window, &cam, &locked);
+    saving.0 = saving_input(&input, &mut cursors, &window, &cam, &locked);
 }
 
 /// One frame's input for a save or load dialog (also the main menu's load dialog, `frontend`).
+/// `cursors`: the places in the typed events and the wheel steps.
 pub(crate) fn saving_input(
-    typed: &mut MessageReader<KeyboardInput>,
-    wheel: &mut MessageReader<MouseWheel>,
-    keys: &ButtonInput<KeyCode>,
-    mouse_in: &ButtonInput<MouseButton>,
+    input: &Input,
+    (typed, wheel): &mut (LogCursor, LogCursor),
     window: &Query<&Window, With<PrimaryWindow>>,
     cam: &FrontScreen,
     locked: &LockedPointer,
 ) -> savedlg::Input {
+    let (keys, mouse_in) = (&input.keys, &input.mouse);
     let mut i = savedlg::Input {
         pointer: frontend::pointer(window, cam, locked).map(|p| (p.x, p.y)),
-        click: mouse_in.just_released(MouseButton::Left),
-        enter: keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]),
-        escape: keys.just_pressed(KeyCode::Escape),
-        up: keys.just_pressed(KeyCode::ArrowUp),
-        down: keys.just_pressed(KeyCode::ArrowDown),
-        backspace: keys.just_pressed(KeyCode::Backspace),
+        click: mouse_in.just_released(Button::Left),
+        enter: keys.any_just_pressed([Key::Enter, Key::NumpadEnter]),
+        escape: keys.just_pressed(Key::Escape),
+        up: keys.just_pressed(Key::Up),
+        down: keys.just_pressed(Key::Down),
+        backspace: keys.just_pressed(Key::Backspace),
         ..Default::default()
     };
-    for e in typed.read() {
-        if e.state.is_pressed()
+    for e in input.typed.read(typed) {
+        if e.pressed
             && let Some(t) = &e.text
         {
             i.text.extend(t.chars().filter(|c| !c.is_control()));
         }
     }
-    for w in wheel.read() {
+    for w in input.wheel.read(wheel) {
         i.wheel += w.y.signum() as i32;
     }
     i
@@ -839,12 +837,13 @@ fn run_menu(
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
     layer: Query<Entity, With<MenuLayer>>,
-    mouse_in: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     folder: Res<SaveFolder>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse_in = &input.mouse;
     // The save and load dialogs run in `run_saving`.
     if matches!(m.screen(), Screen::Saving(_)) {
         return;
@@ -873,13 +872,13 @@ fn run_menu(
     }
 
     // Sliders follow the pointer while the button is held.
-    if mouse_in.just_pressed(MouseButton::Left)
+    if mouse_in.just_pressed(Button::Left)
         && let Some(i) = hot
         && matches!(built.items[i].kind, Kinds::Slider(..))
     {
         m.drag = Some(i);
     }
-    if !mouse_in.pressed(MouseButton::Left) {
+    if !mouse_in.pressed(Button::Left) {
         m.drag = None;
     }
     if let (Some(i), Some(p)) = (m.drag, at)
@@ -895,7 +894,7 @@ fn run_menu(
 
     // What was asked.
     let mut act = None;
-    if mouse_in.just_released(MouseButton::Left)
+    if mouse_in.just_released(Button::Left)
         && let Some(i) = hot
     {
         match &built.items[i].kind {
@@ -917,13 +916,13 @@ fn run_menu(
     }
     let screen = m.screen();
     let settings = matches!(screen, Screen::Sound | Screen::Speed | Screen::Prefs);
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(Key::Escape) {
         act = Some(match screen {
             Screen::Game => Act::CloseAll,
             _ if settings => Act::Cancel,
             _ => Act::Back,
         });
-    } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
+    } else if keys.any_just_pressed([Key::Enter, Key::NumpadEnter]) {
         act = match screen {
             _ if settings => Some(Act::Ok),
             Screen::Confirm(c) => Some(Act::Do(c)),
@@ -1002,7 +1001,7 @@ fn run_menu(
                     return;
                 }
             }
-            frontend::go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+            frontend::go_on(&mut flow, &front, keys, &mut next, &mut exit);
         }
     }
 }

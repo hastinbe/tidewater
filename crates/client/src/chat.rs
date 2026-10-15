@@ -20,15 +20,16 @@
 //!   this client displays or uses yet (no network or demo playback, no debug displays).
 //! - Multiplayer chat (recipients, the Classic "chat sent" notice) needs network games, which this client doesn't have.
 
-use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use tidewater_sim::cheats::Word;
 
 use crate::cheats::{self, Outcome};
 use crate::frontend;
 use crate::gamemenu::Stored;
+use crate::input::{Input, Key, KeyEvent, LogCursor};
 use crate::messages::{self, Text};
 use crate::prefs::bit;
+use crate::shell::PlayerInput;
 use crate::{ScreenUi, Sim};
 
 /// The label in front of the typed text.
@@ -51,39 +52,28 @@ pub fn shown(line: &str) -> String {
 }
 
 /// Whether `k` types into an open chat line instead of acting as a game key (when neither Ctrl nor Alt is held).
-pub fn typing_key(k: KeyCode) -> bool {
-    use KeyCode::*;
+pub fn typing_key(k: Key) -> bool {
     !matches!(
         k,
-        F1 | F2
-            | F3
-            | F4
-            | F5
-            | F6
-            | F7
-            | F8
-            | F9
-            | F10
-            | F11
-            | F12
-            | ArrowUp
-            | ArrowDown
-            | ArrowLeft
-            | ArrowRight
-            | Home
-            | End
-            | PageUp
-            | PageDown
-            | ShiftLeft
-            | ShiftRight
-            | ControlLeft
-            | ControlRight
-            | AltLeft
-            | AltRight
-            | SuperLeft
-            | SuperRight
-            | CapsLock
-            | PrintScreen
+        Key::F(1..=12)
+            | Key::Up
+            | Key::Down
+            | Key::Left
+            | Key::Right
+            | Key::Home
+            | Key::End
+            | Key::PageUp
+            | Key::PageDown
+            | Key::ShiftLeft
+            | Key::ShiftRight
+            | Key::ControlLeft
+            | Key::ControlRight
+            | Key::AltLeft
+            | Key::AltRight
+            | Key::SuperLeft
+            | Key::SuperRight
+            | Key::CapsLock
+            | Key::PrintScreen
     )
 }
 
@@ -142,7 +132,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<LocalSettings>().add_systems(
         PreUpdate,
         chat_keys
-            .after(bevy::input::InputSystems)
+            .after(crate::shell::ReadInput)
             .run_if(in_state(frontend::AppState::Game)),
     );
 }
@@ -150,8 +140,7 @@ pub fn plugin(app: &mut App) {
 /// Opens, edits, sends and closes the chat line, and takes the typing keys from the game while it is open.
 #[allow(clippy::too_many_arguments)]
 fn chat_keys(
-    mut typed: MessageReader<KeyboardInput>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut typed: Local<LogCursor>,
     scr: Option<ResMut<ScreenUi>>,
     sim: Option<ResMut<Sim>>,
     mut queue: ResMut<cheats::Queue>,
@@ -160,21 +149,18 @@ fn chat_keys(
     state: Res<State<frontend::AppState>>,
     dialog: Option<Res<frontend::OutcomeDialog>>,
     menu: Option<Res<crate::gamemenu::GameMenu>>,
+    mut input: ResMut<PlayerInput>,
 ) {
-    let events: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let Input { keys, typed: log, .. } = &mut **input;
+    let events: Vec<KeyEvent> = log.read(&mut typed).cloned().collect();
     let (Some(mut scr), Some(mut sim)) = (scr, sim) else {
         return;
     };
     if !frontend::game_running(state, dialog, menu) {
         return;
     }
-    let held = keys.any_pressed([
-        KeyCode::ControlLeft,
-        KeyCode::ControlRight,
-        KeyCode::AltLeft,
-        KeyCode::AltRight,
-    ]);
-    let enter = [KeyCode::Enter, KeyCode::NumpadEnter];
+    let held = keys.any_pressed([Key::ControlLeft, Key::ControlRight, Key::AltLeft, Key::AltRight]);
+    let enter = [Key::Enter, Key::NumpadEnter];
     let Some(mut line) = scr.status.chat.take() else {
         if !held && keys.any_just_pressed(enter) {
             scr.status.chat = Some(String::new());
@@ -184,17 +170,17 @@ fn chat_keys(
     };
     let mut open = true;
     let mut send = false;
-    for e in events.iter().filter(|e| e.state.is_pressed()) {
-        match e.key_code {
-            KeyCode::Enter | KeyCode::NumpadEnter => {
+    for e in events.iter().filter(|e| e.pressed) {
+        match e.key {
+            Key::Enter | Key::NumpadEnter => {
                 send = true;
                 break;
             }
-            KeyCode::Escape => {
+            Key::Escape => {
                 open = false;
                 break;
             }
-            KeyCode::Backspace => {
+            Key::Backspace => {
                 line.pop();
             }
             _ if held => {}
@@ -206,7 +192,7 @@ fn chat_keys(
         }
     }
     if !held {
-        let taken: Vec<KeyCode> = keys
+        let taken: Vec<Key> = keys
             .get_pressed()
             .chain(keys.get_just_pressed())
             .copied()
@@ -254,9 +240,9 @@ mod tests {
 
     #[test]
     fn game_keys_that_still_act_while_typing() {
-        assert!(typing_key(KeyCode::KeyA) && typing_key(KeyCode::Digit1) && typing_key(KeyCode::Minus));
-        assert!(typing_key(KeyCode::Numpad8) && typing_key(KeyCode::Space) && typing_key(KeyCode::Escape));
-        assert!(!typing_key(KeyCode::F10) && !typing_key(KeyCode::ArrowUp) && !typing_key(KeyCode::PageDown));
+        assert!(typing_key(Key::Letter('A')) && typing_key(Key::Digit(1)) && typing_key(Key::Minus));
+        assert!(typing_key(Key::Numpad(8)) && typing_key(Key::Space) && typing_key(Key::Escape));
+        assert!(!typing_key(Key::F(10)) && !typing_key(Key::Up) && !typing_key(Key::PageDown));
     }
 
     #[test]

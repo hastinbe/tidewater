@@ -23,14 +23,18 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::message::{MessageUpdateSystems, message_update_condition, message_update_system};
 use bevy::ecs::system::SystemParam;
 use bevy::ecs::world::DeferredWorld;
+use bevy::input::keyboard::{KeyboardFocusLost, KeyboardInput};
+use bevy::input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::compose::{self, Clip, Frame, Placed};
 use crate::frontend::{AppState, Front, FrontScreen, LockedPointer, OutcomeDialog, Persist};
 use crate::gamemenu::GameMenu;
+use crate::input::{Button, Input, Key, KeyEvent, Wheel};
 use crate::layers::{Layer, PictureId, Pictures, Plane};
 use crate::{GameView, Hud};
 
@@ -55,7 +59,21 @@ struct ScreenSprite;
 pub struct ComposeScreen;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<ScreenPictures>()
+    app.init_resource::<PlayerInput>()
+        .configure_sets(PreUpdate, ReadInput.after(bevy::input::InputSystems))
+        .add_systems(
+            First,
+            (
+                take_system_input,
+                age_input
+                    .in_set(MessageUpdateSystems)
+                    .before(message_update_system)
+                    .run_if(message_update_condition),
+            )
+                .chain(),
+        )
+        .add_systems(PreUpdate, begin_input_frame.in_set(ReadInput))
+        .init_resource::<ScreenPictures>()
         .add_systems(Startup, spawn_screen)
         .add_systems(Last, (compose_screen, show_screen).chain().in_set(ComposeScreen));
 }
@@ -310,5 +328,165 @@ fn show_screen(
     let scale = Vec3::new(k, k, 1.0);
     if tf.scale != scale {
         tf.scale = scale;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Input
+
+/// The player's input (`input::Input`), from the window's events or a scripted run (`script`).
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct PlayerInput(pub Input);
+
+/// The frame's input is applied: the systems that read keys and buttons run after this.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ReadInput;
+
+/// Hands the window's key, button and wheel events to the input, as they came.
+fn take_system_input(
+    mut input: ResMut<PlayerInput>,
+    mut keys: MessageReader<KeyboardInput>,
+    mut lost: MessageReader<KeyboardFocusLost>,
+    mut buttons: MessageReader<MouseButtonInput>,
+    mut wheel: MessageReader<MouseWheel>,
+) {
+    for e in keys.read() {
+        input.key(KeyEvent {
+            key: key_of(e.key_code),
+            pressed: e.state.is_pressed(),
+            text: e.text.as_ref().map(|t| t.to_string()),
+        });
+    }
+    for e in buttons.read() {
+        input.button(button_of(e.button), e.state.is_pressed());
+    }
+    for e in wheel.read() {
+        input.wheel(Wheel {
+            y: e.y,
+            lines: e.unit == MouseScrollUnit::Line,
+        });
+    }
+    if lost.read().count() > 0 {
+        input.focus_lost();
+    }
+}
+
+/// The typed events and wheel steps age when Bevy's own messages do (after a frame with a fixed step, once there
+/// has been one), so that they last as long as they did.
+fn age_input(mut input: ResMut<PlayerInput>) {
+    input.update_logs();
+}
+
+fn begin_input_frame(mut input: ResMut<PlayerInput>) {
+    input.begin_frame();
+}
+
+/// A key by its place.
+pub fn key_of(k: KeyCode) -> Key {
+    use KeyCode as K;
+    let letter = |c: u8| Key::Letter(c as char);
+    match k {
+        K::KeyA => letter(b'A'),
+        K::KeyB => letter(b'B'),
+        K::KeyC => letter(b'C'),
+        K::KeyD => letter(b'D'),
+        K::KeyE => letter(b'E'),
+        K::KeyF => letter(b'F'),
+        K::KeyG => letter(b'G'),
+        K::KeyH => letter(b'H'),
+        K::KeyI => letter(b'I'),
+        K::KeyJ => letter(b'J'),
+        K::KeyK => letter(b'K'),
+        K::KeyL => letter(b'L'),
+        K::KeyM => letter(b'M'),
+        K::KeyN => letter(b'N'),
+        K::KeyO => letter(b'O'),
+        K::KeyP => letter(b'P'),
+        K::KeyQ => letter(b'Q'),
+        K::KeyR => letter(b'R'),
+        K::KeyS => letter(b'S'),
+        K::KeyT => letter(b'T'),
+        K::KeyU => letter(b'U'),
+        K::KeyV => letter(b'V'),
+        K::KeyW => letter(b'W'),
+        K::KeyX => letter(b'X'),
+        K::KeyY => letter(b'Y'),
+        K::KeyZ => letter(b'Z'),
+        K::Digit0 => Key::Digit(0),
+        K::Digit1 => Key::Digit(1),
+        K::Digit2 => Key::Digit(2),
+        K::Digit3 => Key::Digit(3),
+        K::Digit4 => Key::Digit(4),
+        K::Digit5 => Key::Digit(5),
+        K::Digit6 => Key::Digit(6),
+        K::Digit7 => Key::Digit(7),
+        K::Digit8 => Key::Digit(8),
+        K::Digit9 => Key::Digit(9),
+        K::Numpad0 => Key::Numpad(0),
+        K::Numpad1 => Key::Numpad(1),
+        K::Numpad2 => Key::Numpad(2),
+        K::Numpad3 => Key::Numpad(3),
+        K::Numpad4 => Key::Numpad(4),
+        K::Numpad5 => Key::Numpad(5),
+        K::Numpad6 => Key::Numpad(6),
+        K::Numpad7 => Key::Numpad(7),
+        K::Numpad8 => Key::Numpad(8),
+        K::Numpad9 => Key::Numpad(9),
+        K::NumpadAdd => Key::NumpadAdd,
+        K::NumpadSubtract => Key::NumpadSubtract,
+        K::NumpadEnter => Key::NumpadEnter,
+        K::F1 => Key::F(1),
+        K::F2 => Key::F(2),
+        K::F3 => Key::F(3),
+        K::F4 => Key::F(4),
+        K::F5 => Key::F(5),
+        K::F6 => Key::F(6),
+        K::F7 => Key::F(7),
+        K::F8 => Key::F(8),
+        K::F9 => Key::F(9),
+        K::F10 => Key::F(10),
+        K::F11 => Key::F(11),
+        K::F12 => Key::F(12),
+        K::F13 => Key::F(13),
+        K::F14 => Key::F(14),
+        K::F15 => Key::F(15),
+        K::ArrowUp => Key::Up,
+        K::ArrowDown => Key::Down,
+        K::ArrowLeft => Key::Left,
+        K::ArrowRight => Key::Right,
+        K::Home => Key::Home,
+        K::End => Key::End,
+        K::PageUp => Key::PageUp,
+        K::PageDown => Key::PageDown,
+        K::Enter => Key::Enter,
+        K::Escape => Key::Escape,
+        K::Backspace => Key::Backspace,
+        K::Space => Key::Space,
+        K::Minus => Key::Minus,
+        K::Equal => Key::Equal,
+        K::PrintScreen => Key::PrintScreen,
+        K::CapsLock => Key::CapsLock,
+        K::ShiftLeft => Key::ShiftLeft,
+        K::ShiftRight => Key::ShiftRight,
+        K::ControlLeft => Key::ControlLeft,
+        K::ControlRight => Key::ControlRight,
+        K::AltLeft => Key::AltLeft,
+        K::AltRight => Key::AltRight,
+        K::SuperLeft => Key::SuperLeft,
+        K::SuperRight => Key::SuperRight,
+        K::Unidentified(_) => Key::Other(0),
+        // Any other key by its name, which is the same for the same key.
+        k => Key::Other(1 + (crate::script::fnv64(format!("{k:?}").as_bytes()) % u32::MAX as u64) as u32),
+    }
+}
+
+fn button_of(b: MouseButton) -> Button {
+    match b {
+        MouseButton::Left => Button::Left,
+        MouseButton::Right => Button::Right,
+        MouseButton::Middle => Button::Middle,
+        MouseButton::Back => Button::Other(0),
+        MouseButton::Forward => Button::Other(1),
+        MouseButton::Other(n) => Button::Other(n.saturating_add(2)),
     }
 }

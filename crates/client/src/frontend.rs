@@ -19,8 +19,6 @@ use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
-use bevy::input::keyboard::KeyboardInput;
-use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use tidewater_formats::fnt::Font;
@@ -33,13 +31,14 @@ use tidewater_sim::victory::Outcome;
 
 use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::hud::{self, Rect};
+use crate::input::{Button, Buttons, Key, LogCursor};
 use crate::jukebox::{self, Jukebox};
 use crate::layers::{Layer as ScreenPlace, PictureId, Plane};
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
-use crate::shell::{ScreenLayer, ScreenPictures};
+use crate::shell::{PlayerInput, ScreenLayer, ScreenPictures};
 use crate::video;
 
 const W: u32 = 640;
@@ -287,11 +286,11 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
 pub(crate) fn go_on(
     flow: &mut Flow,
     front: &Front,
-    keys: &ButtonInput<KeyCode>,
+    keys: &Buttons<Key>,
     next: &mut NextState<AppState>,
     exit: &mut MessageWriter<AppExit>,
 ) {
-    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     match advance(flow, &front.install, ctrl) {
         Some(s) => next.set(s),
         None => {
@@ -562,11 +561,12 @@ fn camera_clear(state: Res<State<AppState>>, mut screen: ResMut<FrontScreen>) {
 fn boot(
     mut flow: ResMut<Flow>,
     front: Res<Front>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
-    go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+    let keys = &input.keys;
+    go_on(&mut flow, &front, keys, &mut next, &mut exit);
 }
 
 fn dup(p: &Picture) -> Picture {
@@ -632,9 +632,8 @@ fn picture(install: &mut Install, name: &str, pal_from: Option<&str>) -> Picture
 }
 
 /// The left button was pressed, or Esc, Enter or Space.
-fn pressed(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> bool {
-    mouse.just_pressed(MouseButton::Left)
-        || keys.any_just_pressed([KeyCode::Escape, KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space])
+fn pressed(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
+    mouse.just_pressed(Button::Left) || keys.any_just_pressed([Key::Escape, Key::Enter, Key::NumpadEnter, Key::Space])
 }
 
 /// The pointer while the mouse lock (`main.rs`, `mouse_lock`) holds the system's pointer still: its place in logical
@@ -867,15 +866,16 @@ fn play_video(
     play: Option<ResMut<VideoPlay>>,
     mut pictures: ResMut<ScreenPictures>,
     mut sources: ResMut<Assets<AudioSource>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
     script: Option<Res<crate::script::Script>>,
+    input: Res<PlayerInput>,
 ) {
-    let mut done = pressed(&keys, &mouse);
+    let keys = &input.keys;
+    let mouse = &input.mouse;
+    let mut done = pressed(keys, mouse);
     if let Some(mut p) = play {
         // The first frame shows at 0 even on a slow first update.
         if p.shown.is_some() {
@@ -927,7 +927,7 @@ fn play_video(
     }
     if done {
         commands.remove_resource::<VideoPlay>();
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
     }
 }
 
@@ -951,14 +951,14 @@ fn enter_title(
 }
 
 /// A key or click ends the title; Shift, Ctrl and Alt alone don't.
-fn title_input(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> bool {
-    const MODIFIERS: [KeyCode; 6] = [
-        KeyCode::ShiftLeft,
-        KeyCode::ShiftRight,
-        KeyCode::ControlLeft,
-        KeyCode::ControlRight,
-        KeyCode::AltLeft,
-        KeyCode::AltRight,
+fn title_input(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
+    const MODIFIERS: [Key; 6] = [
+        Key::ShiftLeft,
+        Key::ShiftRight,
+        Key::ControlLeft,
+        Key::ControlRight,
+        Key::AltLeft,
+        Key::AltRight,
     ];
     mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().any(|k| !MODIFIERS.contains(k))
 }
@@ -970,21 +970,22 @@ fn run_title(
     clock: Res<Clock>,
     mut menu_timer: ResMut<MenuClock>,
     mut title: ResMut<TitleScreen>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     layers: Query<(Entity, &Layer)>,
     mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
-    let input = title_input(&keys, &mouse);
+    let keys = &input.keys;
+    let mouse = &input.mouse;
+    let input = title_input(keys, mouse);
     for cue in title.0.update(&mut menu_timer.0, real_ms(&time), input) {
         match cue {
             cf::TitleCue::Music => music.start(Some(cf::TITLE_MUSIC)),
             cf::TitleCue::FadeOut(ms) => fade_layer(&mut commands, &layers, 0, 1.0, 0.0, clock.0, ms),
-            cf::TitleCue::Done => go_on(&mut flow, &front, &keys, &mut next, &mut exit),
+            cf::TitleCue::Done => go_on(&mut flow, &front, keys, &mut next, &mut exit),
         }
     }
 }
@@ -1060,8 +1061,8 @@ fn menu_input(
     front: &Front,
     pictures: &mut ScreenPictures,
     at: Option<Vec2>,
-    mouse: &ButtonInput<MouseButton>,
-    keys: &ButtonInput<KeyCode>,
+    mouse: &Buttons<Button>,
+    keys: &Buttons<Key>,
     heading: &str,
 ) -> Option<usize> {
     menu.hot = at.and_then(|p| menu.items.iter().position(|(r, _)| r.contains(p.x, p.y)));
@@ -1075,20 +1076,20 @@ fn menu_input(
         set_image(pictures, &menu.image, p);
         menu.drawn = Some(menu.hot);
     }
-    const DIGITS: [KeyCode; 6] = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
+    const DIGITS: [Key; 6] = [
+        Key::Digit(1),
+        Key::Digit(2),
+        Key::Digit(3),
+        Key::Digit(4),
+        Key::Digit(5),
+        Key::Digit(6),
     ];
     if let Some(i) = DIGITS.iter().position(|&k| keys.just_pressed(k))
         && i < menu.items.len()
     {
         return Some(i);
     }
-    if mouse.just_released(MouseButton::Left) {
+    if mouse.just_released(Button::Left) {
         return menu.hot;
     }
     None
@@ -1123,12 +1124,13 @@ fn run_menu(
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     // Palette-effects spec, "Screen fades": nothing else runs during a fade.
     if let Some((end, _)) = &menu.closing {
         if clock.0 < *end {
@@ -1138,7 +1140,7 @@ fn run_menu(
         match pick {
             MenuPick::NewCampaign => {
                 flow.steps = VecDeque::from([Step::NewCampaign]);
-                go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+                go_on(&mut flow, &front, keys, &mut next, &mut exit);
             }
             MenuPick::Load(r) => crate::savegame::load_game(&mut flow, &mut next, r.header, r.body),
             MenuPick::Quit => {
@@ -1149,14 +1151,14 @@ fn run_menu(
     }
     let at = pointer(&window, &cam, &locked);
     // The menu is drawn before its fade-in, but takes no input until the fade ends.
-    let pick = menu_input(&mut menu, &front, &mut pictures, at, &mouse, &keys, "Tidewater");
+    let pick = menu_input(&mut menu, &front, &mut pictures, at, mouse, keys, "Tidewater");
     if clock.0 < fades::MENUS as f64 {
         return;
     }
     let pick = pick
-        .or(keys.just_pressed(KeyCode::KeyN).then_some(0))
-        .or(keys.just_pressed(KeyCode::KeyL).then_some(1))
-        .or(keys.just_pressed(KeyCode::KeyQ).then_some(2));
+        .or(keys.just_pressed(Key::Letter('N')).then_some(0))
+        .or(keys.just_pressed(Key::Letter('L')).then_some(1))
+        .or(keys.just_pressed(Key::Letter('Q')).then_some(2));
     let close = |commands: &mut Commands, menu: &mut Menu, pick: MenuPick| {
         let end = fade_out_all(commands, &layers, clock.0, fades::MENUS);
         menu.closing = Some((end, pick));
@@ -1195,14 +1197,13 @@ fn run_menu_load(
     layers: Query<(Entity, &Layer)>,
     front: Res<Front>,
     mut pictures: ResMut<ScreenPictures>,
-    (mut typed, mut wheel): (MessageReader<KeyboardInput>, MessageReader<MouseWheel>),
+    mut cursors: Local<(LogCursor, LogCursor)>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    input: Res<PlayerInput>,
 ) {
-    let input = crate::gamemenu::saving_input(&mut typed, &mut wheel, &keys, &mouse, &window, &cam, &locked);
+    let input = crate::gamemenu::saving_input(&input, &mut cursors, &window, &cam, &locked);
     let load = &mut *load;
     let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot);
     let before = snap(&load.ui);
@@ -1247,15 +1248,16 @@ fn run_new_campaign(
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     let at = pointer(&window, &cam, &locked);
-    let pick = menu_input(&mut menu, &front, &mut pictures, at, &mouse, &keys, "Choose a campaign");
-    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let pick = menu_input(&mut menu, &front, &mut pictures, at, mouse, keys, "Choose a campaign");
+    let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = match pick {
         Some(i) if i < 4 => {
             let c = Choice::ALL[i];
@@ -1273,12 +1275,12 @@ fn run_new_campaign(
             Some(v)
         }
         Some(_) => Some(VecDeque::from([Step::MainMenu])),
-        None if keys.just_pressed(KeyCode::Escape) => Some(VecDeque::from([Step::MainMenu])),
+        None if keys.just_pressed(Key::Escape) => Some(VecDeque::from([Step::MainMenu])),
         None => None,
     };
     if let Some(s) = steps {
         flow.steps = s;
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
     }
 }
 
@@ -1351,8 +1353,6 @@ fn run_act(
     clock: Res<Clock>,
     mut menu_timer: ResMut<MenuClock>,
     mut act: ResMut<ActScreen>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     layers: Query<(Entity, &Layer)>,
     sounds: Query<Entity, With<ActSound>>,
     mut music: ResMut<Jukebox>,
@@ -1361,9 +1361,12 @@ fn run_act(
     mut sources: ResMut<Assets<AudioSource>>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     let act = &mut *act;
-    let input = pressed(&keys, &mouse);
+    let input = pressed(keys, mouse);
     for cue in act.run.update(&mut menu_timer.0, real_ms(&time), input) {
         match cue {
             cf::ActCue::TextFadeIn => fade_layer(&mut commands, &layers, 1, 0.0, 1.0, clock.0, cf::ACT_TEXT_FADE_MS),
@@ -1400,7 +1403,7 @@ fn run_act(
         if let Some(v) = flow.memory.video_after(&act.act, false) {
             flow.steps.push_front(Step::Video(v));
         }
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
     }
 }
 
@@ -1511,14 +1514,15 @@ fn run_briefing(
     clock: Res<Clock>,
     mut b: ResMut<Briefing>,
     mut pictures: ResMut<ScreenPictures>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     let now = clock.0;
     while b.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = b.voice.pop_front().unwrap();
@@ -1539,8 +1543,8 @@ fn run_briefing(
         set_image(&mut pictures, &b.image, p);
         b.drawn = Some(b.scroll.moved);
     }
-    if pressed(&keys, &mouse) || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+    if pressed(keys, mouse) || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
     }
 }
 
@@ -1644,21 +1648,22 @@ fn run_dialog(
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut flow: ResMut<Flow>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     if dialog.is_added() || dialog.is_changed() {
         let p = draw_dialog(&front, &dialog);
         set_image(&mut pictures, &dialog.image, p);
     }
-    let at = pointer(&window, &cam, &locked).filter(|_| mouse.just_released(MouseButton::Left));
+    let at = pointer(&window, &cam, &locked).filter(|_| mouse.just_released(Button::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
-    let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([KeyCode::Enter, KeyCode::KeyC]) {
+    let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([Key::Enter, Key::Letter('C')]) {
         Some(cf::DialogButton::Continue)
-    } else if dialog.victory && (hit(SAVE) || keys.just_pressed(KeyCode::KeyS)) {
+    } else if dialog.victory && (hit(SAVE) || keys.just_pressed(Key::Letter('S'))) {
         Some(cf::DialogButton::Save)
     } else {
         None
@@ -1667,7 +1672,7 @@ fn run_dialog(
         Some(cf::DialogResult::End) => {
             let Some(sim) = sim else { return };
             end_with(&mut flow, &mut front, &sim.world, sim.human, dialog.victory);
-            go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+            go_on(&mut flow, &front, keys, &mut next, &mut exit);
         }
         // The save dialog opens over this one; a save ends the game (`saved`), Cancel shows this dialog again.
         Some(cf::DialogResult::OpenSave) => dialog.save_wanted = true,
@@ -1777,23 +1782,24 @@ fn run_score(
     clock: Res<Clock>,
     mut sc: ResMut<ScoreScreen>,
     mut pictures: ResMut<ScreenPictures>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     let Some(s) = flow.score.clone() else {
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
         return;
     };
-    let press = pressed(&keys, &mouse);
+    let press = pressed(keys, mouse);
     if press && sc.finished {
         let next_step = after_score(&mut flow, &s);
         flow.steps = VecDeque::from([next_step]);
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
         return;
     }
     if press {
@@ -1975,8 +1981,6 @@ fn run_scroller(
     clock: Res<Clock>,
     mut s: ResMut<Scroller>,
     mut pictures: ResMut<ScreenPictures>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
     state: Res<State<AppState>>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
@@ -1985,12 +1989,15 @@ fn run_scroller(
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
     layers: Query<(Entity, &Layer)>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let mouse = &input.mouse;
     let now = clock.0;
     // Palette-effects spec, "Screen fades": the credits fade out over 100 ms, and nothing else runs meanwhile.
     if let Some(end) = s.closing {
         if now >= end {
-            go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+            go_on(&mut flow, &front, keys, &mut next, &mut exit);
         }
         return;
     }
@@ -2014,14 +2021,14 @@ fn run_scroller(
         set_image(&mut pictures, &s.image, p);
         s.drawn = Some(s.scroll.moved);
     }
-    if pressed(&keys, &mouse) || cf::briefing_closes(&s.scroll, now as u64, s.narration_ms) {
+    if pressed(keys, mouse) || cf::briefing_closes(&s.scroll, now as u64, s.narration_ms) {
         if *state.get() == AppState::Credits {
             // Music spec: the credits' close fades all sound.
             music.fade_stop(true, None);
             s.closing = Some(fade_out_all(&mut commands, &layers, now, fades::CREDITS));
             return;
         }
-        go_on(&mut flow, &front, &keys, &mut next, &mut exit);
+        go_on(&mut flow, &front, keys, &mut next, &mut exit);
     }
 }
 

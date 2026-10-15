@@ -155,7 +155,7 @@ The five operations, as the shell implements them. The core sees only `Input`, `
 | Part | What it does | Where |
 |---|---|---|
 | Compositor | Places pictures on the screen: nearest texel at pixel centres, transparent texels skipped, grey tint in linear light. No engine types. | `crates/client/src/compose.rs` |
-| Scripted scenes | Feed the scene's input into Bevy's input messages, with a fixed frame time (1/60 s), a fixed wall clock and no sound device. `--script NAME --script-out DIR [--headless]`. | `script.rs` |
+| Scripted scenes | Feed the scene's input into the core's `Input` (`input.rs`, held in `shell::PlayerInput`), with a fixed frame time (1/60 s), a fixed wall clock and no sound device. `--script NAME --script-out DIR [--headless]`. | `script.rs` |
 | Frame snapshot | Hashes every frame (runs of equal frames on one line), every shot and every sound start, without a window. Skips without `TIDEWATER_INSTALL`; `TIDEWATER_SNAPSHOT_BLESS=1` blesses. | `tests/frames.rs`, `tests/snapshots/campaign.txt` |
 | Bevy comparison | Ignored test: runs the scenes in a window at one pixel per screen pixel and compares Bevy's screenshot with the composed frame at each shot. | `tests/frames.rs` (`-- --ignored`) |
 | Recorded frame | The frame the screen composed (`shell::shown_frame`), for the snapshot and the comparison. Until step 3 a world composer recomposed what Bevy's cameras and sprites would show (`frame.rs`, now gone); both gave the same frames. | `shell.rs` |
@@ -182,7 +182,7 @@ the snapshot didn't change.
 | 1 ✓ | Frame composition | Bevy cameras and sprites → `compose` + `shell` | unchanged |
 | 2 ✓ | Map view geometry and the pointer | Map, interface and flow cameras → a `MapView` (centre, zoom, view rectangle) and `display::Letterbox` | unchanged |
 | 3 ✓ | The layers | Sprites and image assets → pictures the core owns (`Screen`: map, interface, flow layers) | unchanged |
-| 4 | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
+| 4 ✓ | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
 | 5 | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
 | 6 | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
 | 7 | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts unchanged; music timing changes (below) |
@@ -200,6 +200,7 @@ Each step lands with the snapshot unchanged, or blessed with the reason in the c
 | Pointer positions | The pointer's map and screen positions are still reached by a 2D camera's float steps (`main.rs`, `camera_point`), now without a camera. The exact form (`mapview::MapView::pointer_map`) lands one map pixel off at some points: a drag rectangle's edge in the campaign scene moved by a pixel in frames 642 and 643. | Switch to the exact form when the shell is thinned (step 9), and bless the snapshot then, saying why. |
 | An indexed frame | The interface's own colours and grey fades aren't palette entries. | Keep RGBA until a spec read of `docs/specs/ui/*` (`game-menu.md`, `palette-effects.md`) gives the original's palette colours. |
 | The pointer outside a game | The flow's screens, the game menu and the outcome dialog showed the system pointer; the core now draws the normal arrow there (`shell`), a visible change. | Done: the frame snapshot was re-blessed once for it, in its own commit ("the core draws the pointer on every screen"). |
+| Keys pressed in the same frame | Bevy's `ButtonInput` lists the keys that went down in a frame in hash order; `input::Buttons` lists them in the order they were pressed. The two differ only when two keys go down in the same frame, and only a system that takes the first of them could tell. | Accepted: press order is the defined one. |
 | Music timing | The jukebox follows the device's play position today, which depends on the sound device's latency. | The mixer's position is exact; loop points move by the old latency. |
 | Mixed sound | Rodio resamples and mixes its own way. | Compare sound starts, not samples. |
 | `--zoom` above 1 in a big window | The map is now composed at screen resolution, so zooming out at 3× no longer shows the extra detail. | Development aid only; accepted. |

@@ -28,6 +28,7 @@ mod frontend;
 mod gamemenu;
 mod hud;
 mod info;
+mod input;
 mod jukebox;
 mod layers;
 mod mapview;
@@ -56,12 +57,13 @@ mod view;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use clap::Parser;
+use input::{Button, Key};
 use panel::PanelState;
-use shell::{ScreenLayer, ScreenPictures};
+use shell::{PlayerInput, ScreenLayer, ScreenPictures};
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::Event;
@@ -551,7 +553,7 @@ fn main() -> Result<()> {
         .add_systems(
             PreUpdate,
             mouse_lock
-                .after(bevy::input::InputSystems)
+                .after(shell::ReadInput)
                 .run_if(not(resource_exists::<script::Script>)),
         )
         .init_state::<frontend::AppState>()
@@ -1382,7 +1384,7 @@ pub(crate) fn camera_point(
 
 /// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
 fn pan_and_zoom(
-    scroll: Res<AccumulatedMouseScroll>,
+    input: Res<PlayerInput>,
     size: Res<MapSize>,
     mut zoom: ResMut<MapZoom>,
     windows: Query<&Window>,
@@ -1390,9 +1392,8 @@ fn pan_and_zoom(
 ) {
     let Some(mut view) = view else { return };
     // + and - are the game speed keys; only the wheel zooms, and only as a development aid.
-    if zoom.free && scroll.delta.y != 0.0 {
-        let pixels = scroll.unit == bevy::input::mouse::MouseScrollUnit::Pixel;
-        let steps = display::wheel_steps(&mut zoom.wheel, scroll.delta.y, pixels);
+    if zoom.free && input.scroll != 0.0 {
+        let steps = display::wheel_steps(&mut zoom.wheel, input.scroll, input.scroll_pixels);
         if steps != 0 {
             zoom.zoom = display::zoom_step(zoom.zoom, steps);
             if windows.single().is_ok() {
@@ -1425,8 +1426,9 @@ impl WallClock {
     }
 }
 
-fn quit_on_escape(keys: Res<ButtonInput<KeyCode>>, ui: Res<PanelUi>, mut exit: MessageWriter<AppExit>) {
-    if keys.just_pressed(KeyCode::Escape) && !ui.escape_used {
+fn quit_on_escape(ui: Res<PanelUi>, mut exit: MessageWriter<AppExit>, input: Res<PlayerInput>) {
+    let keys = &input.keys;
+    if keys.just_pressed(Key::Escape) && !ui.escape_used {
         exit.write(AppExit::Success);
     }
 }
@@ -1533,12 +1535,13 @@ fn mouse_lock(
     state: Res<State<frontend::AppState>>,
     dialog: Option<Res<frontend::OutcomeDialog>>,
     menu: Option<Res<gamemenu::GameMenu>>,
-    keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
     mut locked: ResMut<frontend::LockedPointer>,
     hud: Option<ResMut<Hud>>,
     mut windows: Query<(&mut Window, &mut CursorOptions), With<bevy::window::PrimaryWindow>>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
     let Ok((mut window, mut cursor)) = windows.single_mut() else {
         return;
     };
@@ -1547,7 +1550,7 @@ fn mouse_lock(
         // The game menus and the outcome dialog are unlocked; the screen draws the arrow there (`shell`).
         in_game: frontend::game_running(state, dialog, menu) && hud.as_ref().is_some_and(|h| h.art.has_pointers()),
         focused: window.focused,
-        held_free: keys.any_pressed([KeyCode::SuperLeft, KeyCode::SuperRight]),
+        held_free: keys.any_pressed([Key::SuperLeft, Key::SuperRight]),
     });
     let mode = if want { LOCK_MODE } else { CursorGrabMode::None };
     if cursor.grab_mode != mode {
@@ -1581,62 +1584,28 @@ fn mouse_lock(
 }
 
 /// The hotkey a key press stands for.
-fn key_char(k: KeyCode) -> Option<char> {
-    use KeyCode::*;
-    Some(match k {
-        KeyA => 'A',
-        KeyB => 'B',
-        KeyC => 'C',
-        KeyD => 'D',
-        KeyE => 'E',
-        KeyF => 'F',
-        KeyG => 'G',
-        KeyH => 'H',
-        KeyI => 'I',
-        KeyJ => 'J',
-        KeyK => 'K',
-        KeyL => 'L',
-        KeyM => 'M',
-        KeyN => 'N',
-        KeyO => 'O',
-        KeyP => 'P',
-        KeyQ => 'Q',
-        KeyR => 'R',
-        KeyS => 'S',
-        KeyT => 'T',
-        KeyU => 'U',
-        KeyV => 'V',
-        KeyW => 'W',
-        KeyX => 'X',
-        KeyY => 'Y',
-        KeyZ => 'Z',
-        Digit0 => '0',
-        Digit1 => '1',
-        Digit2 => '2',
-        Digit3 => '3',
-        Digit4 => '4',
-        Digit5 => '5',
-        Digit6 => '6',
-        Digit7 => '7',
-        Digit8 => '8',
-        Digit9 => '9',
-        _ => return None,
-    })
+fn key_char(k: Key) -> Option<char> {
+    match k {
+        Key::Letter(c) => Some(c),
+        Key::Digit(d) => Some((b'0' + d) as char),
+        _ => None,
+    }
 }
 
 /// The command panel: clicks and hotkeys on its buttons, and the map click or cancel that follows a target or
 /// placement mode (`panel`, spec `ui/command-buttons.md`).
 #[allow(clippy::too_many_arguments)]
 fn panel_input(
-    buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     sim: Option<ResMut<Sim>>,
     sel: Res<Selection>,
     hud: Res<Hud>,
     scr: Res<ScreenUi>,
     mut ui: ResMut<PanelUi>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let buttons = &input.mouse;
     ui.consumed = false;
     ui.escape_used = false;
     ui.tooltip = None;
@@ -1644,7 +1613,7 @@ fn panel_input(
         return;
     };
     // Screen spec: at a scrolling edge, clicks on the panel do nothing.
-    let pressed = buttons.just_pressed(MouseButton::Left) && scr.edge == (0, 0);
+    let pressed = buttons.just_pressed(Button::Left) && scr.edge == (0, 0);
     // The menu and pause buttons (screen spec, "Menu buttons").
     if pressed
         && let Some(c) = hud.cursor(window)
@@ -1688,19 +1657,14 @@ fn panel_input(
                 ui.consumed = true;
             }
         }
-        if keys.just_pressed(KeyCode::Escape) && ui.mode != panel::Mode::None {
+        if keys.just_pressed(Key::Escape) && ui.mode != panel::Mode::None {
             ui.escape_used = true;
         }
         // Ctrl and Alt make the in-game keys (`keys_input`), not hotkeys.
-        let held = keys.any_pressed([
-            KeyCode::ControlLeft,
-            KeyCode::ControlRight,
-            KeyCode::AltLeft,
-            KeyCode::AltRight,
-        ]);
+        let held = keys.any_pressed([Key::ControlLeft, Key::ControlRight, Key::AltLeft, Key::AltRight]);
         if !ui.consumed && !held {
             for &key in keys.get_just_pressed() {
-                let hk = if key == KeyCode::Escape {
+                let hk = if key == Key::Escape {
                     Some(panel::Hotkey::Escape)
                 } else {
                     key_char(key).map(panel::Hotkey::Char)
@@ -1711,7 +1675,7 @@ fn panel_input(
                 if let Some(en) = slots[n] {
                     effect = panel::activate(en, &state, &infos);
                     ui.consumed = true;
-                    ui.escape_used |= key == KeyCode::Escape;
+                    ui.escape_used |= key == Key::Escape;
                     break;
                 }
             }
@@ -1868,8 +1832,6 @@ fn centre_view(view: &mut mapview::MapView, c: Vec2) {
 /// clicks, and moving the view.
 #[allow(clippy::too_many_arguments)]
 fn mouse_input(
-    buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time<Real>>,
     windows: Query<&Window>,
     view: Option<ResMut<GameView>>,
@@ -1879,7 +1841,10 @@ fn mouse_input(
     hud: Res<Hud>,
     mut ui: ResMut<PanelUi>,
     mut scr: ResMut<ScreenUi>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let buttons = &input.mouse;
     scr.pointer = None;
     let (Some(mut sim), Ok(window), Some(mut gv), Some(layout)) = (sim, windows.single(), view, hud.layout) else {
         return;
@@ -1887,9 +1852,9 @@ fn mouse_input(
     let mv = &mut gv.0;
     let (sim, sel, ui, art) = (&mut *sim, &mut *sel, &mut *ui, art.as_deref());
     let enhanced = sim.world.rules.enhanced;
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-    let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    let shift = keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]);
+    let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
+    let alt = keys.any_pressed([Key::AltLeft, Key::AltRight]);
     let at = cursor_map(window, &hud.locked, mv);
     let view = mv.tiles();
     // Development aid (`--demo-site`): one placement click, after the first fog refresh so the site is explored.
@@ -1901,7 +1866,7 @@ fn mouse_input(
         ui.demo_click = false;
         place_click(sim, builder, ui, kind, tile);
     }
-    if buttons.just_released(MouseButton::Left) {
+    if buttons.just_released(Button::Left) {
         sel.minimap_held = false;
         if let (Some(from), Some(to)) = (sel.drag_from.take(), at) {
             let press = mouse::Mods { alt, ..sel.press };
@@ -1925,7 +1890,7 @@ fn mouse_input(
         .filter(|_| on_minimap)
         .map(|p| minimap::tile_for_press(width, p));
     if sel.minimap_held
-        && buttons.pressed(MouseButton::Left)
+        && buttons.pressed(Button::Left)
         && let Some(p) = pointer
     {
         mv.move_to(minimap::view_for_press(width, p, geom.tiles, geom.max()));
@@ -1979,8 +1944,8 @@ fn mouse_input(
     };
     let region = regions.at((cursor.x, cursor.y));
     for (button, b) in [
-        (MouseButton::Left, mouse::Button::Left),
-        (MouseButton::Right, mouse::Button::Right),
+        (Button::Left, mouse::Button::Left),
+        (Button::Right, mouse::Button::Right),
     ] {
         if !buttons.just_pressed(button) {
             continue;
@@ -2046,23 +2011,11 @@ fn mouse_input(
 }
 
 /// The key a key press stands for in the in-game key table.
-fn game_key(k: KeyCode) -> Option<mouse::Key> {
-    use KeyCode::*;
+fn game_key(k: Key) -> Option<mouse::Key> {
     Some(match k {
-        Equal | NumpadAdd => mouse::Key::Plus,
-        Minus | NumpadSubtract => mouse::Key::Minus,
-        F1 => mouse::Key::F(1),
-        F2 => mouse::Key::F(2),
-        F3 => mouse::Key::F(3),
-        F4 => mouse::Key::F(4),
-        F5 => mouse::Key::F(5),
-        F6 => mouse::Key::F(6),
-        F7 => mouse::Key::F(7),
-        F8 => mouse::Key::F(8),
-        F9 => mouse::Key::F(9),
-        F10 => mouse::Key::F(10),
-        F11 => mouse::Key::F(11),
-        F12 => mouse::Key::F(12),
+        Key::Equal | Key::NumpadAdd => mouse::Key::Plus,
+        Key::Minus | Key::NumpadSubtract => mouse::Key::Minus,
+        Key::F(n @ 1..=12) => mouse::Key::F(n),
         k => match key_char(k)? {
             c @ '0'..='9' => mouse::Key::Digit(c as u8 - b'0'),
             c => mouse::Key::Letter(c),
@@ -2074,7 +2027,6 @@ fn game_key(k: KeyCode) -> Option<mouse::Key> {
 /// ones that open menus and dialogs, and Ctrl+S, are handled by `gamemenu`.
 #[allow(clippy::too_many_arguments)]
 fn keys_input(
-    keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time<Real>>,
     sim: Option<ResMut<Sim>>,
     art: Option<Res<Art>>,
@@ -2084,7 +2036,9 @@ fn keys_input(
     hud: Res<Hud>,
     mut scr: ResMut<ScreenUi>,
     view: Option<ResMut<GameView>>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
     let (Some(mut sim), Some(mut gv)) = (sim, view) else {
         return;
     };
@@ -2095,7 +2049,7 @@ fn keys_input(
     let (sim, sel) = (&mut *sim, &mut *sel);
     let human = sim.human;
     // Messages spec, "Event history": the space key (an open chat line takes it first, `chat`).
-    if keys.just_pressed(KeyCode::Space)
+    if keys.just_pressed(Key::Space)
         && let Some(h) = &mut scr.history
     {
         let now = (time.elapsed_secs_f64() * 1000.0) as u64;
@@ -2105,9 +2059,9 @@ fn keys_input(
         }
     }
     let m = mouse::KeyMods {
-        shift: keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
-        ctrl: keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]),
-        alt: keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]),
+        shift: keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]),
+        ctrl: keys.any_pressed([Key::ControlLeft, Key::ControlRight]),
+        alt: keys.any_pressed([Key::AltLeft, Key::AltRight]),
     };
     for &k in keys.get_just_pressed() {
         // The client plays one human player; while the chat line is open, `chat` has taken the typing keys already.
@@ -2232,8 +2186,6 @@ fn play_sounds(
 /// unloads or centres the view (`info::click`).
 #[allow(clippy::too_many_arguments)]
 fn info_input(
-    buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
     sim: Option<ResMut<Sim>>,
     mut sel: ResMut<Selection>,
@@ -2242,7 +2194,10 @@ fn info_input(
     mut panel: ResMut<InfoPanel>,
     scr: Res<ScreenUi>,
     view: Option<ResMut<GameView>>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
+    let buttons = &input.mouse;
     panel.hover = None;
     let (Some(mut sim), Ok(window), Some(l)) = (sim, windows.single(), hud.layout) else {
         return;
@@ -2257,11 +2212,11 @@ fn info_input(
         .and_then(&unit)
         .and_then(|u| info::name_entry(u.kind))
         .map(|e| hud.art.string(e));
-    if buttons.just_pressed(MouseButton::Left) && slot.is_some() && !ui.consumed && scr.edge == (0, 0) {
+    if buttons.just_pressed(Button::Left) && slot.is_some() && !ui.consumed && scr.edge == (0, 0) {
         panel.pressed = slot;
         ui.consumed = true;
     }
-    if !buttons.just_released(MouseButton::Left) {
+    if !buttons.just_released(Button::Left) {
         return;
     }
     let Some(n) = panel.pressed.take().filter(|&n| slot == Some(n)) else {
@@ -2277,7 +2232,7 @@ fn info_input(
             .is_some_and(|s| s.flags & tidewater_formats::udta::flags::TRANSPORT != 0)
     });
     let centre_ok = one.is_some_and(|u| u.owner == sim.human || u.invisibility == 0);
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let shift = keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]);
     match info::click(&slots, n, sel.units.len(), shift, transport, centre_ok) {
         // Selection changes are sent as the synced selection; our reading: with the selection sound, as a click.
         info::Click::SelectOnly(id) => sel.set(&mut sim, vec![id], true),
@@ -2349,14 +2304,15 @@ fn update_info(sim: Option<Res<Sim>>, mut sel: ResMut<Selection>, mut panel: Res
 /// the scrolling edge that blocks this frame's clicks.
 #[allow(clippy::too_many_arguments)]
 fn scroll_view(
-    keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time<Real>>,
     windows: Query<&Window>,
     sim: Option<Res<Sim>>,
     hud: Res<Hud>,
     mut scr: ResMut<ScreenUi>,
     view: Option<ResMut<GameView>>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
     scr.edge = (0, 0);
     let (Some(sim), Ok(window), Some(mut view), Some(l)) = (sim, windows.single(), view, hud.layout) else {
         return;
@@ -2370,22 +2326,22 @@ fn scroll_view(
     }
     use screen::ScrollKey as K;
     let held: Vec<K> = [
-        (KeyCode::ArrowUp, K::Up),
-        (KeyCode::ArrowDown, K::Down),
-        (KeyCode::ArrowLeft, K::Left),
-        (KeyCode::ArrowRight, K::Right),
-        (KeyCode::Home, K::Home),
-        (KeyCode::PageUp, K::PageUp),
-        (KeyCode::End, K::End),
-        (KeyCode::PageDown, K::PageDown),
-        (KeyCode::Numpad8, K::Pad(8)),
-        (KeyCode::Numpad2, K::Pad(2)),
-        (KeyCode::Numpad4, K::Pad(4)),
-        (KeyCode::Numpad6, K::Pad(6)),
-        (KeyCode::Numpad7, K::Pad(7)),
-        (KeyCode::Numpad9, K::Pad(9)),
-        (KeyCode::Numpad1, K::Pad(1)),
-        (KeyCode::Numpad3, K::Pad(3)),
+        (Key::Up, K::Up),
+        (Key::Down, K::Down),
+        (Key::Left, K::Left),
+        (Key::Right, K::Right),
+        (Key::Home, K::Home),
+        (Key::PageUp, K::PageUp),
+        (Key::End, K::End),
+        (Key::PageDown, K::PageDown),
+        (Key::Numpad(8), K::Pad(8)),
+        (Key::Numpad(2), K::Pad(2)),
+        (Key::Numpad(4), K::Pad(4)),
+        (Key::Numpad(6), K::Pad(6)),
+        (Key::Numpad(7), K::Pad(7)),
+        (Key::Numpad(9), K::Pad(9)),
+        (Key::Numpad(1), K::Pad(1)),
+        (Key::Numpad(3), K::Pad(3)),
     ]
     .into_iter()
     .filter(|(k, _)| keys.pressed(*k))
@@ -2396,12 +2352,7 @@ fn scroll_view(
         edge: scr.edge,
         // No chat line yet.
         keys: screen::keys_direction(&held, false),
-        ctrl_or_alt: keys.any_pressed([
-            KeyCode::ControlLeft,
-            KeyCode::ControlRight,
-            KeyCode::AltLeft,
-            KeyCode::AltRight,
-        ]),
+        ctrl_or_alt: keys.any_pressed([Key::ControlLeft, Key::ControlRight, Key::AltLeft, Key::AltRight]),
         blocked,
     };
     if let Some(d) = scr.scroller.update(input) {

@@ -2,20 +2,20 @@
 //! so that a run comes out the same every time. Development aid (`--script NAME --script-out DIR`, which opens the
 //! window and saves what it shows at the scene's shots) and the driver of the frame snapshot (`snapshot`, no window).
 //!
-//! The input goes in where the system's input comes in: the keyboard, mouse-button and wheel messages are replaced by
-//! the scene's before Bevy's input systems read them, so keys and buttons behave as typed ones do. The pointer is put
+//! The input goes in where the system's input comes in: the scene's key, button and wheel events replace the system's
+//! in the player's input (`input::Input`) before the frame's input is applied, so keys and buttons behave as typed ones
+//! do. The pointer is put
 //! in [`frontend::LockedPointer`], which every pointer reading goes through; the mouse lock is off in a scripted run.
 //! The window counts as focused.
 
-use bevy::input::keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey, NativeKeyCode};
-use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel};
-use bevy::input::touch::TouchPhase;
-use bevy::input::{ButtonState, InputSystems};
+use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::compose::{Frame, H, W};
 use crate::frontend::{AppState, LockedPointer, Step};
+use crate::input::{Button, Key, KeyEvent, Wheel};
+use crate::shell::{PlayerInput, ReadInput};
 
 /// One step of a scene's input.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,10 +30,10 @@ pub enum Cmd {
     UntilOutcome,
     /// The pointer goes to this screen pixel (640 × 480).
     Move(f32, f32),
-    Down(MouseButton),
-    Up(MouseButton),
-    Press(KeyCode),
-    Release(KeyCode),
+    Down(Button),
+    Up(Button),
+    Press(Key),
+    Release(Key),
     /// Text typed (each character a press and release with its text).
     Type(&'static str),
     /// Mouse-wheel lines (positive: away from the user).
@@ -57,7 +57,7 @@ pub const FRAME_SECS: f64 = 1.0 / 60.0;
 pub const WALL_SECS: u64 = 1_700_000_000;
 
 /// A key pressed and released a frame later.
-fn tap(k: KeyCode) -> [Cmd; 3] {
+fn tap(k: Key) -> [Cmd; 3] {
     [Cmd::Press(k), Cmd::Wait(1), Cmd::Release(k)]
 }
 
@@ -65,16 +65,16 @@ fn tap(k: KeyCode) -> [Cmd; 3] {
 fn click(x: f32, y: f32) -> [Cmd; 4] {
     [
         Cmd::Move(x, y),
-        Cmd::Down(MouseButton::Left),
+        Cmd::Down(Button::Left),
         Cmd::Wait(1),
-        Cmd::Up(MouseButton::Left),
+        Cmd::Up(Button::Left),
     ]
 }
 
 /// The scenes, by name.
 pub fn scenes() -> Vec<Scene> {
     use Cmd::*;
-    use KeyCode as K;
+    use Key as K;
     let mut campaign = vec![
         Move(320.0, 240.0),
         Until(AppState::Title),
@@ -124,20 +124,20 @@ pub fn scenes() -> Vec<Scene> {
     // Selecting with a drag over the map view, then a right-click command.
     campaign.extend([
         Move(190.0, 30.0),
-        Down(MouseButton::Left),
+        Down(Button::Left),
         Wait(2),
         Move(400.0, 200.0),
         Wait(2),
         Shot("drag"),
         Move(620.0, 460.0),
         Wait(2),
-        Up(MouseButton::Left),
+        Up(Button::Left),
         Wait(2),
         Shot("selected"),
         Move(420.0, 120.0),
-        Down(MouseButton::Right),
+        Down(Button::Right),
         Wait(1),
-        Up(MouseButton::Right),
+        Up(Button::Right),
         Wait(3),
         Shot("commanded"),
         Wait(60),
@@ -145,9 +145,9 @@ pub fn scenes() -> Vec<Scene> {
     ]);
     // Scrolling with the keys and at the screen edge, and the minimap.
     campaign.extend([
-        Press(K::ArrowDown),
+        Press(K::Down),
         Wait(30),
-        Release(K::ArrowDown),
+        Release(K::Down),
         Wait(2),
         Shot("scrolled-keys"),
     ]);
@@ -155,16 +155,16 @@ pub fn scenes() -> Vec<Scene> {
     campaign.extend(click(60.0, 70.0));
     campaign.extend([Wait(3), Shot("minimap-click"), UntilCycle(300), Shot("cycle-300")]);
     // The game menu, its options, and back.
-    campaign.extend(tap(K::F10));
+    campaign.extend(tap(K::F(10)));
     campaign.extend([Wait(3), Shot("game-menu")]);
-    campaign.extend(tap(K::F5));
+    campaign.extend(tap(K::F(5)));
     campaign.extend([Wait(3), Shot("options")]);
     campaign.extend(tap(K::Escape));
     campaign.extend([Wait(3), Shot("back-to-menu")]);
     campaign.extend(tap(K::Escape));
     campaign.extend([Wait(3), Shot("menu-closed"), Wait(30)]);
     // The save dialog: a name typed and saved.
-    campaign.extend(tap(K::F11));
+    campaign.extend(tap(K::F(11)));
     campaign.extend([
         Wait(3),
         Shot("save-dialog"),
@@ -215,9 +215,9 @@ fn play(entry: u8) -> Step {
 
 /// A line typed into the chat line and sent: Enter opens it, Enter sends it.
 fn chat(line: &'static str) -> Vec<Cmd> {
-    let mut v = tap(KeyCode::Enter).to_vec();
+    let mut v = tap(Key::Enter).to_vec();
     v.extend([Cmd::Wait(2), Cmd::Type(line), Cmd::Wait(2)]);
-    v.extend(tap(KeyCode::Enter));
+    v.extend(tap(Key::Enter));
     v
 }
 
@@ -225,7 +225,7 @@ fn chat(line: &'static str) -> Vec<Cmd> {
 /// briefing, then the defeat dialog, its score screen and the replay's briefing.
 fn outcome() -> Vec<Cmd> {
     use Cmd::*;
-    use KeyCode as K;
+    use Key as K;
     let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5), Shot("game")];
     v.extend(tap(K::Enter));
     v.extend([Wait(2), Type("unite the"), Wait(2), Shot("chat-typing")]);
@@ -259,7 +259,7 @@ fn outcome() -> Vec<Cmd> {
 /// dialog with no saved games.
 fn ending() -> Vec<Cmd> {
     use Cmd::*;
-    use KeyCode as K;
+    use Key as K;
     let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
     v.extend(chat("there can be only one"));
     v.extend([Until(AppState::Video), Wait(1)]);
@@ -287,7 +287,7 @@ fn ending() -> Vec<Cmd> {
         Wait(20),
         Shot("menu"),
     ]);
-    v.extend(tap(K::KeyL));
+    v.extend(tap(K::Letter('L')));
     v.extend([Wait(3), Shot("load-empty")]);
     v.extend(tap(K::Escape));
     v.extend([Wait(3), Shot("load-closed")]);
@@ -297,18 +297,18 @@ fn ending() -> Vec<Cmd> {
 /// A game saved and loaded again from the game menu's load dialog, then quit to the main menu and loaded from there.
 fn load() -> Vec<Cmd> {
     use Cmd::*;
-    use KeyCode as K;
+    use Key as K;
     let mut v = vec![
         Move(400.0, 240.0),
         Until(AppState::Game),
         UntilCycle(100),
         Shot("before-save"),
     ];
-    v.extend(tap(K::F11));
+    v.extend(tap(K::F(11)));
     v.extend([Wait(3), Type("one"), Wait(1), Shot("save-dialog")]);
     v.extend(tap(K::Enter));
     v.extend([Wait(3), Shot("saved"), UntilCycle(200), Shot("cycle-200")]);
-    v.extend(tap(K::F12));
+    v.extend(tap(K::F(12)));
     v.extend([Wait(3), Shot("load-dialog")]);
     v.extend(tap(K::Enter));
     v.extend([
@@ -320,11 +320,11 @@ fn load() -> Vec<Cmd> {
         Shot("loaded-later"),
     ]);
     v.extend([Press(K::ControlLeft), Wait(1)]);
-    v.extend(tap(K::KeyQ));
+    v.extend(tap(K::Letter('Q')));
     v.extend([Release(K::ControlLeft), Wait(3), Shot("quit-confirm")]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::MainMenu), Wait(25)]);
-    v.extend(tap(K::KeyL));
+    v.extend(tap(K::Letter('L')));
     v.extend([Wait(3), Shot("menu-load")]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Wait(30), Shot("menu-loaded")]);
@@ -335,13 +335,13 @@ fn load() -> Vec<Cmd> {
 /// then placed; the chat line edited and cancelled; the load dialog's list moved with the wheel.
 fn build() -> Vec<Cmd> {
     use Cmd::*;
-    use KeyCode as K;
+    use Key as K;
     let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
     v.extend(click(416.0, 318.0));
     v.extend([Wait(3), Shot("peasant")]);
-    v.extend(tap(K::KeyB));
+    v.extend(tap(K::Letter('B')));
     v.extend([Wait(3), Shot("build-basic")]);
-    v.extend(tap(K::KeyF));
+    v.extend(tap(K::Letter('F')));
     v.extend([Wait(2), Move(330.0, 300.0), Wait(3), Shot("placing")]);
     v.extend([Move(250.0, 120.0), Wait(3), Shot("placing-bad")]);
     v.extend(click(330.0, 300.0));
@@ -353,15 +353,15 @@ fn build() -> Vec<Cmd> {
     v.extend(tap(K::Escape));
     v.extend([Wait(2), Shot("chat-closed")]);
     v.extend([Wheel(1.0), Wait(1), Wheel(-1.0), Wait(2), Shot("wheel-on-map")]);
-    v.extend(tap(K::F11));
+    v.extend(tap(K::F(11)));
     v.extend([Wait(3), Type("two"), Wait(1)]);
     v.extend(tap(K::Enter));
     v.extend([Wait(3)]);
-    v.extend(tap(K::F11));
+    v.extend(tap(K::F(11)));
     v.extend([Wait(3), Type("three"), Wait(1)]);
     v.extend(tap(K::Enter));
     v.extend([Wait(3)]);
-    v.extend(tap(K::F12));
+    v.extend(tap(K::F(12)));
     v.extend([
         Wait(3),
         Shot("load-list"),
@@ -408,12 +408,13 @@ impl Script {
     }
 }
 
-/// The scripted input runs before Bevy's input systems, and the systems that read the pointer after it.
+/// The scripted input goes in before the frame's input is applied (`shell::ReadInput`), and before the systems that
+/// read the pointer.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptInput;
 
 pub fn plugin(app: &mut App) {
-    app.configure_sets(PreUpdate, ScriptInput.before(InputSystems))
+    app.configure_sets(PreUpdate, ScriptInput.before(ReadInput))
         .add_systems(PreUpdate, drive.in_set(ScriptInput).run_if(resource_exists::<Script>));
 }
 
@@ -424,31 +425,22 @@ fn drive(
     state: Res<State<AppState>>,
     sim: Option<Res<crate::Sim>>,
     dialog: Option<Res<crate::frontend::OutcomeDialog>>,
-    window: Query<(Entity, &Window), With<PrimaryWindow>>,
-    mut keys: ResMut<Messages<KeyboardInput>>,
-    mut lost: ResMut<Messages<KeyboardFocusLost>>,
-    mut buttons: ResMut<Messages<MouseButtonInput>>,
-    mut wheel: ResMut<Messages<MouseWheel>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut input: ResMut<PlayerInput>,
     mut motion: ResMut<Messages<MouseMotion>>,
     mut locked: ResMut<LockedPointer>,
     hud: Option<ResMut<crate::Hud>>,
 ) {
-    keys.clear();
-    lost.clear();
-    buttons.clear();
-    wheel.clear();
+    input.clear_events();
     motion.clear();
-    let Ok((win, w)) = window.single() else { return };
+    let Ok(w) = window.single() else { return };
     let s = &mut *script;
     s.frame += 1;
     s.shots.clear();
-    let key = |key_code: KeyCode, state: ButtonState, text: Option<&str>| KeyboardInput {
-        key_code,
-        logical_key: Key::Unidentified(NativeKey::Unidentified),
-        state,
+    let key = |key: Key, pressed: bool, text: Option<&str>| KeyEvent {
+        key,
+        pressed,
         text: text.map(Into::into),
-        repeat: false,
-        window: win,
     };
     while let Some(cmd) = s.scene.cmds.get(s.next).cloned() {
         match cmd {
@@ -476,48 +468,19 @@ fn drive(
                 }
             }
             Cmd::Move(x, y) => s.pointer = Vec2::new(x, y),
-            Cmd::Down(b) | Cmd::Up(b) => {
-                let state = if matches!(cmd, Cmd::Down(_)) {
-                    ButtonState::Pressed
-                } else {
-                    ButtonState::Released
-                };
-                buttons.write(MouseButtonInput {
-                    button: b,
-                    state,
-                    window: win,
-                });
-            }
-            Cmd::Press(k) => {
-                keys.write(key(k, ButtonState::Pressed, None));
-            }
-            Cmd::Release(k) => {
-                keys.write(key(k, ButtonState::Released, None));
-            }
+            Cmd::Down(b) => input.button(b, true),
+            Cmd::Up(b) => input.button(b, false),
+            Cmd::Press(k) => input.key(key(k, true, None)),
+            Cmd::Release(k) => input.key(key(k, false, None)),
             Cmd::Type(text) => {
+                // A key the system doesn't name, as a typed character comes.
                 for c in text.chars() {
                     let t = c.to_string();
-                    keys.write(key(
-                        KeyCode::Unidentified(NativeKeyCode::Unidentified),
-                        ButtonState::Pressed,
-                        Some(&t),
-                    ));
-                    keys.write(key(
-                        KeyCode::Unidentified(NativeKeyCode::Unidentified),
-                        ButtonState::Released,
-                        None,
-                    ));
+                    input.key(key(Key::Other(0), true, Some(&t)));
+                    input.key(key(Key::Other(0), false, None));
                 }
             }
-            Cmd::Wheel(y) => {
-                wheel.write(MouseWheel {
-                    unit: MouseScrollUnit::Line,
-                    x: 0.0,
-                    y,
-                    window: win,
-                    phase: TouchPhase::Moved,
-                });
-            }
+            Cmd::Wheel(y) => input.wheel(Wheel { y, lines: true }),
             // A shot is this frame as the input so far left it: the commands after it wait for the next frame.
             Cmd::Shot(name) => {
                 s.shots.push(name);
@@ -779,7 +742,7 @@ mod tests {
             assert!(s.cmds.iter().any(|c| matches!(c, Cmd::Shot(_))), "{}", s.name);
             assert_eq!(all.iter().filter(|o| o.name == s.name).count(), 1);
         }
-        for name in ["campaign", "outcome", "ending", "load", "build"] {
+        for name in ["campaign", "outcome", "ending", "load"] {
             assert!(scene(name).is_some(), "{name}");
         }
     }

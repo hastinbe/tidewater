@@ -24,6 +24,8 @@ use tidewater_sim::economy::Event;
 use tidewater_sim::{Command, Rules};
 
 use crate::frontend::{self, AppState, Flow, Front, Step};
+use crate::input::Key;
+use crate::shell::PlayerInput;
 
 /// What to do with a typed line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,10 +123,11 @@ fn run(
     mut queue: ResMut<Queue>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
-    keys: Res<ButtonInput<KeyCode>>,
     mut next: ResMut<NextState<AppState>>,
     mut exit: MessageWriter<AppExit>,
+    input: Res<PlayerInput>,
 ) {
+    let keys = &input.keys;
     let Some(mut sim) = sim else { return };
     if sim.is_added() {
         // "Flags across games": a new game starts with the three kept flags only.
@@ -132,7 +135,7 @@ fn run(
         sim.world.start_cheats(kept);
     }
     sync_flow(&mut flow, sim.world.cheats.flags);
-    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = if let Some(m) = queue.mission.take() {
         // The game ends with no score screen and the mission starts with its act screen and briefing.
         vec![Step::Mission(m.entry)]
