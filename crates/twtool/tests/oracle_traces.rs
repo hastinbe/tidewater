@@ -55,6 +55,9 @@
 //! switching to order 17), orc9-orc09-hold-resume-hits-goals-1600 (the friendly-fire hold resuming and forgetting an
 //! attack-move) and orc9-orc09-lost-resume-goals-500 (a player's command whose target is inside a mine) match in full.
 //!
+//! Round 70: the commands scenario orc9-orc09-carry-chop-1400 (a carrying peon returning goods to a farm still under
+//! construction goes idle as a pending order, then returns its gold) matches in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -326,4 +329,5 @@ traces! {
     orc9_orc09_ground_move_goals_1100: ("orc9-orc09-ground-move-goals-1100.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_hold_resume_hits_goals_1600: ("orc9-orc09-hold-resume-hits-goals-1600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_lost_resume_goals_500: ("orc9-orc09-lost-resume-goals-500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_carry_chop_1400: ("orc9-orc09-carry-chop-1400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
 }

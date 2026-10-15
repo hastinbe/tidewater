@@ -189,13 +189,6 @@ impl World {
         })
     }
 
-    /// Idle by an animation switch rather than a take-over: the outcome the code keeps for order 24 at a depot under
-    /// construction (pinned).
-    fn idle(&mut self, i: usize) {
-        self.go_idle(i);
-        self.switch_anim(i, anim::STILL);
-    }
-
     /// Order 23 ("Walking orders": its logic runs only once the walk has ended, reaction first).
     ///
     /// A tanker and a gold-mode worker follow "Going to a mine or platform"; a lumber-mode worker "Lumber". A worker
@@ -344,15 +337,15 @@ impl World {
     }
 
     /// "Returning goods", step 3, after the reaction (step 1): at a completed depot order 25 takes over at once and
-    /// first runs at the next step done; at one still under construction the unit goes idle. Kept as it is: that idle
-    /// is set by an animation switch, not a take-over (pinned; "otherwise 2" in the spec).
+    /// first runs at the next step done; at one still under construction idle is made pending and takes over in the
+    /// same update (still animation, wait 3), the load kept (V89).
     fn return_in_reach(&mut self, i: usize, di: usize) {
         self.units[i].path.clear();
         if self.react_at_walk_end(i) {
             return;
         }
         if self.units[di].construction.is_some() {
-            return self.idle(i);
+            return self.idle_now(i);
         }
         let building = self.units[di].id;
         self.take_over(
@@ -2375,8 +2368,8 @@ mod tests {
             assert_eq!(w.fingerprint(), 14908006865186026271);
         }
 
-        /// Order 24 arriving at a depot still under construction: idle (order 2) at once, by an animation switch, not a
-        /// take-over.
+        /// Order 24 arriving at a depot still under construction ("Returning goods", step 3; V89): idle is made pending
+        /// and takes over in the same update (still animation, wait 3, target none), and the load is kept.
         #[test]
         fn a_return_to_an_unfinished_depot_goes_idle() {
             let mut w = arena();
@@ -2388,8 +2381,11 @@ mod tests {
             w.return_order(pi, Some(hall));
             let pi = w.index(p).unwrap();
             let u = &w.units[pi];
-            assert_eq!((u.order, u.pending, u.script.anim), (Order::Idle, None, anim::STILL));
-            assert_eq!(w.fingerprint(), 18180086034743565868);
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.carrying),
+                (Order::Idle, None, anim::STILL, 3, true)
+            );
+            assert_eq!(w.fingerprint(), 18359098181098204421);
         }
 
         /// Order 24 whose depot is lost, with an attacker: the reaction runs first. Hit by a worker, it fights back,
