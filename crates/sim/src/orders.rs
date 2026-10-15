@@ -877,14 +877,12 @@ impl World {
         let follow = matches!(u.order, Order::Follow { .. });
         let following = matches!(u.order, Order::Guard { .. }) || matches!(u.pending, Some(Order::Follow { .. }));
         if following && !followable(t_order) {
+            // Step 1 (round 71, static study; V276): the whole smart move to its own tile with no target unit, as for
+            // the flee: its wait cap applies, a transport takes the transport outcome, and it is a command (blocked
+            // counter cleared, cached route dropped, a stale attacker forgotten), left pending.
             let here = u.tile;
-            self.give(
-                i,
-                Order::Move {
-                    goal: here,
-                    target: None,
-                },
-            );
+            let o = self.smart_move_to(i, here);
+            self.command(i, o);
             return false;
         }
         if !self.at_goal(i, g) {
@@ -1468,15 +1466,7 @@ impl World {
         // nothing whose flee tile is a gold mine's harvests it, whatever it last harvested
         // (`orc9-orc09-shore-build-3000` peon 1478, n = 599, a builder that never harvested), as would a tanker not
         // carrying oil on its own player's oil platform.
-        self.cap_smart_wait(i);
-        let mine = self.smart_building(&self.units[i], to);
-        let o = if self.is_transport(&self.units[i]) {
-            self.transport_command(i, None, to, false)
-        } else if let Some(o) = mine.and_then(|m| self.harvest_command(i, Some(m), to)) {
-            o
-        } else {
-            Order::Move { goal: to, target: None }
-        };
+        let o = self.smart_move_to(i, to);
         self.command(i, o);
         if self.units[i].script.anim != anim::MOVE
             && let Some(o) = self.units[i].pending.take()
@@ -1485,6 +1475,23 @@ impl World {
         }
         self.units[i].attacked_by = None;
         true
+    }
+
+    /// A smart move (command 3) with no target unit to `to`, whole ("Smart move"): the wait cap applies, a transport
+    /// takes the transport outcome (`orders/transports.md`, "Commands given to a transport"), a worker carrying nothing
+    /// on a gold mine (or a tanker on its own platform) harvests it by step 2's harvest test, and every other unit gets
+    /// a move (order 3). The order is for [`World::command`]. Used by the flee ("Fleeing", step 6) and follow step 1
+    /// ("Follow (orders 6 and 7)").
+    fn smart_move_to(&mut self, i: usize, to: (i32, i32)) -> Order {
+        self.cap_smart_wait(i);
+        let mine = self.smart_building(&self.units[i], to);
+        if self.is_transport(&self.units[i]) {
+            self.transport_command(i, None, to, false)
+        } else if let Some(o) = mine.and_then(|m| self.harvest_command(i, Some(m), to)) {
+            o
+        } else {
+            Order::Move { goal: to, target: None }
+        }
     }
 
     /// The friendly-fire check of a ground attacker in orders 12, 15 and 16, made in the order's logic before the
@@ -2894,6 +2901,41 @@ mod tests {
                 goal: (5, 5),
                 target: None
             })
+        );
+    }
+
+    /// "Follow (orders 6 and 7)", step 1 (round 71, V276): a human player's ogre guarding a grunt, in its still
+    /// animation with 14 cycles left; the grunt is given stand ground. The move to its own tile is a smart move:
+    /// pending as a command, and the wait drops to the smart move's cap of 10.
+    #[test]
+    fn a_guard_stops_by_a_smart_move() {
+        const OGRE: u8 = 0x07;
+        let mut w = map();
+        w.stats.0[OGRE as usize] = w.stats.0[FOOTMAN as usize];
+        let o = w.spawn(OGRE, 0, (5, 5), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 0, (6, 6), 0).unwrap();
+        let i = at(&w, o);
+        let u = &mut w.units[i];
+        u.order = Order::Guard { target: g };
+        u.blocked = 2;
+        u.script.wait = 14;
+        let gi = at(&w, g);
+        w.units[gi].order = Order::StandGround;
+        assert!(!w.follow(i, g));
+        let u = &w.units[i];
+        assert_eq!(
+            (u.order, u.pending, u.commanded, u.script.anim, u.script.wait, u.blocked),
+            (
+                Order::Guard { target: g },
+                Some(Order::Move {
+                    goal: (5, 5),
+                    target: None
+                }),
+                true,
+                anim::STILL,
+                10,
+                0
+            )
         );
     }
 
@@ -4696,7 +4738,7 @@ mod tests {
                 prints,
                 [
                     4457170854483841466,
-                    17297753363362418897,
+                    2741997048763099968,
                     14720844090697437625,
                     14720844090697437625
                 ]
@@ -5169,10 +5211,10 @@ mod tests {
                 prints,
                 [
                     [
-                        7277162608704041777,
-                        2617285122733947077,
-                        9368418029386401402,
-                        17018195051272507644
+                        14906688125623392832,
+                        8372815523486139075,
+                        6231063788176902307,
+                        9369499488973407406
                     ],
                     [
                         11921765685397457864,
@@ -5181,10 +5223,10 @@ mod tests {
                         4883396234325318144
                     ],
                     [
-                        10034609991045078167,
-                        15312498549604621646,
-                        2229834982085746709,
-                        957003902430467866
+                        5124214436200171837,
+                        609979986790218645,
+                        3690880912908363715,
+                        9328642841041205867
                     ],
                     [
                         11819606290717625611,
