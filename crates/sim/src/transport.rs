@@ -36,9 +36,11 @@ struct NearShore {
     /// Movement class: `Some(true)` the landing class, `Some(false)` the sea class, `None` unchanged (pushing off
     /// keeps the landing class after a landing).
     landing_class: Option<bool>,
-    /// Step size of this run: two-tile, the move animation started and run at once with the step (landing: tile and
-    /// goal even, or farther than 3 tiles; pushing off: tile even).
+    /// Step size of this run: two-tile (landing: tile and goal even, or farther than 3 tiles; pushing off: tile even).
     two_tile: bool,
+    /// Animation: whether a two-tile run starts the move animation afresh and runs it at once with the step, or lets
+    /// a running one run on as any walking unit's step does (landing farther than 3 tiles out; round 70, M3).
+    restart: bool,
     /// Whether a run that isn't two-tile makes the transport a one-tile mover (landing) or leaves its step size as it
     /// is (pushing off).
     one_tile_otherwise: bool,
@@ -286,6 +288,8 @@ impl World {
         let landing = NearShore {
             landing_class: Some(!far),
             two_tile: far || (even(tile) && even(goal)),
+            // Farther out the steps are ordinary ones, which don't restart the move animation at each step.
+            restart: !far,
             one_tile_otherwise: true,
             // Step 5 (`human13-10000` n = 3820, V12): within the 3 tiles every run's arrival test discards the
             // planned route, so each step is planned afresh from the current tile.
@@ -322,9 +326,9 @@ impl World {
         if how.fresh_route {
             u.path.clear();
         }
-        // A two-tile run starts the move animation and runs it at once with the step; a one-tile run keeps
-        // animation 6, the order's own.
-        let walk = self.move_toward_as(i, Goal::tile(goal, 0), how.two_tile);
+        // A two-tile run starts the move animation (afresh, if `restart`) and runs it at once with the step; a
+        // one-tile run keeps animation 6, the order's own.
+        let walk = self.move_toward_as(i, Goal::tile(goal, 0), how.two_tile && how.restart);
         if walk == Walk::NoPath {
             match how.no_route {
                 NoRoute::LandingStep6 => self.landing_no_route(i),
@@ -394,6 +398,7 @@ impl World {
         let pushing_off = NearShore {
             landing_class: None,
             two_tile: even(tile),
+            restart: true,
             one_tile_otherwise: false,
             fresh_route: false,
             no_route: NoRoute::Dock,
@@ -1473,10 +1478,16 @@ mod tests {
                     w.start_anim(bi, anim::MOVE);
                 }
                 let i = w.index(id).unwrap();
+                let script = (w.units[i].script.pc, w.units[i].script.wait);
                 w.landing(i, goal);
                 prints.push(w.fingerprint());
                 let s = state(&w, i);
                 match case {
+                    // Round 70, M3: far out an ordinary step lets the running move animation run on.
+                    "far" => {
+                        assert_ne!(s.3, from);
+                        assert_eq!((w.units[i].script.pc, s.2), script);
+                    }
                     "arrived" => assert_eq!(s.0, Order::Docked),
                     "arrived unload" => assert_eq!(s.0, Order::Unload),
                     "blocked" => assert_eq!((s.1, s.3, w.units[i].blocked, s.2), (anim::WORK_B, (23, 10), 1, 1)),
@@ -1486,7 +1497,7 @@ mod tests {
             pinned(
                 &prints,
                 &[
-                    13499953600435808905,
+                    17435552723441221412,
                     7614962156999909787,
                     7614962156999909787,
                     8033738483236003237,
