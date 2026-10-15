@@ -68,8 +68,9 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 use clap::Parser;
 use clock::FrameClock;
 use input::{Button, Key};
+use layers::Role;
 use panel::PanelState;
-use shell::{CoreTime, Held, PlayerInput, ScreenLayer, ScreenPictures, Store};
+use shell::{CoreTime, Held, PlayerInput, ScreenLayers, ScreenPictures, Store};
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::Event;
@@ -251,10 +252,6 @@ struct ScreenUi {
     was_paused: bool,
 }
 
-/// The layer that shows the building being placed over its site.
-#[derive(Component)]
-struct Ghost;
-
 /// The information panel's state (`info`, spec `ui/info-panel.md`).
 #[derive(Resource, Default)]
 struct InfoPanel {
@@ -342,10 +339,6 @@ struct Art {
     shapes: fog::Shapes,
 }
 
-/// The layer showing the map view's picture (`view::draw`) over the terrain.
-#[derive(Component)]
-struct ViewLayer;
-
 /// The map view's zoom in map pixels per screen pixel (`display`): 1, as the original, unless `--free-zoom`.
 #[derive(Resource)]
 struct MapZoom {
@@ -406,9 +399,6 @@ fn end_view_frame(view: Option<ResMut<GameView>>) {
         v.end_frame();
     }
 }
-
-#[derive(Component)]
-struct HudLayer;
 
 fn main() -> Result<()> {
     let mut args = Args::parse();
@@ -741,15 +731,7 @@ fn run_transitions(world: &mut bevy::prelude::World) {
     for &hook in states::on_exit(t.exited) {
         run(world, hook);
     }
-    let mut owned = world.query::<(Entity, &frontend::OwnedBy)>();
-    let gone: Vec<Entity> = owned
-        .iter(world)
-        .filter(|(_, o)| o.0 == t.exited)
-        .map(|(e, _)| e)
-        .collect();
-    for e in gone.into_iter().rev() {
-        world.despawn(e);
-    }
+    shell::remove_layers_now(world, |e| e.owner == Some(t.exited));
     world.resource_mut::<shell::CoreAudio>().stop_screen(t.exited);
     for &hook in states::on_enter(t.entered) {
         run(world, hook);
@@ -1025,9 +1007,6 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
     Ok(())
 }
 
-/// The game screen's entities: everything drawn or heard that isn't the front end's.
-type GameEntities<'w, 's> = Query<'w, 's, Entity, (Or<(With<ScreenLayer>, With<Camera>)>, Without<frontend::Persist>)>;
-
 /// The game clock stops when the game ends (`savegame::GameClock`).
 fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<Held<savegame::GameClock>>>, time: Res<CoreTime>) {
     if let (Some(sim), Some(mut clock)) = (sim, clock)
@@ -1037,11 +1016,9 @@ fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<Held<savegame::GameClo
     }
 }
 
-/// Leaving the game screen: its entities go (not the front end's camera, pictures or music) and so does the game.
-fn end_game(mut commands: Commands, q: GameEntities, mut audio: ResMut<shell::CoreAudio>) {
-    for e in &q {
-        commands.entity(e).despawn();
-    }
+/// Leaving the game screen: its layers go (not the flow's) and so does the game.
+fn end_game(mut commands: Commands, mut audio: ResMut<shell::CoreAudio>) {
+    shell::remove_layers(&mut commands, |e| e.role.of_game());
     audio.stop_group(audio::Group::Effect);
     commands.remove_resource::<Sim>();
     commands.remove_resource::<GameView>();
@@ -1084,26 +1061,33 @@ fn setup(
     };
     let image = pictures.add(blank());
     hud.image = Some(image);
-    commands.spawn((
-        ScreenLayer(layers::Layer::new(image, layers::Plane::Interface, 0.0)),
-        HudLayer,
-    ));
+    shell::add_layer(
+        &mut commands,
+        layers::Layer::new(image, layers::Plane::Interface, 0.0),
+        Role::Hud,
+        None,
+    );
     // `hud_layout` puts the view on the screen and sets its zoom.
     commands.insert_resource(GameView(mapview::MapView::new((look.x, look.y))));
     // Kept on the CPU side too, so tiles that change in play can be redrawn.
     let terrain = pictures.add(scene.terrain);
-    commands.spawn(ScreenLayer(
+    shell::add_layer(
+        &mut commands,
         layers::Layer::new(terrain, layers::Plane::Map, 0.0).at(size.0.x / 2.0, size.0.y / 2.0),
-    ));
+        Role::Terrain,
+        None,
+    );
     commands.insert_resource(TerrainArt {
         image: terrain,
         tileset: scene.tileset,
     });
     // The map view's picture, redrawn every frame for the part of the map in view (`draw_view`).
-    commands.spawn((
-        ScreenLayer(layers::Layer::new(pictures.add(blank()), layers::Plane::Map, VIEW_Z)),
-        ViewLayer,
-    ));
+    shell::add_layer(
+        &mut commands,
+        layers::Layer::new(pictures.add(blank()), layers::Plane::Map, VIEW_Z),
+        Role::View,
+        None,
+    );
     // A selection made at the start (`--demo-select`) becomes the synced selection on the first cycle.
     let pending = if sel.units.is_empty() {
         Vec::new()
@@ -1128,7 +1112,7 @@ fn setup(
     });
     let mut ghost = layers::Layer::new(pictures.add(blank()), layers::Plane::Map, 0.0);
     ghost.visible = false;
-    commands.spawn((ScreenLayer(ghost), Ghost));
+    shell::add_layer(&mut commands, ghost, Role::Ghost, None);
 }
 
 /// The fixed timestep for the game speed (timing spec): Enhanced rules use the speed's cycle time, Classic rules the
@@ -1367,12 +1351,12 @@ fn draw_view(
     input: Res<PlayerInput>,
     view: Option<Res<GameView>>,
     mut pictures: ResMut<ScreenPictures>,
-    mut shown: Query<&mut ScreenLayer, With<ViewLayer>>,
+    mut layers: ResMut<ScreenLayers>,
 ) {
     let (Some(mut sim), Some(art), Some(view)) = (sim, art, view) else {
         return;
     };
-    let Ok(mut layer) = shown.single_mut() else {
+    let Some(layer) = layers.get_mut(Role::View) else {
         return;
     };
     let v = &sim.world.vision;
@@ -1398,7 +1382,7 @@ fn draw_view(
     }
     view::draw(&mut canvas, &frame, &art.view, &art.shapes);
     let rgba = canvas.rgba(&art.palette);
-    show_picture(&mut pictures, &mut layer, canvas.width, canvas.height, rgba);
+    show_picture(&mut pictures, layer, canvas.width, canvas.height, rgba);
     layer.at = (
         l as f32 + canvas.width.max(1) as f32 / 2.0,
         t as f32 + canvas.height.max(1) as f32 / 2.0,
@@ -1422,9 +1406,9 @@ fn draw_placement(
     sel: Res<Selection>,
     hud: Res<Hud>,
     input: Res<PlayerInput>,
-    mut ghost: Query<&mut ScreenLayer, With<Ghost>>,
+    mut layers: ResMut<ScreenLayers>,
 ) {
-    let Ok(mut layer) = ghost.single_mut() else {
+    let Some(layer) = layers.get_mut(Role::Ghost) else {
         return;
     };
     let (Some(sim), Some(art)) = (sim, art) else { return };
@@ -1445,7 +1429,7 @@ fn draw_placement(
     let base = view::base_of(&sim.world, sim.human);
     let pic = view::placement_image(art.view.units.get(&kind), base, size, &bad);
     let rgba = pic.rgba(&art.palette);
-    show_picture(&mut pictures, &mut layer, pic.width, pic.height, rgba);
+    show_picture(&mut pictures, layer, pic.width, pic.height, rgba);
     layer.at = (
         (site.0 * TILE_PX) as f32 + pic.width as f32 / 2.0,
         (site.1 * TILE_PX) as f32 + pic.height as f32 / 2.0,
@@ -1498,9 +1482,9 @@ fn hud_layout(
     mut hud: ResMut<Hud>,
     zoom: Res<MapZoom>,
     view: Option<ResMut<GameView>>,
-    sprite: Query<(), With<HudLayer>>,
+    layers: Res<ScreenLayers>,
 ) {
-    let (Some(_), Some(mut view), Ok(())) = (input.window, view, sprite.single()) else {
+    let (Some(_), Some(mut view), true) = (input.window, view, layers.has(Role::Hud)) else {
         return;
     };
     let layout = match hud.layout {

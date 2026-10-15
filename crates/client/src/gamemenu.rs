@@ -37,10 +37,11 @@ use bevy::prelude::*;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{self, AppState, AppStates, Flow, Front, FrontScreen, OwnedBy, Persist, in_screen};
+use crate::frontend::{self, AppState, AppStates, Flow, Front, FrontScreen, in_screen};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Input, Key, LogCursor};
 use crate::layers::PictureId;
+use crate::layers::Role;
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
 use crate::prefs::{self, Prefs, bit};
@@ -49,7 +50,7 @@ use crate::savefile;
 use crate::savegame;
 use crate::saves::{self, SaveDir};
 use crate::shell::Store;
-use crate::shell::{PlayerInput, ScreenLayer, ScreenPictures};
+use crate::shell::{PlayerInput, ScreenPictures, add_layer, remove_layers, remove_layers_now};
 use crate::{PanelUi, ScreenUi, Sim, Speaker};
 
 /// The stored settings in force.
@@ -85,9 +86,6 @@ pub struct GameMenu {
     /// Opened from the victory dialog's Save.
     from_outcome: bool,
 }
-
-#[derive(Component)]
-struct MenuLayer;
 
 /// The save dialog's input for this frame, collected by [`gather_saving_input`].
 #[derive(Resource, Default)]
@@ -714,12 +712,12 @@ fn open_menu(
     let mut nav = Nav::default();
     nav.open(screen);
     let image = pictures.add(frontend::blank());
-    commands.spawn((
-        ScreenLayer(crate::layers::Layer::new(image, crate::layers::Plane::Flow, 2.0)),
-        Persist,
-        OwnedBy(AppState::Game),
-        MenuLayer,
-    ));
+    add_layer(
+        commands,
+        crate::layers::Layer::new(image, crate::layers::Plane::Flow, 2.0),
+        Role::Menu,
+        Some(AppState::Game),
+    );
     let mut m = GameMenu {
         nav,
         image,
@@ -818,10 +816,8 @@ pub(crate) fn close_on_exit(mut commands: Commands) {
     commands.remove_resource::<GameMenu>();
 }
 
-fn close(commands: &mut Commands, layer: &Query<Entity, With<MenuLayer>>) {
-    for e in layer {
-        commands.entity(e).despawn();
-    }
+fn close(commands: &mut Commands) {
+    remove_layers(commands, |e| e.role == Role::Menu);
     commands.remove_resource::<GameMenu>();
 }
 
@@ -838,7 +834,6 @@ fn run_menu(
     mut flow: ResMut<Flow>,
     mut pictures: ResMut<ScreenPictures>,
     cam: Res<FrontScreen>,
-    layer: Query<Entity, With<MenuLayer>>,
     folder: Res<Store>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -957,7 +952,7 @@ fn run_menu(
         }
         Act::CloseAll => {
             m.nav.close();
-            close(&mut commands, &layer);
+            close(&mut commands);
         }
         Act::Back | Act::Cancel => {
             if act == Act::Cancel {
@@ -965,7 +960,7 @@ fn run_menu(
                 stored.0 = m.snapshot.clone();
             }
             if m.nav.back() {
-                close(&mut commands, &layer);
+                close(&mut commands);
             } else {
                 enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.folder());
             }
@@ -983,11 +978,11 @@ fn run_menu(
             }
             stored.0 = m.draft.clone();
             m.nav.close();
-            close(&mut commands, &layer);
+            close(&mut commands);
         }
         Act::Do(c) => {
             m.nav.close();
-            close(&mut commands, &layer);
+            close(&mut commands);
             match c {
                 Confirm::Restart => frontend::restart(&mut flow),
                 Confirm::Surrender | Confirm::QuitDraw => {
@@ -1049,7 +1044,6 @@ fn run_saving(
     mut pictures: ResMut<ScreenPictures>,
     folder: Res<Store>,
     sim: Res<Sim>,
-    layer: Query<Entity, With<MenuLayer>>,
 ) {
     let Screen::Saving(_) = m.screen() else { return };
     let Some(ui) = m.save.as_mut() else { return };
@@ -1069,7 +1063,7 @@ fn run_saving(
         saves::Step::Nothing => {}
         saves::Step::Close => {
             if m.nav.back() {
-                close(&mut commands, &layer);
+                close(&mut commands);
                 return;
             }
         }
@@ -1123,10 +1117,7 @@ fn service_saving(world: &mut World) {
 }
 
 fn remove_menu(world: &mut World) {
-    let layers: Vec<Entity> = world.query_filtered::<Entity, With<MenuLayer>>().iter(world).collect();
-    for e in layers {
-        world.despawn(e);
-    }
+    remove_layers_now(world, |e| e.role == Role::Menu);
     world.remove_resource::<GameMenu>();
 }
 

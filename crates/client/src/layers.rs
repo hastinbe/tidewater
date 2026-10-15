@@ -11,10 +11,15 @@
 //! | [`Plane::Flow`] | Its centre this far from the screen's centre (y down), at its size, with its grey tint |
 //!
 //! Within a plane the layers go back to front by `z`, and in the order they were made where `z` is equal.
+//!
+//! The layers themselves are in a [`Stack`] (migration step 9): each with its [`Role`], which says what finds it
+//! again (the map view's picture, the game menu, a flow screen's background), the flow screen that owns it (it goes
+//! when that screen is left) and its [`Fade`]. A layer's picture goes with it.
 
 use std::collections::HashMap;
 
 use crate::scene::Picture;
+use crate::states::AppState;
 
 /// A picture in [`Pictures`]. Ids are never used again, so a stale one finds nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -116,9 +121,136 @@ impl Layer {
     }
 }
 
+/// What a layer is, for the code that finds it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    /// A flow screen's layer (`frontend`): 0 the background, 1 what is drawn over it. The flow's fades act on these.
+    Flow(u8),
+    /// The game menu's dialog (`gamemenu`).
+    Menu,
+    /// The game screen's layers: the interface picture, the terrain, the map view's picture and the placement image.
+    Hud,
+    Terrain,
+    View,
+    Ghost,
+}
+
+impl Role {
+    /// The game screen's own layers, which go when a game ends; the flow's outlive it.
+    pub fn of_game(self) -> bool {
+        matches!(self, Role::Hud | Role::Terrain | Role::View | Role::Ghost)
+    }
+}
+
+/// A brightness ramp on a layer: its tint goes from `from` to `to` over `ms`, starting at `at` (the flow screen's
+/// clock, in ms).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fade {
+    pub from: f32,
+    pub to: f32,
+    pub at: f64,
+    pub ms: f64,
+}
+
+impl Fade {
+    /// The tint at `clock`.
+    pub fn tint(&self, clock: f64) -> f32 {
+        let k = ((clock - self.at) / self.ms.max(1.0)).clamp(0.0, 1.0) as f32;
+        self.from + (self.to - self.from) * k
+    }
+}
+
+/// A layer on the screen, with what it is and who owns it.
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub layer: Layer,
+    pub role: Role,
+    /// The flow screen it belongs to: it goes when the screen is left (`states`, a change's step 3).
+    pub owner: Option<AppState>,
+    pub fade: Option<Fade>,
+}
+
+/// The screen's layers, in the order they were made.
+#[derive(Default)]
+pub struct Stack {
+    entries: Vec<Entry>,
+}
+
+impl Stack {
+    pub fn add(&mut self, layer: Layer, role: Role, owner: Option<AppState>) {
+        self.entries.push(Entry {
+            layer,
+            role,
+            owner,
+            fade: None,
+        });
+    }
+
+    /// The layers, in the order they were made.
+    pub fn iter(&self) -> impl Iterator<Item = &Entry> {
+        self.entries.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
+        self.entries.iter_mut()
+    }
+
+    /// The first layer with `role`.
+    pub fn get_mut(&mut self, role: Role) -> Option<&mut Layer> {
+        self.entries.iter_mut().find(|e| e.role == role).map(|e| &mut e.layer)
+    }
+
+    pub fn has(&self, role: Role) -> bool {
+        self.entries.iter().any(|e| e.role == role)
+    }
+
+    /// Removes the layers `gone` picks, and their pictures.
+    pub fn remove(&mut self, pictures: &mut Pictures, gone: impl Fn(&Entry) -> bool) {
+        self.entries.retain(|e| {
+            let go = gone(e);
+            if go {
+                pictures.remove(e.layer.picture);
+            }
+            !go
+        });
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_removed_layer_takes_its_picture() {
+        let mut pictures = Pictures::default();
+        let mut stack = Stack::default();
+        let a = pictures.add(pic(1, 1));
+        let b = pictures.add(pic(1, 1));
+        stack.add(Layer::new(a, Plane::Flow, 0.0), Role::Flow(0), Some(AppState::Title));
+        stack.add(Layer::new(b, Plane::Map, 0.0), Role::View, None);
+        stack.remove(&mut pictures, |e| e.role.of_game());
+        assert_eq!(stack.len(), 1);
+        assert!(pictures.get(b).is_none() && pictures.get(a).is_some());
+        assert!(stack.has(Role::Flow(0)) && !stack.has(Role::View));
+    }
+
+    #[test]
+    fn a_fade_runs_from_its_start_over_its_length() {
+        let f = Fade {
+            from: 0.0,
+            to: 1.0,
+            at: 100.0,
+            ms: 200.0,
+        };
+        assert_eq!(f.tint(50.0), 0.0);
+        assert_eq!(f.tint(200.0), 0.5);
+        assert_eq!(f.tint(400.0), 1.0);
+    }
 
     fn pic(w: u32, h: u32) -> Picture {
         Picture {

@@ -2,9 +2,8 @@
 //! window's whole-number scale with black around it (`display::Letterbox`). This is the first step of the
 //! engine-neutral client core (`docs/design/client-core.md`): Bevy no longer stacks the screen's layers itself.
 //!
-//! The layers are the core's (`layers`, step 3 of the design): each is a picture in [`ScreenPictures`] and a
-//! [`ScreenLayer`] on an entity that says where it goes, and [`compose_screen`] puts them on the screen in order. The
-//! entities stay only so that the flow's states can still remove a screen's layers with it (until step 6). The map
+//! The layers are the core's (`layers`, steps 3 and 9 of the design): each is a picture in [`ScreenPictures`] and a
+//! layer in [`ScreenLayers`] that says where it goes, and [`compose_screen`] puts them on the screen in order. The map
 //! view's place, centre and zoom are the core's too (`mapview`, step 2); Bevy's only camera shows the finished screen.
 //!
 //! | Order | Plane (`layers::Plane`) | Layers | Placed |
@@ -22,10 +21,8 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
-use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::message::MessageUpdateSystems;
 use bevy::ecs::system::SystemParam;
-use bevy::ecs::world::DeferredWorld;
 use bevy::input::keyboard::{KeyboardFocusLost, KeyboardInput};
 use bevy::input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -33,10 +30,10 @@ use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::clock::FrameClock;
 use crate::compose::{self, Clip, Frame, Placed};
-use crate::frontend::{AppState, AppStates, Front, FrontScreen, LockedPointer, OutcomeDialog, Persist};
+use crate::frontend::{AppState, AppStates, Front, FrontScreen, LockedPointer, OutcomeDialog};
 use crate::gamemenu::GameMenu;
 use crate::input::{Button, Input, Key, KeyEvent, Wheel};
-use crate::layers::{Layer, PictureId, Pictures, Plane};
+use crate::layers::{Entry, Layer, PictureId, Pictures, Plane, Role, Stack};
 use crate::{GameView, Hud};
 
 /// The storage the shell gives the core (`storage`, migration step 8): the installation, saves, settings, screenshots
@@ -97,6 +94,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(PreUpdate, begin_input_frame.in_set(ReadInput))
         .add_systems(PreUpdate, set_pointer.after(ReadInput))
         .init_resource::<ScreenPictures>()
+        .init_resource::<ScreenLayers>()
         .add_systems(Startup, spawn_screen)
         .add_systems(Last, (compose_screen, show_screen).chain().in_set(ComposeScreen));
 }
@@ -171,7 +169,7 @@ pub fn play_core_audio(app: &mut App) {
 
 fn start_stream(mut commands: Commands, audio: Res<CoreAudio>, mut streams: ResMut<Assets<CoreStream>>) {
     let h = streams.add(CoreStream(audio.output()));
-    commands.spawn((AudioPlayer(h), PlaybackSettings::ONCE, Persist));
+    commands.spawn((AudioPlayer(h), PlaybackSettings::ONCE));
 }
 
 fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -195,13 +193,11 @@ fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         },
         RenderLayers::layer(SCREEN_LAYER),
         ScreenCamera,
-        Persist,
     ));
     commands.spawn((
         Sprite::from_image(image.clone()),
         RenderLayers::layer(SCREEN_LAYER),
         ScreenSprite,
-        Persist,
     ));
     commands.insert_resource(Screen {
         image,
@@ -213,25 +209,33 @@ fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct ScreenPictures(pub Pictures);
 
-/// A layer of the screen (`layers::Layer`); its picture goes when the layer does.
-#[derive(Component, Deref, DerefMut)]
-#[component(on_remove = free_picture)]
-pub struct ScreenLayer(pub Layer);
+/// The screen's layers (`layers::Stack`).
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct ScreenLayers(pub Stack);
 
-fn free_picture(mut world: DeferredWorld, ctx: HookContext) {
-    let Some(id) = world.get::<ScreenLayer>(ctx.entity).map(|l| l.picture) else {
-        return;
-    };
-    if let Some(mut pictures) = world.get_resource_mut::<ScreenPictures>() {
-        pictures.remove(id);
-    }
+/// Adds a layer when the commands take effect.
+pub fn add_layer(commands: &mut Commands, layer: Layer, role: Role, owner: Option<AppState>) {
+    commands.queue(move |w: &mut World| w.resource_mut::<ScreenLayers>().add(layer, role, owner));
+}
+
+/// Removes the layers `gone` picks, and their pictures, when the commands take effect.
+pub fn remove_layers(commands: &mut Commands, gone: impl Fn(&Entry) -> bool + Send + 'static) {
+    commands.queue(move |w: &mut World| remove_layers_now(w, gone));
+}
+
+/// Removes the layers `gone` picks, and their pictures.
+pub fn remove_layers_now(world: &mut World, gone: impl Fn(&Entry) -> bool) {
+    world.resource_scope(|world, mut layers: Mut<ScreenLayers>| {
+        layers.remove(&mut world.resource_mut::<ScreenPictures>(), gone);
+    });
 }
 
 /// A layer to compose: its picture and its place on the screen.
 struct Placing {
     picture: PictureId,
     z: f32,
-    entity: Entity,
+    /// Its place in the order the layers were made.
+    made: usize,
     origin: (f64, f64),
     scale: (f64, f64),
     clip: Clip,
@@ -248,7 +252,7 @@ fn compose_screen(
     hud: Option<Res<Hud>>,
     map_view: Option<Res<GameView>>,
     front_screen: Res<FrontScreen>,
-    layers: Query<(Entity, &ScreenLayer)>,
+    layers: Res<ScreenLayers>,
 ) {
     let Ok((_, mut cursor)) = windows.single_mut() else {
         return;
@@ -271,7 +275,7 @@ fn compose_screen(
         }
         _ => None,
     };
-    for (entity, l) in &layers {
+    for (made, l) in layers.iter().map(|e| &e.layer).enumerate() {
         if !l.visible {
             continue;
         }
@@ -281,7 +285,7 @@ fn compose_screen(
         let mut layer = Placing {
             picture: l.picture,
             z: l.z,
-            entity,
+            made,
             origin: (0.0, 0.0),
             scale: (1.0, 1.0),
             clip: Clip::SCREEN,
@@ -316,7 +320,7 @@ fn compose_screen(
             }
         }
     }
-    let by_z = |a: &Placing, b: &Placing| a.z.total_cmp(&b.z).then(a.entity.cmp(&b.entity));
+    let by_z = |a: &Placing, b: &Placing| a.z.total_cmp(&b.z).then(a.made.cmp(&b.made));
     map.sort_by(by_z);
     interface.sort_by(by_z);
     front.sort_by(by_z);

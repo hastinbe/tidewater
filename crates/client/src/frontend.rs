@@ -35,12 +35,12 @@ use crate::clock::FrameClock;
 use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
 use crate::jukebox::Jukebox;
-use crate::layers::{Layer as ScreenPlace, PictureId, Plane};
+use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Plane, Role};
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
-use crate::shell::{CoreAudio, CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
+use crate::shell::{CoreAudio, CoreTime, PlayerInput, ScreenLayers, ScreenPictures, add_layer, remove_layers};
 use crate::states::Machine;
 use crate::video;
 
@@ -52,10 +52,6 @@ pub use crate::states::AppState;
 /// The flow's state machine (`states`): the screen that shows and the change asked for.
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct AppStates(pub Machine);
-
-/// A layer or sound that belongs to a screen and goes when the screen is left (`states`, a change's step 3).
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OwnedBy(pub AppState);
 
 /// A run condition: `state` shows.
 pub fn in_screen(state: AppState) -> impl FnMut(Res<AppStates>) -> bool + Clone {
@@ -458,10 +454,6 @@ pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Ste
 // ---------------------------------------------------------------------------------------------------------------
 // Bevy wiring
 
-/// Entities that outlive the game screen (the front camera, the music).
-#[derive(Component)]
-pub struct Persist;
-
 /// The flow's screen (`docs/design/client-core.md`, step 2): whether its layers cover what is under them (outside a
 /// game, and over a game only where they are drawn), and whether the pointer can be read on it yet. The pointer is
 /// read from the end of the program's first frame on, as when a camera gave it.
@@ -485,10 +477,6 @@ fn front_screen_ready(mut screen: ResMut<FrontScreen>) {
         screen.ready = true;
     }
 }
-
-/// A front-end picture layer: 0 the background, 1 the overlay drawn over it.
-#[derive(Component)]
-struct Layer(u8);
 
 /// The victory or defeat dialog over a finished game.
 #[derive(Resource)]
@@ -595,7 +583,7 @@ fn spawn_layer(
     let id = pictures.add(p);
     let mut place = ScreenPlace::new(id, Plane::Flow, layer as f32);
     place.size = size.map(|s| (s.x, s.y));
-    commands.spawn((ScreenLayer(place), Layer(layer), Persist, OwnedBy(state)));
+    add_layer(commands, place, Role::Flow(layer), Some(state));
     id
 }
 
@@ -687,15 +675,6 @@ fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
 // ---------------------------------------------------------------------------------------------------------------
 // Fades
 
-/// A brightness ramp on a layer: from `from` to `to` over `ms`, starting at `at` (screen time).
-#[derive(Component, Clone, Copy)]
-struct Fade {
-    from: f32,
-    to: f32,
-    at: f64,
-    ms: f64,
-}
-
 /// Screen time in ms since the screen opened (real time, as the fades' lengths are).
 #[derive(Resource, Default)]
 struct Clock(f64);
@@ -709,55 +688,56 @@ fn real_ms(time: &FrameClock) -> f64 {
     time.elapsed_secs_f64() * 1000.0
 }
 
-fn apply_fades(time: Res<CoreTime>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut ScreenLayer)>) {
+fn apply_fades(time: Res<CoreTime>, clock: Option<ResMut<Clock>>, mut layers: ResMut<ScreenLayers>) {
     let Some(mut clock) = clock else { return };
     clock.0 += time.delta_secs_f64() * 1000.0;
-    for (f, mut l) in &mut q {
-        let k = ((clock.0 - f.at) / f.ms.max(1.0)).clamp(0.0, 1.0) as f32;
-        l.tint = f.from + (f.to - f.from) * k;
-    }
-}
-
-/// A fade-in over `ms` of every layer of the screen being opened (its layers are spawned by the same commands).
-fn fade_in_new_screen(commands: &mut Commands, ms: u32) {
-    commands.queue(move |w: &mut World| {
-        let mut q = w.query::<(Entity, &Layer)>();
-        let es: Vec<Entity> = q.iter(w).map(|(e, _)| e).collect();
-        for e in es {
-            w.entity_mut(e).insert(Fade {
-                from: 0.0,
-                to: 1.0,
-                at: 0.0,
-                ms: ms as f64,
-            });
+    for e in layers.iter_mut() {
+        if let Some(f) = e.fade {
+            e.layer.tint = f.tint(clock.0);
         }
-    });
-}
-
-/// A fade-out over `ms` of every layer, starting at `at`; returns when it ends.
-fn fade_out_all(commands: &mut Commands, q: &Query<(Entity, &Layer)>, at: f64, ms: u32) -> f64 {
-    for (e, _) in q {
-        commands.entity(e).insert(Fade {
-            from: 1.0,
-            to: 0.0,
-            at,
-            ms: ms as f64,
-        });
     }
-    at + ms as f64
 }
 
-fn fade_layer(commands: &mut Commands, q: &Query<(Entity, &Layer)>, layer: u8, from: f32, to: f32, at: f64, ms: u32) {
-    for (e, l) in q {
-        if l.0 == layer {
-            commands.entity(e).insert(Fade {
+/// A fade-in over `ms` of every flow layer there is when the commands take effect: the screen being opened (its
+/// layers are added by the same commands).
+fn fade_in_new_screen(commands: &mut Commands, ms: u32) {
+    set_fades(commands, None, 0.0, 1.0, 0.0, ms);
+}
+
+/// The flow layers on the screen now, or only those of `layer`.
+fn flow_layers(layers: &ScreenLayers, layer: Option<u8>) -> Vec<PictureId> {
+    layers
+        .iter()
+        .filter(|e| matches!(e.role, Role::Flow(n) if layer.is_none_or(|l| l == n)))
+        .map(|e| e.layer.picture)
+        .collect()
+}
+
+/// Gives a fade to the layers `which` names (all the flow layers there are then, if `None`) when the commands take
+/// effect.
+fn set_fades(commands: &mut Commands, which: Option<Vec<PictureId>>, from: f32, to: f32, at: f64, ms: u32) {
+    commands.queue(move |w: &mut World| {
+        let mut layers = w.resource_mut::<ScreenLayers>();
+        let which = which.unwrap_or_else(|| flow_layers(&layers, None));
+        for e in layers.iter_mut().filter(|e| which.contains(&e.layer.picture)) {
+            e.fade = Some(Fade {
                 from,
                 to,
                 at,
                 ms: ms as f64,
             });
         }
-    }
+    });
+}
+
+/// A fade-out over `ms` of every flow layer, starting at `at`; returns when it ends.
+fn fade_out_all(commands: &mut Commands, layers: &ScreenLayers, at: f64, ms: u32) -> f64 {
+    set_fades(commands, Some(flow_layers(layers, None)), 1.0, 0.0, at, ms);
+    at + ms as f64
+}
+
+fn fade_layer(commands: &mut Commands, layers: &ScreenLayers, layer: u8, from: f32, to: f32, at: f64, ms: u32) {
+    set_fades(commands, Some(flow_layers(layers, Some(layer))), from, to, at, ms);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -952,7 +932,7 @@ fn run_title(
     clock: Res<Clock>,
     mut menu_timer: ResMut<MenuClock>,
     mut title: ResMut<TitleScreen>,
-    layers: Query<(Entity, &Layer)>,
+    layers: Res<ScreenLayers>,
     mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
@@ -998,7 +978,6 @@ enum MenuPick {
 struct MenuLoad {
     ui: SaveUi,
     image: PictureId,
-    layer: Entity,
 }
 
 fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
@@ -1099,7 +1078,7 @@ fn run_menu(
     mut commands: Commands,
     mut menu: ResMut<Menu>,
     clock: Res<Clock>,
-    layers: Query<(Entity, &Layer)>,
+    layers: Res<ScreenLayers>,
     front: Res<Front>,
     folder: Res<crate::shell::Store>,
     mut pictures: ResMut<ScreenPictures>,
@@ -1151,15 +1130,13 @@ fn run_menu(
             let ui = SaveUi::new(saves::Dialog::open(saves::Mode::Load, entries, saves::FORBIDDEN));
             let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
             let image = pictures.add(pic);
-            let layer = commands
-                .spawn((
-                    ScreenLayer(ScreenPlace::new(image, Plane::Flow, 1.0)),
-                    Layer(1),
-                    Persist,
-                    OwnedBy(AppState::MainMenu),
-                ))
-                .id();
-            commands.insert_resource(MenuLoad { ui, image, layer });
+            add_layer(
+                &mut commands,
+                ScreenPlace::new(image, Plane::Flow, 1.0),
+                Role::Flow(1),
+                Some(AppState::MainMenu),
+            );
+            commands.insert_resource(MenuLoad { ui, image });
         }
         Some(_) => close(&mut commands, &mut menu, MenuPick::Quit),
         None => {}
@@ -1174,7 +1151,7 @@ fn run_menu_load(
     mut load: ResMut<MenuLoad>,
     mut menu: ResMut<Menu>,
     clock: Res<Clock>,
-    layers: Query<(Entity, &Layer)>,
+    layers: Res<ScreenLayers>,
     front: Res<Front>,
     mut pictures: ResMut<ScreenPictures>,
     mut cursors: Local<(LogCursor, LogCursor)>,
@@ -1190,7 +1167,8 @@ fn run_menu_load(
     let mut redraw = before != snap(&load.ui);
     match step {
         saves::Step::Close => {
-            commands.entity(load.layer).despawn();
+            let image = load.image;
+            remove_layers(&mut commands, move |e| e.layer.picture == image);
             commands.remove_resource::<MenuLoad>();
             return;
         }
@@ -1311,18 +1289,7 @@ pub(crate) fn enter_act(
         run: cf::ActRun::default(),
     });
     // Black until the first tick fades the text in.
-    commands.queue(|w: &mut World| {
-        let mut q = w.query::<(Entity, &Layer)>();
-        let es: Vec<Entity> = q.iter(w).map(|(e, _)| e).collect();
-        for e in es {
-            w.entity_mut(e).insert(Fade {
-                from: 0.0,
-                to: 0.0,
-                at: 0.0,
-                ms: 1.0,
-            });
-        }
-    });
+    set_fades(&mut commands, None, 0.0, 0.0, 0.0, 1);
 }
 
 /// The act screen on the menu timer (`campaign::ActRun`): its fades, the act sound when the picture's fade ends, and
@@ -1335,7 +1302,7 @@ fn run_act(
     clock: Res<Clock>,
     mut menu_timer: ResMut<MenuClock>,
     mut act: ResMut<ActScreen>,
-    layers: Query<(Entity, &Layer)>,
+    layers: Res<ScreenLayers>,
     mut music: ResMut<Jukebox>,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
@@ -1956,7 +1923,7 @@ fn run_scroller(
     mut music: ResMut<Jukebox>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
-    layers: Query<(Entity, &Layer)>,
+    layers: Res<ScreenLayers>,
     input: Res<PlayerInput>,
 ) {
     let keys = &input.keys;
