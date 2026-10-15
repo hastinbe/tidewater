@@ -61,4 +61,10 @@ frames	619-620	bfb365cd2df24cda
 frames	621-621	156ed4086987e325
 frames	622-622	12f40f90d8c0df24
 shot	652	menu-loaded	b1e58710bb12af48
-frames	623-652	b1e58710bb12af48
+frames	623-653	b1e58710bb12af48
+shot	655	printed	c389ae0fb9950a40
+frames	654-656	c389ae0fb9950a40
+shot	661	flash-over	b1e58710bb12af48
+frames	657-661	b1e58710bb12af48
+file	one.sav	735f11b727f44599
+file	screen000.pcx	246c73532bd7c350

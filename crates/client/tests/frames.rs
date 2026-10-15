@@ -5,8 +5,9 @@
 //!
 //! **What is hashed.** Each frame is the whole 640 × 480 screen as the window would show it, composed on the CPU from
 //! the client's layers (`src/frame.rs`); a line covers a run of frames with the same fingerprint. A sound line gives
-//! the frame it starts on, a fingerprint of the sound's bytes, its loudness and its playback mode. The files hold
-//! fingerprints only.
+//! the frame it starts on, a fingerprint of the sound's bytes, its loudness and its playback mode. A file line gives
+//! the fingerprint of a file the run wrote (its saved games and screenshots), so saves stay byte for byte the same.
+//! The files hold fingerprints only.
 //!
 //! **The mixed sound.** The core mixes every frame's share of the sound (`src/audio.rs`: 22,050 Hz stereo 16-bit,
 //! 367 or 368 sample frames a frame); `tests/snapshots/{scene}-audio.txt` holds a fingerprint per second of it, equal

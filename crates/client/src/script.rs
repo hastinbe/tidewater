@@ -363,7 +363,8 @@ fn ending() -> Vec<Cmd> {
     v
 }
 
-/// A game saved and loaded again from the game menu's load dialog, then quit to the main menu and loaded from there.
+/// A game saved and loaded again from the game menu's load dialog, then quit to the main menu and loaded from there;
+/// then a screenshot (Print Screen) and its flash.
 fn load() -> Vec<Cmd> {
     use Cmd::*;
     use Key as K;
@@ -397,6 +398,8 @@ fn load() -> Vec<Cmd> {
     v.extend([Wait(3), Shot("menu-load")]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Wait(30), Shot("menu-loaded")]);
+    v.extend(tap(K::PrintScreen));
+    v.extend([Wait(1), Shot("printed"), Wait(5), Shot("flash-over")]);
     v
 }
 
@@ -721,6 +724,7 @@ fn record(world: &mut World) {
         let rec = world.resource::<Record>();
         let scene = world.resource::<Script>().scene.name;
         let mut text = rec.text(scene);
+        text.push_str(&written_files(&out.dir.join("save")));
         if !finished {
             text.push_str("# the program ended before the scene did\n");
         }
@@ -745,6 +749,25 @@ fn record(world: &mut World) {
 
 #[derive(Resource)]
 struct Finished;
+
+/// A fingerprint line for each file the run wrote to its own folder (saved games, screenshots), by name.
+fn written_files(dir: &std::path::Path) -> String {
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .map(|name| {
+            let bytes = std::fs::read(dir.join(name)).unwrap_or_default();
+            format!("file\t{name}\t{:016x}\n", fnv64(&bytes))
+        })
+        .collect()
+}
 
 /// Compares Bevy's screenshot of a shot's frame with the composed frame, and saves both (and the differing pixels in
 /// white) as pictures in the output folder.
