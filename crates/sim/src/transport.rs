@@ -332,7 +332,8 @@ impl World {
         if walk == Walk::NoPath {
             match how.no_route {
                 NoRoute::LandingStep6 => self.landing_no_route(i),
-                NoRoute::Dock => self.dock(i),
+                // Pushing off, step 5 (round 70, M4): order 32 as an immediate order (still animation, wait 1).
+                NoRoute::Dock => self.immediately(i, Order::Docked),
             }
         }
         walk
@@ -373,8 +374,10 @@ impl World {
             self.take_over(i, o);
             return;
         }
+        // Step 2 (round 70, M4): with no tile found, order 32 is made pending and takes over in the same update (still
+        // animation, wait 3).
         let Some(to) = self.find_push_off(tile, self.units[i].ship.target_tile) else {
-            self.dock(i);
+            self.take_over(i, Order::Docked);
             return;
         };
         let u = &mut self.units[i];
@@ -406,23 +409,14 @@ impl World {
         self.near_shore(i, to, pushing_off);
     }
 
-    fn dock(&mut self, i: usize) {
-        let u = &mut self.units[i];
-        u.order = Order::Docked;
-        u.path.clear();
-        self.switch_anim(i, anim::STILL);
-    }
-
-    /// Order 29 ("Unloading"): every passenger from slot 6 down to slot 1, then order 32 takes over in the same update
-    /// as a pending order does (still animation, wait 3; V27). Off shore water it just becomes order 32, set at once
-    /// (the open question "Unloading off shore water" reads a pending order 32 there too; untraced).
+    /// Order 29 ("Unloading"): on shore water every passenger from slot 6 down to slot 1 is put ashore; off it, none
+    /// is. Either way order 32 then takes over in the same update as a pending order does (still animation, wait 3;
+    /// V27; off shore water round 70, M5, untraced).
     fn unload(&mut self, i: usize) {
-        if !self.shore_water(self.units[i].tile) {
-            self.dock(i);
-            return;
-        }
-        for slot in (0..self.units[i].passengers.len()).rev() {
-            self.unload_one(i, slot);
+        if self.shore_water(self.units[i].tile) {
+            for slot in (0..self.units[i].passengers.len()).rev() {
+                self.unload_one(i, slot);
+            }
         }
         self.take_over(i, Order::Docked);
     }
@@ -1593,7 +1587,9 @@ mod tests {
                 let u = &w.units[i];
                 match case {
                     "done" => assert!(matches!(s.0, Order::Follow { .. } | Order::Move { .. }), "{s:?}"),
-                    "no tile" | "no route" => assert_eq!(s.0, Order::Docked, "{case}"),
+                    // Round 70, M4: no tile docks as a pending order (wait 3), no route as an immediate one (wait 1).
+                    "no tile" => assert_eq!((s.0, s.1, s.2), (Order::Docked, anim::STILL, 3)),
+                    "no route" => assert_eq!((s.0, s.1, s.2, u.pending), (Order::Docked, anim::STILL, 1, None)),
                     "lost target" => assert_eq!((u.pending, u.attacked_by), (Some(Order::Idle), None)),
                     _ => {}
                 }
@@ -1604,11 +1600,11 @@ mod tests {
                 &[
                     16765959437576330595,
                     11085463737746716969,
-                    10225721914103605190,
+                    10784298048555584413,
                     849440101615960998,
                     14606876485362511777,
                     15008620748901578405,
-                    173415372906752325,
+                    3606397284928719507,
                 ],
             );
         }
@@ -1637,14 +1633,16 @@ mod tests {
             }
         }
 
-        /// Coverage (untraced): order 29 off shore water just docks (still animation run at once).
+        /// Round 70, M5 (untraced): order 29 off shore water puts nobody ashore, and order 32 takes over as a pending
+        /// order does (still animation, wait 3).
         #[test]
         fn unloading_off_shore_water_docks() {
             let mut w = sea(20);
             let i = ship(&mut w, (30, 10), Order::Unload);
             w.unload(i);
-            assert_eq!(state(&w, i).0, Order::Docked);
-            pinned(&[w.fingerprint()], &[11611776285060491942]);
+            let s = state(&w, i);
+            assert_eq!((s.0, s.1, s.2), (Order::Docked, anim::STILL, 3));
+            pinned(&[w.fingerprint()], &[2149484891361865914]);
         }
 
         /// The stage table, row by row, for a smart move and the unload command, from open water, shore water and
