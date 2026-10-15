@@ -41,7 +41,8 @@ pub(crate) enum Walk {
 enum Row {
     /// A computer player's unit, a wall tile with bit 0x04, not invisible and no attacker: attack the wall.
     A,
-    /// As A, but invisible or with an attacker: search again.
+    /// As A, but invisible or with an attacker: search again. The rows below aren't tested, so a block at 15 wraps
+    /// the counter to 0 (V37).
     B,
     /// Counter 15: give up.
     C,
@@ -560,8 +561,9 @@ impl World {
             _ => anim::MOVE,
         };
         self.start_anim(i, walking);
+        // A 4-bit count: a block at 15 wraps it to 0. Only rows A and B, tested before row C, let that happen (V37).
         let u = &mut self.units[i];
-        u.blocked = (u.blocked + 1).min(GIVE_UP);
+        u.blocked = (u.blocked + 1) % (GIVE_UP + 1);
         let drop_path = |w: &mut World| w.units[i].path.clear();
         let wait = match self.blocked_row(i, next, blocker, g) {
             Row::A => {
@@ -1494,6 +1496,32 @@ mod tests {
                     17878908885256948603,
                 ],
             );
+        }
+
+        /// V37 (round 72, static study only): the blocked counter is a 4-bit count. A computer unit with an attacker,
+        /// blocked by a bit-0x04 wall tile with its counter at 15, takes row B and wraps the counter to 0 (no row C).
+        /// Blocked next, with no attacker, by an enemy standing still, its counter goes to 1 and row I applies.
+        #[test]
+        fn the_blocked_counter_wraps_after_15_in_row_b() {
+            let mut w = arena();
+            w.terrain.set_bits(5, 3, 0x8d);
+            let f = w.spawn(0, 1, (4, 3), 0).unwrap();
+            let foe = w.spawn(0, 3, (4, 5), 0).unwrap();
+            let i = walking(&mut w, f, (9, 3), (5, 3), 15);
+            w.units[i].attacked_by = Some(foe);
+            assert_eq!(w.move_toward(i, Goal::tile((9, 3), 0)), Walk::Blocked);
+            let order = w.units[i].order;
+            assert_eq!(
+                outcome(&w, i),
+                (order, None, 0, anim::MOVE, 1, 0),
+                "row B wraps the counter"
+            );
+            // Then an enemy standing still on an ordinary tile, and no attacker any more.
+            w.units[i].attacked_by = None;
+            put(&mut w, foe, (4, 4));
+            w.units[i].path = vec![(4, 4)];
+            assert_eq!(w.move_toward(i, Goal::tile((4, 7), 0)), Walk::Blocked);
+            assert_eq!(outcome(&w, i), (order, None, 1, anim::MOVE, 1, 0), "row I, not row C");
         }
 
         /// Rows C to I in order, each reached by one setting: the counter (C at 15, D from 8), a dying or leaving
