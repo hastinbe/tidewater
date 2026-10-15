@@ -1348,7 +1348,13 @@ impl World {
             return;
         }
         let goal = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
-        if self.non_combat(&self.units[i]) {
+        // Transports spec, "What the transport stores" and "Land and shore targets" (round-40 errata; round 70, M7):
+        // every command to a transport records the three things and runs them, once per command (round 71): the
+        // smart move a non-combat transport goes on with works from the tile recorded here.
+        let (goal, target) = self.command_goal(i, target, goal);
+        if self.is_transport(&self.units[i]) {
+            self.smart_stage(i, target, goal);
+        } else if self.non_combat(&self.units[i]) {
             let c = Command::Smart {
                 player: self.units[i].owner,
                 units: vec![self.units[i].id],
@@ -1360,9 +1366,6 @@ impl World {
         if !self.computer_player(self.units[i].owner) {
             self.units[i].remembered = None;
         }
-        // Transports spec, "What the transport stores" and "Land and shore targets" (round-40 errata; round 70, M7):
-        // every command to a transport records the three things and runs them.
-        let (goal, target) = self.command_goal(i, target, goal);
         self.command(i, Order::MoveAttack { goal, target });
     }
 

@@ -193,6 +193,15 @@ impl World {
         self.stage(i, g, target)
     }
 
+    /// The smart-move stage of a command that has already recorded the three things (transports spec, "What the
+    /// transport stores": once per command, round 71): command 4 given to a transport, which as a non-combat unit goes
+    /// on as a smart move ("Commands", command 4), takes the smart move's wait cap and its stage table on the target
+    /// tile `g` the command recorded, without recording again or running the land and shore steps a second time.
+    pub(crate) fn smart_stage(&mut self, i: usize, target: Option<UnitId>, g: (i32, i32)) -> Order {
+        self.cap_smart_wait(i);
+        self.stage(i, g, target)
+    }
+
     /// "What the transport stores" and "Land and shore targets": the target unit, the target tile (the target unit's
     /// tile, or the command's) and the destination, after a land or shore-water target tile has dropped the target
     /// unit and, from open water, been pulled back to shore ([`World::land_and_shore`]). Returns the target tile and
@@ -1847,6 +1856,24 @@ mod tests {
                     assert!(w.shore_water(s.target_tile), "{:?}", s.target_tile);
                 }
             }
+        }
+
+        /// "What the transport stores" (round 71, Q3 and Q4): command 4 to a transport records the three things once.
+        /// Its smart-move stage works from the recorded tile and isn't followed by a second recording, so docking at S
+        /// (the first row of the stage table) leaves the target tile at S, with the destination the command's tile.
+        #[test]
+        fn command_4_records_once() {
+            let mut w = sea(20);
+            let i = ship(&mut w, (21, 10), Order::Docked);
+            let id = w.units[i].id;
+            w.units[i].script.wait = 30;
+            w.command_4(i, None, (15, 10));
+            let u = w.unit(id).unwrap();
+            assert_eq!(
+                (u.ship.target, u.ship.target_tile, u.ship.dest),
+                (None, (21, 10), (15, 10))
+            );
+            assert_eq!(u.script.wait, 10, "the smart move's wait cap");
         }
 
         /// Order 34's runs, each pinned: a lost transport (V33), no route with the destination in the unit's region
