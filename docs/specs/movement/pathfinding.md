@@ -8,6 +8,10 @@
   rule with neither is from the static study. The vectors without a trace come from a small research model of the
   rules below, kept in this repo's scratch area. The erratum rounds each rule came from are listed under "History" at
   the end.
+- **Changes:** 2026-10-15 (round 72, movement audit, `ERRATA-audit-movement.md`): the moving-ally rule's last state
+  mark is identified and its open question closed (S1, static study); a static reading of the goal pull-back for air
+  units (erratum 5) is filed under "Open questions", and step 1 is unchanged. Reviewed by a spec-review session,
+  2026-10-15.
 
 ## Behaviour
 
@@ -104,7 +108,9 @@ when either of these holds:
    through enemies, and the unit fights whatever it meets.
 2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player); it is in
    its move animation (3), **or** it has been given a command whose pending order hasn't taken over yet; its blocked
-   counter is 0; and one further state mark is clear (assumed to be "not inside something"; see "Open questions").
+   counter is 0; and one further state mark is clear. That mark is set only on workers, by a multiplayer network
+   command whose purpose isn't identified, so in single-player play it is always clear (round 72, static study;
+   `movement.md`, "Open questions").
    Then it is ignored. The pending-command mark is set when a command stores a pending order and cleared when that
    order takes over, or when an order is set at once. This applies to the search only: row F of the blocked rules
    (`movement.md`) tests the move animation alone.
@@ -428,8 +434,21 @@ Carried over:
 
 - Whether two-tile movers' start tiles are always even.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
-- **The moving-ally rule's last condition.** A state mark must be clear; what sets it isn't identified, and no
-  trace has shown it set. "Not inside something" is a guess.
+- **Goal pull-back with other air units** (round 72, static study; `ERRATA-audit-movement.md`, erratum 5). Step 1
+  says units are ignored. The static study finds that the usable test ignores ground-layer units only (land units and ships, bit 0x0100), so
+  for an air unit a tile holding another air unit (bit 0x0200) is **not** usable. That changes the stored goal only when air units stand
+  both on the goal and on the first tile tested (the goal minus the line's first step): the goal then becomes that
+  first tile, not the goal. A single air unit on the goal changes nothing (step 4 keeps the goal). The first tile
+  tested is one single-tile step from the goal, so at least one of its coordinates differs in parity from the goal's.
+  If air units always stand on even coordinates (`occupancy.md`; still open in `movement.md`), the two tiles can't both
+  hold an air unit, and the two readings never give different goals. Step 1 governs until a trace decides. Trace
+  request: a flyer told to move to a tile held by one flyer, with a second flyer on the next tile toward it, if a
+  flyer can ever stand on odd coordinates (T13).
+
+Closed in round 72:
+
+- **The moving-ally rule's last condition** (was: a state mark must be clear; "not inside something" was a guess).
+  It is a worker-only mark set by one multiplayer network command; see "Units seen by the search".
 
 Found by the consolidation (static study, 2026-10-14; the rules above are unchanged):
 
@@ -463,3 +482,4 @@ round are kept with the research-side specs.
 | 62 | A smart move with a target unit that becomes the move stores the target's tile without pulling it back (traced for a tanker); the shore build with no corner is traced | "Goal pulled back"; "Shore building"; V50 |
 | 65 | When the line is blocked, the line tiles stop **before** G, which counts only if it is in the goal zone (traced: `xhuman5-30000` n = 26761, a boarding walk aimed at its transport's destination); a walk whose order holds a target unit sets G again from the target, where it stands now, every time it runs, so a command's stored goal and its pull-back last only until the first walk (traced for order 4 on a transport; static study only for other orders and for building targets); the open question on the pull-back with a target unit is closed; the `orc09-repair-600` vector no longer lists G as a line tile (same result); vectors | Step 2; "G for a walk with a target unit"; "Goal pulled back"; V35, V51 to V54 |
 | B-038 (2026-10-14) | Consolidated into one model: "The model" added (the search sequence, one walk goal, three tile tests, one line rule, one pull-back); vectors given IDs, a Source column and topic groups; the round citations moved here; the test-vector note says trace rows name their units. No rule changed | Whole spec |
+| 72 | Movement audit: the moving-ally rule's last state mark identified (open question closed); the air-unit pull-back reading filed as an open question with a trace request, step 1 unchanged | "Units seen by the search"; "Open questions" |

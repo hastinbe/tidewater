@@ -10,6 +10,11 @@
   rounds each rule came from are listed under "History" at the end.
 - **Changes:** 2026-10-15 (round 70, `ERRATA-round70.md`, M8; static study): the open question on row A's order 11
   now records the round-70 restatement and its trace request; row A and V22 are unchanged (spec review).
+- **Changes:** 2026-10-15 (round 72, movement audit, `ERRATA-audit-movement.md`): the blocked counter wraps from 15
+  to 0 on a block that row C doesn't catch (erratum 2, static study only, V37); row F's further state mark is
+  identified and its open question closed (S1, static study); the tanker's arrival in order 28 is traced for an
+  oil patch at odd coordinates (S2, V38), the even case stays open. Errata 1 and 3 restate rules this spec already
+  gives (no change). Reviewed by a spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -37,7 +42,8 @@ pushing off takes its steps and meets blocks the same way; only its goals, step 
 
 **One counter, one table.** The blocked rules use one **blocked counter** per unit. Only three things clear it: a
 command (any command, at the moment it is given), giving up (row C) and a transport pushing off picking a new water
-tile. Every block adds 1, and successful steps don't reset it. The rows of the table are tested in order, and fall
+tile. Every block adds 1 (a 4-bit count, so a block at 15 that row C doesn't catch wraps it to 0), and successful
+steps don't reset it. The rows of the table are tested in order, and fall
 into groups:
 
 | Rows | What they are about |
@@ -157,7 +163,9 @@ because two-tile steps can't always land exactly. When a unit arrives, its cache
 
 ### Blocked rules
 
-Each unit has a **blocked counter**, from 0 to 15.
+Each unit has a **blocked counter**, from 0 to 15. It is a 4-bit count: a block that finds it at 15 wraps it to 0.
+Only rows A and B below can let that happen, since they come before row C, which clears it at 15 for every other
+unit (round 72, static study only; V37).
 
 - It is set to 0 when the unit is given any command (by a player, by a computer player or by its own order logic,
   for every order, including 17, 30 and the spells), at the moment the command is given, even if the unit is in the
@@ -187,11 +195,11 @@ applies.
 | # | Condition (after the counter is increased) | Outcome | Path cache | Next decision |
 | --- | --- | --- | --- | --- |
 | A | The unit's player is a **computer player** (see "Player kinds"), the blocking tile's movement word carries bit 0x04, and the unit is not invisible and has no attacker | Its order becomes **11** (attack a wall tile, `orders/orders.md`) on that tile, as a pending order | replaced by the new order | 1 cycle |
-| B | The unit's player is a computer player, the blocking tile's movement word carries bit 0x04, and the unit is invisible or has an attacker | Keeps its order | dropped | 1 cycle |
+| B | The unit's player is a computer player, the blocking tile's movement word carries bit 0x04, and the unit is invisible or has an attacker | Keeps its order. The rows below aren't checked, so a 16th block here wraps the counter to 0 (V37) | dropped | 1 cycle |
 | C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" (idle as a pending order). Enhanced: a unit that remembers a patrol, or an attack-move more than 1 tile away, with its resume countdown 0, instead starts its still animation with wait 1 and gets the remembered order as its pending order (`orders/orders.md`, "Giving up when blocked"; traced: `xhuman8-25000` n = 11284). Otherwise nothing else changes: the unit keeps the walking animation restarted above (traced: `orc10-10000` n = 3505, `xhuman12-10000` n = 4144) | kept (unused) | 15 cycles (1 when it resumes) |
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
-| F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything. It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
+| F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything (a further state mark on the blocker must also be clear; it is set only on workers, by a multiplayer network command, so in single-player play it is always clear; static study, "Open questions"). It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
 | G | The unit has an attacker, and it is within 1 tile of its goal (the stored goal, after any pull-back) on both axes (land units) or within 2 tiles (sea and air units) | Stops: "stand still" becomes its **pending** order, so the resume rules of `orders/orders.md` apply (static study only) | kept (unused) | 1 cycle |
 | H | The unit has an attacker, is a sea or air unit, and is within 2 tiles of its goal on x but farther on y | Keeps its order | dropped | 1 cycle |
 | I | Anything else | Keeps its order | dropped (it searches again) | 1 cycle |
@@ -271,6 +279,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V31 | Transport landing (order 30) whose goal is 1 tile away on both axes | General test met (radius 3); the landing logic's own test (radius 0, no +1) isn't, so it keeps moving | Example |
 | V32 | Transport landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation | Example |
 | V34 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (range 4) attacking shipyard 1469, corner goal (55, 88) | At (60, 91), distance 5: walks on; at (59, 91), distance 4: there | Trace (`orc9-orc09-shore-build-3000`) |
+| V38 | `xhuman5-30000` (oracle trace, Enhanced): tanker 1542 sent to build an oil platform on the patch whose top-left tile is (75, 107), odd on both axes | Its goal is (76, 108), even, radius 0, no +1. It stands exactly on (76, 108) at n = 27600 and starts building at n = 27632. Here a +1 changes nothing: at (78, 106), before its last two-tile step, it is 2 tiles away, so the run doesn't separate radius 0 from radius 1 | Trace (`xhuman5-30000`) |
 
 ### Blocking and the counter
 
@@ -299,6 +308,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V33 | `xhuman8-25000` (oracle trace, Enhanced), n = 11284: troll destroyer 1441 (owner 7) on patrol, 15th block, resume countdown 0 | Row C: still animation, wait 1, patrol pending; not wait 15 | Trace (`xhuman8-25000`) |
 | V35 | `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) | Trace (`orc10-10000`) |
 | V36 | `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (owner 2) in order 4 gives up (row C), nothing resumed | Animation 3, wait 15 | Trace (`xhuman12-10000`) |
+| V37 | Computer grunt with an attacker, on a move order, blocked again and again by a tile carrying bit 0x04, counter 15 before the block | Row B: counter 0 (wrapped), order kept, path dropped, acts again next cycle; no row C. If it is then blocked, with no attacker any more, by an enemy unit standing still (no bit 0x04, so rows A and B don't apply), the counter goes to 1 and row I applies, not row C | Static study |
 
 ## Open questions
 
@@ -316,9 +326,18 @@ Carried over:
   next command forgets it ("Blocked rules"); the moment without a command is still open.
 - **Row G's pending idle** rests on the static study: no trace separates a pending from an immediate idle there, because
   the traced case that once did no longer reaches row G once commands forget a dying attacker.
-- Row F is also skipped when the blocker has one more state bit set, whose meaning hasn't been identified.
-- How a tanker on order 28 (radius 0, no +1) is judged to have arrived next to an oil patch; that belongs to the
-  construction spec.
+- How a tanker on order 28 (radius 0, no +1) arrives when the oil patch's top-left tile is **even**: its goal, the
+  patch's top-left plus (1, 1), is then odd and a two-tile mover can't stand on it exactly. Round 72 traced the odd
+  case only (V38: the tanker stands exactly on the goal and starts building). Trace request: a tanker sent to build on
+  an oil patch whose top-left tile is even on both axes (`ERRATA-audit-movement.md`, T12).
+
+Closed in round 72:
+
+- **Row F's further state mark** (was: "Row F is also skipped when the blocker has one more state bit set, whose
+  meaning hasn't been identified"). The mark is set and cleared only by one multiplayer network command whose purpose
+  isn't identified, and only on workers. The simulation itself never sets it, so in single-player play it is always
+  clear and row F never fails on it (static study; `ERRATA-audit-movement.md`, S1). The path search's moving-ally rule
+  tests the same mark (`pathfinding.md`, "Units seen by the search").
 
 Found by the consolidation (static study, 2026-10-14; the rules above are unchanged):
 
@@ -354,3 +373,4 @@ round are kept with the research-side specs.
 | 61 | Row C with nothing to resume keeps the restarted walking animation (the round-60 text said the still animation); `orc10-10000` and `xhuman12-10000` vectors | Row C; V35, V36 |
 | B-038 (2026-10-14) | Consolidated into one model: "The model" added; vectors given IDs, a Source column and topic groups; the round citations moved here; one open question added. No rule changed | Whole spec |
 | 70 | Evidence only: round 70 restated the static reading of row A (order 11 through a command); the rule is unchanged until a trace decides (spec review) | "Open questions" |
+| 72 | Movement audit: the blocked counter wraps after 15 in rows A and B (static study only); row F's further state mark identified (open question closed); tanker arrival on order 28 traced for an odd-placed patch, the even case kept open | "The model"; "Blocked rules", row B and row F; "Open questions"; V37, V38 |

@@ -17,6 +17,10 @@
   is "Continue" (`rez\hdisptch.bin`, `rez\odisptch.bin`), the victory dialog's are "Victory" and "Save Game"
   (`rez\wmission.bin`), the defeat dialog's is "OK" (`rez\lmission.bin`). No rule change. Reviewed by a
   spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15 (round 72, `ERRATA-round72.md`, C1 and C2; observed on the running game, Enhanced): the
+  credits screen's layout (pictures, fonts, colours, positions, clip rows, scroll rate, pages) is new under "Credits
+  screen"; the ToD human finale was reached and its picture seen, and Escape on it, before its text had scrolled,
+  went straight to the main menu. Reviewed by a spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -292,7 +296,37 @@ mission the same way, with no score screen: the flow goes straight back to "Star
 
   A second page then scrolls entry 1 of `rez\crdt_lst.tbl` (ToD) or `rez\crelst2x.tbl` (BDP), the credits, one step
   every 40 ms.
-- After either ending the main menu opens.
+- After either ending the main menu opens. Observed (round 72, ToD human ending reached with the finale cheat from
+  Human01): the finale shows `art\humanv.pcx`. Escape, pressed about 4 minutes in while its text hadn't started
+  scrolling (see "Open questions"), went straight to the main menu, with no credits page.
+
+### Credits screen
+
+Shown by the main menu's Show Credits button. Observed on the running game (round 72, Enhanced; frames of the
+game's own 640 × 480 display compared with the pictures):
+
+- **Pages.** Page 1 is `Art\credits.pcx` with entries 0 (title) and 1 (body) of `rez\creditsBNE.tbl`. When the
+  body's last line has scrolled off the top, page 2 replaces it: `Art\2xcredit.pcx` with entries 2 and 3 (the
+  Beyond the Dark Portal credits). What follows page 2 wasn't watched (see "Open questions"). The OK button returns
+  to the main menu.
+- **Text window.** Text is drawn over the picture and shows only in rows **80 to 354** (inclusive); a line moving
+  through row 80 or 354 is cut there. No horizontal cut was seen (text spans x 140 to 455).
+- **Title** (the table's title entry): font `Art\font32.fnt`, left edge x **140**, wrapped onto two lines
+  ("Warcraft II: Battle.net" / "Edition Credits"; "Warcraft II: Beyond the" / "Dark Portal Credits"), line pitch
+  **35** (the font's height). On the first full frame after the fade-in the first line's cell top is at y **274**,
+  so the title starts inside the window rather than scrolling in from its bottom.
+- **Body** (the next entry): font `Art\font12x.fnt`, line pitch **25**. A line starts at x **140**; a line that
+  begins with a tab starts at x **174** (a 34-pixel indent). An empty line takes one pitch, so a heading after a
+  blank line is 50 pixels below the line before it (in 6 of 17 measured gaps it was 49 or 51; see "Open
+  questions"). The body's first line (after the
+  entry's two leading newlines) has its cell top 129 pixels below the title's first cell top.
+- **Glyphs.** 1 pixel between glyphs; a space leaves 10 pixels (font12x) or 18 pixels (font32) between the glyphs
+  either side of it.
+- **Colours.** Both fonts' face shades 1 to 4 show as (255, 255, 255), (219, 219, 219), (187, 187, 187) and
+  (155, 155, 155), and shade 5 (the shadow) as black, on both pictures.
+- **Scroll.** All text moves up 1 pixel about every 41 ms of wall-clock time (measured over 37 steps), which fits
+  the one step per 40 ms of the finale's credits page (`Data`, "Credits scroll").
+- **Pointer:** the 3D arrow (`ui/screen-and-cursors.md`).
 
 ## Data
 
@@ -398,6 +432,18 @@ the next one is due at the same moment.
 - **Gathered resources.** Whether gold, lumber and oil count deliveries only, or also other income (such as
   trading or cheats), wasn't traced.
 - **Multiplayer score screen.** Which players are listed and how in a multiplayer game is left to a later spec.
+- **The finale's text in the oracle.** On the ToD human finale (round 72) the scrolling text never moved: one row of
+  text pixels stayed at y 308 for about 4 minutes, while the program kept running. The oracle container has no
+  sound device; whether the scroll waits for the narration to finish wasn't checked. So the finale's scroll, its
+  credits page and the finale pointer once text scrolls are still unobserved.
+- **Credits title wrap.** Where the credits title wraps (the line width) wasn't measured: "Warcraft II: Battle.net"
+  fits (right edge x 455) and "Warcraft II: Battle.net Edition" doesn't, so the width is between about 315 and 450
+  pixels from x 140.
+- **Credits blank-line gaps.** In 6 of 17 measured gaps after an empty line the distance was 49 or 51 pixels, not
+  the 50 that two pitches give. The cause wasn't found; a capture taken while the screen was being redrawn is one
+  possibility, not checked. Implement 50 until a longer watch settles it.
+- **Credits after page 2.** Entries 4 and 5 of `rez\creditsBNE.tbl` weren't seen on screen: whether they make a
+  third page, and on which picture, wasn't watched.
 - **Ending videos.** The endings' video calls weren't traced. Default: by file name, `HVict_M` / `OVict_M` for the
   ToD endings and `HVicX_M` / `OrcX_M` for the BDP endings, played before the finale dialog.
 - **Campaign total on restart.** Whether a restart from the game menu puts the campaign total back to its value at

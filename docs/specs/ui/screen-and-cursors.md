@@ -15,6 +15,9 @@
   running game, Enhanced): no pointer during the introduction video; the credits, load-game and multiplayer menu
   screens and the defeat dialog watched; the version line shows during the menu fade-in. Reviewed by a spec-review
   session, 2026-10-15.
+- **Changes:** 2026-10-15, round-72 errata (`ERRATA-round72.md`, C1 and C3; observed on the running game,
+  Enhanced): the version line's pixel position and colours; no pointer seen on the campaign finale (ToD human) while
+  its text hadn't started scrolling. Reviewed by a spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -181,13 +184,14 @@ No pointer is animated.
 
 | Screen | Pointer | Colours | Seen on the running game |
 | --- | --- | --- | --- |
-| Introduction video | none (hidden) | | yes (other videos and the campaign finale: not watched, see "Open questions") |
+| Introduction video | none (hidden) | | yes (other videos: not checked for a pointer, see "Open questions"; the finale has its own row) |
 | Title picture | none (hidden) | | yes |
 | Main menu, single-player menu, campaign menu, custom-scenario setup, load-game screen, the multiplayer menus up to and including the connection-method screen (Enhanced or Classic choice, connection method, direct-connection setup) and their small dialogs (name entry, "Unable to locate IPX network") | orc normal arrow (`o_arrow.cur`) for every race and campaign | the menu picture's palette | yes |
 | Act screen | none (hidden) | | yes |
 | Mission briefing | 3D arrow (`arrow_3d.cur`) | the briefing picture's palette | yes |
 | Score screen | 3D arrow (`arrow_3d.cur`) | the score picture's palette | yes (human victory) |
 | Credits (picture `Art\credits.pcx`) | 3D arrow (`arrow_3d.cur`) | the credits picture's palette | yes |
+| Campaign finale | none seen | | partly (round 72: the ToD human finale, `art\humanv.pcx`, for about 4 minutes while its text hadn't started scrolling, with the mouse moved to three places; the other finales, the scroll and the finale's credits page not seen; see "Open questions") |
 | In a game, and the game's own dialogs (including the victory and defeat dialog) | the in-game rules above (race arrow while a dialog is open) | the tileset palette | yes (human victory dialog, orc defeat dialog) |
 | Battle.net screens, multiplayer game setup and lobby | not known | | no (not reachable in the oracle) |
 
@@ -204,7 +208,12 @@ the indices in the pointer file. It has no palette of its own.
   lengths are in `ui/palette-effects.md` ("Screen fades").
 - It stays hidden through the fade to black, any black gap, and the next screen's fade-in. On the menu screens the
   buttons are also not drawn during the fade-in: the fade-in shows the picture and the version line
-  ("Warcraft II BNE v2.02", bottom left, drawn by the program over the picture), which fade in together. The buttons
+  ("Warcraft II BNE v2.02", bottom left, drawn by the program over the picture), which fade in together.
+  The version line is drawn at a fixed place on the 640 × 480 menu picture (round 72, measured on the main menu):
+  its text pixels fill x **60 to 211** and y **460 to 471**, so its top-left is **(60, 460)** from the
+  picture's top-left. The face is near-white (255, 251, 243), in rows 460 to 469, with black shading to its right
+  and below; no other colours. The original's display is always 640 × 480, so only this placement can be observed;
+  the line is placed relative to the picture, wherever the picture is drawn. Its font is an open question. The buttons
   and the pointer appear on the frame that ends the fade-in.
 - It appears, at full colour, when the next screen's fade-in has ended (on the frame that shows the screen at its own
   palette).
@@ -306,8 +315,14 @@ describes.
   (above); it is also set when the game screen opens and replaced at the first input check.
 - **Flow screens not observed.** Battle.net, the multiplayer game setup and the lobby weren't reached: the oracle
   has no IPX network or serial port, and Battle.net needs a live connection to an outside service, which wasn't
-  attempted. The other videos and the campaign finale weren't played (the introduction showed no pointer). Default:
-  like the main menu (orc arrow, hidden through fades), and no pointer on any video.
+  attempted. The other videos weren't checked for a pointer (the introduction showed none). The campaign finale was
+  reached in round 72 (ToD human, by the finale cheat): no pointer was drawn, even when the mouse moved, but its
+  scrolling text never started in the oracle (`game/campaign-flow.md`, "Open questions"), so the pointer once the
+  text scrolls, and on the finale's credits page, is unobserved. Default: no pointer on the finale; like the main menu
+  elsewhere (orc arrow, hidden through fades), and no pointer on any video.
+- **Version line font.** The version line's glyphs match none of the five `Art\*.fnt` fonts (round 72; no glyph
+  match), and which font draws it wasn't found. Its measured pixel box and colours ("Pointer and fades") are what
+  the screen must show.
 - **Network wait.** The length of the retry period that brings up the watch wasn't measured.
 - **Text placement.** The exact vertical pixel of the bar text (centred, with a 2-pixel offset in the program's
   arithmetic) and the font's baseline belong to the drawing spec.
