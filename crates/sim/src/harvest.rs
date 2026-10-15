@@ -661,8 +661,8 @@ impl World {
 
     /// "Coming out", steps 3 to 5: a computer player's job choice (a job given skips the rest; worker-ai spec), else
     /// a return command to the nearest depot if carrying, else a harvest command back to the return-to source, which
-    /// is forgotten. The harvest command is given whatever the source has become (V84). A source whose slot is gone
-    /// gets the command at the unit's own tile (see the pinned test; a question for the spec).
+    /// is forgotten. The harvest command is given whatever the source has become (V84); toward a source whose slot is
+    /// gone its target check fails and idle is made pending.
     fn come_out_command(&mut self, i: usize) -> Option<Order> {
         if self.chooses_jobs(i)
             && let crate::worker_ai::Choice::Order(o) = self.worker_choice(i)
@@ -675,10 +675,19 @@ impl World {
                 .map(|d| Order::ReturnGoods { depot: Some(d) });
         }
         match self.units[i].return_to.take() {
-            Some(Source::Unit(s)) => {
-                let tile = self.unit(s).map_or(self.units[i].tile, |s| s.tile);
-                self.harvest_command(i, Some(s), tile)
-            }
+            Some(Source::Unit(s)) => match self.unit(s) {
+                Some(src) => {
+                    let tile = src.tile;
+                    self.harvest_command(i, Some(s), tile)
+                }
+                // Round 68, harvest (c) ("Coming out", step 5): the harvest command toward a source whose slot has
+                // been released fails the command's target check, so idle is made pending by the common path (which
+                // may resume a remembered order); it still counts as a command.
+                None => {
+                    self.pending_idle(i);
+                    self.units[i].pending
+                }
+            },
             Some(Source::Tree(t)) => self.harvest_command(i, None, t),
             None => None,
         }
@@ -2509,10 +2518,8 @@ mod tests {
             assert_eq!(w.come_out_face(i, next, Some((10, 10))), Some((11, 10)));
         }
 
-        /// "Coming out", step 5, toward a source whose slot is gone (released, not a ruin): as the code stands the
-        /// harvest command is given with no target unit at the unit's own tile, so a worker gets lumber mode there and
-        /// a tanker order 23 with no target. The second reviewer's note reads the command check as dropping the gone
-        /// target with a pending idle instead (static study; no trace has it).
+        /// "Coming out", step 5, toward a source whose slot is gone (released, not a ruin): the harvest command's
+        /// target check drops the gone target, so idle is the pending order (round 68, harvest (c); static study).
         #[test]
         fn coming_out_toward_a_source_whose_slot_is_gone() {
             let mut prints = vec![];
@@ -2534,15 +2541,14 @@ mod tests {
                 w.units[pi].carrying = false;
                 come_out_now(&mut w, p, hall);
                 let u = w.unit(p).unwrap();
-                assert!(
-                    matches!(u.pending, Some(Order::Harvest { source: None, tree, .. }) if tree == (4, 12)),
-                    "{tanker}: {:?}",
-                    u.pending
+                assert_eq!(
+                    (u.order, u.pending, u.commanded),
+                    (Order::Idle, Some(Order::Idle), true),
+                    "{tanker}"
                 );
-                assert_eq!(u.gather, if tanker { Gather::Gold } else { Gather::Lumber });
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [11047150078815211316, 11680749226269963979]);
+            assert_eq!(prints, [8078244930565009890, 10557360367904692938]);
         }
 
         /// "Coming out" with no command and nothing pending: the facing is kept. The spec's table says it faces its
