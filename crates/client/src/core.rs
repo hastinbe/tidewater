@@ -1,5 +1,5 @@
 //! The client core (`docs/design/client-core.md`, step 9): the whole program but the window, the sound device and the
-//! files, with no engine types. A platform shell (`shell`, the Bevy one) puts the system's input in
+//! files, with no engine types. The platform shell (the SDL 3 one, `shell/main.rs`) puts the system's input in
 //! ([`Core::input`]), calls [`Core::advance`] once a frame with the real time since the last one, shows the frame it
 //! returns, plays [`Core::audio`]'s output and gives the core its [`Storage`](crate::storage::Storage).
 //!
@@ -17,8 +17,8 @@
 //! 6. The map view's frame ends (`mapview`); the screen is composed ([`compose_screen`]); a Print Screen picture is
 //!    written (`screenshot`); a scripted run notes the sounds started.
 //!
-//! The Bevy app ran the same steps as schedules (`First`, `PreUpdate`, `StateTransition`, `RunFixedMainLoop`, `Update`,
-//! `PostUpdate`, `Last`); a system's deferred changes (Bevy's commands) took effect at the same points as
+//! The Bevy app (the shell until SDL 3 replaced it) ran the same steps as schedules (`First`, `PreUpdate`,
+//! `StateTransition`, `RunFixedMainLoop`, `Update`, `PostUpdate`, `Last`); a system's deferred changes (Bevy's commands) took effect at the same points as
 //! [`Commands`]' do here, and a group of systems with a run condition checked it once, before its first system, as
 //! [`frame_systems`] does.
 

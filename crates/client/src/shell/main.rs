@@ -1,5 +1,12 @@
-//! The SDL 3 trial shell (`docs/design/client-core.md`, phase 3): the client core in an SDL window. It does what the
-//! design's "Platform trait" asks of a shell: the system's key, button, wheel and focus events into the core's input;
+//! Tidewater: the client core (`tidewater_client::core`) in an SDL 3 window, the program's only shell
+//! (`docs/design/client-core.md`, "Platform trait"). It loads the user's installation and runs the startup sequence, a
+//! map given on the command line, a `--goto` screen or a scripted scene (`script`).
+//!
+//! The 640 × 480 screen is drawn at a whole number of physical pixels per screen pixel, black-bordered in a larger
+//! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). The mouse wheel
+//! zooms only with the `--free-zoom` development option. The controls are in the core (`game`).
+//!
+//! The shell does what the design asks of one: the system's key, button, wheel and focus events into the core's input;
 //! [`Core::advance`] once a frame; the composed frame into one streaming texture, drawn at the window's whole-number
 //! scale with black around it (`display::Letterbox`), with the core's title and system-pointer wish; the core's mixer
 //! on the sound device through an SDL audio stream (SDL converts the 22,050 Hz stereo to the device's rate); the

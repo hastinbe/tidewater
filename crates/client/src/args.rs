@@ -85,8 +85,8 @@ pub struct Args {
     pub settings: Option<PathBuf>,
     /// Development aid: run a scripted scene (`script`, `docs/design/client-core.md`): a fixed frame time and wall
     /// clock, the scene's input instead of the system's, no sound, a 640 × 480 window at one pixel per screen pixel.
-    /// It writes the frame and sound fingerprints to `--script-out`, and with a window also Bevy's screenshot and the
-    /// composed frame at each of the scene's shots, compared.
+    /// It writes the frame and sound fingerprints to `--script-out`, and with a window also the window's own pixels
+    /// and the composed frame at each of the scene's shots, compared.
     #[arg(long, requires = "script_out")]
     pub script: Option<String>,
     /// The folder a scripted run writes to (its own saved games and settings go there too, cleared first).

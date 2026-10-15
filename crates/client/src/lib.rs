@@ -1,6 +1,8 @@
 //! Tidewater's client core as a library (`docs/design/client-core.md`): everything but a platform shell, with no
-//! engine types. The `tidewater` binary (`main.rs`) runs it in the Bevy shell (`shell`, the `bevy` feature, on by
-//! default); the trial shells (`crates/shell-*`) link it without Bevy and start it with [`host::launch`].
+//! engine types and no `unsafe` code. The `tidewater` binary (`shell/main.rs`) runs it in an SDL 3 window and starts
+//! it with [`host::launch`].
+
+#![forbid(unsafe_code)]
 
 pub mod args;
 pub mod audio;
@@ -40,8 +42,6 @@ mod scene;
 mod screen;
 mod screenshot;
 pub mod script;
-#[cfg(feature = "bevy")]
-pub mod shell;
 mod sound;
 mod states;
 pub mod storage;

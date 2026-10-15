@@ -851,7 +851,7 @@ pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usiz
         }
     }
     rec.compared.push((name, differing));
-    for (suffix, rgba) in [("bevy", gpu_screen), ("composed", cpu.rgba), ("diff", diff)] {
+    for (suffix, rgba) in [("window", gpu_screen), ("composed", cpu.rgba), ("diff", diff)] {
         save_png(&run.out.dir.join(format!("{name}-{suffix}.png")), &rgba);
     }
 }

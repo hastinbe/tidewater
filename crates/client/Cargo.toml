@@ -8,30 +8,32 @@ license.workspace = true
 name = "tidewater_client"
 path = "src/lib.rs"
 
+# The player's program: the core in the SDL 3 shell (`src/shell/`).
 [[bin]]
 name = "tidewater"
-path = "src/main.rs"
-required-features = ["bevy"]
-
-[features]
-default = ["bevy"]
-# The Bevy shell (`shell.rs`) and the `tidewater` binary. The trial shells (`crates/shell-*`) link the core without it.
-bevy = ["dep:bevy"]
+path = "src/shell/main.rs"
 
 [dependencies]
 serde.workspace = true
 postcard.workspace = true
 directories.workspace = true
 anyhow.workspace = true
-bevy = { workspace = true, optional = true }
 clap.workspace = true
 glam.workspace = true
 png.workspace = true
 tidewater-formats.workspace = true
 tidewater-sim.workspace = true
+# SDL 3 built from its source (CMake and a C compiler; no SDL install needed) and linked in, with only the audio,
+# video and render subsystems. Only the shell (`src/shell/`) uses it.
+sdl3-sys = { version = "0.7", features = ["build-from-source", "link-static", "no-default-subsystems", "sdl-audio", "sdl-render"] }
 
 [dev-dependencies]
 tempfile.workspace = true
 
-[lints]
-workspace = true
+# The workspace's lints, but `unsafe_code` is denied rather than forbidden: the shell's SDL wrapper
+# (`src/shell/sdl.rs`) allows it. The library forbids it itself (`lib.rs`).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

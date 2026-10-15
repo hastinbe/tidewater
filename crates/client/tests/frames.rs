@@ -16,8 +16,9 @@
 //! **Blessing.** When a change to what is shown is intended, regenerate with `TIDEWATER_SNAPSHOT_BLESS=1 cargo test
 //! --release -p tidewater-client --test frames` and commit the new files with the change that explains it.
 //!
-//! **Against Bevy.** `bevy_draws_the_composed_frames` (ignored: it opens a window and needs a GPU) runs the scenes in a
-//! window and compares Bevy's own screenshot with the composed frame at each of the scene's shots. Run it with
+//! **In a window.** `the_window_shows_the_composed_frames` (ignored: it opens a window) runs the scenes in the SDL 3
+//! shell's window and compares the window's own pixels, read back before each shot is shown, with the composed frame
+//! at each of the scene's shots, and the windowed run's fingerprints with the snapshot. Run it with
 //! `cargo test --release -p tidewater-client --test frames -- --ignored`; set `TIDEWATER_SCRIPT_OUT` to a folder to
 //! keep the pictures (both frames and their difference) for a look.
 
@@ -103,8 +104,8 @@ fn every_scene_shows_and_sounds_as_snapshotted() {
 }
 
 #[test]
-#[ignore = "opens a window and needs a GPU"]
-fn bevy_draws_the_composed_frames() {
+#[ignore = "opens a window"]
+fn the_window_shows_the_composed_frames() {
     let Some(install) = std::env::var_os("TIDEWATER_INSTALL") else {
         eprintln!("skipped: set TIDEWATER_INSTALL to run");
         return;
