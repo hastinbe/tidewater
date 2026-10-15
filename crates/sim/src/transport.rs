@@ -8,7 +8,7 @@
 //!
 //! Our choices for the spec's open questions: the unload command's tile is used as given; a passenger is put ashore
 //! facing as it was; a transport lost while a unit walks to it is step 1 of order 34 (V33, not the static reading in the
-//! open question "A transport lost while the unit walks to it"); the docking sound plays on any transport step onto shore water, pushing off's too.
+//! open question "A transport lost while the unit walks to it").
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -1594,12 +1594,36 @@ mod tests {
                     16765959437576330595,
                     11085463737746716969,
                     10225721914103605190,
-                    5658109650578495884,
-                    12219680029466988229,
-                    17966498047048736207,
+                    849440101615960998,
+                    14606876485362511777,
+                    15008620748901578405,
                     173415372906752325,
                 ],
             );
+        }
+
+        /// "Moving near the shore", docking sound (round 70, M2): pushing off tests the tile it leaves, so its step
+        /// from shore water onto open water plays the sound and a step from open water doesn't; every other step tests
+        /// the tile stepped onto.
+        #[test]
+        fn pushing_off_sounds_on_leaving_shore_water() {
+            let docked = |w: &World| w.sounds.cues.iter().any(|c| c.sound == crate::sound::Sound::Dock);
+            for (from, order, want) in [
+                ((21, 11), Order::PushOff, true),
+                ((23, 11), Order::PushOff, false),
+                ((22, 11), Order::Land { goal: (21, 11) }, true),
+            ] {
+                let mut w = sea(20);
+                let i = ship(&mut w, from, order);
+                w.start_anim(i, anim::WORK_B);
+                w.units[i].ship.target_tile = (40, 11);
+                w.units[i].ship.dest = (40, 11);
+                w.sounds.cues.clear();
+                w.run_transport(i);
+                let u = &w.units[i];
+                assert_ne!(u.tile, from, "{order:?} from {from:?} took a step");
+                assert_eq!(docked(&w), want, "{order:?} from {from:?} to {:?}", u.tile);
+            }
         }
 
         /// Coverage (untraced): order 29 off shore water just docks (still animation run at once).
@@ -1840,7 +1864,7 @@ mod tests {
                 }
                 prints.push(w.fingerprint());
             }
-            pinned(&prints, &[12177132514343221599, 3978466175706061857]);
+            pinned(&prints, &[9945149469627751725, 3374970938713905961]);
         }
     }
 }

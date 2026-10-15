@@ -522,6 +522,7 @@ impl World {
     /// position across.
     fn take_step(&mut self, i: usize, next: (i32, i32), restart: bool) {
         let unit = self.units[i].clone();
+        let left = unit.tile;
         self.mark(&unit, unit.tile, None);
         let u = &mut self.units[i];
         u.facing = facing(next.0 - u.tile.0, next.1 - u.tile.1);
@@ -536,11 +537,11 @@ impl World {
         if (restart || unit.script.anim != anim::MOVE) && !unit.ship.one_tile {
             self.switch_anim(i, anim::MOVE);
         }
-        // Sounds spec, "Docking": a transport moving onto a shore-water tile. Transports spec ("Moving near the
-        // shore", "Docking sound") puts pushing off's sound on the step leaving shore water instead; we keep one rule
-        // for both until the docking sound is implemented (open question there).
+        // Sounds spec, "Docking", and transports spec, "Moving near the shore" (round 70, M2): a transport's step
+        // onto a shore-water tile, in any order; pushing off tests the tile it leaves instead.
+        let tested = if unit.order == Order::PushOff { left } else { next };
         if self.stats_of(unit.kind).flags & flags::TRANSPORT != 0
-            && self.terrain.word(next.0, next.1) & bits::SHORE != 0
+            && self.terrain.word(tested.0, tested.1) & bits::SHORE != 0
         {
             self.sound_on(i, crate::sound::Sound::Dock);
         }
