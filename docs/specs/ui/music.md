@@ -2,8 +2,9 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-12)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 26 (music; gap 10)" and
-  its addendum) and the music files from `Install.mpq` (`Music\*.WAV`, measured for format and length). Not yet
-  confirmed against the running game.
+  its addendum) and the music files from `Install.mpq` (`Music\*.WAV`, measured for format and length). The
+  outcome dialogs, quitting to the main menu and starting a campaign were watched on the running game (rounds 69,
+  70 and 74, Enhanced); the rest is static study.
 - **Changes:** 2026-10-12: the disco cheat's typing now cites `game/cheats.md`.
 - **Changes:** 2026-10-14: round-67 errata (`ERRATA-round67-flow.md`; static study only): an act screen closing is a
   fade of all sound; the fade's first step comes at once, so 28 steps take 540 ms, not 560 ms (24 steps 460 ms).
@@ -12,6 +13,13 @@
 - **Changes:** 2026-10-15: round-70 errata (`ERRATA-round70.md`, findings I6, I7 and R1): the defeat path watched
   (Orc01, twice); the first fade blocks the whole program; the second fade has nothing left to fade and returns at
   once (static study). Reviewed by a spec-review session, 2026-10-15; the button name follows `game/campaign-flow.md`.
+- **Changes:** 2026-10-15: round-74 errata (`ERRATA-round74.md`, findings Q1 to Q4; observed on the running game,
+  Enhanced, with a working sound device; the paths not reached are static study and say so): new section "Leaving a
+  game for the main menu"; new rows in "Where music fades out" (choosing a campaign, the briefing closing, quitting
+  to the main menu, the score screen closing, loading a game, leaving the main menu); the fade length measured at
+  music volume 75; vectors; the "Running game" open question narrowed. Reviewed by a spec-review session,
+  2026-10-15: the multiplayer score screen's path back is held as an open question with a trace request (static
+  study contradicted `game/campaign-flow.md`); the "Main menu opens" row now also covers a return without a fade.
 
 ## Behaviour
 
@@ -61,7 +69,7 @@ credits' close fade all sound out (see the next table). See also "Open questions
 | Moment | Track | Condition |
 | --- | --- | --- |
 | Program start, title screen | 22 | always |
-| Main menu opens | 22 | only if not playing |
+| Main menu opens | 22 | only if not playing; tested once the menu is drawn, after its 200 ms fade-in when it fades in (see "Leaving a game for the main menu"); coming back from another menu on its picture there is no fade-in and 22 is still playing |
 | Mission briefing opens | 20 (human) or 21 (orc) | only if not playing |
 | A game starts or a saved game is loaded | the game's track (next section) | only if not started |
 | Score screen | victory: 14 (human) or 15 (orc); defeat: 12 (human) or 13 (orc) | always |
@@ -88,11 +96,22 @@ happens until it ends. A **fade of all sound** does the same while all sound eff
 | A custom game starts from the custom-scenario screen | fade of all sound |
 | Disco cheat toggled while music is playing | fade of all sound |
 | An act screen closes, after its fade to black (`game/campaign-flow.md`) | fade of all sound |
+| A campaign is chosen on the new-campaign menu (any of the four), before its 200 ms fade to black | fade of all sound (observed for both *Tides of Darkness* choices, round 74; the *Beyond the Dark Portal* choices static study) |
+| The briefing closes (Continue or Enter), before its 100 ms fade to black | fade of all sound (observed, round 74; closing by itself static study) |
+| The player confirms "Quit to Menu" in a game (from the game menu or Ctrl+Q), as the game stops | fade of all sound, then the game end's own fade of all sound (observed, round 74) |
+| The score screen closes, before its 150 ms fade to black | fade of all sound (static study) |
+| A saved game is loaded from the load-game screen of the menus | fade of all sound (static study) |
+| The main menu's Replay Introduction, Show Credits or Exit Program | fade of all sound (static study) |
+| A request to close the program while the single-player menu is up | fade of all sound, then the program exits (static study) |
+
+Going back from one menu to another on the main menu's picture (Previous Menu on the single-player or campaign menu,
+Escape on the multiplayer menu) fades nothing, so track 22 plays on (observed, round 74).
 
 The fade starts from the current attenuation and, every 20 ms, lowers it by 0.10 dB, then 0.20 dB, then 0.30 dB, and
 so on (each step 0.10 dB bigger). It ends at the first step that takes it below −40.00 dB; music is then silent
 and the track closed. The first step comes at once and the next ones 20 ms apart, so from full volume (−0.20 dB) it
-takes 28 steps over 540 ms.
+takes 28 steps over 540 ms. From music volume 75 (−2.48 dB) it takes 27 steps over 520 ms; the running game
+measured 519 to 531 ms each time (round 74).
 
 ### The outcome dialog
 
@@ -119,6 +138,50 @@ overlap. The victory path through "Victory" was seen on the running game (a Huma
 events came in this order within about 45 ms, since the container had no sound device and the fades returned at
 once). The defeat path through "OK" was seen in round 70 (Orc01, Enhanced, twice): the same events in the same order,
 with track 13.
+
+### Leaving a game for the main menu
+
+The player leaves a single-player game for the main menu through the confirmation "Quit to Menu"
+(`rez\quit2mnu.bin`). It is reached two ways, both observed (round 74, Enhanced):
+
+- the game menu's End Scenario, then Quit to Menu (`ui/game-menu.md`);
+- Ctrl+Q in a single-player game, which opens the same confirmation at once (`ui/game-menu.md`; in multiplayer the
+  key surrenders instead).
+
+Enter confirms it as clicking its Quit to Menu button does (observed). When it is confirmed:
+
+1. **Fade of all sound.** The game stops and a fade of all sound runs from the current volume. It blocks: the game
+   picture stays on screen, unchanged, until it ends (about 520 ms at music volume 75). The game's track fades out
+   and is closed.
+2. **Game end.** The screen fades to black in 1 ms and the game end's second fade of all sound runs. Nothing is open
+   by then, so it returns at once. No score screen follows.
+3. **Main menu.** The main menu is drawn and fades in over 200 ms, with no music.
+4. **Track 22.** After the fade-in, the main menu's test finds no track playing (the game's track was closed in step
+   1), so track 22 starts from its start, about 230 ms after the menu began to open and before its buttons take input.
+
+So the game's track never carries into the main menu, and nothing overlaps: silence from the end of the fade, about
+230 ms, then track 22. Seen three times (human twice, orc once); an attract demo ended by a key went through the
+same steps.
+
+**The paths from the other screens.** The briefing has no way back to the main menu: Escape does nothing (observed),
+and its Continue button and Enter go on to the game. A request to close the program on the briefing or the act screen
+quits the program (`game/campaign-flow.md`). The act screen's keys only close it early, on to the briefing. After a
+custom game, closing the score screen leads to the main menu (`game/campaign-flow.md`, "After the score screen"):
+its fade of all sound closes the score track, so track 22 starts as above (static study). After a multiplayer game
+the flow goes back to the multiplayer screens (`game/campaign-flow.md`); round 74's static reading that it reaches
+the main menu too is an open question.
+
+**Starting a campaign afterwards.** Whatever was playing on the menu (normally track 22), choosing a campaign fades
+all sound before the screen goes black, so no music is playing at the act screen and the briefing:
+
+| Next campaign | Act screen | Briefing | Game start |
+| --- | --- | --- | --- |
+| The same race and act as the game just left (for example human after a human mission 1) | not shown (the same act as the last one shown, `game/campaign-flow.md`) | nothing is playing: track 20 (human) or 21 (orc) starts from its start | the briefing's close fades it out, so the game's track starts |
+| The other race | shown; its close is a fade of all sound with nothing open | track 21 or 20 starts | as above |
+
+Both rows were seen on the running game (round 74: human after human, orc after human). The briefing's "only if
+not playing" and the game start's "only if not started" therefore always pass on these paths; track 22 never reaches
+the briefing.
 
 ### The game's track
 
@@ -288,6 +351,13 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
 | Human campaign mission won; the victory dialog stays up 30 s, then "Victory" clicked | The game's track plays on for the whole 30 s with no change; at the click a fade of all sound (540 ms at full volume), a 1 ms fade to black, then track 14 starts as the score screen opens |
 | Human campaign mission lost; "OK" clicked on the defeat dialog | As above, then track 12 (static study only) |
 | Orc campaign mission (Orc01) lost through the defeat cheat; the defeat dialog stays up 8 s, then "OK" clicked | Nothing starts or fades while the dialog is up; at the click a fade of all sound, the game end, a second fade of all sound, the score screen, then track 13 starts (seen on the running game, round 70, twice; about 40 ms in all with no sound device) |
+| Fade of all sound at music volume 75 (−248), a track playing | 27 steps, the last at 520 ms; −248 − 10 × (1 + … + 27) = −4028 (round 74: 519 to 531 ms measured) |
+| ToD human mission 1 in progress (track 1 playing), game menu, End Scenario, Quit to Menu, Quit to Menu (round 74) | Fade of all sound (about 520 ms at volume 75; the game picture stays), 1 ms fade to black, a second fade that returns at once, main menu 200 ms fade-in in silence, then track 22 from its start |
+| ToD orc mission 1 in progress, Ctrl+Q, Enter (round 74) | The quit-to-menu confirmation opens at once; Enter confirms; then as above |
+| Main menu after quitting a game; Single Player Game, then Previous Menu | Track 22 plays on, not restarted |
+| Main menu with track 22 playing; New Campaign; ToD human, after a ToD human mission 1 was quit (round 74) | Fade of all sound (track 22 out), 200 ms fade to black, no act screen, briefing: track 20 from its start; Continue: fade of all sound, 100 ms fade to black, game start: track 1 |
+| The same, but ToD orc chosen (round 74) | Fade of all sound, 200 ms fade to black, act screen (its close fades nothing audible), briefing: track 21; Continue: fade, game start: track 7 |
+| Briefing open, Escape pressed (round 74) | Nothing happens; the briefing and its track carry on |
 
 ## Open questions
 
@@ -302,9 +372,24 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
 - **Unused tracks.** Tracks 18 and 19 are never started; kept for completeness.
 - **Network drive.** The game refuses to stream music from a network drive and shows a fixed message (not from a
   string table) on the message line. Default: play from wherever the data is.
-- **Running game.** Only the order of the music events around the victory dialog has been watched (round 69); the
-  rest hasn't, and nothing has been heard. The fades in particular should be checked by ear.
-- **Outcome dialog: fade length.** The 540 ms of the first fade of all sound after the dialog is static study (the
-  watched runs had no sound device). The second fade returns at once (static study, round 70).
+- **Running game.** Watched so far: the outcome dialogs (rounds 69 and 70), quitting to the main menu and starting a
+  campaign afterwards (round 74). Round 74 had a working sound device but no speaker, so the music was followed
+  through the program's own playing tests and fade timings, not heard. In the oracle the sound device runs about 3.5
+  times faster than real time, so how long a track plays before its end fade, and the 2 s chain gap, can't be
+  measured there; the fade-stop timing can (it is timed by the clock, not the sound device). Default: the static
+  study under "End of a track".
+- **Score screen to main menu.** Closing the score screen after a custom or multiplayer game, loading a game from
+  the menus and the main menu's Replay Introduction, Show Credits and Exit Program weren't run. Default: the fade of
+  all sound the table lists.
+- **Multiplayer score screen: where it goes.** Round 74's static study says the main menu follows the score screen
+  after a multiplayer game as well as a custom one; `game/campaign-flow.md` says a multiplayer game goes back to the
+  multiplayer screens. Static study alone doesn't change that rule. **Trace request:** a multiplayer game (the
+  opt-in multiplayer launch, Enhanced) to its score screen, then close it, logging the flow and the music. Default:
+  the multiplayer screens, as `game/campaign-flow.md` says; the score screen's fade of all sound still closes the
+  score track.
+- **Outcome dialog: fade length.** The fade after the outcome dialog wasn't timed with a sound device. The same fade
+  of all sound, timed on the quit-to-menu path in round 74, matched the formula (520 ms at volume 75), so the
+  default is 540 ms at full volume. The second fade returns at once (static study, round 70; seen on the quit path,
+  round 74).
 - **Outcome dialog: save path.** The victory dialog's save path (a save, then the game ends with a victory) wasn't
   watched. Default: the same sequence as "Victory".

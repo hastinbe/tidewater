@@ -26,6 +26,15 @@
   that changes screen now names only buttons that fade (Show Credits, Custom Scenario); open questions on the
   network and Battle.net pictures, the button face, label placement, the pointer during menu switches without a fade
   and unused palette entries. Reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15, round-74 errata (`ERRATA-round74.md`, B1 to B5; observed on the running game, Enhanced,
+  backed by game data and static study): the button faces are frames of `Art\orc.grp`; the rings' entries; the
+  label placement rule, pressed buttons and headings; the campaign menu's layout; keyboard focus (Tab, Shift+Tab,
+  Enter); the version line's shade 3 default. The "Menu button face" and "Menu label placement" open questions are
+  closed. Reviewed by a spec-review session, 2026-10-15: the frame table corrected against the game data (four sizes
+  have no grey disabled frame; frames 0 to 2 have no rings; pressed frames of three sizes have no 239 ring); the
+  static reading that the 247 outline marks the default button rather than the disabled state is held as an open
+  question with a trace request, so round 73's observed rule stays the default; focus on in-game dialogs' default
+  buttons added from the round-74 captures.
 
 ## Behaviour
 
@@ -312,20 +321,100 @@ shadow (entry 0) in every case. Shades 1 to 4 map as follows:
 | Disabled button label | `font12x.fnt` | 108 | 108 | 105 (123, 123, 123) | 102 (91, 91, 91) |
 | Screen headings ("Tides of Darkness", "Load Game", "Custom Game Setup", "Direct Connection Setup") | `font12x.fnt` | 246 | 246 | 108 | 104 |
 | Dialog text ("Unable to locate IPX network.") | `font12x.fnt` | 200 | 199 | 197 | 192 |
-| Version line | `font10x.fnt` | 246 | 246 | (no shade-3 pixels in this text) | 104 |
+| Version line | `font10x.fnt` | 246 | 246 | 108 (default; this text has no shade-3 pixels, see "Open questions") | 104 |
 
 Glyphs sit 1 pixel apart; a space leaves 10 pixels between the glyphs either side in `font12x` (as on the credits
 screen, `game/campaign-flow.md`) and 8 pixels in `font10x`.
 
-**Buttons.** A menu button is a red, marbled face inside a 1-pixel black ring, inside a 1-pixel gold-brown outer ring
-(entries 129 to 135). The **focused** button has its outer ring in entry 251, (255, 255, 0), instead; the ring stays on
-the focused button when the pointer is over another one. Seen focused when each menu opened: the first button on the
-main, single-player, campaign and Enhanced-or-Classic menus; Start Game on the custom-scenario setup; Cancel on the
-load-game screen with no saved games; OK on the name entry. A disabled button
-(Load, on the load-game screen with no saved games) has a grey face (entries 97 to 108) and its outer ring in
-entry 247 (163, 163, 167). The main menu's five buttons are 224 × 28 at x 208, y 240, 276, 312, 348 and 384, as
-the dialog file `rez\MainMenu.bin` lists them. Where the label sits on the button was measured
-for one case only (test vectors; see "Open questions"). Full menu layout is outside this spec.
+**Buttons.** A menu button's face is a picture from the game data, not drawn by the program: a frame of the
+interface file `Art\orc.grp` (the menus use the orc interface race, as for the pointer; `Art\human.grp` holds the
+human set in the same layout). These files are uncompressed: a 16-bit frame count, width and height, then 8 bytes
+per frame (x, y, width, height as single bytes, then a 32-bit offset into the file), and each frame is width × height
+palette indices. The button faces come in threes, one three per button size, in the order disabled, normal,
+pressed. For some sizes the first frame is the same picture as the normal one, so those sizes have no grey disabled
+face (game data):
+
+| Frames | Size | Disabled frame | Outer ring | Second ring |
+| --- | --- | --- | --- | --- |
+| 0 to 2 | 106 × 28 | same as normal | none: all three frames use entries 6 to 15 only, and are the same in `Art\human.grp` | none |
+| 3 to 5 | 128 × 20 | same as normal | 128 to 136 | 239; pressed 161 |
+| 6 to 8 | 80 × 20 | same as normal | 128 to 136 | 239; pressed 161 |
+| 9 to 11 | 106 × 28 | grey | 128 to 136 | 239 |
+| 12 to 14 | 164 × 28 | grey | 128 to 136 | 239 |
+| 15 to 17 | 224 × 28 (the main, single-player and campaign menus) | grey | 128 to 136 | 239 |
+| 48 to 50 | 80 × 15 | same as normal | 128 to 136 | 239; pressed 161 |
+
+The main menu's normal face is frame 16 pixel for pixel, apart from the label (observed: 5,080 of 6,272 pixels;
+the other 1,192 are exactly the label's glyph pixels). The rings are 1 pixel wide; entry 239 is black. Inside the
+rings, the 224 × 28 faces use entries 160 to 165, 210 and 211 (normal, frame 16), 97 to 108 (disabled, grey,
+frame 15) and 161 to 163 and 211 (pressed, frame 17). The other sizes use entries from the same ranges, plus 166
+in frames 3 and 4, 96 in the grey frames 9 and 12, and 160 or 210 in some pressed frames (game data). Tidewater
+draws the frames as they are, so these lists only describe them. Which size each other dialog's buttons use comes
+from its dialog file.
+
+Over the face the program draws:
+
+- **Default button and disabled button (not settled).** Load on the load-game screen with no saved games is both
+  disabled and the dialog's default button (the dialog file marks it). It has a 1-pixel outline in entry 247
+  (163, 163, 167) instead of its outer ring (round 73, observed). Round 73 read the outline as the disabled state;
+  round 74's static study ties it to the default mark instead. The running game hasn't separated the two (see
+  "Open questions"). Default, as observed: a disabled button has its outer ring in entry 247; an enabled button
+  keeps its frame's own ring.
+- **Focus.** The **focused** button gets a 1-pixel outline in entry 251, (255, 255, 0), over its outer ring. It shows
+  on a focused default button too: Quit to Menu on the in-game quit-to-menu confirmation, which is the dialog's
+  default button, has the full 251 ring (round 74 captures). The ring stays on the focused button when the pointer
+  is over another one. Seen focused when each menu opened: the first button on the main, single-player, campaign
+  and Enhanced-or-Classic menus; Start Game on the custom-scenario setup; Cancel on the load-game screen with no
+  saved games; OK on the name entry. In a game, the dialog's default button: Return to Game on the game menu,
+  Previous on End Scenario, and Quit to Menu on the quit-to-menu confirmation (round 74 captures).
+- **Label.** The label text (below).
+
+**Pressing.** While the mouse button is held down on a menu button, its pressed frame is drawn (observed: frame 17
+on Show Credits, 4,755 of 6,272 pixels with the label moved) and the label moves 2 pixels right and 2 down. Pressing
+a button also gives it the focus. Releasing outside the button does nothing, and the focus stays on it.
+
+**Label placement.** A button's label text in its dialog file starts with the button's hotkey letter, which isn't
+drawn; in the rest, byte 4 switches to the white shade map and byte 1 back to the normal one (so "Orc Campaign" on
+*Tides of Darkness* has a white "O", and on *Beyond the Dark Portal* a white "r"). With the font's glyphs:
+
+- **Text width** W = the sum, over the label's characters, of (the glyph's x offset + its width + 1); a space adds
+  floor(the font's widest glyph / 2) + 1 (9 in `font12x`). The 1-pixel gap after the last glyph counts.
+- **Button labels:** the text cell's top-left is x = left + floor((width + 1) / 2) + 1 − floor(W / 2),
+  y = top + floor((height + 1) / 2) + 1 − floor(font height / 2), where left, top, width and height are the
+  button's. For a 224 × 28 button in `font12x` (height 17) that is x = left + 113 − floor(W / 2), y = top + 7.
+  Pressed, add 2 to both.
+- **Headings** (a dialog's static text, such as the campaign menu's "Tides of Darkness"): x = left + floor((width −
+  1) / 2) − floor(W / 2), y = top, with no vertical centring (measured on 640-wide headings only).
+
+Observed on 14 labels of the main, single-player and campaign menus (both odd and even W) and the two campaign
+headings: every one sits exactly where the rule puts it (the best-fitting cell, most with every glyph pixel
+exact). The round-73 "Load Game" (W 93) at 275 is this rule; plain centring would give 274.
+
+**Keyboard focus.** On the main menu (observed; the other menus are assumed to work alike):
+
+- **Tab** moves the focus ring to the next button in the dialog's order, and from the last back to the first;
+  **Shift+Tab** moves it back, and from the first to the last.
+- The arrow keys do nothing. Moving the pointer over a button doesn't move the focus.
+- **Enter** activates the focused button, as a click on it does (for example the focus on Multi Player Game and
+  Enter opens the multiplayer menu; Enter on the quit-to-menu confirmation in a game confirms it).
+- Each time the main menu opens, the focus is on its first button again.
+
+**Main menu and campaign menu.** The main menu's five buttons are 224 × 28 at x 208, y 240, 276, 312, 348 and 384, as
+the dialog file `rez\MainMenu.bin` lists them; their hotkeys are S, M, R, C and x (Single Player Game, Multi Player
+Game, Replay Introduction, Show Credits, Exit Program). The campaign menu (`rez\newcmpgn.bin`, game data, observed):
+
+| Item | Kind | Rectangle (x, y, width × height) | Hotkey | Label cell (observed) |
+| --- | --- | --- | --- | --- |
+| "Tides of Darkness" | heading, white heading map | 0, 216, 640 × 28 | — | (241, 216) |
+| "Orc Campaign" | button | 208, 240, 224 × 28 | O | (262, 247) |
+| "Human Campaign" | button | 208, 276, 224 × 28 | H | (248, 283) |
+| "Beyond the Dark Portal" | heading, white heading map | 0, 324, 640 × 28 | — | (219, 324) |
+| "Orc Campaign" | button | 208, 348, 224 × 28 | r | (262, 355) |
+| "Human Campaign" | button | 208, 384, 224 × 28 | u | (248, 391) |
+| "Previous Menu" | button | 208, 420, 224 × 28 | P | (257, 427) |
+
+The four campaign buttons choose ToD orc, ToD human, BDP orc and BDP human (`game/campaign-flow.md`); Previous Menu
+returns to the single-player menu. Full layouts of the other menus are outside this spec.
 
 ## Data
 
@@ -392,6 +481,14 @@ for one case only (test vectors; see "Open questions"). Full menu layout is outs
 | Custom-scenario setup, pointer over Select Scenario (round 73) | Its whole label in the white map; "Start Game" keeps the yellow ring and its gold label with a white "S" |
 | Load-game screen, no saved games (round 73) | "Load" button grey with label shades 108, 108, 105, 102; "Cancel" gold with a white "C" |
 | Multiplayer, IPX network, name entry, OK (round 73) | "Unable to locate IPX network." on `Art\o144x64.bmp` at (176, 256) in the menu palette; text `font12x`, gold map; the orc arrow exact |
+| Campaign menu, pointer off the buttons (round 74) | Labels at the cells in the campaign-menu table; headings "Tides of Darkness" (W 156) at (241, 216) and "Beyond the Dark Portal" (W 201) at (219, 324) in the white heading map |
+| Main menu, labels (round 74) | Single Player Game (W 166) at (238, 247), Multi Player Game (160) at (241, 283), Replay Introduction (168) at (237, 319), Show Credits (114) at (264, 355), Exit Program (116) at (263, 391) |
+| Main menu, mouse button held on Show Credits (round 74) | Frame 17 drawn; label at (266, 357); the focus ring moves to Show Credits; released outside the button: nothing opens, the ring stays |
+| Main menu opened, Tab pressed 5 times (round 74) | Focus ring on Multi Player Game, Replay Introduction, Show Credits, Exit Program, then Single Player Game again |
+| Main menu opened, Shift+Tab (round 74) | Focus ring on Exit Program |
+| Main menu, Down or Up arrow (round 74) | The focus ring doesn't move |
+| Main menu, Tab, then Enter (round 74) | The multiplayer menu (Enhanced or Classic) opens |
+| Main menu, normal button face (round 74) | Equals `Art\orc.grp` frame 16 at (208, y) except the label's glyph pixels |
 | Orc campaign mission lost (defeat dialog up) | Orc normal arrow (`o_arrow.cur`), game palette (round 70, seen; shape match) |
 | Orc defeat, score screen | Picture `Art\olosglu.pcx`, 3D arrow, exact pixel match (round 70, seen) |
 
@@ -416,11 +513,21 @@ for one case only (test vectors; see "Open questions"). Full menu layout is outs
   entries 0 to 15 and 96 to 255 (game data), so the orc arrow and the button colours would look the same there.
   Whether these screens fade, show the version line or use the orc arrow wasn't observed. Default: the static-study
   pictures; nothing in Tidewater needs these screens yet.
-- **Menu button face.** The red, marbled button face and its gold-brown ring ("Menu screens", "Buttons") weren't
-  found in the game data files, and where they come from isn't known. Their pixels are known only from captures.
-- **Menu label placement.** One label was measured: "Load Game" (`font12x`) has its cell top-left at (275, 283) on
-  the button at (208, 276), 224 × 28. The rule that places labels on buttons wasn't measured. Default: centred
-  horizontally and vertically on the button.
+- **Version line shade 3.** The version line's text has no shade-3 pixels, so the colour that shade would take
+  can't be seen. Its other shades equal the white heading map's. Default: 108, as in that map.
+- **Default button or disabled button: what the 247 outline marks.** It was seen only on Load with no saved games,
+  which is both disabled and the dialog's default button. Static study (round 74) says it marks the default button,
+  which would contradict the observed rule above for a disabled button that isn't the default; it isn't adopted
+  until the running game shows it. The in-game captures of round 74 don't help: each dialog opened with the focus
+  on its default button, and the 251 ring covers the outline. **Trace request:** on the load-game screen with a
+  saved game, Tab the focus off Load and capture Load's outer ring (enabled default button); and capture a disabled
+  button that isn't the default, if a dialog has one. Default: a disabled button's outer ring is 247 (round 73,
+  observed); an enabled button keeps its frame's ring; focus draws 251 over the ring (observed on a focused default
+  button).
+- **Other button sizes.** The placement rule was measured on 224 × 28 buttons (and 640-wide headings) only. Default:
+  the same formulas for the other sizes.
+- **Keyboard focus on other menus.** Tab and Enter were tried on the main menu and Enter on the quit-to-menu
+  confirmation. Default: every dialog works alike.
 - **Pointer during menu switches without a fade.** Whether the pointer hides, even for a frame, when one menu on the
   main menu's picture replaces another wasn't settled by the round-73 captures. Default: the orc arrow stays shown,
   since no fade runs.

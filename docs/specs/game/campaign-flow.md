@@ -24,6 +24,11 @@
 - **Changes:** 2026-10-15 (round 73, `ERRATA-round73.md`, M1; observed on the running game, Enhanced): "Startup"
   names the main menu's picture, `Art\TitleMenu_BNE.pcx`, distinct from the title picture. Reviewed by a spec-review
   session, 2026-10-15.
+- **Changes:** 2026-10-15 (round 74, `ERRATA-round74.md`, Q2 and Q3; observed on the running game, Enhanced): choosing
+  a campaign fades all sound, then the screen out over 200 ms; the dialog's last button is "Previous Menu"; the
+  briefing has no Escape and no way back to the main menu; closing it fades all sound, then the screen out over
+  100 ms. Reviewed by a spec-review session, 2026-10-15: "no way back from the briefing" labelled static study
+  (Escape observed).
 
 ## Behaviour
 
@@ -102,7 +107,9 @@ The new-campaign dialog (`rez\newcmpgn.bin`) has four campaign choices:
 | BDP orc | orc | entry 29 | the BDP intro, then the mission |
 | BDP human | human | entry 28 | the BDP intro, then the mission |
 
-Cancel returns to the menu. Any choice also marks the game as a campaign game (not custom).
+"Previous Menu" returns to the single-player menu, with no fade. Any choice also marks the game as a campaign game
+(not custom), then all sound fades out (a fade of all sound, `ui/music.md`: whatever the menu was playing, normally
+track 22, fades and closes) and the screen fades to black over 200 ms (observed, round 74, for the ToD choices).
 
 **BDP intro.** If the movie archive is available, video 10 plays unless Ctrl is held, then the mission starts. If
 the archive isn't available, the game goes back to the main menu instead (see the open questions).
@@ -190,8 +197,10 @@ The briefing is shown for mission entries 0 to 51. It uses `rez\hdisptch.bin` fo
   the text finishes scrolling about when the narration ends.
 - **Music:** if no music is playing, track 20 (human) or 21 (orc) starts.
 - **Closing.** The briefing closes by itself once the text has scrolled out of the panel and the narration has
-  finished. Its **Continue** button (the dialog data's only button) closes it at once. A quit request quits the
-  program.
+  finished. Its **Continue** button (the dialog data's only button) or Enter closes it at once. Closing is a fade of
+  all sound (the briefing track fades out and closes), then a 100 ms fade to black, then the game starts (observed,
+  round 74). Escape does nothing (observed), so the briefing has no way back to the main menu (static study: its
+  only other exit is a quit request, which quits the program).
 
 ### The victory and defeat dialogs
 

@@ -9,6 +9,10 @@
 - **Changes:** 2026-10-15, round-73 errata (`ERRATA-round73.md`, M2; observed on the running game, Enhanced): the
   "Screens that fade over 200 ms" open question is narrowed and the screen-fades table split to match (menus on the
   main menu's picture don't fade; the custom-scenario setup does). Reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15, round-74 errata (`ERRATA-round74.md`, Q2; observed on the running game, Enhanced): rows
+  for choosing a campaign (200 ms out) and closing the briefing (100 ms out); the score screen's close (150 ms out)
+  from static study. Reviewed by a spec-review session, 2026-10-15: the briefing's 100 ms fade-in, seen in the same
+  round-74 event log, added to its row.
 
 ## Behaviour
 
@@ -117,6 +121,9 @@ A **fade-in** starts from all black, with the new screen already drawn, and ends
 | Title | in and out, 250 ms; out 1 ms if a key or click cut it short (`game/campaign-flow.md`) |
 | Act screen | in 300 ms (text only, at countdown 60); in 600 ms (picture, at countdown 50, then the act sound); out 400 ms when it closes, however it closes, then a fade of all sound (`game/campaign-flow.md`) |
 | Main menu opening; leaving the menus for the credits or the custom-scenario setup; the custom-scenario setup opening and closing | in and out, 200 ms (the main menu's fade-in and the custom-scenario setup's fades observed, round 73; the rest static study) |
+| A campaign chosen on the new-campaign menu | out, 200 ms, after a fade of all sound (round 74, observed) |
+| Briefing | in, 100 ms, as it opens, after its track starts; out, 100 ms, when Continue or Enter closes it, after a fade of all sound (both round 74, observed) |
+| Score screen closing | out, 150 ms, after a fade of all sound (round 74, static study) |
 | Multiplayer game setup and Battle.net screens | in and out, 200 ms (static study; not reached on the running game) |
 | Switching between the menus drawn on the main menu's picture (single-player, campaign, load-game, the multiplayer menus up to the direct-connection setup, and their small dialogs; `ui/screen-and-cursors.md`, "Menu screens") | none (round 73, observed) |
 
