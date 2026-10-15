@@ -22,6 +22,7 @@ use tidewater_formats::install::Install;
 use tidewater_sim::economy::Event;
 use tidewater_sim::{Command, TILE_PX, UnitId, World};
 
+use crate::carry;
 use crate::clock::FrameClock;
 use crate::core::{self, Core, add_layer, remove_layers};
 use crate::input::{self, Button, Key};
@@ -49,6 +50,8 @@ pub struct Sim {
     pub unload_one: Vec<(UnitId, usize)>,
     /// Interface sounds to play this frame (the placement click's).
     pub ui_sounds: Vec<sound::UiSound>,
+    /// The carrying files of the workers and tankers, chosen again after each cycle (`carry`).
+    pub carried: carry::Carried,
 }
 
 /// Plays the sim's sound cues (`sound.rs`, spec `docs/specs/ui/sounds.md`): reads the files from the install on first
@@ -623,6 +626,7 @@ pub(crate) fn setup(c: &mut Core) {
         counter,
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
+        carried: carry::Carried::default(),
     };
     commands.queue(move |c| {
         c.sim = Some(sim);
@@ -675,6 +679,8 @@ pub(crate) fn tick(c: &mut Core) {
     }
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
+    // Carried-goods spec, "When the file is chosen": the marks and take-overs of this cycle.
+    sim.carried.update(&sim.world);
     let step = std::time::Duration::from_secs_f64(cycle_secs(sim.world.rules.enhanced, sim.world.speed));
     if time.step() != step {
         time.set_step(step);
@@ -892,6 +898,7 @@ pub(crate) fn draw_view(c: &mut Core) {
         placing: matches!(ui.mode, panel::Mode::Place(_)),
         marker: sel.marker,
         drag,
+        carried: &sim.carried,
     };
     let (frame, stop) = view::frame(&sim.world, &art.view, &canvas, &local);
     // A flashing unit that is gone or not detected stops flashing at once ("Boxes").

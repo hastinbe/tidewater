@@ -8,6 +8,7 @@
 mod args;
 mod audio;
 mod campaign;
+mod carry;
 mod chat;
 mod cheats;
 mod clock;

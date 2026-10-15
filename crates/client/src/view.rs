@@ -18,7 +18,8 @@
 //! draws a `ViewFrame`; the rules in between are small functions that the tests feed with synthetic values.
 //!
 //! Sprite files: unit sheets as in `tidewater_formats::sprites`; `Art\Unit\Other\shadow.grp`, `charms.grp` (stored
-//! unpacked) and the effect files by effect kind from the spec's "Data" table.
+//! unpacked), the effect files by effect kind from the spec's "Data" table, and the carrying files of workers and
+//! tankers (`carry`, spec `ui/carried-goods.md`), which replace a carrying unit's sheet.
 //!
 //! Defaults and placeholders where the specs stop:
 //! - **Bob offset:** b is the unit's bob value (0 or 1), flipped by the sim at each bob draw of a ship or flier.
@@ -37,6 +38,7 @@ use tidewater_formats::tileset::Palette;
 use tidewater_sim::vision::{Map, bit};
 use tidewater_sim::{Layer, Unit, UnitId, World};
 
+use crate::carry::{Carried, CarryFile};
 use crate::fog;
 
 /// A canvas pixel that nothing has drawn: the terrain shows through.
@@ -256,6 +258,8 @@ pub enum Sheet {
     /// An effect kind's file.
     Effect(u8),
     Shadow,
+    /// A worker's or tanker's carrying file (`carry`).
+    Carry(CarryFile),
 }
 
 /// The sprite files the view draws from.
@@ -265,6 +269,7 @@ pub struct Art {
     pub effects: HashMap<u8, Grp>,
     pub shadow: Option<Grp>,
     pub charms: Option<Grp>,
+    pub carrying: HashMap<CarryFile, Grp>,
 }
 
 impl Art {
@@ -282,11 +287,16 @@ impl Art {
         let effects = (0..EFFECT_FILES.len() as u8)
             .filter_map(|k| Some((k, read(&effect_file(k)?, true)?)))
             .collect();
+        let carrying = CarryFile::ALL
+            .iter()
+            .filter_map(|&f| Some((f, read(&f.path(), true)?)))
+            .collect();
         Art {
             units,
             effects,
             shadow: read("Art\\Unit\\Other\\shadow.grp", true),
             charms: read("Art\\Unit\\Other\\charms.grp", false),
+            carrying,
         }
     }
 
@@ -295,6 +305,7 @@ impl Art {
             Sheet::Unit(k) => self.units.get(&k),
             Sheet::Effect(k) => self.effects.get(&k),
             Sheet::Shadow => self.shadow.as_ref(),
+            Sheet::Carry(f) => self.carrying.get(&f),
         }
     }
 
@@ -569,6 +580,15 @@ impl Marker {
     }
 }
 
+/// The sheet a unit is drawn from ("Terms", picture): its carrying file while it has one (`carry`) and the install has
+/// it, otherwise the picture's own sheet.
+fn unit_sheet(art: &Art, carrying: Option<CarryFile>, picture: u8) -> Sheet {
+    match carrying {
+        Some(f) if art.carrying.contains_key(&f) => Sheet::Carry(f),
+        _ => Sheet::Unit(picture),
+    }
+}
+
 /// The marker's drawing step: its frame of `blackx.grp` in column 0, not mirrored, in the tileset palette with no team
 /// colour; `None` while it isn't drawn.
 fn marker_op(art: &Art, mk: Marker) -> Option<Op> {
@@ -688,6 +708,8 @@ pub struct Local<'a> {
     pub placing: bool,
     pub marker: Option<Marker>,
     pub drag: Option<((i32, i32), (i32, i32))>,
+    /// The carrying files the workers and tankers are drawn from (`carry`).
+    pub carried: &'a Carried,
 }
 
 /// Dead (slot released) or removed: not drawn at all.
@@ -802,7 +824,7 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
             (a, b, col)
         });
         let air = u.layer == Layer::Air;
-        let sheet = Sheet::Unit(u.picture());
+        let sheet = unit_sheet(art, local.carried.file(world, u), u.picture());
         let bob = u.bob.value as i32;
         let sprite =
             sheet_frame(u.building, u.facing, u.script.frame, art.frames(sheet)).map(|(frame, mirrored)| Op::Sprite {
