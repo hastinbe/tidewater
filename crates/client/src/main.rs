@@ -24,12 +24,12 @@ mod cheats;
 mod compose;
 mod display;
 mod fog;
-mod frame;
 mod frontend;
 mod gamemenu;
 mod hud;
 mod info;
 mod jukebox;
+mod layers;
 mod mapview;
 mod menu;
 mod messages;
@@ -56,14 +56,12 @@ mod view;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::RenderLayers;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorGrabMode, CursorOptions};
 use clap::Parser;
 use panel::PanelState;
+use shell::{ScreenLayer, ScreenPictures};
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::Event;
@@ -245,7 +243,7 @@ struct ScreenUi {
     was_paused: bool,
 }
 
-/// Links the sprite that shows the building being placed over its site.
+/// The layer that shows the building being placed over its site.
 #[derive(Component)]
 struct Ghost;
 
@@ -306,7 +304,7 @@ impl Selection {
 /// The terrain picture and what redraws its tiles.
 #[derive(Resource)]
 struct TerrainArt {
-    image: Handle<Image>,
+    image: layers::PictureId,
     tileset: tidewater_formats::tileset::Tileset,
 }
 
@@ -336,9 +334,9 @@ struct Art {
     shapes: fog::Shapes,
 }
 
-/// The sprite showing the map view's picture (`view::draw`) over the terrain.
+/// The layer showing the map view's picture (`view::draw`) over the terrain.
 #[derive(Component)]
-struct ViewSprite;
+struct ViewLayer;
 
 /// The map view's zoom in map pixels per screen pixel (`display`): 1, as the original, unless `--free-zoom`.
 #[derive(Resource)]
@@ -361,7 +359,8 @@ struct Hud {
     art: hud::HudArt,
     layout: Option<hud::Layout>,
     frame: scene::Picture,
-    image: Handle<Image>,
+    /// The interface's picture, while a game is on.
+    image: Option<layers::PictureId>,
     /// Map size in tiles.
     map: (u32, u32),
     /// The minimap: its redraw countdown, terrain picture and last picture (`minimap`).
@@ -403,9 +402,7 @@ fn end_view_frame(view: Option<ResMut<GameView>>) {
 }
 
 #[derive(Component)]
-struct HudSprite;
-
-const HUD_LAYER: usize = 1;
+struct HudLayer;
 
 fn main() -> Result<()> {
     let mut args = Args::parse();
@@ -887,7 +884,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
             height: 1,
             rgba: vec![0; 4],
         },
-        image: Handle::default(),
+        image: None,
         map: (0, 0),
         minimap: minimap::Minimap::new(0),
         locked: frontend::LockedPointer::default(),
@@ -908,7 +905,7 @@ type GameEntities<'w, 's> = Query<
     's,
     Entity,
     (
-        Or<(With<Sprite>, With<Camera>, With<AudioPlayer>)>,
+        Or<(With<ScreenLayer>, With<Camera>, With<AudioPlayer>)>,
         Without<frontend::Persist>,
     ),
 >;
@@ -934,30 +931,11 @@ fn end_game(mut commands: Commands, q: GameEntities) {
     commands.remove_resource::<savegame::PauseCounts>();
 }
 
-fn image_with(p: scene::Picture, usage: RenderAssetUsages) -> Image {
-    Image::new(
-        Extent3d {
-            width: p.width,
-            height: p.height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        p.rgba,
-        TextureFormat::Rgba8UnormSrgb,
-        usage,
-    )
-}
-
-/// Map pixels (y down) to world space (y up).
-fn world(x: f32, y: f32, z: f32) -> Vec3 {
-    Vec3::new(x, -y, z)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn setup(
     mut commands: Commands,
     mut loaded: ResMut<Loaded>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     size: Res<MapSize>,
     mut hud: ResMut<Hud>,
     sel: Res<Selection>,
@@ -980,47 +958,32 @@ fn setup(
         scene.terrain.height / TILE_PX as u32,
     );
     hud.minimap = minimap::Minimap::new(hud.map.0);
-    hud.image = images.add(image_with(
-        scene::Picture {
-            width: 1,
-            height: 1,
-            rgba: vec![0; 4],
-        },
-        RenderAssetUsages::default(),
-    ));
+    let blank = || scene::Picture {
+        width: 1,
+        height: 1,
+        rgba: vec![0; 4],
+    };
+    let image = pictures.add(blank());
+    hud.image = Some(image);
     commands.spawn((
-        Sprite::from_image(hud.image.clone()),
-        Transform::default(),
-        RenderLayers::layer(HUD_LAYER),
-        HudSprite,
+        ScreenLayer(layers::Layer::new(image, layers::Plane::Interface, 0.0)),
+        HudLayer,
     ));
     // `hud_layout` puts the view on the screen and sets its zoom.
     commands.insert_resource(GameView(mapview::MapView::new((look.x, look.y))));
     // Kept on the CPU side too, so tiles that change in play can be redrawn.
-    let terrain = images.add(image_with(scene.terrain, RenderAssetUsages::default()));
-    commands.spawn((
-        Sprite::from_image(terrain.clone()),
-        Transform::from_translation(world(size.0.x / 2.0, size.0.y / 2.0, 0.0)),
+    let terrain = pictures.add(scene.terrain);
+    commands.spawn(ScreenLayer(
+        layers::Layer::new(terrain, layers::Plane::Map, 0.0).at(size.0.x / 2.0, size.0.y / 2.0),
     ));
     commands.insert_resource(TerrainArt {
         image: terrain,
         tileset: scene.tileset,
     });
     // The map view's picture, redrawn every frame for the part of the map in view (`draw_view`).
-    let blank = || {
-        image_with(
-            scene::Picture {
-                width: 1,
-                height: 1,
-                rgba: vec![0; 4],
-            },
-            RenderAssetUsages::default(),
-        )
-    };
     commands.spawn((
-        Sprite::from_image(images.add(blank())),
-        Transform::from_translation(world(0.0, 0.0, VIEW_Z)),
-        ViewSprite,
+        ScreenLayer(layers::Layer::new(pictures.add(blank()), layers::Plane::Map, VIEW_Z)),
+        ViewLayer,
     ));
     // A selection made at the start (`--demo-select`) becomes the synced selection on the first cycle.
     let pending = if sel.units.is_empty() {
@@ -1044,12 +1007,9 @@ fn setup(
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
     });
-    commands.spawn((
-        Sprite::from_image(images.add(blank())),
-        Transform::default(),
-        Visibility::Hidden,
-        Ghost,
-    ));
+    let mut ghost = layers::Layer::new(pictures.add(blank()), layers::Plane::Map, 0.0);
+    ghost.visible = false;
+    commands.spawn((ScreenLayer(ghost), Ghost));
 }
 
 /// The fixed timestep for the game speed (timing spec): Enhanced rules use the speed's cycle time, Classic rules the
@@ -1147,7 +1107,7 @@ fn cycle_palette(
     stored: Res<gamemenu::Stored>,
     menu: Option<Res<gamemenu::GameMenu>>,
     windows: Query<&Window>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     real: Res<Time<Real>>,
     script: Option<Res<script::Script>>,
 ) {
@@ -1196,9 +1156,10 @@ fn cycle_palette(
             })
             .collect()
     });
-    if let Some(mut img) = images.get_mut(&terrain.image) {
-        let width = img.width() as usize;
-        if let Some(data) = img.data.as_mut() {
+    if let Some(img) = pictures.get_mut(terrain.image) {
+        let width = img.width as usize;
+        {
+            let data = &mut img.rgba;
             let t = TILE_PX as usize;
             let v = &sim.world.vision;
             for y in 0..v.height as i32 {
@@ -1227,17 +1188,17 @@ fn redraw_terrain(
     mut sim: ResMut<Sim>,
     art: Res<TerrainArt>,
     cycling: Res<Cycling>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
 ) {
     let changed = std::mem::take(&mut sim.world.terrain.redraw);
     if changed.is_empty() {
         return;
     }
-    let Some(mut img) = images.get_mut(&art.image) else {
+    let Some(img) = pictures.get_mut(art.image) else {
         return;
     };
-    let width = img.width() as usize;
-    let Some(data) = img.data.as_mut() else { return };
+    let width = img.width as usize;
+    let data = &mut img.rgba;
     let t = TILE_PX as usize;
     for (x, y) in changed {
         let Some(m) = sim.world.terrain.tile(x, y) else {
@@ -1251,21 +1212,19 @@ fn redraw_terrain(
     }
 }
 
-/// Puts a picture into a sprite's image and sizes the sprite to it.
-fn show_picture(images: &mut Assets<Image>, sprite: &mut Sprite, width: i32, height: i32, rgba: Vec<u8>) {
+/// Puts a picture into a layer and sizes the layer to it.
+fn show_picture(pictures: &mut ScreenPictures, layer: &mut layers::Layer, width: i32, height: i32, rgba: Vec<u8>) {
     let (w, h) = (width.max(1) as u32, height.max(1) as u32);
     let rgba = if width > 0 && height > 0 { rgba } else { vec![0; 4] };
-    if let Some(mut img) = images.get_mut(&sprite.image) {
-        *img = image_with(
-            scene::Picture {
-                width: w,
-                height: h,
-                rgba,
-            },
-            RenderAssetUsages::default(),
-        );
-    }
-    sprite.custom_size = Some(Vec2::new(w as f32, h as f32));
+    pictures.set(
+        layer.picture,
+        scene::Picture {
+            width: w,
+            height: h,
+            rgba,
+        },
+    );
+    layer.size = Some((w as f32, h as f32));
 }
 
 /// Draws the map view over the terrain (`view`, spec `ui/map-drawing.md`) every frame, for the part of the map in
@@ -1279,13 +1238,13 @@ fn draw_view(
     hud: Res<Hud>,
     windows: Query<&Window>,
     view: Option<Res<GameView>>,
-    mut images: ResMut<Assets<Image>>,
-    mut shown: Query<(&mut Sprite, &mut Transform), With<ViewSprite>>,
+    mut pictures: ResMut<ScreenPictures>,
+    mut shown: Query<&mut ScreenLayer, With<ViewLayer>>,
 ) {
     let (Some(mut sim), Some(art), Some(view)) = (sim, art, view) else {
         return;
     };
-    let Ok((mut sprite, mut at)) = shown.single_mut() else {
+    let Ok(mut layer) = shown.single_mut() else {
         return;
     };
     let v = &sim.world.vision;
@@ -1311,11 +1270,10 @@ fn draw_view(
     }
     view::draw(&mut canvas, &frame, &art.view, &art.shapes);
     let rgba = canvas.rgba(&art.palette);
-    show_picture(&mut images, &mut sprite, canvas.width, canvas.height, rgba);
-    at.translation = world(
+    show_picture(&mut pictures, &mut layer, canvas.width, canvas.height, rgba);
+    layer.at = (
         l as f32 + canvas.width.max(1) as f32 / 2.0,
         t as f32 + canvas.height.max(1) as f32 / 2.0,
-        VIEW_Z,
     );
 }
 
@@ -1331,14 +1289,14 @@ fn pointer_tile(at: Vec2) -> (i32, i32) {
 fn draw_placement(
     sim: Option<Res<Sim>>,
     art: Option<Res<Art>>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     ui: Res<PanelUi>,
     sel: Res<Selection>,
     hud: Res<Hud>,
     windows: Query<&Window>,
-    mut ghost: Query<(&mut Sprite, &mut Transform, &mut Visibility), With<Ghost>>,
+    mut ghost: Query<&mut ScreenLayer, With<Ghost>>,
 ) {
-    let Ok((mut sprite, mut tf, mut vis)) = ghost.single_mut() else {
+    let Ok(mut layer) = ghost.single_mut() else {
         return;
     };
     let (Some(sim), Some(art)) = (sim, art) else { return };
@@ -1346,7 +1304,7 @@ fn draw_placement(
     let pointer = ui.site.filter(|_| over).or(ui.demo_pointer);
     let builder = sel.units.first().and_then(|&id| sim.world.unit(id));
     let (panel::Mode::Place(kind), Some(tile), Some(b)) = (ui.mode, pointer, builder) else {
-        vis.set_if_neq(Visibility::Hidden);
+        layer.visible = false;
         return;
     };
     let size = panel::WorldState {
@@ -1359,13 +1317,13 @@ fn draw_placement(
     let base = view::base_of(&sim.world, sim.human);
     let pic = view::placement_image(art.view.units.get(&kind), base, size, &bad);
     let rgba = pic.rgba(&art.palette);
-    show_picture(&mut images, &mut sprite, pic.width, pic.height, rgba);
-    tf.translation = world(
+    show_picture(&mut pictures, &mut layer, pic.width, pic.height, rgba);
+    layer.at = (
         (site.0 * TILE_PX) as f32 + pic.width as f32 / 2.0,
         (site.1 * TILE_PX) as f32 + pic.height as f32 / 2.0,
-        PLACE_Z,
     );
-    vis.set_if_neq(Visibility::Inherited);
+    layer.z = PLACE_Z;
+    layer.visible = true;
 }
 
 /// The cursor position in map pixels (y down), if it is over the window: by the view the last frame drew
@@ -1480,7 +1438,7 @@ fn hud_layout(
     mut hud: ResMut<Hud>,
     zoom: Res<MapZoom>,
     view: Option<ResMut<GameView>>,
-    sprite: Query<(), With<HudSprite>>,
+    sprite: Query<(), With<HudLayer>>,
 ) {
     let (Ok(_), Some(mut view), Ok(())) = (windows.single(), view, sprite.single()) else {
         return;
@@ -2523,7 +2481,7 @@ fn draw_hud(
     info_panel: Res<InfoPanel>,
     scr: Res<ScreenUi>,
     cycling: Res<Cycling>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
 ) {
     let (Some(sim), Some(layout)) = (sim, hud.layout) else {
         return;
@@ -2581,8 +2539,8 @@ fn draw_hud(
     );
     let mut pic = pic;
     palette::apply(&mut pic.rgba, cycling.effects);
-    if let Some(mut img) = images.get_mut(&hud.image) {
-        *img = image_with(pic, RenderAssetUsages::default());
+    if let Some(id) = hud.image {
+        pictures.set(id, pic);
     }
 }
 

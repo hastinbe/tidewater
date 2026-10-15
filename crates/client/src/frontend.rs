@@ -19,8 +19,6 @@ use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
-use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::RenderLayers;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
@@ -36,14 +34,14 @@ use tidewater_sim::victory::Outcome;
 use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::hud::{self, Rect};
 use crate::jukebox::{self, Jukebox};
+use crate::layers::{Layer as ScreenPlace, PictureId, Plane};
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
+use crate::shell::{ScreenLayer, ScreenPictures};
 use crate::video;
 
-/// The front end's render layer.
-pub const FRONT_LAYER: usize = 7;
 const W: u32 = 640;
 const H: u32 = 480;
 
@@ -491,7 +489,7 @@ pub struct OutcomeDialog {
     pub(crate) save_wanted: bool,
     /// The game was saved from here: the dialog ends the game as Continue does.
     pub(crate) saved: bool,
-    image: Handle<Image>,
+    image: PictureId,
 }
 
 /// Whether the game screen runs (not while the outcome dialog or, in single player, a game menu is up).
@@ -587,48 +585,24 @@ pub(crate) fn blank() -> Picture {
     }
 }
 
-pub(crate) fn rgba_image(p: Picture) -> Image {
-    Image::new(
-        bevy::render::render_resource::Extent3d {
-            width: p.width,
-            height: p.height,
-            depth_or_array_layers: 1,
-        },
-        bevy::render::render_resource::TextureDimension::D2,
-        p.rgba,
-        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    )
-}
-
 /// Spawns a picture as a layer of the screen shown in `state`.
 fn spawn_layer(
     commands: &mut Commands,
-    images: &mut Assets<Image>,
+    pictures: &mut ScreenPictures,
     p: Picture,
     layer: u8,
     state: AppState,
     size: Option<Vec2>,
-) -> Handle<Image> {
-    let h = images.add(rgba_image(p));
-    commands.spawn((
-        Sprite {
-            custom_size: size,
-            ..Sprite::from_image(h.clone())
-        },
-        Transform::from_xyz(0.0, 0.0, layer as f32),
-        RenderLayers::layer(FRONT_LAYER),
-        Layer(layer),
-        Persist,
-        DespawnOnExit(state),
-    ));
-    h
+) -> PictureId {
+    let id = pictures.add(p);
+    let mut place = ScreenPlace::new(id, Plane::Flow, layer as f32);
+    place.size = size.map(|s| (s.x, s.y));
+    commands.spawn((ScreenLayer(place), Layer(layer), Persist, DespawnOnExit(state)));
+    id
 }
 
-pub(crate) fn set_image(images: &mut Assets<Image>, h: &Handle<Image>, p: Picture) {
-    if let Some(mut img) = images.get_mut(h) {
-        *img = rgba_image(p);
-    }
+pub(crate) fn set_image(pictures: &mut ScreenPictures, id: &PictureId, p: Picture) {
+    pictures.set(*id, p);
 }
 
 /// Reads an 8-bit picture with its own palette (or `pal_from`'s) as RGBA; black when missing.
@@ -750,13 +724,12 @@ fn real_ms(time: &Time<Real>) -> f64 {
     time.elapsed_secs_f64() * 1000.0
 }
 
-fn apply_fades(time: Res<Time<Real>>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut Sprite)>) {
+fn apply_fades(time: Res<Time<Real>>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut ScreenLayer)>) {
     let Some(mut clock) = clock else { return };
     clock.0 += time.delta_secs_f64() * 1000.0;
-    for (f, mut s) in &mut q {
+    for (f, mut l) in &mut q {
         let k = ((clock.0 - f.at) / f.ms.max(1.0)).clamp(0.0, 1.0) as f32;
-        let b = f.from + (f.to - f.from) * k;
-        s.color = Color::srgb(b, b, b);
+        l.tint = f.from + (f.to - f.from) * k;
     }
 }
 
@@ -829,7 +802,7 @@ fn play_once(
 #[derive(Resource)]
 struct VideoPlay {
     smk: Smacker,
-    image: Handle<Image>,
+    image: PictureId,
     width: u32,
     height: u32,
     y: YScale,
@@ -842,7 +815,7 @@ fn enter_video(
     mut commands: Commands,
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut music: ResMut<Jukebox>,
 ) {
     let Some(Step::Video(n)) = flow.current else { return };
@@ -865,7 +838,7 @@ fn enter_video(
     let k = (W as f32 / width as f32).min(H as f32 / shown_h as f32);
     let image = spawn_layer(
         &mut commands,
-        &mut images,
+        &mut pictures,
         Picture {
             width,
             height: shown_h,
@@ -892,7 +865,7 @@ fn play_video(
     mut commands: Commands,
     time: Res<Time>,
     play: Option<ResMut<VideoPlay>>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut sources: ResMut<Assets<AudioSource>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -947,7 +920,7 @@ fn play_video(
                 height: video::shown_height(p.height, p.y),
                 rgba,
             };
-            set_image(&mut images, &p.image, pic);
+            set_image(&mut pictures, &p.image, pic);
         }
     } else {
         done = true;
@@ -968,10 +941,10 @@ fn enter_title(
     mut commands: Commands,
     time: Res<Time<Real>>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
 ) {
     let p = picture(&mut front.install, cf::TITLE_PICTURE, None);
-    spawn_layer(&mut commands, &mut images, p, 0, AppState::Title, None);
+    spawn_layer(&mut commands, &mut pictures, p, 0, AppState::Title, None);
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(TitleScreen(cf::TitleRun::new(real_ms(&time))));
     fade_in_new_screen(&mut commands, cf::TITLE_FADE_MS);
@@ -1021,7 +994,7 @@ fn run_title(
 
 #[derive(Resource)]
 struct Menu {
-    image: Handle<Image>,
+    image: PictureId,
     background: Picture,
     items: Vec<(Rect, String)>,
     hot: Option<usize>,
@@ -1041,7 +1014,7 @@ enum MenuPick {
 #[derive(Resource)]
 struct MenuLoad {
     ui: SaveUi,
-    image: Handle<Image>,
+    image: PictureId,
     layer: Entity,
 }
 
@@ -1053,7 +1026,13 @@ fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
         .collect()
 }
 
-fn open_menu(commands: &mut Commands, front: &mut Front, images: &mut Assets<Image>, labels: &[&str], state: AppState) {
+fn open_menu(
+    commands: &mut Commands,
+    front: &mut Front,
+    pictures: &mut ScreenPictures,
+    labels: &[&str],
+    state: AppState,
+) {
     let mut bg = picture(&mut front.install, cf::TITLE_PICTURE, None);
     // Darkened so the buttons read.
     for px in bg.rgba.chunks_exact_mut(4) {
@@ -1063,7 +1042,7 @@ fn open_menu(commands: &mut Commands, front: &mut Front, images: &mut Assets<Ima
     }
     // Below the title picture's logo.
     let top = 300 - labels.len() as i32 * 10;
-    let image = spawn_layer(commands, images, dup(&bg), 0, state, None);
+    let image = spawn_layer(commands, pictures, dup(&bg), 0, state, None);
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(Menu {
         image,
@@ -1079,7 +1058,7 @@ fn open_menu(commands: &mut Commands, front: &mut Front, images: &mut Assets<Ima
 fn menu_input(
     menu: &mut Menu,
     front: &Front,
-    images: &mut Assets<Image>,
+    pictures: &mut ScreenPictures,
     at: Option<Vec2>,
     mouse: &ButtonInput<MouseButton>,
     keys: &ButtonInput<KeyCode>,
@@ -1093,7 +1072,7 @@ fn menu_input(
         for (i, (r, l)) in menu.items.iter().enumerate() {
             button(&mut p, &front.font, *r, l, menu.hot == Some(i));
         }
-        set_image(images, &menu.image, p);
+        set_image(pictures, &menu.image, p);
         menu.drawn = Some(menu.hot);
     }
     const DIGITS: [KeyCode; 6] = [
@@ -1118,14 +1097,14 @@ fn menu_input(
 fn enter_menu(
     mut commands: Commands,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut music: ResMut<Jukebox>,
 ) {
     music.start_unless_playing(cf::TITLE_MUSIC);
     open_menu(
         &mut commands,
         &mut front,
-        &mut images,
+        &mut pictures,
         &["New Campaign", "Load Game", "Quit"],
         AppState::MainMenu,
     );
@@ -1140,7 +1119,7 @@ fn run_menu(
     layers: Query<(Entity, &Layer)>,
     front: Res<Front>,
     folder: Res<crate::savegame::SaveFolder>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
@@ -1170,7 +1149,7 @@ fn run_menu(
     }
     let at = pointer(&window, &cam, &locked);
     // The menu is drawn before its fade-in, but takes no input until the fade ends.
-    let pick = menu_input(&mut menu, &front, &mut images, at, &mouse, &keys, "Tidewater");
+    let pick = menu_input(&mut menu, &front, &mut pictures, at, &mouse, &keys, "Tidewater");
     if clock.0 < fades::MENUS as f64 {
         return;
     }
@@ -1189,12 +1168,10 @@ fn run_menu(
             let entries = folder.0.list(crate::savefile::Kind::Single, true);
             let ui = SaveUi::new(saves::Dialog::open(saves::Mode::Load, entries, saves::FORBIDDEN));
             let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
-            let image = images.add(rgba_image(pic));
+            let image = pictures.add(pic);
             let layer = commands
                 .spawn((
-                    Sprite::from_image(image.clone()),
-                    Transform::from_xyz(0.0, 0.0, 1.0),
-                    RenderLayers::layer(FRONT_LAYER),
+                    ScreenLayer(ScreenPlace::new(image, Plane::Flow, 1.0)),
                     Layer(1),
                     Persist,
                     DespawnOnExit(AppState::MainMenu),
@@ -1217,7 +1194,7 @@ fn run_menu_load(
     clock: Res<Clock>,
     layers: Query<(Entity, &Layer)>,
     front: Res<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     (mut typed, mut wheel): (MessageReader<KeyboardInput>, MessageReader<MouseWheel>),
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
@@ -1252,21 +1229,21 @@ fn run_menu_load(
     }
     if redraw {
         let p = load.ui.draw(&front.font, &front.big, &|n| front.net(n));
-        set_image(&mut images, &load.image, p);
+        set_image(&mut pictures, &load.image, p);
     }
 }
 
-fn enter_new_campaign(mut commands: Commands, mut front: ResMut<Front>, mut images: ResMut<Assets<Image>>) {
+fn enter_new_campaign(mut commands: Commands, mut front: ResMut<Front>, mut pictures: ResMut<ScreenPictures>) {
     let mut labels: Vec<&str> = Choice::ALL.iter().map(|c| c.label()).collect();
     labels.push("Cancel");
-    open_menu(&mut commands, &mut front, &mut images, &labels, AppState::NewCampaign);
+    open_menu(&mut commands, &mut front, &mut pictures, &labels, AppState::NewCampaign);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn run_new_campaign(
     mut menu: ResMut<Menu>,
     front: Res<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
@@ -1277,7 +1254,7 @@ fn run_new_campaign(
     mut exit: MessageWriter<AppExit>,
 ) {
     let at = pointer(&window, &cam, &locked);
-    let pick = menu_input(&mut menu, &front, &mut images, at, &mouse, &keys, "Choose a campaign");
+    let pick = menu_input(&mut menu, &front, &mut pictures, at, &mouse, &keys, "Choose a campaign");
     let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let steps = match pick {
         Some(i) if i < 4 => {
@@ -1318,11 +1295,11 @@ struct ActScreen {
 #[derive(Component)]
 struct ActSound;
 
-fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, mut images: ResMut<Assets<Image>>) {
+fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, mut pictures: ResMut<ScreenPictures>) {
     let Some(Step::Act(a)) = flow.current else { return };
     let pal = cf::art(cf::act_palette_picture(&a));
     let p = picture(&mut front.install, &cf::art(a.picture), Some(&pal));
-    spawn_layer(&mut commands, &mut images, p, 0, AppState::Act, None);
+    spawn_layer(&mut commands, &mut pictures, p, 0, AppState::Act, None);
     // The act's two lines, white; our layout: centred near the top.
     let acts = table(&mut front.install, "rez\\acts.tbl");
     let line = |n: u16| {
@@ -1343,7 +1320,7 @@ fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, 
         &front.big
     };
     centred(&mut text, f, 90, &title);
-    spawn_layer(&mut commands, &mut images, text, 1, AppState::Act, None);
+    spawn_layer(&mut commands, &mut pictures, text, 1, AppState::Act, None);
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(ActScreen {
         act: a,
@@ -1432,7 +1409,7 @@ fn run_act(
 
 #[derive(Resource)]
 struct Briefing {
-    image: Handle<Image>,
+    image: PictureId,
     background: Picture,
     lines: Vec<String>,
     panel: Rect,
@@ -1462,7 +1439,7 @@ fn enter_briefing(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut music: ResMut<Jukebox>,
 ) {
     let Some(Step::Briefing(e)) = flow.current else { return };
@@ -1500,7 +1477,7 @@ fn enter_briefing(
     let total = cf::narration_total_ms(&lens);
     let starts = cf::narration_starts(&lens);
     let text_h = lines.len() as u32 * line_h;
-    let image = spawn_layer(&mut commands, &mut images, dup(&bg), 0, AppState::Briefing, None);
+    let image = spawn_layer(&mut commands, &mut pictures, dup(&bg), 0, AppState::Briefing, None);
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(Briefing {
         image,
@@ -1533,7 +1510,7 @@ fn run_briefing(
     mut commands: Commands,
     clock: Res<Clock>,
     mut b: ResMut<Briefing>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut flow: ResMut<Flow>,
@@ -1559,7 +1536,7 @@ fn run_briefing(
             }
         }
         overlay(&mut p, &clip, b.panel.x, b.panel.y);
-        set_image(&mut images, &b.image, p);
+        set_image(&mut pictures, &b.image, p);
         b.drawn = Some(b.scroll.moved);
     }
     if pressed(&keys, &mouse) || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
@@ -1598,7 +1575,7 @@ fn watch_outcome(
     mut commands: Commands,
     sim: Option<Res<crate::Sim>>,
     dialog: Option<Res<OutcomeDialog>>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut screen: ResMut<FrontScreen>,
     mut music: ResMut<Jukebox>,
 ) {
@@ -1609,7 +1586,7 @@ fn watch_outcome(
     // Music spec: a game that ends fades all sound before the score screen.
     music.fade_stop(true, None);
     screen.clears = false;
-    let image = spawn_layer(&mut commands, &mut images, blank(), 1, AppState::Game, None);
+    let image = spawn_layer(&mut commands, &mut pictures, blank(), 1, AppState::Game, None);
     commands.insert_resource(OutcomeDialog {
         victory: o == Outcome::Victory,
         save_wanted: false,
@@ -1663,7 +1640,7 @@ fn run_dialog(
     mut dialog: ResMut<OutcomeDialog>,
     sim: Option<Res<crate::Sim>>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
@@ -1675,7 +1652,7 @@ fn run_dialog(
 ) {
     if dialog.is_added() || dialog.is_changed() {
         let p = draw_dialog(&front, &dialog);
-        set_image(&mut images, &dialog.image, p);
+        set_image(&mut pictures, &dialog.image, p);
     }
     let at = pointer(&window, &cam, &locked).filter(|_| mouse.just_released(MouseButton::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
@@ -1707,7 +1684,7 @@ fn close_dialog(mut commands: Commands) {
 
 #[derive(Resource)]
 struct ScoreScreen {
-    image: Handle<Image>,
+    image: PictureId,
     background: Picture,
     /// Ticks run so far.
     ticks: u32,
@@ -1724,12 +1701,12 @@ fn enter_score(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut music: ResMut<Jukebox>,
 ) {
     let Some(s) = flow.score.clone() else { return };
     let bg = picture(&mut front.install, cf::score_background(s.race, s.victory), None);
-    let image = spawn_layer(&mut commands, &mut images, dup(&bg), 0, AppState::Score, None);
+    let image = spawn_layer(&mut commands, &mut pictures, dup(&bg), 0, AppState::Score, None);
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(ScoreScreen {
         image,
@@ -1799,7 +1776,7 @@ fn run_score(
     mut commands: Commands,
     clock: Res<Clock>,
     mut sc: ResMut<ScoreScreen>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut flow: ResMut<Flow>,
@@ -1845,7 +1822,7 @@ fn run_score(
             sc.finished = true;
             play_once(&mut commands, &mut front, &mut sources, cf::RANK_SOUND, AppState::Score);
         }
-        set_image(&mut images, &sc.image, p);
+        set_image(&mut pictures, &sc.image, p);
         sc.drawn = Some(sc.ticks);
     }
 }
@@ -1865,7 +1842,7 @@ fn bars_done(s: &ScoreData, ticks: u32) -> bool {
 
 #[derive(Resource)]
 struct Scroller {
-    image: Handle<Image>,
+    image: PictureId,
     background: Picture,
     lines: Vec<String>,
     panel: Rect,
@@ -1881,7 +1858,7 @@ struct Scroller {
 #[allow(clippy::too_many_arguments)]
 fn open_scroller(
     commands: &mut Commands,
-    images: &mut Assets<Image>,
+    pictures: &mut ScreenPictures,
     front: &Front,
     background: Picture,
     text: &[String],
@@ -1902,7 +1879,7 @@ fn open_scroller(
     if let Some(ms) = step_ms {
         scroll.interval_ms = ms;
     }
-    let image = spawn_layer(commands, images, dup(&background), 0, state, None);
+    let image = spawn_layer(commands, pictures, dup(&background), 0, state, None);
     commands.insert_resource(Clock(0.0));
     commands.insert_resource(Scroller {
         image,
@@ -1922,7 +1899,7 @@ fn enter_finale(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut music: ResMut<Jukebox>,
 ) {
     let Some(Step::Finale { bdp, race }) = flow.current else {
@@ -1948,7 +1925,7 @@ fn enter_finale(
     shade(&mut bg, panel);
     open_scroller(
         &mut commands,
-        &mut images,
+        &mut pictures,
         &front,
         bg,
         &[text],
@@ -1966,7 +1943,7 @@ fn enter_credits(
     mut commands: Commands,
     flow: Res<Flow>,
     mut front: ResMut<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut music: ResMut<Jukebox>,
 ) {
     let Some(Step::Credits { bdp }) = flow.current else {
@@ -1978,7 +1955,7 @@ fn enter_credits(
     });
     open_scroller(
         &mut commands,
-        &mut images,
+        &mut pictures,
         &front,
         blank(),
         &lines,
@@ -1997,7 +1974,7 @@ fn run_scroller(
     mut commands: Commands,
     clock: Res<Clock>,
     mut s: ResMut<Scroller>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     state: Res<State<AppState>>,
@@ -2034,7 +2011,7 @@ fn run_scroller(
             }
         }
         overlay(&mut p, &clip, s.panel.x, s.panel.y);
-        set_image(&mut images, &s.image, p);
+        set_image(&mut pictures, &s.image, p);
         s.drawn = Some(s.scroll.moved);
     }
     if pressed(&keys, &mouse) || cf::briefing_closes(&s.scroll, now as u64, s.narration_ms) {

@@ -2,35 +2,40 @@
 //! window's whole-number scale with black around it (`display::Letterbox`). This is the first step of the
 //! engine-neutral client core (`docs/design/client-core.md`): Bevy no longer stacks the screen's layers itself.
 //!
-//! The layers are still kept in Bevy's world as sprites, but nothing draws them: [`compose_screen`] reads the layers
-//! and places them on the screen the way the cameras that used to draw them did, in the same order. The map view's
-//! place, centre and zoom are the core's (`mapview`, step 2 of the design); there are no game cameras any more.
+//! The layers are the core's (`layers`, step 3 of the design): each is a picture in [`ScreenPictures`] and a
+//! [`ScreenLayer`] on an entity that says where it goes, and [`compose_screen`] puts them on the screen in order. The
+//! entities stay only so that the flow's states can still remove a screen's layers with it (until step 6). The map
+//! view's place, centre and zoom are the core's too (`mapview`, step 2); Bevy's only camera shows the finished screen.
 //!
-//! | Order | Layer | Placed |
-//! |---|---|---|
-//! | 1 | Map sprites: terrain, map view, placement image (by z) | In the map view (`hud::Layout::viewport`), around the view's centre, at the zoom |
-//! | 2 | The interface picture (`Hud`) | Centred on the screen, one texel per screen pixel |
-//! | 3 | The flow's layers (`frontend`, `gamemenu`: screens, dialogs, menus), by z | Centred on the screen at their size, with their fade |
+//! | Order | Plane (`layers::Plane`) | Layers | Placed |
+//! |---|---|---|---|
+//! | 1 | Map | Terrain, map view, placement image (by z) | In the map view (`hud::Layout::viewport`), around the view's centre, at the zoom |
+//! | 2 | Interface | The interface picture (`Hud`) | Centred on the screen, one picture pixel per screen pixel |
+//! | 3 | Flow | The flow's layers (`frontend`, `gamemenu`: screens, dialogs, menus), by z | Centred on the screen at their size, with their fade |
 //!
 //! Outside a game the flow's screen is cleared before its layers (`frontend::FrontScreen`), so only they show there.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
+use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::compose::{self, Clip, Frame, Placed};
-use crate::frontend::{FRONT_LAYER, FrontScreen, Persist};
-use crate::{GameView, HUD_LAYER, Hud};
+use crate::frontend::{FrontScreen, Persist};
+use crate::layers::{Layer, PictureId, Pictures, Plane};
+use crate::{GameView, Hud};
 
 /// The render layer only the screen's own camera and picture are on.
 const SCREEN_LAYER: usize = 30;
 
-/// The composed screen's picture.
+/// The composed screen: its picture for the window, and the frame itself.
 #[derive(Resource)]
 pub struct Screen {
     pub image: Handle<Image>,
+    pub frame: Frame,
 }
 
 #[derive(Component)]
@@ -44,7 +49,8 @@ struct ScreenSprite;
 pub struct ComposeScreen;
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_screen)
+    app.init_resource::<ScreenPictures>()
+        .add_systems(Startup, spawn_screen)
         .add_systems(Last, (compose_screen, show_screen).chain().in_set(ComposeScreen));
 }
 
@@ -77,12 +83,33 @@ fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         ScreenSprite,
         Persist,
     ));
-    commands.insert_resource(Screen { image });
+    commands.insert_resource(Screen {
+        image,
+        frame: Frame::black(),
+    });
+}
+
+/// The layers' pictures (`layers::Pictures`).
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct ScreenPictures(pub Pictures);
+
+/// A layer of the screen (`layers::Layer`); its picture goes when the layer does.
+#[derive(Component, Deref, DerefMut)]
+#[component(on_remove = free_picture)]
+pub struct ScreenLayer(pub Layer);
+
+fn free_picture(mut world: DeferredWorld, ctx: HookContext) {
+    let Some(id) = world.get::<ScreenLayer>(ctx.entity).map(|l| l.picture) else {
+        return;
+    };
+    if let Some(mut pictures) = world.get_resource_mut::<ScreenPictures>() {
+        pictures.remove(id);
+    }
 }
 
 /// A layer to compose: its picture and its place on the screen.
-struct Layer {
-    image: AssetId<Image>,
+struct Placing {
+    picture: PictureId,
     z: f32,
     entity: Entity,
     origin: (f64, f64),
@@ -91,31 +118,16 @@ struct Layer {
     tint: f32,
 }
 
-/// The size a sprite is drawn at and its picture's size.
-fn sizes(sprite: &Sprite, img: &Image, tf: &GlobalTransform) -> (Vec2, Vec2) {
-    let tex = Vec2::new(img.width() as f32, img.height() as f32);
-    let (scale, _, _) = tf.to_scale_rotation_translation();
-    (sprite.custom_size.unwrap_or(tex) * scale.truncate(), tex)
-}
-
-#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 fn compose_screen(
     mut images: ResMut<Assets<Image>>,
-    screen: Res<Screen>,
+    pictures: Res<ScreenPictures>,
+    mut screen: ResMut<Screen>,
     windows: Query<&Window, With<PrimaryWindow>>,
     hud: Option<Res<Hud>>,
     map_view: Option<Res<GameView>>,
     front_screen: Res<FrontScreen>,
-    sprites: Query<
-        (
-            Entity,
-            &Sprite,
-            &GlobalTransform,
-            &InheritedVisibility,
-            Option<&RenderLayers>,
-        ),
-        Without<ScreenSprite>,
-    >,
+    layers: Query<(Entity, &ScreenLayer)>,
 ) {
     if windows.single().is_err() {
         return;
@@ -138,69 +150,67 @@ fn compose_screen(
         }
         _ => None,
     };
-    for (entity, sprite, tf, vis, layers) in &sprites {
-        if !vis.get() {
+    for (entity, l) in &layers {
+        if !l.visible {
             continue;
         }
-        let Some(img) = images.get(&sprite.image) else { continue };
-        let (size, tex) = sizes(sprite, img, tf);
-        let t = tf.translation();
-        let tint = sprite.color.to_srgba().red;
-        let layers = layers.cloned().unwrap_or_default();
-        let mut layer = Layer {
-            image: sprite.image.id(),
-            z: t.z,
+        let Some(pic) = pictures.get(l.picture) else { continue };
+        let (w, h) = l.drawn_size(pic);
+        let (tw, th) = (pic.width as f64, pic.height as f64);
+        let mut layer = Placing {
+            picture: l.picture,
+            z: l.z,
             entity,
             origin: (0.0, 0.0),
             scale: (1.0, 1.0),
             clip: Clip::SCREEN,
-            tint,
+            tint: l.tint,
         };
-        if layers.intersects(&RenderLayers::layer(0)) {
-            let Some((clip, centre, per_px)) = view else { continue };
-            let (vx, vy) = (
-                clip.x0 as f64 + (clip.x1 - clip.x0) as f64 / 2.0,
-                clip.y0 as f64 + (clip.y1 - clip.y0) as f64 / 2.0,
-            );
-            // The sprite's top-left corner in map pixels (y down).
-            let (mx, my) = (t.x as f64 - size.x as f64 / 2.0, -t.y as f64 - size.y as f64 / 2.0);
-            layer.origin = (vx + (mx - centre.0) / per_px, vy + (my - centre.1) / per_px);
-            layer.scale = (
-                size.x as f64 / tex.x as f64 / per_px,
-                size.y as f64 / tex.y as f64 / per_px,
-            );
-            layer.clip = clip;
-            map.push(layer);
-        } else if layers.intersects(&RenderLayers::layer(HUD_LAYER)) {
-            // Drawn at the window's scale by its camera: one texel per screen pixel, centred.
-            layer.origin = (center_x - tex.x as f64 / 2.0, center_y - tex.y as f64 / 2.0);
-            interface.push(layer);
-        } else if layers.intersects(&RenderLayers::layer(FRONT_LAYER)) {
-            layer.origin = (
-                center_x + t.x as f64 - size.x as f64 / 2.0,
-                center_y - t.y as f64 - size.y as f64 / 2.0,
-            );
-            layer.scale = (size.x as f64 / tex.x as f64, size.y as f64 / tex.y as f64);
-            front.push(layer);
+        match l.plane {
+            Plane::Map => {
+                let Some((clip, centre, per_px)) = view else { continue };
+                let (vx, vy) = (
+                    clip.x0 as f64 + (clip.x1 - clip.x0) as f64 / 2.0,
+                    clip.y0 as f64 + (clip.y1 - clip.y0) as f64 / 2.0,
+                );
+                // The picture's top-left corner in map pixels.
+                let (mx, my) = (l.at.0 as f64 - w as f64 / 2.0, l.at.1 as f64 - h as f64 / 2.0);
+                layer.origin = (vx + (mx - centre.0) / per_px, vy + (my - centre.1) / per_px);
+                layer.scale = (w as f64 / tw / per_px, h as f64 / th / per_px);
+                layer.clip = clip;
+                map.push(layer);
+            }
+            Plane::Interface => {
+                // One picture pixel per screen pixel, centred.
+                layer.origin = (center_x - tw / 2.0, center_y - th / 2.0);
+                interface.push(layer);
+            }
+            Plane::Flow => {
+                layer.origin = (
+                    center_x + l.at.0 as f64 - w as f64 / 2.0,
+                    center_y + l.at.1 as f64 - h as f64 / 2.0,
+                );
+                layer.scale = (w as f64 / tw, h as f64 / th);
+                front.push(layer);
+            }
         }
     }
-    let by_z = |a: &Layer, b: &Layer| a.z.total_cmp(&b.z).then(a.entity.cmp(&b.entity));
+    let by_z = |a: &Placing, b: &Placing| a.z.total_cmp(&b.z).then(a.entity.cmp(&b.entity));
     map.sort_by(by_z);
     interface.sort_by(by_z);
     front.sort_by(by_z);
-    let order: Vec<&Layer> = if front_clears {
+    let order: Vec<&Placing> = if front_clears {
         front.iter().collect()
     } else {
         map.iter().chain(&interface).chain(&front).collect()
     };
     let mut frame = Frame::black();
     for l in order {
-        let Some(img) = images.get(l.image) else { continue };
-        let Some(data) = img.data.as_deref() else { continue };
+        let Some(pic) = pictures.get(l.picture) else { continue };
         frame.draw(&Placed {
-            rgba: data,
-            width: img.width(),
-            height: img.height(),
+            rgba: &pic.rgba,
+            width: pic.width,
+            height: pic.height,
             origin: l.origin,
             scale: l.scale,
             clip: l.clip,
@@ -208,8 +218,22 @@ fn compose_screen(
         });
     }
     if let Some(mut img) = images.get_mut(&screen.image) {
-        img.data = Some(frame.rgba);
+        img.data = Some(frame.rgba.clone());
     }
+    screen.frame = frame;
+}
+
+/// The frame the window shows this frame, at one window pixel per screen pixel: what a scripted run records. `None`
+/// without a window, or when the window shows the screen at a larger scale (the run's frames are then Bevy's own).
+pub fn shown_frame(world: &mut World) -> Option<Frame> {
+    let size = {
+        let mut q = world.query_filtered::<&Window, With<PrimaryWindow>>();
+        q.single(world).ok()?.physical_size()
+    };
+    if crate::display::Letterbox::fit((size.x, size.y)).scale != 1 {
+        return None;
+    }
+    Some(world.resource::<Screen>().frame.clone())
 }
 
 /// Puts the screen's picture on the screen's place in the window, at the whole-number scale.

@@ -158,7 +158,7 @@ The five operations, as the shell implements them. The core sees only `Input`, `
 | Scripted scenes | Feed the scene's input into Bevy's input messages, with a fixed frame time (1/60 s), a fixed wall clock and no sound device. `--script NAME --script-out DIR [--headless]`. | `script.rs` |
 | Frame snapshot | Hashes every frame (runs of equal frames on one line), every shot and every sound start, without a window. Skips without `TIDEWATER_INSTALL`; `TIDEWATER_SNAPSHOT_BLESS=1` blesses. | `tests/frames.rs`, `tests/snapshots/campaign.txt` |
 | Bevy comparison | Ignored test: runs the scenes in a window at one pixel per screen pixel and compares Bevy's screenshot with the composed frame at each shot. | `tests/frames.rs` (`-- --ignored`) |
-| World composer | Composes what Bevy's cameras and sprites would show, for the snapshot and the comparison. | `frame.rs` |
+| Recorded frame | The frame the screen composed (`shell::shown_frame`), for the snapshot and the comparison. Until step 3 a world composer recomposed what Bevy's cameras and sprites would show (`frame.rs`, now gone); both gave the same frames. | `shell.rs` |
 
 The `campaign` scene, 1,372 frames: title fade and title, main menu fade and hover, campaign choice, act screen (text
 and picture), briefing (two shots), the first mission's fade-in, drag selection, a right-click command, movement, key
@@ -181,7 +181,7 @@ the snapshot didn't change.
 |---|---|---|---|
 | 1 ✓ | Frame composition | Bevy cameras and sprites → `compose` + `shell` | unchanged |
 | 2 ✓ | Map view geometry and the pointer | Map, interface and flow cameras → a `MapView` (centre, zoom, view rectangle) and `display::Letterbox` | unchanged |
-| 3 | The layers | Sprites and image assets → pictures the core owns (`Screen`: map, interface, flow layers) | unchanged |
+| 3 ✓ | The layers | Sprites and image assets → pictures the core owns (`Screen`: map, interface, flow layers) | unchanged |
 | 4 | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
 | 5 | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
 | 6 | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |

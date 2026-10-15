@@ -121,6 +121,7 @@ impl Frame {
     }
 
     /// Fills a rectangle with a colour.
+    #[cfg(test)]
     pub fn fill(&mut self, clip: Clip, rgb: [u8; 3]) {
         let c = clip.on_screen();
         for y in c.y0..c.y1 {

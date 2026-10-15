@@ -33,7 +33,6 @@
 //!   permission check (no multiplayer).
 //! - The dialogs' own art, and the "Network" button of the Battle.net options menu.
 
-use bevy::camera::visibility::RenderLayers;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
@@ -41,8 +40,9 @@ use bevy::window::PrimaryWindow;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{self, AppState, FRONT_LAYER, Flow, Front, FrontScreen, LockedPointer, Persist};
+use crate::frontend::{self, AppState, Flow, Front, FrontScreen, LockedPointer, Persist};
 use crate::hud::{self, Rect};
+use crate::layers::PictureId;
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
 use crate::prefs::{self, Prefs, bit};
@@ -50,6 +50,7 @@ use crate::savedlg::{self, SaveUi};
 use crate::savefile;
 use crate::savegame::{self, SaveFolder};
 use crate::saves::{self, SaveDir};
+use crate::shell::{ScreenLayer, ScreenPictures};
 use crate::{PanelUi, ScreenUi, Sim, Speaker};
 
 /// The stored settings in force.
@@ -60,7 +61,7 @@ pub struct Stored(pub Prefs);
 #[derive(Resource)]
 pub struct GameMenu {
     nav: Nav,
-    image: Handle<Image>,
+    image: PictureId,
     /// The settings as they were when the current settings dialog opened (Cancel puts them back).
     snapshot: Prefs,
     /// The settings the current dialog edits.
@@ -609,7 +610,7 @@ fn open_requests(
     mut front: ResMut<Front>,
     flow: Res<Flow>,
     folder: Res<SaveFolder>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     mut demo_done: Local<bool>,
 ) {
     let Some(sim) = sim else { return };
@@ -679,7 +680,7 @@ fn open_requests(
     open_menu(
         &mut commands,
         screen,
-        &mut images,
+        &mut pictures,
         &mut stored,
         &mut front,
         &sim,
@@ -694,7 +695,7 @@ fn open_requests(
 fn open_menu(
     commands: &mut Commands,
     screen: Screen,
-    images: &mut Assets<Image>,
+    pictures: &mut ScreenPictures,
     stored: &mut Stored,
     front: &mut Front,
     sim: &Sim,
@@ -704,11 +705,9 @@ fn open_menu(
 ) {
     let mut nav = Nav::default();
     nav.open(screen);
-    let image = images.add(frontend::rgba_image(frontend::blank()));
+    let image = pictures.add(frontend::blank());
     commands.spawn((
-        Sprite::from_image(image.clone()),
-        Transform::from_xyz(0.0, 0.0, 2.0),
-        RenderLayers::layer(FRONT_LAYER),
+        ScreenLayer(crate::layers::Layer::new(image, crate::layers::Plane::Flow, 2.0)),
         Persist,
         DespawnOnExit(AppState::Game),
         MenuLayer,
@@ -745,7 +744,7 @@ fn open_from_outcome(
     mut front: ResMut<Front>,
     flow: Res<Flow>,
     folder: Res<SaveFolder>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
 ) {
     let Some(sim) = sim else { return };
     if !dialog.save_wanted {
@@ -755,7 +754,7 @@ fn open_from_outcome(
     open_menu(
         &mut commands,
         Screen::Saving(Saving::Save),
-        &mut images,
+        &mut pictures,
         &mut stored,
         &mut front,
         &sim,
@@ -835,7 +834,7 @@ fn run_menu(
     mut sim: ResMut<Sim>,
     mut front: ResMut<Front>,
     mut flow: ResMut<Flow>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     window: Query<&Window, With<PrimaryWindow>>,
     cam: Res<FrontScreen>,
     locked: Res<LockedPointer>,
@@ -945,7 +944,7 @@ fn run_menu(
         if m.dirty {
             m.dirty = false;
             let p = draw(&front, &m, &built);
-            frontend::set_image(&mut images, &m.image, p);
+            frontend::set_image(&mut pictures, &m.image, p);
         }
         return;
     };
@@ -1046,7 +1045,7 @@ fn run_saving(
     mut m: ResMut<GameMenu>,
     input: Res<SavingInput>,
     front: Res<Front>,
-    mut images: ResMut<Assets<Image>>,
+    mut pictures: ResMut<ScreenPictures>,
     folder: Res<SaveFolder>,
     sim: Res<Sim>,
     layer: Query<Entity, With<MenuLayer>>,
@@ -1090,7 +1089,7 @@ fn run_saving(
         m.dirty = false;
         if let Some(ui) = &m.save {
             let p = ui.draw(&front.font, &front.big, &|n| front.net(n));
-            frontend::set_image(&mut images, &m.image, p);
+            frontend::set_image(&mut pictures, &m.image, p);
         }
     }
 }
@@ -1213,7 +1212,7 @@ mod tests {
         nav.open(screen);
         GameMenu {
             nav,
-            image: Handle::default(),
+            image: crate::layers::Pictures::default().add(frontend::blank()),
             snapshot: Prefs::default(),
             draft: Prefs::default(),
             speed: 4,

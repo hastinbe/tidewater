@@ -625,7 +625,7 @@ fn note_sounds(
 /// Composes the frame the window shows, notes its fingerprint and keeps the scene's shots; with a window, asks Bevy
 /// for its screenshot of the same frame. Ends the run when the scene is done and every screenshot is in.
 fn record(world: &mut World) {
-    let Some(frame) = crate::frame::compose_world(world) else {
+    let Some(frame) = crate::shell::shown_frame(world) else {
         return;
     };
     let (n, shots, done) = {
@@ -735,11 +735,17 @@ fn compare_shot(
 }
 
 fn save_png(path: &std::path::Path, rgba: Vec<u8>) {
-    let img = crate::frontend::rgba_image(crate::scene::Picture {
-        width: W as u32,
-        height: H as u32,
+    let img = Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: W as u32,
+            height: H as u32,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
         rgba,
-    });
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::default(),
+    );
     if let Ok(d) = img.try_into_dynamic()
         && let Err(e) = d.save(path)
     {
