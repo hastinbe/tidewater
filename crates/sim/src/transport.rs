@@ -1312,4 +1312,459 @@ mod tests {
         assert!(matches!(u.order, Order::Land { .. }), "{:?}", u.order);
         assert_eq!((u.script.anim, u.script.wait, u.attacked_by), (anim::WORK_B, 3, None));
     }
+
+    /// Pins of the current behaviour on the paths the B-038 movement refactor touches (landing and pushing off as
+    /// walks, the command rules and their stage table, the transport's pull-back, boarding) and of the coverage
+    /// report's untraced transport regions, written before it so that it can't change them unseen. Each test states
+    /// the outcome in a few fields and pins the whole simulation state with [`World::fingerprint`]. Where a pin differs
+    /// from the spec's wording, its comment says so: those are open questions, not rules.
+    mod pin {
+        use super::*;
+
+        /// Puts land (a ship can't enter it) on every tile at Chebyshev distance `r` from `c`.
+        fn ring(w: &mut World, c: (i32, i32), r: i32) {
+            for y in c.1 - r..=c.1 + r {
+                for x in c.0 - r..=c.0 + r {
+                    if chebyshev((x, y), c) == r && w.terrain.contains(x, y) {
+                        let n = w.terrain.at(x, y).unwrap();
+                        w.terrain.words[n] = bits::LAND;
+                    }
+                }
+            }
+        }
+
+        /// The ship's order, animation, wait, tile, class and step size after one run.
+        fn state(w: &World, i: usize) -> (Order, u8, u8, (i32, i32), bool, bool) {
+            let u = &w.units[i];
+            (
+                u.order,
+                u.script.anim,
+                u.script.wait,
+                u.tile,
+                u.ship.landing,
+                u.ship.one_tile,
+            )
+        }
+
+        fn pinned(got: &[u64], want: &[u64]) {
+            assert_eq!(got, want, "pinned fingerprints: {got:?}");
+        }
+
+        /// Order 30's logic from each kind of start: far out (an ordinary two-tile step), just come within 3 tiles
+        /// in the move animation (the arrival switch), within 3 with an even and an odd goal, arrived (with and
+        /// without the unload mark), and blocked within 3 tiles (animation 6 restarted).
+        #[test]
+        fn landing_runs() {
+            let mut prints = vec![];
+            for case in [
+                "far",
+                "came within",
+                "even",
+                "odd",
+                "arrived",
+                "arrived unload",
+                "blocked",
+            ] {
+                let mut w = sea(20);
+                let (from, goal) = match case {
+                    "far" => ((30, 10), (21, 10)),
+                    "came within" | "even" => ((24, 10), (22, 10)),
+                    "odd" | "blocked" => ((23, 10), (21, 10)),
+                    _ => ((21, 10), (21, 10)),
+                };
+                let i = ship(&mut w, from, Order::Land { goal });
+                let id = w.units[i].id;
+                let near = chebyshev(from, goal) <= 3;
+                w.units[i].ship.landing = near && case != "came within";
+                w.units[i].ship.one_tile = from.0 & 1 == 1;
+                let a = if near && case != "came within" {
+                    anim::WORK_B
+                } else {
+                    anim::MOVE
+                };
+                w.start_anim(i, a);
+                w.units[i].ship.unload = case == "arrived unload";
+                if case == "blocked" {
+                    let b = w.spawn(SHIP, 0, (40, 30), 0).unwrap();
+                    let bi = w.index(b).unwrap();
+                    let unit = w.units[bi].clone();
+                    w.mark(&unit, unit.tile, None);
+                    w.units[bi].tile = (22, 10);
+                    let unit = w.units[bi].clone();
+                    w.mark(&unit, (22, 10), Some(b));
+                    // A moving ally: the search walks through it, the step is refused (row I, as the landing
+                    // transport is in animation 6, not the move animation that row F needs).
+                    w.start_anim(bi, anim::MOVE);
+                }
+                let i = w.index(id).unwrap();
+                w.landing(i, goal);
+                prints.push(w.fingerprint());
+                let s = state(&w, i);
+                match case {
+                    "arrived" => assert_eq!(s.0, Order::Docked),
+                    "arrived unload" => assert_eq!(s.0, Order::Unload),
+                    "blocked" => assert_eq!((s.1, s.3, w.units[i].blocked, s.2), (anim::WORK_B, (23, 10), 1, 1)),
+                    _ => assert_ne!(s.3, from, "{case}"),
+                }
+            }
+            pinned(
+                &prints,
+                &[
+                    13499953600435808905,
+                    7614962156999909787,
+                    7614962156999909787,
+                    8033738483236003237,
+                    8118957024453702941,
+                    10539459604361443403,
+                    10176724556535045951,
+                ],
+            );
+        }
+
+        /// Order 30 with no route ("Landing", step 6): on shore water, order 29 if marked unload on arrival, else 32;
+        /// elsewhere on an even tile, idle in the sea class; on an odd tile, 32.
+        #[test]
+        fn landing_with_no_route() {
+            let mut prints = vec![];
+            for (from, unload, want) in [
+                ((21, 10), true, Order::Unload),
+                ((21, 10), false, Order::Docked),
+                ((26, 10), false, Order::Idle),
+                ((27, 11), false, Order::Docked),
+            ] {
+                let mut w = sea(20);
+                let goal = (from.0 - 3, from.1);
+                let i = ship(&mut w, from, Order::Land { goal });
+                w.units[i].ship.unload = unload;
+                ring(&mut w, from, 1);
+                ring(&mut w, from, 2);
+                w.landing(i, goal);
+                let s = state(&w, i);
+                assert_eq!((s.0, s.3), (want, from), "{from:?}");
+                assert!(!w.units[i].ship.unload);
+                prints.push(w.fingerprint());
+            }
+            pinned(
+                &prints,
+                &[
+                    12742972921630699698,
+                    7432436554178147594,
+                    2921727436246800982,
+                    13322486831864242763,
+                ],
+            );
+        }
+
+        /// Order 31's runs: done on an even open-water tile (its smart move to the destination, with the target unit
+        /// kept or lost), no tile found (docks), a lost target (pending idle) and a lost attacker, steps from an odd
+        /// and an even tile, and no route (docks).
+        #[test]
+        fn push_off_runs() {
+            let mut prints = vec![];
+            for case in [
+                "done",
+                "done lost target",
+                "no tile",
+                "lost target",
+                "odd",
+                "even",
+                "no route",
+            ] {
+                let mut w = if case == "no tile" {
+                    coast(|_| bits::LAND)
+                } else {
+                    sea(20)
+                };
+                let from = match case {
+                    "done" | "done lost target" => (24, 10),
+                    "odd" => (21, 11),
+                    _ => (20, 10),
+                };
+                let mate = w.spawn(SHIP, 0, (40, 20), 0).unwrap();
+                let foe = w.spawn(FOOTMAN, 1, (2, 2), 0).unwrap();
+                let i = ship(&mut w, from, Order::PushOff);
+                w.start_anim(i, anim::WORK_B);
+                let u = &mut w.units[i];
+                u.ship.target = Some(mate);
+                u.ship.target_tile = (40, 10);
+                u.ship.dest = (40, 10);
+                u.attacked_by = Some(foe);
+                u.blocked = 4;
+                if case.contains("lost") {
+                    let m = w.index(mate).unwrap();
+                    w.kill(m);
+                    let f = w.index(foe).unwrap();
+                    w.kill(f);
+                }
+                if case == "no route" {
+                    ring(&mut w, from, 2);
+                    // Leave a passing tile for the ring search beyond the ring.
+                }
+                let i = w.index(w.units[i].id).unwrap();
+                w.push_off(i);
+                let s = state(&w, i);
+                let u = &w.units[i];
+                match case {
+                    "done" => assert!(matches!(s.0, Order::Follow { .. } | Order::Move { .. }), "{s:?}"),
+                    "no tile" | "no route" => assert_eq!(s.0, Order::Docked, "{case}"),
+                    "lost target" => assert_eq!((u.pending, u.attacked_by), (Some(Order::Idle), None)),
+                    _ => {}
+                }
+                prints.push(w.fingerprint());
+            }
+            pinned(
+                &prints,
+                &[
+                    16765959437576330595,
+                    11085463737746716969,
+                    10225721914103605190,
+                    5658109650578495884,
+                    12219680029466988229,
+                    17966498047048736207,
+                    173415372906752325,
+                ],
+            );
+        }
+
+        /// Coverage (untraced): order 29 off shore water just docks (still animation run at once).
+        #[test]
+        fn unloading_off_shore_water_docks() {
+            let mut w = sea(20);
+            let i = ship(&mut w, (30, 10), Order::Unload);
+            w.unload(i);
+            assert_eq!(state(&w, i).0, Order::Docked);
+            pinned(&[w.fingerprint()], &[11611776285060491942]);
+        }
+
+        /// The stage table, row by row, for a smart move and the unload command, from open water, shore water and
+        /// orders 30, 31 and 32; with the three things stored.
+        #[test]
+        fn the_stage_table() {
+            let mut prints = vec![];
+            let mut orders = vec![];
+            for (from, order, to, unload, own_target) in [
+                ((20, 10), Order::Docked, (20, 10), true, false),
+                ((20, 10), Order::Docked, (14, 10), false, false),
+                ((20, 10), Order::Docked, (30, 10), false, false),
+                ((30, 10), Order::Land { goal: (21, 10) }, (40, 10), false, false),
+                ((30, 10), Order::PushOff, (40, 10), false, false),
+                ((30, 10), Order::Idle, (40, 10), false, true),
+                ((30, 10), Order::Idle, (40, 10), false, false),
+                ((30, 10), Order::Idle, (21, 12), true, false),
+                ((30, 10), Order::Idle, (14, 12), false, false),
+            ] {
+                let mut w = sea(20);
+                let mate = w.spawn(SHIP, 0, to, 0).unwrap();
+                let i = ship(&mut w, from, order);
+                let target = own_target.then_some(mate);
+                let o = w.transport_command(i, target, to, unload);
+                let u = &w.units[i];
+                orders.push(o);
+                prints.push(
+                    (
+                        w.fingerprint(),
+                        u.ship.target,
+                        u.ship.target_tile,
+                        u.ship.dest,
+                        u.ship.unload,
+                    )
+                        .0,
+                );
+            }
+            assert_eq!(
+                orders,
+                [
+                    Order::Land { goal: (20, 10) },
+                    Order::Docked,
+                    Order::PushOff,
+                    Order::PushOff,
+                    Order::PushOff,
+                    Order::Follow { target: UnitId(1) },
+                    Order::Move {
+                        goal: (40, 10),
+                        target: None
+                    },
+                    Order::Land { goal: (21, 12) },
+                    Order::Land { goal: (21, 11) },
+                ]
+            );
+            pinned(
+                &prints,
+                &[
+                    2827670416986149214,
+                    17717156183342317030,
+                    13835087381493212184,
+                    4946355889137609820,
+                    9169545720292242532,
+                    14052849865738505745,
+                    11330498543775954651,
+                    15213914468758266841,
+                    13146162053307315874,
+                ],
+            );
+        }
+
+        /// The transport's pull-back fallbacks: no usable tile gives the last tile walked (the unit's tile plus the
+        /// line's last step), a target next to the transport has a one-tile walk, and a target on the transport's tile
+        /// no walk at all (K = G). Then the shore check or the ring search.
+        #[test]
+        fn the_transport_pull_back_fallbacks() {
+            let mut w = coast(|x| match x {
+                c if c < 10 => bits::WATER,
+                10 => bits::SHORE,
+                _ => bits::LAND,
+            });
+            // Make the water around (4, 4) another region, so no tile on the way back is usable.
+            for y in 0..32 {
+                for x in 0..10 {
+                    let n = w.terrain.at(x, y).unwrap();
+                    w.terrain.regions[n] = if (x, y) == (4, 4) { 7 } else { SEA_REGION };
+                }
+            }
+            // No usable tile on the way back: the last tile walked, (5, 4), fails the shore check, so the ring search
+            // from it finds the shore.
+            assert_eq!(w.shore_target((4, 4), (12, 4)), (10, 3));
+            // A one-tile walk: nothing usable, K = G = (5, 4), and the ring search from it keeps K (pinned as is).
+            assert_eq!(w.shore_target((4, 4), (5, 4)), (5, 4));
+            assert_eq!(w.shore_target((10, 4), (10, 4)), (10, 4));
+            assert_eq!(w.shore_target((9, 4), (10, 4)), (10, 4));
+            // A non-transport's command goal is untouched; a transport's on shore water keeps its tile but drops the
+            // target unit.
+            let f = w.spawn(FOOTMAN, 0, (14, 4), 0).unwrap();
+            let fi = w.index(f).unwrap();
+            assert_eq!(w.transport_goal(fi, (20, 4)), (20, 4));
+            let i = ship(&mut w, (10, 6), Order::Docked);
+            assert_eq!(w.land_and_shore(i, (20, 4), Some(f)), ((20, 4), None));
+            assert_eq!(w.land_and_shore(i, (4, 6), Some(f)), ((4, 6), Some(f)));
+        }
+
+        /// Order 34's runs, each pinned: a lost transport (V33), no route with the destination in the unit's region
+        /// for a human, passive and computer player's unit (coverage: the computer unit's command 4 taking over),
+        /// no route otherwise, boarding, a computer unit at a transport landing in its region, waiting, and giving up.
+        #[test]
+        fn boarding_runs() {
+            let mut prints = vec![];
+            for case in [
+                "lost",
+                "no route human",
+                "no route passive",
+                "no route computer",
+                "no route away",
+                "boards",
+                "random tile",
+                "waits",
+                "gives up",
+            ] {
+                let mut w = sea(20);
+                let kind = match case {
+                    "no route passive" => controller::PASSIVE,
+                    "no route computer" | "random tile" => controller::COMPUTER,
+                    _ => controller::HUMAN,
+                };
+                w.players[0].controller = kind;
+                let (order, dest) = match case {
+                    "random tile" => (Order::Land { goal: (20, 10) }, (20, 10)),
+                    "waits" => (Order::Idle, (18, 12)),
+                    "gives up" | "no route away" => (Order::Docked, (40, 10)),
+                    _ => (Order::Docked, (20, 10)),
+                };
+                let t = ship(&mut w, (20, 10), order);
+                w.units[t].ship.dest = dest;
+                if case == "gives up" {
+                    w.units[t].passengers = [Some(UnitId(999)); 6];
+                }
+                let tid = w.units[t].id;
+                let at = match case {
+                    "boards" | "random tile" | "waits" | "gives up" => (19, 10),
+                    _ => (14, 10),
+                };
+                let f = w.spawn(FOOTMAN, 0, at, 0).unwrap();
+                if case.starts_with("no route") {
+                    ring(&mut w, at, 1);
+                    for (x, y) in [
+                        (13, 9),
+                        (14, 9),
+                        (15, 9),
+                        (13, 10),
+                        (15, 10),
+                        (13, 11),
+                        (14, 11),
+                        (15, 11),
+                    ] {
+                        w.terrain.set_bits(x, y, 0x80);
+                    }
+                }
+                if case == "lost" {
+                    let ti = w.index(tid).unwrap();
+                    w.kill(ti);
+                }
+                let fi = w.index(f).unwrap();
+                w.units[fi].order = Order::Board { transport: tid };
+                w.board(fi, tid);
+                prints.push(w.fingerprint());
+            }
+            pinned(
+                &prints,
+                &[
+                    13419287457155355410,
+                    12128093034259356760,
+                    5543759529310800113,
+                    5383203787282847394,
+                    18242400315175452208,
+                    6029090771860369706,
+                    3004525959387318090,
+                    16843440623186304230,
+                    3131112792271658775,
+                ],
+            );
+        }
+
+        /// Two whole ferry runs, a human and a computer player's: footmen board a docked transport, it is sent across
+        /// to the far shore, unloads, and is sent back to open water.
+        #[test]
+        fn whole_ferry_runs() {
+            let mut prints = vec![];
+            for kind in [controller::HUMAN, controller::COMPUTER] {
+                let mut w = coast(|x| match x {
+                    c if c < 10 => bits::LAND,
+                    10 | 11 => bits::SHORE,
+                    c if c < 36 => bits::WATER,
+                    36 | 37 => bits::SHORE,
+                    _ => bits::LAND,
+                });
+                w.players[0].controller = kind;
+                let t = ship(&mut w, (10, 10), Order::Docked);
+                let tid = w.units[t].id;
+                let feet: Vec<_> = [(5, 8), (6, 12), (4, 10)]
+                    .iter()
+                    .map(|&at| w.spawn(FOOTMAN, 0, at, 0).unwrap())
+                    .collect();
+                let smart = |units: Vec<UnitId>, target, tile| crate::Command::Smart {
+                    player: 0,
+                    units,
+                    target,
+                    tile,
+                };
+                w.step(&[smart(feet.clone(), Some(tid), (10, 10))]);
+                run(&mut w, 300);
+                w.step(&[smart(vec![tid], None, (36, 14))]);
+                run(&mut w, 400);
+                w.step(&[crate::Command::Unload {
+                    player: 0,
+                    units: vec![tid],
+                    tile: w.unit(tid).unwrap().tile,
+                }]);
+                run(&mut w, 100);
+                w.step(&[smart(vec![tid], None, (24, 4))]);
+                run(&mut w, 300);
+                let t = w.unit(tid).unwrap();
+                assert_eq!((t.order, t.tile), (Order::Idle, (24, 4)));
+                for &f in &feet {
+                    assert_eq!(w.unit(f).unwrap().tile.0, 38, "unloaded on the far shore");
+                }
+                prints.push(w.fingerprint());
+            }
+            pinned(&prints, &[12177132514343221599, 3978466175706061857]);
+        }
+    }
 }

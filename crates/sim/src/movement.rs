@@ -1291,4 +1291,399 @@ mod tests {
         let u = w.unit(f).unwrap();
         assert_eq!((u.tile, u.script.anim), ((9, 11), anim::ATTACK));
     }
+
+    /// Pins of the current behaviour on the paths the B-038 movement refactor touches (the walk, the blocked rows, the
+    /// search's tile tests and mask, the pull-back and the arrival radius), and of the coverage report's untraced
+    /// movement regions, written before it so that it can't change them unseen. Each test states the outcome in a few
+    /// fields and pins the whole simulation state with [`World::fingerprint`]. Where a pin differs from the spec's
+    /// wording, its comment says so: those are open questions, not rules.
+    mod pin {
+        use super::*;
+
+        const FLYER: u8 = 2;
+
+        /// A 16 x 8 field with player 1 a computer player, 2 a passive computer player and 3 a human player.
+        fn arena() -> World {
+            let mut w = field(16, 8);
+            w.players[1].controller = controller::COMPUTER;
+            w.players[2].controller = controller::PASSIVE;
+            w.players[3].controller = controller::HUMAN;
+            w
+        }
+
+        /// Unit `id` in a move order toward `goal`, its next cached step onto `next`, its counter `blocked`.
+        fn walking(w: &mut World, id: UnitId, goal: (i32, i32), next: (i32, i32), blocked: u16) -> usize {
+            let i = w.index(id).unwrap();
+            w.start_anim(i, anim::MOVE);
+            let u = &mut w.units[i];
+            u.order = Order::Move { goal, target: None };
+            u.path = vec![next];
+            u.blocked = blocked;
+            i
+        }
+
+        /// Moves a unit's tile and its mark to `tile`, whatever placement chose.
+        fn put(w: &mut World, id: UnitId, tile: (i32, i32)) {
+            let i = w.index(id).unwrap();
+            let unit = w.units[i].clone();
+            w.mark(&unit, unit.tile, None);
+            w.units[i].tile = tile;
+            w.units[i].pos = (tile.0 * crate::TILE_PX, tile.1 * crate::TILE_PX);
+            let unit = w.units[i].clone();
+            w.mark(&unit, tile, Some(id));
+        }
+
+        /// The outcome of one blocked decision: order, pending order, counter, animation, wait and route length.
+        fn outcome(w: &World, i: usize) -> (Order, Option<Order>, u16, u8, u8, usize) {
+            let u = &w.units[i];
+            (
+                u.order,
+                u.pending,
+                u.blocked,
+                u.script.anim,
+                u.script.wait,
+                u.path.len(),
+            )
+        }
+
+        /// Rows A and B (computer players, a wall tile with bit 0x04) against the rows below for a passive computer
+        /// player and a human player (V22, V23).
+        #[test]
+        fn rows_a_and_b_are_for_computer_players_only() {
+            let mut prints = vec![];
+            for (owner, attacked) in [(1, false), (1, true), (2, false), (3, false)] {
+                let mut w = arena();
+                w.terrain.set_bits(5, 3, 0x8d);
+                let f = w.spawn(0, owner, (4, 3), 0).unwrap();
+                let foe = w.spawn(0, 0, (4, 5), 0).unwrap();
+                let i = walking(&mut w, f, (9, 3), (5, 3), 0);
+                if attacked {
+                    w.units[i].attacked_by = Some(foe);
+                }
+                assert_eq!(w.move_toward(i, Goal::tile((9, 3), 0)), Walk::Blocked);
+                let want_pending = (owner == 1 && !attacked).then_some(Order::AttackWall { tile: (5, 3) });
+                assert_eq!(w.units[i].pending, want_pending, "owner {owner}, attacked {attacked}");
+                prints.push((outcome(&w, i), w.fingerprint()));
+            }
+            pinned(
+                &prints.iter().map(|p| p.1).collect::<Vec<_>>(),
+                &[
+                    4487319968324443784,
+                    8996746854704468010,
+                    6321041293130641587,
+                    17878908885256948603,
+                ],
+            );
+        }
+
+        /// Rows C to I in order, each reached by one setting: the counter (C at 15, D from 8), a dying or leaving
+        /// blocker (E), an ally walking away (F), and an attacker near the goal (G, H) or not (I).
+        #[test]
+        fn rows_c_to_i() {
+            let mut prints = vec![];
+            for case in ["C", "D", "E dying", "E removing", "F", "I"] {
+                let mut w = arena();
+                let f = w.spawn(0, 3, (4, 3), 0).unwrap();
+                let b = w.spawn(0, 3, (5, 3), 0).unwrap();
+                let counter = match case {
+                    "C" => 14,
+                    "D" => 7,
+                    _ => 0,
+                };
+                let i = walking(&mut w, f, (9, 3), (5, 3), counter);
+                let j = w.index(b).unwrap();
+                match case {
+                    "E dying" => w.units[j].dying = true,
+                    "E removing" => w.units[j].removing = true,
+                    "F" => {
+                        w.start_anim(j, anim::MOVE);
+                        w.units[j].path = vec![(6, 3)];
+                    }
+                    _ => {}
+                }
+                w.move_toward(i, Goal::tile((9, 3), 0));
+                prints.push(w.fingerprint());
+                let (order, pending, blocked, a, wait, route) = outcome(&w, i);
+                let _ = (order, a);
+                let want = match case {
+                    "C" => (Some(Order::Idle), 0, 15, 1),
+                    "D" => (None, 8, 15, 0),
+                    "E dying" | "E removing" | "F" => (None, 1, 15, 1),
+                    _ => (None, 1, 1, 0),
+                };
+                assert_eq!((pending, blocked, wait, route), want, "{case}");
+            }
+            pinned(
+                &prints,
+                &[
+                    4332474618142329864,
+                    17249441303574175181,
+                    16866233877860219639,
+                    11374725858968485895,
+                    18077612124802644883,
+                    18140778682893306582,
+                ],
+            );
+        }
+
+        /// Row F's conditions on the blocker one at a time: a counter above 0, inside something, a next step onto
+        /// this unit's tile (head-on), no next step, an enemy, and still with a command pending (the search's
+        /// moving-ally rule takes that mark; row F doesn't). Each falls through to row I.
+        #[test]
+        fn row_f_needs_every_condition() {
+            let mut prints = vec![];
+            for case in ["counter", "inside", "head-on", "no step", "enemy", "pending command"] {
+                let mut w = arena();
+                let f = w.spawn(0, 3, (4, 3), 0).unwrap();
+                let owner = if case == "enemy" { 1 } else { 3 };
+                let b = w.spawn(0, owner, (5, 3), 0).unwrap();
+                let i = walking(&mut w, f, (9, 3), (5, 3), 0);
+                let j = w.index(b).unwrap();
+                w.start_anim(j, anim::MOVE);
+                w.units[j].path = vec![(6, 3)];
+                match case {
+                    "counter" => w.units[j].blocked = 1,
+                    "inside" => w.units[j].inside = true,
+                    "head-on" => w.units[j].path = vec![(4, 3)],
+                    "no step" => w.units[j].path.clear(),
+                    "pending command" => {
+                        w.start_anim(j, anim::STILL);
+                        w.command(
+                            j,
+                            Order::Move {
+                                goal: (12, 3),
+                                target: None,
+                            },
+                        );
+                        let u = w.units[i].clone();
+                        assert!(w.ignored_by_search(&u, b), "the search ignores it");
+                    }
+                    _ => {}
+                }
+                w.move_toward(i, Goal::tile((9, 3), 0));
+                let (_, pending, blocked, _, wait, route) = outcome(&w, i);
+                assert_eq!((pending, blocked, wait, route), (None, 1, 1, 0), "{case}");
+                prints.push(w.fingerprint());
+            }
+            pinned(
+                &prints,
+                &[
+                    1315267033542475176,
+                    6937201428577653383,
+                    1039352084613777046,
+                    4882441076806024008,
+                    11850996428695292654,
+                    11030857759968042977,
+                ],
+            );
+        }
+
+        /// Rows G and H: with an attacker, a land unit stops within 1 tile of its goal on both axes; a flyer within
+        /// 2; a flyer within 2 on x but farther on y drops its route (H); farther, row I. Row G measures to the goal
+        /// it is given, and its stop is a pending idle (static study only; coverage: untraced).
+        #[test]
+        fn rows_g_and_h() {
+            let mut prints = vec![];
+            for (kind, goal, stops) in [
+                (0, (6, 4), true),
+                (0, (8, 3), false),
+                (FLYER, (8, 5), true),
+                (FLYER, (8, 7), false),
+                (FLYER, (10, 3), false),
+            ] {
+                let mut w = arena();
+                let f = w.spawn(kind, 3, (6, 3), 0).unwrap();
+                let s = if kind == FLYER { 2 } else { 1 };
+                let b = w.spawn(kind, 3, (6 + s, 3), 0).unwrap();
+                // Placement moves a flyer to an even row; put both back.
+                put(&mut w, f, (6, 3));
+                put(&mut w, b, (6 + s, 3));
+                let foe = w.spawn(0, 1, (1, 1), 0).unwrap();
+                let i = walking(&mut w, f, goal, (6 + s, 3), 0);
+                w.units[i].attacked_by = Some(foe);
+                w.move_toward(i, Goal::tile(goal, 0));
+                let (_, pending, _, _, wait, route) = outcome(&w, i);
+                assert_eq!(pending.is_some(), stops, "{kind} {goal:?}");
+                assert_eq!((wait, route == 0), (1, !stops), "{kind} {goal:?}");
+                prints.push(w.fingerprint());
+            }
+            pinned(
+                &prints,
+                &[
+                    9749873335569134805,
+                    16696698943700492888,
+                    9726181436724365457,
+                    11287543049927568287,
+                    4081969389894885419,
+                ],
+            );
+        }
+
+        /// The search mask's bit-0x04 drop is for every player that isn't human-controlled, with no attacker: a tile
+        /// carrying only 0x04 is seen through by a computer, passive computer or neutral unit, not by a human player's
+        /// unit or an attacked one (pathfinding spec, "Inputs"; movement spec, "Player kinds").
+        #[test]
+        fn the_search_drops_bit_4_for_every_player_not_human_controlled() {
+            let mut routes = vec![];
+            for (owner, attacked) in [(1, false), (2, false), (4, false), (3, false), (1, true)] {
+                let mut w = arena();
+                w.players[4].controller = controller::NOBODY;
+                for y in 0..8 {
+                    w.terrain.set_bits(6, y, HUMAN_WALL);
+                }
+                let f = w.spawn(0, owner, (4, 3), 0).unwrap();
+                let foe = w.spawn(0, 0, (1, 1), 0).unwrap();
+                let i = w.index(f).unwrap();
+                if attacked {
+                    w.units[i].attacked_by = Some(foe);
+                }
+                let u = w.units[i].clone();
+                routes.push(w.plan(&u, Goal::tile((9, 3), 0)));
+            }
+            let through = vec![(5, 3), (6, 3), (7, 3), (8, 3), (9, 3)];
+            assert_eq!(routes[..3], [through.clone(), through.clone(), through]);
+            // The others find no way through and keep the straight line's prefix (the fallback).
+            assert_eq!(routes[3..], [vec![(5, 3)], vec![(5, 3)]], "{routes:?}");
+        }
+
+        /// The search's three tile tests on one map: the walk sees an ally with a command pending as free, the
+        /// shortening's swap counts it as blocking, and the step is refused by it (row I).
+        #[test]
+        fn the_search_and_the_step_see_a_pending_ally_differently() {
+            let mut w = arena();
+            let f = w.spawn(0, 3, (4, 3), 0).unwrap();
+            let b = w.spawn(0, 3, (5, 3), 0).unwrap();
+            let j = w.index(b).unwrap();
+            w.command(
+                j,
+                Order::Move {
+                    goal: (12, 7),
+                    target: None,
+                },
+            );
+            let i = w.index(f).unwrap();
+            w.units[i].order = Order::Move {
+                goal: (9, 3),
+                target: None,
+            };
+            let u = w.units[i].clone();
+            assert_eq!(w.plan(&u, Goal::tile((9, 3), 0)).first(), Some(&(5, 3)));
+            assert_eq!(w.move_toward(i, Goal::tile((9, 3), 0)), Walk::Blocked);
+            assert_eq!(outcome(&w, i).2, 1);
+            pinned(&[w.fingerprint()], &[582936150198803950]);
+        }
+
+        /// The walk's step: tile, facing, occupancy and the move animation; a flyer's two-tile step and its +1 on the
+        /// radius; a ship in the landing class may enter shore water, in the sea class it may not.
+        #[test]
+        fn whole_walks() {
+            let mut prints = vec![];
+            for (kind, to) in [(0, (11, 6)), (FLYER, (11, 6)), (FLYER, (12, 2)), (8, (2, 1))] {
+                let mut w = arena();
+                let f = w.spawn(kind, 3, (3, 2), 0).unwrap();
+                w.spawn(0, 3, (7, 4), 0).unwrap();
+                w.spawn(5, 1, (5, 2), 0).unwrap();
+                mv(&mut w, f, to);
+                let mut tiles = vec![];
+                for _ in 0..120 {
+                    w.step(&[]);
+                    let t = w.unit(f).unwrap().tile;
+                    if tiles.last() != Some(&t) {
+                        tiles.push(t);
+                    }
+                }
+                prints.push(w.fingerprint());
+                let _ = tiles;
+            }
+            pinned(
+                &prints,
+                &[
+                    15645015048395609214,
+                    8090279918076836087,
+                    14189584049738236248,
+                    17901305525487887472,
+                ],
+            );
+        }
+
+        /// The arrival radius: +1 for sea and air units except in orders 30 and 31, never with an attack range.
+        #[test]
+        fn the_arrival_radius() {
+            let mut w = arena();
+            let f = w.spawn(FLYER, 3, (4, 4), 0).unwrap();
+            let i = w.index(f).unwrap();
+            let mut got = vec![];
+            for (order, range) in [
+                (
+                    Order::Move {
+                        goal: (6, 6),
+                        target: None,
+                    },
+                    false,
+                ),
+                (
+                    Order::Move {
+                        goal: (6, 6),
+                        target: None,
+                    },
+                    true,
+                ),
+                (Order::Land { goal: (6, 6) }, false),
+                (Order::PushOff, false),
+            ] {
+                w.units[i].order = order;
+                let g = Goal {
+                    range,
+                    ..Goal::tile((6, 6), 1)
+                };
+                got.push(w.at_goal(i, g));
+            }
+            assert_eq!(got, [true, false, false, false]);
+        }
+
+        /// The command's pull-back for a flyer (no region test) and a two-tile mover (one tile per step), and a goal
+        /// next to the unit (k = 1: nothing tested, the goal kept).
+        #[test]
+        fn the_command_pull_back_settings() {
+            let mut w = arena();
+            for y in 0..8 {
+                w.terrain.set_bits(10, y, bits::OBSTACLE);
+            }
+            let flyer = w.spawn(FLYER, 3, (4, 2), 0).unwrap();
+            let f = w.spawn(0, 3, (4, 4), 0).unwrap();
+            let (fi, i) = (w.index(flyer).unwrap(), w.index(f).unwrap());
+            assert_eq!(w.pull_back(fi, (10, 2)), (10, 2), "a flyer's mask has no obstacle bit");
+            assert_eq!(
+                w.pull_back(i, (10, 4)),
+                (10, 4),
+                "k - 1 tiles, all usable: the first is the goal's neighbour"
+            );
+            assert_eq!(w.pull_back(i, (5, 4)), (5, 4));
+            w.terrain.set_bits(9, 4, bits::OBSTACLE);
+            assert_eq!(w.pull_back(i, (10, 4)), (9, 4));
+        }
+
+        /// Coverage: a pending order taking over (untraced region): animation, wait 3, counter kept, the command mark
+        /// cleared, and a return with no depot looking one up or becoming idle.
+        #[test]
+        fn a_take_over() {
+            let mut w = arena();
+            let f = w.spawn(0, 3, (4, 4), 0).unwrap();
+            let i = w.index(f).unwrap();
+            w.units[i].blocked = 3;
+            w.units[i].commanded = true;
+            w.take_over(i, Order::ReturnGoods { depot: None });
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.blocked, u.commanded, u.script.wait),
+                (Order::Idle, 3, false, 3)
+            );
+            pinned(&[w.fingerprint()], &[11035032890756001496]);
+        }
+
+        /// Compares pinned values, printing the whole list on a mismatch so that a first run can fill it in.
+        fn pinned(got: &[u64], want: &[u64]) {
+            assert_eq!(got, want, "pinned fingerprints: {got:?}");
+        }
+    }
 }
