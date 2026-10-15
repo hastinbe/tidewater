@@ -440,11 +440,12 @@ impl World {
         self.units[i].script.wait = TAKEOVER_WAIT;
     }
 
-    /// Arrival radius after the +1 (movement spec, "The +1"): sea and air units get it, except in orders 30 and 31.
-    /// Order 28 is a land unit's, so it never gets the +1.
+    /// Arrival radius after the +1 (movement spec, "The +1"): sea and air units get it, except while the unit's
+    /// current order is 28 (a tanker going to build an oil platform, V38), 30 or 31 (a transport landing or pushing
+    /// off). A land unit's +1 in order 28 for a shore building is in the build walk's own radius (`build_radius`).
     fn arrival_radius(&self, u: &Unit, g: &Goal) -> i32 {
-        let docking = matches!(u.order, Order::Land { .. } | Order::PushOff);
-        let bonus = !g.range && !docking && matches!(u.layer, Layer::Sea | Layer::Air);
+        let exempt = matches!(u.order, Order::Build { .. } | Order::Land { .. } | Order::PushOff);
+        let bonus = !g.range && !exempt && matches!(u.layer, Layer::Sea | Layer::Air);
         g.radius + bonus as i32
     }
 
@@ -1501,6 +1502,36 @@ mod tests {
                     17878908885256948603,
                 ],
             );
+        }
+
+        /// "The +1" (round 72, V38): a sea unit gets no +1 while its current order is 28, as a tanker going to build an
+        /// oil platform; 1 tile from the goal it hasn't arrived, on it it has. In a move it gets the +1.
+        #[test]
+        fn a_sea_unit_in_order_28_gets_no_plus_one() {
+            let mut w = arena();
+            let t = w.spawn(0, 3, (4, 4), 0).unwrap();
+            let i = w.index(t).unwrap();
+            w.units[i].layer = Layer::Sea;
+            let build = Order::Build {
+                kind: 0,
+                site: (4, 4),
+                goal: Some((5, 5)),
+            };
+            for (order, goal, there) in [
+                (build, (5, 5), false),
+                (build, (4, 4), true),
+                (
+                    Order::Move {
+                        goal: (5, 5),
+                        target: None,
+                    },
+                    (5, 5),
+                    true,
+                ),
+            ] {
+                w.units[i].order = order;
+                assert_eq!(w.at_goal(i, Goal::tile(goal, 0)), there, "{order:?} to {goal:?}");
+            }
         }
 
         /// Row B, not row A, for an invisible computer unit with no attacker (movement spec, "Blocked rules"): it keeps
