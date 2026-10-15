@@ -197,6 +197,11 @@ pub fn scenes() -> Vec<Scene> {
             start: vec![play(0)],
             cmds: load(),
         },
+        Scene {
+            name: "build",
+            start: vec![play(0)],
+            cmds: build(),
+        },
     ]
 }
 
@@ -323,6 +328,50 @@ fn load() -> Vec<Cmd> {
     v.extend([Wait(3), Shot("menu-load")]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Wait(30), Shot("menu-loaded")]);
+    v
+}
+
+/// A farm placed: a peasant selected, the build commands by their keys, the placement image over good and bad ground,
+/// then placed; the chat line edited and cancelled; the load dialog's list moved with the wheel.
+fn build() -> Vec<Cmd> {
+    use Cmd::*;
+    use KeyCode as K;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
+    v.extend(click(416.0, 318.0));
+    v.extend([Wait(3), Shot("peasant")]);
+    v.extend(tap(K::KeyB));
+    v.extend([Wait(3), Shot("build-basic")]);
+    v.extend(tap(K::KeyF));
+    v.extend([Wait(2), Move(330.0, 300.0), Wait(3), Shot("placing")]);
+    v.extend([Move(250.0, 120.0), Wait(3), Shot("placing-bad")]);
+    v.extend(click(330.0, 300.0));
+    v.extend([Wait(3), Shot("placed"), Wait(120), Shot("building")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Type("abc"), Wait(1)]);
+    v.extend(tap(K::Backspace));
+    v.extend([Wait(2), Shot("chat-edited")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(2), Shot("chat-closed")]);
+    v.extend([Wheel(1.0), Wait(1), Wheel(-1.0), Wait(2), Shot("wheel-on-map")]);
+    v.extend(tap(K::F11));
+    v.extend([Wait(3), Type("two"), Wait(1)]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::F11));
+    v.extend([Wait(3), Type("three"), Wait(1)]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::F12));
+    v.extend([
+        Wait(3),
+        Shot("load-list"),
+        Wheel(-1.0),
+        Wait(2),
+        Shot("load-wheel-down"),
+    ]);
+    v.extend([Wheel(1.0), Wait(2), Shot("load-wheel-up")]);
+    v.extend(tap(K::Escape));
+    v.extend([Wait(3), Shot("load-closed")]);
     v
 }
 
@@ -724,7 +773,7 @@ mod tests {
             assert!(s.cmds.iter().any(|c| matches!(c, Cmd::Shot(_))), "{}", s.name);
             assert_eq!(all.iter().filter(|o| o.name == s.name).count(), 1);
         }
-        for name in ["campaign", "outcome", "ending", "load"] {
+        for name in ["campaign", "outcome", "ending", "load", "build"] {
             assert!(scene(name).is_some(), "{name}");
         }
     }
