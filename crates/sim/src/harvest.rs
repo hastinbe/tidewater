@@ -575,7 +575,7 @@ impl World {
     /// "Coming out", step 6, aim: the goal tile the command of steps 3 to 5 stored ("Commands given by these orders"),
     /// so the unit comes out on that side. A target unit's top-left tile pulled back (a return's depot, V60; a
     /// harvest's source, V64, V65), a tree tile (already the pulled-back goal), a build job's stored goal (V58). With
-    /// no command, none: the search is aimed at the unit's own tile.
+    /// no command, none: the goal is still the unit's own tile (step 1), which the search aims at and the unit faces.
     ///
     /// Kept special cases: a computer player's repair job aims at the building's top-left tile, not pulled back
     /// (V57; open question "Repair aim on coming out"); an order 28 with no stored goal (never made now) at its site.
@@ -593,7 +593,8 @@ impl World {
     }
 
     /// Order 26 when the wait inside ends ("Coming out"): step 1's immediate idle, step 2's count, the command of steps
-    /// 3 to 5, and step 6's placement, aimed at the command's goal and facing by "Facing a target". The command is
+    /// 3 to 5, and step 6's placement, aimed at the goal tile (the command's, or the unit's own stored tile) and facing
+    /// by "Facing a target". The command is
     /// made pending and waits for the 25-cycle wait; with no command, a carrying unit (step 4, no depot) has idle
     /// pending (V73), and any other unit has nothing pending, so its idle logic runs when the wait ends (V85).
     pub(crate) fn come_out(&mut self, i: usize, _building: Option<UnitId>) {
@@ -618,7 +619,9 @@ impl World {
         u.inside = false;
         u.tile = tile;
         u.pos = (tile.0 * TILE_PX, tile.1 * TILE_PX);
-        let face = self.come_out_face(i, next, aim);
+        // "Coming out", step 6, facing (round 68, harvest (d)): with no command (or one that stored no goal) the goal
+        // tile is still step 1's, the unit's own stored tile, and the unit faces it as it does the search's aim.
+        let face = self.come_out_face(i, next, Some(aim.unwrap_or(at)));
         let u = &mut self.units[i];
         if let Some(f) = face.filter(|&f| f != tile) {
             u.facing = crate::world::face_tile(tile, f);
@@ -2548,13 +2551,13 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [8078244930565009890, 10557360367904692938]);
+            assert_eq!(prints, [5289566497159053821, 10557360367904692938]);
         }
 
-        /// "Coming out" with no command and nothing pending: the facing is kept. The spec's table says it faces its
-        /// goal tile (the building's top-left tile; static study only, untraced).
+        /// "Coming out" with no command and nothing pending: it faces its goal tile, the building's top-left tile
+        /// (the table's last row; round 68, harvest (d); static study only, untraced).
         #[test]
-        fn coming_out_with_nothing_to_do_keeps_its_facing() {
+        fn coming_out_with_nothing_to_do_faces_its_goal_tile() {
             let mut w = land_with_shops();
             let b = w.spawn(SHIPYARD, 0, (8, 8), 0).unwrap();
             let p = w.spawn(0, 0, (7, 8), 0).unwrap();
@@ -2564,9 +2567,9 @@ mod tests {
             w.units[pi].facing = 5;
             come_out_now(&mut w, p, b);
             let u = w.unit(p).unwrap();
-            assert_eq!((u.pending, u.facing), (None, 5));
-            assert_ne!(crate::world::face_tile(u.tile, (8, 8)), 5);
-            assert_eq!(w.fingerprint(), 15173445877571300346);
+            assert_eq!((u.pending, u.facing), (None, crate::world::face_tile(u.tile, (8, 8))));
+            assert_ne!(u.facing, 5);
+            assert_eq!(w.fingerprint(), 2184525476580410004);
         }
 
         /// Order 25 losing its target before stepping in (OQ-A): a pending idle, taken over at once (V82 as written).
@@ -2634,18 +2637,18 @@ mod tests {
             assert_eq!(
                 prints,
                 [
-                    7207997613274591782,
-                    13476117557655880645,
-                    5181640389991292329,
-                    8929566194430708829,
-                    3387284651410698369,
-                    741518362166369064,
-                    9344351753719453454,
-                    7649109570281920205,
-                    14449367595918039853,
-                    5599906224186311679,
-                    17197182959073010245,
-                    12250845477640230121
+                    11569855206810618705,
+                    11360879545551381775,
+                    8241358231868520740,
+                    12812016027310808626,
+                    3022308519554081803,
+                    11409680402870601848,
+                    16233376665597347028,
+                    11669872789662141760,
+                    4196554636280857903,
+                    11409926161439104037,
+                    9403846010072524420,
+                    17348680412796673280
                 ]
             );
         }
