@@ -262,11 +262,13 @@ impl World {
         self.units[i].resume = 0;
     }
 
-    /// Orders spec, "An unremembered patrol" (Enhanced): a patrol command given to an air
-    /// or sea unit whose goal (as given) is within 1 tile of the unit on both axes doesn't write the remembered order.
+    /// Orders spec, "An unremembered patrol" (Enhanced; round 71, `orc09-sea-patrol-axis-2000`, V274): a patrol
+    /// command given to an air or sea unit whose goal (as given) is within 1 tile of the unit on **either** axis (its x
+    /// distance or its y distance at most 1) doesn't write the remembered order.
     pub(crate) fn unremembered_patrol(&self, i: usize, to: (i32, i32)) -> bool {
         let u = &self.units[i];
-        self.flags_of_unit(u) & (flags::AIR | flags::SEA) != 0 && chebyshev(u.tile, to) <= 1
+        let near = (u.tile.0 - to.0).abs() <= 1 || (u.tile.1 - to.1).abs() <= 1;
+        self.flags_of_unit(u) & (flags::AIR | flags::SEA) != 0 && near
     }
 
     /// Command 3 ("Smart move"). Transports and boarding come with the transports spec, so for now they move.
@@ -2199,9 +2201,9 @@ mod tests {
         assert_eq!(w.units[i].remembered, None);
     }
 
-    /// Orders spec, "An unremembered patrol" (Enhanced): an air unit's patrol to a goal
-    /// within 1 tile on both axes leaves the remembered order as it was; a farther goal, or a land unit's, is remembered
-    /// as given.
+    /// Orders spec, "An unremembered patrol" (Enhanced; V274): an air unit's patrol to a goal within 1 tile on either
+    /// axis leaves the remembered order as it was; a goal more than 1 tile away on both axes, or a land unit's, is
+    /// remembered as given.
     #[test]
     fn an_air_patrol_within_a_tile_is_not_remembered() {
         const FLYER: u8 = 0x2b;
@@ -2225,10 +2227,13 @@ mod tests {
         };
         assert_eq!(patrol(&mut w, d, (11, 9)), old, "within 1 tile on both axes");
         assert_eq!(patrol(&mut w, d, (10, 10)), old, "its own tile");
+        assert_eq!(patrol(&mut w, d, (12, 10)), old, "along its own row");
+        assert_eq!(patrol(&mut w, d, (10, 24)), old, "along its own column (V274)");
+        assert_eq!(patrol(&mut w, d, (19, 11)), old, "1 tile away on y");
         assert_eq!(
-            patrol(&mut w, d, (12, 10)),
+            patrol(&mut w, d, (12, 12)),
             Some(Remembered::Patrol {
-                to: (12, 10),
+                to: (12, 12),
                 back: (10, 10)
             })
         );

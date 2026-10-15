@@ -1381,8 +1381,8 @@ impl World {
             return;
         }
         let here = self.units[i].tile;
-        // Round-56 static correction (orders spec, "An unremembered patrol"): an air or sea unit's patrol to a goal
-        // within 1 tile leaves the remembered order as it was.
+        // Orders spec, "An unremembered patrol" (round 71, V274): an air or sea unit's patrol to a goal within 1 tile
+        // on either axis leaves the remembered order as it was.
         let unremembered = self.rules.enhanced && self.unremembered_patrol(i, from);
         // Transports spec, "What the transport stores" (round 70, M7): as for a player's patrol command.
         let (from, _) = self.command_goal(i, None, from);
