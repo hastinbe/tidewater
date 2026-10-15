@@ -24,8 +24,11 @@ before writing any code, and follow it exactly.
   `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
   whole-map behaviour snapshot `tests/snapshot.rs` checks).
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
-- `crates/client`: the game client (`tidewater` binary): an engine-neutral core (`core.rs`: `Core::advance` runs a
-  frame) in a Bevy shell (`shell.rs`, the only module that uses Bevy: window, input events, mouse lock, sound device).
+- `crates/client`: the game client: a library (`lib.rs`) holding the engine-neutral core (`core.rs`: `Core::advance`
+  runs a frame) and `host.rs` (Bevy-free: start-up from the command line, the headless scripted loop, helpers every
+  shell shares), and the `tidewater` binary, the Bevy shell (`shell.rs`, the only module that uses Bevy: window, input
+  events, mouse lock, sound device). Bevy and the binary are the default `bevy` feature; without it the library
+  builds without Bevy.
   `game.rs` runs the game screen, `args.rs` holds the command line. `scene.rs` builds the map and unit images, `hud.rs`
   lays out and draws the interface (frame, minimap, resources, selection, command buttons) into one picture, `panel.rs` holds the command panel's button sets and rules, `info.rs` the unit information panel's rules; all are Bevy-free.
   `campaign.rs` holds the campaign flow's rules, `video.rs` the Smacker playback helpers and `display.rs` the window
@@ -33,12 +36,16 @@ before writing any code, and follow it exactly.
   `frontend.rs` runs the screens around a game (videos, title, menu, act screens, briefings, the outcome dialogs,
   the score screen, endings, credits) as the flow's states (`states.rs`), and the game screen's systems run only in `AppState::Game`.
   `--goto SCREEN` opens a flow screen directly for development.
-  `audio.rs` (Bevy-free) decodes WAV sounds and mixes them at 22,050 Hz stereo; the Bevy shell streams the mixer to the device.
+  `audio.rs` (Bevy-free) decodes WAV sounds and mixes them at 22,050 Hz stereo; each shell streams the mixer to the device.
   `storage.rs` (Bevy-free) is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
   The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, `shell.rs`
   shows it). `script.rs` runs scripted scenes (`--script NAME --script-out DIR [--headless]`) for the frame
   snapshot `tests/frames.rs`; the design of the core and its shells is `docs/design/client-core.md`.
+- `crates/shell-sdl3`, `crates/shell-miniquad`: the phase 3 trial shells (`tidewater-sdl3`, `tidewater-miniquad`),
+  the same core in an SDL 3 window (`sdl.rs` is the safe wrapper and the only `unsafe` code; SDL is built from source,
+  so it needs CMake and a C compiler, not an SDL install) and in a miniquad window with `cpal` sound. They take the
+  `tidewater` binary's arguments.
 - `docs/specs/`: reviewed behaviour specifications, the only source for engine behaviour.
 
 ## Workflow
