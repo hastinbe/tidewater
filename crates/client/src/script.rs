@@ -265,7 +265,7 @@ fn flow() -> Vec<Cmd> {
     v.extend(tap(K::Enter));
     v.extend([UntilOutcome, Wait(5), Shot("defeat")]);
     v.extend(tap(K::Enter));
-    v.extend([Wait(30), Shot("replay")]);
+    v.extend([Wait(60), Shot("replay")]);
     v.extend(tap(K::F(10)));
     v.extend(tap(K::Letter('E')));
     v.extend([Wait(3), Move(320.0, 258.0), Wait(1)]);

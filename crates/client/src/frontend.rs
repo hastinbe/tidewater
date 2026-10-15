@@ -594,6 +594,8 @@ pub struct OutcomeDialog {
     pub(crate) saved: bool,
     /// The dialog is to be drawn again: it opened, or the game menu changed it.
     pub(crate) redraw: bool,
+    /// The button that ends the game was used: the fade of all sound runs, and the game ends when it has.
+    closing: bool,
     image: PictureId,
 }
 
@@ -1653,7 +1655,6 @@ pub(crate) fn watch_outcome(c: &mut Core) {
         dialog,
         pictures,
         front_screen: screen,
-        jukebox: music,
         ..
     } = c;
     let (Some(sim), None) = (sim.as_ref(), dialog.as_ref()) else {
@@ -1662,8 +1663,7 @@ pub(crate) fn watch_outcome(c: &mut Core) {
     let Some(o) = sim.world.players[sim.human as usize].result else {
         return;
     };
-    // Music spec: a game that ends fades all sound before the score screen.
-    music.fade_stop(true, None);
+    // Music spec, "The outcome dialog": nothing about the music changes while it is up; the game's track plays on.
     screen.clears = false;
     let image = spawn_layer(commands, pictures, blank(), 1, AppState::Game, None);
     let dialog = OutcomeDialog {
@@ -1671,6 +1671,7 @@ pub(crate) fn watch_outcome(c: &mut Core) {
         save_wanted: false,
         saved: false,
         redraw: true,
+        closing: false,
         image,
     };
     commands.queue(move |c| c.dialog = Some(dialog));
@@ -1727,6 +1728,7 @@ pub(crate) fn run_dialog(c: &mut Core) {
         states: next,
         exit,
         input,
+        jukebox: music,
         ..
     } = c
     else {
@@ -1740,6 +1742,16 @@ pub(crate) fn run_dialog(c: &mut Core) {
         set_image(pictures, &dialog.image, p);
         dialog.redraw = false;
     }
+    // Music spec, "The outcome dialog": the fade of all sound blocks, then the game ends and the score screen starts
+    // its track, so the two tracks never overlap.
+    if dialog.closing {
+        if !music.music().fading() {
+            let Some(sim) = sim else { return };
+            end_with(flow, front, &sim.world, sim.human, dialog.victory);
+            go_on(flow, front, keys, next, exit);
+        }
+        return;
+    }
     let at = pointer(input, cam).filter(|_| mouse.just_released(Button::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
     let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([Key::Enter, Key::Letter('C')]) {
@@ -1750,10 +1762,10 @@ pub(crate) fn run_dialog(c: &mut Core) {
         None
     };
     match button.map(cf::dialog_button) {
+        // The button that ends the game: a fade of all sound from the current volume.
         Some(cf::DialogResult::End) => {
-            let Some(sim) = sim else { return };
-            end_with(flow, front, &sim.world, sim.human, dialog.victory);
-            go_on(flow, front, keys, next, exit);
+            music.fade_stop(true, None);
+            dialog.closing = true;
         }
         // The save dialog opens over this one; a save ends the game (`saved`), Cancel shows this dialog again.
         Some(cf::DialogResult::OpenSave) => dialog.save_wanted = true,
