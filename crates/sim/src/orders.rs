@@ -4722,7 +4722,10 @@ mod tests {
                 let ai = at(&w, a);
                 w.units[ai].detected_by = 0;
                 let i = ready(&mut w, s, Order::Idle);
-                w.units[i].remembered = remembered.then_some(Remembered::Patrol { to: (2, 2), back: (5, 5) });
+                w.units[i].remembered = remembered.then_some(Remembered::Patrol {
+                    to: (2, 2),
+                    back: (5, 5),
+                });
                 w.units[i].attacked_by = Some(a);
                 let ran = w.run_order(i);
                 let u = &w.units[i];
@@ -4742,7 +4745,10 @@ mod tests {
                     }
                     _ => {
                         assert!(ran, "{case}");
-                        assert!(matches!(u.pending.or(Some(u.order)), Some(Order::Move { .. })), "flees: {case}");
+                        assert!(
+                            matches!(u.pending.or(Some(u.order)), Some(Order::Move { .. })),
+                            "flees: {case}"
+                        );
                     }
                 }
             }
