@@ -1,0 +1,13 @@
+# mixed sound fingerprints of the scripted scene `ending` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+blocks	0-0	ef416be63c3a5019
+blocks	1-1	40745467d22bea43
+blocks	2-2	c96adabf76974a3a
+blocks	3-3	b98c689b35d68a35
+blocks	4-4	500b6c5f846071b2
+blocks	5-5	5d5aa0e2e73e199c
+blocks	6-6	4ce57656fbd9d656
+blocks	7-7	afb8becf09fec6c3
+blocks	8-8	8f86de26bdb331a7
+blocks	9-9	c8f27852faa852d4
+blocks	10-10	6766caf77d3b5453
+tail	12862	971a94734759e610

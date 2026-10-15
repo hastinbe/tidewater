@@ -597,9 +597,36 @@ pub struct Record {
     pending: Vec<(&'static str, Frame)>,
     /// Shots compared with Bevy's screenshot: name, differing pixels.
     pub compared: Vec<(&'static str, usize)>,
+    /// The mixed sound's fingerprints (the audio snapshot).
+    sound: crate::audio::Fingerprints,
+    /// The kinds of sound in the order the run first started one of each (`start_lines`).
+    kinds: Vec<u8>,
 }
 
 impl Record {
+    /// The sound lines of the sounds started in frame `n`: in the order of their kinds' first starts in the run, then
+    /// in the order they started (the order Bevy's query listed its sound entities in: by archetype, then by spawn).
+    fn start_lines(&mut self, n: u32, starts: Vec<crate::audio::Start>) -> Vec<String> {
+        use crate::audio::Group;
+        let kind = |g: Group| match g {
+            Group::Music => 0,
+            Group::Effect => 1,
+            Group::Screen(_) => 2,
+            Group::Act => 3,
+        };
+        for s in &starts {
+            if !self.kinds.contains(&kind(s.group)) {
+                self.kinds.push(kind(s.group));
+            }
+        }
+        let mut starts = starts;
+        starts.sort_by_key(|s| self.kinds.iter().position(|&k| k == kind(s.group)));
+        starts
+            .iter()
+            .map(|s| format!("sound\t{n}\t{:016x}\t{:.4}\t{:?}", s.hash, s.volume, s.mode))
+            .collect()
+    }
+
     fn frame(&mut self, n: u32, hash: u64) {
         match self.run {
             Some((_, h)) if h == hash => {}
@@ -643,18 +670,29 @@ fn note_sounds(
     started: Query<(&AudioPlayer, &PlaybackSettings), Added<AudioPlayer>>,
     sources: Res<Assets<AudioSource>>,
     mut rec: ResMut<Record>,
+    mut audio: ResMut<crate::shell::CoreAudio>,
 ) {
+    let mut lines = Vec::new();
     for (player, settings) in &started {
         let bytes = sources.get(&player.0).map_or(0, |s| fnv64(&s.bytes));
         let volume = match settings.volume {
             bevy::audio::Volume::Linear(v) => v,
             v => v.to_linear(),
         };
-        rec.lines.push(format!(
+        lines.push(format!(
             "sound\t{}\t{bytes:016x}\t{volume:.4}\t{:?}",
             script.frame, settings.mode
         ));
     }
+    let starts = audio.take_starts();
+    let core = rec.start_lines(script.frame, starts);
+    if core != lines {
+        eprintln!(
+            "frame {}: the mixer's starts {core:?} differ from Bevy's {lines:?}",
+            script.frame
+        );
+    }
+    rec.lines.extend(lines);
 }
 
 /// Composes the frame the window shows, notes its fingerprint and keeps the scene's shots; with a window, asks Bevy
@@ -669,10 +707,15 @@ fn record(world: &mut World) {
     };
     let hash = frame.hash();
     let out = world.resource::<Out>().clone();
+    // The frame's share of the mixed sound: the sounds started in this frame start at its first sample.
+    let output = world.resource::<crate::shell::CoreAudio>().output();
     let mut rec = world.resource_mut::<Record>();
     // Frames after the scene's end (while screenshots come in) aren't part of it.
     if !rec.ended {
         rec.frame(n, hash);
+        let mut samples = vec![0i16; 2 * crate::audio::frames_for(n as u64 - 1, (1.0 / FRAME_SECS).round() as u64)];
+        output.mix(&mut samples);
+        rec.sound.add(&samples);
     }
     rec.ended |= done;
     for &name in &shots {
@@ -706,6 +749,10 @@ fn record(world: &mut World) {
         }
         let file = out.dir.join(format!("{scene}.txt"));
         if let Err(e) = std::fs::create_dir_all(&out.dir).and_then(|_| std::fs::write(&file, text)) {
+            eprintln!("can't write {}: {e}", file.display());
+        }
+        let file = out.dir.join(format!("{scene}-audio.txt"));
+        if let Err(e) = std::fs::write(&file, rec.sound.text(scene)) {
             eprintln!("can't write {}: {e}", file.display());
         }
         if out.windowed {

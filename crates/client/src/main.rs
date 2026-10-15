@@ -18,6 +18,7 @@
 //! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). The mouse wheel
 //! zooms only with the `--free-zoom` development option.
 
+mod audio;
 mod campaign;
 mod chat;
 mod cheats;
@@ -203,6 +204,8 @@ struct Speaker {
     install: Install,
     /// Archive name to source; `None` for a file the install doesn't have, so it is looked up once.
     sources: HashMap<String, Option<Handle<AudioSource>>>,
+    /// The same sounds decoded for the core's mixer.
+    sounds: HashMap<String, Option<audio::Sound>>,
     /// Ctrl+S turned the sounds off.
     muted: bool,
 }
@@ -716,6 +719,7 @@ fn run_transitions(world: &mut bevy::prelude::World) {
     for e in gone.into_iter().rev() {
         world.despawn(e);
     }
+    world.resource_mut::<shell::CoreAudio>().stop_screen(t.exited);
     for &hook in states::on_enter(t.entered) {
         run(world, hook);
     }
@@ -876,6 +880,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         director: sound::Director::new(sound::SoundSet::of_world(&scene.world), scene.era, scene.seed),
         install,
         sources: HashMap::new(),
+        sounds: HashMap::new(),
         muted: false,
     };
     let mut selection = Selection::default();
@@ -1012,10 +1017,11 @@ fn stop_clock(sim: Option<Res<Sim>>, clock: Option<ResMut<savegame::GameClock>>)
 }
 
 /// Leaving the game screen: its entities go (not the front end's camera, pictures or music) and so does the game.
-fn end_game(mut commands: Commands, q: GameEntities) {
+fn end_game(mut commands: Commands, q: GameEntities, mut audio: ResMut<shell::CoreAudio>) {
     for e in &q {
         commands.entity(e).despawn();
     }
+    audio.stop_group(audio::Group::Effect);
     commands.remove_resource::<Sim>();
     commands.remove_resource::<GameView>();
     commands.remove_resource::<Loaded>();
@@ -2228,6 +2234,7 @@ fn play_sounds(
     mut speaker: ResMut<Speaker>,
     mut sources: ResMut<Assets<AudioSource>>,
     view: Option<Res<GameView>>,
+    mut audio: ResMut<shell::CoreAudio>,
 ) {
     let (Some(mut sim), Some(view)) = (sim, view) else {
         return;
@@ -2258,6 +2265,22 @@ fn play_sounds(
         let Some((name, level)) = heard.play else { continue };
         let path = sound::path(&name);
         let install = &mut sp.install;
+        let decoded = sp
+            .sounds
+            .entry(path.clone())
+            .or_insert_with_key(|p| audio::Sound::from_wav(&install.read(p).ok()?))
+            .clone();
+        if let Some(s) = decoded {
+            let group = audio::Group::Effect;
+            audio.play(
+                &s,
+                level as f32 / 255.0,
+                audio::level_gain(level),
+                audio::Mode::Despawn,
+                group,
+                0,
+            );
+        }
         let handle = sp
             .sources
             .entry(path)

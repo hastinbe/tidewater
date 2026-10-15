@@ -8,6 +8,10 @@
 //! the frame it starts on, a fingerprint of the sound's bytes, its loudness and its playback mode. The files hold
 //! fingerprints only.
 //!
+//! **The mixed sound.** The core mixes every frame's share of the sound (`src/audio.rs`: 22,050 Hz stereo 16-bit,
+//! 367 or 368 sample frames a frame); `tests/snapshots/{scene}-audio.txt` holds a fingerprint per second of it, equal
+//! seconds in a row on one line.
+//!
 //! **Blessing.** When a change to what is shown is intended, regenerate with `TIDEWATER_SNAPSHOT_BLESS=1 cargo test
 //! --release -p tidewater-client --test frames` and commit the new files with the change that explains it.
 //!
@@ -27,6 +31,11 @@ fn on(var: &str) -> bool {
 
 fn snapshot(scene: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/snapshots/{scene}.txt"))
+}
+
+/// The audio snapshot's file for a scene.
+fn audio_snapshot(scene: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/snapshots/{scene}-audio.txt"))
 }
 
 /// Runs a scene; returns its fingerprint file's text.
@@ -67,20 +76,26 @@ fn every_scene_shows_and_sounds_as_snapshotted() {
     for scene in SCENES {
         let dir = tempfile::tempdir().expect("a temporary folder");
         let got = run(&install, scene, dir.path(), true);
-        let file = snapshot(scene);
-        if bless {
-            std::fs::write(&file, &got).expect("writing the snapshot");
-            eprintln!("blessed {}", file.display());
-            continue;
-        }
-        let want = std::fs::read_to_string(&file).expect("the snapshot file");
-        if let Some(d) = first_difference(&want, &got) {
-            failures.push(format!("{scene}: {d}"));
+        let got_audio =
+            std::fs::read_to_string(dir.path().join(format!("{scene}-audio.txt"))).expect("the run's mixed sound");
+        for (file, got) in [(snapshot(scene), got), (audio_snapshot(scene), got_audio)] {
+            if bless {
+                std::fs::write(&file, &got).expect("writing the snapshot");
+                eprintln!("blessed {}", file.display());
+                continue;
+            }
+            let want = std::fs::read_to_string(&file).expect("the snapshot file");
+            if let Some(d) = first_difference(&want, &got) {
+                failures.push(format!(
+                    "{}: {d}",
+                    file.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            }
         }
     }
     assert!(
         failures.is_empty(),
-        "the frames or sounds differ from tests/snapshots/:\n{}\nIf the change is intended, bless the files (see this \
+        "the frames, sounds or mixed sound differ from tests/snapshots/:\n{}\nIf the change is intended, bless the files (see this \
          test's module doc).",
         failures.join("\n")
     );

@@ -59,8 +59,13 @@ struct ScreenSprite;
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ComposeScreen;
 
+/// The core's sound (`audio`): the mixer the screens start their sounds in.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct CoreAudio(pub crate::audio::Audio);
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerInput>()
+        .init_resource::<CoreAudio>()
         .init_resource::<CoreTime>()
         .configure_sets(PreUpdate, ReadInput.after(bevy::input::InputSystems))
         .add_systems(

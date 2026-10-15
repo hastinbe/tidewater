@@ -1,0 +1,5 @@
+# mixed sound fingerprints of the scripted scene `build` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+blocks	0-0	f9b3f8a1c9f251d8
+blocks	1-1	326aa3af7e89f8fe
+blocks	2-2	a8d7259b2117998e
+tail	8820	e3ae677193d21002

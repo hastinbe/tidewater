@@ -31,6 +31,7 @@ use tidewater_formats::tbl::StringTable;
 use tidewater_sim::setup::Setup;
 use tidewater_sim::victory::Outcome;
 
+use crate::audio::{Audio, Group, Mode, Sound, UNITY};
 use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::clock::FrameClock;
 use crate::hud::{self, Rect};
@@ -41,7 +42,7 @@ use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
-use crate::shell::{CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
+use crate::shell::{CoreAudio, CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
 use crate::states::Machine;
 use crate::video;
 
@@ -142,6 +143,8 @@ pub struct Front {
     /// one, in the title screen's palette.
     pub arrow: Option<(Picture, (i32, i32))>,
     sources: HashMap<String, Option<Handle<AudioSource>>>,
+    /// The same sounds decoded for the core's mixer.
+    sounds: HashMap<String, Option<Sound>>,
 }
 
 impl Front {
@@ -179,6 +182,7 @@ impl Front {
             network,
             arrow,
             sources: HashMap::new(),
+            sounds: HashMap::new(),
         })
     }
 
@@ -190,6 +194,15 @@ impl Front {
                 let bytes = install.read(name).ok()?;
                 Some(assets.add(AudioSource { bytes: bytes.into() }))
             })
+            .clone()
+    }
+
+    /// A sound decoded for the mixer (`None` if the install lacks it or it isn't PCM WAV).
+    pub(crate) fn core_sound(&mut self, name: &str) -> Option<Sound> {
+        let install = &mut self.install;
+        self.sounds
+            .entry(name.to_string())
+            .or_insert_with(|| Sound::from_wav(&install.read(name).ok()?))
             .clone()
     }
 
@@ -787,11 +800,15 @@ fn play_once(
     commands: &mut Commands,
     front: &mut Front,
     assets: &mut Assets<AudioSource>,
+    audio: &mut Audio,
     name: &str,
     state: AppState,
 ) {
     if let Some(h) = front.sound(assets, name) {
         commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN, OwnedBy(state)));
+    }
+    if let Some(s) = front.core_sound(name) {
+        audio.play(&s, 1.0, UNITY, Mode::Despawn, Group::Screen(state), 0);
     }
 }
 
@@ -866,6 +883,7 @@ fn play_video(
     play: Option<ResMut<VideoPlay>>,
     mut pictures: ResMut<ScreenPictures>,
     mut sources: ResMut<Assets<AudioSource>>,
+    mut audio: ResMut<CoreAudio>,
     mut flow: ResMut<Flow>,
     front: Res<Front>,
     mut next: ResMut<AppStates>,
@@ -892,6 +910,11 @@ fn play_video(
         });
         if let Some(wav) = got {
             if let Some(bytes) = wav {
+                // The sound starts where the picture is.
+                if let Some(s) = Sound::from_wav(&bytes) {
+                    let start = (p.elapsed * crate::audio::SAMPLE_RATE as f64 / 1000.0).round() as usize;
+                    audio.play(&s, 1.0, UNITY, Mode::Despawn, Group::Screen(AppState::Video), start);
+                }
                 let h = sources.add(AudioSource { bytes: bytes.into() });
                 let mut s = PlaybackSettings::DESPAWN;
                 s.start_position = Some(Duration::from_secs_f64(p.elapsed / 1000.0));
@@ -1368,6 +1391,7 @@ fn run_act(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
+    mut audio: ResMut<CoreAudio>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
@@ -1383,7 +1407,11 @@ fn run_act(
                 fade_layer(&mut commands, &layers, 0, 0.0, 1.0, clock.0, cf::ACT_PICTURE_FADE_MS)
             }
             cf::ActCue::ActSound => {
-                if let Some(h) = front.sound(&mut sources, cf::act_sound(cf::race_of(act.act.entry))) {
+                let name = cf::act_sound(cf::race_of(act.act.entry));
+                if let Some(s) = front.core_sound(name) {
+                    audio.play(&s, 1.0, UNITY, Mode::Despawn, Group::Act, 0);
+                }
+                if let Some(h) = front.sound(&mut sources, name) {
                     commands.spawn((
                         AudioPlayer(h),
                         PlaybackSettings::DESPAWN,
@@ -1403,6 +1431,7 @@ fn run_act(
                 for e in &sounds {
                     commands.entity(e).despawn();
                 }
+                audio.stop_group(Group::Act);
                 music.fade_stop(true, None);
             }
         }
@@ -1526,6 +1555,7 @@ fn run_briefing(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
+    mut audio: ResMut<CoreAudio>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
@@ -1535,7 +1565,14 @@ fn run_briefing(
     let now = clock.0;
     while b.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = b.voice.pop_front().unwrap();
-        play_once(&mut commands, &mut front, &mut sources, &f, AppState::Briefing);
+        play_once(
+            &mut commands,
+            &mut front,
+            &mut sources,
+            &mut audio,
+            &f,
+            AppState::Briefing,
+        );
     }
     b.scroll.at(now as u64);
     if b.drawn != Some(b.scroll.moved) {
@@ -1798,6 +1835,7 @@ fn run_score(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
+    mut audio: ResMut<CoreAudio>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
     input: Res<PlayerInput>,
@@ -1830,6 +1868,7 @@ fn run_score(
                 &mut commands,
                 &mut front,
                 &mut sources,
+                &mut audio,
                 cf::NUMBERS_SOUND,
                 AppState::Score,
             );
@@ -1839,7 +1878,14 @@ fn run_score(
         let (p, finished) = draw_score(&front, &s, &sc.background, sc.ticks, sc.bars_done_at);
         if finished && !sc.finished {
             sc.finished = true;
-            play_once(&mut commands, &mut front, &mut sources, cf::RANK_SOUND, AppState::Score);
+            play_once(
+                &mut commands,
+                &mut front,
+                &mut sources,
+                &mut audio,
+                cf::RANK_SOUND,
+                AppState::Score,
+            );
         }
         set_image(&mut pictures, &sc.image, p);
         sc.drawn = Some(sc.ticks);
@@ -1997,6 +2043,7 @@ fn run_scroller(
     mut flow: ResMut<Flow>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
+    mut audio: ResMut<CoreAudio>,
     mut music: ResMut<Jukebox>,
     mut next: ResMut<AppStates>,
     mut exit: MessageWriter<AppExit>,
@@ -2015,7 +2062,7 @@ fn run_scroller(
     }
     while s.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = s.voice.pop_front().unwrap();
-        play_once(&mut commands, &mut front, &mut sources, &f, next.get());
+        play_once(&mut commands, &mut front, &mut sources, &mut audio, &f, next.get());
     }
     s.scroll.at(now as u64);
     if s.drawn != Some(s.scroll.moved) {

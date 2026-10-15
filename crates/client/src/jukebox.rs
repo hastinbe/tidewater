@@ -10,9 +10,10 @@ use std::time::Duration;
 use bevy::audio::{AudioSink, AudioSinkPlayback, Volume};
 use bevy::prelude::*;
 
+use crate::audio::{self, VoiceId};
 use crate::frontend::{Front, Persist};
 use crate::music::{self, Action, Music, Playback};
-use crate::shell::CoreTime;
+use crate::shell::{CoreAudio, CoreTime};
 use crate::sound::Shuffle;
 
 /// The music state machine and the entity that plays the open track.
@@ -23,6 +24,9 @@ pub struct Jukebox {
     pending: Vec<Action>,
     /// The entity playing the open track.
     player: Option<Entity>,
+    /// The open track's voice in the core's mixer, and the attenuation last given to it.
+    voice: Option<VoiceId>,
+    voice_atten: Option<i32>,
     /// Bytes of audio in the open track's file.
     length: u32,
     /// The attenuation the music asks for, and the one last given to the sink.
@@ -132,6 +136,7 @@ pub fn play_music(
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,
     mut sinks: Query<&mut AudioSink, With<MusicPlayer>>,
+    mut core: ResMut<CoreAudio>,
 ) {
     let jb = &mut *jb;
     jb.carry += time.delta();
@@ -153,6 +158,9 @@ pub fn play_music(
                 if let Some(e) = jb.player.take() {
                     commands.entity(e).despawn();
                 }
+                if let Some(v) = jb.voice.take() {
+                    core.stop(v);
+                }
             }
             Action::Load {
                 track,
@@ -163,6 +171,9 @@ pub fn play_music(
                 if let Some(e) = jb.player.take() {
                     commands.entity(e).despawn();
                 }
+                if let Some(v) = jb.voice.take() {
+                    core.stop(v);
+                }
                 jb.atten = attenuation;
                 jb.applied = Some(attenuation);
                 jb.length = 0;
@@ -171,6 +182,16 @@ pub fn play_music(
                     continue;
                 };
                 jb.length = music::wav_data_len(&bytes).unwrap_or(0);
+                if let Some(s) = audio::Sound::from_wav(&bytes) {
+                    let loop_from = match music::TRACKS[track as usize].end {
+                        music::End::Loop { point } => Some(point as usize),
+                        _ => None,
+                    }
+                    .filter(|_| looped);
+                    let volume = Volume::Decibels(music::decibels(attenuation)).to_linear();
+                    jb.voice = Some(core.play_music(&s, volume, audio::attenuation_gain(attenuation), loop_from));
+                    jb.voice_atten = Some(attenuation);
+                }
                 let settings = if looped {
                     PlaybackSettings::LOOP
                 } else {
@@ -193,6 +214,12 @@ pub fn play_music(
             // The game's sound effects aren't cut during a fade of all sound yet.
             Action::CutEffects => {}
         }
+    }
+    if let Some(v) = jb.voice
+        && jb.voice_atten != Some(jb.atten)
+    {
+        core.set_gain(v, audio::attenuation_gain(jb.atten));
+        jb.voice_atten = Some(jb.atten);
     }
     if jb.applied != Some(jb.atten)
         && let Some(mut sink) = jb.player.and_then(|e| sinks.get_mut(e).ok())
