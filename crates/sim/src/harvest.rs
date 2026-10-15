@@ -733,7 +733,7 @@ impl World {
             return;
         }
         if !reserved {
-            self.terrain.unreserve(tree.0, tree.1);
+            self.release_tree(i);
             return self.next_tree(i);
         }
         let u = &mut self.units[i];
@@ -749,9 +749,17 @@ impl World {
         let area = self.terrain.region(here.0, here.1).unwrap_or(region::LAND_AREA);
         self.terrain.fell(tree.0, tree.1, area);
         // "Lumber", step 3: the worker carries lumber, its frame is set to 0, and it is sent back to the nearest depot.
+        // Felling ends the chopping state with the tree: the reservation goes, the return-to source is kept
+        // ([`World::release_tree`]).
+        self.terrain.unreserve(tree.0, tree.1);
         let u = &mut self.units[i];
         u.carrying = true;
         u.script.frame = 0;
+        u.order = Order::Harvest {
+            source: None,
+            tree,
+            chopping: false,
+        };
         self.return_to_nearest_depot(i);
     }
 
@@ -1239,6 +1247,35 @@ mod tests {
             w.step(&[]);
         }
         assert_eq!(w.unit(p).unwrap().chop - c0, 10);
+    }
+
+    /// Occupancy spec, "Reservation" (audit round 70, erratum 7): leaving the chopping state any way but felling
+    /// forgets the return-to source; felling keeps it.
+    #[test]
+    fn leaving_the_chopping_state_forgets_the_return_to_source_but_felling_keeps_it() {
+        for fell in [false, true] {
+            let mut w = land();
+            forest(&mut w, 10, 8);
+            let p = w.spawn(0, 0, (10, 9), 0).unwrap();
+            harvest(&mut w, vec![p], None, (10, 8));
+            for _ in 0..30 {
+                w.step(&[]);
+            }
+            assert_eq!(w.unit(p).unwrap().return_to, Some(Source::Tree((10, 8))));
+            let i = w.index(p).unwrap();
+            if fell {
+                w.units[i].chop = 50;
+                assert!((0..100).any(|_| {
+                    w.step(&[]);
+                    w.unit(p).unwrap().carrying
+                }));
+                assert_eq!(w.unit(p).unwrap().return_to, Some(Source::Tree((10, 8))));
+            } else {
+                w.stop(i);
+                assert_eq!(w.terrain.region(10, 8), Some(region::FOREST));
+                assert_eq!(w.unit(p).unwrap().return_to, None);
+            }
+        }
     }
 
     /// Occupancy spec, "Reservation": a woodcutter that dies while chopping gives its tree back, so the tile is free

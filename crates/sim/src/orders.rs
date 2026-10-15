@@ -478,7 +478,8 @@ impl World {
         self.units[i].script.wait = 1;
     }
 
-    /// Gives back the tree a worker reserved, when it leaves the order that holds it.
+    /// Leaving the chopping state any way but felling (occupancy spec, "Reservation"): the reserved tree is given
+    /// back and the return-to source forgotten (audit round 70, erratum 7). Felling leaves the chopping state first.
     pub(crate) fn release_tree(&mut self, i: usize) {
         if let Order::Harvest {
             source: None,
@@ -487,6 +488,7 @@ impl World {
         } = self.units[i].order
         {
             self.terrain.unreserve(tree.0, tree.1);
+            self.units[i].return_to = None;
         }
     }
 
