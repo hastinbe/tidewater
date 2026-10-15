@@ -1208,12 +1208,13 @@ fn run_menu(c: &mut Core) {
         }
         return;
     }
-    let at = pointer(input, cam);
-    // The menu is drawn before its fade-in, but takes no input until the fade ends.
-    let pick = menu_input(menu, front, pictures, at, mouse, keys, "Tidewater");
+    // Screen spec, "Pointer and fades": the buttons (and our heading) aren't drawn during the fade-in, which shows the
+    // picture alone, and the menu takes no input until the fade ends.
     if clock.0 < fades::MENUS as f64 {
         return;
     }
+    let at = pointer(input, cam);
+    let pick = menu_input(menu, front, pictures, at, mouse, keys, "Tidewater");
     let pick = pick
         .or(keys.just_pressed(Key::Letter('N')).then_some(0))
         .or(keys.just_pressed(Key::Letter('L')).then_some(1))
