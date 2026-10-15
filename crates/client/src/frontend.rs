@@ -532,15 +532,14 @@ pub(crate) fn choose_pointer(c: &mut Core) {
     c.front_screen.pointer = match p {
         FlowPointer::Hidden => ScreenPointer::Hidden,
         FlowPointer::Default => ScreenPointer::Default,
-        _ => {
-            let install = &mut c.front.install;
-            let pal = install
-                .read(pointer_palette(state, &c.flow))
-                .ok()
-                .and_then(|d| Pcx::parse(&d).ok()?.palette);
-            ScreenPointer::Own(pal.and_then(|pal| hud::load_pointer(install, p.file()?, &pal)))
-        }
+        _ => own_pointer(&mut c.front.install, p, pointer_palette(state, &c.flow)),
     };
+}
+
+/// A screen's own pointer `p` in the palette of the picture `palette_of`.
+fn own_pointer(install: &mut Install, p: FlowPointer, palette_of: &str) -> ScreenPointer {
+    let pal = install.read(palette_of).ok().and_then(|d| Pcx::parse(&d).ok()?.palette);
+    ScreenPointer::Own(pal.and_then(|pal| hud::load_pointer(install, p.file()?, &pal)))
 }
 
 /// Whether a flow screen shows its pointer, given each flow layer's tint and fade ("Pointer and fades"): it is gone
@@ -2256,7 +2255,7 @@ struct CreditsScreen {
     image: PictureId,
     pages: Vec<CreditsSheet>,
     page: usize,
-    /// When the shown page's text started moving, in screen time.
+    /// When the first page's text started moving, in screen time.
     start: f64,
     /// The page and steps last drawn.
     drawn: (usize, u32),
@@ -2364,6 +2363,7 @@ fn run_credits(c: &mut Core) {
         pictures,
         flow,
         front,
+        front_screen: cam,
         jukebox: music,
         states: next,
         exit,
@@ -2384,12 +2384,21 @@ fn run_credits(c: &mut Core) {
     if now < s.start {
         return;
     }
-    let moved = cf::credits_moved(now - s.start);
-    let done = moved >= s.pages[s.page].steps;
-    let shown = moved.min(s.pages[s.page].steps);
-    if s.drawn != (s.page, shown) {
-        set_image(pictures, &s.image, draw_credits(front, &s.pages[s.page], shown));
-        s.drawn = (s.page, shown);
+    let steps: Vec<u32> = s.pages.iter().map(|p| p.steps).collect();
+    let (page, shown, done) = cf::credits_at(&steps, now - s.start);
+    if page != s.page {
+        // Screen spec, "Colours": the pointer's pixels are the current palette's entries, so on a new page's picture
+        // it takes that picture's palette.
+        s.page = page;
+        cam.pointer = own_pointer(
+            &mut front.install,
+            FlowPointer::Arrow3d,
+            cf::CREDITS_PAGES[page].picture,
+        );
+    }
+    if s.drawn != (page, shown) {
+        set_image(pictures, &s.image, draw_credits(front, &s.pages[page], shown));
+        s.drawn = (page, shown);
     }
     if done || pressed(&input.keys, &input.mouse) {
         // Music spec: the credits' close fades all sound.

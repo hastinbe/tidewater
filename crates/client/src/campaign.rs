@@ -1118,13 +1118,21 @@ pub struct CreditsPage {
     pub body: usize,
 }
 
-/// The pages in order. What follows the last one wasn't watched (spec "Credits after page 2"): the screen closes when
-/// its body has scrolled off, as the credits did before the spec.
-pub const CREDITS_PAGES: [CreditsPage; 1] = [CreditsPage {
-    picture: CREDITS_PICTURE,
-    title: 0,
-    body: 1,
-}];
+/// The pages in order: when a page's body has scrolled off the top, the next replaces it (page 2 is the Beyond the Dark
+/// Portal credits on `Art\2xcredit.pcx`). What follows page 2 wasn't watched (spec "Credits after page 2"; entries 4
+/// and 5 aren't shown): the screen closes when its body has scrolled off, as the credits did before the spec.
+pub const CREDITS_PAGES: [CreditsPage; 2] = [
+    CreditsPage {
+        picture: CREDITS_PICTURE,
+        title: 0,
+        body: 1,
+    },
+    CreditsPage {
+        picture: "Art\\2xcredit.pcx",
+        title: 2,
+        body: 3,
+    },
+];
 
 /// The rows text shows in, inclusive: a line crossing either is cut there. There is no horizontal cut.
 pub const CREDITS_ROWS: (i32, i32) = (80, 354);
@@ -1227,6 +1235,21 @@ pub fn credits_page_steps(lines: &[CreditsLine], cell_h: i32) -> u32 {
 /// The steps the text has moved `elapsed_ms` after it started: one per [`CREDITS_STEP_MS`].
 pub fn credits_moved(elapsed_ms: f64) -> u32 {
     (elapsed_ms.max(0.0) / CREDITS_STEP_MS as f64) as u32
+}
+
+/// Where the credits are `elapsed_ms` after the first page's text started, given each page's [`credits_page_steps`]:
+/// the page shown, the steps its text has moved (at most its own), and whether the last page is done. A page starts,
+/// at its first position, on the step after the one that took the page before off; there is no fade between pages
+/// (none was described).
+pub fn credits_at(steps: &[u32], elapsed_ms: f64) -> (usize, u32, bool) {
+    let mut moved = credits_moved(elapsed_ms);
+    for (page, &n) in steps.iter().enumerate() {
+        if moved < n || page + 1 == steps.len() {
+            return (page, moved.min(n), moved >= n);
+        }
+        moved -= n;
+    }
+    (0, 0, true)
 }
 
 pub fn ending(bdp: bool, race: u8) -> Ending {
@@ -1948,5 +1971,31 @@ mod tests {
                 body: 1
             }
         );
+    }
+
+    #[test]
+    fn credits_page_two_is_the_beyond_the_dark_portal_credits_and_follows_page_one() {
+        assert_eq!(CREDITS_PAGES.len(), 2, "pinned: nothing after page 2 (not watched)");
+        assert_eq!(
+            CREDITS_PAGES[1],
+            CreditsPage {
+                picture: "Art\\2xcredit.pcx",
+                title: 2,
+                body: 3
+            }
+        );
+        let steps = [10, 5];
+        assert_eq!(credits_at(&steps, 0.0), (0, 0, false));
+        assert_eq!(credits_at(&steps, 9.0 * 40.0), (0, 9, false));
+        // Page 1's last line leaves on step 10: page 2 replaces it at its first position.
+        assert_eq!(credits_at(&steps, 10.0 * 40.0), (1, 0, false));
+        assert_eq!(credits_at(&steps, 14.0 * 40.0), (1, 4, false));
+        assert_eq!(
+            credits_at(&steps, 15.0 * 40.0),
+            (1, 5, true),
+            "the last page done: the screen closes"
+        );
+        assert_eq!(credits_at(&steps, 99.0 * 40.0), (1, 5, true));
+        assert_eq!(credits_at(&[], 0.0), (0, 0, true));
     }
 }
