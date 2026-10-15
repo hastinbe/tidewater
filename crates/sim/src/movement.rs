@@ -106,6 +106,41 @@ pub(crate) fn footprint_goal(from: (i32, i32), tl: (i32, i32), size: (i32, i32))
     (axis(from.0, tl.0, size.0), axis(from.1, tl.1, size.1))
 }
 
+/// The pull-back's fallback when no tile is usable (pathfinding spec, "One pull-back, two settings").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NoUsable {
+    /// The command's pull-back: the goal is kept.
+    KeepGoal,
+    /// The transport's pull-back: the tile tested last, the unit's tile plus the line's last step.
+    LastTile,
+}
+
+/// One pull-back, two settings (pathfinding spec, "The model" and "Goal pulled back"; transports spec, "Land and shore
+/// targets", step 2.1): the goal `g`, then `g` minus the steps of the line from `from` (one-tile steps, "Line rule"),
+/// first step first, stopping before `from`, are tested in turn. At the first `usable` tile the goal becomes the tile
+/// tested just before it (`g` itself when `g` is usable); with none usable, `none` decides.
+pub(crate) fn pulled_back(
+    from: (i32, i32),
+    g: (i32, i32),
+    usable: impl Fn((i32, i32)) -> bool,
+    none: NoUsable,
+) -> (i32, i32) {
+    let (mut tested, mut before) = (g, g);
+    // The line's k steps give k tiles to test: g and the first k - 1 subtractions (the k-th would be `from`).
+    for d in path::line(from, g, 1) {
+        if usable(tested) {
+            return before;
+        }
+        before = tested;
+        let v = path::DIRECTIONS[d as usize];
+        tested = (tested.0 - v.0, tested.1 - v.1);
+    }
+    match none {
+        NoUsable::KeepGoal => g,
+        NoUsable::LastTile => before,
+    }
+}
+
 impl World {
     /// Whether a player is controlled by a person (movement spec, "Player kinds").
     pub(crate) fn human_controlled(&self, owner: u8) -> bool {
@@ -228,11 +263,10 @@ impl World {
         true
     }
 
-    /// "Goal pulled back": a goal tile the unit can't stand on (terrain or building bits of its mask, units ignored;
-    /// another region for a unit that doesn't fly) is pulled back toward the unit. The line's k steps (one tile each,
-    /// even for a two-tile mover) are subtracted from the goal in their order, first step first, and the first k − 1
-    /// tiles so made are tested: at the first usable one the goal becomes the tile tested just before it (the goal
-    /// itself for the first). With none usable the goal is kept, for transports too.
+    /// The command's pull-back (pathfinding spec, "Goal pulled back"): [`pulled_back`] from the unit's tile with the
+    /// command's settings. Usable for the pull-back ("Three tile tests"): no terrain or building bit of the unit's
+    /// mask (units are ignored) and, for a unit that doesn't fly, the unit's region. With no tile usable the goal is
+    /// kept, for transports too (V29).
     pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
         let u = &self.units[i];
         let mask = u.layer.mask() & !(bits::UNIT | bits::AIR_UNIT);
@@ -243,20 +277,7 @@ impl World {
                 && self.terrain.word(t.0, t.1) & mask == 0
                 && (air || self.terrain.region(t.0, t.1) == home)
         };
-        if usable(g) {
-            return g;
-        }
-        let steps = path::line(u.tile, g, 1);
-        let mut before = g;
-        for &d in steps.iter().take(steps.len().saturating_sub(1)) {
-            let v = path::DIRECTIONS[d as usize];
-            let t = (before.0 - v.0, before.1 - v.1);
-            if usable(t) {
-                return before;
-            }
-            before = t;
-        }
-        g
+        pulled_back(u.tile, g, usable, NoUsable::KeepGoal)
     }
 
     /// The goal tile of an order aimed at target `t` (movement spec, "Arriving"): a mobile unit's tile; a building's

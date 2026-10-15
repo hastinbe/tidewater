@@ -10,7 +10,7 @@ use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
 
 use crate::TILE_PX;
-use crate::movement::{Goal, Walk, chebyshev};
+use crate::movement::{Goal, NoUsable, Walk, chebyshev, pulled_back};
 use crate::path;
 use crate::placement::{LIMIT_UNLOAD, Source, ring_walk};
 use crate::terrain::{bits, mask};
@@ -70,25 +70,16 @@ impl World {
     /// "Land and shore targets", step 2: the target tile `g` of a transport on open water at `t`, pulled back toward
     /// `t` to shore water, or found by the shore-target ring search around `g`.
     pub(crate) fn shore_target(&self, t: (i32, i32), g: (i32, i32)) -> (i32, i32) {
+        // Step 2.1: the pull-back with the transport's settings (pathfinding spec, "One pull-back, two settings").
         let home = self.region_at(t);
-        let usable = |at: (i32, i32)| self.region_at(at) == home && self.terrain.word(at.0, at.1) & PULL_BACK_MASK == 0;
-        // The walk back from G undoes the line's steps in their order: G, G - s1, G - s1 - s2, ..., stopping before T.
-        let steps = path::line(t, g, 1);
-        let mut walk = Vec::with_capacity(steps.len());
-        let mut at = g;
-        for &d in &steps {
-            if at == t {
-                break;
-            }
-            walk.push(at);
-            let v = path::DIRECTIONS[d as usize];
-            at = (at.0 - v.0, at.1 - v.1);
-        }
-        let k = match walk.iter().position(|&a| self.terrain.contains(a.0, a.1) && usable(a)) {
-            Some(0) => g,
-            Some(n) => walk[n - 1],
-            None => walk.last().copied().unwrap_or(g),
+        let usable = |at: (i32, i32)| {
+            self.terrain.contains(at.0, at.1)
+                && self.region_at(at) == home
+                && self.terrain.word(at.0, at.1) & PULL_BACK_MASK == 0
         };
+        let k = pulled_back(t, g, usable, NoUsable::LastTile);
+        // Step 2.2: the shore check, a third test (shore water, no bit of the landing mask, G's region), then the
+        // shore-target ring search.
         let region = self.region_at(g);
         let ok = |at: (i32, i32)| {
             self.terrain.contains(at.0, at.1) && {
