@@ -220,8 +220,8 @@ impl World {
     /// at one still under construction idle is made pending as in step 1 (step 4, V52). Step 2 (the logic run out of
     /// reach) is never reached: the walk ends only in reach, with no route, or with the target lost.
     ///
-    /// A target found dying or gone ends the walk before it starts (step 1). A walk with no route takes "No route";
-    /// the code runs the reaction first when there is a target, and not for a tanker with no target (V87).
+    /// A target found dying or gone ends the walk before it starts (step 1). A walk with no route takes "No route",
+    /// with no reaction (V87).
     fn source_order(&mut self, i: usize, source: Option<UnitId>, goal: (i32, i32)) {
         let target = match source {
             Some(s) => match self.index(s).filter(|&si| self.units[si].present()) {
@@ -241,12 +241,8 @@ impl World {
         };
         match self.move_toward(i, g) {
             Walk::Arrived => {}
-            Walk::NoPath => {
-                if target.is_none() || !self.react_at_walk_end(i) {
-                    self.no_route(i);
-                }
-                return;
-            }
+            // "No route" (round 68, harvest (b)): no reaction at a walk that ends with no route.
+            Walk::NoPath => return self.no_route(i),
             Walk::Stepping | Walk::Blocked => return,
         }
         if self.react_at_walk_end(i) {
@@ -695,7 +691,9 @@ impl World {
     fn lumber_order(&mut self, i: usize, tree: (i32, i32), chopping: bool) {
         let here = self.units[i].tile;
         if chebyshev(here, tree) > RADIUS {
-            if self.move_toward(i, Goal::tile(tree, RADIUS)) == Walk::NoPath && !self.react_at_walk_end(i) {
+            // "No route" (round 68, harvest (b)): the tree search first, and no reaction at a walk that ends with no
+            // route.
+            if self.move_toward(i, Goal::tile(tree, RADIUS)) == Walk::NoPath {
                 self.no_route(i);
             }
             return;
@@ -2258,11 +2256,10 @@ mod tests {
             assert_eq!(w.fingerprint(), 391676241161655986);
         }
 
-        /// "Going to a mine or platform", no route: a tanker with a target runs the reaction (which only forgets the
-        /// attacker of a unit that can't attack) before the generic no-route idle; a tanker with no target doesn't
-        /// (V87, static study), so its same-update idle logic finds the attacker still recorded.
+        /// "Going to a mine or platform", no route: the generic no-route idle with no reaction first, with or without
+        /// a target ("No route", V87), so the same-update idle logic finds the attacker still recorded and flees.
         #[test]
-        fn a_tanker_with_no_route_reacts_only_with_a_target() {
+        fn a_tanker_with_no_route_doesnt_react() {
             let mut prints = vec![];
             for with_target in [true, false] {
                 let mut w = arena();
@@ -2275,17 +2272,11 @@ mod tests {
                 w.start_anim(i, anim::MOVE);
                 w.harvest_order(i, source, (16, 4), false);
                 let u = &w.units[i];
-                // With a target the reaction forgot the attacker and the idle stays (wait 1); with none the idle
-                // logic still finds the attacker and flees.
-                if with_target {
-                    assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 1));
-                } else {
-                    assert!(matches!(u.order, Order::Move { .. }), "{:?}", u.order);
-                }
+                assert!(matches!(u.order, Order::Move { .. }), "{with_target}: {:?}", u.order);
                 assert_eq!(u.attacked_by, None);
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [11896481358704396292, 13214669665595594724]);
+            assert_eq!(prints, [13214669665595594724; 2]);
         }
 
         /// "Going to a mine or platform", step 1 with an attacker: a worker whose mine is gone reacts first; hit by a
@@ -2315,12 +2306,11 @@ mod tests {
             assert_eq!(prints, [7427822006686717663, 8390441432806348842]);
         }
 
-        /// Order 23 with no route and an attacker: the code runs the reaction before the no-route rule, so a gold
-        /// worker (with its mine) or a lumber worker hit by a worker fights back and makes no tree search. The spec's
-        /// "No route" reads as the tree search first, then order 23's logic (and its reaction) in the same update; the
-        /// traced case (`orc9-orc09-flee-chop-walk-900` n = 573) doesn't separate the two.
+        /// Order 23 with no route and an attacker: the tree search comes first and the walk's end runs no reaction
+        /// ("No route"; round 68, harvest (b)), so a gold worker (with its mine) or a lumber worker hit by a worker
+        /// is given a new harvest command toward the nearest tree instead of fighting back.
         #[test]
-        fn a_worker_with_no_route_and_an_attacker_reacts_before_the_tree_search() {
+        fn a_worker_with_no_route_and_an_attacker_searches_for_a_tree_first() {
             let mut prints = vec![];
             for gold in [true, false] {
                 let mut w = arena();
@@ -2338,22 +2328,16 @@ mod tests {
                 w.start_anim(i, anim::MOVE);
                 w.harvest_order(i, source, goal, false);
                 let u = &w.units[i];
-                assert_eq!(u.pending, Some(Order::Attack { target: a }), "{gold}");
-                assert_eq!(
-                    (u.order, u.gather),
-                    (
-                        Order::Harvest {
-                            source,
-                            tree: goal,
-                            chopping: false
-                        },
-                        mode
-                    )
+                assert_ne!(u.pending, Some(Order::Attack { target: a }), "{gold}");
+                assert!(
+                    matches!(u.order, Order::Harvest { source: None, tree, .. } if tree != goal),
+                    "{gold}: {:?}",
+                    u.order
                 );
-                assert_eq!(w.terrain.region(12, 12), Some(region::FOREST));
+                assert_eq!((u.gather, u.attacked_by), (Gather::Lumber, Some(a)));
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [4982595562378309529, 8848653804881294756]);
+            assert_eq!(prints, [3691194175862515865; 2]);
         }
 
         /// The same with no attacker, for a gold worker: the tree search (V30), and the same-update lumber run.
