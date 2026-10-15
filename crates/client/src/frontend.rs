@@ -120,8 +120,8 @@ pub struct Front {
     pub small: Font,
     pub huge: Font,
     pub network: StringTable,
-    /// The normal arrow the core draws outside a game (screen spec, "Pointer shapes"), with its hot spot: the human
-    /// one, in the title screen's palette.
+    /// The human normal arrow in the title screen's palette, with its hot spot: the pointer of the flow screens the
+    /// screen spec doesn't name ([`FlowPointer::Default`]).
     pub arrow: Option<(Picture, (i32, i32))>,
     /// Sounds decoded for the mixer, by name; `None` for one the install lacks, so it is looked up once.
     sounds: HashMap<String, Option<Sound>>,
@@ -435,10 +435,12 @@ pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Ste
 
 /// The flow's screen (`docs/design/client-core.md`, step 2): whether its layers cover what is under them (outside a
 /// game, and over a game only where they are drawn), and whether the pointer can be read on it yet. The pointer is
-/// read from the end of the program's first frame on, as when a camera gave it.
+/// read from the end of the program's first frame on, as when a camera gave it. `pointer` is the pointer the screen
+/// draws outside a game ([`choose_pointer`]).
 pub struct FrontScreen {
     pub clears: bool,
     pub(crate) ready: bool,
+    pub(crate) pointer: ScreenPointer,
 }
 
 impl Default for FrontScreen {
@@ -446,7 +448,99 @@ impl Default for FrontScreen {
         FrontScreen {
             clears: true,
             ready: false,
+            pointer: ScreenPointer::Default,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The pointer outside a game
+
+/// The pointer of a screen around a game (screen spec, "Pointers outside a game").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FlowPointer {
+    /// No pointer: the title picture and the act screens.
+    Hidden,
+    /// The orc normal arrow (`o_arrow.cur`) for every race and campaign: the main menu and the campaign choices.
+    OrcArrow,
+    /// The 3D arrow (`arrow_3d.cur`): the briefing, the score screen and the credits.
+    Arrow3d,
+    /// A screen the spec doesn't name (the videos, the finale): our default, the human normal arrow in the title
+    /// picture's palette, as before the spec.
+    Default,
+}
+
+impl FlowPointer {
+    /// The pointer file in `Art\`, `None` for no pointer.
+    pub(crate) fn file(self) -> Option<&'static str> {
+        match self {
+            FlowPointer::Hidden => None,
+            FlowPointer::OrcArrow => Some(crate::screen::Pointer::Arrow.file(true)),
+            FlowPointer::Arrow3d => Some("arrow_3d.cur"),
+            FlowPointer::Default => Some(crate::screen::Pointer::Arrow.file(false)),
+        }
+    }
+}
+
+/// The pointer each screen state shows. The game screen's pointer follows the in-game rules (`hud`), so `Default`
+/// there is never drawn.
+pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
+    match state {
+        AppState::Title | AppState::Act => FlowPointer::Hidden,
+        AppState::MainMenu | AppState::NewCampaign => FlowPointer::OrcArrow,
+        AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
+        AppState::Boot | AppState::Video | AppState::Finale | AppState::Game => FlowPointer::Default,
+    }
+}
+
+/// The picture whose palette colours a screen's pointer: the pointer is drawn into the 8-bit screen, so its pixels are
+/// the screen's palette entries ("Colours"). Our menus are drawn over the title picture, so it gives theirs. The
+/// credits have no picture of their own here, so they take the title picture's too (open question for the spec).
+pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
+    match (state, &flow.current, &flow.score) {
+        (AppState::Briefing, Some(Step::Briefing(e)), _) => cf::briefing_background(*e),
+        (AppState::Score, _, Some(s)) => cf::score_background(s.race, s.victory),
+        _ => cf::TITLE_PICTURE,
+    }
+}
+
+/// A pointer's picture and its hot spot.
+pub(crate) type ShapePicture = (Picture, (i32, i32));
+
+/// A flow screen's pointer, as loaded for it.
+pub(crate) enum ScreenPointer {
+    /// The human normal arrow in the title picture's palette, loaded once (`Front::arrow`).
+    Default,
+    Hidden,
+    /// The screen's own pointer in its palette, with its hot spot (`None` if the install lacks it).
+    Own(Option<ShapePicture>),
+}
+
+/// The flow's change of screen picks the entering screen's pointer and colours it from that screen's palette.
+pub(crate) fn choose_pointer(c: &mut Core) {
+    let state = c.states.get();
+    let p = flow_pointer(state);
+    c.front_screen.pointer = match p {
+        FlowPointer::Hidden => ScreenPointer::Hidden,
+        FlowPointer::Default => ScreenPointer::Default,
+        _ => {
+            let install = &mut c.front.install;
+            let pal = install
+                .read(pointer_palette(state, &c.flow))
+                .ok()
+                .and_then(|d| Pcx::parse(&d).ok()?.palette);
+            ScreenPointer::Own(pal.and_then(|pal| hud::load_pointer(install, p.file()?, &pal)))
+        }
+    };
+}
+
+/// The pointer the flow's screen draws now outside a game, with its hot spot; `Err(())` when it shows none, `Ok(None)`
+/// when it wants one the install lacks (the system's pointer shows instead).
+pub(crate) fn screen_pointer<'a>(screen: &'a FrontScreen, front: &'a Front) -> Result<Option<&'a ShapePicture>, ()> {
+    match &screen.pointer {
+        ScreenPointer::Hidden => Err(()),
+        ScreenPointer::Default => Ok(front.arrow.as_ref()),
+        ScreenPointer::Own(p) => Ok(p.as_ref()),
     }
 }
 
@@ -2019,6 +2113,79 @@ mod tests {
             steps: steps.iter().cloned().collect(),
             ..Default::default()
         }
+    }
+
+    // The screen spec's "Pointers outside a game" and its test vectors.
+
+    #[test]
+    fn each_flow_screen_has_its_pointer() {
+        use AppState as S;
+        assert_eq!(
+            flow_pointer(S::Title),
+            FlowPointer::Hidden,
+            "title picture, any frame: no pointer"
+        );
+        assert_eq!(flow_pointer(S::Act), FlowPointer::Hidden);
+        for s in [S::MainMenu, S::NewCampaign] {
+            assert_eq!(
+                flow_pointer(s),
+                FlowPointer::OrcArrow,
+                "{s:?}: the orc arrow for every race"
+            );
+        }
+        for s in [S::Briefing, S::Score, S::Credits] {
+            assert_eq!(flow_pointer(s), FlowPointer::Arrow3d, "{s:?}");
+        }
+        assert_eq!(FlowPointer::OrcArrow.file(), Some("o_arrow.cur"));
+        assert_eq!(FlowPointer::Arrow3d.file(), Some("arrow_3d.cur"));
+        assert_eq!(FlowPointer::Hidden.file(), None);
+        // Not named by the spec: the videos and the finale keep the human arrow (`Front::arrow`).
+        assert_eq!(flow_pointer(S::Video), FlowPointer::Default);
+        assert_eq!(flow_pointer(S::Finale), FlowPointer::Default);
+        // In a game (and its victory or defeat dialog) the in-game rules give the race arrow: a human campaign's is
+        // the human normal arrow.
+        assert_eq!(crate::screen::Pointer::Arrow.file(false), "h_arrow.cur");
+    }
+
+    #[test]
+    fn the_pointer_takes_the_screen_pictures_palette() {
+        let mut f = flow(&[]);
+        assert_eq!(
+            pointer_palette(AppState::MainMenu, &f),
+            cf::TITLE_PICTURE,
+            "our menus are the title picture"
+        );
+        f.current = Some(Step::Briefing(0));
+        assert_eq!(pointer_palette(AppState::Briefing, &f), cf::briefing_background(0));
+        f.score = Some(ScoreData {
+            race: cf::HUMAN,
+            victory: true,
+            game: GameKind::Campaign(0),
+            rows: Vec::new(),
+            mission: 0,
+            total: 0,
+            rank: String::new(),
+        });
+        assert_eq!(
+            pointer_palette(AppState::Score, &f),
+            cf::score_background(cf::HUMAN, true)
+        );
+    }
+
+    #[test]
+    fn the_pointer_is_drawn_in_the_palette_it_is_given() {
+        // A 2 × 1 pointer, hot spot (1, 0): index 0 clear, index 7 the palette's entry 7.
+        let file = [1, 0, 0, 0, 2, 0, 1, 0, 0, 7];
+        let mut a = tidewater_formats::tileset::Palette([[0; 3]; 256]);
+        let mut b = a.clone();
+        a.0[7] = [10, 20, 30];
+        b.0[7] = [200, 100, 50];
+        let (pa, hot) = hud::pointer_picture(&file, &a).unwrap();
+        let (pb, _) = hud::pointer_picture(&file, &b).unwrap();
+        assert_eq!(hot, (1, 0));
+        assert_eq!(pa.rgba[3], 0, "index 0 is clear");
+        assert_eq!(pa.rgba[4..8], [10, 20, 30, 255]);
+        assert_eq!(pb.rgba[4..8], [200, 100, 50, 255], "no palette of its own");
     }
 
     #[test]

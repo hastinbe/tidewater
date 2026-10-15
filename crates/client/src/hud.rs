@@ -292,7 +292,13 @@ fn text_top(font: &Font, r: Rect) -> i32 {
 
 /// The pointer `Art\{name}` in `pal`, with its hot spot, if the install has it.
 pub fn load_pointer(install: &mut Install, name: &str, pal: &Palette) -> Option<(Picture, (i32, i32))> {
-    let c = Cursor::parse(&install.read(&format!("Art\\{name}")).ok()?).ok()?;
+    pointer_picture(&install.read(&format!("Art\\{name}")).ok()?, pal)
+}
+
+/// A pointer file's picture in `pal`, with its hot spot: it has no palette of its own, so its pixels are `pal`'s
+/// entries at the indices in the file (index 0 is clear).
+pub fn pointer_picture(file: &[u8], pal: &Palette) -> Option<(Picture, (i32, i32))> {
+    let c = Cursor::parse(file).ok()?;
     let (w, h) = (c.image.width as u32, c.image.height as u32);
     let pic = indexed(w, h, &c.image.pixels, pal, true, None);
     Some((pic, (c.hotspot.0 as i32, c.hotspot.1 as i32)))

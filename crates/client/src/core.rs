@@ -306,6 +306,7 @@ fn run_transitions(c: &mut Core) {
     for &hook in states::on_enter(t.entered) {
         run_hook(c, hook);
     }
+    frontend::choose_pointer(c);
 }
 
 fn run_hook(c: &mut Core, hook: Hook) {
@@ -442,9 +443,10 @@ struct Placing {
 /// Layers of a plane at the same z go in the order they were made. Outside a game the flow's screen is cleared before
 /// its layers (`frontend::FrontScreen`), so only they show there.
 ///
-/// The pointer goes on top of everything: while the game runs the interface picture has it (`hud`); everywhere else
-/// the screen draws the normal arrow (screen spec, "Pointer shapes": the local race's in a game, the human one outside
-/// it), and the system's pointer is hidden whenever the screen draws one.
+/// The pointer goes on top of everything: while the game runs the interface picture has it (`hud`); over a game's
+/// menus and dialogs the screen draws the local race's normal arrow (screen spec, "Pointer shapes"); outside a game it
+/// draws the flow screen's own pointer in its palette, or none (`frontend::screen_pointer`,
+/// "Pointers outside a game"). The system's pointer shows only where the screen wants a pointer and has none.
 fn compose_screen(c: &mut Core) {
     let pictures = &c.pictures;
     // Outside a game the flow's screen clears the screen first (`frontend::camera_clear`).
@@ -536,11 +538,15 @@ fn compose_screen(c: &mut Core) {
     let in_game = in_game(c);
     let hud = &c.hud;
     let hud_draws = hud.as_ref().is_some_and(|h| h.art.has_pointers()) && game_running(c);
-    let arrow = match hud {
-        _ if hud_draws => None,
-        Some(h) if in_game => h.art.pointer(crate::screen::Pointer::Arrow),
-        _ if !in_game => c.front.arrow.as_ref(),
-        _ => None,
+    // Outside a game the screen's own pointer; `hidden` when it shows none.
+    let (arrow, hidden) = match hud {
+        _ if hud_draws => (None, false),
+        Some(h) if in_game => (h.art.pointer(crate::screen::Pointer::Arrow), false),
+        _ if !in_game => match frontend::screen_pointer(&c.front_screen, &c.front) {
+            Ok(p) => (p, false),
+            Err(()) => (None, true),
+        },
+        _ => (None, false),
     };
     if let (Some((pic, hot)), Some(p)) = (arrow, c.input.pointer)
         && let Some(w) = c.input.window
@@ -557,7 +563,7 @@ fn compose_screen(c: &mut Core) {
             tint: 1.0,
         });
     }
-    // The system's pointer shows only where the screen has no pointer of its own.
-    c.cursor_visible = !hud_draws && arrow.is_none();
+    // The system's pointer shows only where the screen wants a pointer and has none of its own.
+    c.cursor_visible = !hud_draws && !hidden && arrow.is_none();
     c.frame = frame;
 }
