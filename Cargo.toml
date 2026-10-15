@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# A plain `cargo build` or `cargo test` leaves out the phase 3 trial shells (`crates/shell-*`): the SDL one builds SDL
+# from source (CMake and a C compiler). `--workspace` or `-p` builds them.
+default-members = ["crates/client", "crates/formats", "crates/sim", "crates/twtool"]
 
 [workspace.package]
 version = "0.1.0"
