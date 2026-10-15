@@ -219,11 +219,11 @@ shot	613	surrender-confirm	a0374aadea481911
 frames	611-613	a0374aadea481911
 frames	614-614	1d48070db037f736
 frames	615-615	3aded9c822bd940a
-frames	616-616	9d11e70844fb5f46
-shot	621	defeat	aaef3ee7b9a4e99a
-frames	617-638	aaef3ee7b9a4e99a
+frames	616-616	9ab529b6a1f328a6
+shot	621	defeat	370f7c6d749cee7a
+frames	617-638	370f7c6d749cee7a
 sound	655	3bb3724654d4194d	0.7516	Once
-frames	639-654	7365eeaab59a6182
+frames	639-654	275aaeac5a7dcd62
 frames	655-655	156ed4086987e325
 frames	656-656	502695c619f647fe
 frames	657-670	a7c1c2099061cbee

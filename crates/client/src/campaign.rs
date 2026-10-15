@@ -768,11 +768,33 @@ pub fn dialog_picture(race: u8) -> &'static str {
     }
 }
 
-/// A button on the victory or defeat dialog.
+/// A button on the victory or defeat dialog, by the dialog data's names ("The victory and defeat dialogs"): the victory
+/// dialog's "Victory" (hotkey V) and "Save Game" (hotkey F11), the defeat dialog's "OK" (hotkey O).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DialogButton {
-    Continue,
-    Save,
+    Victory,
+    SaveGame,
+    Ok,
+}
+
+impl DialogButton {
+    /// The button's label.
+    pub fn label(self) -> &'static str {
+        match self {
+            DialogButton::Victory => "Victory",
+            DialogButton::SaveGame => "Save Game",
+            DialogButton::Ok => "OK",
+        }
+    }
+
+    /// The button that ends the game: "Victory" on the victory dialog, "OK" on the defeat dialog.
+    pub fn ending(victory: bool) -> DialogButton {
+        if victory {
+            DialogButton::Victory
+        } else {
+            DialogButton::Ok
+        }
+    }
 }
 
 /// What a dialog button does.
@@ -786,8 +808,8 @@ pub enum DialogResult {
 
 pub fn dialog_button(b: DialogButton) -> DialogResult {
     match b {
-        DialogButton::Continue => DialogResult::End,
-        DialogButton::Save => DialogResult::OpenSave,
+        DialogButton::Victory | DialogButton::Ok => DialogResult::End,
+        DialogButton::SaveGame => DialogResult::OpenSave,
     }
 }
 
@@ -1663,8 +1685,13 @@ mod tests {
 
     #[test]
     fn dialog_buttons() {
-        assert_eq!(dialog_button(DialogButton::Continue), DialogResult::End);
-        assert_eq!(dialog_button(DialogButton::Save), DialogResult::OpenSave);
+        assert_eq!(dialog_button(DialogButton::Victory), DialogResult::End);
+        assert_eq!(dialog_button(DialogButton::Ok), DialogResult::End);
+        assert_eq!(dialog_button(DialogButton::SaveGame), DialogResult::OpenSave);
+        // The names from the dialog data (round 70).
+        assert_eq!(DialogButton::ending(true).label(), "Victory");
+        assert_eq!(DialogButton::ending(false).label(), "OK");
+        assert_eq!(DialogButton::SaveGame.label(), "Save Game");
         assert!(
             !after_save(false),
             "Save, then cancel: the victory dialog is shown again"

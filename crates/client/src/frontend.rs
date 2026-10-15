@@ -1704,13 +1704,13 @@ const DIALOG: Rect = Rect {
     w: 240,
     h: 140,
 };
-const CONTINUE: Rect = Rect {
+const END_BUTTON: Rect = Rect {
     x: 230,
     y: 250,
     w: 180,
     h: 26,
 };
-const SAVE: Rect = Rect {
+const SAVE_BUTTON: Rect = Rect {
     x: 230,
     y: 216,
     w: 180,
@@ -1730,10 +1730,18 @@ fn draw_dialog(front: &Front, d: &OutcomeDialog) -> Picture {
         DIALOG.y + 10,
         head,
     );
+    // Campaign flow, "The victory and defeat dialogs": the buttons by the dialog data's names.
     if d.victory {
-        button(&mut p, &front.font, SAVE, "Save", false);
+        button(
+            &mut p,
+            &front.font,
+            SAVE_BUTTON,
+            cf::DialogButton::SaveGame.label(),
+            false,
+        );
     }
-    button(&mut p, &front.font, CONTINUE, "Continue", false);
+    let end = cf::DialogButton::ending(d.victory);
+    button(&mut p, &front.font, END_BUTTON, end.label(), false);
     p
 }
 
@@ -1774,10 +1782,14 @@ pub(crate) fn run_dialog(c: &mut Core) {
     }
     let at = pointer(input, cam).filter(|_| mouse.just_released(Button::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
-    let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([Key::Enter, Key::Letter('C')]) {
-        Some(cf::DialogButton::Continue)
-    } else if dialog.victory && (hit(SAVE) || keys.just_pressed(Key::Letter('S'))) {
-        Some(cf::DialogButton::Save)
+    // The hotkeys from the dialog data: V for "Victory", O for "OK", F11 for "Save Game"; Enter is ours for the button
+    // that ends the game.
+    let end = cf::DialogButton::ending(dialog.victory);
+    let end_key = Key::Letter(if dialog.victory { 'V' } else { 'O' });
+    let button = if dialog.saved || hit(END_BUTTON) || keys.any_just_pressed([Key::Enter, end_key]) {
+        Some(end)
+    } else if dialog.victory && (hit(SAVE_BUTTON) || keys.just_pressed(Key::F(11))) {
+        Some(cf::DialogButton::SaveGame)
     } else {
         None
     };
