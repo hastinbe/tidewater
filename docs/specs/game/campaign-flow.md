@@ -21,6 +21,9 @@
   credits screen's layout (pictures, fonts, colours, positions, clip rows, scroll rate, pages) is new under "Credits
   screen"; the ToD human finale was reached and its picture seen, and Escape on it, before its text had scrolled,
   went straight to the main menu. Reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15 (round 73, `ERRATA-round73.md`, M1; observed on the running game, Enhanced): "Startup"
+  names the main menu's picture, `Art\TitleMenu_BNE.pcx`, distinct from the title picture. Reviewed by a spec-review
+  session, 2026-10-15.
 
 ## Behaviour
 
@@ -85,7 +88,8 @@ Videos are played full screen from the `Smk` folder. Any key or mouse click skip
    the title stays for 100 menu-timer ticks (about 9.8 to 9.9 s; the first tick comes at once) or until a key or
    click (Shift, Ctrl and Alt don't count). It then fades out over 250 ms, or at once (1 ms) if a key or
    click ended it.
-3. The main menu opens.
+3. The main menu opens. It is drawn over its own picture, `Art\TitleMenu_BNE.pcx`, in that picture's palette, not
+   over the title picture (`ui/screen-and-cursors.md`, "Menu screens"; observed, round 73).
 
 ### Choosing a new campaign
 

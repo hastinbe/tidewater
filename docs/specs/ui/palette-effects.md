@@ -6,6 +6,9 @@
   sprites (`Art\unit\**\*.grp`), scanned for the cycled palette entries. Not yet confirmed against the running game.
 - **Changes:** 2026-10-14, round-68 errata (finding 10): the act-screen row now gives the three fades of
   `game/campaign-flow.md`, "The act screen" (text in 300 ms, picture in 600 ms, out 400 ms); static study only.
+- **Changes:** 2026-10-15, round-73 errata (`ERRATA-round73.md`, M2; observed on the running game, Enhanced): the
+  "Screens that fade over 200 ms" open question is narrowed and the screen-fades table split to match (menus on the
+  main menu's picture don't fade; the custom-scenario setup does). Reviewed by a spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -113,7 +116,9 @@ A **fade-in** starts from all black, with the new screen already drawn, and ends
 | Credits | in and out, 100 ms |
 | Title | in and out, 250 ms; out 1 ms if a key or click cut it short (`game/campaign-flow.md`) |
 | Act screen | in 300 ms (text only, at countdown 60); in 600 ms (picture, at countdown 50, then the act sound); out 400 ms when it closes, however it closes, then a fade of all sound (`game/campaign-flow.md`) |
-| Main menu, custom-scenario and multiplayer screens | in and out, 200 ms |
+| Main menu opening; leaving the menus for the credits or the custom-scenario setup; the custom-scenario setup opening and closing | in and out, 200 ms (the main menu's fade-in and the custom-scenario setup's fades observed, round 73; the rest static study) |
+| Multiplayer game setup and Battle.net screens | in and out, 200 ms (static study; not reached on the running game) |
+| Switching between the menus drawn on the main menu's picture (single-player, campaign, load-game, the multiplayer menus up to the direct-connection setup, and their small dialogs; `ui/screen-and-cursors.md`, "Menu screens") | none (round 73, observed) |
 
 ### Screenshot flash
 
@@ -178,9 +183,12 @@ Steps are numbered from 1, the first step of the game.
 
 - **Placement start and end.** The cycle's on and off points are taken from the start and end of placing; whether the
   pulse also stops when placing ends by the builder dying hasn't been traced. Default: off whenever placing ends.
-- **Screens that fade over 200 ms.** The main menu, the custom-scenario path and the multiplayer screens are known
-  to fade over 200 ms. Which of their sub-screens fade isn't listed. Default: fade in and out when one of these
-  screens opens or closes.
+- **Screens that fade over 200 ms.** Static study found 200 ms fades on the main menu, the custom-scenario path and
+  the multiplayer screens. Round 73 (running game, Enhanced) narrowed which of their sub-screens fade: the single-player,
+  campaign, load-game and multiplayer menus up to the direct-connection setup, and the small dialogs over them, open
+  and close **without** a fade (they are drawn on the main menu's picture, `ui/screen-and-cursors.md`, "Menu
+  screens"); opening and leaving the custom-scenario setup fades out and in over 200 ms. The multiplayer game setup
+  and Battle.net screens weren't reached. Default for those: fade in and out when they open or close.
 - **Fade end.** What is shown at the instant a fade-out ends, before the next screen draws, hasn't been traced.
   Default: black.
 - **Screenshot format.** The saved file's exact contents (PCX version, palette: normal or negative) haven't been

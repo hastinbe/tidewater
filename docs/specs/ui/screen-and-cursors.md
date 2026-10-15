@@ -18,6 +18,14 @@
 - **Changes:** 2026-10-15, round-72 errata (`ERRATA-round72.md`, C1 and C3; observed on the running game,
   Enhanced): the version line's pixel position and colours; no pointer seen on the campaign finale (ToD human) while
   its text hadn't started scrolling. Reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15, round-73 errata (`ERRATA-round73.md`, M1 to M4; observed on the running game, Enhanced,
+  backed by game data and static study): new section "Menu screens" names the menu picture
+  (`Art\TitleMenu_BNE.pcx`) and its palette, which menu screens share it, the small dialogs' panel, and the button
+  and text colours; the version line's font is `Art\font10x.fnt` and its face has a grey shade (the "Version line
+  font" open question is closed); the menus' pointer row names the palette; the round-69 vector for a menu button
+  that changes screen now names only buttons that fade (Show Credits, Custom Scenario); open questions on the
+  network and Battle.net pictures, the button face, label placement, the pointer during menu switches without a fade
+  and unused palette entries. Reviewed by a spec-review session, 2026-10-15.
 
 ## Behaviour
 
@@ -186,7 +194,7 @@ No pointer is animated.
 | --- | --- | --- | --- |
 | Introduction video | none (hidden) | | yes (other videos: not checked for a pointer, see "Open questions"; the finale has its own row) |
 | Title picture | none (hidden) | | yes |
-| Main menu, single-player menu, campaign menu, custom-scenario setup, load-game screen, the multiplayer menus up to and including the connection-method screen (Enhanced or Classic choice, connection method, direct-connection setup) and their small dialogs (name entry, "Unable to locate IPX network") | orc normal arrow (`o_arrow.cur`) for every race and campaign | the menu picture's palette | yes |
+| Main menu, single-player menu, campaign menu, custom-scenario setup, load-game screen, the multiplayer menus up to and including the connection-method screen (Enhanced or Classic choice, connection method, direct-connection setup) and their small dialogs (name entry, "Unable to locate IPX network") | orc normal arrow (`o_arrow.cur`) for every race and campaign | the menu picture's palette: all 256 entries of `Art\TitleMenu_BNE.pcx` ("Menu screens") | yes (round 73: exact pixel match on every one of these screens) |
 | Act screen | none (hidden) | | yes |
 | Mission briefing | 3D arrow (`arrow_3d.cur`) | the briefing picture's palette | yes |
 | Score screen | 3D arrow (`arrow_3d.cur`) | the score picture's palette | yes (human victory) |
@@ -206,22 +214,25 @@ the indices in the pointer file. It has no palette of its own.
 
 - When a screen starts its fade-out (the click or key that closes it), the pointer disappears at once. The fade
   lengths are in `ui/palette-effects.md` ("Screen fades").
-- It stays hidden through the fade to black, any black gap, and the next screen's fade-in. On the menu screens the
+- It stays hidden through the fade to black, any black gap, and the next screen's fade-in. On the main menu the
   buttons are also not drawn during the fade-in: the fade-in shows the picture and the version line
-  ("Warcraft II BNE v2.02", bottom left, drawn by the program over the picture), which fade in together.
+  ("Warcraft II BNE v2.02", bottom left, drawn by the program over the picture), which fade in together. (The
+  custom-scenario setup, the other menu screen with a fade, has no version line: "Menu screens".)
   The version line is drawn at a fixed place on the 640 × 480 menu picture (round 72, measured on the main menu):
   its text pixels fill x **60 to 211** and y **460 to 471**, so its top-left is **(60, 460)** from the
-  picture's top-left. The face is near-white (255, 251, 243), in rows 460 to 469, with black shading to its right
-  and below; no other colours. The original's display is always 640 × 480, so only this placement can be observed;
-  the line is placed relative to the picture, wherever the picture is drawn. Its font is an open question. The buttons
-  and the pointer appear on the frame that ends the fade-in.
+  picture's top-left. It is drawn in `Art\font10x.fnt` with the glyph cell's top-left at (60, 460) (round 73: all
+  918 glyph pixels match). The face is near-white (255, 251, 243) with grey (111, 111, 111) edge pixels, in rows 460
+  to 469, with black shading to its right and below ("Menu screens", "Text colours"). The original's display is
+  always 640 × 480, so only this placement can be observed; the line is placed relative to the picture, wherever the
+  picture is drawn. The buttons and the pointer appear on the frame that ends the fade-in.
 - It appears, at full colour, when the next screen's fade-in has ended (on the frame that shows the screen at its own
   palette).
 - Screens with no fade-in (the briefing, and the score screen after the game's 1 ms fade-out) or a 10 ms one (the
   game) show the pointer from their first frame.
 
 So no frame ever shows a pointer in a partly faded palette, and no pointer at all (not even the watch) shows while
-one screen gives way to the next.
+one screen fades into the next. Switches between the menus drawn on the main menu's picture have no fade ("Menu
+screens"); whether the pointer hides during them wasn't observed (see "Open questions").
 
 | Pointer | File (human; orc if race) | Hot spot (x, y) | Size |
 | --- | --- | --- | --- |
@@ -245,6 +256,76 @@ site's top-left tile is the tile under the hot spot (the normal arrow's tip): (p
 isn't moved. Outside the map view the site isn't updated. For a building whose movement layer is sea (the oil
 platforms in the default data), each coordinate then goes onto odd values as `ui/placing-buildings.md` ("The site")
 describes.
+
+### Menu screens
+
+**One picture, one palette.** The main menu and every menu reached from it without starting a game are drawn over
+the picture `Art\TitleMenu_BNE.pcx` (640 × 480): a parchment with the game's logo at the top left and two drawn
+figures. It is not the title picture `Art\Title_Rel_BNE.pcx`, which shows only before the main menu
+(`game/campaign-flow.md`, "Startup"). When the menu screen opens, the screen's palette becomes **all 256 entries**
+of the picture's own palette (the last 768 bytes of the file), unchanged: the game sets no entries of its own on
+top (static study; every colour seen on these screens is exactly the file's entry, observed). Everything else on
+these screens (buttons, text, panels, the orc arrow) is drawn with indices into that same palette. The picture
+itself uses entries 0, 16 to 94 and 255; the interface uses others, for example:
+
+| Entries | Colours (of `TitleMenu_BNE.pcx`) | Used by |
+| --- | --- | --- |
+| 114 to 118, 131, 144 to 150, 152, 153, 155, 161 to 166, 192, 194, 196, 198, 239 (game data: the file's 453 opaque pixels) | browns, the green ramp (27, 55, 0) to (147, 187, 43), the red ramp (47, 0, 0) to (163, 0, 0), golds, black | the orc arrow `o_arrow.cur` |
+| 192, 197, 199, 200 | (95, 51, 0), (171, 143, 19), (211, 195, 31), (247, 227, 35) | gold button text |
+| 104, 108, 246 | (111, 111, 111), (159, 159, 159), (255, 251, 243) | white text, the version line |
+| 102, 105, 108 | (91, 91, 91), (123, 123, 123), (159, 159, 159) | the text of a disabled button |
+| 251 | (255, 255, 0) | the focus ring |
+
+These entries hold the same colours as the tilesets' palettes, but the title picture's palette has unrelated
+colours there (for example entry 150 is (104, 72, 56) and entry 239 is (8, 8, 8)), which is why the arrow looks
+scrambled if the menu is drawn in the title picture's palette.
+
+**Which screens.** All observed on the running game (round 73, Enhanced, plain launch):
+
+| Screen | Picture | Fade when it opens | Version line |
+| --- | --- | --- | --- |
+| Main menu | `TitleMenu_BNE.pcx`, loaded when the menu screen opens (static study) | 200 ms in (`ui/palette-effects.md`; seen after the custom-scenario setup and the credits) | yes |
+| Single-player menu, campaign menu (Tides of Darkness / Beyond the Dark Portal, orc / human), load-game screen | the same picture, not reloaded (static study): the new menu replaces the old one's buttons and text | none | yes |
+| Multiplayer: Enhanced or Classic choice, connection method (with gateway), direct-connection setup | the same picture, not reloaded | none | yes |
+| Small dialogs over these menus: name entry, "Unable to locate IPX network." | the same picture, with the dialog's panel drawn over it (below) | none | yes |
+| Custom-scenario setup ("Custom Game Setup") | `TitleMenu_BNE.pcx` again, reloaded with its full palette (static study; the picture and palette observed) | 200 ms out, then 200 ms in | **no** |
+
+So every screen in the pointer table's "orc arrow" row shares the main menu's picture and palette; none has a
+picture of its own. Leaving the custom-scenario setup (Cancel Game) fades out and back into the main menu.
+Switching between the menus of the first three rows shows no darker frame at all (frames 10 to 20 ms apart for
+main menu to multiplayer, campaign menu to single-player menu and single-player menu to load game; 50 ms apart for
+load game back to the single-player menu; 300 ms apart for main menu to single-player menu).
+
+**Panels of the small dialogs.** The name-entry and IPX dialogs are drawn on a 288 × 128 stone panel, the file
+`Art\o144x64.bmp` (the orc version, matching the menus' orc interface race, "Pointers outside a game"; the human
+`h144x64.bmp` matches 65 of its 36,864 pixels), with its indices in the menu palette. The file is two 16-bit
+numbers (width, height) followed by width × height palette indices. Observed at (176, 256): every panel pixel not
+covered by the dialog's text or button equals the file.
+
+**Text colours.** Menu text uses the game's fonts, whose glyph pixels have shades 1 to 5. Shade 5 is the black
+shadow (entry 0) in every case. Shades 1 to 4 map as follows:
+
+| Text | Font | Shade 1 | Shade 2 | Shade 3 | Shade 4 |
+| --- | --- | --- | --- | --- | --- |
+| Button label | `font12x.fnt` | 200 (247, 227, 35) | 199 (211, 195, 31) | 197 (171, 143, 19) | 192 (95, 51, 0) |
+| The label's hotkey letter, and the whole label while the pointer is over the button | `font12x.fnt` | 246 (255, 251, 243) | 246 | 108 (159, 159, 159) | 104 (111, 111, 111) |
+| Disabled button label | `font12x.fnt` | 108 | 108 | 105 (123, 123, 123) | 102 (91, 91, 91) |
+| Screen headings ("Tides of Darkness", "Load Game", "Custom Game Setup", "Direct Connection Setup") | `font12x.fnt` | 246 | 246 | 108 | 104 |
+| Dialog text ("Unable to locate IPX network.") | `font12x.fnt` | 200 | 199 | 197 | 192 |
+| Version line | `font10x.fnt` | 246 | 246 | (no shade-3 pixels in this text) | 104 |
+
+Glyphs sit 1 pixel apart; a space leaves 10 pixels between the glyphs either side in `font12x` (as on the credits
+screen, `game/campaign-flow.md`) and 8 pixels in `font10x`.
+
+**Buttons.** A menu button is a red, marbled face inside a 1-pixel black ring, inside a 1-pixel gold-brown outer ring
+(entries 129 to 135). The **focused** button has its outer ring in entry 251, (255, 255, 0), instead; the ring stays on
+the focused button when the pointer is over another one. Seen focused when each menu opened: the first button on the
+main, single-player, campaign and Enhanced-or-Classic menus; Start Game on the custom-scenario setup; Cancel on the
+load-game screen with no saved games; OK on the name entry. A disabled button
+(Load, on the load-game screen with no saved games) has a grey face (entries 97 to 108) and its outer ring in
+entry 247 (163, 163, 167). The main menu's five buttons are 224 × 28 at x 208, y 240, 276, 312, 348 and 384, as
+the dialog file `rez\MainMenu.bin` lists them. Where the label sits on the button was measured
+for one case only (test vectors; see "Open questions"). Full menu layout is outside this spec.
 
 ## Data
 
@@ -290,7 +371,7 @@ describes.
 | Orc player, normal mode, pointer over empty ground | Orc normal arrow |
 | Placement mode, pointer at screen (300, 100), view (10, 20) | Site top-left tile (13, 22) |
 | Human campaign, main menu after the title | Orc normal arrow, colours from the menu picture's palette |
-| Main menu, a button that opens another menu screen clicked | Pointer gone from the first frame of the 200 ms fade-out until the next screen's fade-in has ended; then the orc arrow at full colour |
+| A menu button that changes screen clicked (Show Credits; Custom Scenario on the single-player menu) | Pointer gone from the first frame of the 200 ms fade-out until the next screen's fade-in has ended; then the orc arrow at full colour |
 | Custom-scenario setup, Cancel clicked | Pointer gone through the 200 ms fade-out and the main menu's 200 ms fade-in; back on the frame that shows the main menu at its own palette |
 | Title picture, any frame | No pointer |
 | Mission briefing, first frame | 3D arrow at full colour |
@@ -302,6 +383,15 @@ describes.
 | Credits, OK clicked | Pointer gone through the fade-out and the main menu's fade-in; the fade-in frames show the picture and the version line at the same brightness, no buttons; buttons and the orc arrow appear on the first full-colour frame (round 70, seen) |
 | Single-player menu, Load Game clicked | Load-game screen, orc arrow, menu palette (round 70, seen) |
 | Main menu, Multi Player Game, Enhanced, then each connection screen | Orc arrow, menu palette, on every screen up to the IPX error dialog (round 70, seen) |
+| Main menu, pointer at (320, 240), after the fade-in (round 73) | Every pixel outside the buttons (x 208 to 431, y 240 to 411), the version line and the pointer equals `TitleMenu_BNE.pcx` drawn with its own palette; all 453 orc-arrow pixels equal that palette's entry at the arrow's index (for example entry 150 → (63, 131, 11), 239 → (0, 0, 0)); none matches the title picture's palette |
+| Main menu, version line (round 73) | `font10x.fnt` "Warcraft II BNE v2.02", cell top-left (60, 460), 1 pixel between glyphs, 8 at the spaces: 918 of 918 glyph pixels exact; shades 1 and 2 → (255, 251, 243), 4 → (111, 111, 111), 5 → (0, 0, 0); text pixels x 60 to 211, y 460 to 471 |
+| Main menu, Single Player Game (round 73) | Same picture, no darker frame (frames 300 ms apart); buttons New Campaign (focused, yellow ring), Load Game, Custom Scenario, Previous Menu; the version line stays |
+| Main menu, Multi Player Game; campaign menu, Previous Menu; single-player menu, Load Game (round 73) | Same picture and version line; no darker frame in frames 10 to 20 ms apart, so no fade |
+| Single-player menu, pointer off the buttons (round 73) | "Load Game" label in `font12x`, cell top-left (275, 283) on the button at x 208 to 431, y 276 to 303: 671 of 671 glyph pixels exact, "L" in the white map, "oad Game" in the gold map |
+| Custom-scenario setup open (round 73) | 200 ms fade-out and 200 ms fade-in; the picture is `TitleMenu_BNE.pcx` in its own palette; no version line (the picture shows at x 60 to 211, y 460 to 471); "Start Game" focused |
+| Custom-scenario setup, pointer over Select Scenario (round 73) | Its whole label in the white map; "Start Game" keeps the yellow ring and its gold label with a white "S" |
+| Load-game screen, no saved games (round 73) | "Load" button grey with label shades 108, 108, 105, 102; "Cancel" gold with a white "C" |
+| Multiplayer, IPX network, name entry, OK (round 73) | "Unable to locate IPX network." on `Art\o144x64.bmp` at (176, 256) in the menu palette; text `font12x`, gold map; the orc arrow exact |
 | Orc campaign mission lost (defeat dialog up) | Orc normal arrow (`o_arrow.cur`), game palette (round 70, seen; shape match) |
 | Orc defeat, score screen | Picture `Art\olosglu.pcx`, 3D arrow, exact pixel match (round 70, seen) |
 
@@ -320,9 +410,23 @@ describes.
   scrolling text never started in the oracle (`game/campaign-flow.md`, "Open questions"), so the pointer once the
   text scrolls, and on the finale's credits page, is unobserved. Default: no pointer on the finale; like the main menu
   elsewhere (orc arrow, hidden through fades), and no pointer on any video.
-- **Version line font.** The version line's glyphs match none of the five `Art\*.fnt` fonts (round 72; no glyph
-  match), and which font draws it wasn't found. Its measured pixel box and colours ("Pointer and fades") are what
-  the screen must show.
+- **Network game setup and Battle.net pictures.** Static study only (not reachable in the oracle): the game setup
+  screen of a network game uses `Art\Chat_IPX.pcx` instead of the menu picture, and the Battle.net screens use
+  `Art\Chat_BNET.pcx` and the `glue\battle.net\` pictures. `Chat_IPX.pcx`'s palette equals the menu picture's at
+  entries 0 to 15 and 96 to 255 (game data), so the orc arrow and the button colours would look the same there.
+  Whether these screens fade, show the version line or use the orc arrow wasn't observed. Default: the static-study
+  pictures; nothing in Tidewater needs these screens yet.
+- **Menu button face.** The red, marbled button face and its gold-brown ring ("Menu screens", "Buttons") weren't
+  found in the game data files, and where they come from isn't known. Their pixels are known only from captures.
+- **Menu label placement.** One label was measured: "Load Game" (`font12x`) has its cell top-left at (275, 283) on
+  the button at (208, 276), 224 × 28. The rule that places labels on buttons wasn't measured. Default: centred
+  horizontally and vertically on the button.
+- **Pointer during menu switches without a fade.** Whether the pointer hides, even for a frame, when one menu on the
+  main menu's picture replaces another wasn't settled by the round-73 captures. Default: the orc arrow stays shown,
+  since no fade runs.
+- **Unused palette entries.** Every colour seen on the menu screens is the menu picture's own entry; entries that
+  nothing on these screens draws can't be observed. Default: all 256 entries come from the picture, as static study
+  shows ("Menu screens").
 - **Network wait.** The length of the retry period that brings up the watch wasn't measured.
 - **Text placement.** The exact vertical pixel of the bar text (centred, with a 2-pixel offset in the program's
   arithmetic) and the font's baseline belong to the drawing spec.
