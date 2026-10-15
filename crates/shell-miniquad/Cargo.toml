@@ -1,0 +1,25 @@
+[package]
+name = "tidewater-shell-miniquad"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tidewater-miniquad"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tidewater-client = { path = "../client", default-features = false }
+miniquad = "0.4"
+# miniquad has no sound; quad-snd only plays whole loaded sounds, so the device callback comes from cpal.
+cpal = "0.18"
+
+# The workspace's lints, but `unsafe_code` is denied rather than forbidden: reading the window's pixels back
+# (`read_pixels`, scripted runs only) is one OpenGL call.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
