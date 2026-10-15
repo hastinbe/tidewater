@@ -693,10 +693,11 @@ pub(crate) fn tick(c: &mut Core) {
         hud.minimap
             .cycle(&mut sim.world, &art.tileset, at, size, stored.0.minimap_terrain);
     }
-    // A lost unit (dying, or gone inside) leaves the local selection and the remembered groups (corpses spec;
-    // selecting spec, "Two selections").
+    // A lost unit (dying, starting to enter a mine, oil platform or depot, or gone inside) leaves the local selection
+    // and the remembered groups (corpses spec; selecting spec, "Losing a unit from the selection" and "Two
+    // selections").
     let w = &sim.world;
-    let present = |id: UnitId| w.unit(id).is_some_and(|u| u.present());
+    let present = |id: UnitId| w.unit(id).is_some_and(kept_in_selection);
     sel.units.retain(|&id| present(id));
     sel.remembered.retain(present);
     // The ground marker's update in this cycle (map-drawing spec, "Overlays").
@@ -1200,6 +1201,18 @@ fn with_board<R>(
     };
     let board = mouse::Board::of_world(world, local, rect, (view.2 - view.0).round() as i32, &opaque);
     f(&board)
+}
+
+/// Whether a unit stays in the local selection and the remembered groups after a cycle (selecting spec, "Losing a unit
+/// from the selection"): not dying, not inside anything, and not in order 25, which a unit is given when it starts
+/// entering a mine, oil platform or depot (before its step in).
+fn kept_in_selection(u: &tidewater_sim::Unit) -> bool {
+    kept(u.present(), &u.order)
+}
+
+/// [`kept_in_selection`] from a unit's presence (not dying, not inside) and its order.
+fn kept(present: bool, order: &tidewater_sim::Order) -> bool {
+    present && !matches!(order, tidewater_sim::Order::Enter { .. })
 }
 
 fn px(p: Vec2) -> (i32, i32) {
@@ -2008,6 +2021,23 @@ pub(crate) fn draw_hud(c: &mut Core) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_unit_leaves_the_selection_when_it_starts_entering() {
+        use tidewater_sim::Order;
+        let hall = UnitId(9);
+        let ret = Order::ReturnGoods { depot: Some(hall) };
+        assert!(kept(true, &ret), "walking to the depot: still selected");
+        for stepped in [false, true] {
+            let enter = Order::Enter {
+                building: hall,
+                stepped,
+            };
+            assert!(!kept(true, &enter), "order 25 given, before and after the step in");
+        }
+        assert!(!kept(false, &Order::Inside { building: Some(hall) }), "inside");
+        assert!(!kept(false, &Order::Idle), "dying");
+    }
 
     #[test]
     fn the_marker_goes_at_the_click_or_the_minimap_tile() {
