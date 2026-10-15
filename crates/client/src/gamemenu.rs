@@ -100,23 +100,32 @@ pub struct MenuSystems;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<SavingInput>()
-        .add_systems(OnExit(AppState::Game), close_on_exit)
-        .add_systems(
-            Update,
-            (
-                open_requests.run_if(frontend::game_running),
-                open_from_outcome
-                    .run_if(resource_exists::<frontend::OutcomeDialog>.and_then(not(resource_exists::<GameMenu>))),
-                gather_saving_input.run_if(resource_exists::<GameMenu>),
-                run_menu.run_if(resource_exists::<GameMenu>),
-                run_saving.run_if(resource_exists::<GameMenu>),
-                service_saving.run_if(resource_exists::<GameMenu>),
-                sync_settings.run_if(in_state(AppState::Game)),
-            )
-                .chain()
-                .in_set(MenuSystems),
-        )
-        .add_systems(Update, demo_save_load.run_if(in_state(AppState::Game)));
+        .add_systems(OnExit(AppState::Game), close_on_exit);
+}
+
+/// The game menu's systems, in order, with the points where their commands take effect (`frame_systems` in `main.rs`
+/// runs them last in the frame).
+pub(crate) fn menu_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    (
+        open_requests.run_if(frontend::game_running),
+        ApplyDeferred,
+        open_from_outcome.run_if(resource_exists::<frontend::OutcomeDialog>.and_then(not(resource_exists::<GameMenu>))),
+        ApplyDeferred,
+        gather_saving_input.run_if(resource_exists::<GameMenu>),
+        run_menu.run_if(resource_exists::<GameMenu>),
+        ApplyDeferred,
+        run_saving.run_if(resource_exists::<GameMenu>),
+        ApplyDeferred,
+        service_saving.run_if(resource_exists::<GameMenu>),
+        sync_settings.run_if(in_state(AppState::Game)),
+    )
+        .chain()
+        .in_set(MenuSystems)
+}
+
+/// The saving and loading development aid (`demo_save_load`; `frame_systems` in `main.rs` has the order).
+pub(crate) fn demo_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    demo_save_load.run_if(in_state(AppState::Game))
 }
 
 // ---------------------------------------------------------------------------------------------------------------

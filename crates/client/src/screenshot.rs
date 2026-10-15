@@ -21,6 +21,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use bevy::ecs::schedule::ScheduleConfigs;
+use bevy::ecs::system::ScheduleSystem;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use tidewater_formats::tileset::Palette;
@@ -38,8 +40,9 @@ pub const FLASH_FRAMES: u8 = 3;
 #[derive(Resource, Clone)]
 pub struct ShotDir(pub PathBuf);
 
-pub fn plugin(app: &mut App) {
-    app.add_systems(Update, print_screen.run_if(in_state(AppState::Game)));
+/// The screenshot key (`frame_systems` in `main.rs` has the order).
+pub(crate) fn shot_system() -> ScheduleConfigs<ScheduleSystem> {
+    print_screen.run_if(in_state(AppState::Game))
 }
 
 fn print_screen(

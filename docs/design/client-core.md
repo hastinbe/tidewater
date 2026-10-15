@@ -183,7 +183,7 @@ the snapshot didn't change.
 | 2 ✓ | Map view geometry and the pointer | Map, interface and flow cameras → a `MapView` (centre, zoom, view rectangle) and `display::Letterbox` | unchanged |
 | 3 ✓ | The layers | Sprites and image assets → pictures the core owns (`Screen`: map, interface, flow layers) | unchanged |
 | 4 ✓ | Input | `ButtonInput`, `KeyboardInput`, `MouseWheel` readers in `main`, `frontend`, `gamemenu`, `chat`, `cheats` → `Input` | unchanged; the script feeds `Input` directly |
-| 5 | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
+| 5 ✓ | Time and the frame loop | `Time<Real/Virtual/Fixed>`, `FixedUpdate` → the core's accumulator; systems → plain functions called in today's order | unchanged |
 | 6 | States | `AppState`, `OnEnter/OnExit`, `DespawnOnExit` → the flow's own state machine | unchanged |
 | 7 | Audio | `AudioPlayer`, sinks, the video sound thread → the mixer | sound starts unchanged; music timing changes (below) |
 | 8 | Storage | `std::fs` and paths → `Storage`; `Install` over `Read + Seek` | unchanged |
@@ -191,6 +191,49 @@ the snapshot didn't change.
 | 10 | Trial shells (phase 3) | SDL3 and miniquad shells, measured | must pass the snapshot |
 
 Each step lands with the snapshot unchanged, or blessed with the reason in the commit.
+
+### Time and system order (step 5)
+
+**Time.** The core's clock (`clock.rs`) takes each frame's real time from the shell and keeps Bevy's rules: the frame's
+game time is capped at 250 ms, whole steps of it run the game's cycles (`run_cycles` in `main.rs`, before the frame's
+`Update` systems, as `FixedUpdate` did), the step is 64 a second until a game sets its own, and the input logs age only
+after a frame that ran a step, as Bevy's message buffers did. No system reads Bevy's `Time` any more; the shell feeds
+the clock from `Time<Real>` (`shell::advance_clock`).
+
+**One order.** Every schedule runs on one thread, in the order its graph gives (`shell::one_order`). The frame's
+`Update` systems are one chain (`frame_systems` in `main.rs`), and the points where their commands take effect are
+written in it (after `play_sounds` and between the game menu's systems, where Bevy had put them). The order is the one
+Bevy's graph gave, with the two changes the snapshot showed the old multithreaded runs had:
+
+| Pair | Shares | Order and why |
+|---|---|---|
+| `play_music`, the flow's screens | the jukebox, the install | Music first. A screen's music cue starts the track on the next frame, as before; the graph's own order started the title music a frame early (campaign scene, frame 19 instead of 20). |
+| `stop_music`, `start_game` (entering a game) | the jukebox | Stop first. The other order stopped the game's first track (load scene, frames 2, 498 and 621). |
+| `watch_outcome`, the game's input and drawing | the game, the screen's pictures, the jukebox | Outcome first; its dialog takes effect at the command point after `play_sounds`, so the dialog's first frame is drawn as before. A command point before the game's input (a first attempt) opened the dialog a frame early. |
+| `apply_fades`, the flow's screens | the fade clock | Fades first: a fade a screen starts shows from the next frame. |
+| `run_dialog`, `quit_on_escape` | the exit | Dialog first, a frame's first system to see the key. |
+| The flow's screens, each other | the flow, the install, the screen's pictures | Chained; each runs only in its own state, so at most one runs in a frame. `run_menu_load` before `run_menu` (the main menu with or without its load dialog). |
+| `play_disco`, `cheats::run` and the game | the game, the cheat queue, the jukebox, the speaker | Disco before the game's layout, cheats after the view's scroll and before the panel input, as the graph had them. |
+| `size_window`, `fit_screen` and the screens that read the window | the window | After the flow's screens and the view's scroll, before the game's input, as the graph had them. |
+| `print_screen`, `hud_layout`, `cycle_palette` | the interface, the palette | After the layout, before the palette turns. |
+| `demo_save_load`, `service_saving` (the whole world) and everything | everything | In the chain: the first after the flow's screens, the second near the end of the game menu's systems. |
+| `mouse_lock`, `chat_keys` | the input | Lock first: it reads the held keys before the chat line takes the typing keys. |
+| `drive` (scripted runs), Bevy's mouse motion | mouse motion | The script before Bevy's input systems. |
+| `store_settings`, `record` (scripted runs) | the world | Settings first, then the screen is composed and recorded. |
+| The clock and input systems, Bevy's message update | the world | After the message update. |
+
+Bevy's ambiguity check (`TIDEWATER_ORDER_CHECK=1`, built with `--features bevy/debug`), over the five scenes: 434
+pairs before this step, 65 after, none of them between two of our systems. The 65 are a system of ours against Bevy's
+own, and none of them shares data that matters:
+
+| Schedule | Pairs | Why the order doesn't matter |
+|---|---|---|
+| `Update` | 18: `demo_save_load`, `service_saving` and our command points against Bevy's render preparation (MSAA, parallax, tilemaps, screenshots, UI dialogs) and its Ctrl-C handler | Those use none of our data; they only see the whole world because ours are exclusive. |
+| `Update` | 12: our systems that end the program against the Ctrl-C handler | Both only add an exit request. |
+| `Last` | 19: `record` against Bevy's gizmos, hierarchy checks, frame count, task pools | `record` reads only the composed frame and the sounds. |
+| `StateTransition` | 9 | Bevy's own state systems among themselves. |
+| `RunFixedMainLoop` | 5: `run_cycles` against the gizmo contexts | We draw no gizmos. |
+| `PreUpdate` | 2: `mouse_lock` against IME and UI focus | We use neither. |
 
 ### What can't stay identical
 
@@ -209,7 +252,7 @@ Each step lands with the snapshot unchanged, or blessed with the reason in the c
 
 | Risk | Mitigation |
 |---|---|
-| Hidden system-order dependencies. Bevy runs unordered systems in any order; one was a real bug (an Escape could close the game menu and quit). | Step 5 calls functions in one fixed order. Run Bevy's ambiguity check once first and list each ambiguous pair. |
+| Hidden system-order dependencies. Bevy runs unordered systems in any order; one was a real bug (an Escape could close the game menu and quit). | Done in step 5: one thread, one order, every pair listed ("Time and system order"). Run the ambiguity check again after each step. |
 | The snapshot covers one scene | Add scenes before the steps that touch them: score screen, outcome dialogs, load dialog, chat, cheats, endings, credits, videos (needs the core's video sound). |
 | A full 640 × 480 RGBA composition per frame on handhelds | Measure in phase 3; compose only changed layers, or go indexed. |
 | Memory: Bevy's client is about 450 MB | The core alone should be far smaller; measure in phase 3. |

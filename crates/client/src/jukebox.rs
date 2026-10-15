@@ -12,6 +12,7 @@ use bevy::prelude::*;
 
 use crate::frontend::{Front, Persist};
 use crate::music::{self, Action, Music, Playback};
+use crate::shell::CoreTime;
 use crate::sound::Shuffle;
 
 /// The music state machine and the entity that plays the open track.
@@ -126,7 +127,7 @@ pub struct MusicPlayer;
 /// loudness, seeks to a loop point and stops it.
 pub fn play_music(
     mut commands: Commands,
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     mut jb: ResMut<Jukebox>,
     mut front: ResMut<Front>,
     mut sources: ResMut<Assets<AudioSource>>,

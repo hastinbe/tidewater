@@ -21,6 +21,7 @@
 mod campaign;
 mod chat;
 mod cheats;
+mod clock;
 mod compose;
 mod display;
 mod fog;
@@ -61,9 +62,10 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use clap::Parser;
+use clock::FrameClock;
 use input::{Button, Key};
 use panel::PanelState;
-use shell::{PlayerInput, ScreenLayer, ScreenPictures};
+use shell::{CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
 use std::collections::HashMap;
 use tidewater_formats::install::Install;
 use tidewater_sim::economy::Event;
@@ -549,7 +551,6 @@ fn main() -> Result<()> {
             explicit: args.ui_scale.is_some(),
             frames: 0,
         })
-        .add_systems(Update, (size_window, fit_screen).chain())
         .add_systems(
             PreUpdate,
             mouse_lock
@@ -564,54 +565,82 @@ fn main() -> Result<()> {
         .insert_resource(flow)
         .insert_resource(stored)
         .insert_resource(SettingsFile(settings))
-        .add_systems(Last, store_settings)
+        .add_systems(Last, store_settings.before(shell::ComposeScreen))
         .insert_resource(Opts(args))
         .add_plugins(frontend::plugin)
         .add_plugins(gamemenu::plugin)
         .add_systems(OnEnter(frontend::AppState::Game), (start_game, setup).chain())
         .add_systems(OnExit(frontend::AppState::Game), end_game)
-        .add_systems(Update, stop_clock.run_if(in_state(frontend::AppState::Game)))
         .add_plugins(cheats::plugin)
         .add_plugins(chat::plugin)
         .insert_resource(screenshot::ShotDir(saves::user_dir(shot_dir.as_deref())))
-        .add_plugins(screenshot::plugin)
-        .add_systems(FixedUpdate, tick.run_if(frontend::game_running))
-        .add_systems(PostUpdate, end_view_frame)
         .add_systems(
-            Update,
-            // Input and game-time systems stop while a menu or outcome dialog is open; drawing goes on, so the map and
-            // panels stay drawn under the dialog.
+            RunFixedMainLoop,
+            run_cycles.in_set(bevy::app::RunFixedMainLoopSystems::BeforeFixedMainLoop),
+        )
+        .add_systems(PostUpdate, end_view_frame)
+        .add_systems(Update, frame_systems());
+    shell::one_order(&mut app);
+    app.run();
+    Ok(())
+}
+
+/// The frame's systems, in the one order they run (`docs/design/client-core.md`, step 5). It is the order Bevy's
+/// schedule gave them, with the music before the flow's screens; the order of each pair that shares data is now
+/// fixed (the list of pairs and why each is in its place is in the design doc, "System order").
+///
+/// The flow's screens each run in their own state, so at most one of them runs in a frame. Input and game-time
+/// systems stop while a menu or outcome dialog is open; drawing goes on, so the map and panels stay drawn under the
+/// dialog. The game menu's systems (`gamemenu::MenuSystems`) come last, so a key that opens or closes a menu is seen
+/// by one side only.
+fn frame_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    let game = || in_state(frontend::AppState::Game);
+    (
+        jukebox::play_music,
+        frontend::fade_systems(),
+        frontend::outcome_systems(),
+        frontend::screen_systems(),
+        gamemenu::demo_system(),
+        cheats::disco_system(),
+        (hud_layout, scroll_view.run_if(frontend::game_running))
+            .chain()
+            .run_if(game()),
+        (
+            cheats::cheat_system(),
+            (size_window, fit_screen).chain(),
+            stop_clock.run_if(game()),
+            screenshot::shot_system(),
+        )
+            .chain(),
+        (
             (
-                hud_layout,
-                (
-                    scroll_view,
-                    panel_input,
-                    info_input,
-                    keys_input,
-                    mouse_input,
-                    pan_and_zoom,
-                    play_sounds,
-                    update_messages,
-                )
-                    .chain()
-                    .run_if(frontend::game_running),
-                (
-                    cycle_palette,
-                    redraw_terrain,
-                    draw_view,
-                    draw_placement,
-                    update_info,
-                    draw_hud,
-                )
-                    .chain(),
-                quit_on_escape.run_if(frontend::game_running),
+                panel_input,
+                info_input,
+                keys_input,
+                mouse_input,
+                pan_and_zoom,
+                play_sounds,
+                ApplyDeferred,
+                update_messages,
             )
                 .chain()
-                .before(gamemenu::MenuSystems)
-                .run_if(in_state(frontend::AppState::Game)),
+                .run_if(frontend::game_running),
+            (
+                cycle_palette,
+                redraw_terrain,
+                draw_view,
+                draw_placement,
+                update_info,
+                draw_hud,
+            )
+                .chain(),
+            quit_on_escape.run_if(frontend::game_running),
         )
-        .run();
-    Ok(())
+            .chain()
+            .run_if(game()),
+        gamemenu::menu_systems(),
+    )
+        .chain()
 }
 
 /// Where the stored settings live (`prefs`).
@@ -775,7 +804,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
             Some(r) => palette::Cycling::loaded(scene.era, &scene.palette, r.body.client.cycles_on),
             None => palette::Cycling::new(scene.era, &scene.palette),
         },
-        started_ms: real_ms(world.resource::<Time<Real>>()),
+        started_ms: real_ms(world.resource::<CoreTime>()),
         used: None,
         shown: scene.palette.clone(),
         fade_start: None,
@@ -891,7 +920,7 @@ fn load_game(world: &mut bevy::prelude::World, map: &str, setup: Option<tidewate
         minimap: minimap::Minimap::new(0),
         locked: frontend::LockedPointer::default(),
     });
-    world.insert_resource(Time::<Fixed>::from_hz(hz));
+    world.resource_mut::<CoreTime>().restart_steps(hz);
     world.insert_resource(selection);
     world.insert_resource(view_art);
     world.insert_resource(speaker);
@@ -1027,11 +1056,22 @@ fn cycle_secs(enhanced: bool, speed: u8) -> f64 {
     ms / 1000.0
 }
 
+/// Runs the frame's game cycles: one for each whole step of game time (`clock`), while the game runs. They run after
+/// the flow's state changes and before the frame's other systems.
+fn run_cycles(world: &mut bevy::prelude::World) {
+    world.resource_mut::<CoreTime>().accumulate();
+    while world.resource_mut::<CoreTime>().expend() {
+        if world.run_system_cached(frontend::game_running).unwrap_or(false) {
+            world.run_system_cached(tick).expect("the game cycle runs");
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn tick(
     mut sim: ResMut<Sim>,
     mut sel: ResMut<Selection>,
-    mut time: ResMut<Time<Fixed>>,
+    mut time: ResMut<CoreTime>,
     mut hud: ResMut<Hud>,
     mut cycling: ResMut<Cycling>,
     art: Option<Res<TerrainArt>>,
@@ -1051,8 +1091,8 @@ fn tick(
     let cmds = std::mem::take(&mut sim.pending);
     sim.world.step(&cmds);
     let step = std::time::Duration::from_secs_f64(cycle_secs(sim.world.rules.enhanced, sim.world.speed));
-    if time.timestep() != step {
-        time.set_timestep(step);
+    if time.step() != step {
+        time.set_step(step);
     }
     // Minimap spec, "When it is redrawn": the countdown runs in the game cycle, after the units are updated.
     if let (Some(art), Some(view)) = (art, view) {
@@ -1110,7 +1150,7 @@ fn cycle_palette(
     menu: Option<Res<gamemenu::GameMenu>>,
     windows: Query<&Window>,
     mut pictures: ResMut<ScreenPictures>,
-    real: Res<Time<Real>>,
+    real: Res<CoreTime>,
     script: Option<Res<script::Script>>,
 ) {
     let (Some(sim), Some(mut art), Some(terrain)) = (sim, art, terrain) else {
@@ -1408,7 +1448,7 @@ fn pan_and_zoom(
 }
 
 /// The app's real-time clock in whole milliseconds since the program started.
-fn real_ms(real: &Time<Real>) -> u64 {
+fn real_ms(real: &FrameClock) -> u64 {
     real.elapsed().as_millis() as u64
 }
 
@@ -1832,7 +1872,7 @@ fn centre_view(view: &mut mapview::MapView, c: Vec2) {
 /// clicks, and moving the view.
 #[allow(clippy::too_many_arguments)]
 fn mouse_input(
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     windows: Query<&Window>,
     view: Option<ResMut<GameView>>,
     sim: Option<ResMut<Sim>>,
@@ -2027,7 +2067,7 @@ fn game_key(k: Key) -> Option<mouse::Key> {
 /// ones that open menus and dialogs, and Ctrl+S, are handled by `gamemenu`.
 #[allow(clippy::too_many_arguments)]
 fn keys_input(
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     sim: Option<ResMut<Sim>>,
     art: Option<Res<Art>>,
     mut sel: ResMut<Selection>,
@@ -2304,7 +2344,7 @@ fn update_info(sim: Option<Res<Sim>>, mut sel: ResMut<Selection>, mut panel: Res
 /// the scrolling edge that blocks this frame's clicks.
 #[allow(clippy::too_many_arguments)]
 fn scroll_view(
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     windows: Query<&Window>,
     sim: Option<Res<Sim>>,
     hud: Res<Hud>,
@@ -2377,7 +2417,7 @@ fn text_of(hud: &Hud, t: &messages::Text) -> String {
 /// The message area, the status bar and the event history (`messages`, spec `ui/messages.md`): new notices and the
 /// pause notices, real-time expiry, the event locations, the fixed prompts and what the pointer is over.
 fn update_messages(
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     sim: Option<ResMut<Sim>>,
     hud: Res<Hud>,
     ui: Res<PanelUi>,

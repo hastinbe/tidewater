@@ -18,6 +18,8 @@
 //! Not yet here: command-line words (`cheats::from_arguments`) are not read because the command line is parsed by
 //! `clap`.
 
+use bevy::ecs::schedule::ScheduleConfigs;
+use bevy::ecs::system::ScheduleSystem;
 use bevy::prelude::*;
 use tidewater_sim::cheats::{self, Context, Flags, Line, MissionSelect, Word};
 use tidewater_sim::economy::Event;
@@ -93,8 +95,17 @@ impl Queue {
 }
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Queue>()
-        .add_systems(Update, (run, play_disco).run_if(in_state(AppState::Game)));
+    app.init_resource::<Queue>();
+}
+
+/// The disco cheat's music (`frame_systems` in `main.rs` has the order).
+pub(crate) fn disco_system() -> ScheduleConfigs<ScheduleSystem> {
+    play_disco.run_if(in_state(AppState::Game))
+}
+
+/// The cheats typed this frame.
+pub(crate) fn cheat_system() -> ScheduleConfigs<ScheduleSystem> {
+    run.run_if(in_state(AppState::Game))
 }
 
 /// The disco cheat changes the game's track (music spec, "Disco cheat").

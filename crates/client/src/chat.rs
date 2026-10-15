@@ -133,6 +133,8 @@ pub fn plugin(app: &mut App) {
         PreUpdate,
         chat_keys
             .after(crate::shell::ReadInput)
+            // The pointer lock reads the held keys before the chat line takes the typing keys.
+            .after(crate::mouse_lock)
             .run_if(in_state(frontend::AppState::Game)),
     );
 }

@@ -408,14 +408,17 @@ impl Script {
     }
 }
 
-/// The scripted input goes in before the frame's input is applied (`shell::ReadInput`), and before the systems that
-/// read the pointer.
+/// The scripted input goes in before Bevy's input systems and before the frame's input is applied
+/// (`shell::ReadInput`), and so before the systems that read the pointer.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptInput;
 
 pub fn plugin(app: &mut App) {
-    app.configure_sets(PreUpdate, ScriptInput.before(ReadInput))
-        .add_systems(PreUpdate, drive.in_set(ScriptInput).run_if(resource_exists::<Script>));
+    app.configure_sets(
+        PreUpdate,
+        ScriptInput.before(bevy::input::InputSystems).before(ReadInput),
+    )
+    .add_systems(PreUpdate, drive.in_set(ScriptInput).run_if(resource_exists::<Script>));
 }
 
 /// One frame of the scene: runs its commands until one waits, and replaces the system's input with the scene's.

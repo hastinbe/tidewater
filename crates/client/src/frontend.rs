@@ -19,6 +19,8 @@ use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
+use bevy::ecs::schedule::ScheduleConfigs;
+use bevy::ecs::system::ScheduleSystem;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use tidewater_formats::fnt::Font;
@@ -30,15 +32,16 @@ use tidewater_sim::setup::Setup;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
+use crate::clock::FrameClock;
 use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
-use crate::jukebox::{self, Jukebox};
+use crate::jukebox::Jukebox;
 use crate::layers::{Layer as ScreenPlace, PictureId, Plane};
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
-use crate::shell::{PlayerInput, ScreenLayer, ScreenPictures};
+use crate::shell::{CoreTime, PlayerInput, ScreenLayer, ScreenPictures};
 use crate::video;
 
 const W: u32 = 640;
@@ -515,7 +518,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<LockedPointer>()
         .init_resource::<FrontScreen>()
         .add_systems(PostUpdate, front_screen_ready)
-        .add_systems(Update, jukebox::play_music)
         .add_systems(OnEnter(AppState::Video), enter_video)
         .add_systems(OnEnter(AppState::Title), enter_title)
         .add_systems(OnEnter(AppState::MainMenu), enter_menu)
@@ -528,29 +530,44 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(AppState::Score), enter_score)
         .add_systems(OnEnter(AppState::Finale), enter_finale)
         .add_systems(OnEnter(AppState::Credits), enter_credits)
-        .add_systems(OnEnter(AppState::Game), (stop_music, camera_clear))
-        .add_systems(OnExit(AppState::Game), (camera_clear, close_dialog))
+        // The flow's music stops before the game starts its own (`start_game`).
         .add_systems(
-            Update,
-            (
-                boot.run_if(in_state(AppState::Boot)),
-                play_video.run_if(in_state(AppState::Video)),
-                run_title.run_if(in_state(AppState::Title)),
-                run_menu.run_if(in_state(AppState::MainMenu).and_then(not(resource_exists::<MenuLoad>))),
-                run_menu_load.run_if(in_state(AppState::MainMenu).and_then(resource_exists::<MenuLoad>)),
-                run_new_campaign.run_if(in_state(AppState::NewCampaign)),
-                run_act.run_if(in_state(AppState::Act)),
-                run_briefing.run_if(in_state(AppState::Briefing)),
-                run_score.run_if(in_state(AppState::Score)),
-                run_scroller.run_if(in_state(AppState::Finale)),
-                run_scroller.run_if(in_state(AppState::Credits)),
-                watch_outcome.run_if(in_state(AppState::Game)),
-                run_dialog.run_if(
-                    resource_exists::<OutcomeDialog>.and_then(not(resource_exists::<crate::gamemenu::GameMenu>)),
-                ),
-                apply_fades,
-            ),
-        );
+            OnEnter(AppState::Game),
+            (stop_music, camera_clear).chain().before(crate::start_game),
+        )
+        .add_systems(OnExit(AppState::Game), (camera_clear, close_dialog));
+}
+
+/// The fades, run first in the frame (`frame_systems` in `main.rs` has the order).
+pub(crate) fn fade_systems() -> ScheduleConfigs<ScheduleSystem> {
+    apply_fades.into_configs()
+}
+
+/// The outcome dialog, then the check for a game's end.
+pub(crate) fn outcome_systems() -> ScheduleConfigs<ScheduleSystem> {
+    (
+        run_dialog.run_if(resource_exists::<OutcomeDialog>.and_then(not(resource_exists::<crate::gamemenu::GameMenu>))),
+        watch_outcome.run_if(in_state(AppState::Game)),
+    )
+        .chain()
+}
+
+/// The flow's screens, each in its own state: at most one of them runs in a frame.
+pub(crate) fn screen_systems() -> ScheduleConfigs<ScheduleSystem> {
+    (
+        run_scroller.run_if(in_state(AppState::Finale)),
+        run_scroller.run_if(in_state(AppState::Credits)),
+        run_score.run_if(in_state(AppState::Score)),
+        run_briefing.run_if(in_state(AppState::Briefing)),
+        run_act.run_if(in_state(AppState::Act)),
+        run_new_campaign.run_if(in_state(AppState::NewCampaign)),
+        run_menu_load.run_if(in_state(AppState::MainMenu).and_then(resource_exists::<MenuLoad>)),
+        run_menu.run_if(in_state(AppState::MainMenu).and_then(not(resource_exists::<MenuLoad>))),
+        run_title.run_if(in_state(AppState::Title)),
+        play_video.run_if(in_state(AppState::Video)),
+        boot.run_if(in_state(AppState::Boot)),
+    )
+        .chain()
 }
 
 /// The flow's screen clears to black except over the game screen.
@@ -719,11 +736,11 @@ struct Clock(f64);
 struct MenuClock(cf::MenuTimer);
 
 /// Real time in ms since the program started: the menu timer's clock.
-fn real_ms(time: &Time<Real>) -> f64 {
+fn real_ms(time: &FrameClock) -> f64 {
     time.elapsed_secs_f64() * 1000.0
 }
 
-fn apply_fades(time: Res<Time<Real>>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut ScreenLayer)>) {
+fn apply_fades(time: Res<CoreTime>, clock: Option<ResMut<Clock>>, mut q: Query<(&Fade, &mut ScreenLayer)>) {
     let Some(mut clock) = clock else { return };
     clock.0 += time.delta_secs_f64() * 1000.0;
     for (f, mut l) in &mut q {
@@ -862,7 +879,7 @@ fn enter_video(
 #[allow(clippy::too_many_arguments)]
 fn play_video(
     mut commands: Commands,
-    time: Res<Time>,
+    time: Res<CoreTime>,
     play: Option<ResMut<VideoPlay>>,
     mut pictures: ResMut<ScreenPictures>,
     mut sources: ResMut<Assets<AudioSource>>,
@@ -879,7 +896,7 @@ fn play_video(
     if let Some(mut p) = play {
         // The first frame shows at 0 even on a slow first update.
         if p.shown.is_some() {
-            p.elapsed += time.delta_secs_f64() * 1000.0;
+            p.elapsed += time.game_delta().as_secs_f64() * 1000.0;
         }
         // A scripted run waits for the sound on the first frame, so that it starts on the same frame every time.
         let got = p.audio.as_ref().and_then(|m| {
@@ -939,7 +956,7 @@ struct TitleScreen(cf::TitleRun);
 
 fn enter_title(
     mut commands: Commands,
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     mut front: ResMut<Front>,
     mut pictures: ResMut<ScreenPictures>,
 ) {
@@ -966,7 +983,7 @@ fn title_input(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn run_title(
     mut commands: Commands,
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     clock: Res<Clock>,
     mut menu_timer: ResMut<MenuClock>,
     mut title: ResMut<TitleScreen>,
@@ -1349,7 +1366,7 @@ fn enter_act(mut commands: Commands, flow: Res<Flow>, mut front: ResMut<Front>, 
 #[allow(clippy::too_many_arguments)]
 fn run_act(
     mut commands: Commands,
-    time: Res<Time<Real>>,
+    time: Res<CoreTime>,
     clock: Res<Clock>,
     mut menu_timer: ResMut<MenuClock>,
     mut act: ResMut<ActScreen>,

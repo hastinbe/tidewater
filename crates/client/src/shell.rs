@@ -23,7 +23,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::ecs::lifecycle::HookContext;
-use bevy::ecs::message::{MessageUpdateSystems, message_update_condition, message_update_system};
+use bevy::ecs::message::MessageUpdateSystems;
 use bevy::ecs::system::SystemParam;
 use bevy::ecs::world::DeferredWorld;
 use bevy::input::keyboard::{KeyboardFocusLost, KeyboardInput};
@@ -31,6 +31,7 @@ use bevy::input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 
+use crate::clock::FrameClock;
 use crate::compose::{self, Clip, Frame, Placed};
 use crate::frontend::{AppState, Front, FrontScreen, LockedPointer, OutcomeDialog, Persist};
 use crate::gamemenu::GameMenu;
@@ -60,17 +61,17 @@ pub struct ComposeScreen;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerInput>()
+        .init_resource::<CoreTime>()
         .configure_sets(PreUpdate, ReadInput.after(bevy::input::InputSystems))
         .add_systems(
             First,
             (
                 take_system_input,
-                age_input
-                    .in_set(MessageUpdateSystems)
-                    .before(message_update_system)
-                    .run_if(message_update_condition),
+                age_input.run_if(|time: Res<CoreTime>| time.logs_age()),
+                advance_clock.after(bevy::time::TimeSystems),
             )
-                .chain(),
+                .chain()
+                .after(MessageUpdateSystems),
         )
         .add_systems(PreUpdate, begin_input_frame.in_set(ReadInput))
         .init_resource::<ScreenPictures>()
@@ -332,6 +333,46 @@ fn show_screen(
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Order
+
+/// Runs the frame's schedules on one thread, so that their systems run in one order: the order their schedule's graph
+/// gives (`docs/design/client-core.md`, step 5). In `Update` the systems also say where their commands take effect
+/// (`frame_systems` in `main.rs`) instead of Bevy choosing the points.
+///
+/// `TIDEWATER_ORDER_CHECK=1` logs every pair of systems whose order the graph leaves open while they share data:
+/// Bevy's ambiguity check (system names need `--features bevy/debug`).
+pub fn one_order(app: &mut App) {
+    use bevy::ecs::schedule::{LogLevel, ScheduleLabel, SingleThreadedExecutor};
+    let check = std::env::var_os("TIDEWATER_ORDER_CHECK").is_some();
+    let update = Update.intern();
+    let mut schedules = app.world_mut().resource_mut::<Schedules>();
+    for (_, s) in schedules.iter_mut() {
+        s.set_executor(SingleThreadedExecutor::new());
+        let mut settings = s.get_build_settings();
+        if s.label() == update {
+            settings.auto_insert_apply_deferred = false;
+        }
+        if check {
+            settings.ambiguity_detection = LogLevel::Warn;
+        }
+        s.set_build_settings(settings);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Time
+
+/// The core's clock (`clock`), fed the window's frame times.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct CoreTime(pub FrameClock);
+
+/// Starts the core's frame with the real time since the last one (Bevy's real-time clock: the system's, or a scripted
+/// run's fixed frame time).
+fn advance_clock(real: Res<Time<Real>>, mut time: ResMut<CoreTime>) {
+    time.advance(real.delta());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Input
 
 /// The player's input (`input::Input`), from the window's events or a scripted run (`script`).
@@ -371,8 +412,7 @@ fn take_system_input(
     }
 }
 
-/// The typed events and wheel steps age when Bevy's own messages do (after a frame with a fixed step, once there
-/// has been one), so that they last as long as they did.
+/// The typed events and wheel steps age after a frame with a step, once there has been one (`clock`).
 fn age_input(mut input: ResMut<PlayerInput>) {
     input.update_logs();
 }
