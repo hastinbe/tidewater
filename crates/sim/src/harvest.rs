@@ -190,7 +190,7 @@ impl World {
     }
 
     /// Idle by an animation switch rather than a take-over: the outcome the code keeps for order 24 at a depot under
-    /// construction and for order 23's unreachable no-target, non-lumber worker (both pinned).
+    /// construction (pinned).
     fn idle(&mut self, i: usize) {
         self.go_idle(i);
         self.switch_anim(i, anim::STILL);
@@ -200,7 +200,7 @@ impl World {
     ///
     /// A tanker and a gold-mode worker follow "Going to a mine or platform"; a lumber-mode worker "Lumber". A worker
     /// with no target unit that isn't in lumber mode is a state no command makes ("Starting to harvest" gives gold
-    /// mode only with a mine): the code keeps its old outcome, the reaction and then idle by an animation switch.
+    /// mode only with a mine): after the reaction, idle is made pending and takes over in the same update.
     pub(crate) fn harvest_order(&mut self, i: usize, source: Option<UnitId>, tree: (i32, i32), chopping: bool) {
         if source.is_some() || self.is_tanker(&self.units[i]) {
             return self.source_order(i, source, tree);
@@ -208,8 +208,11 @@ impl World {
         if self.units[i].gather == Gather::Lumber {
             return self.lumber_order(i, tree, chopping);
         }
+        // Round 68, harvest (f) ("Going to a mine or platform", V84 and V88): idle is made pending by the common path
+        // and takes over in the same update.
         if !self.react_at_walk_end(i) {
-            self.idle(i);
+            self.units[i].path.clear();
+            self.idle_now(i);
         }
     }
 
@@ -2251,8 +2254,8 @@ mod tests {
         }
 
         /// A worker in order 23 with no target unit and not in lumber mode: a state no command makes ("Starting to
-        /// harvest" gives gold mode only with a mine). Pinned as it is: the reaction runs, then idle at once without a
-        /// take-over (no wait of 3).
+        /// harvest" gives gold mode only with a mine). The reaction runs, then idle is made pending and takes over in
+        /// the same update (wait 3; "Going to a mine or platform", V84 and V88).
         #[test]
         fn a_worker_with_no_target_out_of_lumber_mode_goes_idle() {
             let mut w = arena();
@@ -2262,10 +2265,10 @@ mod tests {
             w.harvest_order(i, None, (16, 10), false);
             let u = &w.units[i];
             assert_eq!(
-                (u.order, u.pending, u.tile, u.script.anim),
-                (Order::Idle, None, (10, 10), anim::STILL)
+                (u.order, u.pending, u.tile, u.script.anim, u.script.wait),
+                (Order::Idle, None, (10, 10), anim::STILL, 3)
             );
-            assert_eq!(w.fingerprint(), 391676241161655986);
+            assert_eq!(w.fingerprint(), 6049338356959576903);
         }
 
         /// "Going to a mine or platform", no route: the generic no-route idle with no reaction first, with or without
