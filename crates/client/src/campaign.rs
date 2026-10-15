@@ -96,6 +96,9 @@ pub fn startup_videos(i: StartupInput) -> (Vec<u8>, bool) {
 
 /// The title picture.
 pub const TITLE_PICTURE: &str = "Art\\Title_Rel_BNE.pcx";
+/// The main menu's picture ("Startup", step 3): the main menu and every menu reached from it are drawn over it, in its
+/// own palette (`ui/screen-and-cursors.md`, "Menu screens"). It isn't the title picture.
+pub const MENU_PICTURE: &str = "Art\\TitleMenu_BNE.pcx";
 /// The title stays this many menu-timer ticks unless a key or click ends it.
 pub const TITLE_TICKS: u32 = 100;
 /// The title's fade in, and its fade out when it ran its time.

@@ -502,13 +502,15 @@ pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
 }
 
 /// The picture whose palette colours a screen's pointer: the pointer is drawn into the 8-bit screen, so its pixels are
-/// the screen's palette entries ("Colours"). Our menus are drawn over the title picture, so it gives theirs. The
-/// credits are drawn over their own picture (`campaign::CREDITS_PICTURE`), which gives theirs.
+/// the screen's palette entries ("Colours"). The menus are drawn over the menu picture (`campaign::MENU_PICTURE`) with
+/// all 256 entries of its palette ("Menu screens"), so it gives theirs. The credits are drawn over their own picture
+/// (`campaign::CREDITS_PICTURE`), which gives theirs.
 pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
     match (state, &flow.current, &flow.score) {
         (AppState::Briefing, Some(Step::Briefing(e)), _) => cf::briefing_background(*e),
         (AppState::Score, _, Some(s)) => cf::score_background(s.race, s.victory),
         (AppState::Credits, _, _) => cf::CREDITS_PICTURE,
+        (AppState::MainMenu | AppState::NewCampaign, _, _) => cf::MENU_PICTURE,
         _ => cf::TITLE_PICTURE,
     }
 }
@@ -1103,8 +1105,9 @@ fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
         .collect()
 }
 
-/// Opens a menu screen: the darkened title picture with `heading` drawn over it (the main menu, `None`, has the version
-/// line instead: [`version_line`]), then its buttons. The heading and the version line are part of the picture, so they
+/// Opens a menu screen: the menu picture (`campaign::MENU_PICTURE`, in its own palette: screen spec, "Menu screens")
+/// with `heading` drawn over it (the main menu, `None`, has the version line instead: [`version_line`]), then its
+/// buttons. The heading and the version line are part of the picture, so they
 /// fade in with it (screen spec, "Pointer and fades"); the buttons are drawn by [`menu_input`] once the fade-in has
 /// ended.
 fn open_menu(
@@ -1115,14 +1118,7 @@ fn open_menu(
     labels: &[&str],
     state: AppState,
 ) {
-    let mut bg = picture(&mut front.install, cf::TITLE_PICTURE, None);
-    // Darkened so the buttons read.
-    for px in bg.rgba.chunks_exact_mut(4) {
-        for c in &mut px[..3] {
-            *c /= 3;
-        }
-    }
-    // Below the title picture's logo.
+    let mut bg = picture(&mut front.install, cf::MENU_PICTURE, None);
     let top = 300 - labels.len() as i32 * 10;
     let items = menu_items(labels, top);
     match heading {
@@ -2472,11 +2468,11 @@ mod tests {
     #[test]
     fn the_pointer_takes_the_screen_pictures_palette() {
         let mut f = flow(&[]);
-        assert_eq!(
-            pointer_palette(AppState::MainMenu, &f),
-            cf::TITLE_PICTURE,
-            "our menus are the title picture"
-        );
+        for s in [AppState::MainMenu, AppState::NewCampaign] {
+            // Human campaign, main menu after the title: the menu picture's palette, not the title picture's.
+            assert_eq!(pointer_palette(s, &f), "Art\\TitleMenu_BNE.pcx", "{s:?}");
+        }
+        assert_ne!(cf::MENU_PICTURE, cf::TITLE_PICTURE);
         f.current = Some(Step::Briefing(0));
         assert_eq!(pointer_palette(AppState::Briefing, &f), cf::briefing_background(0));
         f.score = Some(ScoreData {
