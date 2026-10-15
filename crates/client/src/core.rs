@@ -445,7 +445,7 @@ struct Placing {
 ///
 /// The pointer goes on top of everything: while the game runs the interface picture has it (`hud`); over a game's
 /// menus and dialogs the screen draws the local race's normal arrow (screen spec, "Pointer shapes"); outside a game it
-/// draws the flow screen's own pointer in its palette, or none (`frontend::screen_pointer`,
+/// draws the flow screen's own pointer, or none, and none through the screen's fades (`frontend::screen_pointer`,
 /// "Pointers outside a game"). The system's pointer shows only where the screen wants a pointer and has none.
 fn compose_screen(c: &mut Core) {
     let pictures = &c.pictures;
@@ -538,11 +538,11 @@ fn compose_screen(c: &mut Core) {
     let in_game = in_game(c);
     let hud = &c.hud;
     let hud_draws = hud.as_ref().is_some_and(|h| h.art.has_pointers()) && game_running(c);
-    // Outside a game the screen's own pointer; `hidden` when it shows none.
+    // Outside a game the screen's own pointer, gone through its fades; `hidden` when it shows none.
     let (arrow, hidden) = match hud {
         _ if hud_draws => (None, false),
         Some(h) if in_game => (h.art.pointer(crate::screen::Pointer::Arrow), false),
-        _ if !in_game => match frontend::screen_pointer(&c.front_screen, &c.front) {
+        _ if !in_game => match frontend::screen_pointer(&c.front_screen, &c.front, &c.layers, c.states.leaving()) {
             Ok(p) => (p, false),
             Err(()) => (None, true),
         },

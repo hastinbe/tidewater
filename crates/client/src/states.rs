@@ -54,6 +54,11 @@ impl Machine {
         self.next = Some(state);
     }
 
+    /// A change of screen has been asked for and not yet made.
+    pub fn leaving(&self) -> bool {
+        self.next.is_some()
+    }
+
     /// Takes the change asked for, if any, and makes its state the current one.
     pub fn take_transition(&mut self) -> Option<Transition> {
         let entered = self.next.take()?;

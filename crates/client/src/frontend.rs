@@ -534,9 +534,33 @@ pub(crate) fn choose_pointer(c: &mut Core) {
     };
 }
 
+/// Whether a flow screen shows its pointer, given each flow layer's tint and fade ("Pointer and fades"): it is gone
+/// from the frame a fade-out is given (a fade to below full colour) through the black and the next screen's fade-in,
+/// and comes back at full colour on the frame that shows the screen at its own palette. A screen with no fade shows
+/// it from its first frame.
+pub(crate) fn pointer_shows(layers: impl IntoIterator<Item = (f32, Option<Fade>)>) -> bool {
+    layers
+        .into_iter()
+        .all(|(tint, fade)| tint >= 1.0 && fade.is_none_or(|f| f.to >= 1.0))
+}
+
 /// The pointer the flow's screen draws now outside a game, with its hot spot; `Err(())` when it shows none, `Ok(None)`
-/// when it wants one the install lacks (the system's pointer shows instead).
-pub(crate) fn screen_pointer<'a>(screen: &'a FrontScreen, front: &'a Front) -> Result<Option<&'a ShapePicture>, ()> {
+/// when it wants one the install lacks (the system's pointer shows instead). A screen that closes without a fade-out
+/// (the briefing's Continue, the campaign choices) loses it on the frame that closes it (`leaving`), as one that
+/// fades out does.
+pub(crate) fn screen_pointer<'a>(
+    screen: &'a FrontScreen,
+    front: &'a Front,
+    layers: &Stack,
+    leaving: bool,
+) -> Result<Option<&'a ShapePicture>, ()> {
+    let flow = layers
+        .iter()
+        .filter(|e| matches!(e.role, Role::Flow(_)))
+        .map(|e| (e.layer.tint, e.fade));
+    if leaving || !pointer_shows(flow) {
+        return Err(());
+    }
     match &screen.pointer {
         ScreenPointer::Hidden => Err(()),
         ScreenPointer::Default => Ok(front.arrow.as_ref()),
@@ -2186,6 +2210,43 @@ mod tests {
         assert_eq!(pa.rgba[3], 0, "index 0 is clear");
         assert_eq!(pa.rgba[4..8], [10, 20, 30, 255]);
         assert_eq!(pb.rgba[4..8], [200, 100, 50, 255], "no palette of its own");
+    }
+
+    fn fade(from: f32, to: f32, at: f64, ms: f64) -> Option<Fade> {
+        Some(Fade { from, to, at, ms })
+    }
+
+    /// A screen of two flow layers with `f`, at clock `t`.
+    fn shows(f: Option<Fade>, t: f64) -> bool {
+        let tint = f.map_or(1.0, |f| f.tint(t));
+        pointer_shows([(tint, f), (tint, f)])
+    }
+
+    #[test]
+    fn a_menu_fade_out_hides_the_pointer_until_the_next_fade_in_ends() {
+        // Main menu, a button clicked at 1000: gone from the fade-out's first frame (still at full colour).
+        let out = fade(1.0, 0.0, 1000.0, fades::MENUS as f64);
+        assert!(!shows(out, 1000.0), "first frame of the 200 ms fade-out");
+        assert!(!shows(out, 1100.0));
+        assert!(!shows(out, 1200.0), "black");
+        // The next screen's 200 ms fade-in: still gone until it has ended.
+        let fade_in = fade(0.0, 1.0, 0.0, fades::MENUS as f64);
+        assert!(!shows(fade_in, 0.0));
+        assert!(!shows(fade_in, 199.0));
+        assert!(
+            shows(fade_in, 200.0),
+            "the frame that shows the screen at its own palette, at full colour"
+        );
+        assert!(shows(fade_in, 5000.0));
+    }
+
+    #[test]
+    fn a_screen_with_no_fade_in_shows_the_pointer_from_its_first_frame() {
+        // The briefing and the score screen: no fade.
+        assert!(shows(None, 0.0));
+        assert!(pointer_shows([]), "no flow layer at all");
+        // Any layer still faded hides it (the act screen's black before its first tick).
+        assert!(!pointer_shows([(1.0, None), (0.0, fade(0.0, 0.0, 0.0, 1.0))]));
     }
 
     #[test]

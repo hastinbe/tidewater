@@ -1,7 +1,6 @@
 # frame and sound fingerprints of the scripted scene `carry` (hashes only)
 sound	2	3bb3724654d4194d	0.7516	Once
-frames	1-1	bfb365cd2df24cda
-frames	2-2	156ed4086987e325
+frames	1-2	156ed4086987e325
 frames	3-3	2ab4d7048026f340
 frames	4-7	c2e52e287af839f4
 sound	9	b18b87133dda1256	0.9882	Despawn

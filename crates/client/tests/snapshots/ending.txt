@@ -1,16 +1,16 @@
 # frame and sound fingerprints of the scripted scene `ending` (hashes only)
 sound	2	394ae44d00b43a02	0.7516	Once
-frames	1-1	bfb365cd2df24cda
-frames	2-2	156ed4086987e325
+frames	1-2	156ed4086987e325
 frames	3-3	aeda0460997f4084
 frames	4-7	3f77e90baa3af244
 frames	8-10	030e6f78d43d6093
 frames	11-12	32f6c14c1f6008b8
 sound	14	c5439eac4ec44163	1.0000	Despawn
 frames	13-13	3f77e90baa3af244
+frames	14-15	9d511ccebcaa2d63
 sound	17	4394ae10eb7661e5	0.7516	Once
 sound	17	b076732c68240875	1.0000	Despawn
-frames	14-16	9d511ccebcaa2d63
+frames	16-16	7e067dcfb82d18a6
 frames	17-19	ceec481ca7c66bd0
 frames	20-23	f898ba567b3cc948
 frames	24-26	fb344c2bdc3768ed
@@ -104,12 +104,12 @@ frames	339-341	9bf0a84c3922d340
 frames	342-345	907cb4f466c3a52b
 shot	349	finale-later	31a3a12e9b6ac06a
 frames	346-349	31a3a12e9b6ac06a
-frames	350-350	7183022beb55648e
-frames	351-352	eee0ad53d0e4db36
-frames	353-353	7d880d44d17f986f
-frames	354-354	4cc0fee4bf20efc9
-shot	355	credits-fade	f8838bb7988d80ba
-frames	355-355	f8838bb7988d80ba
+frames	350-350	ed139c44c2efe7b9
+frames	351-352	156ed4086987e325
+frames	353-353	a1ff0316e2edf260
+frames	354-354	4a5d3da2e1791d02
+shot	355	credits-fade	2baea867e2b65439
+frames	355-355	2baea867e2b65439
 frames	356-357	6320d85c9dda1f5a
 frames	358-359	6b6bed614e9db9ce
 frames	360-361	e4ee79e77e7c8e6a
@@ -236,25 +236,26 @@ frames	648-649	f36c054564615f06
 frames	650-652	0b18d7ee3bed1bf6
 frames	653-654	bb5bbf8de0b3eb76
 shot	656	credits	4277161bd92bbb16
-frames	655-657	4277161bd92bbb16
-frames	658-658	aae87bce97d39c32
-frames	659-659	f2d9be7adc47afd6
-frames	660-660	8280f7f47daae3de
-shot	661	credits-closing	6b1044508b36035e
-frames	661-661	6b1044508b36035e
-frames	662-662	2585a9764c7c07dd
-frames	663-663	eee0ad53d0e4db36
-frames	664-664	4a5149f74cd488c8
-frames	665-665	ee71b0ebad0f826e
-frames	666-666	8d119f8699ff8fe3
-frames	667-667	af5fa4a0dca54452
-frames	668-668	2f7c2d36e1421f16
-frames	669-669	dec42f1a78aa6243
-frames	670-670	bcbb7c43cfe3257a
-frames	671-671	1d728161f53e708c
-frames	672-672	09b499d6bcbe7697
-frames	673-673	c05d9378697a34f4
-frames	674-674	bb085f80c64e76b4
+frames	655-656	4277161bd92bbb16
+frames	657-657	6b319d5411248025
+frames	658-658	3015c743e2e9da59
+frames	659-659	b8b8c6d0656fb689
+frames	660-660	8e5347145ac474c1
+shot	661	credits-closing	61168b8a7fcbb891
+frames	661-661	61168b8a7fcbb891
+frames	662-662	2cd97114bd86b5ca
+frames	663-663	156ed4086987e325
+frames	664-664	92580e9ed11cba93
+frames	665-665	918e81a25ce8b6e4
+frames	666-666	39bc2cea35cdff66
+frames	667-667	af8df925c41f7002
+frames	668-668	b258611943afb5bf
+frames	669-669	02a52859bc8f637b
+frames	670-670	334dc0769859c4de
+frames	671-671	3bd51fcfcd8b5664
+frames	672-672	d2a92b2bbb19954f
+frames	673-673	1863123d463d28ef
+frames	674-674	3e47c9cf6263c319
 shot	685	menu	eda7c413a7c2f974
 frames	675-685	eda7c413a7c2f974
 shot	690	load-empty	ebd0b18c6c21efc9

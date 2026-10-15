@@ -1,7 +1,6 @@
 # frame and sound fingerprints of the scripted scene `outcome` (hashes only)
 sound	2	3bb3724654d4194d	0.7516	Once
-frames	1-1	bfb365cd2df24cda
-frames	2-2	156ed4086987e325
+frames	1-2	156ed4086987e325
 frames	3-3	2ab4d7048026f340
 shot	8	game	c2e52e287af839f4
 frames	4-8	c2e52e287af839f4
@@ -41,15 +40,17 @@ shot	1005	score-counting	839c8d6636e1c1cf
 sound	1006	21b23e93a0f152e2	1.0000	Despawn
 frames	1005-1005	839c8d6636e1c1cf
 shot	1010	score-end	d049bd69c1e6dfa3
+frames	1006-1010	d049bd69c1e6dfa3
 sound	1012	d36048f4c95e13e6	1.0000	Despawn
-frames	1006-1011	d049bd69c1e6dfa3
+frames	1011-1011	48e719dfa6e93790
 frames	1012-1013	7ac14f933772b3b1
 frames	1014-1016	92514ce951915870
 frames	1017-1019	263e6ee1072cb1d6
 frames	1020-1022	7cf5c81fad0f82df
 shot	1023	briefing-next	c84063b3b5010cbd
+frames	1023-1023	c84063b3b5010cbd
 sound	1025	3bb3724654d4194d	0.7516	Once
-frames	1023-1024	c84063b3b5010cbd
+frames	1024-1024	cbfa635a07e3d4f3
 frames	1025-1025	156ed4086987e325
 frames	1026-1026	89e3999829c330ee
 frames	1027-1040	7ec8c4d57ef298de
@@ -131,8 +132,9 @@ frames	2016-2017	d85edc35c210c380
 shot	2018	score-defeat	5eb2e011f5429066
 sound	2019	21b23e93a0f152e2	1.0000	Despawn
 frames	2018-2018	5eb2e011f5429066
+frames	2019-2022	bbb37ca5f37ffd62
 sound	2024	d36048f4c95e13e6	1.0000	Despawn
-frames	2019-2023	bbb37ca5f37ffd62
+frames	2023-2023	3d6daef5ee94e61a
 frames	2024-2025	7ac14f933772b3b1
 frames	2026-2028	92514ce951915870
 frames	2029-2031	263e6ee1072cb1d6
