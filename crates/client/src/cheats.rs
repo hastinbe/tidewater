@@ -18,16 +18,13 @@
 //! Not yet here: command-line words (`cheats::from_arguments`) are not read because the command line is parsed by
 //! `clap`.
 
-use bevy::ecs::schedule::ScheduleConfigs;
-use bevy::ecs::system::ScheduleSystem;
-use bevy::prelude::*;
 use tidewater_sim::cheats::{self, Context, Flags, Line, MissionSelect, Word};
 use tidewater_sim::economy::Event;
 use tidewater_sim::{Command, Rules};
 
-use crate::frontend::{self, AppState, AppStates, Flow, Front, Step, in_screen};
+use crate::core::Core;
+use crate::frontend::{self, Flow, Step};
 use crate::input::Key;
-use crate::shell::PlayerInput;
 
 /// What to do with a typed line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,7 +68,7 @@ pub fn submit(rules: &Rules, flags: Flags, player: u8, line: &str, pending: &mut
 }
 
 /// Cheat outcomes for the flow, filled by `tick` and the chat line and read by [`run`].
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct Queue {
     /// The finale cheat fired: `bdp` says which ending.
     finale: Option<bool>,
@@ -94,34 +91,22 @@ impl Queue {
     }
 }
 
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Queue>();
-}
-
-/// The disco cheat's music (`frame_systems` in `main.rs` has the order).
-pub(crate) fn disco_system() -> ScheduleConfigs<ScheduleSystem> {
-    play_disco.run_if(in_screen(AppState::Game))
-}
-
-/// The cheats typed this frame.
-pub(crate) fn cheat_system() -> ScheduleConfigs<ScheduleSystem> {
-    run.run_if(in_screen(AppState::Game))
-}
-
 /// The disco cheat changes the game's track (music spec, "Disco cheat").
-fn play_disco(
-    mut queue: ResMut<Queue>,
-    sim: Option<Res<crate::Sim>>,
-    origin: Option<Res<crate::shell::Held<crate::savegame::GameOrigin>>>,
-    speaker: Option<ResMut<crate::Speaker>>,
-    mut jukebox: ResMut<crate::jukebox::Jukebox>,
-) {
+pub(crate) fn play_disco(c: &mut Core) {
+    let Core {
+        cheats: queue,
+        sim,
+        origin,
+        speaker,
+        jukebox,
+        ..
+    } = c;
     let Some(on) = queue.disco.take() else { return };
-    let (Some(sim), Some(mut speaker)) = (sim, speaker) else {
+    let (Some(sim), Some(speaker)) = (sim.as_ref(), speaker.as_mut()) else {
         return;
     };
     let orc = sim.world.start.orc_sounds;
-    let campaign = origin.and_then(|o| o.setup.campaign());
+    let campaign = origin.as_ref().and_then(|o| o.setup.campaign());
     jukebox.disco(on, || {
         crate::music::game_track(orc, campaign, false, &mut speaker.director.shuffle)
     });
@@ -129,23 +114,27 @@ fn play_disco(
 
 /// Starts the world's flags from the flow, keeps the flow's settings in step with the world's flags, and leaves the
 /// game for a finale or a chosen mission.
-fn run(
-    sim: Option<ResMut<crate::Sim>>,
-    mut queue: ResMut<Queue>,
-    mut flow: ResMut<Flow>,
-    front: Res<Front>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+pub(crate) fn run(c: &mut Core) {
+    let Core {
+        sim,
+        sim_new,
+        cheats: queue,
+        flow,
+        front,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c;
     let keys = &input.keys;
-    let Some(mut sim) = sim else { return };
-    if sim.is_added() {
+    let Some(sim) = sim.as_mut() else { return };
+    // A game that is new since the last frame this ran (what Bevy's `is_added` told).
+    if std::mem::take(sim_new) {
         // "Flags across games": a new game starts with the three kept flags only.
         let kept = flow.cheat_flags.for_new_game();
         sim.world.start_cheats(kept);
     }
-    sync_flow(&mut flow, sim.world.cheats.flags);
+    sync_flow(flow, sim.world.cheats.flags);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = if let Some(m) = queue.mission.take() {
         // The game ends with no score screen and the mission starts with its act screen and briefing.
@@ -160,11 +149,9 @@ fn run(
         return;
     };
     flow.steps = steps.into();
-    match frontend::advance(&mut flow, &front.install, ctrl) {
+    match frontend::advance(flow, &front.install, ctrl) {
         Some(s) => next.set(s),
-        None => {
-            exit.write(AppExit::Success);
-        }
+        None => *exit = true,
     }
 }
 

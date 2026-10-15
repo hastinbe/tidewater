@@ -20,17 +20,13 @@
 //!   this client displays or uses yet (no network or demo playback, no debug displays).
 //! - Multiplayer chat (recipients, the Classic "chat sent" notice) needs network games, which this client doesn't have.
 
-use bevy::prelude::*;
 use tidewater_sim::cheats::Word;
 
 use crate::cheats::{self, Outcome};
-use crate::frontend;
-use crate::gamemenu::Stored;
-use crate::input::{Input, Key, KeyEvent, LogCursor};
+use crate::core::{self, Core};
+use crate::input::{Input, Key, KeyEvent};
 use crate::messages::{self, Text};
 use crate::prefs::bit;
-use crate::shell::PlayerInput;
-use crate::{ScreenUi, Sim};
 
 /// The label in front of the typed text.
 pub const LABEL: &str = "Message: ";
@@ -78,7 +74,7 @@ pub fn typing_key(k: Key) -> bool {
 }
 
 /// Developer and local settings toggled by typed words (`game/cheats.md`, "Word codes") that only this machine keeps.
-#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalSettings {
     pub sync_check: bool,
     pub fast_demo: bool,
@@ -128,37 +124,27 @@ pub fn after(outcome: Outcome, local: &mut LocalSettings) -> After {
     }
 }
 
-pub fn plugin(app: &mut App) {
-    app.init_resource::<LocalSettings>().add_systems(
-        PreUpdate,
-        chat_keys
-            .after(crate::shell::ReadInput)
-            // The pointer lock reads the held keys before the chat line takes the typing keys.
-            .after(crate::mouse_lock)
-            .run_if(frontend::in_screen(frontend::AppState::Game)),
-    );
-}
-
-/// Opens, edits, sends and closes the chat line, and takes the typing keys from the game while it is open.
-#[allow(clippy::too_many_arguments)]
-fn chat_keys(
-    mut typed: Local<LogCursor>,
-    scr: Option<ResMut<ScreenUi>>,
-    sim: Option<ResMut<Sim>>,
-    mut queue: ResMut<cheats::Queue>,
-    mut stored: ResMut<Stored>,
-    mut local: ResMut<LocalSettings>,
-    state: Res<frontend::AppStates>,
-    dialog: Option<Res<frontend::OutcomeDialog>>,
-    menu: Option<Res<crate::gamemenu::GameMenu>>,
-    mut input: ResMut<PlayerInput>,
-) {
-    let Input { keys, typed: log, .. } = &mut **input;
-    let events: Vec<KeyEvent> = log.read(&mut typed).cloned().collect();
-    let (Some(mut scr), Some(mut sim)) = (scr, sim) else {
+/// Opens, edits, sends and closes the chat line, and takes the typing keys from the game while it is open. Runs in the
+/// game screen, after the pointer is placed (the pointer lock reads the held keys before the chat line takes the
+/// typing keys).
+pub(crate) fn chat_keys(c: &mut Core) {
+    let running = core::game_running(c);
+    let Core {
+        chat_typed: typed,
+        screen_ui: scr,
+        sim,
+        cheats: queue,
+        stored,
+        local,
+        input,
+        ..
+    } = c;
+    let Input { keys, typed: log, .. } = input;
+    let events: Vec<KeyEvent> = log.read(typed).cloned().collect();
+    let (Some(scr), Some(sim)) = (scr.as_mut(), sim.as_mut()) else {
         return;
     };
-    if !frontend::game_running(state, dialog, menu) {
+    if !running {
         return;
     }
     let held = keys.any_pressed([Key::ControlLeft, Key::ControlRight, Key::AltLeft, Key::AltRight]);
@@ -203,10 +189,9 @@ fn chat_keys(
         taken.into_iter().for_each(|k| keys.reset(k));
     }
     if send {
-        let sim = &mut *sim;
         let (rules, flags, human) = (sim.world.rules.clone(), sim.world.cheats.flags, sim.human);
         let outcome = cheats::submit(&rules, flags, human, &line, &mut sim.pending);
-        match after(outcome, &mut local) {
+        match after(outcome, local) {
             After::Nothing => {}
             After::Mission(m) => queue.mission = Some(m),
             After::Notice { text, colour_cycling } => {

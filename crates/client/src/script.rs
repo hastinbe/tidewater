@@ -4,18 +4,15 @@
 //!
 //! The input goes in where the system's input comes in: the scene's key, button and wheel events replace the system's
 //! in the player's input (`input::Input`) before the frame's input is applied, so keys and buttons behave as typed ones
-//! do. The pointer is put
-//! in [`frontend::LockedPointer`], which every pointer reading goes through; the mouse lock is off in a scripted run.
-//! The window counts as focused.
+//! do. The pointer is the scene's ([`Run::pointer`]), put where the system's would be; the mouse lock is off in a
+//! scripted run. The window counts as focused.
 
-use bevy::input::mouse::MouseMotion;
-use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use glam::Vec2;
 
 use crate::compose::{Frame, H, W};
-use crate::frontend::{AppState, AppStates, LockedPointer, Step};
-use crate::input::{Button, Key, KeyEvent, Wheel};
-use crate::shell::{PlayerInput, ReadInput};
+use crate::core::Core;
+use crate::frontend::{AppState, Step};
+use crate::input::{Button, Key, KeyEvent, Wheel, WindowGeom};
 
 /// One step of a scene's input.
 #[derive(Clone, Debug, PartialEq)]
@@ -452,7 +449,6 @@ pub fn scene(name: &str) -> Option<Scene> {
 }
 
 /// The run of a scene.
-#[derive(Resource)]
 pub struct Script {
     pub scene: Scene,
     next: usize,
@@ -480,35 +476,55 @@ impl Script {
     }
 }
 
-/// The scripted input goes in before Bevy's input systems and before the frame's input is applied
-/// (`shell::ReadInput`), and so before the systems that read the pointer.
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ScriptInput;
-
-pub fn plugin(app: &mut App) {
-    app.configure_sets(
-        PreUpdate,
-        ScriptInput.before(bevy::input::InputSystems).before(ReadInput),
-    )
-    .add_systems(PreUpdate, drive.in_set(ScriptInput).run_if(resource_exists::<Script>));
+/// A scripted run: the scene, what it saw, where it writes, and the scene's pointer.
+pub struct Run {
+    pub script: Script,
+    pub record: Record,
+    pub out: Out,
+    /// The scene's pointer in the window's logical points, where the system's would be (set by [`drive`]).
+    pointer: Option<(f32, f32)>,
+    /// The fingerprints are written.
+    finished: bool,
 }
 
-/// One frame of the scene: runs its commands until one waits, and replaces the system's input with the scene's.
-#[allow(clippy::too_many_arguments)]
-fn drive(
-    mut script: ResMut<Script>,
-    state: Res<AppStates>,
-    sim: Option<Res<crate::Sim>>,
-    dialog: Option<Res<crate::frontend::OutcomeDialog>>,
-    window: Query<&Window, With<PrimaryWindow>>,
-    mut input: ResMut<PlayerInput>,
-    mut motion: ResMut<Messages<MouseMotion>>,
-    mut locked: ResMut<LockedPointer>,
-) {
-    input.clear_events();
-    motion.clear();
-    let Ok(w) = window.single() else { return };
-    let s = &mut *script;
+impl Run {
+    /// A run of `scene` that writes to `out`.
+    pub fn new(scene: Scene, out: Out) -> Run {
+        if let Err(e) = std::fs::create_dir_all(&out.dir) {
+            eprintln!("can't make {}: {e}", out.dir.display());
+        }
+        Run {
+            script: Script::new(scene),
+            record: Record::default(),
+            out,
+            pointer: None,
+            finished: false,
+        }
+    }
+
+    /// The scene's pointer in the window's logical points.
+    pub fn pointer(&self) -> Option<(f32, f32)> {
+        self.pointer
+    }
+}
+
+/// One frame of the scene, at the frame's start: runs its commands until one waits, and replaces the system's input
+/// with the scene's. `window`: the window, without which the scene waits.
+pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
+    c.input.clear_events();
+    let Some(w) = window else { return };
+    let state = c.states.get();
+    let tick = c.sim.as_ref().map(|s| s.world.tick);
+    let outcome = c.dialog.is_some();
+    let Core {
+        script: Some(run),
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
+    let s = &mut run.script;
     s.frame += 1;
     s.shots.clear();
     let key = |key: Key, pressed: bool, text: Option<&str>| KeyEvent {
@@ -527,17 +543,17 @@ fn drive(
                 s.waiting = None;
             }
             Cmd::Until(want) => {
-                if state.get() != want {
+                if state != want {
                     break;
                 }
             }
             Cmd::UntilCycle(n) => {
-                if sim.as_ref().is_none_or(|sim| sim.world.tick < n) {
+                if tick.is_none_or(|t| t < n) {
                     break;
                 }
             }
             Cmd::UntilOutcome => {
-                if dialog.is_none() {
+                if !outcome {
                     break;
                 }
             }
@@ -566,11 +582,11 @@ fn drive(
     }
     s.done = s.next >= s.scene.cmds.len();
     // The pointer in the window's logical points, where the system's would be (`display::Letterbox`).
-    let size = w.physical_size();
-    let lb = crate::display::Letterbox::fit((size.x, size.y));
-    let f = w.scale_factor();
+    let p = s.pointer;
+    let lb = crate::display::Letterbox::fit(w.size);
+    let f = w.factor;
     let at = |p: f32, offset: u32| (offset as f32 + p * lb.scale as f32) / f;
-    locked.0 = Some(Vec2::new(at(s.pointer.x, lb.offset.0), at(s.pointer.y, lb.offset.1)));
+    run.pointer = Some((at(p.x, lb.offset.0), at(p.y, lb.offset.1)));
 }
 
 /// FNV-1a, 64 bits: the frame and sound fingerprints.
@@ -584,7 +600,7 @@ pub fn fnv64(bytes: &[u8]) -> u64 {
 }
 
 /// What a scripted run saw: the frame fingerprints (one line per run of equal frames), the shots' and the sounds'.
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct Record {
     lines: Vec<String>,
     /// The current run of equal frames: its first frame and fingerprint.
@@ -592,9 +608,9 @@ pub struct Record {
     last: u32,
     /// The scene has run all its commands.
     ended: bool,
-    /// The shots' composed frames, until Bevy's screenshot of the same frame arrives (with a window).
+    /// The shots' composed frames, until the window's screenshot of the same frame arrives (with a window).
     pending: Vec<(&'static str, Frame)>,
-    /// Shots compared with Bevy's screenshot: name, differing pixels.
+    /// Shots compared with the window's screenshot: name, differing pixels.
     pub compared: Vec<(&'static str, usize)>,
     /// The mixed sound's fingerprints (the audio snapshot).
     sound: crate::audio::Fingerprints,
@@ -653,7 +669,7 @@ impl Record {
 }
 
 /// Where a scripted run writes, and whether it has a window.
-#[derive(Resource, Clone)]
+#[derive(Clone)]
 pub struct Out {
     pub dir: std::path::PathBuf,
     pub windowed: bool,
@@ -665,30 +681,39 @@ pub struct Out {
 
 /// Notes the sounds started this frame in the core's mixer: the sound's bytes' fingerprint, its loudness and how it
 /// plays.
-fn note_sounds(script: Res<Script>, mut rec: ResMut<Record>, mut audio: ResMut<crate::shell::CoreAudio>) {
-    let starts = audio.take_starts();
-    let lines = rec.start_lines(script.frame, starts);
-    rec.lines.extend(lines);
+pub(crate) fn note_sounds(c: &mut Core) {
+    let Some(run) = &mut c.script else { return };
+    let starts = c.audio.take_starts();
+    let lines = run.record.start_lines(run.script.frame, starts);
+    run.record.lines.extend(lines);
 }
 
-/// Composes the frame the window shows, notes its fingerprint and keeps the scene's shots; with a window, asks Bevy
-/// for its screenshot of the same frame. Ends the run when the scene is done and every screenshot is in.
-fn record(world: &mut World) {
-    let Some(frame) = crate::shell::shown_frame(world) else {
-        return;
-    };
-    let (n, shots, done) = {
-        let s = world.resource::<Script>();
-        (s.frame, s.shots.clone(), s.done)
-    };
+/// What [`record`] asks of the platform.
+#[derive(Default)]
+pub struct Recorded {
+    /// The shots to take the window's own screenshot of (with a window), for [`compare_shot`].
+    pub screenshots: Vec<&'static str>,
+    /// The scene is done and every screenshot is in: the program ends.
+    pub finished: bool,
+}
+
+/// Notes the fingerprint of the frame the window shows and keeps the scene's shots; with a window, asks for the
+/// window's screenshot of the same frame. Ends the run when the scene is done and every screenshot is in, or when the
+/// program is ending on its own (`exiting`: a quit key; the fingerprints so far are kept, marked).
+///
+/// `frame`: the composed screen as the window shows it at one window pixel per screen pixel, `None` without a window
+/// or when the window shows it larger (the run's frames are then the platform's own). `output`: the core's mixer.
+pub fn record(run: &mut Run, frame: Option<&Frame>, output: &crate::audio::Output, exiting: bool) -> Recorded {
+    let mut asked = Recorded::default();
+    let Some(frame) = frame else { return asked };
+    let (n, shots, done) = (run.script.frame, run.script.shots.clone(), run.script.done);
     let hash = frame.hash();
-    let out = world.resource::<Out>().clone();
-    // The frame's share of the mixed sound: the sounds started in this frame start at its first sample.
-    let output = world.resource::<crate::shell::CoreAudio>().output();
-    let mut rec = world.resource_mut::<Record>();
+    let out = run.out.clone();
+    let rec = &mut run.record;
     // Frames after the scene's end (while screenshots come in) aren't part of it.
     if !rec.ended {
         rec.frame(n, hash);
+        // The frame's share of the mixed sound: the sounds started in this frame start at its first sample.
         let mut samples = vec![0i16; 2 * crate::audio::frames_for(n as u64 - 1, (1.0 / FRAME_SECS).round() as u64)];
         output.mix(&mut samples);
         rec.sound.add(&samples);
@@ -699,26 +724,21 @@ fn record(world: &mut World) {
     }
     if !out.windowed && out.pictures {
         for &name in &shots {
-            save_png(&out.dir.join(format!("{name}-composed.png")), frame.rgba.clone());
+            save_png(&out.dir.join(format!("{name}-composed.png")), &frame.rgba);
         }
         if out.every > 0 && n % out.every == 0 {
-            save_png(&out.dir.join(format!("frame{n:05}.png")), frame.rgba.clone());
+            save_png(&out.dir.join(format!("frame{n:05}.png")), &frame.rgba);
         }
     }
     if out.windowed {
         for &name in &shots {
-            world.resource_mut::<Record>().pending.push((name, frame.clone()));
-            world
-                .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
-                .observe(compare_shot(name));
+            rec.pending.push((name, frame.clone()));
+            asked.screenshots.push(name);
         }
     }
-    let finished = done && world.resource::<Record>().pending.is_empty();
-    // The program may end on its own (a quit key): the fingerprints so far are kept, marked.
-    let ended = !world.resource::<Messages<AppExit>>().is_empty();
-    if (finished || ended) && !world.contains_resource::<Finished>() {
-        let rec = world.resource::<Record>();
-        let scene = world.resource::<Script>().scene.name;
+    let finished = done && rec.pending.is_empty();
+    if (finished || exiting) && !run.finished {
+        let scene = run.script.scene.name;
         let mut text = rec.text(scene);
         text.push_str(&written_files(&out.dir.join("save")));
         if !finished {
@@ -736,15 +756,11 @@ fn record(world: &mut World) {
             let report: String = rec.compared.iter().map(|(n, d)| format!("{n}\t{d}\n")).collect();
             let _ = std::fs::write(out.dir.join(format!("{scene}-compare.txt")), report);
         }
-        world.insert_resource(Finished);
-        if finished {
-            world.write_message(AppExit::Success);
-        }
+        run.finished = true;
+        asked.finished = finished;
     }
+    asked
 }
-
-#[derive(Resource)]
-struct Finished;
 
 /// A fingerprint line for each file the run wrote to its own folder (saved games, screenshots), by name.
 fn written_files(dir: &std::path::Path) -> String {
@@ -765,90 +781,60 @@ fn written_files(dir: &std::path::Path) -> String {
         .collect()
 }
 
-/// Compares Bevy's screenshot of a shot's frame with the composed frame, and saves both (and the differing pixels in
-/// white) as pictures in the output folder.
-fn compare_shot(
-    name: &'static str,
-) -> impl FnMut(On<bevy::render::view::screenshot::ScreenshotCaptured>, ResMut<Record>, Res<Out>) {
-    move |ev, mut rec, out| {
-        let Some(i) = rec.pending.iter().position(|(n, _)| *n == name) else {
-            return;
-        };
-        let (_, cpu) = rec.pending.remove(i);
-        let Ok(img) = ev.image.clone().try_into_dynamic() else {
-            return;
-        };
-        let gpu = img.to_rgba8();
-        let (w, h) = (gpu.width() as usize, gpu.height() as usize);
-        let lb = crate::display::Letterbox::fit((w as u32, h as u32));
-        let (ox, oy) = (lb.offset.0 as usize, lb.offset.1 as usize);
-        let mut diff = vec![0u8; W * H * 4];
-        let mut gpu_screen = vec![0u8; W * H * 4];
-        let mut differing = 0;
-        for y in 0..H {
-            for x in 0..W {
-                let (gx, gy) = (ox + x, oy + y);
-                let g = if gx < w && gy < h {
-                    let p = gpu.get_pixel(gx as u32, gy as u32).0;
-                    [p[0], p[1], p[2], 255]
-                } else {
-                    [0, 0, 0, 255]
-                };
-                let i = (y * W + x) * 4;
-                gpu_screen[i..i + 4].copy_from_slice(&g);
-                let c = &cpu.rgba[i..i + 3];
-                let same = c == &g[..3];
-                if !same {
-                    differing += 1;
-                }
-                let v = if same { 0 } else { 255 };
-                diff[i..i + 4].copy_from_slice(&[v, v, v, 255]);
+/// Compares the window's own screenshot of the shot `name` with the composed frame, and saves both (and the
+/// differing pixels in white) as pictures in the output folder. `shot`: the screenshot's width, height and RGBA bytes,
+/// or `None` if it couldn't be read.
+pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usize, &[u8])>) {
+    let rec = &mut run.record;
+    let Some(i) = rec.pending.iter().position(|(n, _)| *n == name) else {
+        return;
+    };
+    let (_, cpu) = rec.pending.remove(i);
+    let Some((w, h, gpu)) = shot else { return };
+    let lb = crate::display::Letterbox::fit((w as u32, h as u32));
+    let (ox, oy) = (lb.offset.0 as usize, lb.offset.1 as usize);
+    let mut diff = vec![0u8; W * H * 4];
+    let mut gpu_screen = vec![0u8; W * H * 4];
+    let mut differing = 0;
+    for y in 0..H {
+        for x in 0..W {
+            let (gx, gy) = (ox + x, oy + y);
+            let g = if gx < w && gy < h {
+                let at = (gy * w + gx) * 4;
+                [gpu[at], gpu[at + 1], gpu[at + 2], 255]
+            } else {
+                [0, 0, 0, 255]
+            };
+            let i = (y * W + x) * 4;
+            gpu_screen[i..i + 4].copy_from_slice(&g);
+            let c = &cpu.rgba[i..i + 3];
+            let same = c == &g[..3];
+            if !same {
+                differing += 1;
             }
+            let v = if same { 0 } else { 255 };
+            diff[i..i + 4].copy_from_slice(&[v, v, v, 255]);
         }
-        rec.compared.push((name, differing));
-        for (suffix, rgba) in [("bevy", gpu_screen), ("composed", cpu.rgba), ("diff", diff)] {
-            save_png(&out.dir.join(format!("{name}-{suffix}.png")), rgba);
-        }
+    }
+    rec.compared.push((name, differing));
+    for (suffix, rgba) in [("bevy", gpu_screen), ("composed", cpu.rgba), ("diff", diff)] {
+        save_png(&run.out.dir.join(format!("{name}-{suffix}.png")), &rgba);
     }
 }
 
-fn save_png(path: &std::path::Path, rgba: Vec<u8>) {
-    let img = Image::new(
-        bevy::render::render_resource::Extent3d {
-            width: W as u32,
-            height: H as u32,
-            depth_or_array_layers: 1,
-        },
-        bevy::render::render_resource::TextureDimension::D2,
-        rgba,
-        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-        bevy::asset::RenderAssetUsages::default(),
-    );
-    if let Ok(d) = img.try_into_dynamic()
-        && let Err(e) = d.save(path)
-    {
+/// Saves a 640 × 480 RGBA picture as a PNG file (the `png` crate's encoder).
+fn save_png(path: &std::path::Path, rgba: &[u8]) {
+    let write = || -> Result<(), Box<dyn std::error::Error>> {
+        let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+        let mut enc = png::Encoder::new(file, W as u32, H as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header()?.write_image_data(rgba)?;
+        Ok(())
+    };
+    if let Err(e) = write() {
         eprintln!("can't write {}: {e}", path.display());
     }
-}
-
-/// Sets a scripted run up: the scene's input, a fixed frame time, the fingerprints.
-pub fn setup(app: &mut App, scene: Scene, out: Out) {
-    if let Err(e) = std::fs::create_dir_all(&out.dir) {
-        eprintln!("can't make {}: {e}", out.dir.display());
-    }
-    app.insert_resource(Script::new(scene))
-        .insert_resource(out)
-        .init_resource::<Record>()
-        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
-            std::time::Duration::from_secs_f64(FRAME_SECS),
-        ))
-        .add_systems(
-            Last,
-            (note_sounds, record)
-                .chain()
-                .after(crate::shell::ComposeScreen)
-                .after(crate::screenshot::write_shot),
-        );
 }
 
 #[cfg(test)]

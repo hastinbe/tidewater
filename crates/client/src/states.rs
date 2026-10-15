@@ -121,8 +121,9 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
     }
 }
 
-/// Every hook, for a shell that prepares them once.
-pub const HOOKS: [Hook; 17] = {
+/// Every hook: the test checks that each is used.
+#[cfg(test)]
+const HOOKS: [Hook; 17] = {
     use Hook::*;
     [
         StopMusic,

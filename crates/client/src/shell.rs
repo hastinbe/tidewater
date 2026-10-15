@@ -1,65 +1,245 @@
-//! The window shows one picture: the 640 × 480 screen, composed on the CPU by [`compose`] each frame and drawn at the
-//! window's whole-number scale with black around it (`display::Letterbox`). This is the first step of the
-//! engine-neutral client core (`docs/design/client-core.md`): Bevy no longer stacks the screen's layers itself.
+//! The Bevy shell: the platform side of the client core (`core`, `docs/design/client-core.md` step 9). It opens the
+//! window, hands the core the system's input and the real time once a frame, shows the frame the core composed at the
+//! window's whole-number scale with black around it (`display::Letterbox`), plays the core's mixer on the sound device,
+//! holds the system's pointer (the mouse lock, `display`) and sizes the window to the monitor. Everything else is the
+//! core's, and engine-neutral.
 //!
-//! The layers are the core's (`layers`, steps 3 and 9 of the design): each is a picture in [`ScreenPictures`] and a
-//! layer in [`ScreenLayers`] that says where it goes, and [`compose_screen`] puts them on the screen in order. The map
-//! view's place, centre and zoom are the core's too (`mapview`, step 2); Bevy's only camera shows the finished screen.
-//!
-//! | Order | Plane (`layers::Plane`) | Layers | Placed |
-//! |---|---|---|---|
-//! | 1 | Map | Terrain, map view, placement image (by z) | In the map view (`hud::Layout::viewport`), around the view's centre, at the zoom |
-//! | 2 | Interface | The interface picture (`Hud`) | Centred on the screen, one picture pixel per screen pixel |
-//! | 3 | Flow | The flow's layers (`frontend`, `gamemenu`: screens, dialogs, menus), by z | Centred on the screen at their size, with their fade |
-//!
-//! Outside a game the flow's screen is cleared before its layers (`frontend::FrontScreen`), so only they show there.
-//!
-//! The pointer goes on top of everything: while the game runs the interface picture has it (`hud`); everywhere else
-//! the screen draws the normal arrow (screen spec, "Pointer shapes": the local race's in a game, the human one outside
-//! it), and the system's pointer is hidden whenever the screen draws one.
+//! A Bevy frame: `First` hands the window's key, button and wheel events to the core's input; `PreUpdate`, after
+//! Bevy's input systems, runs [`Core::advance`](crate::core::Core::advance) and applies what the frame asked of the
+//! window (title, system pointer, exit, size); `Last` writes the settings on a normal exit, places the screen's picture
+//! and records a scripted run's frame (`script`).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, Viewport};
 use bevy::ecs::message::MessageUpdateSystems;
-use bevy::ecs::system::SystemParam;
 use bevy::input::keyboard::{KeyboardFocusLost, KeyboardInput};
-use bevy::input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel};
+use bevy::input::mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use bevy::window::{CursorOptions, PrimaryWindow};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
-use crate::clock::FrameClock;
-use crate::compose::{self, Clip, Frame, Placed};
-use crate::frontend::{AppState, AppStates, Front, FrontScreen, LockedPointer, OutcomeDialog};
-use crate::gamemenu::GameMenu;
-use crate::input::{Button, Input, Key, KeyEvent, Wheel};
-use crate::layers::{Entry, Layer, PictureId, Pictures, Plane, Role, Stack};
-use crate::{GameView, Hud};
+use crate::compose::{self, Frame};
+use crate::core::{Core, Platform};
+use crate::display;
+use crate::input::{Button, Buttons, Key, KeyEvent, Wheel, WindowGeom};
 
-/// The storage the shell gives the core (`storage`, migration step 8): the installation, saves, settings, screenshots
-/// and the wall clock.
-#[derive(Resource, Clone, Deref)]
-pub struct Store(pub std::sync::Arc<dyn crate::storage::Storage>);
+/// The client core, as the Bevy app's one resource of its own.
+#[derive(Resource, Deref, DerefMut)]
+struct CoreRes(Core);
 
-impl Store {
-    /// The save folder.
-    pub fn folder(&self) -> crate::saves::SaveDir {
-        crate::saves::SaveDir::new(self.0.clone())
+/// Runs the core in a Bevy app until it exits. `headless`: a scripted run without a window (no window system, no
+/// sound device, no GPU); a scripted run with a window mixes its sound itself (`script`) and plays none.
+pub fn run(core: Core, title: String, ui_scale: Option<u32>, headless: bool) {
+    let scripted = core.script.is_some();
+    // Until `size_window` knows the monitor: the explicit size, or the plain 640 × 480 points.
+    let points = ui_scale.unwrap_or(1);
+    let mut resolution = bevy::window::WindowResolution::new(display::SCREEN.0 * points, display::SCREEN.1 * points);
+    if scripted {
+        // One physical pixel per screen pixel whatever the display, so the screen fills the window exactly.
+        resolution = resolution.with_scale_factor_override(1.0);
+    }
+    let mut window = Window {
+        title,
+        resolution,
+        ..default()
+    };
+    if scripted {
+        // A scripted window doesn't take the keyboard from what the user is doing (its input is the scene's), and
+        // stays on top, since a covered window may not be drawn and its screenshots come out black.
+        window.focused = false;
+        window.window_level = bevy::window::WindowLevel::AlwaysOnTop;
+    }
+    let plugins = DefaultPlugins.set(ImagePlugin::default_nearest());
+    let mut app = App::new();
+    if headless {
+        app.add_plugins(
+            plugins
+                .set(WindowPlugin {
+                    primary_window: Some(window),
+                    exit_condition: bevy::window::ExitCondition::DontExit,
+                    close_when_requested: false,
+                    ..default()
+                })
+                .set(bevy::render::RenderPlugin {
+                    render_creation: bevy::render::settings::WgpuSettings {
+                        backends: None,
+                        ..default()
+                    }
+                    .into(),
+                    ..default()
+                })
+                .disable::<bevy::winit::WinitPlugin>()
+                .disable::<bevy::audio::AudioPlugin>(),
+        )
+        .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO));
+    } else if scripted {
+        app.add_plugins(
+            plugins
+                .set(WindowPlugin {
+                    primary_window: Some(window),
+                    ..default()
+                })
+                .disable::<bevy::audio::AudioPlugin>(),
+        );
+    } else {
+        app.add_plugins(plugins.set(WindowPlugin {
+            primary_window: Some(window),
+            ..default()
+        }));
+        // The device pulls the core's mixer.
+        use bevy::audio::AddAudioSource;
+        app.add_audio_source::<CoreStream>().add_systems(Startup, start_stream);
+    }
+    if scripted {
+        // A fixed frame time, so a run comes out the same every time.
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(crate::script::FRAME_SECS),
+        ));
+    }
+    app.insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(WindowSizing {
+            explicit: ui_scale.is_some(),
+            frames: 0,
+        })
+        .insert_resource(LockedPointer(None))
+        .insert_resource(CoreRes(core))
+        .add_systems(Startup, spawn_screen)
+        .add_systems(First, take_system_input.after(MessageUpdateSystems))
+        .add_systems(PreUpdate, run_core.after(bevy::input::InputSystems))
+        .add_systems(Last, (store_settings, show_screen, record).chain());
+    app.run();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The frame
+
+/// The window as the core sees it (`core::Platform`).
+struct BevyWindow<'a> {
+    window: Option<(&'a mut Window, &'a mut CursorOptions)>,
+    locked: &'a mut LockedPointer,
+    motion: Vec2,
+    lock_enabled: bool,
+}
+
+impl Platform for BevyWindow<'_> {
+    fn window(&self) -> Option<WindowGeom> {
+        self.window.as_ref().map(|(w, _)| WindowGeom {
+            size: (w.physical_width(), w.physical_height()),
+            factor: w.scale_factor(),
+        })
+    }
+
+    fn pointer(&mut self, keys: &Buttons<Key>, game_pointer: bool) -> (Option<(f32, f32)>, bool) {
+        let Some((window, cursor)) = self.window.as_mut() else {
+            return (None, false);
+        };
+        mouse_lock(
+            window,
+            cursor,
+            self.locked,
+            self.motion,
+            keys,
+            game_pointer,
+            self.lock_enabled,
+        );
+        let at = self.locked.0.or(window.cursor_position());
+        (at.map(|p| (p.x, p.y)), window.focused)
     }
 }
 
-/// One of the core's own values kept as a Bevy resource, until the core holds its state itself (step 9).
-#[derive(Resource, Deref, DerefMut)]
-pub struct Held<T: Send + Sync + 'static>(pub T);
+/// One frame of the core, and what it asked of the window.
+#[allow(clippy::too_many_arguments)]
+fn run_core(
+    mut core: ResMut<CoreRes>,
+    real: Res<Time<Real>>,
+    mut windows: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
+    mut locked: ResMut<LockedPointer>,
+    motion: Res<AccumulatedMouseMotion>,
+    mut sizing: ResMut<WindowSizing>,
+    monitors: Query<&bevy::window::Monitor, With<bevy::window::PrimaryMonitor>>,
+    mut images: ResMut<Assets<Image>>,
+    screen: Option<Res<Screen>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let lock_enabled = !core.opts.no_mouse_lock;
+    let mut platform = BevyWindow {
+        window: windows.single_mut().ok().map(|(w, c)| (w.into_inner(), c.into_inner())),
+        locked: &mut locked,
+        motion: motion.delta,
+        lock_enabled,
+    };
+    core.advance(real.delta(), &mut platform);
+    if std::mem::take(&mut core.exit) {
+        exit.write(AppExit::Success);
+    }
+    if let Some(mut img) = screen.and_then(|s| images.get_mut(&s.image)) {
+        img.data = Some(core.frame.rgba.clone());
+    }
+    let Ok((mut window, mut cursor)) = windows.single_mut() else {
+        return;
+    };
+    if let Some(title) = core.title.take() {
+        window.title = title;
+    }
+    if cursor.visible != core.cursor_visible {
+        cursor.visible = core.cursor_visible;
+    }
+    size_window(&mut sizing, monitors.single().ok(), &mut window);
+    fit_screen(&mut window, core.script.is_some());
+}
+
+/// "Saving": the settings are written when the program exits normally, not on an error exit.
+fn store_settings(mut exits: MessageReader<AppExit>, core: Res<CoreRes>) {
+    if exits.read().any(|e| *e == AppExit::Success) {
+        core.store_settings();
+    }
+}
+
+/// A scripted run notes the frame the window shows (at one window pixel per screen pixel), asks for the window's
+/// screenshots of its shots, and ends the program when the scene is done.
+fn record(
+    mut commands: Commands,
+    mut core: ResMut<CoreRes>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut exits: ResMut<Messages<AppExit>>,
+) {
+    let c = &mut core.0;
+    let Some(run) = c.script.as_mut() else { return };
+    let shown = windows
+        .single()
+        .ok()
+        .filter(|w| display::Letterbox::fit((w.physical_width(), w.physical_height())).scale == 1)
+        .map(|_| &c.frame);
+    let output = c.audio.output();
+    let asked = crate::script::record(run, shown, &output, !exits.is_empty());
+    for name in asked.screenshots {
+        commands.spawn(Screenshot::primary_window()).observe(
+            move |ev: On<ScreenshotCaptured>, mut core: ResMut<CoreRes>| {
+                let Some(run) = core.script.as_mut() else { return };
+                let img = ev.image.clone().try_into_dynamic().ok().map(|i| i.to_rgba8());
+                let shot = img
+                    .as_ref()
+                    .map(|i| (i.width() as usize, i.height() as usize, i.as_raw().as_slice()));
+                crate::script::compare_shot(run, name, shot);
+            },
+        );
+    }
+    if asked.finished {
+        exits.write(AppExit::Success);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The screen
 
 /// The render layer only the screen's own camera and picture are on.
 const SCREEN_LAYER: usize = 30;
 
-/// The composed screen: its picture for the window, and the frame itself.
+/// The composed screen's picture for the window.
 #[derive(Resource)]
-pub struct Screen {
-    pub image: Handle<Image>,
-    pub frame: Frame,
+struct Screen {
+    image: Handle<Image>,
 }
 
 #[derive(Component)]
@@ -68,35 +248,170 @@ struct ScreenCamera;
 #[derive(Component)]
 struct ScreenSprite;
 
-/// The screen is composed after everything that changes the layers, and before the frame is drawn.
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ComposeScreen;
+fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let image = images.add(Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: compose::W as u32,
+            height: compose::H as u32,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        Frame::black().rgba,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    ));
+    commands.spawn((
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        RenderLayers::layer(SCREEN_LAYER),
+        ScreenCamera,
+    ));
+    commands.spawn((
+        Sprite::from_image(image.clone()),
+        RenderLayers::layer(SCREEN_LAYER),
+        ScreenSprite,
+    ));
+    commands.insert_resource(Screen { image });
+}
 
-/// The core's sound (`audio`): the mixer the screens start their sounds in.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct CoreAudio(pub crate::audio::Audio);
+fn letterbox(window: &Window) -> display::Letterbox {
+    display::Letterbox::fit((window.physical_width(), window.physical_height()))
+}
 
-pub fn plugin(app: &mut App) {
-    app.init_resource::<PlayerInput>()
-        .init_resource::<CoreAudio>()
-        .init_resource::<CoreTime>()
-        .configure_sets(PreUpdate, ReadInput.after(bevy::input::InputSystems))
-        .add_systems(
-            First,
-            (
-                take_system_input,
-                age_input.run_if(|time: Res<CoreTime>| time.logs_age()),
-                advance_clock.after(bevy::time::TimeSystems),
-            )
-                .chain()
-                .after(MessageUpdateSystems),
-        )
-        .add_systems(PreUpdate, begin_input_frame.in_set(ReadInput))
-        .add_systems(PreUpdate, set_pointer.after(ReadInput))
-        .init_resource::<ScreenPictures>()
-        .init_resource::<ScreenLayers>()
-        .add_systems(Startup, spawn_screen)
-        .add_systems(Last, (compose_screen, show_screen).chain().in_set(ComposeScreen));
+/// Puts the screen's picture on the screen's place in the window, at the whole-number scale.
+fn show_screen(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cam: Query<&mut Camera, With<ScreenCamera>>,
+    mut sprite: Query<&mut Transform, With<ScreenSprite>>,
+) {
+    let (Ok(window), Ok(mut cam), Ok(mut tf)) = (windows.single(), cam.single_mut(), sprite.single_mut()) else {
+        return;
+    };
+    let lb = letterbox(window);
+    let (x, y, w, h) = lb.screen();
+    let (pos, size) = (UVec2::new(x, y), UVec2::new(w.max(1), h.max(1)));
+    if cam
+        .viewport
+        .as_ref()
+        .is_none_or(|v| v.physical_position != pos || v.physical_size != size)
+    {
+        cam.viewport = Some(Viewport {
+            physical_position: pos,
+            physical_size: size,
+            ..default()
+        });
+    }
+    let k = lb.scale as f32 / window.scale_factor();
+    let scale = Vec3::new(k, k, 1.0);
+    if tf.scale != scale {
+        tf.scale = scale;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The window
+
+/// The window's size: with `--ui-scale` the size asked for; otherwise it opens at the plain screen size (640 × 480
+/// points) and then becomes the largest whole number of physical pixels per screen pixel that fits the monitor,
+/// centred on it.
+#[derive(Resource)]
+struct WindowSizing {
+    explicit: bool,
+    /// Frames spent waiting for the monitor.
+    frames: u32,
+}
+
+/// Frames to wait for the monitor before keeping the starting size.
+const MONITOR_WAIT: u32 = 30;
+
+fn size_window(sizing: &mut WindowSizing, monitor: Option<&bevy::window::Monitor>, window: &mut Window) {
+    if sizing.explicit || sizing.frames > MONITOR_WAIT {
+        return;
+    }
+    sizing.frames += 1;
+    let Some(m) = monitor else { return };
+    let scale = display::monitor_scale((m.physical_width, m.physical_height), m.scale_factor);
+    let (w, h) = display::window_size(scale);
+    // In physical pixels: the window's own scale factor may not be the monitor's yet.
+    window.resolution.set_physical_resolution(w, h);
+    window.position = WindowPosition::Centered(bevy::window::MonitorSelection::Primary);
+    sizing.frames = MONITOR_WAIT + 1;
+}
+
+/// Keeps the window at least the 640 × 480 screen in physical pixels.
+fn fit_screen(window: &mut Window, scripted: bool) {
+    let f = window.scale_factor();
+    let (min_w, min_h) = (display::SCREEN.0 as f32 / f, display::SCREEN.1 as f32 / f);
+    let c = window.resize_constraints;
+    // A scripted run's window keeps its size: the system takes the minimum in its own points, which a scale
+    // override doesn't change, and would double the window on a display with two pixels per point.
+    if !scripted && (c.min_width != min_w || c.min_height != min_h) {
+        window.resize_constraints.min_width = min_w;
+        window.resize_constraints.min_height = min_h;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The pointer
+
+/// The pointer while the system's is locked and held still, in the window's logical points.
+#[derive(Resource)]
+struct LockedPointer(Option<Vec2>);
+
+/// How the system holds the pointer while it is locked (`display`, "Mouse lock"): macOS can't confine it to the
+/// window, so there it is held still and our pointer moves by the mouse's motion.
+const LOCK_MODE: CursorGrabMode = if cfg!(target_os = "macos") {
+    CursorGrabMode::Locked
+} else {
+    CursorGrabMode::Confined
+};
+
+/// Locks the pointer to the window during a game and frees it otherwise (`display::lock_wanted`). With the system
+/// pointer held still, moves the locked pointer by the mouse's motion and keeps it on the screen; when the lock ends,
+/// puts the system pointer where ours was.
+fn mouse_lock(
+    window: &mut Window,
+    cursor: &mut CursorOptions,
+    locked: &mut LockedPointer,
+    motion: Vec2,
+    keys: &Buttons<Key>,
+    game_pointer: bool,
+    enabled: bool,
+) {
+    let want = display::lock_wanted(display::LockInput {
+        enabled,
+        // The game menus and the outcome dialog are unlocked; the screen draws the arrow there.
+        in_game: game_pointer,
+        focused: window.focused,
+        held_free: keys.any_pressed([Key::SuperLeft, Key::SuperRight]),
+    });
+    let mode = if want { LOCK_MODE } else { CursorGrabMode::None };
+    if cursor.grab_mode != mode {
+        cursor.grab_mode = mode;
+    }
+    if LOCK_MODE == CursorGrabMode::Locked {
+        let (lb, f) = (letterbox(window), window.scale_factor());
+        locked.0 = match (want, locked.0) {
+            (true, None) => {
+                let (x, y) = window
+                    .cursor_position()
+                    .map_or_else(|| lb.centre(f), |p| lb.keep_on_screen((p.x, p.y), f));
+                Some(Vec2::new(x, y))
+            }
+            (true, Some(p)) => {
+                let (x, y) = lb.keep_on_screen((p.x + motion.x, p.y + motion.y), f);
+                Some(Vec2::new(x, y))
+            }
+            (false, Some(p)) => {
+                window.set_cursor_position(Some(p));
+                None
+            }
+            (false, None) => None,
+        };
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -108,7 +423,7 @@ const STREAM_CHUNK: usize = 256;
 /// The core's mixed sound as a Bevy audio source that never ends: the device pulls it through Bevy's audio output
 /// (rodio), which resamples it to the device's rate.
 #[derive(Asset, TypePath)]
-pub struct CoreStream(crate::audio::Output);
+struct CoreStream(crate::audio::Output);
 
 impl bevy::audio::Decodable for CoreStream {
     type Decoder = StreamDecoder;
@@ -123,7 +438,7 @@ impl bevy::audio::Decodable for CoreStream {
 }
 
 /// Pulls [`STREAM_CHUNK`] sample frames at a time from the mixer and hands them out one sample at a time.
-pub struct StreamDecoder {
+struct StreamDecoder {
     output: crate::audio::Output,
     buf: Vec<i16>,
     at: usize,
@@ -161,337 +476,23 @@ impl bevy::audio::Source for StreamDecoder {
     }
 }
 
-/// Plays the core's mixer on the sound device (Bevy's audio output must be in the app).
-pub fn play_core_audio(app: &mut App) {
-    use bevy::audio::AddAudioSource;
-    app.add_audio_source::<CoreStream>().add_systems(Startup, start_stream);
-}
-
-fn start_stream(mut commands: Commands, audio: Res<CoreAudio>, mut streams: ResMut<Assets<CoreStream>>) {
-    let h = streams.add(CoreStream(audio.output()));
+fn start_stream(mut commands: Commands, core: Res<CoreRes>, mut streams: ResMut<Assets<CoreStream>>) {
+    let h = streams.add(CoreStream(core.audio.output()));
     commands.spawn((AudioPlayer(h), PlaybackSettings::ONCE));
-}
-
-fn spawn_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let frame = Frame::black();
-    let image = images.add(Image::new(
-        bevy::render::render_resource::Extent3d {
-            width: compose::W as u32,
-            height: compose::H as u32,
-            depth_or_array_layers: 1,
-        },
-        bevy::render::render_resource::TextureDimension::D2,
-        frame.rgba,
-        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    ));
-    commands.spawn((
-        Camera2d,
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::BLACK),
-            ..default()
-        },
-        RenderLayers::layer(SCREEN_LAYER),
-        ScreenCamera,
-    ));
-    commands.spawn((
-        Sprite::from_image(image.clone()),
-        RenderLayers::layer(SCREEN_LAYER),
-        ScreenSprite,
-    ));
-    commands.insert_resource(Screen {
-        image,
-        frame: Frame::black(),
-    });
-}
-
-/// The layers' pictures (`layers::Pictures`).
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct ScreenPictures(pub Pictures);
-
-/// The screen's layers (`layers::Stack`).
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct ScreenLayers(pub Stack);
-
-/// Adds a layer when the commands take effect.
-pub fn add_layer(commands: &mut Commands, layer: Layer, role: Role, owner: Option<AppState>) {
-    commands.queue(move |w: &mut World| w.resource_mut::<ScreenLayers>().add(layer, role, owner));
-}
-
-/// Removes the layers `gone` picks, and their pictures, when the commands take effect.
-pub fn remove_layers(commands: &mut Commands, gone: impl Fn(&Entry) -> bool + Send + 'static) {
-    commands.queue(move |w: &mut World| remove_layers_now(w, gone));
-}
-
-/// Removes the layers `gone` picks, and their pictures.
-pub fn remove_layers_now(world: &mut World, gone: impl Fn(&Entry) -> bool) {
-    world.resource_scope(|world, mut layers: Mut<ScreenLayers>| {
-        layers.remove(&mut world.resource_mut::<ScreenPictures>(), gone);
-    });
-}
-
-/// A layer to compose: its picture and its place on the screen.
-struct Placing {
-    picture: PictureId,
-    z: f32,
-    /// Its place in the order the layers were made.
-    made: usize,
-    origin: (f64, f64),
-    scale: (f64, f64),
-    clip: Clip,
-    tint: f32,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn compose_screen(
-    mut images: ResMut<Assets<Image>>,
-    pictures: Res<ScreenPictures>,
-    mut screen: ResMut<Screen>,
-    mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    pointer: PointerState,
-    hud: Option<Res<Hud>>,
-    map_view: Option<Res<GameView>>,
-    front_screen: Res<FrontScreen>,
-    layers: Res<ScreenLayers>,
-) {
-    let Ok((_, mut cursor)) = windows.single_mut() else {
-        return;
-    };
-    // Outside a game the flow's screen clears the screen first (`frontend::camera_clear`).
-    let front_clears = front_screen.clears;
-    let (center_x, center_y) = (compose::W as f64 / 2.0, compose::H as f64 / 2.0);
-    let mut map = Vec::new();
-    let mut interface = Vec::new();
-    let mut front = Vec::new();
-    // The map view: its rectangle on the screen, the map pixel at its centre, and map pixels per screen pixel.
-    let view = match (hud.as_ref().and_then(|h| h.layout), map_view) {
-        (Some(layout), Some(mv)) => {
-            let v = layout.viewport;
-            Some((
-                Clip::new(v.x.max(0), v.y.max(0), v.w.max(1) as i32, v.h.max(1) as i32),
-                (mv.centre.0 as f64, mv.centre.1 as f64),
-                mv.zoom as f64,
-            ))
-        }
-        _ => None,
-    };
-    for (made, l) in layers.iter().map(|e| &e.layer).enumerate() {
-        if !l.visible {
-            continue;
-        }
-        let Some(pic) = pictures.get(l.picture) else { continue };
-        let (w, h) = l.drawn_size(pic);
-        let (tw, th) = (pic.width as f64, pic.height as f64);
-        let mut layer = Placing {
-            picture: l.picture,
-            z: l.z,
-            made,
-            origin: (0.0, 0.0),
-            scale: (1.0, 1.0),
-            clip: Clip::SCREEN,
-            tint: l.tint,
-        };
-        match l.plane {
-            Plane::Map => {
-                let Some((clip, centre, per_px)) = view else { continue };
-                let (vx, vy) = (
-                    clip.x0 as f64 + (clip.x1 - clip.x0) as f64 / 2.0,
-                    clip.y0 as f64 + (clip.y1 - clip.y0) as f64 / 2.0,
-                );
-                // The picture's top-left corner in map pixels.
-                let (mx, my) = (l.at.0 as f64 - w as f64 / 2.0, l.at.1 as f64 - h as f64 / 2.0);
-                layer.origin = (vx + (mx - centre.0) / per_px, vy + (my - centre.1) / per_px);
-                layer.scale = (w as f64 / tw / per_px, h as f64 / th / per_px);
-                layer.clip = clip;
-                map.push(layer);
-            }
-            Plane::Interface => {
-                // One picture pixel per screen pixel, centred.
-                layer.origin = (center_x - tw / 2.0, center_y - th / 2.0);
-                interface.push(layer);
-            }
-            Plane::Flow => {
-                layer.origin = (
-                    center_x + l.at.0 as f64 - w as f64 / 2.0,
-                    center_y + l.at.1 as f64 - h as f64 / 2.0,
-                );
-                layer.scale = (w as f64 / tw, h as f64 / th);
-                front.push(layer);
-            }
-        }
-    }
-    let by_z = |a: &Placing, b: &Placing| a.z.total_cmp(&b.z).then(a.made.cmp(&b.made));
-    map.sort_by(by_z);
-    interface.sort_by(by_z);
-    front.sort_by(by_z);
-    let order: Vec<&Placing> = if front_clears {
-        front.iter().collect()
-    } else {
-        map.iter().chain(&interface).chain(&front).collect()
-    };
-    let mut frame = Frame::black();
-    for l in order {
-        let Some(pic) = pictures.get(l.picture) else { continue };
-        frame.draw(&Placed {
-            rgba: &pic.rgba,
-            width: pic.width,
-            height: pic.height,
-            origin: l.origin,
-            scale: l.scale,
-            clip: l.clip,
-            tint: l.tint,
-        });
-    }
-    // The pointer: the interface picture has it while the game runs; otherwise the normal arrow goes on top.
-    let in_game = pointer.state.get() == AppState::Game;
-    let hud_draws = hud.as_ref().is_some_and(|h| h.art.has_pointers())
-        && in_game
-        && pointer.dialog.is_none()
-        && pointer.menu.is_none();
-    let arrow = match (&hud, &pointer.front) {
-        _ if hud_draws => None,
-        (Some(h), _) if in_game => h.art.pointer(crate::screen::Pointer::Arrow),
-        (_, Some(f)) if !in_game => f.arrow.as_ref(),
-        _ => None,
-    };
-    if let (Some((pic, hot)), Some(p)) = (arrow, pointer.input.pointer)
-        && let Some(w) = pointer.input.window
-    {
-        let (x, y) = crate::display::Letterbox::fit(w.size).screen_point(p, w.factor);
-        let (x, y) = (x.floor() as i32 - hot.0, y.floor() as i32 - hot.1);
-        frame.draw(&Placed {
-            rgba: &pic.rgba,
-            width: pic.width,
-            height: pic.height,
-            origin: (x as f64, y as f64),
-            scale: (1.0, 1.0),
-            clip: Clip::SCREEN,
-            tint: 1.0,
-        });
-    }
-    // The system's pointer shows only where the screen has no pointer of its own.
-    let visible = !hud_draws && arrow.is_none();
-    if cursor.visible != visible {
-        cursor.visible = visible;
-    }
-    if let Some(mut img) = images.get_mut(&screen.image) {
-        img.data = Some(frame.rgba.clone());
-    }
-    screen.frame = frame;
-}
-
-/// What decides the pointer the screen draws.
-#[derive(SystemParam)]
-struct PointerState<'w> {
-    state: Res<'w, AppStates>,
-    dialog: Option<Res<'w, OutcomeDialog>>,
-    menu: Option<Res<'w, GameMenu>>,
-    front: Option<Res<'w, Front>>,
-    input: Res<'w, PlayerInput>,
-}
-
-/// The frame the window shows this frame, at one window pixel per screen pixel: what a scripted run records. `None`
-/// without a window, or when the window shows the screen at a larger scale (the run's frames are then Bevy's own).
-pub fn shown_frame(world: &mut World) -> Option<Frame> {
-    let size = {
-        let mut q = world.query_filtered::<&Window, With<PrimaryWindow>>();
-        q.single(world).ok()?.physical_size()
-    };
-    if crate::display::Letterbox::fit((size.x, size.y)).scale != 1 {
-        return None;
-    }
-    Some(world.resource::<Screen>().frame.clone())
-}
-
-/// Puts the screen's picture on the screen's place in the window, at the whole-number scale.
-fn show_screen(
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut cam: Query<&mut Camera, With<ScreenCamera>>,
-    mut sprite: Query<&mut Transform, With<ScreenSprite>>,
-) {
-    let (Ok(window), Ok(mut cam), Ok(mut tf)) = (windows.single(), cam.single_mut(), sprite.single_mut()) else {
-        return;
-    };
-    let lb = crate::letterbox(window);
-    let (x, y, w, h) = lb.screen();
-    let (pos, size) = (UVec2::new(x, y), UVec2::new(w.max(1), h.max(1)));
-    if cam
-        .viewport
-        .as_ref()
-        .is_none_or(|v| v.physical_position != pos || v.physical_size != size)
-    {
-        cam.viewport = Some(Viewport {
-            physical_position: pos,
-            physical_size: size,
-            ..default()
-        });
-    }
-    let k = lb.scale as f32 / window.scale_factor();
-    let scale = Vec3::new(k, k, 1.0);
-    if tf.scale != scale {
-        tf.scale = scale;
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Order
-
-/// Runs the frame's schedules on one thread, so that their systems run in one order: the order their schedule's graph
-/// gives (`docs/design/client-core.md`, step 5). In `Update` the systems also say where their commands take effect
-/// (`frame_systems` in `main.rs`) instead of Bevy choosing the points.
-///
-/// `TIDEWATER_ORDER_CHECK=1` logs every pair of systems whose order the graph leaves open while they share data:
-/// Bevy's ambiguity check (system names need `--features bevy/debug`).
-pub fn one_order(app: &mut App) {
-    use bevy::ecs::schedule::{LogLevel, ScheduleLabel, SingleThreadedExecutor};
-    let check = std::env::var_os("TIDEWATER_ORDER_CHECK").is_some();
-    let update = Update.intern();
-    let mut schedules = app.world_mut().resource_mut::<Schedules>();
-    for (_, s) in schedules.iter_mut() {
-        s.set_executor(SingleThreadedExecutor::new());
-        let mut settings = s.get_build_settings();
-        if s.label() == update {
-            settings.auto_insert_apply_deferred = false;
-        }
-        if check {
-            settings.ambiguity_detection = LogLevel::Warn;
-        }
-        s.set_build_settings(settings);
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Time
-
-/// The core's clock (`clock`), fed the window's frame times.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct CoreTime(pub FrameClock);
-
-/// Starts the core's frame with the real time since the last one (Bevy's real-time clock: the system's, or a scripted
-/// run's fixed frame time).
-fn advance_clock(real: Res<Time<Real>>, mut time: ResMut<CoreTime>) {
-    time.advance(real.delta());
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Input
 
-/// The player's input (`input::Input`), from the window's events or a scripted run (`script`).
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct PlayerInput(pub Input);
-
-/// The frame's input is applied: the systems that read keys and buttons run after this.
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ReadInput;
-
-/// Hands the window's key, button and wheel events to the input, as they came.
+/// Hands the window's key, button and wheel events to the core's input, as they came.
 fn take_system_input(
-    mut input: ResMut<PlayerInput>,
+    mut core: ResMut<CoreRes>,
     mut keys: MessageReader<KeyboardInput>,
     mut lost: MessageReader<KeyboardFocusLost>,
     mut buttons: MessageReader<MouseButtonInput>,
     mut wheel: MessageReader<MouseWheel>,
 ) {
+    let input = &mut core.input;
     for e in keys.read() {
         input.key(KeyEvent {
             key: key_of(e.key_code),
@@ -511,32 +512,6 @@ fn take_system_input(
     if lost.read().count() > 0 {
         input.focus_lost();
     }
-}
-
-/// The typed events and wheel steps age after a frame with a step, once there has been one (`clock`).
-fn age_input(mut input: ResMut<PlayerInput>) {
-    input.update_logs();
-}
-
-fn begin_input_frame(mut input: ResMut<PlayerInput>) {
-    input.begin_frame();
-}
-
-/// The frame's pointer, window and focus (`Input::pointer`), after the mouse lock (`main.rs`, `mouse_lock`) or the
-/// scripted run (`script`) has placed the pointer.
-pub fn set_pointer(
-    window: Query<&Window, With<PrimaryWindow>>,
-    locked: Res<LockedPointer>,
-    script: Option<Res<crate::script::Script>>,
-    mut input: ResMut<PlayerInput>,
-) {
-    let w = window.single().ok();
-    input.window = w.map(|w| crate::input::WindowGeom {
-        size: (w.physical_width(), w.physical_height()),
-        factor: w.scale_factor(),
-    });
-    input.pointer = w.and_then(|w| locked.at(w)).map(|p| (p.x, p.y));
-    input.focused = script.is_some() || w.is_some_and(|w| w.focused);
 }
 
 /// A key by its place.

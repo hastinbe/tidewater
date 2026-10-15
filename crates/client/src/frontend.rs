@@ -18,9 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, channel};
 
-use bevy::ecs::schedule::ScheduleConfigs;
-use bevy::ecs::system::ScheduleSystem;
-use bevy::prelude::*;
+use glam::Vec2;
 use tidewater_formats::fnt::Font;
 use tidewater_formats::install::Install;
 use tidewater_formats::pcx::Pcx;
@@ -32,15 +30,14 @@ use tidewater_sim::victory::Outcome;
 use crate::audio::{Audio, Group, Mode, Sound, UNITY};
 use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::clock::FrameClock;
+use crate::core::{Commands, Core, add_layer, remove_layers};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
-use crate::jukebox::Jukebox;
-use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Plane, Role};
+use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Pictures, Plane, Role, Stack};
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
 use crate::scene::Picture;
-use crate::shell::{CoreAudio, CoreTime, PlayerInput, ScreenLayers, ScreenPictures, add_layer, remove_layers};
 use crate::states::Machine;
 use crate::video;
 
@@ -48,15 +45,6 @@ const W: u32 = 640;
 const H: u32 = 480;
 
 pub use crate::states::AppState;
-
-/// The flow's state machine (`states`): the screen that shows and the change asked for.
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct AppStates(pub Machine);
-
-/// A run condition: `state` shows.
-pub fn in_screen(state: AppState) -> impl FnMut(Res<AppStates>) -> bool + Clone {
-    move |states: Res<AppStates>| states.get() == state
-}
 
 /// One step of the flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,7 +88,7 @@ pub struct ScoreData {
     pub rank: String,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct Flow {
     pub steps: VecDeque<Step>,
     pub current: Option<Step>,
@@ -125,7 +113,6 @@ pub struct Flow {
 }
 
 /// The installation, fonts and tables the screens use, and their sounds by name.
-#[derive(Resource)]
 pub struct Front {
     pub install: Install,
     pub font: Font,
@@ -280,19 +267,11 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
 }
 
 /// Goes on to the next step.
-pub(crate) fn go_on(
-    flow: &mut Flow,
-    front: &Front,
-    keys: &Buttons<Key>,
-    next: &mut Machine,
-    exit: &mut MessageWriter<AppExit>,
-) {
+pub(crate) fn go_on(flow: &mut Flow, front: &Front, keys: &Buttons<Key>, next: &mut Machine, exit: &mut bool) {
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     match advance(flow, &front.install, ctrl) {
         Some(s) => next.set(s),
-        None => {
-            exit.write(AppExit::Success);
-        }
+        None => *exit = true,
     }
 }
 
@@ -452,15 +431,14 @@ pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Ste
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Bevy wiring
+// The screens' state
 
 /// The flow's screen (`docs/design/client-core.md`, step 2): whether its layers cover what is under them (outside a
 /// game, and over a game only where they are drawn), and whether the pointer can be read on it yet. The pointer is
 /// read from the end of the program's first frame on, as when a camera gave it.
-#[derive(Resource)]
 pub struct FrontScreen {
     pub clears: bool,
-    ready: bool,
+    pub(crate) ready: bool,
 }
 
 impl Default for FrontScreen {
@@ -472,87 +450,89 @@ impl Default for FrontScreen {
     }
 }
 
-fn front_screen_ready(mut screen: ResMut<FrontScreen>) {
-    if !screen.ready {
-        screen.ready = true;
-    }
+/// The flow's screens' own state: what each one that has opened keeps (a screen's state stays until the screen opens
+/// again), and the main menu load dialog's input cursors.
+#[derive(Default)]
+pub struct Screens {
+    clock: Option<Clock>,
+    menu_clock: MenuClock,
+    video: Option<VideoPlay>,
+    title: Option<TitleScreen>,
+    menu: Option<Menu>,
+    menu_load: Option<MenuLoad>,
+    act: Option<ActScreen>,
+    briefing: Option<Briefing>,
+    score: Option<ScoreScreen>,
+    scroller: Option<Scroller>,
+    load_cursors: (LogCursor, LogCursor),
 }
 
 /// The victory or defeat dialog over a finished game.
-#[derive(Resource)]
 pub struct OutcomeDialog {
     pub victory: bool,
     /// Save was pressed: the game menu opens the save dialog over this one (`gamemenu::open_from_outcome`).
     pub(crate) save_wanted: bool,
     /// The game was saved from here: the dialog ends the game as Continue does.
     pub(crate) saved: bool,
+    /// The dialog is to be drawn again: it opened, or the game menu changed it.
+    pub(crate) redraw: bool,
     image: PictureId,
 }
 
-/// Whether the game screen runs (not while the outcome dialog or, in single player, a game menu is up).
-pub fn game_running(
-    state: Res<AppStates>,
-    dialog: Option<Res<OutcomeDialog>>,
-    menu: Option<Res<crate::gamemenu::GameMenu>>,
-) -> bool {
-    state.get() == AppState::Game && dialog.is_none() && menu.is_none()
-}
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<Jukebox>()
-        .init_resource::<MenuClock>()
-        .init_resource::<LockedPointer>()
-        .init_resource::<FrontScreen>()
-        .init_resource::<AppStates>()
-        .add_systems(PostUpdate, front_screen_ready);
-}
-
-/// The fades, run first in the frame (`frame_systems` in `main.rs` has the order).
-pub(crate) fn fade_systems() -> ScheduleConfigs<ScheduleSystem> {
-    apply_fades.into_configs()
-}
-
-/// The outcome dialog, then the check for a game's end.
-pub(crate) fn outcome_systems() -> ScheduleConfigs<ScheduleSystem> {
-    (
-        run_dialog.run_if(resource_exists::<OutcomeDialog>.and_then(not(resource_exists::<crate::gamemenu::GameMenu>))),
-        watch_outcome.run_if(in_screen(AppState::Game)),
-    )
-        .chain()
-}
-
-/// The flow's screens, each in its own state: at most one of them runs in a frame.
-pub(crate) fn screen_systems() -> ScheduleConfigs<ScheduleSystem> {
-    (
-        run_scroller.run_if(in_screen(AppState::Finale)),
-        run_scroller.run_if(in_screen(AppState::Credits)),
-        run_score.run_if(in_screen(AppState::Score)),
-        run_briefing.run_if(in_screen(AppState::Briefing)),
-        run_act.run_if(in_screen(AppState::Act)),
-        run_new_campaign.run_if(in_screen(AppState::NewCampaign)),
-        run_menu_load.run_if(in_screen(AppState::MainMenu).and_then(resource_exists::<MenuLoad>)),
-        run_menu.run_if(in_screen(AppState::MainMenu).and_then(not(resource_exists::<MenuLoad>))),
-        run_title.run_if(in_screen(AppState::Title)),
-        play_video.run_if(in_screen(AppState::Video)),
-        boot.run_if(in_screen(AppState::Boot)),
-    )
-        .chain()
+/// The flow's screens, each in its own state: at most one of them runs in a frame. Each one's condition is checked
+/// just before it runs.
+pub(crate) fn screen_systems(c: &mut Core) {
+    let state = |c: &Core| c.states.get();
+    if state(c) == AppState::Finale {
+        run_scroller(c);
+    }
+    if state(c) == AppState::Credits {
+        run_scroller(c);
+    }
+    if state(c) == AppState::Score {
+        run_score(c);
+    }
+    if state(c) == AppState::Briefing {
+        run_briefing(c);
+    }
+    if state(c) == AppState::Act {
+        run_act(c);
+    }
+    if state(c) == AppState::NewCampaign {
+        run_new_campaign(c);
+    }
+    if state(c) == AppState::MainMenu && c.screens.menu_load.is_some() {
+        run_menu_load(c);
+    }
+    if state(c) == AppState::MainMenu && c.screens.menu_load.is_none() {
+        run_menu(c);
+    }
+    if state(c) == AppState::Title {
+        run_title(c);
+    }
+    if state(c) == AppState::Video {
+        play_video(c);
+    }
+    if state(c) == AppState::Boot {
+        boot(c);
+    }
 }
 
 /// The flow's screen clears to black except over the game screen.
-pub(crate) fn camera_clear(state: Res<AppStates>, mut screen: ResMut<FrontScreen>) {
-    screen.clears = state.get() != AppState::Game;
+pub(crate) fn camera_clear(c: &mut Core) {
+    c.front_screen.clears = c.states.get() != AppState::Game;
 }
 
-fn boot(
-    mut flow: ResMut<Flow>,
-    front: Res<Front>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
-    let keys = &input.keys;
-    go_on(&mut flow, &front, keys, &mut next, &mut exit);
+fn boot(c: &mut Core) {
+    let Core {
+        flow,
+        front,
+        states,
+        exit,
+        input,
+        ..
+    } = c;
+    go_on(flow, front, &input.keys, states, exit);
 }
 
 fn dup(p: &Picture) -> Picture {
@@ -574,7 +554,7 @@ pub(crate) fn blank() -> Picture {
 /// Spawns a picture as a layer of the screen shown in `state`.
 fn spawn_layer(
     commands: &mut Commands,
-    pictures: &mut ScreenPictures,
+    pictures: &mut Pictures,
     p: Picture,
     layer: u8,
     state: AppState,
@@ -587,7 +567,7 @@ fn spawn_layer(
     id
 }
 
-pub(crate) fn set_image(pictures: &mut ScreenPictures, id: &PictureId, p: Picture) {
+pub(crate) fn set_image(pictures: &mut Pictures, id: &PictureId, p: Picture) {
     pictures.set(*id, p);
 }
 
@@ -620,18 +600,6 @@ fn picture(install: &mut Install, name: &str, pal_from: Option<&str>) -> Picture
 /// The left button was pressed, or Esc, Enter or Space.
 fn pressed(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
     mouse.just_pressed(Button::Left) || keys.any_just_pressed([Key::Escape, Key::Enter, Key::NumpadEnter, Key::Space])
-}
-
-/// The pointer while the mouse lock (`main.rs`, `mouse_lock`) holds the system's pointer still: its place in logical
-/// window points, moved by the mouse's motion. `None` while the lock is off, when the system's pointer is used.
-#[derive(Resource, Clone, Copy, Default)]
-pub struct LockedPointer(pub Option<Vec2>);
-
-impl LockedPointer {
-    /// The pointer in logical window points: the locked one, or the system's.
-    pub fn at(&self, window: &Window) -> Option<Vec2> {
-        self.0.or_else(|| window.cursor_position())
-    }
 }
 
 /// The pointer in screen pixels (640x480).
@@ -676,11 +644,11 @@ fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
 // Fades
 
 /// Screen time in ms since the screen opened (real time, as the fades' lengths are).
-#[derive(Resource, Default)]
+#[derive(Default)]
 struct Clock(f64);
 
 /// The menu timer (`campaign::MenuTimer`, spec "Terms"), one for every screen, on the real-time clock of [`real_ms`].
-#[derive(Resource, Default)]
+#[derive(Default)]
 struct MenuClock(cf::MenuTimer);
 
 /// Real time in ms since the program started: the menu timer's clock.
@@ -688,10 +656,11 @@ fn real_ms(time: &FrameClock) -> f64 {
     time.elapsed_secs_f64() * 1000.0
 }
 
-fn apply_fades(time: Res<CoreTime>, clock: Option<ResMut<Clock>>, mut layers: ResMut<ScreenLayers>) {
-    let Some(mut clock) = clock else { return };
-    clock.0 += time.delta_secs_f64() * 1000.0;
-    for e in layers.iter_mut() {
+/// The fades, run first in the frame.
+pub(crate) fn apply_fades(c: &mut Core) {
+    let Some(clock) = &mut c.screens.clock else { return };
+    clock.0 += c.time.delta_secs_f64() * 1000.0;
+    for e in c.layers.iter_mut() {
         if let Some(f) = e.fade {
             e.layer.tint = f.tint(clock.0);
         }
@@ -705,7 +674,7 @@ fn fade_in_new_screen(commands: &mut Commands, ms: u32) {
 }
 
 /// The flow layers on the screen now, or only those of `layer`.
-fn flow_layers(layers: &ScreenLayers, layer: Option<u8>) -> Vec<PictureId> {
+fn flow_layers(layers: &Stack, layer: Option<u8>) -> Vec<PictureId> {
     layers
         .iter()
         .filter(|e| matches!(e.role, Role::Flow(n) if layer.is_none_or(|l| l == n)))
@@ -716,9 +685,9 @@ fn flow_layers(layers: &ScreenLayers, layer: Option<u8>) -> Vec<PictureId> {
 /// Gives a fade to the layers `which` names (all the flow layers there are then, if `None`) when the commands take
 /// effect.
 fn set_fades(commands: &mut Commands, which: Option<Vec<PictureId>>, from: f32, to: f32, at: f64, ms: u32) {
-    commands.queue(move |w: &mut World| {
-        let mut layers = w.resource_mut::<ScreenLayers>();
-        let which = which.unwrap_or_else(|| flow_layers(&layers, None));
+    commands.queue(move |c| {
+        let layers = &mut c.layers;
+        let which = which.unwrap_or_else(|| flow_layers(layers, None));
         for e in layers.iter_mut().filter(|e| which.contains(&e.layer.picture)) {
             e.fade = Some(Fade {
                 from,
@@ -731,12 +700,12 @@ fn set_fades(commands: &mut Commands, which: Option<Vec<PictureId>>, from: f32, 
 }
 
 /// A fade-out over `ms` of every flow layer, starting at `at`; returns when it ends.
-fn fade_out_all(commands: &mut Commands, layers: &ScreenLayers, at: f64, ms: u32) -> f64 {
+fn fade_out_all(commands: &mut Commands, layers: &Stack, at: f64, ms: u32) -> f64 {
     set_fades(commands, Some(flow_layers(layers, None)), 1.0, 0.0, at, ms);
     at + ms as f64
 }
 
-fn fade_layer(commands: &mut Commands, layers: &ScreenLayers, layer: u8, from: f32, to: f32, at: f64, ms: u32) {
+fn fade_layer(commands: &mut Commands, layers: &Stack, layer: u8, from: f32, to: f32, at: f64, ms: u32) {
     set_fades(commands, Some(flow_layers(layers, Some(layer))), from, to, at, ms);
 }
 
@@ -745,8 +714,8 @@ fn fade_layer(commands: &mut Commands, layers: &ScreenLayers, layer: u8, from: f
 
 /// The game screen opens: the screen's own music closes at once so the game's track can start (`music.rs`, "Our choice
 /// for the campaign flow").
-pub(crate) fn stop_music(mut music: ResMut<Jukebox>) {
-    music.start(None);
+pub(crate) fn stop_music(c: &mut Core) {
+    c.jukebox.start(None);
 }
 
 /// Plays a sound of the screen shown in `state` once; it stops if the screen is left first.
@@ -759,7 +728,6 @@ fn play_once(front: &mut Front, audio: &mut Audio, name: &str, state: AppState) 
 // ---------------------------------------------------------------------------------------------------------------
 // Videos
 
-#[derive(Resource)]
 struct VideoPlay {
     smk: Smacker,
     image: PictureId,
@@ -771,13 +739,15 @@ struct VideoPlay {
     audio: Option<Mutex<Receiver<Option<Vec<u8>>>>>,
 }
 
-pub(crate) fn enter_video(
-    mut commands: Commands,
-    mut flow: ResMut<Flow>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut music: ResMut<Jukebox>,
-) {
+pub(crate) fn enter_video(c: &mut Core) {
+    let Core {
+        commands,
+        flow,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
     let Some(Step::Video(n)) = flow.current else { return };
     music.start(None);
     flow.memory.played(n);
@@ -789,7 +759,7 @@ pub(crate) fn enter_video(
         let _ = tx.send(video::audio_wav(copy));
     });
     let Ok(mut smk) = Smacker::from_vec(data) else {
-        commands.insert_resource(Clock(f64::INFINITY));
+        commands.queue(|c| c.screens.clock = Some(Clock(f64::INFINITY)));
         return;
     };
     smk.set_decode_audio(false);
@@ -797,8 +767,8 @@ pub(crate) fn enter_video(
     let shown_h = video::shown_height(height, y);
     let k = (W as f32 / width as f32).min(H as f32 / shown_h as f32);
     let image = spawn_layer(
-        &mut commands,
-        &mut pictures,
+        commands,
+        pictures,
         Picture {
             width,
             height: shown_h,
@@ -808,7 +778,7 @@ pub(crate) fn enter_video(
         AppState::Video,
         Some(Vec2::new(width as f32 * k, shown_h as f32 * k)),
     );
-    commands.insert_resource(VideoPlay {
+    let play = VideoPlay {
         smk,
         image,
         width,
@@ -817,27 +787,29 @@ pub(crate) fn enter_video(
         elapsed: 0.0,
         shown: None,
         audio: Some(Mutex::new(rx)),
-    });
+    };
+    commands.queue(move |c| c.screens.video = Some(play));
 }
 
-#[allow(clippy::too_many_arguments)]
-fn play_video(
-    mut commands: Commands,
-    time: Res<CoreTime>,
-    play: Option<ResMut<VideoPlay>>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut audio: ResMut<CoreAudio>,
-    mut flow: ResMut<Flow>,
-    front: Res<Front>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    script: Option<Res<crate::script::Script>>,
-    input: Res<PlayerInput>,
-) {
+fn play_video(c: &mut Core) {
+    let Core {
+        commands,
+        time,
+        screens,
+        pictures,
+        audio,
+        flow,
+        front,
+        states: next,
+        exit,
+        script,
+        input,
+        ..
+    } = c;
     let keys = &input.keys;
     let mouse = &input.mouse;
     let mut done = pressed(keys, mouse);
-    if let Some(mut p) = play {
+    if let Some(p) = &mut screens.video {
         // The first frame shows at 0 even on a slow first update.
         if p.shown.is_some() {
             p.elapsed += time.game_delta().as_secs_f64() * 1000.0;
@@ -882,34 +854,36 @@ fn play_video(
                 height: video::shown_height(p.height, p.y),
                 rgba,
             };
-            set_image(&mut pictures, &p.image, pic);
+            set_image(pictures, &p.image, pic);
         }
     } else {
         done = true;
     }
     if done {
-        commands.remove_resource::<VideoPlay>();
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        commands.queue(|c| c.screens.video = None);
+        go_on(flow, front, keys, next, exit);
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // The title
 
-#[derive(Resource)]
 struct TitleScreen(cf::TitleRun);
 
-pub(crate) fn enter_title(
-    mut commands: Commands,
-    time: Res<CoreTime>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-) {
+pub(crate) fn enter_title(c: &mut Core) {
+    let Core {
+        commands,
+        time,
+        front,
+        pictures,
+        ..
+    } = c;
     let p = picture(&mut front.install, cf::TITLE_PICTURE, None);
-    spawn_layer(&mut commands, &mut pictures, p, 0, AppState::Title, None);
-    commands.insert_resource(Clock(0.0));
-    commands.insert_resource(TitleScreen(cf::TitleRun::new(real_ms(&time))));
-    fade_in_new_screen(&mut commands, cf::TITLE_FADE_MS);
+    spawn_layer(commands, pictures, p, 0, AppState::Title, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let title = TitleScreen(cf::TitleRun::new(real_ms(time)));
+    commands.queue(move |c| c.screens.title = Some(title));
+    fade_in_new_screen(commands, cf::TITLE_FADE_MS);
 }
 
 /// A key or click ends the title; Shift, Ctrl and Alt alone don't.
@@ -925,29 +899,37 @@ fn title_input(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
     mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().any(|k| !MODIFIERS.contains(k))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_title(
-    mut commands: Commands,
-    time: Res<CoreTime>,
-    clock: Res<Clock>,
-    mut menu_timer: ResMut<MenuClock>,
-    mut title: ResMut<TitleScreen>,
-    layers: Res<ScreenLayers>,
-    mut music: ResMut<Jukebox>,
-    mut flow: ResMut<Flow>,
-    front: Res<Front>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+fn run_title(c: &mut Core) {
+    let Core {
+        commands,
+        time,
+        screens:
+            Screens {
+                clock: Some(clock),
+                menu_clock: menu_timer,
+                title: Some(title),
+                ..
+            },
+        layers,
+        jukebox: music,
+        flow,
+        front,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
     let input = title_input(keys, mouse);
-    for cue in title.0.update(&mut menu_timer.0, real_ms(&time), input) {
+    for cue in title.0.update(&mut menu_timer.0, real_ms(time), input) {
         match cue {
             cf::TitleCue::Music => music.start(Some(cf::TITLE_MUSIC)),
-            cf::TitleCue::FadeOut(ms) => fade_layer(&mut commands, &layers, 0, 1.0, 0.0, clock.0, ms),
-            cf::TitleCue::Done => go_on(&mut flow, &front, keys, &mut next, &mut exit),
+            cf::TitleCue::FadeOut(ms) => fade_layer(commands, layers, 0, 1.0, 0.0, clock.0, ms),
+            cf::TitleCue::Done => go_on(flow, front, keys, next, exit),
         }
     }
 }
@@ -955,7 +937,6 @@ fn run_title(
 // ---------------------------------------------------------------------------------------------------------------
 // The main menu and the new-campaign choices
 
-#[derive(Resource)]
 struct Menu {
     image: PictureId,
     background: Picture,
@@ -974,7 +955,6 @@ enum MenuPick {
 }
 
 /// The main menu's load dialog (`loadgamt.bin`, spec `game/save-load.md`, "Load dialog"), open over the menu.
-#[derive(Resource)]
 struct MenuLoad {
     ui: SaveUi,
     image: PictureId,
@@ -988,13 +968,7 @@ fn menu_items(labels: &[&str], top: i32) -> Vec<(Rect, String)> {
         .collect()
 }
 
-fn open_menu(
-    commands: &mut Commands,
-    front: &mut Front,
-    pictures: &mut ScreenPictures,
-    labels: &[&str],
-    state: AppState,
-) {
+fn open_menu(commands: &mut Commands, front: &mut Front, pictures: &mut Pictures, labels: &[&str], state: AppState) {
     let mut bg = picture(&mut front.install, cf::TITLE_PICTURE, None);
     // Darkened so the buttons read.
     for px in bg.rgba.chunks_exact_mut(4) {
@@ -1005,22 +979,23 @@ fn open_menu(
     // Below the title picture's logo.
     let top = 300 - labels.len() as i32 * 10;
     let image = spawn_layer(commands, pictures, dup(&bg), 0, state, None);
-    commands.insert_resource(Clock(0.0));
-    commands.insert_resource(Menu {
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let menu = Menu {
         image,
         background: bg,
         items: menu_items(labels, top),
         hot: None,
         drawn: None,
         closing: None,
-    });
+    };
+    commands.queue(move |c| c.screens.menu = Some(menu));
 }
 
 /// Hover, redraw, and the item clicked (or chosen by its number key).
 fn menu_input(
     menu: &mut Menu,
     front: &Front,
-    pictures: &mut ScreenPictures,
+    pictures: &mut Pictures,
     at: Option<Vec2>,
     mouse: &Buttons<Button>,
     keys: &Buttons<Key>,
@@ -1056,38 +1031,47 @@ fn menu_input(
     None
 }
 
-pub(crate) fn enter_menu(
-    mut commands: Commands,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut music: ResMut<Jukebox>,
-) {
+pub(crate) fn enter_menu(c: &mut Core) {
+    let Core {
+        commands,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
     music.start_unless_playing(cf::TITLE_MUSIC);
     open_menu(
-        &mut commands,
-        &mut front,
-        &mut pictures,
+        commands,
+        front,
+        pictures,
         &["New Campaign", "Load Game", "Quit"],
         AppState::MainMenu,
     );
-    fade_in_new_screen(&mut commands, fades::MENUS);
+    fade_in_new_screen(commands, fades::MENUS);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_menu(
-    mut commands: Commands,
-    mut menu: ResMut<Menu>,
-    clock: Res<Clock>,
-    layers: Res<ScreenLayers>,
-    front: Res<Front>,
-    folder: Res<crate::shell::Store>,
-    mut pictures: ResMut<ScreenPictures>,
-    cam: Res<FrontScreen>,
-    mut flow: ResMut<Flow>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+fn run_menu(c: &mut Core) {
+    let Core {
+        commands,
+        screens: Screens {
+            menu: Some(menu),
+            clock: Some(clock),
+            ..
+        },
+        layers,
+        front,
+        store: folder,
+        pictures,
+        front_screen: cam,
+        flow,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
     // Palette-effects spec, "Screen fades": nothing else runs during a fade.
@@ -1099,18 +1083,16 @@ fn run_menu(
         match pick {
             MenuPick::NewCampaign => {
                 flow.steps = VecDeque::from([Step::NewCampaign]);
-                go_on(&mut flow, &front, keys, &mut next, &mut exit);
+                go_on(flow, front, keys, next, exit);
             }
-            MenuPick::Load(r) => crate::savegame::load_game(&mut flow, &mut next, r.header, r.body),
-            MenuPick::Quit => {
-                exit.write(AppExit::Success);
-            }
+            MenuPick::Load(r) => crate::savegame::load_game(flow, next, r.header, r.body),
+            MenuPick::Quit => *exit = true,
         }
         return;
     }
-    let at = pointer(&input, &cam);
+    let at = pointer(input, cam);
     // The menu is drawn before its fade-in, but takes no input until the fade ends.
-    let pick = menu_input(&mut menu, &front, &mut pictures, at, mouse, keys, "Tidewater");
+    let pick = menu_input(menu, front, pictures, at, mouse, keys, "Tidewater");
     if clock.0 < fades::MENUS as f64 {
         return;
     }
@@ -1119,11 +1101,11 @@ fn run_menu(
         .or(keys.just_pressed(Key::Letter('L')).then_some(1))
         .or(keys.just_pressed(Key::Letter('Q')).then_some(2));
     let close = |commands: &mut Commands, menu: &mut Menu, pick: MenuPick| {
-        let end = fade_out_all(commands, &layers, clock.0, fades::MENUS);
+        let end = fade_out_all(commands, layers, clock.0, fades::MENUS);
         menu.closing = Some((end, pick));
     };
     match pick {
-        Some(0) => close(&mut commands, &mut menu, MenuPick::NewCampaign),
+        Some(0) => close(commands, menu, MenuPick::NewCampaign),
         Some(1) => {
             // Loading from the main menu is single player, and every single-player game is Enhanced.
             let entries = folder.folder().list(crate::savefile::Kind::Single, true);
@@ -1131,36 +1113,43 @@ fn run_menu(
             let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
             let image = pictures.add(pic);
             add_layer(
-                &mut commands,
+                commands,
                 ScreenPlace::new(image, Plane::Flow, 1.0),
                 Role::Flow(1),
                 Some(AppState::MainMenu),
             );
-            commands.insert_resource(MenuLoad { ui, image });
+            commands.queue(move |c| c.screens.menu_load = Some(MenuLoad { ui, image }));
         }
-        Some(_) => close(&mut commands, &mut menu, MenuPick::Quit),
+        Some(_) => close(commands, menu, MenuPick::Quit),
         None => {}
     }
 }
 
 /// One frame of the main menu's load dialog: Load reads the chosen file and, if it is valid, the menu fades out and the
 /// saved game starts; a file that isn't valid shows the reason (`saves::Dialog::failed`); Cancel closes the dialog.
-#[allow(clippy::too_many_arguments)]
-fn run_menu_load(
-    mut commands: Commands,
-    mut load: ResMut<MenuLoad>,
-    mut menu: ResMut<Menu>,
-    clock: Res<Clock>,
-    layers: Res<ScreenLayers>,
-    front: Res<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut cursors: Local<(LogCursor, LogCursor)>,
-    cam: Res<FrontScreen>,
-    input: Res<PlayerInput>,
-    store: Res<crate::shell::Store>,
-) {
-    let input = crate::gamemenu::saving_input(&input, &mut cursors, &cam);
-    let load = &mut *load;
+fn run_menu_load(c: &mut Core) {
+    let Core {
+        commands,
+        screens:
+            Screens {
+                menu_load: Some(load),
+                menu: Some(menu),
+                clock: Some(clock),
+                load_cursors: cursors,
+                ..
+            },
+        layers,
+        front,
+        pictures,
+        front_screen: cam,
+        input,
+        store,
+        ..
+    } = c
+    else {
+        return;
+    };
+    let input = crate::gamemenu::saving_input(input, cursors, cam);
     let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot);
     let before = snap(&load.ui);
     let step = load.ui.step(&input);
@@ -1168,14 +1157,14 @@ fn run_menu_load(
     match step {
         saves::Step::Close => {
             let image = load.image;
-            remove_layers(&mut commands, move |e| e.layer.picture == image);
-            commands.remove_resource::<MenuLoad>();
+            remove_layers(commands, move |e| e.layer.picture == image);
+            commands.queue(|c| c.screens.menu_load = None);
             return;
         }
         saves::Step::Load(entry) => match store.folder().read(&entry.file, true) {
             Ok((header, body)) => {
-                commands.remove_resource::<MenuLoad>();
-                let end = fade_out_all(&mut commands, &layers, clock.0, fades::MENUS);
+                commands.queue(|c| c.screens.menu_load = None);
+                let end = fade_out_all(commands, layers, clock.0, fades::MENUS);
                 menu.closing = Some((end, MenuPick::Load(Box::new(crate::savegame::Resume { header, body }))));
             }
             Err(reason) => {
@@ -1187,35 +1176,41 @@ fn run_menu_load(
     }
     if redraw {
         let p = load.ui.draw(&front.font, &front.big, &|n| front.net(n));
-        set_image(&mut pictures, &load.image, p);
+        set_image(pictures, &load.image, p);
     }
 }
 
-pub(crate) fn enter_new_campaign(
-    mut commands: Commands,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-) {
+pub(crate) fn enter_new_campaign(c: &mut Core) {
+    let Core {
+        commands,
+        front,
+        pictures,
+        ..
+    } = c;
     let mut labels: Vec<&str> = Choice::ALL.iter().map(|c| c.label()).collect();
     labels.push("Cancel");
-    open_menu(&mut commands, &mut front, &mut pictures, &labels, AppState::NewCampaign);
+    open_menu(commands, front, pictures, &labels, AppState::NewCampaign);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_new_campaign(
-    mut menu: ResMut<Menu>,
-    front: Res<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    cam: Res<FrontScreen>,
-    mut flow: ResMut<Flow>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+fn run_new_campaign(c: &mut Core) {
+    let Core {
+        screens: Screens { menu: Some(menu), .. },
+        front,
+        pictures,
+        front_screen: cam,
+        flow,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
-    let at = pointer(&input, &cam);
-    let pick = menu_input(&mut menu, &front, &mut pictures, at, mouse, keys, "Choose a campaign");
+    let at = pointer(input, cam);
+    let pick = menu_input(menu, front, pictures, at, mouse, keys, "Choose a campaign");
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = match pick {
         Some(i) if i < 4 => {
@@ -1239,29 +1234,30 @@ fn run_new_campaign(
     };
     if let Some(s) = steps {
         flow.steps = s;
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        go_on(flow, front, keys, next, exit);
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Act screens
 
-#[derive(Resource)]
 struct ActScreen {
     act: Act,
     run: cf::ActRun,
 }
 
-pub(crate) fn enter_act(
-    mut commands: Commands,
-    flow: Res<Flow>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-) {
+pub(crate) fn enter_act(c: &mut Core) {
+    let Core {
+        commands,
+        flow,
+        front,
+        pictures,
+        ..
+    } = c;
     let Some(Step::Act(a)) = flow.current else { return };
     let pal = cf::art(cf::act_palette_picture(&a));
     let p = picture(&mut front.install, &cf::art(a.picture), Some(&pal));
-    spawn_layer(&mut commands, &mut pictures, p, 0, AppState::Act, None);
+    spawn_layer(commands, pictures, p, 0, AppState::Act, None);
     // The act's two lines, white; our layout: centred near the top.
     let acts = table(&mut front.install, "rez\\acts.tbl");
     let line = |n: u16| {
@@ -1282,45 +1278,51 @@ pub(crate) fn enter_act(
         &front.big
     };
     centred(&mut text, f, 90, &title);
-    spawn_layer(&mut commands, &mut pictures, text, 1, AppState::Act, None);
-    commands.insert_resource(Clock(0.0));
-    commands.insert_resource(ActScreen {
+    spawn_layer(commands, pictures, text, 1, AppState::Act, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let act = ActScreen {
         act: a,
         run: cf::ActRun::default(),
-    });
+    };
+    commands.queue(move |c| c.screens.act = Some(act));
     // Black until the first tick fades the text in.
-    set_fades(&mut commands, None, 0.0, 0.0, 0.0, 1);
+    set_fades(commands, None, 0.0, 0.0, 0.0, 1);
 }
 
 /// The act screen on the menu timer (`campaign::ActRun`): its fades, the act sound when the picture's fade ends, and
 /// the close: a fade to black, then a fade of all sound that stops the act sound if it still plays; the video after
 /// (if any) or the briefing follows once the music's fade has ended.
-#[allow(clippy::too_many_arguments)]
-fn run_act(
-    mut commands: Commands,
-    time: Res<CoreTime>,
-    clock: Res<Clock>,
-    mut menu_timer: ResMut<MenuClock>,
-    mut act: ResMut<ActScreen>,
-    layers: Res<ScreenLayers>,
-    mut music: ResMut<Jukebox>,
-    mut flow: ResMut<Flow>,
-    mut front: ResMut<Front>,
-    mut audio: ResMut<CoreAudio>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+fn run_act(c: &mut Core) {
+    let Core {
+        commands,
+        time,
+        screens:
+            Screens {
+                clock: Some(clock),
+                menu_clock: menu_timer,
+                act: Some(act),
+                ..
+            },
+        layers,
+        jukebox: music,
+        flow,
+        front,
+        audio,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
-    let act = &mut *act;
     let input = pressed(keys, mouse);
-    for cue in act.run.update(&mut menu_timer.0, real_ms(&time), input) {
+    for cue in act.run.update(&mut menu_timer.0, real_ms(time), input) {
         match cue {
-            cf::ActCue::TextFadeIn => fade_layer(&mut commands, &layers, 1, 0.0, 1.0, clock.0, cf::ACT_TEXT_FADE_MS),
-            cf::ActCue::PictureFadeIn => {
-                fade_layer(&mut commands, &layers, 0, 0.0, 1.0, clock.0, cf::ACT_PICTURE_FADE_MS)
-            }
+            cf::ActCue::TextFadeIn => fade_layer(commands, layers, 1, 0.0, 1.0, clock.0, cf::ACT_TEXT_FADE_MS),
+            cf::ActCue::PictureFadeIn => fade_layer(commands, layers, 0, 0.0, 1.0, clock.0, cf::ACT_PICTURE_FADE_MS),
             cf::ActCue::ActSound => {
                 let name = cf::act_sound(cf::race_of(act.act.entry));
                 if let Some(s) = front.core_sound(name) {
@@ -1329,9 +1331,9 @@ fn run_act(
             }
             cf::ActCue::FadeToBlack => {
                 // The fades block, so every layer that shows is fully in: the text, and the picture from 50 on.
-                fade_layer(&mut commands, &layers, 1, 1.0, 0.0, clock.0, cf::ACT_CLOSE_FADE_MS);
+                fade_layer(commands, layers, 1, 1.0, 0.0, clock.0, cf::ACT_CLOSE_FADE_MS);
                 if act.run.timer.picture_shown() {
-                    fade_layer(&mut commands, &layers, 0, 1.0, 0.0, clock.0, cf::ACT_CLOSE_FADE_MS);
+                    fade_layer(commands, layers, 0, 1.0, 0.0, clock.0, cf::ACT_CLOSE_FADE_MS);
                 }
             }
             cf::ActCue::FadeAllSound => {
@@ -1345,14 +1347,13 @@ fn run_act(
         if let Some(v) = flow.memory.video_after(&act.act, false) {
             flow.steps.push_front(Step::Video(v));
         }
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        go_on(flow, front, keys, next, exit);
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Briefings
 
-#[derive(Resource)]
 struct Briefing {
     image: PictureId,
     background: Picture,
@@ -1380,13 +1381,15 @@ const BRIEF_OBJECTIVES: Rect = Rect {
     h: 380,
 };
 
-pub(crate) fn enter_briefing(
-    mut commands: Commands,
-    flow: Res<Flow>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut music: ResMut<Jukebox>,
-) {
+pub(crate) fn enter_briefing(c: &mut Core) {
+    let Core {
+        commands,
+        flow,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
     let Some(Step::Briefing(e)) = flow.current else { return };
     let race = cf::race_of(e);
     let mut bg = picture(&mut front.install, cf::briefing_background(e), None);
@@ -1422,9 +1425,9 @@ pub(crate) fn enter_briefing(
     let total = cf::narration_total_ms(&lens);
     let starts = cf::narration_starts(&lens);
     let text_h = lines.len() as u32 * line_h;
-    let image = spawn_layer(&mut commands, &mut pictures, dup(&bg), 0, AppState::Briefing, None);
-    commands.insert_resource(Clock(0.0));
-    commands.insert_resource(Briefing {
+    let image = spawn_layer(commands, pictures, dup(&bg), 0, AppState::Briefing, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let briefing = Briefing {
         image,
         background: bg,
         lines,
@@ -1434,7 +1437,8 @@ pub(crate) fn enter_briefing(
         narration_ms: total,
         voice: starts.into_iter().zip(files).collect(),
         drawn: None,
-    });
+    };
+    commands.queue(move |c| c.screens.briefing = Some(briefing));
     music.start_unless_playing(cf::briefing_music(race));
 }
 
@@ -1450,24 +1454,31 @@ fn shade(p: &mut Picture, r: Rect) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_briefing(
-    clock: Res<Clock>,
-    mut b: ResMut<Briefing>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut flow: ResMut<Flow>,
-    mut front: ResMut<Front>,
-    mut audio: ResMut<CoreAudio>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+fn run_briefing(c: &mut Core) {
+    let Core {
+        screens: Screens {
+            clock: Some(clock),
+            briefing: Some(b),
+            ..
+        },
+        pictures,
+        flow,
+        front,
+        audio,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
     let now = clock.0;
     while b.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = b.voice.pop_front().unwrap();
-        play_once(&mut front, &mut audio, &f, AppState::Briefing);
+        play_once(front, audio, &f, AppState::Briefing);
     }
     b.scroll.at(now as u64);
     if b.drawn != Some(b.scroll.moved) {
@@ -1481,11 +1492,11 @@ fn run_briefing(
             }
         }
         overlay(&mut p, &clip, b.panel.x, b.panel.y);
-        set_image(&mut pictures, &b.image, p);
+        set_image(pictures, &b.image, p);
         b.drawn = Some(b.scroll.moved);
     }
     if pressed(keys, mouse) || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        go_on(flow, front, keys, next, exit);
     }
 }
 
@@ -1516,28 +1527,34 @@ fn overlay(dst: &mut Picture, src: &Picture, x: i32, y: i32) {
 // The victory and defeat dialogs
 
 /// Opens the dialog when the local player's result is in.
-fn watch_outcome(
-    mut commands: Commands,
-    sim: Option<Res<crate::Sim>>,
-    dialog: Option<Res<OutcomeDialog>>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut screen: ResMut<FrontScreen>,
-    mut music: ResMut<Jukebox>,
-) {
-    let (Some(sim), None) = (sim, dialog) else { return };
+pub(crate) fn watch_outcome(c: &mut Core) {
+    let Core {
+        commands,
+        sim,
+        dialog,
+        pictures,
+        front_screen: screen,
+        jukebox: music,
+        ..
+    } = c;
+    let (Some(sim), None) = (sim.as_ref(), dialog.as_ref()) else {
+        return;
+    };
     let Some(o) = sim.world.players[sim.human as usize].result else {
         return;
     };
     // Music spec: a game that ends fades all sound before the score screen.
     music.fade_stop(true, None);
     screen.clears = false;
-    let image = spawn_layer(&mut commands, &mut pictures, blank(), 1, AppState::Game, None);
-    commands.insert_resource(OutcomeDialog {
+    let image = spawn_layer(commands, pictures, blank(), 1, AppState::Game, None);
+    let dialog = OutcomeDialog {
         victory: o == Outcome::Victory,
         save_wanted: false,
         saved: false,
+        redraw: true,
         image,
-    });
+    };
+    commands.queue(move |c| c.dialog = Some(dialog));
 }
 
 /// Our layout: a box in the middle of the screen.
@@ -1580,25 +1597,31 @@ fn draw_dialog(front: &Front, d: &OutcomeDialog) -> Picture {
     p
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_dialog(
-    mut dialog: ResMut<OutcomeDialog>,
-    sim: Option<Res<crate::Sim>>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    cam: Res<FrontScreen>,
-    mut flow: ResMut<Flow>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+pub(crate) fn run_dialog(c: &mut Core) {
+    let Core {
+        dialog: Some(dialog),
+        sim,
+        front,
+        pictures,
+        front_screen: cam,
+        flow,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
-    if dialog.is_added() || dialog.is_changed() {
-        let p = draw_dialog(&front, &dialog);
-        set_image(&mut pictures, &dialog.image, p);
+    // Drawn when it opens, and again when the game menu changed it (what Bevy's change detection told).
+    if dialog.redraw {
+        let p = draw_dialog(front, dialog);
+        set_image(pictures, &dialog.image, p);
+        dialog.redraw = false;
     }
-    let at = pointer(&input, &cam).filter(|_| mouse.just_released(Button::Left));
+    let at = pointer(input, cam).filter(|_| mouse.just_released(Button::Left));
     let hit = |r: Rect| at.is_some_and(|p| r.contains(p.x, p.y));
     let button = if dialog.saved || hit(CONTINUE) || keys.any_just_pressed([Key::Enter, Key::Letter('C')]) {
         Some(cf::DialogButton::Continue)
@@ -1610,8 +1633,8 @@ fn run_dialog(
     match button.map(cf::dialog_button) {
         Some(cf::DialogResult::End) => {
             let Some(sim) = sim else { return };
-            end_with(&mut flow, &mut front, &sim.world, sim.human, dialog.victory);
-            go_on(&mut flow, &front, keys, &mut next, &mut exit);
+            end_with(flow, front, &sim.world, sim.human, dialog.victory);
+            go_on(flow, front, keys, next, exit);
         }
         // The save dialog opens over this one; a save ends the game (`saved`), Cancel shows this dialog again.
         Some(cf::DialogResult::OpenSave) => dialog.save_wanted = true,
@@ -1619,18 +1642,17 @@ fn run_dialog(
     }
 }
 
-pub(crate) fn close_dialog(mut commands: Commands) {
-    commands.remove_resource::<OutcomeDialog>();
+pub(crate) fn close_dialog(c: &mut Core) {
+    c.commands.queue(|c| c.dialog = None);
 }
 
-pub(crate) fn close_menu_load(mut commands: Commands) {
-    commands.remove_resource::<MenuLoad>();
+pub(crate) fn close_menu_load(c: &mut Core) {
+    c.commands.queue(|c| c.screens.menu_load = None);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // The score screen
 
-#[derive(Resource)]
 struct ScoreScreen {
     image: PictureId,
     background: Picture,
@@ -1645,18 +1667,20 @@ struct ScoreScreen {
 /// Bars then the score count, one step a tick ("The score screen").
 const SCORE_TICK_MS: f64 = 40.0;
 
-pub(crate) fn enter_score(
-    mut commands: Commands,
-    flow: Res<Flow>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut music: ResMut<Jukebox>,
-) {
+pub(crate) fn enter_score(c: &mut Core) {
+    let Core {
+        commands,
+        flow,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
     let Some(s) = flow.score.clone() else { return };
     let bg = picture(&mut front.install, cf::score_background(s.race, s.victory), None);
-    let image = spawn_layer(&mut commands, &mut pictures, dup(&bg), 0, AppState::Score, None);
-    commands.insert_resource(Clock(0.0));
-    commands.insert_resource(ScoreScreen {
+    let image = spawn_layer(commands, pictures, dup(&bg), 0, AppState::Score, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let score = ScoreScreen {
         image,
         background: bg,
         ticks: 0,
@@ -1664,7 +1688,8 @@ pub(crate) fn enter_score(
         bars_done_at: None,
         finished: false,
         drawn: None,
-    });
+    };
+    commands.queue(move |c| c.screens.score = Some(score));
     music.start(Some(cf::score_music(s.race, s.victory)));
 }
 
@@ -1719,29 +1744,36 @@ fn draw_score(front: &Front, s: &ScoreData, bg: &Picture, ticks: u32, bars_done_
     (p, bars_done && done)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_score(
-    clock: Res<Clock>,
-    mut sc: ResMut<ScoreScreen>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut flow: ResMut<Flow>,
-    mut front: ResMut<Front>,
-    mut audio: ResMut<CoreAudio>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+fn run_score(c: &mut Core) {
+    let Core {
+        screens: Screens {
+            clock: Some(clock),
+            score: Some(sc),
+            ..
+        },
+        pictures,
+        flow,
+        front,
+        audio,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
     let Some(s) = flow.score.clone() else {
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        go_on(flow, front, keys, next, exit);
         return;
     };
     let press = pressed(keys, mouse);
     if press && sc.finished {
-        let next_step = after_score(&mut flow, &s);
+        let next_step = after_score(flow, &s);
         flow.steps = VecDeque::from([next_step]);
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        go_on(flow, front, keys, next, exit);
         return;
     }
     if press {
@@ -1755,16 +1787,16 @@ fn run_score(
         // Once the bars have grown, the score counts on from the next tick.
         if sc.bars_done_at.is_none() && bars_done(&s, sc.ticks) {
             sc.bars_done_at = Some(sc.ticks);
-            play_once(&mut front, &mut audio, cf::NUMBERS_SOUND, AppState::Score);
+            play_once(front, audio, cf::NUMBERS_SOUND, AppState::Score);
         }
     }
     if sc.drawn != Some(sc.ticks) {
-        let (p, finished) = draw_score(&front, &s, &sc.background, sc.ticks, sc.bars_done_at);
+        let (p, finished) = draw_score(front, &s, &sc.background, sc.ticks, sc.bars_done_at);
         if finished && !sc.finished {
             sc.finished = true;
-            play_once(&mut front, &mut audio, cf::RANK_SOUND, AppState::Score);
+            play_once(front, audio, cf::RANK_SOUND, AppState::Score);
         }
-        set_image(&mut pictures, &sc.image, p);
+        set_image(pictures, &sc.image, p);
         sc.drawn = Some(sc.ticks);
     }
 }
@@ -1782,7 +1814,6 @@ fn bars_done(s: &ScoreData, ticks: u32) -> bool {
 // ---------------------------------------------------------------------------------------------------------------
 // The finale and the credits
 
-#[derive(Resource)]
 struct Scroller {
     image: PictureId,
     background: Picture,
@@ -1800,7 +1831,7 @@ struct Scroller {
 #[allow(clippy::too_many_arguments)]
 fn open_scroller(
     commands: &mut Commands,
-    pictures: &mut ScreenPictures,
+    pictures: &mut Pictures,
     front: &Front,
     background: Picture,
     text: &[String],
@@ -1822,8 +1853,8 @@ fn open_scroller(
         scroll.interval_ms = ms;
     }
     let image = spawn_layer(commands, pictures, dup(&background), 0, state, None);
-    commands.insert_resource(Clock(0.0));
-    commands.insert_resource(Scroller {
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let scroller = Scroller {
         image,
         background,
         lines,
@@ -1834,16 +1865,19 @@ fn open_scroller(
         voice: cf::narration_starts(lens).into_iter().zip(files).collect(),
         drawn: None,
         closing: None,
-    });
+    };
+    commands.queue(move |c| c.screens.scroller = Some(scroller));
 }
 
-pub(crate) fn enter_finale(
-    mut commands: Commands,
-    flow: Res<Flow>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut music: ResMut<Jukebox>,
-) {
+pub(crate) fn enter_finale(c: &mut Core) {
+    let Core {
+        commands,
+        flow,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
     let Some(Step::Finale { bdp, race }) = flow.current else {
         return;
     };
@@ -1866,9 +1900,9 @@ pub(crate) fn enter_finale(
     let mut bg = bg;
     shade(&mut bg, panel);
     open_scroller(
-        &mut commands,
-        &mut pictures,
-        &front,
+        commands,
+        pictures,
+        front,
         bg,
         &[text],
         panel,
@@ -1881,13 +1915,15 @@ pub(crate) fn enter_finale(
     music.fade_stop(true, Some(e.music));
 }
 
-pub(crate) fn enter_credits(
-    mut commands: Commands,
-    flow: Res<Flow>,
-    mut front: ResMut<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut music: ResMut<Jukebox>,
-) {
+pub(crate) fn enter_credits(c: &mut Core) {
+    let Core {
+        commands,
+        flow,
+        front,
+        pictures,
+        jukebox: music,
+        ..
+    } = c;
     let Some(Step::Credits { bdp }) = flow.current else {
         return;
     };
@@ -1896,9 +1932,9 @@ pub(crate) fn enter_credits(
         (0..t.0.len()).filter_map(|i| t.text(i)).collect::<Vec<_>>()
     });
     open_scroller(
-        &mut commands,
-        &mut pictures,
-        &front,
+        commands,
+        pictures,
+        front,
         blank(),
         &lines,
         rect(80, 0, 480, H),
@@ -1907,38 +1943,45 @@ pub(crate) fn enter_credits(
         Some(cf::CREDITS_STEP_MS),
         AppState::Credits,
     );
-    fade_in_new_screen(&mut commands, fades::CREDITS);
+    fade_in_new_screen(commands, fades::CREDITS);
     music.start_unless_started(crate::music::CREDITS_TRACK);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_scroller(
-    mut commands: Commands,
-    clock: Res<Clock>,
-    mut s: ResMut<Scroller>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut flow: ResMut<Flow>,
-    mut front: ResMut<Front>,
-    mut audio: ResMut<CoreAudio>,
-    mut music: ResMut<Jukebox>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    layers: Res<ScreenLayers>,
-    input: Res<PlayerInput>,
-) {
+fn run_scroller(c: &mut Core) {
+    let Core {
+        commands,
+        screens: Screens {
+            clock: Some(clock),
+            scroller: Some(s),
+            ..
+        },
+        pictures,
+        flow,
+        front,
+        audio,
+        jukebox: music,
+        states: next,
+        exit,
+        layers,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse = &input.mouse;
     let now = clock.0;
     // Palette-effects spec, "Screen fades": the credits fade out over 100 ms, and nothing else runs meanwhile.
     if let Some(end) = s.closing {
         if now >= end {
-            go_on(&mut flow, &front, keys, &mut next, &mut exit);
+            go_on(flow, front, keys, next, exit);
         }
         return;
     }
     while s.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = s.voice.pop_front().unwrap();
-        play_once(&mut front, &mut audio, &f, next.get());
+        play_once(front, audio, &f, next.get());
     }
     s.scroll.at(now as u64);
     if s.drawn != Some(s.scroll.moved) {
@@ -1953,17 +1996,17 @@ fn run_scroller(
             }
         }
         overlay(&mut p, &clip, s.panel.x, s.panel.y);
-        set_image(&mut pictures, &s.image, p);
+        set_image(pictures, &s.image, p);
         s.drawn = Some(s.scroll.moved);
     }
     if pressed(keys, mouse) || cf::briefing_closes(&s.scroll, now as u64, s.narration_ms) {
         if next.get() == AppState::Credits {
             // Music spec: the credits' close fades all sound.
             music.fade_stop(true, None);
-            s.closing = Some(fade_out_all(&mut commands, &layers, now, fades::CREDITS));
+            s.closing = Some(fade_out_all(commands, layers, now, fades::CREDITS));
             return;
         }
-        go_on(&mut flow, &front, keys, &mut next, &mut exit);
+        go_on(flow, front, keys, next, exit);
     }
 }
 

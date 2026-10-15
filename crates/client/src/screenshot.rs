@@ -21,64 +21,58 @@
 
 use std::collections::HashMap;
 
-use bevy::ecs::schedule::ScheduleConfigs;
-use bevy::ecs::system::ScheduleSystem;
-use bevy::prelude::*;
 use tidewater_formats::tileset::Palette;
 
-use crate::frontend::{AppState, in_screen};
+use crate::core::Core;
 use crate::input::Key;
 use crate::palette::{self, Rgb};
-use crate::shell::{PlayerInput, Store};
-use crate::{Cycling, Hud};
 
 /// Frames the negative palette shows after a screenshot is written.
 pub const FLASH_FRAMES: u8 = 3;
 
 /// A screenshot asked for this frame: written once the frame is composed.
-#[derive(Resource)]
 pub struct PendingShot {
     name: String,
     canvas: (u32, u32),
     pal: Palette,
 }
 
-/// The screenshot key (`frame_systems` in `main.rs` has the order).
-pub(crate) fn shot_system() -> ScheduleConfigs<ScheduleSystem> {
-    print_screen.run_if(in_screen(AppState::Game))
-}
-
-fn print_screen(
-    mut commands: Commands,
-    cycling: Option<Res<Cycling>>,
-    hud: Option<Res<Hud>>,
-    store: Res<Store>,
-    input: Res<PlayerInput>,
-) {
+/// The screenshot key, in the game screen.
+pub(crate) fn print_screen(c: &mut Core) {
+    let Core {
+        commands,
+        cycling,
+        hud,
+        store,
+        input,
+        ..
+    } = c;
     let keys = &input.keys;
     if !keys.any_just_pressed([Key::PrintScreen, Key::F(13)]) {
         return;
     }
-    let (Some(cycling), Some(canvas)) = (cycling, hud.and_then(|h| h.layout).map(|l| l.canvas)) else {
+    let (Some(cycling), Some(canvas)) = (cycling.as_ref(), hud.as_ref().and_then(|h| h.layout).map(|l| l.canvas))
+    else {
         return;
     };
     let Some(name) = palette::screenshot_name(|n| store.has_screenshot(n)) else {
         return;
     };
-    commands.insert_resource(PendingShot {
+    let shot = PendingShot {
         name,
         canvas,
         pal: cycling.shown.clone(),
-    });
+    };
+    commands.queue(move |c| c.pending_shot = Some(shot));
 }
 
 /// Writes the screenshot asked for from the frame just composed (the 640 × 480 screen, without the window's border),
 /// and starts the flash.
-pub(crate) fn write_shot(world: &mut World) {
-    let Some(shot) = world.remove_resource::<PendingShot>() else {
+pub(crate) fn write_shot(c: &mut Core) {
+    let Some(shot) = c.pending_shot.take() else {
         return;
     };
-    let frame = &world.resource::<crate::shell::Screen>().frame;
+    let frame = &c.frame;
     let px = index_pixels(
         &frame.rgba,
         (crate::display::SCREEN.0, crate::display::SCREEN.1),
@@ -86,9 +80,9 @@ pub(crate) fn write_shot(world: &mut World) {
         &shot.pal,
     );
     let file = encode_pcx(shot.canvas.0 as u16, shot.canvas.1 as u16, &px, &shot.pal);
-    match world.resource::<Store>().write_screenshot(&shot.name, &file) {
+    match c.store.write_screenshot(&shot.name, &file) {
         Ok(()) => {
-            if let Some(mut cycling) = world.get_resource_mut::<Cycling>() {
+            if let Some(cycling) = &mut c.cycling {
                 cycling.flash = FLASH_FRAMES;
             }
         }

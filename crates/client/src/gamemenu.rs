@@ -33,15 +33,15 @@
 //!   permission check (no multiplayer).
 //! - The dialogs' own art, and the "Network" button of the Battle.net options menu.
 
-use bevy::prelude::*;
 use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
-use crate::frontend::{self, AppState, AppStates, Flow, Front, FrontScreen, in_screen};
+use crate::core::{Commands, Core, add_layer, remove_layers};
+use crate::frontend::{self, AppState, Flow, Front, FrontScreen};
+use crate::game::{self, Sim};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Input, Key, LogCursor};
-use crate::layers::PictureId;
-use crate::layers::Role;
+use crate::layers::{PictureId, Pictures, Role};
 use crate::menu::{self, Confirm, EndButton, Kind, Nav, Saving, Screen};
 use crate::mouse;
 use crate::prefs::{self, Prefs, bit};
@@ -49,16 +49,11 @@ use crate::savedlg::{self, SaveUi};
 use crate::savefile;
 use crate::savegame;
 use crate::saves::{self, SaveDir};
-use crate::shell::Store;
-use crate::shell::{PlayerInput, ScreenPictures, add_layer, remove_layers, remove_layers_now};
-use crate::{PanelUi, ScreenUi, Sim, Speaker};
 
 /// The stored settings in force.
-#[derive(Resource)]
 pub struct Stored(pub Prefs);
 
 /// The open menu. It exists exactly while a menu or dialog is open.
-#[derive(Resource)]
 pub struct GameMenu {
     nav: Nav,
     image: PictureId,
@@ -87,42 +82,17 @@ pub struct GameMenu {
     from_outcome: bool,
 }
 
-/// The save dialog's input for this frame, collected by [`gather_saving_input`].
-#[derive(Resource, Default)]
-pub struct SavingInput(savedlg::Input);
-
-/// The game menu's systems. The game screen's run before them (`main.rs`), so a key that opens or closes a menu is
-/// seen by one side only, the same way every frame (an Escape that closes a menu doesn't also reach the game).
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct MenuSystems;
-
-pub fn plugin(app: &mut App) {
-    app.init_resource::<SavingInput>();
-}
-
-/// The game menu's systems, in order, with the points where their commands take effect (`frame_systems` in `main.rs`
-/// runs them last in the frame).
-pub(crate) fn menu_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
-    (
-        open_requests.run_if(frontend::game_running),
-        ApplyDeferred,
-        open_from_outcome.run_if(resource_exists::<frontend::OutcomeDialog>.and_then(not(resource_exists::<GameMenu>))),
-        ApplyDeferred,
-        gather_saving_input.run_if(resource_exists::<GameMenu>),
-        run_menu.run_if(resource_exists::<GameMenu>),
-        ApplyDeferred,
-        run_saving.run_if(resource_exists::<GameMenu>),
-        ApplyDeferred,
-        service_saving.run_if(resource_exists::<GameMenu>),
-        sync_settings.run_if(in_screen(AppState::Game)),
-    )
-        .chain()
-        .in_set(MenuSystems)
-}
-
-/// The saving and loading development aid (`demo_save_load`; `frame_systems` in `main.rs` has the order).
-pub(crate) fn demo_system() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
-    demo_save_load.run_if(in_screen(AppState::Game))
+/// The game menu's input state: the save dialog's input for this frame (collected by [`gather_saving_input`]), the
+/// places in the typed events and the wheel steps it has read, and whether the menu development aid has run.
+///
+/// The game menu's functions run last in the frame (`core::frame_systems`), after the game screen's, so a key that
+/// opens or closes a menu is seen by one side only, the same way every frame (an Escape that closes a menu doesn't
+/// also reach the game).
+#[derive(Default)]
+pub struct MenuInput {
+    saving: savedlg::Input,
+    cursors: (LogCursor, LogCursor),
+    demo_done: bool,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -605,21 +575,22 @@ fn slider_track(r: Rect) -> Rect {
 // Opening
 
 /// Opens the menu or dialog a key or the menu button asks for.
-#[allow(clippy::too_many_arguments)]
-fn open_requests(
-    mut commands: Commands,
-    sim: Option<Res<Sim>>,
-    mut ui: Option<ResMut<PanelUi>>,
-    mut stored: ResMut<Stored>,
-    mut front: ResMut<Front>,
-    flow: Res<Flow>,
-    folder: Res<Store>,
-    mut pictures: ResMut<ScreenPictures>,
-    mut demo_done: Local<bool>,
-    input: Res<PlayerInput>,
-) {
+pub(crate) fn open_requests(c: &mut Core) {
+    let Core {
+        commands,
+        sim,
+        panel_ui: ui,
+        stored,
+        front,
+        flow,
+        store: folder,
+        pictures,
+        menu_input: MenuInput { demo_done, .. },
+        input,
+        ..
+    } = c;
     let keys = &input.keys;
-    let Some(sim) = sim else { return };
+    let Some(sim) = sim.as_ref() else { return };
     let mut asked = ui
         .as_mut()
         .is_some_and(|u| std::mem::take(&mut u.menu_requested))
@@ -627,7 +598,7 @@ fn open_requests(
     // Development aid: `TIDEWATER_DEMO_MENU=game|options|sound|speed|prefs|objectives|end|restart|tips|save|load` opens that
     // screen once, as its key would, after 50 cycles so the map and panels have been drawn from a running game.
     if sim.world.tick >= 50
-        && !std::mem::replace(&mut *demo_done, true)
+        && !std::mem::replace(demo_done, true)
         && let Ok(v) = std::env::var("TIDEWATER_DEMO_MENU")
     {
         asked = match v.as_str() {
@@ -651,7 +622,7 @@ fn open_requests(
         alt: keys.any_pressed([Key::AltLeft, Key::AltRight]),
     };
     for &k in keys.get_just_pressed() {
-        let Some(key) = crate::game_key(k) else { continue };
+        let Some(key) = game::game_key(k) else { continue };
         if key == mouse::Key::F(10) {
             asked = Some(Screen::Game);
             continue;
@@ -684,13 +655,13 @@ fn open_requests(
     }
     let Some(screen) = asked else { return };
     open_menu(
-        &mut commands,
+        commands,
         screen,
-        &mut pictures,
-        &mut stored,
-        &mut front,
-        &sim,
-        &flow,
+        pictures,
+        stored,
+        front,
+        sim,
+        flow,
         &folder.folder(),
         false,
     );
@@ -701,7 +672,7 @@ fn open_requests(
 fn open_menu(
     commands: &mut Commands,
     screen: Screen,
-    pictures: &mut ScreenPictures,
+    pictures: &mut Pictures,
     stored: &mut Stored,
     front: &mut Front,
     sim: &Sim,
@@ -737,48 +708,49 @@ fn open_menu(
         from_outcome,
     };
     enter(&mut m, front, stored, sim, flow, folder);
-    commands.insert_resource(m);
+    commands.queue(move |c| c.menu = Some(m));
 }
 
 /// The victory dialog's Save opens the save dialog over it.
-#[allow(clippy::too_many_arguments)]
-fn open_from_outcome(
-    mut commands: Commands,
-    mut dialog: ResMut<frontend::OutcomeDialog>,
-    sim: Option<Res<Sim>>,
-    mut stored: ResMut<Stored>,
-    mut front: ResMut<Front>,
-    flow: Res<Flow>,
-    folder: Res<Store>,
-    mut pictures: ResMut<ScreenPictures>,
-) {
-    let Some(sim) = sim else { return };
+pub(crate) fn open_from_outcome(c: &mut Core) {
+    let Core {
+        commands,
+        dialog: Some(dialog),
+        sim,
+        stored,
+        front,
+        flow,
+        store: folder,
+        pictures,
+        ..
+    } = c
+    else {
+        return;
+    };
+    let Some(sim) = sim.as_ref() else { return };
     if !dialog.save_wanted {
         return;
     }
     dialog.save_wanted = false;
+    // The dialog changed: it draws again when it shows again.
+    dialog.redraw = true;
     open_menu(
-        &mut commands,
+        commands,
         Screen::Saving(Saving::Save),
-        &mut pictures,
-        &mut stored,
-        &mut front,
-        &sim,
-        &flow,
+        pictures,
+        stored,
+        front,
+        sim,
+        flow,
         &folder.folder(),
         true,
     );
 }
 
 /// Collects the typed text, keys, pointer and wheel for the save dialog.
-#[allow(clippy::too_many_arguments)]
-fn gather_saving_input(
-    mut saving: ResMut<SavingInput>,
-    mut cursors: Local<(LogCursor, LogCursor)>,
-    cam: Res<FrontScreen>,
-    input: Res<PlayerInput>,
-) {
-    saving.0 = saving_input(&input, &mut cursors, &cam);
+pub(crate) fn gather_saving_input(c: &mut Core) {
+    let m = &mut c.menu_input;
+    m.saving = saving_input(&c.input, &mut m.cursors, &c.front_screen);
 }
 
 /// One frame's input for a save or load dialog (also the main menu's load dialog, `frontend`).
@@ -812,33 +784,37 @@ pub(crate) fn saving_input(
     i
 }
 
-pub(crate) fn close_on_exit(mut commands: Commands) {
-    commands.remove_resource::<GameMenu>();
+pub(crate) fn close_on_exit(c: &mut Core) {
+    c.commands.queue(|c| c.menu = None);
 }
 
 fn close(commands: &mut Commands) {
     remove_layers(commands, |e| e.role == Role::Menu);
-    commands.remove_resource::<GameMenu>();
+    commands.queue(|c| c.menu = None);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Running
 
-#[allow(clippy::too_many_arguments)]
-fn run_menu(
-    mut commands: Commands,
-    mut m: ResMut<GameMenu>,
-    mut stored: ResMut<Stored>,
-    mut sim: ResMut<Sim>,
-    mut front: ResMut<Front>,
-    mut flow: ResMut<Flow>,
-    mut pictures: ResMut<ScreenPictures>,
-    cam: Res<FrontScreen>,
-    folder: Res<Store>,
-    mut next: ResMut<AppStates>,
-    mut exit: MessageWriter<AppExit>,
-    input: Res<PlayerInput>,
-) {
+pub(crate) fn run_menu(c: &mut Core) {
+    let Core {
+        commands,
+        menu: Some(m),
+        stored,
+        sim: Some(sim),
+        front,
+        flow,
+        pictures,
+        front_screen: cam,
+        store: folder,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
     let keys = &input.keys;
     let mouse_in = &input.mouse;
     // The save and load dialogs run in `run_saving`.
@@ -849,7 +825,7 @@ fn run_menu(
     let title_h = front.big.height as i32;
     let line_h = front.font.height as i32 + 4;
     let built = m.build(title_h, line_h, kind);
-    let at = frontend::pointer(&input, &cam);
+    let at = frontend::pointer(input, cam);
 
     // The delayed application of the sound dialog's changes.
     if m.delay.tick() {
@@ -884,8 +860,8 @@ fn run_menu(
         let t = slider_track(built.items[i].r);
         let v = menu::slider_value(p.x, t.x as f32, t.w as f32, max);
         if v != value {
-            set_slider(&mut m, id, v);
-            changed(&mut m, &mut stored);
+            set_slider(m, id, v);
+            changed(m, stored);
         }
     }
 
@@ -898,7 +874,7 @@ fn run_menu(
             Kinds::Button(a, _) => act = Some(*a),
             Kinds::Check(id, _, on) => {
                 m.draft.set(id.bit(), !on);
-                changed(&mut m, &mut stored);
+                changed(m, stored);
             }
             Kinds::Radio(id, _, _) => {
                 match *id {
@@ -906,7 +882,7 @@ fn run_menu(
                     Radio::Fog(v) => m.fog = v,
                     Radio::Terrain(v) => m.draft.minimap_terrain = v,
                 }
-                changed(&mut m, &mut stored);
+                changed(m, stored);
             }
             _ => {}
         }
@@ -928,7 +904,7 @@ fn run_menu(
         };
     } else if act.is_none() {
         for &k in keys.get_just_pressed() {
-            if let Some(key) = crate::game_key(k)
+            if let Some(key) = game::game_key(k)
                 && let Some(s) = menu::menu_key(screen, key, true)
             {
                 act = Some(Act::Open(s));
@@ -939,8 +915,8 @@ fn run_menu(
     let Some(act) = act else {
         if m.dirty {
             m.dirty = false;
-            let p = draw(&front, &m, &built);
-            frontend::set_image(&mut pictures, &m.image, p);
+            let p = draw(front, m, &built);
+            frontend::set_image(pictures, &m.image, p);
         }
         return;
     };
@@ -948,11 +924,11 @@ fn run_menu(
     match act {
         Act::Open(s) => {
             m.nav.open_child(s);
-            enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.folder());
+            enter(m, front, stored, sim, flow, &folder.folder());
         }
         Act::CloseAll => {
             m.nav.close();
-            close(&mut commands);
+            close(commands);
         }
         Act::Back | Act::Cancel => {
             if act == Act::Cancel {
@@ -960,9 +936,9 @@ fn run_menu(
                 stored.0 = m.snapshot.clone();
             }
             if m.nav.back() {
-                close(&mut commands);
+                close(commands);
             } else {
-                enter(&mut m, &mut front, &mut stored, &sim, &flow, &folder.folder());
+                enter(m, front, stored, sim, flow, &folder.folder());
             }
         }
         Act::Ok => {
@@ -978,13 +954,13 @@ fn run_menu(
             }
             stored.0 = m.draft.clone();
             m.nav.close();
-            close(&mut commands);
+            close(commands);
         }
         Act::Do(c) => {
             m.nav.close();
-            close(&mut commands);
+            close(commands);
             match c {
-                Confirm::Restart => frontend::restart(&mut flow),
+                Confirm::Restart => frontend::restart(flow),
                 Confirm::Surrender | Confirm::QuitDraw => {
                     // The local player is defeated; the defeat dialog and score screen follow.
                     let h = sim.human as usize;
@@ -992,59 +968,61 @@ fn run_menu(
                     sim.world.victory.over = true;
                     return;
                 }
-                Confirm::LoadCustom | Confirm::ReturnToChat | Confirm::QuitToMenu => frontend::to_main_menu(&mut flow),
+                Confirm::LoadCustom | Confirm::ReturnToChat | Confirm::QuitToMenu => frontend::to_main_menu(flow),
                 Confirm::Exit => {
-                    exit.write(AppExit::Success);
+                    *exit = true;
                     return;
                 }
             }
-            frontend::go_on(&mut flow, &front, keys, &mut next, &mut exit);
+            frontend::go_on(flow, front, keys, next, exit);
         }
     }
 }
 
 /// Development aid: `TIDEWATER_DEMO_SAVE=name` saves the running game as `name` at cycle 200; from cycle 300,
 /// `TIDEWATER_DEMO_LOAD=name` loads that saved game (the dialogs' own paths, without typing).
-fn demo_save_load(world: &mut World) {
-    let tick = world.get_resource::<Sim>().map_or(0, |s| s.world.tick);
+pub(crate) fn demo_save_load(c: &mut Core) {
+    let tick = c.sim.as_ref().map_or(0, |s| s.world.tick);
     if let Ok(name) = std::env::var("TIDEWATER_DEMO_SAVE")
         && tick == 200
     {
-        let r = crate::save_game(world, &saves::file_stem(&name), &name);
-        info!("demo save {name}: {r:?}");
+        let r = game::save_game(c, &saves::file_stem(&name), &name);
+        eprintln!("demo save {name}: {r:?}");
     }
     if let Ok(name) = std::env::var("TIDEWATER_DEMO_LOAD")
         && tick >= 300
     {
-        let folder = world.resource::<Store>().folder();
-        let enhanced = world.resource::<Sim>().world.rules.enhanced;
+        let folder = c.store.folder();
+        let Some(sim) = &c.sim else { return };
+        let enhanced = sim.world.rules.enhanced;
         match folder.read(
             &SaveDir::file_of(&saves::file_stem(&name), savefile::Kind::Single),
             enhanced,
         ) {
             Ok((header, body)) => {
-                world.resource_scope(|world, mut flow: Mut<Flow>| {
-                    let mut next = world.resource_mut::<AppStates>();
-                    savegame::load_game(&mut flow, &mut next, header, body);
-                });
-                info!("demo load {name}");
+                savegame::load_game(&mut c.flow, &mut c.states, header, body);
+                eprintln!("demo load {name}");
             }
-            Err(r) => error!("demo load {name}: {r:?}"),
+            Err(r) => eprintln!("demo load {name}: {r:?}"),
         }
     }
 }
 
 /// One frame of the save or load dialog: its input, drawing, and what it decided.
-#[allow(clippy::too_many_arguments)]
-fn run_saving(
-    mut commands: Commands,
-    mut m: ResMut<GameMenu>,
-    input: Res<SavingInput>,
-    front: Res<Front>,
-    mut pictures: ResMut<ScreenPictures>,
-    folder: Res<Store>,
-    sim: Res<Sim>,
-) {
+pub(crate) fn run_saving(c: &mut Core) {
+    let Core {
+        commands,
+        menu: Some(m),
+        menu_input: MenuInput { saving: input, .. },
+        front,
+        pictures,
+        store: folder,
+        sim: Some(sim),
+        ..
+    } = c
+    else {
+        return;
+    };
     let Screen::Saving(_) = m.screen() else { return };
     let Some(ui) = m.save.as_mut() else { return };
     let snap = |u: &SaveUi| {
@@ -1057,13 +1035,13 @@ fn run_saving(
         )
     };
     let before = snap(ui);
-    let step = ui.step(&input.0);
+    let step = ui.step(input);
     let mut redraw = before != snap(ui) || m.dirty;
     match step {
         saves::Step::Nothing => {}
         saves::Step::Close => {
             if m.nav.back() {
-                close(&mut commands);
+                close(commands);
                 return;
             }
         }
@@ -1084,56 +1062,56 @@ fn run_saving(
         m.dirty = false;
         if let Some(ui) = &m.save {
             let p = ui.draw(&front.font, &front.big, &|n| front.net(n));
-            frontend::set_image(&mut pictures, &m.image, p);
+            frontend::set_image(pictures, &m.image, p);
         }
     }
 }
 
-/// Carries out a save or load the dialog asked for. Exclusive: both need the whole game.
-fn service_saving(world: &mut World) {
-    let Some(req) = world.resource_mut::<GameMenu>().request.take() else {
+/// Carries out a save or load the dialog asked for, at once: both need the whole game.
+pub(crate) fn service_saving(c: &mut Core) {
+    let Some(req) = c.menu.as_mut().and_then(|m| m.request.take()) else {
         return;
     };
     match req {
-        saves::Step::Write { stem, name } => match crate::save_game(world, &stem, &name) {
-            Ok(()) => finish_save(world),
-            Err(reason) => fail(world, reason, &stem),
+        saves::Step::Write { stem, name } => match game::save_game(c, &stem, &name) {
+            Ok(()) => finish_save(c),
+            Err(reason) => fail(c, reason, &stem),
         },
         saves::Step::Load(entry) => {
-            let enhanced = world.resource::<Sim>().world.rules.enhanced;
-            match world.resource::<Store>().folder().read(&entry.file, enhanced) {
+            let Some(sim) = &c.sim else { return };
+            let enhanced = sim.world.rules.enhanced;
+            match c.store.folder().read(&entry.file, enhanced) {
                 Ok((header, body)) => {
-                    world.resource_scope(|world, mut flow: Mut<Flow>| {
-                        let mut next = world.resource_mut::<AppStates>();
-                        savegame::load_game(&mut flow, &mut next, header, body);
-                    });
-                    remove_menu(world);
+                    savegame::load_game(&mut c.flow, &mut c.states, header, body);
+                    remove_menu(c);
                 }
-                Err(reason) => fail(world, reason, &entry.stem),
+                Err(reason) => fail(c, reason, &entry.stem),
             }
         }
         _ => {}
     }
 }
 
-fn remove_menu(world: &mut World) {
-    remove_layers_now(world, |e| e.role == Role::Menu);
-    world.remove_resource::<GameMenu>();
+fn remove_menu(c: &mut Core) {
+    c.remove_layers_now(|e| e.role == Role::Menu);
+    c.menu = None;
 }
 
-fn fail(world: &mut World, reason: savefile::Reason, file: &str) {
-    if let Some(ui) = world.resource_mut::<GameMenu>().save.as_mut() {
+fn fail(c: &mut Core, reason: savefile::Reason, file: &str) {
+    let Some(m) = &mut c.menu else { return };
+    if let Some(ui) = m.save.as_mut() {
         ui.dialog.failed(reason, file);
     }
-    world.resource_mut::<GameMenu>().dirty = true;
+    m.dirty = true;
 }
 
 /// A save went through: the menus close; from the victory dialog the game ends as Continue does.
-fn finish_save(world: &mut World) {
-    let from_outcome = world.resource::<GameMenu>().from_outcome;
-    remove_menu(world);
-    if from_outcome && let Some(mut d) = world.get_resource_mut::<frontend::OutcomeDialog>() {
+fn finish_save(c: &mut Core) {
+    let from_outcome = c.menu.as_ref().is_some_and(|m| m.from_outcome);
+    remove_menu(c);
+    if from_outcome && let Some(d) = &mut c.dialog {
         d.saved = cf::after_save(true);
+        d.redraw = true;
     }
 }
 
@@ -1157,33 +1135,31 @@ fn changed(m: &mut GameMenu, stored: &mut Stored) {
     }
 }
 
-/// Puts the stored settings into force in the game: the scroll speeds, the mouse style and the sound options.
-fn sync_settings(
-    stored: Res<Stored>,
-    scr: Option<ResMut<ScreenUi>>,
-    ui: Option<ResMut<PanelUi>>,
-    speaker: Option<ResMut<Speaker>>,
-    mut music: ResMut<crate::jukebox::Jukebox>,
-) {
+/// Puts the stored settings into force in the game: the scroll speeds, the mouse style and the sound options. Bevy's
+/// app put them in only when the settings had changed or the game's state was new; nothing else writes these fields,
+/// so putting them in every frame comes to the same.
+pub(crate) fn sync_settings(c: &mut Core) {
+    let Core {
+        stored,
+        screen_ui: scr,
+        panel_ui: ui,
+        speaker,
+        jukebox: music,
+        ..
+    } = c;
     let s = &stored.0;
-    if let Some(mut scr) = scr
-        && (stored.is_changed() || scr.is_added())
-    {
+    if let Some(scr) = scr {
         scr.scroller.mouse_speed = s.mouse_scroll;
         scr.scroller.key_speed = s.key_scroll;
     }
-    if let Some(mut ui) = ui
-        && (stored.is_changed() || ui.is_added())
-    {
+    if let Some(ui) = ui {
         ui.style = if s.has(bit::FIRST_MOUSE_STYLE) {
             mouse::Style::First
         } else {
             mouse::Style::Second
         };
     }
-    if let Some(mut sp) = speaker
-        && (stored.is_changed() || sp.is_added())
-    {
+    if let Some(sp) = speaker {
         use crate::sound::option;
         let mask = option::UNIT_SPEECH | option::ACKNOWLEDGEMENTS | option::BUILDING_SOUNDS | option::SUBTITLES;
         sp.director.settings.volume = s.digital_level();

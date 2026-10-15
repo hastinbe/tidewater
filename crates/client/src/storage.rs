@@ -46,6 +46,25 @@ pub trait Storage: Send + Sync {
     fn wall_clock_secs(&self) -> u64;
 }
 
+/// The storage the platform gives the core.
+#[derive(Clone)]
+pub struct Store(pub Arc<dyn Storage>);
+
+impl std::ops::Deref for Store {
+    type Target = dyn Storage;
+
+    fn deref(&self) -> &(dyn Storage + 'static) {
+        &*self.0
+    }
+}
+
+impl Store {
+    /// The save folder.
+    pub fn folder(&self) -> crate::saves::SaveDir {
+        crate::saves::SaveDir::new(self.0.clone())
+    }
+}
+
 /// The installation through a [`Storage`].
 struct InstallFiles(Arc<dyn Storage>);
 

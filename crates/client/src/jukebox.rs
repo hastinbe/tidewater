@@ -1,5 +1,5 @@
-//! The Bevy side of the music (`music.rs`, spec `docs/specs/ui/music.md`): one resource that owns the state machine
-//! and the open track's voice in the core's mixer (`audio`), and the system that runs it every frame. Every screen starts and stops music through the
+//! The music's player (`music.rs`, spec `docs/specs/ui/music.md`): the state machine and the open track's voice in the
+//! core's mixer (`audio`), and [`play_music`], which runs it every frame. Every screen starts and stops music through the
 //! methods here; the music files are read from the install's `Music` folder through the front end's [`Front`].
 //!
 //! The game menu's sound dialog changes the volume through [`Jukebox::set_volume`] (the same call for the countdown
@@ -7,16 +7,13 @@
 
 use std::time::Duration;
 
-use bevy::prelude::*;
-
 use crate::audio::{self, VoiceId};
-use crate::frontend::Front;
+use crate::core::Core;
 use crate::music::{self, Action, Music, Playback};
-use crate::shell::{CoreAudio, CoreTime};
 use crate::sound::Shuffle;
 
 /// The music state machine and the open track's voice.
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct Jukebox {
     music: Music,
     /// Actions to apply on the next frame (from starts and key presses).
@@ -123,8 +120,15 @@ impl Jukebox {
 /// `Music` folder, sets its loudness and stops it. The open track's position is the mixer's, so it runs on the mixer's
 /// clock; a loop track loops in the mixer, from its loop point, without a gap (`audio`), so the loop point needs no
 /// seek.
-pub fn play_music(time: Res<CoreTime>, mut jb: ResMut<Jukebox>, mut front: ResMut<Front>, mut core: ResMut<CoreAudio>) {
-    let jb = &mut *jb;
+pub fn play_music(c: &mut Core) {
+    let Core {
+        time,
+        jukebox: jb,
+        front,
+        audio: core,
+        ..
+    } = c;
+
     jb.carry += time.delta();
     let ms = jb.carry.as_millis() as u32;
     jb.carry -= Duration::from_millis(ms as u64);

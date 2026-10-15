@@ -5321,6 +5321,8 @@ dependencies = [
  "bevy",
  "clap",
  "directories",
+ "glam",
+ "png",
  "postcard",
  "serde",
  "tempfile",
