@@ -25,6 +25,34 @@ const PULL_BACK_MASK: u16 = mask::SEA & !bits::UNIT;
 /// "Shore-target search" limit (4 rings).
 const LIMIT_SHORE_TARGET: i32 = 8;
 
+/// The points where landing and pushing off move the transport differently (transports spec, "Moving near the
+/// shore"). Both then take the ordinary step, blocked rules and route search.
+#[derive(Clone, Copy, Debug)]
+struct NearShore {
+    /// Movement class: `Some(true)` the landing class, `Some(false)` the sea class, `None` unchanged (pushing off
+    /// keeps the landing class after a landing).
+    landing_class: Option<bool>,
+    /// Step size of this run: two-tile, the move animation started and run at once with the step (landing: tile and
+    /// goal even, or farther than 3 tiles; pushing off: tile even).
+    two_tile: bool,
+    /// Whether a run that isn't two-tile makes the transport a one-tile mover (landing) or leaves its step size as it
+    /// is (pushing off).
+    one_tile_otherwise: bool,
+    /// Route: whether the cached route is dropped before the step (landing within 3 tiles: a new route every step).
+    fresh_route: bool,
+    /// What no route does.
+    no_route: NoRoute,
+}
+
+/// "Moving near the shore", "No route".
+#[derive(Clone, Copy, Debug)]
+enum NoRoute {
+    /// Landing, step 6.
+    LandingStep6,
+    /// Pushing off: dock (order 32).
+    Dock,
+}
+
 fn even(t: (i32, i32)) -> bool {
     t.0 & 1 == 0 && t.1 & 1 == 0
 }
@@ -229,43 +257,76 @@ impl World {
             self.switch_anim(i, anim::WORK_B);
             self.units[i].path.clear();
         }
+        let tile = self.units[i].tile;
+        let landing = NearShore {
+            landing_class: Some(!far),
+            two_tile: far || (even(tile) && even(goal)),
+            one_tile_otherwise: true,
+            // Step 5 (`human13-10000` n = 3820, V12): within the 3 tiles every run's arrival test discards the
+            // planned route, so each step is planned afresh from the current tile.
+            fresh_route: !far,
+            no_route: NoRoute::LandingStep6,
+        };
+        // Step 4: arrived, order 29 if marked unload on arrival, else 32, set at once like an immediate order: the
+        // still animation starts with a wait of 1 (orders spec, "Pending orders and immediate orders"; V24: docked at
+        // n = 36 with wait 1).
+        if self.near_shore(i, goal, landing) == Walk::Arrived {
+            let u = &mut self.units[i];
+            let next = if u.ship.unload { Order::Unload } else { Order::Docked };
+            u.ship.unload = false;
+            u.order = next;
+            self.start_anim(i, anim::STILL);
+        }
+    }
+
+    /// "Moving near the shore": one step of landing or pushing off, with `how` setting the points where the two
+    /// differ; everything else is the ordinary walk ([`World::move_toward_as`]), its blocked rules restarting
+    /// animation 6 ([`World::blocked`]). The end test is the goal tile exactly: radius 0, and no +1 in orders 30 and
+    /// 31 ([`World::arrival_radius`]). Pushing off's own end test, an even open-water tile, runs before its tile pick
+    /// ([`World::push_off`]).
+    fn near_shore(&mut self, i: usize, goal: (i32, i32), how: NearShore) -> Walk {
         let u = &mut self.units[i];
-        u.ship.landing = !far;
-        u.ship.one_tile = !far && !(even(u.tile) && even(goal));
-        // Step 5 (round-53 errata, `human13-10000` n = 3820): within the 3 tiles every run's arrival test discards
-        // the planned route, so each step is planned afresh from the current tile.
-        if !far {
+        if let Some(landing) = how.landing_class {
+            u.ship.landing = landing;
+        }
+        if how.two_tile {
+            u.ship.one_tile = false;
+        } else if how.one_tile_otherwise {
+            u.ship.one_tile = true;
+        }
+        if how.fresh_route {
             u.path.clear();
         }
-        // Step 2: a two-tile mover starts its move animation and runs it at once; a one-tile mover keeps animation 6.
-        let restart = !u.ship.one_tile;
-        match self.move_toward_as(i, Goal::tile(goal, 0), restart) {
-            Walk::Arrived => {
-                let u = &mut self.units[i];
-                let next = if u.ship.unload { Order::Unload } else { Order::Docked };
-                u.ship.unload = false;
-                u.order = next;
-                // Set at once like an immediate order: the still animation starts with a wait of 1 (orders spec,
-                // "Pending orders and immediate orders"; Human04 vector: docked at n = 36 with wait 1).
-                self.start_anim(i, anim::STILL);
+        // A two-tile run starts the move animation and runs it at once with the step; a one-tile run keeps
+        // animation 6, the order's own.
+        let walk = self.move_toward_as(i, Goal::tile(goal, 0), how.two_tile);
+        if walk == Walk::NoPath {
+            match how.no_route {
+                NoRoute::LandingStep6 => self.landing_no_route(i),
+                NoRoute::Dock => self.dock(i),
             }
-            Walk::NoPath => {
-                let unload = std::mem::take(&mut self.units[i].ship.unload);
-                let tile = self.units[i].tile;
-                let next = if self.shore_water(tile) {
-                    if unload { Order::Unload } else { Order::Docked }
-                } else if even(tile) {
-                    self.units[i].ship.landing = false;
-                    Order::Idle
-                } else {
-                    Order::Docked
-                };
-                self.units[i].order = next;
-                self.units[i].path.clear();
-                self.start_anim(i, anim::STILL);
-            }
-            Walk::Stepping | Walk::Blocked => {}
         }
+        walk
+    }
+
+    /// "Landing (order 30)", step 6, no route: on shore water order 29 if marked unload on arrival, else 32;
+    /// elsewhere on an even tile, the sea class and idle; on an odd tile, 32. Each is set at once, still animation
+    /// with wait 1 (open question 4 of the transports spec: the static study reads them as immediate orders too). The
+    /// unload mark is cleared.
+    fn landing_no_route(&mut self, i: usize) {
+        let unload = std::mem::take(&mut self.units[i].ship.unload);
+        let tile = self.units[i].tile;
+        let next = if self.shore_water(tile) {
+            if unload { Order::Unload } else { Order::Docked }
+        } else if even(tile) {
+            self.units[i].ship.landing = false;
+            Order::Idle
+        } else {
+            Order::Docked
+        };
+        self.units[i].order = next;
+        self.units[i].path.clear();
+        self.start_anim(i, anim::STILL);
     }
 
     /// Order 31 ("Pushing off").
@@ -303,14 +364,16 @@ impl World {
         {
             self.units[i].attacked_by = None;
         }
-        // Step 4: on an even tile, a two-tile mover whose move animation is started and run at once with the step; on
-        // an odd tile the transport keeps animation 6, the order's own.
-        if even(tile) {
-            self.units[i].ship.one_tile = false;
-        }
-        if matches!(self.move_toward_as(i, Goal::tile(to, 0), even(tile)), Walk::NoPath) {
-            self.dock(i);
-        }
+        // Steps 4 and 5: on an even tile a two-tile mover, on an odd tile the step size unchanged; the class unchanged;
+        // the tile pick above dropped the cached route, so the step searches afresh; no route docks.
+        let pushing_off = NearShore {
+            landing_class: None,
+            two_tile: even(tile),
+            one_tile_otherwise: false,
+            fresh_route: false,
+            no_route: NoRoute::Dock,
+        };
+        self.near_shore(i, to, pushing_off);
     }
 
     fn dock(&mut self, i: usize) {
