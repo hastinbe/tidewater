@@ -1203,8 +1203,10 @@ impl World {
         // "Special cases" (round 71, S1; static study): in Enhanced mode a demolition unit with a remembered order runs
         // the target search after step 1, and a unit found that isn't its current target is given command 19 on it
         // (order 20, demolish at the unit). Nothing else of the acquisition runs, the reaction and its flee included,
-        // whatever the search finds. Our reading of "nothing else happens in that run": as for step 1's flee, a run
-        // that gives no command goes on with the rest of the order's logic (a patrol still walks).
+        // whatever the search finds. Our reading of "nothing else happens in that run": as for step 1's flee, the run
+        // goes on with the rest of the order's logic, whether or not the search gave a command, since "nothing found
+        // included" puts both cases alike (a patrol still walks; traced: V278, `orc11-orc11-sapper-attack-move-goals-1500`
+        // sapper 1573 steps on at n = 426 with order 20 pending, which takes over at its next step done, n = 440).
         if self.rules.enhanced && DEMOLITION.contains(&u.kind) && u.remembered.is_some() {
             self.forget_dying_attacker(i);
             let current = target_of(self.units[i].order);
@@ -1214,7 +1216,7 @@ impl World {
             let tile = self.unit(best).expect("found by the search").tile;
             let o = self.demolish_command(i, Some(best), tile);
             self.command(i, o);
-            return true;
+            return false;
         }
         // "Special cases": workers and tankers of every player never run the search; the others'
         // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
@@ -4752,6 +4754,37 @@ mod tests {
                     }
                 }
             }
+        }
+
+        /// V278 (round 72, traced): an Enhanced demolition unit walking a remembered patrol whose search finds a unit
+        /// gets command 19 on it (order 20 pending, order 5 kept), and its patrol walk goes on in the same run: it
+        /// steps toward the patrol's end.
+        #[test]
+        fn a_patrolling_demolition_unit_walks_on_after_its_command() {
+            const SQUAD: u8 = DEMOLITION[0];
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FOOTMAN, 1, (7, 7))]);
+            w.rules.enhanced = true;
+            let (s, e) = (ids[0], ids[1]);
+            let si = at(&w, s);
+            w.units[si].kind = SQUAD;
+            w.stats.0[SQUAD as usize] = w.stats.0[FOOTMAN as usize];
+            let patrol = Order::Patrol {
+                to: (5, 12),
+                back: (5, 5),
+            };
+            let i = ready(&mut w, s, patrol);
+            w.units[i].remembered = Some(Remembered::Patrol {
+                to: (5, 12),
+                back: (5, 5),
+            });
+            w.run_order(i);
+            let u = &w.units[i];
+            let tile = w.unit(e).unwrap().tile;
+            assert_eq!(
+                (u.order, u.pending, u.commanded),
+                (patrol, Some(Order::Demolish { at: Some(e), tile }), true)
+            );
+            assert_eq!(u.tile, (5, 6), "steps on toward the patrol's end");
         }
 
         /// The follow with no target unit returns at once; with the follow pending on a target in an order it can't
