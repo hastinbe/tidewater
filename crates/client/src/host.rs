@@ -1,7 +1,7 @@
 //! What every platform shell shares (`docs/design/client-core.md`, "Platform trait"), with no engine types: the
 //! start of the program from its command line ([`launch`]), a scripted run's frame time ([`scripted_elapsed`]), the
-//! run without a window ([`run_headless`]), the mouse lock's pointer ([`LockedPointer`]) and a name for a key the
-//! core doesn't know ([`other_key`]).
+//! run without a window ([`run_headless`]), the mouse lock's pointer ([`LockedPointer`]), frame times for measuring
+//! ([`FrameStats`]) and a name for a key the core doesn't know ([`other_key`]).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -195,6 +195,66 @@ impl LockedPointer {
         self.0 = next;
         warp
     }
+}
+
+/// Frame times for measuring a shell (`TIDEWATER_FRAME_STATS=1`): every [`FrameStats::EVERY`] it prints the
+/// frames' intervals and the shell's own work per frame (the core's frame and showing it), in milliseconds.
+pub struct FrameStats {
+    on: bool,
+    intervals: Vec<f32>,
+    work: Vec<f32>,
+    since: std::time::Instant,
+}
+
+impl Default for FrameStats {
+    fn default() -> Self {
+        FrameStats {
+            on: std::env::var_os("TIDEWATER_FRAME_STATS").is_some_and(|v| !v.is_empty() && v != "0"),
+            intervals: Vec::new(),
+            work: Vec::new(),
+            since: std::time::Instant::now(),
+        }
+    }
+}
+
+impl FrameStats {
+    pub const EVERY: Duration = Duration::from_secs(10);
+
+    /// Notes a frame `interval` after the last one, of which the shell worked `work`.
+    pub fn frame(&mut self, interval: Duration, work: Duration) {
+        if !self.on {
+            return;
+        }
+        self.intervals.push(interval.as_secs_f32() * 1000.0);
+        self.work.push(work.as_secs_f32() * 1000.0);
+        if self.since.elapsed() >= Self::EVERY {
+            eprintln!(
+                "frame stats: {} frames, interval {}, work {}",
+                self.intervals.len(),
+                summary(&mut self.intervals),
+                summary(&mut self.work)
+            );
+            self.intervals.clear();
+            self.work.clear();
+            self.since = std::time::Instant::now();
+        }
+    }
+}
+
+/// Mean, median, 99th percentile and largest of `v`, in milliseconds.
+fn summary(v: &mut [f32]) -> String {
+    if v.is_empty() {
+        return "-".into();
+    }
+    v.sort_by(f32::total_cmp);
+    let at = |q: f32| v[((v.len() - 1) as f32 * q).round() as usize];
+    let mean = v.iter().sum::<f32>() / v.len() as f32;
+    format!(
+        "mean {mean:.2} p50 {:.2} p99 {:.2} max {:.2} ms",
+        at(0.5),
+        at(0.99),
+        v[v.len() - 1]
+    )
 }
 
 /// A key the core has no name for, by the shell's own name for it: the same name gives the same key.
