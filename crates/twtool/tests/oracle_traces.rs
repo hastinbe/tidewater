@@ -58,6 +58,9 @@
 //! Round 70: the commands scenario orc9-orc09-carry-chop-1400 (a carrying peon returning goods to a farm still under
 //! construction goes idle as a pending order, then returns its gold) matches in full.
 //!
+//! Round 71: the commands scenario human01-order15-lost-700 (order 15 losing its target: order 13 takes over with
+//! wait 3, n 469) matches in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -330,4 +333,5 @@ traces! {
     orc9_orc09_hold_resume_hits_goals_1600: ("orc9-orc09-hold-resume-hits-goals-1600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_lost_resume_goals_500: ("orc9-orc09-lost-resume-goals-500.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     orc9_orc09_carry_chop_1400: ("orc9-orc09-carry-chop-1400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    human01_order15_lost_700: ("human01-order15-lost-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
 }

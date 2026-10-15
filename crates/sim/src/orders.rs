@@ -501,17 +501,22 @@ impl World {
         self.unit(t).is_none_or(|t| !t.present() || !Self::detected(t, owner))
     }
 
-    /// "Arriving and losing the target": a pending order takes over now; otherwise 15 becomes 13 and the rest 2. The
-    /// new order takes over in the same update (wait 3): `human01-basics`, n = 291, footman 1598 losing its dead
-    /// target gets order 2 with wait 3.
+    /// "Arriving and losing the target": a pending order takes over now; otherwise a new pending order is set, 13 for
+    /// order 15 and 2 for the rest (with the Enhanced resume), and takes over in the same update. Every case is a
+    /// take-over as at a step done (still animation for 2 and 13, wait 3, the target forgotten with the old order):
+    /// `human01-basics`, n = 291, footman 1598 losing its dead target gets order 2 with wait 3;
+    /// `human01-order15-lost-700`, n = 469, footman 1593 in order 15 gets order 13 with wait 3 (V273).
     pub(crate) fn lose_target(&mut self, i: usize) {
+        if self.units[i].pending.is_none() {
+            if matches!(self.units[i].order, Order::AttackInPlace { .. }) {
+                self.give(i, Order::StandGround);
+            } else {
+                // "Resuming patrol and attack-move": losing the target is one of the places idle becomes pending.
+                self.pending_idle(i);
+            }
+        }
         if let Some(o) = self.units[i].pending.take() {
-            self.immediately(i, o);
-        } else if matches!(self.units[i].order, Order::AttackInPlace { .. }) {
-            self.immediately(i, Order::StandGround);
-        } else {
-            // "Resuming patrol and attack-move": losing the target is one of the places idle becomes pending.
-            self.idle_now(i);
+            self.take_over(i, o);
         }
     }
 
@@ -3001,6 +3006,51 @@ mod tests {
         }
     }
 
+    /// "Arriving and losing the target" (V021, V022, V273): with nothing pending, order 15 losing its target gets a
+    /// pending 13 and the others a pending 2, which takes over in the same update: still animation, wait 3, target
+    /// null. A pending order takes over the same way (wait 3), not as an immediate order.
+    #[test]
+    fn a_lost_target_takes_over_with_wait_3() {
+        type Make = fn(UnitId) -> Order;
+        let cases: [(Make, Option<Order>, Order); 4] = [
+            (|t| Order::Attack { target: t }, None, Order::Idle),
+            (|t| Order::AttackInPlace { target: t }, None, Order::StandGround),
+            (|t| Order::IdleReact { target: t }, None, Order::Idle),
+            (
+                |t| Order::AttackInPlace { target: t },
+                Some(Order::Patrol {
+                    to: (9, 9),
+                    back: (5, 5),
+                }),
+                Order::Patrol {
+                    to: (9, 9),
+                    back: (5, 5),
+                },
+            ),
+        ];
+        for (make, pending, lost) in cases {
+            let mut w = map();
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+            w.step(&[]);
+            let gi = at(&w, g);
+            w.kill(gi);
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = make(g);
+            u.pending = pending;
+            u.script.wait = 5;
+            assert!(w.run_order(i));
+            let u = &w.units[i];
+            assert_eq!(
+                (u.order, u.pending, u.script.anim, u.script.wait, u.recorded_target()),
+                (lost, None, anim::STILL, 3, None),
+                "{:?}",
+                make(g)
+            );
+        }
+    }
+
     /// "Resuming patrol and attack-move": the resumed order is a full command. Its goal is pulled
     /// back, the cached route dropped, the blocked counter cleared and a stale attacker forgotten.
     #[test]
@@ -5103,25 +5153,25 @@ mod tests {
                         7277162608704041777,
                         2617285122733947077,
                         9368418029386401402,
-                        8152691399419841866
+                        17018195051272507644
                     ],
                     [
                         11921765685397457864,
                         18437048235056833595,
-                        167332719478439787,
-                        15389426019139341271
+                        7670516979112536977,
+                        4883396234325318144
                     ],
                     [
                         10034609991045078167,
-                        8930441907402343293,
-                        9688566408489220406,
-                        16824522838011754372
+                        15312498549604621646,
+                        2229834982085746709,
+                        957003902430467866
                     ],
                     [
                         11819606290717625611,
-                        12976273793731815044,
-                        5977740692554664078,
-                        16417837326725483754
+                        1805284214626935733,
+                        8801427850644010026,
+                        10663596148170120224
                     ],
                 ]
             );
