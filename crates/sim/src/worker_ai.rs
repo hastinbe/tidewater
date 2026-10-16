@@ -13,7 +13,6 @@
 
 use tidewater_formats::udta::flags;
 
-use crate::economy::cost;
 use crate::orders::distance;
 use crate::slots;
 use crate::terrain::bits;
@@ -319,7 +318,7 @@ impl World {
     }
 
     fn affordable(&self, owner: u8, kind: u8) -> bool {
-        self.can_afford(owner, cost(&self.stats_of(kind)), false).is_ok()
+        self.can_afford(owner, self.unit_cost(kind), false).is_ok()
     }
 
     /// Gives the build command for `kind` at `site` (computer players pay at once) and records the job.

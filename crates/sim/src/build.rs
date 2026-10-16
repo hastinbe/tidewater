@@ -14,7 +14,7 @@ use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
 
 use crate::TILE_PX;
-use crate::economy::{Event, cost};
+use crate::economy::Event;
 use crate::movement::{Goal, Walk, chebyshev, footprint_goal};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::site::building_mask;
@@ -67,7 +67,7 @@ impl World {
             return None;
         }
         if self.computer_player(owner) {
-            let c = cost(&self.stats_of(kind));
+            let c = self.unit_cost(kind);
             if !self.afford_or_tell(owner, c, false) {
                 return None;
             }
@@ -97,7 +97,6 @@ impl World {
     pub(crate) fn player_build_command(&mut self, i: usize, kind: u8, site: (i32, i32)) -> Option<Order> {
         let u = &self.units[i];
         let (owner, id) = (u.owner, u.id);
-        let s = self.stats_of(kind);
         if !self.valid_build_command(u.kind, kind, site) {
             return None;
         }
@@ -105,7 +104,7 @@ impl World {
             self.events.push(Event::CantPlace { player: owner, kind });
             return None;
         }
-        if !self.afford_or_tell(owner, cost(&s), false) {
+        if !self.afford_or_tell(owner, self.unit_cost(kind), false) {
             return None;
         }
         self.build_command(i, kind, site)
@@ -212,7 +211,7 @@ impl World {
     /// go inside it.
     pub(crate) fn raise(&mut self, i: usize, kind: u8, site: (i32, i32)) {
         let u = self.units[i].clone();
-        let c = cost(&self.stats_of(kind));
+        let c = self.unit_cost(kind);
         let pays_now = !self.computer_player(u.owner);
         if pays_now && !self.afford_or_tell(u.owner, c, false) {
             self.stop(i);
@@ -333,7 +332,7 @@ impl World {
     /// construction"): gold and lumber in Classic mode, whatever took it down (the open question "Classic mode: refund
     /// on collapse"); in Enhanced mode gold, lumber and oil, on the cancel command only.
     fn take_down_refund(&self, kind: u8, cancel: bool) -> crate::economy::Cost {
-        let [gold, lumber, oil] = cost(&self.stats_of(kind)).map(|v| v * 3 / 4);
+        let [gold, lumber, oil] = self.unit_cost(kind).map(|v| v * 3 / 4);
         match (self.rules.enhanced, cancel) {
             (false, _) => [gold, lumber, 0],
             (true, true) => [gold, lumber, oil],

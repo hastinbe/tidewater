@@ -168,6 +168,9 @@ pub struct Job {
     pub progress: u16,
     /// Whether the work animation has taken over.
     pub running: bool,
+    /// The [`World::job_cost`] of the job's item, looked up when it was paid (a conversion looks it up again for the
+    /// new type). A cancelled training or building-upgrade job refunds this; the spec looks the cost up at the
+    /// refund, the same amount while the unit data doesn't change during a game.
     pub paid: Cost,
     /// Marked by a cancel-job command: the job ends cancelled at its next work run ("Cancelling a job").
     pub cancelled: bool,
@@ -374,6 +377,24 @@ impl World {
         self.upgrade_data.0.get(n as usize).copied().unwrap_or_default()
     }
 
+    /// "Paying": the cost lookup for a unit or building type, from the unit data. Building a building, training a
+    /// unit and a building upgrade all look up their type's cost here.
+    pub fn unit_cost(&self, k: u8) -> Cost {
+        cost(&self.stats_of(k))
+    }
+
+    /// "Paying": the one cost lookup for a job's item, made when it is paid and again when it is refunded: the unit
+    /// data's cost of the type trained or become, or the upgrade data's cost of the upgrade or spell.
+    pub fn job_cost(&self, job: JobKind) -> Cost {
+        match job {
+            JobKind::Train(k) | JobKind::Upgrade(k) => self.unit_cost(k),
+            JobKind::Research(n) | JobKind::Spell(n) => {
+                let up = self.upgrade_entry(n);
+                [up.gold as u32, up.lumber as u32, up.oil as u32]
+            }
+        }
+    }
+
     /// Starts a job at a building when the command arrives ("Starting a job (when the command arrives)"): every
     /// failed check ends it silently, except affordability, which tells the owner. Pays at once; the work animation
     /// takes over at the still animation's next "step done".
@@ -390,38 +411,32 @@ impl World {
             return false;
         }
         let (owner, b) = (u.owner, u.kind);
-        // 2 and 3. The kind's own check, and what the job costs and takes.
-        let (paid, steps, needs_food) = match job {
+        // 2 and 3. The kind's own check, and how long the job takes.
+        let (steps, needs_food) = match job {
             JobKind::Train(k) => {
                 if !self.may_train(owner, b, k) {
                     return false;
                 }
-                let s = self.stats_of(k);
-                (cost(&s), 2 * s.build_time as u16, true)
+                (2 * self.stats_of(k).build_time as u16, true)
             }
             JobKind::Upgrade(to) => {
                 if !self.may_become(owner, b, to) {
                     return false;
                 }
-                let s = self.stats_of(to);
-                (cost(&s), 2 * s.build_time as u16, false)
+                (2 * self.stats_of(to).build_time as u16, false)
             }
             JobKind::Research(n) | JobKind::Spell(n) => {
                 if !World::may_research(b, n) {
                     return false;
                 }
-                let up = self.upgrade_entry(n);
                 // 4. The level check, for upgrade numbers 0 to 23.
                 if matches!(job, JobKind::Research(_)) && !self.level_ok(owner, n) {
                     return false;
                 }
-                (
-                    [up.gold as u32, up.lumber as u32, up.oil as u32],
-                    2 * up.time as u16,
-                    false,
-                )
+                (2 * self.upgrade_entry(n).time as u16, false)
             }
         };
+        let paid = self.job_cost(job);
         // 5. Affordability.
         let afford = if tell {
             self.afford_or_tell(owner, paid, needs_food)
@@ -567,7 +582,7 @@ impl World {
         }
         *word &= !up.affect;
         if !finished {
-            self.refund(owner, [up.gold as u32, up.lumber as u32, up.oil as u32]);
+            self.refund(owner, self.job_cost(kind));
             return;
         }
         if spell {
@@ -609,7 +624,7 @@ impl World {
     /// The owner's units of type `from` become `to` in place ("Converting units"): hit points go up by the
     /// difference of the maximums (each at least 1), mana is set, and a barracks working on `from` works on `to`.
     pub(crate) fn convert(&mut self, owner: u8, from: u8, to: u8) {
-        let to_cost = cost(&self.stats_of(to));
+        let to_cost = self.unit_cost(to);
         for i in 0..self.units.len() {
             let u = &mut self.units[i];
             if u.owner != owner {
