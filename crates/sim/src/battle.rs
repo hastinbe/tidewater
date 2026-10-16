@@ -392,6 +392,13 @@ impl World {
     /// the delivery at whatever the order aims at by then, with no range test. A cast has its own strike
     /// (`spells.rs`).
     pub(crate) fn strike(&mut self, i: usize) {
+        // "Invisibility ends" (spells spec, "Timers"): before the strike reveal, at every strike point of the attack
+        // script whatever the target's state, a worker's chop and repair strikes included
+        // (`human13-invisible-work-hits-900`, n = 112 and 446). A cast clears it at its own step, so a cast that fails
+        // its checks keeps it (the open question "Invisibility at a failed cast").
+        if !matches!(self.units[i].order, Order::Cast { .. }) {
+            self.units[i].invisibility = 0;
+        }
         self.strike_reveal(i);
         if let Order::Cast { .. } = self.units[i].order {
             return self.cast_strike(i);
@@ -474,8 +481,6 @@ impl World {
     /// One attack's delivery from the unit at `i` (damage spec, "The model", steps 1 and 3): the attack values, then a
     /// melee blow, or a missile launch for a type with a missile weapon.
     pub(crate) fn attack_with(&mut self, i: usize, aim: Aim, by: Shooter) {
-        // Spells spec, "Timers": a unit's attack strike ends its own invisibility.
-        self.units[i].invisibility = 0;
         if by == Shooter::Tower {
             self.tower_fire_sound(i);
         }
@@ -1318,6 +1323,31 @@ mod tests {
         w.strike(i);
         assert_eq!(drawn(before, w.rng), 1, "V93: the damage roll at a target inside");
         assert_eq!(w.unit(foe).unwrap().hp, hp, "and no damage");
+    }
+
+    /// Damage spec, "How an attack delivers damage", "Invisibility ends"; spells spec, "Timers": every strike point
+    /// ends the striker's invisibility, a strike at a target inside and a worker's chop or repair strike included.
+    #[test]
+    fn every_strike_point_ends_invisibility() {
+        let mut w = world();
+        let foe = w.spawn(0, 1, (1, 0), 0).unwrap();
+        let f = w.index(foe).unwrap();
+        w.units[f].inside = true;
+        let i = w.index(UnitId(1)).unwrap();
+        for order in [
+            Order::Attack { target: foe },
+            Order::Harvest {
+                source: None,
+                tree: (4, 0),
+                chopping: true,
+            },
+            Order::Repair { target: foe },
+        ] {
+            w.units[i].order = order;
+            w.units[i].invisibility = 100;
+            w.strike(i);
+            assert_eq!(w.units[i].invisibility, 0, "{order:?}");
+        }
     }
 
     /// Damage spec, "How an attack delivers damage", ranged (V94): an archer's strike at a target that has gone
