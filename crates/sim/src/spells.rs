@@ -466,8 +466,8 @@ impl World {
     // ----- 3. walking and the decision (spec, "Walking and the decision") --------------------------------------
 
     /// The order logic of orders 38 to 56 at a "step done" (spec, "Walking and the decision"): the target unit's
-    /// validity, the walk into the spell's radius, the not-a-building and organic tests once in reach, then the turn
-    /// to face the aim and the casting animation.
+    /// validity, the walk into the spell's radius with its lost-target drop, the not-a-building and organic tests once
+    /// in reach, then the turn to face the aim and the casting animation.
     pub(crate) fn run_spell(&mut self, i: usize) -> bool {
         let Order::Cast { spell, target, tile } = self.units[i].order else {
             return false;
@@ -483,11 +483,21 @@ impl World {
         } else {
             None
         };
-        // Round-50 errata (`human14-10000` death knight 1577, n = 3740): the plain no-route rule.
-        if let Some(g) = self.cast_walk(i, spell, target, tile)
-            && self.walk(i, g) != Walk::Arrived
-        {
-            return true;
+        // Orders spec, "Walking orders": the walk runs only for a caster not yet in reach. At each of its step
+        // boundaries it drops a target that is dying, gone, inside something or no longer detected, and the decision
+        // then fails for lack of a target (round 81, `xhuman10-slow-killed-goals-400`, S90). A caster already in reach
+        // isn't tested, so it casts at a target its player no longer detects (`xhuman10-invisible-reach-goals-400`,
+        // S92). Round-50 errata (`human14-10000` death knight 1577, n = 3740): the plain no-route rule.
+        if let Some(g) = self.cast_walk(i, spell, target, tile) {
+            let owner = self.units[i].owner;
+            let walking = !self.at_goal(i, g);
+            if walking && target.is_some_and(|t| self.target_lost(owner, self.units[t].id)) {
+                self.decision_fails(i);
+                return true;
+            }
+            if self.walk(i, g) != Walk::Arrived {
+                return true;
+            }
         }
         if let Some(t) = target
             && !self.cast_target_fits(spell, t)
@@ -3445,6 +3455,51 @@ mod tests {
         assert_eq!((u.order, u.mana), (Order::Idle, 255));
     }
 
+    /// S90 for the other lost targets (orders spec, "Walking orders", step 2): a target that turns invisible or goes
+    /// inside something while the mage walks is dropped at the next step boundary, with the same take-over.
+    #[test]
+    fn a_target_lost_on_the_way_is_dropped_at_a_step_boundary() {
+        for invisible in [true, false] {
+            let mut w = sighted(48);
+            let m = caster(&mut w, MAGE, (30, 10), 255);
+            let g = foe(&mut w, (8, 10));
+            cast(&mut w, m, SLOW, Some(g), (8, 10));
+            run(&mut w, 40);
+            let gi = w.index(g).unwrap();
+            if invisible {
+                w.units[gi].invisibility = 1000;
+            } else {
+                let unit = w.units[gi].clone();
+                w.mark(&unit, unit.tile, None);
+                w.units[gi].inside = true;
+            }
+            until_not_casting(&mut w, m, 40);
+            let u = w.unit(m).unwrap();
+            assert_eq!(
+                (u.order, u.script.wait, u.mana),
+                (Order::Idle, 3, 255),
+                "invisible {invisible}"
+            );
+            assert!(u.tile.0 > 20);
+        }
+    }
+
+    /// S92 (`xhuman10-invisible-reach-goals-400`, n = 299 and 310): a caster already within the radius doesn't walk,
+    /// so nothing tests detection: it casts its slow at a target its player no longer detects.
+    #[test]
+    fn a_caster_in_reach_casts_at_a_target_it_no_longer_detects() {
+        let mut w = sighted(48);
+        let m = caster(&mut w, MAGE, (11, 10), 255);
+        let g = foe(&mut w, (8, 10));
+        cast(&mut w, m, SLOW, Some(g), (8, 10));
+        let gi = w.index(g).unwrap();
+        w.units[gi].invisibility = 1000;
+        run(&mut w, 60);
+        assert!(!w.detected_by(0, g));
+        assert_eq!(mana(&w, m), 205);
+        assert!((-1000..-900).contains(&w.unit(g).unwrap().haste));
+    }
+
     mod pin {
         use super::*;
 
@@ -3634,8 +3689,8 @@ mod tests {
                 [
                     17913793911137785833,
                     10891004090879039118,
-                    558125130043325918,
-                    13189416840169241015,
+                    15840398852364308474,
+                    8895920582660002836,
                     8118140382518496718,
                     15592006276913019551,
                     7089697309869978124,
