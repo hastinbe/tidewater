@@ -600,7 +600,9 @@ impl World {
                 let (old, new) = (self.stats_of(u.kind).hit_points, self.stats_of(k).hit_points);
                 let b = &mut self.units[i];
                 b.kind = k;
-                b.hp = (b.hp as i32 + new as i32 - old as i32).max(1) as u16;
+                // "Job end", building upgrade (B-040 audit): + (new M - old M), each maximum at least 1, with no clamp
+                // on the 16-bit result.
+                b.hp = b.hp.wrapping_add(new.max(1)).wrapping_sub(old.max(1));
                 // Round-40 errata (`human06-tech`, building 1516 at n = 578): a tower gets order 14, which takes over
                 // in the same update (attack animation, wait 3).
                 if self.stats_of(k).flags & flags::TOWER != 0 {
@@ -970,6 +972,33 @@ mod tests {
         assert_eq!(w.units.len(), n + 1);
         assert_eq!(w.players[0].in_training, 0);
         assert_eq!(w.unit(hall).unwrap().job, None);
+    }
+
+    /// "Job end", building upgrade (B-040 audit): the hit points go up by new M - old M with each maximum counted as at
+    /// least 1, and the result isn't clamped (here it wraps, which only custom unit data reaches).
+    #[test]
+    fn a_building_upgrade_adds_the_hit_point_difference_unclamped() {
+        for (old, new, hp, want) in [
+            (1200u16, 1400u16, 1000u16, 1200u16),
+            (0, 500, 10, 509),
+            (500, 0, 100, 65_137),
+        ] {
+            let (mut w, hall) = town();
+            w.rules.enforce_requirements = false;
+            w.stats.0[HALL as usize].hit_points = old;
+            w.stats.0[kind::KEEP as usize].hit_points = new;
+            w.stats.0[kind::KEEP as usize].build_time = 1;
+            let i = w.index(hall).unwrap();
+            w.units[i].hp = hp;
+            w.step(&[Command::Upgrade {
+                player: 0,
+                building: hall,
+                to: kind::KEEP,
+            }]);
+            run(&mut w, 60);
+            let u = w.unit(hall).unwrap();
+            assert_eq!((u.kind, u.hp), (kind::KEEP, want), "{old} -> {new}");
+        }
     }
 
     /// "Paying": a refund gives back the cost looked up at the moment of the refund, not the amount paid.
