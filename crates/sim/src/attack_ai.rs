@@ -2593,7 +2593,6 @@ mod tests {
             steps: u16::MAX,
             progress: 0,
             running: true,
-            paid: Default::default(),
             cancelled: false,
         });
         // Order 59: the circle of power.

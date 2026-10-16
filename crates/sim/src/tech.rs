@@ -659,7 +659,11 @@ mod tests {
         assert_eq!(after.kind, JobKind::Train(unit::RANGER));
         assert!(after.progress >= before.progress);
         assert_eq!(after.steps, before.steps);
-        assert_eq!(after.paid[0], 150);
+        assert_eq!(
+            w.job_cost(after.kind)[0],
+            150,
+            "a refund now gives back the ranger's cost"
+        );
         assert!(
             w.events
                 .iter()

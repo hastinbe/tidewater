@@ -211,10 +211,6 @@ pub struct Job {
     pub progress: u16,
     /// Whether the work animation has taken over.
     pub running: bool,
-    /// The [`World::job_cost`] of the job's item, looked up when it was paid (a conversion looks it up again for the
-    /// new type). A cancelled training or building-upgrade job refunds this; the spec looks the cost up at the
-    /// refund, the same amount while the unit data doesn't change during a game.
-    pub paid: Cost,
     /// Marked by a cancel-job command: the job ends cancelled at its next work run ("Cancelling a job").
     pub cancelled: bool,
 }
@@ -517,7 +513,6 @@ impl World {
             steps,
             progress: 0,
             running: false,
-            paid,
             cancelled: false,
         });
         // "Starting": the mana byte shows 1, and a building upgrade shows frame 1 of the new type's picture
@@ -584,7 +579,7 @@ impl World {
         let u = self.units[i].clone();
         match job.kind {
             JobKind::Research(_) | JobKind::Spell(_) => self.end_research(i, job.kind, finished),
-            _ if !finished => self.refund(u.owner, job.paid),
+            _ if !finished => self.refund(u.owner, self.job_cost(job.kind)),
             JobKind::Train(k) => {
                 let placed = self
                     .exit_tile(&u, k)
@@ -593,7 +588,7 @@ impl World {
                 match placed {
                     Ok(id) => self.ready_sound(id),
                     Err(_) => {
-                        self.refund(u.owner, job.paid);
+                        self.refund(u.owner, self.job_cost(job.kind));
                         self.tell(Event::NoRoom {
                             player: u.owner,
                             kind: k,
@@ -681,7 +676,6 @@ impl World {
     /// The owner's units of type `from` become `to` in place ("Converting units"): hit points go up by the
     /// difference of the maximums (each at least 1), mana is set, and a barracks working on `from` works on `to`.
     pub(crate) fn convert(&mut self, owner: u8, from: u8, to: u8) {
-        let to_cost = self.unit_cost(to);
         for i in 0..self.units.len() {
             let u = &mut self.units[i];
             if u.owner != owner {
@@ -692,9 +686,9 @@ impl World {
                     && let Some(job) = &mut u.job
                     && job.kind == JobKind::Train(from)
                 {
-                    // The progress is kept and the cost was paid as `from`; a cancel refunds `to`'s cost.
+                    // The progress is kept and the cost was paid as `from`; a refund looks the cost up again, so
+                    // it gives back `to`'s.
                     job.kind = JobKind::Train(to);
-                    job.paid = to_cost;
                 }
                 continue;
             }
@@ -976,6 +970,27 @@ mod tests {
         assert_eq!(w.units.len(), n + 1);
         assert_eq!(w.players[0].in_training, 0);
         assert_eq!(w.unit(hall).unwrap().job, None);
+    }
+
+    /// "Paying": a refund gives back the cost looked up at the moment of the refund, not the amount paid.
+    #[test]
+    fn a_refund_looks_the_cost_up_again() {
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[2].gold = 400;
+        w.stats.0[2].build_time = 60;
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 2,
+        }]);
+        run(&mut w, 20);
+        assert_eq!(w.players[0].gold, 9_600);
+        w.stats.0[2].gold = 250;
+        w.step(&[Command::CancelJob { player: 0, unit: hall }]);
+        run(&mut w, 5);
+        assert_eq!(w.unit(hall).unwrap().job, None);
+        assert_eq!(w.players[0].gold, 9_850);
     }
 
     #[test]
