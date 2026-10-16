@@ -167,11 +167,12 @@ pub fn splash_roll(rng: &mut Rng, stored: u8, d: i32, armour: u32) -> Option<u8>
 }
 
 /// Splash damage along a hammer's or breath's path or from a spell effect: the same base with no armour, so a unit
-/// within 42 px is hit (and makes its draw) even with a base of 0. Kept as the code has it: the result is capped at
-/// 255, where "Splash on impact" keeps the low 8 bits (they differ only for a base of 255).
+/// within 42 px is hit (and makes its draw) even with a base of 0. The result keeps its low 8 bits, as in step 5 of
+/// "Splash on impact" (damage spec, "Gryphon hammer and dragon breath", V97; spells spec, "Splash", which goes through
+/// that rule): only a base of 255 can reach 256, which wraps to 0.
 pub fn path_splash_roll(rng: &mut Rng, stored: u8, d: i32) -> Option<u8> {
     let h = splash_base(stored, d)?.div_ceil(2);
-    Some((h + rng.draw() % (h + 1)).min(255) as u8)
+    Some((h + rng.draw() % (h + 1)) as u8)
 }
 
 /// The splash base for a unit `d` pixels from the impact: the stored damage within 22 px, a quarter of it from 23 to
@@ -270,6 +271,21 @@ mod tests {
         assert_eq!(splash_roll(&mut r, 80, 43, 2), None);
         assert_eq!(splash_roll(&mut r, 5, 30, 2), None);
         assert_eq!(r.state, before, "no draw for a miss");
+    }
+
+    /// Damage spec V97: a hammer's splash with stored damage 255 and a draw with `r mod 129 = 128` does
+    /// 128 + 128 = 256, kept to its low 8 bits: 0, not 255.
+    #[test]
+    fn a_path_splash_keeps_the_low_8_bits() {
+        let start = (0u32..)
+            .map(Rng::new)
+            .find(|&s| {
+                let mut c = s;
+                c.draw() % 129 == 128
+            })
+            .unwrap();
+        let mut r = start;
+        assert_eq!(path_splash_roll(&mut r, 255, 0), Some(0));
     }
 
     #[test]
