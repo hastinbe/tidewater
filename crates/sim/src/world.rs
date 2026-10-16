@@ -753,6 +753,22 @@ pub enum Command {
     },
 }
 
+impl Command {
+    /// The command number of a unit command whose row of the selection filter (selecting-and-commanding spec,
+    /// "Which units take part in a command") asks for flag bit 19 (can attack): attack (8), patrol (5; the filter's
+    /// Enhanced exceptions included), stand ground (13), attack the ground (17) and demolish (19). `None` for the rest.
+    pub(crate) fn needs_attacker(&self) -> Option<u8> {
+        Some(match self {
+            Command::Attack { .. } | Command::AttackMove { .. } => 8,
+            Command::Patrol { .. } => 5,
+            Command::StandGround { .. } => 13,
+            Command::AttackGround { .. } => 17,
+            Command::Demolish { .. } => 19,
+            _ => return None,
+        })
+    }
+}
+
 pub const PLAYERS: usize = 16;
 /// Cycles run at once when a game starts (timing-and-rng spec, "Scheduler", rule 1).
 pub const START_UP_CYCLES: u32 = 2;
@@ -1502,6 +1518,14 @@ impl World {
             let Some(i) = self.index(id) else { continue };
             let u = &self.units[i];
             if u.owner != player || u.dying || u.building || self.stride_of(u.kind) == 0 {
+                continue;
+            }
+            // Selecting-and-commanding spec, "Which units take part in a command", and transports spec, "Clearing the
+            // mark" (round 75, traced: V40): a command a unit doesn't take for want of the "can attack" flag is
+            // refused before anything changes, so a transport keeps its unload-on-arrival mark.
+            if let Some(n) = c.needs_attacker()
+                && !self.takes(u, n)
+            {
                 continue;
             }
             self.players_command_clears_mark(i);

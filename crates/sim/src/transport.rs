@@ -170,8 +170,8 @@ impl World {
     /// "Clearing the mark" (round 71, traced: `human12-unload-then-move-900` n = 427, V39): every command a player
     /// gives a transport (from the command stream, a right-click or the buttons) first clears its unload-on-arrival
     /// mark, before anything else the command does; an unload command then sets it again ([`World::transport_command`]).
-    /// The computer players' own routines don't come here. Our reading: a command the unit then refuses (an attack by
-    /// a transport, say) still clears it, since the rule names every command.
+    /// The computer players' own routines don't come here, and neither does a player's command the transport doesn't
+    /// take (round 75, traced: V40): the selection filter refuses it first, so the mark stays.
     pub(crate) fn players_command_clears_mark(&mut self, i: usize) {
         self.units[i].ship.unload = false;
     }
@@ -1009,6 +1009,78 @@ mod tests {
         let ti = w.index(tid).unwrap();
         w.command_4(ti, None, (20, 10));
         assert!(mark(&w), "a computer routine's command keeps it");
+    }
+
+    /// "Clearing the mark" (round 75, V40, `human12-unload-then-refused-goals-900`): a player's command a transport
+    /// doesn't take (command 4 from the buttons, or an attack-move, a patrol, a stand ground, an attack or a ground
+    /// attack from the command stream) is refused before anything changes: the mark stays, the landing goes on, and
+    /// the transport still unloads on arrival.
+    #[test]
+    fn a_refused_command_keeps_the_unload_mark() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (24, 10), Order::Idle);
+        let tid = w.units[t].id;
+        let (player, units) = (0, vec![tid]);
+        let mate = w.spawn(SHIP, 0, (40, 20), 0).unwrap();
+        w.turn(&[crate::Command::Unload {
+            player,
+            units: units.clone(),
+            tile: (20, 10),
+        }]);
+        w.step(&[]);
+        let before = w.unit(tid).unwrap().clone();
+        assert!(before.ship.unload);
+        let refused = [
+            crate::Command::Select {
+                player,
+                units: units.clone(),
+            },
+            crate::Command::Issue {
+                player,
+                command: 4,
+                target: None,
+                tile: (20, 10),
+            },
+            crate::Command::AttackMove {
+                player,
+                units: units.clone(),
+                to: (20, 10),
+            },
+            crate::Command::Patrol {
+                player,
+                units: units.clone(),
+                to: (20, 10),
+            },
+            crate::Command::StandGround {
+                player,
+                units: units.clone(),
+            },
+            crate::Command::Attack {
+                player,
+                units: units.clone(),
+                target: mate,
+            },
+            crate::Command::AttackGround {
+                player,
+                units: units.clone(),
+                tile: (20, 10),
+            },
+        ];
+        w.turn(&refused);
+        let u = w.unit(tid).unwrap();
+        assert!(u.ship.unload, "the mark stays");
+        let key = |u: &crate::Unit| (u.order, u.pending, u.ship.target_tile, u.ship.dest, u.attacked_by);
+        assert_eq!(key(u), key(&before), "nothing about the transport changes");
+        // It lands as told and unloads (order 29), where a cleared mark would dock it (order 32).
+        let mut unloaded = false;
+        for _ in 0..200 {
+            w.step(&[]);
+            if w.unit(tid).unwrap().order == Order::Unload {
+                unloaded = true;
+                break;
+            }
+        }
+        assert!(unloaded, "{:?}", w.unit(tid).unwrap().order);
     }
 
     #[test]
@@ -1855,8 +1927,9 @@ mod tests {
         }
 
         /// "What the transport stores" (round 70, M7): every command given to a transport records its target unit,
-        /// target tile and destination, after the land and shore steps: a player's move, attack-move and patrol, and
-        /// a computer player's command 4 and patrol.
+        /// target tile and destination, after the land and shore steps: a player's move, and a computer player's
+        /// command 4 and patrol. A player's attack-move and patrol are refused by the selection filter (no "can
+        /// attack" flag; round 75, V40), so they record nothing.
         #[test]
         fn every_command_records_the_three_things() {
             for case in [
@@ -1890,6 +1963,7 @@ mod tests {
                 let s = &w.unit(id).unwrap().ship;
                 let want = match case {
                     "command 4" => (Some(mate), (40, 20), (40, 20)),
+                    "attack-move" | "patrol" => (Some(mate), (1, 1), (1, 1)),
                     // A land tile from open water: no target unit, pulled back to the shore water.
                     "command 4 on land" => (None, s.target_tile, s.target_tile),
                     _ => (None, to, to),

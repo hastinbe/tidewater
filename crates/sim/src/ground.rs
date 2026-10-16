@@ -216,7 +216,8 @@ mod tests {
         t[SQUAD as usize] = UnitStats {
             hit_points: 40,
             size: (1, 1),
-            flags: flags::LAND | flags::KILLED_BY_INVISIBILITY,
+            // Can attack as well, as in the default unit data: the selection filter asks for both for command 19.
+            flags: flags::LAND | flags::CAN_ATTACK | flags::KILLED_BY_INVISIBILITY,
             ..Default::default()
         };
         t[BARRACKS as usize] = UnitStats {
