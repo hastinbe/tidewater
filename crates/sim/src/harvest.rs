@@ -535,8 +535,15 @@ impl World {
 
     /// "Mine and platform amounts": the last trip was taken, so the mine or platform is destroyed, and every unit
     /// inside that has it as its target (the one that took the last trip included) loses that target and comes out at
-    /// its next chance.
+    /// its next chance. Build-train spec, "Cancelling construction" and its open question "Classic mode: refund on
+    /// collapse" (round 76): this is a take-down, which in Classic mode refunds 75 % of the gold and lumber cost, as a
+    /// cancel does; Enhanced mode refunds nothing.
     fn collapse(&mut self, bi: usize) {
+        if !self.rules.enhanced {
+            let (owner, s) = (self.units[bi].owner, self.stats_of(self.units[bi].kind));
+            let part = |v: u16| v as u32 * 3 / 4;
+            self.refund(owner, [part(s.gold), part(s.lumber), 0]);
+        }
         let id = self.units[bi].id;
         for u in &mut self.units {
             if let Order::Inside { building } = &mut u.order
@@ -1799,6 +1806,31 @@ mod tests {
         let u = w.unit(b).unwrap();
         assert!(!u.inside);
         assert_eq!(u.pending, Some(Order::ReturnGoods { depot: Some(hall) }));
+    }
+
+    /// Build-train spec, open question "Classic mode: refund on collapse" (round 76; default the static reading): a
+    /// collapse is a take-down, which in Classic mode refunds 75 % of the building's gold and lumber cost to its
+    /// owner, not its oil; Enhanced mode refunds nothing.
+    #[test]
+    fn a_collapse_refunds_three_quarters_in_classic_mode_only() {
+        for (enhanced, back) in [(true, (0, 0, 0)), (false, (375, 187, 0))] {
+            let mut w = land();
+            w.rules.enhanced = enhanced;
+            let s = &mut w.stats.0[MINE as usize];
+            (s.gold, s.lumber, s.oil) = (500, 250, 100);
+            w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+            let mine = w.spawn(MINE, 0, (12, 4), 1).unwrap();
+            let a = w.spawn(0, 0, (11, 4), 0).unwrap();
+            let p = w.players[0];
+            go_in_now(&mut w, a, mine);
+            assert!(w.unit(mine).unwrap().dying, "the last trip collapses the mine");
+            let q = w.players[0];
+            assert_eq!(
+                (q.gold - p.gold, q.lumber - p.lumber, q.oil - p.oil),
+                back,
+                "{enhanced}"
+            );
+        }
     }
 
     /// Round-62 vector (`orc9-orc09-return-goods-2200` peon 1482, n = 1482): a worker carrying gold into a lumber mill
