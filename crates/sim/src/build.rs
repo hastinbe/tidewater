@@ -19,7 +19,7 @@ use crate::movement::{Goal, Walk, chebyshev, footprint_goal};
 use crate::placement::{LIMIT_OUT, Source};
 use crate::site::building_mask;
 use crate::terrain::bits;
-use crate::world::{Gather, Order, UnitId, World, face_tile};
+use crate::world::{Gather, Order, SpawnError, UnitId, World, face_tile};
 
 /// Order 22's wait at each run.
 const INSIDE_SITE_WAIT: u8 = 255;
@@ -238,15 +238,23 @@ impl World {
         if pays_now && !self.afford_or_tell(u.owner, c, false) {
             return fail(self);
         }
-        let placed = self.place_building(kind, u.owner, site).ok();
+        let placed = self.place_building(kind, u.owner, site);
         // Spawning keeps the units sorted by slot, so the builder's index may have moved.
         let i = self.index(u.id).expect("the builder is alive");
-        let Some(b) = placed else {
-            self.tell(Event::CantPlace { player: u.owner, kind });
-            if !pays_now {
-                self.refund(u.owner, c);
+        let b = match placed {
+            Ok(b) => b,
+            Err(e) => {
+                // Step 3: a full unit table shows its own message, not a placement one; a computer player gets its
+                // payment back, and one that pays on arrival has paid nothing yet.
+                self.tell(match e {
+                    SpawnError::TooMany => Event::TooManyUnits { player: u.owner },
+                    SpawnError::CantPlace => Event::CantPlace { player: u.owner, kind },
+                });
+                if !pays_now {
+                    self.refund(u.owner, c);
+                }
+                return fail(self);
             }
-            return fail(self);
         };
         if let Some(p) = patch
             && let Some(pi) = self.index(p)
@@ -990,6 +998,32 @@ mod tests {
         assert_eq!(u.tile, (8, 8));
         assert_ne!(w.terrain.word(8, 8) & bits::UNIT, 0);
         assert!(w.events.iter().any(|e| matches!(e, Event::CantPlace { player: 0, .. })));
+    }
+
+    /// "Placement on arrival", step 3: with the unit table full, the owner gets the table's own message, a computer
+    /// player its payment back, and idle takes over in the same update (wait 3); a human player pays nothing.
+    #[test]
+    fn a_full_unit_table_on_arrival() {
+        for computer in [false, true] {
+            let (mut w, p) = town();
+            if computer {
+                w.players[0].controller = controller::COMPUTER;
+                w.pay(0, [500, 250, 0]);
+            }
+            while w.slots.take(crate::slots::NEUTRAL).is_ok() {}
+            let i = w.index(p).unwrap();
+            w.raise(i, FARM, (8, 8));
+            let u = w.unit(p).unwrap();
+            assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+            assert_eq!(w.occupant(crate::Layer::Land, 2, 2), Some(p));
+            assert_eq!(
+                (w.players[0].gold, w.players[0].lumber),
+                (1000, 1000),
+                "computer {computer}"
+            );
+            assert_eq!(w.events, [Event::TooManyUnits { player: 0 }]);
+            assert_eq!(farm_at(&w, (8, 8)), None);
+        }
     }
 
     #[test]

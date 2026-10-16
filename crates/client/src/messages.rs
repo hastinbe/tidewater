@@ -95,6 +95,8 @@ pub fn event_notice(e: &Event, human: u8) -> Option<Text> {
         Event::CantAfford { player, shortage } if player == human => Some(Text::Stat(shortage_entry(shortage))),
         Event::NoRoom { player, .. } if player == human => Some(Text::Net(net::EXIT_BLOCKED)),
         Event::CantPlace { player, .. } if player == human => Some(Text::Stat(stat::BLOCKED)),
+        // Our wording: the spec names the unit table's "too many units" message but not its string entry.
+        Event::TooManyUnits { player } if player == human => Some(Text::Own("Too many units".to_string())),
         Event::CantRepair { player, shortage } if player == human => Some(Text::Net(match shortage {
             Shortage::Lumber => net::NEED_LUMBER,
             _ => net::NEED_GOLD,
@@ -532,6 +534,9 @@ mod tests {
             event_notice(&Event::NoRoom { player: 0, kind: 0 }, 0),
             Some(Text::Net(67))
         );
+        let full = Event::TooManyUnits { player: 0 };
+        assert!(matches!(event_notice(&full, 0), Some(Text::Own(_))));
+        assert_eq!(event_notice(&full, 1), None);
         let cheat = |notice| Event::Cheat { sender: 0, notice };
         assert_eq!(event_notice(&cheat(CheatNotice::On), 0), Some(Text::Net(80)));
         assert_eq!(event_notice(&cheat(CheatNotice::Off), 0), Some(Text::Net(81)));

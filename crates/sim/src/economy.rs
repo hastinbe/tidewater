@@ -87,6 +87,11 @@ pub enum Event {
         player: u8,
         kind: u8,
     },
+    /// A worker arrived at its site but the unit table was full: the table's own "too many units" message
+    /// ("Placement on arrival", step 3; `core/unit-slots.md`).
+    TooManyUnits {
+        player: u8,
+    },
     /// Enhanced mode's completion alert: an upgrade or spell finished at `tile` (tech-tree spec, "Finishing or
     /// cancelling research"). Sound and position use are a later spec.
     ResearchDone {
