@@ -818,14 +818,26 @@ fn measure(font: &Font) -> impl Fn(&str) -> u32 + '_ {
 
 /// A button: an outlined box with its label centred.
 pub(crate) fn button(dst: &mut Picture, font: &Font, r: Rect, label: &str, hot: bool) {
-    hud::fill(dst, r, if hot { [70, 60, 30] } else { [36, 32, 24] });
+    button_pressed(dst, font, r, label, hot, false);
+}
+
+/// A button, drawn pressed while the mouse button is held on it (screen spec, "Pressing": the label moves 2 pixels
+/// right and 2 down; our flat face darkens).
+pub(crate) fn button_pressed(dst: &mut Picture, font: &Font, r: Rect, label: &str, hot: bool, pressed: bool) {
+    let face = match (pressed, hot) {
+        (true, _) => [20, 18, 12],
+        (false, true) => [70, 60, 30],
+        (false, false) => [36, 32, 24],
+    };
+    hud::fill(dst, r, face);
     hud::outline(dst, r, [180, 160, 100]);
     let w = font.width(label.as_bytes()) as i32;
+    let shift = if pressed { 2 } else { 0 };
     hud::text(
         dst,
         font,
-        r.x + (r.w as i32 - w) / 2,
-        r.y + (r.h as i32 - font.height as i32) / 2,
+        r.x + (r.w as i32 - w) / 2 + shift,
+        r.y + (r.h as i32 - font.height as i32) / 2 + shift,
         label,
     );
 }
@@ -1141,7 +1153,7 @@ struct Menu {
     focus: usize,
     hot: Option<usize>,
     /// The enabled button the left mouse button went down on, while it is held (screen spec, "Pressing").
-    held: Option<usize>,
+    held: menuscreen::Hold<usize>,
     /// What the buttons were last drawn for: the hot, pressed and focused buttons.
     drawn: Option<(Option<usize>, Option<usize>, usize)>,
     /// The menu's close (a fade of all sound, then a fade to black), and what was chosen.
@@ -1240,7 +1252,7 @@ fn open_menu(c: &mut Core, headings: &[(Rect, &str)], items: Vec<MenuItem>, stat
         items,
         focus: 0,
         hot: None,
-        held: None,
+        held: menuscreen::Hold::default(),
         drawn: None,
         closing: None,
         ready_at: opening.fade_in_ms as f64,
@@ -1308,7 +1320,7 @@ fn menu_input(
 ) -> Option<usize> {
     menu.hot = at.and_then(|p| menu.items.iter().position(|it| it.enabled && it.r.contains(p.x, p.y)));
     if mouse.just_pressed(Button::Left) {
-        menu.held = menu.hot;
+        menu.held.down(menu.hot);
         // Screen spec, "Pressing": pressing a button also gives it the focus.
         if let Some(h) = menu.hot {
             menu.focus = h;
@@ -1319,12 +1331,8 @@ fn menu_input(
         menu.focus = menuscreen::move_focus(&enabled, menu.focus, k);
     }
     let released = mouse.just_released(Button::Left);
-    let chosen = if released {
-        menu.held.take().filter(|&h| menu.hot == Some(h))
-    } else {
-        None
-    };
-    let pressed = menu.held.filter(|&h| menu.hot == Some(h));
+    let chosen = if released { menu.held.up(menu.hot) } else { None };
+    let pressed = menu.held.pressed(menu.hot);
     let key = (menu.hot, pressed, menu.focus);
     if menu.drawn != Some(key) {
         let mut p = dup(&menu.background);
@@ -1557,7 +1565,7 @@ fn run_menu_load(c: &mut Core) {
         return;
     };
     let input = crate::gamemenu::saving_input(input, cursors, cam);
-    let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot);
+    let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot, u.held);
     let before = snap(&load.ui);
     let step = load.ui.step(&input);
     let mut redraw = before != snap(&load.ui);

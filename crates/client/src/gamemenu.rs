@@ -78,6 +78,10 @@ pub struct GameMenu {
     /// The focused button (the yellow ring): its index in the item list; `None` until the screen is next run, which
     /// puts it on the default button ([`default_act`]).
     focus: Option<usize>,
+    /// The control the left mouse button went down on, while it is held (screen spec, "Pressing"), and the button
+    /// last drawn pressed.
+    held: crate::menuscreen::Hold<usize>,
+    pressed: Option<usize>,
     /// The slider being dragged: its index in the item list.
     drag: Option<usize>,
     dirty: bool,
@@ -475,6 +479,8 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
     m.dirty = true;
     m.hot = None;
     m.focus = None;
+    m.held = Default::default();
+    m.pressed = None;
     m.drag = None;
 }
 
@@ -555,7 +561,7 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                 }
             }
             Kinds::Button(_, label) => {
-                frontend::button(&mut p, f, it.r, label, hot);
+                frontend::button_pressed(&mut p, f, it.r, label, hot, m.pressed == Some(i));
                 if m.focus == Some(i) {
                     hud::outline(&mut p, it.r, FOCUS_RGB);
                 }
@@ -744,6 +750,8 @@ fn open_menu(
         delay: menu::Delay::default(),
         hot: None,
         focus: None,
+        held: Default::default(),
+        pressed: None,
         drag: None,
         dirty: true,
         save: None,
@@ -806,6 +814,7 @@ pub(crate) fn saving_input(
     let (keys, mouse_in) = (&input.keys, &input.mouse);
     let mut i = savedlg::Input {
         pointer: frontend::pointer(input, cam).map(|p| (p.x, p.y)),
+        press: mouse_in.just_pressed(Button::Left),
         click: mouse_in.just_released(Button::Left),
         enter: keys.any_just_pressed([Key::Enter, Key::NumpadEnter]),
         escape: keys.just_pressed(Key::Escape),
@@ -911,6 +920,18 @@ pub(crate) fn run_menu(c: &mut Core) {
         m.dirty = true;
     }
 
+    // Screen spec, "Pressing" (round 75): a control is chosen only by releasing the mouse button on the one it went
+    // down on; a held button is drawn pressed while the pointer is on it, and normal off it.
+    if mouse_in.just_pressed(Button::Left) {
+        m.held.down(hot);
+    }
+    let released = mouse_in.just_released(Button::Left).then(|| m.held.up(hot)).flatten();
+    let pressed = m.held.pressed(hot);
+    if pressed != m.pressed {
+        m.pressed = pressed;
+        m.dirty = true;
+    }
+
     // Sliders follow the pointer while the button is held.
     if mouse_in.just_pressed(Button::Left)
         && let Some(i) = hot
@@ -934,9 +955,7 @@ pub(crate) fn run_menu(c: &mut Core) {
 
     // What was asked.
     let mut act = None;
-    if mouse_in.just_released(Button::Left)
-        && let Some(i) = hot
-    {
+    if let Some(i) = released {
         match &built.items[i].kind {
             Kinds::Button(a, _) => act = Some(*a),
             Kinds::Check(id, _, on) => {
@@ -1104,6 +1123,7 @@ pub(crate) fn run_saving(c: &mut Core) {
             u.dialog.stage.clone(),
             u.scroll,
             u.hot,
+            u.held,
         )
     };
     let before = snap(ui);
@@ -1263,6 +1283,8 @@ mod tests {
             delay: menu::Delay::default(),
             hot: None,
             focus: None,
+            held: Default::default(),
+            pressed: None,
             drag: None,
             dirty: false,
             save: None,

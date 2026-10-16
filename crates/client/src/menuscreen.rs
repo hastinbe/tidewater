@@ -309,6 +309,35 @@ pub(crate) fn heading_cell(r: Rect, text_w: u32) -> (i32, i32) {
     (r.x + (r.w as i32 - 1) / 2 - (text_w / 2) as i32, r.y)
 }
 
+/// The mouse button held on a button ("Pressing"): the one it went down on, while it stays down. While held, the
+/// button is drawn pressed with the pointer on it and normal with the pointer off it; releasing on it chooses it,
+/// releasing anywhere else chooses nothing. Passing over another button while held doesn't press that one (round 75).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Hold<T>(Option<T>);
+
+impl<T> Default for Hold<T> {
+    fn default() -> Self {
+        Hold(None)
+    }
+}
+
+impl<T: Copy + PartialEq> Hold<T> {
+    /// The left button went down with the pointer over `hot` (an enabled button, or nothing).
+    pub(crate) fn down(&mut self, hot: Option<T>) {
+        self.0 = hot;
+    }
+
+    /// The button drawn pressed, with the pointer over `hot`: the held one, while the pointer is on it.
+    pub(crate) fn pressed(self, hot: Option<T>) -> Option<T> {
+        self.0.filter(|&h| hot == Some(h))
+    }
+
+    /// The left button came up with the pointer over `hot`: the held button, chosen if the pointer is on it.
+    pub(crate) fn up(&mut self, hot: Option<T>) -> Option<T> {
+        self.0.take().filter(|&h| hot == Some(h))
+    }
+}
+
 /// A keypress that moves the focus ring ("Keyboard focus").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FocusKey {
@@ -659,6 +688,31 @@ mod tests {
             let half = b.0.x + 113 - cell.0;
             assert_eq!(label_cell(b.0, half as u32 * 2, 17, false), cell, "{}", b.1);
         }
+    }
+
+    #[test]
+    fn a_held_button_shows_pressed_only_with_the_pointer_on_it_and_chooses_on_release_there() {
+        // "Pressing", round 75: held on Single Player Game (0), moved off, back on, released: chosen.
+        let mut h = Hold::default();
+        h.down(Some(0));
+        assert_eq!(h.pressed(Some(0)), Some(0), "pressed face");
+        assert_eq!(h.pressed(None), None, "off the button: drawn normal");
+        assert_eq!(
+            h.pressed(Some(1)),
+            None,
+            "passing over another button doesn't press that one"
+        );
+        assert_eq!(h.pressed(Some(0)), Some(0), "back on: pressed again");
+        assert_eq!(h.up(Some(0)), Some(0), "released on it: chosen");
+        assert_eq!(h, Hold::default(), "and let go");
+        // Released off it, or on another button: nothing is chosen.
+        h.down(Some(0));
+        assert_eq!(h.up(None), None);
+        h.down(Some(0));
+        assert_eq!(h.up(Some(1)), None);
+        // Pressed where no button is, then released on one: nothing either.
+        h.down(None);
+        assert_eq!(h.up(Some(0)), None);
     }
 
     #[test]

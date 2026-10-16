@@ -55,6 +55,8 @@ pub enum Hit {
 pub struct Input {
     /// The pointer in 640x480 pixels.
     pub pointer: Option<(f32, f32)>,
+    /// The left button went down this frame.
+    pub press: bool,
     /// The left button was released this frame.
     pub click: bool,
     /// Text typed this frame.
@@ -75,6 +77,8 @@ pub struct SaveUi {
     /// The first list row shown.
     pub scroll: usize,
     pub hot: Option<Hit>,
+    /// What the left button went down on, while it is held (screen spec, "Pressing").
+    pub held: crate::menuscreen::Hold<Hit>,
 }
 
 fn three(i: i32, n: i32) -> Rect {
@@ -94,6 +98,7 @@ impl SaveUi {
             dialog,
             scroll: 0,
             hot: None,
+            held: Default::default(),
         };
         s.show_chosen();
         s
@@ -161,7 +166,11 @@ impl SaveUi {
         self.hot = input
             .pointer
             .and_then(|(x, y)| hits.iter().find(|(_, r)| r.contains(x, y)).map(|(h, _)| *h));
-        let mut hit = if input.click { self.hot } else { None };
+        // Screen spec, "Pressing": only a release on what the button went down on counts.
+        if input.press {
+            self.held.down(self.hot);
+        }
+        let mut hit = if input.click { self.held.up(self.hot) } else { None };
         let d = &mut self.dialog;
         if d.stage == Stage::List {
             input.text.chars().for_each(|c| d.type_char(c));
@@ -240,8 +249,9 @@ impl SaveUi {
         let title = if d.mode == Mode::Save { "Save Game" } else { "Load Game" };
         let tw = big.width(title.as_bytes()) as i32;
         hud::text(&mut p, big, FRAME.x + (FRAME.w as i32 - tw) / 2, FRAME.y + 14, title);
+        let pressed = self.held.pressed(self.hot);
         let button = |p: &mut Picture, h: Hit, r: Rect, label: &str| {
-            crate::frontend::button(p, font, r, label, self.hot == Some(h));
+            crate::frontend::button_pressed(p, font, r, label, self.hot == Some(h), pressed == Some(h));
         };
         match &d.stage {
             Stage::List => {
@@ -350,9 +360,47 @@ mod tests {
         let (x, y) = (r.x as f32 + 2.0, r.y as f32 + 2.0);
         ui.step(&Input {
             pointer: Some((x, y)),
+            press: true,
             click: true,
             ..Default::default()
         })
+    }
+
+    #[test]
+    fn only_a_release_on_the_button_pressed_chooses_it() {
+        // Screen spec, "Pressing": pressed on Cancel, released on Load: nothing; pressed and released on Cancel: closes.
+        let mut u = ui(Mode::Load, 2);
+        let at = |u: &SaveUi, h: Hit| {
+            let r = u.hits().into_iter().find(|(x, _)| *x == h).expect("on offer").1;
+            Some((r.x as f32 + 2.0, r.y as f32 + 2.0))
+        };
+        let (cancel, load) = (at(&u, Hit::Cancel), at(&u, Hit::Load));
+        u.step(&Input {
+            pointer: cancel,
+            press: true,
+            ..Default::default()
+        });
+        let s = u.step(&Input {
+            pointer: load,
+            click: true,
+            ..Default::default()
+        });
+        assert_eq!(s, Step::Nothing);
+        u.step(&Input {
+            pointer: cancel,
+            press: true,
+            ..Default::default()
+        });
+        u.step(&Input {
+            pointer: None,
+            ..Default::default()
+        });
+        let s = u.step(&Input {
+            pointer: cancel,
+            click: true,
+            ..Default::default()
+        });
+        assert_eq!(s, Step::Close, "off the button and back on, then released there");
     }
 
     #[test]
