@@ -161,14 +161,27 @@ pub fn roll(rng: &mut Rng, basic: u32, pierce: u32, armour: u32) -> u8 {
 /// Splash damage to a unit `d` pixels (the larger axis offset) from the impact, or `None` if it isn't hit. Draws
 /// only when the unit is hit.
 pub fn splash_roll(rng: &mut Rng, stored: u8, d: i32, armour: u32) -> Option<u8> {
-    let base = match d.abs() {
-        0..=22 => stored as u32,
-        23..=42 => stored as u32 / 4,
-        _ => return None,
-    };
-    let v = base.checked_sub(armour).filter(|&v| v >= 1)?;
+    let v = splash_base(stored, d)?.checked_sub(armour).filter(|&v| v >= 1)?;
     let h = v.div_ceil(2);
     Some((h + rng.draw() % (h + 1)) as u8)
+}
+
+/// Splash damage along a hammer's or breath's path or from a spell effect: the same base with no armour, so a unit
+/// within 42 px is hit (and makes its draw) even with a base of 0. Kept as the code has it: the result is capped at
+/// 255, where "Splash on impact" keeps the low 8 bits (they differ only for a base of 255).
+pub fn path_splash_roll(rng: &mut Rng, stored: u8, d: i32) -> Option<u8> {
+    let h = splash_base(stored, d)?.div_ceil(2);
+    Some((h + rng.draw() % (h + 1)).min(255) as u8)
+}
+
+/// The splash base for a unit `d` pixels from the impact: the stored damage within 22 px, a quarter of it from 23 to
+/// 42 px, and no hit from 43 px.
+fn splash_base(stored: u8, d: i32) -> Option<u32> {
+    match d.abs() {
+        0..=22 => Some(stored as u32),
+        23..=42 => Some(stored as u32 / 4),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

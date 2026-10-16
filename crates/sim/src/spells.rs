@@ -7,6 +7,7 @@
 //! Dead bodies are the remains of `corpses.rs`.
 
 use crate::TILE_PX;
+use crate::battle::Splash;
 use crate::combat;
 use crate::economy::Event;
 use crate::movement::{Goal, Walk};
@@ -1243,7 +1244,7 @@ impl World {
                     // none, no splash or explosion on that step), and the explosion has only kind and position set.
                     if matches!(*count, 8 | 16 | 24 | 32 | 40) && self.free_fx_slot().is_some() {
                         let pos = m.pos;
-                        self.fx_splash(pos, m.damage, owner);
+                        self.splash(pos, m.damage, owner, Splash::Path);
                         self.splash_explosion(pos);
                     }
                 }
@@ -1308,7 +1309,7 @@ impl World {
                 m.pos = (c.0 + p.0, c.1 + p.1);
                 if *life & 15 == 1 {
                     let pos = m.pos;
-                    self.fx_splash(pos, m.damage, owner);
+                    self.splash(pos, m.damage, owner, Splash::Path);
                 }
                 true
             }
@@ -1332,7 +1333,7 @@ impl World {
                 }
                 *landed = SHARD_LINGER + 1;
                 let (pos, repeats, land) = (m.pos, *repeats, m.to);
-                self.fx_splash(pos, m.damage, owner);
+                self.splash(pos, m.damage, owner, Splash::Path);
                 if repeats > 0 && self.start_shard(owner, land, repeats - 1) {
                     self.rng.draw();
                 }
@@ -1342,7 +1343,7 @@ impl World {
                 match age {
                     34..=250 if (age - 34).is_multiple_of(24) => {
                         let pos = m.pos;
-                        self.fx_splash(pos, m.damage, owner);
+                        self.splash(pos, m.damage, owner, Splash::Path);
                     }
                     275 => {
                         let t = tile_of(m.pos);
@@ -1359,7 +1360,7 @@ impl World {
                 }
                 if *life & 1 == 1 {
                     let pos = m.pos;
-                    self.fx_splash(pos, m.damage, owner);
+                    self.splash(pos, m.damage, owner, Splash::Path);
                 }
                 *life -= 1;
                 if *life == 0 {
@@ -1377,50 +1378,6 @@ impl World {
                 }
                 true
             }
-        }
-    }
-
-    /// The splash rule of the damage spec for spell effects (spec, "Splash"): armour is ignored, air units are
-    /// scanned too, and the effect's owner is never hit.
-    pub(crate) fn fx_splash(&mut self, pos: (i32, i32), stored: u8, owner: UnitId) {
-        let tile = tile_of(pos);
-        self.hit_wall(tile, stored);
-        for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
-            self.hit_wall((tile.0 + dx, tile.1 + dy), stored / 4);
-        }
-        let mut hit: Vec<UnitId> = Vec::new();
-        let mut consider = |w: &World, x: i32, y: i32| {
-            for l in [Layer::Land, Layer::Air] {
-                if let Some(id) = w.occupant(l, x, y)
-                    && id != owner
-                    && !hit.contains(&id)
-                {
-                    hit.push(id);
-                }
-            }
-        };
-        consider(self, tile.0, tile.1);
-        for y in tile.1 - 3..=tile.1 + 3 {
-            for x in tile.0 - 3..=tile.0 + 3 {
-                consider(self, x, y);
-            }
-        }
-        for id in hit {
-            let Some(ti) = self.index(id) else { continue };
-            let t = &self.units[ti];
-            if t.dying {
-                continue;
-            }
-            let c = t.centre_px();
-            let d = (c.0 - pos.0).abs().max((c.1 - pos.1).abs());
-            let base = match d {
-                0..=22 => stored as u32,
-                23..=42 => stored as u32 / 4,
-                _ => continue,
-            };
-            let h = base.div_ceil(2);
-            let dmg = h + self.rng.draw() % (h + 1);
-            self.damage(ti, dmg.min(255) as u8, owner);
         }
     }
 }
@@ -2809,7 +2766,7 @@ mod tests {
         let mut w = lab(32);
         let k = w.spawn(KNIGHT, 1, (10, 10), 0).unwrap();
         let pos = (10 * 32 + 16 + 10, 10 * 32 + 16);
-        w.fx_splash(pos, 10, UnitId(0));
+        w.splash(pos, 10, UnitId(0), crate::battle::Splash::Path);
         let lost = 100 - hp(&w, k);
         assert!((5..=10).contains(&lost), "{lost}");
     }

@@ -89,6 +89,18 @@ const BROADSIDE: [[u8; 8]; 8] = [
     [1, 1, 1, 1, 5, 5, 5, 5],
 ];
 
+/// How a splash treats the units it finds (damage spec, "Splash on impact" and "Missile flight"; spells spec,
+/// "Splash").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Splash {
+    /// A splash missile's impact: armour is subtracted, and air units are scanned only for a small-cannon shot at an
+    /// air unit.
+    Impact { air: bool },
+    /// A gryphon hammer's or dragon breath's splash along its path, or a spell effect's: armour isn't subtracted, so
+    /// every unit within 42 px is hit, and air units are scanned.
+    Path,
+}
+
 pub(crate) fn broadside(d: u8, current: u8) -> u8 {
     BROADSIDE[(d & 7) as usize][(current & 7) as usize]
 }
@@ -810,7 +822,7 @@ impl World {
         if splash && self.free_fx_slot().is_some() {
             self.sound_at_px(pos, crate::sound::Sound::Explode);
             self.splash_explosion(pos);
-            self.fx_splash(pos, damage, attacker);
+            self.splash(pos, damage, attacker, Splash::Path);
         }
     }
 
@@ -839,43 +851,55 @@ impl World {
             }
             return;
         }
-        let tile = (m.pos.0.div_euclid(TILE_PX), m.pos.1.div_euclid(TILE_PX));
-        self.hit_wall(tile, m.damage);
+        self.splash(m.pos, m.damage, m.attacker, Splash::Impact { air: m.hits_air });
+    }
+
+    /// The splash delivery (damage spec, "Splash on impact"): stored damage `stored` at pixel `pos` from `attacker`.
+    /// The walls on the tile and its four orthogonal neighbours, then each unit considered in scan order (the unit on
+    /// the tile, then the 7 × 7 block row by row, a tile's ground-layer unit before its air-layer unit), each once,
+    /// never the attacker, friends included. A dying unit is off the occupancy marks, so the scan never finds one.
+    pub(crate) fn splash(&mut self, pos: (i32, i32), stored: u8, attacker: UnitId, how: Splash) {
+        let tile = (pos.0.div_euclid(TILE_PX), pos.1.div_euclid(TILE_PX));
+        self.hit_wall(tile, stored);
         for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
-            self.hit_wall((tile.0 + dx, tile.1 + dy), m.damage / 4);
+            self.hit_wall((tile.0 + dx, tile.1 + dy), stored / 4);
         }
-        let mut layers = vec![Layer::Land, Layer::Sea];
-        if m.hits_air {
-            layers.push(Layer::Air);
-        }
+        let air = match how {
+            Splash::Impact { air } => air,
+            Splash::Path => true,
+        };
         let mut hit: Vec<UnitId> = Vec::new();
-        let consider = |w: &World, x: i32, y: i32, hit: &mut Vec<UnitId>| {
-            for &l in &layers {
-                if let Some(id) = w.occupant(l, x, y)
-                    && id != m.attacker
+        let mut consider = |w: &World, x: i32, y: i32| {
+            for l in [Layer::Land, Layer::Air] {
+                if (l != Layer::Air || air)
+                    && let Some(id) = w.occupant(l, x, y)
+                    && id != attacker
                     && !hit.contains(&id)
                 {
                     hit.push(id);
                 }
             }
         };
-        consider(self, tile.0, tile.1, &mut hit);
+        consider(self, tile.0, tile.1);
         for y in tile.1 - 3..=tile.1 + 3 {
             for x in tile.0 - 3..=tile.0 + 3 {
-                consider(self, x, y, &mut hit);
+                consider(self, x, y);
             }
         }
         for id in hit {
             let Some(ti) = self.index(id) else { continue };
             let t = &self.units[ti];
-            if t.dying {
-                continue;
-            }
             let c = t.centre_px();
-            let d = (c.0 - m.pos.0).abs().max((c.1 - m.pos.1).abs());
-            let armour = combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades);
-            if let Some(dmg) = combat::splash_roll(&mut self.rng, m.damage, d, armour) {
-                self.damage(ti, dmg, m.attacker);
+            let d = (c.0 - pos.0).abs().max((c.1 - pos.1).abs());
+            let dmg = match how {
+                Splash::Impact { .. } => {
+                    let armour = combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades);
+                    combat::splash_roll(&mut self.rng, stored, d, armour)
+                }
+                Splash::Path => combat::path_splash_roll(&mut self.rng, stored, d),
+            };
+            if let Some(dmg) = dmg {
+                self.damage(ti, dmg, attacker);
             }
         }
     }
@@ -2550,7 +2574,7 @@ mod tests {
                 let wi = w.index(weak).unwrap();
                 w.units[wi].hp = 3;
                 for _ in 0..3 {
-                    w.fx_splash((176, 176), stored, owner);
+                    w.splash((176, 176), stored, owner, crate::battle::Splash::Path);
                     got.push(pinned(&w));
                 }
             }
