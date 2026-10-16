@@ -192,10 +192,10 @@ fn pays(spell: u8) -> Option<Pays> {
 }
 
 /// Whether a spell plays its sound itself, once its own checks have passed (sounds spec, "Spells"): healing when it
-/// heals, flame shield when it pays, the eye of Kilrogg as a plain sound; the fireball has none. Every other spell's
-/// sound plays as its effect starts.
+/// heals, flame shield when it pays, the eye of Kilrogg as a plain sound when an eye is made, holy vision once per
+/// point it uses; the fireball has none. Every other spell's sound plays as its effect starts.
 fn own_sound(spell: u8) -> bool {
-    matches!(spell, HEALING | FLAME_SHIELD | EYE_OF_KILROGG | FIREBALL)
+    matches!(spell, HOLY_VISION | HEALING | FLAME_SHIELD | EYE_OF_KILROGG | FIREBALL)
 }
 
 /// A spell piece that lives in an effect slot (spec, "Spell effects in flight"), as its draws leave it.
@@ -635,7 +635,10 @@ impl World {
 
     // ----- 6. the effects (spec, "The spells") -----------------------------------------------------------------
 
-    /// Holy vision: the seven sight-9 areas, each with its marker; the Enhanced fog refresh.
+    /// Holy vision: the seven sight-9 areas, each with its marker; the Enhanced fog refresh. Round 81 (audit erratum
+    /// 8, S99): each point used also plays the spell's sound, placed on that point's tile, so up to 7 sounds (Classic
+    /// mode: a point at the map width too). Sounds spec, open question "Holy vision's sounds and the seen test": we
+    /// take the default, the point's reveal before its sound.
     fn holy_vision(&mut self, owner: u8, t: (i32, i32)) {
         const OFFSETS: [(i32, i32); 7] = [(0, 0), (0, -8), (0, 8), (6, 4), (6, -4), (-6, 4), (-6, -4)];
         let w = self.terrain.width as i32;
@@ -649,6 +652,7 @@ impl World {
             if p.0 < w && p.1 < w {
                 self.reveal(owner, p, 9);
             }
+            self.sound_at_tile(p, Sound::Spell(HOLY_VISION));
             self.cosmetic(kind::BLINK, (p.0 * TILE_PX + 8, p.1 * TILE_PX + 8));
         }
         if enhanced {
@@ -3721,6 +3725,54 @@ mod tests {
         }
     }
 
+    /// The tiles of the spell sounds `spell` has queued.
+    fn spell_sound_tiles(w: &World, spell: u8) -> Vec<(i32, i32)> {
+        spell_cues(w, spell)
+            .into_iter()
+            .map(|p| match p {
+                Some(crate::sound::Place::Tile { tile, .. }) => tile,
+                p => panic!("not a tile: {p:?}"),
+            })
+            .collect()
+    }
+
+    /// S99 (static study): holy vision plays one placed sound per point it uses, on that point's tile: 7 at the map
+    /// centre, 3 at tile (0, 0) (T, T + (0, 8) and T + (6, 4)). Each point is revealed before its sound, so the local
+    /// caster's player hears them all.
+    #[test]
+    fn holy_vision_plays_a_sound_at_each_point_it_uses() {
+        for (t, points) in [
+            (
+                (24, 24),
+                vec![(24, 24), (24, 16), (24, 32), (30, 28), (30, 20), (18, 28), (18, 20)],
+            ),
+            ((0, 0), vec![(0, 0), (0, 8), (6, 4)]),
+        ] {
+            let mut w = lab(48);
+            let m = caster(&mut w, MAGE, (40, 40), 255);
+            w.sounds.cues.clear();
+            strike(&mut w, m, HOLY_VISION, None, t);
+            assert_eq!(spell_sound_tiles(&w, HOLY_VISION), points);
+            let unseen =
+                |c: &crate::sound::Cue| matches!(c.place, Some(crate::sound::Place::Tile { unseen: true, .. }));
+            assert!(!w.sounds.cues.iter().any(unseen));
+        }
+    }
+
+    /// Spec, "Holy vision" (Classic mode): a point at the map width reveals nothing but gets its marker and its sound.
+    #[test]
+    fn classic_holy_vision_sounds_at_the_map_width_too() {
+        let mut w = lab(48);
+        w.rules.enhanced = false;
+        let m = caster(&mut w, MAGE, (5, 5), 255);
+        w.sounds.cues.clear();
+        strike(&mut w, m, HOLY_VISION, None, (42, 44));
+        assert_eq!(
+            spell_sound_tiles(&w, HOLY_VISION),
+            [(42, 44), (42, 36), (48, 48), (48, 40), (36, 48), (36, 40)]
+        );
+    }
+
     mod pin {
         use super::*;
 
@@ -3955,8 +4007,8 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    8367387278495162366,
-                    6257947175778283097,
+                    15115049068107008191,
+                    4453398095596133988,
                     9837872630853965157,
                     9406309246085243925,
                     15996869705984266614,
@@ -3994,14 +4046,14 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    12956272492664224182,
-                    13502872167226954976,
-                    9634383685240036618,
-                    13150989468658042820,
-                    9692961426084186022,
-                    10758491430547138358,
-                    14749539739432364931,
-                    15461669505548495064
+                    9606054160542468951,
+                    15771408165846631367,
+                    12859162034872809769,
+                    7827906479108766517,
+                    7892230462286841474,
+                    6900052594410674485,
+                    7962942707685522857,
+                    3159045151682925637
                 ]
             );
         }
@@ -4039,10 +4091,10 @@ mod tests {
                     18388956045413560216,
                     13744938671817938163,
                     10824971562359585752,
-                    15235576187569990751,
-                    12598839188188960853,
-                    9615052051909174644,
-                    8332751505918460810,
+                    3112387233416491107,
+                    8061535960447661111,
+                    1623117162067500364,
+                    2052376032180329450,
                     7574288775041092963,
                     8883422678463670431,
                     12395061211281444655,
