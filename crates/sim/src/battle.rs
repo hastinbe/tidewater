@@ -796,7 +796,7 @@ impl World {
         // rule" there; `ai/worker-ai.md`, "The losses rule") counts the buildings at the kill, this dying one
         // included (traced: `xorc10-xorc10-losses-4000`, CP1 and CP2).
         if unit.building {
-            self.destroyed_hook(ti);
+            self.destroyed_hook(ti, unit.construction.is_some());
         }
     }
 

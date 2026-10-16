@@ -171,11 +171,11 @@ impl World {
 
     /// The destroyed hook, inside the kill of building `ti` of any player, once its death has begun: a computer
     /// player's entry for it loses its done mark (`ai/worker-ai.md`, "Done marks"), and the losses rule runs
-    /// ([`World::building_lost`]).
-    pub(crate) fn destroyed_hook(&mut self, ti: usize) {
+    /// ([`World::building_lost`]). `site` is whether it was under construction when the kill began.
+    pub(crate) fn destroyed_hook(&mut self, ti: usize, site: bool) {
         let (owner, kind) = (self.units[ti].owner, self.units[ti].kind);
         self.mark_build_list(owner, kind, false);
-        self.building_lost(owner, ti);
+        self.building_lost(owner, ti, site);
     }
 
     /// The damage hook, when unit `ti` of any player is notified of a hit by `attacker` (`combat/damage.md`,

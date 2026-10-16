@@ -671,12 +671,14 @@ impl World {
 
     // ---- The all-out attack -------------------------------------------------------------------------------------
 
-    /// The losses rule (`ai/worker-ai.md`, "The losses rule"; `ai/computer-player.md`, "Losses rule", round 82, C1):
-    /// when building `killed` of a computer player is destroyed, B counts the player's buildings at the kill, the
-    /// destroyed one included, complete or under construction, but not oil platforms; B < 3 starts the all-out attack
-    /// (traced: `xorc10-xorc10-losses-4000`, vectors CP1 and CP2). Every oil platform is left out, finished or not:
-    /// the unfinished one is an open question held with that default (trace request AI5).
-    pub(crate) fn building_lost(&mut self, owner: u8, killed: usize) {
+    /// The losses rule (`ai/worker-ai.md`, "The losses rule"; `ai/computer-player.md`, "Losses rule", round 82, C1
+    /// and round 83): when building `killed` of a computer player is destroyed, B counts the player's buildings at the
+    /// kill, the destroyed one included, complete or under construction, less its complete oil platforms; B < 3 starts
+    /// the all-out attack (traced: `xorc10-xorc10-losses-4000`, vectors CP1 and CP2). An oil platform under
+    /// construction counts (round 83, traced: `orc3-orc03-platform-losses-9500`, CP7), and so does a completed wall
+    /// piece killed as it becomes terrain (`economy/walls.md`, round 83 review). `killed_site` is whether the
+    /// destroyed building was under construction, which the kill has already cleared by the time this runs.
+    pub(crate) fn building_lost(&mut self, owner: u8, killed: usize, killed_site: bool) {
         if !self.ai_player(owner) {
             return;
         }
@@ -685,7 +687,11 @@ impl World {
             .into_iter()
             .filter(|&i| {
                 let u = &self.units[i];
-                u.building && (!u.dying || i == killed) && !u.removing && self.unit_flags(u) & flags::OIL_SOURCE == 0
+                let site = u.construction.is_some() || (i == killed && killed_site);
+                u.building
+                    && (!u.dying || i == killed)
+                    && !u.removing
+                    && (site || self.unit_flags(u) & flags::OIL_SOURCE == 0)
             })
             .count();
         if b < 3 {
@@ -2672,14 +2678,70 @@ mod tests {
         assert_eq!(losses(1, None), [Attack], "CP3");
     }
 
-    /// `ai/worker-ai.md` vector: 3 buildings, one an oil platform, lose one: 2 at the kill, so the all-out attack. The
-    /// held default: a platform under construction is left out too (open question, trace request AI5).
+    /// `ai/worker-ai.md` vector: 3 buildings, one a complete oil platform, lose one: B = 2 at the kill (the platform
+    /// left out), so the all-out attack.
     #[test]
-    fn oil_platforms_never_count_in_the_losses_rule() {
+    fn complete_oil_platforms_dont_count_in_the_losses_rule() {
         use GoalKind::{Attack, Hold};
         assert_eq!(losses(2, Some(true)), [Attack, Attack]);
-        assert_eq!(losses(2, Some(false)), [Attack, Attack]);
         assert_eq!(losses(3, Some(true)), [Hold, Attack, Attack]);
+    }
+
+    /// CP7 (`ai/computer-player.md`; `ai/worker-ai.md` round-83 vectors; traced: `orc3-orc03-platform-losses-9500`,
+    /// computer player 1 with farms 1589 and 1595 and oil platform 1584 under construction): an oil platform under
+    /// construction counts, so losing one of 2 other buildings counts 3 at the kill and starts nothing; the next loss
+    /// (2 at the kill) starts the all-out attack.
+    #[test]
+    fn an_unfinished_oil_platform_counts_in_the_losses_rule() {
+        use GoalKind::{Attack, Hold};
+        assert_eq!(losses(2, Some(false)), [Hold, Attack]);
+        assert_eq!(losses(1, Some(false)), [Attack]);
+    }
+
+    /// The losses rule's count of the destroyed building itself (`ai/worker-ai.md`, "the destroyed one included,
+    /// complete or under construction"): a platform site killed before it completes counts as under construction,
+    /// though the kill has already ended its construction when the rule runs. With 2 towers and the site: B = 3.
+    #[test]
+    fn a_killed_platform_site_counts_in_the_losses_rule() {
+        let mut w = game();
+        water(&mut w, 40, 48);
+        spawn(&mut w, FOOTMAN, 0, (20, 50));
+        for k in 0..2 {
+            spawn(&mut w, TOWER, 1, (2 + 3 * k, 2));
+        }
+        let p = spawn(&mut w, PLATFORM, 1, (42, 10));
+        um(&mut w, p).construction = Some(crate::economy::Construction {
+            time: 1000,
+            ..Default::default()
+        });
+        w.players[1].under_construction += 1;
+        let g = spawn(&mut w, GRUNT, 1, (10, 10));
+        w.rebuild_threat_map();
+        w.kill(ix(&w, p));
+        assert_eq!(at(&w, g).goal.kind, GoalKind::Hold);
+    }
+
+    /// `economy/walls.md` (round 83 review vector; derived, untraced: trace request AI9): a computer player whose only
+    /// buildings are a town hall and a farm completes a wall piece; the piece, killed as it becomes terrain (the walls
+    /// spec's completion: a kill of the completed piece), counts at its own kill, so B = 3 and no all-out attack. With
+    /// only a town hall, B = 2 and it starts.
+    #[test]
+    fn a_completed_wall_piece_counts_in_the_losses_rule() {
+        const WALL: u8 = crate::economy::kind::HUMAN_WALL;
+        for (farm, expected) in [(true, GoalKind::Hold), (false, GoalKind::Attack)] {
+            let mut w = game();
+            w.stats.0[WALL as usize] = building(1, 0);
+            spawn(&mut w, FOOTMAN, 0, (20, 50));
+            spawn(&mut w, TOWN_HALL, 1, (2, 2));
+            if farm {
+                spawn(&mut w, FARM, 1, (8, 2));
+            }
+            let piece = spawn(&mut w, WALL, 1, (12, 12));
+            let g = spawn(&mut w, GRUNT, 1, (10, 10));
+            w.rebuild_threat_map();
+            w.kill(ix(&w, piece));
+            assert_eq!(at(&w, g).goal.kind, expected, "town hall, farm {farm}, wall piece");
+        }
     }
 
     /// Round-51 errata, "Enemy search" (`xorc8-10000` gryphon rider 1550, n = 6051): only alliance, the attack order's
@@ -2768,7 +2830,7 @@ mod tests {
 
         /// The losses rule and the all-out attack: a computer player with 1 to 4 farms (and, in turn, a finished oil
         /// platform and one under construction besides) loses its farms one by one; every kill is followed for 60
-        /// cycles.
+        /// cycles. The site starts at full hit points, so it completes during the first 60 cycles.
         #[test]
         fn the_losses_rule_and_the_all_out_attack() {
             let mut got = Vec::new();
@@ -2815,8 +2877,11 @@ mod tests {
                     10103227982612448159,
                     3458295132864516303,
                     15838803139453404326,
-                    4342901222586906522,
-                    7147130911661622609,
+                    // Round 83 (CP7): with 2 farms and the unfinished platform, B = 3 at the first kill, so no
+                    // all-out attack there; the second kill starts it. (With 3 or 4 farms the site has completed by
+                    // the kill that brings B under 3.)
+                    1031746324593574190,
+                    3190119638042026534,
                     18274199525250429784,
                     8845276480115027668,
                     11015724436352951852,
