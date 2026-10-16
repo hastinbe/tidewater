@@ -101,7 +101,7 @@ impl World {
             return None;
         }
         if self.check_site_in_turn(kind, site, id) != crate::site::SiteCheck::Allowed {
-            self.events.push(Event::CantPlace { player: owner, kind });
+            self.tell(Event::CantPlace { player: owner, kind });
             return None;
         }
         if !self.afford_or_tell(owner, self.unit_cost(kind), false) {
@@ -229,7 +229,7 @@ impl World {
             // Round-40 errata (`xhuman2`, peon 1562 at n = 85): the worker's tile stays marked as occupied by it, and
             // idle takes over in the same update (still animation, wait 3), not as an immediate order.
             self.mark(&u, u.tile, Some(u.id));
-            self.events.push(Event::CantPlace { player: u.owner, kind });
+            self.tell(Event::CantPlace { player: u.owner, kind });
             if self.computer_player(u.owner) {
                 self.refund(u.owner, c);
             }

@@ -233,6 +233,12 @@ impl World {
         self.vision.local
     }
 
+    /// Build-train spec, "The local player sees it": sounds (and messages, [`World::tell`]) about a player's own
+    /// units are for that player only if it is the local player. Every other effect happens for every player.
+    pub(crate) fn local_owner(&self, owner: u8) -> bool {
+        owner == self.local()
+    }
+
     /// The placement of a sound on unit `i` as it stands now.
     pub(crate) fn unit_place(&self, i: usize) -> Place {
         let u = &self.units[i];
@@ -350,7 +356,7 @@ impl World {
         self.mark_attacked(i);
         let u = &self.units[i];
         let s = &self.sounds;
-        if u.owner != self.local()
+        if !self.local_owner(u.owner)
             || s.demo
             || self.stats_of(u.kind).flags & flags::CRITTER != 0
             || s.help_timer != 0
@@ -376,7 +382,7 @@ impl World {
     /// "Unit ready": a trained unit was placed.
     pub(crate) fn ready_sound(&mut self, id: UnitId) {
         let Some(u) = self.unit(id) else { return };
-        if u.owner != self.local() {
+        if !self.local_owner(u.owner) {
             return;
         }
         let (kind, tile) = (u.kind, u.tile);
@@ -388,7 +394,7 @@ impl World {
     /// research or upgrade finished).
     pub(crate) fn work_complete(&mut self, i: usize) {
         let u = &self.units[i];
-        if u.owner == self.local() {
+        if self.local_owner(u.owner) {
             let (peasant, tile) = (u.kind == PEASANT, u.tile);
             self.cue(Sound::WorkComplete { peasant }, None);
             // Messages spec, "Event history": work complete is an event too.
@@ -420,7 +426,7 @@ impl World {
     pub fn acknowledge(&mut self, first: UnitId) {
         self.sounds.remembered = None;
         let Some(u) = self.unit(first) else { return };
-        if u.owner == self.local() {
+        if self.local_owner(u.owner) {
             let kind = u.kind;
             self.cue(Sound::Acknowledge { kind }, None);
         }
@@ -436,7 +442,7 @@ impl World {
             return;
         }
         // 1. Owner.
-        if u.owner != self.local() && u.owner != slots::NEUTRAL {
+        if !self.local_owner(u.owner) && u.owner != slots::NEUTRAL {
             self.sounds.forget();
             return;
         }

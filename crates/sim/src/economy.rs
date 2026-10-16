@@ -277,11 +277,17 @@ impl World {
         p.oil += c[2];
     }
 
+    /// "The local player sees it", for messages: a message about a player's own building or unit is queued with that
+    /// player, for every player, and the client shows only the local player's ([`World::local_owner`]).
+    pub(crate) fn tell(&mut self, e: Event) {
+        self.events.push(e);
+    }
+
     pub(crate) fn afford_or_tell(&mut self, owner: u8, c: Cost, needs_food: bool) -> bool {
         match self.can_afford(owner, c, needs_food) {
             Ok(()) => true,
             Err(shortage) => {
-                self.events.push(Event::CantAfford {
+                self.tell(Event::CantAfford {
                     player: owner,
                     shortage,
                 });
@@ -575,7 +581,7 @@ impl World {
                     Ok(id) => self.ready_sound(id),
                     Err(_) => {
                         self.refund(u.owner, job.paid);
-                        self.events.push(Event::NoRoom {
+                        self.tell(Event::NoRoom {
                             player: u.owner,
                             kind: k,
                         });
@@ -640,7 +646,7 @@ impl World {
             }
         }
         if self.rules.enhanced {
-            self.events.push(Event::ResearchDone { player: owner, tile });
+            self.tell(Event::ResearchDone { player: owner, tile });
             self.work_complete(i);
         }
     }
