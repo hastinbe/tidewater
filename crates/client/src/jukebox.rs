@@ -204,8 +204,9 @@ fn apply(jb: &mut Jukebox, front: &mut Front, core: &mut audio::Audio, actions: 
             Action::SetAttenuation(a) => jb.atten = a,
             // The mixer loops from the loop point itself.
             Action::SeekLoop { .. } => {}
-            // The game's sound effects aren't cut during a fade of all sound yet.
-            Action::CutEffects => {}
+            // Music spec, "Effects and narration": a fade of all sound first cuts every sound effect, narration
+            // included, at once.
+            Action::CutEffects => core.cut_effects(),
         }
     }
 }

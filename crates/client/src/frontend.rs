@@ -1701,7 +1701,7 @@ pub(crate) fn enter_act(c: &mut Core) {
 }
 
 /// The act screen on the menu timer (`campaign::ActRun`): its fades, the act sound when the picture's fade ends, and
-/// the close: a fade to black, then a fade of all sound that stops the act sound if it still plays; the video after
+/// the close: a fade to black, then every sound effect stopped and a fade of all sound; the video after
 /// (if any) or the briefing follows once the music's fade has ended.
 fn run_act(c: &mut Core) {
     let Core {
@@ -1748,7 +1748,9 @@ fn run_act(c: &mut Core) {
                 }
             }
             cf::ActCue::FadeAllSound => {
-                audio.stop_group(Group::Act);
+                // Music spec, "Effects and narration": the act screen stops every sound effect, its narration
+                // included, just before its fade of all sound.
+                audio.cut_effects();
                 music.fade_stop(true, None);
             }
         }
@@ -1931,6 +1933,9 @@ fn run_briefing(c: &mut Core) {
     // The fade-in takes no input.
     let asked = now >= fades::BRIEFING as f64 && briefing_continue(keys, mouse);
     if asked || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
+        // Music spec, "Effects and narration": the briefing stops every sound effect, its narration included, at the
+        // click, just before its fade of all sound.
+        audio.cut_effects();
         b.closing = Some(close_with_sound(music, fades::BRIEFING));
     }
 }

@@ -148,7 +148,7 @@ pub enum Group {
     Effect,
     /// A screen's own sounds (videos, briefings, the score screen, the endings): they stop when it is left.
     Screen(AppState),
-    /// The act screen's sound: it stops when the act screen fades all sound, or is left.
+    /// The act screen's sound: it stops when the act screen is left, or with every effect at a fade of all sound.
     Act,
 }
 
@@ -207,6 +207,13 @@ impl Mixer {
     /// Stops every voice of `group`.
     pub fn stop_group(&mut self, group: Group) {
         self.voices.retain(|v| v.group != group);
+    }
+
+    /// Stops every sound effect at once, whoever it belongs to (a game's, a screen's, the act screen's), leaving the
+    /// music's track: what a fade of all sound does first (`ui/music.md`, "Effects and narration": narration is a
+    /// sound effect, and no sound is spared).
+    pub fn cut_effects(&mut self) {
+        self.voices.retain(|v| v.group == Group::Music);
     }
 
     pub fn set_gain(&mut self, id: VoiceId, gain: i32) {
@@ -356,6 +363,11 @@ impl Audio {
 
     pub fn stop_group(&mut self, group: Group) {
         self.output.lock().stop_group(group);
+    }
+
+    /// Stops every sound effect at once, the music's track excepted ([`Mixer::cut_effects`]).
+    pub fn cut_effects(&mut self) {
+        self.output.lock().cut_effects();
     }
 
     /// A screen is left: its own sounds stop (and the act screen's sound with the act screen).
@@ -591,6 +603,34 @@ mod tests {
         assert_eq!(starts.len(), 4);
         assert_eq!(starts[3].mode, Mode::Once);
         assert!(a.take_starts().is_empty());
+    }
+
+    #[test]
+    fn a_cut_stops_every_effect_and_keeps_the_music() {
+        // Music spec, "Effects and narration" (round 75): a fade of all sound cuts every sound effect at once, the
+        // game's, the briefing's narration and the act screen's alike; the music track fades on its own.
+        let mut a = Audio::default();
+        let s = sound(&[[1, 1]; 1000]);
+        let music = a.play_music(&s, 1.0, UNITY, Some(0));
+        for g in [
+            Group::Effect,
+            Group::Screen(AppState::Briefing),
+            Group::Screen(AppState::Score),
+            Group::Act,
+        ] {
+            a.play(&s, 1.0, UNITY, Mode::Despawn, g, 0);
+        }
+        a.cut_effects();
+        for g in [
+            Group::Effect,
+            Group::Screen(AppState::Briefing),
+            Group::Screen(AppState::Score),
+            Group::Act,
+        ] {
+            assert_eq!(a.playing_in(g), 0, "{g:?} is cut");
+        }
+        assert_eq!(a.playing_in(Group::Music), 1);
+        assert_eq!(a.position(music), Some(0), "the track goes on where it was");
     }
 
     #[test]
