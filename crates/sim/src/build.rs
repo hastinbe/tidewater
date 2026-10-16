@@ -17,8 +17,6 @@ use crate::TILE_PX;
 use crate::economy::Event;
 use crate::movement::{Goal, Walk, chebyshev, footprint_goal};
 use crate::placement::{LIMIT_OUT, Source};
-use crate::site::building_mask;
-use crate::terrain::bits;
 use crate::world::{Gather, Order, SpawnError, UnitId, World, face_tile};
 
 /// Order 22's wait at each run.
@@ -228,7 +226,7 @@ impl World {
             let i = w.index(u.id).expect("the builder is alive");
             w.take_over(i, Order::Idle);
         };
-        let Some(patch) = self.site_ok(kind, site) else {
+        let Some(patch) = self.site_ok(kind, site, u.id) else {
             self.tell(Event::CantPlace { player: u.owner, kind });
             if !pays_now {
                 self.refund(u.owner, c);
@@ -295,30 +293,15 @@ impl World {
         self.units[i].script.wait = ENTER_SITE_WAIT;
     }
 
-    /// The placement check of the occupancy spec for a building of type `kind` with its top-left tile at `site`, made
-    /// when the worker arrives. `Some(patch)` if it passes, with the oil patch an oil platform is placed on. The click
-    /// in placement mode makes the fuller check of [`World::check_site`] first.
-    pub(crate) fn site_ok(&self, kind: u8, site: (i32, i32)) -> Option<Option<UnitId>> {
-        let s = self.stats_of(kind);
-        let platform = s.flags & flags::OIL_SOURCE != 0;
-        let shore = s.flags & flags::SHORE_BUILDING != 0;
-        let m = building_mask(s.flags);
-        let tiles = (0..s.size.1 as i32).flat_map(|dy| (0..s.size.0 as i32).map(move |dx| (site.0 + dx, site.1 + dy)));
-        let mut touches_shore = false;
-        for (x, y) in tiles {
-            if !self.terrain.contains(x, y) {
-                return None;
-            }
-            let w = self.terrain.word(x, y);
-            if w & m != 0 {
-                return None;
-            }
-            touches_shore |= w & bits::SHORE != 0;
-        }
-        if shore && !touches_shore {
+    /// "Placement on arrival", step 1: the full site check of `ui/placing-buildings.md` ([`World::check_site`]: the
+    /// masks, the shore and oil-patch tests, the spacing rules and, for a builder of the local player, the unexplored
+    /// test), made when `builder` arrives. `Some(patch)` if it passes, with the oil patch an oil platform is placed
+    /// on.
+    pub(crate) fn site_ok(&self, kind: u8, site: (i32, i32), builder: UnitId) -> Option<Option<UnitId>> {
+        if self.check_site(kind, site, builder) != crate::site::SiteCheck::Allowed {
             return None;
         }
-        if platform {
+        if self.stats_of(kind).flags & flags::OIL_SOURCE != 0 {
             let patch = self
                 .units
                 .iter()
@@ -481,6 +464,7 @@ mod tests {
     use super::*;
     use crate::ai::controller;
     use crate::economy::kind;
+    use crate::terrain::bits;
     use crate::world::Command;
     use crate::world::tests::{field, run};
 
@@ -505,6 +489,8 @@ mod tests {
             p.gold = 1000;
             p.lumber = 1000;
         }
+        // The whole map explored, so the arrival site check's unexplored test passes; tiles stay unseen.
+        w.rules.reveal_map = true;
         let p = w.spawn(PEASANT, 0, (2, 2), 0).unwrap();
         (w, p)
     }
@@ -978,6 +964,46 @@ mod tests {
         assert!(!w.valid_build_command(0x02, FARM, (8, 8)), "a peasant for an orc farm");
     }
 
+    /// "Placement on arrival", step 1 (B-040 audit): the arrival check is the full site check, so for a builder of
+    /// the local player it includes the unexplored test the command turn leaves out, and a computer player's
+    /// builder skips it.
+    #[test]
+    fn the_arrival_check_is_the_full_site_check() {
+        for (owner, placed) in [(0u8, false), (1, true)] {
+            let (mut w, p0) = town();
+            w.rules.reveal_map = false;
+            // The least sight and a 4 x 4 farm, so the walk leaves the site's far corner unexplored (in the shipped
+            // data the builder's own sight explores the whole site).
+            w.stats.0[PEASANT as usize].sight = 0;
+            w.stats.0[FARM as usize].size = (4, 4);
+            let p = if owner == 0 {
+                p0
+            } else {
+                w.spawn(PEASANT, owner, (4, 2), 0).unwrap()
+            };
+            build(&mut w, owner, p, (8, 8));
+            let u = w.unit(p).unwrap();
+            assert!(
+                matches!(u.pending.unwrap_or(u.order), Order::Build { .. }),
+                "the command turn passes it"
+            );
+            for _ in 0..400 {
+                w.step(&[]);
+                let u = w.unit(p).unwrap();
+                if u.inside || (u.order == Order::Idle && u.pending.is_none()) {
+                    break;
+                }
+            }
+            assert_eq!(farm_at(&w, (8, 8)).is_some(), placed, "owner {owner}");
+            if !placed {
+                let u = w.unit(p).unwrap();
+                assert_eq!((u.order, u.script.wait), (Order::Idle, 3));
+                assert_eq!(w.players[0].gold, 1000);
+                assert!(w.events.iter().any(|e| matches!(e, Event::CantPlace { player: 0, .. })));
+            }
+        }
+    }
+
     #[test]
     fn an_occupied_site_is_refused() {
         let (mut w, p) = town();
@@ -1306,7 +1332,7 @@ mod tests {
             let (mut w, p) = arrive(FARM, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(!w.unit(p).unwrap().inside);
-            assert_eq!(pinned(&w), 10779703555586822501);
+            assert_eq!(pinned(&w), 7790822708232095186);
         }
 
         /// A builder carrying gold in gold mode, of a hall: the load is delivered and it gets the hall-sized exit mark.
@@ -1324,7 +1350,7 @@ mod tests {
             run(&mut w, 12 * 3 + 2);
             let u = w.unit(p).unwrap();
             assert!(!u.inside && u.hall_exit && !u.carrying, "{u:?}");
-            assert_eq!(pinned(&w), 14373932720382563551);
+            assert_eq!(pinned(&w), 8624597217362786765);
         }
 
         #[test]
@@ -1333,7 +1359,7 @@ mod tests {
             hem_in(&mut w, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 14253050280624212396);
+            assert_eq!(pinned(&w), 5413198429153827789);
         }
 
         #[test]
@@ -1350,7 +1376,7 @@ mod tests {
                 assert!(!w.unit(p).unwrap().inside);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [5801494496032385366, 5398600514183233235]);
+            assert_eq!(got, [5529840884287666762, 16559601490874992111]);
         }
 
         #[test]
@@ -1362,7 +1388,7 @@ mod tests {
             w.step(&[Command::Cancel { player: 0, unit: farm }]);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 13010360796656820586);
+            assert_eq!(pinned(&w), 10219636296886268902);
         }
 
         #[test]
@@ -1373,7 +1399,7 @@ mod tests {
             w.kill(fi);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 13805690297050688148);
+            assert_eq!(pinned(&w), 12780692654533903984);
         }
 
         /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), a
@@ -1419,10 +1445,10 @@ mod tests {
             assert_eq!(
                 prints,
                 [
-                    4713247118106514692,
-                    6118939153357291191,
-                    18059059466466017168,
-                    10316165214562442650
+                    10930295751417134864,
+                    3696625833365145848,
+                    696574218209094473,
+                    9750024621509002383
                 ]
             );
         }
