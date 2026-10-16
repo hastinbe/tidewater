@@ -137,6 +137,8 @@ pub mod spell {
 }
 use spell::*;
 
+// ----- the spell table (spec, "Orders and mana costs", "The spells") ------------------------------------------------
+
 /// Spells aimed at a unit; the others are aimed at a point.
 const UNIT_SPELLS: [u8; 8] = [
     HEALING,
@@ -151,7 +153,11 @@ const UNIT_SPELLS: [u8; 8] = [
 /// Unit spells whose target must also be organic.
 const ORGANIC_SPELLS: [u8; 3] = [HEALING, POLYMORPH, BLOODLUST];
 
-/// The approach radius in tiles of a spell order (orders spec, "Spell orders"); `None` means "always".
+fn is_unit_spell(spell: u8) -> bool {
+    UNIT_SPELLS.contains(&spell)
+}
+
+/// The approach radius in tiles of a spell order (orders spec, "Spell orders"); `None` means "always": no walk.
 fn radius(spell: u8) -> Option<i32> {
     match spell {
         HOLY_VISION | EYE_OF_KILROGG => None,
@@ -160,6 +166,48 @@ fn radius(spell: u8) -> Option<i32> {
         BLIZZARD | WHIRLWIND | DEATH_AND_DECAY => Some(12),
         _ => Some(0),
     }
+}
+
+/// How a spell's strike runs steps 2 to 4 of "The spell's strike" (the strike column of "The spells").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Pays {
+    /// Steps 2 to 4: the mana check, the cost paid, idle pending.
+    UpFront,
+    /// The two channelled spells: steps 2 and 3 with no idle, so they strike again on the next loop.
+    Channelled,
+    /// Idle first, and the effect pays as it goes: healing, exorcism and raise dead per hit point or skeleton, flame
+    /// shield after its own checks.
+    AsItGoes,
+}
+
+/// The strike's payment rule of a spell order; `None` for order 40, which has no effect.
+fn pays(spell: u8) -> Option<Pays> {
+    match spell {
+        HEALING | EXORCISM | FLAME_SHIELD | RAISE_DEAD => Some(Pays::AsItGoes),
+        BLIZZARD | DEATH_AND_DECAY => Some(Pays::Channelled),
+        HOLY_VISION | FIREBALL | SLOW | INVISIBILITY | POLYMORPH | EYE_OF_KILROGG | BLOODLUST | DEATH_COIL
+        | WHIRLWIND | HASTE | UNHOLY_ARMOUR | RUNES => Some(Pays::UpFront),
+        _ => None,
+    }
+}
+
+/// Whether a spell plays its sound itself, once its own checks have passed (sounds spec, "Spells"): healing when it
+/// heals, flame shield when it pays, the eye of Kilrogg as a plain sound; the fireball has none. Every other spell's
+/// sound plays as its effect starts.
+fn own_sound(spell: u8) -> bool {
+    matches!(spell, HEALING | FLAME_SHIELD | EYE_OF_KILROGG | FIREBALL)
+}
+
+/// A spell piece that lives in an effect slot (spec, "Spell effects in flight"), as its draws leave it.
+struct Piece {
+    kind: u8,
+    shooter: UnitId,
+    target: Option<UnitId>,
+    pos: (i32, i32),
+    damage: u8,
+    fx: Fx,
+    /// The destination it reports from creation.
+    dest: (i32, i32),
 }
 
 /// A live rune on the map.
@@ -353,7 +401,7 @@ fn tile_of(p: (i32, i32)) -> (i32, i32) {
 }
 
 impl World {
-    // ----- commands and orders -------------------------------------------------------------------------------
+    // ----- 2. the command (spec, "Giving the order") -----------------------------------------------------------
 
     /// A spell command (spec, "Giving the order"). Order 40 has no effect and is refused.
     pub(crate) fn cast_command(
@@ -364,7 +412,7 @@ impl World {
         target: Option<UnitId>,
         tile: (i32, i32),
     ) {
-        if !(HOLY_VISION..=DEATH_AND_DECAY).contains(&spell) || spell == 40 {
+        if pays(spell).is_none() {
             return;
         }
         let Some(i) = self
@@ -373,8 +421,7 @@ impl World {
         else {
             return;
         };
-        let unit_spell = UNIT_SPELLS.contains(&spell);
-        if unit_spell && target.is_none() {
+        if is_unit_spell(spell) && target.is_none() {
             return;
         }
         self.give_spell(i, spell, target, tile);
@@ -392,7 +439,7 @@ impl World {
         }
         let order = Order::Cast {
             spell,
-            target: if UNIT_SPELLS.contains(&spell) { target } else { None },
+            target: if is_unit_spell(spell) { target } else { None },
             tile,
         };
         // Our own choice, as for the other player commands: a new order forgets a remembered patrol.
@@ -416,51 +463,100 @@ impl World {
         }
     }
 
-    /// The order logic of orders 38 to 56 at a "step done" (spec, "Walking and the decision").
+    // ----- 3. walking and the decision (spec, "Walking and the decision") --------------------------------------
+
+    /// The order logic of orders 38 to 56 at a "step done" (spec, "Walking and the decision"): the decision's checks
+    /// on the target unit, the walk into the spell's radius, then the turn to face the aim and the casting animation.
     pub(crate) fn run_spell(&mut self, i: usize) -> bool {
         let Order::Cast { spell, target, tile } = self.units[i].order else {
             return false;
         };
-        let (goal, aim, zone) = if UNIT_SPELLS.contains(&spell) {
-            // Spec, "Walking and the decision" (round 80): the target must be valid, not a building and, for the
-            // organic-target spells, organic. There is no detection test: that is the command's check only.
-            let ok = target.and_then(|t| self.unit(t)).filter(|t| {
-                t.present()
-                    && !t.building
-                    && (!ORGANIC_SPELLS.contains(&spell) || self.stats_of(t.kind).flags & flags::ORGANIC != 0)
-            });
-            let Some(t) = ok else {
-                self.cast_idle(i);
-                return true;
-            };
-            // Pathfinding spec, "Step 1" (static study): the walk toward a target unit uses its widened footprint
-            // as the goal zone. The target is never a building here, so this is the one walk goal
-            // ([`World::target_walk`]) built by hand: the goal tile is also the aim, and the radius is the spell's.
-            let zone = Some(crate::battle::goal_zone(t));
-            (t.tile, (crate::world::facing_tile_of(t), t.centre_px()), zone)
-        } else {
-            (tile, (tile, centre_of_tile(tile)), None)
-        };
-        if let Some(r) = radius(spell) {
-            let g = Goal {
-                zone,
-                ..Goal::tile(goal, r)
-            };
-            // Round-50 errata (`human14-10000` death knight 1577, n = 3740): the plain no-route rule.
-            if self.walk(i, g) != Walk::Arrived {
-                return true;
+        let target = if is_unit_spell(spell) {
+            match target
+                .and_then(|t| self.index(t))
+                .filter(|&t| self.cast_target_fits(spell, t))
+            {
+                Some(t) => Some(t),
+                None => {
+                    self.decision_fails(i);
+                    return true;
+                }
             }
+        } else {
+            None
+        };
+        // Round-50 errata (`human14-10000` death knight 1577, n = 3740): the plain no-route rule.
+        if let Some(g) = self.cast_walk(i, spell, target, tile)
+            && self.walk(i, g) != Walk::Arrived
+        {
+            return true;
         }
-        let (b, _) = aim;
-        self.face_and_strike(i, b);
+        let face = target.map_or(tile, |t| crate::world::facing_tile_of(&self.units[t]));
+        self.face_and_strike(i, face);
         true
     }
 
-    /// The caster stops without casting.
-    fn cast_idle(&mut self, i: usize) {
+    /// The decision's target checks (round 80): the target must be valid (it exists and isn't dying, remains or
+    /// inside), not a building and, for the organic-target spells, organic. There is no detection test: that is the
+    /// command's check only.
+    fn cast_target_fits(&self, spell: u8, t: usize) -> bool {
+        let t = &self.units[t];
+        t.present()
+            && !t.building
+            && (!ORGANIC_SPELLS.contains(&spell) || self.stats_of(t.kind).flags & flags::ORGANIC != 0)
+    }
+
+    /// The walk toward the spell's aim: target unit `t` where it stands, or the target tile, within the spell's
+    /// radius; `None` for a spell with radius "always", which casts where the caster stands (eye of Kilrogg, holy
+    /// vision). Pathfinding spec, "Step 1": the walk toward a target unit uses its widened footprint as the goal zone
+    /// ([`World::target_walk`]).
+    fn cast_walk(&self, i: usize, spell: u8, t: Option<usize>, tile: (i32, i32)) -> Option<Goal> {
+        let r = radius(spell)?;
+        Some(match t {
+            Some(t) => self.target_walk(&self.units[i], &self.units[t], r),
+            None => Goal::tile(tile, r),
+        })
+    }
+
+    /// The decision fails: the caster stops without casting.
+    fn decision_fails(&mut self, i: usize) {
         use tidewater_formats::script::anim;
         self.go_idle(i);
         self.switch_anim(i, anim::STILL);
+    }
+
+    // ----- 5. the spell's strike (spec, "The spell's strike") --------------------------------------------------
+
+    /// The spell's strike (spec, "The spell's strike"), run by the strike point after it has ended the caster's
+    /// invisibility and made the strike reveal ([`World::strike`], spec, "The strike point"): step 1, the target
+    /// check of a unit spell; steps 2 to 4 by the spell's payment rule ([`pays`]); step 5, the effect. Round-56
+    /// errata ("At the strike"): none of the checks is a distance; a target that has left the radius during the
+    /// casting animation is still affected (`orc14-25000`, healing, n = 18992).
+    pub(crate) fn cast_strike(&mut self, i: usize) {
+        let Order::Cast { spell, target, tile } = self.units[i].order else {
+            return;
+        };
+        let t = if is_unit_spell(spell) {
+            match target.and_then(|t| self.index(t)).filter(|&t| self.units[t].present()) {
+                Some(t) => Some(t),
+                None => return self.idle_pending(i),
+            }
+        } else {
+            None
+        };
+        let Some(rule) = pays(spell) else {
+            return self.idle_pending(i);
+        };
+        let paid = match rule {
+            Pays::UpFront => self.pay_mana(i, Self::mana_cost(spell) as u32),
+            Pays::Channelled => self.pay_mana(i, Self::mana_cost(spell) as u32),
+            Pays::AsItGoes => true,
+        };
+        if !paid {
+            return;
+        }
+        self.strike_done(i, rule != Pays::Channelled);
+        self.spell_effect(i, spell, t, tile);
     }
 
     /// Order 2 becomes pending (spec, "The spell's strike", step 4).
@@ -468,7 +564,7 @@ impl World {
         self.units[i].pending = Some(Order::Idle);
     }
 
-    /// Step 2 and 3 of the strike: the mana check (failing makes the caster idle) and payment.
+    /// Steps 2 and 3: the mana check (failing makes the caster idle) and payment.
     fn pay_mana(&mut self, i: usize, cost: u32) -> bool {
         if (self.units[i].mana as u32) < cost {
             self.idle_pending(i);
@@ -478,9 +574,9 @@ impl World {
         true
     }
 
-    /// Step 4: idle (unless channelled). The caster's invisibility has already ended at the strike point
-    /// ([`World::strike`]; spec, "The strike point", step 2).
-    fn finish_cast(&mut self, i: usize, idle: bool) {
+    /// Step 4: idle (unless channelled), and the strike counted for the caster AI. The caster's invisibility has
+    /// already ended at the strike point ([`World::strike`]; spec, "The strike point", step 2).
+    fn strike_done(&mut self, i: usize, idle: bool) {
         let owner = self.units[i].owner as usize;
         self.casts.strikes[owner & 15] += 1;
         if idle {
@@ -488,256 +584,30 @@ impl World {
         }
     }
 
-    /// Steps 2 to 4 together.
-    fn begin(&mut self, i: usize, cost: u32, idle: bool) -> bool {
-        if !self.pay_mana(i, cost) {
-            return false;
+    /// Step 5, the spell's effect (spec, "The spells"): the spell's sound as the effect starts (unless it plays its
+    /// own, [`own_sound`]; the fireball has none), then the effect.
+    fn spell_effect(&mut self, i: usize, spell: u8, t: Option<usize>, tile: (i32, i32)) {
+        if !own_sound(spell) {
+            self.spell_sound(spell, t, tile);
         }
-        self.finish_cast(i, idle);
-        true
-    }
-
-    /// The spell's strike (spec, "The spell's strike"), run by the strike point after it has ended the caster's
-    /// invisibility and made the strike reveal ([`World::strike`], spec, "The strike point").
-    pub(crate) fn cast_strike(&mut self, i: usize) {
-        let Order::Cast { spell, target, tile } = self.units[i].order else {
-            return;
-        };
+        let target = || t.expect("a unit spell has its target");
         let (caster, owner) = (self.units[i].id, self.units[i].owner);
-        let unit_spell = UNIT_SPELLS.contains(&spell);
-        let mut ti = None;
-        if unit_spell {
-            match target.and_then(|t| self.index(t)).filter(|&t| self.units[t].present()) {
-                Some(t) => ti = Some(t),
-                None => {
-                    self.idle_pending(i);
-                    return;
-                }
-            }
-        }
-        // Round-56 errata ("At the strike"): none of the strike's checks is a distance; a target that has left the
-        // radius during the casting animation is still affected (`orc14-25000`, healing, n = 18992).
-        let tid = ti.map(|t| self.units[t].id);
         match spell {
-            HOLY_VISION => {
-                if !self.begin(i, 70, true) {
-                    return;
-                }
-                self.spell_sound(spell, None, tile);
-                self.holy_vision(owner, tile);
-            }
-            HEALING => {
-                let t = ti.expect("unit spell");
-                self.finish_cast(i, true);
-                let max = self.stats_of(self.units[t].kind).hit_points;
-                let missing = max.saturating_sub(self.units[t].hp);
-                if missing == 0 {
-                    return;
-                }
-                let heal = missing.min(self.units[i].mana as u16 / 6).min(40);
-                if heal == 0 {
-                    return;
-                }
-                self.units[t].hp += heal;
-                self.spell_sound(spell, Some(t), tile);
-                self.units[i].mana -= (6 * heal) as u8;
-                self.wisp(kind::HEALING, t);
-            }
-            EXORCISM => {
-                self.finish_cast(i, true);
-                self.spell_sound(spell, None, tile);
-                self.exorcism(i, tile);
-            }
-            FLAME_SHIELD => {
-                let t = ti.expect("unit spell");
-                self.finish_cast(i, true);
-                if self.units[t].flame_shield != 0 || self.units[t].layer == Layer::Air {
-                    return;
-                }
-                if !self.pay_mana(i, 80) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                self.units[t].flame_shield = 500;
-                let (from, to) = (self.units[i].centre_px(), self.units[t].centre_px());
-                let n = self.new_fx(
-                    kind::BOLT,
-                    caster,
-                    tid,
-                    from,
-                    0,
-                    Fx::Bolt {
-                        line: Line::new(from, to),
-                        done: false,
-                    },
-                );
-                // Round-47 errata: the bolt's destination is the target unit's centre from creation.
-                self.set_dest(n, to);
-            }
-            FIREBALL => {
-                if !self.begin(i, 100, true) {
-                    return;
-                }
-                let (from, to) = (self.units[i].centre_px(), centre_of_tile(tile));
-                let fx = Fx::Fireball {
-                    line: Line::new(from, to),
-                    count: 0,
-                    ending: false,
-                };
-                let n = self.new_fx(kind::FIREBALL, caster, None, from, 40, fx);
-                // Round-47 errata: the fireball's destination is the target tile's centre from creation.
-                self.set_dest(n, to);
-            }
-            SLOW => {
-                let t = ti.expect("unit spell");
-                if !self.begin(i, 50, true) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                let h = &mut self.units[t].haste;
-                *h = if *h < 0 { -1000 } else { h.saturating_sub(1000) };
-                self.marker_on(t);
-            }
-            INVISIBILITY => {
-                let t = ti.expect("unit spell");
-                if !self.begin(i, 200, true) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                self.units[t].invisibility = 2000;
-                self.marker_on(t);
-            }
-            POLYMORPH => {
-                let t = ti.expect("unit spell");
-                if !self.begin(i, 200, true) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                let at = self.units[t].tile;
-                self.units[t].used = true;
-                self.kill(t);
-                if let Ok(c) = self.spawn(unit::CRITTER, slots::NEUTRAL, at, 0) {
-                    let _ = c;
-                }
-                self.new_fx(kind::BLINK, caster, None, centre_of_tile(at), 0, Fx::Cosmetic);
-            }
-            BLIZZARD => {
-                if !self.pay_mana(i, 25) {
-                    return;
-                }
-                self.finish_cast(i, false);
-                self.spell_sound(spell, None, tile);
-                let c = centre_of_tile(tile);
-                for _ in 0..5 {
-                    let x = c.0 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
-                    let y = c.1 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
-                    self.start_shard(caster, (x, y), 10);
-                }
-            }
-            EYE_OF_KILROGG => {
-                if !self.begin(i, 70, true) {
-                    return;
-                }
-                self.cue_plain(Sound::Spell(spell));
-                let u = &self.units[i];
-                let src = Source::new(u.tile.0, u.tile.1, u.size.0 as i32, u.size.1 as i32);
-                let at = u.tile;
-                match self.find_place(unit::EYE, src, at, LIMIT_OUT) {
-                    Some(t) => {
-                        let _ = self.spawn(unit::EYE, owner, t, 0);
-                    }
-                    None => self.events.push(Event::NoRoom {
-                        player: owner,
-                        kind: unit::EYE,
-                    }),
-                }
-            }
-            BLOODLUST => {
-                let t = ti.expect("unit spell");
-                if !self.begin(i, 50, true) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                self.units[t].bloodlust = 1000;
-                self.marker_on(t);
-            }
-            RAISE_DEAD => {
-                self.finish_cast(i, true);
-                self.spell_sound(spell, None, tile);
-                self.raise_dead(caster, tile);
-            }
-            DEATH_COIL => {
-                if !self.begin(i, 100, true) {
-                    return;
-                }
-                self.spell_sound(spell, None, tile);
-                self.death_coil(i, tile);
-            }
-            WHIRLWIND => {
-                if !self.begin(i, 100, true) {
-                    return;
-                }
-                self.spell_sound(spell, None, tile);
-                let c = centre_of_tile(tile);
-                let x = c.0 + (self.rng.draw() & 127) as i32 - 64;
-                let y = c.1 + (self.rng.draw() & 127) as i32 - 64;
-                let fx = Fx::Whirl {
-                    line: Line::new((x, y), c),
-                    life: 800,
-                    goal: c,
-                };
-                // Round-45 errata: a whirlwind's destination is its current goal, the target point's centre at first.
-                let n = self.new_fx(kind::WHIRLWIND, caster, None, (x, y), 4, fx);
-                self.set_dest(n, c);
-            }
-            HASTE => {
-                let t = ti.expect("unit spell");
-                if !self.begin(i, 50, true) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                let h = &mut self.units[t].haste;
-                *h = if *h > 0 { 1000 } else { h.saturating_add(1000) };
-                self.marker_on(t);
-            }
-            UNHOLY_ARMOUR => {
-                let t = ti.expect("unit spell");
-                if !self.begin(i, 100, true) {
-                    return;
-                }
-                self.spell_sound(spell, Some(t), tile);
-                let u = &mut self.units[t];
-                u.unholy_armor = 500;
-                if u.hp >= 2 {
-                    u.hp /= 2;
-                }
-                self.marker_on(t);
-            }
-            RUNES => {
-                if !self.begin(i, 200, true) {
-                    return;
-                }
-                self.spell_sound(spell, None, tile);
-                let refund = (5 - self.place_runes(tile)) * 40;
-                let m = &mut self.units[i].mana;
-                *m = (*m as u32 + refund).min(255) as u8;
-            }
-            DEATH_AND_DECAY => {
-                if !self.pay_mana(i, 25) {
-                    return;
-                }
-                self.finish_cast(i, false);
-                self.spell_sound(spell, None, tile);
-                let c = centre_of_tile(tile);
-                for _ in 0..5 {
-                    let x = c.0 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
-                    let y = c.1 + ((self.rng.draw() % 5) as i32 - 2) * TILE_PX;
-                    // Round-45 errata: every cloud's destination is the target tile's centre, whatever its position.
-                    let n = self.new_fx(kind::CLOUD, caster, None, (x, y), 10, Fx::Cloud);
-                    self.set_dest(n, c);
-                }
-            }
-            _ => self.idle_pending(i),
+            HOLY_VISION => self.holy_vision(owner, tile),
+            HEALING => self.heal(i, target()),
+            EXORCISM => self.exorcism(i, tile),
+            FLAME_SHIELD => self.flame_shield(i, target()),
+            FIREBALL => self.fireball(i, tile),
+            SLOW | INVISIBILITY | BLOODLUST | HASTE | UNHOLY_ARMOUR => self.timer_spell(spell, target()),
+            POLYMORPH => self.polymorph(target()),
+            BLIZZARD => self.blizzard(caster, tile),
+            EYE_OF_KILROGG => self.make_eye(i),
+            RAISE_DEAD => self.raise_dead(caster, tile),
+            DEATH_COIL => self.death_coil(i, tile),
+            WHIRLWIND => self.whirlwind(caster, tile),
+            RUNES => self.runes(i, tile),
+            DEATH_AND_DECAY => self.death_and_decay(caster, tile),
+            _ => {}
         }
     }
 
@@ -750,174 +620,44 @@ impl World {
         }
     }
 
-    // ----- effects: creation ---------------------------------------------------------------------------------
+    // ----- 6. the effects (spec, "The spells") -----------------------------------------------------------------
 
-    /// The cosmetic explosion of a unit with the explode flag (corpses spec, "Units with the explode flag").
-    pub(crate) fn explosion(&mut self, unit: UnitId, pos: (i32, i32)) {
-        self.new_fx(kind::EXPLOSION, unit, None, pos, 0, Fx::Cosmetic);
-    }
-
-    /// The cosmetic effect a missile of kind `missile` leaves at its impact at `pos`, if any (damage spec, "Impact
-    /// effects"); it takes the lowest free slot, or isn't made when there is none.
-    pub(crate) fn impact_fx(&mut self, missile: u8, owner: UnitId, pos: (i32, i32)) {
-        if let Some(k) = impact_effect(missile) {
-            self.new_fx(k, owner, None, pos, 0, Fx::Cosmetic);
-        }
-    }
-
-    /// The cosmetic smoke of a unit's cannon shot (damage spec), at the missile's start point; none if no slot is free.
-    pub(crate) fn cannon_smoke(&mut self, owner: UnitId, pos: (i32, i32)) {
-        self.new_fx(kind::CANNON_SMOKE, owner, None, pos, 0, Fx::Cosmetic);
-    }
-
-    /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full. A
-    /// cosmetic kind is created with only its kind and position set (spec, "Cosmetic effects", round-39 errata):
-    /// destination (0, 0), no target, no shooter, damage 0, whatever its creator passes.
-    pub(crate) fn new_fx(
-        &mut self,
-        kind: u8,
-        owner: UnitId,
-        target: Option<UnitId>,
-        pos: (i32, i32),
-        damage: u8,
-        fx: Fx,
-    ) -> Option<usize> {
-        let (owner, target, damage, from, to) = if is_cosmetic(kind) {
-            (UnitId(0), None, 0, (0, 0), (0, 0))
-        } else {
-            (owner, target, damage, pos, pos)
-        };
-        let shooter = self.last_slot(owner).filter(|_| owner != UnitId(0));
-        let m = crate::battle::Missile {
-            kind,
-            attacker: owner,
-            shooter,
-            target,
-            from,
-            to,
-            pos,
-            flight: 0,
-            elapsed: 0,
-            damage,
-            splash: false,
-            hits_air: false,
-            fx,
-        };
-        let n = self.free_fx_slot()?;
-        self.missiles[n] = Some(m);
-        Some(n)
-    }
-
-    /// The unit an effect credits as its attacker (round-56 errata, "The shooter after its slot is released"): its
-    /// shooter while that unit still has the recorded slot (released or not), else whatever unit holds the slot now.
-    pub(crate) fn effect_shooter(&self, m: &crate::battle::Missile) -> UnitId {
-        let Some(slot) = m.shooter else {
-            return m.attacker;
-        };
-        if self.last_slot(m.attacker) == Some(slot) {
-            return m.attacker;
-        }
-        let lo = self.units.partition_point(|u| u.slot < slot);
-        self.units[lo..]
-            .iter()
-            .take_while(|u| u.slot == slot)
-            .map(|u| u.id)
-            .last()
-            .unwrap_or(m.attacker)
-    }
-
-    /// The lowest free effect slot after the permanent ones.
-    pub(crate) fn free_fx_slot(&self) -> Option<usize> {
-        self.missiles
-            .iter()
-            .enumerate()
-            .skip(slots::PERMANENT_EFFECTS)
-            .find(|(_, e)| e.is_none())
-            .map(|(n, _)| n)
-    }
-
-    /// The cosmetic explosion (kind 0x17) of a hammer or breath splash (damage spec, "Missile flight", gryphon hammer and dragon breath), at `pos`.
-    pub(crate) fn splash_explosion(&mut self, pos: (i32, i32)) {
-        self.new_fx(kind::EXPLOSION, UnitId(0), None, pos, 0, Fx::Cosmetic);
-    }
-
-    /// A spell marker (kind 0x16) on the target of slow, invisibility, bloodlust, haste or unholy armour, and raise
-    /// dead's marker on each new skeleton (spec, "Cosmetic effects"; round-45 errata): at the unit's pixel position plus (floor(w / 2), floor(h / 2) - 4), w x h the type's box
-    /// size, with destination (0, 0), no target, no shooter and damage 0.
-    fn marker_on(&mut self, t: usize) {
-        let u = &self.units[t];
-        let b = self.stats_of(u.kind).box_size;
-        let pos = (u.pos.0 + b.0 as i32 / 2, u.pos.1 + b.1 as i32 / 2 - 4);
-        self.new_fx(kind::BLINK, UnitId(0), None, pos, 0, Fx::Cosmetic);
-    }
-
-    /// Sets the destination of the effect just made in slot `n`, if it was made.
-    fn set_dest(&mut self, n: Option<usize>, to: (i32, i32)) {
-        if let Some(m) = n.and_then(|n| self.missiles[n].as_mut()) {
-            m.to = to;
-        }
-    }
-
-    /// The exorcism or healing effect on a unit (spec, "Cosmetic effects").
-    fn wisp(&mut self, k: u8, t: usize) {
-        let u = &self.units[t];
-        let b = self.stats_of(u.kind).box_size;
-        let pos = (u.pos.0 + b.0 as i32 / 2, u.pos.1 + b.1 as i32 / 2 - 4);
-        // Round-48 errata: no shooter, no target and destination (0, 0).
-        let n = self.new_fx(k, UnitId(0), None, pos, 0, Fx::Wisp);
-        self.set_dest(n, (0, 0));
-    }
-
-    /// One blizzard shard of a chain: its start offset is two draws. Its destination is the chain's landing point
-    /// from the moment it is created, through its initial wait (round-44 errata, "Blizzard shards").
-    fn start_shard(&mut self, caster: UnitId, land: (i32, i32), repeats: u8) -> bool {
-        let ox = (self.rng.draw() % 3) as i32 * 11 - 11;
-        let oy = (self.rng.draw() % 3) as i32 * 11 - 11;
-        let start = (land.0 - 110 + ox, land.1 - 170 + oy);
-        let fx = Fx::Shard {
-            line: Line::new(start, land),
-            repeats,
-            landed: 0,
-        };
-        let Some(n) = self.new_fx(kind::SHARD, caster, None, start, 10, fx) else {
-            return false;
-        };
-        if let Some(m) = self.missiles[n].as_mut() {
-            m.to = land;
-        }
-        true
-    }
-
-    // ----- spells --------------------------------------------------------------------------------------------
-
+    /// Holy vision: the seven sight-9 areas, each with its marker; the Enhanced fog refresh.
     fn holy_vision(&mut self, owner: u8, t: (i32, i32)) {
         const OFFSETS: [(i32, i32); 7] = [(0, 0), (0, -8), (0, 8), (6, 4), (6, -4), (-6, 4), (-6, -4)];
         let w = self.terrain.width as i32;
         let enhanced = self.rules.enhanced;
-        let caster = self.units.iter().find(|u| u.owner == owner).map_or(UnitId(0), |u| u.id);
+        let limit = if enhanced { w - 1 } else { w };
         for (dx, dy) in OFFSETS {
             let p = (t.0 + dx, t.1 + dy);
-            let limit = if enhanced { w - 1 } else { w };
             if p.0 < 0 || p.1 < 0 || p.0 > limit || p.1 > limit {
                 continue;
             }
             if p.0 < w && p.1 < w {
                 self.reveal(owner, p, 9);
             }
-            self.new_fx(
-                kind::BLINK,
-                caster,
-                None,
-                (p.0 * TILE_PX + 8, p.1 * TILE_PX + 8),
-                0,
-                Fx::Cosmetic,
-            );
+            self.cosmetic(kind::BLINK, (p.0 * TILE_PX + 8, p.1 * TILE_PX + 8));
         }
         if enhanced {
             self.vision.countdown = 150;
         }
     }
 
+    /// Healing: up to 40 HP, as far as the mana goes, paid per hit point healed.
+    fn heal(&mut self, i: usize, t: usize) {
+        let max = self.stats_of(self.units[t].kind).hit_points;
+        let missing = max.saturating_sub(self.units[t].hp);
+        let heal = missing.min(self.units[i].mana as u16 / 6).min(40);
+        if heal == 0 {
+            return;
+        }
+        self.units[t].hp += heal;
+        self.spell_sound(HEALING, Some(t), (0, 0));
+        self.units[i].mana -= (6 * heal) as u8;
+        self.wisp(kind::HEALING, t);
+    }
+
+    /// Exorcism: the four rings around the target tile, paid per hit point of damage.
     fn exorcism(&mut self, i: usize, t: (i32, i32)) {
         let (caster, owner) = (self.units[i].id, self.units[i].owner);
         for k in 0..4 {
@@ -955,6 +695,150 @@ impl World {
         }
     }
 
+    /// Flame shield: refused (nothing paid) on a shielded or air target; otherwise the mana check, the timer and the
+    /// bolt. Round-47 errata: the bolt's destination is the target unit's centre from creation.
+    fn flame_shield(&mut self, i: usize, t: usize) {
+        if self.units[t].flame_shield != 0 || self.units[t].layer == Layer::Air {
+            return;
+        }
+        if !self.pay_mana(i, Self::mana_cost(FLAME_SHIELD) as u32) {
+            return;
+        }
+        self.spell_sound(FLAME_SHIELD, Some(t), (0, 0));
+        self.units[t].flame_shield = 500;
+        let (from, to) = (self.units[i].centre_px(), self.units[t].centre_px());
+        let (shooter, target) = (self.units[i].id, Some(self.units[t].id));
+        self.place_piece(|_| Piece {
+            kind: kind::BOLT,
+            shooter,
+            target,
+            pos: from,
+            damage: 0,
+            fx: Fx::Bolt {
+                line: Line::new(from, to),
+                done: false,
+            },
+            dest: to,
+        });
+    }
+
+    /// Fireball: the hammer-and-breath missile with stored damage 40. Round-47 errata: its destination is the target
+    /// tile's centre from creation.
+    fn fireball(&mut self, i: usize, tile: (i32, i32)) {
+        let (from, to) = (self.units[i].centre_px(), centre_of_tile(tile));
+        let shooter = self.units[i].id;
+        self.place_piece(|_| Piece {
+            kind: kind::FIREBALL,
+            shooter,
+            target: None,
+            pos: from,
+            damage: 40,
+            fx: Fx::Fireball {
+                line: Line::new(from, to),
+                count: 0,
+                ending: false,
+            },
+            dest: to,
+        });
+    }
+
+    /// The five timer spells (slow, invisibility, bloodlust, haste, unholy armour): the timer set, unholy armour's
+    /// halving, then the marker on the target.
+    fn timer_spell(&mut self, spell: u8, t: usize) {
+        let u = &mut self.units[t];
+        match spell {
+            SLOW => {
+                u.haste = if u.haste < 0 {
+                    -1000
+                } else {
+                    u.haste.saturating_sub(1000)
+                }
+            }
+            HASTE => {
+                u.haste = if u.haste > 0 {
+                    1000
+                } else {
+                    u.haste.saturating_add(1000)
+                }
+            }
+            INVISIBILITY => u.invisibility = 2000,
+            BLOODLUST => u.bloodlust = 1000,
+            UNHOLY_ARMOUR => {
+                u.unholy_armor = 500;
+                if u.hp >= 2 {
+                    u.hp /= 2;
+                }
+            }
+            _ => unreachable!("not a timer spell"),
+        }
+        self.marker_on(t);
+    }
+
+    /// Polymorph: the used mark and an outright kill, then the critter (2 creation draws) and the marker at the
+    /// target's tile.
+    fn polymorph(&mut self, t: usize) {
+        let at = self.units[t].tile;
+        self.units[t].used = true;
+        self.kill(t);
+        let _ = self.spawn(unit::CRITTER, slots::NEUTRAL, at, 0);
+        self.cosmetic(kind::BLINK, centre_of_tile(at));
+    }
+
+    /// Blizzard: five shard chains, each picking its landing point (2 draws) as its first shard starts.
+    fn blizzard(&mut self, caster: UnitId, tile: (i32, i32)) {
+        let c = centre_of_tile(tile);
+        for _ in 0..5 {
+            self.place_piece(|w| {
+                let x = c.0 + ((w.rng.draw() % 5) as i32 - 2) * TILE_PX;
+                let y = c.1 + ((w.rng.draw() % 5) as i32 - 2) * TILE_PX;
+                w.shard(caster, (x, y), 10)
+            });
+        }
+    }
+
+    /// One blizzard shard of a chain landing at `land`: its start offset is two draws. Its destination is the landing
+    /// point from the moment it is created, through its initial wait (round-44 errata, "Blizzard shards").
+    fn shard(&mut self, shooter: UnitId, land: (i32, i32), repeats: u8) -> Piece {
+        let ox = (self.rng.draw() % 3) as i32 * 11 - 11;
+        let oy = (self.rng.draw() % 3) as i32 * 11 - 11;
+        let start = (land.0 - 110 + ox, land.1 - 170 + oy);
+        Piece {
+            kind: kind::SHARD,
+            shooter,
+            target: None,
+            pos: start,
+            damage: 10,
+            fx: Fx::Shard {
+                line: Line::new(start, land),
+                repeats,
+                landed: 0,
+            },
+            dest: land,
+        }
+    }
+
+    /// Eye of Kilrogg: an eye next to the caster, or the blocked-exit message when the free-tile search finds no
+    /// tile; its sound is a plain sound.
+    fn make_eye(&mut self, i: usize) {
+        self.cue_plain(Sound::Spell(EYE_OF_KILROGG));
+        let u = &self.units[i];
+        let (src, at, owner) = (
+            Source::new(u.tile.0, u.tile.1, u.size.0 as i32, u.size.1 as i32),
+            u.tile,
+            u.owner,
+        );
+        match self.find_place(unit::EYE, src, at, LIMIT_OUT) {
+            Some(t) => {
+                let _ = self.spawn(unit::EYE, owner, t, 0);
+            }
+            None => self.events.push(Event::NoRoom {
+                player: owner,
+                kind: unit::EYE,
+            }),
+        }
+    }
+
+    /// Raise dead: every unused body within a squared tile distance of 36, in slot order, while the mana lasts.
     fn raise_dead(&mut self, caster: UnitId, t: (i32, i32)) {
         for b in self.raisable_bodies() {
             let Some(i) = self.index(caster) else { return };
@@ -981,6 +865,8 @@ impl World {
         }
     }
 
+    /// Death coil: the victims of the 5 × 5 tiles, lowest HP first, share a budget of 50; one coil missile each; the
+    /// caster gains the total.
     fn death_coil(&mut self, i: usize, t: (i32, i32)) {
         let (caster, owner) = (self.units[i].id, self.units[i].owner);
         let mut found: Vec<UnitId> = Vec::new();
@@ -1055,6 +941,36 @@ impl World {
         }
     }
 
+    /// Whirlwind: lifetime 800, damage 4, started ((r & 127) − 64) px off the target point's centre on each axis
+    /// (2 draws). Round-45 errata: its destination is its current goal, the target point's centre at first.
+    fn whirlwind(&mut self, caster: UnitId, tile: (i32, i32)) {
+        let c = centre_of_tile(tile);
+        self.place_piece(|w| {
+            let x = c.0 + (w.rng.draw() & 127) as i32 - 64;
+            let y = c.1 + (w.rng.draw() & 127) as i32 - 64;
+            Piece {
+                kind: kind::WHIRLWIND,
+                shooter: caster,
+                target: None,
+                pos: (x, y),
+                damage: 4,
+                fx: Fx::Whirl {
+                    line: Line::new((x, y), c),
+                    life: 800,
+                    goal: c,
+                },
+                dest: c,
+            }
+        });
+    }
+
+    /// Runes: up to 5 placed, and 40 mana refunded for each one not placed.
+    fn runes(&mut self, i: usize, tile: (i32, i32)) {
+        let refund = (5 - self.place_runes(tile)) * 40;
+        let m = &mut self.units[i].mana;
+        *m = (*m as u32 + refund).min(255) as u8;
+    }
+
     /// Places up to 5 runes (spec, "Runes"); returns how many.
     fn place_runes(&mut self, t: (i32, i32)) -> u32 {
         let mut n = 0;
@@ -1069,15 +985,173 @@ impl World {
                 continue;
             };
             self.runes[slot] = Some(Rune { tile, life: RUNE_LIFE });
-            self.new_fx(kind::RUNE, UnitId(0), None, centre_of_tile(tile), 0, Fx::Cosmetic);
+            self.cosmetic(kind::RUNE, centre_of_tile(tile));
             n += 1;
         }
         n
     }
 
-    // ----- the timers pass -----------------------------------------------------------------------------------
+    /// Death and decay: five clouds placed off the target tile's centre (2 draws each). Round-45 errata: every
+    /// cloud's destination is the target tile's centre, whatever its position.
+    fn death_and_decay(&mut self, caster: UnitId, tile: (i32, i32)) {
+        let c = centre_of_tile(tile);
+        for _ in 0..5 {
+            self.place_piece(|w| {
+                let x = c.0 + ((w.rng.draw() % 5) as i32 - 2) * TILE_PX;
+                let y = c.1 + ((w.rng.draw() % 5) as i32 - 2) * TILE_PX;
+                Piece {
+                    kind: kind::CLOUD,
+                    shooter: caster,
+                    target: None,
+                    pos: (x, y),
+                    damage: 10,
+                    fx: Fx::Cloud,
+                    dest: c,
+                }
+            });
+        }
+    }
 
-    /// The timers pass at the end of phase 4 (spec, "Timers" and "Runes on the map").
+    // ----- effect slots (spec, "Effect slots", "Cosmetic effects") ---------------------------------------------
+
+    /// A spell piece in the lowest free effect slot (spec, "Effect slots"): `draw` makes the piece's draws and
+    /// describes it. With no free slot the piece fails.
+    fn place_piece(&mut self, draw: impl FnOnce(&mut World) -> Piece) -> Option<usize> {
+        let p = draw(self);
+        let n = self.new_fx(p.kind, p.shooter, p.target, p.pos, p.damage, p.fx);
+        self.set_dest(n, p.dest);
+        n
+    }
+
+    /// A cosmetic effect (spec, "Cosmetic effects"): only its kind and position are set.
+    fn cosmetic(&mut self, k: u8, pos: (i32, i32)) {
+        self.new_fx(k, UnitId(0), None, pos, 0, Fx::Cosmetic);
+    }
+
+    /// The cosmetic explosion of a unit with the explode flag (corpses spec, "Units with the explode flag").
+    pub(crate) fn explosion(&mut self, _unit: UnitId, pos: (i32, i32)) {
+        self.cosmetic(kind::EXPLOSION, pos);
+    }
+
+    /// The cosmetic effect a missile of kind `missile` leaves at its impact at `pos`, if any (damage spec, "Impact
+    /// effects"); it takes the lowest free slot, or isn't made when there is none.
+    pub(crate) fn impact_fx(&mut self, missile: u8, _owner: UnitId, pos: (i32, i32)) {
+        if let Some(k) = impact_effect(missile) {
+            self.cosmetic(k, pos);
+        }
+    }
+
+    /// The cosmetic smoke of a unit's cannon shot (damage spec), at the missile's start point; none if no slot is free.
+    pub(crate) fn cannon_smoke(&mut self, _owner: UnitId, pos: (i32, i32)) {
+        self.cosmetic(kind::CANNON_SMOKE, pos);
+    }
+
+    /// The cosmetic explosion (kind 0x17) of a hammer or breath splash (damage spec, "Missile flight", gryphon hammer
+    /// and dragon breath), at `pos`.
+    pub(crate) fn splash_explosion(&mut self, pos: (i32, i32)) {
+        self.cosmetic(kind::EXPLOSION, pos);
+    }
+
+    /// Puts an effect in the lowest free effect slot after the permanent ones; `None` when the table is full. A
+    /// cosmetic kind is created with only its kind and position set (spec, "Cosmetic effects", round-39 errata):
+    /// destination (0, 0), no target, no shooter, damage 0, whatever its creator passes.
+    pub(crate) fn new_fx(
+        &mut self,
+        kind: u8,
+        owner: UnitId,
+        target: Option<UnitId>,
+        pos: (i32, i32),
+        damage: u8,
+        fx: Fx,
+    ) -> Option<usize> {
+        let (owner, target, damage, from, to) = if is_cosmetic(kind) {
+            (UnitId(0), None, 0, (0, 0), (0, 0))
+        } else {
+            (owner, target, damage, pos, pos)
+        };
+        let shooter = self.last_slot(owner).filter(|_| owner != UnitId(0));
+        let m = crate::battle::Missile {
+            kind,
+            attacker: owner,
+            shooter,
+            target,
+            from,
+            to,
+            pos,
+            flight: 0,
+            elapsed: 0,
+            damage,
+            splash: false,
+            hits_air: false,
+            fx,
+        };
+        let n = self.free_fx_slot()?;
+        self.missiles[n] = Some(m);
+        Some(n)
+    }
+
+    /// The unit an effect credits as its attacker (round-56 errata, "The shooter after its slot is released"): its
+    /// shooter while that unit still has the recorded slot (released or not), else whatever unit holds the slot now.
+    pub(crate) fn effect_shooter(&self, m: &crate::battle::Missile) -> UnitId {
+        let Some(slot) = m.shooter else {
+            return m.attacker;
+        };
+        if self.last_slot(m.attacker) == Some(slot) {
+            return m.attacker;
+        }
+        let lo = self.units.partition_point(|u| u.slot < slot);
+        self.units[lo..]
+            .iter()
+            .take_while(|u| u.slot == slot)
+            .map(|u| u.id)
+            .last()
+            .unwrap_or(m.attacker)
+    }
+
+    /// The lowest free effect slot after the permanent ones.
+    pub(crate) fn free_fx_slot(&self) -> Option<usize> {
+        self.missiles
+            .iter()
+            .enumerate()
+            .skip(slots::PERMANENT_EFFECTS)
+            .find(|(_, e)| e.is_none())
+            .map(|(n, _)| n)
+    }
+
+    /// The pixel position of an effect placed on unit `t` from its type's box (spec, "Cosmetic effects"): its pixel
+    /// position plus (floor(w / 2), floor(h / 2) − 4).
+    fn on_unit(&self, t: usize) -> (i32, i32) {
+        let u = &self.units[t];
+        let b = self.stats_of(u.kind).box_size;
+        (u.pos.0 + b.0 as i32 / 2, u.pos.1 + b.1 as i32 / 2 - 4)
+    }
+
+    /// A spell marker (kind 0x16) on the target of slow, invisibility, bloodlust, haste or unholy armour, and raise
+    /// dead's marker on each new skeleton (spec, "Cosmetic effects"; round-45 errata).
+    fn marker_on(&mut self, t: usize) {
+        let pos = self.on_unit(t);
+        self.cosmetic(kind::BLINK, pos);
+    }
+
+    /// Sets the destination of the effect just made in slot `n`, if it was made.
+    fn set_dest(&mut self, n: Option<usize>, to: (i32, i32)) {
+        if let Some(m) = n.and_then(|n| self.missiles[n].as_mut()) {
+            m.to = to;
+        }
+    }
+
+    /// The exorcism or healing effect on a unit (spec, "Cosmetic effects"). Round-48 errata: no shooter, no target
+    /// and destination (0, 0).
+    fn wisp(&mut self, k: u8, t: usize) {
+        let pos = self.on_unit(t);
+        let n = self.new_fx(k, UnitId(0), None, pos, 0, Fx::Wisp);
+        self.set_dest(n, (0, 0));
+    }
+
+    // ----- 7. the timers pass (spec, "Timers", "The timers pass", "Runes on the map") --------------------------
+
+    /// The timers pass at the end of phase 4: the runes first, then each unit's steps in ascending slot order. Units
+    /// that are dying, remains or released are skipped.
     pub(crate) fn timers_pass(&mut self) {
         self.advance_runes();
         for i in 0..self.units.len() {
@@ -1085,76 +1159,98 @@ impl World {
             if u.dying || u.removing || u.remains || u.script.anim == crate::world::RELEASED {
                 continue;
             }
-            let (kind, owner) = (u.kind, u.owner);
-            let s = self.stats_of(kind);
             // Caster-ai spec, "Marks": the seven target marks last until the unit's next visit here.
             self.units[i].marks = 0;
-            if kind == unit::BERSERKER && self.players[owner as usize].upgrades.marksmanship {
-                // Our reading: the regeneration upgrade is the level line it shares with marksmanship.
-                let u = &mut self.units[i];
-                u.mana += 1;
-                if u.mana >= 240 {
-                    u.mana = 0;
-                    if u.hp < s.hit_points {
-                        u.hp += 1;
-                    }
-                }
-            }
-            let u = &self.units[i];
-            if matches!(kind, unit::DEMOLITION | unit::SAPPER) && (u.invisibility > 0 || u.unholy_armor > 0) {
-                self.kill(i);
+            self.regenerate(i);
+            if self.kill_marked_demolition(i) {
                 continue;
             }
-            let u = &mut self.units[i];
-            u.invisibility = u.invisibility.saturating_sub(1);
-            u.unholy_armor = u.unholy_armor.saturating_sub(1);
-            u.bloodlust = u.bloodlust.saturating_sub(1);
-            u.flame_shield = u.flame_shield.saturating_sub(1);
-            u.haste -= u.haste.signum();
-            if s.flags & flags::CASTER != 0 {
-                if u.mana < 255 {
-                    u.mana_counter = u.mana_counter.wrapping_sub(1);
-                    if u.mana_counter == 0 {
-                        u.mana_counter = 40;
-                        u.mana += 1;
-                    }
+            self.count_timers(i);
+            self.gain_mana_or_decay(i);
+        }
+    }
+
+    /// Step 1, berserker regeneration: the count in the mana byte, 1 HP every 240 passes.
+    fn regenerate(&mut self, i: usize) {
+        let u = &self.units[i];
+        // Our reading: the regeneration upgrade is the level line it shares with marksmanship.
+        if u.kind != unit::BERSERKER || !self.players[u.owner as usize].upgrades.marksmanship {
+            return;
+        }
+        let max = self.stats_of(u.kind).hit_points;
+        let u = &mut self.units[i];
+        u.mana += 1;
+        if u.mana >= 240 {
+            u.mana = 0;
+            if u.hp < max {
+                u.hp += 1;
+            }
+        }
+    }
+
+    /// Step 2: a demolition squad or sapper with its invisibility or unholy-armour timer running is killed. Returns
+    /// whether it was.
+    fn kill_marked_demolition(&mut self, i: usize) -> bool {
+        let u = &self.units[i];
+        if !matches!(u.kind, unit::DEMOLITION | unit::SAPPER) || (u.invisibility == 0 && u.unholy_armor == 0) {
+            return false;
+        }
+        self.kill(i);
+        true
+    }
+
+    /// Step 3, the five timers: each moves 1 toward 0.
+    fn count_timers(&mut self, i: usize) {
+        let u = &mut self.units[i];
+        u.invisibility = u.invisibility.saturating_sub(1);
+        u.unholy_armor = u.unholy_armor.saturating_sub(1);
+        u.bloodlust = u.bloodlust.saturating_sub(1);
+        u.flame_shield = u.flame_shield.saturating_sub(1);
+        u.haste -= u.haste.signum();
+    }
+
+    /// Steps 4 and 5: mana for a caster (+1 every 40 passes up to 255), else decay for a unit created during play
+    /// with a decay rate. The decay periods left are kept in the mana byte (unit-slots spec, "Creating a unit").
+    fn gain_mana_or_decay(&mut self, i: usize) {
+        let s = self.stats_of(self.units[i].kind);
+        let u = &mut self.units[i];
+        if s.flags & flags::CASTER != 0 {
+            if u.mana < 255 {
+                u.mana_counter = u.mana_counter.wrapping_sub(1);
+                if u.mana_counter == 0 {
+                    u.mana_counter = 40;
+                    u.mana += 1;
                 }
-            } else if u.decays {
-                u.decay_count = u.decay_count.saturating_sub(1);
-                if u.decay_count == 0 {
-                    u.decay_count = s.decay_rate;
-                    // The decay periods left are kept in the mana byte (unit-slots spec, "Creating a unit").
-                    if u.mana > 0 {
-                        u.mana -= 1;
-                    } else if u.hp >= 5 {
-                        u.hp -= 5;
-                    } else {
-                        self.kill(i);
-                    }
+            }
+        } else if u.decays {
+            u.decay_count = u.decay_count.saturating_sub(1);
+            if u.decay_count == 0 {
+                u.decay_count = s.decay_rate;
+                if u.mana > 0 {
+                    u.mana -= 1;
+                } else if u.hp >= 5 {
+                    u.hp -= 5;
+                } else {
+                    self.kill(i);
                 }
             }
         }
     }
 
+    /// The runes, before the units: each counts its lifetime down, shows its marker again every 256 cycles, and goes
+    /// off under a ground-layer unit (a direct HP change, no credit), or is gone when its lifetime ends.
     fn advance_runes(&mut self) {
         for r in 0..self.runes.len() {
             let Some(mut rune) = self.runes[r] else { continue };
             rune.life -= 1;
             if rune.life & 0xff == 1 {
-                self.new_fx(kind::RUNE, UnitId(0), None, centre_of_tile(rune.tile), 0, Fx::Cosmetic);
+                self.cosmetic(kind::RUNE, centre_of_tile(rune.tile));
             }
             let hit = self.occupant(Layer::Land, rune.tile.0, rune.tile.1);
             if let Some(ui) = hit.and_then(|id| self.index(id)) {
                 self.runes[r] = None;
                 self.sound_at_tile(rune.tile, Sound::Explode);
-                self.new_fx(
-                    kind::EXPLOSION,
-                    UnitId(0),
-                    None,
-                    centre_of_tile(rune.tile),
-                    0,
-                    Fx::Cosmetic,
-                );
+                self.cosmetic(kind::EXPLOSION, centre_of_tile(rune.tile));
                 let u = &mut self.units[ui];
                 if u.unholy_armor == 0 && !u.dying {
                     if u.hp <= RUNE_DAMAGE {
@@ -1171,7 +1267,7 @@ impl World {
         }
     }
 
-    // ----- effects in flight ---------------------------------------------------------------------------------
+    // ----- effects in flight (spec, "Spell effects in flight") -------------------------------------------------
 
     /// Frees effect slot `n`; the value is `false` for "the effect is gone".
     fn gone(&mut self, n: usize) -> bool {
@@ -1189,7 +1285,8 @@ impl World {
         }
     }
 
-    /// Returns whether the effect stays; when it doesn't, the slot has been freed.
+    /// Returns whether the effect stays; when it doesn't, the slot has been freed. Every splash is the one splash of
+    /// `battle.rs` ([`World::splash`], the hammer and breath's path splash), credited to the effect's shooter slot.
     fn fx_update(&mut self, n: usize, m: &mut crate::battle::Missile, age: u16) -> bool {
         let owner = self.effect_shooter(m);
         match &mut m.fx {
@@ -1265,15 +1362,8 @@ impl World {
                     if let Some(t) = m.target.filter(|&t| self.unit(t).is_some_and(|u| u.present())) {
                         // Sounds spec, "Other explosions": the bolt arrives and makes its flames.
                         self.sound_at_px(m.pos, Sound::Explode);
-                        for (point, life) in FLAMES {
-                            let c = self.unit(t).expect("checked").centre_px();
-                            let p = FLAME_PATH[point as usize];
-                            let pos = (c.0 + p.0, c.1 + p.1);
-                            // Round-48 errata: the shielded unit is the flame's shooter; no target, destination
-                            // (0, 0).
-                            let f = self.new_fx(kind::FLAME, t, None, pos, 4, Fx::Flame { point, life });
-                            self.set_dest(f, (0, 0));
-                        }
+                        let c = self.unit(t).expect("checked").centre_px();
+                        self.make_flames(t, c);
                     }
                     *done = true;
                     return true;
@@ -1301,7 +1391,7 @@ impl World {
                 if *life == 0 {
                     return true;
                 }
-                let Some(c) = self.unit(m.attacker).filter(|u| u.present()).map(|u| u.centre_px()) else {
+                let Some(c) = self.flame_centre(m.attacker) else {
                     *life = 0;
                     return true;
                 };
@@ -1317,8 +1407,8 @@ impl World {
             // Round-45 errata, "Blizzard shards": a shard lands in the same update as the flight step that takes it to or
             // past its landing point (unclamped). Its own slot isn't free yet, so the chain's next shard takes another.
             // It then stays, unmoving, for 4 more cycles and is removed in its 5th update after landing
-            // (`xhuman10-blizzard` slots 7 and 8, n = 170 to 175). A remaining distance of exactly 0 counts as reaching
-            // the point here; the traces don't separate it (spec, open questions).
+            // (`xhuman10-blizzard` slots 7 and 8, n = 170 to 175). A remaining distance of exactly 0 never happens
+            // (round 81, open question closed).
             Fx::Shard { line, repeats, landed } => {
                 if *landed > 0 {
                     *landed -= 1;
@@ -1335,7 +1425,7 @@ impl World {
                 *landed = SHARD_LINGER + 1;
                 let (pos, repeats, land) = (m.pos, *repeats, m.to);
                 self.splash(pos, m.damage, owner, Splash::Path);
-                if repeats > 0 && self.start_shard(owner, land, repeats - 1) {
+                if repeats > 0 && self.place_piece(|w| w.shard(owner, land, repeats - 1)).is_some() {
                     self.rng.draw();
                 }
                 true
@@ -1380,6 +1470,29 @@ impl World {
                 true
             }
         }
+    }
+
+    /// The bolt's five flames on shielded unit `t`, around centre `c`, at path points 0, 10, 20, 30 and 40. Round-48
+    /// errata: the shielded unit is each flame's shooter; no target, destination (0, 0).
+    fn make_flames(&mut self, t: UnitId, c: (i32, i32)) {
+        for (point, life) in FLAMES {
+            let p = FLAME_PATH[point as usize];
+            self.place_piece(|_| Piece {
+                kind: kind::FLAME,
+                shooter: t,
+                target: None,
+                pos: (c.0 + p.0, c.1 + p.1),
+                damage: 4,
+                fx: Fx::Flame { point, life },
+                dest: (0, 0),
+            });
+        }
+    }
+
+    /// The centre a flame circles: its shielded unit's, or `None` once the flame ends for the unit (it is dying or
+    /// gone, or inside something).
+    fn flame_centre(&self, shielded: UnitId) -> Option<(i32, i32)> {
+        self.unit(shielded).filter(|u| u.present()).map(|u| u.centre_px())
     }
 }
 
