@@ -1028,8 +1028,12 @@ impl World {
     // ----- effect slots (spec, "Effect slots", "Cosmetic effects") ---------------------------------------------
 
     /// A spell piece in the lowest free effect slot (spec, "Effect slots"): `draw` makes the piece's draws and
-    /// describes it. With no free slot the piece fails.
+    /// describes it. Round 81 (audit erratum 1, S98): the slot is found before any draw, so with no free slot the
+    /// piece fails without drawing: a blizzard chain makes neither its landing-point nor its start-offset draws, a
+    /// landed shard neither the next shard's start-offset draws nor the draw after them (its caller's), and a
+    /// death-and-decay cloud and a whirlwind none of their position draws.
     fn place_piece(&mut self, draw: impl FnOnce(&mut World) -> Piece) -> Option<usize> {
+        self.free_fx_slot()?;
         let p = draw(self);
         let n = self.new_fx(p.kind, p.shooter, p.target, p.pos, p.damage, p.fx);
         self.set_dest(n, p.dest);
@@ -3617,6 +3621,70 @@ mod tests {
         assert_eq!((d1.invisibility, s1.unholy_armor, s1.bloodlust), (1999, 499, 299));
     }
 
+    /// How many draws took the generator from `before` to its state now.
+    fn draws_since(before: u32, w: &World) -> usize {
+        (0..10_000)
+            .find(|&n| advanced(before, n).state == w.rng.state)
+            .expect("a draw count")
+    }
+
+    /// S98 (static study): a blizzard with exactly 2 effect slots free makes 8 draws at its strike (chains 1 and 2,
+    /// 4 each); chains 3 to 5 find no slot before their draws, so they start nothing and draw nothing. Death and decay
+    /// and the whirlwind find their slot first too.
+    #[test]
+    fn a_spell_piece_with_no_free_slot_makes_no_draws() {
+        for (spell, free, shards, draws) in [
+            (BLIZZARD, 2, 2, 8),
+            (BLIZZARD, 0, 0, 0),
+            (DEATH_AND_DECAY, 2, 2, 4),
+            (DEATH_AND_DECAY, 0, 0, 0),
+            (WHIRLWIND, 0, 0, 0),
+            (WHIRLWIND, 1, 1, 2),
+        ] {
+            let mut w = lab(32);
+            let m = caster(&mut w, MAGE, (12, 10), 255);
+            pin::fill_effects(&mut w, free);
+            let before = w.rng.state;
+            strike(&mut w, m, spell, None, (10, 10));
+            let made = w.missiles.iter().flatten().filter(|e| e.kind != 0x13).count();
+            assert_eq!(
+                (made, draws_since(before, &w)),
+                (shards, draws),
+                "spell {spell}, {free} free"
+            );
+        }
+    }
+
+    /// Spec, "Effect slots" (round 81, audit erratum 1): a landed shard whose chain finds no free slot for its next
+    /// shard makes neither that shard's start-offset draws nor the draw after them, and the chain ends. With one slot
+    /// free, the only draws after the strike are the shard's one per step that doesn't land.
+    #[test]
+    fn a_landed_shard_with_no_free_slot_draws_nothing_for_the_next() {
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (12, 10), 255);
+        pin::fill_effects(&mut w, 1);
+        strike(&mut w, m, BLIZZARD, None, (20, 20));
+        let n = w
+            .missiles
+            .iter()
+            .position(|e| e.as_ref().is_some_and(|e| e.kind == kind::SHARD))
+            .unwrap();
+        let Some(Fx::Shard { line, .. }) = w.missiles[n].as_ref().map(|e| e.fx) else {
+            panic!("no shard");
+        };
+        let steps = (line.remaining + 11) / 12;
+        // Only the shard's own updates, so that nothing else draws.
+        let before = w.rng.state;
+        let mut updates = 0;
+        while w.missiles[n].is_some() {
+            w.step_fx(n);
+            updates += 1;
+            assert!(updates < 60, "the shard stays");
+        }
+        assert_eq!(fx_of_kind(&w, kind::SHARD), 0);
+        assert_eq!(draws_since(before, &w), steps as usize - 1);
+    }
+
     mod pin {
         use super::*;
 
@@ -3657,7 +3725,7 @@ mod tests {
         }
 
         /// Fills the effect table but for `free` slots after the permanent ones.
-        fn fill_effects(w: &mut World, free: usize) {
+        pub(super) fn fill_effects(w: &mut World, free: usize) {
             let n = w.missiles.len();
             for m in w
                 .missiles
@@ -3919,15 +3987,15 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    12886890636187780722,
-                    2008217252426460887,
-                    716140863077472498,
-                    1485683647653189098,
-                    9771244494724085271,
-                    4890961263125258499,
-                    1450392154111057448,
-                    723716097638522705,
-                    1360942698558000141,
+                    11885426215582548983,
+                    88524946932623572,
+                    993188367256940341,
+                    7698509570116490980,
+                    13870454793258606143,
+                    1673314346665158255,
+                    1650534446358021315,
+                    2864280565326091246,
+                    1535142317792771723,
                     15992806477622592395,
                     14131176227219162947,
                     5770906763512571262,
