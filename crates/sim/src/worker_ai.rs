@@ -940,6 +940,45 @@ mod tests {
         assert!((44..=59).contains(&w.units[i].script.wait));
     }
 
+    /// CP5 (`ai/computer-player.md`; C2 held, round 82): a computer worker sent off in order 4 by an all-out attack
+    /// makes no job choice on the way; it makes it once idle at the goal tile.
+    #[test]
+    fn a_worker_in_order_4_makes_its_job_choice_only_once_idle() {
+        let (mut w, _) = town();
+        w.spawn(t::FARM, 1, (2, 2), 0).unwrap();
+        let ps = peasants(&mut w, 3);
+        let id = w.units[ps[0]].id;
+        let out = Order::MoveAttack {
+            goal: (30, 10),
+            target: None,
+        };
+        w.take_over(ps[0], out);
+        // Every other peasant is busy, so only this one could choose the farm.
+        for &p in &ps[1..] {
+            w.units[p].order = Order::Move {
+                goal: (10, 40),
+                target: None,
+            };
+        }
+        let gold = w.players[1].gold;
+        let mut n = 0;
+        while w.unit(id).unwrap().order == out {
+            assert_eq!(w.players[1].gold, gold, "no job choice in order 4");
+            w.step(&[]);
+            n += 1;
+            assert!(n < 400);
+        }
+        assert_eq!(w.unit(id).unwrap().tile, (30, 10), "it walked the whole way");
+        for _ in 0..10 {
+            w.step(&[]);
+        }
+        assert!(
+            matches!(w.unit(id).unwrap().order, Order::Build { kind: t::FARM, .. }),
+            "{:?}",
+            w.unit(id).unwrap().order
+        );
+    }
+
     #[test]
     fn the_build_list_skips_work_in_progress_and_stops_at_research() {
         let (mut w, _) = town();
