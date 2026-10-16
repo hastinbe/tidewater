@@ -316,6 +316,31 @@ impl World {
         u.script.wait = INSIDE_SITE_WAIT;
     }
 
+    /// Build-train spec, "Two ways a building goes": building `bi` is **taken down**, by the cancel-construction
+    /// command (`cancel`) or the collapse of an exhausted mine or platform. Its refund, then every unit inside with it
+    /// as its target loses that target (a worker in a mine or platform comes out at its next chance) and its builders
+    /// are let out at once; then the kill, which finds nobody inside with it as its target.
+    pub(crate) fn take_down(&mut self, bi: usize, cancel: bool) {
+        let owner = self.units[bi].owner;
+        let back = self.take_down_refund(self.units[bi].kind, cancel);
+        self.refund(owner, back);
+        self.clear_inside_targets(bi);
+        self.release_builders(bi, false);
+        self.kill(bi);
+    }
+
+    /// What a take-down gives back: 75 % of the building's cost, rounded down, per resource ("Cancelling
+    /// construction"): gold and lumber in Classic mode, whatever took it down (the open question "Classic mode: refund
+    /// on collapse"); in Enhanced mode gold, lumber and oil, on the cancel command only.
+    fn take_down_refund(&self, kind: u8, cancel: bool) -> crate::economy::Cost {
+        let [gold, lumber, oil] = cost(&self.stats_of(kind)).map(|v| v * 3 / 4);
+        match (self.rules.enhanced, cancel) {
+            (false, _) => [gold, lumber, 0],
+            (true, true) => [gold, lumber, oil],
+            (true, false) => [0; 3],
+        }
+    }
+
     /// Build-train spec, "A building killed" (round 76, V50: `human06-site-kill-800` peasant 1586, n = 416): every unit
     /// inside building `bi` whose target is the building is killed in the same cycle, where it stands, keeping the
     /// building as its target. A taken-down building (a cancel, a collapse) has cleared or let out those units first.

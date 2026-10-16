@@ -686,19 +686,9 @@ impl World {
             job.cancelled = true;
             return;
         }
-        let u = &self.units[i];
-        if u.construction.is_none() {
-            return;
+        if self.units[i].construction.is_some() {
+            self.take_down(i, true);
         }
-        let owner = u.owner;
-        let s = self.stats_of(u.kind);
-        // 3/4 of the real cost, with the stats holding full amounts (10 × the stored value).
-        let part = |v: u16| v as u32 * 3 / 4;
-        let oil = if self.rules.enhanced { part(s.oil) } else { 0 };
-        self.refund(owner, [part(s.gold), part(s.lumber), oil]);
-        // The building is taken down: the builder is let out before the kill, so the kill finds nobody inside.
-        self.release_builders(i, false);
-        self.kill(i);
     }
 
     /// Ends a building's job cancelled, with a full refund to its owner, as the cancelled column of "Job end" says:

@@ -653,19 +653,12 @@ impl World {
         if !self.loading {
             self.count_lost(unit.owner, unit.building);
         }
-        let p = &mut self.players[unit.owner as usize];
+        // Build-train spec, "A building killed": a site leaves the under-construction count. (The job, if any, was
+        // cancelled just above, which put the training count back.)
         if unit.construction.is_some() {
-            p.under_construction -= 1;
-        }
-        if let Some(crate::economy::Job {
-            kind: crate::economy::JobKind::Train(_),
-            ..
-        }) = unit.job
-        {
-            p.in_training -= 1;
+            self.players[unit.owner as usize].under_construction -= 1;
         }
         self.units[ti].construction = None;
-        self.units[ti].job = None;
         if !unit.inside {
             self.mark(&unit, unit.tile, None);
         }

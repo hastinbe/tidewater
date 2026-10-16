@@ -533,17 +533,16 @@ impl World {
         self.units[i].carrying = false;
     }
 
-    /// "Mine and platform amounts": the last trip was taken, so the mine or platform is destroyed, and every unit
-    /// inside that has it as its target (the one that took the last trip included) loses that target and comes out at
-    /// its next chance. Build-train spec, "Cancelling construction" and its open question "Classic mode: refund on
-    /// collapse" (round 76): this is a take-down, which in Classic mode refunds 75 % of the gold and lumber cost, as a
-    /// cancel does; Enhanced mode refunds nothing.
+    /// "Mine and platform amounts": the last trip was taken, so the mine or platform collapses. Build-train spec, "Two
+    /// ways a building goes": it is taken down ([`World::take_down`]), so every unit inside that has it as its target
+    /// (the one that took the last trip included) loses that target and comes out at its next chance.
     fn collapse(&mut self, bi: usize) {
-        if !self.rules.enhanced {
-            let (owner, s) = (self.units[bi].owner, self.stats_of(self.units[bi].kind));
-            let part = |v: u16| v as u32 * 3 / 4;
-            self.refund(owner, [part(s.gold), part(s.lumber), 0]);
-        }
+        self.take_down(bi, false);
+    }
+
+    /// The first part of a take-down for workers inside (build-train spec, "Two ways a building goes"): every unit in
+    /// [`Order::Inside`] whose target is building `bi` loses it, its wait cut to 1, and comes out at its next chance.
+    pub(crate) fn clear_inside_targets(&mut self, bi: usize) {
         let id = self.units[bi].id;
         for u in &mut self.units {
             if let Order::Inside { building } = &mut u.order
@@ -553,7 +552,6 @@ impl World {
                 u.script.wait = u.script.wait.min(1);
             }
         }
-        self.kill(bi);
     }
 
     /// "Coming out", step 6, facing: "Facing a target" from the exit tile, with the target unit of the order given
