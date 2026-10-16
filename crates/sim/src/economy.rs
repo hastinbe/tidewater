@@ -590,7 +590,7 @@ impl World {
                     .ok_or(SpawnError::CantPlace)
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
                 match placed {
-                    Ok(id) => self.ready_sound(id),
+                    Ok(id) => self.ready_sound(id, u.tile),
                     Err(_) => {
                         self.refund(u.owner, self.job_cost(job.kind));
                         self.tell(Event::NoRoom {
@@ -1028,10 +1028,18 @@ mod tests {
         let n = w.units.len();
         run(&mut w, 13 + 5 * 12 - 1);
         assert_eq!(w.units.len(), n, "not yet");
+        w.sounds.events.clear();
         run(&mut w, 1);
         assert_eq!(w.units.len(), n + 1);
         assert_eq!(w.players[0].in_training, 0);
         assert_eq!(w.unit(hall).unwrap().job, None);
+        // Sounds spec, "Unit ready" (V71): the event location is the hall's top-left tile, not the new unit's.
+        let new = w.units.iter().find(|u| u.kind == 2).unwrap().tile;
+        assert_ne!(new, (5, 6));
+        assert_eq!(
+            (w.sounds.last_event, w.sounds.events.as_slice()),
+            (Some((5, 6)), &[(5, 6)][..])
+        );
     }
 
     /// "Job end", building upgrade (B-040 audit): the hit points go up by new M - old M with each maximum counted as at
@@ -1480,12 +1488,13 @@ mod tests {
             (w, hall)
         }
 
+        /// The pin changed for the unit-ready event location (V71): the hall's top-left tile.
         #[test]
         fn a_trained_unit_finishes() {
             let (mut w, _) = training(2);
             run(&mut w, 80);
             assert_eq!(w.players[0].in_training, 0);
-            assert_eq!(pinned(&w), 17728558196850907567);
+            assert_eq!(pinned(&w), 14277953442941556503);
         }
 
         #[test]

@@ -399,15 +399,16 @@ impl World {
         self.sounds.event_at(c);
     }
 
-    /// "Unit ready": a trained unit was placed.
-    pub(crate) fn ready_sound(&mut self, id: UnitId) {
+    /// "Unit ready": a trained unit was placed by the building whose top-left tile is `building`, which becomes the
+    /// latest event location, not the new unit's tile (traced: `human06-build-stats-1800`, n = 643).
+    pub(crate) fn ready_sound(&mut self, id: UnitId, building: (i32, i32)) {
         let Some(u) = self.unit(id) else { return };
         if !self.local_owner(u.owner) {
             return;
         }
-        let (kind, tile) = (u.kind, u.tile);
+        let kind = u.kind;
         self.cue(Sound::Ready { kind }, None);
-        self.sounds.event_at(tile);
+        self.sounds.event_at(building);
     }
 
     /// "Work complete" for unit `i` (a worker out of a finished building, or in Enhanced rules a building whose
