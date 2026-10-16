@@ -94,9 +94,9 @@ pub(crate) const BLACK: u8 = 0;
 
 /// The focused button's outline, drawn over the face's outer ring ("Buttons"), a dialog's default button's too.
 pub(crate) const FOCUS_RING: u8 = 251;
-/// A disabled button's outline, drawn over the face's outer ring. What this outline marks isn't settled (spec "Open
-/// questions"); the held default: a disabled button has it, an enabled one keeps its face's own ring.
-pub(crate) const DISABLED_RING: u8 = 247;
+/// A dialog's default button's outline, drawn over the face's outer ring, enabled or disabled ("Buttons", "Default
+/// button", round 75). Every other button keeps its frame's own ring, disabled ones included.
+pub(crate) const DEFAULT_RING: u8 = 247;
 /// The entries of a face's own outer ring (game data, "Buttons"): the 1-pixel border of frames 15 to 17.
 pub(crate) const OUTER_RING: std::ops::RangeInclusive<u8> = 128..=136;
 /// The entry of a face's second ring, 1 pixel inside the outer one.
@@ -405,6 +405,8 @@ pub(crate) struct ButtonState {
     pub focused: bool,
     /// The mouse button is held on it: the pressed face, the label 2 right and 2 down.
     pub pressed: bool,
+    /// It is the dialog's default button (the dialog file marks it): the 247 outline.
+    pub default: bool,
 }
 
 /// The label's shade map ("Text colours"): grey when disabled, white while the pointer is over it, gold otherwise.
@@ -416,12 +418,12 @@ pub(crate) fn label_map(s: ButtonState) -> ShadeMap {
     }
 }
 
-/// The outline drawn over the face's outer ring ("Buttons"): yellow when focused, light grey when disabled (the held
-/// default), none otherwise, the face's own ring showing.
+/// The outline drawn over the face's outer ring ("Buttons"): yellow when focused, light grey on the dialog's default
+/// button, enabled or disabled, none otherwise, the face's own ring showing (a disabled button's too).
 pub(crate) fn ring(s: ButtonState) -> Option<u8> {
     match s {
         ButtonState { focused: true, .. } => Some(FOCUS_RING),
-        ButtonState { enabled: false, .. } => Some(DISABLED_RING),
+        ButtonState { default: true, .. } => Some(DEFAULT_RING),
         _ => None,
     }
 }
@@ -560,6 +562,7 @@ mod tests {
         hover: false,
         focused: false,
         pressed: false,
+        default: false,
     };
 
     /// Synthetic faces: every frame of the table's sizes, frame `i` filled with entry 10 + `i` and its border with
@@ -624,12 +627,34 @@ mod tests {
             enabled: false,
             ..NORMAL
         };
-        assert_eq!((label_map(disabled), ring(disabled)), (GREY, Some(247)));
-        let both = ButtonState {
-            focused: true,
+        assert_eq!(
+            (label_map(disabled), ring(disabled)),
+            (GREY, None),
+            "a disabled button that isn't the default keeps its frame's ring (round 75: Delete, Up)"
+        );
+        let default = ButtonState {
+            default: true,
+            ..NORMAL
+        };
+        assert_eq!(ring(default), Some(247), "the default button's outline");
+        let disabled_default = ButtonState {
+            default: true,
             ..disabled
         };
-        assert_eq!(ring(both), Some(251), "focus draws over the ring");
+        assert_eq!(
+            ring(disabled_default),
+            Some(247),
+            "disabled, the default keeps it (round 75: Save with no name, Load with no saved game)"
+        );
+        let both = ButtonState {
+            focused: true,
+            ..disabled_default
+        };
+        assert_eq!(
+            ring(both),
+            Some(251),
+            "focus draws over the default's outline (round 74: Quit to Menu)"
+        );
     }
 
     #[test]
@@ -830,7 +855,11 @@ mod tests {
             enabled: false,
             ..NORMAL
         });
-        assert_eq!(px(&p, 10, 10), pal.0[247]);
+        assert_eq!(
+            px(&p, 10, 10),
+            pal.0[130],
+            "disabled, not the default: the face's own ring"
+        );
         assert_eq!(px(&p, 12, 12), pal.0[16], "the disabled face, frame 6");
         assert_eq!(px(&p, 48, 19), pal.0[108], "grey label");
         assert_eq!(px(&p, 49, 20), pal.0[102]);

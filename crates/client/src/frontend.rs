@@ -1342,6 +1342,8 @@ fn menu_input(
                 hover: menu.hot == Some(i),
                 focused: menu.focus == i,
                 pressed: pressed == Some(i),
+                // The main and campaign menus' dialog files' default buttons aren't in the spec: none drawn.
+                default: false,
             };
             menuscreen::draw_button(
                 &mut p,

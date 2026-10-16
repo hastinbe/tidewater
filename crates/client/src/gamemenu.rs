@@ -514,6 +514,16 @@ fn default_focus(built: &Built, screen: Screen) -> Option<usize> {
         .or_else(|| built.items.iter().position(button))
 }
 
+/// A game dialog's button outline (screen spec, "Buttons", rounds 74 and 75): the focus ring when focused, the
+/// default button's 247 outline otherwise, enabled or disabled, and none on the other buttons.
+fn button_ring(focused: bool, default: bool) -> Option<[u8; 3]> {
+    match (focused, default) {
+        (true, _) => Some(FOCUS_RGB),
+        (false, true) => Some(DEFAULT_RGB),
+        (false, false) => None,
+    }
+}
+
 /// Whether Tab stops on a control: buttons, sliders, check boxes and each radio (screen spec, "Keyboard focus", round
 /// 75); headings and text don't take the focus. Our dialogs build only the controls they show, so a hidden one is
 /// never among the items.
@@ -540,8 +550,8 @@ fn tab_stops(built: &Built, screen: Screen) -> Vec<usize> {
 
 /// The focus ring's colour: menu palette entry 251 (screen spec, "Buttons"). The game dialogs draw in RGB.
 const FOCUS_RGB: [u8; 3] = [255, 255, 0];
-/// Entry 247 in a game's palette, (160, 160, 164) (screen spec, "Buttons"): the default button's outline and a focused
-/// check box's or radio's rectangle.
+/// Entry 247 in a game's palette, (160, 160, 164) (screen spec, "Buttons"): the default button's outline (unless it has
+/// the focus) and a focused check box's or radio's rectangle.
 const DEFAULT_RGB: [u8; 3] = [160, 160, 164];
 
 /// A focused check box's or radio's mark (screen spec, "Keyboard focus", round 75): a 1-pixel rectangle round its
@@ -591,6 +601,7 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
         built.title,
     );
     let f = &front.font;
+    let default = default_act(m.screen());
     for (i, it) in built.items.iter().enumerate() {
         let hot = m.hot == Some(i);
         let focused = m.focus == Some(i);
@@ -603,10 +614,11 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                     hud::text(&mut p, f, it.r.x, it.r.y + n as i32 * (f.height as i32 + 4), l);
                 }
             }
-            Kinds::Button(_, label) => {
+            Kinds::Button(act, label) => {
                 frontend::button_pressed(&mut p, f, it.r, label, hot, m.pressed == Some(i));
-                if focused {
-                    hud::outline(&mut p, it.r, FOCUS_RGB);
+                // Screen spec, "Buttons" (round 75): the focus ring in 251, else the default button's outline in 247.
+                if let Some(c) = button_ring(focused, default == Some(*act)) {
+                    hud::outline(&mut p, it.r, c);
                 }
             }
             Kinds::Slider(_, label, v, max, enabled) => {
@@ -1349,6 +1361,27 @@ mod tests {
             Kinds::Button(_, l) => Some(l.clone()),
             _ => None,
         }
+    }
+
+    #[test]
+    fn the_default_button_keeps_its_247_outline_when_the_focus_moves_off_it() {
+        // Screen spec, "Buttons" (round 75): focus draws 251, the default button 247 otherwise, and other buttons none.
+        assert_eq!(
+            button_ring(true, true),
+            Some(FOCUS_RGB),
+            "a focused default: the full 251 ring"
+        );
+        assert_eq!(button_ring(true, false), Some(FOCUS_RGB));
+        assert_eq!(button_ring(false, true), Some(DEFAULT_RGB));
+        assert_eq!(button_ring(false, false), None);
+        assert_eq!(DEFAULT_RGB, [160, 160, 164], "entry 247 in a game's palette");
+        // Tab off OK on the Sound dialog: OK is still the default, Cancel has the focus.
+        let b = menu_at(Screen::Sound).build(20, 16, Kind::Campaign);
+        let stops = tab_stops(&b, Screen::Sound);
+        let ok = default_focus(&b, Screen::Sound).unwrap();
+        let next = crate::menuscreen::step_focus(&stops, ok, crate::menuscreen::FocusKey::Next);
+        assert!(matches!(b.items[next].kind, Kinds::Button(Act::Cancel, _)));
+        assert!(matches!(b.items[ok].kind, Kinds::Button(a, _) if Some(a) == default_act(Screen::Sound)));
     }
 
     #[test]
