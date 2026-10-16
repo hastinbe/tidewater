@@ -412,14 +412,15 @@ impl World {
     }
 
     /// "Work complete" for unit `i` (a worker out of a finished building, or in Enhanced rules a building whose
-    /// research or upgrade finished).
-    pub(crate) fn work_complete(&mut self, i: usize) {
+    /// research or upgrade finished). The finished building's top-left tile `building` becomes the latest event
+    /// location (traced: `human06-build-stats-1800`), an entry of the event history too (messages spec, "Event
+    /// history").
+    pub(crate) fn work_complete(&mut self, i: usize, building: (i32, i32)) {
         let u = &self.units[i];
         if self.local_owner(u.owner) {
-            let (peasant, tile) = (u.kind == PEASANT, u.tile);
+            let peasant = u.kind == PEASANT;
             self.cue(Sound::WorkComplete { peasant }, None);
-            // Messages spec, "Event history": work complete is an event too.
-            self.sounds.events.push(tile);
+            self.sounds.event_at(building);
         }
     }
 

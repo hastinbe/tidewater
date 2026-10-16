@@ -617,7 +617,7 @@ impl World {
                 // Sounds spec, "Work complete" (round 76, V51: `human06-alerts-1400`): in Enhanced rules, only for a
                 // hall becoming a keep or castle (or the orc versions); a tower plays nothing.
                 if self.rules.enhanced && kind::is_hall(k) {
-                    self.work_complete(i);
+                    self.work_complete(i, u.tile);
                 }
             }
         }
@@ -663,7 +663,7 @@ impl World {
         }
         if self.rules.enhanced {
             self.tell(Event::ResearchDone { player: owner, tile });
-            self.work_complete(i);
+            self.work_complete(i, tile);
         }
     }
 
@@ -1617,7 +1617,7 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    6134435229274302440,
+                    8133953696086712185,
                     16551267058749962179,
                     18214275804600485233,
                     8704031557821091703

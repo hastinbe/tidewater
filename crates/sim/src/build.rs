@@ -379,7 +379,7 @@ impl World {
             // Sounds spec, "Work complete" (round 76, V53: `orc09-naval-1500` tanker 1473, n = 468): every unit inside
             // a finished building gets it as it is let out, before it is placed: the tanker of a new platform too, and
             // (the open question's default) a builder that then finds no room and dies.
-            self.work_complete(k);
+            self.work_complete(k, b.tile);
             let u = &self.units[k];
             let accepts = if tanker {
                 bf & flags::OIL_STORAGE != 0
@@ -774,6 +774,9 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c.sound, crate::sound::Sound::WorkComplete { .. }))
         );
+        // Sounds spec, "Work complete" (round 79): the platform's top-left tile is the latest event location.
+        let at = w.units[bi].tile;
+        assert_eq!(w.sounds.last_event, Some(at));
         let u = w.unit(t).unwrap();
         let enter = Order::Enter {
             building: platform,
@@ -1394,7 +1397,7 @@ mod tests {
             let (mut w, p) = arrive(FARM, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(!w.unit(p).unwrap().inside);
-            assert_eq!(pinned(&w), 530902050336631206);
+            assert_eq!(pinned(&w), 1841635402201771627);
         }
 
         /// A builder carrying gold in gold mode, of a hall: the load is delivered and it gets the hall-sized exit mark.
@@ -1412,7 +1415,7 @@ mod tests {
             run(&mut w, 12 * 3 + 2);
             let u = w.unit(p).unwrap();
             assert!(!u.inside && u.hall_exit && !u.carrying, "{u:?}");
-            assert_eq!(pinned(&w), 7938654718672569035);
+            assert_eq!(pinned(&w), 10280767029610067050);
         }
 
         #[test]
@@ -1421,7 +1424,7 @@ mod tests {
             hem_in(&mut w, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 7352284125274604283);
+            assert_eq!(pinned(&w), 1945410394505961650);
         }
 
         #[test]
