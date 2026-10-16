@@ -635,7 +635,8 @@ mod tests {
         #[test]
         fn the_whole_computer_player() {
             let mut w = town();
-            assert_eq!(trail(&mut w, 2500), 13994675436103515113);
+            // Round 85 (CP14): a build job writes its site into the worker's goal tile.
+            assert_eq!(trail(&mut w, 2500), 1499996025304083081);
             // The run did what it is for: the build list was built, workers and footmen were trained and mine, and
             // land waves went out.
             let kinds: Vec<u8> = w.units.iter().filter(|u| u.owner == 1).map(|u| u.kind).collect();
@@ -657,21 +658,22 @@ mod tests {
                 w.kill(i);
                 got.push(trail(&mut w, 150));
             }
+            // Round 85 (CP14): every build job writes its site into the worker's goal tile, from the first farm on.
             assert_eq!(
                 got,
                 [
-                    9144060411853901822,
-                    7881265644558628602,
-                    9758650483402721024,
-                    1563788177598765398,
-                    15424032157577864050,
-                    8995007384731277273,
-                    6415993651630466809,
-                    8020399964952080268,
+                    17326512699861744114,
+                    6522105587196080321,
+                    9148076890289963680,
+                    445354961878500451,
+                    400527353218828034,
+                    15800078975417110885,
+                    621131503990187083,
+                    13822739739719310486,
                     // Round 83 (CP5): the losses rule's all-out attack sends the peasants off in order 4, where
                     // they now make their job choice. Round 84: the walk after that choice heads for the job.
-                    1836411460505830638,
-                    16873007012960793596
+                    5073096973728816348,
+                    3126246318834684136
                 ]
             );
         }

@@ -348,6 +348,9 @@ impl World {
     }
 
     /// Gives the build command for `kind` at `site` (computer players pay at once) and records the job.
+    ///
+    /// "The goal tile of a build job" (round 85, erratum 7; traced for a farm job, CP14): the site's top-left tile
+    /// becomes the worker's goal tile, whatever its goal kind, which isn't changed.
     fn start_building(&mut self, i: usize, kind: u8, site: (i32, i32), border: bool) -> Option<Order> {
         let o = self.build_command(i, kind, site)?;
         let p = self.units[i].owner as usize;
@@ -355,6 +358,7 @@ impl World {
         let w = self.stats_of(kind).size.0 as i32;
         self.keep_clear(site, w, border, true);
         self.units[i].ai_job = AiJob::Build { kind, site };
+        self.units[i].goal.tile = Some(site);
         Some(o)
     }
 
@@ -1017,13 +1021,59 @@ mod tests {
         }
         let u = w.unit(id).unwrap();
         assert!(n > chosen);
-        assert!(matches!(u.order, Order::Build { kind: t::FARM, .. }), "{:?}", u.order);
+        let Order::Build {
+            kind: t::FARM, site, ..
+        } = u.order
+        else {
+            panic!("{:?}", u.order)
+        };
         assert_ne!(u.tile, (30, 10), "it didn't walk the whole way");
+        // Round 85 (CP14): the farm job wrote its site into the goal tile; the kind stays attack.
         assert_eq!(
             (u.goal.kind, u.goal.tile),
-            (crate::attack_ai::GoalKind::Attack, Some((30, 10))),
-            "the attack goal stays"
+            (crate::attack_ai::GoalKind::Attack, Some(site)),
+            "the attack goal stays, measured from the site"
         );
+    }
+
+    /// CP14 (`ai/computer-player.md`; `ai/worker-ai.md`, "The goal tile of a build job", round 85, erratum 7; traced:
+    /// `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` peon 1575, attack goal (9, 20), farm job at site (6, 19)
+    /// at n = 1004): every build job (the new town hall, the farm and the build list) writes the site's top-left tile
+    /// into the worker's goal tile and leaves the kind, whatever it is.
+    #[test]
+    fn a_build_job_writes_its_site_into_the_goal_tile() {
+        use crate::attack_ai::{Goal, GoalKind};
+        let check = |w: &mut World, i: usize, kind: u8, goal: GoalKind| {
+            w.units[i].goal = Goal {
+                kind: goal,
+                tile: Some((30, 10)),
+                ..Default::default()
+            };
+            let Choice::Order(Order::Build { kind: k, site, .. }) = w.worker_choice(i) else {
+                panic!("no build job")
+            };
+            assert_eq!(k, kind);
+            assert_eq!((w.units[i].goal.kind, w.units[i].goal.tile), (goal, Some(site)));
+        };
+        // The farm (traced), with an attack goal from the all-out attack.
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        check(&mut w, i, t::FARM, GoalKind::Attack);
+        // The build list.
+        let (mut w, _) = town();
+        for x in 0..3 {
+            w.spawn(t::FARM, 1, (2 + 3 * x, 2), 0).unwrap();
+        }
+        with_list(&mut w, &[BARRACKS, 0xff]);
+        let i = peasants(&mut w, 1)[0];
+        check(&mut w, i, BARRACKS, GoalKind::None);
+        // The new town hall with no depot.
+        let (mut w, hall) = town();
+        let n = w.index(hall).unwrap();
+        w.kill(n);
+        w.spawn(t::GOLD_MINE, slots::NEUTRAL, (40, 33), 20_000).unwrap();
+        let i = peasants(&mut w, 1)[0];
+        check(&mut w, i, t::TOWN_HALL, GoalKind::Hold);
     }
 
     /// `ai/worker-ai.md`, "When a job is chosen" (round 84, static gap-fill): the other acquiring orders run the job
