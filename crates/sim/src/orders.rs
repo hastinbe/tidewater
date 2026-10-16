@@ -734,7 +734,17 @@ impl World {
                     self.idle_choice(i);
                 }
             }
-            Order::Move { .. } | Order::MoveAttack { .. } | Order::AttackMove { .. } => self.move_order(i, o, arriving),
+            Order::Move { .. } | Order::MoveAttack { .. } | Order::AttackMove { .. } => {
+                // `ai/worker-ai.md`, "When a job is chosen", in order 4 (round 83, C2; traced:
+                // `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, n = 804, CP5): a computer worker's or
+                // tanker's job choice runs here, after the arrival test, where a combat unit would run its target
+                // search. Its command is pending and takes over at the next step done; the walk goes on meanwhile.
+                // Only order 4: the other acquiring orders keep the old text (no job choice; open question there).
+                if matches!(o, Order::MoveAttack { .. }) && !arriving {
+                    self.moving_choice(i);
+                }
+                self.move_order(i, o, arriving)
+            }
             Order::Patrol { to, back } => match self.walk(i, Goal::tile(to, 0)) {
                 Walk::Arrived => {
                     // "Arriving and losing the target", order 5: a patrol command to the other end, with the tile it

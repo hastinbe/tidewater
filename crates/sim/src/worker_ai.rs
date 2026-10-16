@@ -163,8 +163,9 @@ impl World {
         self.ai_player(u.owner) && !u.building && f & (flags::PEON | flags::TANKER) != 0
     }
 
-    /// The job choice where it runs (`ai/computer-player.md`, "Where the job choice runs": from idle, and at a
-    /// come-out): for a computer player's worker or tanker, the order it chose, if any. Any other unit makes no choice.
+    /// The job choice where it runs (`ai/computer-player.md`, "Where the job choice runs": from idle, in order 4, and
+    /// at a come-out): for a computer player's worker or tanker, the order it chose, if any. Any other unit makes no
+    /// choice.
     pub(crate) fn job_choice(&mut self, i: usize) -> Option<Order> {
         if !self.chooses_jobs(i) {
             return None;
@@ -183,6 +184,16 @@ impl World {
             // does", and `ai/worker-ai.md`): the goal pulled back, the command steps (blocked counter cleared, route
             // dropped: round-54 errata `human12-25000` tanker 1412, n = 12951) and the target check.
             self.command_at_once(i, o);
+        }
+    }
+
+    /// The job choice in order 4 (`ai/worker-ai.md`, "When a job is chosen"; `ai/computer-player.md`, CP5, round 83):
+    /// its order is an ordinary command, pending until the unit's next step done (traced:
+    /// `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, pending at n = 804, taking over at n = 826). The goal
+    /// is left as it is: nothing here clears an attack goal (`ai/attack-ai.md`, "Attack (2)").
+    pub(crate) fn moving_choice(&mut self, i: usize) {
+        if let Some(o) = self.job_choice(i) {
+            self.command(i, o);
         }
     }
 
@@ -940,43 +951,119 @@ mod tests {
         assert!((44..=59).contains(&w.units[i].script.wait));
     }
 
-    /// CP5 (`ai/computer-player.md`; C2 held, round 82): a computer worker sent off in order 4 by an all-out attack
-    /// makes no job choice on the way; it makes it once idle at the goal tile.
-    #[test]
-    fn a_worker_in_order_4_makes_its_job_choice_only_once_idle() {
+    /// A farm-ready town whose only free peasant is walking in `order`, with an attack goal as the all-out attack
+    /// gives; the others are busy, so only this one could choose the farm.
+    fn walking_worker(order: Order) -> (World, UnitId) {
         let (mut w, _) = town();
         w.spawn(t::FARM, 1, (2, 2), 0).unwrap();
         let ps = peasants(&mut w, 3);
         let id = w.units[ps[0]].id;
-        let out = Order::MoveAttack {
-            goal: (30, 10),
-            target: None,
+        w.units[ps[0]].goal = crate::attack_ai::Goal {
+            kind: crate::attack_ai::GoalKind::Attack,
+            tile: Some((30, 10)),
+            ..Default::default()
         };
-        w.take_over(ps[0], out);
-        // Every other peasant is busy, so only this one could choose the farm.
+        w.take_over(ps[0], order);
+        // No 50-cycle pass in the test's span, so pass B doesn't give the goal's command 4.
+        w.army.countdown = 1000;
         for &p in &ps[1..] {
             w.units[p].order = Order::Move {
                 goal: (10, 40),
                 target: None,
             };
         }
+        (w, id)
+    }
+
+    /// CP5 (`ai/computer-player.md`; `ai/worker-ai.md`, "When a job is chosen", round 83; traced:
+    /// `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, command 4 at the pass of n = 801, return goods pending at
+    /// n = 804, order 24 at n = 826): a computer worker in order 4 makes its job choice at its next order-logic run in
+    /// that order. The chosen command is pending, not taken over in the same update; it takes over at the next step
+    /// done, before the worker reaches the goal tile. Its attack goal is left as it is.
+    #[test]
+    fn a_worker_in_order_4_makes_its_job_choice_at_its_next_order_logic_run() {
+        let out = Order::MoveAttack {
+            goal: (30, 10),
+            target: None,
+        };
+        let (mut w, id) = walking_worker(out);
         let gold = w.players[1].gold;
         let mut n = 0;
-        while w.unit(id).unwrap().order == out {
-            assert_eq!(w.players[1].gold, gold, "no job choice in order 4");
+        while w.unit(id).unwrap().pending.is_none() {
+            assert_eq!(w.unit(id).unwrap().order, out);
             w.step(&[]);
             n += 1;
-            assert!(n < 400);
+            assert!(n < 50, "no job choice in order 4");
         }
-        assert_eq!(w.unit(id).unwrap().tile, (30, 10), "it walked the whole way");
-        for _ in 0..10 {
+        let u = w.unit(id).unwrap();
+        assert_eq!(u.order, out, "pending, not taken over in the same update");
+        assert!(
+            matches!(u.pending, Some(Order::Build { kind: t::FARM, .. })),
+            "{:?}",
+            u.pending
+        );
+        assert_eq!(w.players[1].gold, gold - 500, "paid at the choice");
+        let chosen = n;
+        while w.unit(id).unwrap().order == out {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 100);
+        }
+        let u = w.unit(id).unwrap();
+        assert!(n > chosen);
+        assert!(matches!(u.order, Order::Build { kind: t::FARM, .. }), "{:?}", u.order);
+        assert_ne!(u.tile, (30, 10), "it didn't walk the whole way");
+        assert_eq!(
+            (u.goal.kind, u.goal.tile),
+            (crate::attack_ai::GoalKind::Attack, Some((30, 10))),
+            "the attack goal stays"
+        );
+    }
+
+    /// `ai/worker-ai.md`, "When a job is chosen" (round 83): only orders 2 and 4 run the job choice; a computer worker
+    /// in another acquiring order (patrol, order 5) or a plain move (order 3) makes none on the way (the open
+    /// question's default) and makes it once idle at its goal.
+    #[test]
+    fn a_worker_in_another_walking_order_makes_no_job_choice_on_the_way() {
+        for out in [
+            Order::Patrol {
+                to: (30, 10),
+                back: (10, 10),
+            },
+            Order::Move {
+                goal: (30, 10),
+                target: None,
+            },
+        ] {
+            let (mut w, id) = walking_worker(out);
+            let gold = w.players[1].gold;
+            let mut n = 0;
+            while w.unit(id).unwrap().tile != (30, 10) {
+                let u = w.unit(id).unwrap();
+                assert_eq!((u.pending, w.players[1].gold), (None, gold), "{out:?}: no job choice");
+                w.step(&[]);
+                n += 1;
+                assert!(n < 400);
+            }
+        }
+    }
+
+    /// `orders/orders.md`, "Special cases" (round 83): only a computer player's workers and tankers make the job
+    /// choice in order 4; a human player's worker in order 4 makes none.
+    #[test]
+    fn a_human_players_worker_makes_no_job_choice_in_order_4() {
+        let out = Order::MoveAttack {
+            goal: (30, 10),
+            target: None,
+        };
+        let (mut w, id) = walking_worker(out);
+        w.players[1].controller = controller::HUMAN;
+        let gold = w.players[1].gold;
+        for _ in 0..60 {
             w.step(&[]);
         }
-        assert!(
-            matches!(w.unit(id).unwrap().order, Order::Build { kind: t::FARM, .. }),
-            "{:?}",
-            w.unit(id).unwrap().order
-        );
+        let u = w.unit(id).unwrap();
+        assert_eq!((u.order, u.pending, w.players[1].gold), (out, None, gold));
     }
 
     #[test]

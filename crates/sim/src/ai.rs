@@ -660,8 +660,10 @@ mod tests {
                     8995007384731277273,
                     6415993651630466809,
                     8020399964952080268,
-                    1364583539582243583,
-                    13330013266243957848
+                    // Round 83 (CP5): the losses rule's all-out attack sends the peasants off in order 4, where
+                    // they now make their job choice.
+                    3552151588493336230,
+                    8494851077243985016
                 ]
             );
         }
