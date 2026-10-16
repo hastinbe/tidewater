@@ -170,7 +170,12 @@ impl World {
                 self.convert_unit(i, k);
             }
         }
-        // 5. Counts follow the owner and the mark: nothing to do.
+        // 5. Counts follow the owner and the mark. A completed hall counted for the new owner sets its "ever had a
+        // hall" mark, as a completion does (B-040 audit, V66).
+        let u = &self.units[i];
+        if u.building && u.construction.is_none() && crate::economy::kind::is_hall(u.kind) {
+            self.players[to as usize].had_hall = true;
+        }
         // 6. The announcement.
         if announce {
             self.sound_on(i, Sound::Capture);
@@ -567,6 +572,25 @@ mod tests {
             w.step(&[]);
         }
         assert_eq!(u(&w, barracks).pending, None, "taken over at a step");
+    }
+
+    /// V66: a completed hall counted for the new owner sets its "ever had a hall" mark (so its next town hall takes the
+    /// full build time); a hall still under construction doesn't.
+    #[test]
+    fn a_rescued_completed_hall_sets_ever_had_a_hall() {
+        for (site, want) in [(false, true), (true, false)] {
+            let mut w = world();
+            let hall = put(&mut w, kind::TOWN_HALL, RESCUE, (30, 30));
+            if site {
+                let n = i(&w, hall);
+                w.units[n].construction = Some(Default::default());
+                w.players[RESCUE as usize].under_construction = 1;
+            }
+            assert!(!w.players[0].had_hall);
+            let n = i(&w, hall);
+            w.rescue_owner_change(n, 0, false);
+            assert_eq!(w.players[0].had_hall, want, "site {site}");
+        }
     }
 
     #[test]
