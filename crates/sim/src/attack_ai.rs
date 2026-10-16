@@ -2673,4 +2673,179 @@ mod tests {
         let _near2 = spawn(&mut w, FOOTMAN, 2, (6, 10));
         assert_eq!(w.enemy_search(ix(&w, g)), Some(near0));
     }
+
+    /// Pins of the army's behaviour, written before the B-038 AI refactor onto `docs/specs/ai/computer-player.md` so
+    /// that it can't change them unseen. Each pin is the whole simulation state with the queued events and sound cues,
+    /// folded over every cycle of a run ([`crate::world::tests::trail`]).
+    mod pin {
+        use super::*;
+        use crate::world::tests::trail;
+
+        /// A computer player 1 with a town hall, a farm, grunts, a peasant, a gryphon rider, a destroyer and a
+        /// transport on a strip of water, and grunts across it that need a ferry; a human player 0 with footmen and an
+        /// archer. The land, sea and air waves are set to go.
+        fn army() -> World {
+            let mut w = game();
+            water(&mut w, 30, 38);
+            for y in 0..64usize {
+                for x in 38..64usize {
+                    w.terrain.regions[y * 64 + x] = 3;
+                }
+            }
+            spawn(&mut w, TOWN_HALL, 1, (6, 6));
+            spawn(&mut w, FARM, 1, (12, 6));
+            spawn(&mut w, TOWER, 1, (6, 12));
+            for k in 0..6 {
+                spawn(&mut w, GRUNT, 1, (14 + k, 14));
+            }
+            spawn(&mut w, PEASANT, 1, (10, 12));
+            spawn(&mut w, GRYPHON, 1, (16, 18));
+            spawn(&mut w, DESTROYER, 1, (33, 20));
+            let t = spawn(&mut w, TRANSPORT, 1, (34, 10));
+            um(&mut w, t).goal.kind = GoalKind::Ferry;
+            for k in 0..3 {
+                let g = spawn(&mut w, GRUNT, 1, (20 + k, 30));
+                w.set_goal(ix(&w, g), GoalKind::Attack, Some((50, 30)));
+            }
+            for k in 0..3 {
+                spawn(&mut w, FOOTMAN, 0, (50 + k, 50));
+            }
+            spawn(&mut w, ARCHER, 0, (48, 44));
+            spawn(&mut w, TOWN_HALL, 0, (54, 54));
+            let s = &mut w.ai[1].slots;
+            (s[0x09], s[0x0d], s[0x0e]) = (1, 2, 2);
+            (s[0x0a], s[0x0f], s[0x10]) = (1, 1, 1);
+            (s[0x0b], s[0x11], s[0x12]) = (1, 1, 1);
+            s[FERRY_SEARCH] = 1;
+            w
+        }
+
+        /// The passes from the first cycle on: the threat map, the three waves, the base box, every goal kind, the
+        /// ferry and the fights that follow.
+        #[test]
+        fn the_army_through_the_passes() {
+            let mut w = army();
+            assert_eq!(trail(&mut w, 900), 17211368900741783736);
+            // Two land rounds and an air round went out; the sea wave found nobody.
+            assert_eq!(w.army.launched[1], [2, 0, 1]);
+        }
+
+        /// The losses rule and the all-out attack: a computer player with 1 to 4 farms (and, in turn, a finished oil
+        /// platform and one under construction besides) loses its farms one by one; every kill is followed for 60
+        /// cycles.
+        #[test]
+        fn the_losses_rule_and_the_all_out_attack() {
+            let mut got = Vec::new();
+            for farms in 1..=4 {
+                for platform in [None, Some(false), Some(true)] {
+                    let mut w = game();
+                    water(&mut w, 40, 48);
+                    spawn(&mut w, FOOTMAN, 0, (20, 50));
+                    spawn(&mut w, FOOTMAN, 0, (22, 50));
+                    let ids: Vec<UnitId> = (0..farms).map(|k| spawn(&mut w, FARM, 1, (2 + 3 * k, 2))).collect();
+                    if let Some(finished) = platform {
+                        let p = spawn(&mut w, PLATFORM, 1, (42, 10));
+                        if !finished {
+                            um(&mut w, p).construction = Some(crate::economy::Construction {
+                                time: 1000,
+                                ..Default::default()
+                            });
+                            w.players[1].under_construction += 1;
+                        }
+                    }
+                    let held = spawn(&mut w, GRUNT, 1, (10, 10));
+                    um(&mut w, held).held = true;
+                    spawn(&mut w, GRUNT, 1, (11, 10));
+                    spawn(&mut w, PEASANT, 1, (12, 10));
+                    spawn(&mut w, GRYPHON, 1, (13, 12));
+                    trail(&mut w, 3);
+                    for id in ids {
+                        let i = ix(&w, id);
+                        w.kill(i);
+                        let goals: Vec<GoalKind> = w.units.iter().map(|u| u.goal.kind).collect();
+                        got.push((farms, platform, format!("{goals:?}"), trail(&mut w, 60)));
+                    }
+                }
+            }
+            let got: Vec<u64> = got
+                .into_iter()
+                .map(|g| crate::world::tests::fnv_str(&format!("{g:?}")))
+                .collect();
+            assert_eq!(
+                got,
+                [
+                    2424631617755626801,
+                    14196611407334975578,
+                    10103227982612448159,
+                    3458295132864516303,
+                    15838803139453404326,
+                    4342901222586906522,
+                    7147130911661622609,
+                    18274199525250429784,
+                    8845276480115027668,
+                    17308009164176190830,
+                    5887742565789139352,
+                    16063947777523251918,
+                    206967043532489073,
+                    298884419682194172,
+                    3784269013890375650,
+                    12295531509114763294,
+                    4713082542558470721,
+                    10843555202409345603,
+                    13537642335894420149,
+                    11648727911612861186,
+                    12067366188456267816,
+                    12074107786854916335,
+                    8174484187575824922,
+                    16069198811108340846,
+                    4090484364047895247,
+                    5153442188827254612,
+                    6937000696008518128,
+                    9565637097154266481,
+                    7679297294270913037,
+                    9647746737895694719
+                ]
+            );
+        }
+
+        /// The call for help, the submarine call and the reactions: a human archer and submarine attack a computer
+        /// group with held units, a tower and a worker in it.
+        #[test]
+        fn the_call_for_help() {
+            let mut w = game();
+            water(&mut w, 30, 40);
+            for k in 0..4 {
+                spawn(&mut w, GRUNT, 1, (20 + k, 20));
+            }
+            let held = spawn(&mut w, GRUNT, 1, (20, 22));
+            um(&mut w, held).held = true;
+            let far_held = spawn(&mut w, GRUNT, 1, (14, 26));
+            um(&mut w, far_held).held = true;
+            spawn(&mut w, TOWER, 1, (18, 18));
+            spawn(&mut w, PEASANT, 1, (22, 23));
+            spawn(&mut w, DESTROYER, 1, (32, 20));
+            spawn(&mut w, SUBMARINE, 1, (35, 28));
+            spawn(&mut w, GRYPHON, 1, (26, 26));
+            spawn(&mut w, ARCHER, 0, (27, 20));
+            spawn(&mut w, SUBMARINE, 0, (33, 22));
+            spawn(&mut w, FOOTMAN, 0, (26, 21));
+            assert_eq!(trail(&mut w, 400), 6932794937898324349);
+        }
+
+        /// A unit on patrol whose logic runs at its patrol end with an enemy in its search box, for a computer and a
+        /// human owner.
+        #[test]
+        fn a_patrol_end_with_an_enemy_in_reach() {
+            let mut got = Vec::new();
+            for owner in [1u8, 0] {
+                let mut w = game();
+                let d = spawn(&mut w, FOOTMAN, owner, (20, 20));
+                spawn(&mut w, FOOTMAN, 1 - owner, (23, 20));
+                let i = ix(&w, d);
+                w.patrol(i, (20, 20), (10, 20));
+                got.push(trail(&mut w, 60));
+            }
+            assert_eq!(got, [6556014316166903840, 3483199461837403754]);
+        }
+    }
 }

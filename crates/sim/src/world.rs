@@ -1874,6 +1874,33 @@ pub(crate) mod tests {
         }
     }
 
+    fn fnv(h: u64, bytes: &[u8]) -> u64 {
+        bytes
+            .iter()
+            .fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
+    }
+
+    /// For pin tests: a text as one number.
+    pub(crate) fn fnv_str(s: &str) -> u64 {
+        fnv(0xcbf2_9ce4_8422_2325, s.as_bytes())
+    }
+
+    /// For pin tests: the whole simulation state ([`World::fingerprint`]) with the queued events and sound cues, as
+    /// one number.
+    pub(crate) fn pinned(w: &World) -> u64 {
+        fnv_str(&format!("{}|{:?}|{:?}", w.fingerprint(), w.events, w.sounds.cues))
+    }
+
+    /// For pin tests: steps `n` cycles, folding [`pinned`] of every cycle.
+    pub(crate) fn trail(w: &mut World, n: u32) -> u64 {
+        let mut h = 0xcbf2_9ce4_8422_2325;
+        for _ in 0..n {
+            w.step(&[]);
+            h = fnv(h, &pinned(w).to_le_bytes());
+        }
+        h
+    }
+
     /// Animation-scripts spec, "Facing a tile", test vectors.
     #[test]
     fn facing_a_tile() {

@@ -420,4 +420,156 @@ mod tests {
         let w = computer(&[1, (START & 0xff) as u8, (START >> 8) as u8]);
         assert_eq!(w.ai[0].pos, None);
     }
+
+    /// Pins of the whole computer player, written before the B-038 AI refactor onto `docs/specs/ai/computer-player.md`
+    /// so that it can't change them unseen: the whole simulation state with the queued events and sound cues, folded
+    /// over every cycle of a run ([`crate::world::tests::trail`]).
+    mod pin {
+        use super::*;
+        use crate::world::tests::{field, trail};
+        use tidewater_formats::udta::UnitStats;
+
+        const FOOTMAN: u8 = 0x00;
+        const GRUNT: u8 = 0x01;
+        const PEASANT: u8 = 0x02;
+        const FARM: u8 = 0x3a;
+        const BARRACKS: u8 = 0x3c;
+        const HALL: u8 = 0x4a;
+        const MINE: u8 = 0x5c;
+
+        /// The script file: script 0 sets wanted counts and the land wave's size, then loops: wait until the land
+        /// army is big enough, trigger the land wave, wait 150. Its build list is farm, barracks, farm; its second
+        /// list gives every building type interval 1.
+        fn script() -> Arc<AiFile> {
+            let mut d = vec![0u8; 256];
+            d[0..2].copy_from_slice(&256u16.to_le_bytes());
+            d.extend(384u16.to_le_bytes());
+            d.extend(416u16.to_le_bytes());
+            for (slot, v) in [(0x13, 5), (0x14, 3), (0x15, 2), (0x0d, 2), (0x0e, 1)] {
+                d.extend([0, slot, v]);
+            }
+            let again = d.len() as u16;
+            d.extend([3, 4]);
+            d.extend([0, 0x09, 1]);
+            d.extend([2, 150, 0, 0, 0]);
+            d.push(1);
+            d.extend(again.to_le_bytes());
+            d.resize(384, 0);
+            d.extend([FARM, BARRACKS, FARM, 0xff]);
+            d.resize(416, 0xff);
+            for _ in 0x3a..0x6a {
+                d.extend(1u16.to_le_bytes());
+            }
+            Arc::new(AiFile::parse(d).unwrap())
+        }
+
+        /// A 64 x 64 field: computer player 1 with a town hall, a barracks, 3 peasants and a gold mine nearby;
+        /// human player 0 with footmen and a town hall far away.
+        fn town() -> World {
+            let mut w = field(64, 64);
+            for (i, p) in w.players.iter_mut().enumerate() {
+                p.controller = match i {
+                    0 => controller::HUMAN,
+                    1 => controller::COMPUTER,
+                    _ => controller::NOBODY,
+                };
+                p.ai_script = if i == 1 { 0 } else { 0xff };
+            }
+            let unit = |hp, f| UnitStats {
+                hit_points: hp,
+                size: (1, 1),
+                flags: f,
+                gold: 100,
+                build_time: 20,
+                basic_damage: 6,
+                piercing_damage: 3,
+                attack_range: 1,
+                missile: crate::combat::missile::NONE,
+                can_target: 1,
+                react_range_computer: 6,
+                react_range_human: 4,
+                sight: 5,
+                ..Default::default()
+            };
+            let building = |hp, size, f| UnitStats {
+                hit_points: hp,
+                size: (size, size),
+                flags: flags::BUILDING | f,
+                gold: 300,
+                lumber: 100,
+                build_time: 30,
+                sight: 3,
+                ..Default::default()
+            };
+            let s = &mut w.stats.0;
+            s[FOOTMAN as usize] = unit(60, flags::LAND | flags::CAN_ATTACK);
+            s[GRUNT as usize] = unit(60, flags::LAND | flags::CAN_ATTACK);
+            s[PEASANT as usize] = unit(30, flags::LAND | flags::PEON);
+            s[PEASANT as usize + 1] = unit(30, flags::LAND | flags::PEON);
+            s[FARM as usize] = building(400, 2, 0);
+            s[FARM as usize + 1] = building(400, 2, 0);
+            s[BARRACKS as usize] = building(800, 3, 0);
+            s[HALL as usize] = building(1200, 4, flags::GOLD_STORAGE | flags::WOOD_STORAGE);
+            s[MINE as usize] = building(25500, 3, flags::MINE);
+            let p = &mut w.players[1];
+            (p.gold, p.lumber) = (5000, 5000);
+            p.units_allowed = !0;
+            p.had_hall = true;
+            w.spawn(HALL, 1, (10, 10), 0).unwrap();
+            w.spawn(BARRACKS, 1, (4, 18), 0).unwrap();
+            w.spawn(MINE, crate::slots::NEUTRAL, (20, 10), 20_000).unwrap();
+            for k in 0..3 {
+                w.spawn(PEASANT, 1, (9 + k, 15), 0).unwrap();
+            }
+            w.spawn(HALL, 0, (54, 54), 0).unwrap();
+            for k in 0..3 {
+                w.spawn(FOOTMAN, 0, (48 + k, 50), 0).unwrap();
+            }
+            w.start_ai(script());
+            w
+        }
+
+        /// Script steps, the 50-cycle passes, the job choice, the building thinks and a land wave together.
+        #[test]
+        fn the_whole_computer_player() {
+            let mut w = town();
+            assert_eq!(trail(&mut w, 2500), 13994675436103515113);
+            // The run did what it is for: the build list was built, workers and footmen were trained and mine, and
+            // land waves went out.
+            let kinds: Vec<u8> = w.units.iter().filter(|u| u.owner == 1).map(|u| u.kind).collect();
+            assert_eq!(kinds, [0, 58, 0, 2, 2, 58, 58, 2, 2, 2, 60, 74]);
+            assert_eq!(
+                (w.ai[1].done, w.ai[1].miners, w.army.launched[1]),
+                (0b111, 5, [7, 0, 0])
+            );
+        }
+
+        /// The same town under attack: a footman goes for the peasants at the mine, and then the player's buildings
+        /// are destroyed one by one, every 150 cycles (done marks cleared, rebuilding, the losses rule).
+        #[test]
+        fn the_computer_player_under_attack() {
+            let mut w = town();
+            w.spawn(FOOTMAN, 0, (17, 12), 0).unwrap();
+            let mut got = vec![trail(&mut w, 600)];
+            while let Some(i) = w.units.iter().position(|u| u.owner == 1 && u.building && !u.dying) {
+                w.kill(i);
+                got.push(trail(&mut w, 150));
+            }
+            assert_eq!(
+                got,
+                [
+                    9144060411853901822,
+                    7881265644558628602,
+                    9758650483402721024,
+                    1563788177598765398,
+                    15424032157577864050,
+                    8995007384731277273,
+                    6415993651630466809,
+                    15103381635520159131,
+                    4603756770935705666,
+                    5889125850716694836
+                ]
+            );
+        }
+    }
 }
