@@ -274,8 +274,10 @@ fn flow() -> Vec<Cmd> {
     v.extend([Wait(5), Press(K::ControlLeft), Wait(1)]);
     v.extend(tap(K::Letter('R')));
     v.extend([Release(K::ControlLeft), Wait(3), Shot("restart-confirm")]);
+    // Restart fades all sound first with the game's picture kept and the game stopped (about 536 ms), then the
+    // mission starts again.
     v.extend(tap(K::Enter));
-    v.extend([Wait(30), Shot("restarted")]);
+    v.extend([Wait(10), Shot("restart-fading"), Wait(50), Shot("restarted")]);
     v.extend(chat("tigerlily"));
     v.extend(chat("human2"));
     v.extend([Wait(30), Shot("chosen-mission")]);

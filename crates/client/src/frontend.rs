@@ -11,8 +11,8 @@
 //! other screen. The main menu fades out when it leaves the menus, and the credits fade in and out
 //! (`ui/palette-effects.md`, "Screen fades": 200 ms and 100 ms), like the title and act screens. Choosing a campaign,
 //! the briefing's close, the score screen's close and the main menu leaving the menus fade all sound first, then the
-//! screen (`campaign::SoundThenBlack`); quitting a game to the main menu fades all sound over the game's picture
-//! ([`run_quit`]), and the main menu starts track 22 once it has faded in (`ui/music.md`). The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
+//! screen (`campaign::SoundThenBlack`); quitting a game to the main menu or restarting it fades all sound over the
+//! game's picture ([`run_quit`]), and the main menu starts track 22 once it has faded in (`ui/music.md`). The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
 //! `campaign::MenuTimer`, one for every screen), and their fades block it; fades run on real time.
 //!
 //! Entry points other screens reuse: [`restart`] (the game menu's restart: back to "Starting a mission"),
@@ -311,16 +311,35 @@ pub fn to_main_menu(flow: &mut Flow) {
     flow.steps.push_back(Step::MainMenu);
 }
 
-/// A frame of leaving a game for the main menu (music spec, "Leaving a game for the main menu"; the game menu's Quit
-/// to Menu and Ctrl+Q's confirmation start it): the fade of all sound blocks with the game's picture kept and the game
-/// stopped (`core::game_running`); once it has ended, the game's track is closed and the main menu follows. The game
-/// end's second fade of all sound has nothing left to fade, and the main menu fades in in silence, then starts track
-/// 22 from its start.
+/// Where a game being left goes once its fade of all sound has ended ([`run_quit`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Leave {
+    /// Quit to Menu (and Ctrl+Q's confirmation): the main menu.
+    Menu,
+    /// Restart Scenario (the end menu's, and Ctrl+R's confirmation): the mission again ([`restart`]).
+    Restart,
+}
+
+/// The flow's next steps for a game left for `leave`.
+pub(crate) fn leave_flow(flow: &mut Flow, leave: Leave) {
+    match leave {
+        Leave::Menu => to_main_menu(flow),
+        Leave::Restart => restart(flow),
+    }
+}
+
+/// A frame of leaving a game (music spec, "Leaving a game for the main menu", and the "Restart Scenario" row of "Where
+/// music fades out"; the game menu's Quit to Menu, Restart and their keys' confirmations start it): the fade of all
+/// sound blocks with the game's picture kept and the game stopped (`core::game_running`); once it has ended, the
+/// game's track is closed and the main menu or the restarted mission follows. The game end's second fade of all sound
+/// has nothing left to fade. The main menu fades in in silence, then starts track 22 from its start; a restart's
+/// briefing starts its own track from its start, as none is open. The restart's 1 ms fade to black ends within the
+/// frame the game ends on, so no frame shows it: the next screen opens from black.
 pub(crate) fn run_quit(c: &mut Core) {
     if c.jukebox.music().fading() {
         return;
     }
-    c.quitting = false;
+    let Some(leave) = c.quitting.take() else { return };
     let Core {
         flow,
         front,
@@ -329,7 +348,7 @@ pub(crate) fn run_quit(c: &mut Core) {
         input,
         ..
     } = c;
-    to_main_menu(flow);
+    leave_flow(flow, leave);
     go_on(flow, front, &input.keys, next, exit);
 }
 
@@ -2827,6 +2846,18 @@ mod tests {
         assert_eq!(f.total.total, 500);
         assert_eq!(f.steps, [Step::Mission(6)]);
         to_main_menu(&mut f);
+        assert_eq!(f.steps, [Step::MainMenu]);
+    }
+
+    #[test]
+    fn a_game_left_for_a_restart_replays_the_mission_and_one_left_for_the_menu_goes_there() {
+        // Music spec, "Where music fades out" (round 75): Restart Scenario fades all sound first, as Quit to Menu
+        // does; once the fade has ended the flow goes back to starting the mission, or to the main menu.
+        let mut f = flow(&[]);
+        f.game = Some(GameKind::Campaign(6));
+        leave_flow(&mut f, Leave::Restart);
+        assert_eq!(f.steps, [Step::Mission(6)]);
+        leave_flow(&mut f, Leave::Menu);
         assert_eq!(f.steps, [Step::MainMenu]);
     }
 

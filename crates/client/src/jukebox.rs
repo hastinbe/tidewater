@@ -389,10 +389,15 @@ mod tests {
         assert_eq!(visits[2].last, Some(22));
         assert_eq!((visits[3].first, visits[3].last), (Some(22), Some(22)));
         assert!(visits[3].started.is_empty(), "22 isn't restarted");
-        // The restart's briefing starts while the game's track plays, so the briefing keeps it ("only if not
-        // playing"), and its close fades it; each game starts its own track.
+        // Restart Scenario fades the game's track out first (round 75), so the restart's briefing starts its own
+        // track (21, the orc briefing's) from its start; each game starts its own track.
         assert_eq!(game_tracks(&visits), [vec![7], vec![7], vec![1]]);
-        assert_eq!(visits[8].started, Vec::<u8>::new());
+        assert_eq!(visits[7].last, None, "the game's track has closed when the game ends");
+        assert_eq!(
+            visits[8].started,
+            [21],
+            "the restart's briefing starts its track from its start"
+        );
         quit_to_menu_restarts_22(&visits);
         assert_eq!(visits[10].started, [22]);
         // The end menu's Quit to Main Menu is the same path as Ctrl+Q; the campaign after it fades 22 out.

@@ -13,7 +13,8 @@
 //!   the game stays stopped while they are open. Load stays in the menu: this client has no network session. The
 //!   victory dialog's Save opens the same dialog over it ([`open_from_outcome`]); a save there ends the game as
 //!   Continue does, and Cancel shows the victory dialog again.
-//! - Restart rebuilds the mission through the flow (`frontend::restart`). Surrender sets the local player's result to
+//! - Restart fades all sound first, as Quit to Menu does, then rebuilds the mission through the flow
+//!   (`frontend::run_quit`, `frontend::restart`). Surrender sets the local player's result to
 //!   defeat and closes the menus: the defeat dialog and score screen follow from the outcome dialog as for any defeat.
 //! - Quit to menu, Return to chat and Load custom scenario all go to the main menu (the client has no chat room or
 //!   custom-game screen yet). Exit ends the program.
@@ -849,7 +850,6 @@ pub(crate) fn run_menu(c: &mut Core) {
         pictures,
         front_screen: cam,
         store: folder,
-        states: next,
         exit,
         input,
         jukebox,
@@ -1025,28 +1025,28 @@ pub(crate) fn run_menu(c: &mut Core) {
             m.nav.close();
             close(commands);
             match c {
-                Confirm::Restart => frontend::restart(flow),
+                // Music spec, "Where music fades out", Restart Scenario (round 75): the game stops and a fade of all
+                // sound of its track runs first; the mission starts again once it has ended (`frontend::run_quit`),
+                // so the briefing starts its own track from its start.
+                Confirm::Restart => {
+                    jukebox.fade_stop(true, None);
+                    *quitting = Some(frontend::Leave::Restart);
+                }
                 Confirm::Surrender | Confirm::QuitDraw => {
                     // The local player is defeated; the defeat dialog and score screen follow.
                     let h = sim.human as usize;
                     sim.world.players[h].result = Some(Outcome::Defeat);
                     sim.world.victory.over = true;
-                    return;
                 }
                 // Music spec, "Leaving a game for the main menu": the game stops and a fade of all sound runs with the
                 // game's picture kept; the main menu follows once it has ended (`frontend::run_quit`). Ours: Load
                 // Another Scenario and Return to Chat Room go to the main menu too, the same way.
                 Confirm::LoadCustom | Confirm::ReturnToChat | Confirm::QuitToMenu => {
                     jukebox.fade_stop(true, None);
-                    *quitting = true;
-                    return;
+                    *quitting = Some(frontend::Leave::Menu);
                 }
-                Confirm::Exit => {
-                    *exit = true;
-                    return;
-                }
+                Confirm::Exit => *exit = true,
             }
-            frontend::go_on(flow, front, keys, next, exit);
         }
     }
 }
