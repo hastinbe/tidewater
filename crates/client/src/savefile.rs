@@ -34,8 +34,9 @@ pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// collapsed mine or platform has no target (round-54 errata). Version 8: an effect keeps its shooter's unit slot
 /// after the slot is released (round-56 errata). Version 9: a move (order 3) may keep a target unit (round-62 errata,
 /// "Smart move"). Version 10: order 18 keeps its pulled-back goal beside the target tile (round-68 errata).
-/// Version 11: a building's job keeps its to-be-cancelled mark (round 76, "Cancelling a job").
-pub const VERSION: u16 = 11;
+/// Version 11: a building's job keeps its to-be-cancelled mark (round 76, "Cancelling a job"). Version 12: order 22
+/// may have no target, for a builder let out of a cancelled site (round 77, "Cancelling construction").
+pub const VERSION: u16 = 12;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").

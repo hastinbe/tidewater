@@ -270,7 +270,7 @@ impl World {
         u.tile = site;
         u.pos = (site.0 * TILE_PX, site.1 * TILE_PX);
         u.path.clear();
-        u.order = Order::InsideSite { building: b };
+        u.order = Order::InsideSite { building: Some(b) };
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = ENTER_SITE_WAIT;
     }
@@ -356,7 +356,7 @@ impl World {
     /// The builders inside building `id` (order 22), in slot order.
     fn builders_inside(&self, id: UnitId) -> Vec<usize> {
         (0..self.units.len())
-            .filter(|&k| self.units[k].order == Order::InsideSite { building: id })
+            .filter(|&k| self.units[k].order == Order::InsideSite { building: Some(id) })
             .collect()
     }
 
@@ -404,33 +404,46 @@ impl World {
         }
     }
 
-    /// A take-down lets every builder inside building `bi` out at once ("Cancelling construction", step 2).
+    /// A take-down lets every builder inside building `bi` out at once, in the command turn ("Cancelling
+    /// construction", step 2), its target cleared first.
     fn let_out_builders(&mut self, bi: usize) {
         let b = self.units[bi].clone();
         for k in self.builders_inside(b.id) {
+            self.units[k].order = Order::InsideSite { building: None };
             self.let_out_builder(k, &b);
         }
     }
 
-    /// "Letting a unit out" for builder `k` of building `b`: on the tile of [`World::exit_tile`], facing the building
-    /// and idle at once (still animation, wait 1); with no tile, it dies.
+    /// "Letting a unit out" for builder `k` of building `b`: on the tile of [`World::exit_tile`], in the still
+    /// animation with wait 1; with no tile, it dies.
+    ///
+    /// At completion ("Completion", round-39 errata) the builder faces the building, B its top-left tile + (1, 1), and
+    /// is idle at once. At a take-down ("Cancelling construction", round 77, V54 and V55: `human06-cancel-site-600`)
+    /// its target has been cleared, so it faces its target tile, the top-left tile itself, and stays in order 22 with
+    /// no target and idle pending, which takes over at its next update (wait 3).
     fn let_out_builder(&mut self, k: usize, b: &crate::world::Unit) {
         let Some(to) = self.exit_tile(b, self.units[k].kind) else {
             return self.kill(k);
         };
+        let cancelled = self.units[k].order == Order::InsideSite { building: None };
         let u = &mut self.units[k];
         u.tile = to;
         u.pos = (to.0 * TILE_PX, to.1 * TILE_PX);
         u.inside = false;
-        u.order = Order::Idle;
         u.pending = None;
-        // "Completion" (round-39 errata): the builder faces the building, B its top-left tile + (1, 1). Only
-        // completion is traced; the open question "Exit facing on cancel" defaults to the same on a take-down.
-        u.facing = face_tile(to, (b.tile.0 + 1, b.tile.1 + 1));
+        if cancelled {
+            u.facing = face_tile(to, b.tile);
+        } else {
+            u.order = Order::Idle;
+            u.facing = face_tile(to, (b.tile.0 + 1, b.tile.1 + 1));
+        }
         let unit = self.units[k].clone();
         self.mark(&unit, to, Some(unit.id));
         self.start_anim(k, anim::STILL);
         self.units[k].script.wait = 1;
+        if cancelled {
+            self.pending_idle(k);
+        }
         self.apply_unit_sight(k);
     }
 
@@ -526,7 +539,7 @@ mod tests {
             }
         }
         let farm = farm_at(&w, (8, 8)).expect("placed");
-        assert_eq!(w.unit(p).unwrap().order, Order::InsideSite { building: farm });
+        assert_eq!(w.unit(p).unwrap().order, Order::InsideSite { building: Some(farm) });
         assert_eq!((w.players[0].gold, w.players[0].lumber), (500, 750));
         assert_eq!(w.occupant(crate::Layer::Land, 8, 8), Some(farm));
         run(&mut w, 12 * 3 + 2);
@@ -978,11 +991,33 @@ mod tests {
             }
         }
         let farm = farm_at(&w, (8, 8)).unwrap();
-        w.step(&[Command::Cancel { player: 0, unit: farm }]);
+        // The command as carried out in the command turn, before the cycle's updates.
+        let fi = w.index(farm).unwrap();
+        w.cancel(fi, false);
+        // "Cancelling construction" (round 77, V54: `human06-cancel-site-600` peasant 1586, turn record n = 122): let
+        // out at once west of the top-left tile, facing E (2) toward that tile itself, still in order 22 with no
+        // target, wait 1, and idle pending.
         let u = w.unit(p).unwrap();
-        assert!(!u.inside && u.order == Order::Idle);
-        // The open question's default: it faces the building as at completion.
-        assert_eq!((u.tile, u.facing), ((7, 8), 3));
+        assert!(!u.inside);
+        assert_eq!((u.tile, u.facing), ((7, 8), 2));
+        assert_eq!(
+            (u.order, u.order.target(), u.script.wait),
+            (Order::InsideSite { building: None }, None, 1)
+        );
+        assert_eq!(u.pending, Some(Order::Idle));
+        assert!(w.unit(farm).unwrap().dying);
+        // V54, n = 123: idle takes over at its next update (still animation, wait 3).
+        w.step(&[]);
+        let u = w.unit(p).unwrap();
+        assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+    }
+
+    /// V55: a 3 x 3 site's builder, let out west of the top-left tile, faces that tile (E), not top-left + (1, 1).
+    #[test]
+    fn a_cancelled_site_builder_faces_its_top_left_tile() {
+        let (exit, tl) = ((84, 1), (85, 1));
+        assert_eq!(face_tile(exit, tl), 2);
+        assert_ne!(face_tile(exit, (tl.0 + 1, tl.1 + 1)), 2);
     }
 
     /// Build-train spec, "A building killed" (round 76, V50: `human06-site-kill-800` peasant 1586, n = 416): a builder
@@ -1269,7 +1304,7 @@ mod tests {
                 assert!(!w.unit(p).unwrap().inside);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [11881560567683495458, 141074880140374115]);
+            assert_eq!(got, [5801494496032385366, 5398600514183233235]);
         }
 
         #[test]
@@ -1281,7 +1316,7 @@ mod tests {
             w.step(&[Command::Cancel { player: 0, unit: farm }]);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 9582423410283250313);
+            assert_eq!(pinned(&w), 13010360796656820586);
         }
 
         #[test]

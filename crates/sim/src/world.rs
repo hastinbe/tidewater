@@ -144,7 +144,9 @@ pub enum Order {
         goal: Option<(i32, i32)>,
     },
     /// 22: a worker inside the building it is constructing.
-    InsideSite { building: UnitId },
+    /// The building is `None` for a builder let out of a cancelled site, whose target was cleared and whose pending idle
+    /// has yet to take over (build-train spec, "Cancelling construction", V54).
+    InsideSite { building: Option<UnitId> },
     /// Orders 38 to 56: casting `spell` (the order number) at a unit or, for the point spells, at `tile` (spells spec).
     Cast {
         spell: u8,
@@ -171,7 +173,8 @@ impl Order {
             | Order::Move { target, .. } => target,
             Order::Harvest { source, .. } => source,
             Order::ReturnGoods { depot } => depot,
-            Order::Enter { building, .. } | Order::InsideSite { building } => Some(building),
+            Order::Enter { building, .. } => Some(building),
+            Order::InsideSite { building } => building,
             Order::Inside { building } => building,
             Order::Demolish { at, .. } => at,
             Order::Board { transport } | Order::Aboard { transport } => Some(transport),

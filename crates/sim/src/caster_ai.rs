@@ -400,7 +400,8 @@ impl World {
             Order::TowerWatch { target } => target,
             Order::Harvest { source, .. } => source,
             Order::ReturnGoods { depot } => depot,
-            Order::Enter { building, .. } | Order::InsideSite { building } => Some(building),
+            Order::Enter { building, .. } => Some(building),
+            Order::InsideSite { building } => building,
             Order::Inside { building } => building,
             Order::Board { transport } | Order::Aboard { transport } => Some(transport),
             Order::Demolish { at, .. } => at,
@@ -1225,7 +1226,9 @@ mod tests {
         let c = caster(&mut w, PALADIN, (20, 20), 30);
         let f = put(&mut w, FOOTMAN, 1, (21, 21));
         um(&mut w, f).hp = 1;
-        um(&mut w, c).order = Order::InsideSite { building: UnitId(999) };
+        um(&mut w, c).order = Order::InsideSite {
+            building: Some(UnitId(999)),
+        };
         assert_eq!(cast_step(&mut w, c), (true, 0));
         assert_eq!(at(&w, c).pending, None);
         assert_eq!(at(&w, f).marks, mark::HEALING);
