@@ -12,6 +12,9 @@
   direction to the target and the current facing; `orc09-naval` and `human12-7000` vectors.
   2026-10-13, round-56 errata: the strike does nothing while a command given to the unit is waiting to take over;
   `orc14-25000` vector.
+- **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed; change C1,
+  traced): the hasted attack loop is the script's loop, not the rate of fire: a hasted unit that isn't a flyer is held
+  to its attack cooldown (`combat/damage.md`, "Attack timing (cooldown)").
 
 ## Behaviour
 
@@ -179,7 +182,9 @@ All cycle counts are at normal speed.
 - **Move loop** is the cycles from one "step done" signal to the next, and **Distance** is how far that loop moves.
 - **Attack loop** is the cycles between strikes. **Strike** is the cycle of the first strike, counting the first
   cycle of the animation as 1.
-- **Haste** and **slow** columns give the move loop, then the attack loop.
+- **Haste** and **slow** columns give the move loop, then the attack loop. The hasted attack loop is the script's
+  loop only: the attack cooldown, which haste doesn't change, holds a hasted unit that isn't a flyer to one strike every
+  attack loop + 1 cycles (`combat/damage.md`, "Attack timing (cooldown)"; traced, `xorc01-death-knight-2100`).
 
 | Unit types | Move loop | Distance | Haste | Slow | Attack loop | Strike |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -12,6 +12,8 @@
 - **Changes:** 2026-10-14, round-68 errata: order 18 stores the target tile pulled back as its goal and has two
   arrival tests; its switch to order 17 is a command that takes over in the same update (wait 3, no strike in that
   update); order 17 out of range with no route traced; `orc9-orc09-ground-move-goals-1100` vectors (Enhanced).
+- **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed): this spec
+  is one of the combat set; `combat/damage.md`, "The model", places the blast as the fourth delivery. No rule change.
 
 ## Behaviour
 
@@ -25,6 +27,7 @@ in other specs; this spec gives the missing rules and points to the rest:
 | Order numbers, animations, radii | `orders/orders.md`, "The order list" |
 | How the unit walks and when it counts as arrived | `movement/movement.md`, "Arriving" |
 | The missile fired at a tile and its splash | `combat/damage.md` |
+| How every attack, the blast included, delivers and applies damage | `combat/damage.md`, "The model" |
 | What the blast does to rock, forest and walls | `movement/occupancy.md`, "Rock" |
 | Sounds | `ui/sounds.md` |
 | The command 17 rule, the blast's damage to units, attack ground's order logic | this spec |
@@ -175,7 +178,7 @@ own tile. In this order:
 ## Open questions
 
 - **Order 17 when movement gives up.** A unit that can't reach range under order 17 gives up through the movement
-  rules (`movement/movement.md`, "Blocked") and goes idle. Running its logic out of range with no route is traced
+  rules (`movement/movement.md`, "Blocked rules") and goes idle. Running its logic out of range with no route is traced
   (round 68, `orc9-orc09-ground-move-goals-1100` n = 882): idle at once. Whether the idle logic runs in that update and
   whether a remembered order is resumed aren't separated there (a catapult makes no look-around draw and found nothing
   to acquire); static study only.

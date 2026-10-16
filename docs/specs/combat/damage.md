@@ -1,9 +1,18 @@
 # Combat: damage, armour, attack timing and missiles
 
-- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
+- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11; round-78 consolidation reviewed by a
+  spec-review session, 2026-10-16). The text before the consolidation is at tidewater-docs `b19dbc8`; the changes are
+  listed in `specs/ERRATA-combat-consolidation.md`.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), unit statistics from
-  `unitdata.dat` and the PUD `UDTA` layout (`pudspec.txt`), and attack timing measured from `Rez\script.bin`. Not yet
-  confirmed against the running game.
+  `unitdata.dat` and the PUD `UDTA` layout (`pudspec.txt`), attack timing measured from `Rez\script.bin`, and Enhanced
+  oracle traces named at each rule and vector. Each subsection ends with an **Evidence** line: *traced* (an oracle
+  trace, named), *static study* (the program, not yet seen running), *game data* (the shipped data files) or
+  *observed* (the running game watched by a person).
+- **Rules mode:** every rule here is Enhanced, from Enhanced traces or static study; none is labelled Classic mode.
+  The parts of combat that differ between the rule sets live in other specs and are labelled there: which units a
+  player detects (`core/timing-and-rng.md`; it decides what a killer forgets), the shared-vision set of the strike
+  reveal (`vision/fog.md`), the number of effect slots (`core/unit-slots.md`; it decides when a shot finds no free
+  slot) and Classic attack-move (`orders/orders.md`).
 - **Changes:** 2026-10-11, round-2 errata: wall damage advances one stage per counter overflow; target-acquisition
   distance measure added; demolition blast terrain effects now in `movement/occupancy.md`.
   2026-10-11, round-3 errata: the 7 × 7 splash scan order is row by row from the top, left to right, with a tile's
@@ -60,12 +69,53 @@
   hit makes, so a death explosion never reuses its slot; `xorc11-16000` vector.
 - **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`): the
   job-cancel reference points at "A building killed" in `economy/build-train.md` (section renamed; no rule change).
+- **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed): the
+  combat rules are one model ("The model"), with the attack cycle before the four deliveries and one apply-damage and
+  kill step; vectors get stable IDs V01 to V85 (text unchanged) and V86 to V92 are added. **One change of meaning
+  (C1, traced):** haste doesn't change the attack cooldown, so a hasted unit strikes every attack loop + 1 cycles, not
+  every hasted loop (`xorc01-death-knight-2100`, V86, V87). Static statements made explicit: a melee strike with no
+  target unit damages the wall at its target tile; no range test at the strike point; tower shots; slow and the
+  cooldown; kill credit. Six old open questions answered, two new ones (a melee strike at a target that is gone or
+  inside; kill credit for an ally's kill).
 
 ## Behaviour
 
 All quantities below are integers. "Draw" means one output `r` (0 to 32767) of the simulation generator in
 `specs/core/timing-and-rng.md`. Unit statistics are the per-type `UDTA` values: basic damage, piercing damage, armour,
 attack range, weapons upgradable, armour upgradable, missile weapon, and flags.
+
+### The model
+
+Every attack, by a unit, a tower or a demolisher, goes through the same chain:
+
+1. **Attack values.** The attacker's basic and piercing damage and the target's armour, from the unit data and the
+   owners' upgrades ("Effective attack values"), give either a rolled damage ("Damage roll") or the attacker's maximum
+   damage (for splash missiles).
+2. **The attack cycle.** The order's logic decides to strike: it runs the cooldown test, the target checks and the
+   range test, then turns the unit and starts its cooldown (`orders/orders.md`, "Attack orders"; here, "Attack timing
+   (cooldown)"). The strike itself happens later, at the **strike point** of the attack script ("How an attack
+   delivers damage"). Towers are the exception: they decide and shoot in one logic run ("Towers").
+3. **One of four deliveries** carries the damage to its target:
+   - a **melee blow**, applied at once at the strike point;
+   - a **missile** that carries rolled damage to one unit (or a wall) at its impact ("Missile flight");
+   - a **splash** at a splash missile's impact, or along a gryphon hammer's or dragon breath's path, that rolls damage
+     for each unit near the point ("Splash on impact");
+   - a **demolition blast**, a flat 200 (twice) to the 8 neighbours (`combat/attack-ground-demolish.md`, "The blast").
+4. **Applying damage.** Every delivery, and the spell damage of `spells/spells.md`, ends in the same step: checks,
+   the notification, then either HP lowered or a **kill** ("Applying damage", "A kill").
+5. **After the kill.** The victim's death (order, sound, explosion, units inside, slot) is in `core/unit-slots.md`,
+   "Death, corpses and release"; what it leaves behind is in `core/corpses.md`; its score in `game/campaign-flow.md`,
+   "Mission score"; what the player sees and hears is gathered in "What the player sees and hears" below.
+
+The combat rules are in this small set of specs:
+
+| Spec | What it holds |
+| --- | --- |
+| `combat/damage.md` (this spec) | The model; attack values; the attack cycle and cooldown; strikes, missiles and splash; applying damage and the kill; towers; reach and range |
+| `combat/attack-ground-demolish.md` | Orders 17 and 18 (attack ground) and 20 and 21 (demolish), and the blast |
+| `core/corpses.md` | Corpses, wrecks and ruins |
+| `orders/orders.md` | The attack orders' step table, order 11, orders 14 to 16, friendly fire, losing the target and **target acquisition** (not repeated here) |
+| `core/unit-slots.md` | The victim's state at and after its death, and slot release |
 
 ### Effective attack values
 
@@ -101,6 +151,12 @@ A target's **armour** is its type's armour, plus an upgrade bonus if the type's 
 
 Upgrade levels are counted per player as 0, 1 or 2.
 
+The **maximum damage** of an attacker is its basic plus piercing damage as above (upgrades, bloodlust, the cheat),
+capped at 255. Splash missiles carry it ("How an attack delivers damage").
+
+**Evidence:** game data (the unit statistics and upgrade amounts); static study (the bonus rows, bloodlust); traced for
+the cheat (`human2-human02-all-out-4000`, V78). The maximum-damage sentence restates the splash-missile rule below.
+
 ### Damage roll
 
 This is used for a melee hit and for a non-splash missile. Let B be the attacker's basic damage, P its piercing damage
@@ -114,44 +170,93 @@ and A the target's armour.
 So the damage is spread evenly from roughly half of T up to T (`h` to `2h`). There is no minimum of 1: a unit with no
 piercing damage hitting armour equal to or above its basic damage does 0.
 
-### Applying damage
+**Evidence:** static study; traced: the stored damage of `xhuman4-7000` (V17) and the draw and result of
+`human2-human02-all-out-4000` (V78).
 
-When damage D from an attacker reaches a target:
+### Attack timing (cooldown)
 
-- Nothing happens if the target is already dying or has been removed.
-- **Dark Portal special case:** in a single-player campaign game (not a network game, not a custom scenario) on
-  campaign entries 32, 34 and 50 (`game/victory.md`, "Mission rules"), a hit on a type 0x65 (Dark Portal) does
-  nothing, not even the notification, unless the attacker is type 0x18 (Khadgar). These are *Beyond the Dark Portal*
-  human missions 3, 4 and 12 (`2XHum03`, `2XHum04`, `2XHum12`), each of which places one neutral Dark Portal. The
-  portals placed by `2XOrc12` and `Human14` aren't protected.
-- Nothing happens if the target has the used mark (`core/corpses.md`), for example a passenger inside a transport.
-- Otherwise the target is first **notified that it was attacked**, even if D is 0 (`ai/attack-ai.md`, "Call for
-  help": which attacker is recorded, and who comes to help). The under-attack alert is a separate step
-  (`ui/sounds.md`, "Ready, work complete and under attack").
-- If the target's unholy-armour timer is running, or D is 0, it takes no damage.
-- If the target's HP ≤ D, it dies and the kill is credited to the attacker's owner. Its HP is **not** lowered: it keeps
-  its HP from before the blow, and its recorded target, through the death animation. A target it forgot after a kill of
-  its own stays forgotten: a unit that killed its target and has had no new target since dies with no target, even
-  though its order was still the attack order (traced: `xhuman12-10000`, `xhuman8-10000`, vectors below). Then, if the
-  attacker is a unit (not a building), it checks **its own** records, whichever units they are, whatever the attacker's
-  own state (a shooter that is itself dying or dead, its missile still in flight, makes the check too and reports no
-  target from then on; traced: `human13-subs-2000`, vectors below): it at once forgets its target (the unit it is
-  attacking for its command) if that unit is now dying, gone or not detected by the attacker's player, and likewise
-  forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's order doesn't change in
-  that step. The victim is dying by then, so it is always forgotten when it is the target or the attacker. This applies
-  to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other than the target, even one
-  of the shooter's own, after which a target that is dying from someone else's kill is forgotten too (traced:
-  `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched; each forgets it on its
-  own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its
-  **attacker**; every other unit that recorded the victim as its attacker keeps that record while the victim is dying
-  (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a tower) makes none of these
-  checks and keeps both its records (static study). If the victim is a building with a job running, the job is cancelled
-  at the kill, with its refund (`economy/build-train.md`, "A building killed"). Otherwise the target's HP
-  drops by D.
+Each unit has an attack **cooldown**, a count of cycles. When a unit decides to strike, it turns to face its target (the
+facing rule of `core/animation-scripts.md`; warships turn broadside instead, by the table there) and its cooldown is set
+to its type's **attack loop + 1** (the loop column of the table below): 26 for footmen and the other melee units, 66 for
+archers and axe throwers, 41 for mages and death knights, 201 for ballistas and catapults, and so on. The cooldown
+counts down by 1 every cycle while it is above 0, for every unit except transports. Buildings have none.
+
+Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a flyer:
+if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first frame, the
+unit waits for the cooldown left, and the run ends. Otherwise the order goes on (range checks, friendly fire and so on).
+When the logic runs at a step done, the wait is 1 at that moment. So in steady fire nothing is delayed: the next strike
+decision comes one loop later with 1 cycle left, and a wait of 1 isn't less than 1. After a target switch, though, the
+new attack starts with most of a cooldown still to run: the run that acquires the new target reaches the strike decision
+and starts the cooldown, the order given again restarts the animation with wait 3, and 3 cycles later the unit waits for
+the rest. A unit in order 12 whose search switches to a new target in reach while still cooling down gets no such wait
+of 3: the new target takes effect at once and the cooldown test restarts the animation with the cooldown left as its
+wait (`orders/orders.md`, "Resulting order"). In orders 12, 15 and 16 the cooldown test comes **before** the target
+check, so a unit whose target dies or is lost while it is still cooling down keeps its order, with no target, until the
+cooldown runs out (`orders/orders.md`, "Losing the target while cooling down"; traced: `xorc01-death-knight-2100`).
+
+**Haste and slow don't touch the cooldown.** The value set is always the type's unhasted attack loop + 1, and it
+counts down by 1 every cycle whatever the unit's speed timer. Haste and slow change only the attack script's waits
+(below), so:
+
+- **A hasted unit that isn't a flyer** plays its attack script faster than its cooldown runs out. Each time the
+  shortened loop ends, the cooldown test finds cooldown left and restarts the animation with that as its wait. So a
+  hasted unit strikes every
+  **attack loop + 1** cycles, one cycle **slower** than the same unit unhasted in steady fire (every attack loop).
+  What haste does gain is an earlier strike point after each decision (the "Strike" cycle of the hasted script). For a
+  hasted ogre (loop 25, cooldown 26, hasted loop 11): decision, strike 3 cycles later, the cooldown test 11 cycles
+  after the decision restarts the animation with wait 15, and the next decision comes 26 cycles after the first
+  (traced: `xorc01-death-knight-2100`, V86, V87).
+- **A slowed unit's** attack loop is longer than its cooldown for every type (`core/animation-scripts.md`, "Measured
+  timings", the slow column), so the cooldown has run out at each decision and its rate of fire is its slowed loop
+  (static study and game data).
+- **Flyers** skip the cooldown test, so a hasted or slowed flyer (gryphon rider, dragon, daemon) strikes every hasted
+  or slowed loop (static study).
+
+The **rate of fire** of a unit that isn't hasted, and of any flyer, is therefore the length of the attack script loop
+in `Rez\script.bin` (a slowed or hasted loop when the speed timer runs), and that of a hasted unit that isn't a flyer
+is its cooldown. Damage happens at the script's strike point inside that loop. A unit that keeps attacking repeats the
+loop. Between loops it may re-evaluate its target and order. Each script's "wait" steps scale with haste and slow:
+
+- Haste halves the wait, rounding down, with a minimum of 1.
+- Slow doubles the wait, kept to 8 bits.
+
+The timings below are measured from `script.bin`. "Strike" is the cycle on which damage or launch happens, counting
+the first cycle of the attack as 1. "Loop" is the number of cycles between strikes at normal speed (no haste or slow).
+
+| Unit types | Strike | Loop |
+| --- | --- | --- |
+| Footman, grunt, peasant, peon, knight, paladin, attack peasant or peon, Danath, Khorgath, Grom, Turalyon, Lothar, Uther | 11 | 25 |
+| Ogre, ogre-mage, Dentarg, Cho'gall | 8 | 25 |
+| Dwarven demolition squad, goblin sapper | 5 | 25 |
+| Archer, ranger, Alleria | 12 | 65 |
+| Axe thrower, berserker, Zuljin | 11 | 65 |
+| Mage, death knight, Teron Gorefiend, Khadgar, Gul'dan | 12 | 40 |
+| Ballista | 27 | 200 |
+| Catapult | 2 | 200 |
+| Oil tanker (either side) | 2 | 130 |
+| Destroyer, transport (either side) | 2 | 120 |
+| Battleship, juggernaught | 2 | 230 |
+| Gnomish submarine, giant turtle | 37 | 100 |
+| Gryphon rider, Kurdan and Sky'ree | 38 | 190 |
+| Dragon, Deathwing | 26 | 190 |
+| Skeleton | 10 | 35 |
+| Daemon | 34 | 42 |
+| Guard tower (either side) | see note | 60 |
+| Cannon tower (either side) | see note | 151 |
+
+Towers have no strike point in their scripts. A tower fires from its order's logic (`orders/orders.md`, "Order 14
+(towers)"), which runs at the step done that starts each loop, so a tower shoots at most once per loop: every 60
+cycles for a guard tower and every 151 for a cannon tower. Towers don't use the cooldown.
+
+**Evidence:** game data (the script timings); traced: the cooldown and the switch waits (`orc02-assault-3000`, V18 to
+V24), steady fire (V22), the cooldown kept while the target is lost (`xorc01-death-knight-2100`), haste (V86, V87),
+towers (`xhuman10-spells-700`, V25). The wait of 1 at the decision fits the decision records (frame 0, wait 1, in V86
+and in unhasted steady fire alike) and steady fire every loop (V22); the trace records the end of each cycle, so it
+doesn't show the wait at the moment of the test itself. Slow and the flyers are static study and game data only.
 
 ### How an attack delivers damage
 
-An attacking unit plays its **attack script** (see "Attack timing" below). At the script's strike point, before the
+An attacking unit plays its **attack script** (see "Attack timing" above). At the script's strike point, before the
 strike itself, the **strike reveal** of `vision/fog.md` ("When sight is applied", item 4) is made when the order has a
 target unit owned by another player. Then:
 
@@ -159,10 +264,20 @@ target unit owned by another player. Then:
   nothing at all: no strike reveal, no damage roll, no draw, no launch, and the cooldown isn't started again
   (`core/animation-scripts.md`, "No strike while a command waits"; traced: `orc14-25000`, vectors below).
 
+- **No range test.** The strike point doesn't test range or the friendly-fire count again, and doesn't test whether the
+  target is dying: those tests belong to the order's logic, which made them at the decision (`orders/orders.md`,
+  "Attack orders"). The strike acts on whatever the attacker's target (or target tile) is at that moment (static
+  study). The one target test the stated rules keep at the strike point is the melee rule below for a target that is
+  gone or inside (open question "A melee strike at a target that is gone or inside").
 - **Melee:** if the type's missile weapon is "none", the damage is rolled and applied to the current target at once.
   The strike is made even if the target started dying earlier in the same cycle (killed by another unit's strike):
   the damage is still rolled with its usual draws, and has no further effect. A target that is gone (its slot
   released) or inside something isn't struck, and nothing is drawn.
+- **Melee with no target unit** (order 11, a wall tile): the damage is rolled with armour 0 (step 1 of "Damage roll"),
+  so it makes its draw when T > 0, and the result damages the wall on the attacker's target tile (order 11's goal
+  tile, the pulled-back goal of `orders/orders.md`, "Order 11: attacking a wall tile") by the wall rule of "Splash on
+  impact", step 1 (counter + max(1, floor(damage / 4))). A tile that isn't a wall by then takes nothing (static study;
+  the order 11 section also says when the order stops).
 - **Ranged:** otherwise a missile is launched. It starts from the attacker's centre and aims at the target's centre,
   or at the centre of the target tile if the attacker is attacking the ground. As with a melee strike, the launch is
   made even if the target is dying: it has no test of the target's state.
@@ -188,6 +303,15 @@ target unit owned by another player. Then:
 Draws for one ranged shot, in order: one damage draw (non-splash only, and only if `T > 0`), then the horizontal
 scatter, then the vertical scatter. If no effect slot is free for the missile, the shot creates nothing (no missile
 and no smoke) and makes no draws at all.
+
+Only the attack orders (9, 11, 12, 15, 16 and 17) strike this way. Towers shoot from their logic ("Towers"); spells
+have their own strike rules (`spells/spells.md`); a worker's strike points chop or repair (`economy/harvest.md`,
+`economy/repair.md`) and deal no damage.
+
+**Evidence:** traced: a command waiting (`orc14-25000`, V76), a melee strike at a dying target (`human01-basics-9500`,
+V15), a launch at a dying target (`xhuman4-7000`, V17). Static study: no range test at the strike point, the melee
+wall blow, the gone or inside target (open question "A melee strike at a target that is gone or inside"), the launch
+rules, scatter and smoke. The smoke's timing and slots are vectors V60 to V67 (static study).
 
 ### Missile flight
 
@@ -291,6 +415,10 @@ each after its tile's ground-layer unit; the firing unit is never hit. One draw 
 step's own draw. Walls take D and floor(D / 4) as usual. A unit can be hit by several splashes of the same missile
 and by the final hit.
 
+**Evidence:** static study for the flight, steps, draws and delays (vectors V34 to V50 and V54 to V58); traced: the impact
+effect (`orc09-repair-600`, V59), the breath splash (`xorc10`, V51), the splash's slot order (`xorc8-10000`, V52), a
+dead shooter's missile (`human13-subs-2000`, V53), the final hit's slot (`xorc11-16000`, V85).
+
 ### Splash on impact
 
 When a splash missile lands with stored damage D at its impact pixel:
@@ -321,63 +449,101 @@ Units are processed in the order found, so draws are made in that order: the imp
 block **row by row from the top, each row left to right**. When air units are included, each tile's ground-layer unit
 comes before its air-layer unit. A unit already considered (the impact-tile unit) isn't considered again.
 
-### Attack timing (cooldown)
+A dying unit is no longer on the occupancy marks (`core/unit-slots.md`, "Death, corpses and release"), so a splash
+never considers it and makes no draw for it.
 
-Each unit has an attack **cooldown**, a count of cycles. When a unit decides to strike, it turns to face its target (the
-facing rule of `core/animation-scripts.md`; warships turn broadside instead, by the table there) and its cooldown is set
-to its type's **attack loop + 1** (the loop column of the table below): 26 for footmen and the other melee units, 66 for
-archers and axe throwers, 41 for mages and death knights, 201 for ballistas and catapults, and so on. The cooldown
-counts down by 1 every cycle while it is above 0, for every unit except transports. Buildings have none.
+**Evidence:** static study (vectors V26 to V30); traced: a splash kill of a unit other than the target
+(`xhuman10-blizzard-600`, V72) and the breath splash's units (`xorc10`, V51). The dying-unit sentence restates the
+death rule of `core/unit-slots.md`.
 
-Each time the logic of an attack order (9, 11, 12, 15, 16 or 17) reaches the strike step of a unit that isn't a flyer:
-if the unit's current wait is **less than** the cooldown left, its attack animation restarts from its first frame, the
-unit waits for the cooldown left, and the run ends. Otherwise the order goes on (range checks, friendly fire and so on).
-When the logic runs at a step done, the wait is 1 at that moment. So in steady fire nothing is delayed: the next strike
-decision comes one loop later with 1 cycle left, and a wait of 1 isn't less than 1. After a target switch, though, the
-new attack starts with most of a cooldown still to run: the run that acquires the new target reaches the strike decision
-and starts the cooldown, the order given again restarts the animation with wait 3, and 3 cycles later the unit waits for
-the rest. A unit in order 12 whose search switches to a new target in reach while still cooling down gets no such wait
-of 3: the new target takes effect at once and the cooldown test restarts the animation with the cooldown left as its
-wait (`orders/orders.md`, "Resulting order"). In orders 12, 15 and 16 the cooldown test comes **before** the target
-check, so a unit whose target dies or is lost while it is still cooling down keeps its order, with no target, until the
-cooldown runs out (`orders/orders.md`, "Losing the target while cooling down"; traced: `xorc01-death-knight-2100`).
+### The demolition blast
 
-The **rate of fire is the length of the attack script loop** in `Rez\script.bin`, and damage happens at the script's
-strike point inside that loop. A unit that keeps attacking repeats the loop. Between loops it may re-evaluate its target
-and order. Each script's "wait" steps scale with haste and slow:
+A demolisher's blast is the fourth delivery: a flat 200, then 200 again, with no armour and no draw, to each ground
+occupant of the 8 neighbouring tiles, applied as in "Applying damage" with the demolisher as the attacker. The full
+rule is in `combat/attack-ground-demolish.md`, "The blast".
 
-- Haste halves the wait, rounding down, with a minimum of 1.
-- Slow doubles the wait, kept to 8 bits.
+### Applying damage
 
-The timings below are measured from `script.bin`. "Strike" is the cycle on which damage or launch happens, counting
-the first cycle of the attack as 1. "Loop" is the number of cycles between strikes.
+When damage D from an attacker reaches a target:
 
-| Unit types | Strike | Loop |
-| --- | --- | --- |
-| Footman, grunt, peasant, peon, knight, paladin, attack peasant or peon, Danath, Khorgath, Grom, Turalyon, Lothar, Uther | 11 | 25 |
-| Ogre, ogre-mage, Dentarg, Cho'gall | 8 | 25 |
-| Dwarven demolition squad, goblin sapper | 5 | 25 |
-| Archer, ranger, Alleria | 12 | 65 |
-| Axe thrower, berserker, Zuljin | 11 | 65 |
-| Mage, death knight, Teron Gorefiend, Khadgar, Gul'dan | 12 | 40 |
-| Ballista | 27 | 200 |
-| Catapult | 2 | 200 |
-| Oil tanker (either side) | 2 | 130 |
-| Destroyer, transport (either side) | 2 | 120 |
-| Battleship, juggernaught | 2 | 230 |
-| Gnomish submarine, giant turtle | 37 | 100 |
-| Gryphon rider, Kurdan and Sky'ree | 38 | 190 |
-| Dragon, Deathwing | 26 | 190 |
-| Skeleton | 10 | 35 |
-| Daemon | 34 | 42 |
-| Guard tower (either side) | see note | 60 |
-| Cannon tower (either side) | see note | 151 |
+- Nothing happens if the target is already dying or has been removed.
+- **Dark Portal special case:** in a single-player campaign game (not a network game, not a custom scenario) on
+  campaign entries 32, 34 and 50 (`game/victory.md`, "Mission rules"), a hit on a type 0x65 (Dark Portal) does
+  nothing, not even the notification, unless the attacker is type 0x18 (Khadgar). These are *Beyond the Dark Portal*
+  human missions 3, 4 and 12 (`2XHum03`, `2XHum04`, `2XHum12`), each of which places one neutral Dark Portal. The
+  portals placed by `2XOrc12` and `Human14` aren't protected.
+- Nothing happens if the target has the used mark (`core/corpses.md`), for example a passenger inside a transport.
+- Otherwise the target is first **notified that it was attacked**, even if D is 0 (`ai/attack-ai.md`, "Call for
+  help": which attacker is recorded, and who comes to help). The under-attack alert is a separate step
+  (`ui/sounds.md`, "Ready, work complete and under attack").
+- If the target's unholy-armour timer is running, or D is 0, it takes no damage.
+- If the target's HP ≤ D, it dies: see "A kill" below. Otherwise the target's HP drops by D, and the under-attack
+  alert of `ui/sounds.md` is then asked for.
 
-Towers have no strike point in their scripts. A tower fires from its order's logic (`orders/orders.md`, "Order 14
-(towers)"), which runs at the step done that starts each loop, so a tower shoots at most once per loop: every 60
-cycles for a guard tower and every 151 for a cannon tower. Towers don't use the cooldown.
+D is at most 255 in every delivery. Spell damage goes through the same step (`spells/spells.md`).
 
-### Range
+**Evidence:** static study (the checks and their order, the Dark Portal special case, with game data for its maps);
+traced: unholy armour (`spells/spells.md` vectors), the notification and help (`ai/attack-ai.md` vectors).
+
+#### A kill
+
+If the target's HP ≤ D, it dies and the kill is credited to the attacker's owner. Its HP is **not** lowered: it keeps
+its HP from before the blow, and its recorded target, through the death animation. A target it forgot after a kill of
+its own stays forgotten: a unit that killed its target and has had no new target since dies with no target, even
+though its order was still the attack order (traced: `xhuman12-10000`, `xhuman8-10000`, vectors below). Then, if the
+attacker is a unit (not a building), it checks **its own** records, whichever units they are, whatever the attacker's
+own state (a shooter that is itself dying or dead, its missile still in flight, makes the check too and reports no
+target from then on; traced: `human13-subs-2000`, vectors below): it at once forgets its target (the unit it is
+attacking for its command) if that unit is now dying, gone or not detected by the attacker's player, and likewise
+forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's order doesn't change in
+that step. The victim is dying by then, so it is always forgotten when it is the target or the attacker. This applies
+to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other than the target, even one
+of the shooter's own, after which a target that is dying from someone else's kill is forgotten too (traced:
+`xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched; each forgets it on its
+own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its
+**attacker**; every other unit that recorded the victim as its attacker keeps that record while the victim is dying
+(it counts in the resulting-order table of `orders/orders.md`). A building that kills (a tower) makes none of these
+checks and keeps both its records (static study). If the victim is a building with a job running, the job is cancelled
+at the kill, with its refund (`economy/build-train.md`, "A building killed").
+
+The kill happens in this order: the credit, then the victim's death (`core/unit-slots.md`, "Death, corpses and
+release": occupancy cleared, units inside killed, the death sound and a building's explosion, the order "dying"), then
+the killer's check of its records.
+
+**Credit and score.** The kill is credited only when the attacker's owner isn't the victim's owner. The attacker's
+owner then counts a **kill** (a victim of a type below the first building type) or a **razing** (a building), and its
+mission score goes up by the victim type's point value (`game/campaign-flow.md`, "Mission score", which holds the
+score's later use). Ownership is the only test: a kill of an allied unit is credited too (static study; see the open
+question "Kill credit for an ally's kill"). A missile or splash is credited to the unit in the shooter's slot
+(`spells/spells.md`, "The shooter after its slot is released"). Kills that don't come through this step are never
+credited: a demolisher's own death and other outright kills (polymorph, a builder with no exit tile, a passenger
+killed with its transport).
+
+**Evidence:** traced: the HP and target kept (`human01-basics-9500`, V13, V14), the killer's forget (V72, V53), dying
+with no target (V74, V75); static study: the order of the steps, a building killer, the credit and the score (the trace
+format has no score fields).
+
+### Towers
+
+A tower (guard or cannon, either side) attacks only through order 14 (`orders/orders.md`, "Order 14 (towers)"): each
+logic run, at the step done that starts each loop of its attack animation, it searches with its attack range and, if it
+finds a target, **shoots at once** in that run. The shot:
+
+- is always a missile of the tower type's missile kind (arrow for guard towers, small cannon for cannon towers, in the
+  default data). With no free effect slot nothing is created and nothing is drawn, as for any ranged shot;
+- carries a rolled damage ("Damage roll", against the target's current armour) for a non-splash kind, or the tower's
+  maximum damage for a splash kind, as for a unit's shot;
+- makes **no aim scatter** draws, uses no wall exception and makes no cannon smoke;
+- doesn't turn the tower and doesn't start any cooldown; there is no strike reveal and no strike point;
+- plays the tower sound (`ui/sounds.md`, "Attacks": guard towers `misc\bowfire`, cannon towers `misc\fireball`).
+
+So a guard tower shoots at most every 60 cycles and a cannon tower every 151 ("Attack timing (cooldown)"). A tower
+that kills keeps its records ("A kill"). A building whose order isn't 14 never attacks.
+
+**Evidence:** traced: the shot times (`xhuman10-spells-700`, V25); static study: the shot rules (vector V65 for the
+cannon tower), the missile kind.
+
+### Reach and range
 
 - A unit can attack a target within its type's attack range, in tiles.
 - Rangers get +1 range once Longbow is researched, and berserkers get +1 once Lighter Axes is researched. No other
@@ -386,8 +552,34 @@ cycles for a guard tower and every 151 for a cannon tower. Towers don't use the 
 - **Target acquisition** measures distance as the larger of the horizontal and vertical tile distances from the
   searcher's tile to a reference tile of the target: a mobile target's own tile, or for a building its nearest edge
   column or row, or its middle one (the exact rule is in `orders/orders.md`, "Automatic target acquisition"). The
-  acquisition range check and minimum-range check use this measure. Whether a strike in progress uses the same
-  measure is still open.
+  acquisition range check and minimum-range check use this measure.
+- **The range test of the attack orders** (whether a target is in reach to strike) is the arrival measure of
+  `movement/movement.md`, "Arriving", with the attack range as the radius and no extra tile (`orders/orders.md`,
+  "Attacking without moving"). It is made by the order's logic only; the strike point makes none ("How an attack
+  delivers damage").
+- **Minimum range.** A missile's minimum flight value v makes acquisition skip a candidate at d < v − 1 ("Missile
+  weapon kinds"). The minimum flight distance itself only lengthens the flight ("Missile flight").
+
+**Evidence:** game data (ranges, upgrades); traced: the minimum flight in acquisition (`orc5-40000`, V82); the range test
+is stated in `orders/orders.md`; no range test at the strike point is static study.
+
+### What the player sees and hears
+
+None of these change the game state, but each is part of combat:
+
+| What | Rule |
+| --- | --- |
+| The attacker turns to its target (warships broadside) | `core/animation-scripts.md` (facing) |
+| The attack sound (sword draws) and the tower sounds | `ui/sounds.md`, "Attacks" |
+| The strike reveal of the attacker's area for the target's owner | `vision/fog.md`, "When sight is applied", item 4 |
+| Missiles in flight, cannon smoke, impact effects and hammer splashes | "How an attack delivers damage", "Missile flight" |
+| Missile impact sounds | `ui/sounds.md`, "Missiles, explosions and other effects" |
+| The under-attack alert ("help" voice), quiet counters and help timer | `ui/sounds.md`, "Ready, work complete and under attack" |
+| Death sounds and building explosions | `ui/sounds.md`, "Deaths"; `core/unit-slots.md`, "Death, corpses and release" |
+| The death animation, corpses, wrecks and ruins | `core/corpses.md` |
+| Wall damage stages | `movement/occupancy.md`, "Walls" |
+| The HP shown for a dying unit (unchanged) | "A kill"; `ui/info-panel.md` |
+| The score screen's kills and razings | `game/campaign-flow.md`, "The score screen" |
 
 ## Data
 
@@ -439,133 +631,168 @@ These are the default `unitdata.dat` values.
 
 `r` is the draw used for the damage. Where it isn't given, the full range is listed.
 
-| Input | Expected |
-| --- | --- |
-| Footman (6/3) hits footman (armour 2), no upgrades | b = 4, T = 7, h = 4; damage = 4 + (r mod 5), range 4 to 8 |
-| Same, r = 0 | 4 |
-| Same, r = 346 | 4 + (346 mod 5) = 5 |
-| Footman with swords 2 (basic 10) hits footman with shields 2 (armour 6) | b = 4, T = 7, damage 4 to 8 (the upgrades cancel out) |
-| Archer (3/6) hits footman (armour 2) | b = 1, T = 7, damage 4 to 8 |
-| Archer with arrows 2 hits footman | piercing 8, b = 1, T = 9, h = 5, damage 5 to 10 |
-| Ranger with Marksmanship hits footman | basic 0, piercing 9, T = 9, damage 5 to 10 |
-| Bloodlusted grunt (12/6) hits footman (armour 2) | b = 10, T = 16, h = 8, damage 8 to 16 |
-| Unit with basic 2, piercing 0 hits armour 2 | T = 0, damage 0, no draw made |
-| Basic 1, piercing 0 hits armour 0 | T = 1, h = 1, damage 1 + (r mod 2): 1 or 2 |
-| Unholy-armoured target takes any hit | HP unchanged; it is still notified it was attacked |
-| Target with 5 HP takes 5 damage | Dies (HP ≤ damage); its HP stays **5** during the death animation and its target is kept |
-| `human01-basics-9500` (oracle trace), n = 288: footman 1592 (HP 2 since n = 276) is killed by footman 1597; footman 1598 also attacks it | 1592: order 1, animation 1, HP 2, target 1598. 1597: target null, still order 9. 1598: target 1592 |
-| Same, n = 291 | 1598 forgets 1592 on its own logic run: order 2, wait 3 |
-| `human01-basics-9500`, n = 576: footmen 1593 and 1597 (type 0x00), both in order 9 on 1591, reach the strike point in the same cycle; 1593 strikes first and kills 1591 | 1593: target null. 1597 still strikes: both strikes roll damage, and the cycle's draws include 12374 and 6732 |
-| A melee unit whose target's slot was released before its strike point | No strike, no draws |
-| `xhuman4-7000` (oracle trace), n = 121: archers 1486 and 1501 (type 0x08) in order 16 on grunt 1505, dying since n = 119 | Both launch: new effects in slots 4 and 5, kind 0x0F, target 1505, damage 5 (shooter 1486) and 7 (shooter 1501) |
-| `orc02-assault-3000` (oracle trace), archer 1584 (type 0x08, cooldown 66) at (47, 28), n = 343 | Takes target 1578: animation 4, wait 3; cooldown set to 66 |
-| Same, n = 346 | Cooldown left 63 > wait 1: attack animation restarted, frame 0, wait 63 |
-| Same, n = 409 to 412 and n = 475 to 478 | New targets 1573 and 1564, each with wait 3 then wait 63 |
-| Same, n = 541 to 562 | Cooldown run out: facing 1 at n = 541; frame 25 (n = 542), frame 30 (n = 552), frame 0 with wait 44 (n = 562) |
-| Archer firing at the same target without a break | One strike every 65 cycles (frame 25 at n = 706 and n = 771 in the same trace); the cooldown never restarts the animation |
-| `orc02-assault-3000`, footman 1582 (type 0x00, cooldown 26), n = 376 and n = 402 | New targets 1578 and 1576: wait 3, then wait 23 at n = 379 and n = 405 |
-| `orc02-assault-3000`, footman 1587 in order 12, cooling down, n = 617: its search switches from 1568 to 1573, in reach | Order 12, target 1573, wait 23 (the cooldown left) in the same record; no wait of 3 |
-| `xhuman10-spells-700` (oracle trace), guard tower 1468 and cannon tower 1501 (order 14 from n = 2) | Shots at n = 5; then 1468 every 60 cycles (n = 65, 125, 185, …) and 1501 every 151 (n = 156, 307) while targets are in range |
-| Catapult (80/0, no upgrades) splash, footman 10 px from impact | v = 80 − 2 = 78, h = 39, damage 39 to 78 |
-| Same, footman 30 px from impact | base 20, v = 18, h = 9, damage 9 to 18 |
-| Same, footman 43 px from impact | not hit, no draw |
-| Catapult with siege 2 (basic 110) splash on an intact wall tile with counter 0 | centre wall takes 110 (+27): it becomes damaged with counter 0, not destroyed. Each neighbour wall takes 27 (counter +6) |
-| Splash base 5 at 30 px (quarter = 1) on armour 2 | v < 1, not hit, no draw |
-| Arrow fired by a unit | draws: damage (if T > 0), then x scatter, then y scatter; each scatter is (r AND 7) − 3 |
-| Footman attacking continuously, no spells | hits on cycles 11, 36, 61, … of the attack |
-| Hasted footman | each wait 3 becomes 1, 5 becomes 2, 10 becomes 5; loop = 1 + 1 + 1 + 1 + 2 + 5 = 11, strike on cycle 5 |
+| ID | Input | Expected |
+| --- | --- | --- |
+| V01 | Footman (6/3) hits footman (armour 2), no upgrades | b = 4, T = 7, h = 4; damage = 4 + (r mod 5), range 4 to 8 |
+| V02 | Same, r = 0 | 4 |
+| V03 | Same, r = 346 | 4 + (346 mod 5) = 5 |
+| V04 | Footman with swords 2 (basic 10) hits footman with shields 2 (armour 6) | b = 4, T = 7, damage 4 to 8 (the upgrades cancel out) |
+| V05 | Archer (3/6) hits footman (armour 2) | b = 1, T = 7, damage 4 to 8 |
+| V06 | Archer with arrows 2 hits footman | piercing 8, b = 1, T = 9, h = 5, damage 5 to 10 |
+| V07 | Ranger with Marksmanship hits footman | basic 0, piercing 9, T = 9, damage 5 to 10 |
+| V08 | Bloodlusted grunt (12/6) hits footman (armour 2) | b = 10, T = 16, h = 8, damage 8 to 16 |
+| V09 | Unit with basic 2, piercing 0 hits armour 2 | T = 0, damage 0, no draw made |
+| V10 | Basic 1, piercing 0 hits armour 0 | T = 1, h = 1, damage 1 + (r mod 2): 1 or 2 |
+| V11 | Unholy-armoured target takes any hit | HP unchanged; it is still notified it was attacked |
+| V12 | Target with 5 HP takes 5 damage | Dies (HP ≤ damage); its HP stays **5** during the death animation and its target is kept |
+| V13 | `human01-basics-9500` (oracle trace), n = 288: footman 1592 (HP 2 since n = 276) is killed by footman 1597; footman 1598 also attacks it | 1592: order 1, animation 1, HP 2, target 1598. 1597: target null, still order 9. 1598: target 1592 |
+| V14 | Same, n = 291 | 1598 forgets 1592 on its own logic run: order 2, wait 3 |
+| V15 | `human01-basics-9500`, n = 576: footmen 1593 and 1597 (type 0x00), both in order 9 on 1591, reach the strike point in the same cycle; 1593 strikes first and kills 1591 | 1593: target null. 1597 still strikes: both strikes roll damage, and the cycle's draws include 12374 and 6732 |
+| V16 | A melee unit whose target's slot was released before its strike point | No strike, no draws |
+| V17 | `xhuman4-7000` (oracle trace), n = 121: archers 1486 and 1501 (type 0x08) in order 16 on grunt 1505, dying since n = 119 | Both launch: new effects in slots 4 and 5, kind 0x0F, target 1505, damage 5 (shooter 1486) and 7 (shooter 1501) |
+| V18 | `orc02-assault-3000` (oracle trace), archer 1584 (type 0x08, cooldown 66) at (47, 28), n = 343 | Takes target 1578: animation 4, wait 3; cooldown set to 66 |
+| V19 | Same, n = 346 | Cooldown left 63 > wait 1: attack animation restarted, frame 0, wait 63 |
+| V20 | Same, n = 409 to 412 and n = 475 to 478 | New targets 1573 and 1564, each with wait 3 then wait 63 |
+| V21 | Same, n = 541 to 562 | Cooldown run out: facing 1 at n = 541; frame 25 (n = 542), frame 30 (n = 552), frame 0 with wait 44 (n = 562) |
+| V22 | Archer firing at the same target without a break | One strike every 65 cycles (frame 25 at n = 706 and n = 771 in the same trace); the cooldown never restarts the animation |
+| V23 | `orc02-assault-3000`, footman 1582 (type 0x00, cooldown 26), n = 376 and n = 402 | New targets 1578 and 1576: wait 3, then wait 23 at n = 379 and n = 405 |
+| V24 | `orc02-assault-3000`, footman 1587 in order 12, cooling down, n = 617: its search switches from 1568 to 1573, in reach | Order 12, target 1573, wait 23 (the cooldown left) in the same record; no wait of 3 |
+| V25 | `xhuman10-spells-700` (oracle trace), guard tower 1468 and cannon tower 1501 (order 14 from n = 2) | Shots at n = 5; then 1468 every 60 cycles (n = 65, 125, 185, …) and 1501 every 151 (n = 156, 307) while targets are in range |
+| V26 | Catapult (80/0, no upgrades) splash, footman 10 px from impact | v = 80 − 2 = 78, h = 39, damage 39 to 78 |
+| V27 | Same, footman 30 px from impact | base 20, v = 18, h = 9, damage 9 to 18 |
+| V28 | Same, footman 43 px from impact | not hit, no draw |
+| V29 | Catapult with siege 2 (basic 110) splash on an intact wall tile with counter 0 | centre wall takes 110 (+27): it becomes damaged with counter 0, not destroyed. Each neighbour wall takes 27 (counter +6) |
+| V30 | Splash base 5 at 30 px (quarter = 1) on armour 2 | v < 1, not hit, no draw |
+| V31 | Arrow fired by a unit | draws: damage (if T > 0), then x scatter, then y scatter; each scatter is (r AND 7) − 3 |
+| V32 | Footman attacking continuously, no spells | hits on cycles 11, 36, 61, … of the attack |
+| V33 | Hasted footman | each wait 3 becomes 1, 5 becomes 2, 10 becomes 5; loop = 1 + 1 + 1 + 1 + 2 + 5 = 11, strike on cycle 5 |
 
 Missile flight (C is the cycle of the strike; the scatter draws are taken as giving 0 offset, so the aim point is the
 target's centre):
 
-| Input | Expected |
-| --- | --- |
-| Arrow, D = 100 px | Draws at C: damage (if T > 0), x scatter, y scatter. Steps at C + 1 to C + 9, with remaining 88, 76, 64, 52, 40, 28, 16, 4, −8: landing at C + 9, 108 px from the start. One draw at the end of each step (9). Impact at C + 10: the stored damage is applied, with no draw of its own. 12 draws in all |
-| Catapult rock, D = 160 px | Draws at C: x scatter, y scatter. 5 × ceil(160 / 5) = 160. Steps at C + 1 to C + 21 (remaining 0 after step 20, −8 after step 21): landing at C + 21, 168 px out. Steps 1 to 19 make 2 draws each (travel 8 to 152, below 160) and steps 20 and 21 make 1 each: 40 flight draws. Splash at C + 26, with 1 draw per unit hit |
-| Catapult rock, D = 103 px | N = 13 (104 px); 5 × ceil(103 / 5) = 105, so all 13 steps, the landing step included, make 2 draws: 26 |
-| Ballista bolt, D = 100 px | N = 13, landing at C + 13 (104 px out), 13 flight draws, splash at C + 14 |
-| Lightning (mage), D = 100 px | N = 7, landing at C + 7 (112 px out), 7 flight draws, hit at C + 18 |
-| Human-controlled catapult attacks a wall tile, D = 70 px before the minimum | Minimum 96, so D = 96: N = 13, the rock lands 104 px out (34 px past the wall's centre) |
-| Same, computer-controlled | Minimum 64, so D = 70: N = 9, the rock lands 72 px out |
-| Gryphon rider (basic 0, piercing 16) strikes footman A (armour 2) at cycle C. A's centre is 96 px due east of the gryphon's centre. Footman B's centre is 20 px south of A's. No upgrades. Draws: launch r1 with r1 mod 9 = 4, scatter draws with r AND 7 = 3 | Stored damage 8 + 4 = 12; aim = A's centre, D = 96. Steps at C + 1 to C + 3 move 12 px (remaining 84, 72, 60). Step 4 moves 12 (remaining 48): count 1, 48 px out. Then 6 px a step: count k at step 3 + k, at 42 + 6k px |
-| Same, step 11 (count 8, 90 px out) | Step draw, then a splash at 6 px west of A's centre. A (6 px): base 12, h = 6, damage 6 + (r mod 7), 6 to 12. Then B (max(6, 20) = 20 px): the same, 6 to 12. A is drawn for first if the splash point is on A's tile |
-| Same, step 19 (count 16, 138 px out) | A and B are both 42 px away on x: base floor(12 / 4) = 3, h = 2, damage 2 to 4 each, A first (row order) |
-| Same, step 27 (count 24, 186 px out) | Nobody within 42 px: no splash draws |
-| Same, steps 28 and 29 | Counts 25 and 26 |
-| Same, step 30 (C + 30) | Step draw, move to 204 px; count 26 is past 25, so it ends |
-| Same, C + 31 | A takes the stored 12, with no draw |
-| Same, totals | Draws: 3 at launch, 30 step draws, 4 splash draws = 37. A takes 20 to 28 in all, and B 8 to 16 |
-| Same, each of the three splash steps, with an effect slot free | `misc\explode` at the hammer's tile, the splash, then a kind 0x17 explosion at the hammer's pixel position in the lowest free effect slot, with zero fields |
-| A hammer reaches count 8 while every effect slot is in use (static study only) | No splash damage, no draws for hits, no sound, no explosion; the hammer flies on and the count keeps going |
-| `xorc10` (oracle trace), n = 329: the breath of dragon 1562 (type 0x2B; missile in effect slot 3) splashes at pixel (978, 950) | Effect slot 5: kind 0x17 at (978, 950), destination (0, 0), target null, shooter null, damage 0. Units hit: 1513 (40 to 36 HP), 1519 (40 to 27) and 1520 (60 to 58) |
-| `xorc8-10000` (oracle trace), n = 8035: the hammer of gryphon rider 1550 (effect slot 3) splashes at pixel (8, 2898) and kills goblin zeppelin 1400 (type 0x29); slots 4 and up free | Slot 4: the splash's explosion (kind 0x17) at (8, 2898); slot 5: the zeppelin's death explosion (kind 0x17) at (16, 2888) |
-| `human13-subs-2000` (oracle trace): dragon 1436 (type 0x2B, owner 4) dies at n = 1476 with target 1407; its last breath, still in flight, kills gryphon rider 1407 (type 0x2A, owner 1) at n = 1487 | n = 1487: 1436 in order 1, target null (it showed 1407 at n = 1486) |
+| ID | Input | Expected |
+| --- | --- | --- |
+| V34 | Arrow, D = 100 px | Draws at C: damage (if T > 0), x scatter, y scatter. Steps at C + 1 to C + 9, with remaining 88, 76, 64, 52, 40, 28, 16, 4, −8: landing at C + 9, 108 px from the start. One draw at the end of each step (9). Impact at C + 10: the stored damage is applied, with no draw of its own. 12 draws in all |
+| V35 | Catapult rock, D = 160 px | Draws at C: x scatter, y scatter. 5 × ceil(160 / 5) = 160. Steps at C + 1 to C + 21 (remaining 0 after step 20, −8 after step 21): landing at C + 21, 168 px out. Steps 1 to 19 make 2 draws each (travel 8 to 152, below 160) and steps 20 and 21 make 1 each: 40 flight draws. Splash at C + 26, with 1 draw per unit hit |
+| V36 | Catapult rock, D = 103 px | N = 13 (104 px); 5 × ceil(103 / 5) = 105, so all 13 steps, the landing step included, make 2 draws: 26 |
+| V37 | Ballista bolt, D = 100 px | N = 13, landing at C + 13 (104 px out), 13 flight draws, splash at C + 14 |
+| V38 | Lightning (mage), D = 100 px | N = 7, landing at C + 7 (112 px out), 7 flight draws, hit at C + 18 |
+| V39 | Human-controlled catapult attacks a wall tile, D = 70 px before the minimum | Minimum 96, so D = 96: N = 13, the rock lands 104 px out (34 px past the wall's centre) |
+| V40 | Same, computer-controlled | Minimum 64, so D = 70: N = 9, the rock lands 72 px out |
+| V41 | Gryphon rider (basic 0, piercing 16) strikes footman A (armour 2) at cycle C. A's centre is 96 px due east of the gryphon's centre. Footman B's centre is 20 px south of A's. No upgrades. Draws: launch r1 with r1 mod 9 = 4, scatter draws with r AND 7 = 3 | Stored damage 8 + 4 = 12; aim = A's centre, D = 96. Steps at C + 1 to C + 3 move 12 px (remaining 84, 72, 60). Step 4 moves 12 (remaining 48): count 1, 48 px out. Then 6 px a step: count k at step 3 + k, at 42 + 6k px |
+| V42 | Same, step 11 (count 8, 90 px out) | Step draw, then a splash at 6 px west of A's centre. A (6 px): base 12, h = 6, damage 6 + (r mod 7), 6 to 12. Then B (max(6, 20) = 20 px): the same, 6 to 12. A is drawn for first if the splash point is on A's tile |
+| V43 | Same, step 19 (count 16, 138 px out) | A and B are both 42 px away on x: base floor(12 / 4) = 3, h = 2, damage 2 to 4 each, A first (row order) |
+| V44 | Same, step 27 (count 24, 186 px out) | Nobody within 42 px: no splash draws |
+| V45 | Same, steps 28 and 29 | Counts 25 and 26 |
+| V46 | Same, step 30 (C + 30) | Step draw, move to 204 px; count 26 is past 25, so it ends |
+| V47 | Same, C + 31 | A takes the stored 12, with no draw |
+| V48 | Same, totals | Draws: 3 at launch, 30 step draws, 4 splash draws = 37. A takes 20 to 28 in all, and B 8 to 16 |
+| V49 | Same, each of the three splash steps, with an effect slot free | `misc\explode` at the hammer's tile, the splash, then a kind 0x17 explosion at the hammer's pixel position in the lowest free effect slot, with zero fields |
+| V50 | A hammer reaches count 8 while every effect slot is in use (static study only) | No splash damage, no draws for hits, no sound, no explosion; the hammer flies on and the count keeps going |
+| V51 | `xorc10` (oracle trace), n = 329: the breath of dragon 1562 (type 0x2B; missile in effect slot 3) splashes at pixel (978, 950) | Effect slot 5: kind 0x17 at (978, 950), destination (0, 0), target null, shooter null, damage 0. Units hit: 1513 (40 to 36 HP), 1519 (40 to 27) and 1520 (60 to 58) |
+| V52 | `xorc8-10000` (oracle trace), n = 8035: the hammer of gryphon rider 1550 (effect slot 3) splashes at pixel (8, 2898) and kills goblin zeppelin 1400 (type 0x29); slots 4 and up free | Slot 4: the splash's explosion (kind 0x17) at (8, 2898); slot 5: the zeppelin's death explosion (kind 0x17) at (16, 2888) |
+| V53 | `human13-subs-2000` (oracle trace): dragon 1436 (type 0x2B, owner 4) dies at n = 1476 with target 1407; its last breath, still in flight, kills gryphon rider 1407 (type 0x2A, owner 1) at n = 1487 | n = 1487: 1436 in order 1, target null (it showed 1407 at n = 1486) |
 
 Impact effects:
 
-| Input | Expected |
-| --- | --- |
-| A catapult rock lands and splashes; effect slots 0 to 4 in use, slot 5 free; the rock is in slot 3 | No impact sound; the splash; a kind 0x15 effect in slot 5 at the rock's position; the rock's slot 3 is freed. Slot 5 comes after slot 3, so the effect's first update is in the impact cycle, and its start step, with `misc\explode` at its tile, one cycle later. It is removed 14 cycles after the impact |
-| A ballista bolt with stored damage 0 lands | No impact sound (damaging only); the kind 0x15 effect is still made, and plays `misc\explode` at its start step, one cycle after its first update |
-| A battleship's big cannon lands; slot 3 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 3. Slot 3 comes before slot 6, so its first update is in the next cycle and its start step, with `misc\explode`, in the cycle after that |
-| A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
-| A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
-| `orc09-repair-600` (oracle trace), n = 65: the catapult rock of catapult 1494 (in effect slot 3 at n = 64) lands | Effect slot 4: kind 0x15 at (1072, 2768), the rock's final position; destination (0, 0), target null, shooter null, damage 0 |
+| ID | Input | Expected |
+| --- | --- | --- |
+| V54 | A catapult rock lands and splashes; effect slots 0 to 4 in use, slot 5 free; the rock is in slot 3 | No impact sound; the splash; a kind 0x15 effect in slot 5 at the rock's position; the rock's slot 3 is freed. Slot 5 comes after slot 3, so the effect's first update is in the impact cycle, and its start step, with `misc\explode` at its tile, one cycle later. It is removed 14 cycles after the impact |
+| V55 | A ballista bolt with stored damage 0 lands | No impact sound (damaging only); the kind 0x15 effect is still made, and plays `misc\explode` at its start step, one cycle after its first update |
+| V56 | A battleship's big cannon lands; slot 3 free, the missile in slot 6 | `misc\explode` (impact); splash; the kind 0x1A effect in slot 3. Slot 3 comes before slot 6, so its first update is in the next cycle and its start step, with `misc\explode`, in the cycle after that |
+| V57 | A small cannon lands with every effect slot in use except the missile's own | No effect is made (the missile's slot is freed only afterwards); no sound at all |
+| V58 | A submarine missile lands | `misc\explode` (impact); a kind 0x17 effect; no further sound |
+| V59 | `orc09-repair-600` (oracle trace), n = 65: the catapult rock of catapult 1494 (in effect slot 3 at n = 64) lands | Effect slot 4: kind 0x15 at (1072, 2768), the rock's final position; destination (0, 0), target null, shooter null, damage 0 |
 
 Cannon smoke and launch slots:
 
-| Input | Expected |
-| --- | --- |
-| A battleship strikes in cycle C; effect slots 0 to 2 in use, 3 and up free | Missile in slot 3, smoke (kind 0x19) in slot 4 at the battleship's centre, facing 0. Both first update in C; the smoke is removed in C + 24 |
-| A destroyer strikes; slots 3 and 5 in use, 4 and 6 free | Missile in slot 4, smoke in slot 6 |
-| A destroyer strikes; only one effect slot free | Missile in that slot; no smoke; the two scatter draws as usual (the small cannon is a splash missile, so no damage draw) |
-| A juggernaught strikes; no effect slot free | Nothing created; no draws for this shot |
-| An archer strikes; no effect slot free | Nothing created; no damage draw and no scatter draws |
-| A human cannon tower fires at a ship | Small cannon missile, no scatter draws, no smoke; cannon sound |
-| A catapult or ballista strikes | Missile and scatter as usual; no smoke |
-| Smoke updated and removed in cycle C + 24; later in that cycle a higher-slot effect creates a new effect | The new effect may take the smoke's old slot |
-| *Beyond the Dark Portal* human mission 12 (entry 50), single player, a knight hits the Dark Portal | Nothing: no damage, no notification |
-| Same, Khadgar (type 0x18) hits it | Damage applied as usual |
-| *Beyond the Dark Portal* orc mission 12 (entry 51), a grunt hits the Dark Portal | Damage applied as usual |
-| `2XHum12` played as a custom scenario | Damage applied as usual (the check needs a campaign game) |
-| `xhuman10-blizzard-600` (oracle trace): ballista 1483 (type 0x04, owner 1) in order 16, cooling down (animation 4, wait 88 at n = 308), keeps target grunt 1490, dying since n = 277 from another unit's kill; at n = 309 its own rock's splash kills footman 1479 (owner 1, HP 10 kept) | n = 309: order 16, animation 4, frame 15, wait 87, target null |
-| A killer whose target is alive and isn't the victim | Target kept |
-| `xhuman12-10000` (oracle trace): grunt 1504 (type 0x01, owner 2) kills footman 1398 at n = 4837 and forgets it, staying in order 12 while it cools down; it dies at n = 4851 | n = 4851: order 1, animation 1, target null |
-| `xhuman8-10000` (oracle trace): juggernaut 1535 (type 0x21, owner 3) in order 12 forgets destroyer 1557 at n = 6749 and dies at n = 6831 | n = 6831: order 1, animation 1, target null |
-| `orc14-25000` (oracle trace, Enhanced), n = 12307: computer paladin 1456 (type 0x0C, owner 6) in order 12 reaches its strike with the caster AI's healing command on paladin 1433 not yet taken over; peon 1448 (type 0x03, owner 0) has 11 HP | No draw; 1448 keeps 11 HP |
-| A footman at its strike point is given a stop command earlier in the same cycle (static study) | No damage and no draw |
+| ID | Input | Expected |
+| --- | --- | --- |
+| V60 | A battleship strikes in cycle C; effect slots 0 to 2 in use, 3 and up free | Missile in slot 3, smoke (kind 0x19) in slot 4 at the battleship's centre, facing 0. Both first update in C; the smoke is removed in C + 24 |
+| V61 | A destroyer strikes; slots 3 and 5 in use, 4 and 6 free | Missile in slot 4, smoke in slot 6 |
+| V62 | A destroyer strikes; only one effect slot free | Missile in that slot; no smoke; the two scatter draws as usual (the small cannon is a splash missile, so no damage draw) |
+| V63 | A juggernaught strikes; no effect slot free | Nothing created; no draws for this shot |
+| V64 | An archer strikes; no effect slot free | Nothing created; no damage draw and no scatter draws |
+| V65 | A human cannon tower fires at a ship | Small cannon missile, no scatter draws, no smoke; cannon sound |
+| V66 | A catapult or ballista strikes | Missile and scatter as usual; no smoke |
+| V67 | Smoke updated and removed in cycle C + 24; later in that cycle a higher-slot effect creates a new effect | The new effect may take the smoke's old slot |
+| V68 | *Beyond the Dark Portal* human mission 12 (entry 50), single player, a knight hits the Dark Portal | Nothing: no damage, no notification |
+| V69 | Same, Khadgar (type 0x18) hits it | Damage applied as usual |
+| V70 | *Beyond the Dark Portal* orc mission 12 (entry 51), a grunt hits the Dark Portal | Damage applied as usual |
+| V71 | `2XHum12` played as a custom scenario | Damage applied as usual (the check needs a campaign game) |
+| V72 | `xhuman10-blizzard-600` (oracle trace): ballista 1483 (type 0x04, owner 1) in order 16, cooling down (animation 4, wait 88 at n = 308), keeps target grunt 1490, dying since n = 277 from another unit's kill; at n = 309 its own rock's splash kills footman 1479 (owner 1, HP 10 kept) | n = 309: order 16, animation 4, frame 15, wait 87, target null |
+| V73 | A killer whose target is alive and isn't the victim | Target kept |
+| V74 | `xhuman12-10000` (oracle trace): grunt 1504 (type 0x01, owner 2) kills footman 1398 at n = 4837 and forgets it, staying in order 12 while it cools down; it dies at n = 4851 | n = 4851: order 1, animation 1, target null |
+| V75 | `xhuman8-10000` (oracle trace): juggernaut 1535 (type 0x21, owner 3) in order 12 forgets destroyer 1557 at n = 6749 and dies at n = 6831 | n = 6831: order 1, animation 1, target null |
+| V76 | `orc14-25000` (oracle trace, Enhanced), n = 12307: computer paladin 1456 (type 0x0C, owner 6) in order 12 reaches its strike with the caster AI's healing command on paladin 1433 not yet taken over; peon 1448 (type 0x03, owner 0) has 11 HP | No draw; 1448 keeps 11 HP |
+| V77 | A footman at its strike point is given a stop command earlier in the same cycle (static study) | No damage and no draw |
 
 ### Round-59 vectors
 
-| Input | Expected |
-| --- | --- |
-| `human2-human02-all-out-4000` (oracle trace, Enhanced; the invulnerability cheat turned on by player 1 in turn 6), n = 514: archer 1570 (type 0x08, owner 1, human) shoots at 1593, player 0's watch tower (destroyed at n = 510, so armour 0 for this hit); no upgrades, no bloodlust, draw r = 7266 | Arrow effect 4 (kind 0x0F) with damage **158**: basic term 3 + piercing 200 = 203, h = floor(204 / 2) = 102, 102 + 7266 mod 103 = 102 + 56. With basic 0 it would be 100 + 7266 mod 101 = 195 |
-| Cheat on; a human player's footman (basic 6, piercing 3), sword level 1, bloodlust running | Basic (6 + 2) × 2 = 16, piercing 200 (not 400, not 203) |
-| Cheat on; a human player's archer (basic 3, piercing 6), arrow level 1, no bloodlust | Basic 3, piercing 200 |
-| Cheat on; a computer player's footman, any upgrades or bloodlust | Basic 0, piercing 0 |
-| `orc5-40000` (oracle trace, Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle, and transport 1516 (type 0x1C, owner 0) landing at (120, 6): d = 2, minimum flight 3 | Not skipped: order 16, animation 4, wait 3, target 1516 |
-| A ballista with an adjacent candidate, d = 1 (as in `human06-31357` n = 23683, `orders/orders.md`) | Skipped |
-| A cannon (minimum flight 2), candidate at d = 1 | Not skipped |
+| ID | Input | Expected |
+| --- | --- | --- |
+| V78 | `human2-human02-all-out-4000` (oracle trace, Enhanced; the invulnerability cheat turned on by player 1 in turn 6), n = 514: archer 1570 (type 0x08, owner 1, human) shoots at 1593, player 0's watch tower (destroyed at n = 510, so armour 0 for this hit); no upgrades, no bloodlust, draw r = 7266 | Arrow effect 4 (kind 0x0F) with damage **158**: basic term 3 + piercing 200 = 203, h = floor(204 / 2) = 102, 102 + 7266 mod 103 = 102 + 56. With basic 0 it would be 100 + 7266 mod 101 = 195 |
+| V79 | Cheat on; a human player's footman (basic 6, piercing 3), sword level 1, bloodlust running | Basic (6 + 2) × 2 = 16, piercing 200 (not 400, not 203) |
+| V80 | Cheat on; a human player's archer (basic 3, piercing 6), arrow level 1, no bloodlust | Basic 3, piercing 200 |
+| V81 | Cheat on; a computer player's footman, any upgrades or bloodlust | Basic 0, piercing 0 |
+| V82 | `orc5-40000` (oracle trace, Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle, and transport 1516 (type 0x1C, owner 0) landing at (120, 6): d = 2, minimum flight 3 | Not skipped: order 16, animation 4, wait 3, target 1516 |
+| V83 | A ballista with an adjacent candidate, d = 1 (as in `human06-31357` n = 23683, `orders/orders.md`) | Skipped |
+| V84 | A cannon (minimum flight 2), candidate at d = 1 | Not skipped |
 
 ### Round-61 vectors
 
-| Input | Expected |
-| --- | --- |
-| `xorc11-16000` (oracle trace, Enhanced), n = 15733: the hammer of gryphon rider 1490 (type 0x2A, owner 6), in effect slot 3 (slots 0 to 2 and 4 to 6 in use), makes its final hit on catapult 1495 (type 0x05, owner 5), which dies | The death explosion (kind 0x17) is in slot 7, not slot 3; slot 3 is free at the end of that cycle |
+| ID | Input | Expected |
+| --- | --- | --- |
+| V85 | `xorc11-16000` (oracle trace, Enhanced), n = 15733: the hammer of gryphon rider 1490 (type 0x2A, owner 6), in effect slot 3 (slots 0 to 2 and 4 to 6 in use), makes its final hit on catapult 1495 (type 0x05, owner 5), which dies | The death explosion (kind 0x17) is in slot 7, not slot 3; slot 3 is free at the end of that cycle |
+
+
+### Round-78 vectors
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| V86 | `xorc01-death-knight-2100` (oracle trace, Enhanced): ogre 1488 (type 0x07, cooldown 26), hasted since n = 37, in order 12 on 1515, steady fire | n = 826: strike decision (frame 0, wait 1). n = 829: the blow (1515: 40 to 34 HP). n = 832: the hasted loop's last step (frame 0, wait 5). n = 837, the step done that ends it: the cooldown test restarts the animation with wait **15** (26 − 11). n = 852: next decision; n = 855: the blow (34 to 25). Blows 26 cycles apart, not 11 |
+| V87 | Same trace, ogre 1488 switches to target 1516 at n = 748 | n = 748: target 1516, wait 3. n = 751: wait 23 (the cooldown left). n = 774: decision; n = 777: the blow, in the same cycle as a blow of grunt 1497 (1516: 35 to 19 HP for the two). n = 785: wait 15. Grunt 1497 (type 0x01, not hasted), on the same target, strikes at n = 752, 777, 802 and 827: every 25 cycles, one fewer than the hasted ogre |
+| V88 | A hasted footman (cooldown 26, hasted loop 11) attacking one target without a break (static study, from V86) | One blow every 26 cycles, each on cycle 5 of the hasted script (V33, whose loop of 11 is the script's, not the rate of fire); 11 cycles after each decision the animation restarts with wait 15 |
+| V89 | A slowed footman (slowed attack loop 49, cooldown 26) attacking one target without a break (static study) | One blow every 49 cycles; the cooldown has run out at each decision, so the animation is never restarted |
+| V90 | A footman (6/3, no upgrades) in order 11 strikes an intact wall tile with counter 0 (static study) | Armour 0: b = 6, T = 9, h = 5, one draw, damage 5 to 10; the wall counter goes up by 1 or 2 (max(1, floor(damage / 4))) |
+| V91 | A catapult's splash kills a footman of its own player (static study) | No kill, razing or score for anybody; the catapult still forgets its records as after any kill |
+| V92 | A unit kills a unit of an allied player (static study; open question "Kill credit for an ally's kill") | Default: the killer's player gets a kill and the victim type's points |
 
 ## Open questions
 
-- Whether a strike in progress uses the acquisition distance measure, and whether range is checked again at the
-  strike point.
-- Whether a tower's shot is always a missile.
-- Whether haste or slow change the cooldown value set, or how fast it counts down. If they don't, a hasted unit's
-  attack rate is held to the normal loop.
-- The wait of 1 when the logic runs at a step done fits every observation, including steady fire with a period of
-  exactly one loop, but hasn't been seen directly.
-- What a killer whose target was forgotten at the kill does on its next logic run. In `human01-basics` footman 1597
-  stays in order 9 with no target until a new command arrives at n = 302.
-- Spell damage (fireball, death coil, blizzard, death and decay, whirlwind, flame shield, exorcism, runes) is covered
-  separately. Runes deal a flat 50.
-- Demolition squads and sappers: the terrain part of their blast (rock, forest and walls) is specified in
-  `movement/occupancy.md`, "Rock". The damage to units on the 8 neighbouring tiles is still to be specified.
+- **A melee strike at a target that is gone or inside.** The stated rule (round 41, V16) is that a melee unit whose
+  target is gone (its slot released) or inside something isn't struck, and nothing is drawn. Static study instead finds
+  the blow rolled against the target's armour (one draw when T > 0) and handed to "Applying damage", which then does
+  nothing (the used mark, or the slot's dying state). The two differ by one draw. **Default:** the stated rule (no
+  strike, no draw), by the B-038 ruling (the spec governs; a static-only difference keeps the stated rule). **Trace
+  request CB1:** an Enhanced campaign capture in which a melee unit's target boards a transport in the cycles between
+  the attacker's decision and its strike point (a scenario that orders the target into an adjacent transport while an
+  enemy footman is attacking it), checking the cycle's draw count.
+- **Kill credit for an ally's kill.** `game/campaign-flow.md` ("Mission score") credits a kill whenever the victim isn't
+  the killer's player's own; `spells/spells.md` ("The shooter after its slot is released") says a unit of the victim's
+  owner **or an ally** gets no score. Static study finds only the owner test. **Default:** the campaign-flow rule (an
+  ally's kill is credited, V92): `game/campaign-flow.md` governs, and the score part of the `spells/spells.md` rule (for
+  an ally only; the victim's own player still scores nothing) is held by this question and marked so there. **Trace
+  request CB2:** the trace format has no score fields, so a capture with a break on the step that adds the score, in a
+  mission with an allied computer player, while a human catapult's splash kills an allied unit; one break hit settles
+  it.
 - What the extra upgrade line with 10 per level is used for.
+
+### Answered in round 78
+
+- *Whether a strike in progress uses the acquisition distance measure, and whether range is checked again at the strike
+  point.* The attack orders' range test uses the arrival measure (`orders/orders.md`, "Attacking without moving"), and
+  the strike point makes no range test (static study): "Reach and range".
+- *Whether a tower's shot is always a missile.* Yes, of the tower type's missile kind (static study): "Towers".
+- *Whether haste or slow change the cooldown value set, or how fast it counts down.* Neither (traced for haste:
+  `xorc01-death-knight-2100`, V86, V87; static study for slow): "Attack timing (cooldown)". This is change C1.
+- *The wait of 1 when the logic runs at a step done.* Consistent with every decision record, hasted (V86) or not
+  (frame 0, wait 1), and needed for steady fire every loop (V22). The trace records the end of each cycle, so the
+  moment of the test isn't seen directly; this is closed as consistent with every observation, not as a new trace.
+- *What a killer whose target was forgotten at the kill does on its next logic run.* The cooldown test comes first
+  (`orders/orders.md`, "Attack orders", step 4), so it keeps its order with no target until the cooldown runs out, then
+  loses the target by "Arriving and losing the target". `human01-basics` footman 1597 (V13) is given a new command at
+  n = 302, 14 cycles after its kill, still inside its cooldown of 26.
+- *Demolition squads' damage to the 8 neighbouring tiles.* Specified in `combat/attack-ground-demolish.md`, "The blast".
+- *Spell damage* is not an open question: it is in `spells/spells.md` (runes deal a flat 50) and goes through
+  "Applying damage".

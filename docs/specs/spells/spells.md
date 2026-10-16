@@ -49,6 +49,9 @@
   2026-10-13, round-57 answers: the strike's missing distance test is traced for bloodlust too (`xorc12-reach-400`);
   a reused shooter slot credits its new unit in every respect, and an own or allied unit there records nothing
   (static study).
+- **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed): new
+  open question "No score for an ally's kill", pointing at `combat/damage.md`, and a note on the rule it holds ("The
+  shooter after its slot is released"); default: an ally's kill is credited.
 
 ## Behaviour
 
@@ -366,7 +369,8 @@ trace still shows the old slot number as its shooter (traced: `xorc12-spells-150
 is applied with that slot as the attacker, whatever unit the slot holds by then. If a new unit U holds the slot, U is
 the attacker in every respect: the victim records U as its attacker and calls for help against U, and a kill gives
 U's owner the kill count and the score. If U belongs to the victim's owner or an ally, nothing is recorded, there is
-no call for help and no score, but the damage still lands. If the slot was released and not reused, the values left
+no call for help and no score, but the damage still lands. (For an ally, "no score" is held by the open question "No
+score for an ally's kill": the default credits an ally's kill, as `game/campaign-flow.md` does.) If the slot was released and not reused, the values left
 in it are read (static study; the attacker record and the scores aren't in the trace format, so no trace can show
 this).
 
@@ -582,6 +586,10 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 
 ## Open questions
 
+- **No score for an ally's kill.** "The shooter after its slot is released" says a unit of the victim's owner or an ally
+  gets no score; `game/campaign-flow.md` ("Mission score") excludes only the victim's own player, and static study finds
+  only that owner test. The contradiction is held in `combat/damage.md`, open question "Kill credit for an ally's kill"
+  (default: an ally's kill is credited; trace request CB2).
 - **Blizzard shard landing at exactly 0.** Whether a shard whose remaining distance becomes exactly 0 lands on that step
   or one step later isn't separated by the traces.
 - Confirm the death coil order of equal-HP candidates in the running game: two 30-HP victims and one 5-HP victim

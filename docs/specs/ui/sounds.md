@@ -25,6 +25,10 @@
 - **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, errata 6 and 10; static study;
   reviewed by a spec-review session, 2026-10-16): two readings that differ from the stated rules are held as open
   questions ("Construction sound on every 12th pass", "Unit-ready event position"); no rule change.
+- **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed): the
+  open question "Hammer and breath splash" is closed; `combat/damage.md` ("Gryphon hammer and dragon breath") already
+  states it: `misc\explode` at the missile's tile on each splash that finds a free effect slot. "Other explosions"
+  now points there. No rule change.
 
 ## Behaviour
 
@@ -307,7 +311,8 @@ no sound of its own. So each impact sounds like this:
 - a demolition unit blows up (dwarven demolition squad, goblin sappers);
 - a rune is set off;
 - a flame shield's bolt arrives and makes its flames;
-- one of the flying hammer and dragon breath splash steps happens (see open questions).
+- a flying hammer or dragon breath splashes with a free effect slot, at the missile's tile (`combat/damage.md`,
+  "Gryphon hammer and dragon breath").
 
 **Construction.** On each construction step of any building under construction, if the construction-sound timer is
 0, `misc\constrct` plays on the building. It is a placed sound, audible off screen, under the building sounds option.
@@ -526,8 +531,6 @@ selection cooldown has expired, and r is the setup-shuffle draw.
   kill would at that point.
 - **3-D sound option.** The dialog's 3-D sound option isn't consulted by any of the paths above. Default: it changes
   nothing here.
-- **Hammer and breath splash.** The moment the flying hammer and dragon breath play `misc\explode` hasn't been
-  pinned to a step. Default: on each splash.
 - **Unused files.** `spells\iokilrog`, `spells\thunder`, `spells\spell` and `misc\fist` aren't referenced by any
   event found. Default: unused.
 - **Spell sound placement.** Which unit or tile each spell's sound is placed on (caster or target) isn't recorded per
