@@ -1371,11 +1371,13 @@ impl World {
                     return self.gone(n);
                 }
                 self.rng.draw();
+                // Round 81 (audit erratum 4): on the step after it arrives the bolt makes its 5 flames whatever the
+                // target's state; flames made for a unit that is dying end at their first step. Sounds spec, "Other
+                // explosions": the bolt's explosion plays as it makes them.
                 if line.remaining <= 0 {
-                    if let Some(t) = m.target.filter(|&t| self.unit(t).is_some_and(|u| u.present())) {
-                        // Sounds spec, "Other explosions": the bolt arrives and makes its flames.
+                    if let Some(t) = m.target {
                         self.sound_at_px(m.pos, Sound::Explode);
-                        let c = self.unit(t).expect("checked").centre_px();
+                        let c = self.unit(t).map_or(m.to, |u| u.centre_px());
                         self.make_flames(t, c);
                     }
                     *done = true;
@@ -1391,7 +1393,8 @@ impl World {
                 // finds the unit dying or gone at its first step ends there, its slot freed at its next update (its
                 // lifetime count is 0 only then); from then on it ends as soon as the unit is dying or gone.
                 // Round-50 errata (static study): every step makes that check, and an ending flame (the unit dying or
-                // gone, or its count reaching 0) has its slot freed at its next update.
+                // gone, or its count reaching 0) has its slot freed at its next update. Round 81: a unit inside
+                // something is neither ([`World::flame_centre`]).
                 if age < FLAME_FIRST_STEP {
                     return true;
                 }
@@ -1502,10 +1505,13 @@ impl World {
         }
     }
 
-    /// The centre a flame circles: its shielded unit's, or `None` once the flame ends for the unit (it is dying or
-    /// gone, or inside something).
+    /// The centre a flame circles: its shielded unit's, or `None` once the flame ends for the unit (it is dying,
+    /// remains or gone). Round 81 (audit erratum 4; `xhuman10-shield-mine-hits-800`, S94 to S96): a unit inside a gold
+    /// mine, a building or a transport is neither, so its flames go on circling its stored position (inside a mine or a
+    /// building, the building's top-left tile) with the usual offset. Their splash hits that building, credited to the
+    /// unit inside; the unit itself, off the map's unit marks and the splash's attacker, is never hit.
     fn flame_centre(&self, shielded: UnitId) -> Option<(i32, i32)> {
-        self.unit(shielded).filter(|u| u.present()).map(|u| u.centre_px())
+        self.unit(shielded).filter(|u| !u.dying).map(|u| u.centre_px())
     }
 }
 
@@ -3500,6 +3506,98 @@ mod tests {
         assert!((-1000..-900).contains(&w.unit(g).unwrap().haste));
     }
 
+    /// A 2 x 2 building type (0x3a) with 400 HP.
+    fn building_type(w: &mut World) {
+        w.stats.0[0x3a] = UnitStats {
+            size: (2, 2),
+            box_size: (64, 64),
+            hit_points: 400,
+            flags: flags::BUILDING,
+            ..Default::default()
+        };
+    }
+
+    /// Puts unit `id` inside building `b`, as entering a gold mine does: off the map's unit marks, its tile and pixel
+    /// position the building's top-left tile.
+    fn go_inside(w: &mut World, id: UnitId, b: UnitId) {
+        let i = w.index(id).unwrap();
+        let unit = w.units[i].clone();
+        w.mark(&unit, unit.tile, None);
+        let bt = w.unit(b).unwrap().tile;
+        let u = &mut w.units[i];
+        u.inside = true;
+        u.tile = bt;
+        u.pos = (bt.0 * TILE_PX, bt.1 * TILE_PX);
+    }
+
+    /// S94 to S96 (`xhuman10-shield-mine-hits-800`): a shielded unit that goes inside a building keeps its 5 flames.
+    /// They circle its stored position (the building's top-left tile) with the usual offset, their splash hits the
+    /// building and never the unit inside, and they end only at the end of their lifetimes.
+    #[test]
+    fn flames_go_on_around_a_unit_inside_a_building() {
+        let mut w = sighted(32);
+        building_type(&mut w);
+        let m = caster(&mut w, MAGE, (5, 5), 255);
+        let f = w.spawn(KNIGHT, 0, (9, 8), 0).unwrap();
+        let b = w.spawn(0x3a, 0, (12, 12), 0).unwrap();
+        strike(&mut w, m, FLAME_SHIELD, Some(f), (0, 0));
+        let mut n = 0;
+        while fx_of_kind(&w, kind::FLAME) < 5 {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 40, "no flames");
+        }
+        go_inside(&mut w, f, b);
+        let c = (12 * TILE_PX + 16, 12 * TILE_PX + 16);
+        for _ in 0..450 {
+            w.step(&[]);
+            assert_eq!(fx_of_kind(&w, kind::FLAME), 5);
+            for fl in w
+                .missiles
+                .iter()
+                .flatten()
+                .filter(|e| e.kind == kind::FLAME && e.elapsed > 8)
+            {
+                let d = (fl.pos.0 - c.0, fl.pos.1 - c.1);
+                assert!((-28..=32).contains(&d.0) && (-34..=12).contains(&d.1), "{d:?}");
+            }
+        }
+        assert!(hp(&w, b) < 400);
+        assert_eq!(hp(&w, f), 100);
+        run(&mut w, 120);
+        assert_eq!(fx_of_kind(&w, kind::FLAME), 0);
+    }
+
+    /// Spec, "Flame shield" (round 81, audit erratum 4): the bolt makes its 5 flames whatever its target's state. On
+    /// a dying unit they end at their first step; on a unit inside a building they go on.
+    #[test]
+    fn the_bolt_makes_its_flames_whatever_the_targets_state() {
+        for dying in [true, false] {
+            let mut w = sighted(32);
+            building_type(&mut w);
+            let m = caster(&mut w, MAGE, (5, 5), 255);
+            let f = w.spawn(KNIGHT, 0, (9, 8), 0).unwrap();
+            let b = w.spawn(0x3a, 0, (12, 12), 0).unwrap();
+            strike(&mut w, m, FLAME_SHIELD, Some(f), (0, 0));
+            run(&mut w, 2);
+            if dying {
+                let fi = w.index(f).unwrap();
+                w.kill(fi);
+            } else {
+                go_inside(&mut w, f, b);
+            }
+            let mut n = 0;
+            while fx_of_kind(&w, kind::BOLT) > 0 {
+                w.step(&[]);
+                n += 1;
+                assert!(n < 40, "the bolt stays");
+            }
+            assert_eq!(fx_of_kind(&w, kind::FLAME), 5, "dying {dying}");
+            run(&mut w, 10);
+            assert_eq!(fx_of_kind(&w, kind::FLAME), if dying { 0 } else { 5 }, "dying {dying}");
+        }
+    }
+
     mod pin {
         use super::*;
 
@@ -3891,13 +3989,13 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    18259044270001103801,
+                    10092197340396237477,
                     16154662666603851558,
-                    1330651131239409016,
-                    17022409954431425806,
-                    14344149415018006896,
+                    14368531150592430028,
+                    3831019930421031670,
+                    1178450463650365013,
                     3343725924962192024,
-                    17039301721029369665,
+                    4615546886751034159,
                     1369650586003858535,
                     12169452165749080812,
                     14436589221238129288
