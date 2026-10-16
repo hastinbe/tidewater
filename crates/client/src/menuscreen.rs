@@ -309,6 +309,37 @@ pub(crate) fn heading_cell(r: Rect, text_w: u32) -> (i32, i32) {
     (r.x + (r.w as i32 - 1) / 2 - (text_w / 2) as i32, r.y)
 }
 
+/// A keypress that moves the focus ring ("Keyboard focus").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FocusKey {
+    /// Tab: the next button in the dialog's order, from the last back to the first.
+    Next,
+    /// Shift+Tab: the one before, from the first to the last.
+    Back,
+}
+
+/// Where the focus goes from `focus` on `key`, among buttons that are `enabled` (the dialog's order). A disabled
+/// button is passed over (the spec saw none on the main menu; ours, as a disabled button can't be chosen). The arrow
+/// keys and the pointer don't move the focus, so they have no `FocusKey`.
+pub(crate) fn move_focus(enabled: &[bool], focus: usize, key: FocusKey) -> usize {
+    let n = enabled.len();
+    if n == 0 {
+        return focus;
+    }
+    let step = |i: usize| match key {
+        FocusKey::Next => (i + 1) % n,
+        FocusKey::Back => (i + n - 1) % n,
+    };
+    let mut i = step(focus.min(n - 1));
+    for _ in 0..n {
+        if enabled[i] {
+            return i;
+        }
+        i = step(i);
+    }
+    focus
+}
+
 /// The byte index of a label's hotkey letter: its first letter equal to `key`, ignoring case.
 pub(crate) fn hotkey_at(label: &str, key: char) -> Option<usize> {
     label
@@ -628,6 +659,29 @@ mod tests {
             let half = b.0.x + 113 - cell.0;
             assert_eq!(label_cell(b.0, half as u32 * 2, 17, false), cell, "{}", b.1);
         }
+    }
+
+    #[test]
+    fn tab_and_shift_tab_move_the_focus_and_wrap() {
+        // "Keyboard focus", round 74: from Single Player Game, Tab 5 times visits the other four, then the first;
+        // Shift+Tab from the first goes to Exit Program.
+        let all = [true; 5];
+        let mut f = 0;
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            f = move_focus(&all, f, FocusKey::Next);
+            seen.push(f);
+        }
+        assert_eq!(seen, [1, 2, 3, 4, 0]);
+        assert_eq!(move_focus(&all, 0, FocusKey::Back), 4);
+        assert_eq!(move_focus(&all, 3, FocusKey::Back), 2);
+        // Ours: a disabled button is passed over; with none enabled the focus stays.
+        let some = [true, false, true];
+        assert_eq!(move_focus(&some, 0, FocusKey::Next), 2);
+        assert_eq!(move_focus(&some, 2, FocusKey::Next), 0);
+        assert_eq!(move_focus(&some, 0, FocusKey::Back), 2);
+        assert_eq!(move_focus(&[false, false], 1, FocusKey::Next), 1);
+        assert_eq!(move_focus(&[], 0, FocusKey::Next), 0);
     }
 
     #[test]

@@ -22,6 +22,9 @@
 //! - Fog of war changed in the preferences dialog takes effect on OK (the spec: nothing happens while the dialog is
 //!   open); Cancel leaves it as it was.
 //! - Sound dialog changes are applied 5 frames after the first change (the spec's open question default).
+//! - Keyboard focus (`ui/screen-and-cursors.md`, "Keyboard focus": every dialog works as the main menu does): each
+//!   screen opens focused on its default button ([`default_act`]); Tab and Shift+Tab move the yellow ring among the
+//!   buttons only (not the sliders, check boxes or radios); Enter activates the focused button.
 //! - Ctrl+S sets the digital volume to 0 and back (`Prefs::toggle_digital`); Ctrl+M isn't handled here, `music.rs`
 //!   owns it (`Prefs::toggle_music` is ready for it).
 //!
@@ -71,6 +74,9 @@ pub struct GameMenu {
     lines: Vec<String>,
     delay: menu::Delay,
     hot: Option<usize>,
+    /// The focused button (the yellow ring): its index in the item list; `None` until the screen is next run, which
+    /// puts it on the default button ([`default_act`]).
+    focus: Option<usize>,
     /// The slider being dragged: its index in the item list.
     drag: Option<usize>,
     dirty: bool,
@@ -467,8 +473,38 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
     }
     m.dirty = true;
     m.hot = None;
+    m.focus = None;
     m.drag = None;
 }
+
+/// The button a screen opens focused on, by what it does (screen spec, "Buttons", "Focus", round 74): Return to Game
+/// on the game menu, Previous on End Scenario and OK on a confirmation (Quit to Menu's). Ours where the spec saw no
+/// capture: OK on the settings dialogs (as Enter confirmed them before), Previous (or OK) on the others.
+fn default_act(screen: Screen) -> Option<Act> {
+    match screen {
+        Screen::Game => Some(Act::CloseAll),
+        Screen::Confirm(c) => Some(Act::Do(c)),
+        Screen::Sound | Screen::Speed | Screen::Prefs => Some(Act::Ok),
+        Screen::Options | Screen::Help | Screen::Objectives | Screen::End | Screen::KeyHelp | Screen::Tips => {
+            Some(Act::Back)
+        }
+        Screen::Saving(_) => None,
+    }
+}
+
+/// The index of the default button in a screen's items (the first button if none matches).
+fn default_focus(built: &Built, screen: Screen) -> Option<usize> {
+    let act = default_act(screen);
+    let button = |it: &Item| matches!(it.kind, Kinds::Button(..));
+    built
+        .items
+        .iter()
+        .position(|it| matches!(it.kind, Kinds::Button(a, _) if Some(a) == act))
+        .or_else(|| built.items.iter().position(button))
+}
+
+/// The focus ring's colour: menu palette entry 251 (screen spec, "Buttons"). The game dialogs draw in RGB.
+const FOCUS_RGB: [u8; 3] = [255, 255, 0];
 
 const KEY_HELP: [&str; 17] = [
     "+ and -   Game speed",
@@ -517,7 +553,12 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                     hud::text(&mut p, f, it.r.x, it.r.y + n as i32 * (f.height as i32 + 4), l);
                 }
             }
-            Kinds::Button(_, label) => frontend::button(&mut p, f, it.r, label, hot),
+            Kinds::Button(_, label) => {
+                frontend::button(&mut p, f, it.r, label, hot);
+                if m.focus == Some(i) {
+                    hud::outline(&mut p, it.r, FOCUS_RGB);
+                }
+            }
             Kinds::Slider(_, label, v, max, enabled) => {
                 let text = format!("{label}: {v}");
                 hud::text(&mut p, f, it.r.x, it.r.y, &text);
@@ -701,6 +742,7 @@ fn open_menu(
         lines: Vec::new(),
         delay: menu::Delay::default(),
         hot: None,
+        focus: None,
         drag: None,
         dirty: true,
         save: None,
@@ -846,6 +888,29 @@ pub(crate) fn run_menu(c: &mut Core) {
         m.dirty = true;
     }
 
+    // Screen spec, "Keyboard focus" (every dialog works alike: its open-question default): the screen opens focused
+    // on its default button; Tab and Shift+Tab move the focus among the buttons, wrapping, and pressing a button
+    // gives it the focus.
+    let screen = m.screen();
+    let is_button: Vec<bool> = built
+        .items
+        .iter()
+        .map(|it| matches!(it.kind, Kinds::Button(..)))
+        .collect();
+    let mut focus = m.focus.or_else(|| default_focus(&built, screen));
+    if mouse_in.just_pressed(Button::Left)
+        && let Some(i) = hot.filter(|&i| is_button[i])
+    {
+        focus = Some(i);
+    }
+    if let (Some(k), Some(f)) = (frontend::focus_key(keys), focus) {
+        focus = Some(crate::menuscreen::move_focus(&is_button, f, k));
+    }
+    if focus != m.focus {
+        m.focus = focus;
+        m.dirty = true;
+    }
+
     // Sliders follow the pointer while the button is held.
     if mouse_in.just_pressed(Button::Left)
         && let Some(i) = hot
@@ -889,7 +954,6 @@ pub(crate) fn run_menu(c: &mut Core) {
             _ => {}
         }
     }
-    let screen = m.screen();
     let settings = matches!(screen, Screen::Sound | Screen::Speed | Screen::Prefs);
     if keys.just_pressed(Key::Escape) {
         act = Some(match screen {
@@ -898,10 +962,9 @@ pub(crate) fn run_menu(c: &mut Core) {
             _ => Act::Back,
         });
     } else if keys.any_just_pressed([Key::Enter, Key::NumpadEnter]) {
-        act = match screen {
-            _ if settings => Some(Act::Ok),
-            Screen::Confirm(c) => Some(Act::Do(c)),
-            Screen::KeyHelp | Screen::Tips => Some(Act::Back),
+        // Enter activates the focused button, as a click on it does.
+        act = match m.focus.map(|i| &built.items[i].kind) {
+            Some(Kinds::Button(a, _)) => Some(*a),
             _ => None,
         };
     } else if act.is_none() {
@@ -1199,12 +1262,55 @@ mod tests {
             lines: vec!["text".into()],
             delay: menu::Delay::default(),
             hot: None,
+            focus: None,
             drag: None,
             dirty: false,
             save: None,
             request: None,
             from_outcome: false,
         }
+    }
+
+    /// The label of the button a screen opens focused on.
+    fn focused_label(s: Screen) -> Option<String> {
+        let b = menu_at(s).build(20, 16, Kind::Campaign);
+        let i = default_focus(&b, s)?;
+        match &b.items[i].kind {
+            Kinds::Button(_, l) => Some(l.clone()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn dialogs_open_focused_on_their_default_button() {
+        // Screen spec, "Buttons", "Focus" (round 74 captures).
+        assert_eq!(focused_label(Screen::Game).as_deref(), Some("Return to Game (Esc)"));
+        assert_eq!(focused_label(Screen::End).as_deref(), Some("Previous"));
+        assert_eq!(
+            focused_label(Screen::Confirm(Confirm::QuitToMenu)).as_deref(),
+            Some("OK")
+        );
+        // Ours, where the spec has no capture.
+        for s in [Screen::Sound, Screen::Speed, Screen::Prefs] {
+            assert_eq!(focused_label(s).as_deref(), Some("OK"), "{s:?}");
+        }
+        for s in [Screen::Options, Screen::Help, Screen::Objectives, Screen::KeyHelp] {
+            assert_eq!(focused_label(s).as_deref(), Some("Previous"), "{s:?}");
+        }
+        assert_eq!(focused_label(Screen::Tips).as_deref(), Some("OK"));
+        assert_eq!(default_act(Screen::Saving(Saving::Load)), None);
+    }
+
+    #[test]
+    fn tab_moves_the_focus_among_a_dialogs_buttons_only() {
+        // The preferences dialog: radios and a check box before OK and Cancel; Tab passes over them.
+        let b = menu_at(Screen::Prefs).build(20, 16, Kind::Campaign);
+        let is_button: Vec<bool> = b.items.iter().map(|it| matches!(it.kind, Kinds::Button(..))).collect();
+        let ok = default_focus(&b, Screen::Prefs).unwrap();
+        let next = crate::menuscreen::move_focus(&is_button, ok, crate::menuscreen::FocusKey::Next);
+        assert!(matches!(&b.items[next].kind, Kinds::Button(Act::Cancel, _)));
+        let wrapped = crate::menuscreen::move_focus(&is_button, next, crate::menuscreen::FocusKey::Next);
+        assert_eq!(wrapped, ok, "from the last button back to the first");
     }
 
     #[test]

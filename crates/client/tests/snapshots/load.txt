@@ -26,8 +26,8 @@ shot	507	loaded	b1e58710bb12af48
 frames	500-542	b1e58710bb12af48
 shot	568	loaded-later	bd94fe0bf67a94b7
 frames	543-569	bd94fe0bf67a94b7
-shot	574	quit-confirm	af8839ec29836062
-frames	570-574	af8839ec29836062
+shot	574	quit-confirm	c7255be9f12a29be
+frames	570-574	c7255be9f12a29be
 frames	575-607	bd94fe0bf67a94b7
 frames	608-608	dea26e54b3c12c41
 frames	609-609	e2aa8138ad662af6

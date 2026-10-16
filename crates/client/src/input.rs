@@ -36,6 +36,7 @@ pub enum Key {
     Enter,
     Escape,
     Backspace,
+    Tab,
     Space,
     Minus,
     Equal,

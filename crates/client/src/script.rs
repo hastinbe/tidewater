@@ -243,6 +243,15 @@ fn flow() -> Vec<Cmd> {
     v.extend([Until(AppState::NewCampaign), Wait(2), Shot("campaigns")]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
+    // The focus ring: Tab to Load Game, Shift+Tab back past New Campaign to Quit (wrapping), Tab to New Campaign.
+    v.extend(tap(K::Tab));
+    v.extend([Wait(2), Shot("menu-tab"), Press(K::ShiftLeft)]);
+    v.extend(tap(K::Tab));
+    v.push(Wait(1));
+    v.extend(tap(K::Tab));
+    v.extend([Release(K::ShiftLeft), Wait(2), Shot("menu-shift-tab")]);
+    v.extend(tap(K::Tab));
+    v.extend([Wait(2)]);
     v.extend(click(320.0, 254.0));
     // Over Previous Menu, then Beyond the Dark Portal's human campaign.
     v.extend([Until(AppState::NewCampaign), Wait(2), Move(320.0, 434.0), Wait(1)]);

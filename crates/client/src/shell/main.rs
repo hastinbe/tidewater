@@ -282,6 +282,7 @@ fn key_of(code: i32) -> Key {
         40 => Key::Enter,
         41 => Key::Escape,
         42 => Key::Backspace,
+        43 => Key::Tab,
         44 => Key::Space,
         45 => Key::Minus,
         46 => Key::Equal,

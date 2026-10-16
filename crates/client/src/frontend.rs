@@ -1263,7 +1263,19 @@ fn version_line(dst: &mut Picture, font: &Font, pal: &Palette) {
     menuscreen::draw_version_line(dst, font, pal, &version_text());
 }
 
-/// Hover, the held button, redraw, and the item clicked (or chosen by its number key).
+/// The focus move a frame's keys ask for: Tab, or Shift+Tab (screen spec, "Keyboard focus").
+pub(crate) fn focus_key(keys: &Buttons<Key>) -> Option<menuscreen::FocusKey> {
+    keys.just_pressed(Key::Tab).then(|| {
+        if keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]) {
+            menuscreen::FocusKey::Back
+        } else {
+            menuscreen::FocusKey::Next
+        }
+    })
+}
+
+/// Hover, the held button, the focus, redraw, and the item clicked, chosen by Enter on the focus, or by its number
+/// or hotkey letter.
 ///
 /// Screen spec, "Pressing": the left button going down on an enabled button holds it, and it shows its pressed face
 /// while the pointer stays on it; releasing on it chooses it, releasing anywhere else does nothing.
@@ -1278,6 +1290,14 @@ fn menu_input(
     menu.hot = at.and_then(|p| menu.items.iter().position(|it| it.enabled && it.r.contains(p.x, p.y)));
     if mouse.just_pressed(Button::Left) {
         menu.held = menu.hot;
+        // Screen spec, "Pressing": pressing a button also gives it the focus.
+        if let Some(h) = menu.hot {
+            menu.focus = h;
+        }
+    }
+    if let Some(k) = focus_key(keys) {
+        let enabled: Vec<bool> = menu.items.iter().map(|it| it.enabled).collect();
+        menu.focus = menuscreen::move_focus(&enabled, menu.focus, k);
     }
     let released = mouse.just_released(Button::Left);
     let chosen = if released {
@@ -1312,6 +1332,11 @@ fn menu_input(
     }
     if chosen.is_some() {
         return chosen;
+    }
+    // Screen spec, "Keyboard focus": Enter activates the focused button, as a click on it does.
+    if keys.any_just_pressed([Key::Enter, Key::NumpadEnter]) && menu.items.get(menu.focus).is_some_and(|it| it.enabled)
+    {
+        return Some(menu.focus);
     }
     const DIGITS: [Key; 6] = [
         Key::Digit(1),
