@@ -38,6 +38,9 @@
   2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): traced the
   cheat's every-pass step (V65, V70), the lost load (V68) and the unit-ready event location at the building's top-left
   tile (V71; open question answered). The fast first hall question stays open (AB3 not run).
+- **Changes:** 2026-10-16 (round 82, AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
+  2026-10-16): "Paying for a building" names both refunds of "Placement on arrival" (the failed site check and the full
+  unit table, steps 1 and 3), which that section already gave. No rule change.
 
 ## Behaviour
 
@@ -188,8 +191,8 @@ worker's own tile (below), so that doesn't stop the building.
 
 - **Computer players** (`movement/movement.md`, "Player kinds") pay when the AI decides to build, before the worker sets
   out. A build walk that ends with **no route** doesn't give the payment back; the job choice may give the same build
-  again and the player pays again each time (traced: V37, V38). Only a failed site check on arrival (below) refunds
-  it.
+  again and the player pays again each time (traced: V37, V38). Only a failed placement on arrival (below: a failed
+  site check, or a full unit table) refunds it.
 - **Every other player** (human, passive computer, neutral) pays on arrival. The affordability check runs then,
   after the site check ("Placement on arrival"), and a failure shows its message and makes the worker idle. In
   ordinary games only human players reach this, since passive and neutral players don't build.

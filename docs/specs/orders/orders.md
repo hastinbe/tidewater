@@ -38,6 +38,12 @@
   the unit walks (a unit already in reach isn't tested; traced for slow). The section's opening and step 3 now say
   that the reach test of "How an update runs", step 2, comes before the whole walk (the order the spells audit asked
   to make explicit). No other rule changed.
+- **Changes:** 2026-10-16 (round 82, AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review
+  session, 2026-10-16): the computer workers' and tankers' "AI routines" in "Automatic target acquisition" and
+  "Reacting to an attacker", step 3, now point at the job choice of `ai/worker-ai.md` instead of "a later spec"; the
+  random-draws note points at its wait. No rule change. Review addition, traced (`xorc10-xorc10-losses-4000`
+  n = 1021, vector V281): patrol (order 5) arrives at a patrol end before the target search, as orders 4 and 10 do
+  (open question closed).
 
 ## Behaviour
 
@@ -631,7 +637,9 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
   traced for order 3 with a dying target: `orc9-orc09-smart-target-2100` n = 1877, vector V240).
   For orders 4 and 10 the arrival test comes before the target search: a unit in order 4 or 10 whose logic runs while it
   stands at its move goal arrives, and runs **no** target acquisition in that run, even with a target in range (traced:
-  `xorc11-10000`, vector V196). Whether patrol (order 5) does the same at a patrol end isn't traced. At the move goal
+  `xorc11-10000`, vector V196). Patrol (order 5) does the same at a patrol end: the turnaround comes first and there
+  is no target acquisition in that run, even with a target in the search box; the search runs at the next logic run,
+  3 cycles later (traced: `xorc10-xorc10-losses-4000` n = 1021, vector V281). At the move goal
   the whole move step is skipped, so in Classic mode, where order 10 only reacts, the reaction doesn't run there either
   (static study).
 - **No route:** if the route search finds nothing and none of the special cases of `movement/movement.md` applies (the
@@ -1097,9 +1105,10 @@ table; only transports use order 32, and they can't attack anyway.
   while in order 4 (V279). The remembered branch with an attacker is static study only. A hit sapper that arrives
   forgets its attacker on arrival, as every unit in order 3, 4 or 10 does, so it doesn't flee while idle until it is
   hit again (traced with the hit list, round 75: V279, V280).
-- Workers and tankers of **any** player never run the search. A computer player's workers and tankers run their AI
-  routines here instead (later spec); every other player's use the reaction ("Reacting to an attacker") when they
-  have an attacker, and acquire nothing otherwise.
+- Workers and tankers of **any** player never run the search. A computer player's workers and tankers run their job
+  choice here instead in order 2 (`ai/worker-ai.md`, "When a job is chosen"; whether they also do in the other
+  acquiring orders is an open question there); every other player's use the reaction ("Reacting to an attacker") when
+  they have an attacker, and acquire nothing otherwise.
 
 **Vertical order.** The game keeps all units in a list sorted by **pixel y** (the vertical part of the pixel
 position defined in `movement/movement.md`):
@@ -1247,8 +1256,9 @@ the unit has an attacker:
    resulting-order table, which for the idle-type orders is **12 whenever the unit has an attacker**, for human and
    computer players alike. There is no second search in the same run.
 3. Workers and tankers that pass step 1 (so only workers, never tankers) use the reaction below instead
-   (computer players' workers and tankers first run their AI routines, a later spec); a computer player's worker or
-   tanker that fails step 1 runs the flee rule and not its AI routine. A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
+   (computer players' workers and tankers in order 2 first run their job choice, `ai/worker-ai.md`, whose step 2 is
+   this reaction; the other acquiring orders are an open question there); a computer player's worker or tanker that
+   fails step 1 runs the flee rule and not its job choice. A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
    chosen target is one it may take (a non-combat unit or one that can't attack; "Special cases") and differs from its
    current target, it attacks it; otherwise it runs the reaction, and so flees from the attacker (traced:
    `xorc01-death-coil-2500`, vector V172). An invisible mage-type unit does nothing more in that run after the
@@ -1312,7 +1322,8 @@ tiles on each axis.
 
 **Random draws.** Of the rules in this spec, only fleeing draws random numbers: **2 draws** per flee (x first, then
 y), made in phase 4 when the flee happens. Immediate orders, including going idle, make no draw. (The idle wait of
-`(r AND 15) + 44` cycles belongs to the computer players' worker routine; see `core/timing-and-rng.md`.)
+`(r AND 15) + 44` cycles belongs to the computer players' job choice; see `ai/worker-ai.md`, "The wait", and
+`ai/computer-player.md`, "Random draws".)
 
 ## Data
 
@@ -1434,6 +1445,7 @@ row's trace starts "As" that row's ID and names the trace.
 | --- | --- | --- | --- |
 | V095 | Enhanced (`research/oracle-round36/xhuman10-r36b-400.jsonl.gz`, oracle trace): hero 1463 (type 0x14) on (107, 98) gets command 8 on tile (113, 106) in turn 42, then a move to (111, 101) in turn 62 | Order 10 at n = 43; order 3 at n = 78; arrives at n = 113: order 2, animation 2, wait 3, and stays idle (the move command cleared the remembered attack-move) | Trace (`research/oracle-round36/xhuman10-r36b-400.jsonl.gz`) |
 | V196 | `xorc11-10000` (oracle trace), n = 6046: gryphon rider 1400 (type 0x2A, owner 6) in order 4 standing at its goal, (8, 24); juggernaut 1512 (type 0x21) nearby, at (4, 32) | Arrives: order 2, animation 2, wait 3, target null (no acquisition) | Trace (`xorc11-10000`) |
+| V281 | `xorc10-xorc10-losses-4000` (oracle trace, Enhanced), n = 1021: destroyer 1484 (type 0x1E, owner 2, computer) in order 5 reaches its patrol end (100, 78) at a step boundary; dragon 1562 (owner 5) is at tile (90, 68), where it stays until n = 1030 | n = 1021: order 5, animation 2, wait 3, target null (the turnaround, no acquisition). n = 1024: order 12, animation 4, wait 3, target 1562 | Trace (`xorc10-xorc10-losses-4000`) |
 | V050 | `xorc10-dragons` (oracle trace): computer destroyer 1483 (type 0x1E) at (124, 74); its patrol takes over at n = 4 (wait 3), heading for its own tile | n = 7: arrived; the new patrol takes over: tile (124, 74), animation 2, wait 3. n = 10: tile (122, 74), facing 6, animation 3. Destroyer 1484 does the same | Trace (`xorc10-dragons`) |
 | V163 | `orc09-naval-1500` (oracle trace), n = 754: computer destroyer 1460 (type 0x1E) on its sea patrol arrives at (84, 66); the far end (67, 57) is under an oil platform | The new patrol goal is pulled back to (69, 58); it steps from n = 757 and at n = 853 is at (76, 60), facing 6 | Trace (`orc09-naval-1500`) |
 | V164 | A patrol whose other end is usable | Goal unchanged | Example |
@@ -1791,8 +1803,6 @@ Carried over:
 - **Same-update take-over.** The order logic signals when a command it gave should take over at once. The cases
   confirmed are listed in "Taking over"; coming out of a building is the one known exception. Default: every other
   command a unit's own order logic gives it takes over in the same update.
-- **Arrival before acquiring for patrol.** Orders 4 and 10 arrive at the move goal before acquiring (`xorc11-10000`);
-  whether patrol (order 5) does the same at a patrol end isn't traced.
 - **The flee move's wait cap** ("Fleeing", step 6) rests on static study; no trace shows it.
 - **An attack command on a dying enemy.** The pending idle of an attack command on a dying unit is traced only with the
   player's own unit as the target (`orc02-dyingcmd-3760`); the enemy case rests on static study.
@@ -1987,3 +1997,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 72 | Evidence only: the Enhanced demolition unit's search (S1) traced for a remembered patrol and for order 4 with nothing remembered, before and after a hit; the no-attacker case stated from the trace. Movement audit: what a walk forgets at each step boundary restated (an open question since the consolidation). Spec review: a hit sapper not fleeing after arrival is a new open question | "Automatic target acquisition", "Special cases"; V278, V279; "Open questions" |
 | 75 | Hit sapper's attacker forgotten on arrival (traced with the hit list); demolition rule for every player and "nothing else" scoped to the search step (static); idle transport's step-done check isn't a take-over (static); notes on the skip mark, T11 and V277 | "Automatic target acquisition"; "Taking over"; "Open questions"; V279, V280 |
 | 81 | Walking orders: the lost-target drop traced for spell order 44 and made only by the walk (a caster in reach casts at an undetected target, traced); the reach test of "How an update runs" stated to come before the whole walk | "Walking orders" |
+| 82 | Review addition from the AI consolidation trace: patrol (order 5) arrives at a patrol end before the target search (traced, V281; open question closed); the computer job-choice pointers name order 2, other acquiring orders held open | "Arriving and losing the target"; "Automatic target acquisition"; "Reacting to an attacker", step 3; vector V281 |

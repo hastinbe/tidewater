@@ -10,6 +10,9 @@
 - **Changes:** 2026-10-16 (round 81 traces, `ERRATA-round81.md`, reviewed by a spec-review session,
   2026-10-16): the open question "Polymorph from the random search" notes the pending idle form; a note that try 7 never shields its own
   caster. No rule change.
+- **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
+  2026-10-16): the caster step's place in the whole computer player is in `ai/computer-player.md`; the Classic-mode
+  slot count is labelled; the all-spells cheat's scope is an open question. No rule change.
 
 ## Behaviour
 
@@ -66,8 +69,8 @@ an invisible caster mostly uses the tries marked for that case.
   chosen.
 - **Nearest enemy.** The enemy search of `ai/attack-ai.md` ("Enemy search") is run for the caster. If it finds a
   unit and that unit passes the test, it is the target. Only that one unit is tested.
-- **Random.** Up to 10 draws `r mod N`, where N is the number of unit slots (`core/unit-slots.md`: 600 in Classic,
-  1600 in Enhanced), each picking that unit slot. Each picked slot must not carry the used mark and must pass the
+- **Random.** Up to 10 draws `r mod N`, where N is the number of unit slots (`core/unit-slots.md`: 1600; **Classic
+  mode:** 600), each picking that unit slot. Each picked slot must not carry the used mark and must pass the
   test. The first failure ends the try at once, unsuccessful, so a try makes 1 to 10 draws. After 10 passing draws
   the try succeeds, and the spell is aimed at the **tile** of the **last** slot drawn, with no target unit. Free slots
   aren't skipped (see Open questions).
@@ -95,7 +98,9 @@ When a try succeeds, its row may set a **mark** on the target, so that other cas
 don't pick the same unit for the same spell. There are two kinds:
 
 - **Target marks:** seven flags, one each for death coil, polymorph, holy vision, exorcism, healing, raise dead and
-  whirlwind. The timers pass of `spells/spells.md` ("The timers pass") clears all seven on every unit it visits, every cycle.
+  whirlwind. The timers pass of `spells/spells.md` ("The timers pass") clears all
+  seven on every unit it visits, every cycle (that spec's step list doesn't name this step; its place among the steps
+  changes no outcome, since only pass B reads the marks).
 - **Timer marks:** a spell timer of the target is set to 1 (or −1). These are real timers. They count down in the
   timers pass of the same cycle like any other, and until then they have their normal effect:
   - bloodlust timer 1: the target's hits in this cycle do double damage (`combat/damage.md`);
@@ -189,7 +194,7 @@ With mana of 50 or more, the retreat doesn't act.
 | Item | Value |
 | --- | --- |
 | Nearby box | 31 × 31 tiles centred on the caster |
-| Random search | up to 10 draws `r mod N` (N = 600 Classic, 1600 Enhanced) |
+| Random search | up to 10 draws `r mod N` (N = 1600; Classic mode: 600) |
 | Stronger mana gates | 75 (three times the blizzard or death and decay cost) for the nearest-enemy blizzard and death and decay; exactly 255 for the eye of Kilrogg and the paladin's holy vision |
 | Company boxes | 3 (blizzard, death and decay, fireball), 2 and 1 (flame shield), 1 (death coil), 4 (whirlwind) |
 | Retreat | mana below 50; mage tower 0x50, temple of the damned 0x51 |
@@ -234,6 +239,11 @@ every spell. "Draws" counts the caster step's draws only.
 
 ## Open questions
 
+- **The all-spells cheat's scope** (round 82, Q3 of `ERRATA-ai-consolidation.md`): `game/cheats.md` gives every spell
+  "for every player controlled by a person", `spells/spells.md` glosses the cheat as "every player". It decides
+  whether a computer caster's spell gate passes under the cheat. Default: `game/cheats.md` (players controlled by a
+  person only), the spec that states the cheat's rule. Trace request AI3: cheat on, a computer mage that doesn't know
+  a spell; watch for a cast of it.
 - **Free slots in the random search.** A freed unit slot keeps its last occupant's data, with owner 14 (the free
   list), and doesn't carry the used mark, so the random search can pick it. Its tests then read the stale type,
   timers and marks, and the alliance entry for owner 14. That entry wasn't fully traced. As far as traced, a computer

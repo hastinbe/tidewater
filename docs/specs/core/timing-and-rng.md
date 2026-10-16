@@ -26,6 +26,9 @@
   2026-10-12, round-32 errata: the fog refresh and victory countdowns count the start-up cycles. Their first runs
   are the first and second start-up cycles, and later runs are named by cycle counter value. The open question on
   "cycle 1" for the fog refresh is closed.
+- **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
+  2026-10-16): phase 2 names the 50-cycle passes; the draw table's computer rows point at the full list in
+  `ai/computer-player.md`, "Random draws", and the boarding tile's 2 draws get a row. No rule change.
 
 ## Behaviour
 
@@ -79,7 +82,9 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
    - Every other unit is detected by everyone.
 
    The full rule is in `vision/fog.md`, "Detection (phase 1)".
-2. **Computer players.** Each computer-controlled player runs one step of its AI script.
+2. **Computer players.** Each computer-controlled player runs one step of its AI script. Every 50 cycles the passes
+   A and B of `ai/attack-ai.md` ("Timing") follow, with the no-workers research pass between them
+   (`ai/computer-player.md`, "One cycle, in order").
 3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1 and counts every cycle,
    the two start-up cycles included, so the first refresh happens in the first start-up cycle. Then it happens every
    100 cycles (101 in Classic): in the normal cycles that end with the cycle counter at 99, 199, … (Classic: 100,
@@ -144,14 +149,15 @@ These are the known simulation consumers. Each draw happens at the moment the ev
 | Non-splash missile launched | units | 0 to 3 | Damage roll at launch (none when the damage total is 0), then 2 scatter draws for missiles fired by a unit's attack (not by towers, guard or cannon). None at all if no effect slot is free for the missile (combat spec) |
 | Splash missile launched by a unit's attack (not by a tower) | units | 0 or 2 | Target scatter; none if no effect slot is free for the missile (combat spec) |
 | Splash missile lands | missiles | 1 per unit hit | Damage roll for each unit in the blast (combat spec) |
-| Computer player's idle worker finds no job (no harvest, build or repair) | units | 1 | Wait of `(r AND 15) + 44` cycles, 44 to 59, before it looks again (the routine is to be specified with the AI) |
+| Computer player's idle worker finds no job (no harvest, build or repair) | units | 1 | Wait of `(r AND 15) + 44` cycles, 44 to 59, before it looks again (`ai/worker-ai.md`, "The wait") |
 | Unit flees from its attacker | units | 2 | Flee tile offset `(r mod 8) − 2`, x first, then y (`orders/orders.md`, "Fleeing") |
 | Idle look-around: a unit in order 2 or 13, or in order 7 when it reaches the idle logic, each time that logic runs (every 5 cycles for a unit at rest), except catapults, ships and fliers | units | 1, plus 1 when a critter wanders | Turn or wander (`orders/orders.md`, "Idle look-around") |
 | Bob: a ship or flier at the same moments, when its bob countdown is 0 | units | 1 | Countdown `(r AND 7) + 8`; the bob value flips (`orders/orders.md`, "Idle look-around") |
 | Missile flight step (unit attacks and towers; all kinds except hammer and breath) | missiles | 1 at the end of the step, landing step included; catapult rock and small cannon: 1 more while their travel is below 5 × ceil(D / 5) (combat spec) | Discarded |
 | Gryphon hammer or dragon breath step | missiles | 1 at the start of the step, then 1 per unit hit by a splash on that step (combat spec) | Discarded; splash damage |
 | Spell effects | units or missiles | as `spells/spells.md`, "Random draws", lists | Scatter, start offsets, wander, splash damage |
-| Computer player decisions | computer players | varies | AI choices |
+| A computer player's unit in order 34 can't board because its transport is landing | units | 2 | Random tile, x then y (`orders/transports.md`, "Boarding", order 34, step 5) |
+| Computer player decisions: pass B (caster random search 1 to 10 per try, roam 2, sea-patrol fallback 2, ferry landing 1) and building thinks (training chances, in the building's own update) | computer players (pass B); units (thinks) | varies | AI choices; the full list, with conditions and order, is `ai/computer-player.md`, "Random draws" |
 | Cheat entered in multiplayer with cheats disabled | when processed | 1 | Discarded |
 | Game saved, Enhanced game in a network session (`game/save-load.md`) | when processed | 1 | Discarded; other saves make no draw |
 

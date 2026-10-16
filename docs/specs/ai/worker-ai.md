@@ -28,6 +28,12 @@
   to the worker's tile; `mp-gold-rush-bne-25000` vector (Classic-mode traces agree).
   2026-10-13, round-65 errata: the new-mine search skips a mine if any tile of a gold-storing building is in its
   13 × 13 square, not only the building's top-left tile; `xorc4-30000` vector.
+- **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review
+  session, 2026-10-16): the model of the whole computer player is in `ai/computer-player.md`. C1 (traced): the losses
+  rule counts the buildings at the kill, the destroyed one included. X3: the come-out hand-off is at every come-out,
+  not only a depot's. X2: the all-out target is the human player with the most non-building units. Two open questions
+  answered. Held as open questions with the old text as the default: the job choice in acquiring orders other than
+  order 2 (C2, static study only) and whether an unfinished oil platform counts in the losses rule.
 
 ## Behaviour
 
@@ -40,11 +46,17 @@ that moves on water is handled as a tanker (below).
 
 ### When a job is chosen
 
-The job choice runs for a unit of a **computer-controlled** player:
+The job choice runs for a unit of a **computer-controlled** player (`ai/computer-player.md`, "Where the job choice
+runs"):
 
-- when its idle order (order 2) logic runs (`orders/orders.md`); and
-- when it comes out of a depot after delivering goods (`economy/harvest.md`, "Coming out", step 3). If a job is given
-  there, the usual return to the old source is skipped.
+- when its idle order (order 2) logic runs (`orders/orders.md`), at the point where a combat unit would run the
+  target search ("Automatic target acquisition"). With an attacker, the kind check of `orders/orders.md`, "Reacting
+  to an attacker", step 1 comes first: a worker or tanker that can't attack its attacker's kind runs the flee rule and
+  makes no job choice in that run. The look-around's draw comes before the job choice. Whether the job choice also
+  runs in the other acquiring orders (a computer worker in order 4 after an all-out attack) is an open question
+  (below); and
+- when it comes out of a mine, a platform or a depot (`economy/harvest.md`, "Coming out", step 3; traced for a mine
+  by that spec's V45). If a job is given there, the usual return to the old source is skipped.
 
 The job choice gives its order as a **command**, so the unit's cached route is dropped and its blocked counter cleared,
 as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new route at its next movement decision
@@ -148,11 +160,15 @@ player can't research it.
 
 So the list works like a wish list: each entry stands for one building, and a lost building is replaced.
 
-**Other effects of a computer player's losses** (they don't change done marks):
+**The losses rule** and the other effects of a computer player's losses (they don't change done marks):
 
-- When one of its buildings is destroyed and it then has fewer than 3 buildings that are not oil platforms, it
-  launches an all-out attack on the human player with the most units. That attack belongs to the attack AI and is
-  not covered here.
+- When one of its buildings is destroyed, the rule runs inside the kill, at the start of the death, before the
+  building leaves the player's counts. Let B be the player's buildings that are not oil platforms at that moment,
+  **the destroyed one included**, complete or under construction. If B < 3, it launches the all-out attack
+  (`ai/attack-ai.md`, "The all-out attack") on the human player with the most non-building units. So a player with
+  exactly 3 buildings that are not platforms doesn't attack when it loses one, and does when it loses the next
+  (traced: `xorc10-xorc10-losses-4000`, vectors below and `ai/computer-player.md` CP1, CP2). Whether an oil platform
+  still under construction counts in B is an open question (below); the default leaves every platform out.
 - When one of its workers dies, the worker's job is released as in step 1 (the matching count goes down by 1).
 
 ### Repair
@@ -343,7 +359,7 @@ only custom unit data creates):
 | Computer placement masks | 0x0DDE land, 0x0D11 shore |
 | Keep-clear bit | 0x0400 |
 | New-mine search | mines with ≥ 50 trips; no gold-store tile in (−5, −5) to (+7, +7); site within 10 tiles; nearest site wins |
-| All-out attack threshold | fewer than 3 buildings other than oil platforms |
+| All-out attack threshold | at the kill: buildings other than oil platforms (the destroyed one included) < 3 |
 | Build-list length | min(slot 0x22, 64) entries |
 
 "Annoy computer" values of the buildings in the default unit data (both races alike):
@@ -398,6 +414,8 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Classic, supply 210, food in use 209 | No farm (S ≥ 200) |
 | T = 2, 0 lumberjacks, no reachable tree, a depot and a mine | Tree search fails; the worker mines gold |
 | Computer player with 3 buildings (one an oil platform) loses a farm | 1 building other than platforms left: the all-out attack starts |
+| Computer player with 3 guard towers loses one (`xorc10-xorc10-losses-4000`, n = 1358) | 3 at the kill: no all-out attack |
+| Same player loses a second tower (n = 1543) | 2 at the kill: the all-out attack starts at the next pass (n = 1551) |
 | 7 workers, gold 400, lumber 300 | First three rows don't match (W ≥ 5; L < 2000; L < 500); fourth row: T = floor(7/2) = 3 |
 | 4 workers, gold 400 | T = 0: all mine gold |
 | 8 workers, gold 1500, lumber 100 | T = floor(27/4) = 6 |
@@ -456,16 +474,24 @@ An entry is marked done at the start of a game when either bit of its code is se
 
 ## Open questions
 
+- **Job choice in other acquiring orders** (round 82, C2, held by review): static study finds the job choice wherever
+  a computer worker or tanker reaches the acquisition step, in every order marked "acquires" (`orders/orders.md`) and
+  in the move step of orders 4, 5 and 12, not only in order 2. Its one practical case is a worker given command 4 by
+  the all-out attack's attack goal (`ai/attack-ai.md`, "Attack (2)"). Default: order 2 only, as above. Trace request
+  AI1 (`ERRATA-ai-consolidation.md`): a computer player with workers loses its buildings down to the all-out attack;
+  the static reading predicts its workers leave order 4 for a job at their next order-logic run.
+- **An unfinished oil platform in the losses rule** (round 82, held by review): static study counts a platform under
+  construction in B. Default: every oil platform is left out, complete or not. Trace request AI5
+  (`ERRATA-ai-consolidation.md`): a computer player with 2 other buildings and a platform under construction loses
+  one of the 2; the static reading predicts no all-out attack, the default predicts one.
 - "Prerequisites met" in the build list: the rules are in `economy/tech-tree.md`. Whether the computer applies them
   even when requirements aren't enforced must be checked. Default: it uses the same rules as the player's interface.
-- Exactly which entries of 0x80 or more stand for which research, and how the request is acted on.
 - Confirm in the running game that a worker whose tree search fails mines gold in the same choice (default: it does,
   as described above).
 - Confirm the keep-clear line in the running game, for example by watching where a computer player's later buildings
   avoid a diagonal strip between its hall and a mine.
 - The general placement check adds rules for the site (beyond the masks) that are in `movement/placement.md`; their
   interaction with the border option is assumed to use the unbordered footprint.
-- The all-out attack started by losing buildings is not specified here (it belongs to the attack AI).
 - That a construction site placed in play marks its entry when construction starts (not when it ends) comes from
   the static study only; no trace shows it yet.
 - Creation marks by type: the setup dumps confirm the rectangle for town hall, keep, barracks, church, stables,

@@ -8,14 +8,18 @@
   value with a non-zero low byte), not rescuable ones; slots 0x09 to 0x12 filled in.
 - **Changes:** 2026-10-13, round-60 errata: a player counts as allied with itself, so condition 7 never counts its
   own workers (open question closed; the rule is unchanged); `human11-30000` vector.
+- **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
+  2026-10-16): the model of the whole computer player is in `ai/computer-player.md`. Remarks that the other AI parts are
+  "a later spec" now point at their specs; static study fills in that there are exactly four opcodes and eight
+  conditions and that slots 0x1F and 0x21 have no reader. No rule change.
 
 ## Behaviour
 
 Each player has an **AI script**: a small program, taken from the AI script file, that runs once per cycle for every
 computer-controlled player. A script does not move units or train anything itself. It only writes numbers into a
 per-player set of **slots** (wanted unit counts, how far down the build list to go, attack settings) and waits on
-simple conditions. The rest of the computer player (training, building, attacking; not covered by this spec) reads
-those slots.
+simple conditions. The rest of the computer player reads those slots: `ai/computer-player.md` is the model of the
+whole, and its "Information flow" lists each slot's readers.
 
 ### Which script a player runs
 
@@ -77,7 +81,8 @@ number of them run in the same cycle.
 | 2 | 5: opcode, 32-bit count | **Wait** | Wait counter ← *count*; position moves past the instruction. Pauses if *count* > 0 |
 | 3 | 2: opcode, condition | **Wait until** | Tests the condition (below). True: the position moves past the instruction. False: the position goes back to this instruction's opcode. In both cases the wait counter ← 1, so the script pauses |
 
-Multi-byte values are little-endian.
+Multi-byte values are little-endian. These four are the only opcodes, and conditions 0 to 7 below the only
+conditions; no other value is defined (static study, round 82; see Open questions).
 
 **Timing that follows from this:**
 
@@ -135,12 +140,11 @@ A held unit is taken out of the army counts when the map is loaded. The worker c
 
 ### Slots
 
-Scripts in the shipped file write slots 0x09 to 0x22. What the rest of the AI does with them is not covered here;
-this table records what is known so far.
+Scripts in the shipped file write slots 0x09 to 0x22. The specs that read each slot are named in the table.
 
 | Slot | Use | Known from |
 | --- | --- | --- |
-| 0x09, 0x0A, 0x0B | Land, sea and air attack-wave triggers (the attack AI, in a later spec). Scripts set 0x09 to 1 just after an army condition is met | Script patterns; the AI work every 50 cycles |
+| 0x09, 0x0A, 0x0B | Land, sea and air attack-wave triggers (`ai/attack-ai.md`, "Attack waves"). Scripts set 0x09 to 1 just after an army condition is met | Script patterns; the AI work every 50 cycles |
 | 0x0C | Switches the ferry's landing-spot search (the attack AI). Set to 1 for every player when the game starts | The AI work every 50 cycles; game start |
 | 0x0D, 0x0E | Land army size test: condition 4 compares with their product. Also the land wave's size and repeat count | Conditions; attack waves |
 | 0x0F, 0x10 | Sea army size test (condition 5). Also the sea wave's size and repeat count | Conditions; attack waves |
@@ -157,20 +161,20 @@ this table records what is known so far.
 | 0x1C | Wanted submarines / turtles | Training |
 | 0x1D | Wanted mages / death knights | Training |
 | 0x1E | Wanted flying machines / zeppelins | Training |
-| 0x1F | Not traced (likely demolition squads / sappers) | Script patterns |
+| 0x1F | Written by scripts; nothing reads it (static study, round 82) | Script patterns |
 | 0x20 | Wanted gryphon riders / dragons | Training |
-| 0x21 | Not traced | Script patterns |
+| 0x21 | Written by scripts; nothing reads it (static study, round 82) | Script patterns |
 | 0x22 | **Build-list limit**: the computer's workers only work on build-list entries whose index (from 0) is below this value | Worker AI |
 
-"Wanted" means the training logic compares the slot with the player's count of that unit group. The exact training
-rules (order of preference, random choices, prerequisites) are for a later spec.
+"Wanted" means the training logic compares the slot with the player's count of that unit group. The training rules
+(order of preference, random choices, prerequisites) are in `ai/training-research.md`.
 
 ### Build list and second list
 
 The build list is up to 64 bytes ending with 0xFF. Values below 0x80 are building types written with the human type
 number; the worker AI uses the builder's race (the type's lowest bit) for the actual building. Values from 0x80 up
-are not buildings (they look like upgrades and research); their meaning is for a later spec. The second list's
-format is not yet known.
+are research and building-upgrade codes (`ai/training-research.md`, "Research codes"). The second list holds one
+think interval per building type (`ai/training-research.md`, "When a building thinks").
 
 ## Data
 
@@ -214,7 +218,6 @@ condition 0 never does. Wait counts range from 300 to 65535.
   script 0 assumes the units are counted first; to check against the running game.
 - Writing slots 0 to 8 or 0x23 and above would overwrite the wait counter, position or list offsets. No shipped
   script does this; what a reimplementation should do with such a script is open.
-- The meaning of slots 0x1F and 0x21, the second list, and build-list values from 0x80 up.
+- **An opcode above 3 or a condition above 7** has no defined behaviour (static study, round 82). No shipped script
+  has one. Default: treat a script file with one as invalid and refuse it.
 - Whether anything clears the held mark after map load. None was found. Default: the mark stays for the unit's life.
-- The training, building and attack logic that reads the slots, and the AI work run every 50 cycles in the same
-  phase (starting with the first cycle), are not yet specified.

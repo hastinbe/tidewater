@@ -34,6 +34,10 @@
   end; `xorc11-air-sea-3000` vector.
   2026-10-13, round-56 errata: a held unit answering a call for help gets goal attack with no tile given, so its goal
   tile is its own tile as it stands (no ring search); `xorc12-spells-1500` vector.
+- **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review
+  session, 2026-10-16): the model of the whole computer player is in `ai/computer-player.md`. The all-out attack's
+  trigger is restated as C1 (counted at the kill, traced); the attack goal is stated to apply to workers and tankers
+  too (X9, static study); the held mark also skips oil platforms (X4, as `game/setup.md`).
 
 ## Behaviour
 
@@ -145,7 +149,7 @@ Then the unit's goal is set to **hold** at the post.
 
 **Held units.** When a map is loaded, a unit placed by the map's `UNIT` section whose 16-bit data value has a
 non-zero low byte (the public PUD text calls this field "0 passive, 1 active"; gold mines and oil patches use it for
-their amount instead, and are excluded) gets the **held** mark. A held unit:
+their amount instead, and are excluded, as are oil platforms, `game/setup.md`) gets the **held** mark. A held unit:
 
 - is taken out of its player's army and unit-group counts (`ai/ai-scripts.md`);
 - if it is mobile, can attack (bit 19) and is not a worker, gets goal **hold** at its own tile;
@@ -266,8 +270,8 @@ All three pick a tile in the **target player** T's area. "T's list" means T's un
 
 ### The all-out attack
 
-Started by the losses rule of `ai/worker-ai.md` (a computer player that drops below 3 buildings other than oil
-platforms). For that player p, if it has units:
+Started by the losses rule of `ai/worker-ai.md` ("The losses rule": at the kill, the player's buildings other than
+oil platforms, the destroyed one included, are fewer than 3). For that player p, if it has units:
 
 1. Target player: as in attack waves (the human player with the most non-building units, more than 0). If none,
    nothing happens.
@@ -325,7 +329,9 @@ from the unit data, and the **leash** is floor(react range / 2) + 4.
 So a unit holding its post returns when it has wandered or chased past the leash, and gives up a fight early (even
 while busy) when it is badly outmatched where it stands.
 
-**Attack (2).**
+**Attack (2).** Unlike hold, the attack goal doesn't skip workers and tankers, so a worker given an attack goal by
+the all-out attack gets command 4 here (static study). What its job choice does in order 4 is an open question of
+`ai/worker-ai.md`.
 
 1. If the distance from the goal tile to the unit is at least the leash, and the unit's order is not an attacking
    order (9, 11, 12, 15, 16 or 17): set goal (unit, attack, goal tile); on success give command 4 (move, attacking on

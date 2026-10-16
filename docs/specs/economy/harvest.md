@@ -8,6 +8,9 @@
   both remain open questions (the round-68 ruling).
   **Round 77 edit** (`specs/ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): a killed mine,
   platform or depot kills the units inside it ("Mine and platform amounts"; traced for a depot).
+  **Round 82 edit** (AI consolidation, `specs/ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
+  2026-10-16): "Coming out", step 3 points at the job choice of `ai/worker-ai.md` instead of "a later spec"; two open
+  questions closed. No rule change.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the public PUD
   specification text (UNIT section and unit data flags), and oracle traces of the running game. Each rule says which:
   "traced" with the trace name and record number n, or "static study only". The erratum rounds each rule came from are
@@ -416,7 +419,8 @@ When the 150-cycle wait ends and the inside order's logic runs:
    nothing or another unit lowers its mine's count, and the building it comes out of keeps its count and frame
    (traced: `orc9-orc09-enter-nothing-1900` n = 1060, out of an orc blacksmith; `orc9-orc09-return-nodepot-2200`
    n = 1368, out of a peon; vectors V71 and V75).
-3. A **computer player's** unit (`orders/orders.md`, "Terms") hands control to the AI here (a later spec). If the AI
+3. A **computer player's** unit (`orders/orders.md`, "Terms") hands control to the AI here: its job choice
+   (`ai/worker-ai.md`, "When a job is chosen"), at every come-out, from a mine, a platform or a depot. If the AI
    gives it an order, steps 4 and 5 are skipped. Every other player's unit goes straight on to steps 4 and 5.
 4. If it is **carrying**, it looks for the nearest depot ("Finding the nearest depot") and is given a return command to
    it (order 24). If there is none, it stays idle, and idle is its pending order. The depot search uses the unit's
@@ -671,7 +675,6 @@ as" that row and names the trace, since the regrouping moved rows away from the 
 
 Carried over:
 
-- How the AI routines for computer-controlled workers and tankers decide at the mine and depot.
 - Whether any normal command can get an empty-handed unit into a depot in Classic mode (the Classic delivery rule
   would then pay a full load).
 - The return-goods button: when it is offered and what message appears if there is no depot.
@@ -679,8 +682,8 @@ Carried over:
   isn't detected until the next cycle (`vision/fog.md`). Untraced: the case that separates this from the pre-audit
   rule, where the oil patch has already had its update when the platform is placed (vector V90). Trace request (T1
   in `specs/ERRATA-audit-harvest.md`): such a case, or any command aimed at a unit in the cycle it was created.
-- **Other AI jobs at a come-out.** Only the repair job's aim is traced; the aims for the AI's other jobs (attack,
-  patrol) aren't checked.
+- **Other AI jobs at a come-out.** Closed in round 82: the job choice gives only return, build, repair and harvest
+  jobs, or a wait (`ai/worker-ai.md`), never attack or patrol. Only the repair job's aim is traced.
 - **Job counts on the no-route switch.** Whether the computer's job counts change when a miner becomes a lumber worker
   through the no-route tree search is untraced (the static study shows no count change on this path).
 

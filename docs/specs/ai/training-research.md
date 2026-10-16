@@ -8,12 +8,16 @@
   attacker (`orders/orders.md`, row 33).
 - **Changes:** 2026-10-12, round-21 errata: only a research start and the game-start marks mark a research entry
   done, so an entry the player can never research blocks the requests of the entries after it.
+- **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
+  2026-10-16): the model of the whole computer player is in `ai/computer-player.md`; the chance draws are placed in
+  phase 4, in the building's own update. No rule change.
 
 ## Behaviour
 
 A computer player's buildings decide by themselves what to train, research or upgrade into. The decisions read the
 player's script slots (`ai/ai-scripts.md`), its unit counts and its **research requests**. Worker and tanker jobs are
-in `ai/worker-ai.md`; what the trained units then do is in `ai/attack-ai.md`.
+in `ai/worker-ai.md`; what the trained units then do is in `ai/attack-ai.md`. How the parts fit together is in
+`ai/computer-player.md`.
 
 Type numbers are PUD unit types written with the human number; the race bit (the type's lowest bit) of the deciding
 building is added to every unit or building it asks for, so an orc barracks asks for 0x01 where the text says 0x00.
@@ -156,8 +160,9 @@ counts):
 
 Heroes are counted in their groups, so a map hero reduces what is trained.
 
-**Draws.** Every "chance" below is one simulation draw r (`core/timing-and-rng.md`), made **only** when the condition
-written before it holds; conditions after it are not checked unless the draw succeeds.
+**Draws.** Every "chance" below is one simulation draw r (`core/timing-and-rng.md`), made in phase 4 during the
+building's own update, and **only** when the condition written before it holds; conditions after it are not checked
+unless the draw succeeds.
 
 **Barracks (0x3C, 0x3D).** LM, BS and ST mean "the player has a complete lumber mill, blacksmith, stables" (either
 race). The **archer choice** trains a ranger (0x12) if rangers are researched, else an archer (0x08). The **knight
