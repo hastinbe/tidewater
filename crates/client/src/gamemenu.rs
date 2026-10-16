@@ -410,7 +410,8 @@ impl GameMenu {
             Screen::Saving(_) => ("", false),
             Screen::KeyHelp => {
                 b.lines(&self.lines);
-                b.button(Act::Back, "Previous");
+                // Screen spec, "Focus" (round 75): the Keystroke Help dialog's button is OK.
+                b.button(Act::Back, "OK");
                 ("Keystroke Help", true)
             }
             Screen::Tips => {
@@ -486,9 +487,10 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
     m.drag = None;
 }
 
-/// The button a screen opens focused on, by what it does (screen spec, "Buttons", "Focus", round 74): Return to Game
-/// on the game menu, Previous on End Scenario and OK on a confirmation (Quit to Menu's). Ours where the spec saw no
-/// capture: OK on the settings dialogs (as Enter confirmed them before), Previous (or OK) on the others.
+/// The button a screen opens focused on, its default button, by what it does (screen spec, "Buttons", "Focus", rounds
+/// 74 and 75): Return to Game on the game menu, Previous on End Scenario, OK on a confirmation (Quit to Menu's),
+/// Previous on the Options and Help menus, OK on the Sound, Speeds, Preferences, Keystroke Help and Tips dialogs. Ours
+/// where the spec saw no capture: Previous on the objectives. The save and load dialogs keep their own (`savedlg`).
 fn default_act(screen: Screen) -> Option<Act> {
     match screen {
         Screen::Game => Some(Act::CloseAll),
@@ -1358,14 +1360,22 @@ mod tests {
             focused_label(Screen::Confirm(Confirm::QuitToMenu)).as_deref(),
             Some("OK")
         );
-        // Ours, where the spec has no capture.
-        for s in [Screen::Sound, Screen::Speed, Screen::Prefs] {
+        // Round 75 captures: OK on the Sound, Speeds, Preferences, Help (Keystroke Help) and Tips dialogs; Previous on
+        // the Options and Help menus.
+        for s in [
+            Screen::Sound,
+            Screen::Speed,
+            Screen::Prefs,
+            Screen::KeyHelp,
+            Screen::Tips,
+        ] {
             assert_eq!(focused_label(s).as_deref(), Some("OK"), "{s:?}");
         }
-        for s in [Screen::Options, Screen::Help, Screen::Objectives, Screen::KeyHelp] {
+        for s in [Screen::Options, Screen::Help] {
             assert_eq!(focused_label(s).as_deref(), Some("Previous"), "{s:?}");
         }
-        assert_eq!(focused_label(Screen::Tips).as_deref(), Some("OK"));
+        // Ours, where the spec has no capture.
+        assert_eq!(focused_label(Screen::Objectives).as_deref(), Some("Previous"));
         assert_eq!(default_act(Screen::Saving(Saving::Load)), None);
     }
 
