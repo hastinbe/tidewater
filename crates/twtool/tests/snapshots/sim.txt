@@ -1718,17 +1718,17 @@ Campaign\XOrc\2XOrc04.pud	harvest	27500	4bb3fccbbd41320f	3d6bf982dafdd19d	170
 Campaign\XOrc\2XOrc04.pud	harvest	30000	3e87add1b80dc730	40d4bd9eecf2e0d1	180
 Campaign\XOrc\2XOrc05.pud	move	0	300e98f9565e2bd8	e977e32bf22c3c43	181
 Campaign\XOrc\2XOrc05.pud	move	2500	dbf047f6c876684c	32b43202b9a20bef	177
-Campaign\XOrc\2XOrc05.pud	move	5000	05f246f8437ba11e	1dfe270b8c66b8fe	171
-Campaign\XOrc\2XOrc05.pud	move	7500	17774215ae732ab9	1033f9d1d18d83c2	174
-Campaign\XOrc\2XOrc05.pud	move	10000	e70b821d5735ddc3	68ce74628992ac5d	178
-Campaign\XOrc\2XOrc05.pud	move	12500	dd9b22d721e3b4b7	147d5297aa6d5d0a	180
-Campaign\XOrc\2XOrc05.pud	move	15000	e175d00ffbf190df	3b2c78da6394efd7	185
-Campaign\XOrc\2XOrc05.pud	move	17500	056366792f009aaf	ec6fd86f57482838	185
-Campaign\XOrc\2XOrc05.pud	move	20000	a79cef7b02af7ed3	5dce1675f39d0a5b	185
-Campaign\XOrc\2XOrc05.pud	move	22500	c569f4f9cfbec924	87d0cf13637c40df	185
-Campaign\XOrc\2XOrc05.pud	move	25000	e75f33f1641a8abf	2a88eb222d199a66	190
-Campaign\XOrc\2XOrc05.pud	move	27500	8c3901f8c3f3f764	6b2a9aec73bb22f9	198
-Campaign\XOrc\2XOrc05.pud	move	30000	ab1ad819c2dcb055	423542184ff0f594	202
+Campaign\XOrc\2XOrc05.pud	move	5000	523a7e0322c86fc4	2be9fd2387e977c0	173
+Campaign\XOrc\2XOrc05.pud	move	7500	032ffd2bd59afe30	b7ce48b644e5f095	176
+Campaign\XOrc\2XOrc05.pud	move	10000	8dbe006f856a2add	df345a61f33b448f	178
+Campaign\XOrc\2XOrc05.pud	move	12500	b5f3b82d768eb4da	3df22d82be8c21d3	180
+Campaign\XOrc\2XOrc05.pud	move	15000	0c515c3b25c88540	12579597ac47c6d1	185
+Campaign\XOrc\2XOrc05.pud	move	17500	0e350ff197a1a8c4	2656069db4295e54	185
+Campaign\XOrc\2XOrc05.pud	move	20000	f6d1b80e17aad511	d1606af9ff55a7e8	185
+Campaign\XOrc\2XOrc05.pud	move	22500	ed1d6c9a8d4750e9	79f1170b62e6aff3	185
+Campaign\XOrc\2XOrc05.pud	move	25000	8573ef274d59d826	593c77147e5683b4	192
+Campaign\XOrc\2XOrc05.pud	move	27500	0a45f3590c9deb9e	b55f3febefb62983	199
+Campaign\XOrc\2XOrc05.pud	move	30000	1b71d04dc1940bf1	340e45621c1c27de	202
 Campaign\XOrc\2XOrc05.pud	fight	0	300e98f9565e2bd8	e977e32bf22c3c43	181
 Campaign\XOrc\2XOrc05.pud	fight	2500	ff5a34c0ee744096	44fcfaa5c6cee759	177
 Campaign\XOrc\2XOrc05.pud	fight	5000	ff03143269e1282b	89603da5996eb4f5	172
@@ -1835,17 +1835,17 @@ Campaign\XOrc\2XOrc07.pud	harvest	27500	b7414db9846679b0	97045afc981ef903	206
 Campaign\XOrc\2XOrc07.pud	harvest	30000	f2def3317f1e305d	7b0d0432f91804d6	206
 Campaign\XOrc\2XOrc08.pud	move	0	94b58257188c1395	e49fa4603d54d56a	225
 Campaign\XOrc\2XOrc08.pud	move	2500	87a1b446fb551ade	3a13d9ffc4ed8ae4	211
-Campaign\XOrc\2XOrc08.pud	move	5000	c3a165dca288666b	f0b146a3e6b022f4	210
-Campaign\XOrc\2XOrc08.pud	move	7500	0c57ce3356b14a34	03334de9ad0f471d	215
-Campaign\XOrc\2XOrc08.pud	move	10000	f9e1bc4420892723	0cbe70b70459e834	218
-Campaign\XOrc\2XOrc08.pud	move	12500	7761680ccb3d5813	8d8a0aacd071e275	217
-Campaign\XOrc\2XOrc08.pud	move	15000	1d14135ad8b33f86	de19e1eb391e32da	203
-Campaign\XOrc\2XOrc08.pud	move	17500	976bd190eedb899a	27b8e197059ea21b	199
-Campaign\XOrc\2XOrc08.pud	move	20000	8db0207fe6873b28	7811d1a34787f322	200
-Campaign\XOrc\2XOrc08.pud	move	22500	8402500c01374c35	b4ff8b2fd918eb56	200
-Campaign\XOrc\2XOrc08.pud	move	25000	affe75cc17d951d6	d09c7a79c6f6c4f7	200
-Campaign\XOrc\2XOrc08.pud	move	27500	5d246a4fc4464fbf	4d1234d00a5320f4	200
-Campaign\XOrc\2XOrc08.pud	move	30000	289b46e65aac6738	fd3827bb2afa998e	200
+Campaign\XOrc\2XOrc08.pud	move	5000	da622149a8951508	0cc148c1048a0b3e	209
+Campaign\XOrc\2XOrc08.pud	move	7500	75235a2cab056eed	a52caf4dd4178c84	214
+Campaign\XOrc\2XOrc08.pud	move	10000	6b341209a42b9dd1	fd2dc41c8109547e	216
+Campaign\XOrc\2XOrc08.pud	move	12500	fe80067b6e83c0da	6b15e348cad7ff5d	213
+Campaign\XOrc\2XOrc08.pud	move	15000	1d116455c2efe06c	560156cb9d28fe40	211
+Campaign\XOrc\2XOrc08.pud	move	17500	c1f00796df6edd96	022d2b2638e7925c	213
+Campaign\XOrc\2XOrc08.pud	move	20000	c0436a6eca15f7c0	ff51b0cbf4ba839c	219
+Campaign\XOrc\2XOrc08.pud	move	22500	37777af94644b998	c9968b9368b6e575	219
+Campaign\XOrc\2XOrc08.pud	move	25000	37b9d47a05cf3625	8cf8c20fbff9e20c	219
+Campaign\XOrc\2XOrc08.pud	move	27500	d6dcb42971c7d9d9	eb4d850a9dc6f71d	219
+Campaign\XOrc\2XOrc08.pud	move	30000	57b7f845ff490b77	32aeae51c36b06ed	219
 Campaign\XOrc\2XOrc08.pud	fight	0	94b58257188c1395	e49fa4603d54d56a	225
 Campaign\XOrc\2XOrc08.pud	fight	2500	842409e55c58989d	a1fea0f975a4fbe4	215
 Campaign\XOrc\2XOrc08.pud	fight	5000	a497f94563d95755	e724f8b3608d403d	209
@@ -1999,9 +1999,9 @@ Campaign\XOrc\2XOrc12.pud	move	15000	c2052c3951632445	3e38acd6d6d96d7c	315
 Campaign\XOrc\2XOrc12.pud	move	17500	a1e2ab6a09efcc54	88b955ecd3d09169	323
 Campaign\XOrc\2XOrc12.pud	move	20000	ca7c3def9110dd11	20a704c0b281b2c4	319
 Campaign\XOrc\2XOrc12.pud	move	22500	a6a9c10f0fab14fb	ef59152a03cb90fa	320
-Campaign\XOrc\2XOrc12.pud	move	25000	357578d8b040e933	efa84ccc0bed7715	321
-Campaign\XOrc\2XOrc12.pud	move	27500	e513aeba800d70f8	28d170ea51e762f4	321
-Campaign\XOrc\2XOrc12.pud	move	30000	09017d5b6cf2ceed	67171d6fb90fbcbe	321
+Campaign\XOrc\2XOrc12.pud	move	25000	e205676d3262b066	855a1b9fe9181fb6	321
+Campaign\XOrc\2XOrc12.pud	move	27500	0dd0c63a24052d24	203eb0cc6cb7ee7c	321
+Campaign\XOrc\2XOrc12.pud	move	30000	f4d0f39fa00c0c23	70db892df37c87c9	321
 Campaign\XOrc\2XOrc12.pud	fight	0	260f0b4c4c986380	78dddc8e2275d9e4	272
 Campaign\XOrc\2XOrc12.pud	fight	2500	b5c98b2473bf5b1f	233ae5a59ea71236	278
 Campaign\XOrc\2XOrc12.pud	fight	5000	754545eedd800a33	4f0bec6545582a86	302
@@ -4230,14 +4230,14 @@ Maps\Classic\Expansion\RockMaze.pud	fight	2500	e9657ddf46701605	3370c1032ff64f6e
 Maps\Classic\Expansion\RockMaze.pud	fight	5000	cbadcbb24b37df59	f177000f4128d31d	26
 Maps\Classic\Expansion\RockMaze.pud	fight	7500	a96b82a5f64eb88a	8f0dd37df077b8a1	27
 Maps\Classic\Expansion\RockMaze.pud	fight	10000	feb8f281997376a5	f935450596dbdc6e	30
-Maps\Classic\Expansion\RockMaze.pud	fight	12500	b1c91becf5d71a4c	a5bda69ed81afa2e	31
-Maps\Classic\Expansion\RockMaze.pud	fight	15000	ec138883bda3c9ed	57987c6af8570727	36
-Maps\Classic\Expansion\RockMaze.pud	fight	17500	f4862d223859c78c	ae6dc516150fc3f8	42
-Maps\Classic\Expansion\RockMaze.pud	fight	20000	fbfc6bbdb63a4995	0be38d93ed796823	46
-Maps\Classic\Expansion\RockMaze.pud	fight	22500	5d937b0d330541c0	b2b2e7c9ef36e314	46
-Maps\Classic\Expansion\RockMaze.pud	fight	25000	d6adc20d27d65c92	f1c4dec61f3d3879	45
-Maps\Classic\Expansion\RockMaze.pud	fight	27500	f4f9a15364dd2138	d41fb317dd3ad08e	50
-Maps\Classic\Expansion\RockMaze.pud	fight	30000	601e7281572232fe	afd9c02aaf03c189	56
+Maps\Classic\Expansion\RockMaze.pud	fight	12500	72948ac0d143dc85	5b5ba77b8f50581b	31
+Maps\Classic\Expansion\RockMaze.pud	fight	15000	9f0a3af1429554f3	2a7f9e2138712e5c	37
+Maps\Classic\Expansion\RockMaze.pud	fight	17500	19f638713c265aa6	2c287def55f3ef3a	44
+Maps\Classic\Expansion\RockMaze.pud	fight	20000	2a548a71981aca49	e42f1978d3e07f9b	45
+Maps\Classic\Expansion\RockMaze.pud	fight	22500	ac3b49e91ec3c491	cdbc4d9436ac8e8c	46
+Maps\Classic\Expansion\RockMaze.pud	fight	25000	066cae6539221198	34d0bce4bd06bb9d	45
+Maps\Classic\Expansion\RockMaze.pud	fight	27500	3590c428eae03454	a30f5a02a9d9e599	49
+Maps\Classic\Expansion\RockMaze.pud	fight	30000	37d7fa8e2e3f56b7	111af4b128730734	56
 Maps\Classic\Expansion\RockMaze.pud	harvest	0	a76fceabbc090f76	8924d8ae77cfb5ee	16
 Maps\Classic\Expansion\RockMaze.pud	harvest	2500	3dcbe1def1ff61a9	586e68ee7a7c680f	20
 Maps\Classic\Expansion\RockMaze.pud	harvest	5000	d1014c29af7947f9	be9b2a2c4f04ed1c	26
@@ -4371,55 +4371,55 @@ Maps\Classic\Expansion\Scenario\Anarchy.pud	ai	30000	703bcc8b1804e259	aa34c41316
 Maps\Classic\Expansion\Scenario\Burn_It.pud	move	0	843899976e2fd50f	518f2acfbb452e75	96
 Maps\Classic\Expansion\Scenario\Burn_It.pud	move	2500	9b0512abd6e6595a	36100bb9e84698e3	87
 Maps\Classic\Expansion\Scenario\Burn_It.pud	move	5000	096a602c1843a833	deadc43671887990	69
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	7500	504d5b0bccc88663	03c12f7311a981b6	65
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	10000	c0fea17734a6c43f	88eff0d68cffaad0	63
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	12500	6edac1b1f0be4efc	6da6f5cbb01f6560	56
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	15000	be7cce074b2d9d61	8e6358e6bb87f9aa	51
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	17500	b4c0ae4ee860399c	99bb735b1bc63918	44
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	20000	6bd939737c0e1548	ac920e66e35abc0c	44
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	22500	46729a80a8e466ab	144c9fa990a96040	39
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	25000	115debaa6ab6c1d6	8dc29cee79f1578f	37
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	27500	ca99f30a3ca45b4c	7f89b5b526896d22	35
-Maps\Classic\Expansion\Scenario\Burn_It.pud	move	30000	668848f96c01f9d6	1f6c167df1a4b700	35
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	7500	aa14109c0433bbda	f94e1c4b9e4ca6e0	68
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	10000	850f0433cc1236ec	e7b54e4d8434a42c	57
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	12500	d02854ab93d789fc	e5b4787a592cb72e	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	15000	19260e0105b12e28	da5439731d6f0d60	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	17500	f2e282c205b71b42	181ea7ee5bddb823	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	20000	66efe6223bb1a95e	882ff1f4f3cda49d	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	22500	16ee00cb2bac7726	d52c07f9de8adf92	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	25000	af679bf26cf68b61	5b8da0017f85fdb5	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	27500	febfd6ef435bd8c5	61505fcec4a2c10b	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	move	30000	cf88d9f613ff1cf7	68d6567a9637f058	52
 Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	0	843899976e2fd50f	518f2acfbb452e75	96
 Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	2500	e1c9e35250adb99d	b63638e66f1a01fd	86
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	5000	84c08125530267da	35bb5965df972315	61
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	7500	b58a23a46fe69e1b	2e5d3b0ce7c37656	55
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	10000	9fa9955448a7bf79	1fcaf52769a198dd	58
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	12500	adc4b093c6cd1a87	3c2508e3f52b02b8	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	15000	30deb43bb8a1f787	43eada57ef367d81	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	17500	610a68805a312ff0	7e1bd185928fc036	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	20000	c368edd28228171e	33167f3915d49b50	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	22500	ba0ef40b1af19488	d49a31bcb58176f7	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	25000	ab327c60372f835c	a761c4a513df6511	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	27500	bf6760b5752b43a9	6c27831a96038ce4	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	30000	c5dc0314eb80048e	a4af5043bf6afeb2	59
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	5000	f5320f958d473989	e1e8207a8f0d43fc	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	7500	f1cc7fb54047713d	eb3d11c6f30437d5	56
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	10000	41ec020ee32d5a5e	527c7aad7bbc570d	59
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	12500	14d8707d8657c06d	0f0531e889b2b1fb	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	15000	2e26a74b0d05a7cd	188b2c492a8351aa	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	17500	52d9a170bc5b8c0b	6c20bb9b9a640cdf	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	20000	dab1b2e9c82ae487	81a0c62ea8d7963a	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	22500	9325fcf4eedf2223	0726ac44d0802290	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	25000	ca8a4fe0b38be318	3624d2399e453466	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	27500	e63cc98272a3ac57	2fa6b73db009104c	60
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	30000	0a0ff05906b8bec3	b846955591ebb286	60
 Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	0	843899976e2fd50f	518f2acfbb452e75	96
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	2500	26c9697ee982ab1c	509a88980a732a5d	100
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	5000	3e0ef6b3148ce38b	510160214010f394	77
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	7500	8c57d30388c0eaa3	9d0fb35b61fac80c	81
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	10000	e10f24ba6f1f3cf9	5e93da2903aeb900	78
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	12500	76a6738b1c2cd84d	014f95a7238e0b36	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	15000	e1704e29488c74c8	5946f4f45cd4d5a7	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	17500	3e0d8c642e0f9747	ffeeac1c9dba4e41	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	20000	95f1505ed3a4d8be	63a72a5b85e3f2b0	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	22500	fb952cd86a258a94	ad22037d2bb2bc2e	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	25000	6943448a79f8922d	593bbf2ba41ed7f2	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	27500	f8232543b3c2bf7a	7bb29b26be07871e	75
-Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	30000	ef3328c6715c09a0	fe314c54aee5656e	75
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	2500	dab5410080d5cead	2d038d1f3b84a4e9	100
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	5000	1b21abc8442138d3	676cb12116d2d7b8	77
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	7500	15aece662b1147ca	fb983c8ec4230afa	76
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	10000	9f2127a2dc3db6db	f0140d9923e5ffed	69
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	12500	7b7b831d7c3c6fe5	83bae39e22e7a337	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	15000	1cd20ca1311f7377	1b9f9da5c206c46e	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	17500	ec10aa1569e76289	6f4ad3f3f8e33db8	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	20000	8bb1e5a2cd8c03a8	658ba510caaf6b7b	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	22500	b88dd933b3095e8c	098a4ef03d4949f3	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	25000	fea2866e565ae92b	c18d91e22078da17	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	27500	d3a436415e9d53ca	8c0a45683e1bb27d	63
+Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	30000	219f9101414103f5	2766ea1e2910bd01	63
 Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	0	40c44c52848764ca	3f25c369e67a05aa	96
 Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	2500	710801b32f425aac	6693f300ad80172c	100
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	5000	2d442bc786345d21	172c55ea88f33f06	85
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	7500	91fb462d31b86100	6d877b27841cfad5	87
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	10000	3f539b735ad26ed3	22595325cd91f308	86
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	12500	1081d29ba3680b38	c5877c5507601309	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	15000	298ee0cdf144fb2d	bb20e5a12bd9bc2c	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	17500	0b1c7af7444fa21b	75829dc33ac024b9	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	20000	5de3b2ac49ae6a2f	942e7c324266f7c8	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	22500	13d1237f81a58c78	b496a3bbd9b56864	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	25000	702e501b3522721f	c5e59425d2504f3c	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	27500	d40170099d9ea473	bb40295595dab90d	83
-Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	30000	755763ae1a04eaad	5097b3d90c6cc41d	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	5000	d94cd62f3a7ec08d	405eea3ea3159bad	85
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	7500	64ffe49976e37896	e6e0550e5b068ac8	87
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	10000	994e2a6a21da0e8e	e2d1828edd281fb3	86
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	12500	fd5551b3fd9072ed	95106245c356605a	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	15000	84864fcde7df37ed	6fe1ffbb5c8f4253	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	17500	2297196d34bb1585	aeadc9bb7b3d6350	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	20000	9e473db27a510d7c	ebfac3d28d35924b	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	22500	6c2a5b3b31d7a758	0329d7290c87af36	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	25000	d98797350345ffec	b841e9e5559d4872	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	27500	3bd4347620520668	46fecce45f3ca85d	83
+Maps\Classic\Expansion\Scenario\Burn_It.pud	ai	30000	7abf3e0516ff2792	52cec8ac4332454d	83
 Maps\Classic\Expansion\Scenario\Chess.pud	move	0	b415c88327c24b89	f2f02df094586169	32
 Maps\Classic\Expansion\Scenario\Chess.pud	move	2500	ea6304ec02f077aa	f4a32415b48b1c0b	23
 Maps\Classic\Expansion\Scenario\Chess.pud	move	5000	34f26d583a28023e	5546a6e232d3b85b	10
@@ -5073,16 +5073,16 @@ Maps\Classic\Expansion\Scenario\Massacre.pud	fight	30000	096759ce3c10a173	0ed089
 Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	0	e261061e86beedd4	2617ab63a48d41f7	126
 Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	2500	ffb8b877a54a6580	47a6f4eac469f66b	111
 Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	5000	6be5a4547cfd63fc	c60a313236b6adba	102
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	7500	047bd328d67244ac	936ec59cecd03a34	97
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	10000	379c72a800cf5da1	fd56c4927f436710	99
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	12500	7b479b9e64b7df7b	7d7db6a4b1d3628a	100
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	15000	b15daa832749642c	6d6f3154313ca042	103
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	17500	61e1b311919c5e40	a4006302a301854a	101
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	20000	2ca9b2f6ce19e312	8a6c1ab6a71c16e3	103
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	22500	55f50eec25339f31	ff48654c3bbaf815	104
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	25000	aa90dc7f46001a94	69e9a931415e4f54	104
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	27500	195722f8a3b09ce7	facb56ac9a9fc050	105
-Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	30000	6deaeea6867728a7	b36382c869456044	104
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	7500	df9c989c3db620e9	38627b1ea0429a64	97
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	10000	50d631ed4520877d	d7c85024e0ce957b	99
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	12500	137b6f3d3e1bdd33	e277cef5f2995427	100
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	15000	cc68c9ac05e0e719	68e1453998c934cf	103
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	17500	7808d3a89cbe7bc7	8280e44818a08a79	104
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	20000	4a77db1f95a97409	b8d44f9134111842	102
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	22500	d14c6d0b5c9e7e49	72fbcfabae3eb711	104
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	25000	42f011d162232191	486bba6ecf5f4c96	104
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	27500	d215ad92859b1609	ab76fa2141464e5d	102
+Maps\Classic\Expansion\Scenario\Massacre.pud	harvest	30000	00f3b7e6a2005ce3	5f6327d141f78e7f	100
 Maps\Classic\Expansion\Scenario\Massacre.pud	ai	0	c553a41bc751a29e	de576af64554c6a5	126
 Maps\Classic\Expansion\Scenario\Massacre.pud	ai	2500	7e4585baa5bcbffb	a972014c11fba30d	110
 Maps\Classic\Expansion\Scenario\Massacre.pud	ai	5000	230ea22937c5a352	9b797131f9de1e7f	99
@@ -5515,16 +5515,16 @@ Maps\Classic\Expansion\Scenario\Suicide.pud	ai	30000	73ba5fae5ee01bd1	91354df0fe
 Maps\Classic\Expansion\Scenario\Time.pud	move	0	9803cef875115c19	7bc09bf17437ba2b	266
 Maps\Classic\Expansion\Scenario\Time.pud	move	2500	3534a21e70280083	5254b0582075f1af	285
 Maps\Classic\Expansion\Scenario\Time.pud	move	5000	a8d75fb29f567fad	ce4fca86525c4f2f	297
-Maps\Classic\Expansion\Scenario\Time.pud	move	7500	62b9c5e3e56b31f2	b3370b567fdfd7e2	306
-Maps\Classic\Expansion\Scenario\Time.pud	move	10000	132b75bdd9ab4a5f	d371b18b709c1d13	318
-Maps\Classic\Expansion\Scenario\Time.pud	move	12500	31a2f23fc412573d	6042e4aae10b6d90	332
-Maps\Classic\Expansion\Scenario\Time.pud	move	15000	63572548dc3858e7	78ebc7e8c1f7b48e	344
-Maps\Classic\Expansion\Scenario\Time.pud	move	17500	154083d6bcfd28ab	728ab3d7ba1bf3d7	354
-Maps\Classic\Expansion\Scenario\Time.pud	move	20000	cb0b47b1f8d0b0b2	8320cfdfbbd8b774	366
-Maps\Classic\Expansion\Scenario\Time.pud	move	22500	fae89c741ed43008	99f74c57faf32d5b	370
-Maps\Classic\Expansion\Scenario\Time.pud	move	25000	907e84bc21a10820	74837d18900f3bfc	379
-Maps\Classic\Expansion\Scenario\Time.pud	move	27500	700d449b24a92541	88b7a03d68a493ec	383
-Maps\Classic\Expansion\Scenario\Time.pud	move	30000	fc41017844f6eef1	4aa4ccefb1e7b7ed	388
+Maps\Classic\Expansion\Scenario\Time.pud	move	7500	d5c4a47623637707	dbdf59494ffc2f85	306
+Maps\Classic\Expansion\Scenario\Time.pud	move	10000	6d9d354aadecc33b	7995533c2c22fb40	318
+Maps\Classic\Expansion\Scenario\Time.pud	move	12500	d5fb9e1bab06c413	c266d39e77eff927	332
+Maps\Classic\Expansion\Scenario\Time.pud	move	15000	0a4f78f3ef3bc1cc	29a3942b8a078b0a	344
+Maps\Classic\Expansion\Scenario\Time.pud	move	17500	8e0ef606207bd6ec	d9244b3993688282	354
+Maps\Classic\Expansion\Scenario\Time.pud	move	20000	6800bceea6b521be	9cee825c8b62879a	366
+Maps\Classic\Expansion\Scenario\Time.pud	move	22500	5d5032b1978d85ba	676cd93fdd7dd643	370
+Maps\Classic\Expansion\Scenario\Time.pud	move	25000	acae33301f413a9d	b0eddd3a87cd4637	380
+Maps\Classic\Expansion\Scenario\Time.pud	move	27500	5411352766898916	a30e9f21a093d479	383
+Maps\Classic\Expansion\Scenario\Time.pud	move	30000	5e7348e4d09ecf1b	efa106c746bf7df4	386
 Maps\Classic\Expansion\Scenario\Time.pud	fight	0	9803cef875115c19	7bc09bf17437ba2b	266
 Maps\Classic\Expansion\Scenario\Time.pud	fight	2500	21cfe2164b022d6c	2f9e921b1147f0f2	286
 Maps\Classic\Expansion\Scenario\Time.pud	fight	5000	67ae1fa86958b0ab	b4a834eb73a8ad98	302
@@ -6239,7 +6239,7 @@ Maps\Classic\Expansion\WizWar.pud	ai	20000	02e7d9489a5eb60f	108f8db8994f7b62	214
 Maps\Classic\Expansion\WizWar.pud	ai	22500	f7448aa5f84dc917	f1ce0e2f641bfd6a	224
 Maps\Classic\Expansion\WizWar.pud	ai	25000	65cb367601c723f4	f3f43eab1d425392	246
 Maps\Classic\Expansion\WizWar.pud	ai	27500	2c2486b477536eb9	eec229c708008b0b	260
-Maps\Classic\Expansion\WizWar.pud	ai	30000	89aa17619c9bb35d	d79687ac966c1b96	263
+Maps\Classic\Expansion\WizWar.pud	ai	30000	2905ca587164169c	046aa6c667fa11c6	263
 Maps\Classic\Expansion\theSiege.pud	move	0	12439c053fda2945	5cc89831b4f9e579	100
 Maps\Classic\Expansion\theSiege.pud	move	2500	966016b4a45842ae	01d3057f3ebf1c6a	100
 Maps\Classic\Expansion\theSiege.pud	move	5000	aa90de50528c71db	56de9ae4d1c6ff27	100
@@ -6930,18 +6930,18 @@ Maps\Classic\Opposing city-states.pud	move	25000	071d55eaba060bd2	45492b5b52ca53
 Maps\Classic\Opposing city-states.pud	move	27500	049ee1f59ef635d5	d1d55ff287cdfb59	86
 Maps\Classic\Opposing city-states.pud	move	30000	1bf651f4aa0057f5	9c4ccb9dc7f8c33f	87
 Maps\Classic\Opposing city-states.pud	fight	0	57729b4bbfd74295	9ac4a8cc14ecab42	55
-Maps\Classic\Opposing city-states.pud	fight	2500	c51114ede38df503	cd66e5677619adcf	55
-Maps\Classic\Opposing city-states.pud	fight	5000	f6eff8c9b1f5d51c	f6d0c4ecde56087a	55
-Maps\Classic\Opposing city-states.pud	fight	7500	4c1ee45d3f0c2cdc	4ec1c729c9b0a38f	56
-Maps\Classic\Opposing city-states.pud	fight	10000	92ebfa689b1cf093	cbfd4cd3c13988ed	58
-Maps\Classic\Opposing city-states.pud	fight	12500	48a91cb740bd2bce	526171399ad074d0	60
-Maps\Classic\Opposing city-states.pud	fight	15000	3fa274f50d0dec03	c43a38ee82822a70	64
-Maps\Classic\Opposing city-states.pud	fight	17500	32e0993c3759f80a	a49b94d307d57d4f	69
-Maps\Classic\Opposing city-states.pud	fight	20000	c4aa34ac51ffbfaa	1ab9adc90b9ef610	73
-Maps\Classic\Opposing city-states.pud	fight	22500	cc0d7f9ac15b2f53	da4a832eb8972d89	79
-Maps\Classic\Opposing city-states.pud	fight	25000	f42d5be1ee419074	9d9f345c2bebf31f	84
-Maps\Classic\Opposing city-states.pud	fight	27500	5719571413f8836c	6a6132838211da76	90
-Maps\Classic\Opposing city-states.pud	fight	30000	ec44c2054dc30c54	830265faaff5dccb	94
+Maps\Classic\Opposing city-states.pud	fight	2500	ed42d3785cd314c8	c8893161a1ffdf39	55
+Maps\Classic\Opposing city-states.pud	fight	5000	26bb95ca24a2c9b5	2a7ee4a1524618f3	55
+Maps\Classic\Opposing city-states.pud	fight	7500	0047a5291232cd5a	42434b6b55ab82c5	56
+Maps\Classic\Opposing city-states.pud	fight	10000	f1cfe8e010d7ca77	2f8518a234309b3b	58
+Maps\Classic\Opposing city-states.pud	fight	12500	75b894c06ec79b58	6302918b0f0b01a9	60
+Maps\Classic\Opposing city-states.pud	fight	15000	252fd188f0439fa7	6a35e2a1327007e0	64
+Maps\Classic\Opposing city-states.pud	fight	17500	06e158eff6943273	de08b746bbe58894	69
+Maps\Classic\Opposing city-states.pud	fight	20000	4755cc7bdaf278aa	69cd77b5b04b26e8	73
+Maps\Classic\Opposing city-states.pud	fight	22500	c70fdb4c7c459766	12844f6799ae7e9a	79
+Maps\Classic\Opposing city-states.pud	fight	25000	3fb8811187c006dc	6202c1bae254e6a7	84
+Maps\Classic\Opposing city-states.pud	fight	27500	c696223be6e5946c	da4995939240395d	90
+Maps\Classic\Opposing city-states.pud	fight	30000	4b4d004710bdfdd6	396c8b7199ed5d18	94
 Maps\Classic\Opposing city-states.pud	harvest	0	57729b4bbfd74295	9ac4a8cc14ecab42	55
 Maps\Classic\Opposing city-states.pud	harvest	2500	1f3950f1bb83f850	2557c9021fded186	55
 Maps\Classic\Opposing city-states.pud	harvest	5000	61c11a114cd4a10d	1d420fd5040e2b32	56
@@ -9062,18 +9062,18 @@ Maps\More Precious than Gold BNE.pud	move	25000	96dc00ea030b0f94	937abf6cd9f0e0d
 Maps\More Precious than Gold BNE.pud	move	27500	96eae7efcd58d3f9	ab9bf686ce8c1db4	66
 Maps\More Precious than Gold BNE.pud	move	30000	f5e0e24f30523ff3	564c432b4ebbc7e1	71
 Maps\More Precious than Gold BNE.pud	fight	0	0080d05fee9701c7	6d7d3f0268cf9b56	35
-Maps\More Precious than Gold BNE.pud	fight	2500	6b3a1fa17c60c48c	779e7f8fa20df8b3	41
-Maps\More Precious than Gold BNE.pud	fight	5000	0b2133db6e32f504	4f164c2209297d8c	40
-Maps\More Precious than Gold BNE.pud	fight	7500	9b5d885c348b4a5a	ea66e32a0562a72f	44
-Maps\More Precious than Gold BNE.pud	fight	10000	12e646ad13f63aa2	f52c73f6b68fd589	49
-Maps\More Precious than Gold BNE.pud	fight	12500	3003f9d2f038ce10	2f9c8e8d77a393d3	54
-Maps\More Precious than Gold BNE.pud	fight	15000	d66d60427a179f92	88e87cae7164e997	59
-Maps\More Precious than Gold BNE.pud	fight	17500	1fd8f47781041ff0	b135a2bc23d2b601	60
-Maps\More Precious than Gold BNE.pud	fight	20000	0078af251fd9c4f1	b9e01299ccfa2e4c	61
-Maps\More Precious than Gold BNE.pud	fight	22500	da0f76fe05b77bd1	b9c2fdde2997dc49	61
-Maps\More Precious than Gold BNE.pud	fight	25000	e972dfcb695f0010	b8c09f4b47e6abec	66
-Maps\More Precious than Gold BNE.pud	fight	27500	e6da2e073606b312	a80a4298140ef6a9	71
-Maps\More Precious than Gold BNE.pud	fight	30000	1045ab22337db5a9	a07c8fd9a61db215	71
+Maps\More Precious than Gold BNE.pud	fight	2500	6ba39d30effeb684	2bfb7a22f77142bf	41
+Maps\More Precious than Gold BNE.pud	fight	5000	8855f5aaff6a28b9	e37fd10db5f3422c	40
+Maps\More Precious than Gold BNE.pud	fight	7500	5d191a13f3171675	f364452bb7b8ed60	45
+Maps\More Precious than Gold BNE.pud	fight	10000	001a0716da0f6311	3ce70b6f0f743c0d	49
+Maps\More Precious than Gold BNE.pud	fight	12500	6308330dd63afa13	1e9d640d6267bc37	54
+Maps\More Precious than Gold BNE.pud	fight	15000	fe28c8c44a792e2d	0b0378002c15bed8	58
+Maps\More Precious than Gold BNE.pud	fight	17500	6392d6a493dcaab0	2babe82a3f406965	59
+Maps\More Precious than Gold BNE.pud	fight	20000	cfe1e744be997eaa	2706300bec29b24b	60
+Maps\More Precious than Gold BNE.pud	fight	22500	cc2c3196f1faebb6	7d56833b2bbe921e	61
+Maps\More Precious than Gold BNE.pud	fight	25000	3f82ab8f61acf6e8	d9bf376e52cbce97	61
+Maps\More Precious than Gold BNE.pud	fight	27500	0d5a6623bdd54335	fef2a92512eecece	66
+Maps\More Precious than Gold BNE.pud	fight	30000	d872a3af2017d535	60e6458da0807f29	70
 Maps\More Precious than Gold BNE.pud	harvest	0	0080d05fee9701c7	6d7d3f0268cf9b56	35
 Maps\More Precious than Gold BNE.pud	harvest	2500	f4ed37d661691651	353f17bded71d0a4	41
 Maps\More Precious than Gold BNE.pud	harvest	5000	0714fe963cf2cf7f	7c17f8a0ce88dd30	46
@@ -9270,18 +9270,18 @@ Maps\Scenario\A Tight Spot BNE.pud	move	25000	4d2733872e4c7dba	58f1ba47d4267dc8	
 Maps\Scenario\A Tight Spot BNE.pud	move	27500	cc229cfad3ea36c1	45cc0962a644b59e	273
 Maps\Scenario\A Tight Spot BNE.pud	move	30000	f1b658eafff9fb1c	367ee3689f68740d	304
 Maps\Scenario\A Tight Spot BNE.pud	fight	0	6947c6c87be6b97a	ea3d1aba1054a3bb	95
-Maps\Scenario\A Tight Spot BNE.pud	fight	2500	6ad861904a6a81f1	e6b52e344830f869	110
-Maps\Scenario\A Tight Spot BNE.pud	fight	5000	63b62c3f43fcd549	eb96f0472e0efced	143
-Maps\Scenario\A Tight Spot BNE.pud	fight	7500	e10900a3882e7a82	f170fe3b7359c662	151
-Maps\Scenario\A Tight Spot BNE.pud	fight	10000	6bd3ab7bdab3a36b	326c41534aa9f01b	162
-Maps\Scenario\A Tight Spot BNE.pud	fight	12500	a1ae5e888472c54d	a5aa0c904e4b0446	187
-Maps\Scenario\A Tight Spot BNE.pud	fight	15000	dad15285633e0b9d	ef7bfcc58dec5c6e	220
-Maps\Scenario\A Tight Spot BNE.pud	fight	17500	1f850f7f0e9dc30f	a127f079a587063d	257
-Maps\Scenario\A Tight Spot BNE.pud	fight	20000	4fa7916ddfa04598	a86b4b1f4713984c	272
-Maps\Scenario\A Tight Spot BNE.pud	fight	22500	623e5eb75a506bb8	02997b34b4793566	276
-Maps\Scenario\A Tight Spot BNE.pud	fight	25000	81ef98d0b2be755e	22522846774975a3	279
-Maps\Scenario\A Tight Spot BNE.pud	fight	27500	c8aa4538d74c57d5	80bf174caa287a2f	290
-Maps\Scenario\A Tight Spot BNE.pud	fight	30000	604612a7f9413324	f8d039ee9cd0c2c9	304
+Maps\Scenario\A Tight Spot BNE.pud	fight	2500	859d89b0e1be06e0	d82c6b4eb6180317	110
+Maps\Scenario\A Tight Spot BNE.pud	fight	5000	0c0ddd8844c206fc	1aea5e07ab8bd68b	143
+Maps\Scenario\A Tight Spot BNE.pud	fight	7500	c18607411fded751	ee7e13ef3f7577d7	151
+Maps\Scenario\A Tight Spot BNE.pud	fight	10000	a0fd876ac2a9bfc2	b22fa509cca94d56	162
+Maps\Scenario\A Tight Spot BNE.pud	fight	12500	2718be8eeca49668	f71beb140daa127e	188
+Maps\Scenario\A Tight Spot BNE.pud	fight	15000	10c08acedf246ec3	3c7e0e1720f37f0e	222
+Maps\Scenario\A Tight Spot BNE.pud	fight	17500	92d4b4a4c46a82d1	3480c24e2eec1157	256
+Maps\Scenario\A Tight Spot BNE.pud	fight	20000	deeb4a716e532cd0	5336c64df02cd5c5	272
+Maps\Scenario\A Tight Spot BNE.pud	fight	22500	624afc40c55c0373	24140c9ac64269f0	277
+Maps\Scenario\A Tight Spot BNE.pud	fight	25000	f8d634340587bc7a	c5b6768bf44f82d4	279
+Maps\Scenario\A Tight Spot BNE.pud	fight	27500	2007e3b90703e1db	43665851fc498eeb	284
+Maps\Scenario\A Tight Spot BNE.pud	fight	30000	cfa6afe69f94f1b6	d5e91666af295c70	302
 Maps\Scenario\A Tight Spot BNE.pud	harvest	0	6947c6c87be6b97a	ea3d1aba1054a3bb	95
 Maps\Scenario\A Tight Spot BNE.pud	harvest	2500	d38c2afe8232daed	10e803e3eaf35c5f	119
 Maps\Scenario\A Tight Spot BNE.pud	harvest	5000	2960b57989de29e2	b3760abf8cd1dcb4	154
@@ -9466,34 +9466,34 @@ Maps\Scenario\Horse Shoe Island BNE.pud	ai	27500	0556ceaf6af6469e	282c8b90b805c4
 Maps\Scenario\Horse Shoe Island BNE.pud	ai	30000	7d5b1e1c0026510e	b9f6e611e0631618	69
 Maps\Scenario\Ice Fortress BNE.pud	move	0	1306240dbb342c4d	51d2f5c540a4c083	30
 Maps\Scenario\Ice Fortress BNE.pud	move	2500	7b5ecfd1b13a2704	f6acefbb208babe7	28
-Maps\Scenario\Ice Fortress BNE.pud	move	5000	372d658fc2ec81e6	c7ae08018430216d	29
-Maps\Scenario\Ice Fortress BNE.pud	move	7500	d9894c839ad2af44	6608054952675c1b	32
-Maps\Scenario\Ice Fortress BNE.pud	move	10000	262d2958aaf165b2	5e926f175b0ad6d9	37
-Maps\Scenario\Ice Fortress BNE.pud	move	12500	99d297afb0291716	cca18d8deeaa5d68	37
-Maps\Scenario\Ice Fortress BNE.pud	move	15000	d0630bfb3be041c5	7fedef404e29b28f	38
-Maps\Scenario\Ice Fortress BNE.pud	move	17500	1753ea886403ef54	659012dd07eae465	42
-Maps\Scenario\Ice Fortress BNE.pud	move	20000	9d7877479ce263fb	0ba75bfb17cc924a	47
-Maps\Scenario\Ice Fortress BNE.pud	move	22500	b85f19708b77c64b	f83b3fb669eec9d6	47
-Maps\Scenario\Ice Fortress BNE.pud	move	25000	c001fe8be1dd635d	69d3b57def889169	52
-Maps\Scenario\Ice Fortress BNE.pud	move	27500	b25174f4b6ee2e2e	726eca4f02928543	56
-Maps\Scenario\Ice Fortress BNE.pud	move	30000	43fc7671abfc094e	7c3c7d2f15775dbf	53
+Maps\Scenario\Ice Fortress BNE.pud	move	5000	61e528c2dc4e95af	0a17f11710e81d75	29
+Maps\Scenario\Ice Fortress BNE.pud	move	7500	843daf571bc56380	a685e118f96a3739	32
+Maps\Scenario\Ice Fortress BNE.pud	move	10000	75b2b3c04f8db66b	488e5ca5bdae07bb	37
+Maps\Scenario\Ice Fortress BNE.pud	move	12500	48a99ee38752cdc5	31a5dda867e64e62	37
+Maps\Scenario\Ice Fortress BNE.pud	move	15000	1242b47a45b27c93	853707d4618b30b0	38
+Maps\Scenario\Ice Fortress BNE.pud	move	17500	32c64ba571909065	d174ae7d02018500	42
+Maps\Scenario\Ice Fortress BNE.pud	move	20000	ded011fb254ba5ca	1378594d1e11ce3d	47
+Maps\Scenario\Ice Fortress BNE.pud	move	22500	a0d5b1b0dcde766d	b6e6d2716c6e13f9	45
+Maps\Scenario\Ice Fortress BNE.pud	move	25000	e20362fd3133dd51	37f93053883936ee	52
+Maps\Scenario\Ice Fortress BNE.pud	move	27500	37c3f6428757d358	6765fb8d978ce198	56
+Maps\Scenario\Ice Fortress BNE.pud	move	30000	b2e421539013a33f	c2dd1380e8dea710	51
 Maps\Scenario\Ice Fortress BNE.pud	fight	0	1306240dbb342c4d	51d2f5c540a4c083	30
 Maps\Scenario\Ice Fortress BNE.pud	fight	2500	2ed222495a4fde52	fce27005543c8af9	28
-Maps\Scenario\Ice Fortress BNE.pud	fight	5000	3cebc7afae73985b	49cbf0c00deeb440	29
-Maps\Scenario\Ice Fortress BNE.pud	fight	7500	4f8db56d463920e5	02f0922ab828ef47	32
-Maps\Scenario\Ice Fortress BNE.pud	fight	10000	7ba53df4638227df	20f880487b0a0e32	37
-Maps\Scenario\Ice Fortress BNE.pud	fight	12500	23a80712196797e6	665c2c53abf43440	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	15000	b596ab8d89c8d985	5e0cbecfd3cd61e4	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	17500	6defaf9a9f60b8b3	07d331f4a114a200	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	20000	632c8f4f3a49e3e3	d01e9372253eb5c1	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	22500	5c7bcbaa9ce4d63f	499495007637cbb1	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	25000	bd6a9dae8b33ac3f	0173c47cba34fc5b	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	27500	598c4e3aa07697a0	5bbe865fddb243ec	33
-Maps\Scenario\Ice Fortress BNE.pud	fight	30000	c3666125cf45ca92	37a7be01207f5296	33
+Maps\Scenario\Ice Fortress BNE.pud	fight	5000	b706bb851bac368a	0d0d8fb179f6bc0c	29
+Maps\Scenario\Ice Fortress BNE.pud	fight	7500	0f60052e0619d3af	0e907541ddd38c4f	32
+Maps\Scenario\Ice Fortress BNE.pud	fight	10000	0ac39a92f1e0d661	3e3f591c67482820	37
+Maps\Scenario\Ice Fortress BNE.pud	fight	12500	65c14e51ff1b8d90	ce1cddefa92e8fe5	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	15000	67456de6c793c5ef	60b21331f9b21697	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	17500	286f372d370c0219	8bb0b2f42fc8b088	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	20000	d107c640e755a18e	7934af9acda082e8	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	22500	d6bf84685743ce49	4bc8694839770bb6	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	25000	b07e5b8f9b21079c	af950bd1e10e83e1	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	27500	8513920b84d6c8fc	a95a1174730f794b	34
+Maps\Scenario\Ice Fortress BNE.pud	fight	30000	6e3c25cc787bbec6	584fea70dccc5ea3	34
 Maps\Scenario\Ice Fortress BNE.pud	harvest	0	1306240dbb342c4d	51d2f5c540a4c083	30
 Maps\Scenario\Ice Fortress BNE.pud	harvest	2500	a8e58f0b50b7d1b5	71459a9bc4d87dbc	28
-Maps\Scenario\Ice Fortress BNE.pud	harvest	5000	ed7c79c58d7b5b39	af99c71cbce68b16	29
-Maps\Scenario\Ice Fortress BNE.pud	harvest	7500	c11cd9db18f687ff	735408c2cdc8a7c3	33
+Maps\Scenario\Ice Fortress BNE.pud	harvest	5000	34a74a62fead5c51	5e4570e220be2705	29
+Maps\Scenario\Ice Fortress BNE.pud	harvest	7500	0721b7b5221cc0c3	1945cf4ee23b0733	33
 Maps\Scenario\Ice Fortress BNE.pud	harvest	10000	2594f6cac0419a9e	f3cd1d5d1b24f020	37
 Maps\Scenario\Ice Fortress BNE.pud	harvest	12500	20378706aa7ac9f2	24ee07547b158451	38
 Maps\Scenario\Ice Fortress BNE.pud	harvest	15000	104ac5e28f5c26df	e9cdfb9bb3b1594b	38
@@ -9504,18 +9504,18 @@ Maps\Scenario\Ice Fortress BNE.pud	harvest	25000	7d68e8d9857d6a26	590d6db499938b
 Maps\Scenario\Ice Fortress BNE.pud	harvest	27500	c7f93e3b11462a3f	4b67498b0f0453ca	55
 Maps\Scenario\Ice Fortress BNE.pud	harvest	30000	4ab19752438e7a00	f182d1fe7163a6ac	56
 Maps\Scenario\Ice Fortress BNE.pud	ai	0	4c954ee7b84989a9	2ae867fe17c65d67	72
-Maps\Scenario\Ice Fortress BNE.pud	ai	2500	3e7d10c62a0b092e	2e922612d8eaf8d8	83
-Maps\Scenario\Ice Fortress BNE.pud	ai	5000	c23d8a6d6e8ccdfa	66f5cdf7700d080a	104
-Maps\Scenario\Ice Fortress BNE.pud	ai	7500	7e22c32002b04809	8550c93fb26b55ec	132
-Maps\Scenario\Ice Fortress BNE.pud	ai	10000	ccd61cace034912f	7f38bee5de1d1f68	150
-Maps\Scenario\Ice Fortress BNE.pud	ai	12500	3e90334456472f88	e14b5e334a60f522	155
-Maps\Scenario\Ice Fortress BNE.pud	ai	15000	e1695f19d6daf823	2925bcc1111454b0	179
-Maps\Scenario\Ice Fortress BNE.pud	ai	17500	a088d79f263e3fc7	e147bf5614e98613	212
-Maps\Scenario\Ice Fortress BNE.pud	ai	20000	cd8cbe37e32f8bc7	ebcb6b78942f9268	254
-Maps\Scenario\Ice Fortress BNE.pud	ai	22500	1e154fb4029cabd2	fd293ef527eea083	279
-Maps\Scenario\Ice Fortress BNE.pud	ai	25000	a0b2457cc7102777	470bc45e5e490f18	295
-Maps\Scenario\Ice Fortress BNE.pud	ai	27500	b15d7b1b17e9e1bc	c8f490cd4e7fad05	299
-Maps\Scenario\Ice Fortress BNE.pud	ai	30000	8e99cc9d04f7dd42	24cd1975de54c89c	307
+Maps\Scenario\Ice Fortress BNE.pud	ai	2500	32bac322b7ff64fd	b18d55fc478ade10	83
+Maps\Scenario\Ice Fortress BNE.pud	ai	5000	e54a7d1ec0dfa155	8435b79966fcd33d	104
+Maps\Scenario\Ice Fortress BNE.pud	ai	7500	8d9ba8df4c593b2f	1775237c72690db8	132
+Maps\Scenario\Ice Fortress BNE.pud	ai	10000	1809086f4f68a1c6	ed0ba3cb82c2d1dd	150
+Maps\Scenario\Ice Fortress BNE.pud	ai	12500	83b724c3eaebabc8	ed9026cfffa0b83a	155
+Maps\Scenario\Ice Fortress BNE.pud	ai	15000	ce3edfa372a7de6c	3ab9625005771871	179
+Maps\Scenario\Ice Fortress BNE.pud	ai	17500	4f049beb72dec1d9	92939a2870ee423d	213
+Maps\Scenario\Ice Fortress BNE.pud	ai	20000	4f3e3938149259dd	f0cfcea178b44e94	255
+Maps\Scenario\Ice Fortress BNE.pud	ai	22500	5b0f5198828eef83	4977b90d69ff7959	279
+Maps\Scenario\Ice Fortress BNE.pud	ai	25000	22df91e2663ea736	55be9295feac5311	294
+Maps\Scenario\Ice Fortress BNE.pud	ai	27500	ccfb82b7e7958986	f5fb34eee42fec87	300
+Maps\Scenario\Ice Fortress BNE.pud	ai	30000	2d68b62355865d26	449132aa22ccd32c	312
 Maps\Scenario\Instant Action BNE.pud	move	0	1de46ea0bf26ef9d	bbf41ff05e1bb7fc	44
 Maps\Scenario\Instant Action BNE.pud	move	2500	b3316f951a378f00	c5594e9ffc1255bc	44
 Maps\Scenario\Instant Action BNE.pud	move	5000	9cbc0a3307f5f82c	802b7979c28149c6	44
@@ -9610,16 +9610,16 @@ Maps\Scenario\Invasion BNE.pud	harvest	30000	aac572aeddfa6cd2	94746c2f332e4681	3
 Maps\Scenario\Invasion BNE.pud	ai	0	6feb09123bf6ec1c	cb69623c5e187599	132
 Maps\Scenario\Invasion BNE.pud	ai	2500	d042b7663dd7096c	9ad21c5484c138da	161
 Maps\Scenario\Invasion BNE.pud	ai	5000	91cb4dc78a9d997a	0f24f33ce206013f	184
-Maps\Scenario\Invasion BNE.pud	ai	7500	fbeed3ce62b9966a	690fd15a3d7c30d2	190
-Maps\Scenario\Invasion BNE.pud	ai	10000	d47f7502608aed9a	2cc4e6adb077c990	219
-Maps\Scenario\Invasion BNE.pud	ai	12500	7fea66a801bb3d9b	79bf9dfeeec9259d	248
-Maps\Scenario\Invasion BNE.pud	ai	15000	d2204f64684f3121	e81b6100398fe277	299
-Maps\Scenario\Invasion BNE.pud	ai	17500	14d96bcfc466cb1c	43ad6b6d92190ed4	319
-Maps\Scenario\Invasion BNE.pud	ai	20000	77407d739fd3a7b8	8b4543c3c3fb1364	322
-Maps\Scenario\Invasion BNE.pud	ai	22500	3d8fda43f0ff9217	0f01622c7bf301a7	327
-Maps\Scenario\Invasion BNE.pud	ai	25000	d479f11277923bb1	a6c62201c11f1234	343
-Maps\Scenario\Invasion BNE.pud	ai	27500	c7e6a05681ee0041	1d4e961fac2e331f	376
-Maps\Scenario\Invasion BNE.pud	ai	30000	897bb86c88080283	0add7e4c33f9195b	413
+Maps\Scenario\Invasion BNE.pud	ai	7500	4aa315feccfd9837	9049e9100cac96ed	190
+Maps\Scenario\Invasion BNE.pud	ai	10000	7eedd53c03bd37a8	92215f80c00519fd	217
+Maps\Scenario\Invasion BNE.pud	ai	12500	f1c45a5ab9cb24e1	628167b0745928d0	251
+Maps\Scenario\Invasion BNE.pud	ai	15000	cb866090dc402836	96001c5ffd61bd1f	295
+Maps\Scenario\Invasion BNE.pud	ai	17500	19566698eeccdfd1	37ae9e356181eeb4	316
+Maps\Scenario\Invasion BNE.pud	ai	20000	898a40186f461374	b40c663c066c25b8	325
+Maps\Scenario\Invasion BNE.pud	ai	22500	27ecd54c6db9bfae	7a8ef6595c20f833	334
+Maps\Scenario\Invasion BNE.pud	ai	25000	9b6ca50a825eb14e	89002029361d5c9e	343
+Maps\Scenario\Invasion BNE.pud	ai	27500	2336eb39dfddd804	cfe43d4ac07957ba	377
+Maps\Scenario\Invasion BNE.pud	ai	30000	c151de39992bcef4	190a13ac932dc936	405
 Maps\Scenario\Opposites Attract BNE.pud	move	0	64b66bd14bef5996	e567f43dd47e8238	62
 Maps\Scenario\Opposites Attract BNE.pud	move	2500	e3889246fa0c38c6	0745a2b8a35a881a	66
 Maps\Scenario\Opposites Attract BNE.pud	move	5000	5eea48a517ab6f33	46f6b14ffdb14e2b	69

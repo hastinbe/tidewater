@@ -72,12 +72,12 @@ impl World {
             return;
         }
         let (u, t) = (&self.units[i], &self.units[ti]);
-        // 4. Full hit points.
+        // 4. Full hit points. Traced (`human13-invisible-work-hits-900` peasant 1401, n = 511): idle is the pending
+        // order taking over in the same update (still animation, frame kept, wait 3), by the common path with the
+        // resume step.
         let max = self.stats_of(t.kind).hit_points;
         if t.hp >= max {
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
-            return;
+            return self.idle_now(i);
         }
         // 5. Out of gold or lumber; lumber is checked first.
         let owner = u.owner;
@@ -204,8 +204,12 @@ mod tests {
         w.units[fi].hp = 398;
         w.repair_order(ia, farm);
         assert_eq!(w.units[fi].hp, 400);
+        w.units[ia].script.frame = 25;
         w.repair_order(ia, farm);
         assert_eq!(w.units[ia].order, Order::Idle);
+        // Traced (`human13-invisible-work-hits-900`, n = 511): the idle takes over at once, frame kept, wait 3.
+        let s = w.units[ia].script;
+        assert_eq!((s.anim, s.frame, s.wait), (anim::STILL, 25, 3));
         // Lumber is checked first.
         w.units[fi].hp = 300;
         w.units[ia].order = Order::Repair { target: farm };
