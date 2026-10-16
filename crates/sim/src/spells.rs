@@ -831,9 +831,8 @@ impl World {
     }
 
     /// Eye of Kilrogg: an eye next to the caster, or the blocked-exit message when the free-tile search finds no
-    /// tile; its sound is a plain sound.
+    /// tile. Round 81 (audit erratum 9, S100): its sound, a plain sound, plays only when an eye is created.
     fn make_eye(&mut self, i: usize) {
-        self.cue_plain(Sound::Spell(EYE_OF_KILROGG));
         let u = &self.units[i];
         let (src, at, owner) = (
             Source::new(u.tile.0, u.tile.1, u.size.0 as i32, u.size.1 as i32),
@@ -842,7 +841,9 @@ impl World {
         );
         match self.find_place(unit::EYE, src, at, LIMIT_OUT) {
             Some(t) => {
-                let _ = self.spawn(unit::EYE, owner, t, 0);
+                if self.spawn(unit::EYE, owner, t, 0).is_ok() {
+                    self.cue_plain(Sound::Spell(EYE_OF_KILROGG));
+                }
             }
             None => self.events.push(Event::NoRoom {
                 player: owner,
@@ -3685,6 +3686,41 @@ mod tests {
         assert_eq!(draws_since(before, &w), steps as usize - 1);
     }
 
+    /// The spell sounds `spell` has queued.
+    fn spell_cues(w: &World, spell: u8) -> Vec<Option<crate::sound::Place>> {
+        w.sounds
+            .cues
+            .iter()
+            .filter(|c| c.sound == Sound::Spell(spell))
+            .map(|c| c.place)
+            .collect()
+    }
+
+    /// S100 (static study): an eye of Kilrogg cast with 100 mana where the free-tile search finds no tile pays 70,
+    /// makes no eye, sets the blocked-exit message and plays no sound; with room, the eye comes with its plain sound.
+    #[test]
+    fn the_eye_of_kilrogg_sounds_only_when_an_eye_is_made() {
+        for room in [false, true] {
+            let mut w = lab(16);
+            let m = caster(&mut w, MAGE, (5, 5), 100);
+            if !room {
+                for i in 0..w.terrain.words.len() {
+                    w.terrain.words[i] |= 0xffff;
+                }
+            }
+            w.sounds.cues.clear();
+            strike(&mut w, m, EYE_OF_KILROGG, None, (5, 5));
+            let eyes = w.units.iter().filter(|u| u.kind == unit::EYE).count();
+            let no_room = w
+                .events
+                .iter()
+                .any(|e| matches!(e, Event::NoRoom { kind: unit::EYE, .. }));
+            assert_eq!(mana(&w, m), 30);
+            assert_eq!((eyes, no_room), (room as usize, !room));
+            assert_eq!(spell_cues(&w, EYE_OF_KILROGG), if room { vec![None] } else { vec![] });
+        }
+    }
+
     mod pin {
         use super::*;
 
@@ -4030,7 +4066,7 @@ mod tests {
                 strike(&mut w, m, EYE_OF_KILROGG, None, (20, 20));
                 got.push(trail(&mut w, 100));
             }
-            assert_eq!(got, [8385898450897783958, 2564372994702612630, 3390235678664876339]);
+            assert_eq!(got, [8385898450897783958, 2628578634225963494, 3390235678664876339]);
         }
 
         /// A flame shield whose unit dies, goes inside a building, or is fine, before and after the flames are made;
