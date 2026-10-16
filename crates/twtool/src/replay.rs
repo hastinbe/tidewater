@@ -96,6 +96,10 @@ pub enum Kind {
     Cheat { cheats: Vec<String> },
     /// A header `input` cheat entry: the flags it turns on.
     CheatAdd { add: Vec<String> },
+    /// Cancel construction for the first selected unit (round 77).
+    Cancel,
+    /// Cancel job for the first selected unit (round 77).
+    CancelJob,
     /// A command the format doesn't describe.
     Other,
 }
@@ -163,6 +167,8 @@ impl Entry {
                     (None, None) => bail!("a cheat without `cheats` or `add`"),
                 }
             }
+            "cancel" => Kind::Cancel,
+            "cancel-job" => Kind::CancelJob,
             _ => Kind::Other,
         };
         Ok(Entry {
@@ -211,6 +217,12 @@ impl Entry {
             Kind::CheatAdd { add } => {
                 o.insert("kind".into(), "cheat".into());
                 o.insert("add".into(), add.clone().into());
+            }
+            Kind::Cancel => {
+                o.insert("kind".into(), "cancel".into());
+            }
+            Kind::CancelJob => {
+                o.insert("kind".into(), "cancel-job".into());
             }
             Kind::Other => {
                 o.insert("kind".into(), "other".into());
@@ -266,6 +278,8 @@ impl fmt::Display for Entry {
             Kind::Job { job, number } => write!(f, "job {} {number}", job.json()),
             Kind::Cheat { cheats } => write!(f, "cheat {cheats:?}"),
             Kind::CheatAdd { add } => write!(f, "cheat adding {add:?}"),
+            Kind::Cancel => f.write_str("cancel"),
+            Kind::CancelJob => f.write_str("cancel-job"),
             Kind::Other => f.write_str("other"),
         }
     }
@@ -356,6 +370,10 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
             player,
             flags: cheat_flags(cheats),
         },
+        // Trace format, "Commands" (round 77): for the first selected unit; the simulation checks that it is the
+        // player's own building in the state the command acts in.
+        Kind::Cancel => Command::Cancel { player, unit: first()? },
+        Kind::CancelJob => Command::CancelJob { player, unit: first()? },
         Kind::CheatAdd { .. } | Kind::Other => return None,
     })
 }
@@ -553,6 +571,8 @@ mod tests {
             r#"{"player":1,"kind":"job","job":"upgrade building","number":88}"#,
             r#"{"player":1,"kind":"job","job":7,"number":1}"#,
             r#"{"player":2,"kind":"other"}"#,
+            r#"{"player":1,"kind":"cancel"}"#,
+            r#"{"player":1,"kind":"cancel-job"}"#,
         ];
         for l in lines {
             let e = Entry::parse(&serde_json::from_str(l).unwrap()).unwrap();
