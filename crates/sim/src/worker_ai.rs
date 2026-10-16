@@ -377,11 +377,12 @@ impl World {
         if self.ai[p].in_progress[hall as usize] > 0 || !self.affordable(owner, hall) {
             return None;
         }
-        let search = self.mine_centred(i)?;
-        let (site, border) = [true, false]
+        let search = self.mine_centred(i);
+        let site = [true, false]
             .into_iter()
-            .find_map(|b| self.site_search(i, hall, search, b).map(|s| (s, b)))?;
-        let o = self.start_building(i, hall, site, border)?;
+            .find_map(|b| self.site_search(i, hall, search, b))?;
+        // Round 85 (static vector, erratum 11): the keep-clear mark has the border whichever search found the site.
+        let o = self.start_building(i, hall, site, true)?;
         self.ai[p].hall_cooldown = HALL_COOLDOWN;
         Some(o)
     }
@@ -537,23 +538,26 @@ impl World {
 
     /// The search for a town hall not from the build list: around the nearest gold mine with trips left in the
     /// worker's region.
-    fn mine_centred(&self, i: usize) -> Option<Search> {
+    ///
+    /// Round 85 (static gap-fill, erratum 3): the mine is measured from its top-left tile (the larger axis
+    /// difference), and with no such mine the search centres on the worker's own tile.
+    fn mine_centred(&self, i: usize) -> Search {
         let u = &self.units[i];
         let region = self.terrain.region(u.tile.0, u.tile.1);
         let mut best: Option<(i32, (i32, i32))> = None;
         for m in self.owned(slots::NEUTRAL) {
             if self.is_live_mine(m) && self.terrain.region(m.tile.0, m.tile.1) == region {
-                let d = distance(u.tile, m);
+                let d = crate::movement::chebyshev(m.tile, u.tile);
                 if best.is_none_or(|(bd, _)| d < bd) {
                     best = Some((d, m.tile));
                 }
             }
         }
-        best.map(|(_, centre)| Search {
-            centre,
+        Search {
+            centre: best.map_or(u.tile, |(_, centre)| centre),
             step: 1,
             water: None,
-        })
+        }
     }
 
     fn is_live_mine(&self, m: &Unit) -> bool {
@@ -597,7 +601,7 @@ impl World {
                     water: self.terrain.region(patch.tile.0, patch.tile.1),
                 })
             }
-            t::TOWN_HALL => self.mine_centred(i),
+            t::TOWN_HALL => Some(self.mine_centred(i)),
             _ => plain(6),
         }
     }
@@ -848,17 +852,19 @@ impl World {
                 None => Choice::Nothing,
             };
         }
-        let patch = self.units.iter().filter(|p| p.kind == t::OIL_PATCH && !p.dying).fold(
-            None::<(i32, (i32, i32))>,
-            |best, p| {
+        // Round 85 (static gap-fill, erratum 10): the patches in the neutral list's order (newest first), only a
+        // strictly nearer one replacing the best, so the first in the list wins a tie.
+        let patch = self
+            .owned(slots::NEUTRAL)
+            .filter(|p| p.kind == t::OIL_PATCH && !p.dying)
+            .fold(None::<(i32, (i32, i32))>, |best, p| {
                 let d = distance(depot_tile, p);
                 if best.is_none_or(|(bd, _)| d < bd) {
                     Some((d, p.tile))
                 } else {
                     best
                 }
-            },
-        );
+            });
         let platform = for_race(t::PLATFORM, self.race_of(i));
         match patch {
             Some((_, tile)) if self.affordable(owner, platform) => match self.build_command(i, platform, tile) {
@@ -916,6 +922,13 @@ mod tests {
     /// A 64 x 64 field (on a 32-tile map a step-6 search has no ring to try): player 1 a computer player with a town hall at (14, 14), plenty of stock, everything allowed
     /// and a hall in its past. Returns the world and the hall.
     fn town() -> (World, UnitId) {
+        let mut w = bare();
+        let hall = w.spawn(t::TOWN_HALL, 1, (14, 14), 0).unwrap();
+        (w, hall)
+    }
+
+    /// [`town`] without its hall.
+    fn bare() -> World {
         let mut w = field(64, 64);
         w.players[1].controller = controller::COMPUTER;
         w.stats.0[PEASANT as usize] = UnitStats {
@@ -933,8 +946,7 @@ mod tests {
         p.lumber = 5000;
         p.units_allowed = !0;
         p.had_hall = true;
-        let hall = w.spawn(t::TOWN_HALL, 1, (14, 14), 0).unwrap();
-        (w, hall)
+        w
     }
 
     fn peasants(w: &mut World, n: i32) -> Vec<usize> {
@@ -1086,6 +1098,96 @@ mod tests {
         w.spawn(t::GOLD_MINE, slots::NEUTRAL, (40, 33), 20_000).unwrap();
         let i = peasants(&mut w, 1)[0];
         check(&mut w, i, t::TOWN_HALL, GoalKind::Hold);
+    }
+
+    /// Round-85 vectors (`ai/worker-ai.md`, "Ordinary search", static gap-fill, erratum 3): a computer worker with no
+    /// depot, every mine in its region exhausted, its player able to afford a town hall. The hall search centres on
+    /// the worker's tile, a site near it is used, and there is no wait draw.
+    #[test]
+    fn with_no_mine_left_the_hall_search_centres_on_the_worker() {
+        let mut w = bare();
+        w.spawn(t::GOLD_MINE, slots::NEUTRAL, (40, 40), 0).unwrap();
+        let id = w.spawn(PEASANT, 1, (20, 20), 0).unwrap();
+        let i = w.index(id).unwrap();
+        let s = w.mine_centred(i);
+        assert_eq!((s.centre, s.step), ((20, 20), 1));
+        let rng = w.rng;
+        let Choice::Order(Order::Build { kind, site, .. }) = w.worker_choice(i) else {
+            panic!("no hall")
+        };
+        assert_eq!(kind, t::TOWN_HALL);
+        assert!(
+            crate::movement::chebyshev(site, (20, 20)) <= 3,
+            "{site:?} is near the worker"
+        );
+        assert_eq!(w.rng, rng, "no wait draw");
+        // A mine with trips left is still the centre, measured from its top-left tile.
+        w.spawn(t::GOLD_MINE, slots::NEUTRAL, (30, 30), 1000).unwrap();
+        let i = w.index(id).unwrap();
+        assert_eq!(w.mine_centred(i).centre, (30, 30));
+    }
+
+    /// Round-85 vectors (`ai/worker-ai.md`, "Worker", step 5, static vector, erratum 11): a no-depot hall whose
+    /// bordered search fails and whose unbordered search finds (20, 20), a 4 x 4 hall, marks the keep-clear tiles
+    /// (19, 19) to (24, 24): the border whichever search found the site.
+    #[test]
+    fn a_second_pass_hall_is_marked_with_the_border() {
+        let mut w = bare();
+        // Only (20, 20) to (23, 23) is free of the placement mask, so only the unbordered search can succeed.
+        for y in 0..64 {
+            for x in 0..64 {
+                if !(20..24).contains(&x) || !(20..24).contains(&y) {
+                    w.terrain.set_bits(x, y, bits::BUILDING);
+                }
+            }
+        }
+        let id = w.spawn(PEASANT, 1, (18, 18), 0).unwrap();
+        let i = w.index(id).unwrap();
+        let Choice::Order(Order::Build { kind, site, .. }) = w.worker_choice(i) else {
+            panic!("no hall")
+        };
+        assert_eq!((kind, site), (t::TOWN_HALL, (20, 20)));
+        for y in 17..27 {
+            for x in 17..27 {
+                let inside = (19..=24).contains(&x) && (19..=24).contains(&y);
+                assert_eq!(w.keep_clear_at(x, y), inside, "({x}, {y})");
+            }
+        }
+    }
+
+    /// Round-85 vectors (`ai/worker-ai.md`, "Tankers", step 6, static gap-fill, erratum 10): with two oil patches at
+    /// the same distance from a computer tanker's depot, the patch first in the neutral player's list (the one
+    /// created later) is chosen, whichever side it is on.
+    #[test]
+    fn a_tanker_breaks_an_oil_patch_tie_by_the_neutral_list() {
+        const TANKER: u8 = 0x1a;
+        for later_east in [false, true] {
+            let mut w = bare();
+            w.stats.0[TANKER as usize] = UnitStats {
+                hit_points: 90,
+                size: (1, 1),
+                flags: flags::LAND | flags::TANKER,
+                ..Default::default()
+            };
+            w.stats.0[t::SHIPYARD as usize] = building(1100, 3, flags::OIL_STORAGE, 30);
+            w.stats.0[t::PLATFORM as usize] = building(650, 3, flags::OIL_SOURCE, 30);
+            w.stats.0[t::OIL_PATCH as usize] = building(0, 2, flags::OIL_PATCH, 0);
+            w.spawn(t::SHIPYARD, 1, (20, 20), 0).unwrap();
+            // Both 3 tiles from the yard's top-left tile (20, 20): columns 16-17 and 23-24.
+            let (first, second) = if later_east {
+                ((16, 20), (23, 20))
+            } else {
+                ((23, 20), (16, 20))
+            };
+            w.spawn(t::OIL_PATCH, slots::NEUTRAL, first, 5000).unwrap();
+            w.spawn(t::OIL_PATCH, slots::NEUTRAL, second, 5000).unwrap();
+            let id = w.spawn(TANKER, 1, (20, 25), 0).unwrap();
+            let i = w.index(id).unwrap();
+            let Choice::Order(Order::Build { kind, site, .. }) = w.worker_choice(i) else {
+                panic!("no platform")
+            };
+            assert_eq!((kind, site), (t::PLATFORM, second), "the patch created later");
+        }
     }
 
     /// `ai/worker-ai.md`, "When a job is chosen" (round 84, static gap-fill): the other acquiring orders run the job
