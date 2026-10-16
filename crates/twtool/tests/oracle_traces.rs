@@ -110,6 +110,14 @@
 //! destroyed one included, so losing the first of 3 guard towers starts no all-out attack and losing the second
 //! does, CP1 and CP2) matches in full.
 //!
+//! Round 83: orc3-orc03-platform-losses-9500 (an oil platform under construction counts in the losses rule, so the
+//! shipyard's and the first farm's losses start no all-out attack and the last farm's does, n 7634, CP7),
+//! xhuman5-xhuman05-worker-all-out-goals-1100 (a computer peon given command 4 by the all-out attack's attack goal makes
+//! its job choice at its next order-logic run in order 4, return goods pending from n 804, CP5),
+//! xhuman2-xhuman02-cheat-scope-1600 (the all-spells cheat tops up a computer death knight's mana but teaches it no
+//! spell, CP9 and S101) and human5-human05-rescue-jobs-2000 (a lumberjack that joins another player leaves its job
+//! count with active rescue player 0, CP10) match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -412,4 +420,8 @@ traces! {
     xhuman10_heal_ballista_goals_500: ("xhuman10-heal-ballista-goals-500.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     xhuman10_invisible_dwarves_150: ("xhuman10-invisible-dwarves-150.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     xorc10_xorc10_losses_4000: ("xorc10-xorc10-losses-4000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    orc3_orc03_platform_losses_9500: ("orc3-orc03-platform-losses-9500.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    xhuman5_xhuman05_worker_all_out_goals_1100: ("xhuman5-xhuman05-worker-all-out-goals-1100.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    xhuman2_xhuman02_cheat_scope_1600: ("xhuman2-xhuman02-cheat-scope-1600.jsonl.gz", "Campaign\\XHuman\\2XHum02.pud", 30, &[], None),
+    human5_human05_rescue_jobs_2000: ("human5-human05-rescue-jobs-2000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
 }
