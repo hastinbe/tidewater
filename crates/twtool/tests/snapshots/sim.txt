@@ -385,11 +385,11 @@ Campaign\Human\Human10.pud	harvest	10000	6a36df649761ac3f	7bf1367a2c275b90	120
 Campaign\Human\Human10.pud	harvest	12500	5b21be324f21d09c	9374c30fb0c26716	121
 Campaign\Human\Human10.pud	harvest	15000	62fa42a16bbb7272	b8824e2273bbd6ad	126
 Campaign\Human\Human10.pud	harvest	17500	8258cbe4864a4803	877095e12f534d82	130
-Campaign\Human\Human10.pud	harvest	20000	653867a6357a65a7	6e811b65a7bc5ad9	130
-Campaign\Human\Human10.pud	harvest	22500	56cb438a4fc30d11	0eb6cc26ad8588e1	126
-Campaign\Human\Human10.pud	harvest	25000	9ecb249e3a5c9edc	61ee7721fa48d91b	129
-Campaign\Human\Human10.pud	harvest	27500	9e1207cd1cf5d999	392790f6936bca9e	130
-Campaign\Human\Human10.pud	harvest	30000	bfb572933e61eb85	b5a1fd4c2b076e57	126
+Campaign\Human\Human10.pud	harvest	20000	623679b3cdc29e86	c5a49d558ce419bf	130
+Campaign\Human\Human10.pud	harvest	22500	9517aed021774b0d	d227b5842663a328	126
+Campaign\Human\Human10.pud	harvest	25000	1f34f9b45394d588	4b06488eac7d475b	129
+Campaign\Human\Human10.pud	harvest	27500	c9dc2484dc711785	a81f7d355aff3a7b	130
+Campaign\Human\Human10.pud	harvest	30000	3859550ebe0d772f	60f386a1896143d0	128
 Campaign\Human\Human11.pud	move	0	dea8f64ddd4ac97c	c3f39558b96ae90c	166
 Campaign\Human\Human11.pud	move	2500	09a9b7c7a5b2328d	f24fb7597cc85c9b	164
 Campaign\Human\Human11.pud	move	5000	d048401810fcb1c3	bbbd06ce49340669	144
@@ -505,8 +505,8 @@ Campaign\Human\Human13.pud	harvest	17500	1e63818a223cc306	83ed87a0b5f33fd2	222
 Campaign\Human\Human13.pud	harvest	20000	398d4016ee5ed8d9	cf134ac4d1a60c1b	221
 Campaign\Human\Human13.pud	harvest	22500	93a0ef0ccd4dae46	29a3702493be5d04	220
 Campaign\Human\Human13.pud	harvest	25000	905b7ca31d74f9a6	e20b5928049b7b24	219
-Campaign\Human\Human13.pud	harvest	27500	5c0765c537a9251b	fb391848cac1310b	214
-Campaign\Human\Human13.pud	harvest	30000	28b5c25a6d0ba59e	831f483c92c19654	212
+Campaign\Human\Human13.pud	harvest	27500	5861d530e0c30367	848d072ea4570355	214
+Campaign\Human\Human13.pud	harvest	30000	2f43a0ef4405aae7	7a0d319a68f97539	212
 Campaign\Human\Human14.pud	move	0	a2488947f30a7753	0849cf08eab047f5	190
 Campaign\Human\Human14.pud	move	2500	1f35a7be872867d8	6183f88273737eb1	198
 Campaign\Human\Human14.pud	move	5000	4ff000fe7f9c8dfe	9f1488c79788b104	198
@@ -1535,18 +1535,18 @@ Campaign\XHuman\2XHum12.pud	move	25000	de97f181405385b7	dd2acd17118f36c1	233
 Campaign\XHuman\2XHum12.pud	move	27500	4c5aff806a29adff	029d0cfcce3e9743	234
 Campaign\XHuman\2XHum12.pud	move	30000	715770ef6fc73b04	d45cf8c206dba3e5	236
 Campaign\XHuman\2XHum12.pud	fight	0	eee396205a3630db	f6af9c18a8f82788	245
-Campaign\XHuman\2XHum12.pud	fight	2500	c9b79c2ac7109ed2	da127c19788f5ec3	217
-Campaign\XHuman\2XHum12.pud	fight	5000	9b653be0e7054829	208bc9bf82eea30b	196
-Campaign\XHuman\2XHum12.pud	fight	7500	c2f745716bca3107	ec57568715f16d65	202
-Campaign\XHuman\2XHum12.pud	fight	10000	d3432e554238a1a7	79e3cc8da7f4de4c	206
-Campaign\XHuman\2XHum12.pud	fight	12500	9fb08542eb208e2d	7eb15304d01ec4d9	214
-Campaign\XHuman\2XHum12.pud	fight	15000	a831464f8654cf43	0d1b38dfdeb6412e	221
-Campaign\XHuman\2XHum12.pud	fight	17500	4902c11708ed2d15	bc1ac6b166037b5b	227
-Campaign\XHuman\2XHum12.pud	fight	20000	92115014cf2cd4e6	cfbe0cf65b5727e2	239
-Campaign\XHuman\2XHum12.pud	fight	22500	3154e12f369867dc	026d1a0bf388fe71	236
-Campaign\XHuman\2XHum12.pud	fight	25000	a3c46b1eec7b96ed	184d41a00d573f0d	240
-Campaign\XHuman\2XHum12.pud	fight	27500	275c50bd86435ed7	44582ffe88c2e367	235
-Campaign\XHuman\2XHum12.pud	fight	30000	0bec391077febdbc	1d67bb71b997b99f	238
+Campaign\XHuman\2XHum12.pud	fight	2500	4b4c750ba448fa07	ce6180fa705f0aa5	217
+Campaign\XHuman\2XHum12.pud	fight	5000	37e21343009d9f11	fbcb0431bd5bdd57	196
+Campaign\XHuman\2XHum12.pud	fight	7500	c9301216a7df16fc	6e3da0cfa7ab70b3	200
+Campaign\XHuman\2XHum12.pud	fight	10000	181e3716735a2546	3f823e9b6f6f932f	208
+Campaign\XHuman\2XHum12.pud	fight	12500	339fd5c518c0d786	96b939cf4afc573e	215
+Campaign\XHuman\2XHum12.pud	fight	15000	9d2a75ccbdde4f15	71d3fef0b11c2264	222
+Campaign\XHuman\2XHum12.pud	fight	17500	77b5d08fd4fe9b35	e04e689db651f9c4	225
+Campaign\XHuman\2XHum12.pud	fight	20000	08ecfe81257e624d	f42a4cda3fb86da6	234
+Campaign\XHuman\2XHum12.pud	fight	22500	672625c878403f90	5de4b479bf63231f	241
+Campaign\XHuman\2XHum12.pud	fight	25000	e84f332580dd7d96	cb7b9510c413eb92	245
+Campaign\XHuman\2XHum12.pud	fight	27500	d4cf7e8614697d90	1ecaab8242344970	242
+Campaign\XHuman\2XHum12.pud	fight	30000	4bf15e8f74c2e504	28da5bdc18e41ffc	240
 Campaign\XHuman\2XHum12.pud	harvest	0	eee396205a3630db	f6af9c18a8f82788	245
 Campaign\XHuman\2XHum12.pud	harvest	2500	f813c5545ab05c0f	58dcfe97a6592ee1	224
 Campaign\XHuman\2XHum12.pud	harvest	5000	14eb067be88415a7	39bef69bf0f8795e	221
@@ -1555,11 +1555,11 @@ Campaign\XHuman\2XHum12.pud	harvest	10000	c6a314f02e1cd7b6	bd3b32e1ff4347aa	192
 Campaign\XHuman\2XHum12.pud	harvest	12500	39b555746fcc0d56	b92011380484be68	197
 Campaign\XHuman\2XHum12.pud	harvest	15000	91d7d8868abb5019	d1f9b31cd0ccd138	206
 Campaign\XHuman\2XHum12.pud	harvest	17500	8b02dffd7e8c1aec	3bf0a1bea417307e	219
-Campaign\XHuman\2XHum12.pud	harvest	20000	9af8705e8a67e449	8d644718cc42b435	225
-Campaign\XHuman\2XHum12.pud	harvest	22500	08af05719d0ff0ba	810f10508d1f65bb	228
-Campaign\XHuman\2XHum12.pud	harvest	25000	02f7d8d25679a8c5	cc8b209b60d9e8d6	230
-Campaign\XHuman\2XHum12.pud	harvest	27500	5ffbf66d04f59597	e4641fc98563d026	225
-Campaign\XHuman\2XHum12.pud	harvest	30000	5e3ec6b725c9e425	c9f723a96bb9941d	223
+Campaign\XHuman\2XHum12.pud	harvest	20000	17e2f5d00fe80f20	79cd5bbe0b9c875f	225
+Campaign\XHuman\2XHum12.pud	harvest	22500	be10955fbfad9c66	ab14220f137129b3	227
+Campaign\XHuman\2XHum12.pud	harvest	25000	acd5ba1075e0800e	f69257dc21a9b6af	231
+Campaign\XHuman\2XHum12.pud	harvest	27500	004119712739aa1b	a3203cab74918454	225
+Campaign\XHuman\2XHum12.pud	harvest	30000	b441c02b964479b6	d1808dba745c6c57	224
 Campaign\XOrc\2XOrc01.pud	move	0	cd11f2dd186681a9	95a5fbdcff268a41	112
 Campaign\XOrc\2XOrc01.pud	move	2500	8b1478a9f548464b	c9609215fd1fa2bd	111
 Campaign\XOrc\2XOrc01.pud	move	5000	27180fe0911ca362	dd29e73e35f3e12e	109
@@ -1784,16 +1784,16 @@ Campaign\XOrc\2XOrc06.pud	fight	30000	c8339ca6268333c8	82e6e1d641612903	136
 Campaign\XOrc\2XOrc06.pud	harvest	0	8c1ff30672659236	de9afa4047d2560d	126
 Campaign\XOrc\2XOrc06.pud	harvest	2500	27fad4de6b60ef51	ac4526fd2dccbfff	131
 Campaign\XOrc\2XOrc06.pud	harvest	5000	6be07e7b43460578	939ad938069b19f9	142
-Campaign\XOrc\2XOrc06.pud	harvest	7500	82162269134c016a	c87fadba4a1b1fba	149
-Campaign\XOrc\2XOrc06.pud	harvest	10000	a61c102f85dcb24e	af7c9a53c7f261e3	142
-Campaign\XOrc\2XOrc06.pud	harvest	12500	8e8e06e387915cc5	da60e04b84697c5f	141
-Campaign\XOrc\2XOrc06.pud	harvest	15000	bb9f9eca994c7a59	53f11c3a581a27f7	139
-Campaign\XOrc\2XOrc06.pud	harvest	17500	6b8cab54b3d9154b	0a0a6bb0f1c03cb2	133
-Campaign\XOrc\2XOrc06.pud	harvest	20000	9babfaa5a6cd2f1f	b921e96104e41699	132
-Campaign\XOrc\2XOrc06.pud	harvest	22500	6930e922a0a0d75c	12584965bef19307	132
-Campaign\XOrc\2XOrc06.pud	harvest	25000	4d6bc4330b19d55e	f1af2b0fd4403ef7	136
-Campaign\XOrc\2XOrc06.pud	harvest	27500	5d2243d3907a6d54	fcb91df0645df619	135
-Campaign\XOrc\2XOrc06.pud	harvest	30000	110edd9c7ba9356d	c79fa1eb98209798	136
+Campaign\XOrc\2XOrc06.pud	harvest	7500	385025f48a090aae	b4a1e35f7678282a	149
+Campaign\XOrc\2XOrc06.pud	harvest	10000	3b007b8a06838431	7b1b7b6f02bc9727	145
+Campaign\XOrc\2XOrc06.pud	harvest	12500	da69cb01795c654c	cc08cd7749ea310a	145
+Campaign\XOrc\2XOrc06.pud	harvest	15000	2dd0ae2afacb6301	094bb4c55876a117	145
+Campaign\XOrc\2XOrc06.pud	harvest	17500	f685671cc4acf245	dfce649cf044aeb4	139
+Campaign\XOrc\2XOrc06.pud	harvest	20000	0b1fe90068fba26f	298818344205f3e6	134
+Campaign\XOrc\2XOrc06.pud	harvest	22500	ba4ead599e0adafa	127b09c64cb8382b	135
+Campaign\XOrc\2XOrc06.pud	harvest	25000	540979829b4bebb7	241598d57ef6a50f	133
+Campaign\XOrc\2XOrc06.pud	harvest	27500	284f24040a0a18ef	8ad1f37e0ce0e3c6	134
+Campaign\XOrc\2XOrc06.pud	harvest	30000	8951052c1c03931b	9d68b7cc88cbf439	134
 Campaign\XOrc\2XOrc07.pud	move	0	2acf76911de54999	baab8ae3f1b438ce	175
 Campaign\XOrc\2XOrc07.pud	move	2500	4817c8b2b7b63565	3750288ccf8cdf1e	180
 Campaign\XOrc\2XOrc07.pud	move	5000	f7ec7eae1327a14d	91a7070667081f87	183
@@ -9398,7 +9398,7 @@ Maps\Scenario\Fire in the Water BNE.pud	harvest	20000	d2897c833b40fa0a	50477a58e
 Maps\Scenario\Fire in the Water BNE.pud	harvest	22500	e17f49b570f17f6e	83da5310a758142f	71
 Maps\Scenario\Fire in the Water BNE.pud	harvest	25000	489f47cd2bcd418c	d88b89f5b9e853ce	72
 Maps\Scenario\Fire in the Water BNE.pud	harvest	27500	571b0eda91494690	156497e4bc9eac6f	73
-Maps\Scenario\Fire in the Water BNE.pud	harvest	30000	b41fcf6f868fa438	3cb3848ca9c4631c	75
+Maps\Scenario\Fire in the Water BNE.pud	harvest	30000	1bed517d028ee5a2	ffe4971883c62361	76
 Maps\Scenario\Fire in the Water BNE.pud	ai	0	d5b6885a90691ddc	fb2f5cf34578853b	53
 Maps\Scenario\Fire in the Water BNE.pud	ai	2500	f2560118615fe511	ed3fc83c86237654	73
 Maps\Scenario\Fire in the Water BNE.pud	ai	5000	648909bbc1299cdd	28cfb5a6a3f8b96e	89
