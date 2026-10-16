@@ -792,7 +792,9 @@ impl World {
             self.kill_passengers(ti);
         }
         self.leave_oil(ti);
-        // `ai/computer-player.md`, "The parts": the destroyed hook runs inside the kill.
+        // `ai/computer-player.md`, "The parts": the destroyed hook runs inside the kill, so the losses rule ("Losses
+        // rule" there; `ai/worker-ai.md`, "The losses rule") counts the buildings at the kill, this dying one
+        // included (traced: `xorc10-xorc10-losses-4000`, CP1 and CP2).
         if unit.building {
             self.destroyed_hook(ti);
         }

@@ -175,7 +175,7 @@ impl World {
     pub(crate) fn destroyed_hook(&mut self, ti: usize) {
         let (owner, kind) = (self.units[ti].owner, self.units[ti].kind);
         self.mark_build_list(owner, kind, false);
-        self.building_lost(owner);
+        self.building_lost(owner, ti);
     }
 
     /// The damage hook, when unit `ti` of any player is notified of a hit by `attacker` (`combat/damage.md`,
@@ -659,9 +659,9 @@ mod tests {
                     15424032157577864050,
                     8995007384731277273,
                     6415993651630466809,
-                    15103381635520159131,
-                    4603756770935705666,
-                    5889125850716694836
+                    8020399964952080268,
+                    1364583539582243583,
+                    13330013266243957848
                 ]
             );
         }

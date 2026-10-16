@@ -671,21 +671,24 @@ impl World {
 
     // ---- The all-out attack -------------------------------------------------------------------------------------
 
-    /// The losses rule of `ai/worker-ai.md`: after one of a computer player's buildings is destroyed, fewer than 3
-    /// buildings other than oil platforms left starts the all-out attack.
-    pub(crate) fn building_lost(&mut self, owner: u8) {
+    /// The losses rule (`ai/worker-ai.md`, "The losses rule"; `ai/computer-player.md`, "Losses rule", round 82, C1):
+    /// when building `killed` of a computer player is destroyed, B counts the player's buildings at the kill, the
+    /// destroyed one included, complete or under construction, but not oil platforms; B < 3 starts the all-out attack
+    /// (traced: `xorc10-xorc10-losses-4000`, vectors CP1 and CP2). Every oil platform is left out, finished or not:
+    /// the unfinished one is an open question held with that default (trace request AI5).
+    pub(crate) fn building_lost(&mut self, owner: u8, killed: usize) {
         if !self.ai_player(owner) {
             return;
         }
-        let left = self
+        let b = self
             .list_of(owner)
             .into_iter()
             .filter(|&i| {
                 let u = &self.units[i];
-                u.building && !u.dying && !u.removing && self.unit_flags(u) & flags::OIL_SOURCE == 0
+                u.building && (!u.dying || i == killed) && !u.removing && self.unit_flags(u) & flags::OIL_SOURCE == 0
             })
             .count();
-        if left < 3 {
+        if b < 3 {
             self.all_out_attack(owner);
         }
     }
@@ -2607,11 +2610,13 @@ mod tests {
         assert_eq!((at(&w, v).hp, at(&w, v).attacked_by), (60, None));
     }
 
+    /// The losses rule, round 82 (C1; `ai/computer-player.md` CP3, `ai/worker-ai.md` vectors): the buildings are
+    /// counted at the kill, the destroyed one included, so losing one of 2 buildings starts the all-out attack.
     #[test]
     fn losing_buildings_starts_the_all_out_attack() {
         let mut w = game();
         spawn(&mut w, FOOTMAN, 0, (50, 50));
-        let farms: Vec<UnitId> = (0..3).map(|k| spawn(&mut w, FARM, 1, (2 + 3 * k, 2))).collect();
+        let farms: Vec<UnitId> = (0..2).map(|k| spawn(&mut w, FARM, 1, (2 + 3 * k, 2))).collect();
         let g = spawn(&mut w, GRUNT, 1, (10, 10));
         let p = spawn(&mut w, PEASANT, 1, (11, 10));
         um(&mut w, g).held = true;
@@ -2626,14 +2631,55 @@ mod tests {
         assert_eq!(at(&w, p).goal.kind, GoalKind::Attack);
         // The worker also gets command 3 to the tile (a smart command on an enemy attacks it).
         assert!(at(&w, p).pending.is_some());
-        // With 3 buildings left, nothing.
+    }
+
+    /// One computer player that loses its towers one by one, as in `xorc10-xorc10-losses-4000`: the goal of its grunt
+    /// after each kill.
+    fn losses(towers: i32, platform: Option<bool>) -> Vec<GoalKind> {
         let mut w = game();
-        spawn(&mut w, FOOTMAN, 0, (50, 50));
-        let farms: Vec<UnitId> = (0..4).map(|k| spawn(&mut w, FARM, 1, (2 + 3 * k, 2))).collect();
+        water(&mut w, 40, 48);
+        spawn(&mut w, FOOTMAN, 0, (20, 50));
+        let ids: Vec<UnitId> = (0..towers).map(|k| spawn(&mut w, TOWER, 1, (2 + 3 * k, 2))).collect();
+        if let Some(finished) = platform {
+            let p = spawn(&mut w, PLATFORM, 1, (42, 10));
+            if !finished {
+                um(&mut w, p).construction = Some(crate::economy::Construction {
+                    time: 1000,
+                    ..Default::default()
+                });
+                w.players[1].under_construction += 1;
+            }
+        }
         let g = spawn(&mut w, GRUNT, 1, (10, 10));
-        let f = ix(&w, farms[0]);
-        w.kill(f);
-        assert_eq!(at(&w, g).goal.kind, GoalKind::Hold, "the first goal from creation");
+        w.rebuild_threat_map();
+        ids.into_iter()
+            .map(|id| {
+                let i = ix(&w, id);
+                w.kill(i);
+                at(&w, g).goal.kind
+            })
+            .collect()
+    }
+
+    /// CP1 and CP2 (`ai/computer-player.md`; traced: `xorc10-xorc10-losses-4000`, computer player 2 with guard
+    /// towers 1476, 1477 and 1482): losing the first of 3 towers counts 3 at the kill and starts nothing; losing the
+    /// second counts 2 and starts the all-out attack.
+    #[test]
+    fn the_losses_rule_counts_at_the_kill() {
+        use GoalKind::{Attack, Hold};
+        assert_eq!(losses(3, None), [Hold, Attack, Attack]);
+        assert_eq!(losses(4, None), [Hold, Hold, Attack, Attack]);
+        assert_eq!(losses(1, None), [Attack]);
+    }
+
+    /// `ai/worker-ai.md` vector: 3 buildings, one an oil platform, lose one: 2 at the kill, so the all-out attack. The
+    /// held default: a platform under construction is left out too (open question, trace request AI5).
+    #[test]
+    fn oil_platforms_never_count_in_the_losses_rule() {
+        use GoalKind::{Attack, Hold};
+        assert_eq!(losses(2, Some(true)), [Attack, Attack]);
+        assert_eq!(losses(2, Some(false)), [Attack, Attack]);
+        assert_eq!(losses(3, Some(true)), [Hold, Attack, Attack]);
     }
 
     /// Round-51 errata, "Enemy search" (`xorc8-10000` gryphon rider 1550, n = 6051): only alliance, the attack order's
@@ -2773,27 +2819,27 @@ mod tests {
                     7147130911661622609,
                     18274199525250429784,
                     8845276480115027668,
-                    17308009164176190830,
-                    5887742565789139352,
-                    16063947777523251918,
-                    206967043532489073,
-                    298884419682194172,
-                    3784269013890375650,
-                    12295531509114763294,
-                    4713082542558470721,
-                    10843555202409345603,
+                    11015724436352951852,
+                    13086326067169943314,
+                    7262479092936147993,
+                    14675879980906052181,
+                    12596388164616575239,
+                    6334965838546776343,
+                    15028280418113559886,
+                    8474063008321833796,
+                    2299883997249227757,
                     13537642335894420149,
-                    11648727911612861186,
-                    12067366188456267816,
-                    12074107786854916335,
+                    7554302020517874718,
+                    17502240392425533774,
+                    866151696444407750,
                     8174484187575824922,
-                    16069198811108340846,
-                    4090484364047895247,
-                    5153442188827254612,
+                    5045277377292094451,
+                    9546335635282779808,
+                    11049804613158771849,
                     6937000696008518128,
-                    9565637097154266481,
-                    7679297294270913037,
-                    9647746737895694719
+                    8134169222432434524,
+                    11415515079619100473,
+                    15689285563531775051
                 ]
             );
         }
