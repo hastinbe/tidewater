@@ -532,7 +532,9 @@ impl World {
                 if self.stats_of(k).flags & flags::TOWER != 0 {
                     self.take_over(i, crate::world::Order::TowerWatch { target: None });
                 }
-                if self.rules.enhanced {
+                // Sounds spec, "Work complete" (round 76, V51: `human06-alerts-1400`): in Enhanced rules, only for a
+                // hall becoming a keep or castle (or the orc versions); a tower plays nothing.
+                if self.rules.enhanced && kind::is_hall(k) {
                     self.work_complete(i);
                 }
             }
@@ -1047,6 +1049,47 @@ mod tests {
                 (None, kind, kind, 0, 0),
                 "cancel {cancel}"
             );
+        }
+    }
+
+    /// Sounds spec, "Work complete" (round 76, V51: `human06-alerts-1400`): in Enhanced rules a finished building
+    /// upgrade plays it for a hall becoming a keep, not for a scout tower becoming a guard tower.
+    #[test]
+    fn work_complete_plays_for_a_hall_upgrade_not_a_tower() {
+        const SCOUT_TOWER: u8 = 0x40;
+        const GUARD_TOWER: u8 = 0x60;
+        for (from, to, plays) in [(HALL, kind::KEEP, true), (SCOUT_TOWER, GUARD_TOWER, false)] {
+            let (mut w, _) = town();
+            w.rules.enhanced = true;
+            w.rules.enforce_requirements = false;
+            w.vision.local = 0;
+            if from == SCOUT_TOWER {
+                w.stats.0[from as usize] = w.stats.0[HALL as usize];
+                w.stats.0[to as usize] = w.stats.0[HALL as usize];
+                w.stats.0[to as usize].flags |= flags::TOWER;
+            }
+            w.stats.0[to as usize].build_time = 1;
+            let b = w.spawn(from, 0, (2, 2), 0).unwrap();
+            w.step(&[Command::Upgrade {
+                player: 0,
+                building: b,
+                to,
+            }]);
+            let mut heard = false;
+            for _ in 0..60 {
+                w.sounds.cues.clear();
+                w.step(&[]);
+                heard |= w
+                    .sounds
+                    .cues
+                    .iter()
+                    .any(|c| matches!(c.sound, crate::sound::Sound::WorkComplete { .. }));
+                if w.unit(b).unwrap().kind == to {
+                    break;
+                }
+            }
+            assert_eq!(w.unit(b).unwrap().kind, to);
+            assert_eq!(heard, plays, "{from:#x} to {to:#x}");
         }
     }
 
