@@ -416,16 +416,16 @@ impl World {
         }
     }
 
-    /// The order logic of orders 38 to 56 at a "step done" (spec, "Moving and casting").
+    /// The order logic of orders 38 to 56 at a "step done" (spec, "Walking and the decision").
     pub(crate) fn run_spell(&mut self, i: usize) -> bool {
         let Order::Cast { spell, target, tile } = self.units[i].order else {
             return false;
         };
-        let owner = self.units[i].owner;
         let (goal, aim, zone) = if UNIT_SPELLS.contains(&spell) {
+            // Spec, "Walking and the decision" (round 80): the target must be valid, not a building and, for the
+            // organic-target spells, organic. There is no detection test: that is the command's check only.
             let ok = target.and_then(|t| self.unit(t)).filter(|t| {
                 t.present()
-                    && Self::detected(t, owner)
                     && !t.building
                     && (!ORGANIC_SPELLS.contains(&spell) || self.stats_of(t.kind).flags & flags::ORGANIC != 0)
             });
@@ -463,7 +463,7 @@ impl World {
         self.switch_anim(i, anim::STILL);
     }
 
-    /// Order 2 becomes pending (spec, "At the strike", step 4).
+    /// Order 2 becomes pending (spec, "The spell's strike", step 4).
     fn idle_pending(&mut self, i: usize) {
         self.units[i].pending = Some(Order::Idle);
     }
@@ -478,17 +478,17 @@ impl World {
         true
     }
 
-    /// Steps 4 and 5: idle (unless channelled) and the caster's invisibility ends.
+    /// Step 4: idle (unless channelled). The caster's invisibility has already ended at the strike point
+    /// ([`World::strike`]; spec, "The strike point", step 2).
     fn finish_cast(&mut self, i: usize, idle: bool) {
         let owner = self.units[i].owner as usize;
         self.casts.strikes[owner & 15] += 1;
         if idle {
             self.idle_pending(i);
         }
-        self.units[i].invisibility = 0;
     }
 
-    /// Steps 2 to 5 together.
+    /// Steps 2 to 4 together.
     fn begin(&mut self, i: usize, cost: u32, idle: bool) -> bool {
         if !self.pay_mana(i, cost) {
             return false;
@@ -497,7 +497,8 @@ impl World {
         true
     }
 
-    /// The strike of the casting animation (spec, "At the strike").
+    /// The spell's strike (spec, "The spell's strike"), run by the strike point after it has ended the caster's
+    /// invisibility and made the strike reveal ([`World::strike`], spec, "The strike point").
     pub(crate) fn cast_strike(&mut self, i: usize) {
         let Order::Cast { spell, target, tile } = self.units[i].order else {
             return;
@@ -1496,11 +1497,11 @@ mod tests {
         }]);
     }
 
-    /// Strikes at once, as the casting animation would, with `order` set directly.
+    /// Strikes at once, as the casting animation's strike point would, with `order` set directly.
     fn strike(w: &mut World, id: UnitId, spell: u8, target: Option<UnitId>, tile: (i32, i32)) {
         let i = w.index(id).unwrap();
         w.units[i].order = Order::Cast { spell, target, tile };
-        w.cast_strike(i);
+        w.strike(i);
     }
 
     fn fx_of_kind(w: &World, k: u8) -> usize {
@@ -1843,6 +1844,77 @@ mod tests {
         assert_eq!(w.unit(a).unwrap().invisibility, 0);
     }
 
+    /// Spec, "The strike point", step 2 (round 80, S86): the strike point ends the caster's invisibility before the
+    /// spell's strike, so a cast whose target has died during the casting animation ends it too, with nothing paid.
+    #[test]
+    fn a_cast_that_fails_its_target_check_ends_invisibility() {
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (5, 5), 100);
+        let i = w.index(m).unwrap();
+        w.units[i].invisibility = 900;
+        let g = foe(&mut w, (8, 5));
+        let gi = w.index(g).unwrap();
+        w.kill(gi);
+        strike(&mut w, m, SLOW, Some(g), (8, 5));
+        assert_eq!((w.unit(m).unwrap().invisibility, mana(&w, m)), (0, 100));
+        assert!(idle_pending(&w, m));
+    }
+
+    /// Spec, "The strike point", step 2 (round 80, S89): an invisible ogre-mage's eye of Kilrogg with 60 mana fails
+    /// its mana check and still ends the invisibility.
+    #[test]
+    fn a_cast_that_fails_its_mana_check_ends_invisibility() {
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (5, 5), 60);
+        let i = w.index(m).unwrap();
+        w.units[i].invisibility = 900;
+        strike(&mut w, m, EYE_OF_KILROGG, None, (20, 20));
+        assert_eq!((w.unit(m).unwrap().invisibility, mana(&w, m)), (0, 60));
+        assert!(w.units.iter().all(|u| u.kind != unit::EYE));
+        assert!(idle_pending(&w, m));
+    }
+
+    /// The strike point is the only place a cast ends invisibility: the spell's strike alone leaves the timer.
+    #[test]
+    fn the_spells_strike_itself_leaves_invisibility_to_the_strike_point() {
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (5, 5), 255);
+        let f = w.spawn(0, 0, (6, 5), 0).unwrap();
+        let i = w.index(m).unwrap();
+        w.units[i].invisibility = 900;
+        w.units[i].order = Order::Cast {
+            spell: HASTE,
+            target: Some(f),
+            tile: (6, 5),
+        };
+        w.cast_strike(i);
+        assert_eq!((w.unit(m).unwrap().invisibility, mana(&w, m)), (900, 205));
+    }
+
+    /// S84 (`xhuman10-failcast-520`, n = 437): an invisible mage channelling blizzard with 15 mana reaches a strike
+    /// point through its casting animation. The timer drops to 0 there, nothing is paid and no shard is made; the
+    /// spell order and the casting animation go on with idle pending.
+    #[test]
+    fn a_channelled_blizzard_short_of_mana_ends_invisibility_at_its_strike() {
+        use tidewater_formats::script::anim;
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (5, 5), 15);
+        cast(&mut w, m, BLIZZARD, None, (9, 5));
+        let i = w.index(m).unwrap();
+        w.units[i].invisibility = 1000;
+        let mut n = 0;
+        while w.unit(m).unwrap().invisibility != 0 {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 80, "no strike");
+            assert!(w.unit(m).unwrap().invisibility > 900 || w.unit(m).unwrap().invisibility == 0);
+        }
+        let u = w.unit(m).unwrap();
+        assert_eq!((u.mana, fx_of_kind(&w, kind::SHARD)), (15, 0));
+        assert!(matches!(u.order, Order::Cast { spell: BLIZZARD, .. }));
+        assert_eq!((u.script.anim, u.pending), (anim::ATTACK, Some(Order::Idle)));
+    }
+
     #[test]
     fn timer_spells() {
         let mut w = lab(32);
@@ -2120,6 +2192,23 @@ mod tests {
                 "{case}"
             );
         }
+    }
+
+    /// Spec, "Walking and the decision" (round 80): the decision doesn't test detection, so a target that turns
+    /// invisible after the command is still cast on.
+    #[test]
+    fn the_decision_does_not_test_detection() {
+        let mut w = lab(32);
+        let m = caster(&mut w, MAGE, (5, 5), 255);
+        let g = foe(&mut w, (8, 5));
+        cast(&mut w, m, SLOW, Some(g), (8, 5));
+        let gi = w.index(g).unwrap();
+        w.units[gi].invisibility = 1000;
+        w.step(&[]);
+        assert!(!w.detected_by(0, g), "the target is undetected");
+        run(&mut w, 80);
+        assert!(w.unit(g).unwrap().haste < 0, "slowed");
+        assert_eq!(mana(&w, m), 205);
     }
 
     /// Orders spec, "A player's command forgets the attacker" (round-56 static correction): a direct spell command

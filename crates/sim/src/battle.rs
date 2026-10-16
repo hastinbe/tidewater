@@ -388,17 +388,15 @@ impl World {
         self.units[i].cooldown = lp + 1;
     }
 
-    /// The strike point of the attack script (damage spec, "How an attack delivers damage"): the strike reveal, then
-    /// the delivery at whatever the order aims at by then, with no range test. A cast has its own strike
-    /// (`spells.rs`).
+    /// The strike point of the attack script (damage spec, "How an attack delivers damage"; spells spec, "The strike
+    /// point"): invisibility ends, the strike reveal, then the delivery at whatever the order aims at by then, with no
+    /// range test, or the spell's strike for a cast (`spells.rs`).
     pub(crate) fn strike(&mut self, i: usize) {
-        // "Invisibility ends" (spells spec, "Timers"): before the strike reveal, at every strike point of the attack
-        // script whatever the target's state, a worker's chop and repair strikes included
-        // (`human13-invisible-work-hits-900`, n = 112 and 446). A cast clears it at its own step, so a cast that fails
-        // its checks keeps it (the open question "Invisibility at a failed cast").
-        if !matches!(self.units[i].order, Order::Cast { .. }) {
-            self.units[i].invisibility = 0;
-        }
+        // "Invisibility ends" (spells spec, "The strike point", step 2, round 80): before the strike reveal, at every
+        // strike point whatever the order and whatever the target's state: a cast that then fails its target or mana
+        // check (`xhuman10-failcast-520`, n = 437, S84), a worker's chop and repair strikes
+        // (`human13-invisible-work-hits-900`, n = 112 and 446) and an attack on a target inside included.
+        self.units[i].invisibility = 0;
         self.strike_reveal(i);
         if let Order::Cast { .. } = self.units[i].order {
             return self.cast_strike(i);
