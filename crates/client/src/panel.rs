@@ -1127,7 +1127,8 @@ pub fn activate(en: &Entry, s: &impl PanelState, sel: &[UnitInfo]) -> Effect {
                 to: k,
             }),
         },
-        Act::CancelConstruction | Act::CancelJob => Effect::Send(Command::Cancel { player, unit: p.id }),
+        Act::CancelConstruction => Effect::Send(Command::Cancel { player, unit: p.id }),
+        Act::CancelJob => Effect::Send(Command::CancelJob { player, unit: p.id }),
         Act::Menu(m) => Effect::SetMode(Mode::Menu(m)),
         Act::Back | Act::LeaveMode => Effect::SetMode(Mode::None),
     }

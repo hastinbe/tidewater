@@ -731,20 +731,20 @@ impl World {
         };
     }
 
-    /// The cancel command: a working building's job is marked to be cancelled, and ends at its next work run
-    /// ("Cancelling a job"); a building under construction is taken down, part of its cost coming back ("Cancelling
-    /// construction").
-    pub(crate) fn cancel(&mut self, i: usize) {
+    /// The two cancel commands, each acting only in its own state (V69): cancel job (`job`) marks a working
+    /// building's job to be cancelled, and it ends at its next work run ("Cancelling a job"); cancel construction
+    /// takes a building under construction down, part of its cost coming back ("Cancelling construction").
+    pub(crate) fn cancel(&mut self, i: usize, job: bool) {
         let u = &mut self.units[i];
-        match u.building_state() {
+        match (u.building_state(), job) {
             _ if u.dying => {}
-            Some(BuildingState::Working) => {
+            (Some(BuildingState::Working), true) => {
                 if let Some(job) = &mut u.job {
                     job.cancelled = true;
                 }
             }
-            Some(BuildingState::UnderConstruction) => self.take_down(i, true),
-            Some(BuildingState::Resting) | None => {}
+            (Some(BuildingState::UnderConstruction), false) => self.take_down(i, true),
+            _ => {}
         }
     }
 
@@ -934,7 +934,7 @@ mod tests {
             kind: 2,
         }]);
         run(&mut w, 20);
-        w.step(&[Command::Cancel { player: 0, unit: hall }]);
+        w.step(&[Command::CancelJob { player: 0, unit: hall }]);
         // "Cancelling a job": the command only marks the job; it ends at the next work run, within 5 cycles once
         // the runs have begun, with order 33 taking over (still animation, wait 3).
         assert_eq!((w.players[0].gold, w.players[0].in_training), (9_600, 1));
@@ -953,6 +953,33 @@ mod tests {
         assert_eq!((u.script.anim, u.script.wait, u.mana), (anim::STILL, 3, 0));
     }
 
+    /// V69: a cancel-construction command naming a working building, and a cancel-job command naming a site, do
+    /// nothing: the job runs on and the site goes on being built.
+    #[test]
+    fn each_cancel_acts_only_in_its_own_state() {
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[2].build_time = 60;
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 2,
+        }]);
+        w.stats.0[kind::FARM as usize].build_time = 100;
+        let site = w.place_building(kind::FARM, 0, (5, 0)).unwrap();
+        run(&mut w, 20);
+        let gold = w.players[0].gold;
+        w.step(&[
+            Command::Cancel { player: 0, unit: hall },
+            Command::CancelJob { player: 0, unit: site },
+        ]);
+        run(&mut w, 20);
+        let (h, s) = (w.unit(hall).unwrap(), w.unit(site).unwrap());
+        assert!(h.job.is_some_and(|j| !j.cancelled && j.progress > 0));
+        assert!(!s.dying && s.construction.is_some_and(|c| c.passes == 41));
+        assert_eq!(w.players[0].gold, gold);
+    }
+
     /// "Cancelling a job": a job marked before its first run ends at that first run, 13 cycles after the work
     /// animation takes over, even when its counter has already reached its total (a job of 0 steps).
     #[test]
@@ -966,7 +993,7 @@ mod tests {
             building: hall,
             kind: 2,
         }]);
-        w.step(&[Command::Cancel { player: 0, unit: hall }]);
+        w.step(&[Command::CancelJob { player: 0, unit: hall }]);
         let mut took = None;
         let n = w.units.len();
         for t in 1..=40 {
@@ -1132,7 +1159,7 @@ mod tests {
             assert!(u.job.is_some_and(|j| j.running));
             assert_eq!((u.kind, u.picture(), u.script.frame), (HALL, kind::KEEP, 1));
             if cancel {
-                w.step(&[Command::Cancel { player: 0, unit: hall }]);
+                w.step(&[Command::CancelJob { player: 0, unit: hall }]);
                 run(&mut w, 5);
             } else {
                 run(&mut w, 300);
@@ -1301,7 +1328,7 @@ mod tests {
         fn a_job_cancelled_while_running() {
             let (mut w, hall) = training(60);
             run(&mut w, 30);
-            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
             assert_eq!(w.unit(hall).unwrap().job, None);
             assert_eq!(pinned(&w), 4002968534024783746);
@@ -1310,7 +1337,7 @@ mod tests {
         #[test]
         fn a_job_cancelled_before_it_takes_over() {
             let (mut w, hall) = training(60);
-            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 30);
             assert_eq!(w.unit(hall).unwrap().job, None);
             assert_eq!(pinned(&w), 12797389103836182310);
@@ -1321,10 +1348,10 @@ mod tests {
         fn a_second_cancel_and_a_resting_cancel() {
             let (mut w, hall) = training(60);
             run(&mut w, 30);
-            w.step(&[Command::Cancel { player: 0, unit: hall }]);
-            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            w.step(&[Command::CancelJob { player: 0, unit: hall }]);
+            w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
-            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
             assert_eq!(pinned(&w), 16536490222765927957);
         }
@@ -1388,7 +1415,7 @@ mod tests {
                     }]);
                     run(&mut w, 20);
                     if cancel {
-                        w.step(&[Command::Cancel { player: 0, unit: b }]);
+                        w.step(&[Command::CancelJob { player: 0, unit: b }]);
                     }
                     run(&mut w, 40);
                     got.push(pinned(&w));

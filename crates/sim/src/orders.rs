@@ -227,6 +227,7 @@ impl World {
             | Command::Research { .. }
             | Command::Spell { .. }
             | Command::Cancel { .. }
+            | Command::CancelJob { .. }
             | Command::Cast { .. }
             | Command::Build { .. }
             | Command::Select { .. }

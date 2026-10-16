@@ -693,8 +693,15 @@ pub enum Command {
         units: Vec<UnitId>,
         tile: (i32, i32),
     },
-    /// Cancel a building's job, or the building if it is under construction.
+    /// Cancel construction: the building is taken down if it is under construction; otherwise nothing happens
+    /// (build-train spec, "Cancelling construction", V69).
     Cancel {
+        player: u8,
+        unit: UnitId,
+    },
+    /// Cancel job: a working building's job is marked to be cancelled at its next work run; otherwise nothing
+    /// happens (build-train spec, "Cancelling a job", V69).
+    CancelJob {
         player: u8,
         unit: UnitId,
     },
@@ -1461,23 +1468,24 @@ impl World {
                 player,
                 building: id,
                 kind,
-            } => return self.building_command(player, id, Some(JobKind::Train(kind))),
+            } => return self.building_command(player, id, JobKind::Train(kind)),
             &Command::Upgrade {
                 player,
                 building: id,
                 to,
-            } => return self.building_command(player, id, Some(JobKind::Upgrade(to))),
+            } => return self.building_command(player, id, JobKind::Upgrade(to)),
             &Command::Research {
                 player,
                 building: id,
                 upgrade,
-            } => return self.building_command(player, id, Some(JobKind::Research(upgrade))),
+            } => return self.building_command(player, id, JobKind::Research(upgrade)),
             &Command::Spell {
                 player,
                 building: id,
                 spell,
-            } => return self.building_command(player, id, Some(JobKind::Spell(spell))),
-            &Command::Cancel { player, unit } => return self.building_command(player, unit, None),
+            } => return self.building_command(player, id, JobKind::Spell(spell)),
+            &Command::Cancel { player, unit } => return self.cancel_command(player, unit, false),
+            &Command::CancelJob { player, unit } => return self.cancel_command(player, unit, true),
             &Command::Cast {
                 player,
                 unit,
@@ -1539,14 +1547,19 @@ impl World {
     }
 
     /// A job for (or, with `None`, a cancel at) one of the player's buildings.
-    fn building_command(&mut self, player: u8, id: UnitId, job: Option<JobKind>) {
+    fn building_command(&mut self, player: u8, id: UnitId, job: JobKind) {
         let Some(i) = self.index(id) else { return };
-        if self.units[i].owner != player {
-            return;
+        if self.units[i].owner == player {
+            self.start_job(i, job);
         }
-        match job {
-            Some(j) => self.start_job(i, j),
-            None => self.cancel(i),
+    }
+
+    /// The two cancel commands, for the sender's own building: cancel job (`job`) or cancel construction, each
+    /// acting only in its own state (build-train spec, V69).
+    fn cancel_command(&mut self, player: u8, id: UnitId, job: bool) {
+        let Some(i) = self.index(id) else { return };
+        if self.units[i].owner == player {
+            self.cancel(i, job);
         }
     }
 
