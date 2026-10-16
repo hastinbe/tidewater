@@ -297,7 +297,7 @@ impl World {
     /// A building's think. Does nothing if it is not complete or is busy.
     fn think(&mut self, i: usize) {
         let unit = &self.units[i];
-        if unit.construction.is_some() || unit.job.is_some() {
+        if unit.building_state() != Some(crate::economy::BuildingState::Resting) {
             return;
         }
         let (p, k) = (unit.owner as usize, unit.kind);

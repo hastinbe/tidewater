@@ -2,9 +2,21 @@
 //! `docs/specs/economy/tech-tree.md` (the checks a job command runs, and what finishing or cancelling research does;
 //! the tables are in `tech.rs`).
 //!
-//! Not yet here: workers walking to a site and going inside (orders spec), the completion alert's sound and position
-//! (a later spec), spell effects, completed walls becoming terrain (the wall graphic joining isn't specified), and the free tile a trained unit is
-//! placed on (a placeholder search until the free-tile rule is approved).
+//! "The model": a building made during play is in one of three states ([`BuildingState`], worked out from its
+//! construction and its job), and each event that moves it is one procedure:
+//!
+//! | Event | Procedure |
+//! | --- | --- |
+//! | a worker arrives at its site | [`World::raise`] (`build.rs`) and [`World::place_building`] |
+//! | the construction pass reaches the end | [`World::construct`], then `complete` |
+//! | a cancel-construction command | [`World::cancel`], which takes the building down ([`World::take_down`]) |
+//! | a job command | [`World::try_job`] |
+//! | the building's work animation | [`World::work`], ending in `end_job` |
+//! | a cancel-job command | [`World::cancel`], which marks the job; `end_job` at the next work run |
+//! | the building is killed | `kill_as` (`battle.rs`): [`World::cancel_job`], then [`World::kill_inside`] |
+//!
+//! Its shared rules are [`World::job_cost`] and [`World::unit_cost`] (paying), [`World::take_down`] against the kill
+//! (two ways a building goes), [`World::exit_tile`] (letting a unit out) and the local-owner test of `sound.rs`.
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::{UnitStats, flags};
@@ -157,6 +169,32 @@ impl JobKind {
             JobKind::Spell(n) => Some((n, true)),
             _ => None,
         }
+    }
+}
+
+/// "The model": the state of a building made during play.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuildingState {
+    /// Order 33, with the builder (or a platform's tanker) inside.
+    UnderConstruction,
+    /// Complete, resting in order 33 (a guard or cannon tower: 14).
+    Resting,
+    /// Complete, working on one job in order 37.
+    Working,
+}
+
+impl crate::world::Unit {
+    /// The building's state ("The model"), from its construction and its job; `None` for a unit that isn't a
+    /// building.
+    pub fn building_state(&self) -> Option<BuildingState> {
+        if !self.building {
+            return None;
+        }
+        Some(match (self.construction, self.job) {
+            (Some(_), _) => BuildingState::UnderConstruction,
+            (None, Some(_)) => BuildingState::Working,
+            (None, None) => BuildingState::Resting,
+        })
     }
 }
 
@@ -407,7 +445,7 @@ impl World {
     pub(crate) fn try_job(&mut self, i: usize, job: JobKind, tell: bool) -> bool {
         // 1. The building is completed and not working.
         let u = &self.units[i];
-        if !u.building || u.dying || u.construction.is_some() || u.job.is_some() {
+        if u.dying || u.building_state() != Some(BuildingState::Resting) {
             return false;
         }
         let (owner, b) = (u.owner, u.kind);
@@ -474,7 +512,7 @@ impl World {
 
     /// A building's reaction to its script: jobs take over at a "step done" and advance once per work loop.
     pub(crate) fn work(&mut self, i: usize, step_done: bool) {
-        if !step_done || self.units[i].construction.is_some() {
+        if !step_done || self.units[i].building_state() != Some(BuildingState::Working) {
             return;
         }
         let cheat = self.rules.build_speed_cheat;
@@ -691,15 +729,16 @@ impl World {
     /// ("Cancelling a job"); a building under construction is taken down, part of its cost coming back ("Cancelling
     /// construction").
     pub(crate) fn cancel(&mut self, i: usize) {
-        if self.units[i].dying {
-            return;
-        }
-        if let Some(job) = &mut self.units[i].job {
-            job.cancelled = true;
-            return;
-        }
-        if self.units[i].construction.is_some() {
-            self.take_down(i, true);
+        let u = &mut self.units[i];
+        match u.building_state() {
+            _ if u.dying => {}
+            Some(BuildingState::Working) => {
+                if let Some(job) = &mut u.job {
+                    job.cancelled = true;
+                }
+            }
+            Some(BuildingState::UnderConstruction) => self.take_down(i, true),
+            Some(BuildingState::Resting) | None => {}
         }
     }
 
