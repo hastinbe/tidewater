@@ -692,9 +692,11 @@ impl World {
         let skip = self.units[i].skip_search && skip_mark_gates(o) && !self.out_of_reach(i);
         // "Arriving and losing the target" (`xorc11-10000` gryphon rider 1400, n = 6046): in orders 4
         // and 10 the arrival test comes before the target search, so a unit standing at its move goal arrives below
-        // with no acquisition in that run.
+        // with no acquisition in that run. Patrol (order 5) does the same at a patrol end: the turnaround comes first
+        // and the search runs at the next logic run (V281, `xorc10-xorc10-losses-4000` destroyer 1484, n = 1021).
         let arriving = match o {
             Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => self.at_goal(i, Goal::tile(goal, 0)),
+            Order::Patrol { to, .. } => self.at_goal(i, Goal::tile(to, 0)),
             _ => false,
         };
         if !skip
@@ -2160,6 +2162,49 @@ mod tests {
                 back: (5, 2)
             }
         );
+    }
+
+    #[test]
+    fn a_patrol_end_turns_around_before_the_target_search() {
+        // V281 (`xorc10-xorc10-losses-4000` destroyer 1484, n = 1021): a computer unit whose patrol logic runs at its
+        // patrol end turns around with no acquisition in that run, an enemy in reach notwithstanding (order 5, still
+        // animation, wait 3, no target); the search runs at the next logic run, 3 cycles later, and attacks.
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 1, (5, 5), 0).unwrap();
+        let foe = w.spawn(FOOTMAN, 0, (5, 6), 0).unwrap();
+        let i = at(&w, f);
+        let out = Order::Patrol {
+            to: (5, 5),
+            back: (12, 5),
+        };
+        w.take_over(i, out);
+        let mut n = 0;
+        while order_of(&w, f) == out {
+            w.step(&[]);
+            n += 1;
+            assert!(n < 100);
+        }
+        let u = w.unit(f).unwrap();
+        assert_eq!(
+            (u.order, u.script.anim, u.script.wait),
+            (
+                Order::Patrol {
+                    to: (12, 5),
+                    back: (5, 5)
+                },
+                anim::STILL,
+                3
+            )
+        );
+        // No search in the 2 cycles the still animation waits out; at the third the search picks the enemy (order 12).
+        for _ in 0..2 {
+            w.step(&[]);
+            assert_eq!(w.unit(f).unwrap().pending, None);
+        }
+        w.step(&[]);
+        assert_eq!(w.unit(f).unwrap().pending, Some(Order::Chase { target: foe }));
+        w.step(&[]);
+        assert_eq!(order_of(&w, f), Order::Chase { target: foe });
     }
 
     #[test]

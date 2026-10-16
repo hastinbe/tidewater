@@ -2865,7 +2865,7 @@ mod tests {
             spawn(&mut w, ARCHER, 0, (27, 20));
             spawn(&mut w, SUBMARINE, 0, (33, 22));
             spawn(&mut w, FOOTMAN, 0, (26, 21));
-            assert_eq!(trail(&mut w, 400), 6932794937898324349);
+            assert_eq!(trail(&mut w, 400), 6226891966205405638);
         }
 
         /// A unit on patrol whose logic runs at its patrol end with an enemy in its search box, for a computer and a
@@ -2881,7 +2881,7 @@ mod tests {
                 w.patrol(i, (20, 20), (10, 20));
                 got.push(trail(&mut w, 60));
             }
-            assert_eq!(got, [6556014316166903840, 3483199461837403754]);
+            assert_eq!(got, [1738488028321227936, 18181853475217247637]);
         }
     }
 }
