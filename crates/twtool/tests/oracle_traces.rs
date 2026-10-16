@@ -85,6 +85,14 @@
 //! human06-arrive-broke-700 (a peasant arriving without the money goes idle with wait 3, n 340)
 //! match in full.
 //!
+//! Round 79: the commands scenarios orc09-strike-inside-hits-400 (a melee strike at a target gone inside is rolled
+//! and does nothing, V93), orc09-missile-inside-hits-600 (a launch at a target gone inside flies and does nothing,
+//! V94), human13-splash-air-hits-1700 (an air unit on the impact tile in its scan place, V95),
+//! human13-invisible-work-hits-900 (chop and repair strikes end invisibility; a repairer at full hit points idles at
+//! once), human05-ally-kill-hits-1000 (an ally's kill is credited, V96), human06-build-stats-1800 (the cheat's
+//! every-pass step, V70) and human06-carry-build-1000 (a builder loses a load its new building doesn't store, V68)
+//! match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -371,4 +379,11 @@ traces! {
     human06_cancel_job_500: ("human06-cancel-job-500.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human06_cancel_site_600: ("human06-cancel-site-600.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human06_arrive_broke_700: ("human06-arrive-broke-700.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    orc09_strike_inside_hits_400: ("orc09-strike-inside-hits-400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc09_missile_inside_hits_600: ("orc09-missile-inside-hits-600.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    human13_splash_air_hits_1700: ("human13-splash-air-hits-1700.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    human13_invisible_work_hits_900: ("human13-invisible-work-hits-900.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    human05_ally_kill_hits_1000: ("human05-ally-kill-hits-1000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
+    human06_build_stats_1800: ("human06-build-stats-1800.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human06_carry_build_1000: ("human06-carry-build-1000.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
 }
