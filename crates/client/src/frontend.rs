@@ -9,7 +9,10 @@
 //! Show Credits, Quit; N, L, C and Q are our keys for them). The main menu and the campaign choices are drawn on the
 //! menu picture (`menuscreen`): a switch between them doesn't fade, and the main menu fades in over 200 ms from any
 //! other screen. The main menu fades out when it leaves the menus, and the credits fade in and out
-//! (`ui/palette-effects.md`, "Screen fades": 200 ms and 100 ms), like the title and act screens. The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
+//! (`ui/palette-effects.md`, "Screen fades": 200 ms and 100 ms), like the title and act screens. Choosing a campaign,
+//! the briefing's close, the score screen's close and the main menu leaving the menus fade all sound first, then the
+//! screen (`campaign::SoundThenBlack`); quitting a game to the main menu fades all sound over the game's picture
+//! ([`run_quit`]), and the main menu starts track 22 once it has faded in (`ui/music.md`). The title and the act screens run on the 100 ms real-time menu timer (spec "Terms";
 //! `campaign::MenuTimer`, one for every screen), and their fades block it; fades run on real time.
 //!
 //! Entry points other screens reuse: [`restart`] (the game menu's restart: back to "Starting a mission"),
@@ -35,6 +38,7 @@ use crate::clock::FrameClock;
 use crate::core::{Commands, Core, add_layer, remove_layers};
 use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
+use crate::jukebox::Jukebox;
 use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Pictures, Plane, Role, Stack};
 use crate::menuscreen::{self, MenuScreen};
 use crate::palette::fades;
@@ -298,6 +302,28 @@ pub fn to_main_menu(flow: &mut Flow) {
     flow.steps.push_back(Step::MainMenu);
 }
 
+/// A frame of leaving a game for the main menu (music spec, "Leaving a game for the main menu"; the game menu's Quit
+/// to Menu and Ctrl+Q's confirmation start it): the fade of all sound blocks with the game's picture kept and the game
+/// stopped (`core::game_running`); once it has ended, the game's track is closed and the main menu follows. The game
+/// end's second fade of all sound has nothing left to fade, and the main menu fades in in silence, then starts track
+/// 22 from its start.
+pub(crate) fn run_quit(c: &mut Core) {
+    if c.jukebox.music().fading() {
+        return;
+    }
+    c.quitting = false;
+    let Core {
+        flow,
+        front,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c;
+    to_main_menu(flow);
+    go_on(flow, front, &input.keys, next, exit);
+}
+
 /// A game ended with `victory` (or a defeat): closes the mission score, builds the score screen and queues it.
 pub fn end_with(flow: &mut Flow, front: &mut Front, world: &tidewater_sim::World, human: u8, victory: bool) {
     let game = flow.game.unwrap_or(GameKind::Custom);
@@ -559,8 +585,8 @@ pub(crate) fn pointer_shows(layers: impl IntoIterator<Item = (f32, Option<Fade>)
 
 /// The pointer the flow's screen draws now outside a game, with its hot spot; `Err(())` when it shows none, `Ok(None)`
 /// when it wants one the install lacks (the system's pointer shows instead). A screen that closes without a fade-out
-/// (the briefing's Continue, the campaign choices) loses it on the frame that closes it (`leaving`), as one that
-/// fades out does.
+/// (a video, the act screen's next screen) loses it on the frame that closes it (`leaving`), as one that fades out
+/// does; a switch between the menus on the menu picture keeps it.
 pub(crate) fn screen_pointer<'a>(
     screen: &'a FrontScreen,
     front: &'a Front,
@@ -1087,18 +1113,22 @@ struct Menu {
     focus: usize,
     hot: Option<usize>,
     drawn: Option<Option<usize>>,
-    /// The main menu's fade-out: when it ends, and what was chosen.
-    closing: Option<(f64, MenuPick)>,
+    /// The menu's close (a fade of all sound, then a fade to black), and what was chosen.
+    closing: Option<(cf::SoundThenBlack, MenuPick)>,
     /// When the menu's fade-in ends (0 for none): its buttons are drawn and it takes input from then on.
     ready_at: f64,
+    /// The main menu's music test has run (once the menu is drawn: `ui/music.md`, "Main menu opens").
+    music_tested: bool,
 }
 
-/// What the main menu does once its fade-out ends.
+/// What a menu does once its close ends.
 enum MenuPick {
     Load(Box<crate::savegame::Resume>),
     /// Show Credits: the credits screen (spec "Credits screen"), then the main menu again.
     ShowCredits,
     Quit,
+    /// A campaign chosen on the campaign menu: the flow's next steps.
+    Campaign(VecDeque<Step>),
 }
 
 /// The main menu's load dialog (`loadgamt.bin`, spec `game/save-load.md`, "Load dialog"), open over the menu.
@@ -1189,6 +1219,7 @@ fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[(&str, Option<char>)
         drawn: None,
         closing: None,
         ready_at: opening.fade_in_ms as f64,
+        music_tested: false,
     };
     commands.queue(move |c| c.screens.menu = Some(menu));
     if opening.fade_in_ms > 0 {
@@ -1268,8 +1299,8 @@ fn menu_input(
     None
 }
 
+/// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
 pub(crate) fn enter_menu(c: &mut Core) {
-    c.jukebox.start_unless_playing(cf::TITLE_MUSIC);
     open_menu(
         c,
         None,
@@ -1283,7 +1314,34 @@ pub(crate) fn enter_menu(c: &mut Core) {
     );
 }
 
-fn run_menu(c: &mut Core) {
+/// Starts a close that fades all sound, then the screen to black over `black_ms` (`campaign::SoundThenBlack`).
+fn close_with_sound(music: &mut Jukebox, black_ms: u32) -> cf::SoundThenBlack {
+    music.fade_stop(true, None);
+    cf::SoundThenBlack::new(black_ms)
+}
+
+/// One frame of such a close at screen time `now`: the fade to black starts once the sound's fade has ended. Returns
+/// whether both have ended.
+fn close_done(
+    close: &mut cf::SoundThenBlack,
+    music: &Jukebox,
+    commands: &mut Commands,
+    layers: &Stack,
+    now: f64,
+) -> bool {
+    match close.update(music.music().fading(), now) {
+        cf::CloseCue::Wait => false,
+        cf::CloseCue::FadeToBlack(ms) => {
+            fade_out_all(commands, layers, now, ms);
+            false
+        }
+        cf::CloseCue::Done => true,
+    }
+}
+
+/// One frame of a menu's close, if one runs (palette-effects spec, "Screen fades": nothing else runs meanwhile); when
+/// it ends, what was chosen happens. Returns whether a close ran.
+fn run_menu_close(c: &mut Core) -> bool {
     let Core {
         commands,
         screens: Screens {
@@ -1292,6 +1350,53 @@ fn run_menu(c: &mut Core) {
             ..
         },
         layers,
+        jukebox: music,
+        front,
+        flow,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return false;
+    };
+    let Some((close, _)) = &mut menu.closing else {
+        return false;
+    };
+    if !close_done(close, music, commands, layers, clock.0) {
+        return true;
+    }
+    let Some((_, pick)) = menu.closing.take() else {
+        return true;
+    };
+    let keys = &input.keys;
+    match pick {
+        MenuPick::Load(r) => crate::savegame::load_game(flow, next, r.header, r.body),
+        MenuPick::ShowCredits => {
+            flow.steps = VecDeque::from([Step::ShowCredits, Step::MainMenu]);
+            go_on(flow, front, keys, next, exit);
+        }
+        MenuPick::Quit => *exit = true,
+        MenuPick::Campaign(steps) => {
+            flow.steps = steps;
+            go_on(flow, front, keys, next, exit);
+        }
+    }
+    true
+}
+
+fn run_menu(c: &mut Core) {
+    if run_menu_close(c) {
+        return;
+    }
+    let Core {
+        commands,
+        screens: Screens {
+            menu: Some(menu),
+            clock: Some(clock),
+            ..
+        },
         front,
         store: folder,
         pictures,
@@ -1300,6 +1405,7 @@ fn run_menu(c: &mut Core) {
         states: next,
         exit,
         input,
+        jukebox: music,
         ..
     } = c
     else {
@@ -1307,27 +1413,17 @@ fn run_menu(c: &mut Core) {
     };
     let keys = &input.keys;
     let mouse = &input.mouse;
-    // Palette-effects spec, "Screen fades": nothing else runs during a fade.
-    if let Some((end, _)) = &menu.closing {
-        if clock.0 < *end {
-            return;
-        }
-        let Some((_, pick)) = menu.closing.take() else { return };
-        match pick {
-            MenuPick::Load(r) => crate::savegame::load_game(flow, next, r.header, r.body),
-            MenuPick::ShowCredits => {
-                flow.steps = VecDeque::from([Step::ShowCredits, Step::MainMenu]);
-                go_on(flow, front, keys, next, exit);
-            }
-            MenuPick::Quit => *exit = true,
-        }
-        return;
-    }
     // Screen spec, "Pointer and fades": the buttons aren't drawn during the fade-in, which shows the picture and the
     // version line fading in together, and the menu takes no input until the fade ends. The
     // buttons and the pointer appear on the frame that ends it.
     if clock.0 < menu.ready_at {
         return;
+    }
+    // Music spec, "Main menu opens": track 22 starts if nothing is playing, tested once the menu is drawn (after its
+    // fade-in when it fades in). After a game left by Quit to Menu nothing is, so 22 starts from its start; coming
+    // back from the campaign menu it is still playing and plays on.
+    if !std::mem::replace(&mut menu.music_tested, true) {
+        music.start_unless_playing(cf::TITLE_MUSIC);
     }
     let at = pointer(input, cam);
     let pick = menu_input(menu, front, pictures, at, mouse, keys);
@@ -1336,9 +1432,9 @@ fn run_menu(c: &mut Core) {
         .or(keys.just_pressed(Key::Letter('L')).then_some(1))
         .or(keys.just_pressed(Key::Letter('C')).then_some(2))
         .or(keys.just_pressed(Key::Letter('Q')).then_some(3));
-    let close = |commands: &mut Commands, menu: &mut Menu, pick: MenuPick| {
-        let end = fade_out_all(commands, layers, clock.0, fades::MENUS);
-        menu.closing = Some((end, pick));
+    // Music spec, "Where music fades out": Show Credits and Exit Program fade all sound, then the menu fades out.
+    let mut close = |menu: &mut Menu, pick: MenuPick| {
+        menu.closing = Some((close_with_sound(music, fades::MENUS), pick));
     };
     match pick {
         // Screen spec, "Menu screens": the campaign menu is on the same picture, so the switch has no fade.
@@ -1360,8 +1456,8 @@ fn run_menu(c: &mut Core) {
             );
             commands.queue(move |c| c.screens.menu_load = Some(MenuLoad { ui, image }));
         }
-        Some(2) => close(commands, menu, MenuPick::ShowCredits),
-        Some(_) => close(commands, menu, MenuPick::Quit),
+        Some(2) => close(menu, MenuPick::ShowCredits),
+        Some(_) => close(menu, MenuPick::Quit),
         None => {}
     }
 }
@@ -1375,16 +1471,15 @@ fn run_menu_load(c: &mut Core) {
             Screens {
                 menu_load: Some(load),
                 menu: Some(menu),
-                clock: Some(clock),
                 load_cursors: cursors,
                 ..
             },
-        layers,
         front,
         pictures,
         front_screen: cam,
         input,
         store,
+        jukebox: music,
         ..
     } = c
     else {
@@ -1404,9 +1499,13 @@ fn run_menu_load(c: &mut Core) {
         }
         saves::Step::Load(entry) => match store.folder().read(&entry.file, true) {
             Ok((header, body)) => {
+                // Music spec, "Where music fades out": a saved game loaded from the menus fades all sound first.
                 commands.queue(|c| c.screens.menu_load = None);
-                let end = fade_out_all(commands, layers, clock.0, fades::MENUS);
-                menu.closing = Some((end, MenuPick::Load(Box::new(crate::savegame::Resume { header, body }))));
+                let close = close_with_sound(music, fades::MENUS);
+                menu.closing = Some((
+                    close,
+                    MenuPick::Load(Box::new(crate::savegame::Resume { header, body })),
+                ));
             }
             Err(reason) => {
                 load.ui.dialog.failed(reason, &entry.stem);
@@ -1428,6 +1527,9 @@ pub(crate) fn enter_new_campaign(c: &mut Core) {
 }
 
 fn run_new_campaign(c: &mut Core) {
+    if run_menu_close(c) {
+        return;
+    }
     let Core {
         screens: Screens {
             menu: Some(menu),
@@ -1441,6 +1543,7 @@ fn run_new_campaign(c: &mut Core) {
         states: next,
         exit,
         input,
+        jukebox: music,
         ..
     } = c
     else {
@@ -1454,6 +1557,8 @@ fn run_new_campaign(c: &mut Core) {
     let at = pointer(input, cam);
     let pick = menu_input(menu, front, pictures, at, mouse, keys);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
+    // Campaign flow, "Choosing a new campaign": a choice fades all sound (track 22 out), then the screen to black over
+    // 200 ms, then the flow goes on; Previous Menu goes back at once, with no fade, and track 22 plays on.
     let steps = match pick {
         Some(i) if i < 4 => {
             let c = Choice::ALL[i];
@@ -1468,7 +1573,11 @@ fn run_new_campaign(c: &mut Core) {
                 }
             }
             v.push_back(Step::Mission(c.first_entry()));
-            Some(v)
+            menu.closing = Some((
+                close_with_sound(music, fades::CAMPAIGN_CHOSEN_OUT),
+                MenuPick::Campaign(v),
+            ));
+            None
         }
         Some(_) => Some(VecDeque::from([Step::MainMenu])),
         None if keys.just_pressed(Key::Escape) => Some(VecDeque::from([Step::MainMenu])),
@@ -1607,6 +1716,8 @@ struct Briefing {
     /// Speech files still to start, with their start times.
     voice: VecDeque<(u32, String)>,
     drawn: Option<u32>,
+    /// The close: a fade of all sound, then 100 ms to black.
+    closing: Option<cf::SoundThenBlack>,
 }
 
 /// Our layout: the title across the top, the objectives on the left, the story scrolling on the right.
@@ -1679,9 +1790,18 @@ pub(crate) fn enter_briefing(c: &mut Core) {
         narration_ms: total,
         voice: starts.into_iter().zip(files).collect(),
         drawn: None,
+        closing: None,
     };
     commands.queue(move |c| c.screens.briefing = Some(briefing));
     music.start_unless_playing(cf::briefing_music(race));
+    // Palette-effects spec, "Screen fades": the briefing fades in over 100 ms as it opens, after its track starts.
+    fade_in_new_screen(commands, fades::BRIEFING);
+}
+
+/// What closes the briefing at once (campaign flow, "Closing"): its Continue button, which our layout doesn't draw, so a
+/// click anywhere stands for it; and Enter. Escape does nothing (round 74, observed), and neither does any other key.
+fn briefing_continue(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
+    mouse.just_pressed(Button::Left) || keys.any_just_pressed([Key::Enter, Key::NumpadEnter])
 }
 
 /// Darkens a rectangle.
@@ -1698,11 +1818,14 @@ fn shade(p: &mut Picture, r: Rect) {
 
 fn run_briefing(c: &mut Core) {
     let Core {
+        commands,
         screens: Screens {
             clock: Some(clock),
             briefing: Some(b),
             ..
         },
+        layers,
+        jukebox: music,
         pictures,
         flow,
         front,
@@ -1718,6 +1841,14 @@ fn run_briefing(c: &mut Core) {
     let keys = &input.keys;
     let mouse = &input.mouse;
     let now = clock.0;
+    // Campaign flow, "Closing": a fade of all sound (the briefing's track fades out and closes), then 100 ms to black,
+    // then the game starts; nothing else runs meanwhile.
+    if let Some(close) = &mut b.closing {
+        if close_done(close, music, commands, layers, now) {
+            go_on(flow, front, keys, next, exit);
+        }
+        return;
+    }
     while b.voice.front().is_some_and(|(at, _)| (*at as f64) <= now) {
         let (_, f) = b.voice.pop_front().unwrap();
         play_once(front, audio, &f, AppState::Briefing);
@@ -1737,8 +1868,10 @@ fn run_briefing(c: &mut Core) {
         set_image(pictures, &b.image, p);
         b.drawn = Some(b.scroll.moved);
     }
-    if pressed(keys, mouse) || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
-        go_on(flow, front, keys, next, exit);
+    // The fade-in takes no input.
+    let asked = now >= fades::BRIEFING as f64 && briefing_continue(keys, mouse);
+    if asked || cf::briefing_closes(&b.scroll, now as u64, b.narration_ms) {
+        b.closing = Some(close_with_sound(music, fades::BRIEFING));
     }
 }
 
@@ -1926,6 +2059,8 @@ struct ScoreScreen {
     bars_done_at: Option<u32>,
     finished: bool,
     drawn: Option<u32>,
+    /// The close: a fade of all sound, then 150 ms to black, then what follows the score screen.
+    closing: Option<(cf::SoundThenBlack, Step)>,
 }
 
 /// Bars then the score count, one step a tick ("The score screen").
@@ -1952,6 +2087,7 @@ pub(crate) fn enter_score(c: &mut Core) {
         bars_done_at: None,
         finished: false,
         drawn: None,
+        closing: None,
     };
     commands.queue(move |c| c.screens.score = Some(score));
     music.start(Some(cf::score_music(s.race, s.victory)));
@@ -2010,11 +2146,14 @@ fn draw_score(front: &Front, s: &ScoreData, bg: &Picture, ticks: u32, bars_done_
 
 fn run_score(c: &mut Core) {
     let Core {
+        commands,
         screens: Screens {
             clock: Some(clock),
             score: Some(sc),
             ..
         },
+        layers,
+        jukebox: music,
         pictures,
         flow,
         front,
@@ -2033,11 +2172,21 @@ fn run_score(c: &mut Core) {
         go_on(flow, front, keys, next, exit);
         return;
     };
+    // Music spec, "Where music fades out": the score screen's close fades all sound (the score track closes), then the
+    // screen fades to black over 150 ms (palette-effects spec), then the flow goes on.
+    if let Some((close, _)) = &mut sc.closing {
+        if close_done(close, music, commands, layers, clock.0)
+            && let Some((_, step)) = sc.closing.take()
+        {
+            flow.steps = VecDeque::from([step]);
+            go_on(flow, front, keys, next, exit);
+        }
+        return;
+    }
     let press = pressed(keys, mouse);
     if press && sc.finished {
         let next_step = after_score(flow, &s);
-        flow.steps = VecDeque::from([next_step]);
-        go_on(flow, front, keys, next, exit);
+        sc.closing = Some((close_with_sound(music, fades::SCORE_CLOSE_OUT), next_step));
         return;
     }
     if press {

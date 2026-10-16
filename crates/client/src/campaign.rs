@@ -241,6 +241,53 @@ pub fn fade_blocks_ms(ms: u32) -> u32 {
     (1 + ms.div_ceil(FADE_FRAME_MS)) * FADE_FRAME_MS
 }
 
+/// A screen's close that fades all sound first (`ui/music.md`, "Where music fades out"; `ui/palette-effects.md`,
+/// "Screen fades"): choosing a campaign (then 200 ms to black), the briefing closing (100 ms), the score screen closing
+/// (150 ms) and the main menu leaving the menus (200 ms). The fade of all sound blocks with the screen unchanged; the
+/// fade to black starts when it has ended, and the screen goes on when that has ended too.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SoundThenBlack {
+    /// The fade to black's length in ms.
+    pub black_ms: u32,
+    /// When the fade to black ends, once it has started.
+    black_end: Option<f64>,
+}
+
+/// What a [`SoundThenBlack`] close asks for at a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseCue {
+    /// Nothing yet: a fade still runs.
+    Wait,
+    /// The fade to black starts now, over this many ms.
+    FadeToBlack(u32),
+    /// Both fades have ended: the screen goes on.
+    Done,
+}
+
+impl SoundThenBlack {
+    /// A close whose fade to black takes `black_ms`. The caller starts the fade of all sound with it.
+    pub fn new(black_ms: u32) -> Self {
+        SoundThenBlack {
+            black_ms,
+            black_end: None,
+        }
+    }
+
+    /// The close at screen time `now`, with `sound_fading` whether the fade of all sound still runs.
+    pub fn update(&mut self, sound_fading: bool, now: f64) -> CloseCue {
+        match self.black_end {
+            None if sound_fading => CloseCue::Wait,
+            None if self.black_ms == 0 => CloseCue::Done,
+            None => {
+                self.black_end = Some(now + self.black_ms as f64);
+                CloseCue::FadeToBlack(self.black_ms)
+            }
+            Some(end) if now >= end => CloseCue::Done,
+            Some(_) => CloseCue::Wait,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Mission entries
 
@@ -1525,6 +1572,26 @@ mod tests {
         assert!(t.picture_shown());
         assert_eq!(act_sound(HUMAN), "Sfx\\hact.wav");
         assert_eq!(act_sound(ORC), "Sfx\\oact.wav");
+    }
+
+    #[test]
+    fn a_close_fades_all_sound_then_the_screen() {
+        // Choosing a campaign (round 74): the fade of all sound blocks, then 200 ms to black, then the act screen.
+        let mut c = SoundThenBlack::new(200);
+        assert_eq!(c.update(true, 0.0), CloseCue::Wait);
+        assert_eq!(
+            c.update(true, 500.0),
+            CloseCue::Wait,
+            "the screen stays while the sound fades"
+        );
+        assert_eq!(c.update(false, 520.0), CloseCue::FadeToBlack(200));
+        assert_eq!(c.update(false, 700.0), CloseCue::Wait);
+        assert_eq!(c.update(false, 720.0), CloseCue::Done);
+        // Nothing playing: the fade of all sound returns at once and the screen fades out straight away.
+        let mut c = SoundThenBlack::new(100);
+        assert_eq!(c.update(false, 40.0), CloseCue::FadeToBlack(100));
+        assert_eq!(c.update(false, 140.0), CloseCue::Done);
+        assert_eq!(SoundThenBlack::new(0).update(false, 0.0), CloseCue::Done);
     }
 
     #[test]

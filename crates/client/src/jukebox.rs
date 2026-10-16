@@ -82,6 +82,12 @@ impl Jukebox {
         &self.music
     }
 
+    /// The open track's voice in the mixer: a new one each time a track starts from its start.
+    #[cfg(test)]
+    pub(crate) fn voice(&self) -> Option<VoiceId> {
+        self.voice
+    }
+
     /// A game starts: the game's track plays if no music has started. The track is drawn after the map has loaded, from
     /// the setup-shuffle generator.
     pub fn start_game(&mut self, orc: bool, campaign: Option<u8>, shuffle: &mut Shuffle) {
@@ -213,11 +219,14 @@ mod tests {
     use crate::frontend::AppState;
     use crate::host;
 
-    /// A screen the run showed, with the open music track on its last frame.
+    /// A screen the run showed: the open music track on its first and last frames, and the tracks started from their
+    /// start while it showed, in order.
     #[derive(Debug, PartialEq)]
     struct Visit {
         state: AppState,
-        track: Option<u8>,
+        first: Option<u8>,
+        last: Option<u8>,
+        started: Vec<u8>,
     }
 
     /// Runs a scripted scene (`script`) without a window on the install in `TIDEWATER_INSTALL` (`None` without one)
@@ -235,6 +244,7 @@ mod tests {
         let core = host::launch(Args::parse_from(argv)).expect("the client starts").core;
         let mut visits: Vec<Visit> = Vec::new();
         let mut frame = 0;
+        let mut voice = None;
         host::run_headless_watched(core, |c| {
             frame += 1;
             let state = c.states.get();
@@ -248,9 +258,20 @@ mod tests {
                 track.is_some() || live == 0,
                 "{scene}, frame {frame} ({state:?}): music sounds with no track open"
             );
+            let now = c.jukebox.voice();
+            let started = (now.is_some() && now != voice).then_some(track).flatten();
+            voice = now;
             match visits.last_mut() {
-                Some(v) if v.state == state => v.track = track,
-                _ => visits.push(Visit { state, track }),
+                Some(v) if v.state == state => v.last = track,
+                _ => visits.push(Visit {
+                    state,
+                    first: track,
+                    last: track,
+                    started: Vec::new(),
+                }),
+            }
+            if let (Some(t), Some(v)) = (started, visits.last_mut()) {
+                v.started.push(t);
             }
         });
         Some(visits)
@@ -260,17 +281,50 @@ mod tests {
         visits.iter().map(|v| v.state).collect()
     }
 
-    /// The open track on each game's last frame.
-    fn game_tracks(visits: &[Visit]) -> Vec<Option<u8>> {
+    /// The tracks each game started.
+    fn game_tracks(visits: &[Visit]) -> Vec<Vec<u8>> {
         visits
             .iter()
             .filter(|v| v.state == AppState::Game)
-            .map(|v| v.track)
+            .map(|v| v.started.clone())
             .collect()
     }
 
+    /// Music spec, "Leaving a game for the main menu": each main menu after a game opens with nothing playing (the
+    /// game's track faded and closed while the game's picture stayed) and starts track 22 from its start.
+    fn quit_to_menu_restarts_22(visits: &[Visit]) {
+        for w in visits.windows(2) {
+            if let [game, menu] = w
+                && (game.state, menu.state) == (AppState::Game, AppState::MainMenu)
+            {
+                assert_eq!(game.last, None, "the game's track is closed before the main menu");
+                assert_eq!(menu.first, None, "the main menu opens with nothing playing");
+                assert_eq!(menu.started, [22], "22 starts from its start");
+            }
+        }
+    }
+
+    /// Choosing a campaign fades all sound: nothing is open when the next screen opens, so the briefing starts its own
+    /// track from its start, and its close fades that out before the game starts its track.
+    fn campaign_starts_fade_everything(visits: &[Visit]) {
+        for w in visits.windows(2) {
+            if let [from, to] = w
+                && matches!(from.state, AppState::NewCampaign | AppState::Briefing)
+                && matches!(to.state, AppState::Act | AppState::Briefing | AppState::Game)
+            {
+                assert_eq!(from.last, None, "{:?} -> {:?}: all sound faded", from.state, to.state);
+            }
+            if let [_, b] = w
+                && b.state == AppState::Briefing
+            {
+                assert_eq!(b.started.len(), 1, "the briefing starts its track from its start");
+                assert!(matches!(b.started[0], 20 | 21));
+            }
+        }
+    }
+
     /// The playtest: a campaign's game, back to the main menu by Ctrl+Q, the other race's campaign through its act
-    /// screen and briefing into its game. The first game's track never sounds with another.
+    /// screen and briefing into its game. The first game's track never sounds with another, and never reaches the menu.
     #[test]
     fn one_music_track_from_a_campaign_quit_into_the_other_campaign() {
         let Some(visits) = run("music-quit") else { return };
@@ -292,7 +346,16 @@ mod tests {
             ]
         );
         // Tides of Darkness, the first missions: human track 0 and orc track 6, bumped to 1 and 7 (`ui/music.md`).
-        assert_eq!(game_tracks(&visits), [Some(1), Some(7)]);
+        assert_eq!(game_tracks(&visits), [vec![1], vec![7]]);
+        quit_to_menu_restarts_22(&visits);
+        campaign_starts_fade_everything(&visits);
+        // The briefings: human 20, then orc 21.
+        let briefings: Vec<_> = visits
+            .iter()
+            .filter(|v| v.state == Briefing)
+            .map(|v| v.started.clone())
+            .collect();
+        assert_eq!(briefings, [vec![20], vec![21]]);
     }
 
     /// The other ways back to the main menu and on into a game.
@@ -309,6 +372,7 @@ mod tests {
                 MainMenu,
                 NewCampaign,
                 Act,
+                // Escape does nothing here: the briefing stays until Enter.
                 Briefing,
                 Game,
                 // The restart shows the briefing again.
@@ -320,6 +384,17 @@ mod tests {
                 Game
             ]
         );
-        assert_eq!(game_tracks(&visits), [Some(7), Some(7), Some(1)]);
+        // Previous Menu (Escape on the campaign menu) goes back with no fade: 22 plays on, not restarted.
+        assert_eq!(visits[2].last, Some(22));
+        assert_eq!((visits[3].first, visits[3].last), (Some(22), Some(22)));
+        assert!(visits[3].started.is_empty(), "22 isn't restarted");
+        // The restart's briefing starts while the game's track plays, so the briefing keeps it ("only if not
+        // playing"), and its close fades it; each game starts its own track.
+        assert_eq!(game_tracks(&visits), [vec![7], vec![7], vec![1]]);
+        assert_eq!(visits[8].started, Vec::<u8>::new());
+        quit_to_menu_restarts_22(&visits);
+        assert_eq!(visits[10].started, [22]);
+        // The end menu's Quit to Main Menu is the same path as Ctrl+Q; the campaign after it fades 22 out.
+        assert_eq!(visits[11].last, None);
     }
 }

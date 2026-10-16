@@ -810,6 +810,8 @@ pub(crate) fn run_menu(c: &mut Core) {
         states: next,
         exit,
         input,
+        jukebox,
+        quitting,
         ..
     } = c
     else {
@@ -968,7 +970,14 @@ pub(crate) fn run_menu(c: &mut Core) {
                     sim.world.victory.over = true;
                     return;
                 }
-                Confirm::LoadCustom | Confirm::ReturnToChat | Confirm::QuitToMenu => frontend::to_main_menu(flow),
+                // Music spec, "Leaving a game for the main menu": the game stops and a fade of all sound runs with the
+                // game's picture kept; the main menu follows once it has ended (`frontend::run_quit`). Ours: Load
+                // Another Scenario and Return to Chat Room go to the main menu too, the same way.
+                Confirm::LoadCustom | Confirm::ReturnToChat | Confirm::QuitToMenu => {
+                    jukebox.fade_stop(true, None);
+                    *quitting = true;
+                    return;
+                }
                 Confirm::Exit => {
                     *exit = true;
                     return;

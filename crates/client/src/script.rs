@@ -107,7 +107,8 @@ pub fn scenes() -> Vec<Scene> {
         Wait(240),
         Shot("briefing-later"),
     ]);
-    campaign.extend(tap(K::Space));
+    // Campaign flow, "Closing": Continue or Enter closes the briefing.
+    campaign.extend(tap(K::Enter));
     campaign.extend([
         Until(AppState::Game),
         Move(400.0, 240.0),
@@ -250,7 +251,7 @@ fn flow() -> Vec<Cmd> {
     v.extend([Until(AppState::Act), Wait(40), Shot("act")]);
     v.extend(tap(K::Space));
     v.extend([Until(AppState::Briefing), Wait(10), Shot("briefing")]);
-    v.extend(tap(K::Space));
+    v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Move(400.0, 240.0), Wait(30), Shot("game")]);
     // An Escape nothing uses does nothing; in the game menu it returns to the game.
     v.extend(tap(K::Escape));
@@ -293,8 +294,8 @@ const TOD_HUMAN_ROW: f32 = 300.0;
 /// The main menu's New Campaign button.
 const NEW_CAMPAIGN_ROW: f32 = 254.0;
 
-/// From the main menu: New Campaign, the campaign in `row`, its act screen and briefing (each closed by a key), to the
-/// game.
+/// From the main menu: New Campaign, the campaign in `row`, its act screen and briefing (closed by Space and Enter), to
+/// the game.
 fn new_campaign(row: f32) -> Vec<Cmd> {
     use Cmd::*;
     let mut v = vec![Until(AppState::MainMenu), Wait(25)];
@@ -304,7 +305,7 @@ fn new_campaign(row: f32) -> Vec<Cmd> {
     v.extend([Until(AppState::Act), Wait(40)]);
     v.extend(tap(Key::Space));
     v.extend([Until(AppState::Briefing), Wait(10)]);
-    v.extend(tap(Key::Space));
+    v.extend(tap(Key::Enter));
     v.extend([Until(AppState::Game), Wait(60)]);
     v
 }
@@ -331,7 +332,8 @@ fn music_quit() -> Vec<Cmd> {
     v
 }
 
-/// The other ways back: the campaign choice's Escape, an act screen and a briefing closed by Escape, a restart
+/// The other ways back: the campaign choice's Escape, an act screen closed by Escape, a briefing where Escape does
+/// nothing (Enter closes it), a restart
 /// (Ctrl+R), the game menu's end menu "Quit to Main Menu", and a campaign started with Ctrl held (no act screen or
 /// briefing, so the last game's track is still playing when the next game starts).
 fn music_back() -> Vec<Cmd> {
@@ -347,14 +349,17 @@ fn music_back() -> Vec<Cmd> {
     v.extend(click(320.0, TOD_ORC_ROW));
     v.extend([Until(AppState::Act), Wait(40)]);
     v.extend(tap(K::Escape));
+    // Escape does nothing on the briefing; Enter closes it.
     v.extend([Until(AppState::Briefing), Wait(10)]);
     v.extend(tap(K::Escape));
+    v.extend([Wait(30), Shot("briefing-escape")]);
+    v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Wait(60), Shot("orc-game")]);
     // A restart shows the mission's briefing again.
     v.extend(ctrl(K::Letter('R')));
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::Briefing), Wait(10)]);
-    v.extend(tap(K::Escape));
+    v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Wait(60), Shot("restarted")]);
     v.extend(tap(K::F(10)));
     v.extend(tap(K::Letter('E')));
@@ -418,7 +423,7 @@ fn outcome() -> Vec<Cmd> {
     v.extend([Wait(3), Shot("score-end")]);
     v.extend(tap(K::Space));
     v.extend([Until(AppState::Briefing), Wait(10), Shot("briefing-next")]);
-    v.extend(tap(K::Space));
+    v.extend(tap(K::Enter));
     v.extend([Until(AppState::Game), Wait(30), Shot("game-next")]);
     v.extend(chat("you pitiful worm"));
     v.extend([UntilOutcome, Wait(5), Shot("defeat")]);

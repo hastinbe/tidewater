@@ -412,6 +412,12 @@ pub mod fades {
     pub const ACT_PICTURE_IN: u32 = 600;
     pub const ACT_CLOSE_OUT: u32 = 400;
     pub const MENUS: u32 = 200;
+    /// A campaign chosen on the new-campaign menu: out, after a fade of all sound (round 74).
+    pub const CAMPAIGN_CHOSEN_OUT: u32 = 200;
+    /// The briefing: in as it opens, and out when it closes, after a fade of all sound (round 74).
+    pub const BRIEFING: u32 = 100;
+    /// The score screen closing: out, after a fade of all sound (round 74, static study).
+    pub const SCORE_CLOSE_OUT: u32 = 150;
 }
 
 #[allow(dead_code)]

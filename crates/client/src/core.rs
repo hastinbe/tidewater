@@ -108,6 +108,8 @@ pub struct Core {
     pub front: Front,
     pub screens: frontend::Screens,
     pub dialog: Option<OutcomeDialog>,
+    /// The game is being left for the main menu: its fade of all sound runs (`frontend::run_quit`).
+    pub quitting: bool,
     pub jukebox: Jukebox,
     pub stored: Stored,
     pub menu: Option<GameMenu>,
@@ -174,6 +176,7 @@ impl Core {
             front,
             screens: frontend::Screens::default(),
             dialog: None,
+            quitting: false,
             jukebox: Jukebox::default(),
             stored,
             menu: None,
@@ -283,9 +286,10 @@ impl Core {
     }
 }
 
-/// Whether the game screen runs (not while the outcome dialog or, in single player, a game menu is up).
+/// Whether the game screen runs (not while the outcome dialog or, in single player, a game menu is up, nor while the
+/// game is being left for the main menu).
 pub fn game_running(c: &Core) -> bool {
-    c.states.get() == AppState::Game && c.dialog.is_none() && c.menu.is_none()
+    c.states.get() == AppState::Game && c.dialog.is_none() && c.menu.is_none() && !c.quitting
 }
 
 fn in_game(c: &Core) -> bool {
@@ -344,7 +348,10 @@ fn run_hook(c: &mut Core, hook: Hook) {
 fn frame_systems(c: &mut Core) {
     jukebox::play_music(c);
     frontend::apply_fades(c);
-    // The outcome dialog, then the check for a game's end.
+    // Leaving a game for the main menu, the outcome dialog, then the check for a game's end.
+    if c.quitting {
+        frontend::run_quit(c);
+    }
     if c.dialog.is_some() && c.menu.is_none() {
         frontend::run_dialog(c);
     }
