@@ -124,8 +124,15 @@ pub enum Sound {
         kind: u8,
         unit: UnitId,
     },
-    /// A worker's pending chop sound (silent off screen).
-    Chop,
+    /// A worker's chop sound made pending (harvest spec, "Chop sound"): no sound plays; the client makes the variant
+    /// draw now and holds the file for `unit` until its `Chop` cue plays it.
+    ChopPending {
+        unit: UnitId,
+    },
+    /// A worker's pending chop sound (silent off screen): the file drawn at its `ChopPending` cue.
+    Chop {
+        unit: UnitId,
+    },
     TowerFire {
         kind: u8,
     },
@@ -315,7 +322,9 @@ impl World {
 
     /// "Workers chopping": each chop makes the chop sound the worker's pending sound.
     pub(crate) fn pend_chop(&mut self, i: usize) {
-        self.sounds.pending.insert(self.units[i].id, Pending::Chop);
+        let unit = self.units[i].id;
+        self.sounds.pending.insert(unit, Pending::Chop);
+        self.cue_plain(Sound::ChopPending { unit });
     }
 
     /// The animation's play-sound instruction: plays the pending sound on the unit and clears it.
@@ -326,7 +335,7 @@ impl World {
         let unit = self.units[i].id;
         let sound = match p {
             Pending::Attack(kind) => Sound::Attack { kind, unit },
-            Pending::Chop => Sound::Chop,
+            Pending::Chop => Sound::Chop { unit },
         };
         self.sound_on(i, sound);
     }

@@ -7,14 +7,13 @@
 //!
 //! Choices of our own where the spec leaves a gap: the digital volume runs from 0 to 255 and a level maps linearly to
 //! loudness (the game's volume table isn't specified); plain sounds play at the normal level; a file's variant is
-//! drawn before the option and position tests, so the draws happen for every cue, heard or not; the chop draw is made
-//! when the animation plays the sound rather than when the chop starts (the same sounds, but the order of the
-//! generator's draws can differ; how the generator's state becomes a draw is itself an open question of
-//! `core/timing-and-rng.md`). Overlapping sounds all play (open question "Sound file flags").
+//! drawn before the option and position tests, so the draws happen for every cue, heard or not. Overlapping sounds
+//! all play (open question "Sound file flags").
 //!
-//! The attack sound's variant is drawn when the sim makes it pending ("Attacks", combat audit erratum 6), at its
-//! `AttackPending` cue, and held for the unit until its `Attack` cue plays it. The building explosion's is drawn at
-//! its cue, which the sim makes at the kill.
+//! The attack and chop sounds' variants are drawn when the sim makes them pending ("Attacks", combat audit erratum 6;
+//! `economy/harvest.md`, "Chop sound"), at their `AttackPending` and `ChopPending` cues, and held for the unit until
+//! its `Attack` or `Chop` cue plays them. The building explosion's is drawn at its cue, which the sim makes at the
+//! kill.
 
 use std::collections::BTreeMap;
 
@@ -485,7 +484,7 @@ pub struct Director {
     pub set: SoundSet,
     pub era: Era,
     pub shuffle: Shuffle,
-    /// Each unit's attack file, drawn when its attack sound was made pending and not yet played.
+    /// Each unit's attack or chop file, drawn when its sound was made pending and not yet played.
     held: BTreeMap<UnitId, String>,
 }
 
@@ -554,8 +553,16 @@ impl Director {
                 Some(file) => (file, None),
                 None => (attack_of(kind)?.name(set, 0), None),
             },
-            Sound::Chop => {
-                let f = self.draw(many("misc\\tree", 4));
+            Sound::ChopPending { unit } => {
+                let file = self.draw(many("misc\\tree", 4));
+                self.held.insert(unit, file);
+                return None;
+            }
+            Sound::Chop { unit } => {
+                let f = self
+                    .held
+                    .remove(&unit)
+                    .unwrap_or_else(|| many("misc\\tree", 4).name(set, 0));
                 return Some(Choice {
                     file: f,
                     option: None,
@@ -922,11 +929,15 @@ mod tests {
         let lvl = |d: &mut Director, s, t| d.hear(&on_unit(s, t), VIEW).play.map(|p| p.1);
         assert_eq!(lvl(&mut d, sword, (25, 21)), Some(normal));
         assert_eq!(lvl(&mut d, sword, (26, 21)), Some(quiet));
-        // Chopping off screen is silent, but the draw still happens.
+        // Chopping off screen is silent, but the draw, made when the sound was made pending, still happens.
+        let unit = UnitId(2);
         let before = d.shuffle;
-        assert_eq!(lvl(&mut d, Sound::Chop, (26, 21)), None);
+        d.hear(&plain(Sound::ChopPending { unit }), VIEW);
         assert_ne!(d.shuffle, before);
-        assert!(lvl(&mut d, Sound::Chop, (12, 12)).is_some());
+        let drawn = d.shuffle;
+        assert_eq!(lvl(&mut d, Sound::Chop { unit }, (26, 21)), None);
+        assert_eq!(d.shuffle, drawn, "the play makes no draw");
+        assert!(lvl(&mut d, Sound::Chop { unit }, (12, 12)).is_some());
         // Inside a unit, or hidden by the fog: silent, no subtitle.
         let inside = Cue {
             sound: Sound::BuildingDeath,
