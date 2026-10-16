@@ -3212,4 +3212,462 @@ mod tests {
         c.runes[0] = None;
         assert_ne!(a.state_hash(), c.state_hash());
     }
+
+    /// Pins of the spell behaviour, written before the B-038 spells refactor onto `docs/specs/spells/spells.md` so that
+    /// it can't change them unseen. Each pin is the whole simulation state ([`World::fingerprint`]) with the queued
+    /// events and sound cues, folded over every cycle of a run.
+    mod pin {
+        use super::*;
+
+        fn fnv(h: u64, bytes: &[u8]) -> u64 {
+            bytes
+                .iter()
+                .fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
+        }
+
+        /// The whole state, the queued events and the sound cues, as one number.
+        fn pinned(w: &World) -> u64 {
+            let s = format!("{}|{:?}|{:?}", w.fingerprint(), w.events, w.sounds.cues);
+            fnv(0xcbf2_9ce4_8422_2325, s.as_bytes())
+        }
+
+        /// Steps `n` cycles, folding the pin of every cycle.
+        fn trail(w: &mut World, n: u32) -> u64 {
+            let mut h = 0xcbf2_9ce4_8422_2325;
+            for _ in 0..n {
+                w.step(&[]);
+                h = fnv(h, &pinned(w).to_le_bytes());
+            }
+            h
+        }
+
+        /// [`lab`] in either rules mode, with sight for every type so that detection works as in a game.
+        fn arena(enhanced: bool) -> World {
+            let mut w = lab(48);
+            w.rules.enhanced = enhanced;
+            for s in w.stats.0.iter_mut() {
+                s.sight = 6;
+            }
+            w
+        }
+
+        fn both_modes(f: impl Fn(bool) -> u64) -> Vec<u64> {
+            [true, false].into_iter().map(f).collect()
+        }
+
+        /// Fills the effect table but for `free` slots after the permanent ones.
+        fn fill_effects(w: &mut World, free: usize) {
+            let n = w.missiles.len();
+            for m in w
+                .missiles
+                .iter_mut()
+                .skip(slots::PERMANENT_EFFECTS)
+                .take(n - slots::PERMANENT_EFFECTS - free)
+            {
+                *m = Some(crate::battle::Missile {
+                    kind: 0x13,
+                    attacker: UnitId(0),
+                    shooter: None,
+                    target: None,
+                    from: (0, 0),
+                    to: (0, 0),
+                    pos: (0, 0),
+                    flight: 0,
+                    elapsed: 0,
+                    damage: 0,
+                    splash: false,
+                    hits_air: false,
+                    fx: Fx::Cosmetic,
+                });
+            }
+        }
+
+        /// Every unit spell through the command, from in reach and from out of reach, on a live organic target.
+        #[test]
+        fn unit_spells_through_the_command() {
+            let mut got = Vec::new();
+            for spell in UNIT_SPELLS {
+                for from in [(10, 10), (30, 10)] {
+                    let mut w = arena(true);
+                    let kind = if spell == HEALING { PALADIN } else { MAGE };
+                    let m = caster(&mut w, kind, from, 255);
+                    let t = w.spawn(KNIGHT, 0, (8, 10), 0).unwrap();
+                    set_hp(&mut w, t, 50);
+                    w.spawn(KNIGHT, 1, (8, 11), 0).unwrap();
+                    cast(&mut w, m, spell, Some(t), (8, 10));
+                    got.push(trail(&mut w, 700));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    6570963657842673534,
+                    8097664081137240887,
+                    11408135500012695118,
+                    15328756865882170178,
+                    15731648898169908686,
+                    10270464277794095079,
+                    3594636114233252516,
+                    3921954593429825157,
+                    1954568858974130358,
+                    15193670579354657652,
+                    16007800629143889252,
+                    10337943895675894106,
+                    16017233247351834687,
+                    14103656345668071246,
+                    13468066094147184355,
+                    7460459612866995019
+                ]
+            );
+        }
+
+        /// Unit spells whose decision fails: a building, a non-organic unit, an air unit and a shielded unit, from in
+        /// reach and from out of reach.
+        #[test]
+        fn unit_spells_refused_at_the_decision_or_the_strike() {
+            let mut got = Vec::new();
+            for (spell, target) in [
+                (HASTE, 0x3a),
+                (FLAME_SHIELD, 0x3a),
+                (HEALING, unit::SAPPER),
+                (POLYMORPH, unit::SAPPER),
+                (BLOODLUST, unit::SAPPER),
+                (FLAME_SHIELD, GRYPHON),
+            ] {
+                for from in [(10, 10), (30, 10)] {
+                    let mut w = arena(true);
+                    let m = caster(&mut w, PALADIN, from, 255);
+                    let t = w.spawn(target, 0, (8, 10), 0).unwrap();
+                    cast(&mut w, m, spell, Some(t), (8, 10));
+                    got.push(trail(&mut w, 400));
+                }
+            }
+            let mut w = arena(true);
+            let m = caster(&mut w, MAGE, (10, 10), 255);
+            let t = w.spawn(KNIGHT, 0, (8, 10), 0).unwrap();
+            let ti = w.index(t).unwrap();
+            w.units[ti].flame_shield = 100;
+            cast(&mut w, m, FLAME_SHIELD, Some(t), (8, 10));
+            got.push(trail(&mut w, 200));
+            assert_eq!(
+                got,
+                [
+                    11953204371880603372,
+                    14892617786118508474,
+                    9571690748715914733,
+                    590237714223092264,
+                    17663962563883869231,
+                    13376848058481333836,
+                    197469252537225769,
+                    165002196601343554,
+                    12547616515738798513,
+                    16038185806644231388,
+                    1701851420691300144,
+                    17700092751089797101,
+                    6610920448925080138
+                ]
+            );
+        }
+
+        /// A target that dies, turns invisible or goes inside while the caster walks to it or plays its casting
+        /// animation, with a remembered patrol for the resume, in both rules modes.
+        #[test]
+        fn the_target_is_lost_on_the_way() {
+            let mut got = Vec::new();
+            for case in 0..4 {
+                got.extend(both_modes(|enhanced| {
+                    let mut w = arena(enhanced);
+                    let m = caster(&mut w, MAGE, (30, 10), 255);
+                    let g = w.spawn(KNIGHT, 1, (8, 10), 0).unwrap();
+                    cast(&mut w, m, SLOW, Some(g), (8, 10));
+                    let mi = w.index(m).unwrap();
+                    w.units[mi].remembered = Some(crate::world::Remembered::Patrol {
+                        to: (30, 20),
+                        back: (30, 10),
+                    });
+                    let mut h = trail(&mut w, if case == 3 { 1 } else { 40 });
+                    let gi = w.index(g).unwrap();
+                    match case {
+                        0 => w.kill(gi),
+                        1 => w.units[gi].invisibility = 1000,
+                        _ => {
+                            let unit = w.units[gi].clone();
+                            w.mark(&unit, unit.tile, None);
+                            w.units[gi].inside = true;
+                        }
+                    }
+                    h ^= trail(&mut w, 300);
+                    h
+                }));
+            }
+            assert_eq!(
+                got,
+                [
+                    5922940829331201903,
+                    7284754022435289597,
+                    558125130043325918,
+                    13189416840169241015,
+                    9167559634478047652,
+                    14000360504180540885,
+                    3380153570708656900,
+                    6039971079555769222
+                ]
+            );
+        }
+
+        /// Every point spell through the command, with units around the target point, in both rules modes.
+        #[test]
+        fn point_spells_through_the_command() {
+            let mut got = Vec::new();
+            for spell in [
+                HOLY_VISION,
+                EXORCISM,
+                FIREBALL,
+                BLIZZARD,
+                EYE_OF_KILROGG,
+                RAISE_DEAD,
+                DEATH_COIL,
+                WHIRLWIND,
+                RUNES,
+                DEATH_AND_DECAY,
+            ] {
+                got.extend(both_modes(|enhanced| {
+                    let mut w = arena(enhanced);
+                    let kind = if spell == EXORCISM { PALADIN } else { DEATH_KNIGHT };
+                    let m = caster(&mut w, kind, (30, 12), 255);
+                    for (n, t) in [(9, 10), (11, 10), (10, 12), (12, 9)].into_iter().enumerate() {
+                        let f = w.spawn(KNIGHT, 1, t, 0).unwrap();
+                        set_hp(&mut w, f, 20 + 15 * n as u16);
+                    }
+                    w.spawn(KNIGHT, 0, (10, 9), 0).unwrap();
+                    undead_skeleton(&mut w, (10, 11));
+                    body(&mut w, (8, 11));
+                    body(&mut w, (13, 13));
+                    cast(&mut w, m, spell, None, (10, 10));
+                    trail(&mut w, 900)
+                }));
+            }
+            assert_eq!(
+                got,
+                [
+                    8367387278495162366,
+                    6257947175778283097,
+                    9837872630853965157,
+                    9406309246085243925,
+                    15996869705984266614,
+                    838986092751857970,
+                    15329728077870442821,
+                    15678352070897889620,
+                    14722665048184563267,
+                    8080222541946584983,
+                    17542933558180363899,
+                    9299367441620635930,
+                    12616406815721033994,
+                    18286447325076922779,
+                    18217374512074841316,
+                    3907660467990746567,
+                    2850462967033419272,
+                    750727095162681827,
+                    17766905698848526938,
+                    2171650096389122988
+                ]
+            );
+        }
+
+        /// Holy vision near each edge of the map, in both rules modes.
+        #[test]
+        fn holy_vision_at_the_edges() {
+            let mut got = Vec::new();
+            for tile in [(0, 0), (47, 47), (3, 44), (24, 24)] {
+                got.extend(both_modes(|enhanced| {
+                    let mut w = arena(enhanced);
+                    let m = caster(&mut w, MAGE, (20, 20), 255);
+                    strike(&mut w, m, HOLY_VISION, None, tile);
+                    trail(&mut w, 60)
+                }));
+            }
+            assert_eq!(
+                got,
+                [
+                    12956272492664224182,
+                    13502872167226954976,
+                    9634383685240036618,
+                    13150989468658042820,
+                    9692961426084186022,
+                    10758491430547138358,
+                    14749539739432364931,
+                    15461669505548495064
+                ]
+            );
+        }
+
+        /// The point spells that need effect slots, with 0 to 3 slots free.
+        #[test]
+        fn effect_pieces_with_few_slots() {
+            let mut got = Vec::new();
+            for spell in [BLIZZARD, DEATH_AND_DECAY, WHIRLWIND, FIREBALL, HOLY_VISION, RUNES] {
+                for free in 0..4 {
+                    let mut w = arena(true);
+                    let m = caster(&mut w, MAGE, (12, 10), 255);
+                    w.spawn(KNIGHT, 1, (10, 10), 0).unwrap();
+                    fill_effects(&mut w, free);
+                    strike(&mut w, m, spell, None, (10, 10));
+                    got.push(trail(&mut w, 300));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    12886890636187780722,
+                    2008217252426460887,
+                    716140863077472498,
+                    1485683647653189098,
+                    9771244494724085271,
+                    4890961263125258499,
+                    1450392154111057448,
+                    723716097638522705,
+                    1360942698558000141,
+                    15992806477622592395,
+                    14131176227219162947,
+                    5770906763512571262,
+                    12335873988336403766,
+                    18388956045413560216,
+                    13744938671817938163,
+                    10824971562359585752,
+                    15235576187569990751,
+                    12598839188188960853,
+                    9615052051909174644,
+                    8332751505918460810,
+                    7574288775041092963,
+                    8883422678463670431,
+                    12395061211281444655,
+                    5834566190544122958
+                ]
+            );
+        }
+
+        /// The eye of Kilrogg with room and without, and with too little mana.
+        #[test]
+        fn eye_of_kilrogg() {
+            let mut got = Vec::new();
+            for (room, mana) in [(true, 255), (false, 255), (true, 60)] {
+                let mut w = arena(true);
+                let m = caster(&mut w, MAGE, (5, 5), mana);
+                if !room {
+                    for i in 0..w.terrain.words.len() {
+                        w.terrain.words[i] |= 0xffff;
+                    }
+                }
+                strike(&mut w, m, EYE_OF_KILROGG, None, (20, 20));
+                got.push(trail(&mut w, 100));
+            }
+            assert_eq!(got, [8385898450897783958, 2564372994702612630, 3390235678664876339]);
+        }
+
+        /// A flame shield whose unit dies, goes inside a building, or is fine, before and after the flames are made;
+        /// and a bolt whose target is gone when it arrives.
+        #[test]
+        fn flames_and_the_shielded_unit() {
+            let mut got = Vec::new();
+            for case in 0..5 {
+                for delay in [3, 30] {
+                    let mut w = arena(true);
+                    let m = caster(&mut w, MAGE, (5, 5), 255);
+                    let f = w.spawn(KNIGHT, 0, (9, 8), 0).unwrap();
+                    let b = w.spawn(0x3a, 0, (12, 12), 0).unwrap();
+                    w.spawn(KNIGHT, 1, (12, 11), 0).unwrap();
+                    w.spawn(KNIGHT, 1, (10, 8), 0).unwrap();
+                    strike(&mut w, m, FLAME_SHIELD, Some(f), (0, 0));
+                    let mut h = trail(&mut w, delay);
+                    let fi = w.index(f).unwrap();
+                    match case {
+                        0 => w.kill(fi),
+                        1 | 2 => {
+                            let unit = w.units[fi].clone();
+                            w.mark(&unit, unit.tile, None);
+                            let bt = w.unit(b).unwrap().tile;
+                            let u = &mut w.units[fi];
+                            u.inside = true;
+                            u.tile = bt;
+                            u.pos = (bt.0 * TILE_PX, bt.1 * TILE_PX);
+                            if case == 2 {
+                                w.kill(fi);
+                            }
+                        }
+                        3 => {
+                            w.kill(fi);
+                            h ^= trail(&mut w, 600);
+                        }
+                        _ => {}
+                    }
+                    h ^= trail(&mut w, 600);
+                    got.push(h);
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    18259044270001103801,
+                    16154662666603851558,
+                    1330651131239409016,
+                    17022409954431425806,
+                    14344149415018006896,
+                    3343725924962192024,
+                    17039301721029369665,
+                    1369650586003858535,
+                    12169452165749080812,
+                    14436589221238129288
+                ]
+            );
+        }
+
+        /// The timers pass: invisible and armoured sappers and demolition squads, a berserker with the upgrade, a
+        /// decaying eye and skeleton, casters' mana.
+        #[test]
+        fn the_timers_pass() {
+            let mut w = arena(true);
+            w.stats.0[unit::DEMOLITION as usize] = w.stats.0[unit::SAPPER as usize];
+            for (n, k) in [unit::SAPPER, unit::DEMOLITION].into_iter().enumerate() {
+                let a = w.spawn(k, 0, (3 + n as i32, 3), 0).unwrap();
+                let b = w.spawn(k, 0, (3 + n as i32, 5), 0).unwrap();
+                let ai = w.index(a).unwrap();
+                w.units[ai].invisibility = 2000;
+                let bi = w.index(b).unwrap();
+                w.units[bi].unholy_armor = 1;
+            }
+            w.players[0].upgrades.marksmanship = true;
+            let z = w.spawn(unit::BERSERKER, 0, (8, 8), 0).unwrap();
+            set_hp(&mut w, z, 20);
+            w.spawn(unit::EYE, 0, (10, 10), 0).unwrap();
+            w.spawn(unit::SKELETON, 0, (12, 10), 0).unwrap();
+            let m = w.spawn(MAGE, 0, (14, 10), 0).unwrap();
+            let mi = w.index(m).unwrap();
+            (w.units[mi].haste, w.units[mi].bloodlust, w.units[mi].flame_shield) = (-30, 20, 40);
+            let got = trail(&mut w, 1000);
+            assert_eq!(got, 8134815628105625282);
+        }
+
+        /// A walk with no route, and a channelled blizzard running out of mana.
+        #[test]
+        fn no_route_and_channelling() {
+            let mut w = arena(true);
+            let d = caster(&mut w, PALADIN, (5, 5), 255);
+            let f = w.spawn(0, 0, (20, 5), 0).unwrap();
+            for y in 4..=6 {
+                for x in 4..=6 {
+                    if (x, y) != (5, 5) {
+                        w.terrain.set_bits(x, y, crate::terrain::bits::OBSTACLE);
+                    }
+                }
+            }
+            cast(&mut w, d, HEALING, Some(f), (0, 0));
+            let a = trail(&mut w, 100);
+            let mut w = arena(true);
+            let m = caster(&mut w, MAGE, (12, 12), 70);
+            cast(&mut w, m, BLIZZARD, None, (10, 10));
+            let b = trail(&mut w, 400);
+            let got = vec![a, b];
+            assert_eq!(got, [13173154376033451605, 4000273995908231716]);
+        }
+    }
 }
