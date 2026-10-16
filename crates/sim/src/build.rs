@@ -325,7 +325,7 @@ impl World {
         let back = self.take_down_refund(self.units[bi].kind, cancel);
         self.refund(owner, back);
         self.clear_inside_targets(bi);
-        self.release_builders(bi, false);
+        self.let_out_builders(bi);
         self.kill(bi);
     }
 
@@ -354,73 +354,93 @@ impl World {
         }
     }
 
-    /// Lets out every builder inside building `bi` when it is finished (`finished`) or cancelled
-    /// ("Completion"): carried goods are delivered to a finished depot, a tanker starts on its new platform, and
-    /// anyone else comes out by the ring search or dies.
-    pub(crate) fn release_builders(&mut self, bi: usize, finished: bool) {
+    /// The builders inside building `id` (order 22), in slot order.
+    fn builders_inside(&self, id: UnitId) -> Vec<usize> {
+        (0..self.units.len())
+            .filter(|&k| self.units[k].order == Order::InsideSite { building: id })
+            .collect()
+    }
+
+    /// "Completion": every unit inside finished building `bi` gets the work-complete sound and goes through delivery
+    /// (carried goods delivered to a depot for them; a hall's builder gets the hall-sized exit mark); then a tanker
+    /// starts on its new platform, and anyone else is let out ([`World::let_out_builder`]).
+    pub(crate) fn complete_builders(&mut self, bi: usize) {
         let b = self.units[bi].clone();
-        let inside: Vec<usize> = (0..self.units.len())
-            .filter(|&k| self.units[k].order == Order::InsideSite { building: b.id })
-            .collect();
         let bf = self.stats_of(b.kind).flags;
-        for k in inside {
+        for k in self.builders_inside(b.id) {
             let tanker = self.stats_of(self.units[k].kind).flags & flags::TANKER != 0;
-            if finished {
-                // Sounds spec, "Work complete" (round 76, V53: `orc09-naval-1500` tanker 1473, n = 468): every unit
-                // inside a finished building gets it as it is let out, before it is placed: the tanker of a new
-                // platform too, and (the open question's default) a builder that then finds no room and dies.
-                self.work_complete(k);
-                let u = &self.units[k];
-                let accepts = if tanker {
-                    bf & flags::OIL_STORAGE != 0
-                } else {
-                    match u.gather {
-                        Gather::Gold => bf & flags::GOLD_STORAGE != 0,
-                        Gather::Lumber => bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE) != 0,
-                        Gather::None => false,
-                    }
+            // Sounds spec, "Work complete" (round 76, V53: `orc09-naval-1500` tanker 1473, n = 468): every unit inside
+            // a finished building gets it as it is let out, before it is placed: the tanker of a new platform too, and
+            // (the open question's default) a builder that then finds no room and dies.
+            self.work_complete(k);
+            let u = &self.units[k];
+            let accepts = if tanker {
+                bf & flags::OIL_STORAGE != 0
+            } else {
+                match u.gather {
+                    Gather::Gold => bf & flags::GOLD_STORAGE != 0,
+                    Gather::Lumber => bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE) != 0,
+                    Gather::None => false,
+                }
+            };
+            if u.carrying && accepts {
+                self.deliver(k, b.owner, tanker);
+            }
+            // Round-47 errata: a hall's builder gets the hall-sized exit mark, carrying or not; being let out here
+            // neither uses nor clears it.
+            if !tanker && bf & flags::GOLD_STORAGE != 0 {
+                self.units[k].hall_exit = true;
+            }
+            if tanker && bf & flags::OIL_SOURCE != 0 {
+                // Round-43 errata: order 25 is an immediate order (move animation, wait 1); its logic runs in the next
+                // cycle and takes the tanker into the platform (order 26). The facing is kept.
+                let enter = Order::Enter {
+                    building: b.id,
+                    stepped: true,
                 };
-                if u.carrying && accepts {
-                    self.deliver(k, b.owner, tanker);
-                }
-                // Round-47 errata: a hall's builder gets the hall-sized exit mark, carrying or not; being let out
-                // here neither uses nor clears it.
-                if !tanker && bf & flags::GOLD_STORAGE != 0 {
-                    self.units[k].hall_exit = true;
-                }
-                if tanker && bf & flags::OIL_SOURCE != 0 {
-                    // Round-43 errata: order 25 is an immediate order (move animation, wait 1); its logic runs in the
-                    // next cycle and takes the tanker into the platform (order 26). The facing is kept.
-                    let enter = Order::Enter {
-                        building: b.id,
-                        stepped: true,
-                    };
-                    self.immediately(k, enter);
-                    continue;
-                }
+                self.immediately(k, enter);
+                continue;
             }
-            let kind = self.units[k].kind;
-            let src = Source::new(b.tile.0, b.tile.1, b.size.0 as i32, b.size.1 as i32);
-            match self.find_place(kind, src, b.tile, LIMIT_OUT) {
-                Some(to) => {
-                    let u = &mut self.units[k];
-                    u.tile = to;
-                    u.pos = (to.0 * TILE_PX, to.1 * TILE_PX);
-                    u.inside = false;
-                    u.order = Order::Idle;
-                    u.pending = None;
-                    // "Completion" (round-39 errata): the builder faces the building, B its top-left tile + (1, 1).
-                    // Only completion is traced; the open question's default turns it on cancel and destroy too.
-                    u.facing = face_tile(to, (b.tile.0 + 1, b.tile.1 + 1));
-                    let unit = self.units[k].clone();
-                    self.mark(&unit, to, Some(unit.id));
-                    self.start_anim(k, anim::STILL);
-                    self.units[k].script.wait = 1;
-                    self.apply_unit_sight(k);
-                }
-                None => self.kill(k),
-            }
+            self.let_out_builder(k, &b);
         }
+    }
+
+    /// A take-down lets every builder inside building `bi` out at once ("Cancelling construction", step 2).
+    fn let_out_builders(&mut self, bi: usize) {
+        let b = self.units[bi].clone();
+        for k in self.builders_inside(b.id) {
+            self.let_out_builder(k, &b);
+        }
+    }
+
+    /// "Letting a unit out" for builder `k` of building `b`: on the tile of [`World::exit_tile`], facing the building
+    /// and idle at once (still animation, wait 1); with no tile, it dies.
+    fn let_out_builder(&mut self, k: usize, b: &crate::world::Unit) {
+        let Some(to) = self.exit_tile(b, self.units[k].kind) else {
+            return self.kill(k);
+        };
+        let u = &mut self.units[k];
+        u.tile = to;
+        u.pos = (to.0 * TILE_PX, to.1 * TILE_PX);
+        u.inside = false;
+        u.order = Order::Idle;
+        u.pending = None;
+        // "Completion" (round-39 errata): the builder faces the building, B its top-left tile + (1, 1). Only
+        // completion is traced; the open question "Exit facing on cancel" defaults to the same on a take-down.
+        u.facing = face_tile(to, (b.tile.0 + 1, b.tile.1 + 1));
+        let unit = self.units[k].clone();
+        self.mark(&unit, to, Some(unit.id));
+        self.start_anim(k, anim::STILL);
+        self.units[k].script.wait = 1;
+        self.apply_unit_sight(k);
+    }
+
+    /// "Letting a unit out": the tile a unit of type `k` leaves building `b` on, by the ring search of the placement
+    /// spec round its footprint (limit 12), aimed at its top-left tile, so the first tile tried is the one west of
+    /// that corner. A builder coming out and a trained unit both use it.
+    pub(crate) fn exit_tile(&self, b: &crate::world::Unit, k: u8) -> Option<(i32, i32)> {
+        let src = Source::new(b.tile.0, b.tile.1, b.size.0 as i32, b.size.1 as i32);
+        self.find_place(k, src, b.tile, LIMIT_OUT)
     }
 }
 
@@ -685,7 +705,7 @@ mod tests {
         w.units[bi].construction = None;
         w.vision.local = 0;
         w.sounds.cues.clear();
-        w.release_builders(bi, true);
+        w.complete_builders(bi);
         // Round 76 (V53, `orc09-naval-1500` n = 468): the tanker gets the work-complete sound.
         assert!(
             w.sounds

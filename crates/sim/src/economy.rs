@@ -10,7 +10,6 @@ use tidewater_formats::script::anim;
 use tidewater_formats::udta::{UnitStats, flags};
 use tidewater_formats::ugrd::Upgrade;
 
-use crate::placement::{LIMIT_OUT, Source};
 use crate::tech;
 use crate::world::{SpawnError, UnitId, World};
 
@@ -350,7 +349,7 @@ impl World {
         if kind::is_hall(k) {
             p.had_hall = true;
         }
-        self.release_builders(i, true);
+        self.complete_builders(i);
         if matches!(k, kind::HUMAN_WALL | kind::ORC_WALL) {
             self.wall_completed(i);
         }
@@ -518,7 +517,7 @@ impl World {
         match job.kind {
             JobKind::Train(k) => {
                 let placed = self
-                    .free_tile_near(&u, k)
+                    .exit_tile(&u, k)
                     .ok_or(SpawnError::CantPlace)
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
                 if let Ok(id) = placed {
@@ -705,14 +704,6 @@ impl World {
             self.refund(owner, job.paid);
         }
         true
-    }
-
-    /// The tile a unit of type `k` comes out on: the ring search of the placement spec around the building's
-    /// footprint, aimed at its own top-left tile, so the first tile tried is the one west of that corner. Builders
-    /// leaving a site use the same search (`build.rs`).
-    fn free_tile_near(&self, b: &crate::world::Unit, k: u8) -> Option<(i32, i32)> {
-        let src = Source::new(b.tile.0, b.tile.1, b.size.0 as i32, b.size.1 as i32);
-        self.find_place(k, src, b.tile, LIMIT_OUT)
     }
 }
 
