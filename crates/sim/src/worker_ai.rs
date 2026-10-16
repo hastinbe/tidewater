@@ -733,20 +733,32 @@ impl World {
         Some(o)
     }
 
-    /// No unit that can attack, of a player the owner doesn't count as allied, in the 9 x 9 area.
+    /// "Safe": no tile of the 9 x 9 area holds an enemy that can attack (a unit of a player the owner doesn't count as
+    /// allied; the occupant isn't tested for dying). Round 85 (erratum 2, traced: `xorc10-xorc10-farm-repair-1700`,
+    /// CP15): a tile whose ground layer is empty is safe and its air layer isn't looked at; a ground enemy makes the
+    /// building unsafe; otherwise the air unit there, if any, is tested the same way.
     fn repair_safe(&self, b: &Unit) -> bool {
+        use crate::world::Layer;
         let allies = self.players[b.owner as usize].allies | (1 << b.owner);
+        let enemy = |o: &Unit| {
+            let foe = o.owner >= 8 || allies & (1 << o.owner) == 0;
+            foe && self.stats_of(o.kind).flags & flags::CAN_ATTACK != 0
+        };
         let (x, y) = b.tile;
         for ty in y - 3..=y + 5 {
             for tx in x - 3..=x + 5 {
-                for layer in [crate::world::Layer::Land, crate::world::Layer::Air] {
-                    let Some(o) = self.occupant(layer, tx, ty).and_then(|o| self.unit(o)) else {
-                        continue;
-                    };
-                    let foe = o.owner >= 8 || allies & (1 << o.owner) == 0;
-                    if foe && !o.dying && self.stats_of(o.kind).flags & flags::CAN_ATTACK != 0 {
-                        return false;
-                    }
+                let Some(ground) = self.occupant(Layer::Land, tx, ty).and_then(|o| self.unit(o)) else {
+                    continue;
+                };
+                if enemy(ground) {
+                    return false;
+                }
+                if self
+                    .occupant(Layer::Air, tx, ty)
+                    .and_then(|o| self.unit(o))
+                    .is_some_and(enemy)
+                {
+                    return false;
                 }
             }
         }
@@ -1474,6 +1486,54 @@ mod tests {
         w.spawn(0x00, 0, (6, 24), 0).unwrap();
         let i = w.units.iter().position(|u| u.kind == PEASANT).unwrap();
         assert_eq!(w.worker_choice(i), Choice::Order(Order::Repair { target: barracks }));
+    }
+
+    /// CP15 and the round-85 vector (`xorc10-xorc10-farm-repair-1700`, erratum 2: three enemy dragons over grass
+    /// inside farm 1437's safety area, the farm repaired): an enemy flyer over an empty ground tile doesn't make a
+    /// building unsafe; one over a tile whose ground layer holds a unit does, and so does a ground enemy. A dying
+    /// enemy still counts.
+    #[test]
+    fn repair_safety_looks_at_the_air_only_over_a_ground_unit() {
+        const DRAGON: u8 = 0x29;
+        let (mut w, _) = town();
+        for x in 0..3 {
+            w.spawn(t::FARM, 1, (2 + 3 * x, 2), 0).unwrap();
+        }
+        w.stats.0[DRAGON as usize] = UnitStats {
+            hit_points: 100,
+            size: (1, 1),
+            flags: flags::AIR | flags::CAN_ATTACK,
+            ..Default::default()
+        };
+        let farm = w.spawn(t::FARM, 1, (20, 30), 0).unwrap();
+        let n = w.index(farm).unwrap();
+        w.units[n].hp = 200;
+        let p = peasants(&mut w, 1)[0];
+        let p = w.units[p].id;
+        let choice = |w: &mut World| {
+            let i = w.index(p).unwrap();
+            w.release_job(i);
+            w.worker_choice(i)
+        };
+        let repair = Choice::Order(Order::Repair { target: farm });
+        // Dragons over open grass, inside the 9 x 9 area (17..=25, 27..=35): the farm is repaired.
+        let d = w.spawn(DRAGON, 0, (22, 28), 0).unwrap();
+        w.spawn(DRAGON, 0, (24, 34), 0).unwrap();
+        assert_eq!(w.unit(d).unwrap().layer, crate::world::Layer::Air);
+        assert_eq!(choice(&mut w), repair);
+        // A dragon over the farm itself: its footprint holds the farm on the ground layer, so the air is tested.
+        let over = w.spawn(DRAGON, 0, (20, 30), 0).unwrap();
+        assert_ne!(choice(&mut w), repair);
+        // A dying enemy still counts.
+        let o = w.index(over).unwrap();
+        w.units[o].dying = true;
+        assert_ne!(choice(&mut w), repair, "dying counts");
+        let unit = w.units[o].clone();
+        w.mark(&unit, unit.tile, None);
+        assert_eq!(choice(&mut w), repair);
+        // An enemy on the ground inside the area.
+        w.spawn(0x00, 0, (18, 33), 0).unwrap();
+        assert_ne!(choice(&mut w), repair);
     }
 
     #[test]
