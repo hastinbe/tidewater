@@ -3351,9 +3351,6 @@ mod tests {
         assert_ne!(a.state_hash(), c.state_hash());
     }
 
-    /// Pins of the spell behaviour, written before the B-038 spells refactor onto `docs/specs/spells/spells.md` so that
-    /// it can't change them unseen. Each pin is the whole simulation state ([`World::fingerprint`]) with the queued
-    /// events and sound cues, folded over every cycle of a run.
     // ----- round 81 -----------------------------------------------------------------------------------------
 
     /// [`lab`] with sight for every type, so that detection works as in a game.
@@ -3773,6 +3770,9 @@ mod tests {
         );
     }
 
+    /// Pins of the spell behaviour, written before the B-038 spells refactor onto `docs/specs/spells/spells.md` so that
+    /// it can't change them unseen. Each pin is the whole simulation state ([`World::fingerprint`]) with the queued
+    /// events and sound cues, folded over every cycle of a run.
     mod pin {
         use super::*;
 
