@@ -1326,7 +1326,13 @@ fn menu_input(
     {
         return Some(i);
     }
-    None
+    // A button's hotkey letter, either case.
+    menu.items.iter().position(|it| {
+        it.enabled
+            && it
+                .key
+                .is_some_and(|k| keys.just_pressed(Key::Letter(k.to_ascii_uppercase())))
+    })
 }
 
 /// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
@@ -1453,11 +1459,6 @@ fn run_menu(c: &mut Core) {
     }
     let at = pointer(input, cam);
     let pick = menu_input(menu, front, pictures, at, mouse, keys);
-    let pick = pick
-        .or(keys.just_pressed(Key::Letter('N')).then_some(0))
-        .or(keys.just_pressed(Key::Letter('L')).then_some(1))
-        .or(keys.just_pressed(Key::Letter('C')).then_some(2))
-        .or(keys.just_pressed(Key::Letter('Q')).then_some(3));
     // Music spec, "Where music fades out": Show Credits and Exit Program fade all sound, then the menu fades out.
     let mut close = |menu: &mut Menu, pick: MenuPick| {
         menu.closing = Some((close_with_sound(music, fades::MENUS), pick));
@@ -1547,15 +1548,17 @@ fn run_menu_load(c: &mut Core) {
 }
 
 pub(crate) fn enter_new_campaign(c: &mut Core) {
-    let mut labels: Vec<(&str, Option<char>)> = Choice::ALL.iter().map(|c| (c.label(), None)).collect();
-    labels.push(("Cancel", None));
-    let heading = Rect::new(0, menuscreen::BUTTON_TOP - 30, 640, 28);
-    open_menu(
-        c,
-        &[(heading, "Choose a campaign")],
-        menu_items(&labels),
-        AppState::NewCampaign,
-    );
+    // Screen spec, "Main menu and campaign menu": the campaign menu's dialog-file layout.
+    let items = menuscreen::CAMPAIGN_BUTTONS
+        .iter()
+        .map(|&(r, label, key)| MenuItem {
+            r,
+            label: label.to_string(),
+            key: Some(key),
+            enabled: true,
+        })
+        .collect();
+    open_menu(c, &menuscreen::CAMPAIGN_HEADINGS, items, AppState::NewCampaign);
 }
 
 fn run_new_campaign(c: &mut Core) {

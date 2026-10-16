@@ -258,6 +258,28 @@ pub(crate) fn button_rects(n: usize) -> Vec<Rect> {
         .collect()
 }
 
+/// A 224 × 28 menu button at x 208 with its top at `y`.
+const fn column(y: i32) -> Rect {
+    Rect::new(BUTTON_X, y, BUTTON_W, BUTTON_H)
+}
+
+/// The campaign menu's headings ("Main menu and campaign menu", from `rez\newcmpgn.bin`): white, on 640 × 28
+/// rectangles.
+pub(crate) const CAMPAIGN_HEADINGS: [(Rect, &str); 2] = [
+    (Rect::new(0, 216, 640, 28), "Tides of Darkness"),
+    (Rect::new(0, 324, 640, 28), "Beyond the Dark Portal"),
+];
+
+/// The campaign menu's buttons with their hotkeys: Tides of Darkness orc and human, Beyond the Dark Portal orc and
+/// human (`campaign::Choice::ALL`'s order), then Previous Menu.
+pub(crate) const CAMPAIGN_BUTTONS: [(Rect, &str, char); 5] = [
+    (column(240), "Orc Campaign", 'O'),
+    (column(276), "Human Campaign", 'H'),
+    (column(348), "Orc Campaign", 'r'),
+    (column(384), "Human Campaign", 'u'),
+    (column(420), "Previous Menu", 'P'),
+];
+
 /// The pixels a space leaves in a label or heading ("Label placement"): its advance is floor(the font's widest glyph /
 /// 2) + 1 (9 in `font12x`, leaving the 10 of [`SPACE_12X`]).
 pub(crate) fn label_gap(font: &Font) -> u32 {
@@ -584,6 +606,28 @@ mod tests {
         assert_eq!(at(276, 93, false), (275, 283), "Load Game on the single-player menu");
         // The general rule on another size and font.
         assert_eq!(label_cell(Rect::new(10, 20, 80, 15), 30, 10, false), (36, 24));
+    }
+
+    #[test]
+    fn the_campaign_menu_is_its_dialog_files_layout() {
+        let tops: Vec<i32> = CAMPAIGN_BUTTONS.iter().map(|b| b.0.y).collect();
+        assert_eq!(tops, [240, 276, 348, 384, 420]);
+        assert!(CAMPAIGN_BUTTONS.iter().all(|b| (b.0.x, b.0.w, b.0.h) == (208, 224, 28)));
+        let keys: Vec<Option<usize>> = CAMPAIGN_BUTTONS.iter().map(|b| hotkey_at(b.1, b.2)).collect();
+        assert_eq!(
+            keys,
+            [Some(0), Some(0), Some(1), Some(1), Some(0)],
+            "O, H, r, u and P are in their labels"
+        );
+        // Headings W 156 and 201 at the observed cells.
+        assert_eq!(heading_cell(CAMPAIGN_HEADINGS[0].0, 156), (241, 216));
+        assert_eq!(heading_cell(CAMPAIGN_HEADINGS[1].0, 201), (219, 324));
+        // The label cells observed are each button's top + 7 and left + 113 − floor(W / 2).
+        let cells = [(262, 247), (248, 283), (262, 355), (248, 391), (257, 427)];
+        for (b, cell) in CAMPAIGN_BUTTONS.iter().zip(cells) {
+            let half = b.0.x + 113 - cell.0;
+            assert_eq!(label_cell(b.0, half as u32 * 2, 17, false), cell, "{}", b.1);
+        }
     }
 
     #[test]

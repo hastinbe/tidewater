@@ -244,8 +244,9 @@ fn flow() -> Vec<Cmd> {
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
     v.extend(click(320.0, 254.0));
-    v.extend([Until(AppState::NewCampaign), Wait(2), Move(320.0, 408.0), Wait(1)]);
-    v.extend(click(320.0, 372.0));
+    // Over Previous Menu, then Beyond the Dark Portal's human campaign.
+    v.extend([Until(AppState::NewCampaign), Wait(2), Move(320.0, 434.0), Wait(1)]);
+    v.extend(click(320.0, 398.0));
     v.extend([Until(AppState::Video), Wait(60), Shot("bdp-intro")]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::Act), Wait(40), Shot("act")]);
@@ -288,7 +289,8 @@ fn flow() -> Vec<Cmd> {
     v
 }
 
-/// The new-campaign dialog's rows (`frontend`'s menu layout): the Tides of Darkness orc and human campaigns.
+/// The campaign menu's rows (screen spec, "Main menu and campaign menu"): the Tides of Darkness orc and human
+/// campaigns.
 const TOD_ORC_ROW: f32 = 264.0;
 const TOD_HUMAN_ROW: f32 = 300.0;
 /// The main menu's New Campaign button.
