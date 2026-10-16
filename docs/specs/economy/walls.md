@@ -10,6 +10,9 @@
 - **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, erratum 12; reviewed by a
   spec-review session, 2026-10-16): the audit's reading of the score question is recorded in "Open questions" and
   held there; no rule change.
+- **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): a
+  completed wall piece counts as neither built nor lost in the statistics (traced with breaks,
+  `human06-build-stats-1800`); open question "Score" answered.
 
 ## Behaviour
 
@@ -54,6 +57,10 @@ When the construction pass completes a wall piece, the ordinary completion runs 
 1. **The piece is killed.** It goes through the ordinary kill of a building, but without the death explosion that
    other buildings make. Everything a building's kill does happens here too:
    - its owner's completed-building count drops again;
+   - the **statistics** don't see it: wall pieces have no per-type standing or lost count, so completing the piece
+     adds nothing to the standing count and the kill adds nothing to buildings lost. Since the Buildings statistic is
+     standing + lost (`game/campaign-flow.md`, "Statistics"), a wall piece counts as neither built nor lost (traced
+     with breaks: `human06-build-stats-1800`, vectors below);
    - a computer-controlled owner's "building destroyed" rule runs, as listed in `ai/worker-ai.md` ("Other effects of
      a computer player's losses"). That rule clears a done mark of the build list, and can start the all-out attack
      if fewer than 3 buildings other than oil platforms remain.
@@ -164,6 +171,7 @@ Positions are tile coordinates (x, y) on a map large enough that no tile named i
 | Wall piece destroyed while under construction | A 1 × 1 ruin (type 0x6A) when its death animation ends; no death explosion |
 | Computer player whose only buildings are a town hall and a farm completes a wall | When the piece is killed, 2 buildings other than oil platforms remain: the all-out attack starts (`ai/worker-ai.md`) |
 | Draws | Building a wall makes the creation draws of a building (`core/timing-and-rng.md`). Completion, the kill and joining make none |
+| `human06-build-stats-1800` (oracle trace, Enhanced), breaks on the per-type standing and lost callbacks: wall piece 1519 at (80, 9), created at n = 114, completes and is killed at n = 485 | No standing-count call and no lost-count call for it (the standing call runs for farm 1521 at n = 1279 and farm 1516 at n = 1465; the only lost call in the run is the town hall's upgrade to a keep at n = 1468): not built, not lost |
 
 ## Open questions
 
@@ -171,12 +179,6 @@ Positions are tile coordinates (x, y) on a map large enough that no tile named i
   the tile as part of its land area. Whether path search uses the region value to decide that a goal is reachable,
   and so could try to reach an area that walls have cut off, belongs to `movement/pathfinding.md`. Default: the
   region value is left alone, exactly as described.
-- **Score.** Whether the kill of a completed wall piece counts in the end-of-game statistics (buildings lost or
-  built). Default: it counts as built once, and is not counted as lost. The B-040 audit's static study
-  (`ERRATA-audit-buildtrain.md`, erratum 12) reads it as neither: walls have no per-type count, so the piece is never
-  lost, and since the Buildings statistic is "standing now + lost" (`game/campaign-flow.md`, "Statistics") it isn't
-  counted as built either. That reading also contradicts step 1 of "Completion" above (the completed-building count
-  drops again), so it is held. Trace request AB4 (score screen after a completed wall piece).
 - **Joining repairs.** The repair of a damaged neighbour follows directly from the joining rule, but it hasn't been
   seen in the running game. Default: it happens as described.
 - **Computer players.** Whether the computer's build lists ever contain walls, and therefore whether the

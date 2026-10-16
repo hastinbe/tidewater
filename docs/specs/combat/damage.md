@@ -1,7 +1,8 @@
 # Combat: damage, armour, attack timing and missiles
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11; round-78 consolidation reviewed by a
-  spec-review session, 2026-10-16). The text before the consolidation is at tidewater-docs `b19dbc8`; the changes are
+  spec-review session, 2026-10-16; round 79 and the B-040 combat audit reviewed by a spec-review session,
+  2026-10-16). The text before the consolidation is at tidewater-docs `b19dbc8`; the changes are
   listed in `specs/ERRATA-combat-consolidation.md`.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), unit statistics from
   `unitdata.dat` and the PUD `UDTA` layout (`pudspec.txt`), attack timing measured from `Rez\script.bin`, and Enhanced
@@ -77,6 +78,18 @@
   target unit damages the wall at its target tile; no range test at the strike point; tower shots; slow and the
   cooldown; kill credit. Six old open questions answered, two new ones (a melee strike at a target that is gone or
   inside; kill credit for an ally's kill).
+- **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): a
+  melee strike or a launch at a target that has gone inside since the decision is still made, with its draws, and
+  "Applying damage" does nothing (V93, V94); a small-cannon splash at an air unit considers the impact tile's ground
+  unit first and the air unit in its tile's scan place (V95); an ally's kill is credited (V92 traced, V96). Both
+  round-78 open questions answered for what was traced; the released-slot melee case (V16) keeps the stated rule and
+  becomes the open question "A melee strike at a target whose slot is released".
+- **Changes:** 2026-10-16 (B-040 combat audit, `ERRATA-audit-combat.md`, static study; reviewed by a spec-review
+  session, 2026-10-16): the attacker's invisibility ends at every attack strike point, a target inside included
+  (erratum 4); the hammer and breath splash order with an air unit on the impact tile (erratum 2) and its damage kept
+  to the low 8 bits (erratum 5, V97); a missile's shooter is its slot for the attacker record, the killer's check and
+  the splash's self-exclusion (erratum 3, V98). Held: the target-slot part of erratum 3 (new open question "A missile
+  whose target's slot is reused in flight") and the released-slot part of erratum 1.
 
 ## Behaviour
 
@@ -263,16 +276,27 @@ target unit owned by another player. Then:
 - **A command waiting.** If the attacker has been given a command whose order hasn't taken over yet, the strike does
   nothing at all: no strike reveal, no damage roll, no draw, no launch, and the cooldown isn't started again
   (`core/animation-scripts.md`, "No strike while a command waits"; traced: `orc14-25000`, vectors below).
+- **Invisibility ends.** Otherwise the attacker's invisibility timer becomes 0 at the strike point, before the strike
+  reveal and the strike, whatever the target's state, so a strike at a target that has gone inside ends it too
+  (`spells/spells.md`, "Timers"; static study for the order of the steps and the inside target; a worker's chop and
+  repair strikes do the same, traced: `human13-invisible-work-hits-900`).
 
 - **No range test.** The strike point doesn't test range or the friendly-fire count again, and doesn't test whether the
   target is dying: those tests belong to the order's logic, which made them at the decision (`orders/orders.md`,
   "Attack orders"). The strike acts on whatever the attacker's target (or target tile) is at that moment (static
-  study). The one target test the stated rules keep at the strike point is the melee rule below for a target that is
-  gone or inside (open question "A melee strike at a target that is gone or inside").
+  study). It doesn't test whether the target is inside something either: a target that has gone inside since the
+  decision is still struck or shot at, and the checks of "Applying damage" decide the outcome (traced:
+  `orc09-strike-inside-hits-400`, `orc09-missile-inside-hits-600`, V93, V94). The one target test the stated rules
+  keep at the strike point is the melee rule below for a target whose slot has been released (open question "A melee
+  strike at a target whose slot is released").
 - **Melee:** if the type's missile weapon is "none", the damage is rolled and applied to the current target at once.
   The strike is made even if the target started dying earlier in the same cycle (killed by another unit's strike):
-  the damage is still rolled with its usual draws, and has no further effect. A target that is gone (its slot
-  released) or inside something isn't struck, and nothing is drawn.
+  the damage is still rolled with its usual draws, and has no further effect. The same holds for a target that is
+  inside something (a mine, a transport, a building): the damage is rolled against the target's armour, with its draw
+  when T > 0, and handed to "Applying damage", which does nothing to it (the used mark) (traced for a target inside a
+  gold mine: `orc09-strike-inside-hits-400`, V93). A target that is gone (its slot released) isn't struck, and nothing
+  is drawn (V16; the stated rule, held against static study by the open question "A melee strike at a target whose
+  slot is released").
 - **Melee with no target unit** (order 11, a wall tile): the damage is rolled with armour 0 (step 1 of "Damage roll"),
   so it makes its draw when T > 0, and the result damages the wall on the attacker's target tile (order 11's goal
   tile, the pulled-back goal of `orders/orders.md`, "Order 11: attacking a wall tile") by the wall rule of "Splash on
@@ -280,10 +304,15 @@ target unit owned by another player. Then:
   the order 11 section also says when the order stops).
 - **Ranged:** otherwise a missile is launched. It starts from the attacker's centre and aims at the target's centre,
   or at the centre of the target tile if the attacker is attacking the ground. As with a melee strike, the launch is
-  made even if the target is dying: it has no test of the target's state.
+  made even if the target is dying or inside something: it has no test of the target's state. A missile launched at a
+  unit inside aims at that unit's centre at launch (for a worker in a mine, the centre it has at the mine's top-left
+  tile), flies as usual with its draws and hits it; "Applying damage" then does nothing (traced:
+  `orc09-missile-inside-hits-600`, V94).
   - **Non-splash missile:** the damage is rolled now, against the target's current armour, and stored in the missile.
     On impact it is applied to the unit that was the target at launch. A missile aimed at a tile with no unit damages a
-    wall on that tile instead.
+    wall on that tile instead. (Static study reads the target as the target's unit slot, so a slot released and taken
+    by a new unit during the flight would pass the hit to the new unit; held by the open question "A missile whose
+    target's slot is reused in flight".)
   - **Splash missile** (big cannon, catapult rock, ballista bolt, small cannon): it stores the attacker's **maximum
     damage**, which is basic plus piercing including upgrades (and bloodlust), capped at 255. No draw is made at
     launch for the damage.
@@ -309,9 +338,10 @@ have their own strike rules (`spells/spells.md`); a worker's strike points chop 
 `economy/repair.md`) and deal no damage.
 
 **Evidence:** traced: a command waiting (`orc14-25000`, V76), a melee strike at a dying target (`human01-basics-9500`,
-V15), a launch at a dying target (`xhuman4-7000`, V17). Static study: no range test at the strike point, the melee
-wall blow, the gone or inside target (open question "A melee strike at a target that is gone or inside"), the launch
-rules, scatter and smoke. The smoke's timing and slots are vectors V60 to V67 (static study).
+V15), a launch at a dying target (`xhuman4-7000`, V17), a melee strike and a launch at a target inside a mine
+(`orc09-strike-inside-hits-400`, `orc09-missile-inside-hits-600`, V93, V94). Static study: no range test at the strike
+point, the melee wall blow, the launch rules, scatter and smoke. The smoke's timing and slots are vectors V60 to V67
+(static study). A melee target whose slot is released (V16) is the stated round-41 rule, not traced.
 
 ### Missile flight
 
@@ -409,10 +439,14 @@ follows from it (the death explosion of a unit it kills, and any other effect ma
 every other missile ("Impact effects"). So a death explosion made by the final hit never reuses the missile's slot:
 it takes the lowest slot free without it (traced: `xorc11-16000` n = 15733, round-61 vectors).
 
-**Splashes** use the splash rule ("Splash on impact") with the stored damage as that rule's D (not the flight length) and these differences: **armour
-isn't subtracted**, so every unit within 42 px is hit, even with a base of 0; air-layer units are included,
-each after its tile's ground-layer unit; the firing unit is never hit. One draw is made per unit hit, after the
-step's own draw. Walls take D and floor(D / 4) as usual. A unit can be hit by several splashes of the same missile
+**Splashes** use the splash rule ("Splash on impact") with the stored damage as that rule's D (not the flight
+length) and these differences: **armour isn't subtracted**, so every unit within 42 px is hit, even with a base of 0;
+air-layer units are included, each after its tile's ground-layer unit, so an air unit on the impact tile is reached in
+its place in the scan, after the impact tile's ground-layer unit and every unit before it in the scan (static study;
+the same order is traced for the small cannon, V95); the firing unit is never hit. One draw is made per unit hit,
+after the step's own draw. Each unit's damage `h + (r mod (h + 1))` is kept to its low 8 bits, as in step 5 of "Splash
+on impact": only a stored damage of 255 can reach 256, which wraps to 0 damage; the default data never stores 255
+(static study, V97). Walls take D and floor(D / 4) as usual. A unit can be hit by several splashes of the same missile
 and by the final hit.
 
 **Evidence:** static study for the flight, steps, draws and delays (vectors V34 to V50 and V54 to V58); traced: the impact
@@ -430,9 +464,12 @@ When a splash missile lands with stored damage D at its impact pixel:
    excess is lost. An intact wall therefore needs two overflows to become rubble. When a tile becomes rubble, each
    orthogonal neighbour that is still intact advances to damaged. The full rule is in `movement/occupancy.md`,
    "Walls".
-2. **Units.** The unit on the impact tile is considered first. Then every ground-layer unit in the 7 × 7 tiles centred
-   on the impact tile is considered. Air units are considered only when a small-cannon missile was fired at an air
-   unit. Each unit is hit at most once per impact. The firing unit is never hit. **Friendly units are hit too.**
+2. **Units.** The ground-layer unit on the impact tile is considered first. Then every ground-layer unit in the 7 × 7
+   tiles centred on the impact tile is considered, in the scan order of the area; when a small-cannon missile was fired
+   at an air unit, the air-layer unit of each tile is considered after that tile's ground-layer unit, so an air unit on
+   the impact tile comes in its tile's place in the scan, not first (traced: `human13-splash-air-hits-1700`, V95).
+   Air units are considered only when a small-cannon missile was fired at an air unit. Each unit is hit at most once
+   per impact. The firing unit is never hit. **Friendly units are hit too.**
 3. For each unit considered, let dx and dy be the pixel offsets from the impact point to the unit's centre, and
    `d² = max(dx², dy²)`:
    - if `d² ≥ 1792` (`|d| ≥ 43` px), the unit is not hit;
@@ -445,9 +482,10 @@ When a splash missile lands with stored damage D at its impact pixel:
    kept to its low 8 bits. Only `v = 255` can reach 256, and that wraps to 0 damage. It is then applied as in
    "Applying damage".
 
-Units are processed in the order found, so draws are made in that order: the impact-tile unit first, then the 7 × 7
-block **row by row from the top, each row left to right**. When air units are included, each tile's ground-layer unit
-comes before its air-layer unit. A unit already considered (the impact-tile unit) isn't considered again.
+Units are processed in the order found, so draws are made in that order: the impact tile's ground-layer unit first,
+then the 7 × 7 block **row by row from the top, each row left to right**. When air units are included, each tile's
+ground-layer unit comes before its air-layer unit, and the impact tile's air-layer unit is reached only in its place
+in the scan (row 4, column 4). A unit already considered (the impact tile's ground-layer unit) isn't considered again.
 
 A dying unit is no longer on the occupancy marks (`core/unit-slots.md`, "Death, corpses and release"), so a splash
 never considers it and makes no draw for it.
@@ -513,11 +551,17 @@ the killer's check of its records.
 **Credit and score.** The kill is credited only when the attacker's owner isn't the victim's owner. The attacker's
 owner then counts a **kill** (a victim of a type below the first building type) or a **razing** (a building), and its
 mission score goes up by the victim type's point value (`game/campaign-flow.md`, "Mission score", which holds the
-score's later use). Ownership is the only test: a kill of an allied unit is credited too (static study; see the open
-question "Kill credit for an ally's kill"). A missile or splash is credited to the unit in the shooter's slot
+score's later use). Ownership is the only test: a kill of an allied unit is credited too (traced:
+`human05-ally-kill-hits-1000`, V92, V96). A missile or splash is credited to the unit in the shooter's slot
 (`spells/spells.md`, "The shooter after its slot is released"). Kills that don't come through this step are never
 credited: a demolisher's own death and other outright kills (polymorph, a builder with no exit tile, a passenger
 killed with its transport).
+
+**A missile's shooter is its slot.** The same slot rule holds for everything else a missile does with its shooter at
+impact: the victim's attacker record, the killer's check of its records, and the splash's "the firing unit is never
+hit" all use the unit that holds the shooter's slot then, as for spell effects (static study, V98). A slot is released
+only long after its unit has died, so this differs from naming the shooter by unit only if the shooter's slot is
+released, or released and reused, during the flight, which normal play doesn't reach.
 
 **Evidence:** traced: the HP and target kept (`human01-basics-9500`, V13, V14), the killer's forget (V72, V53), dying
 with no target (V74, V75); static study: the order of the steps, a building killer, the credit and the score (the trace
@@ -648,7 +692,7 @@ These are the default `unitdata.dat` values.
 | V13 | `human01-basics-9500` (oracle trace), n = 288: footman 1592 (HP 2 since n = 276) is killed by footman 1597; footman 1598 also attacks it | 1592: order 1, animation 1, HP 2, target 1598. 1597: target null, still order 9. 1598: target 1592 |
 | V14 | Same, n = 291 | 1598 forgets 1592 on its own logic run: order 2, wait 3 |
 | V15 | `human01-basics-9500`, n = 576: footmen 1593 and 1597 (type 0x00), both in order 9 on 1591, reach the strike point in the same cycle; 1593 strikes first and kills 1591 | 1593: target null. 1597 still strikes: both strikes roll damage, and the cycle's draws include 12374 and 6732 |
-| V16 | A melee unit whose target's slot was released before its strike point | No strike, no draws |
+| V16 | A melee unit whose target's slot was released before its strike point | No strike, no draws (the stated round-41 rule; static study differs, see the open question "A melee strike at a target whose slot is released") |
 | V17 | `xhuman4-7000` (oracle trace), n = 121: archers 1486 and 1501 (type 0x08) in order 16 on grunt 1505, dying since n = 119 | Both launch: new effects in slots 4 and 5, kind 0x0F, target 1505, damage 5 (shooter 1486) and 7 (shooter 1501) |
 | V18 | `orc02-assault-3000` (oracle trace), archer 1584 (type 0x08, cooldown 66) at (47, 28), n = 343 | Takes target 1578: animation 4, wait 3; cooldown set to 66 |
 | V19 | Same, n = 346 | Cooldown left 63 > wait 1: attack animation restarted, frame 0, wait 63 |
@@ -756,27 +800,43 @@ Cannon smoke and launch slots:
 | V89 | A slowed footman (slowed attack loop 49, cooldown 26) attacking one target without a break (static study) | One blow every 49 cycles; the cooldown has run out at each decision, so the animation is never restarted |
 | V90 | A footman (6/3, no upgrades) in order 11 strikes an intact wall tile with counter 0 (static study) | Armour 0: b = 6, T = 9, h = 5, one draw, damage 5 to 10; the wall counter goes up by 1 or 2 (max(1, floor(damage / 4))) |
 | V91 | A catapult's splash kills a footman of its own player (static study) | No kill, razing or score for anybody; the catapult still forgets its records as after any kill |
-| V92 | A unit kills a unit of an allied player (static study; open question "Kill credit for an ally's kill") | Default: the killer's player gets a kill and the victim type's points |
+| V92 | A unit kills a unit of an allied player (traced: `human05-ally-kill-hits-1000`, V96) | The killer's player gets a kill and the victim type's points |
+
+### Round-79 vectors
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| V93 | `orc09-strike-inside-hits-400` (oracle trace, Enhanced): grunt 1481 (type 0x01, 6/3, T = 9) decides to strike peon 1482 at n = 316 (order 9, animation 4, frame 0); the peon enters the gold mine at n = 325 | n = 329: the strike is made: a melee hit of 9 on 1482 (the `hits` entry), whose HP stays 30. The cycle makes 4 draws, one more than the 3 of the cycles at the same place in the run's five-cycle background pattern (n = 324, 334) and of a capture without the attack line (not committed); one of the 4 is the damage draw (h = 5, damage 9 = 5 + (r mod 6), r = 15256 or 10000) |
+| V94 | `orc09-missile-inside-hits-600` (oracle trace, Enhanced): axe thrower 1473 (type 0x09) decides to throw at peon 1478 at n = 520; the peon enters the mine at n = 528 | n = 533: an axe (kind 0x10) is launched in effect slot 3 from (1488, 2960), damage 6, aimed at (1613, 2926): the inside peon's centre (1616, 2928) plus scatter; 10 draws in the cycle (7 in a capture without the attack line, not committed). It flies 12 px a cycle; n = 545: it hits 1478 for 6, HP stays 30 |
+| V95 | `human13-splash-air-hits-1700` (oracle trace, Enhanced): destroyer 1431 fires small cannon (D = 35) at gryphon 1407 over the coast at tile (54, 94); footman 1398 is on the same tile and archer 1409 at (53, 94); every impact is at that tile | n = 949: hits in order footman 19, archer 4, gryphon 18 (draws 28010, 7680, 13875). The same order at n = 1069 (23, 5, 20) and n = 1189 (32, 7, 30; the footman dies); then archer and gryphon at n = 1309 and 1429. The ground unit on the impact tile is first and the air unit comes after the archer, in its tile's scan place |
+| V96 | `human05-ally-kill-hits-1000` (oracle trace, Enhanced, with a break on the step that adds the score): archer 1490 of player 1 kills peasant 1512 of allied computer player 0 at n = 947 | The score step is reached once, at n = 947, for owner 1 against a victim of owner 0: the ally's kill is credited |
+| V97 | A gryphon hammer with stored damage 255 (custom data) splashes a unit at its impact point; the draw has `r mod 129 = 128` (static study; combat audit erratum 5) | v = 255, h = 128, 128 + 128 = 256, kept to its low 8 bits: 0 damage, not 255 |
+| V98 | A catapult rock in flight whose shooter's slot is released and taken by a unit of another player before impact (constructed; not reachable in normal play; static study, combat audit erratum 3) | The new unit isn't hit by the splash; a kill made by the splash is credited to the new unit's owner; units hit record the new unit as their attacker |
 
 ## Open questions
 
-- **A melee strike at a target that is gone or inside.** The stated rule (round 41, V16) is that a melee unit whose
-  target is gone (its slot released) or inside something isn't struck, and nothing is drawn. Static study instead finds
-  the blow rolled against the target's armour (one draw when T > 0) and handed to "Applying damage", which then does
-  nothing (the used mark, or the slot's dying state). The two differ by one draw. **Default:** the stated rule (no
-  strike, no draw), by the B-038 ruling (the spec governs; a static-only difference keeps the stated rule). **Trace
-  request CB1:** an Enhanced campaign capture in which a melee unit's target boards a transport in the cycles between
-  the attacker's decision and its strike point (a scenario that orders the target into an adjacent transport while an
-  enemy footman is attacking it), checking the cycle's draw count.
-- **Kill credit for an ally's kill.** `game/campaign-flow.md` ("Mission score") credits a kill whenever the victim isn't
-  the killer's player's own; `spells/spells.md` ("The shooter after its slot is released") says a unit of the victim's
-  owner **or an ally** gets no score. Static study finds only the owner test. **Default:** the campaign-flow rule (an
-  ally's kill is credited, V92): `game/campaign-flow.md` governs, and the score part of the `spells/spells.md` rule (for
-  an ally only; the victim's own player still scores nothing) is held by this question and marked so there. **Trace
-  request CB2:** the trace format has no score fields, so a capture with a break on the step that adds the score, in a
-  mission with an allied computer player, while a human catapult's splash kills an allied unit; one break hit settles
-  it.
 - What the extra upgrade line with 10 per level is used for.
+- **A melee strike at a target whose slot is released.** The stated rule (round 41, V16) is that a melee unit whose
+  target's slot has been released isn't struck, and nothing is drawn. Static study (combat audit erratum 1) finds the
+  blow rolled (one draw when T > 0) and handed to "Applying damage", which does nothing to a released slot; and if the
+  slot has been taken by a new unit, the new unit is struck. Round 79 traced the same question for a target inside a
+  mine and found the static reading (V93), but no trace has a released slot. **Default:** the stated rule (no strike,
+  no draw), by the B-038 ruling (a static-only difference keeps the stated rule). It is rare in play: an attacker
+  forgets a dying target at its next logic run, long before the slot is released.
+- **A missile whose target's slot is reused in flight.** "Non-splash missile" applies the hit to the unit that was
+  the target at launch. Static study (combat audit erratum 3) reads the target as its unit slot, so a slot released
+  and taken by a new unit during the flight would pass the hit to the new unit. **Default:** as stated (the unit that
+  was the target; a released slot takes nothing). Not reachable in normal play; no trace request.
+
+### Answered in round 79
+
+- *A melee strike at a target that is gone or inside* (trace request CB1). For a target **inside** something: the
+  strike is rolled with its draw and handed to "Applying damage", which does nothing (traced:
+  `orc09-strike-inside-hits-400`, V93); the round-41 rule is withdrawn for that case. A ranged launch at a target inside
+  is made too (`orc09-missile-inside-hits-600`, V94). For a target whose slot is **released** (V16) no trace exists, so
+  the stated rule stays, held by the new open question "A melee strike at a target whose slot is released".
+- *Kill credit for an ally's kill* (trace request CB2). Credited: ownership is the only test (traced:
+  `human05-ally-kill-hits-1000`, V92, V96). The ally part of the `spells/spells.md` rule is withdrawn.
 
 ### Answered in round 78
 

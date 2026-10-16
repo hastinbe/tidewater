@@ -35,6 +35,9 @@
   message; a builder loses a load its new store doesn't accept (V68); the two cancel commands (V69); a building
   upgrade's hit-point gain isn't clamped; the command-button refresh. Held as open questions: the fast first hall read
   on each pass (Enhanced multiplayer) and the unit-ready event position.
+  2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): traced the
+  cheat's every-pass step (V65, V70), the lost load (V68) and the unit-ready event location at the building's top-left
+  tile (V71; open question answered). The fast first hall question stays open (AB3 not run).
 
 ## Behaviour
 
@@ -261,7 +264,8 @@ study):
 
 1. A pass counter P (0 at creation) goes up by 1. Nothing else happens unless P is a multiple of 12. With the
    build-speed cheat on, P goes up by 12 instead and the multiple-of-12 test isn't made, so every pass is a step
-   (or reaches the total, step 3), whatever P was when the cheat went on (static study; V65).
+   (or reaches the total, step 3), whatever P was when the cheat went on (traced: `human06-build-stats-1800`, V65,
+   V70).
 2. Let the total be 12 × (T + 1).
 3. **If P has reached the total:**
    - if P equals the total exactly, the progress shows as full and nothing else happens;
@@ -289,10 +293,10 @@ completes 12 passes later, with its hit points still below M.
   traced: V53) and goes through delivery (`economy/harvest.md`, "Delivering goods"): it gets any goods it carries
   delivered if the building is a depot for them; if the building stores gold or wood but doesn't accept the load (a
   peasant carrying gold that builds a lumber mill), the load is **lost** and the builder comes out empty-handed, as
-  that table says; a building that stores neither leaves the load as it is (static study; V68; the same loss on
-  entering is traced, `economy/harvest.md` V66). A builder of a town hall, keep or castle gets the **hall-sized
-  exit mark**, carrying or not (`economy/harvest.md`, "Coming out", step 6). Being let out here neither uses nor
-  clears the mark. Then:
+  that table says (traced: `human06-carry-build-1000`, V68); a building that stores neither leaves the load as it is
+  (static study; the same loss on entering is traced, `economy/harvest.md` V66). A builder of a town hall, keep or
+  castle gets the **hall-sized exit mark**, carrying or not (`economy/harvest.md`, "Coming out", step 6). Being let
+  out here neither uses nor clears the mark. Then:
   - a **tanker** (the builder of an oil platform) gets order 25 as an **immediate order** (`orders/orders.md`, "Pending
     orders and immediate orders"): order 25's animation (3, move) starts with a wait of 1, and the order's logic runs in
     the next cycle, which takes the tanker into the new platform (order 26) to collect oil (traced: V31, V32);
@@ -430,7 +434,7 @@ old picture returns) (traced: V19).
 
 | Job | Finished | Cancelled |
 | --- | --- | --- |
-| Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile), and the ready sound plays (`ui/sounds.md`). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
+| Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile), and the ready sound plays (`ui/sounds.md`), with the building's top-left tile as the latest event location (traced: V71). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
 | Research a spell | The spell becomes known, if its "being researched" bits are still set (`economy/tech-tree.md`) | Full refund, on the same condition |
 | Upgrade | The level in its line goes up by 1, on the same condition | Full refund, on the same condition |
 | Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M), each maximum counted as at least 1, with no clamp on the result (static study; it differs from a clamped reading only for custom unit data). Towers get order 14, which takes over in the same update (animation 4, wait 3) (traced: V34) | Full refund |
@@ -539,7 +543,8 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V06 | Building with M = 60 | starts at 6 HP | Worked example |
 | V16 | Enhanced multiplayer, first town hall of a player who never had one | built in the farm's build time if shorter | Worked example |
 | V64 | `human06-cancel-site-600` (oracle trace, Enhanced): farm site 1521 placed at n = 78 | n = 78: order 2, animation 2, wait 5; the wait counts down to 1 at n = 82; n = 83: order 33, wait 3 (the pending order takes over). The same in `human06-site-kill-800`, n = 78 to 83, and `human01-basics-9500`, n = 134 to 139 | Trace |
-| V65 | A farm site at P = 5, built without cheats; the build-speed cheat goes on | P = 17, 29, 41, …: each pass is a step and the farm completes (a reading that still needs P to be a multiple of 12 would never step again) | Static study |
+| V65 | A farm site at P = 5, built without cheats; the build-speed cheat goes on | P = 17, 29, 41, …: each pass is a step and the farm completes (a reading that still needs P to be a multiple of 12 would never step again) | Static study; traced as V70 |
+| V70 | `human06-build-stats-1800` (oracle trace, Enhanced, break on the construction-sound request, which reports P): farm site 1516 (T = 100), created at n = 949, steps every 12 passes to n = 1392; the build-speed cheat goes on after n = 1401 | From n = 1402 a step on every pass, at P = 465, 477, …, 1209 (63 passes; 176 HP at n = 1402, rising each cycle to 400 at n = 1464); completed at n = 1465 (P = 1224). Farm 1521, undamaged and without the cheat: steps at P = 12 to 1200, no pass at P = 1212, completed at P = 1224 (n = 1279) | Trace (break log) |
 | V66 | A player that has never had a hall rescues a completed town hall, then builds a town hall (Enhanced multiplayer) | The full build time, not the fast first hall time | Static study |
 | V63 | `human06-cancel-site-600` (oracle trace): farm site 1521 placed at n = 78 (40 hit points, mana byte 0) | Mana byte 27 (43 hit points) at n = 89, 29 at n = 101, 31 at n = 113: it changes only at the steps, 12 passes apart | Trace |
 | V18 | orc4 (oracle trace), farm slot 1534 under construction | Mana 27 at n = 10714, rising with hit points (41 at 10786); 64 and frame 1 at n = 10906; frame 1 to completion; frame 0 and mana 0 at n = 11914 (hit points 400) | Trace |
@@ -556,7 +561,8 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V30 | `xhuman2` (oracle trace), n = 3438: builder 1588 let out at (21, 4) from a tower (type 0x41) with top-left (20, 2) | dx 0, dy −1 to (21, 3): facing 0 (N) | Trace |
 | V31 | `orc09-naval` (oracle trace), n = 468: oil platform 1468 completed with tanker 1473 inside | Tanker: order 25, animation 3, wait 1, target 1468, facing kept (2) | Trace |
 | V32 | Same, n = 469 | Tanker: order 26, still animation, wait 150 | Trace |
-| V68 | A peasant carrying gold (from a mine, before delivering) builds a lumber mill | At completion it comes out carrying nothing, and no gold is added. Trace request AB2 (`ERRATA-audit-buildtrain.md`) | Static study |
+| V68 | `human06-carry-build-1000` (oracle trace, Enhanced): peasant 1586 comes out of the mine carrying gold at n = 333 and builds lumber mill 1519 (created at n = 559, gold 1000 to 400) | The mill completes at n = 709 and the peasant comes out carrying nothing: a return-goods command at n = 720 does nothing (order stays 2), it walks at the empty pace (16 cycles a tile, against 22 on the way in), and gold stays 400 | Trace |
+| V71 | `human06-build-stats-1800`, with a break on the latest-event-location call: barracks 1588 (top-left (88, 5)) finishes a footman, placed at (87, 5), n = 643 | The event location is (88, 5), the building's top-left tile | Trace (break log) |
 | V53 | `orc09-naval-1500` (oracle trace), n = 468, re-run with a break on the work-complete alert (`oracle/README.md`, "Round 76 traces"): oil platform 1468 completes with tanker 1473 (type 0x1B, owner 5, the local player) inside | The alert runs for tanker 1473 at n = 468, the cycle it takes order 25 (V31) | Trace (break log) |
 
 ### Cancelling construction
@@ -615,9 +621,6 @@ round 77 (`specs/ERRATA-round77.md`). Trace requests AB1 to AB5 are listed in `s
   halls under way at once: when one completes, the other's T would go back to the full build time on its next pass,
   so its hit points stop rising until floor(k × D / T) passes the value already given, and its shown progress drops.
   Default: as stated (T fixed at creation). Trace request AB3 (multiplayer launch, Enhanced).
-- **Unit-ready event position.** "Job end" and `ui/sounds.md` put the latest event location at the new unit's tile.
-  The audit's static study puts it at the building's top-left tile (the minimap ping and the "go to last event" key
-  would point there). UI only. Default: as stated (the new unit's tile). Observation request AB5.
 - **Classic-mode builder's delivery.** Whether a builder in gold or lumber mode with empty hands gets a load delivered
   when its building is completed in Classic mode (the static reading says yes, as for a Classic delivery on entering)
   isn't separated by any trace. Default (Classic mode, static study): it does.

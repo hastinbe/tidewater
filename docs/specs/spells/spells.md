@@ -52,6 +52,13 @@
 - **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed): new
   open question "No score for an ally's kill", pointing at `combat/damage.md`, and a note on the rule it holds ("The
   shooter after its slot is released"); default: an ally's kill is credited.
+- **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16):
+  invisibility also ends at a worker's chop or repair strike (`human13-invisible-work-hits-900`, new vectors); an
+  ally's kill is credited (traced; open question "No score for an ally's kill" answered).
+- **Changes:** 2026-10-16 (B-040 combat audit, `ERRATA-audit-combat.md`, erratum 4, static study; reviewed by a
+  spec-review session, 2026-10-16): an attack strike ends invisibility whatever its target's state; the failed-cast
+  part is held as the open question "Invisibility at a failed cast". A unit's missile follows the shooter-slot rule
+  (erratum 3).
 
 ## Behaviour
 
@@ -203,7 +210,7 @@ ascending slot order. Units that are dying or are remains, and units in one othe
 
 | Timer | Set by | Each cycle | While running |
 | --- | --- | --- | --- |
-| Invisibility | Invisibility (2000) | −1 toward 0 | The unit is detected only as `vision/fog.md` describes. A unit's own spell cast or attack strike sets it to 0 |
+| Invisibility | Invisibility (2000) | −1 toward 0 | The unit is detected only as `vision/fog.md` describes. A unit's own spell cast or attack strike sets it to 0, and so does a worker's chop or repair strike (traced: `human13-invisible-work-hits-900`, vectors below). An attack strike sets it to 0 whatever its target's state, a target that has gone inside included (static study; `combat/damage.md`, "How an attack delivers damage"). A cast whose target or mana check fails at the strike keeps it (step 5 of "At the strike" isn't reached; held by the open question "Invisibility at a failed cast") |
 | Unholy armour | Unholy armour (500) | −1 toward 0 | The unit takes no damage from hits (`combat/damage.md`), and runes don't hurt it |
 | Bloodlust | Bloodlust (1000) | −1 toward 0 | Basic and piercing damage are doubled (`combat/damage.md`) |
 | Speed (signed) | Haste (positive), slow (negative) | moves 1 toward 0 | Positive: hasted; negative: slowed (`core/animation-scripts.md`) |
@@ -368,11 +375,12 @@ shooter dies and its slot is released, the effect goes on (a whirlwind doesn't l
 trace still shows the old slot number as its shooter (traced: `xorc12-spells-1500`, vectors below). Its splash damage
 is applied with that slot as the attacker, whatever unit the slot holds by then. If a new unit U holds the slot, U is
 the attacker in every respect: the victim records U as its attacker and calls for help against U, and a kill gives
-U's owner the kill count and the score. If U belongs to the victim's owner or an ally, nothing is recorded, there is
-no call for help and no score, but the damage still lands. (For an ally, "no score" is held by the open question "No
-score for an ally's kill": the default credits an ally's kill, as `game/campaign-flow.md` does.) If the slot was released and not reused, the values left
-in it are read (static study; the attacker record and the scores aren't in the trace format, so no trace can show
-this).
+U's owner the kill count and the score. If U belongs to the victim's owner or an ally, nothing is recorded and there
+is no call for help, but the damage still lands. A kill scores for U's owner unless U belongs to the victim's owner:
+an ally's kill is credited, as `game/campaign-flow.md` says (traced for a direct kill: `human05-ally-kill-hits-1000`,
+`combat/damage.md` V96). If the slot was released and not reused, the values left in it are read (static study; the
+attacker record and the scores aren't in the trace format, so no trace can show this). A unit's missile follows the
+same rule for its shooter (`combat/damage.md`, "Credit and score", V98).
 
 **Cosmetic effects.** Kinds 0x0B, 0x15, 0x16, 0x17, 0x19 and 0x1A change nothing but slot use, and draw no random
 number. Each plays its script once, with plain waits (haste and slow don't apply), and is removed at the script's step
@@ -583,13 +591,17 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
 | Same, n = 426: the flames (slots 11 and 20 to 23) | Kind 4, shooter 1480, target null, destination (0, 0), damage 4 |
 | Same, the flame in slot 11 | At (2609, 2862) from n = 426 to 431; (2612, 2862) at n = 432 |
 | `human14-10000` (oracle trace), n = 3740: death knight 1577 (type 0x0B, owner 0) in order 52 finds no route | Order 2, animation 2, wait 1; 5 random draws in that cycle, the idle look-around among them |
+| `human13-invisible-work-hits-900` (oracle trace, Enhanced): peasant 1402 (type 0x02), made invisible by mage 1415 and chopping (order 23, animation 4) | Invisibility timer 1999 from n = 94, 1984 at n = 109 (frame 35); 0 at n = 112, the chop strike (frame 40) |
+| Same trace: peasant 1401, made invisible at n = 238, repairs farm 1413 (order 27) | The repair animation starts at n = 436 and the farm goes from 389 to 393 HP while the timer still runs (1792 at n = 445); 0 at n = 446, the first repair strike (frame 40) |
 
 ## Open questions
 
-- **No score for an ally's kill.** "The shooter after its slot is released" says a unit of the victim's owner or an ally
-  gets no score; `game/campaign-flow.md` ("Mission score") excludes only the victim's own player, and static study finds
-  only that owner test. The contradiction is held in `combat/damage.md`, open question "Kill credit for an ally's kill"
-  (default: an ally's kill is credited; trace request CB2).
+- **Invisibility at a failed cast.** "At the strike" clears the caster's invisibility at step 5, after the target and
+  mana checks, so a cast that fails a check keeps it (flame shield and the spells whose rows say so clear it earlier).
+  Static study (combat audit erratum 4) clears the timer at every strike point with no command waiting, before the
+  checks, so a failed cast ends it too. **Default:** as stated (a cast that fails at step 1 or 2 keeps it), by the
+  B-038 ruling. A trace would need a caster made invisible whose spell's target dies, or whose mana runs short,
+  during the casting animation.
 - **Blizzard shard landing at exactly 0.** Whether a shard whose remaining distance becomes exactly 0 lands on that step
   or one step later isn't separated by the traces.
 - Confirm the death coil order of equal-HP candidates in the running game: two 30-HP victims and one 5-HP victim

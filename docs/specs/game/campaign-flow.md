@@ -32,6 +32,9 @@
 - **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, erratum 12; static study;
   reviewed by a spec-review session, 2026-10-16): "lost" counts only completed units and buildings with a per-type
   count; a building upgrade counts 1 building lost; closes the open question "Units lost and type changes".
+- **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): the
+  lost-count rules are traced (`human06-build-stats-1800`, with breaks); wall pieces have no count and aren't built or
+  lost; an ally's kill is credited (`human05-ally-kill-hits-1000`).
 
 ## Behaviour
 
@@ -254,19 +257,22 @@ After a victory or a defeat the score screen is shown, unless the skip setting i
    | Units | units alive now + units lost |
    | Buildings | buildings standing now + buildings lost |
    | Gold, lumber, oil | the amounts the player gathered (delivered) during the mission |
-   | Kills | enemy units killed |
-   | Razings | enemy buildings destroyed |
+   | Kills | units of other players killed (an ally's units included; `combat/damage.md`, V96) |
+   | Razings | buildings of other players destroyed (likewise) |
 
    "Lost" goes up by 1 every time the player's count of units (or of buildings) goes down, whatever the cause
    (death, or a change of owner). So "units" is roughly the number of units the player ever had. The count is kept
-   per type, and only for completed units and buildings of a type that has one (static study, B-040 audit,
-   `ERRATA-audit-buildtrain.md` erratum 12; trace request AB4 there):
+   per type, and only for completed units and buildings of a type that has one (traced with breaks:
+   `human06-build-stats-1800`, round 79; first read by the B-040 audit, `ERRATA-audit-buildtrain.md` erratum 12):
    - a site killed or cancelled before it is completed was never counted, so it isn't lost;
    - a finished building upgrade (a town hall becoming a keep, a scout tower becoming a guard tower) takes the
      building out of the old type's count, so it counts **1 building lost**;
-   - circles of power, runestones, gold mines and oil patches have no count: they are never lost. Whether wall
-     pieces have one is open (`economy/walls.md`, "Score"). Each bar grows in
-   steps of max / 40 (at least 1), where max is the largest value of that statistic among the shown players.
+   - circles of power, runestones, gold mines, oil patches and wall pieces have no count: they are never lost, and a
+     completed wall piece isn't counted as built either (`economy/walls.md`, "Completion: the piece becomes
+     terrain").
+
+   Each bar grows in steps of max / 40 (at least 1), where max is the largest value of that statistic among the shown
+   players.
 5. **Score and rank.** The shown score counts up from 0 to the campaign total in steps of total / 10, with the tick
    sound `Sfx\numbers.wav`; `Sfx\rank.wav` goes with the rank. The rank is a `rank_txt.tbl` entry:
    - i = the position (counting from 0) of the first threshold above the total, in the list 2000, 5000, 8000, 18000,
@@ -413,7 +419,9 @@ game's own 640 × 480 display compared with the pictures):
 | Same mission lost | No bonus; total back to 4000 for the replay |
 | Footman killed by an enemy archer | Archer's player: kills + 1, mission score + the footman's points |
 | Own farm destroyed by own catapult | No kill credit (same owner); the owner's buildings lost + 1 |
-| A player cancels a farm site and upgrades a town hall to a keep | Buildings lost + 1 (the hall's upgrade only); static study |
+| A player cancels a farm site and upgrades a town hall to a keep | Buildings lost + 1 (the hall's upgrade only). Traced with a break on the lost count: `human06-build-stats-1800` (oracle trace, Enhanced): farm site 1517, cancelled at n = 662, makes no call; the only call in the run is town hall 1591 becoming a keep at n = 1468 |
+| The same player completes a wall piece (`human06-build-stats-1800`, piece 1519, n = 485) | Neither built nor lost: no standing-count call and no lost-count call |
+| An archer of player 1 kills a peasant of allied computer player 0 (`human05-ally-kill-hits-1000`, n = 947, break on the score step) | Player 1 is credited (a kill and the peasant's points) |
 | Victory dialog, Save, then cancel | The victory dialog is shown again |
 | Custom game won | Score screen (no campaign total carried; the total started at 0), then the main menu |
 | Single player, slot 1 a computer allied with the local player | Row label `network.tbl` entry 36 |

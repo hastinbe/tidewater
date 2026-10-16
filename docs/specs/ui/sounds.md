@@ -29,6 +29,13 @@
   open question "Hammer and breath splash" is closed; `combat/damage.md` ("Gryphon hammer and dragon breath") already
   states it: `misc\explode` at the missile's tile on each splash that finds a free effect slot. "Other explosions"
   now points there. No rule change.
+- **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16;
+  `human06-build-stats-1800` with breaks): the construction sound is asked for on every pass whose count is a multiple
+  of 12, and on every pass with the cheat on; the unit-ready and work-complete event location is the building's
+  top-left tile. Both audit open questions answered.
+- **Changes:** 2026-10-16 (B-040 combat audit, `ERRATA-audit-combat.md`, erratum 6, static study; reviewed by a
+  spec-review session, 2026-10-16): the attack sound's and the building explosion's variant draws are made in the
+  simulation update, when the sound is made pending, whether or not it is heard. No change to which file plays.
 
 ## Behaviour
 
@@ -214,8 +221,9 @@ spell, which runs at once without a target, does the same.
 These plain sounds play under the unit speech option, for units and buildings of the local player only.
 
 - **Unit ready.** When training finishes and the new unit is placed, the trained type's **ready** sound plays (Data,
-  "Unit sounds"), and the new unit's position becomes the latest event location. If the unit can't be created, there
-  is no sound and a status message is shown instead.
+  "Unit sounds"), and the training building's **top-left tile** (not the new unit's tile) becomes the latest event
+  location (traced with a break: `human06-build-stats-1800`, n = 643, vectors below). If the unit can't be created,
+  there is no sound and a status message is shown instead.
 - **Work complete.** It plays in these cases:
   - **Construction finished:** for each unit inside the finished building: each builder that comes out, and the
     tanker of a new oil platform, which goes straight into it (traced: `economy/build-train.md`, V53). In all rule
@@ -225,6 +233,9 @@ These plain sounds play under the unit speech option, for units and buildings of
   - **A building upgrade finished:** for the building, only when it becomes a keep, stronghold, castle or fortress.
     A scout tower becoming a guard or cannon tower plays nothing (traced: `economy/build-train.md`, V51). In
     Enhanced rules only.
+
+  When construction or a building upgrade finishes, the building's top-left tile becomes the latest event location
+  (traced with a break: `human06-build-stats-1800`, vectors below).
 
   The file is `peasant\pswrkdon` if the unit is a peasant (type 0x02). Otherwise it is `human\hwrkdone` (orc set:
   `orc\owrkdone`). So a peon that finishes a building plays the race-set file, not a peasant file.
@@ -255,7 +266,9 @@ and stop at 0. The tick rate is an open question.
   pending sound (Data, "Unit sounds"). The sword types pick one of `misc\sword1` to `sword3` with a draw at that
   moment. The animation's play-sound instruction (`core/animation-scripts.md`) plays the pending sound, as a placed
   sound on the unit, and clears it. The sound is audible off screen. These draws happen for every attacking unit,
-  seen or not.
+  seen or not: the variant is drawn in the simulation update, when the sound is made pending, and held with it, so a
+  pending sound that is cleared (a command given later in the same update) or never heard has still made its draw,
+  as for the chop sound (`economy/harvest.md`, "Chop sound") (static study; combat audit erratum 6).
 - **Workers chopping.** Each chop picks one of `misc\tree1` to `tree4` with a draw (`economy/harvest.md`). It is
   played in the same way, but it is silent off screen.
 - **Towers.** When a tower fires, guard towers (types 0x60, 0x61) play `misc\bowfire` and cannon towers (0x62, 0x63)
@@ -276,8 +289,9 @@ first rule that matches its type and flags picks it:
 6. Otherwise an even type number plays `human\hdead` and an odd one plays `orc\odead`.
 
 **A building killed** plays one of `misc\bldexpl1` to `bldexpl3` (a draw) on itself, audible off screen, with
-subtitle 79. A building that has the used mark (`core/corpses.md`) or is a wall piece (types 0x67, 0x68) makes no
-sound and no draw.
+subtitle 79. The variant is drawn at the kill, in the simulation update, when the sound is made pending, whether or
+not it is then heard (static study; combat audit erratum 6). A building that has the used mark (`core/corpses.md`) or
+is a wall piece (types 0x67, 0x68) makes no sound and no draw.
 
 ### Missiles, explosions and other effects
 
@@ -314,8 +328,12 @@ no sound of its own. So each impact sounds like this:
 - a flying hammer or dragon breath splashes with a free effect slot, at the missile's tile (`combat/damage.md`,
   "Gryphon hammer and dragon breath").
 
-**Construction.** On each construction step of any building under construction, if the construction-sound timer is
-0, `misc\constrct` plays on the building. It is a placed sound, audible off screen, under the building sounds option.
+**Construction.** The sound is asked for on every construction pass of a building under construction whose pass
+counter is a multiple of 12 (`economy/build-train.md`, "The construction pass"): each step, the pass that shows a
+damaged site full, and the completion pass. With the build-speed cheat on it is asked for on every pass, since every
+pass is then a step (traced with a break on the request: `human06-build-stats-1800`, vectors below; the full-progress
+pass of a damaged site is static study). When it is asked for and the construction-sound timer is 0,
+`misc\constrct` plays on the building. It is a placed sound, audible off screen, under the building sounds option.
 The timer is then set to 150 ticks. There is one timer for all buildings, so the sound repeats at most once per 150
 ticks.
 
@@ -500,20 +518,18 @@ selection cooldown has expired, and r is the setup-shuffle draw.
 | Same view; placed sound at (26, 21) | Off screen: quiet level, or silent for chop and error sounds |
 | Death sound of a passenger killed with its transport | Silent (inside a unit) |
 | Two buildings under construction, both visible, construction steps every 12 cycles | `misc\constrct` at most once per 150 ticks in total |
+| Two grunts each make a strike decision in the same update, both off screen (static study; combat audit erratum 6) | Two setup-shuffle draws in that update, one per attack sound made pending, though neither is heard |
+| `human06-build-stats-1800` (oracle trace, Enhanced), break on the construction-sound request: farm 1521 (T = 100), site created at n = 68 | 101 requests: pass counts 12 to 1200 (n = 79 to 1267, the 100 steps) and 1224 (n = 1279, the completion pass); none at 1212, which the counter jumps to at step 100 |
+| Same, wall piece 1519 (created at n = 114) | 31 requests: the 30 steps (pass counts 12 to 360) and 384 at n = 485, its completion |
+| Same, farm 1516 (created at n = 949); the build-speed cheat goes on after n = 1401 | Requests every 12 passes to n = 1392; from n = 1402 one every pass, at pass counts 465, 477, …, 1209 (63 passes, each a step: 176 HP at n = 1402 to 400 at n = 1464), then 1224 at n = 1465, the completion |
+| Same, break on the latest-event-location call: barracks 1588 (top-left (88, 5)) finishes a footman, placed at (87, 5), n = 643 | The event location is (88, 5) |
+| Same: completions at n = 485, 1279, 1465 and a keep upgrade at n = 1468 | Event locations (80, 9), (76, 5), (84, 2) and (82, 4): each building's top-left tile |
 
 ## Open questions
 
 - **Work complete for a builder with no room.** When construction finishes, the sound is asked for each unit inside
   before it is placed, so static study says a builder that finds no free tile and dies still plays it. No trace has
   a builder with no room. Default: it plays. Trace request BT3 (`specs/ERRATA-buildtrain-consolidation.md`).
-- **Construction sound on every 12th pass.** "Construction" asks for the sound on each construction step. The B-040
-  audit's static study asks for it on every pass whose count is a multiple of 12, so also on the pass that shows the
-  site full and on the completion pass (`economy/build-train.md`, "The construction pass"). With the shared 150-tick
-  timer the two readings are rarely heard apart. Default: as stated (steps only). Trace request AB1
-  (`ERRATA-audit-buildtrain.md`, with a break on the sound request).
-- **Unit-ready event position.** "Unit ready" makes the new unit's position the latest event location. The audit's
-  static study makes it the training building's top-left tile. Default: as stated. Observation request AB5
-  (`ERRATA-audit-buildtrain.md`).
 - **Tick rate.** The selection cooldown (10 or 30), the construction-sound timer (150), the help timer (60) and the
   quiet counters (200, going down every second tick) count interface ticks. Whether a tick is one game cycle or a
   fixed real-time interval isn't established. Default: one tick per game cycle.
