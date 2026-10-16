@@ -2312,7 +2312,7 @@ mod tests {
                 run(&mut w, 20);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [16612242630407277093, 5191181104371865821]);
+            assert_eq!(got, [11881192591399978372, 4048595019287844653]);
         }
 
         /// A depot killed with a worker inside delivering: the worker dies with it (V50's rule).
@@ -2454,7 +2454,7 @@ mod tests {
                 }
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [7427822006686717663, 8390441432806348842]);
+            assert_eq!(prints, [3327629875632948883, 10411063635708709822]);
         }
 
         /// Order 23 with no route and an attacker: the tree search comes first and the walk's end runs no reaction
@@ -2778,7 +2778,7 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [5289566497159053821, 10557360367904692938]);
+            assert_eq!(prints, [10661141334316599506, 10557360367904692938]);
         }
 
         /// "Coming out" with no command and nothing pending: it faces its goal tile, the building's top-left tile
@@ -2816,7 +2816,7 @@ mod tests {
             w.enter_order(pi, mine, false);
             let u = &w.units[pi];
             assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3));
-            assert_eq!(w.fingerprint(), 13517207483336127821);
+            assert_eq!(w.fingerprint(), 8094069076712323855);
         }
 
         /// Whole cycles: human workers mining, chopping (with a tree cut from under one of them), a tanker at its
@@ -2866,16 +2866,16 @@ mod tests {
                 [
                     11569855206810618705,
                     11360879545551381775,
-                    8241358231868520740,
-                    12812016027310808626,
-                    3022308519554081803,
-                    11409680402870601848,
-                    16233376665597347028,
-                    11669872789662141760,
-                    4196554636280857903,
-                    11409926161439104037,
-                    9403846010072524420,
-                    17348680412796673280
+                    4110864787073910010,
+                    5674323402213965204,
+                    9052676829485906134,
+                    18083937111532615699,
+                    14478465996177701113,
+                    9018019887285723574,
+                    7614116832844563640,
+                    2629960489839248162,
+                    7867533116947845903,
+                    996595572647210728
                 ]
             );
         }

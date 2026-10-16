@@ -153,7 +153,8 @@ impl World {
         // 3. The owner; the order stays.
         self.change_owner(i, to);
         // Campaign-flow spec, "Statistics": the old owner's count went down.
-        self.count_lost(from, self.units[i].building);
+        let u = self.units[i].clone();
+        self.count_lost(from, &u);
         let unit = self.units[i].id;
         self.events.push(Event::OwnerChanged { unit, from, to });
         // 4. Enhanced mode's conversions.

@@ -598,6 +598,8 @@ impl World {
             }
             JobKind::Upgrade(k) => {
                 let (old, new) = (self.stats_of(u.kind).hit_points, self.stats_of(k).hit_points);
+                // Campaign-flow spec, "Statistics": the building leaves the old type's count, 1 building lost.
+                self.players[u.owner as usize].buildings_lost += 1;
                 let b = &mut self.units[i];
                 b.kind = k;
                 // "Job end", building upgrade (B-040 audit): + (new M - old M), each maximum at least 1, with no clamp
@@ -998,6 +1000,30 @@ mod tests {
             run(&mut w, 60);
             let u = w.unit(hall).unwrap();
             assert_eq!((u.kind, u.hp), (kind::KEEP, want), "{old} -> {new}");
+        }
+    }
+
+    /// Campaign-flow spec, "Statistics" (B-040 audit; vector "a player cancels a farm site and upgrades a town hall to
+    /// a keep"): a finished building upgrade takes the building out of the old type's count, 1 building lost; a
+    /// cancelled one doesn't.
+    #[test]
+    fn a_finished_building_upgrade_counts_one_building_lost() {
+        for (cancel, lost) in [(false, 1), (true, 0)] {
+            let (mut w, hall) = town();
+            w.rules.enforce_requirements = false;
+            w.stats.0[kind::KEEP as usize].build_time = 1;
+            w.step(&[Command::Upgrade {
+                player: 0,
+                building: hall,
+                to: kind::KEEP,
+            }]);
+            if cancel {
+                w.step(&[Command::CancelJob { player: 0, unit: hall }]);
+            }
+            run(&mut w, 60);
+            let u = w.unit(hall).unwrap();
+            assert_eq!(u.kind == kind::KEEP, !cancel);
+            assert_eq!(w.players[0].buildings_lost, lost, "cancel {cancel}");
         }
     }
 
@@ -1524,9 +1550,9 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    4199764736764014306,
+                    6134435229274302440,
                     16551267058749962179,
-                    10304115314579723997,
+                    18214275804600485233,
                     8704031557821091703
                 ]
             );

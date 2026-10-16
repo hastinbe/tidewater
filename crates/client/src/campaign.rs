@@ -1003,12 +1003,13 @@ impl Stats {
         ]
     }
 
-    /// Player `p`'s statistics at the end of a game: units and buildings are those alive now plus those lost.
+    /// Player `p`'s statistics at the end of a game: units and buildings are those alive now plus those lost, both
+    /// read from the per-type counts (only completed units and buildings of a type that has one; spec "Statistics").
     pub fn of_world(w: &World, p: u8) -> Stats {
         let alive = |building: bool| {
             w.units
                 .iter()
-                .filter(|u| u.owner == p && u.building == building && !u.dying && !u.removing)
+                .filter(|u| u.owner == p && u.building == building && !u.dying && !u.removing && World::counted(u))
                 .count() as u32
         };
         let pl = &w.players[p as usize];

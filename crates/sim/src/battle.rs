@@ -597,10 +597,27 @@ impl World {
         p.score += points;
     }
 
-    /// Campaign-flow spec, "Statistics": the owner's count of units or of buildings went down by one.
-    pub(crate) fn count_lost(&mut self, owner: u8, building: bool) {
+    /// Whether `u` is in its owner's per-type count, which the end-of-game statistics read (campaign-flow spec,
+    /// "Statistics", B-040 audit): only completed units and buildings, and not circles of power, runestones, gold mines
+    /// or oil patches, which have no count. (Wall pieces count, the walls spec's default for its open question.)
+    pub fn counted(u: &Unit) -> bool {
+        use crate::setup::kind;
+        const RUNESTONE: u8 = 0x66;
+        u.construction.is_none()
+            && !matches!(
+                u.kind,
+                kind::CIRCLE_OF_POWER | RUNESTONE | kind::GOLD_MINE | kind::OIL_PATCH
+            )
+    }
+
+    /// Campaign-flow spec, "Statistics": the owner's count of units or of buildings went down by one, if `u` was in a
+    /// count at all ([`World::counted`]).
+    pub(crate) fn count_lost(&mut self, owner: u8, u: &Unit) {
+        if !Self::counted(u) {
+            return;
+        }
         let p = &mut self.players[owner as usize];
-        if building {
+        if u.building {
             p.buildings_lost += 1;
         } else {
             p.units_lost += 1;
@@ -651,7 +668,7 @@ impl World {
         }
         let unit = self.units[ti].clone();
         if !self.loading {
-            self.count_lost(unit.owner, unit.building);
+            self.count_lost(unit.owner, &unit);
         }
         // Build-train spec, "A building killed": a site leaves the under-construction count. (The job, if any, was
         // cancelled just above, which put the training count back.)
@@ -980,6 +997,33 @@ mod tests {
         let p = &w.players[0];
         assert_eq!((p.kills, p.razings, p.score), (0, 0, 0));
         assert_eq!((p.units_lost, p.buildings_lost), (0, 1));
+    }
+
+    /// Campaign-flow spec, "Statistics" (B-040 audit): only completed units and buildings of a type with a count are
+    /// lost. A site killed before it is completed, a gold mine, an oil patch, a circle of power and a runestone are not.
+    #[test]
+    fn only_counted_buildings_are_lost() {
+        for (k, site, lost) in [
+            (0x3a, false, 1),
+            (0x3a, true, 0),
+            (0x5c, false, 0),
+            (0x5d, false, 0),
+            (0x64, false, 0),
+            (0x66, false, 0),
+        ] {
+            let mut w = world();
+            let b = w.spawn(k, 0, (5, 5), 0).unwrap();
+            let i = w.index(b).unwrap();
+            w.units[i].building = true;
+            w.units[i].hp = 10;
+            if site {
+                w.units[i].construction = Some(Default::default());
+                w.players[0].under_construction = 1;
+            }
+            w.damage(i, 255, UnitId(1));
+            assert!(w.units[i].dying);
+            assert_eq!(w.players[0].buildings_lost, lost, "type {k:#x}, site {site}");
+        }
     }
 
     #[test]
