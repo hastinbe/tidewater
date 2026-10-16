@@ -14,7 +14,6 @@ use tidewater_formats::udta::flags as udta_flags;
 use crate::TILE_PX;
 use crate::combat::{self, missile};
 use crate::movement::{Goal, Walk, chebyshev};
-use crate::slots;
 use crate::spells::{Fx, Line};
 use crate::terrain::bits;
 use crate::world::{Layer, Order, Unit, UnitId, World, face_tile, facing_tile_of};
@@ -99,6 +98,27 @@ pub(crate) enum Splash {
     /// A gryphon hammer's or dragon breath's splash along its path, or a spell effect's: armour isn't subtracted, so
     /// every unit within 42 px is hit, and air units are scanned.
     Path,
+}
+
+/// Who makes an attack (damage spec, "The model", step 2): a unit's attack script at its strike point, or a tower
+/// from its order logic ("Towers"), whose shot has no aim scatter, wall exception or smoke.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Shooter {
+    Script,
+    Tower,
+}
+
+/// What an attack acts on: the unit at index `target`, or with none the point `point` (a wall or the ground); a
+/// missile aims at `point`, the target's centre when there is a target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Aim {
+    pub target: Option<usize>,
+    pub point: (i32, i32),
+}
+
+/// The tile holding map pixel `p`.
+fn tile_px(p: (i32, i32)) -> (i32, i32) {
+    (p.0.div_euclid(TILE_PX), p.1.div_euclid(TILE_PX))
 }
 
 pub(crate) fn broadside(d: u8, current: u8) -> u8 {
@@ -365,31 +385,42 @@ impl World {
         self.units[i].cooldown = lp + 1;
     }
 
-    /// The strike point of the attack script: a melee hit or a missile launch.
+    /// The strike point of the attack script (damage spec, "How an attack delivers damage"): the strike reveal, then
+    /// the delivery at whatever the order aims at by then, with no range test. A cast has its own strike
+    /// (`spells.rs`).
     pub(crate) fn strike(&mut self, i: usize) {
         self.strike_reveal(i);
-        let order = self.units[i].order;
-        if let Order::Cast { .. } = order {
+        if let Order::Cast { .. } = self.units[i].order {
             return self.cast_strike(i);
         }
-        let (ti, to) = match (order, crate::orders::target_of(order)) {
-            (Order::AttackWall { tile } | Order::AttackGround { tile }, _) => {
-                (None, (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2))
-            }
-            // A demolisher plays the attack animation on its way but never strikes (attack-ground-demolish spec).
-            (Order::Follow { .. } | Order::Guard { .. } | Order::Demolish { .. }, _) | (_, None) => return,
+        if let Some(aim) = self.strike_aim(i) {
+            self.attack_with(i, aim, Shooter::Script);
+        }
+    }
+
+    /// What the strike of the unit at `i` acts on: the target unit of its order, or the centre of order 11's or 17's
+    /// target tile. None for an order that doesn't strike (a demolisher plays the attack animation on its way but
+    /// never strikes, attack-ground-demolish spec). A target that is gone (its slot released) or inside something isn't
+    /// struck and nothing is drawn (V16; the spec's open question "A melee strike at a target that is gone or inside"
+    /// keeps that rule). A target that started dying earlier in the cycle is still struck (V15, `human01-basics`
+    /// n = 576; V17, `xhuman4-7000` n = 121). Kept as the code has it: a ranged strike takes the same test, where the
+    /// spec's launch "has no test of the target's state".
+    fn strike_aim(&self, i: usize) -> Option<Aim> {
+        let order = self.units[i].order;
+        match (order, crate::orders::target_of(order)) {
+            (Order::AttackWall { tile } | Order::AttackGround { tile }, _) => Some(Aim {
+                target: None,
+                point: (tile.0 * TILE_PX + TILE_PX / 2, tile.1 * TILE_PX + TILE_PX / 2),
+            }),
+            (Order::Follow { .. } | Order::Guard { .. } | Order::Demolish { .. }, _) | (_, None) => None,
             (_, Some(target)) => {
-                // Damage spec, "How an attack delivers damage" (`human01-basics` n = 576): a melee
-                // strike is made at a target that started dying earlier in the cycle, and rolls its damage to no
-                // effect; a target that is gone or inside something isn't struck. Ranged attackers are that spec's
-                // open question, where a missile is expected to behave the same; we follow that expectation.
-                let Some(ti) = self.index(target).filter(|&ti| !self.units[ti].inside) else {
-                    return;
-                };
-                (Some(ti), self.units[ti].centre_px())
+                let ti = self.index(target).filter(|&ti| !self.units[ti].inside)?;
+                Some(Aim {
+                    target: Some(ti),
+                    point: self.units[ti].centre_px(),
+                })
             }
-        };
-        self.hit_or_launch(i, ti, to);
+        }
     }
 
     /// Vision spec, "When sight is applied", item 4 (`human06-31357` n = 9642): at each strike point
@@ -421,58 +452,70 @@ impl World {
         }
     }
 
-    /// A strike's hit or launch from the unit at `i` at the unit at `ti`, or at the point `to` (a wall or the ground).
-    pub(crate) fn hit_or_launch(&mut self, i: usize, ti: Option<usize>, to: (i32, i32)) {
+    /// A tower's shot from its order-14 logic at the unit at `ti` (damage spec, "Towers"), aimed at its centre.
+    pub(crate) fn tower_shot(&mut self, i: usize, ti: usize) {
+        let aim = Aim {
+            target: Some(ti),
+            point: self.units[ti].centre_px(),
+        };
+        self.attack_with(i, aim, Shooter::Tower);
+    }
+
+    /// The target's armour, with its owner's upgrades (damage spec, "Effective attack values").
+    pub(crate) fn armour_of(&self, ti: usize) -> u32 {
+        let t = &self.units[ti];
+        combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades)
+    }
+
+    /// One attack's delivery from the unit at `i` (damage spec, "The model", steps 1 and 3): the attack values, then a
+    /// melee blow, or a missile launch for a type with a missile weapon.
+    pub(crate) fn attack_with(&mut self, i: usize, aim: Aim, by: Shooter) {
         // Spells spec, "Timers": a unit's attack strike ends its own invisibility.
         self.units[i].invisibility = 0;
-        if self.units[i].building {
+        if by == Shooter::Tower {
             self.tower_fire_sound(i);
         }
         let a = &self.units[i];
         let s = self.stats_of(a.kind);
         let (basic, pierce) = self.attack_values(a, &s);
-        let armour = ti.map_or(0, |ti| {
-            let t = &self.units[ti];
-            combat::armour(&self.stats_of(t.kind), &self.players[t.owner as usize].upgrades)
-        });
-        let hits_air = ti.is_some_and(|ti| self.units[ti].layer == Layer::Air);
-        let target = ti.map(|ti| self.units[ti].id);
-        let (attacker, from, owner) = (a.id, a.centre_px(), a.owner);
+        // "Damage roll", step 1: with no target unit, armour is taken as 0.
+        let armour = aim.target.map_or(0, |ti| self.armour_of(ti));
         if s.missile == missile::NONE {
+            // "How an attack delivers damage", melee, and (order 11) melee with no target unit: the wall on the
+            // target tile takes the blow.
             let d = combat::roll(&mut self.rng, basic, pierce, armour);
-            match ti {
-                Some(ti) => self.damage(ti, d, attacker),
-                // A melee hit on a wall: the spec doesn't cover it yet, so the rolled damage goes to the wall.
-                None => self.hit_wall((to.0.div_euclid(TILE_PX), to.1.div_euclid(TILE_PX)), d),
-            }
-            return;
+            let target = aim.target.map(|ti| self.units[ti].id);
+            let attacker = self.units[i].id;
+            return self.hit(target, tile_px(aim.point), d, attacker);
         }
-        // Damage spec: with no effect slot free for the missile, nothing is created and nothing is drawn.
-        let Some(slot) = self
-            .missiles
-            .iter()
-            .skip(slots::PERMANENT_EFFECTS)
-            .position(|e| e.is_none())
-            .map(|n| n + slots::PERMANENT_EFFECTS)
-        else {
+        self.launch(i, aim, by, s.missile, (basic, pierce, armour));
+    }
+
+    /// A missile launch ("How an attack delivers damage", ranged): with no effect slot free nothing is created and
+    /// nothing is drawn. Otherwise the damage (a roll for a non-splash missile, the maximum damage for a splash one),
+    /// then, for a unit's attack script only, the aim scatter, the computer players' wall exception and a cannon's
+    /// smoke ("Towers": a tower's shot has none of these).
+    fn launch(&mut self, i: usize, aim: Aim, by: Shooter, kind: u8, (basic, pierce, armour): (u32, u32, u32)) {
+        let Some(slot) = self.free_fx_slot() else {
             return;
         };
-        let min_flight = combat::splash(s.missile);
+        let min_flight = combat::splash(kind);
         let damage = match min_flight {
             Some(_) => (basic + pierce).min(255) as u8,
             None => combat::roll(&mut self.rng, basic, pierce, armour),
         };
-        // Towers (guard and cannon) fire without the aim scatter and without the computer players' wall exception.
-        let tower = s.flags & tidewater_formats::udta::flags::TOWER != 0;
-        let aim_tile = (to.0.div_euclid(TILE_PX), to.1.div_euclid(TILE_PX));
-        let mut to = to;
-        if !tower {
+        let script = by == Shooter::Script;
+        let a = &self.units[i];
+        let (attacker, from, owner) = (a.id, a.centre_px(), a.owner);
+        // Our reading: "the attack's target tile" is the tile of the aim point before the scatter.
+        let aim_tile = tile_px(aim.point);
+        let mut to = aim.point;
+        if script {
             to.0 += (self.rng.draw() & 7) as i32 - 3;
             to.1 += (self.rng.draw() & 7) as i32 - 3;
         }
-        // Our reading: "the attack's target tile" is the tile of the aim point before the scatter.
         let mut minimum = min_flight.unwrap_or(0) as i32 * TILE_PX;
-        if !tower
+        if script
             && minimum > 2 * TILE_PX
             && self.computer_player(owner)
             && self.terrain.word(aim_tile.0, aim_tile.1) & (bits::HUMAN_WALL | bits::COMPUTER_WALL) != 0
@@ -480,7 +523,7 @@ impl World {
             minimum = 2 * TILE_PX;
         }
         let mut line = Line::new(from, to);
-        let breath = matches!(s.missile, missile::GRYPHON_HAMMER | missile::DRAGON_BREATH);
+        let breath = matches!(kind, missile::GRYPHON_HAMMER | missile::DRAGON_BREATH);
         let (fx, flight) = if breath {
             // The gryphon hammer and dragon breath have no minimum flight distance.
             (
@@ -494,14 +537,15 @@ impl World {
         } else {
             let length = line.remaining.max(minimum);
             line.remaining = length;
-            let steps = combat::flight_steps(length, combat::flight(s.missile).speed);
+            let steps = combat::flight_steps(length, combat::flight(kind).speed);
             (Fx::Shot { line, length }, steps as u16)
         };
+        let hits_air = aim.target.is_some_and(|ti| self.units[ti].layer == Layer::Air);
         let missile = Missile {
-            kind: s.missile,
+            kind,
             attacker,
             shooter: self.last_slot(attacker),
-            target,
+            target: aim.target.map(|ti| self.units[ti].id),
             from,
             to,
             pos: from,
@@ -509,16 +553,29 @@ impl World {
             elapsed: 0,
             damage,
             splash: min_flight.is_some(),
-            hits_air: s.missile == missile::SMALL_CANNON && hits_air,
+            hits_air: kind == missile::SMALL_CANNON && hits_air,
             fx,
         };
         // Unit-slots spec, "Effect slots": the lowest free slot after the permanent entries.
-        let cannon = matches!(s.missile, missile::BIG_CANNON | missile::SMALL_CANNON);
         self.missiles[slot] = Some(missile);
-        // Damage spec, "How an attack delivers damage": a unit's cannon shot is followed by smoke (kind 0x19) at the
-        // missile's start point, in the next free slot; with none free there is no smoke.
-        if cannon && !tower {
+        // A unit's cannon shot is followed by smoke (kind 0x19) at the missile's start point, in the next free slot;
+        // with none free there is no smoke.
+        if script && matches!(kind, missile::BIG_CANNON | missile::SMALL_CANNON) {
             self.cannon_smoke(attacker, from);
+        }
+    }
+
+    /// A rolled damage reaching one target: the unit `target`, if it is still in the table, or with no target unit the
+    /// wall on `tile` (a melee blow of order 11, a non-splash missile aimed at a tile, a hammer's final hit with no
+    /// target; damage spec, "How an attack delivers damage" and "Missile flight").
+    fn hit(&mut self, target: Option<UnitId>, tile: (i32, i32), d: u8, attacker: UnitId) {
+        match target {
+            Some(t) => {
+                if let Some(ti) = self.index(t) {
+                    self.damage(ti, d, attacker);
+                }
+            }
+            None => self.hit_wall(tile, d),
         }
     }
 
@@ -834,24 +891,14 @@ impl World {
             damaging: m.damage != 0,
         };
         self.sound_at_px(m.pos, sound);
-        self.hit_or_splash(&m);
-        self.impact_fx(m.kind, m.attacker, m.pos);
-    }
-
-    fn hit_or_splash(&mut self, m: &Missile) {
-        if !m.splash {
-            match m.target {
-                Some(t) => {
-                    if let Some(ti) = self.index(t) {
-                        self.damage(ti, m.damage, m.attacker);
-                    }
-                }
-                // Aimed at a tile with no unit: the wall there takes it (damage spec).
-                None => self.hit_wall((m.pos.0.div_euclid(TILE_PX), m.pos.1.div_euclid(TILE_PX)), m.damage),
-            }
-            return;
+        // A non-splash missile (and a hammer's or breath's final hit) carries its stored damage to the unit that was
+        // the target at launch, wherever it is, or to the wall on its final tile; a splash missile splashes.
+        if m.splash {
+            self.splash(m.pos, m.damage, m.attacker, Splash::Impact { air: m.hits_air });
+        } else {
+            self.hit(m.target, tile_px(m.pos), m.damage, m.attacker);
         }
-        self.splash(m.pos, m.damage, m.attacker, Splash::Impact { air: m.hits_air });
+        self.impact_fx(m.kind, m.attacker, m.pos);
     }
 
     /// The splash delivery (damage spec, "Splash on impact"): stored damage `stored` at pixel `pos` from `attacker`.
@@ -859,7 +906,7 @@ impl World {
     /// the tile, then the 7 × 7 block row by row, a tile's ground-layer unit before its air-layer unit), each once,
     /// never the attacker, friends included. A dying unit is off the occupancy marks, so the scan never finds one.
     pub(crate) fn splash(&mut self, pos: (i32, i32), stored: u8, attacker: UnitId, how: Splash) {
-        let tile = (pos.0.div_euclid(TILE_PX), pos.1.div_euclid(TILE_PX));
+        let tile = tile_px(pos);
         self.hit_wall(tile, stored);
         for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
             self.hit_wall((tile.0 + dx, tile.1 + dy), stored / 4);
@@ -1515,7 +1562,13 @@ mod tests {
             Some(target) => Order::Attack { target },
             None => Order::AttackWall { tile: wall },
         };
-        w.strike(i);
+        // Damage spec, "Towers": a tower type shoots from its order logic, not from a strike point.
+        if w.stats_of(w.units[i].kind).flags & flags::TOWER != 0 {
+            let aim = w.strike_aim(i).unwrap();
+            w.attack_with(i, aim, super::Shooter::Tower);
+        } else {
+            w.strike(i);
+        }
     }
 
     /// Updates the missiles `n` times (the cycles C, C + 1, ...), returning the draws each update made.

@@ -1575,8 +1575,7 @@ impl World {
         };
         // With no target the tower "does nothing until its next run": it keeps whatever animation it plays.
         if let Some(ti) = found.and_then(|t| self.index(t)) {
-            let to = self.units[ti].centre_px();
-            self.hit_or_launch(i, Some(ti), to);
+            self.tower_shot(i, ti);
         }
     }
 
