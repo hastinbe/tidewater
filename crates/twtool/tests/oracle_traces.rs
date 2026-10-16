@@ -78,6 +78,13 @@
 //! n 416) and human06-alerts-1400 (work-complete alerts for a keep, an upgrade and a spell, none for a guard tower)
 //! match in full.
 //!
+//! Round 77: the commands scenarios human06-depot-kill-2400 (a peasant delivering gold inside a town hall that is
+//! killed dies with it, n 2290), human12-unload-then-patrol-900 (a patrol the transport doesn't take keeps its unload
+//! mark), human06-cancel-job-500 (cancelled jobs end at their next work run, n 38, 206 and 304),
+//! human06-cancel-site-600 (a cancelled site's builder faces its top-left tile with idle pending, n 122 and 202) and
+//! human06-arrive-broke-700 (a peasant arriving without the money goes idle with wait 3, n 340)
+//! match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -359,4 +366,9 @@ traces! {
     orc9_orc09_carry_chop_goals_1400: ("orc9-orc09-carry-chop-goals-1400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     human06_site_kill_800: ("human06-site-kill-800.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human06_alerts_1400: ("human06-alerts-1400.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human06_depot_kill_2400: ("human06-depot-kill-2400.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human12_unload_then_patrol_900: ("human12-unload-then-patrol-900.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    human06_cancel_job_500: ("human06-cancel-job-500.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human06_cancel_site_600: ("human06-cancel-site-600.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human06_arrive_broke_700: ("human06-arrive-broke-700.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
 }
