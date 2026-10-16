@@ -90,6 +90,11 @@
   to the low 8 bits (erratum 5, V97); a missile's shooter is its slot for the attacker record, the killer's check and
   the splash's self-exclusion (erratum 3, V98). Held: the target-slot part of erratum 3 (new open question "A missile
   whose target's slot is reused in flight") and the released-slot part of erratum 1.
+- **Changes:** 2026-10-16 (round 80, B-038 spells consolidation, `ERRATA-spells-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-16): a rune's hit doesn't go through "Applying damage": it is a direct HP change, and
+  a rune's kill is an outright kill with no credit (traced: `xorc12-spells-hits-1150-1260`; the three sentences that
+  said spell damage all goes through the step now name the exception, and runes join the outright kills under
+  "Credit and score").
 
 ## Behaviour
 
@@ -114,8 +119,9 @@ Every attack, by a unit, a tower or a demolisher, goes through the same chain:
    - a **splash** at a splash missile's impact, or along a gryphon hammer's or dragon breath's path, that rolls damage
      for each unit near the point ("Splash on impact");
    - a **demolition blast**, a flat 200 (twice) to the 8 neighbours (`combat/attack-ground-demolish.md`, "The blast").
-4. **Applying damage.** Every delivery, and the spell damage of `spells/spells.md`, ends in the same step: checks,
-   the notification, then either HP lowered or a **kill** ("Applying damage", "A kill").
+4. **Applying damage.** Every delivery, and the spell damage of `spells/spells.md` (except a rune's hit, a direct HP
+   change), ends in the same step: checks, the notification, then either HP lowered or a **kill** ("Applying damage",
+   "A kill").
 5. **After the kill.** The victim's death (order, sound, explosion, units inside, slot) is in `core/unit-slots.md`,
    "Death, corpses and release"; what it leaves behind is in `core/corpses.md`; its score in `game/campaign-flow.md`,
    "Mission score"; what the player sees and hears is gathered in "What the player sees and hears" below.
@@ -518,7 +524,10 @@ When damage D from an attacker reaches a target:
 - If the target's HP ≤ D, it dies: see "A kill" below. Otherwise the target's HP drops by D, and the under-attack
   alert of `ui/sounds.md` is then asked for.
 
-D is at most 255 in every delivery. Spell damage goes through the same step (`spells/spells.md`).
+D is at most 255 in every delivery. Spell damage goes through the same step (`spells/spells.md`, "How spell damage is
+delivered"), except a rune's hit: it changes the unit's HP directly, with no notification, no attacker and no
+credit, and kills outright (traced: `xorc12-spells-hits-1150-1260`, which has no `hits` entry for it; `spells/spells.md`,
+"Runes on the map", S85).
 
 **Evidence:** static study (the checks and their order, the Dark Portal special case, with game data for its maps);
 traced: unholy armour (`spells/spells.md` vectors), the notification and help (`ai/attack-ai.md` vectors).
@@ -554,8 +563,8 @@ mission score goes up by the victim type's point value (`game/campaign-flow.md`,
 score's later use). Ownership is the only test: a kill of an allied unit is credited too (traced:
 `human05-ally-kill-hits-1000`, V92, V96). A missile or splash is credited to the unit in the shooter's slot
 (`spells/spells.md`, "The shooter after its slot is released"). Kills that don't come through this step are never
-credited: a demolisher's own death and other outright kills (polymorph, a builder with no exit tile, a passenger
-killed with its transport).
+credited: a demolisher's own death and other outright kills (polymorph, a rune, a builder with no exit tile, a
+passenger killed with its transport).
 
 **A missile's shooter is its slot.** The same slot rule holds for everything else a missile does with its shooter at
 impact: the victim's attacker record, the killer's check of its records, and the splash's "the firing unit is never
@@ -854,5 +863,5 @@ Cannon smoke and launch slots:
   loses the target by "Arriving and losing the target". `human01-basics` footman 1597 (V13) is given a new command at
   n = 302, 14 cycles after its kill, still inside its cooldown of 26.
 - *Demolition squads' damage to the 8 neighbouring tiles.* Specified in `combat/attack-ground-demolish.md`, "The blast".
-- *Spell damage* is not an open question: it is in `spells/spells.md` (runes deal a flat 50) and goes through
-  "Applying damage".
+- *Spell damage* is not an open question: it is in `spells/spells.md` and goes through "Applying damage", except a
+  rune's flat 50, which is a direct HP change (round 80, traced).

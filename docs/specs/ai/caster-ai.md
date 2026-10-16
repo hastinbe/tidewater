@@ -4,6 +4,9 @@
 - **Sources:** static study of the 2.02 program (research notes, "Round 17 (spellcaster AI)"), the default
   `Rez\unitdata.dat` and the unit flags and spell bits in the public PUD specification text. Not yet confirmed
   against the running game.
+- **Changes:** 2026-10-16 (round 80 spells consolidation, `ERRATA-spells-consolidation.md`, review): the references
+  to the timers pass point at `spells/spells.md`, "The timers pass"; the open question "Eye of Kilrogg with an old
+  target" no longer says the ogre-mage walks (order 48 has no walk). No rule change.
 
 ## Behaviour
 
@@ -89,12 +92,12 @@ When a try succeeds, its row may set a **mark** on the target, so that other cas
 don't pick the same unit for the same spell. There are two kinds:
 
 - **Target marks:** seven flags, one each for death coil, polymorph, holy vision, exorcism, healing, raise dead and
-  whirlwind. The timers pass of `spells/spells.md` ("Timers") clears all seven on every unit it visits, every cycle.
+  whirlwind. The timers pass of `spells/spells.md` ("The timers pass") clears all seven on every unit it visits, every cycle.
 - **Timer marks:** a spell timer of the target is set to 1 (or −1). These are real timers. They count down in the
   timers pass of the same cycle like any other, and until then they have their normal effect:
   - bloodlust timer 1: the target's hits in this cycle do double damage (`combat/damage.md`);
   - unholy-armour timer 1: hits on the target in this cycle do nothing. A demolition squad or sapper (types 0x0E,
-    0x0F) with this mark is killed in the timers pass (`spells/spells.md`, "Timers", step 2);
+    0x0F) with this mark is killed in the timers pass (`spells/spells.md`, "The timers pass", step 2);
   - speed timer 1 (hasted) or −1 (slowed) for the rest of the cycle;
   - flame-shield timer 1: this only blocks a flame-shield strike on the target in this cycle.
 
@@ -238,8 +241,9 @@ every spell. "Draws" counts the caster step's draws only.
   implement the alliance table literally. What a never-used slot holds wasn't checked; default all zero, owner 14.
 - **Polymorph from the random search.** It aims a unit spell at a tile with no unit. Whether the caster first walks to
   the tile before it goes idle wasn't traced. Default: as `spells/spells.md` gives for a unit spell without a target.
-- **Eye of Kilrogg with an old target.** Try 4 of the ogre-mage leaves the old target tile and unit in place. Where
-  the ogre-mage walks before casting is decided by them. Default: keep them as they were.
+- **Eye of Kilrogg with an old target.** Try 4 of the ogre-mage leaves the old target tile and unit in place.
+  Default: keep them as they were. Order 48 has no walk (radius "always" in `orders/orders.md`; `spells/spells.md`,
+  "Walking and the decision", round 80), so the ogre-mage casts where it stands and the old target is only kept.
 - **Raise dead.** The conclusion that it never fires rests on no code path putting a dead body back on the ground
   layer. If play shows computer death knights raising skeletons, this needs another look.
 - **Invisibility mark.** The mage's invisibility try marks the unholy-armour timer, not the invisibility timer, which

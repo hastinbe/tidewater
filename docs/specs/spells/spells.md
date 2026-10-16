@@ -1,10 +1,19 @@
 # Spells: casting, effects, durations and summoned units
 
-- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
+- **Status:** approved (Reviewed-by: spec-review session, 2026-10-11). Round-80 consolidation (B-038 step 2):
+  approved (Reviewed-by: spec-review session, round 80, 2026-10-16). The changes are listed in
+  `ERRATA-spells-consolidation.md`.
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the animation data in
   `Rez\script.bin` (decoded with the instruction set of `core/animation-scripts.md`), the default unit data
-  (`Rez\unitdata.dat`) and the unit flags in the public PUD specification text. Not yet confirmed against the running
-  game.
+  (`Rez\unitdata.dat`), the unit flags in the public PUD specification text, and Enhanced oracle traces named at each
+  rule and vector. Each subsection ends with an **Evidence** line: *traced* (an oracle trace, named), *static study*
+  (the program, not yet seen running), *game data* (the shipped data files) or *observed* (the running game watched
+  by a person).
+- **Rules mode:** every rule here is Enhanced unless it says **Classic mode**. The Classic-mode rules, all from static
+  study, are: holy vision's map bounds and its fog refresh ("The spells"), exorcism's and death coil's ally exclusion
+  (Enhanced only, so Classic mode includes allies), and the 200 effect slots ("Effect slots"). Which units an
+  invisible unit is detected by (`vision/fog.md`) and the caster AI's random search size (`ai/caster-ai.md`) also
+  differ, and are labelled there. No Classic trace was used.
 - **Changes:** 2026-10-11, round-8 errata: the fireball's count goes on to 41 and it ends on the step after count 41.
   2026-10-12, round-16 errata: the cosmetic effects' lifetimes (each plays its script once; removed in cycle
   U + 1 + W).
@@ -59,12 +68,64 @@
   spec-review session, 2026-10-16): an attack strike ends invisibility whatever its target's state; the failed-cast
   part is held as the open question "Invisibility at a failed cast". A unit's missile follows the shooter-slot rule
   (erratum 3).
+- **Changes:** 2026-10-16 (round 80, B-038 step 2, spells consolidation, `ERRATA-spells-consolidation.md`, reviewed
+  by a spec-review session, 2026-10-16):
+  the spec is rewritten as one model (mana, one cast pipeline, then one entry per spell in a uniform shape, then the
+  effects and how each reuses a delivery of `combat/damage.md`), with an Evidence line per subsection and IDs on the
+  test vectors (every old row kept verbatim). Changes of meaning: a cast that fails its target or mana check at the
+  strike also ends the caster's invisibility, because the strike point clears it before the spell's strike runs
+  (traced: `xhuman10-failcast-520`; open question "Invisibility at a failed cast" answered); a rune's damage doesn't go
+  through `combat/damage.md`, "Applying damage" (traced: `xorc12-spells-hits-1150-1260`; static study for the rest).
+  Made explicit: the strike reveal of slow and haste, the walk decision's checks (no detection test), the eye of
+  Kilrogg's order (no walk, no decision checks), the fireball as a hammer-and-breath missile, the death coil as a
+  normal missile, the spell splash as the hammer's armour-free splash, food, and the Classic-mode labels.
 
 ## Behaviour
 
 Phase numbers are those of `core/timing-and-rng.md`. "Classic" and "Enhanced" are its two rule modes. Flag bits are
 the PUD unit flags. A **tile centre** is the tile's pixel position plus (16, 16). **Effects** are the game's missile
 objects: they live in the effect slots of `core/unit-slots.md` and are updated in phase 4 after the units.
+
+### The model
+
+Every spell goes through the same chain:
+
+1. **Mana.** Casters hold mana from 0 to 255; it grows by 1 every 40 cycles in the timers pass ("Mana").
+2. **The command.** A spell command makes the spell order pending ("Giving the order").
+3. **The walk and the decision.** The order's logic walks the caster into the spell's radius, checks the target once,
+   and starts the casting animation ("Walking and the decision").
+4. **The strike point** of the casting animation ends the caster's invisibility, makes the strike reveal, then runs the
+   spell's strike ("The strike point").
+5. **The spell's strike** checks the target and the mana, pays, makes the caster idle (except the two channelled
+   spells) and does the spell's effect ("The spell's strike", "The spells").
+6. **The effect** is one of: a timer set on the target ("Timers"), a unit created ("Summoned units and decay"), runes
+   placed ("Runes on the map"), a direct change (healing, unholy armour's halving, polymorph's kill), damage applied
+   at once through `combat/damage.md`, "Applying damage" (exorcism), or an effect in an effect slot whose damage
+   reuses a delivery of `combat/damage.md` ("How spell damage is delivered", "Spell effects in flight").
+7. **The timers pass** at the end of phase 4 runs the timers, mana, decay and runes ("Timers", "The timers pass").
+
+| Spec | What it holds for spells |
+| --- | --- |
+| `orders/orders.md` | The spell orders (38 to 56), each spell's radius, the command target check, a player's spell command forgetting the attacker |
+| `core/animation-scripts.md` | The casting animation, its strike point, haste and slow, "No strike while a command waits" |
+| `combat/damage.md` | The deliveries spells reuse: missile flight, the gryphon hammer and dragon breath, splash, "Applying damage", credit |
+| `vision/fog.md` | The strike reveal, holy vision's reveal, who detects an invisible unit |
+| `core/unit-slots.md` | Effect slots, unit creation, mana at creation |
+| `core/corpses.md` | The used mark (polymorph, raise dead) |
+| `ai/caster-ai.md` | How the computer chooses spells and targets (its spell mechanics are in "The computer's casters") |
+
+### Mana
+
+Mana is a byte from 0 to 255 on units with flag bit 17 (caster). A newly created caster that isn't a building starts
+with **85** and its mana counter at **40**; a building with the flag starts with its type's "magic" value and its
+counter at **0** (`core/unit-slots.md`). The timers pass adds 1 mana every 40 cycles up to 255 ("The timers pass",
+step 4). Mana is spent only at the spell's strike ("The spell's strike"), never at the command or the decision. The
+all-spells cheat sets it to 255 at each spell command ("Giving the order"); the cast buttons test it against the
+button cost (`ui/command-buttons.md`).
+
+**Evidence:** traced: the 85 start, the strike costs and the gains (`xhuman10-spells-700`, `xhuman10-failcast-520`:
++1 every 40 cycles while channelling); static study: the counters, buildings and the cost table (a table in the
+program, not in the game data).
 
 ### Orders and mana costs
 
@@ -95,6 +156,11 @@ is a byte from 0 to 255.
 
 Which spells a player may cast (research, the button bar) is not covered here.
 
+**Evidence:** static study (the cost table is a table in the program, not in the game data; the cast buttons use the
+same values, `ui/command-buttons.md`); traced: the costs of the spells cast in the spell traces, for example holy
+vision, polymorph, invisibility and fireball (`xhuman10-spells-700`), healing (S64), bloodlust (S65) and blizzard
+(S84).
+
 ### Giving the order
 
 When a spell command is given:
@@ -108,7 +174,14 @@ When a spell command is given:
 - For the spells aimed at a point (orders 38, 40, 41, 43, 47, 48, 50, 51, 52, 55 and 56) the caster's target unit is
   cleared and only the target tile is kept.
 
-### Moving and casting
+A player's spell command also forgets the caster's recorded attacker (`orders/orders.md`). The computer's eye of
+Kilrogg try sets order 48 as the pending order directly, with no command, so neither the check nor the cheat applies
+("The computer's casters").
+
+**Evidence:** traced: the cheat (every spell trace), the dropped target (`xhuman10-slow-3000`, S70); static study:
+the point spells' target.
+
+### Walking and the decision
 
 Each time the order's logic runs, the caster moves toward the target until it is within the spell's radius
 (`movement/movement.md`), and then casts:
@@ -117,6 +190,11 @@ Each time the order's logic runs, the caster moves toward the target until it is
 - **Unit spells** (flame shield, slow, invisibility, haste, unholy armour): the target must still be valid and must not
   be a building.
 - **Organic-target spells** (healing, polymorph, bloodlust): the target must also have flag bit 27 (organic).
+
+"Valid" here and at the strike means the same thing: the target unit exists and is not dying, dead remains or otherwise
+inactive. Neither check tests whether the caster's player detects the target: detection is tested only when the
+command is given ("Giving the order"). **Eye of Kilrogg** (order 48, radius "always") has no walk and no decision
+checks: the caster casts where it stands, and only the strike's mana check applies.
 
 If a check fails, the caster becomes idle (order 2) and no mana is spent. If the walk toward the target finds **no
 route**, the caster becomes idle at once, as an immediate order, and its idle logic runs in the same update
@@ -130,10 +208,34 @@ The distance to the target is tested only here, when the order's logic decides t
 playing, its strike takes effect even if the target has since moved outside the spell's radius (traced for healing,
 `orc14-25000`, and for bloodlust, `xorc12-reach-400`; vectors below; static study for the other spells).
 
-### At the strike
+**Evidence:** traced: no route (`human14-10000`, S81), no distance test at the strike (S64, S65), the strike cycles
+(`xhuman10-failcast-520`: decision at n = 23, strikes every 40 cycles from n = 37); static study: the three decision
+checks and the missing detection test; traced: the eye cast where the caster stands (`xorc12-ogre-mage-180`: order
+48 from n = 103 at (114, 9), 10 tiles from the target point, the eye at (114, 10) at n = 113, no step taken); game
+data: the strike cycles (`Rez\script.bin`).
 
-A caster that has been given a command that hasn't taken over yet doesn't strike at all (`core/animation-scripts.md`,
-"No strike while a command waits"). Unless the spell's row below says otherwise, the strike works like this. None of the strike's checks is a distance:
+### The strike point
+
+At each strike point of the casting animation (`core/animation-scripts.md`), in this order:
+
+1. If the caster has been given a command that hasn't taken over yet, nothing happens at all ("No strike while a
+   command waits").
+2. The caster's **invisibility timer is set to 0**. Every strike point does this, whatever the spell and whatever its
+   strike then does: a cast that fails its target or mana check, or that does nothing, ends the caster's invisibility
+   too (traced: `xhuman10-failcast-520`, S84). It is the same step that ends invisibility at an attack, chop or repair
+   strike (`combat/damage.md`, "How an attack delivers damage").
+3. The **strike reveal** (`vision/fog.md`, item 4): for slow and haste, the two spells in its list, if the target's
+   owner isn't the caster's owner and is one of players 0 to 7, a sight-2 area around the caster is revealed for the
+   target's owner.
+4. The **spell's strike** (below).
+
+**Evidence:** traced: a failed cast ends invisibility (`xhuman10-failcast-520`, S84); static study: a successful
+cast ends it too (no trace has an invisible caster whose cast succeeds), the order of the steps and the strike
+reveal's spell list.
+
+### The spell's strike
+
+Unless the spell's entry below says otherwise, the strike works like this. None of the strike's checks is a distance:
 a target that has left the radius during the casting animation is still affected.
 
 1. **Target check** (unit spells only): the target must exist and must not be dying, dead remains or otherwise
@@ -142,31 +244,45 @@ a target that has left the radius during the casting animation is still affected
 3. **Pay** the cost.
 4. The caster becomes **idle** (order 2 pending). The two channelled spells skip this step, so their order stays and
    they strike again on every loop of the casting animation until a mana check fails.
-5. The caster's **invisibility timer is cleared**. Any spell cast ends the caster's own invisibility.
-6. The spell's effect.
+5. The spell's effect.
+
+"Becomes idle" at the strike means idle as the pending order: the caster keeps its spell order and plays its casting
+animation to the end of the loop, and idle takes over then (traced: in `xhuman10-failcast-520` the failed strike at n =
+437 leaves order 47 until n = 466). A "unit spell" with no target at its strike (for example, the target died) makes the
+caster idle without paying.
+
+(Before round 80 this list had a step "the caster's invisibility timer is cleared" between steps 4 and 5; it is now
+step 2 of "The strike point", which comes first.)
+
+**Evidence:** traced: the mana check and its pending idle (`xhuman10-failcast-520`, S84); static study: the target
+check at the strike (S86; the `xhuman10-slow-3000` vector S70 is the command's check, not the strike's) and the
+order of the steps.
+
+### The spells
+
+Each entry gives the strike's steps from "The spell's strike", then the effect. "Marker" means a cosmetic effect
+kind 0x16 on the target ("Cosmetic effects").
 
 | Spell | Strike, in order |
 | --- | --- |
-| Holy vision | Steps 2 to 5. Then 7 areas are revealed for the caster's player, centred on the target point T and on T + (0, −8), T + (0, +8), T + (+6, +4), T + (+6, −4), T + (−6, +4) and T + (−6, −4), in that order. Each is revealed exactly like a unit with **sight 9** standing on that tile (`vision/fog.md`). Each point also gets a cosmetic effect (kind 0x16) at its tile's pixel position + (8, 8). Points off the map are skipped: in Enhanced mode a point is used only if both coordinates are from 0 to map width − 1; in Classic mode a coordinate may also equal the map width, and such a point reveals nothing but still gets its cosmetic effect. A negative coordinate is off the map in both modes. (Maps are square, so the width is also the height.) In Enhanced mode the fog refresh countdown is then set to 150, so the next refresh comes 150 cycles later |
-| Healing | Step 1 (no target: idle). The caster becomes idle and its invisibility ends. Let missing = maximum HP − HP. If missing is 0, nothing more. Otherwise heal = min(missing, floor(mana / 6), 40). If heal is 0, nothing more. The target gains heal HP, the caster pays 6 × heal mana, and a healing effect (kind 9) appears on the target |
-| Exorcism | The caster becomes idle and its invisibility ends (no up-front cost). Then the 7 × 7 tiles around the target tile are scanned in 4 rings (below). At the start of each ring, if mana is below 4, the scan stops. Each ground-layer unit found that has flag bit 15 (undead) is exorcised, except, in Enhanced mode, a unit of players 0 to 7 that is allied with the caster. Exorcising: damage = min(floor(mana / 4), the unit's HP); an exorcism effect (kind 8) appears on it; the damage is applied with the caster as the attacker (`combat/damage.md`, "Applying damage"); the caster pays 4 × damage |
-| Flame shield | Step 1. The caster becomes idle and its invisibility ends **before** the mana check. If the target's flame-shield timer is not 0, or the target has flag bit 1 (air), nothing more happens and no mana is spent. Otherwise step 2 (mana check: idle), pay, set the target's flame-shield timer to **500**, and launch the flame-shield bolt (below) |
-| Fireball | Steps 2 to 5, then launch the fireball (below) |
-| Slow | Steps 1 to 5. Then the target's speed timer: if it is negative, it becomes −1000; otherwise it becomes timer − 1000. A cosmetic effect (kind 0x16) appears on the target |
-| Invisibility | Steps 1 to 5. The target's invisibility timer becomes **2000**. Effect kind 0x16 on the target |
-| Polymorph | Steps 1 to 5. The target gets the **used** mark (`core/corpses.md`) and is killed: it plays its own death animation and then, if its type has a corpse kind, leaves a dead body that keeps the used mark, so raise dead can't use it; the body decays on the normal timetable. A critter (type 0x39) is created for the neutral player (15) at the target's tile (2 creation draws, below), and effect kind 0x16 appears at that tile's centre |
-| Blizzard | Step 2, pay 25, step 5 (no idle). Five shard chains are started, each with 10 repeats (below) |
-| Eye of Kilrogg | Steps 2 to 5. An eye of Kilrogg (type 0x2D) is created for the caster's player next to the **caster** (not the target point), with the free-tile search of `movement/placement.md` ("a spell creates a unit next to its caster"). The search makes no draws; the new eye makes 1 creation draw (below). If no tile is found, no eye is created, the mana stays spent, and the blocked-exit message (entry 67 of `network.tbl`) is set |
-| Bloodlust | Steps 1 to 5. The target's bloodlust timer becomes **1000**. Effect kind 0x16 on the target |
-| Raise dead | The caster becomes idle and its invisibility ends. Then every unit slot is scanned in ascending order (`core/unit-slots.md`) while the caster's mana is at least 50. A slot qualifies if it holds a dead body (type 0x69) in its remains state that has not been used yet, and the squared tile distance from the body's tile to the target tile, dx² + dy², is at most **36**. For each: a skeleton (type 0x37) is created for the caster's player directly on the body's tile (no free-tile search; only the creation checks of `core/unit-slots.md` apply); the skeleton makes 1 creation draw (below); if that worked, effect kind 0x16 appears on it and the body gets the **used** mark; in either case the caster pays **50**. The used mark only stops the body being raised again: it keeps decaying and is removed on its normal timetable (`core/corpses.md`) |
-| Death coil | Steps 2 to 5. Then victims are chosen and missiles launched (below), and the caster gains HP |
-| Whirlwind | Steps 2 to 5, then the whirlwind is created (below) |
-| Haste | Steps 1 to 5. Then the target's speed timer: if it is greater than 0, it becomes 1000; otherwise it becomes timer + 1000. Effect kind 0x16 on the target |
-| Unholy armour | Steps 1 to 5. The target's unholy-armour timer becomes **500**. Its HP is halved, rounding down, if it is at least 2 (1 HP stays 1). Effect kind 0x16 on the target |
-| Runes | Steps 2 to 5, then up to 5 runes are placed and part of the cost is refunded (below) |
-| Death and decay | Step 2, pay 25, step 5 (no idle). Five decay clouds are created, each with 10 pulses (below) |
-
-A "unit spell" with no target at its strike (for example, the target died) makes the caster idle without paying.
+| Holy vision | Steps 2 to 4. Then 7 areas are revealed for the caster's player, centred on the target point T and on T + (0, −8), T + (0, +8), T + (+6, +4), T + (+6, −4), T + (−6, +4) and T + (−6, −4), in that order. Each is revealed exactly like a unit with **sight 9** standing on that tile (`vision/fog.md`). Each point also gets a cosmetic effect (kind 0x16) at its tile's pixel position + (8, 8). Points off the map are skipped: in Enhanced mode a point is used only if both coordinates are from 0 to map width − 1; **Classic mode:** a coordinate may also equal the map width, and such a point reveals nothing but still gets its cosmetic effect. A negative coordinate is off the map in both modes. (Maps are square, so the width is also the height.) In Enhanced mode the fog refresh countdown is then set to 150, so the next refresh comes 150 cycles later (**Classic mode:** unchanged) |
+| Healing | Step 1 (no target: idle). The caster becomes idle. Let missing = maximum HP − HP. If missing is 0, nothing more. Otherwise heal = min(missing, floor(mana / 6), 40). If heal is 0, nothing more. The target gains heal HP, the caster pays 6 × heal mana, and a healing effect (kind 9) appears on the target |
+| Exorcism | The caster becomes idle (no up-front cost). Then the 7 × 7 tiles around the target tile are scanned in 4 rings (below). At the start of each ring, if mana is below 4, the scan stops. Each ground-layer unit found that has flag bit 15 (undead) is exorcised, except, in Enhanced mode, a unit of players 0 to 7 that is allied with the caster (**Classic mode:** allies are exorcised too). Exorcising: damage = min(floor(mana / 4), the unit's HP); an exorcism effect (kind 8) appears on it; the damage is applied with the caster as the attacker (`combat/damage.md`, "Applying damage"); the caster pays 4 × damage |
+| Flame shield | Step 1. The caster becomes idle **before** the mana check. If the target's flame-shield timer is not 0, or the target has flag bit 1 (air), nothing more happens and no mana is spent. Otherwise step 2 (mana check: idle), pay, set the target's flame-shield timer to **500**, and launch the flame-shield bolt (below) |
+| Fireball | Steps 2 to 4, then launch the fireball (below) |
+| Slow | Steps 1 to 4. Then the target's speed timer: if it is negative, it becomes −1000; otherwise it becomes timer − 1000. Marker on the target |
+| Invisibility | Steps 1 to 4. The target's invisibility timer becomes **2000**. Marker on the target |
+| Polymorph | Steps 1 to 4. The target gets the **used** mark (`core/corpses.md`) and is killed: it plays its own death animation and then, if its type has a corpse kind, leaves a dead body that keeps the used mark, so raise dead can't use it; the body decays on the normal timetable. The kill is outright: no damage step, no credit (`combat/damage.md`, "Credit and score"). A critter (type 0x39) is created for the neutral player (15) at the target's tile (2 creation draws, below), and effect kind 0x16 appears at that tile's centre |
+| Blizzard | Step 2, pay 25 (no idle). Five shard chains are started, each with 10 repeats (below) |
+| Eye of Kilrogg | Steps 2 to 4. An eye of Kilrogg (type 0x2D) is created for the caster's player next to the **caster** (not the target point), with the free-tile search of `movement/placement.md` ("a spell creates a unit next to its caster"). The search makes no draws; the new eye makes 1 creation draw (below). If no tile is found, no eye is created, the mana stays spent, and the blocked-exit message (entry 67 of `network.tbl`) is set |
+| Bloodlust | Steps 1 to 4. The target's bloodlust timer becomes **1000**. Marker on the target |
+| Raise dead | The caster becomes idle. Then every unit slot is scanned in ascending order (`core/unit-slots.md`) while the caster's mana is at least 50. A slot qualifies if it holds a dead body (type 0x69) in its remains state that has not been used yet, and the squared tile distance from the body's tile to the target tile, dx² + dy², is at most **36**. For each: a skeleton (type 0x37) is created for the caster's player directly on the body's tile (no free-tile search; only the creation checks of `core/unit-slots.md` apply); the skeleton makes 1 creation draw (below); if that worked, effect kind 0x16 appears on it and the body gets the **used** mark; in either case the caster pays **50**. The used mark only stops the body being raised again: it keeps decaying and is removed on its normal timetable (`core/corpses.md`) |
+| Death coil | Steps 2 to 4. Then victims are chosen and missiles launched (below), and the caster gains HP |
+| Whirlwind | Steps 2 to 4, then the whirlwind is created (below) |
+| Haste | Steps 1 to 4. Then the target's speed timer: if it is greater than 0, it becomes 1000; otherwise it becomes timer + 1000. Marker on the target |
+| Unholy armour | Steps 1 to 4. The target's unholy-armour timer becomes **500**. Its HP is halved, rounding down, if it is at least 2 (1 HP stays 1); this is a direct change, not damage. Marker on the target |
+| Runes | Steps 2 to 4, then up to 5 runes are placed and part of the cost is refunded (below) |
+| Death and decay | Step 2, pay 25 (no idle). Five decay clouds are created, each with 10 pulses (below) |
 
 **Exorcism rings.** With the target tile at (x, y), ring k (k = 0 to 3) is visited like this:
 
@@ -179,29 +295,58 @@ is looked at (`movement/occupancy.md`), so a building is visited once per footpr
 
 **Death coil victims.** The 5 × 5 tiles centred on the target tile are scanned row by row from the top, left to right.
 On each tile the ground-layer unit is looked at first, then the air-layer unit. A unit is a candidate unless it is:
-allied with the caster (Enhanced mode only), owned by the caster's player, dying or dead, or without flag bit 27
-(organic). A building covering several scanned tiles is found once per tile. The candidates are then sorted by HP,
-lowest first. Candidates with equal HP don't keep their scan order. The order is the one you get by going through the
-list positions from the first, and for each position comparing its candidate with every later candidate in turn,
-swapping the two whenever the one at the position has more HP. For example, scan order A (30 HP), B (30 HP), C (5 HP)
-becomes C, B, A. A budget of **50** is shared out in that order: each victim takes its full HP while the budget lasts;
-the first victim that doesn't fit takes what is left, and the victims after it get nothing and are dropped. For each
-kept victim, in order, the caster launches its own missile weapon at it through the normal launch of `combat/damage.md`
-(so the launch makes its usual damage draw and two scatter draws), and the missile's stored damage is then replaced by
-the victim's share. Each coil missile is a normal missile of kind 0x0A (`combat/damage.md`, "Missile flight"): its
-destination is its aim point (the victim's centre plus the scatter) from the moment it is created; it flies N = floor(D
-/ 12) + 1 steps, landing on the step where the remaining distance goes below 0, and stays there; its share is applied at
-its impact, **16** cycles after the landing step. As each missile is launched, the caster's target becomes that victim,
-so after the launches the caster's target is the last victim, until the idle takes over (traced:
-`xorc01-death-coil-2500`, vectors below). On impact the share is applied to the victim with the caster as the attacker.
-The caster then gains the total of the shares at once, capped at its maximum HP. With no candidates, the 100 mana is
-still spent.
+allied with the caster (Enhanced mode only; **Classic mode:** allies are candidates), owned by the caster's player,
+dying or dead, or without flag bit 27 (organic). A building covering several scanned tiles is found once per tile. The
+candidates are then sorted by HP, lowest first. Candidates with equal HP don't keep their scan order. The order is the
+one you get by going through the list positions from the first, and for each position comparing its candidate with
+every later candidate in turn, swapping the two whenever the one at the position has more HP. For example, scan order
+A (30 HP), B (30 HP), C (5 HP) becomes C, B, A. A budget of **50** is shared out in that order: each victim takes its
+full HP while the budget lasts; the first victim that doesn't fit takes what is left, and the victims after it get
+nothing and are dropped. For each kept victim, in order, the caster launches its own missile weapon at it through the
+normal launch of `combat/damage.md` (so the launch makes its usual damage draw and two scatter draws), and the
+missile's stored damage is then replaced by the victim's share. Each coil missile is a normal missile of kind 0x0A
+(`combat/damage.md`, "Missile flight"): its destination is its aim point (the victim's centre plus the scatter) from
+the moment it is created; it flies N = floor(D / 12) + 1 steps, landing on the step where the remaining distance goes
+below 0, and stays there; its share is applied at its impact, **16** cycles after the landing step. As each missile is
+launched, the caster's target becomes that victim, so after the launches the caster's target is the last victim, until
+the idle takes over (traced: `xorc01-death-coil-2500`, vectors below). On impact the share is applied to the victim
+with the caster as the attacker. The caster then gains the total of the shares at once, capped at its maximum HP. With
+no candidates, the 100 mana is still spent.
 
 **Runes.** The tiles tried are, in order: the target tile, then the tiles north, east, south and west of it. A rune is
 placed on a tile if the tile is on the map, no ground-layer unit or building is on it, no live rune is already there,
 and one of the 50 rune slots (shared by all players) is free. There is no terrain test: runes can go on water, trees
 and rock. Each placed rune gets a lifetime of **2048** and a cosmetic effect (kind 0x0B) at the tile centre. With n
 runes placed (0 to 5), the caster is refunded (5 − n) × 40 mana, so it pays 200 − (5 − n) × 40 in all.
+
+**Evidence:** traced: holy vision, polymorph, fireball, healing and invisibility (`xhuman10-spells-700`), blizzard,
+slow and flame shield (`xhuman10-blizzard-600`, `xhuman10-slow-3000`), haste, unholy armour, whirlwind, death and
+decay and raise dead (`xorc01-death-knight-2100`), death coil (`xorc01-death-coil-2500`), bloodlust, runes and eye of
+Kilrogg (`xorc12-ogre-mage-180`, `xorc12-spells-1500`), exorcism (`xhuman10-exorcism-3000`); static study: the order
+of each strike's steps, exorcism's rings, death coil's sort, raise dead's scan and the Classic-mode rules.
+
+### How spell damage is delivered
+
+Spells reuse the deliveries of `combat/damage.md` and add two of their own. This table is the map; the details are in
+the sections named.
+
+| Spell | Delivery | Where |
+| --- | --- | --- |
+| Fireball | The **gryphon hammer and dragon breath** missile (kind 2 shares their behaviour): stored damage 40 (limit 40), no target, no damage roll and no scatter; its final hit goes to a wall on its final tile | `combat/damage.md`, "Missile flight"; here, "Fireball" |
+| Death coil | A **normal missile** (kind 0x0A) launched through the normal launch, its stored damage replaced by the victim's share | `combat/damage.md`, "Missile flight"; here, "Death coil victims" |
+| Flame shield, blizzard, death and decay, whirlwind | The hammer and breath **splash**: armour-free, air units included | `combat/damage.md`, "Missile flight" (the splash paragraph) and "Splash on impact"; here, "Splash" |
+| Exorcism | Damage applied at once through "Applying damage" (no missile), with the caster as the attacker | `combat/damage.md`, "Applying damage" |
+| Runes | A **direct HP change**: not through "Applying damage" | here, "Runes on the map" |
+| Polymorph | An **outright kill** | here, "The spells" |
+| Unholy armour | HP halved directly (not damage) | here, "The spells" |
+
+Every delivery but the runes, polymorph and unholy armour's halving ends in `combat/damage.md`, "Applying damage",
+with its credit and score. The caster, or the unit in the effect's shooter slot, is the attacker ("The shooter after
+its slot is released").
+
+**Evidence:** traced: the fireball's flight (`xhuman10-spells-700`), the coil missiles (`xorc01-death-coil-2500`), the
+blizzard shards' landing (`xhuman10-blizzard-600`, S69), the rune path (`xorc12-spells-hits-1150-1260`, S85); static
+study: that fireball and hammer share one behaviour, that the four splash kinds share the hammer's splash.
 
 ### Timers
 
@@ -210,11 +355,18 @@ ascending slot order. Units that are dying or are remains, and units in one othe
 
 | Timer | Set by | Each cycle | While running |
 | --- | --- | --- | --- |
-| Invisibility | Invisibility (2000) | −1 toward 0 | The unit is detected only as `vision/fog.md` describes. A unit's own spell cast or attack strike sets it to 0, and so does a worker's chop or repair strike (traced: `human13-invisible-work-hits-900`, vectors below). An attack strike sets it to 0 whatever its target's state, a target that has gone inside included (static study; `combat/damage.md`, "How an attack delivers damage"). A cast whose target or mana check fails at the strike keeps it (step 5 of "At the strike" isn't reached; held by the open question "Invisibility at a failed cast") |
+| Invisibility | Invisibility (2000) | −1 toward 0 | The unit is detected only as `vision/fog.md` describes. Every strike point of the unit sets it to 0: a spell cast, whether the cast then succeeds or fails ("The strike point"), an attack strike, and a worker's chop or repair strike (traced: `human13-invisible-work-hits-900` and `xhuman10-failcast-520`, vectors below). An attack strike sets it to 0 whatever its target's state, a target that has gone inside included (static study; `combat/damage.md`, "How an attack delivers damage") |
 | Unholy armour | Unholy armour (500) | −1 toward 0 | The unit takes no damage from hits (`combat/damage.md`), and runes don't hurt it |
 | Bloodlust | Bloodlust (1000) | −1 toward 0 | Basic and piercing damage are doubled (`combat/damage.md`) |
 | Speed (signed) | Haste (positive), slow (negative) | moves 1 toward 0 | Positive: hasted; negative: slowed (`core/animation-scripts.md`) |
 | Flame shield | Flame shield (500) | −1 toward 0 | Only blocks a second flame shield; the flames themselves last on their own (below) |
+
+The computer's casters also set timers to 1 or −1 as marks; they are real timers ("The computer's casters").
+
+**Evidence:** traced: the timer values and countdowns (every spell trace; S84 for invisibility), the strikes that end
+invisibility (S82, S83, S84); static study: the skipped states.
+
+### The timers pass
 
 Also in the timers pass, for each unit, in this order:
 
@@ -234,6 +386,9 @@ Also in the timers pass, for each unit, in this order:
 5. **Decay** for other units whose type has a non-zero decay rate, if they were created during play (below).
 
 The runes are advanced before the units in the same pass (below).
+
+**Evidence:** traced: mana gains (`xhuman10-failcast-520`: 14 to 15 at n = 414, 15 to 16 at n = 454); static study:
+the order of the steps, berserkers, sappers and buildings.
 
 ### Summoned units and decay
 
@@ -255,6 +410,12 @@ reaching 0 HP: it is killed one period later.
 
 "Timers pass n" counts the pass in the cycle the unit was created as pass 1.
 
+**Food.** Skeletons and critters (polymorph's) don't count as food in use; an eye of Kilrogg counts like any other
+non-building unit while it exists (`economy/build-train.md`, "Food"; its open question "Food of summoned units"
+holds the eye's case, not traced).
+
+**Evidence:** static study (the counters, the 5-HP steps, food); game data: the decay rates and HP.
+
 ### Runes on the map
 
 Each cycle, before the units' timers, every live rune is advanced:
@@ -267,6 +428,14 @@ Each cycle, before the units' timers, every live rune is advanced:
 
 A rune whose lifetime reaches 0 is gone after that cycle's check. Runes hit **any** ground unit, including the
 caster's own and allied units, and ships on water. Air units never trigger them.
+
+A rune's hit is a direct change to the unit's HP, not a delivery to `combat/damage.md`, "Applying damage": there is no
+notification, no attacker record, no call for help and no under-attack alert, and a rune's kill is an outright kill
+with no credit and no score (traced: the hit leaves no `hits` entry, `xorc12-spells-hits-1150-1260`, S85; static
+study for the rest).
+
+**Evidence:** traced: placement (`xorc12-ogre-mage-180`, S50), a hit (`xorc12-spells-hits-1150-1260`, S85); static
+study: the lifetime, the kill, the unholy-armour test.
 
 ### Spell effects in flight
 
@@ -290,10 +459,14 @@ steps (for any G other than S itself).
 | Death-coil missile (default death knight) | 10 | 12 | every cycle |
 | Whirlwind | 12 | 1 | every 3 cycles |
 
-**Splash.** Several spells damage an area through the splash rule of `combat/damage.md` ("Splash on impact"), with
-two differences: the effect kinds above (2, 4, 5, 6, 12) **ignore armour**, and the 7 × 7 scan also looks at the
-air-layer unit of each tile, after its ground-layer unit. The unit that owns the effect (the caster, or the shielded
-unit for flames) is never hit. So for a stored damage D:
+**Splash.** Flames, blizzard shards, death-and-decay clouds, whirlwinds and the fireball (kinds 4, 5, 6, 12 and 2)
+damage an area through the splash of the gryphon hammer and dragon breath (`combat/damage.md`, "Missile flight"), which
+is the rule of "Splash on impact" with these differences: armour **isn't subtracted** (every unit within 42 px is hit,
+even with a base of 0), and the air-layer unit of each tile is looked at after its ground-layer unit. As in "Splash on
+impact", the ground-layer unit on the effect's tile is considered first, then the 7 × 7 tiles row by row from the top,
+each row left to right, and each unit at most once; so an air unit on the effect's tile comes in its tile's place in the
+scan, not straight after that tile's ground-layer unit (`combat/damage.md`, V95). The unit that owns the effect (the
+caster, or the shielded unit for flames) is never hit. So for a stored damage D:
 
 | Distance from the effect to the unit's centre | Damage |
 | --- | --- |
@@ -302,7 +475,8 @@ unit for flames) is never hit. So for a stored damage D:
 | 43 px or more | none |
 
 One draw r is made per unit hit, in scan order. Walls on the effect's tile take D and the four neighbour walls take
-floor(D / 4) (`movement/occupancy.md`, "Walls").
+floor(D / 4) (`movement/occupancy.md`, "Walls"). Each unit's damage is then applied as in `combat/damage.md`,
+"Applying damage", with the effect's shooter slot as the attacker.
 
 **Fireball.** Launched from the caster's centre toward the target tile's centre with stored damage **40**. Its
 destination is the target tile's centre from creation (traced: `xhuman10-spells-700`, vectors below). On each step it
@@ -416,6 +590,12 @@ flight step, 12 px up and to the left (one draw), in their update 19 cycles afte
 update by touching a wall on their final tile with damage 0, which still adds 1 to that wall's damage counter
 (`movement/occupancy.md`, "Walls"). Traced for healing: `xhuman10-spells-700`, vectors below.
 
+**Evidence:** traced: the fireball (`xhuman10-spells-700`, S73, S75), flame shield (`xhuman10-blizzard-600`,
+`xhuman10-slow-3000`, S71, S72, S74, S78 to S80), blizzard (S55, S69), death and decay (S67), whirlwind (S59, S61),
+death coil (S56 to S58), the shooter slot (S61), the cosmetic and wisp effects (S48 to S50, S52, S68, S76, S77);
+static study: the line rule, the splash rule's details, the fireball's limit and splash slot, the flames' wait before
+a slot, the released-and-reused shooter slot (S62, S63), the cosmetic timings in cycles (S47, S51).
+
 ### When a new effect first runs
 
 Effects are updated in ascending slot order after all units in phase 4, and a new effect takes the lowest free
@@ -445,6 +625,19 @@ A is the total of the waits in the kind's start animation (animation 0 of its sc
 blizzard shard's initial wait of 12 cycles and the death and decay cloud's first step at cycle 18 (above) already
 include their start animations.
 
+**Evidence:** traced: the building fires' start step (S52) and the waiting shards (S55); static study: the other
+start steps (S46, S47, S51); game data: the start animations (`Rez\script.bin`).
+
+### Effect slots
+
+Every spell effect takes the **lowest free effect slot** (`core/unit-slots.md`, "Effect slots"): 400 slots in Enhanced
+mode (**Classic mode:** 200), slots 0 to 2 holding the map's permanent effects. A spell that needs a free slot and finds
+none makes only that piece of the spell fail: no marker, no shard, no splash explosion, and so on. Nothing is refunded:
+mana the strike has already paid stays paid. A removed effect's slot is free for any effect created later; when that
+happens is given per kind above ("Cosmetic effects", the flight sections).
+
+**Evidence:** static study (the slot counts, the lowest-free search); traced: the slot numbers in every spell vector.
+
 ### Random draws
 
 Creation draws follow `core/timing-and-rng.md`. A unit whose type has a decay rate and that is created during play
@@ -467,6 +660,23 @@ makes no facing draw; every other mobile unit does; every created unit makes the
 
 On a step that both splashes and moves (whirlwind), the splash draws come first. On a fireball or bolt step the step
 draw comes before any splash draws.
+
+**Evidence:** static study (vectors S43 to S46); the traces' `rng` fields hold the draw counts for checking.
+
+### The computer's casters
+
+How the computer picks a spell and a target is in `ai/caster-ai.md`. Three of its rules are spell mechanics and use
+this spec unchanged:
+
+- **Timer marks.** A computer try may set a target's spell timer to 1 (or −1) as a mark. It is a real timer: it has
+  its normal effect until the timers pass of the same cycle runs it out (an unholy-armour mark of 1 blocks that
+  cycle's damage and kills a sapper or demolition squad in that pass; "The timers pass", step 2).
+- **Eye of Kilrogg.** The eye try sets order 48 as the pending order directly: there is no command, so no target
+  check and no cheat top-up ("Giving the order"); the strike's mana check still applies.
+- **A unit spell at a tile with no unit** fails the decision's target check and the caster becomes idle, with nothing
+  paid ("Walking and the decision").
+
+**Evidence:** static study (`ai/caster-ai.md`).
 
 ## Data
 
@@ -506,102 +716,107 @@ After point 50 the path goes back to point 0.
 skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38. Flag bit 17 (caster): 0x0A, 0x0B,
 0x0C, 0x0D, 0x15, 0x17, 0x18, 0x2C, 0x31, 0x33, 0x34. Decay: skeleton 100, eye 3, all others 0.
 
+**Evidence:** game data (`Rez\unitdata.dat`: the HP, decay rates and flag bits; checked in review), static study (the
+cost and timer values, the flame path and the effect speeds, read from the program's tables).
+
 ## Test vectors
 
-| Input | Expected |
-| --- | --- |
-| Paladin with 100 mana heals a footman at 30 of 60 HP | missing 30, floor(100 / 6) = 16, heal 16: footman 46 HP, mana 4 |
-| Paladin with 255 mana heals a footman at 0 missing HP | Nothing healed, no mana spent; the paladin becomes idle |
-| Paladin with 255 mana heals a knight missing 60 HP | heal = min(60, 42, 40) = 40; mana 255 − 240 = 15 |
-| Paladin with 100 mana, exorcism with a 40-HP skeleton alone on the target tile | Ring 0, first visit: damage min(25, 40) = 25, mana 0. Second visit of the same tile: damage 0 (applied, so the skeleton is still told it was attacked), mana 0. Ring 1: mana below 4, stop. Skeleton at 15 HP |
-| Paladin with 255 mana, same skeleton | First visit: damage 40, skeleton dies, mana 255 − 160 = 95. Second visit: the tile is empty. Rings 1 to 3 continue while mana ≥ 4 |
-| Flame shield on a unit whose flame-shield timer is 120 | Nothing; no mana spent; the caster is idle |
-| Flame shield on a gryphon rider | Nothing; no mana spent (air unit) |
-| Slow on a unit with speed timer +300 (hasted) | −700 |
-| Slow on a unit with speed timer −200 | −1000 |
-| Haste on a unit with speed timer −300 (slowed) | +700 |
-| Haste on a unit with speed timer +400 | +1000 |
-| Unholy armour on a grunt at 61 HP | 30 HP; unholy timer 500 |
-| Unholy armour on a unit at 1 HP | stays 1 HP; timer 500 |
-| Invisibility on a goblin sapper | It is killed in that cycle's timers pass |
-| Runes, mana 200, target tile free, the north and east tiles hold units | 3 runes (centre, south, west); refund 80; mana 80 |
-| Runes, all 5 tiles free but only 2 rune slots free | 2 runes (centre and north); refund 120 |
-| Footman (60 HP) walks onto a rune | Rune used up; footman at 10 HP |
-| Footman at 50 HP walks onto a rune | Footman killed |
-| Unholy-armoured knight walks onto a rune | Rune used up; no damage |
-| Raise dead, mana 120, three unused bodies at squared distances 4, 25 and 49 | Two skeletons, from the two nearer bodies (in slot order); mana 20; the third body is too far |
-| Raise dead, mana 60, one body, but the caster's player is at its unit cap | No skeleton; the body stays unused; mana 10 |
-| Death coil, candidates with 10, 30 and 25 HP | Order 10, 25, 30. Shares 10, 25, 15; the caster gains 50 HP (capped at its maximum) |
-| Death coil, candidates with 60 and 5 HP | Order 5, 60. Shares 5 and 45; caster gains 50 |
-| Death coil, no candidates | 100 mana spent; nothing else |
-| Blizzard, caster with 60 mana, channelled | Two strikes (60 → 35 → 10); at the third strike 10 < 25, so the caster becomes idle. 10 chains, 110 shards in all |
-| One blizzard shard lands 10 px from a footman | 5 to 10 damage (armour ignored) |
-| Fireball cast at a point 200 px east of the caster's centre | Steps of 12 px until the remaining distance drops below 50 (13 steps: 200 → 44). Then 6-px steps; counts 1, 2, … from that step. Explosions on counts 8, 16, 24, 32 and 40 (steps 20, 28, 36, 44 and 52), at remaining distances 2, −46, −94, −142 and −190 (east of the point by that many px). Count 41 on step 53; step 54 still moves 6 px and marks it as ending; removed at the next update with no draw: 54 step draws |
-| Eye of Kilrogg | Created next to the caster. Killed on its 828th timers pass |
-| Skeleton raised | Killed on its 26400th timers pass |
-| Caster at 254 mana | 255 after its counter next reaches 0; then no more gains |
-| A mage is trained | It starts with 85 mana; 86 on its 40th timers pass |
-| Holy vision, Enhanced, 64 × 64 map, target tile (10, 60) | Points (10, 60), (10, 52), (16, 56) and (4, 56) are revealed with sight 9 and get a cosmetic effect; (10, 68), (16, 64) and (4, 64) are skipped. The fog refresh countdown becomes 150 |
-| Same, Classic | The same 4 areas are revealed. (16, 64) and (4, 64) reveal nothing but each gets a cosmetic effect (6 effects in all); (10, 68) is skipped. The refresh countdown is unchanged |
-| Holy vision at tile (3, 30), either mode, large map | (−3, 34) and (−3, 26) are skipped; the other 5 points are used |
-| Whirlwind at tile (10, 20); strike draws give 100 then 10 | Goal (336, 656); start (372, 602) (x + 36, y − 54). One 1-px step every 3 cycles; it splashes on steps 2, 4, 6, … (before moving). It reaches the goal on step 54 (after that step's splash), and then draws twice for a new goal: draws 64 then 0 give the goal (336, 592) |
-| Same whirlwind, no units near it | No draws between the strike and step 54; 27 splashes by then; lifetime 746 after step 54 |
-| Flame shield on a footman: the 5 flames at creation | Offsets from the footman's centre: (1, −34), (30, −20), (19, 8), (−11, 10), (−27, −16) (points 0, 10, 20, 30, 40) |
-| Same, the flame that started at point 10, at its 5th step | Point 15: offset (31, −5) |
-| Same, the flame that started at point 40, at its 11th step | Point 0 again (wraps after point 50): offset (1, −34) |
-| Same, the first flame (lifetime 512) | Splashes on its steps 15, 31, 47, … , 511 (32 splashes); ends at step 512 without moving, staying where step 511 left it |
-| Same, the second flame (lifetime 524) | Splashes on its steps 11, 27, … , 523 (33 splashes); ends at step 524 |
-| Death coil, candidates in scan order A (30 HP), B (30 HP), C (5 HP) | Order C, B, A. Shares C 5, B 30, A 15; the caster gains 50 |
-| Polymorph on a footman | The critter makes 2 draws (facing, then first wait). The footman plays its death animation and leaves a body with the used mark; a later raise dead skips it |
-| Raise dead with 120 mana over two unused bodies | 2 draws (one per skeleton), each body gets the used mark and still decays normally |
-| Blizzard strike | 20 draws at the strike, before any shard flies |
-| Fireball cast at cycle C | First update at C; first step and first draw at C + 1 |
-| A spell puts a spell marker (0x16) on a unit in cycle C | First update in C; start step and showing from C + 1; removed in C + 20 |
-| `xorc01-death-knight-2100` (oracle trace), n = 37: haste on ogre 1488 (type 0x07, box 42 × 42) at pixel (2848, 2944) | Effect kind 0x16 at (2869, 2961), destination (0, 0), target null, shooter null, damage 0 |
-| `xorc12-ogre-mage-180` (oracle trace), n = 36: bloodlust on ogre 1547 (type 0x07) at pixel (3712, 288) | Effect kind 0x16 at (3733, 305), destination (0, 0), target null, shooter null |
-| `xorc12-ogre-mage-180` (oracle trace), n = 77: runes are cast; five rune markers (kind 0x0B) are created | Effect slots 3 to 7 at (3600, 432), (3600, 400), (3632, 432), (3600, 464) and (3568, 432); each with destination (0, 0), target null, shooter null, damage 0 |
-| Runes cast: a rune marker (0x0B) made in the timers pass of cycle C | First update in C + 1; start step in C + 3; removed in C + 19 |
-| Map start, oracle trace Human01: the building fires in effect slots 0 and 1 | First update in the first start-up cycle; start step 5 cycles later, in the 4th normal cycle; never removed |
-| Custom unit data gives a farm the caster flag and magic 0; the farm is placed by the map | Mana 0 until its 256th timers pass, then 1; +1 every 40 passes after that, up to 255 |
-| Default data | No building gains mana from the timers pass |
-| `xhuman10-blizzard-600` (oracle trace), n = 145: new shards in effect slots 4, 5 and 7, waiting | Destinations (2480, 2864), (2512, 2928) and (2576, 2800), each chain's landing point, unchanged through n = 160; they start moving at n = 157, 12 cycles after creation |
-| `xorc01-death-coil-2500` (oracle trace), n = 1191: death knight 1491's coil launches effect 3 (kind 0x0A, victim 1521, share 40) and effect 4 (victim 1514, share 10) from (2320, 2224) | Destinations (2642, 2157) and (2704, 2223) from creation; the caster's target is 1514 until the idle takes over at n = 1220 |
-| Same: effect 3, D = 322 | 27 steps: lands at n = 1218 at (2644, 2152) and stays; removed at n = 1234, its impact 16 cycles after landing |
-| Same: effect 4, D = 384 | 33 steps: lands at n = 1224 at x = 2716 |
-| `xorc01-death-knight-2100` (oracle trace): whirlwind cast on tile (80, 68) at n = 1300 | n = 1318: effect 3 (kind 12) at (2614, 2171), destination (2576, 2192) |
-| A whirlwind after a new goal (x, y) is picked | Destination (x, y) |
-| `xorc12-spells-1500` (oracle trace, Enhanced), n = 1166: whirlwind effect 3 (kind 12, created at n = 327 with destination (3248, 1008)), cast by Teron Gorefiend 1583 (type 0x15, owner 5), who died at n = 633; his slot is released in this cycle | Shooter 1583, unchanged; the whirlwind goes on |
-| A whirlwind whose caster's slot was released and then reused by a new unit U splashes a footman (static study) | The footman's recorded attacker is U |
-| The same, with U owned by the footman's owner (static study) | The footman takes the damage; no attacker is recorded, no call for help, no score |
-| `orc14-25000` (oracle trace, Enhanced), n = 18992: paladin 1433 (type 0x0C, owner 6) at (8, 109) in order 39 (healing) on paladin 1429 (owner 6), which moved to (15, 114) at n = 18990, 7 tiles away (healing's radius is 6) | The strike heals: 1429 goes from 85 to 87 HP, 1433's mana from 16 to 4, and a healing effect (kind 9) appears at 1429 |
-| `xorc12-reach-400` (oracle trace, Enhanced): Dentarg 1548 (ogre-mage) at (114, 9) is ordered to bloodlust ogre 1547, which is walking west (order 3); the cast (order 49) starts at n = 131 with 1547 at (108, 11), 6 tiles away (bloodlust's radius is 6); 1547 reaches (107, 11), 7 tiles away, at n = 140 | At the strike, n = 141, 1547 gets bloodlust (timer 999) and 1548's mana drops from 255 to 205 |
-| A mage casts slow; its target walks 12 tiles away during the casting animation (static study) | Slow still takes effect at the strike |
-| `xorc01-death-knight-2100`, n = 1569: death and decay on tile (69, 68) | Every cloud (kind 6, slots 4 to 8, at (2224, 2160), (2256, 2192) and others) has destination (2224, 2192) |
-| `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
-| `xhuman10-blizzard-600`, n = 170: the shards in slots 7 and 8 step to (2585, 2809) and (2523, 2841), past their landing points (2576, 2800) and (2512, 2832) | They land in that update: the chains' next shards appear in slots 12 and 13 (destinations (2576, 2800) and (2512, 2832)), before slot 10's missile's impact effect (slot 14, kind 0x1A) |
-| `xhuman10-slow-3000` (oracle trace), n = 302: Slow from mage 1481 (type 0x0A, owner 1) on grunt 1490, dead since n = 170 and a body (type 0x69) since n = 277 | n = 302: 1481 in order 2, target null; n = 303: wait 3 (the pending idle took over) |
-| `xhuman10-slow-3000`, n = 740: the flame in effect slot 4 (shooter 1480) at (2676, 2862) on its last step | Unmoved at (2676, 2862); slot 4 free at n = 741 |
-| Same, n = 174 and 175 | Slots 7 and 8 unmoved at n = 174; free at n = 175 |
-| `xhuman10-spells-700` (oracle trace), n = 329: mage 1481 (type 0x0A) casts fireball (order 43) at catapult 1487 on tile (74, 89) | Effect 3: kind 2 at (2704, 2832), destination (2384, 2864), shooter 1481, damage 40 |
-| `xhuman10-blizzard-600` (oracle trace), n = 417: mage 1481 casts flame shield (order 42) on knight 1480 at pixel (2592, 2880) | Effect 9: kind 3 at (2704, 2832), destination (2608, 2896), target 1480, shooter 1481 |
-| `xhuman10-spells-700`, n = 393: the fireball in effect slot 3 (kind 2, shooter 1481, damage 40, destination (2384, 2864)) | Still in use at (2182, 2880); free at n = 394, with no draw for it |
-| `xhuman10-spells-700`, n = 619: healing on knight 1489 | Effect slot 3: kind 9 at (2421, 2897), destination (0, 0), target and shooter null, damage 0 |
-| Same effect | Unmoved through n = 637; one step to (2409, 2885) at n = 638 (619 + 19); free at n = 639 |
-| `xhuman10-blizzard-600`, n = 426: the flame shield bolt in effect slot 9 | Still in use at (2608, 2892), as at n = 425; free at n = 427 |
-| Same, n = 426: the flames (slots 11 and 20 to 23) | Kind 4, shooter 1480, target null, destination (0, 0), damage 4 |
-| Same, the flame in slot 11 | At (2609, 2862) from n = 426 to 431; (2612, 2862) at n = 432 |
-| `human14-10000` (oracle trace), n = 3740: death knight 1577 (type 0x0B, owner 0) in order 52 finds no route | Order 2, animation 2, wait 1; 5 random draws in that cycle, the idle look-around among them |
-| `human13-invisible-work-hits-900` (oracle trace, Enhanced): peasant 1402 (type 0x02), made invisible by mage 1415 and chopping (order 23, animation 4) | Invisibility timer 1999 from n = 94, 1984 at n = 109 (frame 35); 0 at n = 112, the chop strike (frame 40) |
-| Same trace: peasant 1401, made invisible at n = 238, repairs farm 1413 (order 27) | The repair animation starts at n = 436 and the farm goes from 389 to 393 HP while the timer still runs (1792 at n = 445); 0 at n = 446, the first repair strike (frame 40) |
+IDs S01 to S83 are the rows before round 80, unchanged apart from the ID column; S84 on are new.
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| S01 | Paladin with 100 mana heals a footman at 30 of 60 HP | missing 30, floor(100 / 6) = 16, heal 16: footman 46 HP, mana 4 |
+| S02 | Paladin with 255 mana heals a footman at 0 missing HP | Nothing healed, no mana spent; the paladin becomes idle |
+| S03 | Paladin with 255 mana heals a knight missing 60 HP | heal = min(60, 42, 40) = 40; mana 255 − 240 = 15 |
+| S04 | Paladin with 100 mana, exorcism with a 40-HP skeleton alone on the target tile | Ring 0, first visit: damage min(25, 40) = 25, mana 0. Second visit of the same tile: damage 0 (applied, so the skeleton is still told it was attacked), mana 0. Ring 1: mana below 4, stop. Skeleton at 15 HP |
+| S05 | Paladin with 255 mana, same skeleton | First visit: damage 40, skeleton dies, mana 255 − 160 = 95. Second visit: the tile is empty. Rings 1 to 3 continue while mana ≥ 4 |
+| S06 | Flame shield on a unit whose flame-shield timer is 120 | Nothing; no mana spent; the caster is idle |
+| S07 | Flame shield on a gryphon rider | Nothing; no mana spent (air unit) |
+| S08 | Slow on a unit with speed timer +300 (hasted) | −700 |
+| S09 | Slow on a unit with speed timer −200 | −1000 |
+| S10 | Haste on a unit with speed timer −300 (slowed) | +700 |
+| S11 | Haste on a unit with speed timer +400 | +1000 |
+| S12 | Unholy armour on a grunt at 61 HP | 30 HP; unholy timer 500 |
+| S13 | Unholy armour on a unit at 1 HP | stays 1 HP; timer 500 |
+| S14 | Invisibility on a goblin sapper | It is killed in that cycle's timers pass |
+| S15 | Runes, mana 200, target tile free, the north and east tiles hold units | 3 runes (centre, south, west); refund 80; mana 80 |
+| S16 | Runes, all 5 tiles free but only 2 rune slots free | 2 runes (centre and north); refund 120 |
+| S17 | Footman (60 HP) walks onto a rune | Rune used up; footman at 10 HP |
+| S18 | Footman at 50 HP walks onto a rune | Footman killed |
+| S19 | Unholy-armoured knight walks onto a rune | Rune used up; no damage |
+| S20 | Raise dead, mana 120, three unused bodies at squared distances 4, 25 and 49 | Two skeletons, from the two nearer bodies (in slot order); mana 20; the third body is too far |
+| S21 | Raise dead, mana 60, one body, but the caster's player is at its unit cap | No skeleton; the body stays unused; mana 10 |
+| S22 | Death coil, candidates with 10, 30 and 25 HP | Order 10, 25, 30. Shares 10, 25, 15; the caster gains 50 HP (capped at its maximum) |
+| S23 | Death coil, candidates with 60 and 5 HP | Order 5, 60. Shares 5 and 45; caster gains 50 |
+| S24 | Death coil, no candidates | 100 mana spent; nothing else |
+| S25 | Blizzard, caster with 60 mana, channelled | Two strikes (60 → 35 → 10); at the third strike 10 < 25, so the caster becomes idle. 10 chains, 110 shards in all |
+| S26 | One blizzard shard lands 10 px from a footman | 5 to 10 damage (armour ignored) |
+| S27 | Fireball cast at a point 200 px east of the caster's centre | Steps of 12 px until the remaining distance drops below 50 (13 steps: 200 → 44). Then 6-px steps; counts 1, 2, … from that step. Explosions on counts 8, 16, 24, 32 and 40 (steps 20, 28, 36, 44 and 52), at remaining distances 2, −46, −94, −142 and −190 (east of the point by that many px). Count 41 on step 53; step 54 still moves 6 px and marks it as ending; removed at the next update with no draw: 54 step draws |
+| S28 | Eye of Kilrogg | Created next to the caster. Killed on its 828th timers pass |
+| S29 | Skeleton raised | Killed on its 26400th timers pass |
+| S30 | Caster at 254 mana | 255 after its counter next reaches 0; then no more gains |
+| S31 | A mage is trained | It starts with 85 mana; 86 on its 40th timers pass |
+| S32 | Holy vision, Enhanced, 64 × 64 map, target tile (10, 60) | Points (10, 60), (10, 52), (16, 56) and (4, 56) are revealed with sight 9 and get a cosmetic effect; (10, 68), (16, 64) and (4, 64) are skipped. The fog refresh countdown becomes 150 |
+| S33 | Same, Classic | The same 4 areas are revealed. (16, 64) and (4, 64) reveal nothing but each gets a cosmetic effect (6 effects in all); (10, 68) is skipped. The refresh countdown is unchanged |
+| S34 | Holy vision at tile (3, 30), either mode, large map | (−3, 34) and (−3, 26) are skipped; the other 5 points are used |
+| S35 | Whirlwind at tile (10, 20); strike draws give 100 then 10 | Goal (336, 656); start (372, 602) (x + 36, y − 54). One 1-px step every 3 cycles; it splashes on steps 2, 4, 6, … (before moving). It reaches the goal on step 54 (after that step's splash), and then draws twice for a new goal: draws 64 then 0 give the goal (336, 592) |
+| S36 | Same whirlwind, no units near it | No draws between the strike and step 54; 27 splashes by then; lifetime 746 after step 54 |
+| S37 | Flame shield on a footman: the 5 flames at creation | Offsets from the footman's centre: (1, −34), (30, −20), (19, 8), (−11, 10), (−27, −16) (points 0, 10, 20, 30, 40) |
+| S38 | Same, the flame that started at point 10, at its 5th step | Point 15: offset (31, −5) |
+| S39 | Same, the flame that started at point 40, at its 11th step | Point 0 again (wraps after point 50): offset (1, −34) |
+| S40 | Same, the first flame (lifetime 512) | Splashes on its steps 15, 31, 47, … , 511 (32 splashes); ends at step 512 without moving, staying where step 511 left it |
+| S41 | Same, the second flame (lifetime 524) | Splashes on its steps 11, 27, … , 523 (33 splashes); ends at step 524 |
+| S42 | Death coil, candidates in scan order A (30 HP), B (30 HP), C (5 HP) | Order C, B, A. Shares C 5, B 30, A 15; the caster gains 50 |
+| S43 | Polymorph on a footman | The critter makes 2 draws (facing, then first wait). The footman plays its death animation and leaves a body with the used mark; a later raise dead skips it |
+| S44 | Raise dead with 120 mana over two unused bodies | 2 draws (one per skeleton), each body gets the used mark and still decays normally |
+| S45 | Blizzard strike | 20 draws at the strike, before any shard flies |
+| S46 | Fireball cast at cycle C | First update at C; first step and first draw at C + 1 |
+| S47 | A spell puts a spell marker (0x16) on a unit in cycle C | First update in C; start step and showing from C + 1; removed in C + 20 |
+| S48 | `xorc01-death-knight-2100` (oracle trace), n = 37: haste on ogre 1488 (type 0x07, box 42 × 42) at pixel (2848, 2944) | Effect kind 0x16 at (2869, 2961), destination (0, 0), target null, shooter null, damage 0 |
+| S49 | `xorc12-ogre-mage-180` (oracle trace), n = 36: bloodlust on ogre 1547 (type 0x07) at pixel (3712, 288) | Effect kind 0x16 at (3733, 305), destination (0, 0), target null, shooter null |
+| S50 | `xorc12-ogre-mage-180` (oracle trace), n = 77: runes are cast; five rune markers (kind 0x0B) are created | Effect slots 3 to 7 at (3600, 432), (3600, 400), (3632, 432), (3600, 464) and (3568, 432); each with destination (0, 0), target null, shooter null, damage 0 |
+| S51 | Runes cast: a rune marker (0x0B) made in the timers pass of cycle C | First update in C + 1; start step in C + 3; removed in C + 19 |
+| S52 | Map start, oracle trace Human01: the building fires in effect slots 0 and 1 | First update in the first start-up cycle; start step 5 cycles later, in the 4th normal cycle; never removed |
+| S53 | Custom unit data gives a farm the caster flag and magic 0; the farm is placed by the map | Mana 0 until its 256th timers pass, then 1; +1 every 40 passes after that, up to 255 |
+| S54 | Default data | No building gains mana from the timers pass |
+| S55 | `xhuman10-blizzard-600` (oracle trace), n = 145: new shards in effect slots 4, 5 and 7, waiting | Destinations (2480, 2864), (2512, 2928) and (2576, 2800), each chain's landing point, unchanged through n = 160; they start moving at n = 157, 12 cycles after creation |
+| S56 | `xorc01-death-coil-2500` (oracle trace), n = 1191: death knight 1491's coil launches effect 3 (kind 0x0A, victim 1521, share 40) and effect 4 (victim 1514, share 10) from (2320, 2224) | Destinations (2642, 2157) and (2704, 2223) from creation; the caster's target is 1514 until the idle takes over at n = 1220 |
+| S57 | Same: effect 3, D = 322 | 27 steps: lands at n = 1218 at (2644, 2152) and stays; removed at n = 1234, its impact 16 cycles after landing |
+| S58 | Same: effect 4, D = 384 | 33 steps: lands at n = 1224 at x = 2716 |
+| S59 | `xorc01-death-knight-2100` (oracle trace): whirlwind cast on tile (80, 68) at n = 1300 | n = 1318: effect 3 (kind 12) at (2614, 2171), destination (2576, 2192) |
+| S60 | A whirlwind after a new goal (x, y) is picked | Destination (x, y) |
+| S61 | `xorc12-spells-1500` (oracle trace, Enhanced), n = 1166: whirlwind effect 3 (kind 12, created at n = 327 with destination (3248, 1008)), cast by Teron Gorefiend 1583 (type 0x15, owner 5), who died at n = 633; his slot is released in this cycle | Shooter 1583, unchanged; the whirlwind goes on |
+| S62 | A whirlwind whose caster's slot was released and then reused by a new unit U splashes a footman (static study) | The footman's recorded attacker is U |
+| S63 | The same, with U owned by the footman's owner (static study) | The footman takes the damage; no attacker is recorded, no call for help, no score |
+| S64 | `orc14-25000` (oracle trace, Enhanced), n = 18992: paladin 1433 (type 0x0C, owner 6) at (8, 109) in order 39 (healing) on paladin 1429 (owner 6), which moved to (15, 114) at n = 18990, 7 tiles away (healing's radius is 6) | The strike heals: 1429 goes from 85 to 87 HP, 1433's mana from 16 to 4, and a healing effect (kind 9) appears at 1429 |
+| S65 | `xorc12-reach-400` (oracle trace, Enhanced): Dentarg 1548 (ogre-mage) at (114, 9) is ordered to bloodlust ogre 1547, which is walking west (order 3); the cast (order 49) starts at n = 131 with 1547 at (108, 11), 6 tiles away (bloodlust's radius is 6); 1547 reaches (107, 11), 7 tiles away, at n = 140 | At the strike, n = 141, 1547 gets bloodlust (timer 999) and 1548's mana drops from 255 to 205 |
+| S66 | A mage casts slow; its target walks 12 tiles away during the casting animation (static study) | Slow still takes effect at the strike |
+| S67 | `xorc01-death-knight-2100`, n = 1569: death and decay on tile (69, 68) | Every cloud (kind 6, slots 4 to 8, at (2224, 2160), (2256, 2192) and others) has destination (2224, 2192) |
+| S68 | `xorc01-death-knight-2100`, n = 1920: raise dead makes skeleton 1526 (type 0x37) at pixel (2208, 2144) | Effect 4, kind 0x16, at (2223, 2155) (the skeleton's centre would be (2224, 2160)) |
+| S69 | `xhuman10-blizzard-600`, n = 170: the shards in slots 7 and 8 step to (2585, 2809) and (2523, 2841), past their landing points (2576, 2800) and (2512, 2832) | They land in that update: the chains' next shards appear in slots 12 and 13 (destinations (2576, 2800) and (2512, 2832)), before slot 10's missile's impact effect (slot 14, kind 0x1A) |
+| S70 | `xhuman10-slow-3000` (oracle trace), n = 302: Slow from mage 1481 (type 0x0A, owner 1) on grunt 1490, dead since n = 170 and a body (type 0x69) since n = 277 | n = 302: 1481 in order 2, target null; n = 303: wait 3 (the pending idle took over) |
+| S71 | `xhuman10-slow-3000`, n = 740: the flame in effect slot 4 (shooter 1480) at (2676, 2862) on its last step | Unmoved at (2676, 2862); slot 4 free at n = 741 |
+| S72 | Same, n = 174 and 175 | Slots 7 and 8 unmoved at n = 174; free at n = 175 |
+| S73 | `xhuman10-spells-700` (oracle trace), n = 329: mage 1481 (type 0x0A) casts fireball (order 43) at catapult 1487 on tile (74, 89) | Effect 3: kind 2 at (2704, 2832), destination (2384, 2864), shooter 1481, damage 40 |
+| S74 | `xhuman10-blizzard-600` (oracle trace), n = 417: mage 1481 casts flame shield (order 42) on knight 1480 at pixel (2592, 2880) | Effect 9: kind 3 at (2704, 2832), destination (2608, 2896), target 1480, shooter 1481 |
+| S75 | `xhuman10-spells-700`, n = 393: the fireball in effect slot 3 (kind 2, shooter 1481, damage 40, destination (2384, 2864)) | Still in use at (2182, 2880); free at n = 394, with no draw for it |
+| S76 | `xhuman10-spells-700`, n = 619: healing on knight 1489 | Effect slot 3: kind 9 at (2421, 2897), destination (0, 0), target and shooter null, damage 0 |
+| S77 | Same effect | Unmoved through n = 637; one step to (2409, 2885) at n = 638 (619 + 19); free at n = 639 |
+| S78 | `xhuman10-blizzard-600`, n = 426: the flame shield bolt in effect slot 9 | Still in use at (2608, 2892), as at n = 425; free at n = 427 |
+| S79 | Same, n = 426: the flames (slots 11 and 20 to 23) | Kind 4, shooter 1480, target null, destination (0, 0), damage 4 |
+| S80 | Same, the flame in slot 11 | At (2609, 2862) from n = 426 to 431; (2612, 2862) at n = 432 |
+| S81 | `human14-10000` (oracle trace), n = 3740: death knight 1577 (type 0x0B, owner 0) in order 52 finds no route | Order 2, animation 2, wait 1; 5 random draws in that cycle, the idle look-around among them |
+| S82 | `human13-invisible-work-hits-900` (oracle trace, Enhanced): peasant 1402 (type 0x02), made invisible by mage 1415 and chopping (order 23, animation 4) | Invisibility timer 1999 from n = 94, 1984 at n = 109 (frame 35); 0 at n = 112, the chop strike (frame 40) |
+| S83 | Same trace: peasant 1401, made invisible at n = 238, repairs farm 1413 (order 27) | The repair animation starts at n = 436 and the farm goes from 389 to 393 HP while the timer still runs (1792 at n = 445); 0 at n = 446, the first repair strike (frame 40) |
+| S84 | `xhuman10-failcast-520` (oracle trace, Enhanced): mage 1481 (type 0x0A) channels blizzard (order 47) at tile (95, 94) from n = 23, striking at n = 37, 77, … , 397; Khadgar 1462 makes it invisible at n = 417 (timer 1999); the 11th strike comes at n = 437 (frame 35) with mana 15 | Mana stays 15 (25 needed: nothing paid, no shards); the invisibility timer goes from 1980 (n = 436) to 0 (n = 437). Order 47 and the casting animation go on until n = 466, when the pending idle takes over (order 2, animation 2, wait 3) |
+| S85 | `xorc12-spells-hits-1150-1260` (oracle trace, Enhanced, `EXTRAS=hits`), n = 1213: footman 1492 (type 0x00, owner 2, 60 HP, attacking 1547) steps onto the rune at tile (112, 13) | 10 HP; an explosion (kind 0x17) in effect slot 8 at (3600, 432), destination (0, 0), no target or shooter, damage 0; no `hits` entry in the record (the damage step isn't called) |
+| S86 | An invisible mage casts slow; its target dies during the casting animation (static study) | At the strike the invisibility timer becomes 0; the target check fails, nothing is paid, and the mage becomes idle |
+| S87 | A mage of player 1 slows a grunt of player 2 (static study) | At the strike point, before the speed timer changes, a sight-2 area around the mage is revealed for player 2 |
+| S88 | A footman at 40 HP of player 2 walks onto a rune placed by player 5 (static study) | The footman is killed outright: no notification, and player 5 gets no kill and no score |
+| S89 | An invisible ogre-mage casts eye of Kilrogg with 60 mana (static study) | At the strike the invisibility timer becomes 0; 60 < 70, so nothing is paid, no eye is made, and the caster becomes idle |
 
 ## Open questions
 
-- **Invisibility at a failed cast.** "At the strike" clears the caster's invisibility at step 5, after the target and
-  mana checks, so a cast that fails a check keeps it (flame shield and the spells whose rows say so clear it earlier).
-  Static study (combat audit erratum 4) clears the timer at every strike point with no command waiting, before the
-  checks, so a failed cast ends it too. **Default:** as stated (a cast that fails at step 1 or 2 keeps it), by the
-  B-038 ruling. A trace would need a caster made invisible whose spell's target dies, or whose mana runs short,
-  during the casting animation.
 - **Blizzard shard landing at exactly 0.** Whether a shard whose remaining distance becomes exactly 0 lands on that step
   or one step later isn't separated by the traces.
 - Confirm the death coil order of equal-HP candidates in the running game: two 30-HP victims and one 5-HP victim
@@ -619,3 +834,24 @@ skeleton 0x37. Flag bit 1 (air): 0x16, 0x23, 0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x38.
   `xorc12-reach-400`, haste and unholy armour are cast only after their targets stop, so they don't test it.
 - Whether the raise-dead scan can pick up a body in a slot that has already been released (the scan reads the body
   type and remains state only). Default: no; a released slot never qualifies.
+- **Eye of Kilrogg's blocked-exit message** (round 80, static study only). "The spells" says the message is set when no
+  tile is found. A first, incomplete static reading in round 80 suggests the message is set when an eye is made, which
+  would be the opposite. **Default:** as stated (the message only when no eye is made). **Trace request:** cast the
+  eye from a caster boxed in by units and buildings, and check whether an eye appears and a message is shown (the
+  trace format has no message field, so watch the game's message line).
+- **Organic-target spells on a building** (round 80). "Walking and the decision" says these spells need the organic
+  flag "also", that is besides the unit spells' not-a-building test; static study of the decision finds only the
+  organic test. No building in the default data has the organic flag, so the two readings differ only with custom unit
+  data. **Default:** as stated (both tests). **Trace request:** none cheap (it needs a custom map with an organic
+  building).
+- **Food of the eye of Kilrogg.** Held in `economy/build-train.md` ("Food of summoned units"). **Default:** it counts.
+  **Trace request:** cast eyes at a player's food cap and try to train a unit.
+
+### Answered in round 80
+
+- *Invisibility at a failed cast.* A cast that fails at the strike ends the caster's invisibility: the strike point
+  sets the timer to 0 before the spell's strike runs (traced: `xhuman10-failcast-520`, S84; static study agrees).
+  The stated step 5 of the old "At the strike" is gone.
+- *The rune damage path* (`combat/damage.md` and this spec disagreed). A rune's hit is a direct HP change, not a
+  delivery to "Applying damage" (traced: `xorc12-spells-hits-1150-1260`, S85; static study for the kill and the missing
+  credit). `combat/damage.md` is corrected to match.
