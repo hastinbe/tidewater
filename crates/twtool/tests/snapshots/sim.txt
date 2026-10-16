@@ -171,17 +171,17 @@ Campaign\Human\Human05.pud	move	27500	faff7a6df1cbfc97	b6d00e31a786efa5	86
 Campaign\Human\Human05.pud	move	30000	faac558d7fbb571b	30dfa2dc7d850151	85
 Campaign\Human\Human05.pud	fight	0	5c93017dbf2f65ae	a32579fffcecc6b2	111
 Campaign\Human\Human05.pud	fight	2500	3448b48078574aa0	7d006570fb71ce34	111
-Campaign\Human\Human05.pud	fight	5000	58077469d3c3ebac	52389bd72acd1aaf	106
-Campaign\Human\Human05.pud	fight	7500	9571121e02df321d	afcef2fa41b38ae5	106
-Campaign\Human\Human05.pud	fight	10000	dd822cecf2d73ad0	3317889aa0b1c8ce	104
-Campaign\Human\Human05.pud	fight	12500	d30bd8964e5e0ac7	e9c31bf2e6e42080	102
-Campaign\Human\Human05.pud	fight	15000	92da9c5fe064983a	48dedd9166cc49c9	99
-Campaign\Human\Human05.pud	fight	17500	bbc4a819dd1f84b7	547cb2ea44f9c3f3	100
-Campaign\Human\Human05.pud	fight	20000	b53ebe3849348aa4	6d7ce93e0530d847	98
-Campaign\Human\Human05.pud	fight	22500	6b0f19720161f408	a34e1c16b00be4db	97
-Campaign\Human\Human05.pud	fight	25000	3d7da1c5092cbae8	d70cb492760c0bd7	97
-Campaign\Human\Human05.pud	fight	27500	0b8afa2f878233ec	708dc8cbb19d4903	94
-Campaign\Human\Human05.pud	fight	30000	0cb502d54fb84ba0	bdf3644d284ba421	95
+Campaign\Human\Human05.pud	fight	5000	befc07904c3f92af	bec706659ccf346f	106
+Campaign\Human\Human05.pud	fight	7500	459187cc773239f7	ce7220054d27d984	106
+Campaign\Human\Human05.pud	fight	10000	0fbcc669c1644e72	42ef8e6db4592e83	103
+Campaign\Human\Human05.pud	fight	12500	20f74327296c473e	2c02e66ed1b90174	101
+Campaign\Human\Human05.pud	fight	15000	a25c385ba4644f99	0d9249261fa26cfa	101
+Campaign\Human\Human05.pud	fight	17500	1e4d6a3baf5bd75e	121bb2b2dcc9c5bc	102
+Campaign\Human\Human05.pud	fight	20000	9a2b58512ec4e3bf	c2234d6f3ad47c59	102
+Campaign\Human\Human05.pud	fight	22500	4097fc518166f3bf	b5b515330eaf716b	102
+Campaign\Human\Human05.pud	fight	25000	fbdc93cf765cb008	5405a4d03a2128c7	102
+Campaign\Human\Human05.pud	fight	27500	3716541b10b445b1	f4455892047977e3	99
+Campaign\Human\Human05.pud	fight	30000	acffb7af582e6f7f	524d5b739ba6b07e	100
 Campaign\Human\Human05.pud	harvest	0	5c93017dbf2f65ae	a32579fffcecc6b2	111
 Campaign\Human\Human05.pud	harvest	2500	94beade1f9e7ff4b	08ef4a498b62fca9	111
 Campaign\Human\Human05.pud	harvest	5000	0a5ef2af949c9534	cb1b6f8cf63fad2f	107
@@ -300,18 +300,18 @@ Campaign\Human\Human08.pud	fight	25000	7eb658607051bddf	f60e0e855ea2425e	153
 Campaign\Human\Human08.pud	fight	27500	ea1ffb4f21b2d184	cd3682bd5bf124a8	151
 Campaign\Human\Human08.pud	fight	30000	30c5e1fc7f4053e8	b503d8486f3fe6db	148
 Campaign\Human\Human08.pud	harvest	0	ca6708c90ce700c4	d8bad727a15e8040	122
-Campaign\Human\Human08.pud	harvest	2500	b790c0a238eacd62	dfb8f34903e984c2	122
-Campaign\Human\Human08.pud	harvest	5000	31a276633dbeef55	91b2ebc572a2f8db	124
-Campaign\Human\Human08.pud	harvest	7500	474ec2caafb2bc6b	0420bdcb14e6d5ae	128
-Campaign\Human\Human08.pud	harvest	10000	d7e8a9c57ed982ba	7f8a58471f93d878	133
-Campaign\Human\Human08.pud	harvest	12500	cc962ad92e3ba215	c2c05ae295619c67	136
-Campaign\Human\Human08.pud	harvest	15000	a57a4b50c10378e1	ef23980cb0b040d0	141
-Campaign\Human\Human08.pud	harvest	17500	d124c07f8f23ba7d	9bc0347a818c2182	146
-Campaign\Human\Human08.pud	harvest	20000	17f91e360d749204	12639fe57941154f	146
-Campaign\Human\Human08.pud	harvest	22500	dafca3afd08a9d2a	9d819571ce266f59	148
-Campaign\Human\Human08.pud	harvest	25000	cfc1d585c0079b21	e14a5a9d0085979d	149
-Campaign\Human\Human08.pud	harvest	27500	322e2a3ea66770fe	67f827ed8f424050	145
-Campaign\Human\Human08.pud	harvest	30000	83358912cf1c9f43	1dfb4c466ed790c4	143
+Campaign\Human\Human08.pud	harvest	2500	adec8908d12545ca	1effebd26a92ebcb	122
+Campaign\Human\Human08.pud	harvest	5000	1616428e7746a909	0a4541d2d95cd292	124
+Campaign\Human\Human08.pud	harvest	7500	8291176725caa49e	bdbad0d3b890c20e	128
+Campaign\Human\Human08.pud	harvest	10000	c4e0d02e62577622	043608fc6a9a8501	133
+Campaign\Human\Human08.pud	harvest	12500	cfaec19ccc214763	1da419cb22351c13	136
+Campaign\Human\Human08.pud	harvest	15000	c4b79590857ee95a	b658ea3f9e289158	141
+Campaign\Human\Human08.pud	harvest	17500	e871c9a833f79d7a	7d2299fc91163bd4	148
+Campaign\Human\Human08.pud	harvest	20000	7ed9e889dba71036	e3045d9ff375a5f6	148
+Campaign\Human\Human08.pud	harvest	22500	1e3c1cda45e8b22b	f0aa95e59eadba76	149
+Campaign\Human\Human08.pud	harvest	25000	c729922b9b988cec	8569c23c7f08d4b8	151
+Campaign\Human\Human08.pud	harvest	27500	3079cfcd6a971e78	7a46d5218f3f4cb0	151
+Campaign\Human\Human08.pud	harvest	30000	5c11534f35926136	9edfe0d2e89f1e00	143
 Campaign\Human\Human09.pud	move	0	1bbee05cb56db5b0	cbca7ef0aa6e8275	114
 Campaign\Human\Human09.pud	move	2500	d9a87cae73ee49ce	e53f97a3d0dedd08	107
 Campaign\Human\Human09.pud	move	5000	3d36e647f84b00a6	5ed47ff5e403fd56	106
@@ -1556,10 +1556,10 @@ Campaign\XHuman\2XHum12.pud	harvest	12500	39b555746fcc0d56	b92011380484be68	197
 Campaign\XHuman\2XHum12.pud	harvest	15000	91d7d8868abb5019	d1f9b31cd0ccd138	206
 Campaign\XHuman\2XHum12.pud	harvest	17500	8b02dffd7e8c1aec	3bf0a1bea417307e	219
 Campaign\XHuman\2XHum12.pud	harvest	20000	9af8705e8a67e449	8d644718cc42b435	225
-Campaign\XHuman\2XHum12.pud	harvest	22500	89fbd8331dbe255d	7108130004737e0e	228
-Campaign\XHuman\2XHum12.pud	harvest	25000	998e50fcb3c4fbad	cfdcb6da2813e5fc	230
-Campaign\XHuman\2XHum12.pud	harvest	27500	c7a0383af4eae154	ddc56addec537106	224
-Campaign\XHuman\2XHum12.pud	harvest	30000	502482649900e27e	e4826ef8382a5516	225
+Campaign\XHuman\2XHum12.pud	harvest	22500	08af05719d0ff0ba	810f10508d1f65bb	228
+Campaign\XHuman\2XHum12.pud	harvest	25000	02f7d8d25679a8c5	cc8b209b60d9e8d6	230
+Campaign\XHuman\2XHum12.pud	harvest	27500	5ffbf66d04f59597	e4641fc98563d026	225
+Campaign\XHuman\2XHum12.pud	harvest	30000	5e3ec6b725c9e425	c9f723a96bb9941d	223
 Campaign\XOrc\2XOrc01.pud	move	0	cd11f2dd186681a9	95a5fbdcff268a41	112
 Campaign\XOrc\2XOrc01.pud	move	2500	8b1478a9f548464b	c9609215fd1fa2bd	111
 Campaign\XOrc\2XOrc01.pud	move	5000	27180fe0911ca362	dd29e73e35f3e12e	109
@@ -5318,18 +5318,18 @@ Maps\Classic\Expansion\Scenario\Sacrific.pud	move	25000	6ef14e5fe97afe72	5df2529
 Maps\Classic\Expansion\Scenario\Sacrific.pud	move	27500	22a1fb7435060845	5ee9ec01895abb57	125
 Maps\Classic\Expansion\Scenario\Sacrific.pud	move	30000	0d2def03a502429d	9d9b9c7be1eda8d7	123
 Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	0	ed14e314d0eaa978	551f53e9c42d5524	68
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	2500	2a33565243807c8c	27c03de0192650e1	82
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	5000	caa71b2ae8da6c96	2672618d6fae9223	87
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	7500	5560979421f511b6	893f7e14a9bbc98d	88
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	10000	8a3cc637fc0e09dd	3003c95059c4f92e	94
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	12500	f69e07d48684e83c	6e6f70f0eebd3f27	100
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	15000	cb7e0f16916f5468	8e98f19c43434e6f	106
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	17500	623d947af05ed4ba	4be294d21d361d90	102
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	20000	6b7bd34c3da379ef	cb5a422bf548d8dc	111
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	22500	75a19dd857b53965	56842b2abca63dcb	116
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	25000	0ad9e92d7ebfa0f5	8d6bfb540c5b8b12	113
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	27500	ea33ba4d33bb45dc	ecee0273f4d72d47	115
-Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	30000	e0df5c38bddc7e4e	9e6a4f65a29447ca	117
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	2500	39fe02ea927c41a4	b51d5311f0097314	82
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	5000	7880650588c649a3	e4fcbc809bcc711d	85
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	7500	6e9487ffa00d1cbc	1f9bd90f7933846f	87
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	10000	b25936386122a56f	30137c2f5b3fa1c7	90
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	12500	e3321724403c1c6a	812175f8b609789e	96
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	15000	28fbf9a9157b01a0	7d971578595426fb	101
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	17500	605a2ee9dfb1a382	017d0ab938f787e6	106
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	20000	954391b863ba0bd1	942bc78198cc3115	104
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	22500	5e1e029ccc627a26	e857d2ab65fed91a	112
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	25000	da6702b9a6bccb41	9b057913b40d2f13	114
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	27500	3bdce6cdf90084f7	d4c18a86da6307f6	117
+Maps\Classic\Expansion\Scenario\Sacrific.pud	fight	30000	e63dd0008f1fd2f3	ef500d0f122ab5f3	116
 Maps\Classic\Expansion\Scenario\Sacrific.pud	harvest	0	ed14e314d0eaa978	551f53e9c42d5524	68
 Maps\Classic\Expansion\Scenario\Sacrific.pud	harvest	2500	a1decf8ec770af90	621ea24ea5e14065	86
 Maps\Classic\Expansion\Scenario\Sacrific.pud	harvest	5000	f4f0304343cc13f4	3171a36aad95a0b9	96
@@ -9497,12 +9497,12 @@ Maps\Scenario\Ice Fortress BNE.pud	harvest	7500	c11cd9db18f687ff	735408c2cdc8a7c
 Maps\Scenario\Ice Fortress BNE.pud	harvest	10000	2594f6cac0419a9e	f3cd1d5d1b24f020	37
 Maps\Scenario\Ice Fortress BNE.pud	harvest	12500	20378706aa7ac9f2	24ee07547b158451	38
 Maps\Scenario\Ice Fortress BNE.pud	harvest	15000	104ac5e28f5c26df	e9cdfb9bb3b1594b	38
-Maps\Scenario\Ice Fortress BNE.pud	harvest	17500	15eabd7cef0bb0a5	e20889c07c1e94a0	43
-Maps\Scenario\Ice Fortress BNE.pud	harvest	20000	472e2e0f50ad62fe	50e8d2393f19b74d	45
-Maps\Scenario\Ice Fortress BNE.pud	harvest	22500	acbeff1d45acf957	b5baec8ca686d9d5	51
-Maps\Scenario\Ice Fortress BNE.pud	harvest	25000	265c964ed90d8358	8cb1d58b7302c482	54
-Maps\Scenario\Ice Fortress BNE.pud	harvest	27500	e2b6497043d19f94	b1f3f4a6fa4985a8	54
-Maps\Scenario\Ice Fortress BNE.pud	harvest	30000	9e07b10de3e7c47c	7e4f65241913b145	55
+Maps\Scenario\Ice Fortress BNE.pud	harvest	17500	586382b58ef0999c	6621239935fa27a6	43
+Maps\Scenario\Ice Fortress BNE.pud	harvest	20000	559124d48c95da31	258e706c411d5d68	46
+Maps\Scenario\Ice Fortress BNE.pud	harvest	22500	76881fc71637367e	ebeb2bdec6af9942	53
+Maps\Scenario\Ice Fortress BNE.pud	harvest	25000	7d68e8d9857d6a26	590d6db499938bfb	54
+Maps\Scenario\Ice Fortress BNE.pud	harvest	27500	c7f93e3b11462a3f	4b67498b0f0453ca	55
+Maps\Scenario\Ice Fortress BNE.pud	harvest	30000	4ab19752438e7a00	f182d1fe7163a6ac	56
 Maps\Scenario\Ice Fortress BNE.pud	ai	0	4c954ee7b84989a9	2ae867fe17c65d67	72
 Maps\Scenario\Ice Fortress BNE.pud	ai	2500	3e7d10c62a0b092e	2e922612d8eaf8d8	83
 Maps\Scenario\Ice Fortress BNE.pud	ai	5000	c23d8a6d6e8ccdfa	66f5cdf7700d080a	104
@@ -9602,11 +9602,11 @@ Maps\Scenario\Invasion BNE.pud	harvest	10000	e200eb0ac836e608	a19ce3753b72efe4	1
 Maps\Scenario\Invasion BNE.pud	harvest	12500	b8c49f60c0e512fe	710a11fc6abfe0f2	211
 Maps\Scenario\Invasion BNE.pud	harvest	15000	aa9ce39bdc107243	a71687377bc72e9c	242
 Maps\Scenario\Invasion BNE.pud	harvest	17500	9f156796bbaa21e5	f8fbff315c5e5eca	265
-Maps\Scenario\Invasion BNE.pud	harvest	20000	ce977376ac1f64c3	45f2d087db988435	264
-Maps\Scenario\Invasion BNE.pud	harvest	22500	3829ccc8abd3e0ba	29882a7ec4e9c9d2	270
-Maps\Scenario\Invasion BNE.pud	harvest	25000	8eab4ae9ab4c6b63	25e34cc57edd2dd0	274
-Maps\Scenario\Invasion BNE.pud	harvest	27500	cfe1d7c5b41691ef	0b6e825bc832f606	314
-Maps\Scenario\Invasion BNE.pud	harvest	30000	99ac6e4c536430d7	e2f8f00c1d593814	346
+Maps\Scenario\Invasion BNE.pud	harvest	20000	082efdf69090aed6	eb6c40525009d444	264
+Maps\Scenario\Invasion BNE.pud	harvest	22500	df149fd809939483	e7a8d459555adfc5	270
+Maps\Scenario\Invasion BNE.pud	harvest	25000	125eaf9e4486d145	8e921dc8375c4042	274
+Maps\Scenario\Invasion BNE.pud	harvest	27500	f054768608dfc98f	fe588018d8b9adda	316
+Maps\Scenario\Invasion BNE.pud	harvest	30000	aac572aeddfa6cd2	94746c2f332e4681	351
 Maps\Scenario\Invasion BNE.pud	ai	0	6feb09123bf6ec1c	cb69623c5e187599	132
 Maps\Scenario\Invasion BNE.pud	ai	2500	d042b7663dd7096c	9ad21c5484c138da	161
 Maps\Scenario\Invasion BNE.pud	ai	5000	91cb4dc78a9d997a	0f24f33ce206013f	184

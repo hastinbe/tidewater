@@ -403,11 +403,12 @@ impl World {
 
     /// What the strike of the unit at `i` acts on: the target unit of its order, or the centre of order 11's or 17's
     /// target tile. None for an order that doesn't strike (a demolisher plays the attack animation on its way but
-    /// never strikes, attack-ground-demolish spec). A target that is gone (its slot released) or inside something isn't
-    /// struck and nothing is drawn (V16; the spec's open question "A melee strike at a target that is gone or inside"
-    /// keeps that rule). A target that started dying earlier in the cycle is still struck (V15, `human01-basics`
-    /// n = 576; V17, `xhuman4-7000` n = 121). Kept as the code has it: a ranged strike takes the same test, where the
-    /// spec's launch "has no test of the target's state".
+    /// never strikes, attack-ground-demolish spec). A target that is gone (its slot released) isn't struck and nothing
+    /// is drawn (V16, the stated rule held by the open question "A melee strike at a target whose slot is released").
+    /// A target that started dying earlier in the cycle is still struck (V15, `human01-basics` n = 576; V17,
+    /// `xhuman4-7000` n = 121), and so is a melee target that has gone inside something: its damage is rolled and
+    /// "Applying damage" does nothing (V93, `orc09-strike-inside-hits-400` n = 329). Kept as the code has it: a ranged
+    /// strike at a target inside launches nothing, where the spec's launch "has no test of the target's state".
     fn strike_aim(&self, i: usize) -> Option<Aim> {
         let order = self.units[i].order;
         match (order, crate::orders::target_of(order)) {
@@ -417,7 +418,8 @@ impl World {
             }),
             (Order::Follow { .. } | Order::Guard { .. } | Order::Demolish { .. }, _) | (_, None) => None,
             (_, Some(target)) => {
-                let ti = self.index(target).filter(|&ti| !self.units[ti].inside)?;
+                let melee = self.stats_of(self.units[i].kind).missile == missile::NONE;
+                let ti = self.index(target).filter(|&ti| melee || !self.units[ti].inside)?;
                 Some(Aim {
                     target: Some(ti),
                     point: self.units[ti].centre_px(),
@@ -1294,8 +1296,7 @@ mod tests {
     }
 
     /// Damage spec, "How an attack delivers damage": a melee strike at a target that is already
-    /// dying is still made and rolls its damage, with no effect; one at a target inside something isn't made and
-    /// draws nothing.
+    /// dying is still made and rolls its damage, with no effect; so is one at a target inside something (V93).
     #[test]
     fn a_melee_strike_at_a_dying_target_still_rolls_its_damage() {
         let mut w = world();
@@ -1308,11 +1309,14 @@ mod tests {
         w.strike(i);
         assert_eq!(drawn(before, w.rng), 1, "the damage roll");
         assert_eq!(w.unit(foe).unwrap().hp, hp);
+        let foe = w.spawn(0, 1, (1, 1), 0).unwrap();
+        w.units[i].order = Order::Attack { target: foe };
         let f = w.index(foe).unwrap();
         w.units[f].inside = true;
-        let before = w.rng;
+        let (before, hp) = (w.rng, w.unit(foe).unwrap().hp);
         w.strike(i);
-        assert_eq!(w.rng, before);
+        assert_eq!(drawn(before, w.rng), 1, "V93: the damage roll at a target inside");
+        assert_eq!(w.unit(foe).unwrap().hp, hp, "and no damage");
     }
 
     /// Damage spec ("A command waiting"; animation-scripts spec, "No strike while a command waits"): a
@@ -2478,9 +2482,10 @@ mod tests {
             assert_eq!(got, [8754154757328172939, 10726930225259057929]);
         }
 
-        /// V15, V16: strikes at a dying, a gone and an inside target, melee and ranged. Code versus spec: a ranged
-        /// strike at a target that is gone or inside launches nothing, where the spec's launch "has no test of the
-        /// target's state" (a question, not a rule).
+        /// V15, V16, V93: strikes at a dying, a gone and an inside target, melee and ranged. The melee strike at an
+        /// inside target rolls its damage (V93; this pin changed with that rule). Code versus spec: a ranged strike at
+        /// a target that is gone or inside launches nothing, where the spec's launch "has no test of the target's
+        /// state" (a question, not a rule).
         #[test]
         fn strikes_at_dying_gone_and_inside_targets() {
             let mut got = Vec::new();
@@ -2516,8 +2521,8 @@ mod tests {
                     11534679406863145189,
                     11677426256432025635,
                     1384933782505578509,
-                    14371414814001894363,
-                    65197274251912525,
+                    3261341691787893003,
+                    17510418060632635061,
                     12348778124170976659,
                     7353301798723248936,
                     13276549095961455182,
