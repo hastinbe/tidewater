@@ -390,8 +390,13 @@ impl World {
                     Gather::None => false,
                 }
             };
+            // A building that stores gold or wood but doesn't accept the load (gold at a lumber mill) loses it, and
+            // one that stores neither leaves it (B-040 audit, V68; the same table as entering, harvest V66).
+            let stores = bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE) != 0;
             if u.carrying && accepts {
                 self.deliver(k, b.owner, tanker);
+            } else if !tanker && stores && !accepts {
+                self.units[k].carrying = false;
             }
             // Round-47 errata: a hall's builder gets the hall-sized exit mark, carrying or not; being let out here
             // neither uses nor clears it.
@@ -1039,6 +1044,25 @@ mod tests {
                 assert_eq!(w.players[0].gold, 1000);
                 assert!(w.events.iter().any(|e| matches!(e, Event::CantPlace { player: 0, .. })));
             }
+        }
+    }
+
+    /// V68: a peasant carrying gold builds a lumber mill (wood storage only): at completion it comes out carrying
+    /// nothing and no gold is added. A building that stores neither (a farm) leaves the load as it is.
+    #[test]
+    fn a_load_the_new_building_doesnt_accept_is_lost() {
+        for (stores, lost) in [(flags::WOOD_STORAGE, true), (0, false)] {
+            let (mut w, p) = town();
+            w.stats.0[FARM as usize].flags |= stores;
+            let i = w.index(p).unwrap();
+            w.units[i].gather = Gather::Gold;
+            w.units[i].carrying = true;
+            w.raise(i, FARM, (2, 2));
+            let gold = w.players[0].gold;
+            run(&mut w, 12 * 3 + 2);
+            let u = w.unit(p).unwrap();
+            assert!(!u.inside, "let out");
+            assert_eq!((u.carrying, w.players[0].gold), (!lost, gold), "stores {stores:#x}");
         }
     }
 
