@@ -35,6 +35,12 @@
   static reading that the 247 outline marks the default button rather than the disabled state is held as an open
   question with a trace request, so round 73's observed rule stays the default; focus on in-game dialogs' default
   buttons added from the round-74 captures.
+- **Changes:** 2026-10-15, round-75 errata (`ERRATA-round75.md`, U3 to U7; observed on the running game, Enhanced):
+  the 247 outline marks the dialog's default button, enabled or disabled, and not a disabled button; the focus each
+  in-game settings, Options, Help and Tips dialog opens with; dragging off a held button and back; Tab over sliders,
+  checkboxes, radio buttons, lists and text fields, with their focus marks; the label rule checked on a 106 × 28
+  button and a 368-wide heading. The open questions on the 247 outline and on keyboard focus in other dialogs are
+  closed; the one on other button sizes is narrowed.
 
 ## Behaviour
 
@@ -354,24 +360,31 @@ from its dialog file.
 
 Over the face the program draws:
 
-- **Default button and disabled button (not settled).** Load on the load-game screen with no saved games is both
-  disabled and the dialog's default button (the dialog file marks it). It has a 1-pixel outline in entry 247
-  (163, 163, 167) instead of its outer ring (round 73, observed). Round 73 read the outline as the disabled state;
-  round 74's static study ties it to the default mark instead. The running game hasn't separated the two (see
-  "Open questions"). Default, as observed: a disabled button has its outer ring in entry 247; an enabled button
-  keeps its frame's own ring.
+- **Default button.** The dialog's **default button** (the dialog file marks it) has a 1-pixel outline in entry 247
+  ((163, 163, 167) on the menu picture's palette, (160, 160, 164) in a game) instead of its outer ring, enabled or
+  disabled. Every other button keeps its frame's own ring, disabled ones included. Observed: Load on the load-game
+  screen, enabled with a saved game listed and the focus tabbed to Cancel or the list, has the 247 outline (round
+  75), as it does disabled with no saved games (round 73); OK on the Tips dialog with the focus on Next Tip, and Save
+  on the save dialog, disabled with no name typed and enabled with one, have it too. Delete on the save dialog and Up
+  on the Help dialog, disabled but not the default, keep their frame's ring (round 75).
 - **Focus.** The **focused** button gets a 1-pixel outline in entry 251, (255, 255, 0), over its outer ring. It shows
   on a focused default button too: Quit to Menu on the in-game quit-to-menu confirmation, which is the dialog's
   default button, has the full 251 ring (round 74 captures). The ring stays on the focused button when the pointer
   is over another one. Seen focused when each menu opened: the first button on the main, single-player, campaign
   and Enhanced-or-Classic menus; Start Game on the custom-scenario setup; Cancel on the load-game screen with no
-  saved games; OK on the name entry. In a game, the dialog's default button: Return to Game on the game menu,
-  Previous on End Scenario, and Quit to Menu on the quit-to-menu confirmation (round 74 captures).
+  saved games, Load with a saved game listed; OK on the name entry. In a game, the dialog's default button: Return
+  to Game on the game menu, Previous on End Scenario, and Quit to Menu on the quit-to-menu confirmation (round 74
+  captures); Previous on the Options and Help menus, OK on the Sound, Speeds, Preferences, Help and Tips dialogs
+  (round 75 captures; the Options menu reopened from a settings dialog is focused on Previous again). The save
+  dialog opens focused on Cancel, its default button (Save) being disabled while no name is typed (round 75).
 - **Label.** The label text (below).
 
 **Pressing.** While the mouse button is held down on a menu button, its pressed frame is drawn (observed: frame 17
 on Show Credits, 4,755 of 6,272 pixels with the label moved) and the label moves 2 pixels right and 2 down. Pressing
-a button also gives it the focus. Releasing outside the button does nothing, and the focus stays on it.
+a button also gives it the focus. Releasing outside the button does nothing, and the focus stays on it. While the
+mouse button is still held, moving the pointer off the button draws it normal again (its normal frame, label back in
+place); moving back onto it draws the pressed frame again, and releasing there chooses it. Passing over another
+button while held doesn't press that one (observed on Single Player Game, round 75).
 
 **Label placement.** A button's label text in its dialog file starts with the button's hotkey letter, which isn't
 drawn; in the rest, byte 4 switches to the white shade map and byte 1 back to the normal one (so "Orc Campaign" on
@@ -388,12 +401,26 @@ drawn; in the rest, byte 4 switches to the white shade map and byte 1 back to th
 
 Observed on 14 labels of the main, single-player and campaign menus (both odd and even W) and the two campaign
 headings: every one sits exactly where the rule puts it (the best-fitting cell, most with every glyph pixel
-exact). The round-73 "Load Game" (W 93) at 275 is this rule; plain centring would give 274.
+exact). The round-73 "Load Game" (W 93) at 275 is this rule; plain centring would give 274. Round 75 checked other
+sizes on the load-game screen: "Cancel" (W 52) on a 106 × 28 button at (402, 408) sits at (430, 415), and the
+heading "Load Game" (W 93) on a 368-wide rectangle at (136, 208) at (273, 208), both as the rules give, with every
+glyph pixel exact.
 
-**Keyboard focus.** On the main menu (observed; the other menus are assumed to work alike):
+**Keyboard focus.** On the main menu, the load-game screen and the in-game dialogs (observed):
 
-- **Tab** moves the focus ring to the next button in the dialog's order, and from the last back to the first;
-  **Shift+Tab** moves it back, and from the first to the last.
+- **Tab** moves the focus to the next control in the dialog file's order, and from the last back to the first;
+  **Shift+Tab** moves it back, and from the first to the last. Tab stops on buttons, sliders, checkboxes, each radio
+  button on its own, lists and text fields; it skips headings, plain text and hidden controls (the Sound dialog's
+  3-D sound and player-message checkboxes are hidden in a single-player game). Moving the focus doesn't change a
+  checkbox or a radio button (round 75).
+- **Focus marks** (round 75): a button or text field gets the 251 outline over its rectangle's edge; a slider gets a
+  251 rectangle as wide as the slider and 2 pixels taller (212 × 20 for a 212 × 18 slider); a list gets a 251
+  rectangle one pixel inside its left, top and right edges, around its rows (298 × 146 for the load-game screen's
+  300 × 164 list); a checkbox or radio button gets a 1-pixel rectangle in entry 247 around its label text, not
+  around the box. Typing into the save dialog's name field moves the focus to the field.
+- Observed orders (round 75): Tips, OK, Next Tip, the checkbox; Sound, OK, Cancel, the two sliders, the four shown
+  checkboxes; Speeds, OK, Cancel, the three sliders; Preferences, OK, Cancel, the six radio buttons, the checkbox;
+  load-game screen, Load, Cancel, the list.
 - The arrow keys do nothing. Moving the pointer over a button doesn't move the focus.
 - **Enter** activates the focused button, as a click on it does (for example the focus on Multi Player Game and
   Enter opens the multiplayer menu; Enter on the quit-to-menu confirmation in a game confirms it).
@@ -489,6 +516,13 @@ returns to the single-player menu. Full layouts of the other menus are outside t
 | Main menu, Down or Up arrow (round 74) | The focus ring doesn't move |
 | Main menu, Tab, then Enter (round 74) | The multiplayer menu (Enhanced or Classic) opens |
 | Main menu, normal button face (round 74) | Equals `Art\orc.grp` frame 16 at (208, y) except the label's glyph pixels |
+| Main menu, mouse button held on Single Player Game, pointer moved off it, then back, then released (round 75) | Pressed frame with the label 2 px right and down; off the button: drawn normal, label back; back on: pressed again; released: the single-player menu opens |
+| Load-game screen, one saved game listed (round 75) | Focus ring (251) on Load; Tab: ring on Cancel and Load's outer ring in entry 247 (163, 163, 167); Tab: a 251 rectangle 298 × 146 at (171, 233) inside the list, Load still in 247; Tab: back on Load |
+| Load-game screen, labels (round 75) | "Cancel" (W 52) on the 106 × 28 button at (402, 408): cell (430, 415); "Load" (W 39) on the 224 × 28 button at (154, 408): cell (248, 415); heading "Load Game" (W 93) on the 368-wide rectangle at (136, 208): cell (273, 208) |
+| Tips dialog at the start of a mission (round 75) | Ring on OK; Tab: ring on Next Tip, OK's outer ring (160, 160, 164) (entry 247); Tab: a 247 rectangle round "Show Tips at Startup", no ring on a button; Tab: ring on OK |
+| Sound dialog opened from the Options menu, single-player game (round 75) | Ring on OK; Tab order: Cancel, music slider (251 rectangle 212 × 20), digital slider, then four checkboxes (247 rectangle round each label), then OK |
+| Save dialog opened, no name typed (round 75) | Ring on Cancel; Save (disabled, default) has the 247 outline; Delete (disabled) keeps its frame's ring. After typing a name: the 251 ring on the name field, Save enabled with the 247 outline |
+| Help dialog (Keystroke Help) opened (round 75) | Ring on OK; Up (disabled, not the default) keeps its frame's ring |
 | Orc campaign mission lost (defeat dialog up) | Orc normal arrow (`o_arrow.cur`), game palette (round 70, seen; shape match) |
 | Orc defeat, score screen | Picture `Art\olosglu.pcx`, 3D arrow, exact pixel match (round 70, seen) |
 
@@ -515,19 +549,9 @@ returns to the single-player menu. Full layouts of the other menus are outside t
   pictures; nothing in Tidewater needs these screens yet.
 - **Version line shade 3.** The version line's text has no shade-3 pixels, so the colour that shade would take
   can't be seen. Its other shades equal the white heading map's. Default: 108, as in that map.
-- **Default button or disabled button: what the 247 outline marks.** It was seen only on Load with no saved games,
-  which is both disabled and the dialog's default button. Static study (round 74) says it marks the default button,
-  which would contradict the observed rule above for a disabled button that isn't the default; it isn't adopted
-  until the running game shows it. The in-game captures of round 74 don't help: each dialog opened with the focus
-  on its default button, and the 251 ring covers the outline. **Trace request:** on the load-game screen with a
-  saved game, Tab the focus off Load and capture Load's outer ring (enabled default button); and capture a disabled
-  button that isn't the default, if a dialog has one. Default: a disabled button's outer ring is 247 (round 73,
-  observed); an enabled button keeps its frame's ring; focus draws 251 over the ring (observed on a focused default
-  button).
-- **Other button sizes.** The placement rule was measured on 224 × 28 buttons (and 640-wide headings) only. Default:
-  the same formulas for the other sizes.
-- **Keyboard focus on other menus.** Tab and Enter were tried on the main menu and Enter on the quit-to-menu
-  confirmation. Default: every dialog works alike.
+- **Other button sizes.** The placement rule was measured on 224 × 28 and 106 × 28 buttons and on 640- and 368-wide
+  headings (round 75). The 128 × 20, 80 × 20, 164 × 28 and 80 × 15 sizes weren't measured. Default: the same
+  formulas for them.
 - **Pointer during menu switches without a fade.** Whether the pointer hides, even for a frame, when one menu on the
   main menu's picture replaces another wasn't settled by the round-73 captures. Default: the orc arrow stays shown,
   since no fade runs.

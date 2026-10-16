@@ -20,6 +20,10 @@
   music volume 75; vectors; the "Running game" open question narrowed. Reviewed by a spec-review session,
   2026-10-15: the multiplayer score screen's path back is held as an open question with a trace request (static
   study contradicted `game/campaign-flow.md`); the "Main menu opens" row now also covers a return without a fade.
+- **Changes:** 2026-10-15: round-75 errata (`ERRATA-round75.md`, U1 and U2; observed on the running game, Enhanced,
+  backed by static study): what a fade of all sound does to sound effects and narration (cut at once, with no
+  exception); the act screen and the briefing stop every sound effect, their narration included, before their fade;
+  a new row for Restart Scenario.
 
 ## Behaviour
 
@@ -85,6 +89,15 @@ track 22.
 A **fade stop** lowers the music, step by step, until it is silent, then closes the track. It blocks: nothing else
 happens until it ends. A **fade of all sound** does the same while all sound effects are cut.
 
+**Effects and narration.** A fade of all sound first stops every sound effect that is playing, at once (a cut, not a
+fade), then fades the music (static study, round 75; the event log shows no cut made by a fade itself: the act screen
+and the briefing had stopped every effect just before theirs, and none was logged at the in-game Restart or quit).
+Narration is a sound effect: the act screen's and the briefing's speech play through the same channels as the game's
+sounds (observed, round 75), so the fade cuts it too. No sound is spared: no sound ever carries a mark that would keep
+it through the fade (static study, round 75). The act screen and the briefing, when they close, also stop every sound
+effect just before their fade of all sound (observed: the briefing's narration stopped by Continue, round 75), so
+their narration ends at the click, not after the fade.
+
 | Moment | Kind |
 | --- | --- |
 | Entering Battle.net from the multiplayer menu | fade stop |
@@ -99,6 +112,7 @@ happens until it ends. A **fade of all sound** does the same while all sound eff
 | A campaign is chosen on the new-campaign menu (any of the four), before its 200 ms fade to black | fade of all sound (observed for both *Tides of Darkness* choices, round 74; the *Beyond the Dark Portal* choices static study) |
 | The briefing closes (Continue or Enter), before its 100 ms fade to black | fade of all sound (observed, round 74; closing by itself static study) |
 | The player confirms "Quit to Menu" in a game (from the game menu or Ctrl+Q), as the game stops | fade of all sound, then the game end's own fade of all sound (observed, round 74) |
+| The player confirms "Restart Scenario" (game menu, End Scenario), as the game stops | fade of all sound of the game's track (536 ms at volume 75), the 1 ms fade to black, then the game end's own fade of all sound (nothing left to fade); the briefing then opens with its track from the start (observed, round 75) |
 | The score screen closes, before its 150 ms fade to black | fade of all sound (static study) |
 | A saved game is loaded from the load-game screen of the menus | fade of all sound (static study) |
 | The main menu's Replay Introduction, Show Credits or Exit Program | fade of all sound (static study) |
@@ -358,6 +372,9 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
 | Main menu with track 22 playing; New Campaign; ToD human, after a ToD human mission 1 was quit (round 74) | Fade of all sound (track 22 out), 200 ms fade to black, no act screen, briefing: track 20 from its start; Continue: fade of all sound, 100 ms fade to black, game start: track 1 |
 | The same, but ToD orc chosen (round 74) | Fade of all sound, 200 ms fade to black, act screen (its close fades nothing audible), briefing: track 21; Continue: fade, game start: track 7 |
 | Briefing open, Escape pressed (round 74) | Nothing happens; the briefing and its track carry on |
+| ToD orc chosen (round 75) | Act screen: its narration starts as a sound effect about 1.8 s after the act screen opens; at its close: every effect stopped, then the fade of all sound. Briefing: track 21 from its start, then its narration starts as a sound effect about 130 ms later |
+| Briefing open with its narration started; Continue clicked (round 75) | Every sound effect stopped at the click, then the fade of all sound (music, about 520 ms), the 100 ms fade to black, the game starts and its track starts (as in round 74) |
+| Orc mission 1 in play, track 8 playing; game menu, End Scenario, Restart Scenario, Restart Scenario (round 75) | Fade of all sound (536 ms), 1 ms fade to black, game end (second fade, nothing to fade), every effect stopped, no act screen, briefing: track 21 from its start and its narration again |
 
 ## Open questions
 

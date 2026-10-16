@@ -24,6 +24,12 @@
   silent, is now stated from the trace: it acquires nothing. A sapper that doesn't flee from a live attacker
   after arriving is a new open question. Erratum 4 (what a walk forgets at each step boundary) restates an open
   question from the consolidation and changes no rule. Reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15 (round 75, `ERRATA-round75.md`, O1 to O6): the hit sapper's open question is closed by a
+  trace with the hit list (arrival forgets the attacker, as stated; V279 completed, V280 added); the Enhanced demolition
+  unit's rule applies to every player's units and "nothing else happens" means nothing else in that search step
+  (static study); the idle transport's step-done check changes the order without a take-over (static study); the
+  open questions on the skip mark, the walk's forget (T11) and the pending return (V277) gain round-75 notes; no rule
+  changed.
 
 ## Behaviour
 
@@ -322,7 +328,7 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | Command | Result |
 | --- | --- |
 | 3, smart move (right-click) | See "Smart move" below |
-| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3). As on arrival, the unit also forgets its attacker (static study) |
+| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. (A player's command 4 reaches only units that pass the selection filter, `ui/selecting-and-commanding.md`, "Which units take part in a command": a transport doesn't take it and is left untouched, its unload-on-arrival mark included; traced: `orders/transports.md`, V40.) With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3). As on arrival, the unit also forgets its attacker (static study) |
 | 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends: the command's goal and the tile the unit stands on when the command is given ("Resuming patrol and attack-move") |
 | 8, attack | Target unit, of any owner (the player's own, an ally's and a neutral unit included): order 9. Target tile, as given, is a wall tile: order 11 ("Order 11: attacking a wall tile"). Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
 | 9 | Target unit, of any owner: order 9; target tile, as given, a wall tile: order 11; otherwise order 2 |
@@ -486,7 +492,9 @@ animation starts with a first wait of 3 cycles).
   questions"), and a transport settles or docks exactly as for an immediate idle (below): on an even tile that isn't
   shore water it returns to the sea class as a two-tile mover, otherwise order **32** takes over instead of 2 (still
   animation, wait 3). The same check runs at every step done of a transport that is idle with nothing pending, before
-  its idle logic; with the take-over and the immediate idle both checked, no case is known that leaves a transport
+  its idle logic; that check isn't a take-over: the order becomes 32 (or the transport a two-tile mover in the sea
+  class) and its animation and wait run on unchanged (static study, round 75). With the take-over, the immediate idle
+  and the no-route landing (`orders/transports.md`, "Landing", step 6) all checked, no case is known that leaves a transport
   idle on such a tile for it to find (static study only, round 71, `ERRATA-audit-orders.md`, erratum 2; no trace has
   a transport going idle by a pending order on an odd or shore-water tile, and a sea-class move can't end on shore
   water, which blocks ships).
@@ -1057,18 +1065,22 @@ table; only transports use order 32, and they can't attack anyway.
   (workers, tankers, transports, demolition units), they acquire nothing in that run; if they have an attacker, they run
   the reaction instead, which treats them as non-combat units, so they **flee** ("Reacting to an attacker"). A harmless
   target is never chosen in place of a dangerous one that scores higher.
-- In Enhanced mode a **demolition unit** (dwarven demolition squad, goblin sapper) with a remembered order uses the
+- In Enhanced mode a **demolition unit** (dwarven demolition squad, goblin sapper) of any player, the computer
+  players' included (static study), with a remembered order uses the
   target to start a demolish instead of an attack. In an acquiring order's run (after step 1 of "Reacting to an
   attacker" when it has an attacker, which still comes first), it runs the target search; if the search finds a unit
   that isn't its current target, it is given command 19 on it (order 20, demolish at the unit). Whatever the search
-  finds, nothing found included, **nothing else happens in that run**, the reaction and its flee included. Without
+  finds, nothing found included, **nothing else happens in that search step**, the reaction and its flee included;
+  the rest of the run goes on as usual (in a walk: the walk's forget of a stale attacker, the target drop, the arrival
+  test and the step; static study, round 75). Without
   a remembered order (or in Classic mode) it reacts as the other non-combat units do and flees, as far as "Fleeing",
   step 3, allows (round 71, `ERRATA-audit-orders.md`, S1). In Enhanced mode, with nothing remembered and no
   attacker, it acquires nothing (round 72, traced: V279). Traced in round 72 (`orc11-orc11-sapper-attack-move-goals-1500`): a goblin sapper on
   a remembered patrol gets command 19 on the unit its search finds (V278); goblin sappers on a move attacking on the
   way (order 4, nothing remembered) take no target while walking, with no attacker and after a hit, and don't flee
-  while in order 4 (V279). The remembered branch with an attacker is static study only. What happens to a hit
-  sapper's attacker after it arrives is an open question ("Open questions").
+  while in order 4 (V279). The remembered branch with an attacker is static study only. A hit sapper that arrives
+  forgets its attacker on arrival, as every unit in order 3, 4 or 10 does, so it doesn't flee while idle until it is
+  hit again (traced with the hit list, round 75: V279, V280).
 - Workers and tankers of **any** player never run the search. A computer player's workers and tankers run their AI
   routines here instead (later spec); every other player's use the reaction ("Reacting to an attacker") when they
   have an attacker, and acquire nothing otherwise.
@@ -1614,7 +1626,8 @@ row's trace starts "As" that row's ID and names the trace.
 | V173 | An idle mage hit by a footman, nothing else in its box | Flees | Example |
 | V174 | An idle mage hit by a footman, with an enemy peasant in its box that outscores the footman | Attacks the peasant | Example |
 | V278 | `orc11-orc11-sapper-attack-move-goals-1500` (oracle trace, Enhanced; scenario `oracle/scenarios/orc11-sapper-attack-move.txt`): goblin sapper 1573 (owner 0) told at n = 20 to patrol to (89, 25), where unit 1570 of player 2 stands; patrol is remembered | While walking, its search finds 1570: n = 426, pending order 20 (demolish at the unit) on 1570, order 5 kept; n = 440, order 20 takes over with wait 3; n = 443, it blows up. No flee | Trace (`orc11-orc11-sapper-attack-move-goals-1500`) |
-| V279 | As V278: goblin sappers 1580 and 1575 (owner 0) told at n = 20 to move attacking on the way (order 4, nothing remembered) to (89, 25). Player 2's archers 1570 and 1568 attack 1580 from n = 269 and n = 297; 1580 is hit at n = 323 (HP 40 to 33) | Neither takes a target while walking, before or after 1580's hit: at n = 323 1580 is in order 4 with no target, and it walks on with no flee (order 4 isn't one "Fleeing", step 3 allows). They arrive and go idle (1580 at n = 379, 1575 at n = 409). Later, each hit while idle flees at once (order 3: 1575 hit at n = 569, flees at n = 570; 1580 hit at n = 700, flees at n = 702). A unit that took 1570 as its target on the hit would show it at n = 323 and order 12 at n = 337. Not settled: 1580 doesn't flee while idle from n = 379 to 442, while 1570, which hit it, is alive 2 tiles away ("Open questions") | Trace (`orc11-orc11-sapper-attack-move-goals-1500`) |
+| V279 | As V278: goblin sappers 1580 and 1575 (owner 0) told at n = 20 to move attacking on the way (order 4, nothing remembered) to (89, 25). Player 2's archers 1570 and 1568 attack 1580 from n = 269 and n = 297; 1580 is hit at n = 323 (HP 40 to 33) | Neither takes a target while walking, before or after 1580's hit: at n = 323 1580 is in order 4 with no target, and it walks on with no flee (order 4 isn't one "Fleeing", step 3 allows). They arrive and go idle (1580 at n = 379, 1575 at n = 409). Later, each hit while idle flees at once (order 3: 1575 hit at n = 569, flees at n = 570; 1580 hit at n = 700, flees at n = 702). A unit that took 1570 as its target on the hit would show it at n = 323 and order 12 at n = 337. 1580 doesn't flee while idle from n = 379 to 442, while 1570, which hit it, is alive 2 tiles away: it forgot 1570 on arriving (V280) | Trace (`orc11-orc11-sapper-attack-move-goals-1500`) |
+| V280 | `orc11-orc11-sapper-attack-move-goals-hits-1500` (oracle trace, Enhanced, with the hit list; the same scenario as V278) | The hit list shows one hit on 1580 before it arrives: n = 323, by archer 1570 (a missile, 7 damage). 1580 arrives at n = 379 (order 4 to 2) and forgets 1570 there (the trace has no attacker field: by "Call for help", `ai/attack-ai.md`, the hit records 1570, and "Arriving and losing the target" forgets it), so nothing makes it flee until 1568 hits it at n = 700 (flees at n = 702); 1575 is hit at n = 569 and flees at n = 570. At n = 443 the hit list shows sapper 1573's demolish on 1570 (200 damage) | Trace (`orc11-orc11-sapper-attack-move-goals-hits-1500`) |
 
 ### Vertical order and the halving search
 
@@ -1797,7 +1810,10 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   would show when the attacker turns invisible or goes inside a building or transport while the unit walks: on the
   static reading the record is gone at the next step boundary, so the reaction at the walk's end has nothing to
   answer. Trace request (T11 in `ERRATA-audit-movement.md`): a unit on a plain move (order 3) hit by an enemy that then
-  boards a transport or enters a building before the unit arrives; check the unit's reaction on arrival.
+  boards a transport or enters a building before the unit arrives; check the unit's reaction on arrival. Round 75:
+  that setup can't separate the readings, because orders 3, 4 and 10 forget the attacker on arrival anyway. A
+  separating trace needs a walking order that keeps its attacker at the walk's end: a walk that ends with no route,
+  or orders 6, 23, 24 or 27, whose attacker goes inside or turns invisible while the unit walks.
 - **Invisible units acquire nothing.** "Reacting to an attacker", step 3, says an invisible mage-type unit does
   nothing more in a run after the attacker check. The static study finds the same for every invisible unit that isn't
   a worker or tanker, in the order's logic and in the walk: after step 1 it makes no target search and no reaction. No
@@ -1826,6 +1842,9 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   that a run whose search the mark skips still forgets a dying attacker, in orders 12, 15 and 16 too ("A dying
   attacker in orders 9, 11 and 17" says those orders don't forget it at the start of their run). This forget, like
   the one in orders 9, 11 and 17, also covers an attacker that is inside something. No vector separates the readings.
+  Round 75 (static study) adds the same for the Enhanced demolition unit: one with no remembered order runs no search,
+  but the reaction it goes on to still forgets a dying attacker, and so does the flee from an attacker it can't
+  attack. Default: a skipped search doesn't skip the dying-attacker forget.
 - **Friendly fire before the lost-target check.** "Friendly-fire check (orders 12, 15 and 16)" puts the check after
   the cooldown test and the target check. If "the target check" there means the lost-target check, the static study
   disagrees: it finds the check after the kind check but before the lost-target and range checks, made on the target's
@@ -1890,19 +1909,16 @@ Found by the round-71 orders audit (static study, 2026-10-15; the rules above ar
   static reading has the return take over toward the nearest hall as a return command with the attacker forgotten,
   where the spec's take-over has no attacker check. Trace request (T7 in `ERRATA-audit-orders.md`): a worker coming
   out of a mine with a dying attacker recorded, or with a cached route or blocked counter that a command would reset.
+  Round 75: coming out of a mine never leaves this case. It gives a return command, which finds the depot itself, or a
+  pending idle with none (`economy/harvest.md`, "Coming out", step 4; static study), and a player's return command
+  with no target finds the depot in the command (traced: `orc9-orc09-carry-chop-goals-1400` n = 762, a pending 24 with its depot as the
+  target, taking over with wait 3). So V277's premise, a pending 24 with no target at coming out, doesn't occur; the
+  branch is reached only if the target is cleared while the order is pending (for example, the depot is destroyed
+  during the 25-cycle wait after coming out). Not traced; the rule stands.
 
-Found by the round-72 spec review (trace `orc11-orc11-sapper-attack-move-goals-1500`, 2026-10-15; the rules above
-are unchanged):
-
-- **A hit sapper's attacker after it arrives.** Goblin sapper 1580 (V279) is hit at n = 323 while walking in order 4,
-  by archer 1570 (the only unit attacking it that is in its attack animation and within range; the trace has no hit
-  list to confirm it). By "Call for help" (`ai/attack-ai.md`) the hit records 1570 as its attacker, and order 4
-  doesn't let it flee. It arrives and goes idle at n = 379, 2 tiles from 1570, and doesn't flee while idle up to
-  n = 442, although 1570 is alive until it starts dying at n = 443. An idle sapper with a live
-  attacker flees by "Special cases" and "Fleeing" (1575 and 1580 do so at once after later hits). So either the hit
-  at n = 323 recorded no attacker, or something forgot it between n = 323 and n = 379; which isn't known. Trace
-  request (T14 in `ERRATA-audit-movement.md`): as V279 with the hit list (`EXTRAS=hits`), or any sapper hit while
-  walking in order 4 that arrives while its attacker is alive.
+Round 75 closed the round-72 question on a hit sapper's attacker after it arrives (T14): the hit list shows
+archer 1570's hit at n = 323, and the arrival at n = 379 forgets the attacker as "Arriving and losing the target"
+says (V280).
 
 ## History
 
@@ -1953,3 +1969,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 70 | Evidence only: round 70 restated the static reading of blocked row A (order 11 through a command); step 5 and V183 are unchanged until a trace decides (spec review) | "Open questions" |
 | 71 | Orders audit: lost target's take-over waits 3 (traced); unremembered patrol on either axis (traced); transport settle at an idle take-over; follow step 1 a smart move; Enhanced demolition unit's search (static). Spec review: a pending return with no target as a command (static) not accepted, kept as an open question | "Arriving and losing the target"; "Taking over"; "Same-update take-over"; "Follow (orders 6 and 7)"; "An unremembered patrol"; "Open questions"; "Automatic target acquisition" (S1); vectors V022, V273 to V276, V277 (open question) |
 | 72 | Evidence only: the Enhanced demolition unit's search (S1) traced for a remembered patrol and for order 4 with nothing remembered, before and after a hit; the no-attacker case stated from the trace. Movement audit: what a walk forgets at each step boundary restated (an open question since the consolidation). Spec review: a hit sapper not fleeing after arrival is a new open question | "Automatic target acquisition", "Special cases"; V278, V279; "Open questions" |
+| 75 | Hit sapper's attacker forgotten on arrival (traced with the hit list); demolition rule for every player and "nothing else" scoped to the search step (static); idle transport's step-done check isn't a take-over (static); notes on the skip mark, T11 and V277 | "Automatic target acquisition"; "Taking over"; "Open questions"; V279, V280 |

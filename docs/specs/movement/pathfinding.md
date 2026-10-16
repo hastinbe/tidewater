@@ -12,6 +12,8 @@
   mark is identified and its open question closed (S1, static study); a static reading of the goal pull-back for air
   units (erratum 5) is filed under "Open questions", and step 1 is unchanged. Reviewed by a spec-review session,
   2026-10-15.
+- **Changes:** 2026-10-15 (round 75, `ERRATA-round75.md`, D2; game data): the air-unit pull-back open question
+  is closed as having no effect in play; no rule changed.
 
 ## Behaviour
 
@@ -434,16 +436,17 @@ Carried over:
 
 - Whether two-tile movers' start tiles are always even.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
-- **Goal pull-back with other air units** (round 72, static study; `ERRATA-audit-movement.md`, erratum 5). Step 1
-  says units are ignored. The static study finds that the usable test ignores ground-layer units only (land units and ships, bit 0x0100), so
-  for an air unit a tile holding another air unit (bit 0x0200) is **not** usable. That changes the stored goal only when air units stand
-  both on the goal and on the first tile tested (the goal minus the line's first step): the goal then becomes that
-  first tile, not the goal. A single air unit on the goal changes nothing (step 4 keeps the goal). The first tile
-  tested is one single-tile step from the goal, so at least one of its coordinates differs in parity from the goal's.
-  If air units always stand on even coordinates (`occupancy.md`; still open in `movement.md`), the two tiles can't both
-  hold an air unit, and the two readings never give different goals. Step 1 governs until a trace decides. Trace
-  request: a flyer told to move to a tile held by one flyer, with a second flyer on the next tile toward it, if a
-  flyer can ever stand on odd coordinates (T13).
+Closed in round 75:
+
+- **Goal pull-back with other air units** (round 72, `ERRATA-audit-movement.md`, erratum 5; T13). The static study
+  finds that the usable test of step 1 ignores only ground-layer units, so for an air unit a tile holding another air
+  unit isn't usable. That could matter only when air units stand both on the goal and on the first tile tested, which
+  differ in the parity of at least one coordinate. In play air units stand on even tiles: `placement.md` places them
+  on even tiles, they move as two-tile movers, and all 324 air units placed in the shipped maps (119 in the
+  campaigns, 205 in the skirmish maps; every unit type with the air-unit flag, bit 1, in the default unit data,
+  daemons included) stand on even tiles on both axes (game data, round 75; count corrected by the spec review). So
+  the two readings never give different goals in play.
+  Step 1 stands; the open question is closed as having no effect (`ERRATA-round75.md`, D2).
 
 Closed in round 72:
 
@@ -483,3 +486,4 @@ round are kept with the research-side specs.
 | 65 | When the line is blocked, the line tiles stop **before** G, which counts only if it is in the goal zone (traced: `xhuman5-30000` n = 26761, a boarding walk aimed at its transport's destination); a walk whose order holds a target unit sets G again from the target, where it stands now, every time it runs, so a command's stored goal and its pull-back last only until the first walk (traced for order 4 on a transport; static study only for other orders and for building targets); the open question on the pull-back with a target unit is closed; the `orc09-repair-600` vector no longer lists G as a line tile (same result); vectors | Step 2; "G for a walk with a target unit"; "Goal pulled back"; V35, V51 to V54 |
 | B-038 (2026-10-14) | Consolidated into one model: "The model" added (the search sequence, one walk goal, three tile tests, one line rule, one pull-back); vectors given IDs, a Source column and topic groups; the round citations moved here; the test-vector note says trace rows name their units. No rule changed | Whole spec |
 | 72 | Movement audit: the moving-ally rule's last state mark identified (open question closed); the air-unit pull-back reading filed as an open question with a trace request, step 1 unchanged | "Units seen by the search"; "Open questions" |
+| 75 | The air-unit pull-back question closed by game data (air units stand only on even tiles, so the readings never differ); step 1 unchanged | "Open questions" |

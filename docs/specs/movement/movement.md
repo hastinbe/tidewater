@@ -15,6 +15,8 @@
   identified and its open question closed (S1, static study); the tanker's arrival in order 28 is traced for an
   oil patch at odd coordinates (S2, V38), the even case stays open. Errata 1 and 3 restate rules this spec already
   gives (no change). Reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-15 (round 75, `ERRATA-round75.md`, D1; game data): the even-patch tanker open question is
+  closed (no shipped map has one); no rule changed.
 
 ## Behaviour
 
@@ -326,10 +328,13 @@ Carried over:
   next command forgets it ("Blocked rules"); the moment without a command is still open.
 - **Row G's pending idle** rests on the static study: no trace separates a pending from an immediate idle there, because
   the traced case that once did no longer reaches row G once commands forget a dying attacker.
-- How a tanker on order 28 (radius 0, no +1) arrives when the oil patch's top-left tile is **even**: its goal, the
-  patch's top-left plus (1, 1), is then odd and a two-tile mover can't stand on it exactly. Round 72 traced the odd
-  case only (V38: the tanker stands exactly on the goal and starts building). Trace request: a tanker sent to build on
-  an oil patch whose top-left tile is even on both axes (`ERRATA-audit-movement.md`, T12).
+Closed in round 75:
+
+- **A tanker on order 28 at an oil patch with an even top-left tile** (T12). Its goal, the patch's top-left plus
+  (1, 1), would then be odd, which a two-tile mover can't stand on exactly. Every oil patch in the shipped maps has an
+  odd top-left tile on both axes (game data, round 75: all 600, 105 in the campaigns and 495 in the skirmish
+  maps), so the case doesn't occur with them; the traced odd case (V38) is the only one in play. Default for a
+  custom map with an even patch: the same rule (radius 0, no +1) (`ERRATA-round75.md`, D1).
 
 Closed in round 72:
 
@@ -374,3 +379,4 @@ round are kept with the research-side specs.
 | B-038 (2026-10-14) | Consolidated into one model: "The model" added; vectors given IDs, a Source column and topic groups; the round citations moved here; one open question added. No rule changed | Whole spec |
 | 70 | Evidence only: round 70 restated the static reading of row A (order 11 through a command); the rule is unchanged until a trace decides (spec review) | "Open questions" |
 | 72 | Movement audit: the blocked counter wraps after 15 in rows A and B (static study only); row F's further state mark identified (open question closed); tanker arrival on order 28 traced for an odd-placed patch, the even case kept open | "The model"; "Blocked rules", row B and row F; "Open questions"; V37, V38 |
+| 75 | The even-patch tanker question closed by game data (every shipped patch has an odd top-left tile); the rule is unchanged | "Open questions" |
