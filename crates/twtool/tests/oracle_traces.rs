@@ -93,6 +93,10 @@
 //! every-pass step, V70) and human06-carry-build-1000 (a builder loses a load its new building doesn't store, V68)
 //! match in full.
 //!
+//! Round 80: xhuman10-failcast-520 (a channelled blizzard short of mana still ends the caster's invisibility at its
+//! strike point, n 437, S84) and xorc12-spells-hits-1150-1260 (a rune's hit is a direct HP change with no `hits`
+//! entry, S85) match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -386,4 +390,6 @@ traces! {
     human05_ally_kill_hits_1000: ("human05-ally-kill-hits-1000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
     human06_build_stats_1800: ("human06-build-stats-1800.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human06_carry_build_1000: ("human06-carry-build-1000.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    xhuman10_failcast_520: ("xhuman10-failcast-520.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xorc12_spells_hits_1150_1260: ("xorc12-spells-hits-1150-1260.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
 }
