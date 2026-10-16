@@ -1205,4 +1205,187 @@ mod tests {
                 .any(|e| matches!(e, Event::NoRoom { player: 0, kind: 2 }))
         );
     }
+
+    /// Pins of the current job behaviour, written before the B-038 refactor so that it can't change them unseen. Each
+    /// test pins the whole simulation state with [`World::fingerprint`] and the events the client would drain. Where a
+    /// pin differs from the spec, its comment says so: those are open questions, not rules.
+    mod pin {
+        use super::*;
+
+        /// The whole state and the queued events, as one number.
+        pub(crate) fn pinned(w: &World) -> u64 {
+            format!("{}|{:?}", w.fingerprint(), w.events)
+                .bytes()
+                .fold(0xcbf2_9ce4_8422_2325, |h, b| {
+                    (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+                })
+        }
+
+        /// [`town`] with the local player 0, a farm for food and a unit type 2 of build time `time` being trained.
+        fn training(time: u8) -> (World, UnitId) {
+            let (mut w, hall) = town();
+            w.vision.local = 0;
+            w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+            w.stats.0[2].gold = 400;
+            w.stats.0[2].build_time = time;
+            w.step(&[Command::Train {
+                player: 0,
+                building: hall,
+                kind: 2,
+            }]);
+            (w, hall)
+        }
+
+        #[test]
+        fn a_trained_unit_finishes() {
+            let (mut w, _) = training(2);
+            run(&mut w, 80);
+            assert_eq!(w.players[0].in_training, 0);
+            assert_eq!(pinned(&w), 17728558196850907567);
+        }
+
+        #[test]
+        fn a_trained_unit_with_no_room() {
+            let (mut w, hall) = town();
+            w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+            w.stats.0[2].build_time = 1;
+            w.stats.0[2].flags = flags::LAND;
+            for n in 0..w.terrain.words.len() {
+                if w.occupancy[0][n].is_none() {
+                    w.terrain.words[n] |= crate::terrain::bits::OBSTACLE;
+                }
+            }
+            w.step(&[Command::Train {
+                player: 0,
+                building: hall,
+                kind: 2,
+            }]);
+            run(&mut w, 40);
+            assert_eq!(pinned(&w), 666169062581321506);
+        }
+
+        #[test]
+        fn a_job_cancelled_while_running() {
+            let (mut w, hall) = training(60);
+            run(&mut w, 30);
+            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            run(&mut w, 10);
+            assert_eq!(w.unit(hall).unwrap().job, None);
+            assert_eq!(pinned(&w), 4002968534024783746);
+        }
+
+        #[test]
+        fn a_job_cancelled_before_it_takes_over() {
+            let (mut w, hall) = training(60);
+            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            run(&mut w, 30);
+            assert_eq!(w.unit(hall).unwrap().job, None);
+            assert_eq!(pinned(&w), 12797389103836182310);
+        }
+
+        /// A cancel given twice, and a cancel of a resting building, change nothing more.
+        #[test]
+        fn a_second_cancel_and_a_resting_cancel() {
+            let (mut w, hall) = training(60);
+            run(&mut w, 30);
+            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            run(&mut w, 10);
+            w.step(&[Command::Cancel { player: 0, unit: hall }]);
+            run(&mut w, 10);
+            assert_eq!(pinned(&w), 16536490222765927957);
+        }
+
+        /// The kill cancels at once: no wait 3 or still animation of "Job end" (the death animation starts).
+        #[test]
+        fn a_building_killed_while_working() {
+            let (mut w, hall) = training(60);
+            run(&mut w, 30);
+            let hi = w.index(hall).unwrap();
+            w.kill(hi);
+            run(&mut w, 3);
+            assert_eq!(pinned(&w), 282801298655996242);
+        }
+
+        /// Code versus spec: rescue cancels at once, leaving the building's animation as it was (the spec's "Job end"
+        /// has order 33 take over with wait 3).
+        #[test]
+        fn a_building_rescued_while_working() {
+            let mut got = Vec::new();
+            for running in [false, true] {
+                let (mut w, hall) = training(60);
+                if running {
+                    run(&mut w, 30);
+                }
+                let hi = w.index(hall).unwrap();
+                w.rescue_owner_change(hi, 1, false);
+                let u = w.unit(hall).unwrap();
+                assert_eq!((u.job, u.owner), (None, 1));
+                run(&mut w, 3);
+                got.push(pinned(&w));
+            }
+            assert_eq!(got, [2966129253138305198, 10582890044908409729]);
+        }
+
+        #[test]
+        fn hall_and_tower_upgrades_finish_and_cancel() {
+            const SCOUT_TOWER: u8 = 0x40;
+            const GUARD_TOWER: u8 = 0x60;
+            let mut got = Vec::new();
+            for (from, to) in [(HALL, kind::KEEP), (SCOUT_TOWER, GUARD_TOWER)] {
+                for cancel in [false, true] {
+                    let (mut w, _) = town();
+                    w.rules.enhanced = true;
+                    w.rules.enforce_requirements = false;
+                    w.vision.local = 0;
+                    if from == SCOUT_TOWER {
+                        w.stats.0[from as usize] = w.stats.0[HALL as usize];
+                        w.stats.0[to as usize] = w.stats.0[HALL as usize];
+                        w.stats.0[to as usize].flags |= flags::TOWER;
+                    }
+                    w.stats.0[to as usize].build_time = 2;
+                    w.stats.0[to as usize].gold = 700;
+                    let b = w.spawn(from, 0, (2, 2), 0).unwrap();
+                    let bi = w.index(b).unwrap();
+                    w.units[bi].hp = 300;
+                    w.step(&[Command::Upgrade {
+                        player: 0,
+                        building: b,
+                        to,
+                    }]);
+                    run(&mut w, 20);
+                    if cancel {
+                        w.step(&[Command::Cancel { player: 0, unit: b }]);
+                    }
+                    run(&mut w, 40);
+                    got.push(pinned(&w));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    4199764736764014306,
+                    16551267058749962179,
+                    10304115314579723997,
+                    8704031557821091703
+                ]
+            );
+        }
+
+        /// The computer's own job choice (`tell` false) fails silently on affordability; a player's tells.
+        #[test]
+        fn a_job_short_of_gold_with_and_without_telling() {
+            let mut got = Vec::new();
+            for tell in [false, true] {
+                let (mut w, hall) = town();
+                w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+                w.stats.0[2].gold = 400;
+                w.players[0].gold = 100;
+                let hi = w.index(hall).unwrap();
+                assert!(!w.try_job(hi, JobKind::Train(2), tell));
+                got.push(pinned(&w));
+            }
+            assert_eq!(got, [13213827380189875725, 14546769762130876319]);
+        }
+    }
 }

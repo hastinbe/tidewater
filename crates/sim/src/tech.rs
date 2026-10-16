@@ -778,4 +778,86 @@ mod tests {
         assert_eq!(w.players[0].spells_known, 1 << 5);
         assert!(w.events.is_empty());
     }
+
+    /// Pins of the current research behaviour, written before the B-038 refactor so that it can't change them unseen:
+    /// the whole simulation state with [`World::fingerprint`] and the queued events.
+    mod pin {
+        use super::*;
+
+        fn pinned(w: &World) -> u64 {
+            format!("{}|{:?}", w.fingerprint(), w.events)
+                .bytes()
+                .fold(0xcbf2_9ce4_8422_2325, |h, b| {
+                    (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+                })
+        }
+
+        /// An upgrade and a spell, each finished and cancelled, in both modes, with player 0 local.
+        #[test]
+        fn research_and_spells_finish_and_cancel() {
+            let mut got = Vec::new();
+            for enhanced in [false, true] {
+                for spell_job in [false, true] {
+                    for cancelled in [false, true] {
+                        let mut w = lab();
+                        w.rules.enhanced = enhanced;
+                        w.vision.local = 0;
+                        let b = if spell_job {
+                            let t = put(&mut w, MAGE_TOWER, false);
+                            spell(&mut w, t, 42);
+                            t
+                        } else {
+                            let s = put(&mut w, HUMAN_BLACKSMITH, false);
+                            research(&mut w, s, 0);
+                            s
+                        };
+                        run(&mut w, 20);
+                        if cancelled {
+                            cancel(&mut w, b);
+                        } else {
+                            shorten(&mut w, b, 1);
+                            run(&mut w, 30);
+                        }
+                        assert_eq!(job(&w, b), None);
+                        got.push(pinned(&w));
+                    }
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    13026258576897419260,
+                    9343072542633606597,
+                    3490737724711109217,
+                    14390555962828912986,
+                    17322055568500918574,
+                    1542042842312108074,
+                    13307126491906572310,
+                    8861246373422088459
+                ]
+            );
+        }
+
+        /// A barracks job converted by ranger training, then cancelled: the refund is the new type's cost.
+        #[test]
+        fn a_converted_job_cancelled() {
+            let mut w = lab();
+            conversion_stats(&mut w);
+            w.spawn(0x3a, 0, (0, 20), 0).unwrap();
+            w.stats.0[unit::ARCHER as usize].build_time = 100;
+            let mill = put(&mut w, ELVEN_LUMBER_MILL, false);
+            let barracks = put(&mut w, HUMAN_BARRACKS, false);
+            w.step(&[Command::Train {
+                player: 0,
+                building: barracks,
+                kind: unit::ARCHER,
+            }]);
+            run(&mut w, 40);
+            research(&mut w, mill, 24);
+            shorten(&mut w, mill, 1);
+            run(&mut w, 60);
+            cancel(&mut w, barracks);
+            assert_eq!(pinned(&w), 9595299239633207397);
+        }
+    }
 }

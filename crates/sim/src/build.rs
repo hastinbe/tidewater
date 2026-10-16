@@ -1131,4 +1131,156 @@ mod tests {
         let u = w.unit(p).unwrap();
         assert!(u.inside && matches!(u.order, Order::InsideSite { .. }), "{:?}", u.order);
     }
+
+    /// Pins of the current construction behaviour, written before the B-038 refactor so that it can't change them
+    /// unseen. Each test pins the whole simulation state with [`World::fingerprint`] and the queued events. Where a pin
+    /// differs from the spec, its comment says so: those are open questions, not rules.
+    mod pin {
+        use super::*;
+
+        /// The whole state and the queued events, as one number.
+        fn pinned(w: &World) -> u64 {
+            format!("{}|{:?}", w.fingerprint(), w.events)
+                .bytes()
+                .fold(0xcbf2_9ce4_8422_2325, |h, b| {
+                    (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+                })
+        }
+
+        /// [`town`] with player 0 local, its peasant standing on `site` and arriving there for `kind`.
+        fn arrive(kind: u8, site: (i32, i32)) -> (World, UnitId) {
+            let (mut w, p) = town();
+            w.vision.local = 0;
+            let i = w.index(p).unwrap();
+            let u = w.units[i].clone();
+            w.mark(&u, u.tile, None);
+            w.units[i].tile = site;
+            w.units[i].pos = (site.0 * TILE_PX, site.1 * TILE_PX);
+            let u = w.units[i].clone();
+            w.mark(&u, site, Some(p));
+            w.raise(i, kind, site);
+            (w, p)
+        }
+
+        /// Blocks every tile of the map outside the building at `site` for land units.
+        fn hem_in(w: &mut World, site: (i32, i32)) {
+            let size = w.stats_of(FARM).size;
+            for y in 0..24 {
+                for x in 0..24 {
+                    let inside =
+                        (site.0..site.0 + size.0 as i32).contains(&x) && (site.1..site.1 + size.1 as i32).contains(&y);
+                    if !inside {
+                        w.terrain.set_bits(x, y, bits::OBSTACLE);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn a_farm_completes_and_lets_its_builder_out() {
+            let (mut w, p) = arrive(FARM, (8, 8));
+            run(&mut w, 12 * 3 + 2);
+            assert!(!w.unit(p).unwrap().inside);
+            assert_eq!(pinned(&w), 10779703555586822501);
+        }
+
+        /// A builder carrying gold in gold mode, of a hall: the load is delivered and it gets the hall-sized exit mark.
+        #[test]
+        fn a_hall_completes_with_a_carrying_builder() {
+            let hall = kind::GREAT_HALL;
+            let (mut w, p) = town();
+            w.stats.0[hall as usize] = w.stats.0[FARM as usize];
+            w.stats.0[hall as usize].flags |= flags::GOLD_STORAGE;
+            w.vision.local = 0;
+            let i = w.index(p).unwrap();
+            w.units[i].gather = Gather::Gold;
+            w.units[i].carrying = true;
+            w.raise(i, hall, (2, 2));
+            run(&mut w, 12 * 3 + 2);
+            let u = w.unit(p).unwrap();
+            assert!(!u.inside && u.hall_exit && !u.carrying, "{u:?}");
+            assert_eq!(pinned(&w), 14373932720382563551);
+        }
+
+        #[test]
+        fn a_finished_site_with_no_room_kills_its_builder() {
+            let (mut w, p) = arrive(FARM, (8, 8));
+            hem_in(&mut w, (8, 8));
+            run(&mut w, 12 * 3 + 2);
+            assert!(w.unit(p).unwrap().dying);
+            assert_eq!(pinned(&w), 14253050280624212396);
+        }
+
+        #[test]
+        fn a_cancelled_site_lets_its_builder_out() {
+            let mut got = Vec::new();
+            for enhanced in [false, true] {
+                let (mut w, p) = arrive(FARM, (8, 8));
+                w.rules.enhanced = enhanced;
+                w.stats.0[FARM as usize].oil = 100;
+                run(&mut w, 12);
+                let farm = farm_at(&w, (8, 8)).unwrap();
+                w.step(&[Command::Cancel { player: 0, unit: farm }]);
+                run(&mut w, 3);
+                assert!(!w.unit(p).unwrap().inside);
+                got.push(pinned(&w));
+            }
+            assert_eq!(got, [11881560567683495458, 141074880140374115]);
+        }
+
+        #[test]
+        fn a_cancelled_site_with_no_room_kills_its_builder() {
+            let (mut w, p) = arrive(FARM, (8, 8));
+            hem_in(&mut w, (8, 8));
+            run(&mut w, 12);
+            let farm = farm_at(&w, (8, 8)).unwrap();
+            w.step(&[Command::Cancel { player: 0, unit: farm }]);
+            run(&mut w, 3);
+            assert!(w.unit(p).unwrap().dying);
+            assert_eq!(pinned(&w), 9582423410283250313);
+        }
+
+        #[test]
+        fn a_killed_site_kills_its_builder() {
+            let (mut w, p) = arrive(FARM, (8, 8));
+            run(&mut w, 12);
+            let fi = w.index(farm_at(&w, (8, 8)).unwrap()).unwrap();
+            w.kill(fi);
+            run(&mut w, 3);
+            assert!(w.unit(p).unwrap().dying);
+            assert_eq!(pinned(&w), 13805690297050688148);
+        }
+
+        /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), and a
+        /// human player who can't pay. Code versus spec: the last stops the worker as an immediate idle (wait 1),
+        /// where "Placement on arrival", step 1, has idle take over in the same update.
+        #[test]
+        fn placement_failures_on_arrival() {
+            let (mut got, mut prints) = (Vec::new(), Vec::new());
+            for case in 0..3 {
+                let (mut w, p) = town();
+                w.vision.local = 0;
+                let i = w.index(p).unwrap();
+                match case {
+                    0 => w.terrain.set_bits(9, 9, bits::OBSTACLE),
+                    1 => {
+                        w.players[0].controller = crate::ai::controller::COMPUTER;
+                        w.terrain.set_bits(9, 9, bits::OBSTACLE);
+                        w.pay(0, [500, 250, 0]);
+                    }
+                    _ => w.players[0].gold = 100,
+                }
+                w.raise(i, FARM, (8, 8));
+                let u = w.unit(p).unwrap();
+                got.push((u.order, u.script.wait, w.players[0].gold));
+                run(&mut w, 5);
+                prints.push(pinned(&w));
+            }
+            assert_eq!(
+                got,
+                [(Order::Idle, 3, 1000), (Order::Idle, 3, 1000), (Order::Idle, 1, 100)]
+            );
+            assert_eq!(prints, [4713247118106514692, 6118939153357291191, 9359600541951759668]);
+        }
+    }
 }

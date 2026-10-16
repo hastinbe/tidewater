@@ -2282,8 +2282,57 @@ mod tests {
     mod pin {
         use super::*;
         use crate::ai::controller;
+        use crate::world::tests::run;
 
         const FOE: u8 = 8;
+
+        /// The whole state and the queued events, as one number (the build-train pins, B-038 step 3).
+        fn pinned(w: &World) -> u64 {
+            format!("{}|{:?}", w.fingerprint(), w.events)
+                .bytes()
+                .fold(0xcbf2_9ce4_8422_2325, |h, b| {
+                    (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+                })
+        }
+
+        /// A mine collapsing with two workers inside, in both modes; then they come out.
+        #[test]
+        fn a_mine_collapses_with_workers_inside() {
+            let mut got = Vec::new();
+            for enhanced in [false, true] {
+                let mut w = land();
+                w.rules.enhanced = enhanced;
+                let s = &mut w.stats.0[MINE as usize];
+                (s.gold, s.lumber, s.oil) = (500, 250, 100);
+                w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+                let mine = w.spawn(MINE, 0, (12, 4), 2).unwrap();
+                let a = w.spawn(0, 0, (11, 4), 0).unwrap();
+                let b = w.spawn(0, 0, (11, 5), 0).unwrap();
+                go_in_now(&mut w, a, mine);
+                go_in_now(&mut w, b, mine);
+                assert!(w.unit(mine).unwrap().dying);
+                run(&mut w, 20);
+                got.push(pinned(&w));
+            }
+            assert_eq!(got, [16612242630407277093, 5191181104371865821]);
+        }
+
+        /// A depot killed with a worker inside delivering: the worker dies with it (V50's rule).
+        #[test]
+        fn a_depot_killed_with_a_worker_inside() {
+            let mut w = land();
+            let hall = w.spawn(kind::TOWN_HALL, 0, (4, 4), 0).unwrap();
+            let a = w.spawn(0, 0, (3, 4), 0).unwrap();
+            let ai = w.index(a).unwrap();
+            w.units[ai].carrying = true;
+            go_in_now(&mut w, a, hall);
+            assert!(w.unit(a).unwrap().inside);
+            let hi = w.index(hall).unwrap();
+            w.kill(hi);
+            assert!(w.unit(a).unwrap().dying);
+            run(&mut w, 5);
+            assert_eq!(pinned(&w), 6779244202415217819);
+        }
 
         /// [`land_with_oil`] with player 0 human, player 1 computer, workers that can attack and a foe type (an
         /// archer-like fighter).
