@@ -289,6 +289,11 @@ impl World {
         u.pos = (site.0 * TILE_PX, site.1 * TILE_PX);
         u.path.clear();
         u.order = Order::InsideSite { building: Some(b) };
+        // Step 4, as for any entering worker (B-040 audit, V67): the attacker is forgotten at once, and a human
+        // owner reveals the entry sight (vision spec, "When sight is applied", rule 3).
+        u.attacked_by = None;
+        let worker = u.id;
+        self.worker_entry_sight(worker, b);
         self.start_anim(i, anim::STILL);
         self.units[i].script.wait = ENTER_SITE_WAIT;
     }
@@ -530,6 +535,39 @@ mod tests {
             u.order
         );
         assert_eq!((u.attacked_by, u.remembered), (Some(g), old));
+    }
+
+    /// V67: a builder entering its site forgets its attacker in the entry cycle, not when order 22's logic first runs
+    /// 150 cycles later, and a human owner reveals the entry sight (sight 3 at the top-left tile moved one step in its
+    /// facing).
+    #[test]
+    fn entering_a_site_forgets_the_attacker_and_gives_the_entry_sight() {
+        const STEP: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
+        let (mut w, p) = town();
+        // The least sight, so the walk itself reveals nothing three tiles past the site's corner.
+        w.stats.0[PEASANT as usize].sight = 0;
+        let g = w.spawn(PEASANT, 1, (20, 20), 0).unwrap();
+        build(&mut w, 0, p, (8, 8));
+        let mut entered = false;
+        for _ in 0..400 {
+            let i = w.index(p).unwrap();
+            w.units[i].attacked_by = Some(g);
+            let facing = w.units[i].facing;
+            let far = (8 + STEP[facing as usize & 7].0 + 3, 8 + STEP[facing as usize & 7].1);
+            let unseen = w.vision.unseen_by(0, far.0, far.1);
+            w.step(&[]);
+            let u = w.unit(p).unwrap();
+            if u.inside {
+                let farm = farm_at(&w, (8, 8)).expect("placed");
+                assert_eq!(u.order, Order::InsideSite { building: Some(farm) });
+                assert_eq!((u.attacked_by, u.script.wait), (None, ENTER_SITE_WAIT));
+                assert!(unseen, "unseen before the entry");
+                assert!(!w.vision.unseen_by(0, far.0, far.1), "the entry sight reveals {far:?}");
+                entered = true;
+                break;
+            }
+        }
+        assert!(entered);
     }
 
     #[test]
@@ -1332,7 +1370,7 @@ mod tests {
             let (mut w, p) = arrive(FARM, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(!w.unit(p).unwrap().inside);
-            assert_eq!(pinned(&w), 7790822708232095186);
+            assert_eq!(pinned(&w), 530902050336631206);
         }
 
         /// A builder carrying gold in gold mode, of a hall: the load is delivered and it gets the hall-sized exit mark.
@@ -1350,7 +1388,7 @@ mod tests {
             run(&mut w, 12 * 3 + 2);
             let u = w.unit(p).unwrap();
             assert!(!u.inside && u.hall_exit && !u.carrying, "{u:?}");
-            assert_eq!(pinned(&w), 8624597217362786765);
+            assert_eq!(pinned(&w), 7938654718672569035);
         }
 
         #[test]
@@ -1359,7 +1397,7 @@ mod tests {
             hem_in(&mut w, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 5413198429153827789);
+            assert_eq!(pinned(&w), 7352284125274604283);
         }
 
         #[test]
@@ -1376,7 +1414,7 @@ mod tests {
                 assert!(!w.unit(p).unwrap().inside);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [5529840884287666762, 16559601490874992111]);
+            assert_eq!(got, [10161745310949340534, 13250098185767289908]);
         }
 
         #[test]
@@ -1388,7 +1426,7 @@ mod tests {
             w.step(&[Command::Cancel { player: 0, unit: farm }]);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 10219636296886268902);
+            assert_eq!(pinned(&w), 8227029686897629258);
         }
 
         #[test]
@@ -1399,7 +1437,7 @@ mod tests {
             w.kill(fi);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 12780692654533903984);
+            assert_eq!(pinned(&w), 1585703118102809704);
         }
 
         /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), a
