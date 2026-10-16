@@ -34,6 +34,15 @@
   not only a depot's. X2: the all-out target is the human player with the most non-building units. Two open questions
   answered. Held as open questions with the old text as the default: the job choice in acquiring orders other than
   order 2 (C2, static study only) and whether an unfinished oil platform counts in the losses rule.
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16): an
+  oil platform under construction counts in the losses rule (AI5, traced: `orc3-orc03-platform-losses-9500`); the
+  job choice also runs in order 4, as for the worker sent by an all-out attack (AI1, traced:
+  `xhuman5-xhuman05-worker-all-out-goals-1100`); an active rescue player's map buildings get no creation marks (AI2,
+  traced: setup dumps of `human5` and `human8`). Two open questions closed; the done marks of an active rescue
+  player's map buildings added as one (default: none). Review fixes: the Data row and the 3-building vector state the
+  platform clause; the order-4 command takes over at the next step done; the passes after the job choice are within
+  the leash, so the AI1 vector no longer reads them as evidence about the goal; tankers in order 4 and the other
+  acquiring orders are labelled defaults with trace requests.
 
 ## Behaviour
 
@@ -52,9 +61,16 @@ runs"):
 - when its idle order (order 2) logic runs (`orders/orders.md`), at the point where a combat unit would run the
   target search ("Automatic target acquisition"). With an attacker, the kind check of `orders/orders.md`, "Reacting
   to an attacker", step 1 comes first: a worker or tanker that can't attack its attacker's kind runs the flee rule and
-  makes no job choice in that run. The look-around's draw comes before the job choice. Whether the job choice also
-  runs in the other acquiring orders (a computer worker in order 4 after an all-out attack) is an open question
-  (below); and
+  makes no job choice in that run. The look-around's draw comes before the job choice;
+- **in order 4** (round 83): a computer worker given command 4, as by the attack goal after an all-out attack
+  (`ai/attack-ai.md`, "Attack (2)"), makes its job choice at its next order-logic run in that order, at the point
+  where a combat unit would run the target search, after the order's arrival test (traced:
+  `xhuman5-xhuman05-worker-all-out-goals-1100`, vectors below; a peon carrying gold gets return goods 3 cycles after
+  the pass that gave it command 4). Its command is pending and takes over at the next step done, like any command
+  that isn't from idle (`orders/orders.md`, "Commands"; traced: 22 cycles later). A tanker in order 4 isn't traced;
+  default: the same. Static study finds the same point in every other order marked "acquires" (`orders/orders.md`)
+  and in the move step of orders 5 and 12; those are untraced and keep the old text (no job choice there; Open
+  questions); and
 - when it comes out of a mine, a platform or a depot (`economy/harvest.md`, "Coming out", step 3; traced for a mine
   by that spec's V45). If a job is given there, the usual return to the old source is skipped.
 
@@ -145,7 +161,10 @@ stopping at an 0xFF entry. For each entry:
   the race change) is marked done. "Created" covers the buildings the map places (at load, before the first cycle)
   and a construction site placed in play, so the mark comes when construction starts, not when it ends. There are no
   special cases: a guard or cannon tower marks a guard or cannon tower entry, never the scout-tower entry (0x40), and
-  a keep or castle marks a keep or castle entry, never 0x98, 0x99 or a town hall entry.
+  a keep or castle marks a keep or castle entry, never 0x98, 0x99 or a town hall entry. An active rescue player's map
+  buildings mark nothing (round 83, default, untraced; it follows from `game/setup.md`'s order of steps): they are
+  created before the player becomes a computer player, as the creation marks show (Open questions, trace request
+  AI7).
 - When a building of a computer player is **destroyed**, the first entry in list order that is done and whose type
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
@@ -163,12 +182,14 @@ So the list works like a wish list: each entry stands for one building, and a lo
 **The losses rule** and the other effects of a computer player's losses (they don't change done marks):
 
 - When one of its buildings is destroyed, the rule runs inside the kill, at the start of the death, before the
-  building leaves the player's counts. Let B be the player's buildings that are not oil platforms at that moment,
-  **the destroyed one included**, complete or under construction. If B < 3, it launches the all-out attack
+  building leaves the player's counts. Let B be the player's buildings at that moment, **the destroyed one
+  included**, complete or under construction, less its **complete** oil platforms (round 83, traced: an oil platform
+  under construction counts). If B < 3, it launches the all-out attack
   (`ai/attack-ai.md`, "The all-out attack") on the human player with the most non-building units. So a player with
   exactly 3 buildings that are not platforms doesn't attack when it loses one, and does when it loses the next
-  (traced: `xorc10-xorc10-losses-4000`, vectors below and `ai/computer-player.md` CP1, CP2). Whether an oil platform
-  still under construction counts in B is an open question (below); the default leaves every platform out.
+  (traced: `xorc10-xorc10-losses-4000`, vectors below and `ai/computer-player.md` CP1, CP2). With 2 other buildings
+  and a platform under construction, B = 3 and a loss starts nothing (traced: `orc3-orc03-platform-losses-9500`,
+  vectors below).
 - When one of its workers dies, the worker's job is released as in step 1 (the matching count goes down by 1).
 
 ### Repair
@@ -230,9 +251,11 @@ the run-time tile mark 0x0400 in the tile flags of `movement/occupancy.md`. The 
 space. It isn't in the movement or ordinary placement masks, so it doesn't affect movement or human placement.
 
 **Creation marks.** When a building is created for a computer player (the player kind of blocked rows A and B,
-`movement/movement.md`, "Player kinds"; so an active rescue player too), whether the map places it at load or it is
-started in play, it is marked by its type. Human players, passive computer players and the neutral player get no
-creation marks.
+`movement/movement.md`, "Player kinds"), whether the map places it at load or it is started in play, it is marked by
+its type. Human players, passive computer players and the neutral player get no creation marks. **An active rescue
+player's map buildings get none either** (round 83): it becomes a computer player only after the map's units
+are read (`game/setup.md`), so its buildings are created while it is still a rescue player (traced: the `human5` and
+`human8` setup dumps, vectors below). Buildings it starts in play, as a computer player, are marked as usual.
 
 | Types | Mark |
 | --- | --- |
@@ -328,8 +351,8 @@ ties. The search is then run again at that mine to give the site.
 
 ### Tankers
 
-The job choice runs at the same two moments for a computer player's tanker (and for any peon-flagged sea unit, which
-only custom unit data creates):
+The job choice runs at the same moments for a computer player's tanker (in order 4 by default, untraced: "When a job
+is chosen"), and for any peon-flagged sea unit, which only custom unit data creates:
 
 1. **Attacker:** the reaction, as for a worker.
 2. **Depot:** the nearest completed oil-storing building of the player whose footprint touches the tanker's water
@@ -359,7 +382,7 @@ only custom unit data creates):
 | Computer placement masks | 0x0DDE land, 0x0D11 shore |
 | Keep-clear bit | 0x0400 |
 | New-mine search | mines with ≥ 50 trips; no gold-store tile in (−5, −5) to (+7, +7); site within 10 tiles; nearest site wins |
-| All-out attack threshold | at the kill: buildings other than oil platforms (the destroyed one included) < 3 |
+| All-out attack threshold | at the kill: buildings, complete or under construction (the destroyed one included), less complete oil platforms, < 3 |
 | Build-list length | min(slot 0x22, 64) entries |
 
 "Annoy computer" values of the buildings in the default unit data (both races alike):
@@ -413,7 +436,7 @@ An entry is marked done at the start of a game when either bit of its code is se
 | New-mine search: mine A's site is 6 tiles from A, mine B's site 4 tiles from B, mine C's site 11 tiles from C | C is out (over 10); B is chosen |
 | Classic, supply 210, food in use 209 | No farm (S ≥ 200) |
 | T = 2, 0 lumberjacks, no reachable tree, a depot and a mine | Tree search fails; the worker mines gold |
-| Computer player with 3 buildings (one an oil platform) loses a farm | 1 building other than platforms left: the all-out attack starts |
+| Computer player with 3 buildings (one a complete oil platform) loses a farm | B = 2 at the kill (the farm and the other building; the platform left out): the all-out attack starts |
 | Computer player with 3 guard towers loses one (`xorc10-xorc10-losses-4000`, n = 1358) | 3 at the kill: no all-out attack |
 | Same player loses a second tower (n = 1543) | 2 at the kill: the all-out attack starts at the next pass (n = 1551) |
 | 7 workers, gold 400, lumber 300 | First three rows don't match (W ≥ 5; L < 2000; L < 500); fourth row: T = floor(7/2) = 3 |
@@ -472,18 +495,33 @@ An entry is marked done at the start of a game when either bit of its code is se
 | --- | --- |
 | `xorc4-30000` (oracle trace, Enhanced, no input), n = 27870: computer peasant 1478 (type 0x02, owner 3) comes out of keep 1512 (type 0x58) with a town hall build job. Gold mine 1525 (type 0x5C) has top-left (66, 62), so its square runs from (61, 57) to (73, 69); castle 1535 (type 0x5A, owner 1, 4 × 4) has its top-left at (60, 54), outside the square, and its tiles (61, 57) to (63, 57) inside. Gold mine 1508 (500 trips) is at (96, 99) | Mine 1525 is skipped. The site is (89, 105), next to mine 1508 (a break capture on the build command, whose log isn't committed). The trace shows order 28 from n = 27895 and the peasant walking east from (27, 92) along rows 92 to 94; counting only the castle's top-left tile, the site would be (72, 56), next to mine 1525, to the north-east |
 
+### Round-83 vectors
+
+| Input | Expected |
+| --- | --- |
+| `orc3-orc03-platform-losses-9500` (oracle trace, Enhanced, campaign launch): computer player 1 has farms 1589 and 1595 and oil platform 1584 under construction (463 of 650 HP); farm 1595 is destroyed (n = 6765) | B = 3 (two farms and the unfinished platform): no all-out attack; no unit of player 1 gets order 4 at the passes of n = 6801 to 7601 |
+| Same trace: platform 1584 completes (n = 7490), then farm 1589 is destroyed (n = 7634) | B = 1 (the complete platform left out): all-out attack, order 4 from the pass of n = 7651 (7 units by n = 7655) |
+| `xhuman5-xhuman05-worker-all-out-goals-1100`: computer player 2's farm 1582 is destroyed (n = 754; B = 2); peon 1575 walks back from the mine carrying gold | Smart move at n = 754 (pending 3, to the knight's tile (9, 19)); command 4 at the pass of n = 801 (to (9, 20), 8 tiles away; leash 7); at n = 804, its next order-logic run, return goods to great hall 1579 (pending 24, order 24 at n = 826) |
+| Same trace, the passes of n = 851 to 1051 | No command 4: the peon is within its leash at each (6 tiles from (9, 20) at n = 851, entering the hall; inside it at (8, 23), 3 tiles, to n = 1001; 2 tiles at n = 1051), so these passes don't show whether its attack goal is kept (`ai/attack-ai.md`, Open questions). It comes out of the hall at n = 1004 with a farm job |
+| `human5` setup dump (n = 0): active rescue player 0's town hall (40, 96), barracks (46, 92), lumber mill (34, 109) and blacksmith (37, 105) | No keep-clear bit on or around them; computer player 5's buildings have their rectangles and shore squares (152 tiles) |
+| `human8` setup dump (n = 0): active rescue player 2's town hall (74, 72) and blacksmith (66, 71) | No keep-clear bit; all 329 marked tiles are computer players 0, 1 and 3's creation marks |
+
 ## Open questions
 
-- **Job choice in other acquiring orders** (round 82, C2, held by review): static study finds the job choice wherever
-  a computer worker or tanker reaches the acquisition step, in every order marked "acquires" (`orders/orders.md`) and
-  in the move step of orders 4, 5 and 12, not only in order 2. Its one practical case is a worker given command 4 by
-  the all-out attack's attack goal (`ai/attack-ai.md`, "Attack (2)"). Default: order 2 only, as above. Trace request
-  AI1 (`ERRATA-ai-consolidation.md`): a computer player with workers loses its buildings down to the all-out attack;
-  the static reading predicts its workers leave order 4 for a job at their next order-logic run.
-- **An unfinished oil platform in the losses rule** (round 82, held by review): static study counts a platform under
-  construction in B. Default: every oil platform is left out, complete or not. Trace request AI5
-  (`ERRATA-ai-consolidation.md`): a computer player with 2 other buildings and a platform under construction loses
-  one of the 2; the static reading predicts no all-out attack, the default predicts one.
+- **Job choice in other acquiring orders** (round 82, C2): **closed in round 83** for order 4 (AI1,
+  `ERRATA-round83.md`): the job choice runs at the worker's next order-logic run. Still open for the other acquiring
+  orders and the move step of orders 5 and 12: static study finds the job choice there too. Default: the old text (no
+  job choice there). Trace request (round 83 review, AI8): a computer worker in order 12 or 5, for example one given
+  command 12 by the attack goal's enemy search once idle within its leash (`ai/attack-ai.md`, "Attack (2)", step 2);
+  the static reading predicts a job choice at its next order-logic run. A tanker in order 4 (default: as a worker) can
+  be checked in the same run if one is given command 4.
+- **An unfinished oil platform in the losses rule** (round 82): **closed in round 83** (AI5): it counts.
+- **An active rescue player's map units** (round 83): the trace shows no creation marks. That the same buildings mark
+  no build-list entry done, and that its map units get no first goal (`ai/attack-ai.md`), is the default by the same
+  reading (`game/setup.md`: code 7 becomes a computer player after the units are created), untraced. Trace request
+  (AI7): `human5` with player 0's map buildings standing for a few thousand cycles (does it start a second town hall,
+  barracks, lumber mill or blacksmith that its build list names?), and one of its map footmen or archers drawn past
+  its leash from its post (does pass B send it back?).
 - "Prerequisites met" in the build list: the rules are in `economy/tech-tree.md`. Whether the computer applies them
   even when requirements aren't enforced must be checked. Default: it uses the same rules as the player's interface.
 - Confirm in the running game that a worker whose tree search fails mines gold in the same choice (default: it does,

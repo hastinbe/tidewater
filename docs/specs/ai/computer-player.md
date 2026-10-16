@@ -11,6 +11,14 @@
   the information flow, the defence and unit-level summaries, and the full list of random draws. Review (2026-10-16):
   C2 (the job choice outside order 2) and the unfinished-platform clause of the losses rule are held as open
   questions with the old text as the default; the summaries were checked against the part specs and corrected.
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16):
+  both held items settled by traces: the job choice runs in order 4 (AI1) and an oil platform under construction
+  counts in the losses rule (AI5); an active rescue player's map buildings get no creation marks (AI2), so it isn't a
+  computer player for the creation step; the all-spells cheat doesn't teach a computer player its spells (AI3); a
+  worker that joins another player leaves its job count behind (AI4). CP5 updated, CP7 to CP10 added; open questions
+  closed. Review fixes: the passes after AI1's job choice found the peon within its leash, so they don't show what
+  happens to its attack goal (CP5; open question in `ai/attack-ai.md`, default: the goal stays); the order-4 job
+  choice's command takes over at the next step done, as the trace shows.
 
 ## Behaviour
 
@@ -19,7 +27,8 @@ state and a few per-player numbers, and gives ordinary commands. Nothing remembe
 script slots, the build list's done marks, the research requests and each unit's goal.
 
 "Computer player" means a player whose controller is computer once the game is set up (`game/setup.md` says which owner
-codes and lobby choices give one; code 7, active rescue, becomes one once the map is loaded). Passive computer players
+codes and lobby choices give one; code 7, active rescue, becomes one once the map is loaded, so its map units are
+created before it is one: round 83, traced for the creation marks, `ai/worker-ai.md`). Passive computer players
 (code 2 and, after loading, code 6) run none of the deciders below; they are "every other player" in the rules of
 `orders/orders.md`, "Terms". Where a rule splits on **human-controlled** rather than on computer, the spec that has it
 says so (`orders/orders.md`, "Terms").
@@ -86,16 +95,18 @@ A computer worker's or tanker's job choice runs:
   job choice there instead. With an attacker, the kind check of `orders/orders.md`, "Reacting to an attacker", step 1
   comes first: a worker or tanker that can't attack its attacker's kind runs the flee rule (a computer unit flees
   only from idle) and makes no job choice in that run. Then the job choice runs, and its step 2 is the reaction.
+- **in order 4** (round 83; C2, traced for a worker): a worker given command 4 by the attack goal after an all-out
+  attack (the hold goal skips workers; the attack goal doesn't) makes its job choice at its next order-logic run in
+  order 4, at the same point of that order's logic, so it takes up a job instead of marching to the goal tile
+  (`ai/worker-ai.md`, "When a job is chosen"; CP5). A tanker in order 4 isn't traced; default: the same. Static study
+  finds the same point in every order marked "acquires" and in the move step of the walking orders; only order 4 is
+  traced, and the other orders keep the old text (no job choice there).
 - **when it comes out** of a mine, platform or depot (`economy/harvest.md`, "Coming out", step 3).
 
-**Held (round 82, C2):** static study finds the job choice wherever such a unit reaches that point, in every order
-marked "acquires" and in the move step of the walking orders, not only in order 2. Its one practical case is a worker
-given command 4 by the attack goal after an all-out attack (the hold goal skips workers; the attack goal doesn't). The
-default is order 2 only, so such a worker walks to its goal tile under command 4 and makes its job choice once it is
-idle there. Trace request AI1 (`ai/worker-ai.md`, Open questions).
-
 From the idle logic, the job choice's order is a command and takes over in the same update (`orders/orders.md`,
-"Commands"); at a come-out it stays pending through the come-out wait (`economy/harvest.md`, "Coming out").
+"Commands"); in order 4 it is pending and takes over at the unit's next step done, as any command does (traced:
+pending at n = 804, taking over at n = 826, CP5); at a come-out it stays pending through the come-out wait
+(`economy/harvest.md`, "Coming out").
 
 ### Resource assignment
 
@@ -140,7 +151,7 @@ A fighting unit's life under the computer:
 | Hold give-up and leash | pass B, hold goal | a unit past its leash is sent back to its post if it is idle, or, when busy, only if another player dominates its block and it is badly outmatched there (10 × own < 4 × dominant) | `ai/attack-ai.md`, "Hold" |
 | Repair | a worker's job choice | damaged, safe buildings are repaired, most annoying type first; a repairing worker doesn't flee | `ai/worker-ai.md`, "Repair"; `economy/repair.md` |
 | Rebuilding | a building is destroyed | its build-list entry loses its done mark, so it is built again | `ai/worker-ai.md`, "Done marks" |
-| Losses rule | a building is destroyed | with fewer than 3 buildings other than oil platforms (counted at the kill, the destroyed one included), every mobile unit attacks | `ai/worker-ai.md`, "The losses rule"; `ai/attack-ai.md`, "The all-out attack" |
+| Losses rule | a building is destroyed | with fewer than 3 buildings (counted at the kill, the destroyed one included, complete oil platforms left out; an unfinished one counts), every mobile unit attacks | `ai/worker-ai.md`, "The losses rule"; `ai/attack-ai.md`, "The all-out attack" |
 
 There is no other defence: the computer never pulls back an attacking wave to defend its base, and towers defend by
 their own order logic.
@@ -216,7 +227,7 @@ No other Classic-mode difference is known here.
 | Players with a script | 0 to 7 (computer players run it every cycle) |
 | 50-cycle passes | A, then the no-workers pass, then B; first in the first start-up cycle |
 | Building think | from order 33, every (interval + 2) order-logic runs |
-| Losses rule threshold | buildings other than oil platforms at the kill, the destroyed one included, < 3 |
+| Losses rule threshold | buildings at the kill, the destroyed one included, less complete oil platforms, < 3 |
 | Help radius | 13 tiles for a computer player's unit |
 
 ## Test vectors
@@ -227,22 +238,24 @@ No other Classic-mode difference is known here.
 | CP2 | Same trace: the dragons then destroy tower 1482 (order 1 at n = 1543) | All-out attack: at the pass of n = 1551 player 2's units take order 4, 7 at n = 1551 and 36 by n = 1555; the 9 units already in order 12 keep it (counted at the kill: 2 buildings) |
 | CP3 | `human2-human02-all-out-4000`: computer player 0's only building, watch tower 1593, is destroyed (n = 510) | All-out attack from the pass of n = 551 (1 building at the kill) |
 | CP4 | A pass cycle: computer player 1's script step, then pass A, the no-workers pass and pass B | In that order, all in phase 2, before any unit's phase-4 update |
-| CP5 | Computer worker given goal attack by an all-out attack, smart move toward the target tile; at the next pass it is past its leash (static study) | Pass B gives it command 4 (X9). Default (C2 held): no job choice in order 4; it makes its job choice once idle at the goal tile. The static reading (trace request AI1): its job choice runs at its next order-logic run in order 4 |
+| CP5 | Computer worker given goal attack by an all-out attack, smart move toward the target tile; at the next pass it is past its leash (round 83; traced: `xhuman5-xhuman05-worker-all-out-goals-1100`, peon 1575) | Pass B gives it command 4 (X9; the pass of n = 801, goal tile (9, 20)). At its next order-logic run in order 4 (n = 804) it makes its job choice: carrying gold, it gets return goods to its hall, pending until n = 826. The passes of n = 851 to 1051 give it nothing, but they find it within its leash of 7 (6 tiles from (9, 20) at n = 851, then inside the hall and building next to the tile), so they don't show whether its attack goal is kept (`ai/attack-ai.md`, Open questions) |
 | CP6 | Pass B with a computer ogre-mage that knows runes, has 200 mana and no bloodlust target, then a roaming idle gryphon rider in a later slot | The ogre-mage's 1 to 10 draws come first, then the gryphon's 2 |
+| CP7 | `orc3-orc03-platform-losses-9500` (round 83): computer player 1 with farms 1589 and 1595 and oil platform 1584 under construction loses farm 1595 (n = 6765) | No all-out attack (2 farms and the unfinished platform: 3); none at the passes of n = 6801 to 7601. After the platform completes, the loss of farm 1589 (n = 7634; B = 1, the farm itself, with the complete platform left out) starts it: order 4 from n = 7651 |
+| CP8 | `human5` and `human8` setup dumps (round 83): active rescue players' town halls, barracks, lumber mill and blacksmiths placed by the map | No creation marks (no keep-clear bit); the computer players' buildings on the same maps have theirs |
+| CP9 | `xhuman2-xhuman02-cheat-scope-1600` (round 83): all-spells cheat on; computer death knight 1557 knows only death coil | It casts death coil (mana topped up to 255 at each command) and nothing else, though haste's other tests pass at 10 passes |
+| CP10 | `human5-human05-rescue-jobs-2000` (round 83): active rescue player 0's lumberjack 1517 joins player 1 | Player 0's lumberjack count keeps 1517's job (inferred from the next choice, `game/rescue.md`); its last lumberjack turns to gold at its next come-out (n = 1593) |
 
 ## Open questions
 
 The open questions of each part stay in its spec. The ones about the model as a whole are Q1 to Q6 of
 `specs/ERRATA-ai-consolidation.md`:
 
-- **Job choice outside order 2** (C2, held by review): static study only; default order 2. Trace request AI1.
-- **An unfinished oil platform in the losses rule** (held by review): static study counts it; default leaves every
-  platform out. Trace request AI5.
-- **Active rescue players at map load:** code 7 becomes a computer player only after the map's units are read, so
-  whether its map buildings get creation and done marks and its map units a first goal is unsettled. Default: as
-  `ai/worker-ai.md` says (marks at load).
-- **All-spells cheat scope:** `game/cheats.md` says "every player controlled by a person", `spells/spells.md` says
-  every player; this decides the caster step's spell gate under the cheat. Default: `game/cheats.md`, the spec that
-  states the cheat's rule (`ai/caster-ai.md`, Open questions).
+- **Job choice outside order 2** (C2): closed in round 83 for order 4 (CP5). The other acquiring orders
+  and the move step of orders 5 and 12: static study finds the job choice there too; untraced, so the default keeps
+  the old text (no job choice there). A trace would need a computer worker in order 5 or 12.
+- **An unfinished oil platform in the losses rule:** closed in round 83: it counts (CP7).
+- **Active rescue players at map load:** creation marks closed in round 83: none (CP8). Done marks and a
+  first goal for its map units: none by default, untraced (`ai/worker-ai.md`, `ai/attack-ai.md`).
+- **All-spells cheat scope:** closed in round 83: players controlled by a person only (CP9).
 - **Unknown opcodes and conditions** in a script have no defined behaviour (static study). No shipped script has
   one. Default: refuse such a script file.

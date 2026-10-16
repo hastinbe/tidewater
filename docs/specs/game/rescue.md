@@ -9,6 +9,9 @@
 - **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, errata 4 and 14; static study;
   reviewed by a spec-review session, 2026-10-16): a working building's cancelled job leaves it with a pending resting
   order; a completed hall counted for the new owner sets that owner's "ever had a hall" mark.
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16): a
+  worker that joins another player leaves its job count with the old owner (AI4, traced; the count itself is
+  inferred from the next job choice, as the vector says); vector added.
 
 ## Behaviour
 
@@ -113,7 +116,12 @@ The same steps run for joining and for the gold-store cascade. Steps 1 to 5 happ
      its construction goes on.
 2. **Tally.** The new owner's **converted tally** goes up by 1. Mode F in `game/victory.md` reads this tally.
 3. **Owner.** The unit is taken out of every player's current selection, out of the old owner's counts, and into the
-   new owner's. Its order is not changed (beyond step 1's pending order for a working building).
+   new owner's. Its order is not changed (beyond step 1's pending order for a working building). A computer worker's
+   **job counts** (`ai/worker-ai.md`, "Worker: the steps, in order", step 1: miners, lumberjacks, repairers, buildings
+   in progress) are not changed: the old owner's count keeps the job of a worker that has left (round 83;
+   traced for a lumberjack, `human5-human05-rescue-jobs-2000`, with the count inferred from the old owner's next job
+   choice, vectors below; the other counts by the same default), so that count stays one too high; no later release
+   of it is traced.
 4. **Enhanced mode only.** If the new owner has researched the paladin upgrade, a knight or ogre becomes a paladin or
    ogre-mage. If the new owner's ranger level isn't 0, an archer or axe thrower becomes a ranger or berserker. Each
    change is the same as the research conversion in `economy/tech-tree.md` ("Converting units"): hit points go up
@@ -195,6 +203,7 @@ A command's target flashes the same way, starting from 31.
 | Two marked units owned by the local player stand on the circle in the same check | Two rescue sounds; rescued count +2 |
 | A computer player's unit with the mark stands on a circle | Nothing |
 | A joined footman dies before reaching a circle | Rescuable count −1; rescued count unchanged |
+| `human5-human05-rescue-jobs-2000` (oracle trace, Enhanced, campaign launch; round 83): active rescue player 0 (a computer player in play) has lumberjacks 1512 and 1517 and miners 1513 and 1515, gold 2000 or more, lumber 1000 to 1125; lumberjack 1517 joins player 1 at n = 1030 | Lumberjack 1512, coming out of the lumber mill at n = 1593, goes to gold mine 1522 (order 23 at n = 1618). Without the join (`human5-10000`) the same come-out goes back to the trees. The job counts aren't in the trace; the kept count is inferred: with gold 2400 and lumber 1125 the lumber target is floor(W / 2) (`ai/worker-ai.md`, "Harvest"), and W = 3 once 1517 has left player 0's counts (step 3). A kept count (2, then 1 after 1512's own release) isn't below 1, so gold; a released count (1, then 0) would give lumber, as in the control. W = 4 would give lumber either way |
 
 ## Open questions
 

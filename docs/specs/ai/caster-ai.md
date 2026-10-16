@@ -13,6 +13,12 @@
 - **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
   2026-10-16): the caster step's place in the whole computer player is in `ai/computer-player.md`; the Classic-mode
   slot count is labelled; the all-spells cheat's scope is an open question. No rule change.
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16):
+  the all-spells cheat's scope is traced (AI3, `xhuman2-xhuman02-cheat-scope-1600`): a computer caster's owner
+  doesn't learn the spells, so the known-spell gate still fails for spells it doesn't know; the cheat's mana top-up
+  still applies to its commands.
+  Open question closed; vector added. Review: the timers pass's clearing of the target marks is now step 6 of
+  `spells/spells.md`'s step list (labelled static gap-fill).
 
 ## Behaviour
 
@@ -98,9 +104,9 @@ When a try succeeds, its row may set a **mark** on the target, so that other cas
 don't pick the same unit for the same spell. There are two kinds:
 
 - **Target marks:** seven flags, one each for death coil, polymorph, holy vision, exorcism, healing, raise dead and
-  whirlwind. The timers pass of `spells/spells.md` ("The timers pass") clears all
-  seven on every unit it visits, every cycle (that spec's step list doesn't name this step; its place among the steps
-  changes no outcome, since only pass B reads the marks).
+  whirlwind. The timers pass of `spells/spells.md` ("The timers pass", step 6) clears
+  all seven on every unit it visits, every cycle (static study; its place among the steps changes no outcome, since
+  only pass B reads the marks).
 - **Timer marks:** a spell timer of the target is set to 1 (or −1). These are real timers. They count down in the
   timers pass of the same cycle like any other, and until then they have their normal effect:
   - bloodlust timer 1: the target's hits in this cycle do double damage (`combat/damage.md`);
@@ -236,14 +242,13 @@ every spell. "Draws" counts the caster step's draws only.
 | Death knight, 120 mana; a lone enemy grunt, nothing earlier succeeds | Try 6 rejects it (no company within 1 for its owner); try 7 chooses it: death coil at its tile; death-coil mark |
 | Death knight with dead bodies all around, 60 mana | Try 3 never succeeds; later tries run |
 | Invisible mage, 200 mana; the first draw picks an enemy footman (not a caster) | Try 2 fails after 1 draw |
+| `xhuman2-xhuman02-cheat-scope-1600` (oracle trace, Enhanced, campaign launch; round 83): the all-spells cheat on from n = 5; computer death knight 1557 knows only death coil; its own units fight (order 12) within 15 tiles all run | Death coil at the passes of n = 751, 901, 951, 1001 and 1051 while enemy knights are in range, mana set to 255 at each command. With no organic enemy left and 156 to 167 mana, nothing at the passes of n = 1101 to 1551: haste (try 9) fails its known-spell gate |
 
 ## Open questions
 
-- **The all-spells cheat's scope** (round 82, Q3 of `ERRATA-ai-consolidation.md`): `game/cheats.md` gives every spell
-  "for every player controlled by a person", `spells/spells.md` glosses the cheat as "every player". It decides
-  whether a computer caster's spell gate passes under the cheat. Default: `game/cheats.md` (players controlled by a
-  person only), the spec that states the cheat's rule. Trace request AI3: cheat on, a computer mage that doesn't know
-  a spell; watch for a cast of it.
+- **The all-spells cheat's scope** (round 82, Q3 of `ERRATA-ai-consolidation.md`): **closed in round 83** (AI3,
+  `ERRATA-round83.md`). The cheat teaches the spells only to players controlled by a person (`game/cheats.md`),
+  so a computer caster's known-spell gate is unchanged by it; its commands still get the mana top-up.
 - **Free slots in the random search.** A freed unit slot keeps its last occupant's data, with owner 14 (the free
   list), and doesn't carry the used mark, so the random search can pick it. Its tests then read the stale type,
   timers and marks, and the alliance entry for owner 14. That entry wasn't fully traced. As far as traced, a computer

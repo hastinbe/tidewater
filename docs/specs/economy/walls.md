@@ -13,6 +13,10 @@
 - **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): a
   completed wall piece counts as neither built nor lost in the statistics (traced with breaks,
   `human06-build-stats-1800`); open question "Score" answered.
+- **Changes:** 2026-10-16 (round 83 review, `ERRATA-round83.md`): the losses rule's count is restated as
+  `ai/worker-ai.md` has it since rounds 82 and 83 (counted at the kill, the destroyed building included, complete oil
+  platforms left out). So the piece itself counts, and the vector of a hall and a farm completing a wall changes: no
+  all-out attack. Derived from those rules, untraced for a wall piece.
 
 ## Behaviour
 
@@ -62,8 +66,9 @@ When the construction pass completes a wall piece, the ordinary completion runs 
      standing + lost (`game/campaign-flow.md`, "Statistics"), a wall piece counts as neither built nor lost (traced
      with breaks: `human06-build-stats-1800`, vectors below);
    - a computer-controlled owner's "building destroyed" rule runs, as listed in `ai/worker-ai.md` ("Other effects of
-     a computer player's losses"). That rule clears a done mark of the build list, and can start the all-out attack
-     if fewer than 3 buildings other than oil platforms remain.
+     a computer player's losses"). That rule clears a done mark of the build list, and can start the all-out attack:
+     it counts the owner's buildings at the kill, the piece itself included, less complete oil platforms, and attacks
+     if there are fewer than 3 (`ai/worker-ai.md`, "The losses rule").
 2. **The piece gets the used mark** (`core/corpses.md`, "The used mark"). So when its death animation signals step
    done, it is removed and leaves no ruin. The wall pieces' death animation signals at once, so this happens on the
    piece's next update. Its slot is released 513 cycles after that, as for any removed unit.
@@ -169,12 +174,17 @@ Positions are tile coordinates (x, y) on a map large enough that no tile named i
 | Wall completed at (0, 0) | Neighbours north and west are outside the map: they count as no wall and aren't joined |
 | Wall piece placed at cycle C, undamaged | 4 HP at creation; completes on construction pass 372 (counting the creation cycle as pass 1); the tile becomes wall in that pass; the piece is removed on its next update, and its slot is released 513 cycles after that |
 | Wall piece destroyed while under construction | A 1 × 1 ruin (type 0x6A) when its death animation ends; no death explosion |
-| Computer player whose only buildings are a town hall and a farm completes a wall | When the piece is killed, 2 buildings other than oil platforms remain: the all-out attack starts (`ai/worker-ai.md`) |
+| Computer player whose only buildings are a town hall and a farm completes a wall | When the piece is killed, B = 3 (the hall, the farm and the piece): no all-out attack. With only a town hall, B = 2: it starts (`ai/worker-ai.md`; derived, untraced) |
 | Draws | Building a wall makes the creation draws of a building (`core/timing-and-rng.md`). Completion, the kill and joining make none |
 | `human06-build-stats-1800` (oracle trace, Enhanced), breaks on the per-type standing and lost callbacks: wall piece 1519 at (80, 9), created at n = 114, completes and is killed at n = 485 | No standing-count call and no lost-count call for it (the standing call runs for farm 1521 at n = 1279 and farm 1516 at n = 1465; the only lost call in the run is the town hall's upgrade to a keep at n = 1468): not built, not lost |
 
 ## Open questions
 
+- **A wall piece in the losses rule** (round 83 review). The losses rule runs at the start of the kill, before the
+  building leaves its owner's counts (`ai/worker-ai.md`, traced for other buildings), so the completed piece counts
+  in B like any destroyed building. Untraced for a wall piece. Default: it counts (the vector above). Trace request
+  (AI9): a computer player left with a town hall and a farm completes a wall piece; the default predicts no all-out
+  attack when the piece is killed.
 - **Region map.** A wall built during play leaves the tile's region value unchanged, so the region map still treats
   the tile as part of its land area. Whether path search uses the region value to decide that a goal is reachable,
   and so could try to reach an area that walls have cut off, belongs to `movement/pathfinding.md`. Default: the

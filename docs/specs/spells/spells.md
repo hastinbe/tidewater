@@ -89,6 +89,12 @@
   "Blizzard shard landing at exactly 0" and "Eye of Kilrogg's blocked-exit message" closed; vectors S90 to S100. Review
   fixes: S95 counts only the hits made while the peasant is inside (4 on the hall, not 5), S100's scenario blocks the
   eye's air-unit search, and the traced and static parts of each rule are labelled apart.
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16):
+  the all-spells cheat's gloss in "Giving the order" corrected: it makes every spell known only for players
+  controlled by a person (`game/cheats.md`), while the mana top-up applies to every caster's spell command, a
+  computer player's included (AI3, traced: `xhuman2-xhuman02-cheat-scope-1600`); vector S101. Review (labelled static
+  gap-fill, raised by the round-82 review): "The timers pass" lists the clearing of the computer casters' target marks
+  as step 6, as `ai/caster-ai.md` ("Marks") states it.
 
 ## Behaviour
 
@@ -175,8 +181,10 @@ vision, polymorph, invisibility and fireball (`xhuman10-spells-700`), healing (S
 
 When a spell command is given:
 
-- If the **all-spells cheat** is on (the cheat that makes every spell known for every player at once), the caster's
-  mana is set to 255 first. The same cheat lets the cast buttons skip their mana test (`ui/command-buttons.md`).
+- If the **all-spells cheat** is on (the cheat that makes every spell known for every player controlled by a person,
+  `game/cheats.md`), the caster's mana is set to 255 first, whoever owns the caster: a computer player's caster gets
+  it too (round 83; traced: `xhuman2-xhuman02-cheat-scope-1600`, S101). The same cheat lets the cast buttons skip
+  their mana test (`ui/command-buttons.md`).
 - The spell order becomes the caster's pending order (`orders/orders.md`). The target unit gets the same check as any
   command's target (`orders/orders.md`, "Commands forget a stale attacker"): if it is dying, dead (a body or ruin) or
   not detected, it is dropped and idle becomes the caster's pending order instead, which counts as a command and takes
@@ -411,11 +419,15 @@ Also in the timers pass, for each unit, in this order:
    its mana byte holds its progress (`economy/build-train.md`), and these gains add to it. In the default data no
    building has the flag.
 5. **Decay** for other units whose type has a non-zero decay rate, if they were created during play (below).
+6. **Target marks:** the seven target marks that the computer's casters set (death coil, polymorph, holy vision,
+   exorcism, healing, raise dead and whirlwind; `ai/caster-ai.md`, "Marks") are cleared (round 83 review, labelled
+   static gap-fill: static study, untraced). Where this falls among the steps isn't known and changes no outcome,
+   since only the computer's 50-cycle pass B reads the marks.
 
 The runes are advanced before the units in the same pass (below).
 
 **Evidence:** traced: mana gains (`xhuman10-failcast-520`: 14 to 15 at n = 414, 15 to 16 at n = 454); static study:
-the order of the steps, berserkers, sappers and buildings; traced (round 81): a killed demolition squad's
+the order of the steps, berserkers, sappers and buildings, and step 6; traced (round 81): a killed demolition squad's
 timer counted in the same pass (S93).
 
 ### Summoned units and decay
@@ -871,6 +883,7 @@ IDs S01 to S83 are the rows before round 80, unchanged apart from the ID column;
 | S98 | Blizzard with exactly 2 effect slots free (static study) (round 81) | 8 draws at the strike (chains 1 and 2, 4 each); chains 3 to 5 start nothing and draw nothing |
 | S99 | Holy vision at the map centre; then at tile (0, 0) (static study) (round 81) | 7 placed sounds, one per point; at (0, 0), 3 (T, T + (0, 8), T + (6, 4)) |
 | S100 | An ogre-mage casts eye of Kilrogg with 100 mana when the free-tile search finds no tile for the eye, an air unit (every air-layer tile in the search occupied; ground units around the caster don't block it) (static study, constructed) (round 81) | 70 paid, no eye, the blocked-exit message, no sound |
+| S101 | `xhuman2-xhuman02-cheat-scope-1600` (oracle trace, Enhanced; round 83): all-spells cheat on; computer death knight 1557 (player 5) is given death coil by its spell step at the pass of n = 751 with 103 mana | Mana 255 in that record; 155 after the strike (n = 896); the same at the passes of n = 901 to 1051. It never casts a spell its owner didn't know |
 
 ## Open questions
 

@@ -5,6 +5,10 @@
   text; gap 11)"); the cheat phrases as widely published in public cheat lists, each confirmed to match the program's
   check values; the developer words from the research notes; `Rez\network.tbl` for the notices. Not yet confirmed
   against the running game.
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16): the
+  all-spells step's scope, players controlled by a person only, is traced (AI3,
+  `xhuman2-xhuman02-cheat-scope-1600`): a computer player's caster still lacks the spells its owner didn't know. The
+  mana top-up at a spell command applies to every caster.
 
 ## Behaviour
 
@@ -53,7 +57,11 @@ In this order:
 2. **Reveal.** If the reveal-map flag changed, the minimap and fog drawing are refreshed.
 3. **All spells** (while on). For every player controlled by a person: every spell and research is known and
    allowed, and its record of research under way is cleared (what this does to research already running in a
-   building isn't traced). This repeats every time the flags change while it stays on.
+   building isn't traced). This repeats every time the flags change while it stays on. Computer players aren't
+   covered (round 83; traced: `xhuman2-xhuman02-cheat-scope-1600`, a computer death knight that knows only
+   death coil casts nothing else with the cheat on). The cheat's other spell effect, the mana top-up at each spell
+   command (`spells/spells.md`, "Giving the order"), isn't limited this way: it applies to a computer caster's
+   commands too (the same trace: its mana reads 255 at each death-coil command).
 4. **All upgrades** (while on). For every player controlled by a person: weapon, armour and other levelled upgrades
    (7 groups) are set to level 2, and the 4 one-step upgrades to level 1. This also repeats.
 5. **Resources** (one-shot; the flag clears at once). Every one of the 16 players gets 10000 gold, 5000 lumber and

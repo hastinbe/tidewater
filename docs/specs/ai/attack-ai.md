@@ -38,6 +38,12 @@
   session, 2026-10-16): the model of the whole computer player is in `ai/computer-player.md`. The all-out attack's
   trigger is restated as C1 (counted at the kill, traced); the attack goal is stated to apply to workers and tankers
   too (X9, static study); the held mark also skips oil platforms (X4, as `game/setup.md`).
+- **Changes:** 2026-10-16, round 83 (traces, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16):
+  the all-out attack's count keeps an oil platform under construction (AI5, traced); a worker given command 4 by the
+  attack goal makes its job choice in order 4 (AI1, traced); an active rescue player's map units get no first goal
+  (default, from AI2's traced creation marks); open question on a worker's attack goal after its job choice. Review
+  fix: the passes after the job choice found the worker within its leash, so they don't settle that question; its
+  default is the stated rules (the goal stays), not "the job choice ends it".
 
 ## Behaviour
 
@@ -119,7 +125,10 @@ The two marks are **needs a ferry** (with an **assigned transport**, possibly no
 **When a unit is created** (`core/unit-slots.md`, "Creating a unit": the map's units as the map loads, trained units
 as they appear), after its first order is set and before the extra first-wait draw, its goal is cleared (kind none,
 no tile, no marks, no assigned transport). Then, only for a unit of a computer player that is mobile and is neither
-a worker (bit 8) nor a tanker (bit 9), it gets a first goal, first match (so buildings get none):
+a worker (bit 8) nor a tanker (bit 9), it gets a first goal, first match (so buildings get none). An active rescue
+player's map units get none (round 83, default, untraced; trace request AI7 in `ai/worker-ai.md`): the map's
+units are created before that player becomes a computer player, as the missing creation marks of its buildings
+show (`ai/worker-ai.md`, "Creation marks"). The first goal, first match:
 
 | Unit | First goal |
 | --- | --- |
@@ -270,8 +279,9 @@ All three pick a tile in the **target player** T's area. "T's list" means T's un
 
 ### The all-out attack
 
-Started by the losses rule of `ai/worker-ai.md` ("The losses rule": at the kill, the player's buildings other than
-oil platforms, the destroyed one included, are fewer than 3). For that player p, if it has units:
+Started by the losses rule of `ai/worker-ai.md` ("The losses rule": at the kill, the player's buildings, the destroyed
+one included, less its complete oil platforms, are fewer than 3; a platform under construction counts: round 83,
+traced). For that player p, if it has units:
 
 1. Target player: as in attack waves (the human player with the most non-building units, more than 0). If none,
    nothing happens.
@@ -330,8 +340,12 @@ So a unit holding its post returns when it has wandered or chased past the leash
 while busy) when it is badly outmatched where it stands.
 
 **Attack (2).** Unlike hold, the attack goal doesn't skip workers and tankers, so a worker given an attack goal by
-the all-out attack gets command 4 here (static study). What its job choice does in order 4 is an open question of
-`ai/worker-ai.md`.
+the all-out attack gets command 4 here. At its next order-logic run in order 4 it makes its job choice
+(`ai/worker-ai.md`, "When a job is chosen"), so it takes up a job instead of marching (round 83; traced:
+`xhuman5-xhuman05-worker-all-out-goals-1100`, a peon given command 4 at the pass of n = 801 gets return goods at
+n = 804). Nothing here clears its attack goal, so a later pass that finds it past the leash and not in an attacking
+order gives it command 4 again (the stated rule; untraced for a worker after its job choice: the trace's later passes
+find the peon within its leash; Open questions).
 
 1. If the distance from the goal tile to the unit is at least the leash, and the unit's order is not an attacking
    order (9, 11, 12, 15, 16 or 17): set goal (unit, attack, goal tile); on success give command 4 (move, attacking on
@@ -619,6 +633,17 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 - **Land picker coordinate swap.** The block's row index feeds the point's x and its column its y. Default: keep the
   swap; it only changes which far block is chosen.
 - **Strength denominator.** Every unit's strength divides by the grunt's maximum HP, not its own. Default: keep it.
+- **A worker's attack goal after its job choice** (round 83): a computer worker sent by the all-out attack makes its
+  job choice in order 4 and goes to its job. Whether its attack goal survives isn't traced: in
+  `xhuman5-xhuman05-worker-all-out-goals-1100` the passes of n = 851 to 1051 give peon 1575 no command 4, but it is
+  within its leash of 7 at each (6 tiles at n = 851 from its goal tile (9, 20), where command 4 sent it, since a knight stood on the
+  target tile (9, 19), then inside the hall and building a
+  farm next to the tile), so the stated rule predicts nothing there either. Default: the stated rules, under which
+  nothing clears the goal, so a pass that finds the worker at least the leash from the goal tile and not in an
+  attacking order gives it command 4 again, and its next order-logic run in order 4 makes a job choice again. Trace
+  request (round 83 review, AI6): the same scenario run to about n = 3000 with `EXTRAS=goals`, watching peon 1575
+  (and any other worker of player 2) at the passes when it is 7 or more tiles from (9, 20), for example walking to or
+  from the gold mine; the default predicts command 4 at such a pass and a job choice 3 cycles later.
 - **Units converted during a mission.** A campaign event that changes units' owner gives non-held units a first goal
   under a mission flag. Not traced in detail. Default: units that change owner keep their goal.
 - **Escort quirk.** Escort rounds read slot 0x0F of player 0, 1, 2, … in turn rather than the transport owner's.
