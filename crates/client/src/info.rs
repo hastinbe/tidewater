@@ -368,8 +368,8 @@ pub struct Subject {
     pub mana: u8,
     /// The shown construction progress (0 to 255) while under construction.
     pub construction: Option<u8>,
-    /// The building's job: what, steps done and total steps.
-    pub job: Option<(JobKind, u16, u16)>,
+    /// The building's job, if it is working on one.
+    pub job: Option<JobKind>,
     pub passengers: u8,
     /// Trips left in a mine, patch or platform.
     pub trips: u32,
@@ -381,18 +381,13 @@ impl Subject {
         self.own && self.building && (self.construction.is_some() || self.job.is_some())
     }
 
-    /// The shown progress p, 0 to 255 (spec "Progress bar").
+    /// The shown progress p, 0 to 255 (spec "Progress bar"). A job's is the building's mana byte (round 76, V52): 1
+    /// from the job's start until its first run, then the job's share of 255.
     pub fn progress(&self) -> Option<u8> {
         if let Some(p) = self.construction {
             return Some(p);
         }
-        self.job.map(|(_, done, total)| {
-            if total == 0 {
-                255
-            } else {
-                (255 * done.min(total) as u32 / total as u32) as u8
-            }
-        })
+        self.job.map(|_| self.mana)
     }
 }
 
@@ -599,7 +594,7 @@ fn building_rows(s: &Subject, st: &UnitStats, o: &Owner, up: &UpgradeTable) -> (
     let mut rows: [Option<Row>; 6] = Default::default();
     let cls = class_of(s.kind).0;
     let complete = s.own && s.construction.is_none();
-    let job = s.job.map(|j| j.0).filter(|_| complete);
+    let job = s.job.filter(|_| complete);
     let label = |n: u16| {
         Some(Row {
             label: n,
@@ -807,7 +802,7 @@ pub fn facts(w: &World, id: UnitId, local: u8) -> Option<Subject> {
         hp: u.hp,
         mana: u.mana,
         construction: w.construction_progress(id),
-        job: u.job.map(|j| (j.kind, j.progress, j.steps)),
+        job: u.job.map(|j| j.kind),
         passengers: u.passengers.iter().flatten().count() as u8,
         trips: u.resources,
     })
@@ -1069,19 +1064,25 @@ mod tests {
         assert_eq!(progress_fill(0), 2);
         assert_eq!(progress_fill(255), 152);
         assert_eq!(mana_fill(255), 59);
-        let job = Subject {
+        // Info-panel spec vectors (round 76): a job just started shows p = 1 (bar 3 px) until its first run, and 2
+        // (bar 4 px) after it, 1 of 120 steps: the building's mana byte.
+        let mut job = Subject {
             building: true,
-            job: Some((JobKind::Train(0), 0, 120)),
+            mana: 1,
+            job: Some(JobKind::Train(0)),
             ..own(0x3C)
         };
-        assert_eq!(job.progress(), Some(0));
+        assert_eq!((job.progress(), progress_fill(1)), (Some(1), 3));
+        job.mana = (255 / 120) as u8;
+        assert_eq!((job.progress(), progress_fill(2)), (Some(2), 4));
     }
 
     #[test]
     fn barracks_training() {
         let s = Subject {
             building: true,
-            job: Some((JobKind::Train(0), 10, 120)),
+            mana: (10 * 255 / 120) as u8,
+            job: Some(JobKind::Train(0)),
             ..own(0x3C)
         };
         let c = content_of(&s, &Owner::default(), table(0x3C, UnitStats::default()), &no_upgrades());
@@ -1113,7 +1114,7 @@ mod tests {
         up.0[4].icon = 125;
         let mill = Subject {
             building: true,
-            job: Some((JobKind::Research(4), 1, 10)),
+            job: Some(JobKind::Research(4)),
             ..own(0x4C)
         };
         let c = content_of(&mill, &o, table(0x4C, UnitStats::default()), &up);
