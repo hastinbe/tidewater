@@ -97,6 +97,14 @@
 //! strike point, n 437, S84) and xorc12-spells-hits-1150-1260 (a rune's hit is a direct HP change with no `hits`
 //! entry, S85) match in full.
 //!
+//! Round 81: xhuman10-slow-killed-goals-400 (a slow's target dies during the walk; idle takes over at the next step
+//! boundary, S90), xhuman10-heal-ballista-goals-500 (healing a ballista walks into reach before the organic test,
+//! S91), xhuman10-invisible-reach-goals-400 (a caster in reach casts at a target it no longer detects, S92),
+//! xhuman10-invisible-dwarves-150 (a demolition squad killed in the timers pass still counts its timers, S93),
+//! xhuman10-shield-mine-hits-800 (flames go on around a peasant inside a mine and a town hall, splashing the
+//! building, S94 to S96) and xhuman10-shield-self-200 (a flame shield command aimed at its own caster does nothing,
+//! S97) match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -392,4 +400,10 @@ traces! {
     human06_carry_build_1000: ("human06-carry-build-1000.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     xhuman10_failcast_520: ("xhuman10-failcast-520.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     xorc12_spells_hits_1150_1260: ("xorc12-spells-hits-1150-1260.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
+    xhuman10_slow_killed_goals_400: ("xhuman10-slow-killed-goals-400.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xhuman10_shield_mine_hits_800: ("xhuman10-shield-mine-hits-800.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xhuman10_shield_self_200: ("xhuman10-shield-self-200.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xhuman10_invisible_reach_goals_400: ("xhuman10-invisible-reach-goals-400.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xhuman10_heal_ballista_goals_500: ("xhuman10-heal-ballista-goals-500.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xhuman10_invisible_dwarves_150: ("xhuman10-invisible-dwarves-150.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
 }
