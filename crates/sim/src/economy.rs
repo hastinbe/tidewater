@@ -679,6 +679,8 @@ impl World {
         let part = |v: u16| v as u32 * 3 / 4;
         let oil = if self.rules.enhanced { part(s.oil) } else { 0 };
         self.refund(owner, [part(s.gold), part(s.lumber), oil]);
+        // The building is taken down: the builder is let out before the kill, so the kill finds nobody inside.
+        self.release_builders(i, false);
         self.kill(i);
     }
 

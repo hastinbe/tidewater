@@ -670,7 +670,7 @@ impl World {
             self.mark(&unit, unit.tile, None);
         }
         if unit.building {
-            self.release_builders(ti, false);
+            self.kill_inside(ti);
             self.mark_build_list(unit.owner, unit.kind, false);
         }
         // A computer worker's job is released when it dies (worker-ai spec).

@@ -1,5 +1,5 @@
-//! Workers placing buildings: order 28 (go to the site and build) and order 22 (inside the site), and builders coming
-//! out when the building is finished, cancelled or destroyed. Specs: `docs/specs/economy/build-train.md` ("Placing a
+//! Workers placing buildings: order 28 (go to the site and build) and order 22 (inside the site), builders coming
+//! out when the building is finished or cancelled, and dying with it when it is killed. Specs: `docs/specs/economy/build-train.md` ("Placing a
 //! building", "Completion", "Cancelling construction") and `docs/specs/movement/occupancy.md` ("Building placement
 //! masks", "Entering a construction site").
 //!
@@ -316,7 +316,20 @@ impl World {
         u.script.wait = INSIDE_SITE_WAIT;
     }
 
-    /// Lets out every builder inside building `bi` when it is finished (`finished`), cancelled or destroyed
+    /// Build-train spec, "A building killed" (round 76, V50: `human06-site-kill-800` peasant 1586, n = 416): every unit
+    /// inside building `bi` whose target is the building is killed in the same cycle, where it stands, keeping the
+    /// building as its target. A taken-down building (a cancel, a collapse) has cleared or let out those units first.
+    pub(crate) fn kill_inside(&mut self, bi: usize) {
+        let id = self.units[bi].id;
+        for k in 0..self.units.len() {
+            let u = &self.units[k];
+            if u.inside && !u.dying && u.order.target() == Some(id) {
+                self.kill(k);
+            }
+        }
+    }
+
+    /// Lets out every builder inside building `bi` when it is finished (`finished`) or cancelled
     /// ("Completion"): carried goods are delivered to a finished depot, a tanker starts on its new platform, and
     /// anyone else comes out by the ring search or dies.
     pub(crate) fn release_builders(&mut self, bi: usize, finished: bool) {
@@ -916,6 +929,30 @@ mod tests {
         assert!(!u.inside && u.order == Order::Idle);
         // The open question's default: it faces the building as at completion.
         assert_eq!((u.tile, u.facing), ((7, 8), 3));
+    }
+
+    /// Build-train spec, "A building killed" (round 76, V50: `human06-site-kill-800` peasant 1586, n = 416): a builder
+    /// inside a site that is killed dies in the same cycle where it stands, the site's top-left tile, and keeps the
+    /// site as its target; it doesn't come out.
+    #[test]
+    fn a_builder_inside_a_killed_site_dies_with_it() {
+        let (mut w, p) = town();
+        build(&mut w, 0, p, (8, 8));
+        for _ in 0..400 {
+            w.step(&[]);
+            if w.unit(p).unwrap().inside {
+                break;
+            }
+        }
+        let farm = farm_at(&w, (8, 8)).unwrap();
+        let hp = w.unit(p).unwrap().hp;
+        let fi = w.index(farm).unwrap();
+        w.kill(fi);
+        let u = w.unit(p).unwrap();
+        assert!(u.dying && u.inside, "{u:?}");
+        assert_eq!((u.tile, u.hp, u.script.anim), ((8, 8), hp, anim::DEATH));
+        assert_eq!(u.dying_target, Some(w.unit(farm).unwrap().slot));
+        assert_eq!(w.players[0].under_construction, 0);
     }
 
     /// A 3 x 3 shore building type (a shipyard-like synthetic type).

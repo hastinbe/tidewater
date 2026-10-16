@@ -74,6 +74,10 @@
 //! attacker on arriving) and orc9-orc09-carry-chop-goals-1400 (a player's return command finds its depot in the
 //! command, n 762) match in full.
 //!
+//! Round 76: the commands scenarios human06-site-kill-800 (a peasant inside a farm site that is killed dies with it,
+//! n 416) and human06-alerts-1400 (work-complete alerts for a keep, an upgrade and a spell, none for a guard tower)
+//! match in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -353,4 +357,6 @@ traces! {
     human12_unload_then_refused_goals_900: ("human12-unload-then-refused-goals-900.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
     orc11_orc11_sapper_attack_move_goals_hits_1500: ("orc11-orc11-sapper-attack-move-goals-hits-1500.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
     orc9_orc09_carry_chop_goals_1400: ("orc9-orc09-carry-chop-goals-1400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    human06_site_kill_800: ("human06-site-kill-800.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
+    human06_alerts_1400: ("human06-alerts-1400.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
 }
