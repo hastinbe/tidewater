@@ -292,27 +292,6 @@ pub fn text_styled(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, styl
     set_text(dst, font, at, s, style, i32::MAX)
 }
 
-/// The box `(left, top, right, bottom)` of the pixels `s` draws in `style`, from its cell's top-left (all inclusive),
-/// or `None` if it draws none.
-pub fn ink_box(font: &Font, s: &str, style: &TextStyle) -> Option<(i32, i32, i32, i32)> {
-    let mut pen = 0i32;
-    let mut b: Option<(i32, i32, i32, i32)> = None;
-    for c in s.bytes() {
-        if let Some(g) = font.glyph(c) {
-            for gy in 0..g.height as i32 {
-                for gx in 0..g.width as i32 {
-                    if g.shades[(gy * g.width as i32 + gx) as usize] != 0 {
-                        let (x, y) = (pen + g.x as i32 + gx, g.y as i32 + gy);
-                        b = Some(b.map_or((x, y, x, y), |(l, t, r, bt)| (l.min(x), t.min(y), r.max(x), bt.max(y))));
-                    }
-                }
-            }
-        }
-        pen += style.advance(font, c) as i32;
-    }
-    b
-}
-
 fn set_text(dst: &mut Picture, font: &Font, at: (i32, i32), s: &str, style: &TextStyle, clip: i32) -> u32 {
     let (x, y) = at;
     let (top, bottom) = style.rows;
@@ -905,7 +884,6 @@ mod tests {
         };
         // 'a' advances 3 (2 + 1), the space 9: a 1 + 9 = 10-pixel gap before 'b'.
         assert_eq!(style.width(&font, "a b"), 3 + 9 + 3);
-        assert_eq!(ink_box(&font, "a b", &style), Some((0, 0, 13, 3)));
         let mut p = Picture {
             width: 20,
             height: 20,

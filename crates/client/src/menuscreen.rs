@@ -92,21 +92,134 @@ pub(crate) const GREY: ShadeMap = [108, 108, 105, 102];
 /// The shadow's entry (shade 5), and the button's inner ring: black.
 pub(crate) const BLACK: u8 = 0;
 
-/// The focused button's outer ring.
+/// The focused button's outline, drawn over the face's outer ring ("Buttons"), a dialog's default button's too.
 pub(crate) const FOCUS_RING: u8 = 251;
-/// A disabled button's outer ring.
+/// A disabled button's outline, drawn over the face's outer ring. What this outline marks isn't settled (spec "Open
+/// questions"); the held default: a disabled button has it, an enabled one keeps its face's own ring.
 pub(crate) const DISABLED_RING: u8 = 247;
-/// The outer ring of a button neither focused nor disabled: one of the gold-brown entries 129 to 135 the spec names.
-/// Which entry each ring pixel takes isn't known (the button face isn't in the game data, spec "Menu button face"); ours
-/// is 132 all round.
-pub(crate) const RING: u8 = 132;
-/// A disabled button's face: one of the grey entries 97 to 108 the spec names; ours is 102 all over.
-pub(crate) const DISABLED_FACE: u8 = 102;
-/// The colour our button face takes the nearest menu palette entry to. The original's face is a red marble whose
-/// pixels are known only from captures (spec "Menu button face"); ours is flat.
-pub(crate) const FACE_NEAR: [u8; 3] = [111, 0, 0];
+/// The entries of a face's own outer ring (game data, "Buttons"): the 1-pixel border of frames 15 to 17.
+pub(crate) const OUTER_RING: std::ops::RangeInclusive<u8> = 128..=136;
+/// The entry of a face's second ring, 1 pixel inside the outer one.
+pub(crate) const SECOND_RING: u8 = 239;
+/// Our stand-in face's entries where the install lacks the interface file: enabled, disabled.
+const STAND_IN_FACE: (u8, u8) = (162, 102);
 
-/// The pixels a space leaves between the glyphs either side of it ("Text colours"): `font12x`, and `font10x`.
+/// The interface file whose frames are the menu buttons' faces ("Buttons"); its frames are stored uncompressed
+/// (`tidewater_formats::grp::Grp::parse_uncompressed`).
+pub(crate) const FACES_FILE: &str = "Art\\orc.grp";
+
+/// One button size's three faces in the interface file ("Buttons", the frame table): from `first` on, the disabled,
+/// normal and pressed faces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FaceSet {
+    pub first: usize,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// The frame table's sizes ours draws faces for ("Buttons"). Which set a dialog uses comes from its dialog file,
+/// which isn't read; frames 0 to 2 are also 106 × 28 but have no rings, so ours takes 9 to 11 for that size.
+pub(crate) const FACE_SETS: [FaceSet; 6] = [
+    FaceSet {
+        first: 3,
+        w: 128,
+        h: 20,
+    },
+    FaceSet { first: 6, w: 80, h: 20 },
+    FaceSet {
+        first: 9,
+        w: 106,
+        h: 28,
+    },
+    FaceSet {
+        first: 12,
+        w: 164,
+        h: 28,
+    },
+    // The main, single-player and campaign menus.
+    FaceSet {
+        first: 15,
+        w: 224,
+        h: 28,
+    },
+    FaceSet {
+        first: 48,
+        w: 80,
+        h: 15,
+    },
+];
+
+/// The face set for a button of `w` × `h`, if the table has one.
+pub(crate) fn face_set(w: u32, h: u32) -> Option<FaceSet> {
+    FACE_SETS.into_iter().find(|f| (f.w, f.h) == (w, h))
+}
+
+/// Which of a set's three faces a state shows: 0 disabled, 2 pressed (the mouse button held on it), 1 otherwise.
+pub(crate) fn face_index(s: ButtonState) -> usize {
+    match s {
+        ButtonState { enabled: false, .. } => 0,
+        ButtonState { pressed: true, .. } => 2,
+        _ => 1,
+    }
+}
+
+/// A button face: `w` × `h` entries of the menu palette, row by row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Face {
+    pub w: u32,
+    pub h: u32,
+    pub pixels: Vec<u8>,
+}
+
+/// The interface file's frames as button faces, by frame index.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ButtonFaces(pub Vec<Face>);
+
+impl ButtonFaces {
+    pub(crate) fn from_grp(g: &tidewater_formats::grp::Grp) -> Self {
+        ButtonFaces(
+            g.frames
+                .iter()
+                .map(|f| Face {
+                    w: f.width as u32,
+                    h: f.height as u32,
+                    pixels: f.pixels.clone(),
+                })
+                .collect(),
+        )
+    }
+
+    /// The face a button of `w` × `h` shows in state `s`; `None` if the size has no faces or the file lacks the frame.
+    pub(crate) fn face(&self, w: u32, h: u32, s: ButtonState) -> Option<&Face> {
+        let set = face_set(w, h)?;
+        self.0
+            .get(set.first + face_index(s))
+            .filter(|f| (f.w, f.h) == (w, h) && f.pixels.len() == (w * h) as usize)
+    }
+}
+
+/// Draws a face with its top-left at `at`, each pixel its menu palette entry.
+fn draw_face(dst: &mut Picture, pal: &Palette, face: &Face, at: (i32, i32)) {
+    for y in 0..face.h as i32 {
+        let dy = at.1 + y;
+        if dy < 0 || dy >= dst.height as i32 {
+            continue;
+        }
+        for x in 0..face.w as i32 {
+            let dx = at.0 + x;
+            if dx < 0 || dx >= dst.width as i32 {
+                continue;
+            }
+            let c = pal.0[face.pixels[(y * face.w as i32 + x) as usize] as usize];
+            let d = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
+            dst.rgba[d..d + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+        }
+    }
+}
+
+/// The pixels a space leaves between the glyphs either side of it ("Text colours"): `font12x` (what [`label_gap`]
+/// gives it), and `font10x`.
+#[cfg(test)]
 pub(crate) const SPACE_12X: u32 = 10;
 pub(crate) const SPACE_10X: u32 = 8;
 
@@ -138,31 +251,40 @@ pub(crate) fn colours(pal: &Palette, map: ShadeMap) -> [[u8; 3]; 8] {
     c
 }
 
-/// The entry of `pal` nearest to `rgb` (the lowest on a tie).
-pub(crate) fn nearest(pal: &Palette, rgb: [u8; 3]) -> u8 {
-    let d = |c: &[u8; 3]| (0..3).map(|i| (c[i] as i32 - rgb[i] as i32).pow(2)).sum::<i32>();
-    (0..=255u8).min_by_key(|&i| d(&pal.0[i as usize])).unwrap_or(0)
-}
-
-/// The rectangles of a menu's `n` buttons: the main menu's column, widened (and kept centred on the screen) where a
-/// label `widest` pixels wide wouldn't fit with 16 pixels either side. The campaign menu's layout isn't specified; it
-/// takes the main menu's.
-pub(crate) fn button_rects(n: usize, widest: u32) -> Vec<Rect> {
-    let w = BUTTON_W.max(widest + 32);
-    let x = BUTTON_X - (w - BUTTON_W) as i32 / 2;
+/// The rectangles of the main menu's `n` buttons: 224 × 28 at x 208, tops 36 apart from 240.
+pub(crate) fn button_rects(n: usize) -> Vec<Rect> {
     (0..n)
-        .map(|i| Rect::new(x, BUTTON_TOP + i as i32 * BUTTON_PITCH, w, BUTTON_H))
+        .map(|i| Rect::new(BUTTON_X, BUTTON_TOP + i as i32 * BUTTON_PITCH, BUTTON_W, BUTTON_H))
         .collect()
 }
 
-/// Where a label whose drawn pixels fill `ink` (`(left, top, right, bottom)` from its cell's top-left, inclusive) has
-/// its cell's top-left on the button `r`: the drawn pixels centred horizontally and vertically, rounding up and left
-/// (spec "Open questions", "Menu label placement": the default). A label that draws nothing sits at the button's
-/// top-left.
-pub(crate) fn label_cell(r: Rect, ink: Option<(i32, i32, i32, i32)>) -> (i32, i32) {
-    let Some((l, t, rt, b)) = ink else { return (r.x, r.y) };
-    let (w, h) = (rt - l + 1, b - t + 1);
-    (r.x + (r.w as i32 - w) / 2 - l, r.y + (r.h as i32 - h) / 2 - t)
+/// The pixels a space leaves in a label or heading ("Label placement"): its advance is floor(the font's widest glyph /
+/// 2) + 1 (9 in `font12x`, leaving the 10 of [`SPACE_12X`]).
+pub(crate) fn label_gap(font: &Font) -> u32 {
+    font.max_width as u32 / 2 + 2
+}
+
+/// A label's or heading's text width W ("Label placement"): the sum of its characters' advances (the glyph's x
+/// offset, its width and 1), a space's being [`label_gap`]'s. The pixel after the last glyph counts.
+pub(crate) fn label_width(font: &Font, s: &str) -> u32 {
+    style(&[[0; 3]; 8], label_gap(font)).width(font, s)
+}
+
+/// Where a button label's text cell has its top-left ("Label placement"): x = left + floor((width + 1) / 2) + 1 −
+/// floor(W / 2), y = top + floor((height + 1) / 2) + 1 − floor(font height / 2), 2 right and 2 down while pressed. For
+/// a 224 × 28 button in `font12x` (17 high) that is (left + 113 − floor(W / 2), top + 7).
+pub(crate) fn label_cell(r: Rect, text_w: u32, font_h: u32, pressed: bool) -> (i32, i32) {
+    let p = if pressed { 2 } else { 0 };
+    (
+        r.x + (r.w as i32 + 1) / 2 + 1 - (text_w / 2) as i32 + p,
+        r.y + (r.h as i32 + 1) / 2 + 1 - (font_h / 2) as i32 + p,
+    )
+}
+
+/// Where a heading's text cell has its top-left ("Label placement", headings): x = left + floor((width − 1) / 2) −
+/// floor(W / 2), y = top.
+pub(crate) fn heading_cell(r: Rect, text_w: u32) -> (i32, i32) {
+    (r.x + (r.w as i32 - 1) / 2 - (text_w / 2) as i32, r.y)
 }
 
 /// The byte index of a label's hotkey letter: its first letter equal to `key`, ignoring case.
@@ -174,13 +296,15 @@ pub(crate) fn hotkey_at(label: &str, key: char) -> Option<usize> {
 }
 
 /// A menu button's state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ButtonState {
     pub enabled: bool,
     /// The pointer is over it.
     pub hover: bool,
     /// It has the focus: the yellow ring, which stays when the pointer is over another button.
     pub focused: bool,
+    /// The mouse button is held on it: the pressed face, the label 2 right and 2 down.
+    pub pressed: bool,
 }
 
 /// The label's shade map ("Text colours"): grey when disabled, white while the pointer is over it, gold otherwise.
@@ -192,12 +316,13 @@ pub(crate) fn label_map(s: ButtonState) -> ShadeMap {
     }
 }
 
-/// The outer ring's entry ("Buttons"): yellow when focused, light grey when disabled, gold-brown otherwise.
-pub(crate) fn ring(s: ButtonState) -> u8 {
+/// The outline drawn over the face's outer ring ("Buttons"): yellow when focused, light grey when disabled (the held
+/// default), none otherwise, the face's own ring showing.
+pub(crate) fn ring(s: ButtonState) -> Option<u8> {
     match s {
-        ButtonState { focused: true, .. } => FOCUS_RING,
-        ButtonState { enabled: false, .. } => DISABLED_RING,
-        _ => RING,
+        ButtonState { focused: true, .. } => Some(FOCUS_RING),
+        ButtonState { enabled: false, .. } => Some(DISABLED_RING),
+        _ => None,
     }
 }
 
@@ -208,11 +333,6 @@ fn style<'a>(colours: &'a [[u8; 3]; 8], gap: u32) -> TextStyle<'a> {
         space: Some(space_advance(gap)),
         rows: (i32::MIN, i32::MAX),
     }
-}
-
-/// The width of `s` in `font` with spaces that leave `gap` pixels: the advances, less the last glyph's trailing pixel.
-pub(crate) fn text_width(font: &Font, s: &str, gap: u32) -> u32 {
-    style(&[[0; 3]; 8], gap).width(font, s).saturating_sub(1)
 }
 
 /// Draws `s` with its cell's top-left at `at` in the shade map, spaces leaving `gap` pixels.
@@ -229,10 +349,10 @@ pub(crate) fn draw_text(
     hud::text_styled(dst, font, at, s, &style(&c, gap));
 }
 
-/// Draws a heading in the white map, centred on the 640-pixel screen with its cell top at `y`.
-pub(crate) fn draw_heading(dst: &mut Picture, font: &Font, pal: &Palette, y: i32, s: &str) {
-    let x = (dst.width as i32 - text_width(font, s, SPACE_12X) as i32) / 2;
-    draw_text(dst, font, pal, (x, y), s, WHITE, SPACE_12X);
+/// Draws a heading in the white map on its rectangle `r` ("Label placement", headings).
+pub(crate) fn draw_heading(dst: &mut Picture, font: &Font, pal: &Palette, r: Rect, s: &str) {
+    let at = heading_cell(r, label_width(font, s));
+    draw_text(dst, font, pal, at, s, WHITE, label_gap(font));
 }
 
 /// Draws the version line `s` in `font10x` with its glyph cell at [`VERSION_CELL`], spaces leaving 8 pixels.
@@ -240,42 +360,49 @@ pub(crate) fn draw_version_line(dst: &mut Picture, font: &Font, pal: &Palette, s
     draw_text(dst, font, pal, VERSION_CELL, s, VERSION, SPACE_10X);
 }
 
-/// Draws a menu button: the outer ring, a black ring inside it, the face, and the label in `font12x` centred on it, its
-/// hotkey letter (`key`) in white on an enabled button.
+/// Draws a menu button ("Buttons"): its face for its size and state from the interface file (a flat stand-in with
+/// the two rings where `faces` lacks it), the focus or disabled outline over the outer ring, and the label in
+/// `font12x` by the label rule, its hotkey letter (`key`) in white on an enabled button.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_button(
     dst: &mut Picture,
     font: &Font,
     pal: &Palette,
+    faces: Option<&ButtonFaces>,
     r: Rect,
     label: &str,
     key: Option<char>,
     s: ButtonState,
 ) {
     let rgb = |e: u8| pal.0[e as usize];
-    hud::outline(dst, r, rgb(ring(s)));
-    let inner = Rect::new(r.x + 1, r.y + 1, r.w.saturating_sub(2), r.h.saturating_sub(2));
-    hud::outline(dst, inner, rgb(BLACK));
-    let face = if s.enabled {
-        nearest(pal, FACE_NEAR)
-    } else {
-        DISABLED_FACE
-    };
-    hud::fill(
-        dst,
-        Rect::new(r.x + 2, r.y + 2, r.w.saturating_sub(4), r.h.saturating_sub(4)),
-        rgb(face),
-    );
+    match faces.and_then(|f| f.face(r.w, r.h, s)) {
+        Some(face) => draw_face(dst, pal, face, (r.x, r.y)),
+        None => {
+            hud::outline(dst, r, rgb(*OUTER_RING.start()));
+            let inner = Rect::new(r.x + 1, r.y + 1, r.w.saturating_sub(2), r.h.saturating_sub(2));
+            hud::outline(dst, inner, rgb(SECOND_RING));
+            let face = if s.enabled { STAND_IN_FACE.0 } else { STAND_IN_FACE.1 };
+            hud::fill(
+                dst,
+                Rect::new(r.x + 2, r.y + 2, r.w.saturating_sub(4), r.h.saturating_sub(4)),
+                rgb(face),
+            );
+        }
+    }
+    if let Some(e) = ring(s) {
+        hud::outline(dst, r, rgb(e));
+    }
     let map = label_map(s);
-    let plain = style(&[[0; 3]; 8], SPACE_12X);
-    let at = label_cell(r, hud::ink_box(font, label, &plain));
-    draw_text(dst, font, pal, at, label, map, SPACE_12X);
+    let gap = label_gap(font);
+    let at = label_cell(r, label_width(font, label), font.height as u32, s.enabled && s.pressed);
+    draw_text(dst, font, pal, at, label, map, gap);
     if let Some(i) = key
         .filter(|_| s.enabled && map != WHITE)
         .and_then(|k| hotkey_at(label, k))
     {
-        let x = at.0 + plain.width(font, &label[..i]) as i32;
+        let x = at.0 + style(&[[0; 3]; 8], gap).width(font, &label[..i]) as i32;
         let end = i + label[i..].chars().next().map_or(1, char::len_utf8);
-        draw_text(dst, font, pal, (x, at.1), &label[i..end], WHITE, SPACE_12X);
+        draw_text(dst, font, pal, (x, at.1), &label[i..end], WHITE, gap);
     }
 }
 
@@ -332,7 +459,38 @@ mod tests {
         enabled: true,
         hover: false,
         focused: false,
+        pressed: false,
     };
+
+    /// Synthetic faces: every frame of the table's sizes, frame `i` filled with entry 10 + `i` and its border with
+    /// entry 130.
+    fn faces() -> ButtonFaces {
+        let mut v: Vec<Face> = (0..51)
+            .map(|_| Face {
+                w: 1,
+                h: 1,
+                pixels: vec![0],
+            })
+            .collect();
+        for set in FACE_SETS {
+            for k in 0..3 {
+                let i = set.first + k;
+                let (w, h) = (set.w, set.h);
+                let pixels = (0..w * h)
+                    .map(|p| {
+                        let (x, y) = (p % w, p / w);
+                        if x == 0 || y == 0 || x == w - 1 || y == h - 1 {
+                            130
+                        } else {
+                            10 + i as u8
+                        }
+                    })
+                    .collect();
+                v[i] = Face { w, h, pixels };
+            }
+        }
+        ButtonFaces(v)
+    }
 
     #[test]
     fn the_text_colours_are_the_menu_palettes_entries() {
@@ -349,50 +507,99 @@ mod tests {
 
     #[test]
     fn a_buttons_label_and_ring_follow_its_state() {
-        assert_eq!((label_map(NORMAL), ring(NORMAL)), (GOLD, RING));
+        assert_eq!((label_map(NORMAL), ring(NORMAL)), (GOLD, None), "the face's own ring");
         let hover = ButtonState { hover: true, ..NORMAL };
         assert_eq!(label_map(hover), WHITE, "the whole label white under the pointer");
+        assert_eq!(ring(hover), None, "hover doesn't move the focus");
         let focused = ButtonState {
             focused: true,
             ..NORMAL
         };
         assert_eq!(
             (label_map(focused), ring(focused)),
-            (GOLD, 251),
+            (GOLD, Some(251)),
             "the yellow ring stays on the focused button with the pointer elsewhere"
         );
         let disabled = ButtonState {
             enabled: false,
             ..NORMAL
         };
-        assert_eq!((label_map(disabled), ring(disabled)), (GREY, 247));
-        assert!((129..=135).contains(&RING) && (97..=108).contains(&DISABLED_FACE));
+        assert_eq!((label_map(disabled), ring(disabled)), (GREY, Some(247)));
+        let both = ButtonState {
+            focused: true,
+            ..disabled
+        };
+        assert_eq!(ring(both), Some(251), "focus draws over the ring");
+    }
+
+    #[test]
+    fn each_state_takes_its_face_from_the_frame_table() {
+        // "Buttons": 224 × 28 is frames 15 (disabled), 16 (normal) and 17 (pressed).
+        assert_eq!(face_set(224, 28).map(|s| s.first), Some(15));
+        assert_eq!(face_set(106, 28).map(|s| s.first), Some(9), "the ringed 106 × 28 set");
+        assert_eq!(face_set(80, 15).map(|s| s.first), Some(48));
+        assert_eq!(face_set(200, 28), None);
+        let pressed = ButtonState {
+            pressed: true,
+            ..NORMAL
+        };
+        let disabled = ButtonState {
+            enabled: false,
+            pressed: true,
+            ..NORMAL
+        };
+        assert_eq!(
+            [face_index(disabled), face_index(NORMAL), face_index(pressed)],
+            [0, 1, 2]
+        );
+        let f = faces();
+        assert_eq!(f.face(224, 28, NORMAL).map(|f| f.pixels[225]), Some(26));
+        assert_eq!(f.face(224, 28, pressed).map(|f| f.pixels[225]), Some(27));
+        assert_eq!(f.face(224, 28, disabled).map(|f| f.pixels[225]), Some(25));
+        assert!(
+            ButtonFaces::default().face(224, 28, NORMAL).is_none(),
+            "no file: no face"
+        );
     }
 
     #[test]
     fn the_main_menus_buttons_are_its_dialog_files() {
         // "Buttons": 224 × 28 at x 208, y 240, 276, 312, 348 and 384.
-        let r = button_rects(5, 100);
+        let r = button_rects(5);
         assert_eq!(r.iter().map(|r| r.y).collect::<Vec<_>>(), [240, 276, 312, 348, 384]);
         assert!(r.iter().all(|r| (r.x, r.w, r.h) == (208, 224, 28)));
-        // Ours: a label too wide for 224 widens the column (16 pixels either side), kept centred on the screen.
-        let wide = button_rects(1, 300)[0];
-        assert_eq!((wide.x, wide.w), (154, 332));
-        assert_eq!(wide.x * 2 + wide.w as i32, 640);
     }
 
     #[test]
-    fn labels_are_centred_on_their_button() {
-        // Single-player menu, "Load Game" (font12x: drawn pixels 92 × 14 from its cell's top-left) on the button at
-        // (208, 276): the measured cell top is 283, as centring gives. The measured left is 275; centring gives 274
-        // (the rule isn't measured; spec "Menu label placement").
-        assert_eq!(
-            label_cell(Rect::new(208, 276, 224, 28), Some((0, 0, 91, 13))),
-            (274, 283)
-        );
-        // The cell's offset to its drawn pixels is taken off.
-        assert_eq!(label_cell(Rect::new(0, 0, 20, 10), Some((1, 2, 4, 5))), (7, 1));
-        assert_eq!(label_cell(Rect::new(5, 6, 20, 10), None), (5, 6));
+    fn labels_follow_the_placement_rule() {
+        // "Label placement", round 74: a 224 × 28 button in font12x (17 high) puts the cell at (left + 113 − W / 2,
+        // top + 7).
+        let at = |y: i32, w: u32, pressed: bool| label_cell(Rect::new(208, y, 224, 28), w, 17, pressed);
+        assert_eq!(at(240, 166, false), (238, 247), "Single Player Game");
+        assert_eq!(at(276, 160, false), (241, 283), "Multi Player Game");
+        assert_eq!(at(312, 168, false), (237, 319), "Replay Introduction");
+        assert_eq!(at(348, 114, false), (264, 355), "Show Credits");
+        assert_eq!(at(384, 116, false), (263, 391), "Exit Program");
+        assert_eq!(at(348, 114, true), (266, 357), "held: 2 right and 2 down");
+        assert_eq!(at(276, 93, false), (275, 283), "Load Game on the single-player menu");
+        // The general rule on another size and font.
+        assert_eq!(label_cell(Rect::new(10, 20, 80, 15), 30, 10, false), (36, 24));
+    }
+
+    #[test]
+    fn headings_use_their_own_rule() {
+        // The campaign menu's headings on 640 × 28 rectangles: x = left + 319 − W / 2, y = top.
+        assert_eq!(heading_cell(Rect::new(0, 216, 640, 28), 156), (241, 216));
+        assert_eq!(heading_cell(Rect::new(0, 324, 640, 28), 201), (219, 324));
+    }
+
+    #[test]
+    fn a_labels_width_counts_every_advance() {
+        // The synthetic font: glyphs advance 3, the space floor(2 / 2) + 1 = 2.
+        let f = font();
+        assert_eq!(label_gap(&f), 3);
+        assert_eq!(label_width(&f, "AB"), 6, "the pixel after the last glyph counts");
+        assert_eq!(label_width(&f, "A B"), 8);
     }
 
     #[test]
@@ -403,48 +610,53 @@ mod tests {
     }
 
     #[test]
-    fn nearest_takes_the_closest_entry() {
-        let pal = palette();
-        assert_eq!(nearest(&pal, [100, 50, 155]), 100);
-        assert_eq!(nearest(&pal, [101, 50, 154]), 101);
-    }
-
-    #[test]
-    fn a_button_is_drawn_in_the_menu_palette() {
-        let (pal, f) = (palette(), font());
-        let r = Rect::new(10, 10, 40, 20);
+    fn a_button_is_drawn_from_its_face_in_the_menu_palette() {
+        let (pal, f, fc) = (palette(), font(), faces());
+        let r = Rect::new(10, 10, 80, 20);
         let draw = |s: ButtonState| {
-            let mut p = blank(64, 40);
-            draw_button(&mut p, &f, &pal, r, "AB", Some('b'), s);
+            let mut p = blank(100, 40);
+            draw_button(&mut p, &f, &pal, Some(&fc), r, "AB", Some('b'), s);
             p
         };
-        // "AB" draws 5 × 3 pixels (A at 0, B at 3), so its cell is at (10 + 35 / 2, 10 + 17 / 2) = (27, 18).
+        // "AB" is W 6 in the synthetic font (5 high): its cell is at (10 + 40 + 1 − 3, 10 + 10 + 1 − 2) = (48, 19).
+        let p = draw(NORMAL);
+        assert_eq!(px(&p, 10, 10), pal.0[130], "the face's own outer ring");
+        assert_eq!(px(&p, 12, 12), pal.0[17], "the normal face, frame 7");
+        assert_eq!(px(&p, 48, 19), pal.0[200], "A: gold shade 1");
+        assert_eq!(px(&p, 48, 20), pal.0[197], "A: gold shade 3");
+        assert_eq!(px(&p, 48, 21), pal.0[0], "shadow");
+        assert_eq!(px(&p, 51, 19), pal.0[246], "B, the hotkey: white shade 1");
+        assert_eq!(px(&p, 52, 20), pal.0[104], "B: white shade 4");
         let p = draw(ButtonState {
             focused: true,
             ..NORMAL
         });
-        assert_eq!(px(&p, 10, 10), pal.0[251], "focus ring");
-        assert_eq!(px(&p, 49, 29), pal.0[251]);
-        assert_eq!(px(&p, 11, 11), pal.0[0], "black inner ring");
-        assert_eq!(px(&p, 12, 12), pal.0[nearest(&pal, FACE_NEAR) as usize], "face");
-        assert_eq!(px(&p, 27, 18), pal.0[200], "A: gold shade 1");
-        assert_eq!(px(&p, 27, 19), pal.0[197], "A: gold shade 3");
-        assert_eq!(px(&p, 27, 20), pal.0[0], "shadow");
-        assert_eq!(px(&p, 30, 18), pal.0[246], "B, the hotkey: white shade 1");
-        assert_eq!(px(&p, 31, 19), pal.0[104], "B: white shade 4");
-        let p = draw(NORMAL);
-        assert_eq!(px(&p, 10, 10), pal.0[RING as usize]);
+        assert_eq!(px(&p, 10, 10), pal.0[251], "focus ring over the outer ring");
+        assert_eq!(px(&p, 89, 29), pal.0[251]);
+        assert_eq!(px(&p, 11, 11), pal.0[17], "the face inside it");
         let p = draw(ButtonState { hover: true, ..NORMAL });
-        assert_eq!(px(&p, 27, 18), pal.0[246], "hovered: the whole label white");
+        assert_eq!(px(&p, 48, 19), pal.0[246], "hovered: the whole label white");
+        let p = draw(ButtonState {
+            pressed: true,
+            ..NORMAL
+        });
+        assert_eq!(px(&p, 12, 12), pal.0[18], "the pressed face, frame 8");
+        assert_eq!(px(&p, 50, 21), pal.0[200], "the label 2 right and 2 down");
         let p = draw(ButtonState {
             enabled: false,
             ..NORMAL
         });
         assert_eq!(px(&p, 10, 10), pal.0[247]);
-        assert_eq!(px(&p, 12, 12), pal.0[102]);
-        assert_eq!(px(&p, 27, 18), pal.0[108], "grey label");
-        assert_eq!(px(&p, 31, 19), pal.0[102]);
-        assert_eq!(px(&p, 30, 18), pal.0[108], "no white hotkey on a disabled button");
+        assert_eq!(px(&p, 12, 12), pal.0[16], "the disabled face, frame 6");
+        assert_eq!(px(&p, 48, 19), pal.0[108], "grey label");
+        assert_eq!(px(&p, 49, 20), pal.0[102]);
+        assert_eq!(px(&p, 51, 19), pal.0[108], "no white hotkey on a disabled button");
+        // Without the file: the stand-in, with the rings.
+        let mut p = blank(100, 40);
+        draw_button(&mut p, &f, &pal, None, r, "AB", None, NORMAL);
+        assert_eq!(px(&p, 10, 10), pal.0[128]);
+        assert_eq!(px(&p, 11, 11), pal.0[239]);
+        assert_eq!(px(&p, 12, 12), pal.0[162]);
     }
 
     #[test]
@@ -469,14 +681,14 @@ mod tests {
     }
 
     #[test]
-    fn a_heading_is_white_and_centred() {
+    fn a_heading_is_white_on_its_rectangle() {
         let (pal, f) = (palette(), font());
         let mut p = blank(64, 20);
-        // "AB" is 5 pixels wide (its advances less the last pixel): left edge (64 - 5) / 2 = 29.
-        draw_heading(&mut p, &f, &pal, 4, "AB");
-        assert_eq!(px(&p, 29, 4), pal.0[246]);
-        assert_eq!(px(&p, 29, 5), pal.0[108]);
-        assert_eq!(px(&p, 28, 4), [0, 0, 0]);
+        // "AB" is W 6: left edge 0 + 63 / 2 − 3 = 28, at the rectangle's top.
+        draw_heading(&mut p, &f, &pal, Rect::new(0, 4, 64, 10), "AB");
+        assert_eq!(px(&p, 28, 4), pal.0[246]);
+        assert_eq!(px(&p, 28, 5), pal.0[108]);
+        assert_eq!(px(&p, 27, 4), [0, 0, 0]);
     }
 
     #[test]

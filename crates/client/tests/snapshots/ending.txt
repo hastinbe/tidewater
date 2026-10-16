@@ -256,24 +256,24 @@ frames	671-671	f1f8d777d067b04d
 frames	672-672	1c016ef4fb28060e
 frames	673-673	c75e7abf173b98fc
 frames	674-674	72478de0c5b6dca7
-shot	685	menu	d9bb19eb56944b2f
-frames	675-685	d9bb19eb56944b2f
+shot	685	menu	afe3d135be74f8db
+frames	675-685	afe3d135be74f8db
 shot	690	load-empty	570f13b30b2749f5
 frames	686-690	570f13b30b2749f5
-shot	695	load-closed	d9bb19eb56944b2f
-frames	691-696	d9bb19eb56944b2f
-frames	697-697	fadb0713facdc7ec
-frames	698-698	4622d466cec1d681
-frames	699-699	5468a9e00ac9a399
-frames	700-700	04552c530ce4db0c
-frames	701-701	aef18beb280e094e
-frames	702-702	95df3018b62caccf
-frames	703-703	0f81d0400f81d6bf
-frames	704-704	d62b68055621b470
-frames	705-705	6bdd86fdbb72a3a2
-frames	706-706	04e74c5b1dd84843
-frames	707-707	975926a358345184
-frames	708-708	d7d7332b0f59edae
+shot	695	load-closed	afe3d135be74f8db
+frames	691-696	afe3d135be74f8db
+frames	697-697	f7c5ef7d10fcc3c4
+frames	698-698	3a40a4b56fc8ffb2
+frames	699-699	7b6c832493046c43
+frames	700-700	4dad4510938b46d3
+frames	701-701	d814e8ba22b88de9
+frames	702-702	390394d7fd38805a
+frames	703-703	477aa3275173f6c7
+frames	704-704	30dd601c53330c42
+frames	705-705	1c0cdf88c9ab6a91
+frames	706-706	f7a2bd557a832b56
+frames	707-707	baca979d677ecace
+frames	708-708	1930128f9d046bb0
 sound	710	c1ea7bc9a8532db1	0.7516	Once
 frames	709-709	156ed4086987e325
 frames	710-710	1d4db3b62a5eba88
@@ -327,5 +327,5 @@ frames	790-790	f1f8d777d067b04d
 frames	791-791	1c016ef4fb28060e
 frames	792-792	c75e7abf173b98fc
 frames	793-793	72478de0c5b6dca7
-shot	804	menu-after-credits	d9bb19eb56944b2f
-frames	794-804	d9bb19eb56944b2f
+shot	804	menu-after-credits	afe3d135be74f8db
+frames	794-804	afe3d135be74f8db

@@ -133,6 +133,8 @@ pub struct Front {
     /// The human normal arrow in the title screen's palette, with its hot spot: the pointer of the flow screens the
     /// screen spec doesn't name ([`FlowPointer::Default`]).
     pub arrow: Option<(Picture, (i32, i32))>,
+    /// The menu buttons' faces (`menuscreen::FACES_FILE`); empty if the install lacks the file.
+    pub(crate) button_faces: menuscreen::ButtonFaces,
     /// Sounds decoded for the mixer, by name; `None` for one the install lacks, so it is looked up once.
     sounds: HashMap<String, Option<Sound>>,
 }
@@ -163,6 +165,12 @@ impl Front {
             .ok()
             .and_then(|d| Pcx::parse(&d).ok()?.palette)
             .and_then(|pal| hud::load_pointer(&mut install, crate::screen::Pointer::Arrow.file(false), &pal));
+        let button_faces = install
+            .read(menuscreen::FACES_FILE)
+            .ok()
+            .and_then(|d| tidewater_formats::grp::Grp::parse_uncompressed(&d).ok())
+            .map(|g| menuscreen::ButtonFaces::from_grp(&g))
+            .unwrap_or_default();
         Ok(Front {
             install,
             font: f,
@@ -171,6 +179,7 @@ impl Front {
             huge,
             network,
             arrow,
+            button_faces,
             sounds: HashMap::new(),
         })
     }
@@ -1112,7 +1121,10 @@ struct Menu {
     /// The focused button (the yellow ring): the first when the menu opens.
     focus: usize,
     hot: Option<usize>,
-    drawn: Option<Option<usize>>,
+    /// The enabled button the left mouse button went down on, while it is held (screen spec, "Pressing").
+    held: Option<usize>,
+    /// What the buttons were last drawn for: the hot, pressed and focused buttons.
+    drawn: Option<(Option<usize>, Option<usize>, usize)>,
     /// The menu's close (a fade of all sound, then a fade to black), and what was chosen.
     closing: Option<(cf::SoundThenBlack, MenuPick)>,
     /// When the menu's fade-in ends (0 for none): its buttons are drawn and it takes input from then on.
@@ -1146,13 +1158,8 @@ struct MenuItem {
 }
 
 /// A menu's buttons in the main menu's column (`menuscreen::button_rects`), from their labels and hotkeys.
-fn menu_items(font: &Font, labels: &[(&str, Option<char>)]) -> Vec<MenuItem> {
-    let widest = labels
-        .iter()
-        .map(|(l, _)| menuscreen::text_width(font, l, menuscreen::SPACE_12X))
-        .max()
-        .unwrap_or(0);
-    menuscreen::button_rects(labels.len(), widest)
+fn menu_items(labels: &[(&str, Option<char>)]) -> Vec<MenuItem> {
+    menuscreen::button_rects(labels.len())
         .into_iter()
         .zip(labels)
         .map(|(r, &(l, key))| MenuItem {
@@ -1175,11 +1182,11 @@ fn menu_art(install: &mut Install) -> (Picture, Palette) {
 }
 
 /// Opens a menu screen: the menu picture (`campaign::MENU_PICTURE`, in its own palette: screen spec, "Menu screens")
-/// with `heading` drawn over it (the main menu, `None`, has the version line instead: [`version_line`]), then its
-/// buttons. The heading and the version line are part of the picture, so they
+/// with its `headings` drawn over it on their rectangles (`menuscreen::draw_heading`) and the version line
+/// ([`version_line`]), then its buttons. The headings and the version line are part of the picture, so they
 /// fade in with it (screen spec, "Pointer and fades"); the buttons are drawn by [`menu_input`] once the fade-in has
 /// ended.
-fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[(&str, Option<char>)], state: AppState) {
+fn open_menu(c: &mut Core, headings: &[(Rect, &str)], items: Vec<MenuItem>, state: AppState) {
     let screen = menu_screen(state).expect("a menu screen");
     let opening = screen.opening(menu_screen(c.states.previous()));
     let Core {
@@ -1199,10 +1206,8 @@ fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[(&str, Option<char>)
             (p, pal)
         }
     };
-    let items = menu_items(&front.font, labels);
-    if let Some(h) = heading {
-        // Our place for it: above the buttons.
-        menuscreen::draw_heading(&mut bg, &front.font, &palette, menuscreen::BUTTON_TOP - 30, h);
+    for &(r, h) in headings {
+        menuscreen::draw_heading(&mut bg, &front.font, &palette, r, h);
     }
     if opening.version_line {
         version_line(&mut bg, &front.small, &palette);
@@ -1216,6 +1221,7 @@ fn open_menu(c: &mut Core, heading: Option<&str>, labels: &[(&str, Option<char>)
         items,
         focus: 0,
         hot: None,
+        held: None,
         drawn: None,
         closing: None,
         ready_at: opening.fade_in_ms as f64,
@@ -1257,7 +1263,10 @@ fn version_line(dst: &mut Picture, font: &Font, pal: &Palette) {
     menuscreen::draw_version_line(dst, font, pal, &version_text());
 }
 
-/// Hover, redraw, and the item clicked (or chosen by its number key).
+/// Hover, the held button, redraw, and the item clicked (or chosen by its number key).
+///
+/// Screen spec, "Pressing": the left button going down on an enabled button holds it, and it shows its pressed face
+/// while the pointer stays on it; releasing on it chooses it, releasing anywhere else does nothing.
 fn menu_input(
     menu: &mut Menu,
     front: &Front,
@@ -1267,18 +1276,42 @@ fn menu_input(
     keys: &Buttons<Key>,
 ) -> Option<usize> {
     menu.hot = at.and_then(|p| menu.items.iter().position(|it| it.enabled && it.r.contains(p.x, p.y)));
-    if menu.drawn != Some(menu.hot) {
+    if mouse.just_pressed(Button::Left) {
+        menu.held = menu.hot;
+    }
+    let released = mouse.just_released(Button::Left);
+    let chosen = if released {
+        menu.held.take().filter(|&h| menu.hot == Some(h))
+    } else {
+        None
+    };
+    let pressed = menu.held.filter(|&h| menu.hot == Some(h));
+    let key = (menu.hot, pressed, menu.focus);
+    if menu.drawn != Some(key) {
         let mut p = dup(&menu.background);
         for (i, it) in menu.items.iter().enumerate() {
             let state = menuscreen::ButtonState {
                 enabled: it.enabled,
                 hover: menu.hot == Some(i),
                 focused: menu.focus == i,
+                pressed: pressed == Some(i),
             };
-            menuscreen::draw_button(&mut p, &front.font, &menu.palette, it.r, &it.label, it.key, state);
+            menuscreen::draw_button(
+                &mut p,
+                &front.font,
+                &menu.palette,
+                Some(&front.button_faces),
+                it.r,
+                &it.label,
+                it.key,
+                state,
+            );
         }
         set_image(pictures, &menu.image, p);
-        menu.drawn = Some(menu.hot);
+        menu.drawn = Some(key);
+    }
+    if chosen.is_some() {
+        return chosen;
     }
     const DIGITS: [Key; 6] = [
         Key::Digit(1),
@@ -1293,25 +1326,18 @@ fn menu_input(
     {
         return Some(i);
     }
-    if mouse.just_released(Button::Left) {
-        return menu.hot;
-    }
     None
 }
 
 /// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
 pub(crate) fn enter_menu(c: &mut Core) {
-    open_menu(
-        c,
-        None,
-        &[
-            ("New Campaign", Some('N')),
-            ("Load Game", Some('L')),
-            ("Show Credits", Some('C')),
-            ("Quit", Some('Q')),
-        ],
-        AppState::MainMenu,
-    );
+    let items = menu_items(&[
+        ("New Campaign", Some('N')),
+        ("Load Game", Some('L')),
+        ("Show Credits", Some('C')),
+        ("Quit", Some('Q')),
+    ]);
+    open_menu(c, &[], items, AppState::MainMenu);
 }
 
 /// Starts a close that fades all sound, then the screen to black over `black_ms` (`campaign::SoundThenBlack`).
@@ -1523,7 +1549,13 @@ fn run_menu_load(c: &mut Core) {
 pub(crate) fn enter_new_campaign(c: &mut Core) {
     let mut labels: Vec<(&str, Option<char>)> = Choice::ALL.iter().map(|c| (c.label(), None)).collect();
     labels.push(("Cancel", None));
-    open_menu(c, Some("Choose a campaign"), &labels, AppState::NewCampaign);
+    let heading = Rect::new(0, menuscreen::BUTTON_TOP - 30, 640, 28);
+    open_menu(
+        c,
+        &[(heading, "Choose a campaign")],
+        menu_items(&labels),
+        AppState::NewCampaign,
+    );
 }
 
 fn run_new_campaign(c: &mut Core) {
