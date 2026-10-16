@@ -2248,4 +2248,594 @@ mod tests {
         w.advance_missiles();
         assert_eq!(kinds(&w), [(base, 0x1a)], "the explosion took the smoke's slot");
     }
+
+    /// Pins of the current combat behaviour, written before the B-038 refactor onto `docs/specs/combat/damage.md` so
+    /// that it can't change them unseen. Each pin is the whole simulation state ([`World::fingerprint`]) with the
+    /// queued events and sound cues; a trail folds the pin of every cycle of a run. Where the code differs from the
+    /// spec's wording the test says so: those are questions, not rules.
+    mod pin {
+        use super::*;
+        use crate::world::tests::world;
+
+        fn fnv(h: u64, bytes: &[u8]) -> u64 {
+            bytes
+                .iter()
+                .fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
+        }
+
+        /// The whole state, the queued events and the sound cues, as one number.
+        fn pinned(w: &World) -> u64 {
+            let s = format!("{}|{:?}|{:?}", w.fingerprint(), w.events, w.sounds.cues);
+            fnv(0xcbf2_9ce4_8422_2325, s.as_bytes())
+        }
+
+        /// Steps `n` cycles, folding the pin of every cycle.
+        fn trail(w: &mut World, n: u32) -> u64 {
+            let mut h = 0xcbf2_9ce4_8422_2325;
+            for _ in 0..n {
+                w.step(&[]);
+                h = fnv(h, &pinned(w).to_le_bytes());
+            }
+            h
+        }
+
+        /// Updates the effect table `n` times, folding the pin after each update.
+        fn flight(w: &mut World, n: u32) -> u64 {
+            let mut h = 0xcbf2_9ce4_8422_2325;
+            for _ in 0..n {
+                w.advance_missiles();
+                h = fnv(h, &pinned(w).to_le_bytes());
+            }
+            h
+        }
+
+        /// [`ships`] with a human player 0 and a computer player 1, an unarmed footman copy (type 1), a building
+        /// tower (type 0x6d), sight and reaction ranges, in either rules mode.
+        fn arena(enhanced: bool) -> World {
+            let mut w = ships();
+            w.rules.enhanced = enhanced;
+            w.players[0].controller = controller::HUMAN;
+            w.players[1].controller = controller::COMPUTER;
+            w.stats.0[1] = w.stats.0[FOOTMAN as usize];
+            w.stats.0[1].flags &= !flags::CAN_ATTACK;
+            w.stats.0[0x6d] = UnitStats {
+                hit_points: 400,
+                size: (2, 2),
+                flags: flags::BUILDING | flags::TOWER | flags::CAN_ATTACK,
+                basic_damage: 4,
+                piercing_damage: 12,
+                attack_range: 6,
+                missile: missile::ARROW,
+                can_target: 7,
+                ..Default::default()
+            };
+            for s in w.stats.0.iter_mut() {
+                s.sight = 8;
+                s.react_range_computer = 6;
+                s.react_range_human = 4;
+            }
+            w
+        }
+
+        fn both_modes(f: impl Fn(bool) -> u64) -> Vec<u64> {
+            [true, false].into_iter().map(f).collect()
+        }
+
+        /// V13, V14: a melee kill with a second attacker on the same victim, through to both attackers' next runs.
+        #[test]
+        fn a_melee_kill_with_a_second_attacker() {
+            let got = both_modes(|enhanced| {
+                let mut w = arena(enhanced);
+                let a = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+                let b = w.spawn(FOOTMAN, 0, (5, 7), 0).unwrap();
+                let v = w.spawn(1, 1, (5, 6), 0).unwrap();
+                let vi = w.index(v).unwrap();
+                w.units[vi].hp = 12;
+                attack(&mut w, 0, vec![a, b], v);
+                trail(&mut w, 400)
+            });
+            assert_eq!(got, [4799316013814529362, 8214992723269226685]);
+        }
+
+        /// Two armed footmen fighting to the death, and an archer duel, in both rules modes.
+        #[test]
+        fn fights_to_the_death() {
+            let got = both_modes(|enhanced| {
+                let mut w = arena(enhanced);
+                let a = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+                let b = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+                let c = w.spawn(ARCHER, 0, (2, 12), 0).unwrap();
+                let d = w.spawn(ARCHER, 1, (7, 12), 0).unwrap();
+                attack(&mut w, 0, vec![a], b);
+                attack(&mut w, 0, vec![c], d);
+                trail(&mut w, 900)
+            });
+            assert_eq!(got, [15678731156847755291, 2460923343545190678]);
+        }
+
+        /// V86 to V89: a hasted and a slowed footman in steady fire.
+        #[test]
+        fn hasted_and_slowed_steady_fire() {
+            let mut got = Vec::new();
+            for haste in [400i16, -400] {
+                let mut w = arena(true);
+                let a = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+                let v = w.spawn(1, 1, (6, 5), 0).unwrap();
+                let ai = w.index(a).unwrap();
+                w.units[ai].haste = haste;
+                attack(&mut w, 0, vec![a], v);
+                got.push(trail(&mut w, 300));
+            }
+            assert_eq!(got, [11934576802701062671, 14696153735902505897]);
+        }
+
+        /// S1 and V90: order 11's melee blows on the pulled-back wall tile, with armour 0, until the wall is gone.
+        #[test]
+        fn melee_blows_on_a_wall() {
+            let got = both_modes(|enhanced| {
+                let mut w = arena(enhanced);
+                for y in 3..=5 {
+                    w.terrain.build_wall(8, y, false, true);
+                }
+                let f = w.spawn(FOOTMAN, 0, (8, 10), 0).unwrap();
+                let i = w.index(f).unwrap();
+                w.command(i, Order::AttackWall { tile: (8, 3) });
+                trail(&mut w, 1500)
+            });
+            assert_eq!(got, [8754154757328172939, 10726930225259057929]);
+        }
+
+        /// V15, V16: strikes at a dying, a gone and an inside target, melee and ranged. Code versus spec: a ranged
+        /// strike at a target that is gone or inside launches nothing, where the spec's launch "has no test of the
+        /// target's state" (a question, not a rule).
+        #[test]
+        fn strikes_at_dying_gone_and_inside_targets() {
+            let mut got = Vec::new();
+            for kind in [FOOTMAN, ARCHER] {
+                for case in 0..3 {
+                    let mut w = arena(true);
+                    let a = spawn_at(&mut w, kind, 0, (2, 7), (80, 240));
+                    let t = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+                    let ai = w.index(a).unwrap();
+                    w.units[ai].order = Order::Attack { target: t };
+                    let ti = w.index(t).unwrap();
+                    match case {
+                        0 => w.kill(ti),
+                        1 => {
+                            w.kill(ti);
+                            while w.unit(t).is_some() {
+                                w.step(&[]);
+                            }
+                        }
+                        _ => w.units[ti].inside = true,
+                    }
+                    let ai = w.index(a).unwrap();
+                    w.units[ai].order = Order::Attack { target: t };
+                    w.strike(ai);
+                    got.push(pinned(&w));
+                    got.push(flight(&mut w, 12));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    2938272107021765548,
+                    11534679406863145189,
+                    11677426256432025635,
+                    1384933782505578509,
+                    14371414814001894363,
+                    65197274251912525,
+                    12348778124170976659,
+                    7353301798723248936,
+                    13276549095961455182,
+                    9208501971988854357,
+                    13268588453598811575,
+                    7036616644515850229
+                ]
+            );
+        }
+
+        /// V53: a shooter killed while its arrow flies; the arrow's kill makes it forget its target.
+        #[test]
+        fn a_dead_shooters_arrow_kills() {
+            let mut w = arena(true);
+            let a = spawn_at(&mut w, ARCHER, 0, (0, 7), (16, 240));
+            let t = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+            let ti = w.index(t).unwrap();
+            w.units[ti].hp = 1;
+            launch(&mut w, a, Some(t), (0, 0));
+            let ai = w.index(a).unwrap();
+            w.kill(ai);
+            let got = [flight(&mut w, 12), pinned(&w)];
+            assert_eq!(w.unit(a).unwrap().dying_target, None);
+            assert_eq!(got, [18290118346541150149, 5848852144595086954]);
+        }
+
+        /// V72, V91: a ballista keeping a target that died from another unit's kill; its own bolt's splash kills a
+        /// unit of its own player. No credit; the ballista forgets its dying target; then its next run.
+        #[test]
+        fn a_splash_kills_an_own_unit() {
+            let mut w = arena(true);
+            let b = spawn_at(&mut w, BALLISTA, 0, (0, 7), (16, 240));
+            let t = spawn_at(&mut w, FOOTMAN, 1, (6, 7), (208, 240));
+            let own = spawn_at(&mut w, FOOTMAN, 0, (6, 8), (208, 260));
+            let oi = w.index(own).unwrap();
+            w.units[oi].hp = 5;
+            let bi = w.index(b).unwrap();
+            w.units[bi].order = Order::AttackInPlace { target: t };
+            w.units[bi].cooldown = 100;
+            w.rng = no_scatter(0);
+            w.strike(bi);
+            let ti = w.index(t).unwrap();
+            w.kill(ti);
+            let mut got = vec![flight(&mut w, 32)];
+            assert!(w.unit(own).unwrap().dying, "the splash kills its own unit");
+            let bi = w.index(b).unwrap();
+            assert_eq!(w.units[bi].forgot, Some(Order::AttackInPlace { target: t }));
+            assert_eq!(w.players[0].kills, 0);
+            w.units[bi].script.wait = 1;
+            w.run_order(bi);
+            got.push(pinned(&w));
+            assert_eq!(got, [2120794822199855089, 6059557742541821971]);
+        }
+
+        /// V73 to V75: a killer whose target is the victim, and one whose live target isn't, each dying afterwards.
+        #[test]
+        fn killers_forget_and_die() {
+            let mut got = Vec::new();
+            for victim_is_target in [true, false] {
+                let mut w = world();
+                let killer = UnitId(1);
+                let victim = w.spawn(0, 1, (1, 0), 0).unwrap();
+                let other = w.spawn(0, 1, (1, 1), 0).unwrap();
+                let (k, v) = (w.index(killer).unwrap(), w.index(victim).unwrap());
+                w.units[v].hp = 5;
+                let target = if victim_is_target { victim } else { other };
+                w.units[k].order = Order::Chase { target };
+                w.units[k].attacked_by = Some(victim);
+                w.damage(v, 5, killer);
+                got.push(pinned(&w));
+                let k = w.index(killer).unwrap();
+                w.kill(k);
+                got.push(trail(&mut w, 20));
+            }
+            assert_eq!(
+                got,
+                [
+                    1429744278143639663,
+                    7365664792361795273,
+                    13910839257612302392,
+                    6113588524790708852
+                ]
+            );
+        }
+
+        /// V41 to V49 and V85: a gryphon hammer's whole path, its splashes and its final killing hit; and the same
+        /// with no free effect slot at its splashes (V50).
+        #[test]
+        fn a_hammers_path_and_final_hit() {
+            let mut got = Vec::new();
+            for full in [false, true] {
+                let mut w = arena(true);
+                let g = spawn_at(&mut w, GRYPHON, 0, (0, 7), (16, 240));
+                let a = spawn_at(&mut w, FOOTMAN, 1, (3, 7), (112, 240));
+                spawn_at(&mut w, FOOTMAN, 1, (3, 8), (112, 260));
+                spawn_at(&mut w, FOOTMAN, 0, (4, 7), (150, 240));
+                let ai = w.index(a).unwrap();
+                w.units[ai].hp = 14;
+                w.rng = seed_with(&[(0, &|r| r % 9 == 4), (1, &|r| r & 7 == 3), (2, &|r| r & 7 == 3)]);
+                launch(&mut w, g, Some(a), (0, 0));
+                if full {
+                    fill_except(&mut w, &[crate::slots::PERMANENT_EFFECTS]);
+                }
+                got.push(flight(&mut w, 40));
+            }
+            assert_eq!(got, [16024398163776407428, 2685202701170827492]);
+        }
+
+        /// The splash rule of path and spell effects (armour ignored, air units scanned, the owner spared), at
+        /// several distances, with a kill; stored damage 40 and 255.
+        #[test]
+        fn a_path_splash() {
+            let mut got = Vec::new();
+            for stored in [40u8, 255] {
+                let mut w = arena(true);
+                let owner = spawn_at(&mut w, FOOTMAN, 0, (5, 5), (176, 176));
+                spawn_at(&mut w, FOOTMAN, 1, (5, 6), (176, 200));
+                let weak = spawn_at(&mut w, FOOTMAN, 1, (6, 5), (206, 176));
+                spawn_at(&mut w, FOOTMAN, 1, (7, 5), (226, 176));
+                let air = w.spawn(2, 1, (5, 5), 0).unwrap();
+                let ai = w.index(air).unwrap();
+                w.units[ai].pos = (160, 150);
+                let wi = w.index(weak).unwrap();
+                w.units[wi].hp = 3;
+                for _ in 0..3 {
+                    w.fx_splash((176, 176), stored, owner);
+                    got.push(pinned(&w));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    17394588861411372056,
+                    1358498388205010782,
+                    3338073869126473509,
+                    3703186657455960798,
+                    16032377676327745332,
+                    16032377676327745332
+                ]
+            );
+        }
+
+        /// V26 to V30 and V54 to V58: splash missiles of each kind landing among units and walls, and a small cannon
+        /// shot at an air unit, which splashes air units too.
+        #[test]
+        fn splash_missiles_land() {
+            let mut got = Vec::new();
+            for (kind, air) in [
+                (CATAPULT, false),
+                (BALLISTA, false),
+                (BATTLESHIP, false),
+                (DESTROYER, true),
+                (DESTROYER, false),
+            ] {
+                let mut w = arena(true);
+                w.terrain.build_wall(6, 6, false, true);
+                w.terrain.build_wall(5, 7, false, true);
+                let s = spawn_at(&mut w, kind, 0, (0, 7), (16, 240));
+                let t = if air {
+                    let t = w.spawn(2, 1, (6, 7), 0).unwrap();
+                    let ti = w.index(t).unwrap();
+                    w.units[ti].pos = (192, 224);
+                    t
+                } else {
+                    spawn_at(&mut w, FOOTMAN, 1, (6, 7), (208, 240))
+                };
+                spawn_at(&mut w, FOOTMAN, 1, (7, 7), (240, 240));
+                spawn_at(&mut w, FOOTMAN, 0, (6, 9), (208, 300));
+                let air2 = w.spawn(2, 1, (7, 8), 0).unwrap();
+                let a2 = w.index(air2).unwrap();
+                w.units[a2].pos = (220, 250);
+                launch(&mut w, s, Some(t), (0, 0));
+                got.push(flight(&mut w, 40));
+            }
+            assert_eq!(
+                got,
+                [
+                    17934706954317498350,
+                    13514230806593263657,
+                    3522019660567609785,
+                    11316739609189664698,
+                    9507470264621134940
+                ]
+            );
+        }
+
+        /// Missiles at a tile: a catapult and an archer attacking a wall tile (order 11), then the ground (order
+        /// 17), for a human and a computer player.
+        #[test]
+        fn missiles_at_a_tile() {
+            let mut got = Vec::new();
+            for computer in [false, true] {
+                for kind in [CATAPULT, ARCHER] {
+                    let mut w = arena(true);
+                    if computer {
+                        w.players[0].controller = controller::COMPUTER;
+                    }
+                    w.terrain.build_wall(5, 7, false, !computer);
+                    let s = spawn_at(&mut w, kind, 0, (2, 7), (80, 240));
+                    launch(&mut w, s, None, (5, 7));
+                    got.push(flight(&mut w, 40));
+                    let i = w.index(s).unwrap();
+                    w.units[i].order = Order::AttackGround { tile: (7, 7) };
+                    w.strike(i);
+                    got.push(flight(&mut w, 40));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    13733196233359041869,
+                    382078590711195448,
+                    12138653932175543617,
+                    17459934043593839873,
+                    15687906401459859309,
+                    617740697971578372,
+                    16002220333554751551,
+                    7283088450887697373
+                ]
+            );
+        }
+
+        /// V60 to V64: cannon shots with smoke, an archer's shot, with all, one and no effect slots free.
+        #[test]
+        fn cannon_shots_and_smoke() {
+            let mut got = Vec::new();
+            for kind in [BATTLESHIP, DESTROYER, ARCHER] {
+                for free in 0..3 {
+                    let mut w = arena(true);
+                    let base = crate::slots::PERMANENT_EFFECTS;
+                    match free {
+                        1 => fill_except(&mut w, &[base + 4]),
+                        2 => fill_except(&mut w, &[]),
+                        _ => {}
+                    }
+                    shoot(&mut w, kind);
+                    got.push(flight(&mut w, 30));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    10657378742606779810,
+                    14011363881410516026,
+                    2788762022627261188,
+                    6653852967948893520,
+                    850415588387328693,
+                    11414700268004536641,
+                    18410841374383809127,
+                    10296112634552251756,
+                    942937778806164117
+                ]
+            );
+        }
+
+        /// V25, V65: building towers (a guard tower and a cannon tower) firing from order 14 at units in range; a
+        /// tower that kills keeps its records. The synthetic towers have no step done of their own, so each logic run
+        /// is given one every 60 cycles.
+        #[test]
+        fn towers_fire_and_kill() {
+            let mut got = Vec::new();
+            for m in [missile::ARROW, missile::SMALL_CANNON] {
+                let mut w = arena(true);
+                w.stats.0[0x6d].missile = m;
+                let t = w.spawn(0x6d, 0, (5, 5), 0).unwrap();
+                let f = w.spawn(1, 1, (9, 5), 0).unwrap();
+                w.spawn(1, 1, (9, 6), 0).unwrap();
+                let fi = w.index(f).unwrap();
+                w.units[fi].hp = 10;
+                run(&mut w, 2);
+                let ti = w.index(t).unwrap();
+                w.units[ti].attacked_by = Some(f);
+                let mut h = 0;
+                for n in 0..240 {
+                    if n % 60 == 0 {
+                        let ti = w.index(t).unwrap();
+                        w.tower(
+                            ti,
+                            crate::anim::Effects {
+                                step_done: true,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    w.step(&[]);
+                    h = fnv(h, &pinned(&w).to_le_bytes());
+                }
+                got.push(h);
+            }
+            assert_eq!(got, [17315648823463253877, 12504159832018549322]);
+        }
+
+        /// The demolition blast on its 8 neighbours: own and enemy units, a building, a unit with the used mark.
+        #[test]
+        fn a_demolition_blast() {
+            let mut w = arena(true);
+            let d = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            w.spawn(FOOTMAN, 1, (4, 4), 0).unwrap();
+            w.spawn(FOOTMAN, 0, (6, 5), 0).unwrap();
+            let strong = w.spawn(1, 1, (5, 6), 0).unwrap();
+            let si = w.index(strong).unwrap();
+            w.units[si].hp = 500;
+            w.spawn(0x3a, 1, (6, 3), 0).unwrap();
+            let used = w.spawn(1, 1, (4, 6), 0).unwrap();
+            let ui = w.index(used).unwrap();
+            w.units[ui].used = true;
+            let di = w.index(d).unwrap();
+            w.blast(di);
+            let got = [pinned(&w), trail(&mut w, 40)];
+            assert_eq!(got, [18281418379776267613, 3582393290367439326]);
+        }
+
+        /// The apply-damage checks: dying, used, inside, unholy armour, zero damage, and the Dark Portal case.
+        #[test]
+        fn applying_damage_checks() {
+            let mut got = Vec::new();
+            for case in 0..5 {
+                let mut w = arena(true);
+                let a = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+                let t = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+                let ti = w.index(t).unwrap();
+                let d = match case {
+                    0 => {
+                        w.kill(ti);
+                        9
+                    }
+                    1 => {
+                        w.units[ti].used = true;
+                        9
+                    }
+                    2 => {
+                        w.units[ti].inside = true;
+                        9
+                    }
+                    3 => {
+                        w.units[ti].unholy_armor = 10;
+                        9
+                    }
+                    _ => 0,
+                };
+                w.damage(ti, d, a);
+                got.push(pinned(&w));
+            }
+            for (campaign, multiplayer) in [(Some(50), false), (Some(50), true), (Some(51), false)] {
+                let (mut w, portal, foot, khadgar) = portal_world(campaign, multiplayer);
+                hit(&mut w, portal, foot);
+                hit(&mut w, portal, khadgar);
+                got.push(pinned(&w));
+            }
+            assert_eq!(
+                got,
+                [
+                    9373014857606833368,
+                    15584275062191345870,
+                    9644251803677585724,
+                    2298115905232237428,
+                    17109185735750389009,
+                    6845126062633610016,
+                    7255692867118203754,
+                    11011642666773207886
+                ]
+            );
+        }
+
+        /// Attack values in a strike: bloodlust, and the invulnerability cheat for a human and a computer player.
+        #[test]
+        fn attack_values_in_a_strike() {
+            let mut got = Vec::new();
+            for (bloodlust, cheat, owner) in [(true, false, 0u8), (false, true, 0), (true, true, 0), (false, true, 1)] {
+                for kind in [FOOTMAN, ARCHER] {
+                    let mut w = arena(true);
+                    w.rules.invulnerable_cheat = cheat;
+                    let a = spawn_at(&mut w, kind, owner, (2, 7), (80, 240));
+                    let t = spawn_at(&mut w, 1, 1 - owner, (3, 7), (112, 240));
+                    let ai = w.index(a).unwrap();
+                    w.units[ai].bloodlust = if bloodlust { 100 } else { 0 };
+                    launch(&mut w, a, Some(t), (0, 0));
+                    got.push(flight(&mut w, 12));
+                }
+            }
+            assert_eq!(
+                got,
+                [
+                    2434545240698849037,
+                    17279651269250014520,
+                    11535850173682305701,
+                    11789851228824547189,
+                    10697074335961144341,
+                    17837450984270884882,
+                    4975577010743118837,
+                    7819594160036847443
+                ]
+            );
+        }
+
+        /// V76, V77: no strike while a command waits to take over.
+        #[test]
+        fn no_strike_while_a_command_waits() {
+            let mut w = arena(true);
+            let a = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let t = w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap();
+            let i = w.index(a).unwrap();
+            w.units[i].order = Order::Attack { target: t };
+            w.units[i].script.anim = anim::ATTACK;
+            w.command(i, Order::Idle);
+            let fx = crate::anim::Effects {
+                strikes: 1,
+                ..Default::default()
+            };
+            w.order(i, fx);
+            assert_eq!(pinned(&w), 15066282400368245066);
+        }
+    }
 }
