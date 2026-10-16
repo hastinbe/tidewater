@@ -3,14 +3,19 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the default upgrade data
   `upgrades.dat`, and the public PUD specification text (unit types in appendix A, upgrades in appendix B, the ALOW
-  and UGRD sections). Not yet confirmed against the running game.
+  and UGRD sections). Not yet confirmed against the running game, except where a rule names a trace.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed):
+  the job start procedure (steps 1, 2, 5 and 6 of the old "Starting a job") moves to `economy/build-train.md`,
+  "Starting a job"; this spec keeps each kind's own check and the level check ("Job checks for each kind"), with no
+  rule change. The completion alert is the work-complete sound (traced), and its open question is answered.
 
 ## Behaviour
 
-This spec says which building makes, researches or becomes what, what a job needs when the command **arrives**, and
-what finishing or cancelling a research job does. The job mechanics shared with training (one job at a time,
-progress steps, timing, refunds of trained units and building upgrades) are in `economy/build-train.md`. What the
-buttons show, and so what a player can normally ask for, is in `ui/command-buttons.md`, "Conditions".
+This spec says which building makes, researches or becomes what, what each job kind needs when the command
+**arrives**, and what finishing or cancelling a research job does. The job procedure itself (the order of the checks,
+payment, one job at a time, progress steps, timing, cancelling and refunds) is in `economy/build-train.md`, "Starting
+a job" to "Job end". What the buttons show, and so what a player can normally ask for, is in
+`ui/command-buttons.md`, "Conditions".
 
 Unit types and upgrade numbers are those of the PUD specification (appendices A and B), written in decimal. "Has X"
 has the meaning of `ui/command-buttons.md`: the player has at least one **completed** X, either race's version.
@@ -28,14 +33,14 @@ Anything a button hides but the command check allows can still happen if such a 
 client, or the duplicate case in "Research twice" below). A reimplementation that must stay in step with the original
 uses the command checks below, not the button rules.
 
-### Starting a job (when the command arrives)
+### Job checks for each kind
 
 The command names a building, a job kind (train, research a spell, upgrade, or upgrade the building) and a unit type
-or upgrade number. The checks run in this order; any failure ends it **silently** unless a message is named:
+or upgrade number. `economy/build-train.md` ("Starting a job") runs its checks in order: the building is completed and
+not working, the kind is one of the four, then the two checks below, then affordability, then payment. Each check
+below ends the job **silently** if it fails.
 
-1. The building isn't already working, and it is completed.
-2. The job kind is one of the four.
-3. **The kind's own check:**
+1. **The kind's own check:**
    - **Train:** the type is a unit type (0–57) and is made by this building type ("Who makes what"). A keep or castle
      counts as a town hall, a stronghold or fortress as a great hall. Then, **only while requirements are
      enforced** (below), the type's requirement must hold ("Training requirements").
@@ -43,17 +48,14 @@ or upgrade number. The checks run in this order; any failure ends it **silently*
      that researches it ("Who researches what"). Nothing else.
    - **Upgrade the building:** the target is a building type (58–104) that this building type becomes ("Building
      upgrades"). Then, only while requirements are enforced, its requirement must hold.
-4. **Level check**, for the upgrade kind with upgrade numbers 0–23 only: the player's level in that upgrade's line
+2. **Level check**, for the upgrade kind with upgrade numbers 0–23 only: the player's level in that upgrade's line
    must equal the level the upgrade raises from: **0** for the first upgrade of the pair (even number), **1** for
    the second (odd number). The lines are fixed by upgrade number, as in the table below; the "group" field of the
    upgrade data isn't used here.
-5. **Affordability:** gold, lumber and oil (`economy/build-train.md`). A failure shows its message, to the owner
-   only if the owner is the local player.
-6. The cost is paid, and the job starts:
-   - **train:** the owner's "units in training" count goes up by 1;
-   - **upgrade:** the upgrade data's "affects" bits are set in the owner's **upgrades being researched** word;
-   - **research a spell:** the "affects" bits are set in the owner's **spells being researched** word;
-   - every kind: the building becomes working, with a job of **2 × time** progress steps.
+
+When the job starts, an upgrade sets the upgrade data's "affects" bits in the owner's **upgrades being researched**
+word, and a spell sets them in the owner's **spells being researched** word (`economy/build-train.md`, "Starting a
+job", step 5).
 
 Level lines (for the level check):
 
@@ -177,8 +179,8 @@ When an upgrade or spell job ends, finished or cancelled, the game looks at the 
 3. The eye of Kilrogg (spell bit 10) becomes known, if the owner is allowed to research it.
 4. The owner's ogres become ogre-mages.
 
-In Enhanced mode, a finished upgrade or spell (one that passed the bit test) is followed by a completion alert at the
-building, for the local player only (sound and event position; a later spec).
+In Enhanced mode, a finished upgrade or spell (one that passed the bit test) is followed by the work-complete sound
+at the building, for the local player only (`ui/sounds.md`, "Work complete"; traced: `economy/build-train.md`, V51).
 
 The refund is the job's full cost, gold, lumber and oil, as the upgrade data gives it.
 
@@ -376,7 +378,8 @@ Default upgrade data unless stated.
 - Whether units inside a transport or building are converted by the ranger and paladin upgrades. The program skips
   units with any of three state marks (dead, removed, inside something); which mark covers passengers and workers in
   a mine wasn't confirmed.
-- The exact completion alert in Enhanced mode (sound number and how the event position is used).
+- **Answered (round 76):** the completion alert in Enhanced mode is the work-complete sound of `ui/sounds.md`; the
+  building's position becomes the latest event location (`ui/messages.md`, "Event history (Enhanced rules)").
 - What an upgrade with a group above 10 does when it finishes on the upgrade path (only possible with a custom UGRD
   or a forged command).
 - What a job does when its kind and number don't match the buttons' use, for example an upgrade number below 32 sent

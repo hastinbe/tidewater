@@ -5,6 +5,10 @@
   layout in `statport.bin`, the frame pictures `hframe.grp` / `oframe.grp`, the string table `stat_txt.tbl`, the
   default animation scripts `script.bin`, and the public PUD specification text (unit type numbers, unit data fields).
   Not yet confirmed against the running game.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed):
+  the bar's value is the building's mana byte, so a job shows p = 1 from its start until its first run (the byte is
+  traced at 1 then; that the bar reads the byte is static study); the "job at 0 steps" vector changes from p = 0, 2 px
+  to p = 1, 3 px.
 
 ## Behaviour
 
@@ -197,10 +201,12 @@ data, except that icon 108 is shown as icon 103. It is hidden whenever the panel
 
 ### Progress bar
 
-The bar shows the building's **shown progress** p, from 0 to 255:
+The bar shows the building's **shown progress** p, from 0 to 255, which is the value kept in the building's mana byte
+(`economy/build-train.md`):
 
 - under construction: the shown progress of `economy/build-train.md` ("Construction", step 5);
-- working on a job: floor(255 × steps done / the job's total steps).
+- working on a job: **1** from the job's start until its first run, then floor(255 × steps done / the job's total
+  steps) (`economy/build-train.md`, "Job progress"; traced there, V17 and V52).
 
 The left floor(152 × (p + 5) / 256) pixels of the bar area, at most all 152, are drawn in palette colour 149; the rest
 shows the frame's box. Entry 434 is drawn centred on the bar. No number is drawn.
@@ -355,7 +361,8 @@ icon set. "Name" is the name entry; for every type not listed in the exceptions 
 | Own farm, supply 9, 10 units using food | 420 `9`; 421 `10` in the alternate colour |
 | Enhanced mode, supply 241 | 420 `200` |
 | Gold mine with 3000 trips left | 426 `300000` |
-| Job at 0 of 120 steps | p = 0; bar 2 px |
+| Job just started (0 of 120 steps, before its first run) | p = 1; bar 3 px |
+| Job after its first run (1 of 120 steps) | p = 2; bar 4 px |
 | Construction at p = 255 | bar 152 px (capped) |
 | Name 100 px wide | line 1 empty; line 2 the name |
 | Name of two words, the first 80 px wide, the whole 150 px | line 1 the first word; line 2 the rest |

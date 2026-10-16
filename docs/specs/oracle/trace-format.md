@@ -34,6 +34,8 @@
   2026-10-14, oracle-extras errata (still version 2): opt-in windowed traces (header `from`), setup-only traces
   (`setup_only`), and the optional `extras`: the record field `hits` and the unit fields `goal`, `pending` and
   `transport_dest`. Default traces don't change.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`): the `job`
+  row points at "Starting a job" in `economy/build-train.md`, where the job start procedure now lives (no rule change).
 
 ## Behaviour
 
@@ -178,7 +180,7 @@ and `kind`.
 | `select` | `units` | Replaces the player's **synced selection** (`ui/selecting-and-commanding.md`, "Two selections") with these unit slots, in this order (at most 9) |
 | `command` | `command`, `tile`, `target` | Gives command number `command` (`orders/orders.md`, "Commands"; a spell by its spell order number, 38 to 56) to the units of the player's synced selection, as in `ui/selecting-and-commanding.md`, "Which units take part in a command": the list of handled commands, the selection filter and the formation offset. `tile` is `[x, y]`; `target` is a unit slot or `null` |
 | `build` | `type`, `tile` | The first unit of the player's synced selection, if it can build (a worker, or a tanker, which builds oil platforms; `economy/build-train.md`), is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
-| `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/tech-tree.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
+| `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/build-train.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
 | `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
 | `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
 

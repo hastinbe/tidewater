@@ -5,13 +5,17 @@
   by hand-simulating the search for the test vectors below. Not yet confirmed against the running game.
 - **Changes:** 2026-10-12, round-42 errata: a worker coming out with a build job faces its build goal tile
   (`economy/harvest.md`).
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed;
+  traced): the "destroyed" row is the cancelled (taken-down) building only; a builder inside a killed building dies with
+  it (`economy/build-train.md`, V50).
 
 ## Behaviour
 
 Several events put a unit onto the map next to something: a building finishes training a unit, a builder comes out
-of a finished building, a worker comes out of a mine, platform or depot, the units inside a destroyed building come
-out, a transport unloads, and a transport pushes off from the shore. All of them use one **ring search**. It walks rings of tiles around a rectangle (the
-"source") and stops at the first tile that passes a test for the unit's movement class.
+of a finished building, a worker comes out of a mine, platform or depot, the builder of a building whose construction
+is cancelled comes out, a transport unloads, and a transport pushes off from the shore. All of them use one **ring
+search**. It walks rings of tiles around a rectangle (the "source") and stops at the first tile that passes a test
+for the unit's movement class.
 
 ### Inputs
 
@@ -102,14 +106,14 @@ Some callers add a **region condition**: the tile's region (from the map's regio
 | --- | --- | --- | --- | --- | --- | --- |
 | A building finishes training a unit, or a spell creates a unit next to its caster | The building (or caster): its top-left tile and type size | The source's own top-left tile | 12 | The new unit type's movement class | none | No unit is created; the owner is told that the way out of the building is blocked (message 67, 0x43, of `network.tbl`, counting from 1); the refund is in `economy/build-train.md` |
 | A building finishes construction; its builder comes out | The building | The building's top-left tile (the builder's target tile is set to it first) | 12 | The builder's class | none | The builder dies |
-| A building is destroyed while builders are inside it | The building | Each builder's own target tile, which is the building's top-left tile (set when the builder went in) | 12 | The builder's class | none | The builder dies |
+| A building's construction is cancelled while its builder is inside (the building is taken down, `economy/build-train.md`; a **killed** building kills its builder instead) | The building | Each builder's own target tile, which is the building's top-left tile (set when the builder went in) | 12 | The builder's class | none | The builder dies |
 | A worker comes out of a mine, oil platform or depot | The size given in `economy/harvest.md` (town hall or gold mine size), placed at the worker's tile, which is the building's top-left tile while it is inside | The worker's target tile (where its next order sends it) | 12 | The worker's class | none | The worker dies |
 | A transport unloads one passenger | The transport's tile, as a 1 × 1 source | The transport's tile | 6 | The passenger's class | The region of the transport's tile | The passenger stays aboard |
 | A transport pushes off from the shore (`orders/transports.md`) | The transport's tile, as a 1 × 1 source | The transport's target tile | 10 | Push-off test | none | The transport docks (order 32) |
 
 A unit placed by the search stands on the found tile, faces its target (a target building is faced at its top-left tile
 plus (1, 1)), and is shown on the map again. A worker coming out with a computer player's build job faces its build goal
-tile instead (`economy/harvest.md`, "Coming out"). A builder coming out of a finished or destroyed building becomes idle
+tile instead (`economy/harvest.md`, "Coming out"). A builder coming out of a finished or cancelled building becomes idle
 (order 2). A worker leaving a mine, platform or depot keeps the order that harvesting gave it (`economy/harvest.md`). An
 unloaded passenger becomes idle.
 

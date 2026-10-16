@@ -30,6 +30,9 @@
   (static study); the idle transport's step-done check changes the order without a take-over (static study); the
   open questions on the skip mark, the walk's forget (T11) and the pending return (V277) gain round-75 notes; no rule
   changed.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed;
+  traced): order 22 builders come out when the building is finished or its construction is cancelled; a killed building
+  kills them (`economy/build-train.md`, V50).
 
 ## Behaviour
 
@@ -173,7 +176,7 @@ Columns:
 | 19 | Never a unit's order: number 19 is only a command (demolish), which becomes order 20 or 21. Its order logic reports an error | 4 | 0 | yes | no |
 | 20 | Demolish at a unit or obstacle | 4 | 1 | yes | no |
 | 21 | Demolish at a location | 4 | 0 | yes | no |
-| 22 | Worker inside a building it is constructing. Its logic only forgets the unit's attacker and sets a long wait (255 cycles). Such units come out when the building is finished or destroyed (`movement/placement.md`) | 2 | 0 | yes | no |
+| 22 | Worker inside a building it is constructing. Its logic only forgets the unit's attacker and sets a long wait (255 cycles). Such units come out when the building is finished or its construction is cancelled (`movement/placement.md`); if the building is killed they die with it (`economy/build-train.md`, "A building killed") | 2 | 0 | yes | no |
 | 23 | Harvest lumber | 4 | 1 | yes | no |
 | 24 | Return goods to a depot | 2 | 1 | yes | no |
 | 25 | Enter a gold mine or oil platform (can't be interrupted) | 3 | 1 | no | no |

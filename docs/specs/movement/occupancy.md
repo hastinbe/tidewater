@@ -13,6 +13,8 @@
   2026-10-12, round-38 errata: the keep-clear mark's description includes the creation marks of `ai/worker-ai.md`.
   2026-10-15, harvest audit round 70 (`ERRATA-audit-harvest.md`, erratum 7; static study, reviewed by a spec-review
   session): leaving the chopping state other than by felling also forgets the return-to source.
+  2026-10-16, round-76 review (B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, C1; traced):
+  "Coming out" names a finished or cancelled building, not a destroyed one; a builder inside a killed building dies.
 
 ## Behaviour
 
@@ -125,8 +127,9 @@ A building may be placed only where no footprint tile shares a bit with its plac
   cleared (the pointer is left alone), so the builder doesn't block its own site. The building then marks its
   footprint (0x0800 and the pointer, as usual), and the builder goes inside as above, at the building's top-left
   tile. If the building can't be placed, the builder's 0x0100 mark is put back, unless that tile is a footprint tile.
-- **Coming out** (unloaded from a transport, leaving a mine, platform or depot, or leaving a finished or destroyed
-  building): the unit's tile becomes the tile found by the ring search of `movement/placement.md`, its pixel
+- **Coming out** (unloaded from a transport, leaving a mine, platform or depot, or leaving a finished building or
+  one whose construction is cancelled; a builder inside a killed building dies there, `economy/build-train.md`, "A
+  building killed"): the unit's tile becomes the tile found by the ring search of `movement/placement.md`, its pixel
   position becomes that tile × 32, and it is entered there: the 0x0100 mark is set and the tile's ground-unit pointer
   names the unit.
 

@@ -18,6 +18,10 @@
   its first update.
 - **Changes:** 2026-10-12: the option-labels open question is closed by `ui/game-menu.md` ("Sound dialog"): the
   dialog file's labels and the game's own names for the stored bits agree with the labels given here.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed;
+  traced with a break on the alert): "Work complete" also plays for the tanker of a finished oil platform, and a
+  building upgrade plays it only for halls (keep, stronghold, castle, fortress), not towers. New open question on a
+  builder that dies for lack of room.
 
 ## Behaviour
 
@@ -206,8 +210,14 @@ These plain sounds play under the unit speech option, for units and buildings of
   "Unit sounds"), and the new unit's position becomes the latest event location. If the unit can't be created, there
   is no sound and a status message is shown instead.
 - **Work complete.** It plays in these cases:
-  - **Construction finished:** for each worker that comes out of the finished building. In all rule sets.
-  - **Research, an upgrade or a building upgrade finished:** for the building. In Enhanced rules only.
+  - **Construction finished:** for each unit inside the finished building: each builder that comes out, and the
+    tanker of a new oil platform, which goes straight into it (traced: `economy/build-train.md`, V53). In all rule
+    sets. It plays as the unit is let out, before it is placed; whether a builder that then finds no room and dies
+    also gets it is open (below).
+  - **Research or an upgrade finished:** for the building. In Enhanced rules only.
+  - **A building upgrade finished:** for the building, only when it becomes a keep, stronghold, castle or fortress.
+    A scout tower becoming a guard or cannon tower plays nothing (traced: `economy/build-train.md`, V51). In
+    Enhanced rules only.
 
   The file is `peasant\pswrkdon` if the unit is a peasant (type 0x02). Otherwise it is `human\hwrkdone` (orc set:
   `orc\owrkdone`). So a peon that finishes a building plays the race-set file, not a peasant file.
@@ -485,6 +495,9 @@ selection cooldown has expired, and r is the setup-shuffle draw.
 
 ## Open questions
 
+- **Work complete for a builder with no room.** When construction finishes, the sound is asked for each unit inside
+  before it is placed, so static study says a builder that finds no free tile and dies still plays it. No trace has
+  a builder with no room. Default: it plays. Trace request BT3 (`specs/ERRATA-buildtrain-consolidation.md`).
 - **Tick rate.** The selection cooldown (10 or 30), the construction-sound timer (150), the help timer (60) and the
   quiet counters (200, going down every second tick) count interface ticks. Whether a tick is one game cycle or a
   fixed real-time interval isn't established. Default: one tick per game cycle.

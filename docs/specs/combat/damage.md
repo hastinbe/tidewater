@@ -58,6 +58,8 @@
   d < v − 1; `human2-human02-all-out-4000` vectors.
   2026-10-13, round-61 errata: a hammer or breath keeps its effect slot through its final hit and the effects that
   hit makes, so a death explosion never reuses its slot; `xorc11-16000` vector.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`): the
+  job-cancel reference points at "A building killed" in `economy/build-train.md` (section renamed; no rule change).
 
 ## Behaviour
 
@@ -144,7 +146,7 @@ When damage D from an attacker reaches a target:
   **attacker**; every other unit that recorded the victim as its attacker keeps that record while the victim is dying
   (it counts in the resulting-order table of `orders/orders.md`). A building that kills (a tower) makes none of these
   checks and keeps both its records (static study). If the victim is a building with a job running, the job is cancelled
-  at the kill, with its refund (`economy/build-train.md`, "A building killed during a job"). Otherwise the target's HP
+  at the kill, with its refund (`economy/build-train.md`, "A building killed"). Otherwise the target's HP
   drops by D.
 
 ### How an attack delivers damage

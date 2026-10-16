@@ -3,6 +3,9 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-12)
 - **Sources:** static study of the 2.02 program (research notes, "Round 12 (rescue)"). Sound names come from the
   game's sound list. Not yet confirmed against the running game.
+- **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`): references
+  fixed (no rule change): the job cancel is "Job end" in `economy/build-train.md`, and the research conversion is in
+  `economy/tech-tree.md`, "Converting units".
 
 ## Behaviour
 
@@ -99,7 +102,7 @@ The same steps run for joining and for the gold-store cascade. Steps 1 to 5 happ
 
 1. **Buildings:**
    - a building that is working on a job (training, research, upgrade or building upgrade) has that job cancelled, as
-     in `economy/build-train.md` ("Ending", the Cancelled column). The refund goes to the **old** owner;
+     in `economy/build-train.md` ("Job end", the Cancelled column). The refund goes to the **old** owner;
    - a building still under construction moves from the old owner's under-construction count to the new owner's, and
      its construction goes on.
 2. **Tally.** The new owner's **converted tally** goes up by 1. Mode F in `game/victory.md` reads this tally.
@@ -107,8 +110,9 @@ The same steps run for joining and for the gold-store cascade. Steps 1 to 5 happ
    new owner's. Its order is not changed.
 4. **Enhanced mode only.** If the new owner has researched the paladin upgrade, a knight or ogre becomes a paladin or
    ogre-mage. If the new owner's ranger level isn't 0, an archer or axe thrower becomes a ranger or berserker. Each
-   change is the same as the research conversion in `economy/build-train.md`: hit points go up by the difference in
-   maximum hit points, and a caster gets its starting mana. In Classic mode the type doesn't change.
+   change is the same as the research conversion in `economy/tech-tree.md` ("Converting units"): hit points go up
+   by the difference in maximum hit points, and a caster gets its starting mana. In Classic mode the type doesn't
+   change.
 5. **Counts.** The unit is counted for the new owner. A rescuable unit stays rescuable, so the global rescuable
    counts don't change.
 6. **Announcement** (only when the unit itself joined, not in the cascade): the capture sound plays on the unit.
