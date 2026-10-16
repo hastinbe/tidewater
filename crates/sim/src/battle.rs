@@ -889,7 +889,7 @@ impl World {
             }
         }
         m.fx = Fx::Breath { line, count, ended };
-        let (pos, damage, attacker) = (m.pos, m.damage, m.attacker);
+        let (pos, damage, attacker) = (m.pos, m.damage, self.effect_shooter(&m));
         self.missiles[n] = Some(m);
         // Damage spec: a splash needs a free effect slot; with none, no splash, sound or effect.
         // Otherwise the explosion sound, the splash, then a cosmetic explosion (kind 0x17) in the lowest free slot.
@@ -912,10 +912,12 @@ impl World {
         self.sound_at_px(m.pos, sound);
         // A non-splash missile (and a hammer's or breath's final hit) carries its stored damage to the unit that was
         // the target at launch, wherever it is, or to the wall on its final tile; a splash missile splashes.
+        // "A missile's shooter is its slot" (V98): the attacker is whatever unit holds the shooter's slot now.
+        let attacker = self.effect_shooter(&m);
         if m.splash {
-            self.splash(m.pos, m.damage, m.attacker, Splash::Impact { air: m.hits_air });
+            self.splash(m.pos, m.damage, attacker, Splash::Impact { air: m.hits_air });
         } else {
-            self.hit(m.target, tile_px(m.pos), m.damage, m.attacker);
+            self.hit(m.target, tile_px(m.pos), m.damage, attacker);
         }
         self.impact_fx(m.kind, m.attacker, m.pos);
     }
@@ -2126,6 +2128,46 @@ mod tests {
         }
         w.advance_missiles();
         assert!(w.missiles[5].is_none());
+    }
+
+    /// Damage spec V98: a missile's shooter is its slot. A rock whose shooter's slot is released and then taken by
+    /// another player's unit before impact spares that unit, credits its owner with the kill and leaves it as the
+    /// attacker on record; the target stays the unit that was the target at launch.
+    #[test]
+    fn a_missiles_shooter_is_whatever_unit_holds_its_slot_at_impact() {
+        let mut w = range();
+        let old = spawn_at(&mut w, BALLISTA, 0, (1, 1), (48, 48));
+        let slot = w.unit(old).unwrap().slot;
+        let i = w.index(old).unwrap();
+        w.kill(i);
+        for _ in 0..5000 {
+            if w.unit(old).is_none() {
+                break;
+            }
+            w.step(&[]);
+        }
+        assert!(w.unit(old).is_none(), "the slot is released");
+        let new = spawn_at(&mut w, FOOTMAN, 2, (6, 7), (208, 240));
+        assert_eq!(w.unit(new).unwrap().slot, slot, "reused");
+        let foe = spawn_at(&mut w, FOOTMAN, 1, (5, 7), (176, 240));
+        let tough = spawn_at(&mut w, FOOTMAN, 1, (5, 8), (176, 256));
+        let (fi, ti) = (w.index(foe).unwrap(), w.index(tough).unwrap());
+        w.units[fi].hp = 1;
+        w.units[ti].hp = 1000;
+        let mut rock = landing(missile::CATAPULT, 20, (176, 240));
+        rock.attacker = old;
+        rock.shooter = Some(slot);
+        w.missiles[3] = Some(rock);
+        update_cues(&mut w);
+        assert_eq!(w.unit(new).unwrap().hp, 60, "the slot's new unit is spared");
+        assert!(w.unit(foe).unwrap().dying);
+        assert_eq!(
+            (w.players[2].kills, w.players[0].kills),
+            (1, 0),
+            "the slot's new owner is credited"
+        );
+        assert!(w.unit(tough).unwrap().hp < 1000);
+        assert_eq!(w.unit(tough).unwrap().attacked_by, Some(new));
     }
 
     #[test]
