@@ -465,17 +465,15 @@ impl World {
 
     // ----- 3. walking and the decision (spec, "Walking and the decision") --------------------------------------
 
-    /// The order logic of orders 38 to 56 at a "step done" (spec, "Walking and the decision"): the decision's checks
-    /// on the target unit, the walk into the spell's radius, then the turn to face the aim and the casting animation.
+    /// The order logic of orders 38 to 56 at a "step done" (spec, "Walking and the decision"): the target unit's
+    /// validity, the walk into the spell's radius, the not-a-building and organic tests once in reach, then the turn
+    /// to face the aim and the casting animation.
     pub(crate) fn run_spell(&mut self, i: usize) -> bool {
         let Order::Cast { spell, target, tile } = self.units[i].order else {
             return false;
         };
         let target = if is_unit_spell(spell) {
-            match target
-                .and_then(|t| self.index(t))
-                .filter(|&t| self.cast_target_fits(spell, t))
-            {
+            match target.and_then(|t| self.index(t)).filter(|&t| self.units[t].present()) {
                 Some(t) => Some(t),
                 None => {
                     self.decision_fails(i);
@@ -491,19 +489,24 @@ impl World {
         {
             return true;
         }
+        if let Some(t) = target
+            && !self.cast_target_fits(spell, t)
+        {
+            self.decision_fails(i);
+            return true;
+        }
         let face = target.map_or(tile, |t| crate::world::facing_tile_of(&self.units[t]));
         self.face_and_strike(i, face);
         true
     }
 
-    /// The decision's target checks (round 80): the target must be valid (it exists and isn't dying, remains or
-    /// inside), not a building and, for the organic-target spells, organic. There is no detection test: that is the
-    /// command's check only.
+    /// The decision's tests made only in reach (round 81, `xhuman10-heal-ballista-goals-500`, S91): the target unit
+    /// is not a building and, for the organic-target spells, organic. A caster sent to cast such a spell on a building
+    /// or a non-organic unit first walks into reach. Neither test is a detection test: that is the command's check,
+    /// and the walk's.
     fn cast_target_fits(&self, spell: u8, t: usize) -> bool {
         let t = &self.units[t];
-        t.present()
-            && !t.building
-            && (!ORGANIC_SPELLS.contains(&spell) || self.stats_of(t.kind).flags & flags::ORGANIC != 0)
+        !t.building && (!ORGANIC_SPELLS.contains(&spell) || self.stats_of(t.kind).flags & flags::ORGANIC != 0)
     }
 
     /// The walk toward the spell's aim: target unit `t` where it stands, or the target tile, within the spell's
@@ -3340,15 +3343,18 @@ mod tests {
         w
     }
 
-    /// Steps until unit `id`'s order is no longer a spell order; panics after `limit` cycles.
+    /// Steps until unit `id` has a spell order and then until it no longer has one; panics after `limit` cycles.
     fn until_not_casting(w: &mut World, id: UnitId, limit: u32) {
+        let casting = |w: &World| matches!(w.unit(id).unwrap().order, Order::Cast { .. });
+        let mut started = casting(w);
         for _ in 0..limit {
             w.step(&[]);
-            if !matches!(w.unit(id).unwrap().order, Order::Cast { .. }) {
+            started |= casting(w);
+            if started && !casting(w) {
                 return;
             }
         }
-        panic!("still casting");
+        panic!("no spell order that ended");
     }
 
     /// S90 (`xhuman10-slow-killed-goals-400`, n = 98): the target of a slow dies while the mage walks to it. At the
@@ -3392,6 +3398,51 @@ mod tests {
         let u = w.unit(m).unwrap();
         assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
         assert_eq!((u.script.wait, u.pending, u.mana), (3, None, 255));
+    }
+
+    /// S91 (`xhuman10-heal-ballista-goals-500`, n = 160): a paladin sent to heal a non-organic unit 17 tiles away walks
+    /// until it is within radius 6, and only then becomes idle: order 2, the still animation, wait 3, nothing paid.
+    #[test]
+    fn healing_a_non_organic_unit_walks_into_reach_first() {
+        use tidewater_formats::script::anim;
+        let mut w = sighted(48);
+        let p = caster(&mut w, PALADIN, (30, 10), 255);
+        let t = w.spawn(unit::SAPPER, 0, (13, 10), 0).unwrap();
+        cast(&mut w, p, HEALING, Some(t), (13, 10));
+        until_not_casting(&mut w, p, 600);
+        let u = w.unit(p).unwrap();
+        assert!(
+            u.tile.0 - 13 <= 6 && u.tile.0 < 25,
+            "stopped at {:?} in {:?}",
+            u.tile,
+            u.order
+        );
+        assert_eq!(
+            (u.order, u.script.anim, u.script.wait, u.mana),
+            (Order::Idle, anim::STILL, 3, 255)
+        );
+    }
+
+    /// Spec, "Walking and the decision" (round 81, static study for the building test): a unit spell aimed at a
+    /// building walks into reach before the not-a-building test makes the caster idle.
+    #[test]
+    fn a_unit_spell_on_a_building_walks_into_reach_first() {
+        let mut w = sighted(48);
+        w.stats.0[0x3a] = UnitStats {
+            size: (2, 2),
+            box_size: (64, 64),
+            hit_points: 400,
+            flags: flags::BUILDING,
+            ..Default::default()
+        };
+        let m = caster(&mut w, MAGE, (30, 10), 255);
+        let b = w.spawn(0x3a, 0, (12, 10), 0).unwrap();
+        assert!(w.unit(b).unwrap().building);
+        cast(&mut w, m, HASTE, Some(b), (12, 10));
+        until_not_casting(&mut w, m, 600);
+        let u = w.unit(m).unwrap();
+        assert!(u.tile.0 <= 12 + 1 + 6, "stopped at {:?}", u.tile);
+        assert_eq!((u.order, u.mana), (Order::Idle, 255));
     }
 
     mod pin {
@@ -3531,15 +3582,15 @@ mod tests {
                 got,
                 [
                     2572084909219178404,
-                    5762786882816094145,
+                    7462593974808655426,
                     18155415536659990849,
-                    5135122006116231847,
+                    11262496229158613140,
                     7394615447669147193,
-                    15427787176221140909,
+                    9596783022638148097,
                     12491648875814917563,
-                    10791532121958546703,
+                    12744599090150666451,
                     4206339763271490563,
-                    10943625537557042365,
+                    10718632011590191401,
                     1701851420691300144,
                     17700092751089797101,
                     6610920448925080138
