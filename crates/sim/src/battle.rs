@@ -686,15 +686,16 @@ impl World {
     }
 
     /// Whether `u` is in its owner's per-type count, which the end-of-game statistics read (campaign-flow spec,
-    /// "Statistics", B-040 audit): only completed units and buildings, and not circles of power, runestones, gold mines
-    /// or oil patches, which have no count. (Wall pieces count, the walls spec's default for its open question.)
+    /// "Statistics", traced in round 79): only completed units and buildings, and not circles of power, runestones,
+    /// gold mines, oil patches or wall pieces, which have no count. So a completed wall piece, killed as it becomes
+    /// terrain, is neither built nor lost (walls spec, "Completion: the piece becomes terrain").
     pub fn counted(u: &Unit) -> bool {
         use crate::setup::kind;
         const RUNESTONE: u8 = 0x66;
         u.construction.is_none()
             && !matches!(
                 u.kind,
-                kind::CIRCLE_OF_POWER | RUNESTONE | kind::GOLD_MINE | kind::OIL_PATCH
+                kind::CIRCLE_OF_POWER | RUNESTONE | kind::GOLD_MINE | kind::OIL_PATCH | kind::WALL | kind::ORC_WALL
             )
     }
 
@@ -1097,7 +1098,8 @@ mod tests {
     }
 
     /// Campaign-flow spec, "Statistics" (B-040 audit): only completed units and buildings of a type with a count are
-    /// lost. A site killed before it is completed, a gold mine, an oil patch, a circle of power and a runestone are not.
+    /// lost. A site killed before it is completed, a gold mine, an oil patch, a circle of power, a runestone and a wall
+    /// piece are not.
     #[test]
     fn only_counted_buildings_are_lost() {
         for (k, site, lost) in [
@@ -1107,6 +1109,8 @@ mod tests {
             (0x5d, false, 0),
             (0x64, false, 0),
             (0x66, false, 0),
+            (0x67, false, 0),
+            (0x68, false, 0),
         ] {
             let mut w = world();
             let b = w.spawn(k, 0, (5, 5), 0).unwrap();
