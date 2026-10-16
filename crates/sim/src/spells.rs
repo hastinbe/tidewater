@@ -518,11 +518,11 @@ impl World {
         })
     }
 
-    /// The decision fails: the caster stops without casting.
+    /// The decision fails (spec, "Walking and the decision", round 81): idle becomes the caster's pending order, with
+    /// the Enhanced resume, and takes over in the same update: order 2 (or the resumed order), the still animation,
+    /// wait 3. Nothing is paid (`xhuman10-slow-killed-goals-400`, S90; `xhuman10-heal-ballista-goals-500`, S91).
     fn decision_fails(&mut self, i: usize) {
-        use tidewater_formats::script::anim;
-        self.go_idle(i);
-        self.switch_anim(i, anim::STILL);
+        self.idle_now(i);
     }
 
     // ----- 5. the spell's strike (spec, "The spell's strike") --------------------------------------------------
@@ -3329,6 +3329,71 @@ mod tests {
     /// Pins of the spell behaviour, written before the B-038 spells refactor onto `docs/specs/spells/spells.md` so that
     /// it can't change them unseen. Each pin is the whole simulation state ([`World::fingerprint`]) with the queued
     /// events and sound cues, folded over every cycle of a run.
+    // ----- round 81 -----------------------------------------------------------------------------------------
+
+    /// [`lab`] with sight for every type, so that detection works as in a game.
+    fn sighted(size: u16) -> World {
+        let mut w = lab(size);
+        for s in w.stats.0.iter_mut() {
+            s.sight = 6;
+        }
+        w
+    }
+
+    /// Steps until unit `id`'s order is no longer a spell order; panics after `limit` cycles.
+    fn until_not_casting(w: &mut World, id: UnitId, limit: u32) {
+        for _ in 0..limit {
+            w.step(&[]);
+            if !matches!(w.unit(id).unwrap().order, Order::Cast { .. }) {
+                return;
+            }
+        }
+        panic!("still casting");
+    }
+
+    /// S90 (`xhuman10-slow-killed-goals-400`, n = 98): the target of a slow dies while the mage walks to it. At the
+    /// next step boundary idle takes over in the same update: order 2, the still animation, wait 3, nothing pending
+    /// and nothing paid; the idle logic first runs 3 cycles later.
+    #[test]
+    fn a_target_that_dies_on_the_way_makes_the_caster_idle_in_the_same_update() {
+        use tidewater_formats::script::anim;
+        let mut w = sighted(48);
+        let m = caster(&mut w, MAGE, (30, 10), 255);
+        let g = foe(&mut w, (8, 10));
+        cast(&mut w, m, SLOW, Some(g), (8, 10));
+        run(&mut w, 40);
+        let gi = w.index(g).unwrap();
+        w.kill(gi);
+        until_not_casting(&mut w, m, 40);
+        let u = w.unit(m).unwrap();
+        assert_eq!(
+            (u.order, u.script.anim, u.script.wait, u.pending, u.mana),
+            (Order::Idle, anim::STILL, 3, None, 255)
+        );
+    }
+
+    /// S90 with the Enhanced resume (orders spec, "Resuming patrol and attack-move"; untraced for a cast): a caster
+    /// with a remembered patrol resumes it through the same take-over.
+    #[test]
+    fn a_failed_decision_resumes_a_remembered_patrol() {
+        let mut w = sighted(48);
+        let m = caster(&mut w, MAGE, (30, 10), 255);
+        let g = foe(&mut w, (8, 10));
+        cast(&mut w, m, SLOW, Some(g), (8, 10));
+        let mi = w.index(m).unwrap();
+        w.units[mi].remembered = Some(crate::world::Remembered::Patrol {
+            to: (30, 20),
+            back: (30, 10),
+        });
+        run(&mut w, 40);
+        let gi = w.index(g).unwrap();
+        w.kill(gi);
+        until_not_casting(&mut w, m, 40);
+        let u = w.unit(m).unwrap();
+        assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
+        assert_eq!((u.script.wait, u.pending, u.mana), (3, None, 255));
+    }
+
     mod pin {
         use super::*;
 
@@ -3465,16 +3530,16 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    11953204371880603372,
-                    14892617786118508474,
-                    9571690748715914733,
-                    590237714223092264,
-                    17663962563883869231,
-                    13376848058481333836,
-                    197469252537225769,
-                    165002196601343554,
-                    12547616515738798513,
-                    16038185806644231388,
+                    2572084909219178404,
+                    5762786882816094145,
+                    18155415536659990849,
+                    5135122006116231847,
+                    7394615447669147193,
+                    15427787176221140909,
+                    12491648875814917563,
+                    10791532121958546703,
+                    4206339763271490563,
+                    10943625537557042365,
                     1701851420691300144,
                     17700092751089797101,
                     6610920448925080138
@@ -3516,14 +3581,14 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    5922940829331201903,
-                    7284754022435289597,
+                    17913793911137785833,
+                    10891004090879039118,
                     558125130043325918,
                     13189416840169241015,
-                    9167559634478047652,
-                    14000360504180540885,
-                    3380153570708656900,
-                    6039971079555769222
+                    8118140382518496718,
+                    15592006276913019551,
+                    7089697309869978124,
+                    13303408218503098646
                 ]
             );
         }
