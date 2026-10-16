@@ -422,7 +422,8 @@ impl World {
         }
     }
 
-    /// "Construction": a construction step of building `i`.
+    /// "Construction": the sound asked for on a construction pass of building `i` (every pass whose count is a
+    /// multiple of 12, and every pass with the build-speed cheat on).
     pub(crate) fn construction_sound(&mut self, i: usize) {
         if self.sounds.construction_timer != 0 {
             return;

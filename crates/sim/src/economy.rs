@@ -343,6 +343,11 @@ impl World {
         if !cheat && !c.passes.is_multiple_of(PASS_STEP) {
             return;
         }
+        // Sounds spec, "Construction" (traced, round 79): the sound is asked for on every pass that gets past the
+        // multiple-of-12 test: each step, the pass that shows a damaged site full and the completion pass.
+        self.construction_sound(i);
+        let u = &mut self.units[i];
+        let Some(c) = &mut u.construction else { return };
         let total = c.total();
         if c.passes > total {
             self.complete(i);
@@ -363,7 +368,6 @@ impl World {
             c.passes = total;
         }
         self.show_construction(i);
-        self.construction_sound(i);
     }
 
     /// Step 6, "Look": the shown progress goes into the mana byte, and the frame is 0 below 64/255 and 1 from there.
@@ -853,6 +857,60 @@ mod tests {
         }
         run(&mut w, 100);
         assert_eq!(w.unit(b).unwrap().construction, None, "complete");
+    }
+
+    /// Sounds spec, "Construction" (`human06-build-stats-1800`, farm 1521 and farm 1516): the sound is asked for on
+    /// every pass that gets past the multiple-of-12 test: the 100 steps (P = 12 to 1200) and the completion pass
+    /// (P = 1224), none at 1212, where step 100 put the counter; with the cheat, on every pass; on a damaged site, also
+    /// on the pass that shows it full.
+    #[test]
+    fn the_construction_sound_is_asked_for_on_every_pass_past_the_test() {
+        /// The passes, counted from 1, that ask for the sound in the next `n`.
+        fn requests(w: &mut World, n: u32) -> Vec<u32> {
+            let mut at = Vec::new();
+            for pass in 1..=n {
+                w.sounds.construction_timer = 0;
+                w.sounds.cues.clear();
+                w.step(&[]);
+                if w.sounds
+                    .cues
+                    .iter()
+                    .any(|c| c.sound == crate::sound::Sound::Construction)
+                {
+                    at.push(pass);
+                }
+            }
+            at
+        }
+        let farm = || {
+            let (mut w, _) = town();
+            w.stats.0[0x3e].hit_points = 400;
+            w.stats.0[0x3e].build_time = 100;
+            let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
+            (w, b)
+        };
+        let (mut w, b) = farm();
+        let mut want: Vec<u32> = (1..=100).map(|k| 12 * k).collect();
+        // Step 100 puts P at the total, 1212; the next pass past the test is P = 1224, the completion, 12 passes on.
+        want.push(1212);
+        assert_eq!(requests(&mut w, 1212), want);
+        assert_eq!(w.unit(b).unwrap().construction, None);
+
+        // The cheat: every pass.
+        let (mut w, _) = farm();
+        run(&mut w, 5);
+        w.rules.build_speed_cheat = true;
+        assert_eq!(requests(&mut w, 3), [1, 2, 3]);
+
+        // A damaged site: step 100 leaves it short of M, so P = 1212 shows it full and asks too, then P = 1224
+        // completes it.
+        let (mut w, b) = farm();
+        run(&mut w, 360);
+        let i = w.index(b).unwrap();
+        w.units[i].hp -= 10;
+        run(&mut w, 1200 - 360);
+        assert_eq!(requests(&mut w, 24), [12, 24]);
+        assert_eq!(w.unit(b).unwrap().construction, None);
     }
 
     #[test]
