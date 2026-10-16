@@ -59,6 +59,13 @@
   open questions, stated rules kept: the base box clamp on a 128-wide map (erratum 5), a dying anchor tanker
   (erratum 9) and, by review, the nearest gold store's measure (erratum 1: this file states the reference-tile
   distance; the top-left-tile reading is static only and no trace separates them).
+- **Changes:** 2026-10-16, round 86 (follow-up traces, `ERRATA-round86.md`; reviewed by a spec-review session,
+  2026-10-16): the nearest gold store is measured from the store's top-left tile (erratum 1's measure): traced for the
+  target pickers' reference store (`xhuman12-xhuman12-picker-flip-aigoals-1700`), and by review extended to the post
+  and the ferry's store fallback, which static study reads as the same search (open question closed). Static gap-fill:
+  a reference unit that is a building is measured at its reference tile. Requests AA5b (a dying anchor tanker) and AA7
+  (the 128-wide clamp) were tried and skipped or found unreachable, and leave the queue; those questions keep their
+  defaults.
 
 ## Behaviour
 
@@ -77,7 +84,8 @@ or inside something; "alive" means not gone.
 Distances here are the **reference-tile distance** of `orders/orders.md` ("Distance" under automatic target
 acquisition): the larger of the horizontal and vertical tile distances, to a building's nearest edge column or
 middle column as described there. "Nearest" always means the smallest such distance, with the **first** candidate
-in the order stated winning a tie.
+in the order stated winning a tie. The one exception is "the nearest gold store" (below), measured from the store's
+top-left tile (round 86).
 
 ### Timing
 
@@ -155,11 +163,16 @@ others are workers, which get no first goal anyway (`ERRATA-round84.md`, AI7). T
 | Any other | hold, at the post chosen below |
 
 **The nearest gold store.** Wherever this file says "the player's gold store nearest a unit" (the post below, the
-target pickers' reference store and the ferry's store fallback), "nearest" is the reference-tile distance of
-"Behaviour" above, the first in list order winning a tie. There is **no alive test**: a store in its death animation
-counts until it leaves the list (round 85; static gap-fill, erratum 1). Whether the distance is measured from the
-store's top-left tile instead is held (Open questions, "The nearest gold store's measure"; round 85). The site-search
-centres of `ai/worker-ai.md` use the top-left tile ("Keep-clear marks and site search").
+target pickers' reference store and the ferry's store fallback), "nearest" is measured from the **store's top-left
+tile**: the larger of the column and row differences between that tile and the unit's tile, not the reference-tile
+distance of "Behaviour". The first in list order wins a tie. There is **no alive test**: a store in its death
+animation counts until it leaves the list (round 85; static gap-fill, erratum 1). The measure is traced for the target
+pickers (round 86: `xhuman12-xhuman12-picker-flip-aigoals-1700`, vectors below); the post and the ferry's store
+fallback use the same search (round 86 review; static study, backed by that trace: no committed trace has a post or
+ferry search that the two measures rank differently). If the unit is itself a building (a picker's reference unit can
+be), its tile is its reference tile as seen from the store's top-left tile (`orders/orders.md`, "Distance"), not its
+own top-left tile (round 86 review; static gap-fill, untraced). The site-search centres of `ai/worker-ai.md` use the
+same measure ("Keep-clear marks and site search").
 
 **Choosing a land unit's post.** Let *store* be the player's gold store (bit 12) nearest the unit ("The nearest gold
 store", just above), among those in the same region as the unit (any, for air and sea units; the player's units in
@@ -270,8 +283,8 @@ Units given an attack goal don't move yet: they move when pass B runs their goal
 All three pick a tile in the **target player** T's area. "T's list" means T's units in list order.
 
 **Reference unit** (used by all three): the first unit in T's list, call it F.
-- Land picker: T's gold store nearest F ("The nearest gold store", above) among those in F's region (any if F is
-  air or sea), else the first building in T's list, else F.
+- Land picker: T's gold store nearest F ("The nearest gold store", above: from the store's top-left tile; round 86,
+  traced) among those in F's region (any if F is air or sea), else the first building in T's list, else F.
 - Sea and air pickers: T's gold store nearest F as above, else F. They **fail** if T has no units.
 
 **Land picker** (never fails):
@@ -668,6 +681,16 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Sea picker: T has no oil platform, shipyard or gold store, and its only unit is a ship, which is also the reference unit (static, erratum 15) | Distance 0 never qualifies: the picker fails and the round sends nobody |
 | A computer archer is created while the nearest enemy, a gryphon rider, hovers over the gold store's top-left tile, and the base box reaches the map's east edge (static, erratum 4) | The walk steps east one tile at a time, leaves the map, and the post is the random tile of step 3 (2 draws) |
 
+### Round-86 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman12-xhuman12-picker-flip-aigoals-1700` (oracle trace, Enhanced; round 86, erratum 1): computer player 2's land wave targets player 1, whose gold stores are castle 1443 at (42, 61) and town hall 1396 at (82, 81), both 4 × 4, in one region; the reference unit is footman 1353 at (63, 80) | Top-left distances 21 (castle) and 19 (town hall), so the town hall is the reference store (the reference-tile distances, 18 and 19, would pick the castle). The land picker's tile is (37, 5), stored as (36, 5) for units 1500, 1518 and 1521 at the passes of n = 501, 551 and 601 |
+| Same trace, n = 301: footman 1353 at (62, 76) | Top-left distances tie at 20; the town hall wins (the first in list order in our simulation; the trace doesn't record list order). Stored goal (36, 5) for unit 1473 (the reference-tile distance, 17 against 20, would give the castle's (13, 66)) |
+| Same trace, n = 351 (control): footman 1353 at (60, 77) | Both measures pick the castle (top-left 18 against 22): stored goal (13, 66) for units 1480 and 1489 |
+| A computer land unit created at (20, 20) with its player's 4 × 4 town halls at (10, 10) and (28, 20), in that list order, both in its region (static, round 86 review) | Top-left distances 10 and 8: the post walk starts from the hall at (28, 20) (the reference-tile distances, 7 and 8, would give the hall at (10, 10)) |
+| The target's newest unit F is a 2 × 2 farm at (30, 10); its gold stores, 4 × 4, have top-left tiles (20, 10) and (40, 10), in that list order, both in F's region (static gap-fill, round 86 review) | Seen from (20, 10) the farm's reference tile is (30, 10): distance 10; from (40, 10) it is (31, 10): distance 9. The store at (40, 10) is the reference store (from the farm's top-left tile both are 10 and (20, 10) would win the tie) |
+
 ## Open questions
 
 - **No dominant owner in hold.** When the unit's block has no dominant owner, the original reads E from outside the
@@ -707,26 +730,22 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
   with the minimum at 123 the box is empty unless the largest building x (or y) is 115 to 119. That contradicts step 4
   as stated (both sides signed 8-bit, so the clamp always applies there and the maximums are 127). Replaying all 192
   committed traces, `orc8` included (a 128-wide map with a computer hall at (123, 97)), both readings give the same
-  records. Default: step 4 as stated. Trace request (AA7): a computer player on a 128-wide map creating a land unit
-  while it has a gold store with x or y of 123 or more.
+  records. Default: step 4 as stated. The readings differ only for a gold store whose top-left tile is at 123 or more on
+  both axes; no committed trace has one (round 86, AA7: none has both coordinates at 115 or more), so the
+  question is unreachable in shipped data and has no trace request.
 - **A dying anchor tanker** (round 85; held, erratum 9). Static study reads the sea patrol's anchor tanker as the
   first tanker that is **present** (not dying and not inside), so a tanker in its sinking animation is skipped. That
   contradicts step 1 as stated ("isn't inside a building or platform"). Not traced: in the round-85 trials
   (`ERRATA-round85.md`, AA5) a computer tanker was sunk, but no warship with goal 6 was idle at a pass during the
-  sinking. Default: step 1 as stated. Trace request (AA5b): a computer tanker sunk by a unit its warships don't chase,
-  with an idle goal-6 warship at a pass during the sinking; record its patrol's anchor.
-- **The nearest gold store's measure** (round 85; held by review, erratum 1). Static study reads one shared search
-  for the post, the target pickers' reference store and the ferry's store fallback, measuring from the **store's
-  top-left tile** to the unit's tile (to a building unit's footprint tile nearest it), not the reference-tile distance
-  that "Behaviour" states for every distance in this file. Replaying the 170 committed campaign traces, the two
-  measures pick different stores in 27 target-picker searches (4 traces: `human13-10000`, `xhuman10-12000`,
-  `xorc11-10000`, `xorc11-16000`), always with the same picked tile, and no post or ferry search differs, so no
-  trace tells them apart (`ERRATA-round85.md`, AA1). Default: the reference-tile distance as stated. For example, a
-  wave reference unit F at (20, 20) with the target's 4 × 4 halls at (10, 10) and (28, 20), in that list order:
-  stated, 7 and 8, the hall at (10, 10); static reading, 10 and 8, the hall at (28, 20). Trace request (AA1b): a
-  computer land unit created between two of its player's town halls whose ranking flips between the two measures (as
-  in the example), with an enemy known, so that the post walk starts from a different store; record the unit's post
-  (its goal tile, `aigoals`) and any post draws.
+  sinking. Default: step 1 as stated. Request AA5b (a killer the warships don't chase) was tried in round 86 (sim
+  replays of `xorc8`) and skipped: every killer that can hit the tanker is chased by the depot's warships, and the
+  tanker stands still away from the depot only at a guarded platform (`ERRATA-round86.md`, AA5b). Off the queue;
+  parked until the tracer can turn a cheat off (invulnerability off after the kill, so the chasers can win and go idle).
+- **The nearest gold store's measure** (round 85, erratum 1): **closed in round 86.** The target pickers are traced
+  to the store's top-left tile (`xhuman12-xhuman12-picker-flip-aigoals-1700`, `ERRATA-round86.md`, AA1b); by review,
+  the post and the ferry's store fallback use the same measure, since static study reads one shared search for all
+  three and no committed trace ranks a post or ferry search differently ("The nearest gold store"). A trace of a post
+  or a ferry fallback that follows the reference-tile distance would reopen it.
 - **A land unit's post at map load.** The first goal of a computer player's non-held land unit is chosen while the
   map is still loading, before any base box has been built, and where its draws fall relative to the creation's
   facing draw isn't confirmed. Neither traced map has such a unit. Default: the base box is still in its empty state

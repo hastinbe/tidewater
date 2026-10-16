@@ -62,6 +62,9 @@
   bordered mark (erratum 11) and the bordered test at column 0 (erratum 16). Held as open questions, stated rules
   kept: which flag decides a worker's or tanker's job choice (erratum 6) and the shipyard's search centre and water
   region (erratum 8).
+- **Changes:** 2026-10-16, round 86 (`ERRATA-round86.md`; reviewed by a spec-review session, 2026-10-16): no rule
+  here changes. `ai/attack-ai.md` now measures its nearest gold store as the site-search centres do (top-left tile);
+  request AA4b (erratum 8) was tried, skipped and taken off the queue.
 
 ## Behaviour
 
@@ -359,7 +362,7 @@ of the building's own tiles.
 
 | Family | Centre | Step s |
 | --- | --- | --- |
-| Most buildings | the top-left tile of the player's nearest gold-storing building, complete or not, in the worker's region (strictly nearest, so the earliest wins ties); the distance is the larger of the x and y differences between the building's **top-left tile** and the worker's tile, and there is no alive test, so a building in its death animation counts until it leaves the list (round 85; static gap-fill, erratum 1: this spec didn't give the measure; `ai/attack-ai.md` keeps its own stated measure, held there); the worker's tile if none | 6 |
+| Most buildings | the top-left tile of the player's nearest gold-storing building, complete or not, in the worker's region (strictly nearest, so the earliest wins ties); the distance is the larger of the x and y differences between the building's **top-left tile** and the worker's tile, and there is no alive test, so a building in its death animation counts until it leaves the list (round 85; static gap-fill, erratum 1: this spec didn't give the measure; `ai/attack-ai.md`, "The nearest gold store", uses the same measure since round 86); the worker's tile if none | 6 |
 | Farm | as above | 2 |
 | Foundry, refinery | as above; no site if the player has no completed shipyard | 1 |
 | Shipyard | the nearest town hall (any tier); the water region of the oil patch nearest to it is noted, and the footprint must contain a tile of that region (held: Open questions, "The shipyard's search centre", round 85) | 1 |
@@ -599,7 +602,9 @@ An entry is marked done at the start of a game when either bit of its code is se
   footprint, as "Distance"), a later patch in the neutral list winning a tie. That contradicts the stated row (the
   nearest town hall, and the patch nearest it). In the committed traces all 39 computer shipyard searches give the same
   site under both readings (`ERRATA-round85.md`, AA4). Default: as stated. Trace request (AA4b): a computer base with
-  oil in two water regions, the worker nearer a patch in the other region than the hall's nearest patch.
+  oil in two water regions, the worker nearer a patch in the other region than the hall's nearest patch. Tried in
+  round 86 and skipped: no shipped setup, and commands can't start a computer shipyard search
+  (`ERRATA-round86.md`, AA4b); off the trace queue, the default stays.
 - **Job choice in other acquiring orders** (round 82, C2): closed for order 4 in round 83 (AI1) and **for order 12
   and a tanker in order 4 in round 84** (AI8, `ERRATA-round84.md`). The other acquiring orders are a labelled static
   gap-fill, unreachable for a computer worker in the traces.

@@ -30,6 +30,10 @@
   reviewed by a spec-review session, 2026-10-16): a worker's build job writes its site into the goal tile (erratum 7,
   traced; AI10 closed: CP14); repair safety ignores an enemy flyer over an empty ground tile (erratum 2, traced: CP15);
   pointers to the round-85 gap-fills and held items in the part specs. No other rule here changes.
+- **Changes:** 2026-10-16, round 86 (follow-up traces, `ERRATA-round86.md`; reviewed by a spec-review session,
+  2026-10-16): the nearest gold store of the post, the target pickers and the ferry is measured from the store's
+  top-left tile (traced for the pickers: CP16; the post and the ferry by review, one shared search). The round-85
+  held list loses that item. No other rule here changes.
 
 ## Behaviour
 
@@ -149,7 +153,8 @@ then acts on.
 A fighting unit's life under the computer:
 
 1. **Created:** goal by type (`ai/attack-ai.md`, "Unit goals"): transports ferry, ships sea patrol, fliers roam, land
-   units hold a **post** on the line from the nearest gold store toward the nearest enemy, just outside the base box.
+   units hold a **post** on the line from the nearest gold store (measured from its top-left tile, CP16) toward the
+   nearest enemy, just outside the base box.
    Map units with the held mark never join waves; those that are mobile, can attack and aren't workers get a hold
    goal at their own tile (`ai/attack-ai.md`, "Held units").
 2. **Gathering:** the units wait at their posts. The script counts the army (conditions 4 to 6) and, when it is big
@@ -271,6 +276,7 @@ No other Classic-mode difference is known here.
 | CP13 | `orc3-orc03-tanker-order4-goals-7500-10500` (round 84): computer tanker 1591, empty, no depot, given command 4 at the pass of n = 8601 | Job choice at n = 8619, its first order-4 run, and at each step after (36 runs to n = 9808); nothing to do and no wait, so it goes on |
 | CP14 | `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` (round 85, `aigoals` extra): CP11's peon 1575, attack goal tile (9, 20) from n = 754, takes a farm job at site (6, 19) at n = 1004 | Goal tile (6, 19), kind still attack, from n = 1004 (still at n = 1080 and 2291); the pass of n = 2401 finds it 7 tiles from (6, 19) at (5, 26), gives command 4, and its set goal stores (5, 19) |
 | CP15 | `xorc10-xorc10-farm-repair-1700` (round 85): computer player 6's farm 1437 at 233 of 400 HP, three enemy dragons over open grass inside its 9 × 9 safety area | Peasant 1448 comes out at n = 1441 and takes the farm as its repair target (order 27 at n = 1466) |
+| CP16 | `xhuman12-xhuman12-picker-flip-aigoals-1700` (round 86, `aigoals` extra): computer player 2's land waves target player 1 (castle 1443 at (42, 61), town hall 1396 at (82, 81)); the reference unit, footman 1353, stands at (63, 80) | The reference store is the town hall (top-left distances 21 and 19; the reference-tile distances, 18 and 19, would give the castle): units 1500, 1518 and 1521 store goal (36, 5) at n = 501, 551 and 601 (`ai/attack-ai.md`, "Round-86 vectors") |
 
 ## Open questions
 
@@ -287,9 +293,10 @@ The open questions of each part stay in its spec. The ones about the model as a 
 - **A worker's goal tile after a farm job** (round-84 review, AI10): closed in round 85: the build job writes its
   site into the goal tile (CP14).
 - **Round 85, held in the part specs** (static readings of the B-040 audit that contradict a stated rule; the stated
-  rule is the default): the nearest gold store's measure for posts, pickers and the ferry, the base box clamp on a
-  128-wide map and a dying anchor tanker (`ai/attack-ai.md`, Open questions); the worker-or-tanker flag and the
-  shipyard's search centre (`ai/worker-ai.md`, Open questions).
+  rule is the default): the base box clamp on a 128-wide map and a dying anchor tanker (`ai/attack-ai.md`, Open
+  questions); the worker-or-tanker flag and the shipyard's search centre (`ai/worker-ai.md`, Open questions). The
+  nearest gold store's measure was closed in round 86 (CP16). Round 86 found no setup for the follow-up requests
+  (AA4b, AA5b, AA7), so these keep their defaults and leave the trace queue.
 - **All-spells cheat scope:** closed in round 83: players controlled by a person only (CP9).
 - **Unknown opcodes and conditions** in a script have no defined behaviour (static study). No shipped script has
   one. Default: refuse such a script file.

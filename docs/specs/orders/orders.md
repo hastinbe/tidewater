@@ -1288,7 +1288,8 @@ walk has ended".
   differs from the unit's current target, it attacks the result with order 12, whatever the resulting-order table
   says. An attacker that is valid but that the unit's owner doesn't **detect** (a submarine, for example) isn't used
   as the seed ("Terms"), but the search still runs without it, and a result other than the current target still
-  gives order 12 (round 85; static gap-fill, erratum 12; not traced: request AA6b in `ERRATA-round85.md`). For
+  gives order 12 (round 85; static gap-fill, erratum 12; not traced: request AA6b, tried in round 86 and skipped,
+  `ERRATA-round86.md`). For
   example, a human destroyer following another ship, hit by a computer submarine with no human detector near, with a
   computer destroyer within its react range, attacks that destroyer (order 12) instead of following on.
 
