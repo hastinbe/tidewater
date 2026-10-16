@@ -472,13 +472,8 @@ impl World {
             return;
         }
         // "Cancelling a job" (static study): a job marked to be cancelled ends, cancelled, at this run, even if its
-        // counter has reached the total; order 33 takes over in the same update with wait 3, as at any job end.
-        if job.cancelled {
-            self.cancel_job(i);
-            self.units[i].script.wait = TAKEOVER_WAIT;
-            return;
-        }
-        if job.progress < job.steps {
+        // counter has reached the total.
+        if !job.cancelled && job.progress < job.steps {
             job.progress = if cheat {
                 (job.progress + 10).min(job.steps)
             } else {
@@ -488,12 +483,17 @@ impl World {
             u.mana = (job.progress as u32 * 255 / job.steps as u32) as u8;
             return;
         }
-        let job = *job;
-        self.finish_job(i, job);
+        let finished = !job.cancelled;
+        self.end_job(i, finished, true);
     }
 
-    fn end_job(&mut self, i: usize, job: Job) {
-        // "Ending": the mana byte goes back to 0, and a building upgrade's frame to 0.
+    /// "Job end", finished or cancelled: the job goes, the mana byte goes to 0 (and a building upgrade's frame), the
+    /// still animation returns, the training count goes back down, and then the job's own ending runs (the "Finished"
+    /// or "Cancelled" column). At a work run (`take_over`), order 33 takes over in the same update with wait 3 (Orders
+    /// spec, "Taking over"; Human04 vectors), its logic first running at the still animation's next step done.
+    /// Returns whether the building had a job.
+    fn end_job(&mut self, i: usize, finished: bool, take_over: bool) -> bool {
+        let Some(job) = self.units[i].job else { return false };
         let u = &mut self.units[i];
         u.job = None;
         u.mana = 0;
@@ -506,29 +506,27 @@ impl World {
         if matches!(job.kind, JobKind::Train(_)) {
             self.players[self.units[i].owner as usize].in_training -= 1;
         }
-    }
-
-    fn finish_job(&mut self, i: usize, job: Job) {
-        self.end_job(i, job);
-        // Orders spec, "Taking over" (Human04 vectors): when a job finishes, order 33 takes over at once with wait 3,
-        // and its logic first runs at the still animation's next step done.
-        self.units[i].script.wait = TAKEOVER_WAIT;
+        if take_over {
+            self.units[i].script.wait = TAKEOVER_WAIT;
+        }
         let u = self.units[i].clone();
         match job.kind {
+            JobKind::Research(_) | JobKind::Spell(_) => self.end_research(i, job.kind, finished),
+            _ if !finished => self.refund(u.owner, job.paid),
             JobKind::Train(k) => {
                 let placed = self
                     .exit_tile(&u, k)
                     .ok_or(SpawnError::CantPlace)
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
-                if let Ok(id) = placed {
-                    self.ready_sound(id);
-                }
-                if placed.is_err() {
-                    self.refund(u.owner, job.paid);
-                    self.events.push(Event::NoRoom {
-                        player: u.owner,
-                        kind: k,
-                    });
+                match placed {
+                    Ok(id) => self.ready_sound(id),
+                    Err(_) => {
+                        self.refund(u.owner, job.paid);
+                        self.events.push(Event::NoRoom {
+                            player: u.owner,
+                            kind: k,
+                        });
+                    }
                 }
             }
             JobKind::Upgrade(k) => {
@@ -547,8 +545,8 @@ impl World {
                     self.work_complete(i);
                 }
             }
-            JobKind::Research(_) | JobKind::Spell(_) => self.end_research(i, job.kind, true),
         }
+        true
     }
 
     /// A research job ends, finished or cancelled ("Finishing or cancelling research"). If none of the job's
@@ -690,20 +688,14 @@ impl World {
         }
     }
 
-    /// Ends a building's job cancelled, with a full refund to its owner, as the cancelled column of "Job end" says:
-    /// at a marked job's work run, and at once when the building is killed or changes owner. Returns whether it had
-    /// one.
+    /// Ends a building's job cancelled at once, when the building is killed or changes owner ("A building killed",
+    /// "Cancelling a job"): "Job end" with the cancelled column's full refund to the owner it has now. Returns whether
+    /// it had one.
+    ///
+    /// Kept as the code is (an open question): no take-over follows (the spec's "Job end" has order 33 take over
+    /// with wait 3); a killed building starts its death animation, a rescued one keeps the still animation's wait.
     pub(crate) fn cancel_job(&mut self, i: usize) -> bool {
-        let u = &self.units[i];
-        let Some(job) = u.job else { return false };
-        let owner = u.owner;
-        self.end_job(i, job);
-        if job.kind.research().is_some() {
-            self.end_research(i, job.kind, false);
-        } else {
-            self.refund(owner, job.paid);
-        }
-        true
+        self.end_job(i, false, false)
     }
 }
 
