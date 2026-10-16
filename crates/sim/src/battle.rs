@@ -1,8 +1,11 @@
-//! Attacks, missiles and death. Spec: `docs/specs/combat/damage.md`, "How an attack delivers damage", "Missile
-//! flight", "Impact effects", "Applying damage" (with its Dark Portal case) and "Splash on impact". Missiles fly by
-//! the line rule of `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack
-//! order's chase-and-face behaviour and the range measure are placeholders of our own until their specs land. The
-//! cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot. The kill credit,
+//! Attacks, missiles and death, along the one chain of `docs/specs/combat/damage.md`, "The model": the attack values
+//! ("Effective attack values"), the strike point of the attack cycle ([`World::strike`], "How an attack delivers
+//! damage"; towers, [`World::tower_shot`], "Towers"), one of four deliveries (a melee blow, a missile, "Missile
+//! flight", with its "Splash on impact", or the demolition blast of `ground.rs`), one apply-damage step
+//! ([`World::damage`], "Applying damage" with its Dark Portal case) and one kill step ("A kill"). Missiles fly by the
+//! line rule of `spells/spells.md` ("How flying effects move"), which `spells.rs` implements as `Line`. The attack
+//! orders' walk and range test follow `orders/orders.md` ("Attack orders", "Arriving and losing the target") and
+//! "Reach and range". The cosmetic cannon smoke (kind 0x19) follows a unit's cannon missile in the next free effect slot. The kill credit,
 //! mission score and lost counters follow `docs/specs/game/campaign-flow.md` ("The score screen", "Mission score").
 //! Our reading: only a kill by damage from a unit is credited (a spell that kills without damage, such as
 //! polymorph, credits nobody), and only deaths and rescue's owner change count as lost (a removed corpse's move to
@@ -579,7 +582,10 @@ impl World {
         }
     }
 
-    /// Applies damage from `attacker` to the unit at index `ti`.
+    /// The one apply-damage step (damage spec, "The model", step 4, and "Applying damage"): every delivery's damage to a
+    /// unit from `attacker` comes here. In order: a dying target or the Dark Portal case takes nothing; a target with
+    /// the used mark or inside something gets no notification and no damage; the notification ("Call for help"); no
+    /// damage under Unholy Armor or for 0; the HP lowered, or at or below the damage, the kill step.
     pub(crate) fn damage(&mut self, ti: usize, d: u8, attacker: UnitId) {
         if self.units[ti].dying || self.portal_ignores(ti, attacker) {
             return;
@@ -600,19 +606,26 @@ impl World {
             self.under_attack(ti);
             return;
         }
+        self.kill_by(ti, attacker);
+    }
+
+    /// The one kill step (damage spec, "The model", step 5, and "A kill"): the credit to the attacker's player, if the
+    /// attacker is still in the unit table; then the death; then the killer forgets. The killing blow doesn't lower
+    /// the HP, and the victim keeps its target ("Applying damage").
+    fn kill_by(&mut self, ti: usize, attacker: UnitId) {
         if let Some(a) = self.unit(attacker) {
             self.credit_kill(a.owner, ti);
         }
-        // Damage spec, "Applying damage": the killing blow doesn't lower the HP, and the target keeps its target.
         self.kill(ti);
         self.forget_kill(attacker);
     }
 
-    /// Damage spec, "Applying damage": a unit (not a building) that made a kill checks its own records at once,
+    /// Damage spec, "A kill": a unit (not a building) that made a kill checks its own records at once,
     /// without changing its order: it forgets its target, and its recorded attacker, if that unit is now dying, gone
     /// or not detected by its owner. The victim is dying, so it is always forgotten when it is either. Other
     /// attackers keep their target until their own next logic run. Our orders hold their target, so the forgotten
-    /// one is marked: while the order is unchanged, it has no target.
+    /// one is marked: while the order is unchanged, it has no target. The mark is what tells the killer, which reports
+    /// no target (V13), from another attacker of the same victim, which still reports it until its own logic runs.
     ///
     /// Only the killer forgets the victim as its attacker at once (movement spec, "Blocked rules");
     /// every other unit keeps that record while the victim is dying. This applies to every kill,
@@ -650,7 +663,7 @@ impl World {
     /// Campaign-flow spec, "Mission score": a unit of player `killer` killed the unit at `ti`. Unless the victim is
     /// the killer's own, the killer's player gets the victim type's point value and a kill (a type below the first
     /// building type) or a razing.
-    pub(crate) fn credit_kill(&mut self, killer: u8, ti: usize) {
+    fn credit_kill(&mut self, killer: u8, ti: usize) {
         let victim = &self.units[ti];
         if victim.owner == killer {
             return;
@@ -951,6 +964,9 @@ impl World {
         }
     }
 
+    /// A damage reaching the wall on `tile` by the wall rule of damage spec, "Splash on impact": order 11's melee blow
+    /// on its (pulled-back) goal tile, rolled with armour 0 ("How an attack delivers damage", melee with no target
+    /// unit; V90), or a missile or hammer hit with no target unit.
     pub(crate) fn hit_wall(&mut self, tile: (i32, i32), damage: u8) {
         self.terrain.hit_wall(tile.0, tile.1, damage as u32);
     }
