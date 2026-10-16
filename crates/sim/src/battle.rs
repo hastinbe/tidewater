@@ -916,9 +916,9 @@ impl World {
     }
 
     /// The splash delivery (damage spec, "Splash on impact"): stored damage `stored` at pixel `pos` from `attacker`.
-    /// The walls on the tile and its four orthogonal neighbours, then each unit considered in scan order (the unit on
-    /// the tile, then the 7 × 7 block row by row, a tile's ground-layer unit before its air-layer unit), each once,
-    /// never the attacker, friends included. A dying unit is off the occupancy marks, so the scan never finds one.
+    /// The walls on the tile and its four orthogonal neighbours, then each unit considered in scan order (the
+    /// ground-layer unit on the tile, then the 7 × 7 block row by row, a tile's ground-layer unit before its air-layer
+    /// unit), each once, never the attacker, friends included. Hammer, breath and spell splashes take the same order. A dying unit is off the occupancy marks, so the scan never finds one.
     pub(crate) fn splash(&mut self, pos: (i32, i32), stored: u8, attacker: UnitId, how: Splash) {
         let tile = tile_px(pos);
         self.hit_wall(tile, stored);
@@ -930,21 +930,23 @@ impl World {
             Splash::Path => true,
         };
         let mut hit: Vec<UnitId> = Vec::new();
-        let mut consider = |w: &World, x: i32, y: i32| {
-            for l in [Layer::Land, Layer::Air] {
-                if (l != Layer::Air || air)
-                    && let Some(id) = w.occupant(l, x, y)
-                    && id != attacker
-                    && !hit.contains(&id)
-                {
-                    hit.push(id);
-                }
+        let mut consider = |w: &World, l: Layer, x: i32, y: i32| {
+            if let Some(id) = w.occupant(l, x, y)
+                && id != attacker
+                && !hit.contains(&id)
+            {
+                hit.push(id);
             }
         };
-        consider(self, tile.0, tile.1);
+        // Step 2 (V95, `human13-splash-air-hits-1700` n = 949): only the impact tile's ground-layer unit comes first;
+        // its air-layer unit is reached in its tile's place in the scan.
+        consider(self, Layer::Land, tile.0, tile.1);
         for y in tile.1 - 3..=tile.1 + 3 {
             for x in tile.0 - 3..=tile.0 + 3 {
-                consider(self, x, y);
+                consider(self, Layer::Land, x, y);
+                if air {
+                    consider(self, Layer::Air, x, y);
+                }
             }
         }
         for id in hit {
@@ -1489,6 +1491,38 @@ mod tests {
         assert!(saw_missile);
         assert_eq!(w.unit(archer).unwrap().tile, (0, 7), "in range, so it stays put");
         assert!(w.unit(foe).unwrap().hp < 60);
+    }
+
+    /// Damage spec, "Splash on impact", step 2 (V95): the impact tile's ground-layer unit is first, and its air-layer
+    /// unit comes in its tile's place in the scan, after the unit on the tile to its left. Path splashes alike.
+    #[test]
+    fn an_air_unit_on_the_impact_tile_is_hit_in_its_scan_place() {
+        for how in [super::Splash::Impact { air: true }, super::Splash::Path] {
+            let mut w = field(16, 16);
+            w.stats.0[0].armor = 0;
+            w.stats.0[2].armor = 0;
+            let shooter = w.spawn(0, 0, (0, 0), 0).unwrap();
+            let on_tile = w.spawn(0, 1, (8, 8), 0).unwrap();
+            let left = w.spawn(0, 1, (7, 8), 0).unwrap();
+            let air = w.spawn(2, 1, (8, 8), 0).unwrap();
+            let centre = w.unit(on_tile).unwrap().centre_px();
+            let mut rng = w.rng;
+            let (r1, r2, r3) = (rng.draw(), rng.draw(), rng.draw());
+            w.splash(centre, 40, shooter, how);
+            // Armour 0: D = 40 within 22 px (h = 20), D / 4 = 10 at 32 px (h = 5).
+            let hp = |id| w.unit(id).unwrap().hp as u32;
+            assert_eq!(
+                hp(on_tile),
+                60 - (20 + r1 % 21),
+                "{how:?}: first, the ground unit on the tile"
+            );
+            assert_eq!(hp(left), 60 - (5 + r2 % 6), "{how:?}: then the scan, row by row");
+            assert_eq!(
+                hp(air),
+                100 - (20 + r3 % 21),
+                "{how:?}: the air unit in its tile's place"
+            );
+        }
     }
 
     #[test]
