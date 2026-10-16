@@ -17,6 +17,9 @@
   `ai/worker-ai.md` has it since rounds 82 and 83 (counted at the kill, the destroyed building included, complete oil
   platforms left out). So the piece itself counts, and the vector of a hall and a farm completing a wall changes: no
   all-out attack. Derived from those rules, untraced for a wall piece.
+- **Changes:** 2026-10-16, round 84 (`ERRATA-round84.md`, AI9, reviewed by a spec-review session, 2026-10-16): the trace
+  request for a wall piece in the losses rule was skipped: no shipped computer player can own a wall piece. Default
+  unchanged.
 
 ## Behaviour
 
@@ -185,6 +188,10 @@ Positions are tile coordinates (x, y) on a map large enough that no tile named i
   in B like any destroyed building. Untraced for a wall piece. Default: it counts (the vector above). Trace request
   (AI9): a computer player left with a town hall and a farm completes a wall piece; the default predicts no all-out
   attack when the piece is killed.
+  Round 84: skipped. No shipped AI script's build list names a wall type, the computer's other building jobs are town
+  halls and farms, and no shipped map places a wall piece as a unit, so no shipped computer player can own one; only a
+  custom map could reach the case (not tried). The default stays untraced; it changes no outcome in any shipped
+  mission.
 - **Region map.** A wall built during play leaves the tile's region value unchanged, so the region map still treats
   the tile as part of its land area. Whether path search uses the region value to decide that a goal is reachable,
   and so could try to reach an area that walls have cut off, belongs to `movement/pathfinding.md`. Default: the
@@ -194,3 +201,6 @@ Positions are tile coordinates (x, y) on a map large enough that no tile named i
 - **Computer players.** Whether the computer's build lists ever contain walls, and therefore whether the
   "building destroyed" rule above matters in ordinary play. Default: the rule runs whenever a computer player's wall
   piece completes.
+  Round 84 (game data): **answered for the shipped scripts:** no build list of the 83 shipped AI scripts
+  contains a wall type (their building entries are 0x3C to 0x54 only), so it matters only for custom data. The rule
+  stays as stated.

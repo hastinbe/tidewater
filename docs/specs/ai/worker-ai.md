@@ -43,6 +43,14 @@
   platform clause; the order-4 command takes over at the next step done; the passes after the job choice are within
   the leash, so the AI1 vector no longer reads them as evidence about the goal; tankers in order 4 and the other
   acquiring orders are labelled defaults with trace requests.
+- **Changes:** 2026-10-16, round 84 (traces, `ERRATA-round84.md`, reviewed by a spec-review session, 2026-10-16): the
+  job choice runs in order 12 (AI8, traced: `xhuman5-xhuman05-worker-order12-goals-3000`) and for a tanker in order 4
+  (AI8, traced: `orc3-orc03-tanker-order4-goals-7500-10500`); the other acquiring orders get it too as a labelled static
+  gap-fill. The done marks of an active rescue player's map buildings (AI7): the default stays, untraced; by the stated
+  rules it changes no outcome in any shipped mission. Review fixes: in a walking order the job choice runs at the walk's
+  step 1, before the step, so a step that starts the move animation overwrites the wait (the question on the first
+  order-12 run is closed); an order-4 job whose target is already in reach takes over in the same update (n = 2464);
+  the tanker vector counts 36 order-4 runs (to n = 9808), not 48.
 
 ## Behaviour
 
@@ -67,12 +75,27 @@ runs"):
   where a combat unit would run the target search, after the order's arrival test (traced:
   `xhuman5-xhuman05-worker-all-out-goals-1100`, vectors below; a peon carrying gold gets return goods 3 cycles after
   the pass that gave it command 4). Its command is pending and takes over at the next step done, like any command
-  that isn't from idle (`orders/orders.md`, "Commands"; traced: 22 cycles later). A tanker in order 4 isn't traced;
-  default: the same. Static study finds the same point in every other order marked "acquires" (`orders/orders.md`)
-  and in the move step of orders 5 and 12; those are untraced and keep the old text (no job choice there; Open
-  questions); and
+  that isn't from idle (`orders/orders.md`, "Commands"; traced: 22 cycles later). One traced exception: when the
+  job's target is already within order 4's radius, the walk's arrival test after the choice ends the walk and the
+  job's order takes over in that same update (round 84; traced: `xhuman5-xhuman05-worker-all-out-goals-3000` n = 2464,
+  peon 1575 beside gold mine 1573: order 23, animation 4, wait 3; that the arrival's idle doesn't replace the pending
+  command there is a reading of the trace, Open questions). A **tanker** in order 4 makes it too, at its first order-4
+  run and at each step after (round 84; traced: `orc3-orc03-tanker-order4-goals-7500-10500`, vectors below);
+- **in order 12** (round 84): a computer worker given command 12, as by the attack goal's enemy search when it is idle
+  within its leash (`ai/attack-ai.md`, "Attack (2)", step 2), makes its job choice in that order (traced:
+  `xhuman5-xhuman05-worker-order12-goals-3000`, vectors below: every traced run is a step boundary of the walk toward
+  its target; at the order's logic run when in reach, static study). A worker that finds no job there gets the wait
+  (below) and keeps order 12, so it chases one step per wait;
+- in the other orders marked "acquires" (`orders/orders.md`: 5, 7, 10, 13 to 16), at the same point and in the move
+  step of order 5 (round 84, **static gap-fill**, accepted by review, untraced: no AI rule gives a computer worker or
+  tanker these orders, and none is in them in 10 long traces, `ERRATA-round84.md`); and
 - when it comes out of a mine, a platform or a depot (`economy/harvest.md`, "Coming out", step 3; traced for a mine
   by that spec's V45). If a job is given there, the usual return to the old source is skipped.
+
+In a walking order (4, 12, and the gap-fill orders while they walk) the choice is made at the walk's step 1
+(`orders/orders.md`, "Walking orders"), where a combat unit's move step would run its target search; the walk then goes
+on to its arrival test and its step in the same update (round 84; traced in orders 4 and 12: the unit steps in the
+update of each choice).
 
 The job choice gives its order as a **command**, so the unit's cached route is dropped and its blocked counter cleared,
 as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new route at its next movement decision
@@ -116,7 +139,13 @@ as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new
 
 **The wait:** the worker's wait counter is set to `(r AND 15) + 44` cycles (44 to 59), where r is one draw of the
 game's RNG (`core/timing-and-rng.md`). It gets no order. When the wait ends, its idle logic runs and the choice is
-made again.
+made again. A worker in an order that runs the job choice (order 4 or 12) keeps that order through the wait and makes
+the choice again at its next run, so with no job it moves one step per wait (round 84; traced in order 12: waits of
+44 to 59, one tile per 65 to 80 cycles). There the draw is made before the walk's step: if that step starts the move
+animation (the unit is still in its order's own animation, as at its first run after the command took over), the
+animation start sets the wait to 1 and runs its first instruction in the same update (`movement/movement.md`, "Which
+first wait applies when"), so the drawn wait is lost (traced: n = 2505 of the same trace, the draw made, wait 1). Once
+the unit is in its move animation the wait stands (n = 2527: 59).
 
 ### Farm
 
@@ -163,8 +192,10 @@ stopping at an 0xFF entry. For each entry:
   special cases: a guard or cannon tower marks a guard or cannon tower entry, never the scout-tower entry (0x40), and
   a keep or castle marks a keep or castle entry, never 0x98, 0x99 or a town hall entry. An active rescue player's map
   buildings mark nothing (round 83, default, untraced; it follows from `game/setup.md`'s order of steps): they are
-  created before the player becomes a computer player, as the creation marks show (Open questions, trace request
-  AI7).
+  created before the player becomes a computer player, as the creation marks show. Round 84: the rule stays an
+  untraced default; by the stated rules it changes no outcome in any shipped mission, since every shipped active
+  rescue player with map buildings has an empty build list (`human5-30000`: no building started in 30000 cycles,
+  which either reading predicts; `ERRATA-round84.md`, AI7).
 - When a building of a computer player is **destroyed**, the first entry in list order that is done and whose type
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
@@ -351,8 +382,8 @@ ties. The search is then run again at that mine to give the site.
 
 ### Tankers
 
-The job choice runs at the same moments for a computer player's tanker (in order 4 by default, untraced: "When a job
-is chosen"), and for any peon-flagged sea unit, which only custom unit data creates:
+The job choice runs at the same moments for a computer player's tanker (in order 4 too, round 84, traced: "When a
+job is chosen"), and for any peon-flagged sea unit, which only custom unit data creates:
 
 1. **Attacker:** the reaction, as for a worker.
 2. **Depot:** the nearest completed oil-storing building of the player whose footprint touches the tanker's water
@@ -506,22 +537,32 @@ An entry is marked done at the start of a game when either bit of its code is se
 | `human5` setup dump (n = 0): active rescue player 0's town hall (40, 96), barracks (46, 92), lumber mill (34, 109) and blacksmith (37, 105) | No keep-clear bit on or around them; computer player 5's buildings have their rectangles and shore squares (152 tiles) |
 | `human8` setup dump (n = 0): active rescue player 2's town hall (74, 72) and blacksmith (66, 71) | No keep-clear bit; all 329 marked tiles are computer players 0, 1 and 3's creation marks |
 
+### Round-84 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman5-xhuman05-worker-order12-goals-3000` (oracle trace, Enhanced): computer player 2 has lost its great hall (n = 1041); peon 1575 is full of lumber with no depot and idle within its leash at the pass of n = 2501 | Command 12 on knight 1588 (order 12 at n = 2502); the job choice at its order-12 runs, each a step of its walk (n = 2505, 2527, 2607, 2687, 2752, 2824, 2891, 2958): carrying, no depot, so no job and the wait. At n = 2505 the wait's draw is made but the step starts the move animation: wait 1. From n = 2527 the waits are 59, 59, 44, 51, 46, 46 and 44, one tile per 65 to 80 cycles |
+| `orc3-orc03-tanker-order4-goals-7500-10500` (oracle trace, Enhanced): computer tanker 1591 (owner 1), idle and empty at (58, 2), its platform 1584 destroyed at n = 8580 (all-out attack) | Smart move at n = 8580; command 4 at the pass of n = 8601 (goal (9, 46)), order 4 at n = 8616; the job choice at n = 8619 and at each step after (36 runs in order 4, to n = 9808); nothing carried and no depot, so it goes on in order 4 with no wait ("Tankers", step 4). Idle at (8, 46) from n = 9840, every 5 cycles in order 2 |
+| `xhuman5-xhuman05-worker-all-out-goals-3000` (oracle trace, Enhanced), n = 2461 to 2464: peon 1575, given command 4 at the pass of n = 2451 while walking to gold mine 1573, takes order 4 at n = 2461 (wait 3) at (6, 29), beside the mine | At n = 2464 the job choice gives harvest at 1573 and order 23 takes over in the same update (animation 4, wait 3), not at the next step done; order 25 at n = 2467 |
+| `human5-30000` (oracle trace, Enhanced, no input): active rescue player 0 (empty build list) with its map town hall, barracks, lumber mill, blacksmith and farms | No building started in 30000 cycles, whether or not the map buildings marked entries done; its lost barracks, hall and farms aren't rebuilt |
+
 ## Open questions
 
-- **Job choice in other acquiring orders** (round 82, C2): **closed in round 83** for order 4 (AI1,
-  `ERRATA-round83.md`): the job choice runs at the worker's next order-logic run. Still open for the other acquiring
-  orders and the move step of orders 5 and 12: static study finds the job choice there too. Default: the old text (no
-  job choice there). Trace request (round 83 review, AI8): a computer worker in order 12 or 5, for example one given
-  command 12 by the attack goal's enemy search once idle within its leash (`ai/attack-ai.md`, "Attack (2)", step 2);
-  the static reading predicts a job choice at its next order-logic run. A tanker in order 4 (default: as a worker) can
-  be checked in the same run if one is given command 4.
+- **Job choice in other acquiring orders** (round 82, C2): closed for order 4 in round 83 (AI1) and **for order 12
+  and a tanker in order 4 in round 84** (AI8, `ERRATA-round84.md`). The other acquiring orders are a labelled static
+  gap-fill, unreachable for a computer worker in the traces.
 - **An unfinished oil platform in the losses rule** (round 82): **closed in round 83** (AI5): it counts.
-- **An active rescue player's map units** (round 83): the trace shows no creation marks. That the same buildings mark
-  no build-list entry done, and that its map units get no first goal (`ai/attack-ai.md`), is the default by the same
-  reading (`game/setup.md`: code 7 becomes a computer player after the units are created), untraced. Trace request
-  (AI7): `human5` with player 0's map buildings standing for a few thousand cycles (does it start a second town hall,
-  barracks, lumber mill or blacksmith that its build list names?), and one of its map footmen or archers drawn past
-  its leash from its post (does pass B send it back?).
+- **An active rescue player's map units** (round 83): **not decidable in shipped missions** (round 84, AI7). The
+  defaults (no done marks, no first goal) stay as untraced defaults; by the stated rules they change no outcome in any
+  shipped mission (no shipped active rescue player has both map buildings and a build list, and all such players' map
+  soldiers are held). Only custom data can show them; no trace is requested.
+- **The first order-12 run** (round 84, AI8): **closed by the round-84 review**: the draw at n = 2505 with wait 1 is
+  the stated rules (the choice before the walk's step, whose start of the move animation sets the wait to 1; "The
+  wait").
+- **An order-4 job already in reach** (round-84 review, AI11): at n = 2464 of `xhuman5-xhuman05-worker-all-out-goals-3000`
+  the job's order takes over in the same update ("When a job is chosen"). Reading: the walk's arrival test finds the
+  new target in reach, the walk ends, and order 4's arrival takes over the pending job instead of idle. Only the
+  outcome is traced; the stated outcome governs.
 - "Prerequisites met" in the build list: the rules are in `economy/tech-tree.md`. Whether the computer applies them
   even when requirements aren't enforced must be checked. Default: it uses the same rules as the player's interface.
 - Confirm in the running game that a worker whose tree search fails mines gold in the same choice (default: it does,

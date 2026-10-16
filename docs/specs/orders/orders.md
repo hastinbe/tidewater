@@ -47,6 +47,8 @@
 - **Changes:** 2026-10-16 (round 83, `ERRATA-round83.md`, reviewed by a spec-review session, 2026-10-16): a computer
   worker's job choice also runs in order 4 (traced, `xhuman5-xhuman05-worker-all-out-goals-1100`); the pointers in
   "Automatic target acquisition" and "Reacting to an attacker", step 3, now name orders 2 and 4. No other rule change.
+- **Changes:** 2026-10-16 (round 84, `ERRATA-round84.md`, reviewed by a spec-review session, 2026-10-16): the job-choice
+  pointers add order 12 and tankers (traced) and the other acquiring orders (static gap-fill). No other rule change.
 
 ## Behaviour
 
@@ -1109,8 +1111,9 @@ table; only transports use order 32, and they can't attack anyway.
   forgets its attacker on arrival, as every unit in order 3, 4 or 10 does, so it doesn't flee while idle until it is
   hit again (traced with the hit list, round 75: V279, V280).
 - Workers and tankers of **any** player never run the search. A computer player's workers and tankers run their job
-  choice here instead in orders 2 and 4 (`ai/worker-ai.md`, "When a job is chosen": order 4 traced for a worker,
-  a tanker by default; the other acquiring orders are an open question there, default none); every other player's use the reaction ("Reacting to an attacker") when
+  choice here instead in orders 2, 4 and 12 (`ai/worker-ai.md`, "When a job is chosen": order 4 traced for a worker
+  and, round 84, for a tanker; order 12 traced for a worker; the other acquiring orders a labelled static
+  gap-fill there); every other player's use the reaction ("Reacting to an attacker") when
   they have an attacker, and acquire nothing otherwise.
 
 **Vertical order.** The game keeps all units in a list sorted by **pixel y** (the vertical part of the pixel
@@ -1259,8 +1262,9 @@ the unit has an attacker:
    resulting-order table, which for the idle-type orders is **12 whenever the unit has an attacker**, for human and
    computer players alike. There is no second search in the same run.
 3. Workers and tankers that pass step 1 (so only workers, never tankers) use the reaction below instead
-   (computer players' workers and tankers in order 2 or 4 first run their job choice, `ai/worker-ai.md`, whose step 2
-   is this reaction; the other acquiring orders are an open question there); a computer player's worker or tanker that
+   (computer players' workers and tankers in order 2, 4 or 12 first run their job choice, `ai/worker-ai.md`, whose
+   step 2 is this reaction; round 84: order 12 and tankers in order 4 traced, the other acquiring orders a
+   static gap-fill there); a computer player's worker or tanker that
    fails step 1 runs the flee rule and not its job choice. A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
    chosen target is one it may take (a non-combat unit or one that can't attack; "Special cases") and differs from its
    current target, it attacks it; otherwise it runs the reaction, and so flees from the attacker (traced:

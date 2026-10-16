@@ -19,6 +19,13 @@
   closed. Review fixes: the passes after AI1's job choice found the peon within its leash, so they don't show what
   happens to its attack goal (CP5; open question in `ai/attack-ai.md`, default: the goal stays); the order-4 job
   choice's command takes over at the next step done, as the trace shows.
+- **Changes:** 2026-10-16, round 84 (traces, `ERRATA-round84.md`, reviewed by a spec-review session, 2026-10-16): the
+  job choice runs in order 12 and for a tanker in order 4 (AI8, traced), and in the other acquiring orders as a labelled
+  static gap-fill; a worker's attack goal survives its job choice (AI6, traced); an active rescue player's done marks
+  and first goal stay untraced defaults that change no outcome in any shipped mission by the stated rules (AI7). CP11 to
+  CP13 added. Review fixes: in a walking order the choice comes before the walk's step (the first order-12 run's wait,
+  closed); an order-4 job already in reach takes over in the same update; CP13 counts 36 order-4 runs; the goal tile a
+  worker's passes use after a farm job is held (`ai/attack-ai.md`, trace request AI10).
 
 ## Behaviour
 
@@ -98,15 +105,24 @@ A computer worker's or tanker's job choice runs:
 - **in order 4** (round 83; C2, traced for a worker): a worker given command 4 by the attack goal after an all-out
   attack (the hold goal skips workers; the attack goal doesn't) makes its job choice at its next order-logic run in
   order 4, at the same point of that order's logic, so it takes up a job instead of marching to the goal tile
-  (`ai/worker-ai.md`, "When a job is chosen"; CP5). A tanker in order 4 isn't traced; default: the same. Static study
-  finds the same point in every order marked "acquires" and in the move step of the walking orders; only order 4 is
-  traced, and the other orders keep the old text (no job choice there).
+  (`ai/worker-ai.md`, "When a job is chosen"; CP5). A tanker in order 4 does the same (round 84, traced: CP13). Its
+  attack goal stays, so later passes that find it past its leash give command 4 again (round 84, traced: CP11; which
+  goal tile they measure from after a farm job is open, `ai/attack-ai.md`).
+- **in order 12** (round 84, traced: CP12): a worker given command 12 by the attack goal's enemy search makes its job
+  choice at its order-12 runs; with no job it waits, so it chases one step per wait.
+- in the **other acquiring orders** (5, 7, 10, 13 to 16; round 84, static gap-fill): the same point. No AI rule gives
+  a computer worker these orders.
 - **when it comes out** of a mine, platform or depot (`economy/harvest.md`, "Coming out", step 3).
 
 From the idle logic, the job choice's order is a command and takes over in the same update (`orders/orders.md`,
 "Commands"); in order 4 it is pending and takes over at the unit's next step done, as any command does (traced:
 pending at n = 804, taking over at n = 826, CP5); at a come-out it stays pending through the come-out wait
 (`economy/harvest.md`, "Coming out").
+
+While the unit walks, "the same point" is the walk's step 1 (`orders/orders.md`, "Walking orders"): the choice comes
+before the walk's arrival test and step in that update. So a step that starts the move animation overwrites the
+wait's value with 1 (the first order-12 run, CP12), and a job whose target is already in reach ends the walk, its
+order taking over in the same update instead (`ai/worker-ai.md`, round-84 vectors, n = 2464).
 
 ### Resource assignment
 
@@ -244,18 +260,23 @@ No other Classic-mode difference is known here.
 | CP8 | `human5` and `human8` setup dumps (round 83): active rescue players' town halls, barracks, lumber mill and blacksmiths placed by the map | No creation marks (no keep-clear bit); the computer players' buildings on the same maps have theirs |
 | CP9 | `xhuman2-xhuman02-cheat-scope-1600` (round 83): all-spells cheat on; computer death knight 1557 knows only death coil | It casts death coil (mana topped up to 255 at each command) and nothing else, though haste's other tests pass at 10 passes |
 | CP10 | `human5-human05-rescue-jobs-2000` (round 83): active rescue player 0's lumberjack 1517 joins player 1 | Player 0's lumberjack count keeps 1517's job (inferred from the next choice, `game/rescue.md`); its last lumberjack turns to gold at its next come-out (n = 1593) |
+| CP11 | `xhuman5-xhuman05-worker-all-out-goals-3000` (round 84): CP5's peon 1575, later mining at gold mine 1573 | Its attack goal stays: the passes of n = 2401, 2451, 2651, 2701 and 2951 find it past its leash and give command 4; each time a job choice 3 cycles after order 4 takes over gives it harvest or return goods |
+| CP12 | `xhuman5-xhuman05-worker-order12-goals-3000` (round 84): computer peon 1575 full of lumber, no depot, idle within its leash at the pass of n = 2501 | Command 12 on knight 1588; job choice at each order-12 run (each a step of its walk) from n = 2505; no job, so the wait: drawn but overwritten by the move animation's start at n = 2505 (wait 1), 59 at n = 2527, then one tile per 65 to 80 cycles |
+| CP13 | `orc3-orc03-tanker-order4-goals-7500-10500` (round 84): computer tanker 1591, empty, no depot, given command 4 at the pass of n = 8601 | Job choice at n = 8619, its first order-4 run, and at each step after (36 runs to n = 9808); nothing to do and no wait, so it goes on |
 
 ## Open questions
 
 The open questions of each part stay in its spec. The ones about the model as a whole are Q1 to Q6 of
 `specs/ERRATA-ai-consolidation.md`:
 
-- **Job choice outside order 2** (C2): closed in round 83 for order 4 (CP5). The other acquiring orders
-  and the move step of orders 5 and 12: static study finds the job choice there too; untraced, so the default keeps
-  the old text (no job choice there). A trace would need a computer worker in order 5 or 12.
+- **Job choice outside order 2** (C2): closed in round 83 for order 4 (CP5) and in round 84 for order 12 and
+  tankers in order 4 (CP12, CP13); the other acquiring orders are a labelled static gap-fill.
 - **An unfinished oil platform in the losses rule:** closed in round 83: it counts (CP7).
 - **Active rescue players at map load:** creation marks closed in round 83: none (CP8). Done marks and a
-  first goal for its map units: none by default, untraced (`ai/worker-ai.md`, `ai/attack-ai.md`).
+  first goal for its map units: none, an untraced default. Round 84: not decidable in shipped missions; by the stated
+  rules the default changes no outcome there (no such player has both map buildings and a build list; its map
+  soldiers are all held), so no trace is requested (`ERRATA-round84.md`, AI7).
+- **A worker's goal tile after a farm job** (round-84 review, AI10): `ai/attack-ai.md`, Open questions.
 - **All-spells cheat scope:** closed in round 83: players controlled by a person only (CP9).
 - **Unknown opcodes and conditions** in a script have no defined behaviour (static study). No shipped script has
   one. Default: refuse such a script file.

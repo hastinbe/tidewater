@@ -44,6 +44,12 @@
   (default, from AI2's traced creation marks); open question on a worker's attack goal after its job choice. Review
   fix: the passes after the job choice found the worker within its leash, so they don't settle that question; its
   default is the stated rules (the goal stays), not "the job choice ends it".
+- **Changes:** 2026-10-16, round 84 (traces, `ERRATA-round84.md`, reviewed by a spec-review session, 2026-10-16): a
+  worker's attack goal survives its job choice (AI6, traced: `xhuman5-xhuman05-worker-all-out-goals-3000`; open question
+  closed). New open question on the goal tile the passes use after the worker's farm job; review: the trace fits a
+  stored goal tile of (6, 19), the farm site, not (9, 19) or (9, 20), held with a trace request. An active rescue
+  player's map units and the first goal (AI7): the default stays, untraced; by the stated rules it changes no outcome in
+  any shipped mission.
 
 ## Behaviour
 
@@ -126,9 +132,11 @@ The two marks are **needs a ferry** (with an **assigned transport**, possibly no
 as they appear), after its first order is set and before the extra first-wait draw, its goal is cleared (kind none,
 no tile, no marks, no assigned transport). Then, only for a unit of a computer player that is mobile and is neither
 a worker (bit 8) nor a tanker (bit 9), it gets a first goal, first match (so buildings get none). An active rescue
-player's map units get none (round 83, default, untraced; trace request AI7 in `ai/worker-ai.md`): the map's
-units are created before that player becomes a computer player, as the missing creation marks of its buildings
-show (`ai/worker-ai.md`, "Creation marks"). The first goal, first match:
+player's map units get none (round 83, default, untraced): the map's units are created before that player becomes a
+computer player, as the missing creation marks of its buildings show (`ai/worker-ai.md`, "Creation marks"). Round 84:
+the rule stays an untraced default, and by the stated rules it changes no outcome in any shipped mission: every map
+soldier of a shipped active rescue player is held (its goal is hold at its own tile either way, "Held units") and the
+others are workers, which get no first goal anyway (`ERRATA-round84.md`, AI7). The first goal, first match:
 
 | Unit | First goal |
 | --- | --- |
@@ -344,8 +352,13 @@ the all-out attack gets command 4 here. At its next order-logic run in order 4 i
 (`ai/worker-ai.md`, "When a job is chosen"), so it takes up a job instead of marching (round 83; traced:
 `xhuman5-xhuman05-worker-all-out-goals-1100`, a peon given command 4 at the pass of n = 801 gets return goods at
 n = 804). Nothing here clears its attack goal, so a later pass that finds it past the leash and not in an attacking
-order gives it command 4 again (the stated rule; untraced for a worker after its job choice: the trace's later passes
-find the peon within its leash; Open questions).
+order gives it command 4 again, and its next order-logic run in order 4 makes a job choice again (round 84; traced:
+`xhuman5-xhuman05-worker-all-out-goals-3000`, five passes from n = 2401 to 2951 give peon 1575 command 4 while it
+mines, and a job follows 3 cycles after each takes over; vectors below). A pass gives nothing while the worker is in
+order 25 or inside a building, since no pending command is written then (`orders/orders.md`). So such a worker keeps
+working, with a short detour toward the goal tile each time it strays past the leash. Which goal tile the passes
+measure from after the worker has had a farm job is open (Open questions, "The goal tile after a worker's farm
+job").
 
 1. If the distance from the goal tile to the unit is at least the leash, and the unit's order is not an attacking
    order (9, 11, 12, 15, 16 or 17): set goal (unit, attack, goal tile); on success give command 4 (move, attacking on
@@ -620,6 +633,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `xorc3-10000` (oracle trace): computer grunt 1455 (type 0x01, owner 3), created at (43, 11) at n = 9443 with its hold goal at (34, 9); at n = 9454 peon 1464 stands on (34, 9) | Past its leash, at n = 9454 it gets order 3 (wait 3) and walks to (34, 9) itself, the tile as given, though set goal's ring search would move the stored goal off the peon's tile; idle there at n = 9601 (wait 3) |
 | `xorc8-10000` (oracle trace, Enhanced), n = 6051: computer gryphon rider 1550 (type 0x2A, owner 2) idle at (10, 120); goblin zeppelin 1400 (type 0x29, owner 5) at (8, 120) is the nearest enemy; troll destroyer 1386 (type 0x1F, owner 5) is far away, at (106, 124) | Order 12 on 1400, animation 4, wait 3 (the zeppelin isn't skipped for being an air unit that can't attack) |
 | `xhuman7-10000` (oracle trace, Enhanced), n = 5501: computer dragon 1415 (type 0x2B, owner 5), idle | Order 2, wait 4, no pending chase (a search with the acquisition skip rules would give a pending chase on elven destroyer 1425, type 0x1E, owner 1) |
+| `xhuman5-xhuman05-worker-all-out-goals-3000` (oracle trace, Enhanced; round 84): computer peon 1575 (owner 2) with goal attack from the all-out attack at n = 754, mining at gold mine 1573 near (5, 30) | Command 4 (pending 4) at the passes of n = 2401 (at (5, 26), order 23), 2451, 2651 (idle), 2701 (order 24) and 2951; order 4 takes over at n = 2407, 2461, 2661, 2711, 2958, and a job (harvest or return goods) 3 cycles later each time. No command at n = 2751 (order 25) or while it is inside. The command's stored goal is (6, 20) at n = 2401 and (5, 19) from n = 2451 on; which goal tile the passes use is open (Open questions) |
 
 ## Open questions
 
@@ -633,17 +647,25 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 - **Land picker coordinate swap.** The block's row index feeds the point's x and its column its y. Default: keep the
   swap; it only changes which far block is chosen.
 - **Strength denominator.** Every unit's strength divides by the grunt's maximum HP, not its own. Default: keep it.
-- **A worker's attack goal after its job choice** (round 83): a computer worker sent by the all-out attack makes its
-  job choice in order 4 and goes to its job. Whether its attack goal survives isn't traced: in
-  `xhuman5-xhuman05-worker-all-out-goals-1100` the passes of n = 851 to 1051 give peon 1575 no command 4, but it is
-  within its leash of 7 at each (6 tiles at n = 851 from its goal tile (9, 20), where command 4 sent it, since a knight stood on the
-  target tile (9, 19), then inside the hall and building a
-  farm next to the tile), so the stated rule predicts nothing there either. Default: the stated rules, under which
-  nothing clears the goal, so a pass that finds the worker at least the leash from the goal tile and not in an
-  attacking order gives it command 4 again, and its next order-logic run in order 4 makes a job choice again. Trace
-  request (round 83 review, AI6): the same scenario run to about n = 3000 with `EXTRAS=goals`, watching peon 1575
-  (and any other worker of player 2) at the passes when it is 7 or more tiles from (9, 20), for example walking to or
-  from the gold mine; the default predicts command 4 at such a pass and a job choice 3 cycles later.
+- **A worker's attack goal after its job choice** (round 83): **closed in round 84** (AI6): the goal stays; passes
+  that find the worker past its leash give command 4 again (`xhuman5-xhuman05-worker-all-out-goals-3000`).
+- **The goal tile after a worker's farm job** (round 84, AI6; reworded by the round-84 review). In that trace the
+  all-out attack's set goal stores (9, 20), the ring search's tile next to knight 1588 on (9, 19), and the pass of
+  n = 801 sends peon 1575 there (stored command goal (9, 20)). The peon then builds farm 1497 with its top-left at
+  (6, 19) (job at n = 1004, building from n = 1080 to 2291). From n = 2401 the trace fits a stored goal tile of
+  **(6, 19)**, the farm site, and nothing else tried: (1) with leash 7 the passes give command 4 exactly when the peon
+  is 7 or more tiles from (6, 19) and can take a command (7 at n = 2401, from (5, 26); 1 and 4 at n = 2301 and 2351,
+  no command), while measured from (9, 20) the pass of n = 2401 (6 tiles) gives none; (2) the command of n = 2401
+  stores (6, 20), which is (6, 19) pulled back from (5, 26) (`movement/pathfinding.md`, "Goal pulled back": (6, 20) is
+  a farm tile, (6, 21) is usable); (3) every later command stores (5, 19), the first tile set goal's ring search
+  tests around (6, 19), so the pass of n = 2401 stored (5, 19) and gave its command to the tile as given, as the hold
+  goal does; the passes of n = 2451 to 2951 all fit (5, 19). What sets the goal tile to the site isn't in the trace
+  (the `goals` extra records the command's stored goal, not the AI goal). Default: the stated rules (nothing but a
+  pass or the goal-setting rules here changes the goal tile), with its known consequence: no command 4 at n = 2401 in
+  this trace. Trace request (round-84 review, AI10): a tracer extra recording each unit's AI goal kind and tile, then
+  `scenarios/xhuman05-worker-all-out.txt` again to n = 2500, watching peon 1575's goal tile at n = 1004 (farm job),
+  1080 (site placed) and 2291 (farm done); without the extra, a variant whose farm site is at least 8 tiles from the
+  all-out tile, where the two readings give commands at different passes.
 - **Units converted during a mission.** A campaign event that changes units' owner gives non-held units a first goal
   under a mission flag. Not traced in detail. Default: units that change owner keep their goal.
 - **Escort quirk.** Escort rounds read slot 0x0F of player 0, 1, 2, … in turn rather than the transport owner's.
