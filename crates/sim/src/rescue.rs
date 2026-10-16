@@ -138,7 +138,10 @@ impl World {
         let from = self.units[i].owner;
         // 1. A building's job is cancelled with the refund to the old owner; a site moves between the counts.
         if self.units[i].building {
-            self.cancel_job(i);
+            // The job ends at once, and order 33 is given as a pending order, taking over at the building's next step.
+            if self.cancel_job(i) {
+                self.units[i].pending = Some(crate::world::Order::Idle);
+            }
             if self.units[i].construction.is_some() {
                 self.players[from as usize].under_construction -= 1;
                 self.players[to as usize].under_construction += 1;
@@ -530,6 +533,40 @@ mod tests {
             (0, 0)
         );
         assert_eq!(w.players[0].converted, 4);
+    }
+
+    /// Owner change, step 1: a working building's job ends at once (refund to the old owner) and order 33 is pending,
+    /// taking over at the building's next step.
+    #[test]
+    fn a_rescued_working_building_gets_order_33_pending() {
+        let mut w = world();
+        let barracks = put(&mut w, BARRACKS, RESCUE, (40, 30));
+        put(&mut w, kind::TOWN_HALL, RESCUE, (30, 30));
+        w.players[RESCUE as usize].gold = 1000;
+        w.players[RESCUE as usize].units_allowed = !0;
+        w.stats.0[FOOTMAN as usize].gold = 60;
+        w.stats.0[FOOTMAN as usize].build_time = 200;
+        w.step(&[Command::Train {
+            player: RESCUE,
+            building: barracks,
+            kind: FOOTMAN,
+        }]);
+        for _ in 0..20 {
+            w.step(&[]);
+        }
+        assert!(u(&w, barracks).job.is_some_and(|j| j.running));
+        let n = i(&w, barracks);
+        w.rescue_owner_change(n, 0, false);
+        let b = u(&w, barracks);
+        assert_eq!(
+            (b.job, b.order, b.pending),
+            (None, crate::world::Order::Idle, Some(crate::world::Order::Idle))
+        );
+        assert_eq!(w.players[RESCUE as usize].gold, 1000);
+        for _ in 0..10 {
+            w.step(&[]);
+        }
+        assert_eq!(u(&w, barracks).pending, None, "taken over at a step");
     }
 
     #[test]
