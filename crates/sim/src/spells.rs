@@ -1175,9 +1175,9 @@ impl World {
             // Caster-ai spec, "Marks": the seven target marks last until the unit's next visit here.
             self.units[i].marks = 0;
             self.regenerate(i);
-            if self.kill_marked_demolition(i) {
-                continue;
-            }
+            // Round 81 (audit erratum 7; `xhuman10-invisible-dwarves-150`, S93): a unit killed in step 2 still runs
+            // steps 3 to 5 in this pass; from the next pass on it is dying and skipped.
+            self.kill_marked_demolition(i);
             self.count_timers(i);
             self.gain_mana_or_decay(i);
         }
@@ -1201,15 +1201,12 @@ impl World {
         }
     }
 
-    /// Step 2: a demolition squad or sapper with its invisibility or unholy-armour timer running is killed. Returns
-    /// whether it was.
-    fn kill_marked_demolition(&mut self, i: usize) -> bool {
+    /// Step 2: a demolition squad or sapper with its invisibility or unholy-armour timer running is killed.
+    fn kill_marked_demolition(&mut self, i: usize) {
         let u = &self.units[i];
-        if !matches!(u.kind, unit::DEMOLITION | unit::SAPPER) || (u.invisibility == 0 && u.unholy_armor == 0) {
-            return false;
+        if matches!(u.kind, unit::DEMOLITION | unit::SAPPER) && (u.invisibility > 0 || u.unholy_armor > 0) {
+            self.kill(i);
         }
-        self.kill(i);
-        true
     }
 
     /// Step 3, the five timers: each moves 1 toward 0.
@@ -3598,6 +3595,28 @@ mod tests {
         }
     }
 
+    /// S93 (`xhuman10-invisible-dwarves-150`, n = 37): a demolition squad made invisible is killed in the timers
+    /// pass's step 2 and still runs steps 3 to 5 in that pass, so its invisibility reads 1999; from the next pass on it
+    /// is dying and skipped, so the timer keeps that value. The same for a sapper under unholy armour (static study).
+    #[test]
+    fn a_demolition_squad_killed_in_the_timers_pass_still_counts_its_timers() {
+        let mut w = lab(16);
+        w.stats.0[unit::DEMOLITION as usize] = w.stats.0[unit::SAPPER as usize];
+        let d = w.spawn(unit::DEMOLITION, 0, (3, 3), 0).unwrap();
+        let s = w.spawn(unit::SAPPER, 0, (6, 3), 0).unwrap();
+        let di = w.index(d).unwrap();
+        w.units[di].invisibility = 2000;
+        let si = w.index(s).unwrap();
+        (w.units[si].unholy_armor, w.units[si].bloodlust) = (500, 300);
+        w.timers_pass();
+        let (d0, s0) = (w.unit(d).unwrap(), w.unit(s).unwrap());
+        assert!(d0.dying && s0.dying);
+        assert_eq!((d0.invisibility, s0.unholy_armor, s0.bloodlust), (1999, 499, 299));
+        w.timers_pass();
+        let (d1, s1) = (w.unit(d).unwrap(), w.unit(s).unwrap());
+        assert_eq!((d1.invisibility, s1.unholy_armor, s1.bloodlust), (1999, 499, 299));
+    }
+
     mod pin {
         use super::*;
 
@@ -4026,7 +4045,7 @@ mod tests {
             let mi = w.index(m).unwrap();
             (w.units[mi].haste, w.units[mi].bloodlust, w.units[mi].flame_shield) = (-30, 20, 40);
             let got = trail(&mut w, 1000);
-            assert_eq!(got, 8134815628105625282);
+            assert_eq!(got, 5368486384455272299);
         }
 
         /// A walk with no route, and a channelled blizzard running out of mana.
