@@ -105,6 +105,11 @@
 //! building, S94 to S96) and xhuman10-shield-self-200 (a flame shield command aimed at its own caster does nothing,
 //! S97) match in full.
 //!
+//! Round 82: xorc10-xorc10-losses-4000 (the AI consolidation trace: a patrolling destroyer turns around at its patrol
+//! end before the target search, n 1021, V281; the losses rule counts a computer player's buildings at the kill, the
+//! destroyed one included, so losing the first of 3 guard towers starts no all-out attack and losing the second
+//! does, CP1 and CP2) matches in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -406,4 +411,5 @@ traces! {
     xhuman10_invisible_reach_goals_400: ("xhuman10-invisible-reach-goals-400.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     xhuman10_heal_ballista_goals_500: ("xhuman10-heal-ballista-goals-500.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
     xhuman10_invisible_dwarves_150: ("xhuman10-invisible-dwarves-150.jsonl.gz", "Campaign\\XHuman\\2XHum10.pud", 46, &[], None),
+    xorc10_xorc10_losses_4000: ("xorc10-xorc10-losses-4000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
 }
