@@ -163,8 +163,8 @@ impl World {
         self.ai_player(u.owner) && !u.building && f & (flags::PEON | flags::TANKER) != 0
     }
 
-    /// The job choice where it runs (`ai/computer-player.md`, "Where the job choice runs": from idle, in order 4, and
-    /// at a come-out): for a computer player's worker or tanker, the order it chose, if any. Any other unit makes no
+    /// The job choice where it runs (`ai/computer-player.md`, "Where the job choice runs": from idle, in the other
+    /// acquiring orders, and at a come-out): for a computer player's worker or tanker, the order it chose, if any. Any other unit makes no
     /// choice.
     pub(crate) fn job_choice(&mut self, i: usize) -> Option<Order> {
         if !self.chooses_jobs(i) {
@@ -1026,22 +1026,61 @@ mod tests {
         );
     }
 
-    /// `ai/worker-ai.md`, "When a job is chosen" (round 83): only orders 2 and 4 run the job choice; a computer worker
-    /// in another acquiring order (patrol, order 5) or a plain move (order 3) makes none on the way (the open
-    /// question's default) and makes it once idle at its goal.
+    /// `ai/worker-ai.md`, "When a job is chosen" (round 84, static gap-fill): the other acquiring orders run the job
+    /// choice at the same point as order 4: patrol (order 5), attack-move (order 10, which acquires only in Enhanced
+    /// mode) and stand ground (order 13, which doesn't walk). Each gives the farm as a pending command; the walking
+    /// orders step toward the site in the same update.
     #[test]
-    fn a_worker_in_another_walking_order_makes_no_job_choice_on_the_way() {
+    fn the_other_acquiring_orders_make_the_job_choice_too() {
         for out in [
             Order::Patrol {
                 to: (30, 10),
                 back: (10, 10),
             },
-            Order::Move {
-                goal: (30, 10),
-                target: None,
-            },
+            Order::AttackMove { goal: (30, 10) },
+            Order::StandGround,
         ] {
             let (mut w, id) = walking_worker(out);
+            w.rules.enhanced = true;
+            let gold = w.players[1].gold;
+            let start = w.unit(id).unwrap().tile;
+            let mut n = 0;
+            while w.unit(id).unwrap().pending.is_none() {
+                assert_eq!(w.unit(id).unwrap().order, out);
+                w.step(&[]);
+                n += 1;
+                assert!(n < 50, "{out:?}: no job choice");
+            }
+            let u = w.unit(id).unwrap();
+            assert!(
+                matches!(u.pending, Some(Order::Build { kind: t::FARM, .. })),
+                "{out:?}: {:?}",
+                u.pending
+            );
+            assert_eq!((u.order, w.players[1].gold), (out, gold - 500), "pending, paid");
+            if out == Order::StandGround {
+                assert_eq!(u.tile, start, "order 13 doesn't walk");
+            }
+        }
+    }
+
+    /// `ai/worker-ai.md`, "When a job is chosen": attack-move acquires only in Enhanced mode ("Walking orders", step
+    /// 1), so in Classic mode a computer worker in order 10 makes no job choice on the way; nor does a plain move
+    /// (order 3, which doesn't acquire) in either mode.
+    #[test]
+    fn a_worker_in_a_non_acquiring_walk_makes_no_job_choice_on_the_way() {
+        for (out, enhanced) in [
+            (Order::AttackMove { goal: (30, 10) }, false),
+            (
+                Order::Move {
+                    goal: (30, 10),
+                    target: None,
+                },
+                true,
+            ),
+        ] {
+            let (mut w, id) = walking_worker(out);
+            w.rules.enhanced = enhanced;
             let gold = w.players[1].gold;
             let mut n = 0;
             while w.unit(id).unwrap().tile != (30, 10) {
@@ -1142,6 +1181,110 @@ mod tests {
         );
         assert_eq!((u.pending, u.tile), (None, (18, 20)));
         assert_eq!((u.script.anim, u.script.wait), (crate::orders::order_anim(u.order), 3));
+    }
+
+    /// A computer player with no depot and no money for a hall, and one of its peasants at `at` (can target land),
+    /// carrying, in `order`; a human player's peasant at (40, 10). No 50-cycle pass in the test's span.
+    fn depotless_worker(at: (i32, i32), order: impl Fn(UnitId) -> Order) -> (World, UnitId) {
+        let mut w = field(64, 64);
+        w.players[1].controller = controller::COMPUTER;
+        w.stats.0[PEASANT as usize] = UnitStats {
+            hit_points: 30,
+            size: (1, 1),
+            flags: flags::LAND | flags::PEON,
+            can_target: 1,
+            ..Default::default()
+        };
+        w.stats.0[t::TOWN_HALL as usize] = building(1200, 4, flags::GOLD_STORAGE | flags::WOOD_STORAGE, 45);
+        (w.players[1].gold, w.players[1].lumber) = (0, 0);
+        w.players[1].units_allowed = !0;
+        let enemy = w.spawn(PEASANT, 0, (40, 10), 0).unwrap();
+        let id = w.spawn(PEASANT, 1, at, 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.units[i].carrying = true;
+        w.take_over(i, order(enemy));
+        w.army.countdown = 1000;
+        (w, id)
+    }
+
+    /// CP12 (`ai/worker-ai.md`, "When a job is chosen" and "The wait", round 84; traced:
+    /// `xhuman5-xhuman05-worker-order12-goals-3000` peon 1575, full of lumber with no depot, in order 12 from
+    /// n = 2502): the job choice runs at each order-12 run, a step boundary of its walk. With no job the worker draws
+    /// the wait and keeps order 12, and the walk's step goes on in the same update. At the first run the step starts
+    /// the move animation, which overwrites the drawn wait (n = 2505: wait 1); from then on the wait stands (n = 2527:
+    /// 59), so it chases one tile per wait.
+    #[test]
+    fn a_worker_in_order_12_with_no_job_waits_before_each_step() {
+        let (mut w, id) = depotless_worker((10, 10), |e| Order::Chase { target: e });
+        let mut waits = vec![];
+        let mut last = 0;
+        for n in 0..400 {
+            let tile = w.unit(id).unwrap().tile;
+            let rng = w.rng;
+            w.step(&[]);
+            let u = w.unit(id).unwrap();
+            assert!(
+                matches!(u.order, Order::Chase { .. }) && u.pending.is_none(),
+                "{:?}",
+                u.order
+            );
+            if u.tile != tile {
+                assert_ne!(w.rng, rng, "the wait's draw");
+                assert_eq!(u.script.anim, tidewater_formats::script::anim::MOVE);
+                waits.push((n - last, u.script.wait));
+                last = n;
+            }
+        }
+        assert!(waits.len() >= 4, "{waits:?}");
+        assert!(
+            !(44..=59).contains(&waits[0].1),
+            "the move animation's start overwrites the wait: {waits:?}"
+        );
+        // The step after the overwritten wait comes as soon as the move animation's step is done (n = 2527, 22
+        // cycles after n = 2505); each later one waits for the drawn wait.
+        for &(_, wait) in &waits[1..] {
+            assert!((44..=59).contains(&wait), "{waits:?}");
+        }
+        for &(gap, _) in &waits[2..] {
+            assert!(gap >= 44, "one tile per wait: {waits:?}");
+        }
+    }
+
+    /// CP13 (`ai/worker-ai.md`, "Tankers" and "When a job is chosen", round 84; traced:
+    /// `orc3-orc03-tanker-order4-goals-7500-10500` tanker 1591, empty with no depot, in order 4 from n = 8616): a
+    /// tanker makes the job choice at each step of its order-4 walk; with no depot it has nothing to do, gets no wait
+    /// and makes no draw, and goes on in order 4. (A land unit with the tanker flag stands in for the ship here.)
+    #[test]
+    fn a_tanker_with_no_depot_in_order_4_goes_on_without_a_wait() {
+        // The same walk by a human player's tanker, which makes no job choice, draws the same numbers.
+        let walk = |c: u8| {
+            let (mut w, id) = depotless_worker((10, 10), |_| Order::MoveAttack {
+                goal: (30, 10),
+                target: None,
+            });
+            let i = w.index(id).unwrap();
+            w.stats.0[PEASANT as usize].flags = flags::LAND | flags::TANKER;
+            w.units[i].carrying = false;
+            w.players[1].controller = c;
+            let mut rngs = vec![];
+            while w.unit(id).unwrap().tile != (30, 10) {
+                let u = w.unit(id).unwrap();
+                assert!(
+                    matches!(u.order, Order::MoveAttack { .. }) && u.pending.is_none(),
+                    "{:?}",
+                    u.order
+                );
+                w.step(&[]);
+                rngs.push((w.rng, w.unit(id).unwrap().script.wait));
+                assert!(rngs.len() < 400, "it went on walking");
+            }
+            rngs
+        };
+        assert_eq!(
+            walk(controller::COMPUTER),
+            walk(controller::HUMAN),
+            "no draw and no wait"
+        );
     }
 
     #[test]

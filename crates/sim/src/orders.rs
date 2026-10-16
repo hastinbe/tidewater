@@ -706,11 +706,27 @@ impl World {
         {
             return true;
         }
-        // `ai/worker-ai.md`, "When a job is chosen", in order 4 (round 83, C2; traced:
-        // `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, n = 804, CP5): a computer worker's or tanker's job
-        // choice runs where a combat unit would run its target search, which is the walk's step 1, before its arrival
-        // test and step ("Walking orders"; round 84). Its command is pending and takes over at the next step done.
-        let job = !arriving && matches!(o, Order::MoveAttack { .. }) && self.moving_choice(i);
+        // `ai/worker-ai.md`, "When a job is chosen": a computer worker's or tanker's job choice runs where a combat unit
+        // would run its target search, under the same gates (not at an order-4, 5 or 10 goal; the skip mark). Traced
+        // in order 4 (round 83, CP5; tankers round 84, CP13) and order 12 (round 84, CP12); a static gap-fill in the
+        // other acquiring orders (5, Enhanced 10, 13 to 16; order 7 in its arm below). In a walking order that point
+        // is the walk's step 1, before its arrival test and step ("Walking orders"); in order 12 within reach, the
+        // start of its logic (static study). Its command is pending and takes over at the next step done. Order 2
+        // makes the choice in its idle arm, where the command takes over at once. With no job a worker has its wait
+        // and keeps its order; a step that starts the move animation then overwrites that wait (n = 2505 of
+        // `xhuman5-xhuman05-worker-order12-goals-3000`), while one already in it leaves it (n = 2527: 59).
+        let job = !skip && !arriving && o != Order::Idle && self.acquires(o).is_some() && self.moving_choice(i);
+        // Our reading (static study): a target found lost after the choice is lost as usual, and the job's pending
+        // command is what takes over then ("Arriving and losing the target": a pending order takes over now).
+        if job && lost {
+            self.lose_target(i);
+            return true;
+        }
+        // In an order that doesn't walk, or order 12 within reach, the run ends with the job pending (our reading,
+        // static study: the order's own part isn't run on the old target).
+        if job && !self.job_walks(i, o) {
+            return true;
+        }
         if lost {
             // "Losing the target while cooling down": in orders 12, 15 and 16 the cooldown test comes
             // before the target check, so a unit still cooling down restarts its attack animation with the cooldown
@@ -758,8 +774,10 @@ impl World {
                 // Order 6 reacts to an attacker only when its walk has ended (`follow`).
                 // "Follow": order 7 then runs the idle logic (look-around, then acquisition as for order 2), unless
                 // its follow steps gave it a new order.
-                if self.follow(i, target) && !self.look_around(i) {
-                    self.acquire(i, Acquires::Idle, false);
+                // `ai/worker-ai.md`, "When a job is chosen" (round 84, static gap-fill): a computer worker or tanker
+                // guarding makes its job choice at that point instead of the search; its command is pending.
+                if self.follow(i, target) && !self.look_around(i) && !self.acquire(i, Acquires::Idle, false) {
+                    self.moving_choice(i);
                 }
             }
             Order::Attack { target } | Order::Chase { target } => self.attack_order(i, target),
@@ -806,6 +824,18 @@ impl World {
         // No route: the plain rule (V170: the unit keeps its attacker, and its idle logic may react to it).
         if self.walk(i, g) == Walk::Arrived {
             self.arrive(i);
+        }
+    }
+
+    /// Whether a unit in order `o` that has just made its job choice is walking, so its walk goes on after the choice:
+    /// orders 4, 5 and 10, and order 12 out of strike reach of its target ("How an update runs", step 2).
+    fn job_walks(&self, i: usize, o: Order) -> bool {
+        match o {
+            Order::MoveAttack { .. } | Order::AttackMove { .. } | Order::Patrol { .. } => true,
+            Order::Chase { target } => self
+                .unit(target)
+                .is_some_and(|t| !self.within_strike_reach(&self.units[i], t)),
+            _ => false,
         }
     }
 
@@ -1232,8 +1262,9 @@ impl World {
         let worker_like = self.flags_of_unit(u) & (flags::PEON | flags::TANKER) != 0;
         let computer_worker = worker_like && self.computer_player(u.owner);
         // "Reacting to an attacker", step 1 comes first for every unit and every player, workers and
-        // tankers included. A computer player's worker or tanker with no attacker acquires nothing here; in order 2
-        // it makes its job choice instead (`ai/worker-ai.md`, run from the idle arm of `World::order`).
+        // tankers included. A computer player's worker or tanker with no attacker acquires nothing here; it makes its
+        // job choice instead (`ai/worker-ai.md`: in order 2 from the idle arm of `World::run_order`, in the other
+        // acquiring orders right after this).
         if computer_worker && u.attacked_by.is_none() {
             return false;
         }
@@ -1284,7 +1315,7 @@ impl World {
         }
         // "Special cases": workers and tankers of every player never run the search; the others'
         // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' make their job choice
-        // in order 2 (`ai/worker-ai.md`; the other acquiring orders are an open question, held to idle only).
+        // instead (`ai/worker-ai.md`, "When a job is chosen": orders 2, 4 and 12 traced, the others a static gap-fill).
         // Nor does an Enhanced demolition unit with nothing remembered (round 72, traced: V279,
         // `orc11-orc11-sapper-attack-move-goals-1500` sappers 1580 and 1575 in order 4): with an attacker it reacts
         // as the other non-combat units do, and with none it acquires nothing.
