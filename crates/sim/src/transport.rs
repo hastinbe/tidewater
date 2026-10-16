@@ -364,7 +364,8 @@ impl World {
     }
 
     /// "Landing (order 30)", step 6, no route: on shore water order 29 if marked unload on arrival, else 32;
-    /// elsewhere on an even tile, the sea class and idle; on an odd tile, 32. Each is set at once, still animation
+    /// elsewhere on an even tile, the sea class as a two-tile mover (round 75, static study) and idle, so its next
+    /// step done finds nothing to change; on an odd tile, 32. Each is set at once, still animation
     /// with wait 1 (open question 4 of the transports spec: the static study reads them as immediate orders too). The
     /// unload mark is cleared.
     fn landing_no_route(&mut self, i: usize) {
@@ -373,7 +374,9 @@ impl World {
         let next = if self.shore_water(tile) {
             if unload { Order::Unload } else { Order::Docked }
         } else if even(tile) {
-            self.units[i].ship.landing = false;
+            let ship = &mut self.units[i].ship;
+            ship.landing = false;
+            ship.one_tile = false;
             Order::Idle
         } else {
             Order::Docked
@@ -1677,7 +1680,8 @@ mod tests {
         }
 
         /// Order 30 with no route ("Landing", step 6): on shore water, order 29 if marked unload on arrival, else 32;
-        /// elsewhere on an even tile, idle in the sea class; on an odd tile, 32.
+        /// elsewhere on an even tile, idle in the sea class as a two-tile mover (round 75), even when it was landing
+        /// one tile per step, so its next step done changes nothing; on an odd tile, 32.
         #[test]
         fn landing_with_no_route() {
             let mut prints = vec![];
@@ -1691,12 +1695,28 @@ mod tests {
                 let goal = (from.0 - 3, from.1);
                 let i = ship(&mut w, from, Order::Land { goal });
                 w.units[i].ship.unload = unload;
+                // Landing one tile per step in the landing class, whatever the tile.
+                (w.units[i].ship.landing, w.units[i].ship.one_tile) = (true, true);
                 ring(&mut w, from, 1);
                 ring(&mut w, from, 2);
                 w.landing(i, goal);
                 let s = state(&w, i);
                 assert_eq!((s.0, s.3), (want, from), "{from:?}");
                 assert!(!w.units[i].ship.unload);
+                let ship = &w.units[i].ship;
+                assert_eq!(!ship.landing && !ship.one_tile, want == Order::Idle, "{from:?}");
+                if want == Order::Idle {
+                    prints.push(w.fingerprint());
+                    // Its next step done finds nothing to change.
+                    w.units[i].script.wait = 1;
+                    assert!(w.run_order(i));
+                    let ship = &w.units[i].ship;
+                    assert_eq!(
+                        (w.units[i].order, ship.landing, ship.one_tile),
+                        (Order::Idle, false, false)
+                    );
+                    continue;
+                }
                 prints.push(w.fingerprint());
             }
             pinned(
@@ -1704,7 +1724,7 @@ mod tests {
                 &[
                     12742972921630699698,
                     7432436554178147594,
-                    2921727436246800982,
+                    3949680874306644130,
                     13322486831864242763,
                 ],
             );
