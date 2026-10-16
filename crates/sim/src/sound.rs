@@ -111,10 +111,18 @@ pub enum Sound {
     },
     /// `misc\explode` after the critter explosion, under the acknowledgements option.
     CritterExplode,
+    /// A unit's attack sound made pending ("Attacks"): no sound plays. The client makes the variant draw now, in
+    /// the simulation update, and holds the file for `unit` until its `Attack` cue plays it, so a pending sound that
+    /// is cleared or never heard has still made its draw.
+    AttackPending {
+        kind: u8,
+        unit: UnitId,
+    },
     // Placed sounds.
-    /// A unit's pending attack sound, played by its animation.
+    /// A unit's pending attack sound, played by its animation: the file drawn at its `AttackPending` cue.
     Attack {
         kind: u8,
+        unit: UnitId,
     },
     /// A worker's pending chop sound (silent off screen).
     Chop,
@@ -299,7 +307,9 @@ impl World {
     pub(crate) fn pend_attack(&mut self, i: usize) {
         let u = &self.units[i];
         if !u.building {
-            self.sounds.pending.insert(u.id, Pending::Attack(u.kind));
+            let (kind, unit) = (u.kind, u.id);
+            self.sounds.pending.insert(unit, Pending::Attack(kind));
+            self.cue_plain(Sound::AttackPending { kind, unit });
         }
     }
 
@@ -313,8 +323,9 @@ impl World {
         let Some(p) = self.sounds.pending.remove(&self.units[i].id) else {
             return;
         };
+        let unit = self.units[i].id;
         let sound = match p {
-            Pending::Attack(kind) => Sound::Attack { kind },
+            Pending::Attack(kind) => Sound::Attack { kind, unit },
             Pending::Chop => Sound::Chop,
         };
         self.sound_on(i, sound);
@@ -907,7 +918,12 @@ mod tests {
         w.play_pending(i);
         w.play_pending(i);
         let got: Vec<_> = w.sounds.cues.iter().map(|c| c.sound).collect();
-        assert_eq!(got, [Sound::Attack { kind: FOOTMAN }], "played once and cleared");
+        let (kind, unit) = (FOOTMAN, f);
+        assert_eq!(
+            got,
+            [Sound::AttackPending { kind, unit }, Sound::Attack { kind, unit }],
+            "the draw's cue when made pending, then played once and cleared"
+        );
     }
 
     #[test]

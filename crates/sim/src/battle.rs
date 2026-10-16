@@ -2564,7 +2564,7 @@ mod tests {
                 attack(&mut w, 0, vec![a, b], v);
                 trail(&mut w, 400)
             });
-            assert_eq!(got, [4799316013814529362, 8214992723269226685]);
+            assert_eq!(got, [1347732038414544263, 14060231563942666942]);
         }
 
         /// Two armed footmen fighting to the death, and an archer duel, in both rules modes.
@@ -2580,7 +2580,7 @@ mod tests {
                 attack(&mut w, 0, vec![c], d);
                 trail(&mut w, 900)
             });
-            assert_eq!(got, [15678731156847755291, 2460923343545190678]);
+            assert_eq!(got, [13692178769989268871, 13558439652358363974]);
         }
 
         /// V86 to V89: a hasted and a slowed footman in steady fire.
@@ -2596,7 +2596,7 @@ mod tests {
                 attack(&mut w, 0, vec![a], v);
                 got.push(trail(&mut w, 300));
             }
-            assert_eq!(got, [11934576802701062671, 14696153735902505897]);
+            assert_eq!(got, [16040503495593882024, 8073125564938785346]);
         }
 
         /// S1 and V90: order 11's melee blows on the pulled-back wall tile, with armour 0, until the wall is gone.
@@ -2612,7 +2612,7 @@ mod tests {
                 w.command(i, Order::AttackWall { tile: (8, 3) });
                 trail(&mut w, 1500)
             });
-            assert_eq!(got, [8754154757328172939, 10726930225259057929]);
+            assert_eq!(got, [3894917108649667471, 9975317834004396585]);
         }
 
         /// V15, V16, V93, V94: strikes at a dying, a gone and an inside target, melee and ranged. A strike at an

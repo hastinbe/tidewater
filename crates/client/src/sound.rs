@@ -7,13 +7,20 @@
 //!
 //! Choices of our own where the spec leaves a gap: the digital volume runs from 0 to 255 and a level maps linearly to
 //! loudness (the game's volume table isn't specified); plain sounds play at the normal level; a file's variant is
-//! drawn before the option and position tests, so the draws happen for every cue, heard or not; the sword and chop
-//! draws are made when the animation plays the sound rather than when the attack turns or the chop starts (the same
-//! sounds, but the order of the generator's draws can differ; how the generator's state becomes a draw is itself an
-//! open question of `core/timing-and-rng.md`). Overlapping sounds all play (open question "Sound file flags").
+//! drawn before the option and position tests, so the draws happen for every cue, heard or not; the chop draw is made
+//! when the animation plays the sound rather than when the chop starts (the same sounds, but the order of the
+//! generator's draws can differ; how the generator's state becomes a draw is itself an open question of
+//! `core/timing-and-rng.md`). Overlapping sounds all play (open question "Sound file flags").
+//!
+//! The attack sound's variant is drawn when the sim makes it pending ("Attacks", combat audit erratum 6), at its
+//! `AttackPending` cue, and held for the unit until its `Attack` cue plays it. The building explosion's is drawn at
+//! its cue, which the sim makes at the kill.
+
+use std::collections::BTreeMap;
 
 use tidewater_formats::pud::Era;
 use tidewater_formats::udta::flags;
+use tidewater_sim::UnitId;
 use tidewater_sim::sound::{CRITTER, Cue, Pick, Place, Sound};
 use tidewater_sim::spells::spell;
 
@@ -478,6 +485,8 @@ pub struct Director {
     pub set: SoundSet,
     pub era: Era,
     pub shuffle: Shuffle,
+    /// Each unit's attack file, drawn when its attack sound was made pending and not yet played.
+    held: BTreeMap<UnitId, String>,
 }
 
 impl Director {
@@ -487,6 +496,7 @@ impl Director {
             set,
             era,
             shuffle: Shuffle { state: seed },
+            held: BTreeMap::new(),
         }
     }
 
@@ -533,7 +543,17 @@ impl Director {
                 (f.name(set, 0), Some(SPEECH))
             }
             Sound::CritterExplode => ("misc\\explode".to_string(), Some(ACK)),
-            Sound::Attack { kind } => (self.draw(attack_of(kind)?), None),
+            Sound::AttackPending { kind, unit } => {
+                let file = self.draw(attack_of(kind)?);
+                self.held.insert(unit, file);
+                return None;
+            }
+            // Our reading: with nothing held (a director made after the sound was made pending) the first file plays,
+            // with no draw.
+            Sound::Attack { kind, unit } => match self.held.remove(&unit) {
+                Some(file) => (file, None),
+                None => (attack_of(kind)?.name(set, 0), None),
+            },
             Sound::Chop => {
                 let f = self.draw(many("misc\\tree", 4));
                 return Some(Choice {
@@ -895,7 +915,10 @@ mod tests {
         assert_eq!((normal, quiet), (252, 61));
         assert!(VIEW.on_screen((25, 21)));
         assert!(!VIEW.on_screen((26, 21)));
-        let sword = Sound::Attack { kind: 0 };
+        let sword = Sound::Attack {
+            kind: 0,
+            unit: UnitId(1),
+        };
         let lvl = |d: &mut Director, s, t| d.hear(&on_unit(s, t), VIEW).play.map(|p| p.1);
         assert_eq!(lvl(&mut d, sword, (25, 21)), Some(normal));
         assert_eq!(lvl(&mut d, sword, (26, 21)), Some(quiet));
@@ -923,6 +946,41 @@ mod tests {
             ..inside
         };
         assert_eq!(d.hear(&hidden, VIEW), Heard::default());
+    }
+
+    /// Sounds spec, "Attacks" (combat audit erratum 6): the attack variant is drawn when the sound is made pending,
+    /// heard or not, and the play makes no draw of its own. Two grunts each making a strike decision in the same
+    /// update, both off screen: two draws, though neither is heard.
+    #[test]
+    fn attack_variants_are_drawn_when_made_pending() {
+        let mut d = director();
+        let (a, b) = (UnitId(7), UnitId(8));
+        let grunt = 1;
+        let before = d.shuffle;
+        for unit in [a, b] {
+            let h = d.hear(&plain(Sound::AttackPending { kind: grunt, unit }), VIEW);
+            assert_eq!(h, Heard::default(), "no sound, no subtitle");
+        }
+        let mut two = before;
+        two.draw();
+        two.draw();
+        assert_eq!(d.shuffle, two, "one draw per attack sound made pending");
+        // The held variant plays later with no further draw, and only once.
+        d.shuffle.state = state_before(2 * 256);
+        d.hear(&plain(Sound::AttackPending { kind: grunt, unit: a }), VIEW);
+        let after = d.shuffle;
+        let played = file(&mut d, on_unit(Sound::Attack { kind: grunt, unit: a }, (12, 12)));
+        assert_eq!(played.as_deref(), Some("misc\\sword3"), "variant 2, drawn at the pend");
+        assert_eq!(d.shuffle, after, "the play makes no draw");
+        assert_eq!(
+            file(&mut d, on_unit(Sound::Attack { kind: grunt, unit: a }, (12, 12))).as_deref(),
+            Some("misc\\sword1"),
+            "nothing held any more: the first file"
+        );
+        // An archer's one attack file makes no draw.
+        let before = d.shuffle;
+        d.hear(&plain(Sound::AttackPending { kind: 0x08, unit: b }), VIEW);
+        assert_eq!(d.shuffle, before);
     }
 
     #[test]
@@ -989,12 +1047,27 @@ mod tests {
         );
         assert_eq!(file(&mut d, plain(Sound::Acknowledge { kind: 0x22 })), None);
         assert!(
-            file(&mut d, on(Sound::Attack { kind: 0 }))
-                .unwrap()
-                .starts_with("misc\\sword"),
+            file(
+                &mut d,
+                on(Sound::Attack {
+                    kind: 0,
+                    unit: UnitId(1)
+                })
+            )
+            .unwrap()
+            .starts_with("misc\\sword"),
             "sword"
         );
-        assert_eq!(file(&mut d, on(Sound::Attack { kind: 0x16 })), None);
+        assert_eq!(
+            file(
+                &mut d,
+                on(Sound::Attack {
+                    kind: 0x16,
+                    unit: UnitId(1)
+                })
+            ),
+            None
+        );
     }
 
     #[test]

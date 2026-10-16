@@ -4681,7 +4681,7 @@ mod tests {
             assert!(w.run_order(i));
             let u = &w.units[i];
             assert_eq!((u.order, u.script.wait), (Order::Chase { target: a }, 1));
-            assert_eq!(after(&mut w, 40), 2222882378599847997);
+            assert_eq!(after(&mut w, 40), 8490505941958630917);
         }
 
         /// Order 4 with a target unit sets its goal from the target where it stands now, at every walk.
@@ -4917,7 +4917,7 @@ mod tests {
             w.units[i].cooldown = 20;
             assert!(w.acquiring_strike(i, Order::Chase { target: g }, g));
             assert_eq!(w.units[i].script.wait, 20);
-            assert_eq!(w.fingerprint(), 15835463217056360250);
+            assert_eq!(w.fingerprint(), 7891523494059776469);
         }
 
         /// Fleeing with no attacker recorded does nothing; the reaction forgets a dying attacker.
@@ -5001,7 +5001,7 @@ mod tests {
                 assert_eq!((u.order, u.skip_search), (Order::Chase { target: near }, true));
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [2344322259397918515, 11511587633176998144]);
+            assert_eq!(prints, [13916343920304990068, 11511587633176998144]);
         }
 
         /// Heading for a target no longer in play does nothing.
@@ -5143,7 +5143,7 @@ mod tests {
                 assert_eq!((u.blocked, u.path.is_empty(), u.attacked_by), (0, true, None));
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [11347254239461764739, 9038505000538404860]);
+            assert_eq!(prints, [5062159645529686045, 10798442373940650031]);
         }
 
         /// The friendly-fire hold makes idle pending by the common path and takes it over in the same update (still
@@ -5192,7 +5192,7 @@ mod tests {
                 assert_eq!(u.remembered.is_some(), kept);
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [11384884421808526573, 177179359615400430, 8081919140856632751]);
+            assert_eq!(prints, [3043452979250129848, 10283978064333877399, 3676781726781832558]);
         }
 
         /// Orders 17 and 18 with no route take the general no-route rule (orders spec, "No route": an immediate idle,
@@ -5234,7 +5234,7 @@ mod tests {
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
             prints.push(after(&mut w, 30));
-            assert_eq!(prints, [360005440253050447, 360005440253050447, 9455504928621546046]);
+            assert_eq!(prints, [360005440253050447, 360005440253050447, 17373897177185537346]);
         }
 
         /// Blocked row G: an attacked unit blocked next to its goal makes idle pending (with the resume rules).
@@ -5350,28 +5350,28 @@ mod tests {
                 prints,
                 [
                     [
-                        14906688125623392832,
-                        8372815523486139075,
-                        6231063788176902307,
-                        9369499488973407406
+                        1227516246823337220,
+                        15832353199448190184,
+                        11420073658614599222,
+                        9832769265602565662
                     ],
                     [
-                        11921765685397457864,
-                        18437048235056833595,
-                        7670516979112536977,
-                        4883396234325318144
+                        1692246318793229782,
+                        11700908712712568615,
+                        1444124771225831986,
+                        6036309834043319635
                     ],
                     [
-                        5124214436200171837,
-                        609979986790218645,
-                        3690880912908363715,
-                        9328642841041205867
+                        15113173691267184381,
+                        11056418901968567441,
+                        12491603388481585782,
+                        1065715261638580576
                     ],
                     [
-                        11819606290717625611,
-                        1805284214626935733,
-                        8801427850644010026,
-                        10663596148170120224
+                        9263173216562803395,
+                        4771250366534384703,
+                        5180842308332106325,
+                        1152158524836650642
                     ],
                 ]
             );
