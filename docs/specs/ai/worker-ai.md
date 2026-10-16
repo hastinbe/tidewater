@@ -51,6 +51,17 @@
   step 1, before the step, so a step that starts the move animation overwrites the wait (the question on the first
   order-12 run is closed); an order-4 job whose target is already in reach takes over in the same update (n = 2464);
   the tanker vector counts 36 order-4 runs (to n = 9808), not 48.
+- **Changes:** 2026-10-16, round 85 (AI audit errata, `ERRATA-audit-ai.md`, with traces, `ERRATA-round85.md`;
+  reviewed by a spec-review session, 2026-10-16): repair safety looks at a tile's air layer only when its ground layer
+  holds a unit (erratum 2, traced: `xorc10-xorc10-farm-repair-1700`); a build job writes the site into the worker's
+  goal tile (erratum 7, traced for a farm job: `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`; the town hall and
+  build-list jobs a static gap-fill). Static gap-fills: the site-search centres measure the nearest gold store from its
+  top-left tile, with no alive test (erratum 1; this spec gave no measure); the no-depot hall search with no mine
+  centres on the worker (erratum 3); tankers break a tie between oil patches by the neutral list, first in the list
+  (newest) winning (erratum 10; review fix: the draft said the latest in the list); vectors for a second-pass hall's
+  bordered mark (erratum 11) and the bordered test at column 0 (erratum 16). Held as open questions, stated rules
+  kept: which flag decides a worker's or tanker's job choice (erratum 6) and the shipyard's search centre and water
+  region (erratum 8).
 
 ## Behaviour
 
@@ -127,7 +138,7 @@ as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new
      already in progress or the player can't afford one (`economy/build-train.md`). Otherwise a site is searched
      (below) for the worker's race's town hall, first with the border, then without. On success, the build command is
      given, the player pays at once, the hall cooldown becomes **10**, and the site is marked keep-clear with the
-     border.
+     border, whichever of the two searches found it (round 85; static vector, erratum 11).
    - If no hall was started: when not carrying, **repair**, then **harvest**, then **wait** (below), the first that
      gives a job. When carrying, **wait**.
 6. **Depot found, not carrying:** the first of these that gives a job:
@@ -146,6 +157,14 @@ animation (the unit is still in its order's own animation, as at its first run a
 animation start sets the wait to 1 and runs its first instruction in the same update (`movement/movement.md`, "Which
 first wait applies when"), so the drawn wait is lost (traced: n = 2505 of the same trace, the draw made, wait 1). Once
 the unit is in its move animation the wait stands (n = 2527: 59).
+
+**The goal tile of a build job** (round 85, erratum 7). Each build job (the new town hall above, the farm and the
+build list below) also writes the site's top-left tile into the worker's goal tile (`ai/attack-ai.md`, "Unit goals"),
+whatever its goal kind; the kind isn't changed. Traced for a farm job
+(`xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`, vectors below); for the town hall and build-list jobs it is a labelled static gap-fill (static study: the same
+write). So a worker with an attack goal from the all-out attack keeps it, and pass B measures its leash from the site
+(`ai/attack-ai.md`, "Attack (2)"). The job also writes a goal value that no rule in these specs reads (the trace's
+`aigoals` extra shows 59, the farm's type, after the farm job), so that changes no outcome.
 
 ### Farm
 
@@ -234,9 +253,13 @@ So the list works like a wish list: each entry stands for one building, and a lo
   - not oil platforms (PUD flag bit 11);
   - in the worker's region (the region value at the building's top-left tile equals the worker's);
   - below three quarters of their maximum: HP < trunc(3 × M / 4), with M the type's hit points from the unit data;
-  - **safe:** no unit that can attack and belongs to a player the owner doesn't count as allied stands, on the ground
-    or air layer, in the 9 × 9 tiles from (x − 3, y − 3) to (x + 5, y + 5), where (x, y) is the building's top-left
-    tile.
+  - **safe:** in the 9 × 9 tiles from (x − 3, y − 3) to (x + 5, y + 5), where (x, y) is the building's top-left
+    tile, no tile holds an enemy that can attack (a unit of a player the owner doesn't count as allied; the occupant
+    isn't tested for dying). Each tile is tested like this (round 85; erratum 2, traced): if its ground layer
+    is empty, the tile is safe and its air layer isn't looked at; if the ground unit is such an enemy, the building is
+    unsafe; otherwise the air unit there, if any, is tested the same way. So an enemy flyer over open ground doesn't
+    stop a repair (traced: `xorc10-xorc10-farm-repair-1700`, three enemy dragons over grass inside the area, the farm
+    repaired; vectors below).
 - **Choice:** the candidate with the highest "annoy computer" value from the unit data. It must be strictly higher
   than the best so far, which starts at 0, so the earliest of equal values wins and a type with value 0 is never
   repaired.
@@ -336,11 +359,11 @@ of the building's own tiles.
 
 | Family | Centre | Step s |
 | --- | --- | --- |
-| Most buildings | the top-left tile of the player's nearest gold-storing building, complete or not, in the worker's region (strictly nearest, so the earliest wins ties); the worker's tile if none | 6 |
+| Most buildings | the top-left tile of the player's nearest gold-storing building, complete or not, in the worker's region (strictly nearest, so the earliest wins ties); the distance is the larger of the x and y differences between the building's **top-left tile** and the worker's tile, and there is no alive test, so a building in its death animation counts until it leaves the list (round 85; static gap-fill, erratum 1: this spec didn't give the measure; `ai/attack-ai.md` keeps its own stated measure, held there); the worker's tile if none | 6 |
 | Farm | as above | 2 |
 | Foundry, refinery | as above; no site if the player has no completed shipyard | 1 |
-| Shipyard | the nearest town hall (any tier); the water region of the oil patch nearest to it is noted, and the footprint must contain a tile of that region | 1 |
-| Town hall (not from the build list) | the nearest gold mine with trips left in the worker's region | 1 |
+| Shipyard | the nearest town hall (any tier); the water region of the oil patch nearest to it is noted, and the footprint must contain a tile of that region (held: Open questions, "The shipyard's search centre", round 85) | 1 |
+| Town hall (not from the build list) | the nearest gold mine with trips left in the worker's region, measured from the mine's top-left tile; with no such mine, the worker's own tile, searched as usual (round 85; static gap-fill, erratum 3) | 1 |
 
 The search visits square **rings** of radius k·s around the centre, for k = 1, 2, …. Each ring is walked clockwise from
 its top-left corner (right along the top, down the right side, left along the bottom, up the left side), in steps of
@@ -383,7 +406,8 @@ ties. The search is then run again at that mine to give the site.
 ### Tankers
 
 The job choice runs at the same moments for a computer player's tanker (in order 4 too, round 84, traced: "When a
-job is chosen"), and for any peon-flagged sea unit, which only custom unit data creates:
+job is chosen"), and for any peon-flagged sea unit, which only custom unit data creates (which flag decides is held:
+Open questions, "Worker or tanker choice", round 85):
 
 1. **Attacker:** the reaction, as for a worker.
 2. **Depot:** the nearest completed oil-storing building of the player whose footprint touches the tanker's water
@@ -393,8 +417,11 @@ job is chosen"), and for any peon-flagged sea unit, which only custom unit data 
 5. **Platform:** among the player's own oil platforms that have oil left and are not dying, the one that minimises
    **d(depot, platform) + floor(d(platform, tanker) / 2)**, strictly (earliest wins ties). There is no region test.
    Command 23 on it.
-6. **No platform:** the oil patch nearest to the depot's top-left tile (strictly nearest). If an oil platform is
-   affordable, the tanker gets the build command for it there, and the player pays at once.
+6. **No platform:** the oil patch nearest to the depot's top-left tile (strictly nearest). The patches are visited in
+   the neutral player's list order (`core/unit-slots.md`: newest first) and only a strictly nearer one replaces the
+   best, so on a tie the **first in the list**, the most recently created patch, wins (round 85; static gap-fill,
+   erratum 10). If an oil platform is affordable, the tanker gets the build command for it there,
+   and the player pays at once.
 
 ## Data
 
@@ -533,7 +560,7 @@ An entry is marked done at the start of a game when either bit of its code is se
 | `orc3-orc03-platform-losses-9500` (oracle trace, Enhanced, campaign launch): computer player 1 has farms 1589 and 1595 and oil platform 1584 under construction (463 of 650 HP); farm 1595 is destroyed (n = 6765) | B = 3 (two farms and the unfinished platform): no all-out attack; no unit of player 1 gets order 4 at the passes of n = 6801 to 7601 |
 | Same trace: platform 1584 completes (n = 7490), then farm 1589 is destroyed (n = 7634) | B = 1 (the complete platform left out): all-out attack, order 4 from the pass of n = 7651 (7 units by n = 7655) |
 | `xhuman5-xhuman05-worker-all-out-goals-1100`: computer player 2's farm 1582 is destroyed (n = 754; B = 2); peon 1575 walks back from the mine carrying gold | Smart move at n = 754 (pending 3, to the knight's tile (9, 19)); command 4 at the pass of n = 801 (to (9, 20), 8 tiles away; leash 7); at n = 804, its next order-logic run, return goods to great hall 1579 (pending 24, order 24 at n = 826) |
-| Same trace, the passes of n = 851 to 1051 | No command 4: the peon is within its leash at each (6 tiles from (9, 20) at n = 851, entering the hall; inside it at (8, 23), 3 tiles, to n = 1001; 2 tiles at n = 1051), so these passes don't show whether its attack goal is kept (`ai/attack-ai.md`, Open questions). It comes out of the hall at n = 1004 with a farm job |
+| Same trace, the passes of n = 851 to 1051 | No command 4: the peon is within its leash at each (6 tiles from (9, 20) at n = 851, entering the hall; inside it at (8, 23), 3 tiles, to n = 1001; 2 tiles at n = 1051), so these passes don't show whether its attack goal is kept (closed in round 84 by later passes: `ai/attack-ai.md`, "Attack (2)"). It comes out of the hall at n = 1004 with a farm job |
 | `human5` setup dump (n = 0): active rescue player 0's town hall (40, 96), barracks (46, 92), lumber mill (34, 109) and blacksmith (37, 105) | No keep-clear bit on or around them; computer player 5's buildings have their rectangles and shore squares (152 tiles) |
 | `human8` setup dump (n = 0): active rescue player 2's town hall (74, 72) and blacksmith (66, 71) | No keep-clear bit; all 329 marked tiles are computer players 0, 1 and 3's creation marks |
 
@@ -546,8 +573,33 @@ An entry is marked done at the start of a game when either bit of its code is se
 | `xhuman5-xhuman05-worker-all-out-goals-3000` (oracle trace, Enhanced), n = 2461 to 2464: peon 1575, given command 4 at the pass of n = 2451 while walking to gold mine 1573, takes order 4 at n = 2461 (wait 3) at (6, 29), beside the mine | At n = 2464 the job choice gives harvest at 1573 and order 23 takes over in the same update (animation 4, wait 3), not at the next step done; order 25 at n = 2467 |
 | `human5-30000` (oracle trace, Enhanced, no input): active rescue player 0 (empty build list) with its map town hall, barracks, lumber mill, blacksmith and farms | No building started in 30000 cycles, whether or not the map buildings marked entries done; its lost barracks, hall and farms aren't rebuilt |
 
+### Round-85 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xorc10-xorc10-farm-repair-1700` (oracle trace, Enhanced; erratum 2): computer player 6's farm 1437 (top-left (46, 115), 233 of 400 HP); enemy dragons 1561, 1562 and 1575 at (46, 112), (50, 118) and (50, 116), over grass with nothing on the ground below; peasant 1448 comes out at n = 1441 | Repair: target farm 1437 at n = 1441, order 27 at n = 1466 (by the ground-or-air reading: no repair, target gold mine 1445) |
+| `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` (oracle trace, Enhanced; erratum 7): peon 1575, attack goal (9, 20), takes a farm job at n = 1004 | Goal tile (6, 19), kind still 2, at n = 1004, 1080 and 2291 (`aigoals` extra value 59) |
+| A computer peasant at (16, 12); its player's 4 × 4 town halls at (10, 10) and (20, 10), both in its region, in that list order (static, erratum 1) | Distances from the halls' top-left tiles 6 and 4: the hall at (20, 10) is the farm search's centre |
+| A computer peon with no depot, every mine in its region exhausted, the player able to afford a great hall (static, erratum 3) | The hall search centres on the peon's tile; a site near it is used, with no wait draw |
+| A no-depot hall whose bordered search fails and whose unbordered search finds (20, 20), a 4 × 4 hall (static, erratum 11) | Keep-clear tiles (19, 19) to (24, 24) |
+| A bordered site test for a 4 × 4 hall at x = 0 (static, erratum 16) | Columns 0 to 5 tested (w + 2 = 6 wide from 0) |
+| Two oil patches at the same distance from a computer tanker's depot (static, erratum 10) | The patch first in the neutral player's list (the one created later) is chosen |
+
 ## Open questions
 
+- **Worker or tanker choice** (round 85; held, erratum 6). Static study reads the job-choice dispatch as
+  testing the **worker** flag first: any worker takes the worker's job choice (a sea worker only gets the oil-depot
+  search for its depot step), and only a tanker-flagged unit that isn't a worker takes the tanker's choice; at a
+  come-out a worker takes the worker's choice and every other unit the tanker's. That contradicts "Tankers" as stated
+  (a peon-flagged sea unit takes the tanker's choice). Only custom unit data can show it: the default tankers aren't
+  workers. Default: as stated. No trace requested.
+- **The shipyard's search centre** (round 85; held, erratum 8). Static study reads the shipyard row as: centre
+  the **nearest gold store** (as the "Most buildings" row, with its region test), or the worker's
+  own tile if there is none; the water region is that of the complete oil patch **nearest the worker** (tile to
+  footprint, as "Distance"), a later patch in the neutral list winning a tie. That contradicts the stated row (the
+  nearest town hall, and the patch nearest it). In the committed traces all 39 computer shipyard searches give the same
+  site under both readings (`ERRATA-round85.md`, AA4). Default: as stated. Trace request (AA4b): a computer base with
+  oil in two water regions, the worker nearer a patch in the other region than the hall's nearest patch.
 - **Job choice in other acquiring orders** (round 82, C2): closed for order 4 in round 83 (AI1) and **for order 12
   and a tanker in order 4 in round 84** (AI8, `ERRATA-round84.md`). The other acquiring orders are a labelled static
   gap-fill, unreachable for a computer worker in the traces.

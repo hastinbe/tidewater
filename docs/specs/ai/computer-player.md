@@ -26,6 +26,10 @@
   CP13 added. Review fixes: in a walking order the choice comes before the walk's step (the first order-12 run's wait,
   closed); an order-4 job already in reach takes over in the same update; CP13 counts 36 order-4 runs; the goal tile a
   worker's passes use after a farm job is held (`ai/attack-ai.md`, trace request AI10).
+- **Changes:** 2026-10-16, round 85 (AI audit errata, `ERRATA-audit-ai.md`, with traces, `ERRATA-round85.md`;
+  reviewed by a spec-review session, 2026-10-16): a worker's build job writes its site into the goal tile (erratum 7,
+  traced; AI10 closed: CP14); repair safety ignores an enemy flyer over an empty ground tile (erratum 2, traced: CP15);
+  pointers to the round-85 gap-fills and held items in the part specs. No other rule here changes.
 
 ## Behaviour
 
@@ -51,7 +55,7 @@ Every rule here is Enhanced. The few Classic-mode differences are named in "Rule
 | No-workers pass | every 50 cycles, after pass A | 2 | research requests for a player with no workers | `ai/training-research.md`, "Research requests and done marks" |
 | Pass B | every 50 cycles, after the no-workers pass | 2 | the base boxes; then, in slot order, each computer unit's caster step and goal | `ai/attack-ai.md`, "The base box", "Running goals", "Ferry"; `ai/caster-ai.md` |
 | Building think | in a computer building's own update, from its resting order 33 | 4 | what a building trains, researches or upgrades into | `ai/training-research.md` |
-| Job choice | in a computer worker's or tanker's own update, from its idle logic (order 2) and when it comes out of a building ("Where the job choice runs") | 4 | harvest, return, build, repair or wait (tankers never wait) | `ai/worker-ai.md` |
+| Job choice | in a computer worker's or tanker's own update, from its idle logic (order 2), the other acquiring orders (4, 12 and the rest) and when it comes out of a building ("Where the job choice runs") | 4 | harvest, return, build, repair or wait (tankers never wait) | `ai/worker-ai.md` |
 | Creation hook | when a unit or building of any player is created | where created | the first goal; the build list's done mark; the keep-clear creation mark | `ai/attack-ai.md`, "Unit goals"; `ai/worker-ai.md`, "Done marks", "Creation marks" |
 | Destroyed hook | when a computer player's building is killed | where killed (4) | the done mark cleared; the losses rule | `ai/worker-ai.md`, "Done marks", "The losses rule" |
 | Damage hook | when a unit is notified of a hit | where hit (4) | the attacker record, the submarine call, the call for help | `ai/attack-ai.md`, "Call for help" |
@@ -106,8 +110,9 @@ A computer worker's or tanker's job choice runs:
   attack (the hold goal skips workers; the attack goal doesn't) makes its job choice at its next order-logic run in
   order 4, at the same point of that order's logic, so it takes up a job instead of marching to the goal tile
   (`ai/worker-ai.md`, "When a job is chosen"; CP5). A tanker in order 4 does the same (round 84, traced: CP13). Its
-  attack goal stays, so later passes that find it past its leash give command 4 again (round 84, traced: CP11; which
-  goal tile they measure from after a farm job is open, `ai/attack-ai.md`).
+  attack goal stays, so later passes that find it past its leash give command 4 again (round 84, traced: CP11). A
+  build job writes its site into the goal tile, so after one the passes measure from the site (round 85, traced:
+  CP14; `ai/worker-ai.md`, "The goal tile of a build job").
 - **in order 12** (round 84, traced: CP12): a worker given command 12 by the attack goal's enemy search makes its job
   choice at its order-12 runs; with no job it waits, so it chases one step per wait.
 - in the **other acquiring orders** (5, 7, 10, 13 to 16; round 84, static gap-fill): the same point. No AI rule gives
@@ -153,7 +158,8 @@ A fighting unit's life under the computer:
    picker's tile in the human player with the most non-building units. Units on another land area get the
    needs-a-ferry mark instead, and transports gather and carry them (`ai/attack-ai.md`, "Ferry").
 4. **March and fight:** pass B gives each attacker command 4 (move, attacking on the way) while it is past its leash
-   from the goal tile and its order isn't an attacking one (9, 11, 12, 15, 16 or 17); when it is idle near it, the enemy search picks the nearest enemy anywhere and command 12
+   from the goal tile (for a worker, the last building site its job choice gave it, CP14) and its order isn't an
+   attacking one (9, 11, 12, 15, 16 or 17); when it is idle near it, the enemy search picks the nearest enemy anywhere and command 12
    follows; with no enemy left the unit roams.
 
 ### Defence and reaction to attacks
@@ -165,7 +171,7 @@ A fighting unit's life under the computer:
 | Unit reaction | an attacked unit's order logic runs | combat units retarget (order 12 from the idle-type and moving orders; the resulting-order table gives the rest); non-combat units flee, but a computer unit flees only when idle | `orders/orders.md`, "Reacting to an attacker" |
 | Worker attacker step | a computer worker's job choice runs with an attacker | the reaction runs first; a worker attacked by a worker fights back | `ai/worker-ai.md`, step 2; `orders/orders.md`, "Fleeing", step 1 |
 | Hold give-up and leash | pass B, hold goal | a unit past its leash is sent back to its post if it is idle, or, when busy, only if another player dominates its block and it is badly outmatched there (10 × own < 4 × dominant) | `ai/attack-ai.md`, "Hold" |
-| Repair | a worker's job choice | damaged, safe buildings are repaired, most annoying type first; a repairing worker doesn't flee | `ai/worker-ai.md`, "Repair"; `economy/repair.md` |
+| Repair | a worker's job choice | damaged, safe buildings are repaired, most annoying type first (an enemy flyer over an empty ground tile doesn't make a building unsafe: CP15); a repairing worker doesn't flee | `ai/worker-ai.md`, "Repair"; `economy/repair.md` |
 | Rebuilding | a building is destroyed | its build-list entry loses its done mark, so it is built again | `ai/worker-ai.md`, "Done marks" |
 | Losses rule | a building is destroyed | with fewer than 3 buildings (counted at the kill, the destroyed one included, complete oil platforms left out; an unfinished one counts), every mobile unit attacks | `ai/worker-ai.md`, "The losses rule"; `ai/attack-ai.md`, "The all-out attack" |
 
@@ -263,6 +269,8 @@ No other Classic-mode difference is known here.
 | CP11 | `xhuman5-xhuman05-worker-all-out-goals-3000` (round 84): CP5's peon 1575, later mining at gold mine 1573 | Its attack goal stays: the passes of n = 2401, 2451, 2651, 2701 and 2951 find it past its leash and give command 4; each time a job choice 3 cycles after order 4 takes over gives it harvest or return goods |
 | CP12 | `xhuman5-xhuman05-worker-order12-goals-3000` (round 84): computer peon 1575 full of lumber, no depot, idle within its leash at the pass of n = 2501 | Command 12 on knight 1588; job choice at each order-12 run (each a step of its walk) from n = 2505; no job, so the wait: drawn but overwritten by the move animation's start at n = 2505 (wait 1), 59 at n = 2527, then one tile per 65 to 80 cycles |
 | CP13 | `orc3-orc03-tanker-order4-goals-7500-10500` (round 84): computer tanker 1591, empty, no depot, given command 4 at the pass of n = 8601 | Job choice at n = 8619, its first order-4 run, and at each step after (36 runs to n = 9808); nothing to do and no wait, so it goes on |
+| CP14 | `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` (round 85, `aigoals` extra): CP11's peon 1575, attack goal tile (9, 20) from n = 754, takes a farm job at site (6, 19) at n = 1004 | Goal tile (6, 19), kind still attack, from n = 1004 (still at n = 1080 and 2291); the pass of n = 2401 finds it 7 tiles from (6, 19) at (5, 26), gives command 4, and its set goal stores (5, 19) |
+| CP15 | `xorc10-xorc10-farm-repair-1700` (round 85): computer player 6's farm 1437 at 233 of 400 HP, three enemy dragons over open grass inside its 9 × 9 safety area | Peasant 1448 comes out at n = 1441 and takes the farm as its repair target (order 27 at n = 1466) |
 
 ## Open questions
 
@@ -276,7 +284,12 @@ The open questions of each part stay in its spec. The ones about the model as a 
   first goal for its map units: none, an untraced default. Round 84: not decidable in shipped missions; by the stated
   rules the default changes no outcome there (no such player has both map buildings and a build list; its map
   soldiers are all held), so no trace is requested (`ERRATA-round84.md`, AI7).
-- **A worker's goal tile after a farm job** (round-84 review, AI10): `ai/attack-ai.md`, Open questions.
+- **A worker's goal tile after a farm job** (round-84 review, AI10): closed in round 85: the build job writes its
+  site into the goal tile (CP14).
+- **Round 85, held in the part specs** (static readings of the B-040 audit that contradict a stated rule; the stated
+  rule is the default): the nearest gold store's measure for posts, pickers and the ferry, the base box clamp on a
+  128-wide map and a dying anchor tanker (`ai/attack-ai.md`, Open questions); the worker-or-tanker flag and the
+  shipyard's search centre (`ai/worker-ai.md`, Open questions).
 - **All-spells cheat scope:** closed in round 83: players controlled by a person only (CP9).
 - **Unknown opcodes and conditions** in a script have no defined behaviour (static study). No shipped script has
   one. Default: refuse such a script file.

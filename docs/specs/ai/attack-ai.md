@@ -50,6 +50,15 @@
   stored goal tile of (6, 19), the farm site, not (9, 19) or (9, 20), held with a trace request. An active rescue
   player's map units and the first goal (AI7): the default stays, untraced; by the stated rules it changes no outcome in
   any shipped mission.
+- **Changes:** 2026-10-16, round 85 (AI audit errata, `ERRATA-audit-ai.md`, with traces, `ERRATA-round85.md`;
+  reviewed by a spec-review session, 2026-10-16): a worker's build job writes the site into its goal tile (erratum 7,
+  traced for a farm job: `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`; the AI10 open question closed).
+  Static gap-fills: the nearest gold store has no alive test (erratum 1, in part); a post's line walk from a store tile
+  shared with the enemy walks east (erratum 4; open question answered); the sea picker never picks a ship at
+  distance 0 (erratum 15); the ferry escort and the submarine call don't skip dying units (errata 13 and 14). Held as
+  open questions, stated rules kept: the base box clamp on a 128-wide map (erratum 5), a dying anchor tanker
+  (erratum 9) and, by review, the nearest gold store's measure (erratum 1: this file states the reference-tile
+  distance; the top-left-tile reading is static only and no trace separates them).
 
 ## Behaviour
 
@@ -145,9 +154,16 @@ others are workers, which get no first goal anyway (`ERRATA-round84.md`, AI7). T
 | Air unit (bit 1) | roam, own tile |
 | Any other | hold, at the post chosen below |
 
-**Choosing a land unit's post.** Let *store* be the player's gold store (bit 12) nearest the unit, among those in the
-same region as the unit (any, for air and sea units; the player's units in list order). Let *enemy* be the result of
-the enemy search below.
+**The nearest gold store.** Wherever this file says "the player's gold store nearest a unit" (the post below, the
+target pickers' reference store and the ferry's store fallback), "nearest" is the reference-tile distance of
+"Behaviour" above, the first in list order winning a tie. There is **no alive test**: a store in its death animation
+counts until it leaves the list (round 85; static gap-fill, erratum 1). Whether the distance is measured from the
+store's top-left tile instead is held (Open questions, "The nearest gold store's measure"; round 85). The site-search
+centres of `ai/worker-ai.md` use the top-left tile ("Keep-clear marks and site search").
+
+**Choosing a land unit's post.** Let *store* be the player's gold store (bit 12) nearest the unit ("The nearest gold
+store", just above), among those in the same region as the unit (any, for air and sea units; the player's units in
+list order). Let *enemy* be the result of the enemy search below.
 
 1. If there is no store, or no enemy, the post is the unit's own tile.
 2. Otherwise walk from the store's top-left tile toward the enemy's tile, one tile per step, by the line rule of
@@ -254,8 +270,8 @@ Units given an attack goal don't move yet: they move when pass B runs their goal
 All three pick a tile in the **target player** T's area. "T's list" means T's units in list order.
 
 **Reference unit** (used by all three): the first unit in T's list, call it F.
-- Land picker: T's gold store nearest F among those in F's region (any if F is air or sea), else the first building
-  in T's list, else F.
+- Land picker: T's gold store nearest F ("The nearest gold store", above) among those in F's region (any if F is
+  air or sea), else the first building in T's list, else F.
 - Sea and air pickers: T's gold store nearest F as above, else F. They **fail** if T has no units.
 
 **Land picker** (never fails):
@@ -273,7 +289,9 @@ All three pick a tile in the **target player** T's area. "T's list" means T's un
 
 1. The first unit in T's list that is an oil platform (bit 11): its tile.
 2. Otherwise the **last** shipyard (types 0x48, 0x49) in T's list: its tile.
-3. Otherwise T's sea unit farthest from the reference unit (strictly farther replaces): its tile.
+3. Otherwise T's sea unit farthest from the reference unit (strictly farther replaces): its tile. The best distance
+   starts at 0, so a ship at distance 0 from the reference unit is never chosen (round 85; static gap-fill,
+   erratum 15); if no ship is farther than 0, step 4 applies.
 4. Otherwise it fails.
 
 **Air picker:**
@@ -320,7 +338,8 @@ signed 8-bit values:
 
 Quirk: on a 128-wide map, the starting minimum is −128 as a signed value, so no building lowers it and the minimum
 stays −128 before the margin (−133 kept to 8 bits is +123, which is not negative, so it stays 123). Likewise
-max + 8 can wrap past 127. Test vectors below show both cases.
+max + 8 can wrap past 127. Test vectors below show both cases. Whether the maximums' clamp in step 4 applies on a
+128-wide map is open (Open questions, "The base box clamp on a 128-wide map"; round 85).
 
 ### Running goals (pass B)
 
@@ -356,9 +375,11 @@ order gives it command 4 again, and its next order-logic run in order 4 makes a 
 `xhuman5-xhuman05-worker-all-out-goals-3000`, five passes from n = 2401 to 2951 give peon 1575 command 4 while it
 mines, and a job follows 3 cycles after each takes over; vectors below). A pass gives nothing while the worker is in
 order 25 or inside a building, since no pending command is written then (`orders/orders.md`). So such a worker keeps
-working, with a short detour toward the goal tile each time it strays past the leash. Which goal tile the passes
-measure from after the worker has had a farm job is open (Open questions, "The goal tile after a worker's farm
-job").
+working, with a short detour toward the goal tile each time it strays past the leash. Each build job the worker
+takes writes the **site** into its goal tile and leaves the kind (`ai/worker-ai.md`, "The goal tile of a build job";
+round 85, erratum 7, traced for a farm job: `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`, vectors below). So
+after a build job the passes measure the leash from that site, and after a pass's own set goal from the tile it
+stored (its ring search can move it: (6, 19) became (5, 19) at the pass of n = 2401 in that trace).
 
 1. If the distance from the goal tile to the unit is at least the leash, and the unit's order is not an attacking
    order (9, 11, 12, 15, 16 or 17): set goal (unit, attack, goal tile); on success give command 4 (move, attacking on
@@ -379,7 +400,8 @@ idle, and turn into roamers when no enemy is left.
    (the first such tanker in its list), the tile of the depot nearest that tanker that accepts oil
    (`economy/harvest.md`), if there is one. Tankers inside are skipped, not taken and then rejected. If every tanker
    is inside (or there is none), the anchor is the unit's own tile: the patrol toward it then arrives at once, and
-   the swap to the other end takes over with wait 3 (`orders/orders.md`, "Arriving and losing the target").
+   the swap to the other end takes over with wait 3 (`orders/orders.md`, "Arriving and losing the target"). Whether a
+   tanker in its sinking animation can be the anchor is open (Open questions, "A dying anchor tanker"; round 85).
 2. The **far end** is the player's completed oil platform (bit 11) nearest the anchor; else the completed neutral
    oil patch (bit 21) nearest the anchor; else (anchor x − (r mod 5) − 2, anchor y − (r mod 5) − 2), two draws x first,
    clamped to the map.
@@ -429,7 +451,9 @@ the transport.
    2. **Escorts:** for i = 0, 1, …: run this round if i is below **player i's** slot 0x0F (a quirk: the slot is read
       from player i, not from T's owner). Each round, take the player's unit nearest T that can attack, is an air or
       sea unit, is not held and whose goal is not escort; if there is none, stop. Set goal (that unit, escort, G) and
-      give it command 4 with T as the target unit.
+      give it command 4 with T as the target unit. There is no alive test: a dying unit can be chosen; set goal then
+      fails for it, it gets no command, and as its goal is still not escort the next round picks it again, so it uses
+      up the rounds (round 85; static note, erratum 13).
    3. Give T a smart move (command 3) to G with no target unit, then give T the **unload on arrival** mark
       (`orders/transports.md`), whatever G's terrain. So T unloads its passengers (order 29) when it arrives.
    Stop.
@@ -443,8 +467,8 @@ the transport.
    - when 6 have been counted, stop: units later in the list aren't visited and keep their assigned transport.
    Candidates bound for another area that come before that point still get T as their assigned transport, but no
    command.
-5. If there was no candidate, T is given a smart move with its owner's gold store nearest T as the target unit (for
-   a sea unit any gold store counts), if there is one.
+5. If there was no candidate, T is given a smart move with its owner's gold store nearest T ("The nearest gold
+   store") as the target unit (for a sea unit any gold store counts), if there is one.
 
 Passengers keep their **attack** or **hold** goal while carried; after landing, pass B moves them on.
 
@@ -475,8 +499,9 @@ When a unit V is notified that it was attacked by A (`combat/damage.md`, "Applyi
 4. A becomes V's attacker.
 5. **Submarine call:** if V's owner is a computer player and the **attacker A** is a submarine (flag bit 6), V's
    owner's unit nearest V that is an air unit or a submarine, has no attacker and is not V is given command 4 with V as
-   the target unit. That unit records V as its target, and its order 4 ends once V is dying (`orders/orders.md`,
-   "Commands"); a computer player's command 4 keeps its remembered patrol ("Resuming patrol and attack-move").
+   the target unit. Dying units aren't skipped (round 85; static note, erratum 14). That unit records V as its
+   target, and its order 4 ends once V is dying (`orders/orders.md`, "Commands"); a computer player's command 4 keeps
+   its remembered patrol ("Resuming patrol and attack-move").
 6. **Neighbours:** the help radius R is 13 for a computer player's V; for others, 4 if V is a sea unit, else 2. The box
    runs from V's tile − R to V's far edge (x + width − 1 + R, y + height − 1 + R), clamped to the map. A unit S of V's
    owner is in the box when its **top-left tile's** column is within the box's columns and its top-left tile's row is
@@ -633,7 +658,15 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `xorc3-10000` (oracle trace): computer grunt 1455 (type 0x01, owner 3), created at (43, 11) at n = 9443 with its hold goal at (34, 9); at n = 9454 peon 1464 stands on (34, 9) | Past its leash, at n = 9454 it gets order 3 (wait 3) and walks to (34, 9) itself, the tile as given, though set goal's ring search would move the stored goal off the peon's tile; idle there at n = 9601 (wait 3) |
 | `xorc8-10000` (oracle trace, Enhanced), n = 6051: computer gryphon rider 1550 (type 0x2A, owner 2) idle at (10, 120); goblin zeppelin 1400 (type 0x29, owner 5) at (8, 120) is the nearest enemy; troll destroyer 1386 (type 0x1F, owner 5) is far away, at (106, 124) | Order 12 on 1400, animation 4, wait 3 (the zeppelin isn't skipped for being an air unit that can't attack) |
 | `xhuman7-10000` (oracle trace, Enhanced), n = 5501: computer dragon 1415 (type 0x2B, owner 5), idle | Order 2, wait 4, no pending chase (a search with the acquisition skip rules would give a pending chase on elven destroyer 1425, type 0x1E, owner 1) |
-| `xhuman5-xhuman05-worker-all-out-goals-3000` (oracle trace, Enhanced; round 84): computer peon 1575 (owner 2) with goal attack from the all-out attack at n = 754, mining at gold mine 1573 near (5, 30) | Command 4 (pending 4) at the passes of n = 2401 (at (5, 26), order 23), 2451, 2651 (idle), 2701 (order 24) and 2951; order 4 takes over at n = 2407, 2461, 2661, 2711, 2958, and a job (harvest or return goods) 3 cycles later each time. No command at n = 2751 (order 25) or while it is inside. The command's stored goal is (6, 20) at n = 2401 and (5, 19) from n = 2451 on; which goal tile the passes use is open (Open questions) |
+| `xhuman5-xhuman05-worker-all-out-goals-3000` (oracle trace, Enhanced; round 84): computer peon 1575 (owner 2) with goal attack from the all-out attack at n = 754, mining at gold mine 1573 near (5, 30) | Command 4 (pending 4) at the passes of n = 2401 (at (5, 26), order 23), 2451, 2651 (idle), 2701 (order 24) and 2951; order 4 takes over at n = 2407, 2461, 2661, 2711, 2958, and a job (harvest or return goods) 3 cycles later each time. No command at n = 2751 (order 25) or while it is inside. The command's stored goal is (6, 20) at n = 2401 and (5, 19) from n = 2451 on; the passes measure from the farm site (6, 19), then from (5, 19) (round 85, erratum 7: next table) |
+
+### Round-85 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` (oracle trace, Enhanced; round 85, erratum 7): computer peon 1575 (owner 2), attack goal (9, 20) from n = 754, takes a farm job at n = 1004 | AI goal kind 2, tile (6, 19), extra 59 from n = 1004 to the pass of n = 2401, which finds it at (5, 26), 7 tiles away, gives command 4 and stores (5, 19) |
+| Sea picker: T has no oil platform, shipyard or gold store, and its only unit is a ship, which is also the reference unit (static, erratum 15) | Distance 0 never qualifies: the picker fails and the round sends nobody |
+| A computer archer is created while the nearest enemy, a gryphon rider, hovers over the gold store's top-left tile, and the base box reaches the map's east edge (static, erratum 4) | The walk steps east one tile at a time, leaves the map, and the post is the random tile of step 3 (2 draws) |
 
 ## Open questions
 
@@ -649,32 +682,51 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 - **Strength denominator.** Every unit's strength divides by the grunt's maximum HP, not its own. Default: keep it.
 - **A worker's attack goal after its job choice** (round 83): **closed in round 84** (AI6): the goal stays; passes
   that find the worker past its leash give command 4 again (`xhuman5-xhuman05-worker-all-out-goals-3000`).
-- **The goal tile after a worker's farm job** (round 84, AI6; reworded by the round-84 review). In that trace the
-  all-out attack's set goal stores (9, 20), the ring search's tile next to knight 1588 on (9, 19), and the pass of
-  n = 801 sends peon 1575 there (stored command goal (9, 20)). The peon then builds farm 1497 with its top-left at
-  (6, 19) (job at n = 1004, building from n = 1080 to 2291). From n = 2401 the trace fits a stored goal tile of
-  **(6, 19)**, the farm site, and nothing else tried: (1) with leash 7 the passes give command 4 exactly when the peon
-  is 7 or more tiles from (6, 19) and can take a command (7 at n = 2401, from (5, 26); 1 and 4 at n = 2301 and 2351,
-  no command), while measured from (9, 20) the pass of n = 2401 (6 tiles) gives none; (2) the command of n = 2401
-  stores (6, 20), which is (6, 19) pulled back from (5, 26) (`movement/pathfinding.md`, "Goal pulled back": (6, 20) is
-  a farm tile, (6, 21) is usable); (3) every later command stores (5, 19), the first tile set goal's ring search
-  tests around (6, 19), so the pass of n = 2401 stored (5, 19) and gave its command to the tile as given, as the hold
-  goal does; the passes of n = 2451 to 2951 all fit (5, 19). What sets the goal tile to the site isn't in the trace
-  (the `goals` extra records the command's stored goal, not the AI goal). Default: the stated rules (nothing but a
-  pass or the goal-setting rules here changes the goal tile), with its known consequence: no command 4 at n = 2401 in
-  this trace. Trace request (round-84 review, AI10): a tracer extra recording each unit's AI goal kind and tile, then
-  `scenarios/xhuman05-worker-all-out.txt` again to n = 2500, watching peon 1575's goal tile at n = 1004 (farm job),
-  1080 (site placed) and 2291 (farm done); without the extra, a variant whose farm site is at least 8 tiles from the
-  all-out tile, where the two readings give commands at different passes.
+- **The goal tile after a worker's farm job** (round 84, AI6; reworded by the round-84 review): **closed in round 85**
+  (AI10, erratum 7, traced: `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`). A farm job writes its
+  site into the worker's goal tile (traced) and the town hall and build-list jobs do the same (static study); the
+  kind is unchanged (`ai/worker-ai.md`, "The goal tile of a build job"). In that
+  trace peon 1575's goal tile is (9, 20) from the all-out attack (n = 754), (6, 19) from its farm job at n = 1004
+  (still so at n = 1080 and 2291), and (5, 19) after the pass of n = 2401, whose set goal moved it by the ring search,
+  as the round-84 review inferred.
 - **Units converted during a mission.** A campaign event that changes units' owner gives non-held units a first goal
   under a mission flag. Not traced in detail. Default: units that change owner keep their goal.
 - **Escort quirk.** Escort rounds read slot 0x0F of player 0, 1, 2, … in turn rather than the transport owner's.
   Default: implement literally.
 - **Sea escorts.** A sea unit whose goal tile can't be set (different water area) keeps its old goal, so the same
   ship can be chosen in every escort round. Default: implement literally.
-- **Line walk when the store and the enemy share a tile.** The line rule then has a zero-length major axis. Default:
-  the walk stays on the store's tile, which is inside the box, so treat it as reaching the box edge without moving:
-  use the store's tile.
+- **Line walk when the store and the enemy share a tile.** The line rule then has a zero-length major axis. Answered
+  by static study (round 85; static gap-fill, erratum 4; untraced): a zero difference is taken as an x-major
+  line with non-negative steps, so the walk still steps, one tile east (+1, 0) at a time, until it leaves the base box,
+  and may end off the map with the 2 draws of step 3. (The earlier default, the store's tile, is replaced.) Trace
+  request: none cheap (an enemy flyer exactly over the store's top-left tile when a land unit that can hit air is
+  created).
+- **The base box clamp on a 128-wide map** (round 85; held, erratum 5). Static study reads step 4's clamp as
+  comparing max + 8, read as a signed 8-bit value, with the width as a plain number: on maps narrower than 128 that is
+  the stated rule, but on a 128-wide map the clamp never applies, so max + 8 wraps for a maximum of 120 or more, and
+  with the minimum at 123 the box is empty unless the largest building x (or y) is 115 to 119. That contradicts step 4
+  as stated (both sides signed 8-bit, so the clamp always applies there and the maximums are 127). Replaying all 192
+  committed traces, `orc8` included (a 128-wide map with a computer hall at (123, 97)), both readings give the same
+  records. Default: step 4 as stated. Trace request (AA7): a computer player on a 128-wide map creating a land unit
+  while it has a gold store with x or y of 123 or more.
+- **A dying anchor tanker** (round 85; held, erratum 9). Static study reads the sea patrol's anchor tanker as the
+  first tanker that is **present** (not dying and not inside), so a tanker in its sinking animation is skipped. That
+  contradicts step 1 as stated ("isn't inside a building or platform"). Not traced: in the round-85 trials
+  (`ERRATA-round85.md`, AA5) a computer tanker was sunk, but no warship with goal 6 was idle at a pass during the
+  sinking. Default: step 1 as stated. Trace request (AA5b): a computer tanker sunk by a unit its warships don't chase,
+  with an idle goal-6 warship at a pass during the sinking; record its patrol's anchor.
+- **The nearest gold store's measure** (round 85; held by review, erratum 1). Static study reads one shared search
+  for the post, the target pickers' reference store and the ferry's store fallback, measuring from the **store's
+  top-left tile** to the unit's tile (to a building unit's footprint tile nearest it), not the reference-tile distance
+  that "Behaviour" states for every distance in this file. Replaying the 170 committed campaign traces, the two
+  measures pick different stores in 27 target-picker searches (4 traces: `human13-10000`, `xhuman10-12000`,
+  `xorc11-10000`, `xorc11-16000`), always with the same picked tile, and no post or ferry search differs, so no
+  trace tells them apart (`ERRATA-round85.md`, AA1). Default: the reference-tile distance as stated. For example, a
+  wave reference unit F at (20, 20) with the target's 4 × 4 halls at (10, 10) and (28, 20), in that list order:
+  stated, 7 and 8, the hall at (10, 10); static reading, 10 and 8, the hall at (28, 20). Trace request (AA1b): a
+  computer land unit created between two of its player's town halls whose ranking flips between the two measures (as
+  in the example), with an enemy known, so that the post walk starts from a different store; record the unit's post
+  (its goal tile, `aigoals`) and any post draws.
 - **A land unit's post at map load.** The first goal of a computer player's non-held land unit is chosen while the
   map is still loading, before any base box has been built, and where its draws fall relative to the creation's
   facing draw isn't confirmed. Neither traced map has such a unit. Default: the base box is still in its empty state

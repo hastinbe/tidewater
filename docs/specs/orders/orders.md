@@ -49,6 +49,9 @@
   "Automatic target acquisition" and "Reacting to an attacker", step 3, now name orders 2 and 4. No other rule change.
 - **Changes:** 2026-10-16 (round 84, `ERRATA-round84.md`, reviewed by a spec-review session, 2026-10-16): the job-choice
   pointers add order 12 and tankers (traced) and the other acquiring orders (static gap-fill). No other rule change.
+- **Changes:** 2026-10-16 (round 85, `ERRATA-round85.md` for `ERRATA-audit-ai.md` erratum 12, reviewed by a
+  spec-review session, 2026-10-16): the plain reaction runs the target search, unseeded, for a combat unit whose attacker its owner doesn't
+  detect (static gap-fill: the rule already said the search runs; vector added). No other rule change.
 
 ## Behaviour
 
@@ -1283,7 +1286,11 @@ walk has ended".
   unit's owner doesn't detect is fled from as in step 1 (static study; no trace changes).
 - Otherwise it runs the target search (above), which starts with the attacker as the best candidate. If the result
   differs from the unit's current target, it attacks the result with order 12, whatever the resulting-order table
-  says.
+  says. An attacker that is valid but that the unit's owner doesn't **detect** (a submarine, for example) isn't used
+  as the seed ("Terms"), but the search still runs without it, and a result other than the current target still
+  gives order 12 (round 85; static gap-fill, erratum 12; not traced: request AA6b in `ERRATA-round85.md`). For
+  example, a human destroyer following another ship, hit by a computer submarine with no human detector near, with a
+  computer destroyer within its react range, attacks that destroyer (order 12) instead of following on.
 
 **Fleeing** (the attacker must still be valid: not dying, dead or inside something; otherwise it is forgotten and there
 is no flee). The flee rule has no detection test: an attacker the unit's owner doesn't detect is fled from like any
