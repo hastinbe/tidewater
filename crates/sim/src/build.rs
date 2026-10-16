@@ -207,36 +207,48 @@ impl World {
         self.command_at_once(i, again);
     }
 
-    /// Arrival at the site: pay (players other than computer players), check the site, then place the building and
-    /// go inside it.
+    /// "Placement on arrival": check the site, then (players other than computer players) the affordability, then
+    /// place the building, pay, and go inside it.
+    ///
+    /// Every failure leaves the worker's tile marked as occupied by it, and idle takes over in the same update (still
+    /// animation, wait 3), not as an immediate order (round-40 errata, `xhuman2` peon 1562 at n = 85). A failed site
+    /// check wins over a lack of money: its message shows, and a computer player gets its payment back (round 77,
+    /// V61); a lack of money then shows its message, and nothing is paid (V60: `human06-arrive-broke-700` peasant
+    /// 1587, n = 340).
     pub(crate) fn raise(&mut self, i: usize, kind: u8, site: (i32, i32)) {
         let u = self.units[i].clone();
         let c = self.unit_cost(kind);
         let pays_now = !self.computer_player(u.owner);
-        if pays_now && !self.afford_or_tell(u.owner, c, false) {
-            self.stop(i);
-            return;
-        }
         // The builder leaves its tile so it doesn't block its site, and comes back if placing fails. (The spec leaves
         // the ground-unit pointer alone; our spawn refuses a named tile, so it is cleared too, and the building's
         // footprint names the building anyway.)
         self.mark(&u, u.tile, None);
-        let patch = self.site_ok(kind, site);
-        let placed = patch.and_then(|_| self.place_building(kind, u.owner, site).ok());
+        let fail = |w: &mut World| {
+            w.mark(&u, u.tile, Some(u.id));
+            let i = w.index(u.id).expect("the builder is alive");
+            w.take_over(i, Order::Idle);
+        };
+        let Some(patch) = self.site_ok(kind, site) else {
+            self.tell(Event::CantPlace { player: u.owner, kind });
+            if !pays_now {
+                self.refund(u.owner, c);
+            }
+            return fail(self);
+        };
+        if pays_now && !self.afford_or_tell(u.owner, c, false) {
+            return fail(self);
+        }
+        let placed = self.place_building(kind, u.owner, site).ok();
         // Spawning keeps the units sorted by slot, so the builder's index may have moved.
         let i = self.index(u.id).expect("the builder is alive");
         let Some(b) = placed else {
-            // Round-40 errata (`xhuman2`, peon 1562 at n = 85): the worker's tile stays marked as occupied by it, and
-            // idle takes over in the same update (still animation, wait 3), not as an immediate order.
-            self.mark(&u, u.tile, Some(u.id));
             self.tell(Event::CantPlace { player: u.owner, kind });
-            if self.computer_player(u.owner) {
+            if !pays_now {
                 self.refund(u.owner, c);
             }
-            self.take_over(i, Order::Idle);
-            return;
+            return fail(self);
         };
-        if let Some(Some(p)) = patch
+        if let Some(p) = patch
             && let Some(pi) = self.index(p)
         {
             // Harvest spec, "Mine and platform amounts": the platform takes the patch's trips.
@@ -1330,13 +1342,13 @@ mod tests {
             assert_eq!(pinned(&w), 13805690297050688148);
         }
 
-        /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), and a
-        /// human player who can't pay. Code versus spec: the last stops the worker as an immediate idle (wait 1),
-        /// where "Placement on arrival", step 1, has idle take over in the same update.
+        /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), a
+        /// human player who can't pay (V60: idle takes over in the same update), and a human player with a blocked
+        /// site who can't pay either (V61: the placement message, not the affordability one).
         #[test]
         fn placement_failures_on_arrival() {
             let (mut got, mut prints) = (Vec::new(), Vec::new());
-            for case in 0..3 {
+            for case in 0..4 {
                 let (mut w, p) = town();
                 w.vision.local = 0;
                 let i = w.index(p).unwrap();
@@ -1347,19 +1359,38 @@ mod tests {
                         w.terrain.set_bits(9, 9, bits::OBSTACLE);
                         w.pay(0, [500, 250, 0]);
                     }
-                    _ => w.players[0].gold = 100,
+                    2 => w.players[0].gold = 100,
+                    _ => {
+                        w.terrain.set_bits(9, 9, bits::OBSTACLE);
+                        w.players[0].gold = 100;
+                    }
                 }
                 w.raise(i, FARM, (8, 8));
                 let u = w.unit(p).unwrap();
                 got.push((u.order, u.script.wait, w.players[0].gold));
+                let placing = matches!(w.events[..], [Event::CantPlace { player: 0, .. }]);
+                assert_eq!(placing, case != 2, "case {case}: {:?}", w.events);
                 run(&mut w, 5);
                 prints.push(pinned(&w));
             }
             assert_eq!(
                 got,
-                [(Order::Idle, 3, 1000), (Order::Idle, 3, 1000), (Order::Idle, 1, 100)]
+                [
+                    (Order::Idle, 3, 1000),
+                    (Order::Idle, 3, 1000),
+                    (Order::Idle, 3, 100),
+                    (Order::Idle, 3, 100)
+                ]
             );
-            assert_eq!(prints, [4713247118106514692, 6118939153357291191, 9359600541951759668]);
+            assert_eq!(
+                prints,
+                [
+                    4713247118106514692,
+                    6118939153357291191,
+                    18059059466466017168,
+                    10316165214562442650
+                ]
+            );
         }
     }
 }
