@@ -13,7 +13,9 @@
 //! records before F but the setup, the start-up and the command turns; we compare the setup and start-up records, run
 //! up to F − 1 carrying out the gap's command turns without comparing them, then compare from F on. A setup-only trace
 //! (`setup_only`) is compared on its setup record. The `extras` (`hits`, and the units' `goal`, `pending` and
-//! `transport_dest`) are read but not compared, as no spec defines their comparison yet.
+//! `transport_dest`) are read but not compared, as no spec defines their comparison yet. The round-85 `aigoals`
+//! extra (each unit's `ai_goal`) has its kind and tile compared with our units' goals (`ai/attack-ai.md`, "Unit
+//! goals"; a unit with no goal tile shows (0, 0)); its `extra` value is read by no rule in the specs and isn't.
 //!
 //! Scenario identity is still free text in the header (the format's open question "Scenario identity"), so the caller
 //! names the map and the campaign entry; the seed, the rules and the table sizes come from the header.
@@ -362,6 +364,24 @@ pub struct Record {
     pub hits: Vec<Hit>,
     /// The `goals` extra per unit slot, for the units that carry it.
     pub goals: BTreeMap<u16, Goals>,
+    /// The `aigoals` extra per unit slot, in [`AI_GOAL_FIELDS`] order (kind, tile x, tile y), for the units that carry
+    /// it. Ours holds every unit's.
+    pub ai_goals: BTreeMap<u16, [Cell; 3]>,
+}
+
+/// The `aigoals` extra's compared fields (`ai_goal`: `kind` and `tile`; `extra` is read by no rule in the specs, so it
+/// isn't compared).
+pub const AI_GOAL_FIELDS: [&str; 3] = ["ai_goal_kind", "ai_goal_x", "ai_goal_y"];
+
+/// A unit's `ai_goal` (kind, tile x, tile y), or `None` when it has none.
+fn parse_ai_goal(u: &Value) -> Option<[Cell; 3]> {
+    let g = u.get("ai_goal")?;
+    let tile = g.get("tile").and_then(Value::as_array);
+    Some([
+        Cell::of(g.get("kind")),
+        Cell::of(tile.and_then(|t| t.first())),
+        Cell::of(tile.and_then(|t| t.get(1))),
+    ])
 }
 
 /// One `hits` entry: a call of the damage step (trace format, "Hit entries"). Read, not compared: no spec defines
@@ -458,10 +478,14 @@ impl Record {
         };
         let mut units = BTreeMap::new();
         let mut goals = BTreeMap::new();
+        let mut ai_goals = BTreeMap::new();
         for u in v.get("units").and_then(Value::as_array).into_iter().flatten() {
             let slot = int(u, "slot").with_context(|| format!("record n={n}: a unit"))? as u16;
             if let Some(g) = Goals::parse(u) {
                 goals.insert(slot, g);
+            }
+            if let Some(g) = parse_ai_goal(u) {
+                ai_goals.insert(slot, g);
             }
             let timers = u.get("timers");
             let fields = UNIT_FIELDS
@@ -514,6 +538,7 @@ impl Record {
                 .map(|h| Hit::parse(h).with_context(|| format!("record n={n}: a hit entry")))
                 .collect::<Result<_>>()?,
             goals,
+            ai_goals,
         })
     }
 
@@ -565,6 +590,13 @@ impl Record {
                     if let Some(p) = g.transport_dest {
                         u.insert("transport_dest".into(), p.to_vec().into());
                     }
+                }
+                if let Some([k, x, y]) = self.ai_goals.get(&slot) {
+                    let j = |c: &Cell| c.json().unwrap_or(Value::Null);
+                    u.insert(
+                        "ai_goal".into(),
+                        serde_json::json!({"kind": j(k), "tile": [j(x), j(y)], "extra": 0}),
+                    );
                 }
                 Value::Object(u)
             })
@@ -724,10 +756,12 @@ pub enum Category {
     /// Hit points, mana, trips and timers.
     Stats,
     Effects,
+    /// The `aigoals` extra: the computer player's goal kind and tile.
+    AiGoals,
 }
 
 impl Category {
-    pub const ALL: [Category; 10] = [
+    pub const ALL: [Category; 11] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -738,6 +772,7 @@ impl Category {
         Category::Anim,
         Category::Stats,
         Category::Effects,
+        Category::AiGoals,
     ];
 
     pub fn name(self) -> &'static str {
@@ -752,6 +787,7 @@ impl Category {
             Category::Anim => "anim/wait",
             Category::Stats => "stats",
             Category::Effects => "effects",
+            Category::AiGoals => "ai-goals",
         }
     }
 }
@@ -767,6 +803,7 @@ fn category(scope: Scope, field: &str) -> Category {
             "order" | "target" => Category::Orders,
             "facing" => Category::Facing,
             "anim" | "frame" | "wait" => Category::Anim,
+            f if AI_GOAL_FIELDS.contains(&f) => Category::AiGoals,
             _ => Category::Stats,
         },
     }
@@ -888,6 +925,23 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
                         });
                     }
                 }
+            }
+        }
+    }
+    // The `aigoals` extra: compared for the units both sides hold where the trace carries it.
+    for (&slot, tg) in &theirs.ai_goals {
+        let Some(og) = ours.ai_goals.get(&slot) else { continue };
+        if !theirs.units.contains_key(&slot) || !ours.units.contains_key(&slot) {
+            continue;
+        }
+        for ((&f, tc), oc) in AI_GOAL_FIELDS.iter().zip(tg).zip(og) {
+            if oc.matches(tc) == Some(false) && filter.allows(Scope::Unit(slot), f) {
+                out.push(Diff {
+                    scope: Scope::Unit(slot),
+                    field: f,
+                    ours: oc.clone(),
+                    theirs: tc.clone(),
+                });
             }
         }
     }
@@ -1075,7 +1129,15 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         commands: Vec::new(),
         hits: Vec::new(),
         goals: BTreeMap::new(),
+        ai_goals: w.units.iter().map(|u| (u.slot, ai_goal_cells(u))).collect(),
     }
+}
+
+/// A unit's goal kind and tile as the `aigoals` extra shows them (`ai/attack-ai.md`, "Unit goals"): a unit with no
+/// goal tile shows (0, 0).
+fn ai_goal_cells(u: &Unit) -> [Cell; 3] {
+    let (x, y) = u.goal.tile.unwrap_or((0, 0));
+    [Cell::Int(u.goal.kind as i64), Cell::Int(x as i64), Cell::Int(y as i64)]
 }
 
 fn controller_name(c: u8) -> String {
@@ -2346,5 +2408,38 @@ mod tests {
         let mut skipped = BTreeSet::new();
         assert!(compare(&r, &ours, &Filter::default(), &mut skipped).is_empty());
         assert!(skipped.is_empty());
+    }
+
+    /// The `aigoals` extra (round 85): each unit's `ai_goal` kind and tile are compared where the trace carries them;
+    /// `extra` isn't, and a trace without the extra compares as before.
+    #[test]
+    fn compares_the_ai_goal_kind_and_tile() {
+        let line = r#"{"n":1004,"kind":"cycle","rng":5,"units":[{"slot":1575,"hp":30,"ai_goal":{"kind":2,"tile":[6,19],"extra":59}},{"slot":1576,"hp":30}],"effects":[]}"#;
+        let theirs = Record::parse(line).unwrap();
+        let goal = |k, x, y| [Cell::Int(k), Cell::Int(x), Cell::Int(y)];
+        assert_eq!(theirs.ai_goals[&1575], goal(2, 6, 19));
+        assert!(!theirs.ai_goals.contains_key(&1576));
+        assert_eq!(Record::parse(&theirs.to_json()).unwrap(), theirs);
+        let mut ours = theirs.clone();
+        ours.ai_goals.insert(1576, goal(1, 3, 3));
+        let mut skipped = BTreeSet::new();
+        let f = Filter::default();
+        assert!(
+            compare(&theirs, &ours, &f, &mut skipped).is_empty(),
+            "1576 carries no ai_goal"
+        );
+        ours.ai_goals.insert(1575, goal(2, 8, 19));
+        let d = compare(&theirs, &ours, &f, &mut skipped);
+        assert_eq!(d.len(), 1);
+        assert_eq!(
+            (d[0].scope, d[0].field, d[0].category()),
+            (Scope::Unit(1575), "ai_goal_x", Category::AiGoals)
+        );
+        assert_eq!(d[0].to_string(), "unit slot 1575 ai_goal_x: ours 8, theirs 6");
+        assert!(compare(&theirs, &ours, &Filter::parse("-ai-goals"), &mut skipped).is_empty());
+        // Without the extra nothing is compared, whatever ours holds.
+        let mut plain = theirs.clone();
+        plain.ai_goals.clear();
+        assert!(compare(&plain, &ours, &f, &mut skipped).is_empty());
     }
 }
