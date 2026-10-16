@@ -118,6 +118,12 @@
 //! spell, CP9 and S101) and human5-human05-rescue-jobs-2000 (a lumberjack that joins another player leaves its job
 //! count with active rescue player 0, CP10) match in full.
 //!
+//! Round 84: xhuman5-xhuman05-worker-order12-goals-3000 (a computer peon in order 12 makes its job choice at each
+//! step of its walk; with no job it draws the wait, lost at n 2505 when the step starts the move animation and kept
+//! from n 2527, CP12), orc3-orc03-tanker-order4-goals-7500-10500 (a window: a computer tanker with no depot makes
+//! the choice at each order-4 step and goes on with no wait, CP13) and human5-30000 (active rescue player 0 starts
+//! no building in 30000 cycles) match to their ends.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -424,4 +430,7 @@ traces! {
     xhuman5_xhuman05_worker_all_out_goals_1100: ("xhuman5-xhuman05-worker-all-out-goals-1100.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
     xhuman2_xhuman02_cheat_scope_1600: ("xhuman2-xhuman02-cheat-scope-1600.jsonl.gz", "Campaign\\XHuman\\2XHum02.pud", 30, &[], None),
     human5_human05_rescue_jobs_2000: ("human5-human05-rescue-jobs-2000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
+    xhuman5_xhuman05_worker_order12_goals_3000: ("xhuman5-xhuman05-worker-order12-goals-3000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    orc3_orc03_tanker_order4_goals_7500_10500: ("orc3-orc03-tanker-order4-goals-7500-10500.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
+    human5_30000: ("human5-30000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
 }
