@@ -342,8 +342,9 @@ impl World {
         if u.dying {
             return;
         }
+        // Step 1: with the cheat on, the multiple-of-12 test isn't made, so every pass is a step (V65).
         c.passes += if cheat { PASS_STEP } else { 1 };
-        if !c.passes.is_multiple_of(PASS_STEP) {
+        if !cheat && !c.passes.is_multiple_of(PASS_STEP) {
             return;
         }
         let total = c.total();
@@ -804,6 +805,29 @@ mod tests {
         let u = w.unit(b).unwrap();
         assert_eq!((u.construction, u.script.anim), (None, anim::STILL));
         assert_eq!(w.players[0].under_construction, 0);
+    }
+
+    /// V65: a farm site at P = 5 when the build-speed cheat goes on steps at P = 17, 29, 41, ... and completes.
+    #[test]
+    fn the_cheat_makes_every_pass_a_step() {
+        let (mut w, _) = town();
+        w.stats.0[0x3e].hit_points = 400;
+        w.stats.0[0x3e].build_time = 100;
+        let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
+        run(&mut w, 5);
+        let passes = |w: &World| w.unit(b).unwrap().construction.map(|c| c.passes);
+        assert_eq!(passes(&w), Some(5));
+        w.rules.build_speed_cheat = true;
+        let mut hp = w.unit(b).unwrap().hp;
+        for want in [17, 29, 41] {
+            w.step(&[]);
+            assert_eq!(passes(&w), Some(want));
+            let now = w.unit(b).unwrap().hp;
+            assert!(now > hp, "a step at P = {want}");
+            hp = now;
+        }
+        run(&mut w, 100);
+        assert_eq!(w.unit(b).unwrap().construction, None, "complete");
     }
 
     #[test]
