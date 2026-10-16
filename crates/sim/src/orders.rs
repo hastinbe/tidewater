@@ -1174,7 +1174,8 @@ impl World {
         let worker_like = self.flags_of_unit(u) & (flags::PEON | flags::TANKER) != 0;
         let computer_worker = worker_like && self.computer_player(u.owner);
         // "Reacting to an attacker", step 1 comes first for every unit and every player, workers and
-        // tankers included. A computer player's worker or tanker with no attacker runs its AI routine instead.
+        // tankers included. A computer player's worker or tanker with no attacker acquires nothing here; in order 2
+        // it makes its job choice instead (`ai/worker-ai.md`, run from the idle arm of `World::order`).
         if computer_worker && u.attacked_by.is_none() {
             return false;
         }
@@ -1198,7 +1199,7 @@ impl World {
         // while it is valid; no fog or detection test, so an attacker hidden from the seed by those alone goes on to
         // step 2 unseeded, and one whose kind the unit can't hit is fled from. Traced (`human12-25000`
         // transport 1428, n = 16061, and tanker 1425, n = 16612): an undetected attacker is fled from too, and a
-        // computer player's worker or tanker that fails step 1 runs the flee rule and not its AI routine.
+        // computer player's worker or tanker that fails step 1 runs the flee rule and not its job choice.
         if let Some(at) = u.attacked_by.and_then(|a| self.unit(a)).filter(|a| a.present())
             && !self.can_hit_kind(u, at)
         {
@@ -1224,7 +1225,8 @@ impl World {
             return false;
         }
         // "Special cases": workers and tankers of every player never run the search; the others'
-        // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' run their AI routine.
+        // only react to an attacker (`human06-31357` peasant 1587, n = 13557). Computer players' make their job choice
+        // in order 2 (`ai/worker-ai.md`; the other acquiring orders are an open question, held to idle only).
         // Nor does an Enhanced demolition unit with nothing remembered (round 72, traced: V279,
         // `orc11-orc11-sapper-attack-move-goals-1500` sappers 1580 and 1575 in order 4): with an attacker it reacts
         // as the other non-combat units do, and with none it acquires nothing.
@@ -3809,8 +3811,8 @@ mod tests {
 
     /// Step 1 for workers and tankers (`human12-25000` tanker 1425 at n = 16612, and the static-study
     /// rows): a tanker can hit no kind, so with a valid attacker it always runs the flee rule, detected or not. A
-    /// computer player's tanker that fails step 1 flees only from idle, and its AI routine doesn't run either way; a
-    /// computer peon that can hit its attacker passes step 1 and its AI routine runs.
+    /// computer player's tanker that fails step 1 flees only from idle, and its job choice doesn't run either way; a
+    /// computer peon that can hit its attacker passes step 1 and its job choice runs (`ai/worker-ai.md`).
     #[test]
     fn workers_and_tankers_run_step_1_first() {
         let mut w = map();
@@ -3828,7 +3830,7 @@ mod tests {
         );
         assert!(matches!(w.units[ti].order, Order::Move { .. }));
         assert_eq!(w.units[ti].attacked_by, None);
-        // A computer player's tanker, not idle: no flee, and the AI routine doesn't run (the run is over).
+        // A computer player's tanker, not idle: no flee, and the job choice doesn't run (the run is over).
         let g = w.spawn(FOOTMAN, 0, (3, 3), 0).unwrap();
         let c = w.spawn(tanker, 1, (5, 15), 0).unwrap();
         let ci = at(&w, c);
@@ -3845,7 +3847,7 @@ mod tests {
         w.units[ci].order = Order::Idle;
         assert!(w.acquire(ci, Acquires::Idle, false));
         assert!(matches!(w.units[ci].order, Order::Move { .. }));
-        // A computer peon hit by a footman: it can hit land, so step 1 passes and its AI routine runs.
+        // A computer peon hit by a footman: it can hit land, so step 1 passes and its job choice runs.
         let p = w.spawn(PEASANT, 1, (8, 18), 0).unwrap();
         let pi = at(&w, p);
         w.units[pi].attacked_by = Some(g);

@@ -2488,7 +2488,7 @@ mod tests {
         let mut w = game();
         w.rules.enhanced = true;
         water(&mut w, 0, 64);
-        // No army pass (its goals would send the gryphon elsewhere).
+        // No 50-cycle pass (pass B's goals would send the gryphon elsewhere).
         w.army.countdown = u32::MAX;
         let v = spawn(&mut w, DESTROYER, 1, (20, 20));
         let sub = spawn(&mut w, SUBMARINE, 0, (22, 20));
@@ -2610,7 +2610,7 @@ mod tests {
         assert_eq!((at(&w, v).hp, at(&w, v).attacked_by), (60, None));
     }
 
-    /// The losses rule, round 82 (C1; `ai/computer-player.md` CP3, `ai/worker-ai.md` vectors): the buildings are
+    /// The losses rule, round 82 (C1; `ai/computer-player.md` CP2, `ai/worker-ai.md` vectors): the buildings are
     /// counted at the kill, the destroyed one included, so losing one of 2 buildings starts the all-out attack.
     #[test]
     fn losing_buildings_starts_the_all_out_attack() {
@@ -2669,7 +2669,7 @@ mod tests {
         use GoalKind::{Attack, Hold};
         assert_eq!(losses(3, None), [Hold, Attack, Attack]);
         assert_eq!(losses(4, None), [Hold, Hold, Attack, Attack]);
-        assert_eq!(losses(1, None), [Attack]);
+        assert_eq!(losses(1, None), [Attack], "CP3");
     }
 
     /// `ai/worker-ai.md` vector: 3 buildings, one an oil platform, lose one: 2 at the kill, so the all-out attack. The
