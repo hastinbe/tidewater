@@ -372,7 +372,7 @@ impl World {
 
     /// Step 6, "Look": the shown progress goes into the mana byte, and the frame is 0 below 64/255 and 1 from there.
     fn show_construction(&mut self, i: usize) {
-        let Some(p) = self.construction_progress(self.units[i].id) else {
+        let Some(p) = self.shown_progress(i) else {
             return;
         };
         let u = &mut self.units[i];
@@ -380,9 +380,16 @@ impl World {
         u.script.frame = u8::from(p >= LOOK_STAGE);
     }
 
-    /// Construction progress as a fraction of 255: the larger of passes over the total and hit points over M.
+    /// The construction progress the progress bar shows, as a fraction of 255: the value kept in the mana byte, which
+    /// changes only at the construction steps (step 6; V63), so it is 0 from creation until the first step.
     pub fn construction_progress(&self, id: UnitId) -> Option<u8> {
         let u = self.unit(id)?;
+        u.construction.map(|_| u.mana)
+    }
+
+    /// Step 5, the shown progress: the larger of passes over the total and hit points over M, as a fraction of 255.
+    fn shown_progress(&self, i: usize) -> Option<u8> {
+        let u = &self.units[i];
         let c = u.construction?;
         let m = (self.stats_of(u.kind).hit_points as u32).max(1);
         let by_passes = c.passes.min(c.total()) * 255 / c.total();
@@ -805,6 +812,26 @@ mod tests {
         let u = w.unit(b).unwrap();
         assert_eq!((u.construction, u.script.anim), (None, anim::STILL));
         assert_eq!(w.players[0].under_construction, 0);
+    }
+
+    /// V63: the shown construction progress (the bar's value) is the mana byte, which changes only at the steps, 12
+    /// passes apart: 0 from creation until the first step, though the pass counter moves.
+    #[test]
+    fn the_construction_bar_changes_only_at_steps() {
+        let (mut w, _) = town();
+        w.stats.0[0x3e].hit_points = 400;
+        w.stats.0[0x3e].build_time = 100;
+        let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
+        let mut shown = vec![w.construction_progress(b)];
+        for _ in 0..36 {
+            w.step(&[]);
+            shown.push(w.construction_progress(b));
+        }
+        assert_eq!(shown[0], Some(0));
+        for pass in 1..=36 {
+            let changed = shown[pass] != shown[pass - 1];
+            assert_eq!(changed, pass % 12 == 0, "pass {pass}: {:?}", shown);
+        }
     }
 
     /// V65: a farm site at P = 5 when the build-speed cheat goes on steps at P = 17, 29, 41, ... and completes.
