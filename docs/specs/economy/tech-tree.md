@@ -8,6 +8,9 @@
   the job start procedure (steps 1, 2, 5 and 6 of the old "Starting a job") moves to `economy/build-train.md`,
   "Starting a job"; this spec keeps each kind's own check and the level check ("Job checks for each kind"), with no
   rule change. The completion alert is the work-complete sound (traced), and its open question is answered.
+- **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, erratum 16; static study;
+  reviewed by a spec-review session, 2026-10-16): the audit's reading that the "being researched" bits are toggled,
+  not cleared, is held as an open question; no rule change.
 
 ## Behaviour
 
@@ -368,6 +371,11 @@ Default upgrade data unless stated.
 
 ## Open questions
 
+- **"Being researched" bits toggled or cleared.** "Finishing or cancelling research" clears the job's "affects" bits.
+  The B-040 audit's static study flips each of them instead, so a bit named by the upgrade that wasn't set would
+  become set. The default upgrade data names one bit per upgrade, already set by the job's start, so the two readings
+  agree there; they differ only for custom upgrade data naming several bits, some unset. No trace of the default
+  data can separate them. Default: as stated (cleared).
 - What the client version number in the multiplayer join data counts, and whether any real mix of clients turns
   enforcement off.
 - Which multiplayer game types skip the map's UGRD section regardless of its "use default data" word. A

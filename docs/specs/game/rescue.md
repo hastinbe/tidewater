@@ -6,6 +6,9 @@
 - **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`): references
   fixed (no rule change): the job cancel is "Job end" in `economy/build-train.md`, and the research conversion is in
   `economy/tech-tree.md`, "Converting units".
+- **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, errata 4 and 14; static study;
+  reviewed by a spec-review session, 2026-10-16): a working building's cancelled job leaves it with a pending resting
+  order; a completed hall counted for the new owner sets that owner's "ever had a hall" mark.
 
 ## Behaviour
 
@@ -102,18 +105,23 @@ The same steps run for joining and for the gold-store cascade. Steps 1 to 5 happ
 
 1. **Buildings:**
    - a building that is working on a job (training, research, upgrade or building upgrade) has that job cancelled, as
-     in `economy/build-train.md` ("Job end", the Cancelled column). The refund goes to the **old** owner;
+     in `economy/build-train.md` ("Job end", the Cancelled column). The refund goes to the **old** owner. The job ends
+     at once, not at the next work run, and the resting order 33 is given as a **pending** order, which takes over at
+     the building's next animation step (wait 3) (static study; no rescuable working building is known in the shipped
+     campaigns; `economy/build-train.md`, "Cancelling a job");
    - a building still under construction moves from the old owner's under-construction count to the new owner's, and
      its construction goes on.
 2. **Tally.** The new owner's **converted tally** goes up by 1. Mode F in `game/victory.md` reads this tally.
 3. **Owner.** The unit is taken out of every player's current selection, out of the old owner's counts, and into the
-   new owner's. Its order is not changed.
+   new owner's. Its order is not changed (beyond step 1's pending order for a working building).
 4. **Enhanced mode only.** If the new owner has researched the paladin upgrade, a knight or ogre becomes a paladin or
    ogre-mage. If the new owner's ranger level isn't 0, an archer or axe thrower becomes a ranger or berserker. Each
    change is the same as the research conversion in `economy/tech-tree.md` ("Converting units"): hit points go up
    by the difference in maximum hit points, and a caster gets its starting mana. In Classic mode the type doesn't
    change.
-5. **Counts.** The unit is counted for the new owner. A rescuable unit stays rescuable, so the global rescuable
+5. **Counts.** The unit is counted for the new owner. A completed town hall, keep or castle (of either race) counted
+   this way sets the new owner's **ever had a hall** mark, as a completion does (`economy/build-train.md`,
+   "Construction", "At creation"; static study). A rescuable unit stays rescuable, so the global rescuable
    counts don't change.
 6. **Announcement** (only when the unit itself joined, not in the cascade): the capture sound plays on the unit.
    This is `misc\hcapture`, or `misc\ocapture` when the local player's sound set is orc (`ui/sounds.md`). It is a

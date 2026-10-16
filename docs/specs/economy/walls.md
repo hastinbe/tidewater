@@ -7,6 +7,9 @@
   - the tilesets' wall tables (for example `Art\bgs\Forest\nf_wall.bin`).
 
   Not yet confirmed against the running game.
+- **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, erratum 12; reviewed by a
+  spec-review session, 2026-10-16): the audit's reading of the score question is recorded in "Open questions" and
+  held there; no rule change.
 
 ## Behaviour
 
@@ -169,7 +172,11 @@ Positions are tile coordinates (x, y) on a map large enough that no tile named i
   and so could try to reach an area that walls have cut off, belongs to `movement/pathfinding.md`. Default: the
   region value is left alone, exactly as described.
 - **Score.** Whether the kill of a completed wall piece counts in the end-of-game statistics (buildings lost or
-  built). Default: it counts as built once, and is not counted as lost.
+  built). Default: it counts as built once, and is not counted as lost. The B-040 audit's static study
+  (`ERRATA-audit-buildtrain.md`, erratum 12) reads it as neither: walls have no per-type count, so the piece is never
+  lost, and since the Buildings statistic is "standing now + lost" (`game/campaign-flow.md`, "Statistics") it isn't
+  counted as built either. That reading also contradicts step 1 of "Completion" above (the completed-building count
+  drops again), so it is held. Trace request AB4 (score screen after a completed wall piece).
 - **Joining repairs.** The repair of a damaged neighbour follows directly from the joining rule, but it hasn't been
   seen in the running game. Default: it happens as described.
 - **Computer players.** Whether the computer's build lists ever contain walls, and therefore whether the

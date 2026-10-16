@@ -29,6 +29,9 @@
   briefing has no Escape and no way back to the main menu; closing it fades all sound, then the screen out over
   100 ms. Reviewed by a spec-review session, 2026-10-15: "no way back from the briefing" labelled static study
   (Escape observed).
+- **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, erratum 12; static study;
+  reviewed by a spec-review session, 2026-10-16): "lost" counts only completed units and buildings with a per-type
+  count; a building upgrade counts 1 building lost; closes the open question "Units lost and type changes".
 
 ## Behaviour
 
@@ -255,7 +258,14 @@ After a victory or a defeat the score screen is shown, unless the skip setting i
    | Razings | enemy buildings destroyed |
 
    "Lost" goes up by 1 every time the player's count of units (or of buildings) goes down, whatever the cause
-   (death, or a change of owner). So "units" is roughly the number of units the player ever had. Each bar grows in
+   (death, or a change of owner). So "units" is roughly the number of units the player ever had. The count is kept
+   per type, and only for completed units and buildings of a type that has one (static study, B-040 audit,
+   `ERRATA-audit-buildtrain.md` erratum 12; trace request AB4 there):
+   - a site killed or cancelled before it is completed was never counted, so it isn't lost;
+   - a finished building upgrade (a town hall becoming a keep, a scout tower becoming a guard tower) takes the
+     building out of the old type's count, so it counts **1 building lost**;
+   - circles of power, runestones, gold mines and oil patches have no count: they are never lost. Whether wall
+     pieces have one is open (`economy/walls.md`, "Score"). Each bar grows in
    steps of max / 40 (at least 1), where max is the largest value of that statistic among the shown players.
 5. **Score and rank.** The shown score counts up from 0 to the campaign total in steps of total / 10, with the tick
    sound `Sfx\numbers.wav`; `Sfx\rank.wav` goes with the rank. The rank is a `rank_txt.tbl` entry:
@@ -403,6 +413,7 @@ game's own 640 × 480 display compared with the pictures):
 | Same mission lost | No bonus; total back to 4000 for the replay |
 | Footman killed by an enemy archer | Archer's player: kills + 1, mission score + the footman's points |
 | Own farm destroyed by own catapult | No kill credit (same owner); the owner's buildings lost + 1 |
+| A player cancels a farm site and upgrades a town hall to a keep | Buildings lost + 1 (the hall's upgrade only); static study |
 | Victory dialog, Save, then cancel | The victory dialog is shown again |
 | Custom game won | Score screen (no campaign total carried; the total started at 0), then the main menu |
 | Single player, slot 1 a computer allied with the local player | Row label `network.tbl` entry 36 |
@@ -440,8 +451,6 @@ the next one is due at the same moment.
 - **"Play the intro" preference.** Where the preference bit is first set (for the one-time intro) wasn't traced.
 - **Quit requests.** Several screens treat one dialog event as "quit the program". Which user action causes it
   (closing the window, a system menu) wasn't traced.
-- **Units lost and type changes.** Whether a type change (an upgrade such as town hall to keep) counts as a building
-  lost, through the per-type count going down, wasn't checked.
 - **Gathered resources.** Whether gold, lumber and oil count deliveries only, or also other income (such as
   trading or cheats), wasn't traced.
 - **Multiplayer score screen.** Which players are listed and how in a multiplayer game is left to a later spec.

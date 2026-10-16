@@ -6,6 +6,8 @@
   **Audit round 70 edits** (`specs/ERRATA-audit-harvest.md`), reviewed by a spec-review session, 2026-10-15: errata 1,
   2, 5 and 7 to 10 applied; errata 3 and 4 are static study against rules this spec states, so the rules stay and
   both remain open questions (the round-68 ruling).
+  **Round 77 edit** (`specs/ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): a killed mine,
+  platform or depot kills the units inside it ("Mine and platform amounts"; traced for a depot).
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the public PUD
   specification text (UNIT section and unit data flags), and oracle traces of the running game. Each rule says which:
   "traced" with the trace name and record number n, or "static study only". The erratum rounds each rule came from are
@@ -470,11 +472,17 @@ for a computer player's unit, its AI gave it nothing) has **nothing pending**: w
   2500 × that value, and one trip is 100). A value of 0 means 120, so 3000 trips (300 000 gold).
 - An oil platform built on a patch takes the patch's trips. A destroyed platform leaves an oil patch holding the
   platform's remaining trips.
-- **Collapse:** when the last trip is taken, the mine or platform is destroyed. Every unit inside that has it as its
+- **Collapse:** when the last trip is taken, the mine or platform is taken down (`economy/build-train.md`, "Two ways
+  a building goes"), not killed. Every unit inside that has it as its
   target is let out at its next chance: its target is cleared and its wait cut to 1. That includes the unit that took
   the last trip: it carries its load as usual, but has no target and no return-to source, and comes out at its next step
   done like the others (traced: `human12-25000`, vector V61). It then comes out as a carrying unit with no return-to
   source ("Coming out", steps 3 and 4).
+- **Killed, not collapsed:** a mine, platform or depot that is **killed** (by damage or any other kill) lets nobody
+  out. Every unit inside that has it as its target (a worker or tanker gathering or delivering) is killed in the same
+  cycle, where it stands, and leaves a dead body (`economy/build-train.md`, "A building killed"; traced for a peasant
+  delivering gold inside a town hall: `human06-depot-kill-2400` n = 2290, `economy/build-train.md` vector V62;
+  static study for mines and platforms).
 
 ## Data
 
@@ -761,3 +769,4 @@ round are kept with the research-side specs.
 | 2026-10-14 | Consolidation into one model (B-038), no rule change | Whole spec |
 | 69 | Link to the carrying graphics (no rule change) | "Lumber", step 3; `ui/carried-goods.md` |
 | 70 (audit) | B-040 harvest audit (`specs/ERRATA-audit-harvest.md`), reviewed: pending idle at an unfinished depot (traced); new units undetected in their first cycle; selection lost when entering starts; return-to forgotten on leaving the chopping state; no-depot idles without command steps; order 25 forgets a stale attacker; chop-sound draw timing. Errata 3 (order 25's immediate idle) and 4 (tanker delivery) stay open questions | "Starting to harvest", step 3; "Lumber", steps 3 and 4, "Chop sound"; "Returning goods", steps 2 and 3; "Entering"; vectors V89, V90, V93 to V95; "Open questions" |
+| 77 | A killed mine, platform or depot kills the units inside (traced for a depot); `ERRATA-round77.md`, reviewed | "Mine and platform amounts" |

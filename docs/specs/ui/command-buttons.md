@@ -4,6 +4,9 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`), the button panel layout
   in `statbtn.bin`, the string table `stat_txt.tbl`, and the public PUD specification text (unit types, ALOW
   section). Not yet confirmed against the running game.
+- **Changes:** 2026-10-16 (round 77 and the B-040 audit, reviewed by a spec-review session, 2026-10-16): the cancel
+  job button names the cancel-job command, which is separate from cancel construction (`economy/build-train.md`;
+  traced: V57 to V59 there). No rule change.
 
 ## Behaviour
 
@@ -91,7 +94,7 @@ unit without a target.
 | research X, upgrade X | The research cost check runs (gold, lumber, oil); a failure shows its message. Otherwise a job command (research or upgrade X) is sent |
 | become X | The affordability check runs with X's costs; a failure shows its message. Otherwise a job command (upgrade the building to X) is sent |
 | cancel construction | Sends the cancel-construction command for the primary building (`economy/build-train.md`) |
-| cancel job | Sends the cancel command for the primary building's job (full refund) |
+| cancel job | Sends the cancel-job command for the primary building's job (`economy/build-train.md`, "Cancelling a job": full refund, at the job's next work run) |
 | show the … menu, go back | Changes the set only. Nothing is sent |
 | leave target mode, leave placement mode | Ends the mode and goes back to the set of rule 4 to 6 above. Nothing is sent |
 

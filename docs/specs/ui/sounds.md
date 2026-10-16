@@ -22,6 +22,9 @@
   traced with a break on the alert): "Work complete" also plays for the tanker of a finished oil platform, and a
   building upgrade plays it only for halls (keep, stronghold, castle, fortress), not towers. New open question on a
   builder that dies for lack of room.
+- **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, errata 6 and 10; static study;
+  reviewed by a spec-review session, 2026-10-16): two readings that differ from the stated rules are held as open
+  questions ("Construction sound on every 12th pass", "Unit-ready event position"); no rule change.
 
 ## Behaviour
 
@@ -498,6 +501,14 @@ selection cooldown has expired, and r is the setup-shuffle draw.
 - **Work complete for a builder with no room.** When construction finishes, the sound is asked for each unit inside
   before it is placed, so static study says a builder that finds no free tile and dies still plays it. No trace has
   a builder with no room. Default: it plays. Trace request BT3 (`specs/ERRATA-buildtrain-consolidation.md`).
+- **Construction sound on every 12th pass.** "Construction" asks for the sound on each construction step. The B-040
+  audit's static study asks for it on every pass whose count is a multiple of 12, so also on the pass that shows the
+  site full and on the completion pass (`economy/build-train.md`, "The construction pass"). With the shared 150-tick
+  timer the two readings are rarely heard apart. Default: as stated (steps only). Trace request AB1
+  (`ERRATA-audit-buildtrain.md`, with a break on the sound request).
+- **Unit-ready event position.** "Unit ready" makes the new unit's position the latest event location. The audit's
+  static study makes it the training building's top-left tile. Default: as stated. Observation request AB5
+  (`ERRATA-audit-buildtrain.md`).
 - **Tick rate.** The selection cooldown (10 or 30), the construction-sound timer (150), the help timer (60) and the
   quiet counters (200, going down every second tick) count interface ticks. Whether a tick is one game cycle or a
   fixed real-time interval isn't established. Default: one tick per game cycle.

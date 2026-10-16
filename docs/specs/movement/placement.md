@@ -8,6 +8,9 @@
 - **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed;
   traced): the "destroyed" row is the cancelled (taken-down) building only; a builder inside a killed building dies with
   it (`economy/build-train.md`, V50).
+- **Changes:** 2026-10-16 (round 77, `ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16; traced): a
+  builder let out of a cancelled site faces the site's top-left tile itself, not top-left + (1, 1), and becomes idle
+  as a pending order (`economy/build-train.md`, "Cancelling construction", V54 and V55).
 
 ## Behaviour
 
@@ -113,8 +116,10 @@ Some callers add a **region condition**: the tile's region (from the map's regio
 
 A unit placed by the search stands on the found tile, faces its target (a target building is faced at its top-left tile
 plus (1, 1)), and is shown on the map again. A worker coming out with a computer player's build job faces its build goal
-tile instead (`economy/harvest.md`, "Coming out"). A builder coming out of a finished or cancelled building becomes idle
-(order 2). A worker leaving a mine, platform or depot keeps the order that harvesting gave it (`economy/harvest.md`). An
+tile instead (`economy/harvest.md`, "Coming out"). A builder coming out of a finished building becomes idle (order 2)
+as an immediate order. A builder coming out of a cancelled site has had its target cleared, so it faces its target
+tile, the site's top-left tile itself, and becomes idle as a pending order that takes over at its next update
+(`economy/build-train.md`, "Cancelling construction"; traced: V54, V55 there). A worker leaving a mine, platform or depot keeps the order that harvesting gave it (`economy/harvest.md`). An
 unloaded passenger becomes idle.
 
 For a transport pushing off, the found tile is not a placement: the transport is not moved, and the tile becomes its

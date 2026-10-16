@@ -1,7 +1,8 @@
 # Economy: construction, training, research and food
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-11; consolidation reviewed by the spec-review
-  session, 2026-10-16). **Consolidated 2026-10-16 into one model (B-038).** Every rule and vector of the earlier text
+  session, 2026-10-16; round 77 and the B-040 audit reviewed by a spec-review session, 2026-10-16).
+  **Consolidated 2026-10-16 into one model (B-038).** Every rule and vector of the earlier text
   is kept; the vectors have stable IDs (V01 to V49, in their old order) and are grouped by topic. Four traced changes
   of meaning (a builder dies with a killed site; the job's progress bar starts at 1; in `ui/sounds.md`, the
   building-upgrade completion sound is for halls only and the construction one plays for a platform's tanker too) and
@@ -20,7 +21,20 @@
   cancel timing, the take-down of a site, a full unit table and refunds are added as statements or open questions.
   Review: the pay-on-arrival affordability check stays before the site check (the earlier order), with the static
   reading as an open question; a take-down clears the inside units' target before its kill; V52's numbers name the
-  build-speed cheat.
+  build-speed cheat. (Round 77 reversed the arrival order on traced evidence, V61.)
+  2026-10-16 (round 77, `ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): traces of the cancel
+  commands settle three open questions. A builder let out of a cancelled site faces the site's top-left tile and
+  becomes idle as a pending order (V54, V55); a cancelled job ends at its next work run, as stated (V57 to V59); on
+  arrival a failed site check wins over a lack of money, and the idle for a lack of money takes over in the same
+  update (V60, V61). A worker inside a killed depot dies with it (V62). The construction's mana byte changes only at a
+  step (V63). Defaults for the open questions on summoned units' food and the Classic-mode builder's delivery.
+  2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, static study, reviewed by the same session):
+  a new site is idle first and takes order 33 as a pending order (closes "Order at creation", V64); the build-speed
+  cheat makes every pass a step (V65); a rescued hall sets "ever had a hall" (V66); entering a site forgets the
+  attacker and gives the entry sight (V67); the arrival site check is the full one; a full unit table shows its own
+  message; a builder loses a load its new store doesn't accept (V68); the two cancel commands (V69); a building
+  upgrade's hit-point gain isn't clamped; the command-button refresh. Held as open questions: the fast first hall read
+  on each pass (Enhanced multiplayer) and the unit-ready event position.
 
 ## Behaviour
 
@@ -63,13 +77,15 @@ Four rules are shared by these procedures:
   them (order 22) is let out at once, and any other unit (a worker in a collapsing mine or platform) comes out at its
   next chance, as `economy/harvest.md` says ("Collapse"). Then it kills the building, which kills nobody inside,
   since no unit inside has it as its target any more (static study). A kill by any other cause kills every unit
-  inside whose target is the building (traced: V50; the target test is static study).
+  inside whose target is the building (traced: V50 for a builder in a site, V62 for a worker in a depot; the target
+  test is static study).
 - **Letting a unit out.** A unit leaves a building by the ring search of `movement/placement.md` (limit 12, starting
   from the tile west of the building's top-left tile); if no tile is found, it **dies**. A trained unit that can't be
   placed isn't created at all.
 - **The local player sees it.** Messages, completion sounds and the command-button refresh at the end of a
-  construction or a job are for the owner only if the owner is the local player. Every other effect happens for
-  every player on every machine (static study).
+  construction are for the owner only if the owner is the local player. Every other effect happens for every player
+  on every machine (static study). The command buttons are refreshed at every job end and every building kill,
+  whoever the owner is (static study); the refresh only redraws the local player's panel, so nothing else changes.
 
 ### Costs in the data
 
@@ -171,29 +187,39 @@ worker's own tile (below), so that doesn't stop the building.
   out. A build walk that ends with **no route** doesn't give the payment back; the job choice may give the same build
   again and the player pays again each time (traced: V37, V38). Only a failed site check on arrival (below) refunds
   it.
-- **Every other player** (human, passive computer, neutral) pays on arrival. The affordability check runs then, and a
-  failure shows its message and makes the worker idle. In ordinary games only human players reach this, since
-  passive and neutral players don't build.
+- **Every other player** (human, passive computer, neutral) pays on arrival. The affordability check runs then,
+  after the site check ("Placement on arrival"), and a failure shows its message and makes the worker idle. In
+  ordinary games only human players reach this, since passive and neutral players don't build.
 
 **Placement on arrival**, in this order (static study, with the outcomes traced where named):
 
-1. For a player that pays on arrival, the affordability check (above). A failure shows its message and ends it:
-   the worker becomes idle as in step 2 (idle taking over in the same update; static study) and nothing is paid.
-   (Static study reads the site check's failure as taking precedence when both fail; see the open question
-   "Arrival with no money and a blocked site".)
-2. The site is checked for placement (`movement/occupancy.md`, placement masks). The worker's own tile doesn't
+1. The site is checked for placement: the full site check of `ui/placing-buildings.md` ("The site check"), with
+   its masks (`movement/occupancy.md`), shore and oil-patch tests and spacing rules, and, unlike the command turn,
+   **with** the unexplored test for a builder of the local player (static study; no reachable case is known where
+   this differs from the command turn's check, since the spacing doesn't change during a walk in the shipped data and
+   the builder's own sight explores the site as it arrives). The worker's own tile doesn't
    block it. A failure shows a placement message. For a computer player the cost is given back, and the worker becomes
    idle: idle **takes over in the same update** (order 2, still animation, wait 3; `orders/orders.md`, "Same-update
-   take-over"), not as an immediate order, and the worker's tile stays marked as occupied by it (traced: V33).
+   take-over"), not as an immediate order, and the worker's tile stays marked as occupied by it (traced: V33). For a
+   player that pays on arrival this failure **wins over a lack of money**: when the site is blocked and the player
+   can't afford the building either, the placement message shows, not the affordability message (traced: V61).
+2. For a player that pays on arrival, the affordability check (above). A failure shows its message and ends it:
+   the worker becomes idle the same way, taking over in the same update (order 2, still animation, wait 3; traced:
+   V60), and nothing is paid.
 3. The building is created under construction ("Construction"). If it can't be created because the unit table is
-   full, the owner (if local) is shown a message, a computer player's cost is given back, and the worker becomes idle
-   the same way (static study; no trace reaches a full table).
+   full, the owner (if local) is shown the unit table's own "table full" message, not a placement message, a computer
+   player's cost is given back, and the worker becomes idle the same way (static study, checked again in round 77 and
+   by the B-040 audit; no trace reaches a full table). A player that pays on arrival has paid nothing at this point,
+   so it gets nothing back.
 4. On success the cost of a player that pays on arrival is taken, and the worker **goes inside** the building, in
    order 22, the same way a worker enters a mine (`economy/harvest.md`, step 2 of "Entering"). Its target is the new
-   building and its target tile the building's top-left tile. Going inside takes it out of every selection and group
-   (`ui/selecting-and-commanding.md`, "Losing a unit from the selection"). Order 22's logic only forgets the unit's
-   attacker and sets a 255-cycle wait (`orders/orders.md`); the worker stays inside until the building is finished,
-   taken down or killed.
+   building and its target tile the building's top-left tile. As for any entering worker, it **forgets its attacker
+   at once** and, for a human owner, reveals the entry sight (`vision/fog.md`, "Who reveals, and when", rule 3: sight
+   3 at the building's top-left tile moved one step in its facing) (static study; the attacker isn't in the trace
+   format). Going inside takes it out of every selection and group
+   (`ui/selecting-and-commanding.md`, "Losing a unit from the selection"). Order 22's logic, which first runs 150
+   cycles later, also forgets the unit's attacker and sets a 255-cycle wait (`orders/orders.md`); the worker stays
+   inside until the building is finished, taken down or killed.
 
 **Oil platform.** The oil patch under the new platform is marked used and killed. It leaves no ruin: at its own next
 update its order becomes "remove" (order 0, animation 0, wait 1; its type and other fields kept), and its slot is
@@ -218,9 +244,15 @@ points.)
   either race), a gold-storing building's T is lowered to the same race's farm build time, if that is shorter. In
   Enhanced mode T is at least 1. The owner's **ever had a hall** mark records this: it is set for every player at the
   start of a new game except in Enhanced multiplayer (`game/setup.md`), so this rule applies only there, until the
-  player's first hall is completed.
+  player's first hall is completed. The mark is set whenever a completed hall is counted as the player's: at map
+  load, at a hall's completion, and when a completed hall changes owner to the player (a rescued hall,
+  `game/rescue.md`) (static study; V66). Whether T is fixed here or read again on each pass is an open question
+  ("Fast first hall on each pass").
 - The owner's "buildings under construction" count goes up by 1.
-- The building's order is 33 (its resting order). The construction itself isn't an order: it is advanced by a
+- The building is given idle (order 2, still animation) as an immediate order, and then its resting order 33 as a
+  **pending** order, which takes over at the still animation's next step, 5 cycles later (wait 3) (static study;
+  traced: V64). (A type with the tower flag would be given order 14, and the circle of power its own order 59, but
+  neither can be placed in play: see the builder table.) The construction itself isn't an order: it is advanced by a
   separate pass.
 
 **The construction pass** runs once per cycle in phase 4 of `core/timing-and-rng.md`, after the missiles and before
@@ -228,7 +260,8 @@ the timers pass. It visits units in slot order. For each building under construc
 study):
 
 1. A pass counter P (0 at creation) goes up by 1. Nothing else happens unless P is a multiple of 12. With the
-   build-speed cheat on, P goes up by 12 instead, so every pass is a step.
+   build-speed cheat on, P goes up by 12 instead and the multiple-of-12 test isn't made, so every pass is a step
+   (or reaches the total, step 3), whatever P was when the cheat went on (static study; V65).
 2. Let the total be 12 × (T + 1).
 3. **If P has reached the total:**
    - if P equals the total exactly, the progress shows as full and nothing else happens;
@@ -239,8 +272,9 @@ study):
 5. The shown progress is the larger of P / total and hit points / M, as a fraction of 255.
 6. **Look:** below 64/255 the building shows the first construction-site frame (frame 0), and from 64/255 the second
    (frame 1). From 128/255 the building's own picture replaces the construction site; the frame stays 1. The shown
-   progress (0 to 255) is kept in the building's mana byte at every construction step. On completion the frame and
-   the mana byte go back to 0 (traced: V18).
+   progress (0 to 255) is kept in the building's mana byte at every construction step, and only then: between steps
+   it doesn't change, though the pass counter does (traced: V63). On completion the frame and the mana byte go back
+   to 0 (traced: V18).
 
 An undamaged building reaches M at step T, so it completes on pass **12 × (T + 1)**, counting the creation cycle as
 pass 1. A building that took damage during construction doesn't reach M. It shows full progress at step T + 1 and
@@ -253,7 +287,10 @@ completes 12 passes later, with its hit points still below M.
   owner is the local player, the command buttons are refreshed (static study).
 - Every unit inside it (the builder, or the tanker of an oil platform) gets the work-complete sound (`ui/sounds.md`;
   traced: V53) and goes through delivery (`economy/harvest.md`, "Delivering goods"): it gets any goods it carries
-  delivered if the building is a depot for them, and a builder of a town hall, keep or castle gets the **hall-sized
+  delivered if the building is a depot for them; if the building stores gold or wood but doesn't accept the load (a
+  peasant carrying gold that builds a lumber mill), the load is **lost** and the builder comes out empty-handed, as
+  that table says; a building that stores neither leaves the load as it is (static study; V68; the same loss on
+  entering is traced, `economy/harvest.md` V66). A builder of a town hall, keep or castle gets the **hall-sized
   exit mark**, carrying or not (`economy/harvest.md`, "Coming out", step 6). Being let out here neither uses nor
   clears the mark. Then:
   - a **tanker** (the builder of an oil platform) gets order 25 as an **immediate order** (`orders/orders.md`, "Pending
@@ -281,12 +318,24 @@ nothing (static study). The building is **taken down**:
    | Classic | Gold and lumber (not oil) |
    | Enhanced | Gold, lumber and oil |
 
-2. Any builder inside is let out by the same ring search (or dies if there is no room), as on completion.
+2. Any builder inside is let out at once, in the command turn, by the same ring search as on completion (or dies if
+   there is no room). It differs from completion in two ways, both because its target was cleared first ("Two ways
+   a building goes"):
+   - it **faces the building's top-left tile** ("Facing a tile", `core/animation-scripts.md`, with B the top-left
+     tile itself, not top-left + (1, 1)). From the tile west of the top-left tile it faces E (2), where a completed
+     building's builder faces SE (3);
+   - it becomes idle as a **pending** order, not an immediate one: in the record of the cancel it is placed, with no
+     target, still in order 22 with wait 1; at its next update idle takes over (order 2, still animation, wait 3).
+   (Traced: V54, V55.)
 3. The building is killed ("A building killed"); no unit inside has it as its target any more, so nobody else dies.
+   The site's refund and its kill show in the same record as the builder's exit (traced: V56).
 
-How the let-out builder faces and becomes idle differs from completion in the static reading; see the open question
-"Exit facing on cancel". The same take-down, with no refund in Enhanced mode, is how an exhausted mine or platform
-collapses (`economy/harvest.md`, "Mine and platform amounts"; static study).
+A cancel-construction command naming a completed building does nothing (traced: V56), whether it is resting or
+working: the two cancel commands are separate, and each acts only in its own state, so cancel construction never
+ends a job and cancel job never takes down a site (static study; V69). The command panel always sends the one that
+fits; only an input script or a network peer can send the other. The same take-down, with no
+refund in Enhanced mode, is how an exhausted mine or platform collapses (`economy/harvest.md`, "Mine and platform
+amounts"; static study).
 
 ### A building killed
 
@@ -297,9 +346,12 @@ When a building is killed (by damage, a spell, a demolition, or any other kill o
   byte go to 0 in the same cycle (traced for training: V36; the other job kinds follow the same rule, static study);
 - if it is under construction, the owner's under-construction count goes down by 1 (static study);
 - every unit inside it whose target is the building **is killed in the same cycle**, where it stands (the building's
-  top-left tile): a builder inside a site that is destroyed doesn't come out (traced: V50). It dies like any killed
-  unit, leaving a dead body (`core/corpses.md`);
-- if its owner is the local player, the command buttons are refreshed (static study).
+  top-left tile): a builder inside a site that is destroyed doesn't come out (traced: V50), and neither does a worker
+  delivering goods inside a depot (traced: V62) or, by the same rule, a worker inside a mine or a tanker inside a
+  platform or depot (static study). It dies like any killed unit, leaving a dead body (`core/corpses.md`). (The
+  collapse of an exhausted mine or platform isn't a kill: it is a take-down, and the units inside come out,
+  `economy/harvest.md`, "Mine and platform amounts".)
+- the command buttons are refreshed, whoever the owner is ("The local player sees it"; static study).
 
 The building then dies as any unit does (`core/unit-slots.md`).
 
@@ -355,11 +407,16 @@ The cancel-job command (`ui/command-buttons.md`, "cancel job") is carried out fo
 selection if that unit is the sender's building; it only marks the job as **to be cancelled**, and does nothing if the
 building isn't working. The job ends, cancelled, at the building's **next work run** ("Job progress"), not in the
 command turn: within 5 cycles once the runs have begun; a job marked before its first run ends at that first run, 13
-cycles after order 37 takes over. A job marked this way ends cancelled even if its counter has reached the total.
-(Static study; no trace gives a cancel. Trace request in the open questions.)
+cycles after order 37 takes over. The end is the ordinary one ("Job end"): order 33 in the same update (wait 3), the
+mana byte to 0 and the full refund, all in the record of that run (traced: V57 to V59). A job marked this way ends
+cancelled even if its counter has reached the total (static study). A cancel-job command for a building that isn't
+working does nothing (traced: V59).
 
 A job is also cancelled when the building is killed ("A building killed") and when the building changes owner
-(`game/rescue.md`; the refund goes to the old owner).
+(`game/rescue.md`; the refund goes to the old owner). Neither waits for the next work run. A killed building goes
+straight to its death (order 1 in the same cycle; traced: V36). On an owner change the job ends at once, and order 33
+is given as a **pending** order, which takes over at the building's next step (static study; untraced, since in
+ordinary games only buildings of players that never start jobs change owner).
 
 ### Job end
 
@@ -367,8 +424,8 @@ When the job ends, finished or cancelled: the order returns to 33, taking over i
 wait 3; a guard or cannon tower made by a building upgrade takes order 14 instead, below; traced: every job end in
 the Enhanced oracle traces that isn't a kill, 2593 of them), the progress counter and the mana byte go to 0, the cost
 is looked up again for the job's item (so a refund is the current cost, "Paying"), the job's own ending below runs,
-and, if the owner is the local player, the command buttons are refreshed (static study; traced: V17 for the mana
-byte). A building upgrade, finished or cancelled, sets the frame back to 0 (cancelled: the
+and the command buttons are refreshed, whoever the owner is ("The local player sees it") (static study; traced: V17
+for the mana byte). A building upgrade, finished or cancelled, sets the frame back to 0 (cancelled: the
 old picture returns) (traced: V19).
 
 | Job | Finished | Cancelled |
@@ -376,7 +433,7 @@ old picture returns) (traced: V19).
 | Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile), and the ready sound plays (`ui/sounds.md`). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
 | Research a spell | The spell becomes known, if its "being researched" bits are still set (`economy/tech-tree.md`) | Full refund, on the same condition |
 | Upgrade | The level in its line goes up by 1, on the same condition | Full refund, on the same condition |
-| Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M), each maximum counted as at least 1. Towers get order 14, which takes over in the same update (animation 4, wait 3) (traced: V34) | Full refund |
+| Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M), each maximum counted as at least 1, with no clamp on the result (static study; it differs from a clamped reading only for custom unit data). Towers get order 14, which takes over in the same update (animation 4, wait 3) (traced: V34) | Full refund |
 
 In every case the "units in training" count (for training) goes back down. The completion sounds of finished
 research, upgrades and building upgrades are in `ui/sounds.md` ("Work complete"; traced: V51).
@@ -390,7 +447,7 @@ These are stated in other specs; the list says where each step of a building's l
 | Worker goes inside a new site | it leaves every selection and group | `ui/selecting-and-commanding.md`, "Losing a unit from the selection" |
 | Under construction or working, own building | busy button set (one Cancel, strings 408 to 410); info panel frame 3 with the progress bar | `ui/command-buttons.md`, rule 6; `ui/info-panel.md`, "Progress bar" |
 | Progress bar | the building's mana byte above: construction progress, or the job's (1 at the start) | `ui/info-panel.md`, "Progress bar" |
-| Completion, job end, kill | command buttons refreshed for the local owner; work-complete or ready sound | this spec; `ui/sounds.md` |
+| Completion, job end, kill | command buttons refreshed (at completion for the local owner only); work-complete or ready sound | this spec; `ui/sounds.md` |
 | Builder let out, or unit trained | not selected: nothing adds it to a selection (the builder left every selection when it went inside) | `ui/selecting-and-commanding.md`, "Losing a unit from the selection" |
 
 ## Data
@@ -412,8 +469,10 @@ Units not counted as using food: skeleton, daemon, critter.
 ## Test vectors
 
 Vector IDs are stable: V01 to V49 number the vectors in the order the spec held them before the consolidation, so
-the review file can map each one; V50 to V53 are new. "Source" says whether a vector is from an oracle trace (named in
-the row), from static study, or a worked example of the rules. The values of M and T in the worked examples are
+the review file can map each one; V50 to V53 are new in round 76, V54 to V63 in round 77 and V64 to V69 in the B-040
+audit (`ERRATA-audit-buildtrain.md` numbered its draft vectors V54 to V63 too; its review renumbered them, and the
+ones that repeat a round-77 vector were merged into it). "Source" says whether a vector is from an oracle trace
+(named in the row), from static study, or a worked example of the rules. The values of M and T in the worked examples are
 examples, not quoted from the game data. Rows that begin "Same" follow the row they continue.
 
 ### Costs, affordability and food
@@ -457,6 +516,9 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V33 | `xhuman2` (oracle trace), n = 85: computer peon 1562 (type 0x03, owner 5) at (65, 59) in order 28 arrives and the site check fails | Order 2, animation 2, wait 3; its tile stays marked (ogre 1549 is blocked by it at n = 113). n = 88: order 28 again (the computer gives the job again) | Trace |
 | V37 | `xhuman12-10000` (oracle trace), n = 116: a computer player 6 build walk finds no route | Player 6 gold 3700 and lumber 3650: the payment made that cycle stays spent | Trace |
 | V38 | `human14-10000` (oracle trace), n = 1040: the same for computer player 5 | Player 5 gold 33556 and lumber 35906 (no refund) | Trace |
+| V60 | `human06-arrive-broke-700` (oracle trace, Enhanced; scenario `oracle/scenarios/human06-arrive-broke.txt`; no cheats): peasant 1587 (owner 1, a human player) given a farm at the clear site (84, 2) with 1000 gold (turn record n = 254); a footman's training leaves 400 gold (n = 258); 1587 arrives at (84, 3) | n = 339: still order 28, wait 1 (the record is there; 1587 is unchanged from n = 338). n = 340: order 2, animation 2, wait 3, target none (idle in the same update); gold stays 400; no site placed | Trace |
+| V61 | Same trace, captured with a break on the arrival's site-failure message (`oracle/README.md`, "Round 77 traces"): peasant 1586 given a farm at (76, 5) (turn record n = 252); footman 1584 then stands on (76, 5); 1586 arrives at (77, 6) with 400 gold | n = 513: still order 28 (wait 1). n = 514: order 2, animation 2, wait 3; gold stays 400; the site-failure message branch runs for 1586 at n = 514 and never for 1587 (so the placement message shows, not the affordability one) | Trace (break log) |
+| V67 | A peasant hit by an enemy archer while walking to its farm site enters the site | Its attacker is clear in the entry cycle (not 150 cycles later, when order 22's logic first runs); for a human owner, the sight-3 area around the site's top-left tile moved one step in its facing is revealed that cycle | Static study |
 
 ### Oil platform
 
@@ -476,6 +538,10 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V05 | Building with M = 1200, T = 255 | starts at 40 HP (120 capped to 40); D = 1160; completes on pass 3072 | Worked example |
 | V06 | Building with M = 60 | starts at 6 HP | Worked example |
 | V16 | Enhanced multiplayer, first town hall of a player who never had one | built in the farm's build time if shorter | Worked example |
+| V64 | `human06-cancel-site-600` (oracle trace, Enhanced): farm site 1521 placed at n = 78 | n = 78: order 2, animation 2, wait 5; the wait counts down to 1 at n = 82; n = 83: order 33, wait 3 (the pending order takes over). The same in `human06-site-kill-800`, n = 78 to 83, and `human01-basics-9500`, n = 134 to 139 | Trace |
+| V65 | A farm site at P = 5, built without cheats; the build-speed cheat goes on | P = 17, 29, 41, …: each pass is a step and the farm completes (a reading that still needs P to be a multiple of 12 would never step again) | Static study |
+| V66 | A player that has never had a hall rescues a completed town hall, then builds a town hall (Enhanced multiplayer) | The full build time, not the fast first hall time | Static study |
+| V63 | `human06-cancel-site-600` (oracle trace): farm site 1521 placed at n = 78 (40 hit points, mana byte 0) | Mana byte 27 (43 hit points) at n = 89, 29 at n = 101, 31 at n = 113: it changes only at the steps, 12 passes apart | Trace |
 | V18 | orc4 (oracle trace), farm slot 1534 under construction | Mana 27 at n = 10714, rising with hit points (41 at 10786); 64 and frame 1 at n = 10906; frame 1 to completion; frame 0 and mana 0 at n = 11914 (hit points 400) | Trace |
 
 ### Completion
@@ -490,6 +556,7 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V30 | `xhuman2` (oracle trace), n = 3438: builder 1588 let out at (21, 4) from a tower (type 0x41) with top-left (20, 2) | dx 0, dy −1 to (21, 3): facing 0 (N) | Trace |
 | V31 | `orc09-naval` (oracle trace), n = 468: oil platform 1468 completed with tanker 1473 inside | Tanker: order 25, animation 3, wait 1, target 1468, facing kept (2) | Trace |
 | V32 | Same, n = 469 | Tanker: order 26, still animation, wait 150 | Trace |
+| V68 | A peasant carrying gold (from a mine, before delivering) builds a lumber mill | At completion it comes out carrying nothing, and no gold is added. Trace request AB2 (`ERRATA-audit-buildtrain.md`) | Static study |
 | V53 | `orc09-naval-1500` (oracle trace), n = 468, re-run with a break on the work-complete alert (`oracle/README.md`, "Round 76 traces"): oil platform 1468 completes with tanker 1473 (type 0x1B, owner 5, the local player) inside | The alert runs for tanker 1473 at n = 468, the cycle it takes order 25 (V31) | Trace (break log) |
 
 ### Cancelling construction
@@ -498,12 +565,17 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | --- | --- | --- | --- |
 | V07 | Cancel a building whose stored costs are gold 50, lumber 25, oil 10 (real 500 / 250 / 100), Classic | +375 gold, +187 lumber, +0 oil | Worked example |
 | V08 | Same, Enhanced | +375 gold, +187 lumber, +75 oil | Worked example |
+| V54 | `human06-cancel-site-600` (oracle trace, Enhanced; scenario `oracle/scenarios/human06-cancel-site.txt`; glittering prizes): peasant 1586 (type 0x02, owner 1) inside farm site 1521 (type 0x3A, top-left (76, 5)); the cancel is carried out in the turn after n = 121 | Turn record n = 122: 1521 order 1, animation 1; 1586 at (75, 5), facing 2 (E, toward (76, 5)), order 22, wait 1, target none. n = 123: 1586 order 2, animation 2, wait 3 | Trace |
+| V55 | Same trace: peasant 1587 inside church site 1519 (type 0x3E, 3 × 3, top-left (85, 1)); cancel in the turn record n = 202 | 1587 at (84, 1), facing 2 (E, toward (85, 1); a completed church's builder would face toward (86, 2)), order 22, wait 1, target none; n = 203: order 2, animation 2, wait 3 | Trace |
+| V56 | Same trace: the refunds, and a cancel naming the completed barracks 1588 (turn record n = 262) | Player 1's gold and lumber 10200 / 5450 to 10575 / 5637 at n = 122 (farm: +375, +187); 9675 / 5137 to 10350 / 5512 at n = 202 (church: +675, +375); oil unchanged (no oil cost). 1588 unchanged | Trace |
+| V69 | A cancel-construction command naming a working barracks; a cancel-job command naming a construction site | Nothing happens in either case: the job runs on, the site goes on being built | Static study |
 
 ### A building killed
 
 | ID | Case | Expected | Source |
 | --- | --- | --- | --- |
 | V50 | `human06-site-kill-800` (oracle trace, Enhanced; scenario `oracle/scenarios/human06-site-kill.txt`): peasant 1586 (type 0x02, owner 1) is inside farm site 1521 (type 0x3A, top-left (76, 5)) from n = 78 (order 22, target 1521); player 1's ballista, footmen and knight attack the site from n = 150 | n = 416: site 1521 is killed (order 1; mana byte 70, frame 1 in that record); in the same record peasant 1586 is in order 1, animation 1, wait 1, at (76, 5), hit points 30 (unchanged), target 1521; it doesn't come out. n = 523: 1586 is a dead body (type 0x69) | Trace |
+| V62 | `human06-depot-kill-2400` (oracle trace, Enhanced; scenario `oracle/scenarios/human06-depot-kill.txt`; no cheats): peasant 1586 (type 0x02, owner 1) delivering gold goes inside town hall 1591 (type 0x4A, top-left (82, 4)) at n = 2166 (order 26, target 1591); player 1's units attack the hall from n = 240 | n = 2290: 1591 order 1; in the same record 1586 is in order 1, animation 1, wait 1, at (82, 4), hit points 30 (unchanged), target 1591; it doesn't come out. n = 2397: 1586 is a dead body (type 0x69) | Trace |
 | V36 | `human5-10000` (oracle trace), n = 8086: town hall 1525 (type 0x4A, owner 0) is killed while training (order 37, mana byte 70) | Same cycle: order 1, player 0's gold 300 to 700 (the 400 paid for the unit refunded), mana byte 0 | Trace |
 
 ### Jobs
@@ -518,35 +590,37 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V51 | `human06-alerts-1400` (oracle trace, Enhanced; scenario `oracle/scenarios/human06-alerts.txt`, captured with a break on the work-complete alert): town hall 1591 (type 0x4A, owner 1) becomes a keep (job from n = 35); scout tower 1516 (type 0x40) becomes a guard tower (job from n = 425); lumber mill 1583 finishes the first arrow upgrade; church 1519 finishes healing | The alert runs for 1591 at n = 248 (type 0x58, order 33, wait 3 in that record), for 1583 at n = 241 and for 1519 at n = 530. It doesn't run when 1516 becomes type 0x60 at n = 578 (order 14, wait 3) | Trace (break log) |
 | V15 | Keep (old M) upgraded to castle (new M), keep damaged to h HP | castle with h + (new M − old M) HP | Worked example |
 | V14 | A trained unit can't be placed | message; costs fully refunded | Static study |
+| V57 | `human06-cancel-job-500` (oracle trace, Enhanced; scenario `oracle/scenarios/human06-cancel-job.txt`; glittering prizes): barracks 1588 (type 0x3C, owner 1) trains a footman (paid in the turn record n = 22; order 37 takes over at n = 25, wait 3); cancel job carried out in the turn record n = 32, before the first run | Order 37 through n = 37; n = 38 (25 + 13, the first run): order 33, animation 2, wait 3, mana byte 0, gold 10100 to 10700 | Trace |
+| V58 | Same trace: 1588 trains again (order 37 from n = 106, runs at n = 119, 124, …); cancel job in the turn record n = 302 | Order 37, mana byte 78, through n = 303; n = 304 (the next run): order 33, wait 3, mana byte 0, gold 10400 to 11000 | Trace |
+| V59 | Same trace: lumber mill 1583 (type 0x4C) on its first arrow upgrade (upgrade 4) since n = 24; cancel job in the turn record n = 202 (runs at n = 201, 206); then, at n = 402, a cancel job on the resting barracks 1588 | n = 206: order 33, wait 3, mana byte 0, gold and lumber 10100 / 5700 to 10400 / 6000. 1588 unchanged by its cancel | Trace |
 
 ## Open questions
 
 The requirement rules, the setting that turns them off and the research jobs' effects are in `economy/tech-tree.md`.
-Trace requests BT1 to BT5 are listed in `specs/ERRATA-buildtrain-consolidation.md`.
+Trace requests BT1 to BT5 are listed in `specs/ERRATA-buildtrain-consolidation.md`; BT1, BT2 and BT5 were run in
+round 77 (`specs/ERRATA-round77.md`). Trace requests AB1 to AB5 are listed in `specs/ERRATA-audit-buildtrain.md`.
 
-- **Food of summoned units.** Whether eyes of Kilrogg and other summoned units count as food in use.
+- **Food of summoned units.** Whether eyes of Kilrogg and other summoned units count as food in use. Default (static
+  study, round 77): the food-exempt types are exactly the skeleton, the daemon and the critter, so an eye of Kilrogg
+  counts as food in use like any other non-building unit while it exists, and a summoned skeleton doesn't. Not
+  traced.
 - **Upgrade picture.** Which frame of the new type's graphics a building upgrade shows with frame 1 (a construction
   stage of the new type, or something else) wasn't checked. Default: frame 1 of the new type's picture.
-- **Exit facing on cancel.** A builder let out at completion faces the building and becomes idle at once (wait 1).
-  Whether one let out of a cancelled site does the same wasn't traced. Default: it does. Static study reads it
-  differently: the builder's target is cleared before it is let out, so it faces its target tile (the building's
-  top-left tile, not top-left + (1, 1)), and idle is given as a pending order, not an immediate one. Trace request
-  BT1. (A builder inside a **killed** site doesn't come out at all: V50.)
-- **Cancel-job timing.** "Cancelling a job" (static study) puts the end of a cancelled job at the next work run, not
-  in the command turn. No trace has a cancel. Default: as stated. Trace request BT2.
-- **Arrival with no money and a blocked site.** "Placement on arrival" keeps the earlier order: for a player that
-  pays on arrival, the affordability check comes before the site check. Static study reads it the other way when
-  both fail: the cost is checked first but its failure is acted on only after the site check, so the placement
-  message shows instead of the affordability one. Both readings leave the worker idle and nothing paid; only the
-  message differs. Default: as stated (affordability first). Trace request BT5.
-- **Order at creation.** "At creation" gives a new site order 33. The traces show a new site in order 2 (still
-  animation, wait 5) in the cycle it is placed and the next four, with order 33 taking over 5 cycles later (wait 3):
-  V50's trace, n = 78 to 83; `human01-basics-9500`, n = 134 to 139. So order 33 reads as a pending order, but static
-  study hasn't checked it. Default: as the traces show (no stated outcome changes: "order 33" is still the order the
-  site rests in). Request: a static check; no new trace is needed.
+- **No room for a let-out builder.** Whether a builder that finds no tile and dies still gets the work-complete sound
+  at completion. Default (static study): it does, since the sound is asked for before the unit is placed. Trace
+  request BT3 (low value; not run).
+- **Fast first hall on each pass (Enhanced multiplayer only).** "At creation" fixes T when the site is created. The
+  B-040 audit's static study reads T again from the type's build time on every construction pass, with the fast
+  first hall rule applied at that moment. The two differ only in Enhanced multiplayer, for a player with two first
+  halls under way at once: when one completes, the other's T would go back to the full build time on its next pass,
+  so its hit points stop rising until floor(k × D / T) passes the value already given, and its shown progress drops.
+  Default: as stated (T fixed at creation). Trace request AB3 (multiplayer launch, Enhanced).
+- **Unit-ready event position.** "Job end" and `ui/sounds.md` put the latest event location at the new unit's tile.
+  The audit's static study puts it at the building's top-left tile (the minimap ping and the "go to last event" key
+  would point there). UI only. Default: as stated (the new unit's tile). Observation request AB5.
 - **Classic-mode builder's delivery.** Whether a builder in gold or lumber mode with empty hands gets a load delivered
   when its building is completed in Classic mode (the static reading says yes, as for a Classic delivery on entering)
-  isn't separated by any trace.
+  isn't separated by any trace. Default (Classic mode, static study): it does.
 - **Classic mode: refund on collapse.** In Classic mode the static reading gives the 75 % gold and lumber refund
   whenever a building is taken down, so an exhausted oil platform's collapse would refund 75 % of the platform's
   gold and lumber. Enhanced mode refunds only on the cancel command. Default for Classic mode: the static reading.
@@ -564,7 +638,7 @@ round are kept with the research-side specs.
 | 6 | Research isn't checked against "known" or "being researched" at the command; finishing or cancelling research depends on the "being researched" bits; training requirements only while enforced | "Starting a job", step 3 (`economy/tech-tree.md`); "Job end" |
 | 33 | Shown progress of construction and jobs in the mana byte; construction look and building upgrade are frames 0 and 1 | "Construction", step 6; "Starting a job"; "Job progress"; vectors V17 to V19 |
 | 35 | Build walk goal on the planned footprint (oil platform, shore rule) | "The build walk" |
-| 39 | Builder let out of a finished building faces it; exit-facing open question | "Completion"; vectors V25 to V30; "Exit facing on cancel" |
+| 39 | Builder let out of a finished building faces it; exit-facing open question (closed in round 77) | "Completion"; vectors V25 to V30; "Cancelling construction" |
 | 40 | A failed placement on arrival: idle takes over in the same update, tile stays marked; a tower's order 14 takes over in the same update | "Placement on arrival", step 1; "Job end"; vectors V33, V34 |
 | 41 | The build walk's goal stays fixed while walking; the oil patch is marked used and killed, no ruin, slot released 513 cycles later | "The build walk"; "Oil platform"; vectors V23, V24 |
 | 42 | Order 28's logic runs only on arrival; the two ways a build walk ends without arriving | "Arriving" |
@@ -578,3 +652,5 @@ round are kept with the research-side specs.
 | 62 | Shore site with no corner traced | vector V48 |
 | 65 | An oil patch in a lower slot than its builder shows order 1 for that cycle | "Oil platform"; vector V49 |
 | 76 | Consolidation (B-038): one model; job start moved here from `economy/tech-tree.md`; a killed site kills its builder; the job's mana byte is 1 from the start; completion sounds; static statements on cancel commands, a full unit table, job end and refunds | "The model"; "A building killed"; "Starting a job"; "Cancelling a job"; "Job end"; vectors V50 to V53 |
+| 77 | Traced the cancel commands and the broke arrival: a cancelled site's builder faces the top-left tile with a pending idle; a cancelled job ends at the next work run; the site failure wins on arrival; a worker in a killed depot dies; reviewed | "Placement on arrival"; "Construction"; "Cancelling construction"; "A building killed"; "Cancelling a job"; "Open questions"; vectors V54 to V63 |
+| 77 (audit) | B-040 build and train audit (`ERRATA-audit-buildtrain.md`), static study, reviewed: order at creation; the cheat pass is always a step; a rescued hall sets "ever had a hall"; entering a site forgets the attacker and gives the entry sight; the full site check on arrival; "table full" message; a load the new store doesn't accept is lost; two cancel commands; no clamp on an upgrade's hit-point gain; command-button refresh. The fast first hall per pass and the unit-ready position stay open | "The local player sees it"; "Paying for a building"; "Placement on arrival"; "Construction"; "Completion"; "Cancelling construction"; "A building killed"; "Job end"; "Open questions"; vectors V64 to V69 |

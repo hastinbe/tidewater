@@ -36,6 +36,9 @@
   `transport_dest`. Default traces don't change.
 - **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`): the `job`
   row points at "Starting a job" in `economy/build-train.md`, where the job start procedure now lives (no rule change).
+- **Changes:** 2026-10-16 (round 77, `ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): the
+  `cancel` and `cancel-job` command kinds (still version 2), which the input scenarios can now give; traces
+  `human06-cancel-site-600` and `human06-cancel-job-500`.
 
 ## Behaviour
 
@@ -182,6 +185,8 @@ and `kind`.
 | `build` | `type`, `tile` | The first unit of the player's synced selection, if it can build (a worker, or a tanker, which builds oil platforms; `economy/build-train.md`), is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
 | `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/build-train.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
 | `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
+| `cancel` | — | Cancel construction: the first unit of the player's synced selection, if it is the player's own building under construction, is taken down (`economy/build-train.md`, "Cancelling construction"). Otherwise it does nothing |
+| `cancel-job` | — | Cancel job: the first unit of the player's synced selection, if it is the player's own building, has its job marked to be cancelled at its next work run (`economy/build-train.md`, "Cancelling a job"). Otherwise, or if it isn't working, it does nothing |
 | `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
 
 A command whose conditions fail (a unit not owned by the player, a builder that is neither a worker nor a tanker, too
@@ -334,7 +339,7 @@ nothing).
 | --- | --- | --- | --- |
 | 1 | Header `version` | `1` | `2` |
 | 2 | Header | — | Field `input` |
-| 2 | `commands` kinds | — | `select`, `command`, `build`, `job`, `other`; `cheat` was added later without a version change, since no trace had written a cheat command as `other` |
+| 2 | `commands` kinds | — | `select`, `command`, `build`, `job`, `other`; `cheat` was added later without a version change, since no trace had written a cheat command as `other`, and so were `cancel` and `cancel-job` (round 77), since no input scenario had given either |
 | 3 | `turn` record, when written | Only when the turn drew random numbers | When the turn drew random numbers or carried out at least one command |
 | 4 | `turn` record fields | The record fields | The record fields and, when commands ran, `commands` |
 

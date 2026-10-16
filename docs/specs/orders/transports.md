@@ -25,6 +25,9 @@
   (static study). Reviewed by a spec-review session, 2026-10-15: the refusal restated through the selection filter
   (`ui/selecting-and-commanding.md`), and the round-71 reading of command 4 on a transport limited to commands that
   don't come from a player (open question).
+- **Changes:** 2026-10-16 (round 77, `ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): a
+  player's patrol (command 5) is refused like command 4 (traced, vector V41); "every command" in "What the
+  transport stores" means every command the transport takes.
 
 ## Behaviour
 
@@ -106,8 +109,8 @@ left instead (static study, round 70).
 A smart move (command 3) to a transport, or the **unload** command (command 29), is decided as follows. G is the
 target tile and S the transport's tile.
 
-**What the transport stores.** Giving a transport any command (every command, including a computer player's move or
-attack; static study, round 70) records three things: the **target unit** (if the
+**What the transport stores.** Giving a transport any command it takes (every command, including a computer player's
+move or attack; static study, round 70) records three things: the **target unit** (if the
 command has one), the **target tile** (the target unit's tile, or the command's tile), and the **destination**, a
 copy of the target tile made at that moment. Later steps may change the target tile (docking at S, pushing off), but
 they never change the destination, which is what "its destination tile" means below.
@@ -156,8 +159,11 @@ computer players' own routines give don't clear it (static study only; the ferry
 A command the transport doesn't take is **refused before it reaches the transport**, so it clears nothing: the
 mark stays and the transport carries on as before. Which selected units take a player's command is the selection
 filter of `ui/selecting-and-commanding.md` ("Which units take part in a command"); a transport lacks flag bit 19
-(can attack) in the default unit data, so it doesn't take command 4 (move, attacking on the way), commands 8 to 16, 17 or 19. Traced for
-command 4: `human12-unload-then-refused-goals-900`, vector V40 (round 75). That the filter comes before the mark is
+(can attack) in the default unit data, so it doesn't take command 4 (move, attacking on the way), commands 8 to 16, 17 or 19,
+nor command 5 (patrol), which in Enhanced rules needs that flag except for the few unit types the filter names, and
+transports aren't among them. A command it doesn't take records none of the three things above either. Traced for
+command 4: `human12-unload-then-refused-goals-900`, vector V40 (round 75); for command 5:
+`human12-unload-then-patrol-900`, vector V41 (round 77). That the filter comes before the mark is
 cleared, so that a command the transport doesn't take clears nothing in every case, is static study (round 75).
 
 The unload command first checks G: if G is shore water, the transport is marked **unload on arrival**. Then both
@@ -410,6 +416,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V29 | As V27 (`human12-transport`): the same cycle, with each passenger's idle logic run at the unload (wrong) | 9 draws; the critter gets 25617, a wander. Differs from the trace | Example |
 | V39 | `human12-unload-then-move-900` (oracle trace, Enhanced; scenario `oracle/scenarios/human12-unload-then-move.txt`): as `human12-transport`, transport 1428 with four squads aboard told at n = 300 (scenario line; turn record n = 302) to unload at the land tile (18, 118) (order 30 from n = 306), then at n = 400 (turn record n = 402) given a smart move to the same tile | n = 405: order 31 (push off); n = 408: order 30; n = 427 at (21, 120), shore water, landing with no route: order 32, still animation, wait 1, passengers aboard (the mark was cleared by the second command; a kept mark would give order 29) | Trace (`human12-unload-then-move-900`) |
 | V40 | `human12-unload-then-refused-goals-900` (oracle trace, Enhanced; scenario `oracle/scenarios/human12-unload-then-refused.txt`): as V39, but at n = 400 (turn record n = 402) the transport is given an attack-move (command 4) to the same land tile instead of a smart move | The command is refused: nothing about 1428 changes at n = 402. It lands on (16, 120) as told: order 29 at n = 533 (the mark kept), and at n = 534 the four squads are put ashore and it docks (order 32) | Trace (`human12-unload-then-refused-goals-900`) |
+| V41 | `human12-unload-then-patrol-900` (oracle trace, Enhanced; scenario `oracle/scenarios/human12-unload-then-patrol.txt`): as V40, but the command in the turn record n = 402 is a patrol (command 5) to the same land tile | The same as V40: no field of 1428 changes at n = 402, and every record equals V40's trace once V40's `goals` extras (the `goal`, `pending` and `transport_dest` fields) are left out, except for the command itself in the turn record n = 402 (command 5, not 4); the transport lands with the mark kept (order 29 at n = 533, order 32 at n = 534) | Trace |
 
 ### Boarding and waiting
 
@@ -536,3 +543,4 @@ round are kept with the research-side specs.
 | 71 | A player's command clears the unload-on-arrival mark (traced, V39) | "Commands given to a transport"; V39 |
 | 71 | Recorded once per command; no second recording at the smart-move stage; a command with no tile records the tile fields it carries (static study, implementer questions) | "What the transport stores" |
 | 75 | A player's command the transport doesn't take (command 4: the selection filter) keeps the unload-on-arrival mark (traced, V40); a player's command 4 never reaches the smart-move stage (open question for other sources); a no-route landing that ends idle on an even tile also becomes a two-tile mover (static study) | "What the transport stores"; "Clearing the mark"; "Landing", step 6; "Open questions"; V40 |
+| 77 | A transport doesn't take a player's patrol either (traced, V41); a command it doesn't take records nothing; `ERRATA-round77.md`, reviewed | "What the transport stores"; "Clearing the mark"; V41 |
