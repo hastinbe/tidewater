@@ -341,6 +341,10 @@ impl World {
         for k in inside {
             let tanker = self.stats_of(self.units[k].kind).flags & flags::TANKER != 0;
             if finished {
+                // Sounds spec, "Work complete" (round 76, V53: `orc09-naval-1500` tanker 1473, n = 468): every unit
+                // inside a finished building gets it as it is let out, before it is placed: the tanker of a new
+                // platform too, and (the open question's default) a builder that then finds no room and dies.
+                self.work_complete(k);
                 let u = &self.units[k];
                 let accepts = if tanker {
                     bf & flags::OIL_STORAGE != 0
@@ -388,9 +392,6 @@ impl World {
                     self.start_anim(k, anim::STILL);
                     self.units[k].script.wait = 1;
                     self.apply_unit_sight(k);
-                    if finished {
-                        self.work_complete(k);
-                    }
                 }
                 None => self.kill(k),
             }
@@ -657,7 +658,16 @@ mod tests {
         w.units[i].facing = 2;
         let bi = w.index(platform).unwrap();
         w.units[bi].construction = None;
+        w.vision.local = 0;
+        w.sounds.cues.clear();
         w.release_builders(bi, true);
+        // Round 76 (V53, `orc09-naval-1500` n = 468): the tanker gets the work-complete sound.
+        assert!(
+            w.sounds
+                .cues
+                .iter()
+                .any(|c| matches!(c.sound, crate::sound::Sound::WorkComplete { .. }))
+        );
         let u = w.unit(t).unwrap();
         let enter = Order::Enter {
             building: platform,
