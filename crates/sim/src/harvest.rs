@@ -678,9 +678,7 @@ impl World {
     /// is forgotten. The harvest command is given whatever the source has become (V84); toward a source whose slot is
     /// gone its target check fails and idle is made pending.
     fn come_out_order(&mut self, i: usize) -> Option<Order> {
-        if self.chooses_jobs(i)
-            && let crate::worker_ai::Choice::Order(o) = self.worker_choice(i)
-        {
+        if let Some(o) = self.job_choice(i) {
             return Some(o);
         }
         if self.units[i].carrying {

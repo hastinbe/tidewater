@@ -322,11 +322,9 @@ impl World {
             ..Default::default()
         });
         self.players[owner as usize].under_construction += 1;
-        // Worker-ai spec, "Done marks" (round 36): a computer player's building marks its entry when it is created,
-        // so a construction site marks it when construction starts.
-        self.mark_build_list(owner, kind, true);
-        // "Creation marks" (round 38), made with the done mark.
-        self.creation_mark(i);
+        // The creation hook's marks (`ai/computer-player.md`): a computer player's building marks its build-list entry
+        // and gets its creation mark when it is created, so a construction site does when construction starts.
+        self.site_hook(i);
         Ok(id)
     }
 

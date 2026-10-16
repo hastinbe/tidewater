@@ -157,19 +157,28 @@ impl World {
     }
 
     /// Whether the job choice runs for unit `i`: a computer player's worker or tanker.
-    pub(crate) fn chooses_jobs(&self, i: usize) -> bool {
+    fn chooses_jobs(&self, i: usize) -> bool {
         let u = &self.units[i];
         let f = self.stats_of(u.kind).flags;
-        (u.owner as usize) < self.ai.len()
-            && self.computer_player(u.owner)
-            && !u.building
-            && f & (flags::PEON | flags::TANKER) != 0
+        self.ai_player(u.owner) && !u.building && f & (flags::PEON | flags::TANKER) != 0
     }
 
-    /// The idle-order hook: makes the choice and gives its order, which takes over at once, in the same update,
-    /// without running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
+    /// The job choice where it runs (`ai/computer-player.md`, "Where the job choice runs": from idle, and at a
+    /// come-out): for a computer player's worker or tanker, the order it chose, if any. Any other unit makes no choice.
+    pub(crate) fn job_choice(&mut self, i: usize) -> Option<Order> {
+        if !self.chooses_jobs(i) {
+            return None;
+        }
+        match self.worker_choice(i) {
+            Choice::Order(o) => Some(o),
+            Choice::Wait | Choice::Nothing => None,
+        }
+    }
+
+    /// The job choice from the idle logic (order 2): its order takes over at once, in the same update, without
+    /// running its logic (orders spec, "Taking over": a computer worker's job choice from idle).
     pub(crate) fn idle_choice(&mut self, i: usize) {
-        if let Choice::Order(o) = self.worker_choice(i) {
+        if let Some(o) = self.job_choice(i) {
             // A computer player's command, an ordinary one (round 68, code Q7; orders spec, "What every command
             // does", and `ai/worker-ai.md`): the goal pulled back, the command steps (blocked counter cleared, route
             // dropped: round-54 errata `human12-25000` tanker 1412, n = 12951) and the target check.
@@ -453,7 +462,7 @@ impl World {
     /// The done-mark rule when a computer player's building of type `k` is completed (`true`) or destroyed.
     pub(crate) fn mark_build_list(&mut self, owner: u8, k: u8, completed: bool) {
         let p = owner as usize;
-        if p >= self.ai.len() || !self.computer_player(owner) {
+        if !self.ai_player(owner) {
             return;
         }
         let list = self.build_list(p);

@@ -1,9 +1,33 @@
-//! Computer player scripts (reviewed spec `docs/specs/ai/ai-scripts.md`).
+//! The computer player (reviewed spec `docs/specs/ai/computer-player.md`, the model of the whole), and its script
+//! interpreter (`docs/specs/ai/ai-scripts.md`).
 //!
-//! Each of players 0 to 7 has a small script that writes numbers into per-player slots (wanted unit counts, the
-//! build-list limit, attack settings) and waits on conditions. It runs once for every player at game start and then
-//! in phase 2 of each cycle for computer-controlled players only. Nothing here acts on the slots yet: the training,
-//! building and attack logic that reads them comes with later specs.
+//! A computer player is a set of small deciders that never plan ahead. Each runs at a fixed moment, reads the game
+//! state and a few per-player numbers, and gives ordinary commands. This module holds the timeline ("One cycle, in
+//! order") and the hooks; each part's rules live in the module of its spec ("The parts"):
+//!
+//! | Part | Phase | Code |
+//! | --- | --- | --- |
+//! | Script interpreter | 2 | `World::script_steps`, here (`ai/ai-scripts.md`) |
+//! | Pass A | 2 | `World::pass_a`: the threat map and the attack waves (`attack_ai.rs`, `ai/attack-ai.md`) |
+//! | No-workers pass | 2 | `World::no_workers_research_pass` (`training_ai.rs`, `ai/training-research.md`) |
+//! | Pass B | 2 | `World::pass_b`: the base boxes, then each unit's caster step and goal (`attack_ai.rs`, `caster_ai.rs`) |
+//! | Building think | 4 | `World::building_think_tick`, from order 33 in `World::advance` (`training_ai.rs`) |
+//! | Job choice | 4 | `World::job_choice`, from idle (order 2) and at a come-out (`worker_ai.rs`, `ai/worker-ai.md`) |
+//! | Creation hook | where created | `World::creation_hook`, `World::site_hook` |
+//! | Destroyed hook | 4, in the kill | `World::destroyed_hook` |
+//! | Damage hook | 4, where hit | `World::damage_hook`, from the apply-damage step |
+//! | Unit-level rules | 4 | the ordinary order logic of every unit (below) |
+//!
+//! The unit-level rules that differ for a computer player's units ("Unit-level AI") sit in the order logic they
+//! change: the acquisition box (`World::search`), fleeing only from idle (`World::flee`), the smart-move wait cap
+//! (`World::cap_smart_wait`), friendly fire (`World::holds_fire`), the attacker record and remembered patrol kept by
+//! the computer's own commands (`World::command_4`, `World::patrol`), boarding (`transport.rs`), walls
+//! (`movement.rs`), the missile's minimum flight (`battle.rs`), fog (`vision.rs`), payment at the decision
+//! (`build.rs`) and the come-out (`harvest.rs`).
+//!
+//! "Computer player" is the movement spec's computer player (computer slots and active rescue players,
+//! `World::computer_player`); only players 0 to 7 have script slots, so only they run the deciders
+//! (`World::ai_player`).
 
 use std::sync::Arc;
 
@@ -11,10 +35,12 @@ use tidewater_formats::aibin::AiFile;
 use tidewater_formats::udta::flags;
 
 use crate::economy::kind;
-use crate::world::World;
+use crate::world::{UnitId, World};
 
 /// Players that have a script.
 pub const SCRIPT_PLAYERS: usize = 8;
+/// Cycles between two runs of the 50-cycle passes; the countdown starts at 1, so the first run is in the first cycle.
+pub const PASS_PERIOD: u32 = 50;
 /// Slot holding the build-list limit.
 pub const BUILD_LIMIT: usize = 0x22;
 /// Slot switching the ferry's landing-spot search; 1 for every player at game start (ai-scripts spec, "Slots").
@@ -96,6 +122,71 @@ pub struct Counts {
 }
 
 impl World {
+    // ---- One cycle, in order --------------------------------------------------------------------------------------
+
+    /// Phase 2 of a cycle ("One cycle, in order", steps 1 and 2): every computer player's script step, then, in a
+    /// 50-cycle pass cycle, pass A, the no-workers pass and pass B. Commands given here take effect through the units'
+    /// own updates in phase 4 of the same cycle.
+    pub(crate) fn computer_players(&mut self) {
+        self.script_steps();
+        if self.pass_cycle() {
+            self.pass_a();
+            self.no_workers_research_pass();
+            self.pass_b();
+        }
+    }
+
+    /// Whether this cycle runs the 50-cycle passes: the first start-up cycle, then every 50 cycles
+    /// (`ai/attack-ai.md`, "Timing").
+    fn pass_cycle(&mut self) -> bool {
+        self.army.countdown = self.army.countdown.saturating_sub(1);
+        if self.army.countdown > 0 {
+            return false;
+        }
+        self.army.countdown = PASS_PERIOD;
+        true
+    }
+
+    /// A computer player with script slots, players 0 to 7: the players whose deciders run.
+    pub(crate) fn ai_player(&self, owner: u8) -> bool {
+        (owner as usize) < SCRIPT_PLAYERS && self.computer_player(owner)
+    }
+
+    // ---- Hooks ----------------------------------------------------------------------------------------------------
+
+    /// The creation hook for every unit and building of any player (`core/unit-slots.md`, "Creating a unit", step 6):
+    /// the goal is cleared and a computer player's mobile fighting unit gets its first goal.
+    pub(crate) fn creation_hook(&mut self, i: usize) {
+        self.first_goal(i);
+    }
+
+    /// The creation hook's marks for a building whose construction starts in play: the build list's done mark
+    /// (`ai/worker-ai.md`, "Done marks": a site marks its entry when construction starts) and the keep-clear creation
+    /// mark ("Creation marks"). The map's buildings get theirs at game start ([`World::start_ai`]).
+    pub(crate) fn site_hook(&mut self, i: usize) {
+        let (owner, kind) = (self.units[i].owner, self.units[i].kind);
+        self.mark_build_list(owner, kind, true);
+        self.creation_mark(i);
+    }
+
+    /// The destroyed hook, inside the kill of building `ti` of any player, once its death has begun: a computer
+    /// player's entry for it loses its done mark (`ai/worker-ai.md`, "Done marks"), and the losses rule runs
+    /// ([`World::building_lost`]).
+    pub(crate) fn destroyed_hook(&mut self, ti: usize) {
+        let (owner, kind) = (self.units[ti].owner, self.units[ti].kind);
+        self.mark_build_list(owner, kind, false);
+        self.building_lost(owner);
+    }
+
+    /// The damage hook, when unit `ti` of any player is notified of a hit by `attacker` (`combat/damage.md`,
+    /// "Applying damage"): the attacker record, the submarine call and the call for help (`ai/attack-ai.md`, "Call
+    /// for help").
+    pub(crate) fn damage_hook(&mut self, ti: usize, attacker: UnitId) {
+        self.call_for_help(ti, attacker);
+    }
+
+    // ---- The script interpreter -----------------------------------------------------------------------------------
+
     /// Loads the script file and starts every player's script ("Game start"): each of players 0 to 7, whatever its
     /// controller, runs until its first pause.
     pub fn start_ai(&mut self, file: Arc<AiFile>) {
@@ -116,8 +207,11 @@ impl World {
         }
     }
 
-    /// Phase 2: one step for each computer-controlled player 0 to 7, in ascending order ("Each cycle").
-    pub(crate) fn step_ai(&mut self) {
+    /// Step 1 of the cycle: one script step for each computer-controlled player 0 to 7, in ascending order ("Each
+    /// cycle"): its wait counter goes down by 1, or, at 0, its script runs until it pauses. The test is the computer
+    /// controller (code 4) alone, so an active rescue player (code 7), which the other deciders count as a computer
+    /// player, doesn't step its script.
+    pub(crate) fn script_steps(&mut self) {
         if self.ai_file.is_none() {
             return;
         }

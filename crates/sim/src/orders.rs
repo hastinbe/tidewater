@@ -726,7 +726,9 @@ impl World {
                 if self.units[i].script.anim != anim::STILL {
                     self.switch_anim(i, anim::STILL);
                 }
-                if o == Order::Idle && self.chooses_jobs(i) {
+                // `ai/computer-player.md`, "Where the job choice runs": a computer worker's or tanker's job choice runs
+                // from its idle logic where a combat unit would search for a target.
+                if o == Order::Idle {
                     self.idle_choice(i);
                 }
             }

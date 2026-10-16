@@ -1,10 +1,11 @@
 //! The computer players' army: the threat map, attack waves, per-unit goals (hold, attack, ferry, roam, patrols,
-//! escort), the all-out attack and the call for help. Spec: `docs/specs/ai/attack-ai.md`. Unit flag bits, "can
-//! target" values and unit type numbers are those of the public PUD specification.
+//! escort), the all-out attack and the call for help. Spec: `docs/specs/ai/attack-ai.md`; where its parts run in the
+//! cycle is `ai/computer-player.md` (`ai.rs`): pass A (`World::pass_a`) and pass B (`World::pass_b`) in phase 2,
+//! the first goal in the creation hook, the losses rule in the destroyed hook and the call for help as the damage hook.
+//! Unit flag bits, "can target" values and unit type numbers are those of the public PUD specification.
 //!
 //! Our readings where the spec leaves room:
-//! - "Computer player" is the movement spec's computer player (computer slots and active rescue players), as in the
-//!   worker AI; only players 0 to 7 have script slots, base boxes and goals that run.
+//! - Only players 0 to 7 have script slots, base boxes and goals that run (`World::ai_player`).
 //! - A "gold store" is a unit with flag bit 12 that is not gone (complete or not).
 //! - The ferry's "last passenger in slot order" is the last filled passenger slot of the transport; a passenger
 //!   without a goal tile lands at the transport's own tile.
@@ -23,8 +24,6 @@ use crate::slots;
 use crate::terrain::{Terrain, bits, mask};
 use crate::world::{Command, Order, PLAYERS, Remembered, Unit, UnitId, World};
 
-/// Cycles between two runs of the passes; the counter starts at 1, so the first run is in the first cycle.
-pub const PERIOD: u32 = 50;
 /// Side of a threat-map block, in tiles.
 pub const BLOCK: i32 = 8;
 /// Ring-search limits: the goal tile, the post.
@@ -361,27 +360,18 @@ impl World {
             .collect()
     }
 
-    /// Players 0 to 7 that run the army logic.
-    fn army_player(&self, owner: u8) -> bool {
-        (owner as usize) < SCRIPT_PLAYERS && self.computer_player(owner)
-    }
+    // ---- The passes ("Timing"; their place in the cycle is `World::computer_players`) -----------------------------
 
-    // ---- Timing -------------------------------------------------------------------------------------------------
-
-    /// Phase 2, after the scripts: every 50 cycles from the first, pass A, the no-workers research pass, then pass B
-    /// ("Timing").
-    pub(crate) fn army_pass(&mut self) {
-        self.army.countdown = self.army.countdown.saturating_sub(1);
-        if self.army.countdown > 0 {
-            return;
-        }
-        self.army.countdown = PERIOD;
+    /// Pass A: the threat map is rebuilt, then each computer player's land, sea and air waves go out.
+    pub(crate) fn pass_a(&mut self) {
         self.rebuild_threat_map();
         self.attack_waves();
-        // Step 2: `ai/training-research.md`, "the no-workers pass" (training_ai.rs).
-        self.no_workers_research_pass();
+    }
+
+    /// Pass B: every computer player's base box, then every unit slot's caster step and goal, in slot order.
+    pub(crate) fn pass_b(&mut self) {
         for p in 0..SCRIPT_PLAYERS as u8 {
-            if self.computer_player(p) {
+            if self.ai_player(p) {
                 self.rebuild_base_box(p);
             }
         }
@@ -496,7 +486,7 @@ impl World {
 
     pub(crate) fn attack_waves(&mut self) {
         for p in 0..SCRIPT_PLAYERS as u8 {
-            if !self.computer_player(p) || self.list_of(p).is_empty() {
+            if !self.ai_player(p) || self.list_of(p).is_empty() {
                 continue;
             }
             for (wave, trigger, size, repeat) in WAVES {
@@ -684,7 +674,7 @@ impl World {
     /// The losses rule of `ai/worker-ai.md`: after one of a computer player's buildings is destroyed, fewer than 3
     /// buildings other than oil platforms left starts the all-out attack.
     pub(crate) fn building_lost(&mut self, owner: u8) {
-        if !self.army_player(owner) {
+        if !self.ai_player(owner) {
             return;
         }
         let left = self
@@ -790,7 +780,7 @@ impl World {
         self.units[i].goal = Goal::default();
         let u = &self.units[i];
         let f = self.unit_flags(u);
-        if !self.army_player(u.owner) || f & MOBILE == 0 || f & (flags::PEON | flags::TANKER) != 0 {
+        if !self.ai_player(u.owner) || f & MOBILE == 0 || f & (flags::PEON | flags::TANKER) != 0 {
             return;
         }
         if f & flags::TRANSPORT != 0 {
@@ -912,7 +902,7 @@ impl World {
     pub(crate) fn run_goals(&mut self) {
         for i in 0..self.units.len() {
             let u = &self.units[i];
-            if !self.army_player(u.owner) || gone(u) || u.goal.kind == GoalKind::None {
+            if !self.ai_player(u.owner) || gone(u) || u.goal.kind == GoalKind::None {
                 continue;
             }
             // Casters first run the spell step (`ai/caster-ai.md`); if it acts, the goal is skipped this pass.

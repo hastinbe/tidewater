@@ -599,8 +599,9 @@ impl World {
         if t.used || t.inside {
             return;
         }
-        // The notification: attack-ai spec, "Call for help" (which keeps the movement spec's building rule).
-        self.call_for_help(ti, attacker);
+        // The notification: the computer player's damage hook (`ai/computer-player.md`; attack-ai spec, "Call for
+        // help", which keeps the movement spec's building rule).
+        self.damage_hook(ti, attacker);
         let t = &mut self.units[ti];
         if t.unholy_armor > 0 || d == 0 {
             return;
@@ -768,7 +769,6 @@ impl World {
         }
         if unit.building {
             self.kill_inside(ti);
-            self.mark_build_list(unit.owner, unit.kind, false);
         }
         // A computer worker's job is released when it dies (worker-ai spec).
         self.release_job(ti);
@@ -792,9 +792,9 @@ impl World {
             self.kill_passengers(ti);
         }
         self.leave_oil(ti);
-        // Worker-ai spec, "Losses": too few buildings left starts the all-out attack (attack-ai spec).
+        // `ai/computer-player.md`, "The parts": the destroyed hook runs inside the kill.
         if unit.building {
-            self.building_lost(unit.owner);
+            self.destroyed_hook(ti);
         }
     }
 

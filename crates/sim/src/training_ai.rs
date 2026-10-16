@@ -2,7 +2,8 @@
 //! the no-workers research pass. Spec: `docs/specs/ai/training-research.md`. Unit types and upgrade numbers are those
 //! of the public PUD specification (appendices A and B); the script's second list is in `ai/ai-scripts.md`.
 //!
-//! The 50-cycle schedule that runs [`World::no_workers_research_pass`] belongs to `ai/attack-ai.md`.
+//! Where these run in the cycle is `ai/computer-player.md` (`ai.rs`): a building thinks from its resting order 33 in
+//! phase 4, and the no-workers pass runs between passes A and B of the 50-cycle passes in phase 2.
 //!
 //! Our readings where the spec leaves room:
 //! - Order 33's logic runs at each "step done" of a building with no job (`World::advance`); the step done at which a
@@ -11,8 +12,7 @@
 //! - "In progress" for the two-level upgrades and the ranger line tests the fixed bits of the buttons
 //!   (`ui/command-buttons.md`, "Upgrade and research buttons"); for spells it tests the upgrade data's "affects"
 //!   bits, as "known" does.
-//! - "Computer player" is the movement spec's computer player (computer slots and active rescue players), as in
-//!   `worker_ai.rs`; only players 0 to 7 have script state.
+//! - Only players 0 to 7 have script state (`World::ai_player`).
 
 use crate::ai::{AiPlayer, BUILD_LIMIT, SCRIPT_PLAYERS};
 use crate::economy::JobKind;
@@ -181,8 +181,7 @@ impl World {
     pub(crate) fn building_think_tick(&mut self, i: usize) {
         let unit = &self.units[i];
         let (owner, k) = (unit.owner, unit.kind);
-        if owner as usize >= SCRIPT_PLAYERS || !self.computer_player(owner) || unit.dying || unit.construction.is_some()
-        {
+        if !self.ai_player(owner) || unit.dying || unit.construction.is_some() {
             return;
         }
         let interval = self.think_interval(owner as usize, k);
@@ -233,13 +232,13 @@ impl World {
         g
     }
 
-    /// The no-workers research pass ("Research requests and done marks"), run every 50 cycles by the attack AI's
-    /// schedule (`ai/attack-ai.md`, "Timing", step 2): for each computer player with no workers, the first build-list
-    /// entry below min(slot 0x22, 64) that is not done and is 0x80 or more gets its request set. Players 8 to 15
-    /// have no script state and are left out (open question "Players 8 to 15 in the no-workers pass").
+    /// The no-workers research pass ("Research requests and done marks"), run every 50 cycles after pass A
+    /// (`ai/computer-player.md`, "One cycle, in order", step 2): for each computer player with no workers, the first
+    /// build-list entry below min(slot 0x22, 64) that is not done and is 0x80 or more gets its request set. Players 8
+    /// to 15 have no script state and are left out (open question "Players 8 to 15 in the no-workers pass").
     pub fn no_workers_research_pass(&mut self) {
         for p in 0..SCRIPT_PLAYERS {
-            if !self.computer_player(p as u8) || self.ai_counts(p).workers != 0 {
+            if !self.ai_player(p as u8) || self.ai_counts(p).workers != 0 {
                 continue;
             }
             let list = self.build_list(p);

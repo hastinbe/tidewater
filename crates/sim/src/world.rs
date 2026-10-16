@@ -1238,9 +1238,10 @@ impl World {
             }
         }
         self.slot_of.insert(id, slot);
-        // Unit-slots spec, "Creating a unit", step 6: the goal is cleared and the attack-ai spec's first-goal rule runs
-        // after the first order is set and before the extra first-wait draw, which always comes last.
-        self.first_goal(at);
+        // Unit-slots spec, "Creating a unit", step 6: the computer player's creation hook (the goal cleared, and the
+        // attack-ai spec's first goal) runs after the first order is set and before the extra first-wait draw, which
+        // always comes last.
+        self.creation_hook(at);
         let extra = (self.rng.draw() & 7) as u8;
         self.units[at].script.wait += extra;
         Ok(id)
@@ -1371,8 +1372,8 @@ impl World {
         }
         self.detection();
         self.in_cycle = true;
-        self.step_ai();
-        self.army_pass();
+        // Phase 2: the computer players (`ai/computer-player.md`, "One cycle, in order").
+        self.computer_players();
         let refresh = self.fog_refresh();
         // Ascending slot order. A unit created during another unit's update is inserted into the table, so the walk
         // goes by slot rather than by index: a new unit in a higher slot is reached this cycle, one in a lower slot
