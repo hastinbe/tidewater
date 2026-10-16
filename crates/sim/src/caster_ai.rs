@@ -1354,6 +1354,27 @@ mod tests {
         assert_eq!(cast_step(&mut w, c), (false, 0));
     }
 
+    /// CP9 and S101 (`ai/computer-player.md`, `spells/spells.md`, `game/cheats.md`, round 83; traced:
+    /// `xhuman2-xhuman02-cheat-scope-1600` death knight 1557): the all-spells cheat teaches a computer player nothing,
+    /// so its death knight that knows only death coil never hastes its fighting units; its death-coil command still
+    /// gets the cheat's mana top-up.
+    #[test]
+    fn the_all_spells_cheat_teaches_a_computer_caster_nothing_but_tops_up_its_mana() {
+        use crate::cheats::{Flags, flag};
+        let mut w = game();
+        w.players[1].spells_known = spell_bit(DEATH_COIL);
+        w.cheat_command(0, Flags(flag::ALL_SPELLS));
+        assert_eq!(w.players[1].spells_known, spell_bit(DEATH_COIL));
+        let c = caster(&mut w, DEATH_KNIGHT, (10, 10), 160);
+        let g = put(&mut w, GRUNT, 1, (12, 10));
+        chasing(&mut w, g);
+        assert_eq!(cast_step(&mut w, c), (false, 0), "no haste");
+        put(&mut w, GRUNT, 0, (14, 10));
+        assert_eq!(cast_step(&mut w, c), (true, 0));
+        assert_eq!(at(&w, c).pending, cast(DEATH_COIL, None, (14, 10)));
+        assert_eq!(at(&w, c).mana, 255);
+    }
+
     #[test]
     fn haste_on_an_own_unit_in_combat() {
         let mut w = game();

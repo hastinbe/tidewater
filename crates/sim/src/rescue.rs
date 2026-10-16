@@ -364,6 +364,22 @@ mod tests {
         assert_eq!(w.rescuable_counts(), (2, 1));
     }
 
+    /// CP10 (`ai/computer-player.md`; `game/rescue.md`, "Owner change", step 3, round 83; traced:
+    /// `human5-human05-rescue-jobs-2000` lumberjack 1517): a worker that joins another player leaves its job count
+    /// with the old owner, so that count stays one too high.
+    #[test]
+    fn a_joining_worker_leaves_its_job_count_behind() {
+        let mut w = world();
+        let f = put(&mut w, FOOTMAN, RESCUE, (10, 10));
+        put(&mut w, GRUNT, 0, (11, 11));
+        let n = i(&w, f);
+        w.units[n].ai_job = crate::worker_ai::AiJob::Lumber;
+        w.ai[RESCUE as usize].lumberjacks = 2;
+        assert!(join(&mut w, f));
+        assert_eq!(u(&w, f).owner, 0);
+        assert_eq!(w.ai[RESCUE as usize].lumberjacks, 2);
+    }
+
     #[test]
     fn a_footman_joins_at_its_next_step_done() {
         let mut w = world();
