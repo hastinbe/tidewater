@@ -4,10 +4,18 @@
 //!
 //! The dialog files (`savegame.bin`, `loadgame.bin`, `loadgamt.bin`) have no layout spec, so ours is our own, drawn like
 //! the game menu's dialogs; the race picture (`Art\h192x128.bmp`, `Art\o192x128.bmp`) isn't drawn yet.
+//!
+//! **Keyboard focus** (`ui/screen-and-cursors.md`, "Keyboard focus", round 75): Tab and Shift+Tab move the focus over
+//! the enabled buttons, then the list, then (saving) the name field ([`Stop`]); the load-game screen's order, Load,
+//! Cancel, the list, is the observed one, the save dialog's is ours. The dialog opens focused on its default button
+//! (Save or Load) when that is enabled and on Cancel otherwise; typing a name moves the focus to the field; Enter
+//! activates the focused button, and with the list or the field focused it presses the default button, as before. The
+//! default button has the entry-247 outline, enabled or disabled; the focus draws entry 251.
 
 use tidewater_formats::fnt::Font;
 
 use crate::hud::{self, Rect};
+use crate::menuscreen::FocusKey;
 use crate::saves::{Dialog, Mode, Stage, Step};
 use crate::scene::Picture;
 
@@ -50,6 +58,21 @@ pub enum Hit {
     No,
 }
 
+/// What Tab can stop on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    Button(Hit),
+    /// The saved games' list.
+    List,
+    /// The save dialog's name field.
+    Field,
+}
+
+/// The focus ring's colour, entry 251, and the default button's outline, entry 247 in a game's palette (screen spec,
+/// "Buttons").
+const FOCUS_RGB: [u8; 3] = [255, 255, 0];
+const DEFAULT_RGB: [u8; 3] = [160, 160, 164];
+
 /// One frame's input.
 #[derive(Clone, Debug, Default)]
 pub struct Input {
@@ -68,6 +91,8 @@ pub struct Input {
     pub down: bool,
     /// Mouse wheel lines, positive up.
     pub wheel: i32,
+    /// Tab or Shift+Tab.
+    pub tab: Option<FocusKey>,
 }
 
 /// An open save or load dialog with its view state.
@@ -79,6 +104,19 @@ pub struct SaveUi {
     pub hot: Option<Hit>,
     /// What the left button went down on, while it is held (screen spec, "Pressing").
     pub held: crate::menuscreen::Hold<Hit>,
+    /// The focus.
+    pub focus: Stop,
+}
+
+/// The focused list's mark (round 75): a rectangle one pixel inside the list's left, top and right edges, round its
+/// rows (ours: one pixel inside the bottom too, as our list is all rows).
+fn list_mark() -> Rect {
+    Rect {
+        x: LIST.x + 1,
+        y: LIST.y + 1,
+        w: LIST.w - 2,
+        h: LIST.h - 2,
+    }
 }
 
 fn three(i: i32, n: i32) -> Rect {
@@ -99,9 +137,52 @@ impl SaveUi {
             scroll: 0,
             hot: None,
             held: Default::default(),
+            focus: Stop::List,
         };
+        s.focus = s.default_stop();
         s.show_chosen();
         s
+    }
+
+    /// The default button: Save or Load on the list, OK on a question or a message.
+    fn default_button(&self) -> Hit {
+        match (&self.dialog.stage, self.dialog.mode) {
+            (Stage::List, Mode::Save) => Hit::Save,
+            (Stage::List, Mode::Load) => Hit::Load,
+            _ => Hit::Ok,
+        }
+    }
+
+    /// Where the focus goes when the dialog or a stage of it opens (screen spec, "Focus", round 75): the default
+    /// button, or Cancel while the default button is disabled.
+    fn default_stop(&self) -> Stop {
+        let d = self.default_button();
+        if self.on_offer(d) {
+            Stop::Button(d)
+        } else {
+            Stop::Button(Hit::Cancel)
+        }
+    }
+
+    fn on_offer(&self, h: Hit) -> bool {
+        self.hits().iter().any(|(x, _)| *x == h)
+    }
+
+    /// The Tab stops in their order: the enabled buttons, then the list, then the name field (saving).
+    pub fn stops(&self) -> Vec<Stop> {
+        let mut v: Vec<Stop> = self
+            .hits()
+            .into_iter()
+            .filter(|(h, _)| !matches!(h, Hit::Row(_)))
+            .map(|(h, _)| Stop::Button(h))
+            .collect();
+        if self.dialog.stage == Stage::List {
+            v.push(Stop::List);
+            if self.dialog.mode == Mode::Save {
+                v.push(Stop::Field);
+            }
+        }
+        v
     }
 
     fn show_chosen(&mut self) {
@@ -166,16 +247,28 @@ impl SaveUi {
         self.hot = input
             .pointer
             .and_then(|(x, y)| hits.iter().find(|(_, r)| r.contains(x, y)).map(|(h, _)| *h));
-        // Screen spec, "Pressing": only a release on what the button went down on counts.
+        // Screen spec, "Pressing": only a release on what the button went down on counts; pressing a button gives it
+        // the focus.
         if input.press {
             self.held.down(self.hot);
+            if let Some(h) = self.hot.filter(|h| !matches!(h, Hit::Row(_))) {
+                self.focus = Stop::Button(h);
+            }
         }
+        if let Some(k) = input.tab {
+            self.focus = crate::menuscreen::step_focus(&self.stops(), self.focus, k);
+        }
+        let stage = self.dialog.stage.clone();
         let mut hit = if input.click { self.held.up(self.hot) } else { None };
         let d = &mut self.dialog;
         if d.stage == Stage::List {
             input.text.chars().for_each(|c| d.type_char(c));
             if input.backspace {
                 d.backspace();
+            }
+            // Typing into the name field moves the focus to it (round 75).
+            if d.mode == Mode::Save && (!input.text.is_empty() || input.backspace) {
+                self.focus = Stop::Field;
             }
             if input.wheel != 0 {
                 let max = d.entries.len().saturating_sub(ROWS) as i64;
@@ -193,14 +286,14 @@ impl SaveUi {
                 self.show_chosen();
             }
         }
-        let d = &mut self.dialog;
+        // Enter activates the focused button; with the list or the field focused, the default button.
         if input.enter && hit.is_none() {
-            hit = Some(match (&d.stage, d.mode) {
-                (Stage::List, Mode::Save) => Hit::Save,
-                (Stage::List, Mode::Load) => Hit::Load,
-                _ => Hit::Ok,
+            hit = Some(match self.focus {
+                Stop::Button(h) if self.on_offer(h) => h,
+                _ => self.default_button(),
             });
         }
+        let d = &mut self.dialog;
         if input.escape {
             hit = Some(match d.stage {
                 Stage::Confirm(_) => Hit::No,
@@ -208,12 +301,15 @@ impl SaveUi {
                 Stage::List => Hit::Cancel,
             });
         }
-        let Some(hit) = hit else { return Step::Nothing };
+        let Some(hit) = hit else {
+            self.settle_focus(&stage);
+            return Step::Nothing;
+        };
         // A hit only counts if it is one of the things now on offer.
         if !matches!(hit, Hit::Row(_)) && !hits.iter().any(|(h, _)| *h == hit) && !input.enter && !input.escape {
             return Step::Nothing;
         }
-        match hit {
+        let step = match hit {
             Hit::Row(i) => {
                 d.choose(i);
                 Step::Nothing
@@ -233,6 +329,16 @@ impl SaveUi {
                 d.confirm_cancel();
                 Step::Nothing
             }
+        };
+        self.settle_focus(&stage);
+        step
+    }
+
+    /// After a frame: a stage that changed opens on its own default focus, and a focus no longer on offer (a button
+    /// that went disabled) goes to the default too.
+    fn settle_focus(&mut self, before: &Stage) {
+        if self.dialog.stage != *before || !self.stops().contains(&self.focus) {
+            self.focus = self.default_stop();
         }
     }
 
@@ -250,13 +356,26 @@ impl SaveUi {
         let tw = big.width(title.as_bytes()) as i32;
         hud::text(&mut p, big, FRAME.x + (FRAME.w as i32 - tw) / 2, FRAME.y + 14, title);
         let pressed = self.held.pressed(self.hot);
+        let default = self.default_button();
+        // Screen spec, "Buttons": the default button's 247 outline, the focus's 251 one over it.
+        let marks = |p: &mut Picture, h: Hit, r: Rect| {
+            if self.focus == Stop::Button(h) {
+                hud::outline(p, r, FOCUS_RGB);
+            } else if h == default {
+                hud::outline(p, r, DEFAULT_RGB);
+            }
+        };
         let button = |p: &mut Picture, h: Hit, r: Rect, label: &str| {
             crate::frontend::button_pressed(p, font, r, label, self.hot == Some(h), pressed == Some(h));
+            marks(p, h, r);
         };
         match &d.stage {
             Stage::List => {
                 hud::fill(&mut p, LIST, [12, 10, 8]);
                 hud::outline(&mut p, LIST, [120, 106, 66]);
+                if self.focus == Stop::List {
+                    hud::outline(&mut p, list_mark(), FOCUS_RGB);
+                }
                 for (h, r) in self.hits() {
                     if let Hit::Row(i) = h {
                         let on = d.selected == Some(i);
@@ -277,6 +396,9 @@ impl SaveUi {
                 if d.mode == Mode::Save {
                     hud::fill(&mut p, FIELD, [12, 10, 8]);
                     hud::outline(&mut p, FIELD, [180, 160, 100]);
+                    if self.focus == Stop::Field {
+                        hud::outline(&mut p, FIELD, FOCUS_RGB);
+                    }
                     let shown = format!("{}_", d.name);
                     hud::text(
                         &mut p,
@@ -299,9 +421,11 @@ impl SaveUi {
                     if on.iter().any(|(x, _)| x == h) {
                         button(&mut p, *h, r, label);
                     } else {
-                        // Not enabled: dim, no label colour change available, so just the dim box.
+                        // Not enabled: dim, no label colour change available, so just the dim box, with its own ring
+                        // unless it is the default button (round 75).
                         hud::fill(&mut p, r, [20, 18, 14]);
                         hud::outline(&mut p, r, [80, 72, 48]);
+                        marks(&mut p, *h, r);
                     }
                 }
             }
@@ -364,6 +488,71 @@ mod tests {
             click: true,
             ..Default::default()
         })
+    }
+
+    fn tab(u: &mut SaveUi) -> Step {
+        u.step(&Input {
+            tab: Some(FocusKey::Next),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn the_load_dialog_opens_on_load_and_tabs_to_cancel_then_the_list() {
+        // Screen spec, "Keyboard focus" and the round-75 vector: one saved game listed.
+        let mut u = ui(Mode::Load, 1);
+        assert_eq!(u.focus, Stop::Button(Hit::Load));
+        tab(&mut u);
+        assert_eq!(u.focus, Stop::Button(Hit::Cancel));
+        tab(&mut u);
+        assert_eq!(u.focus, Stop::List);
+        tab(&mut u);
+        assert_eq!(u.focus, Stop::Button(Hit::Load), "and round to Load");
+        // No saved games: Load is disabled, so the focus starts on Cancel.
+        assert_eq!(ui(Mode::Load, 0).focus, Stop::Button(Hit::Cancel));
+    }
+
+    #[test]
+    fn the_save_dialog_opens_on_cancel_and_typing_moves_the_focus_to_the_field() {
+        // Round 75: no name typed, Save (the default) disabled: the focus on Cancel; typing: on the name field.
+        let mut u = ui(Mode::Save, 2);
+        assert_eq!(u.focus, Stop::Button(Hit::Cancel));
+        assert_eq!(
+            u.stops(),
+            [Stop::Button(Hit::Cancel), Stop::List, Stop::Field],
+            "disabled buttons are passed over"
+        );
+        u.step(&Input {
+            text: "a".into(),
+            ..Default::default()
+        });
+        assert_eq!(u.focus, Stop::Field);
+        // Tab never changes anything: the name and the choice stay.
+        for _ in 0..4 {
+            tab(&mut u);
+        }
+        assert_eq!((u.dialog.name.as_str(), u.dialog.selected), ("a", None));
+    }
+
+    #[test]
+    fn enter_activates_the_focused_button() {
+        // Load with a saved game: Tab to Cancel, Enter closes rather than loads.
+        let mut u = ui(Mode::Load, 1);
+        tab(&mut u);
+        let s = u.step(&Input {
+            enter: true,
+            ..Default::default()
+        });
+        assert_eq!(s, Step::Close);
+        // With the list focused, Enter presses the default button.
+        let mut u = ui(Mode::Load, 1);
+        tab(&mut u);
+        tab(&mut u);
+        let s = u.step(&Input {
+            enter: true,
+            ..Default::default()
+        });
+        assert!(matches!(s, Step::Load(_)));
     }
 
     #[test]
@@ -512,12 +701,25 @@ mod tests {
     fn load_dialog_has_no_field_and_an_empty_list_cannot_load() {
         let mut u = ui(Mode::Load, 0);
         assert!(!u.hits().iter().any(|(h, _)| *h == Hit::Load));
+        assert!(!u.stops().contains(&Stop::Field));
+        // Tab to the list, where Enter would press Load: nothing, as Load is disabled.
+        tab(&mut u);
+        assert_eq!(u.focus, Stop::List);
         assert_eq!(
             u.step(&Input {
                 enter: true,
                 ..Default::default()
             }),
             Step::Nothing
+        );
+        // On Cancel, where the dialog opens, Enter closes it (round 75: Enter activates the focused button).
+        tab(&mut u);
+        assert_eq!(
+            u.step(&Input {
+                enter: true,
+                ..Default::default()
+            }),
+            Step::Close
         );
     }
 }

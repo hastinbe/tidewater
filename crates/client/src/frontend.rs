@@ -1565,7 +1565,16 @@ fn run_menu_load(c: &mut Core) {
         return;
     };
     let input = crate::gamemenu::saving_input(input, cursors, cam);
-    let snap = |u: &SaveUi| (u.dialog.selected, u.dialog.stage.clone(), u.scroll, u.hot, u.held);
+    let snap = |u: &SaveUi| {
+        (
+            u.dialog.selected,
+            u.dialog.stage.clone(),
+            u.scroll,
+            u.hot,
+            u.held,
+            u.focus,
+        )
+    };
     let before = snap(&load.ui);
     let step = load.ui.step(&input);
     let mut redraw = before != snap(&load.ui);

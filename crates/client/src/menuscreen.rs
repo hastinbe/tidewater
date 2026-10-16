@@ -347,6 +347,24 @@ pub(crate) enum FocusKey {
     Back,
 }
 
+/// Where the focus goes from `focus` on `key` among the dialog's Tab stops, `stops` in its Tab order (screen spec,
+/// "Keyboard focus", round 75: buttons, sliders, checkboxes, each radio button, lists and text fields, hidden controls
+/// left out), from the last back to the first and the other way. A focus not among them goes to the first stop (or,
+/// on Shift+Tab, the last).
+pub(crate) fn step_focus<T: Copy + PartialEq>(stops: &[T], focus: T, key: FocusKey) -> T {
+    let n = stops.len();
+    if n == 0 {
+        return focus;
+    }
+    let i = match (stops.iter().position(|&s| s == focus), key) {
+        (Some(i), FocusKey::Next) => (i + 1) % n,
+        (Some(i), FocusKey::Back) => (i + n - 1) % n,
+        (None, FocusKey::Next) => 0,
+        (None, FocusKey::Back) => n - 1,
+    };
+    stops[i]
+}
+
 /// Where the focus goes from `focus` on `key`, among buttons that are `enabled` (the dialog's order). A disabled
 /// button is passed over (the spec saw none on the main menu; ours, as a disabled button can't be chosen). The arrow
 /// keys and the pointer don't move the focus, so they have no `FocusKey`.
@@ -713,6 +731,20 @@ mod tests {
         // Pressed where no button is, then released on one: nothing either.
         h.down(None);
         assert_eq!(h.up(Some(0)), None);
+    }
+
+    #[test]
+    fn tab_steps_through_a_dialogs_stops_in_their_order_and_wraps() {
+        // "Keyboard focus", round 75: the load-game screen's Load, Cancel, the list, then Load again.
+        let stops = ["load", "cancel", "list"];
+        assert_eq!(step_focus(&stops, "load", FocusKey::Next), "cancel");
+        assert_eq!(step_focus(&stops, "cancel", FocusKey::Next), "list");
+        assert_eq!(step_focus(&stops, "list", FocusKey::Next), "load");
+        assert_eq!(step_focus(&stops, "load", FocusKey::Back), "list");
+        // A focus that isn't a stop (gone hidden) goes to the first, or the last on Shift+Tab.
+        assert_eq!(step_focus(&stops, "gone", FocusKey::Next), "load");
+        assert_eq!(step_focus(&stops, "gone", FocusKey::Back), "list");
+        assert_eq!(step_focus(&[], "x", FocusKey::Next), "x");
     }
 
     #[test]

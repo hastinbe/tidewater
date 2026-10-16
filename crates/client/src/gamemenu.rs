@@ -23,9 +23,11 @@
 //! - Fog of war changed in the preferences dialog takes effect on OK (the spec: nothing happens while the dialog is
 //!   open); Cancel leaves it as it was.
 //! - Sound dialog changes are applied 5 frames after the first change (the spec's open question default).
-//! - Keyboard focus (`ui/screen-and-cursors.md`, "Keyboard focus": every dialog works as the main menu does): each
-//!   screen opens focused on its default button ([`default_act`]); Tab and Shift+Tab move the yellow ring among the
-//!   buttons only (not the sliders, check boxes or radios); Enter activates the focused button.
+//! - Keyboard focus (`ui/screen-and-cursors.md`, "Keyboard focus"): each screen opens focused on its default button
+//!   ([`default_act`]); Tab and Shift+Tab move the focus over every control shown, buttons, sliders, check boxes and
+//!   each radio, in the dialog's Tab order ([`tab_stops`]: the settings dialogs' OK and Cancel first, as the round-75
+//!   orders show, then the rest from the top), without changing any of them; Enter activates the focused button and
+//!   does nothing on another control (ours: the spec only has Enter on buttons).
 //! - Ctrl+S sets the digital volume to 0 and back (`Prefs::toggle_digital`); Ctrl+M isn't handled here, `music.rs`
 //!   owns it (`Prefs::toggle_music` is ready for it).
 //!
@@ -510,8 +512,46 @@ fn default_focus(built: &Built, screen: Screen) -> Option<usize> {
         .or_else(|| built.items.iter().position(button))
 }
 
+/// Whether Tab stops on a control: buttons, sliders, check boxes and each radio (screen spec, "Keyboard focus", round
+/// 75); headings and text don't take the focus. Our dialogs build only the controls they show, so a hidden one is
+/// never among the items.
+fn takes_focus(kind: &Kinds) -> bool {
+    matches!(
+        kind,
+        Kinds::Button(..) | Kinds::Slider(..) | Kinds::Check(..) | Kinds::Radio(..)
+    )
+}
+
+/// A screen's Tab stops (indices in its items) in its Tab order. The dialog files have no spec, so the order is the
+/// round-75 observations': on the Sound, Speeds and Preferences dialogs OK and Cancel come first, then the sliders,
+/// radios and check boxes from the top; every other screen's controls go from the top.
+fn tab_stops(built: &Built, screen: Screen) -> Vec<usize> {
+    let shown = built.items.iter().enumerate().filter(|(_, it)| takes_focus(&it.kind));
+    let ok_cancel = |it: &Item| matches!(it.kind, Kinds::Button(Act::Ok | Act::Cancel, _));
+    if matches!(screen, Screen::Sound | Screen::Speed | Screen::Prefs) {
+        let (first, rest): (Vec<_>, Vec<_>) = shown.partition(|(_, it)| ok_cancel(it));
+        first.into_iter().chain(rest).map(|(i, _)| i).collect()
+    } else {
+        shown.map(|(i, _)| i).collect()
+    }
+}
+
 /// The focus ring's colour: menu palette entry 251 (screen spec, "Buttons"). The game dialogs draw in RGB.
 const FOCUS_RGB: [u8; 3] = [255, 255, 0];
+/// Entry 247 in a game's palette, (160, 160, 164) (screen spec, "Buttons"): the default button's outline and a focused
+/// check box's or radio's rectangle.
+const DEFAULT_RGB: [u8; 3] = [160, 160, 164];
+
+/// A focused check box's or radio's mark (screen spec, "Keyboard focus", round 75): a 1-pixel rectangle round its
+/// label's text, not round the box. Ours: one pixel clear of the text on each side.
+fn label_mark(x: i32, y: i32, w: u32, h: u32) -> Rect {
+    Rect::new(x - 2, y - 2, w + 4, h + 4)
+}
+
+/// A focused slider's mark (round 75): a rectangle as wide as the slider and 2 pixels taller, here round its track.
+fn slider_mark(track: Rect) -> Rect {
+    Rect::new(track.x, track.y - 1, track.w, track.h + 2)
+}
 
 const KEY_HELP: [&str; 17] = [
     "+ and -   Game speed",
@@ -551,6 +591,7 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
     let f = &front.font;
     for (i, it) in built.items.iter().enumerate() {
         let hot = m.hot == Some(i);
+        let focused = m.focus == Some(i);
         match &it.kind {
             Kinds::Label(s) => {
                 hud::text(&mut p, f, it.r.x, it.r.y, s);
@@ -562,7 +603,7 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
             }
             Kinds::Button(_, label) => {
                 frontend::button_pressed(&mut p, f, it.r, label, hot, m.pressed == Some(i));
-                if m.focus == Some(i) {
+                if focused {
                     hud::outline(&mut p, it.r, FOCUS_RGB);
                 }
             }
@@ -572,6 +613,9 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                 let track = slider_track(it.r);
                 hud::fill(&mut p, track, [12, 10, 8]);
                 hud::outline(&mut p, track, if *enabled { [180, 160, 100] } else { [90, 80, 50] });
+                if focused {
+                    hud::outline(&mut p, slider_mark(track), FOCUS_RGB);
+                }
                 if *max > 0 {
                     let x = track.x + (track.w as i32 - 6) * *v as i32 / *max as i32;
                     let knob = Rect::new(x, track.y - 2, 6, track.h + 4);
@@ -586,6 +630,14 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                     hud::fill(&mut p, Rect::new(b.x + 4, b.y + 4, 8, 8), [220, 200, 130]);
                 }
                 hud::text(&mut p, f, it.r.x + 24, it.r.y + 1, label);
+                if focused {
+                    let w = f.width(label.as_bytes());
+                    hud::outline(
+                        &mut p,
+                        label_mark(it.r.x + 24, it.r.y + 1, w, f.height as u32),
+                        DEFAULT_RGB,
+                    );
+                }
             }
             Kinds::Radio(_, label, on) => {
                 let r = it.r;
@@ -602,13 +654,11 @@ fn draw(front: &Front, m: &GameMenu, built: &Built) -> crate::scene::Picture {
                 );
                 hud::outline(&mut p, r, if *on { [220, 200, 130] } else { [180, 160, 100] });
                 let w = f.width(label.as_bytes()) as i32;
-                hud::text(
-                    &mut p,
-                    f,
-                    r.x + (r.w as i32 - w) / 2,
-                    r.y + (r.h as i32 - f.height as i32) / 2,
-                    label,
-                );
+                let (x, y) = (r.x + (r.w as i32 - w) / 2, r.y + (r.h as i32 - f.height as i32) / 2);
+                hud::text(&mut p, f, x, y, label);
+                if focused {
+                    hud::outline(&mut p, label_mark(x, y, w as u32, f.height as u32), DEFAULT_RGB);
+                }
             }
         }
     }
@@ -821,6 +871,7 @@ pub(crate) fn saving_input(
         up: keys.just_pressed(Key::Up),
         down: keys.just_pressed(Key::Down),
         backspace: keys.just_pressed(Key::Backspace),
+        tab: frontend::focus_key(keys),
         ..Default::default()
     };
     for e in input.typed.read(typed) {
@@ -897,23 +948,17 @@ pub(crate) fn run_menu(c: &mut Core) {
         m.dirty = true;
     }
 
-    // Screen spec, "Keyboard focus" (every dialog works alike: its open-question default): the screen opens focused
-    // on its default button; Tab and Shift+Tab move the focus among the buttons, wrapping, and pressing a button
-    // gives it the focus.
+    // Screen spec, "Keyboard focus" (round 75): the screen opens focused on its default button; Tab and Shift+Tab move
+    // the focus over its Tab stops, wrapping, and change none of them; pressing a button gives it the focus.
     let screen = m.screen();
-    let is_button: Vec<bool> = built
-        .items
-        .iter()
-        .map(|it| matches!(it.kind, Kinds::Button(..)))
-        .collect();
     let mut focus = m.focus.or_else(|| default_focus(&built, screen));
     if mouse_in.just_pressed(Button::Left)
-        && let Some(i) = hot.filter(|&i| is_button[i])
+        && let Some(i) = hot.filter(|&i| matches!(built.items[i].kind, Kinds::Button(..)))
     {
         focus = Some(i);
     }
     if let (Some(k), Some(f)) = (frontend::focus_key(keys), focus) {
-        focus = Some(crate::menuscreen::move_focus(&is_button, f, k));
+        focus = Some(crate::menuscreen::step_focus(&tab_stops(&built, screen), f, k));
     }
     if focus != m.focus {
         m.focus = focus;
@@ -1124,6 +1169,7 @@ pub(crate) fn run_saving(c: &mut Core) {
             u.scroll,
             u.hot,
             u.held,
+            u.focus,
         )
     };
     let before = snap(ui);
@@ -1323,16 +1369,72 @@ mod tests {
         assert_eq!(default_act(Screen::Saving(Saving::Load)), None);
     }
 
+    /// What a screen's Tab stops are, in Tab order, by their labels.
+    fn stop_names(s: Screen) -> Vec<String> {
+        let b = menu_at(s).build(20, 16, Kind::Campaign);
+        tab_stops(&b, s)
+            .into_iter()
+            .map(|i| match &b.items[i].kind {
+                Kinds::Button(_, l) | Kinds::Slider(_, l, ..) | Kinds::Check(_, l, _) | Kinds::Radio(_, l, _) => {
+                    l.clone()
+                }
+                k => panic!("{k:?} takes no focus"),
+            })
+            .collect()
+    }
+
     #[test]
-    fn tab_moves_the_focus_among_a_dialogs_buttons_only() {
-        // The preferences dialog: radios and a check box before OK and Cancel; Tab passes over them.
-        let b = menu_at(Screen::Prefs).build(20, 16, Kind::Campaign);
-        let is_button: Vec<bool> = b.items.iter().map(|it| matches!(it.kind, Kinds::Button(..))).collect();
-        let ok = default_focus(&b, Screen::Prefs).unwrap();
-        let next = crate::menuscreen::move_focus(&is_button, ok, crate::menuscreen::FocusKey::Next);
-        assert!(matches!(&b.items[next].kind, Kinds::Button(Act::Cancel, _)));
-        let wrapped = crate::menuscreen::move_focus(&is_button, next, crate::menuscreen::FocusKey::Next);
-        assert_eq!(wrapped, ok, "from the last button back to the first");
+    fn tab_stops_on_every_control_in_the_observed_orders() {
+        // Screen spec, "Keyboard focus" (round 75): Sound: OK, Cancel, the two sliders, the shown check boxes; Speeds:
+        // OK, Cancel, the three sliders; Preferences: OK, Cancel, the six radios, the check box.
+        assert_eq!(
+            stop_names(Screen::Sound),
+            [
+                "OK",
+                "Cancel",
+                "Music volume",
+                "Sound effects volume",
+                "Unit speech",
+                "Acknowledgements",
+                "Building sounds",
+                "Subtitles"
+            ]
+        );
+        assert_eq!(
+            stop_names(Screen::Speed),
+            ["OK", "Cancel", "Game speed", "Mouse scroll speed", "Key scroll speed"]
+        );
+        let prefs = stop_names(Screen::Prefs);
+        assert_eq!(prefs.len(), 2 + 6 + 1, "{prefs:?}");
+        assert_eq!(prefs[..2], ["OK", "Cancel"]);
+        assert_eq!(
+            prefs[2..4],
+            ["Right click commands", "Right click centres"],
+            "each radio on its own"
+        );
+        assert_eq!(prefs[8], "Colour cycling");
+        // The other screens' buttons go from the top; text and headings never take the focus.
+        assert_eq!(stop_names(Screen::Help), ["Keystroke Help", "Tips", "Previous"]);
+        assert_eq!(stop_names(Screen::Confirm(Confirm::QuitToMenu)), ["OK", "Cancel"]);
+    }
+
+    #[test]
+    fn tab_visits_every_stop_and_wraps_without_changing_any() {
+        let m = menu_at(Screen::Prefs);
+        let b = m.build(20, 16, Kind::Campaign);
+        let stops = tab_stops(&b, Screen::Prefs);
+        let start = default_focus(&b, Screen::Prefs).unwrap();
+        assert_eq!(stops[0], start, "OK has the focus first");
+        let mut f = start;
+        for want in stops[1..].iter().chain([&start]) {
+            f = crate::menuscreen::step_focus(&stops, f, crate::menuscreen::FocusKey::Next);
+            assert_eq!(f, *want);
+        }
+        let back = crate::menuscreen::step_focus(&stops, start, crate::menuscreen::FocusKey::Back);
+        assert!(
+            matches!(b.items[back].kind, Kinds::Check(Tick::Colour, ..)),
+            "Shift+Tab: the last stop"
+        );
     }
 
     #[test]

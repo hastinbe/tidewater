@@ -21,8 +21,8 @@ frames	966-966	70551414d6f2ed53
 shot	972	victory	43e546e9c87b0534
 frames	967-972	43e546e9c87b0534
 frames	973-973	6d5ce1e96d68d8b8
-shot	977	victory-save	abd85691f3d66b6f
-frames	974-977	abd85691f3d66b6f
+shot	977	victory-save	3819b59dc25c30a3
+frames	974-977	3819b59dc25c30a3
 shot	982	victory-again	6d5ce1e96d68d8b8
 sound	1016	fc2a0198d673dd1d	0.7516	Once
 frames	978-1015	6d5ce1e96d68d8b8

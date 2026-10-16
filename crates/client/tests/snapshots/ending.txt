@@ -258,8 +258,8 @@ frames	673-673	c75e7abf173b98fc
 frames	674-674	72478de0c5b6dca7
 shot	685	menu	afe3d135be74f8db
 frames	675-685	afe3d135be74f8db
-shot	690	load-empty	570f13b30b2749f5
-frames	686-690	570f13b30b2749f5
+shot	690	load-empty	0d5d9967c42cdd01
+frames	686-690	0d5d9967c42cdd01
 shot	695	load-closed	afe3d135be74f8db
 frames	691-696	afe3d135be74f8db
 frames	697-697	f7c5ef7d10fcc3c4
