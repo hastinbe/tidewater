@@ -2678,6 +2678,26 @@ mod tests {
         assert_eq!(losses(1, None), [Attack], "CP3");
     }
 
+    /// `ai/attack-ai.md`, "When a unit is created" (round 83 default, untraced; trace request AI7): an active rescue
+    /// player's map units are created before it becomes a computer player (`game/setup.md`, "After the units"), so
+    /// they get no first goal, only the cleared one. A computer player's map units get theirs.
+    #[test]
+    fn an_active_rescue_players_map_units_get_no_first_goal() {
+        for (code, expected) in [
+            (controller::COMPUTER, GoalKind::Hold),
+            (controller::RESCUE_ACTIVE, GoalKind::None),
+        ] {
+            let mut w = game();
+            w.players[1].controller = code;
+            w.loading = true;
+            spawn(&mut w, TOWN_HALL, 1, (2, 2));
+            let g = spawn(&mut w, GRUNT, 1, (10, 10));
+            w.loading = false;
+            w.players[1].controller = controller::COMPUTER;
+            assert_eq!(at(&w, g).goal.kind, expected, "code {code}");
+        }
+    }
+
     /// `ai/worker-ai.md` vector: 3 buildings, one a complete oil platform, lose one: B = 2 at the kill (the platform
     /// left out), so the all-out attack.
     #[test]

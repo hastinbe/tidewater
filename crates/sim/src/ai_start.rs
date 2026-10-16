@@ -47,13 +47,22 @@ impl World {
     }
 
     /// The marks made at the start of a game for computer player `p`, after its build list is set.
+    ///
+    /// An active rescue player's map buildings were created before it became a computer player (`game/setup.md`,
+    /// "After the units"), so they get no creation marks (round 83, traced: the `human5` and `human8` setup dumps,
+    /// CP8) and mark no build-list entry done (round 83 default, untraced). They are the buildings with the rescuable
+    /// mark, which only the map's units of a rescue player get. Its research entries are marked as any computer
+    /// player's.
     pub(crate) fn mark_game_start(&mut self, p: usize) {
         if !self.computer_player(p as u8) {
             return;
         }
         // Worker-ai spec, "Creation marks" (round 38): the map's buildings get their keep-clear marks by type.
         let mine: Vec<usize> = (0..self.units.len())
-            .filter(|&i| self.units[i].owner as usize == p && self.units[i].building && !self.units[i].dying)
+            .filter(|&i| {
+                let u = &self.units[i];
+                u.owner as usize == p && u.building && !u.dying && !u.rescuable
+            })
             .collect();
         for &i in &mine {
             self.creation_mark(i);

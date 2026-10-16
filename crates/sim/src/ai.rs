@@ -147,9 +147,16 @@ impl World {
         true
     }
 
-    /// A computer player with script slots, players 0 to 7: the players whose deciders run.
+    /// A computer player with script slots, players 0 to 7: the players whose deciders run. The controller must be
+    /// computer (code 4): an active rescue player (code 7) becomes one only once the map's units are created
+    /// (`game/setup.md`, "After the units"), so while they are created it isn't one, and its map units get no first
+    /// goal (`ai/attack-ai.md`, "When a unit is created"; `ai/computer-player.md`, round 83). Code 7 exists only then.
     pub(crate) fn ai_player(&self, owner: u8) -> bool {
-        (owner as usize) < SCRIPT_PLAYERS && self.computer_player(owner)
+        (owner as usize) < SCRIPT_PLAYERS
+            && self
+                .players
+                .get(owner as usize)
+                .is_some_and(|p| p.controller == controller::COMPUTER)
     }
 
     // ---- Hooks ----------------------------------------------------------------------------------------------------
@@ -209,8 +216,9 @@ impl World {
 
     /// Step 1 of the cycle: one script step for each computer-controlled player 0 to 7, in ascending order ("Each
     /// cycle"): its wait counter goes down by 1, or, at 0, its script runs until it pauses. The test is the computer
-    /// controller (code 4) alone, so an active rescue player (code 7), which the other deciders count as a computer
-    /// player, doesn't step its script.
+    /// controller (code 4). An active rescue player (code 7) has become one once the map's units were created
+    /// (`game/setup.md`, "After the units"; `ai/computer-player.md`: "a computer player" from then on), so it steps
+    /// its script like any other computer player.
     pub(crate) fn script_steps(&mut self) {
         if self.ai_file.is_none() {
             return;

@@ -199,3 +199,33 @@ fn a_never_researchable_entry_stalls_the_requests_after_it() {
     assert!(!w.ai[P].requested(0x91));
     assert!(!w.ai[P].requested(0x93));
 }
+
+/// CP8 (`ai/computer-player.md`; `ai/worker-ai.md`, "Creation marks" and "Done marks", round 83; traced: the `human5`
+/// and `human8` setup dumps): an active rescue player's map buildings are created before it becomes a computer player,
+/// so they get no keep-clear marks and mark no build-list entry done (the done marks: round 83 default, untraced). Its
+/// research entries are still marked. The same buildings of a computer player get both.
+#[test]
+fn an_active_rescue_players_map_buildings_make_no_marks() {
+    let keep_clear = |w: &World| {
+        (0..40)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.terrain.word(x, y) & crate::worker_ai::KEEP_CLEAR != 0)
+            .count()
+    };
+    let list = [0x80, b::TOWN_HALL, b::HUMAN_BARRACKS];
+    let mut got = Vec::new();
+    for code in [controller::COMPUTER, controller::RESCUE_ACTIVE] {
+        let mut w = world(&list);
+        w.players[P].levels[fixed_line(4)] = 1;
+        w.players[P].controller = code;
+        // The map loader: the units are created, then code 7 becomes a computer player (`game/setup.md`).
+        w.loading = true;
+        put(&mut w, b::TOWN_HALL, 1);
+        put(&mut w, b::HUMAN_BARRACKS, 3);
+        w.loading = false;
+        w.players[P].controller = controller::COMPUTER;
+        w.mark_game_start(P);
+        got.push((w.ai[P].done, keep_clear(&w) > 0));
+    }
+    assert_eq!(got, [(0b111, true), (0b001, false)]);
+}
