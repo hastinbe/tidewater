@@ -706,6 +706,11 @@ impl World {
         {
             return true;
         }
+        // `ai/worker-ai.md`, "When a job is chosen", in order 4 (round 83, C2; traced:
+        // `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, n = 804, CP5): a computer worker's or tanker's job
+        // choice runs where a combat unit would run its target search, which is the walk's step 1, before its arrival
+        // test and step ("Walking orders"; round 84). Its command is pending and takes over at the next step done.
+        let job = !arriving && matches!(o, Order::MoveAttack { .. }) && self.moving_choice(i);
         if lost {
             // "Losing the target while cooling down": in orders 12, 15 and 16 the cooldown test comes
             // before the target check, so a unit still cooling down restarts its attack animation with the cooldown
@@ -734,17 +739,9 @@ impl World {
                     self.idle_choice(i);
                 }
             }
-            Order::Move { .. } | Order::MoveAttack { .. } | Order::AttackMove { .. } => {
-                // `ai/worker-ai.md`, "When a job is chosen", in order 4 (round 83, C2; traced:
-                // `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, n = 804, CP5): a computer worker's or
-                // tanker's job choice runs here, after the arrival test, where a combat unit would run its target
-                // search. Its command is pending and takes over at the next step done; the walk goes on meanwhile.
-                // Only order 4: the other acquiring orders keep the old text (no job choice; open question there).
-                if matches!(o, Order::MoveAttack { .. }) && !arriving {
-                    self.moving_choice(i);
-                }
-                self.move_order(i, o, arriving)
-            }
+            // The walk after a job choice heads for the job ([`World::job_walk`]).
+            _ if job => self.job_walk(i),
+            Order::Move { .. } | Order::MoveAttack { .. } | Order::AttackMove { .. } => self.move_order(i, o, arriving),
             Order::Patrol { to, back } => match self.walk(i, Goal::tile(to, 0)) {
                 Walk::Arrived => {
                     // "Arriving and losing the target", order 5: a patrol command to the other end, with the tile it
@@ -809,6 +806,57 @@ impl World {
         // No route: the plain rule (V170: the unit keeps its attacker, and its idle logic may react to it).
         if self.walk(i, g) == Walk::Arrived {
             self.arrive(i);
+        }
+    }
+
+    /// The walk after a job choice in a walking order (`ai/worker-ai.md`, "When a job is chosen"; `orders/orders.md`,
+    /// "Walking orders", steps 3 and 4; round 84). The choice is the walk's step 1, and its command has stored the
+    /// job's target and goal ("What every command does", step 1) while the order stays until the next step done; so
+    /// the walk's arrival test and step use the job's: the walk heads for the job's target where it stands, by the
+    /// order's own radius (0 for orders 4, 5 and 10; the attack range for order 12). Traced in order 4:
+    /// `xhuman5-xhuman05-worker-all-out-goals-3000` peon 1575 steps toward gold mine 1573 at n = 2410, the harvest
+    /// pending. On arrival the walk ends and the pending job takes over in that same update in place of the order's
+    /// idle (AI11, traced at n = 2464: order 23, animation 4, wait 3); as on order 4's arrival the attacker is
+    /// forgotten (orders 5 and 12 too: our reading, untraced).
+    fn job_walk(&mut self, i: usize) {
+        let Some(job) = self.units[i].pending else { return };
+        let u = &self.units[i];
+        let chase = matches!(u.order, Order::Chase { .. });
+        let target = job.target().and_then(|t| self.unit(t));
+        let g = match target {
+            Some(t) if chase => self.strike_goal(u, t),
+            Some(t) => self.target_walk(u, t, 0),
+            None => {
+                let tile = match job {
+                    Order::Build { kind, site, goal } => goal.unwrap_or_else(|| self.build_goal(i, kind, site)),
+                    Order::Harvest { tree, .. } => tree,
+                    // A command that failed its target check left idle pending: the order's own walk goes on.
+                    _ => return self.walk_on(i),
+                };
+                let reach = if chase { self.reach(u) } else { 0 };
+                Goal {
+                    range: chase,
+                    ..Goal::tile(tile, reach)
+                }
+            }
+        };
+        if self.walk(i, g) == Walk::Arrived {
+            self.units[i].attacked_by = None;
+            if let Some(o) = self.units[i].pending.take() {
+                self.take_over(i, o);
+            }
+        }
+    }
+
+    /// The order's own walk, for a job choice whose command left idle pending (its target failed the check).
+    fn walk_on(&mut self, i: usize) {
+        match self.units[i].order {
+            o @ (Order::MoveAttack { .. } | Order::AttackMove { .. }) => self.move_order(i, o, false),
+            Order::Patrol { to, .. } => {
+                self.walk(i, Goal::tile(to, 0));
+            }
+            Order::Chase { target } => self.attack_order(i, target),
+            _ => {}
         }
     }
 

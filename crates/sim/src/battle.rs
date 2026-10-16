@@ -245,7 +245,7 @@ impl World {
 
     /// The goal of a walk toward an attack target: the target's tile or, for a building, the footprint tile of the
     /// building goal rule, with the attack range as the radius.
-    fn strike_goal(&self, u: &Unit, t: &Unit) -> Goal {
+    pub(crate) fn strike_goal(&self, u: &Unit, t: &Unit) -> Goal {
         let up = self.players[u.owner as usize].upgrades;
         let reach = combat::range(u.kind, &self.stats_of(u.kind), &up).max(1) as i32;
         // A shore building is aimed at by its shore corner goal ([`World::target_goal`]).

@@ -187,13 +187,19 @@ impl World {
         }
     }
 
-    /// The job choice in order 4 (`ai/worker-ai.md`, "When a job is chosen"; `ai/computer-player.md`, CP5, round 83):
-    /// its order is an ordinary command, pending until the unit's next step done (traced:
+    /// The job choice in an acquiring order other than idle (`ai/worker-ai.md`, "When a job is chosen": orders 4 and
+    /// 12 traced, round 83 and 84; the other acquiring orders a static gap-fill; `ai/computer-player.md`, CP5, CP12 and
+    /// CP13): its order is an ordinary command, pending until the unit's next step done (traced:
     /// `xhuman5-xhuman05-worker-all-out-goals-1100` peon 1575, pending at n = 804, taking over at n = 826). The goal
-    /// is left as it is: nothing here clears an attack goal (`ai/attack-ai.md`, "Attack (2)").
-    pub(crate) fn moving_choice(&mut self, i: usize) {
-        if let Some(o) = self.job_choice(i) {
-            self.command(i, o);
+    /// is left as it is: nothing here clears an attack goal (`ai/attack-ai.md`, "Attack (2)"). With no job a worker
+    /// gets the wait and keeps its order ("The wait"). Returns whether the choice gave a command.
+    pub(crate) fn moving_choice(&mut self, i: usize) -> bool {
+        match self.job_choice(i) {
+            Some(o) => {
+                self.command(i, o);
+                true
+            }
+            None => false,
         }
     }
 
@@ -1064,6 +1070,78 @@ mod tests {
         }
         let u = w.unit(id).unwrap();
         assert_eq!((u.order, u.pending, w.players[1].gold), (out, None, gold));
+    }
+
+    /// A town with food to spare (hall and two farms) and one computer peasant at `at`, walking in order 4 toward
+    /// `goal` with nothing pending; no 50-cycle pass in the test's span.
+    fn order_4_worker(at: (i32, i32), goal: (i32, i32)) -> (World, UnitId) {
+        let (mut w, _) = town();
+        w.spawn(t::FARM, 1, (2, 2), 0).unwrap();
+        w.spawn(t::FARM, 1, (2, 6), 0).unwrap();
+        let id = w.spawn(PEASANT, 1, at, 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.take_over(i, Order::MoveAttack { goal, target: None });
+        w.army.countdown = 1000;
+        (w, id)
+    }
+
+    /// `ai/worker-ai.md`, "When a job is chosen" (round 84; traced: `xhuman5-xhuman05-worker-all-out-goals-3000` peon
+    /// 1575, n = 2410): the order-4 choice is the walk's step 1. The walk goes on in the same update, its step heading
+    /// for the job's target (its command stored it) rather than the order's goal, while the job waits as the pending
+    /// order.
+    #[test]
+    fn the_walk_after_an_order_4_job_choice_heads_for_the_job() {
+        // Walking east, away from the hall at (14, 14), carrying gold: the choice gives return goods.
+        let (mut w, id) = order_4_worker((24, 15), (50, 15));
+        let i = w.index(id).unwrap();
+        w.units[i].carrying = true;
+        let mut n = 0;
+        let before = loop {
+            let tile = w.unit(id).unwrap().tile;
+            w.step(&[]);
+            n += 1;
+            assert!(n < 50, "no job choice");
+            if w.unit(id).unwrap().pending.is_some() {
+                break tile;
+            }
+        };
+        let u = w.unit(id).unwrap();
+        assert!(
+            matches!(u.pending, Some(Order::ReturnGoods { depot: Some(_) })),
+            "{:?}",
+            u.pending
+        );
+        assert!(matches!(u.order, Order::MoveAttack { .. }));
+        assert!(
+            u.tile.0 < before.0,
+            "stepped toward the hall in the update of the choice"
+        );
+        assert_eq!(u.script.anim, tidewater_formats::script::anim::MOVE);
+    }
+
+    /// AI11 (`ai/worker-ai.md`, "When a job is chosen", round 84; traced: `xhuman5-xhuman05-worker-all-out-goals-3000`
+    /// peon 1575 beside gold mine 1573, n = 2464): when the job's target is already in reach, the walk's arrival test
+    /// ends the walk and the job's order takes over in the same update (its animation, wait 3), instead of order 4's
+    /// idle and instead of waiting for the next step done.
+    #[test]
+    fn an_order_4_job_already_in_reach_takes_over_in_the_same_update() {
+        let (mut w, id) = order_4_worker((18, 20), (50, 50));
+        let mine = w.spawn(t::GOLD_MINE, slots::NEUTRAL, (19, 19), 1000).unwrap();
+        let mut n = 0;
+        while matches!(w.unit(id).unwrap().order, Order::MoveAttack { .. }) {
+            assert_eq!(w.unit(id).unwrap().tile, (18, 20), "no step");
+            w.step(&[]);
+            n += 1;
+            assert!(n < 50, "no job choice");
+        }
+        let u = w.unit(id).unwrap();
+        assert!(
+            matches!(u.order, Order::Harvest { source: Some(m), .. } if m == mine),
+            "{:?}",
+            u.order
+        );
+        assert_eq!((u.pending, u.tile), (None, (18, 20)));
+        assert_eq!((u.script.anim, u.script.wait), (crate::orders::order_anim(u.order), 3));
     }
 
     #[test]
