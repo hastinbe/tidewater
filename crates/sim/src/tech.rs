@@ -352,8 +352,16 @@ mod tests {
         }]);
     }
 
+    /// Cancels building `b`'s job and runs until it ends, at the building's next work run ("Cancelling a job").
     fn cancel(w: &mut World, b: UnitId) {
         w.step(&[Command::Cancel { player: 0, unit: b }]);
+        for _ in 0..60 {
+            if job(w, b).is_none() {
+                return;
+            }
+            w.step(&[]);
+        }
+        panic!("the cancelled job didn't end");
     }
 
     fn job(w: &World, b: UnitId) -> Option<crate::economy::Job> {

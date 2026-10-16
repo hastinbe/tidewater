@@ -65,5 +65,5 @@ shot	719	printed	c389ae0fb9950a40
 frames	718-720	c389ae0fb9950a40
 shot	725	flash-over	b1e58710bb12af48
 frames	721-725	b1e58710bb12af48
-file	one.sav	735f11b727f44599
+file	one.sav	0a254d1b16edbcb2
 file	screen000.pcx	246c73532bd7c350

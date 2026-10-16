@@ -2594,6 +2594,7 @@ mod tests {
             progress: 0,
             running: true,
             paid: Default::default(),
+            cancelled: false,
         });
         // Order 59: the circle of power.
         let circle = spawn(&mut w, CIRCLE_OF_POWER, 1, (40, 10));

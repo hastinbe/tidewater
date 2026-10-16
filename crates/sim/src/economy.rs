@@ -170,6 +170,8 @@ pub struct Job {
     /// Whether the work animation has taken over.
     pub running: bool,
     pub paid: Cost,
+    /// Marked by a cancel-job command: the job ends cancelled at its next work run ("Cancelling a job").
+    pub cancelled: bool,
 }
 
 impl World {
@@ -445,6 +447,7 @@ impl World {
             progress: 0,
             running: false,
             paid,
+            cancelled: false,
         });
         // "Starting": the mana byte shows 1, and a building upgrade shows frame 1 of the new type's picture
         // ([`crate::world::Unit::picture`]).
@@ -466,6 +469,13 @@ impl World {
         if !job.running {
             job.running = true;
             self.start_anim(i, anim::WORK_A);
+            self.units[i].script.wait = TAKEOVER_WAIT;
+            return;
+        }
+        // "Cancelling a job" (static study): a job marked to be cancelled ends, cancelled, at this run, even if its
+        // counter has reached the total; order 33 takes over in the same update with wait 3, as at any job end.
+        if job.cancelled {
+            self.cancel_job(i);
             self.units[i].script.wait = TAKEOVER_WAIT;
             return;
         }
@@ -665,10 +675,15 @@ impl World {
         };
     }
 
-    /// Cancels a building's job (full refund) or, if it is under construction, the building itself: it is destroyed
-    /// and part of its cost comes back ("Cancelling construction").
+    /// The cancel command: a working building's job is marked to be cancelled, and ends at its next work run
+    /// ("Cancelling a job"); a building under construction is taken down, part of its cost coming back ("Cancelling
+    /// construction").
     pub(crate) fn cancel(&mut self, i: usize) {
-        if self.units[i].dying || self.cancel_job(i) {
+        if self.units[i].dying {
+            return;
+        }
+        if let Some(job) = &mut self.units[i].job {
+            job.cancelled = true;
             return;
         }
         let u = &self.units[i];
@@ -686,8 +701,9 @@ impl World {
         self.kill(i);
     }
 
-    /// Cancels a building's job with a full refund to its owner, as the cancel column of "Ending" says. Returns
-    /// whether it had one.
+    /// Ends a building's job cancelled, with a full refund to its owner, as the cancelled column of "Job end" says:
+    /// at a marked job's work run, and at once when the building is killed or changes owner. Returns whether it had
+    /// one.
     pub(crate) fn cancel_job(&mut self, i: usize) -> bool {
         let u = &self.units[i];
         let Some(job) = u.job else { return false };
@@ -886,8 +902,53 @@ mod tests {
         }]);
         run(&mut w, 20);
         w.step(&[Command::Cancel { player: 0, unit: hall }]);
+        // "Cancelling a job": the command only marks the job; it ends at the next work run, within 5 cycles once
+        // the runs have begun, with order 33 taking over (still animation, wait 3).
+        assert_eq!((w.players[0].gold, w.players[0].in_training), (9_600, 1));
+        assert!(w.unit(hall).unwrap().job.is_some_and(|j| j.cancelled));
+        let mut ended = 0;
+        for t in 1..=5 {
+            w.step(&[]);
+            if w.unit(hall).unwrap().job.is_none() {
+                ended = t;
+                break;
+            }
+        }
+        assert!(ended > 0, "ends within 5 cycles");
         assert_eq!((w.players[0].gold, w.players[0].in_training), (10_000, 0));
-        assert_eq!(w.unit(hall).unwrap().script.anim, anim::STILL);
+        let u = w.unit(hall).unwrap();
+        assert_eq!((u.script.anim, u.script.wait, u.mana), (anim::STILL, 3, 0));
+    }
+
+    /// "Cancelling a job": a job marked before its first run ends at that first run, 13 cycles after the work
+    /// animation takes over, even when its counter has already reached its total (a job of 0 steps).
+    #[test]
+    fn a_job_cancelled_before_its_first_run_ends_at_that_run() {
+        let (mut w, hall) = town();
+        w.spawn(kind::FARM, 0, (0, 2), 0).unwrap();
+        w.stats.0[2].gold = 400;
+        w.stats.0[2].build_time = 0;
+        w.step(&[Command::Train {
+            player: 0,
+            building: hall,
+            kind: 2,
+        }]);
+        w.step(&[Command::Cancel { player: 0, unit: hall }]);
+        let mut took = None;
+        let n = w.units.len();
+        for t in 1..=40 {
+            w.step(&[]);
+            let u = w.unit(hall).unwrap();
+            if took.is_none() && u.script.anim == anim::WORK_A {
+                took = Some(t);
+            }
+            if u.job.is_none() {
+                assert_eq!(took.map(|k| t - k), Some(13));
+                break;
+            }
+        }
+        assert_eq!(w.unit(hall).unwrap().job, None);
+        assert_eq!((w.units.len(), w.players[0].gold), (n, 10_000));
     }
 
     /// Round-48 errata, "A building killed during a job" (`human5-10000` great hall 1525, n = 8086): the job is
@@ -1039,6 +1100,7 @@ mod tests {
             assert_eq!((u.kind, u.picture(), u.script.frame), (HALL, kind::KEEP, 1));
             if cancel {
                 w.step(&[Command::Cancel { player: 0, unit: hall }]);
+                run(&mut w, 5);
             } else {
                 run(&mut w, 300);
             }
