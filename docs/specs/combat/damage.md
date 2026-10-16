@@ -95,6 +95,9 @@
   a rune's kill is an outright kill with no credit (traced: `xorc12-spells-hits-1150-1260`; the three sentences that
   said spell damage all goes through the step now name the exception, and runes join the outright kills under
   "Credit and score").
+- **Changes:** 2026-10-16 (round 81 traces, `ERRATA-round81.md`, reviewed by a spec-review session,
+  2026-10-16): "Splash on impact" notes that flames around a unit inside a building splash that building (traced). No
+  rule changed.
 
 ## Behaviour
 
@@ -495,6 +498,10 @@ in the scan (row 4, column 4). A unit already considered (the impact tile's grou
 
 A dying unit is no longer on the occupancy marks (`core/unit-slots.md`, "Death, corpses and release"), so a splash
 never considers it and makes no draw for it.
+
+A flame shield's flames go on around a unit that has gone inside a building, and their splash then hits that building
+(the firing unit, the one inside, is still never hit); the `hits` entries credit the unit inside (round 81;
+traced: `xhuman10-shield-mine-hits-800`, a gold mine and a town hall; `spells/spells.md`, "Flame shield", S95).
 
 **Evidence:** static study (vectors V26 to V30); traced: a splash kill of a unit other than the target
 (`xhuman10-blizzard-600`, V72) and the breath splash's units (`xorc10`, V51). The dying-unit sentence restates the

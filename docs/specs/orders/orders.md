@@ -33,6 +33,11 @@
 - **Changes:** 2026-10-16 (round 76, B-038 build/train consolidation, `ERRATA-buildtrain-consolidation.md`, reviewed;
   traced): order 22 builders come out when the building is finished or its construction is cancelled; a killed building
   kills them (`economy/build-train.md`, V50).
+- **Changes:** 2026-10-16 (round 81 traces, `ERRATA-round81.md`, reviewed by a spec-review session,
+  2026-10-16): "Walking orders", step 2: the lost-target drop traced for a spell order, and stated to apply only while
+  the unit walks (a unit already in reach isn't tested; traced for slow). The section's opening and step 3 now say
+  that the reach test of "How an update runs", step 2, comes before the whole walk (the order the spells audit asked
+  to make explicit). No other rule changed.
 
 ## Behaviour
 
@@ -279,7 +284,9 @@ are made"; `core/animation-scripts.md`). At each step done, in this order:
 ### Walking orders
 
 Every order that moves the unit walks the same way. While the unit walks, only the walk runs at each step boundary;
-the order's logic doesn't. At each step boundary the walk, in this order:
+the order's logic doesn't. The walk runs only for a unit that isn't in reach of its goal when the step done comes:
+that reach test ("How an update runs", step 2) is made **before** the walk, so none of the steps below, the target
+drop of step 2 included, is made for a unit already in reach. At each step boundary the walk, in this order:
 
 1. **Looks at the attacker, by order** (static study for the split; the traced cases are named below):
    - an order that **acquires** (4, 5, 7 and 12, and in Enhanced mode 10) runs the target search of "Automatic target
@@ -294,9 +301,15 @@ the order's logic doesn't. At each step boundary the walk, in this order:
    detected by the unit's player, the target is dropped and the walk **ends** at that step boundary: the order's
    logic runs in that update with no target. Orders 3 and 4 end there as on arrival ("Arriving and losing the
    target"; traced for order 3 with a dying target: `orc9-orc09-smart-target-2100` n = 1877, vector V240); orders 23
-   and 24 follow `economy/harvest.md`. That every other walking order with a target unit ends its walk the same way
-   is static study only.
+   and 24 follow `economy/harvest.md`. Traced for spell order 44 too (round 81:
+   `xhuman10-slow-killed-goals-400`, the target dying mid-walk; `spells/spells.md`, S90): the drop comes at the next
+   step boundary, not at the death. That every other walking order with a target unit ends its walk the same way is
+   static study only. The test is made only by the walk, so a unit already within its order's radius, which doesn't
+   walk ("How an update runs", step 2), isn't tested: a spell caster in reach casts at a target its player no longer
+   detects (round 81; traced: `xhuman10-invisible-reach-goals-400`, `spells/spells.md`, S92).
 3. **Tests arrival.** A unit within its order's radius has arrived: its cached route is dropped and the walk ends.
+   With the goal unchanged since the reach test of "How an update runs", step 2, the unit is still out of reach here;
+   the test matters once step 1 has given the unit a new target (a reading of the stated steps; no rule changed).
 4. **Steps.** The route search of `movement/pathfinding.md` gives a step, a blocked step (`movement/movement.md`,
    "Blocked rules"), or **no route** ("Arriving and losing the target", "No route"). After no route, the order's
    logic runs in that update for whatever order the no-route rule left (normally idle).
@@ -1973,3 +1986,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 71 | Orders audit: lost target's take-over waits 3 (traced); unremembered patrol on either axis (traced); transport settle at an idle take-over; follow step 1 a smart move; Enhanced demolition unit's search (static). Spec review: a pending return with no target as a command (static) not accepted, kept as an open question | "Arriving and losing the target"; "Taking over"; "Same-update take-over"; "Follow (orders 6 and 7)"; "An unremembered patrol"; "Open questions"; "Automatic target acquisition" (S1); vectors V022, V273 to V276, V277 (open question) |
 | 72 | Evidence only: the Enhanced demolition unit's search (S1) traced for a remembered patrol and for order 4 with nothing remembered, before and after a hit; the no-attacker case stated from the trace. Movement audit: what a walk forgets at each step boundary restated (an open question since the consolidation). Spec review: a hit sapper not fleeing after arrival is a new open question | "Automatic target acquisition", "Special cases"; V278, V279; "Open questions" |
 | 75 | Hit sapper's attacker forgotten on arrival (traced with the hit list); demolition rule for every player and "nothing else" scoped to the search step (static); idle transport's step-done check isn't a take-over (static); notes on the skip mark, T11 and V277 | "Automatic target acquisition"; "Taking over"; "Open questions"; V279, V280 |
+| 81 | Walking orders: the lost-target drop traced for spell order 44 and made only by the walk (a caster in reach casts at an undetected target, traced); the reach test of "How an update runs" stated to come before the whole walk | "Walking orders" |

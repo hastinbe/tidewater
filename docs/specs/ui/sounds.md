@@ -36,6 +36,9 @@
 - **Changes:** 2026-10-16 (B-040 combat audit, `ERRATA-audit-combat.md`, erratum 6, static study; reviewed by a
   spec-review session, 2026-10-16): the attack sound's and the building explosion's variant draws are made in the
   simulation update, when the sound is made pending, whether or not it is heard. No change to which file plays.
+- **Changes:** 2026-10-16 (round 81, `ERRATA-round81.md`, spells audit errata 8 and 9, static gap-fills;
+  reviewed by a spec-review session, 2026-10-16): holy vision's sound at each point used; the eye of Kilrogg's sound only when an eye is
+  made.
 
 ## Behaviour
 
@@ -354,6 +357,13 @@ the error sound.
 When a spell takes effect, its sound plays as a placed sound (on the unit or tile the spell acts on), audible off
 screen. The Eye of Kilrogg sound is a plain sound.
 
+- **Holy vision** plays its sound once for **each point it uses**, on that point's tile, so up to 7 times; a point
+  skipped as off the map has no sound (**Classic mode:** a point at the map width still gets one) (round 81,
+  static gap-fill, accepted by the review ruling in `ERRATA-round81.md`; `spells/spells.md`, S99). Each point's sound
+  goes through the placed-sound tests above on its own tile (open question "Holy vision's sounds and the seen test").
+- **Eye of Kilrogg** plays its sound only when an eye is created; a cast that finds no tile sets the blocked-exit
+  message and plays nothing (round 81, static gap-fill; `spells/spells.md`, S100).
+
 | Spell | Sound |
 | --- | --- |
 | Bloodlust | `spells\blodlust` |
@@ -527,6 +537,11 @@ selection cooldown has expired, and r is the setup-shuffle draw.
 
 ## Open questions
 
+- **Holy vision's sounds and the seen test** (round 81). Each point's sound is a placed sound at that point's tile,
+  so it is silent when the local player hasn't seen the tile. Whether the point's reveal comes before its sound's test
+  isn't established (static study gives the sound per point, not when the seen bit is read). Default: the reveal comes
+  first, so a local caster hears every point it uses. Sounds aren't in the trace; a watched capture of a holy vision
+  cast into unexplored ground would settle it.
 - **Work complete for a builder with no room.** When construction finishes, the sound is asked for each unit inside
   before it is placed, so static study says a builder that finds no free tile and dies still plays it. No trace has
   a builder with no room. Default: it plays. Trace request BT3 (`specs/ERRATA-buildtrain-consolidation.md`).

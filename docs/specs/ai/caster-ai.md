@@ -7,6 +7,9 @@
 - **Changes:** 2026-10-16 (round 80 spells consolidation, `ERRATA-spells-consolidation.md`, review): the references
   to the timers pass point at `spells/spells.md`, "The timers pass"; the open question "Eye of Kilrogg with an old
   target" no longer says the ogre-mage walks (order 48 has no walk). No rule change.
+- **Changes:** 2026-10-16 (round 81 traces, `ERRATA-round81.md`, reviewed by a spec-review session,
+  2026-10-16): the open question "Polymorph from the random search" notes the pending idle form; a note that try 7 never shields its own
+  caster. No rule change.
 
 ## Behaviour
 
@@ -241,10 +244,16 @@ every spell. "Draws" counts the caster step's draws only.
   implement the alliance table literally. What a never-used slot holds wasn't checked; default all zero, owner 14.
 - **Polymorph from the random search.** It aims a unit spell at a tile with no unit. Whether the caster first walks to
   the tile before it goes idle wasn't traced. Default: as `spells/spells.md` gives for a unit spell without a target.
+  Round 81: the idle it ends in is the pending form, with wait 3 (`spells/spells.md`, "Walking and the decision"; the
+  form is traced for player casts in S90 and S91, and is static study for this case); whether it walks first is still
+  open.
 - **Eye of Kilrogg with an old target.** Try 4 of the ogre-mage leaves the old target tile and unit in place.
   Default: keep them as they were. Order 48 has no walk (radius "always" in `orders/orders.md`; `spells/spells.md`,
   "Walking and the decision", round 80), so the ogre-mage casts where it stands and the old target is only kept.
 - **Raise dead.** The conclusion that it never fires rests on no code path putting a dead body back on the ground
   layer. If play shows computer death knights raising skeletons, this needs another look.
+- **Flame shield on the caster itself** (round 81, static study). Try 7 never picks its own caster: an allied target
+  must have attack range 1 (and be in order 12), and a mage's attack range is more than 1 (game data). A player can't
+  command it either (`spells/spells.md`, S97). So the self-cast's bolt timing never matters. No rule change.
 - **Invisibility mark.** The mage's invisibility try marks the unholy-armour timer, not the invisibility timer, which
   looks like a slip in the original. Default: keep it, with its effects.
