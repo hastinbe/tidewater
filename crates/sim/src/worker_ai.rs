@@ -509,17 +509,19 @@ impl World {
     }
 
     /// The nearest of the player's gold-storing buildings, complete or not, in the worker's region, strictly nearest.
+    ///
+    /// Round 85 (static gap-fill, erratum 1; kept in round 86): the distance is the larger axis difference between
+    /// the building's top-left tile and the worker's tile, with no alive test.
     fn nearest_gold_store(&self, i: usize) -> Option<(i32, i32)> {
         let u = &self.units[i];
         let region = self.terrain.region(u.tile.0, u.tile.1);
         let mut best: Option<(i32, (i32, i32))> = None;
         for b in self.owned(u.owner) {
             if b.building
-                && !b.dying
                 && self.stats_of(b.kind).flags & flags::GOLD_STORAGE != 0
                 && self.terrain.region(b.tile.0, b.tile.1) == region
             {
-                let d = distance(u.tile, b);
+                let d = crate::movement::chebyshev(b.tile, u.tile);
                 if best.is_none_or(|(bd, _)| d < bd) {
                     best = Some((d, b.tile));
                 }
@@ -1125,6 +1127,24 @@ mod tests {
         w.spawn(t::GOLD_MINE, slots::NEUTRAL, (30, 30), 1000).unwrap();
         let i = w.index(id).unwrap();
         assert_eq!(w.mine_centred(i).centre, (30, 30));
+    }
+
+    /// Round-85 vectors (`ai/worker-ai.md`, "Ordinary search", the "Most buildings" row, static gap-fill, erratum 1):
+    /// the nearest gold store is measured from the store's top-left tile to the worker's tile (larger axis
+    /// difference), and a store in its death animation still counts. A 4 x 4 hall at (14, 20) has its right column
+    /// 3 from a worker at (20, 20) but its top-left tile 6 away; a hall at (25, 20) is 5 away: the later hall wins.
+    #[test]
+    fn the_worker_side_gold_store_is_measured_from_its_top_left_tile() {
+        let mut w = bare();
+        w.spawn(t::TOWN_HALL, 1, (14, 20), 0).unwrap();
+        let far = w.spawn(t::TOWN_HALL, 1, (25, 20), 0).unwrap();
+        let id = w.spawn(PEASANT, 1, (20, 20), 0).unwrap();
+        let i = w.index(id).unwrap();
+        assert_eq!(w.nearest_gold_store(i), Some((25, 20)));
+        // No alive test: the dying hall still counts.
+        let f = w.index(far).unwrap();
+        w.units[f].dying = true;
+        assert_eq!(w.nearest_gold_store(i), Some((25, 20)));
     }
 
     /// Round-85 vectors (`ai/worker-ai.md`, "Worker", step 5, static vector, erratum 11): a no-depot hall whose
