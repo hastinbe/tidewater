@@ -71,6 +71,9 @@ pub struct Prefs {
     pub bits: u32,
     /// The minimap's terrain mode. Not stored: on when the program starts.
     pub minimap_terrain: bool,
+    /// The optional improvements as the file's `[extras]` section sets them (`extras`). The command line's overrides
+    /// are not in here: they last for the run and are never written back.
+    pub extras: crate::extras::ClientExtras,
     /// Ctrl+M's remembered music volume, while the music is off by it.
     music_before: Option<u8>,
     /// Ctrl+S's remembered digital volume.
@@ -88,6 +91,7 @@ impl Default for Prefs {
             next_tip: 0,
             bits: bit::DEFAULT,
             minimap_terrain: true,
+            extras: crate::extras::ClientExtras::default(),
             music_before: None,
             digital_before: None,
         }
@@ -125,10 +129,21 @@ impl Prefs {
     /// Reads the text form: every setting takes its default, then the stored value when it is in range.
     pub fn from_text(s: &str) -> Self {
         let mut p = Self::default();
+        // A `[extras]` line starts the optional improvements' section, which goes to the end of the file.
+        let mut in_extras = false;
         for line in s.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_extras = line == "[extras]";
+                continue;
+            }
             let Some((name, value)) = line.split_once('=') else {
                 continue;
             };
+            if in_extras {
+                p.extras.read_line(name, value);
+                continue;
+            }
             let Ok(n) = value.trim().parse::<u32>() else {
                 continue;
             };
@@ -147,17 +162,18 @@ impl Prefs {
         p
     }
 
-    /// The text form of everything stored.
+    /// The text form of everything stored, ending with the `[extras]` section.
     pub fn to_text(&self) -> String {
         format!(
-            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\n",
+            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\n{}",
             self.game_speed,
             self.mouse_scroll,
             self.key_scroll,
             self.music_volume,
             self.digital_volume,
             self.next_tip,
-            self.bits
+            self.bits,
+            self.extras.section_text()
         )
     }
 
@@ -267,6 +283,25 @@ mod tests {
         };
         p.set(bit::SUBTITLES, true);
         assert_eq!(Prefs::from_text(&p.to_text()), p);
+    }
+
+    #[test]
+    fn the_extras_section_is_read_and_written_and_the_rest_is_unaffected() {
+        use crate::extras::{HealthBars, Id};
+        // An old file without the section: every extra at its default.
+        assert!(Prefs::from_text("game_speed=7\nbits=3\n").extras.is_default());
+        let p = Prefs::from_text(
+            "game_speed=7\n[extras]\n# a comment\nhealth-bars=selected\nvolume-music=20\nbogus=1\ngame_speed=2\n",
+        );
+        assert_eq!(p.game_speed, 7, "a line in the section is not a main setting");
+        assert_eq!(p.extras.health_bars(), HealthBars::Selected);
+        assert_eq!(p.extras.get(Id::VolumeMusic), 20);
+        assert_eq!(Prefs::from_text(&p.to_text()), p);
+        // The main settings come first, so an older build reads them from a newer file.
+        let text = Prefs::default().to_text();
+        assert!(text.starts_with("game_speed=5\n"));
+        assert!(text.contains("\n[extras]\n"));
+        assert!(Prefs::from_text(&text).extras.is_default());
     }
 
     #[test]

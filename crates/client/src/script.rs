@@ -47,6 +47,9 @@ pub struct Scene {
     pub name: &'static str,
     pub start: Vec<Step>,
     pub cmds: Vec<Cmd>,
+    /// Optional improvements (`extras`) the scene runs with, as (name, value) pairs; none in every scene but the ones
+    /// that show an improvement, so the others show the game as it is.
+    pub extras: &'static [(&'static str, &'static str)],
 }
 
 /// The name of the scene that shows the first-run screen (`firstrun`) over a demo backend, with no game files.
@@ -184,53 +187,84 @@ pub fn scenes() -> Vec<Scene> {
             name: "campaign",
             start: vec![Step::Title, Step::MainMenu],
             cmds: campaign,
+            extras: &[],
         },
         Scene {
             name: "outcome",
             start: vec![play(0)],
             cmds: outcome(),
+            extras: &[],
         },
         Scene {
             name: "ending",
             start: vec![play(1)],
             cmds: ending(),
+            extras: &[],
         },
         Scene {
             name: "load",
             start: vec![play(0)],
             cmds: load(),
+            extras: &[],
         },
         Scene {
             name: "build",
             start: vec![play(0)],
             cmds: build(),
+            extras: &[],
         },
         Scene {
             name: "carry",
             start: vec![play(0)],
             cmds: carry(),
+            extras: &[],
         },
         Scene {
             name: "flow",
             start: crate::frontend::startup_steps(false, false, true),
             cmds: flow(),
+            extras: &[],
+        },
+        // Optional improvements switched on: every health bar, the idle-worker button and key, the clock with APM.
+        Scene {
+            name: "extras",
+            start: vec![play(0)],
+            cmds: extras(),
+            extras: &[
+                ("health-bars", "always"),
+                ("idle-worker", "on"),
+                ("game-clock", "clock-apm"),
+                ("volume-voices", "40"),
+                ("volume-effects", "60"),
+                ("volume-music", "50"),
+            ],
+        },
+        // Hit point bars only over the unit under the pointer.
+        Scene {
+            name: "extras-bars",
+            start: vec![play(0)],
+            cmds: extras_bars(),
+            extras: &[("health-bars", "hovered")],
         },
         // Needs no game files: `host::launch` shows the first-run screen over a demo backend.
         Scene {
             name: FIRST_RUN,
             start: Vec::new(),
             cmds: first_run(),
+            extras: &[],
         },
         // Not in the frame snapshot: `jukebox`'s tests run these to check the music at every frame.
         Scene {
             name: "music-quit",
             start: vec![Step::MainMenu],
             cmds: music_quit(),
+            extras: &[],
         },
         Scene {
             name: "music-back",
             start: vec![Step::MainMenu],
             cmds: music_back(),
+            extras: &[],
         },
     ]
 }
@@ -652,6 +686,43 @@ fn carry() -> Vec<Cmd> {
     v.extend([Wait(2), Move(90.0, 60.0), Wait(2), Shot("minimap-target")]);
     v.extend(click(90.0, 60.0));
     v.extend([Wait(8), Shot("minimap-target-marker")]);
+    v
+}
+
+/// The optional improvements on: bars over every unit, the clock and actions per minute, the idle-worker button and
+/// its key (each press selects a worker and sends a normal select, which the actions count).
+fn extras() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5), Shot("bars-always")];
+    v.extend([UntilCycle(200), Shot("clock")]);
+    v.extend(click(564.0, 8.0));
+    v.extend([Wait(3), Shot("idle-button")]);
+    v.extend(tap(Key::F(6)));
+    v.extend([Wait(3), Shot("idle-key")]);
+    v.extend(click(416.0, 318.0));
+    v.extend([
+        Wait(3),
+        Move(565.0, 85.0),
+        Down(Button::Right),
+        Wait(1),
+        Up(Button::Right),
+    ]);
+    v.extend([UntilCycle(500), Shot("apm")]);
+    v
+}
+
+/// Health bars in the `hovered` mode: none until the pointer is over a unit, then that unit's, then none again.
+fn extras_bars() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5), Shot("none")];
+    v.extend([
+        Move(416.0, 318.0),
+        Wait(3),
+        Shot("hovered"),
+        Move(300.0, 200.0),
+        Wait(3),
+        Shot("away"),
+    ]);
     v
 }
 

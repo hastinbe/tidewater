@@ -133,6 +133,10 @@ pub struct View<'a> {
     pub minimap: &'a [u8],
     /// The command panel's shown buttons: slot and icon frame (see [`crate::panel`]).
     pub buttons: &'a [(u8, u16)],
+    /// The idle-worker button, with the number of idle workers, when the option is on (`idle`).
+    pub idle_button: Option<usize>,
+    /// The game clock line over the map view's top right corner, when the option is on (`overlay`).
+    pub clock: Option<&'a str>,
 }
 
 // --- drawing primitives -------------------------------------------------------------------------------------------
@@ -574,6 +578,20 @@ impl HudArt {
         }
     }
 
+    /// The idle-worker button (`idle`): a plain button in the resource bar, dark when no worker is idle.
+    fn draw_idle_button(&self, pic: &mut Picture, idle: usize) {
+        let r = crate::screen::IDLE_BUTTON;
+        fill(pic, r, if idle > 0 { [40, 36, 28] } else { [24, 24, 24] });
+        outline(pic, r, [140, 120, 60]);
+        text_centred(pic, &self.font, r, &format!("Idle {idle} (F{})", crate::idle::KEY));
+    }
+
+    /// The clock line (`overlay`): right-aligned at the top of the map view.
+    fn draw_clock(&self, pic: &mut Picture, view: Rect, line: &str) {
+        let w = self.font.width(line.as_bytes()) as i32;
+        text(pic, &self.font, view.x + view.w as i32 - w - 6, view.y + 4, line);
+    }
+
     /// One item of the resource bar or the status bar: the icon at the item's left edge `x` in `bar`, then the text
     /// [`crate::screen::TEXT_DX`] to the right, vertically centred, in spans of colour codes.
     fn item(&self, pic: &mut Picture, bar: Rect, x: i32, icon: usize, spans: &[(&str, u8)]) {
@@ -766,6 +784,12 @@ impl HudArt {
         self.draw_status(&mut pic, l.bottom, v.status);
         self.draw_menu_buttons(&mut pic, v.paused, v.pause_button);
         self.draw_messages(&mut pic, l.viewport, v.messages);
+        if let Some(n) = v.idle_button {
+            self.draw_idle_button(&mut pic, n);
+        }
+        if let Some(line) = v.clock {
+            self.draw_clock(&mut pic, l.viewport, line);
+        }
 
         // The command panel: frames of the icon sheet (the command icons share the unit icon sheet).
         for &(slot, icon) in v.buttons {

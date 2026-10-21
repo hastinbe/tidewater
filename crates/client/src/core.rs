@@ -112,6 +112,9 @@ pub struct Core {
     pub quitting: Option<frontend::Leave>,
     pub jukebox: Jukebox,
     pub stored: Stored,
+    /// The optional improvements for this run (`extras`): the settings file's, then the command line's. The C+L ones
+    /// are decided per game by [`game::extras`].
+    pub extras: crate::extras::ClientExtras,
     pub menu: Option<GameMenu>,
     pub menu_input: gamemenu::MenuInput,
     pub cheats: cheats::Queue,
@@ -163,9 +166,17 @@ impl Core {
         stored: Stored,
         script: Option<script::Run>,
     ) -> Self {
+        // The settings file's extras, then the command line's, then a scripted scene's own.
+        let mut extras = stored.0.extras;
+        opts.extras.apply(&mut extras);
+        if let Some(run) = &script {
+            crate::extras::ExtraFlags::from_pairs(run.script.scene.extras).apply(&mut extras);
+        }
+        let mut audio = Audio::default();
+        audio.set_trims(extras.trims());
         Core {
             input: Input::default(),
-            audio: Audio::default(),
+            audio,
             time: FrameClock::default(),
             store,
             opts,
@@ -184,6 +195,7 @@ impl Core {
             quitting: None,
             jukebox: Jukebox::default(),
             stored,
+            extras,
             menu: None,
             menu_input: gamemenu::MenuInput::default(),
             cheats: cheats::Queue::default(),

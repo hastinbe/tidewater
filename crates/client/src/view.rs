@@ -39,7 +39,9 @@ use tidewater_sim::vision::{Map, bit};
 use tidewater_sim::{Layer, Unit, UnitId, World};
 
 use crate::carry::{Carried, CarryFile};
+use crate::extras::HealthBars;
 use crate::fog;
+use crate::overlay;
 
 /// A canvas pixel that nothing has drawn: the terrain shows through.
 pub const CLEAR: u16 = 256;
@@ -604,6 +606,28 @@ fn marker_op(art: &Art, mk: Marker) -> Option<Op> {
     })
 }
 
+/// One health bar over a unit (`overlay`): its top-left map pixel, its width, the filled pixels and their colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bar {
+    pub at: (i32, i32),
+    pub width: i32,
+    pub fill: i32,
+    pub colour: u8,
+}
+
+/// Draws a health bar: the filled part, then the empty part, [`overlay::BAR_HEIGHT`] rows high.
+pub fn draw_bar(canvas: &mut Canvas, b: &Bar) {
+    for row in 0..overlay::BAR_HEIGHT {
+        for x in 0..b.width {
+            canvas.put(
+                b.at.0 + x,
+                b.at.1 + row,
+                if x < b.fill { b.colour } else { overlay::EMPTY },
+            );
+        }
+    }
+}
+
 /// Everything one picture of the view needs, as plain values.
 #[derive(Clone, Debug, Default)]
 pub struct ViewFrame {
@@ -613,6 +637,8 @@ pub struct ViewFrame {
     pub entries: Vec<Entry>,
     /// Layer 5.
     pub effects: Vec<Op>,
+    /// The optional health bars (`overlay`), over the units and effects; empty unless the option is on.
+    pub bars: Vec<Bar>,
     /// Layer 6: per map tile the visible and explored codes (row by row, `fog.0` tiles wide); `None` with the
     /// reveal-map cheat.
     pub fog: Option<(usize, Vec<(u8, u8)>)>,
@@ -654,6 +680,9 @@ pub fn draw(canvas: &mut Canvas, f: &ViewFrame, art: &Art, shapes: &fog::Shapes)
     }
     for op in &f.effects {
         run(canvas, op);
+    }
+    for b in &f.bars {
+        draw_bar(canvas, b);
     }
     if let Some((width, codes)) = &f.fog {
         fog::draw(canvas, *width, codes, shapes);
@@ -710,6 +739,9 @@ pub struct Local<'a> {
     pub drag: Option<((i32, i32), (i32, i32))>,
     /// The carrying files the workers and tankers are drawn from (`carry`).
     pub carried: &'a Carried,
+    /// The optional health bars (`overlay`): which units show one, and the unit under the pointer.
+    pub bars: HealthBars,
+    pub hovered: Option<UnitId>,
 }
 
 /// Dead (slot released) or removed: not drawn at all.
@@ -869,6 +901,17 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
                 base,
             }
         });
+        if overlay::bar_shown(local.bars, local.selected.contains(&u.id), local.hovered == Some(u.id))
+            && !gone
+            && let Some((fill, colour)) = overlay::bar_fill(u.hp, s.hit_points, bsize.0)
+        {
+            f.bars.push(Bar {
+                at: (lt.0, lt.1 - overlay::BAR_GAP - overlay::BAR_HEIGHT),
+                width: bsize.0,
+                fill,
+                colour,
+            });
+        }
         f.entries.push(Entry {
             building: u.building,
             air,
@@ -941,6 +984,29 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_bar_draws_its_fill_then_the_empty_part_in_three_rows() {
+        let mut c = Canvas::new(0, 0, 20, 10);
+        draw_bar(
+            &mut c,
+            &Bar {
+                at: (2, 4),
+                width: 10,
+                fill: 6,
+                colour: 149,
+            },
+        );
+        for row in 4..7 {
+            assert_eq!(c.at(2, row), Some(149));
+            assert_eq!(c.at(7, row), Some(149));
+            assert_eq!(c.at(8, row), Some(overlay::EMPTY as u16));
+            assert_eq!(c.at(11, row), Some(overlay::EMPTY as u16));
+            assert_eq!(c.at(12, row), Some(CLEAR), "just past the width");
+        }
+        assert_eq!(c.at(2, 3), Some(CLEAR));
+        assert_eq!(c.at(2, 7), Some(CLEAR));
     }
 
     #[test]

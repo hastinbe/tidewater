@@ -152,6 +152,10 @@ impl MenuButton {
     }
 }
 
+/// The idle-worker button (option `idle-worker`, `extras`): in the resource bar, right of the food item (which ends 327
+/// pixels in, `Item::Food`), clear of the panel's menu buttons.
+pub const IDLE_BUTTON: Rect = Rect::new(508, 1, 112, 14);
+
 /// Whether the pause button shows: not for a player with no pauses left in Enhanced multiplayer.
 pub fn pause_shown(enhanced: bool, multiplayer: bool, pauses_left: u32) -> bool {
     !(enhanced && multiplayer && pauses_left == 0)

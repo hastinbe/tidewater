@@ -449,6 +449,8 @@ impl Settings {
 pub struct Heard {
     pub play: Option<(String, u8)>,
     pub subtitle: Option<u16>,
+    /// The sound is a unit's voice (an acknowledgement, a selection or a spoken report), for the separate voice volume.
+    pub voice: bool,
 }
 
 /// The file chosen for a cue, the option bit it tests, and whether it is heard off screen.
@@ -602,6 +604,7 @@ impl Director {
         Heard {
             play: (st.volume > 0).then(|| (s.file().to_string(), st.normal_level())),
             subtitle: None,
+            voice: false,
         }
     }
 
@@ -624,6 +627,9 @@ impl Director {
         Heard {
             subtitle: subtitle_of(&c.file).filter(|_| shown),
             play: (st.volume > 0 && option_on).then_some((c.file, level)),
+            voice: c
+                .option
+                .is_some_and(|b| b & (option::UNIT_SPEECH | option::ACKNOWLEDGEMENTS) != 0),
         }
     }
 }
@@ -676,6 +682,14 @@ mod tests {
 
     fn select(kind: u8, building: bool, pick: Pick) -> Cue {
         plain(Sound::Select { kind, building, pick })
+    }
+
+    #[test]
+    fn only_a_units_speech_is_marked_as_a_voice() {
+        let mut d = director();
+        let h = d.hear(&select(0, false, Pick::Selected), VIEW);
+        assert!(h.play.is_some() && h.voice, "a selection answers to the voice volume");
+        assert!(!d.hear_ui(UiSound::Thunk).voice, "an interface sound is an effect");
     }
 
     #[test]

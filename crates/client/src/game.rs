@@ -30,8 +30,8 @@ use crate::layers::{self, Pictures, Role};
 use crate::panel::PanelState;
 use crate::session::{LocalSession, Recorder, ReplaySession, Session};
 use crate::{
-    audio, campaign, display, fog, frontend, hud, info, mapview, messages, minimap, mouse, palette, panel, savefile,
-    savegame, scene, screen, sound, view,
+    audio, campaign, display, fog, frontend, hud, idle, info, mapview, messages, minimap, mouse, overlay, palette,
+    panel, savefile, savegame, scene, screen, sound, view,
 };
 
 pub struct Loaded(pub Option<scene::Scene>);
@@ -57,6 +57,8 @@ pub struct Sim {
     pub ui_sounds: Vec<sound::UiSound>,
     /// The carrying files of the workers and tankers, chosen again after each cycle (`carry`).
     pub carried: carry::Carried,
+    /// The commands the player has given so far, for the clock overlay's actions per minute (`overlay`).
+    pub actions: u32,
 }
 
 impl Sim {
@@ -156,6 +158,28 @@ pub struct Selection {
     pub groups: mouse::GroupKeys,
     /// The ground marker (effect slot 2), counted in game cycles.
     pub marker: Option<view::Marker>,
+    /// The idle worker the last press of the idle-worker key or button took (`idle`).
+    pub idle_after: Option<UnitId>,
+}
+
+/// The optional improvements this game runs with (`extras`): the player's own, but for the options that give an edge
+/// (C+L), which a session that isn't the player's own sets itself.
+pub(crate) fn extras(c: &Core) -> crate::extras::ClientExtras {
+    crate::extras::effective(&c.extras, c.sim.as_ref().and_then(|s| s.session.lobby_client_extras()))
+}
+
+/// The idle-worker button and key (`idle`): selects the next idle worker as a click on it would, and centres the view.
+fn select_idle(sim: &mut Sim, sel: &mut Selection, view: Option<&mut mapview::MapView>) {
+    let idle = idle::idle_workers(&sim.world, sim.human);
+    let Some(id) = idle::next(&idle, sel.idle_after) else {
+        return;
+    };
+    sel.idle_after = Some(id);
+    sel.set(sim, vec![id], true);
+    if let (Some(view), Some(u)) = (view, sim.world.unit(id)) {
+        let (x, y) = u.centre_px();
+        centre_view(view, Vec2::new(x as f32, y as f32));
+    }
 }
 
 impl Selection {
@@ -410,6 +434,14 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
         lobby.as_ref(),
         replay.as_ref().map(|r| &r.header),
     )?;
+    // The options that touch the sim (`extras`): a recording's own, never the player's settings; a new local game's
+    // from the settings (there are none yet). A loaded game keeps the ones it was saved with.
+    if resume.is_none() {
+        scene.world.rules.extras = match &replay {
+            Some(r) => r.header.rules.extras,
+            None => crate::extras::local_sim_extras(&c.extras),
+        };
+    }
     start_world(&mut scene.world, resume.as_deref(), wall, c.flow.cheat_used)?;
     // Where the game's commands come from: a recording, the player (recorded if asked), or the player.
     let session: Box<dyn Session> = match replay {
@@ -742,6 +774,7 @@ pub(crate) fn setup(c: &mut Core) {
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
         carried: carry::Carried::default(),
+        actions: 0,
     };
     commands.queue(move |c| {
         c.sim = Some(sim);
@@ -811,6 +844,7 @@ pub(crate) fn tick(c: &mut Core) {
         })
         .collect();
     local.append(&mut sim.pending);
+    sim.actions = sim.actions.saturating_add(local.len() as u32);
     // The interface's commands go to the session, which decides what runs in this cycle (`session`).
     for cmd in local {
         sim.session.submit(cmd);
@@ -1023,12 +1057,13 @@ fn show_picture(pictures: &mut Pictures, layer: &mut layers::Layer, width: i32, 
 /// Draws the map view over the terrain (`view`, spec `ui/map-drawing.md`) every frame, for the part of the map in
 /// view: buildings and ghosts, the unit passes, effects, fog, the ground marker and the selection rectangle.
 pub(crate) fn draw_view(c: &mut Core) {
+    let bars = extras(c).health_bars();
     let Core {
         sim: Some(sim),
         art: Some(art),
         selection: Some(sel),
         panel_ui: Some(ui),
-        hud: Some(_),
+        hud: Some(hud),
         input,
         view: Some(view),
         pictures,
@@ -1049,12 +1084,23 @@ pub(crate) fn draw_view(c: &mut Core) {
         (Some(from), Some(_)) => cursor_map(input, view).map(|p| (px(from), px(p))),
         _ => None,
     };
+    // The unit under the pointer, for the hovered health bars (`overlay`); only worked out when they are on.
+    let hovered = match (bars, cursor_map(input, view)) {
+        (crate::extras::HealthBars::Hovered, Some(at)) if hud.over_map(input) => {
+            with_board(&sim.world, sim.human, Some(art), view.tiles(), |b| {
+                mouse::hover(b, px(at)).first().copied()
+            })
+        }
+        _ => None,
+    };
     let local = view::Local {
         selected: &sel.units,
         placing: matches!(ui.mode, panel::Mode::Place(_)),
         marker: sel.marker,
         drag,
         carried: &sim.carried,
+        bars,
+        hovered,
     };
     let (frame, stop) = view::frame(&sim.world, &art.view, &canvas, &local);
     // A flashing unit that is gone or not detected stops flashing at once ("Boxes").
@@ -1221,12 +1267,14 @@ pub(crate) fn key_char(k: Key) -> Option<char> {
 /// The command panel: clicks and hotkeys on its buttons, and the map click or cancel that follows a target or
 /// placement mode (`panel`, spec `ui/command-buttons.md`).
 pub(crate) fn panel_input(c: &mut Core) {
+    let idle_on = c.extras.idle_worker();
     let Core {
         sim,
         selection: Some(sel),
         hud: Some(hud),
         screen_ui: Some(scr),
         panel_ui: Some(ui),
+        view,
         input,
         ..
     } = c
@@ -1244,6 +1292,16 @@ pub(crate) fn panel_input(c: &mut Core) {
     };
     // Screen spec: at a scrolling edge, clicks on the panel do nothing.
     let pressed = buttons.just_pressed(Button::Left) && scr.edge == (0, 0);
+    // The idle-worker button (`idle`), when the option is on.
+    if pressed
+        && idle_on
+        && let Some(c) = hud.cursor(input)
+        && screen::IDLE_BUTTON.contains(c.x, c.y)
+    {
+        select_idle(sim, sel, view.as_mut());
+        ui.consumed = true;
+        return;
+    }
     // The menu and pause buttons (screen spec, "Menu buttons").
     if pressed
         && let Some(c) = hud.cursor(input)
@@ -1671,6 +1729,7 @@ pub(crate) fn game_key(k: Key) -> Option<mouse::Key> {
 /// The in-game keys (`mouse::key_action`, spec `ui/selecting-and-commanding.md`, "Keys" and "Control groups"). The
 /// ones that open menus and dialogs, and Ctrl+S, are handled by `gamemenu`.
 pub(crate) fn keys_input(c: &mut Core) {
+    let idle_on = c.extras.idle_worker();
     let Core {
         time,
         sim: Some(sim),
@@ -1708,6 +1767,11 @@ pub(crate) fn keys_input(c: &mut Core) {
         alt: keys.any_pressed([Key::AltLeft, Key::AltRight]),
     };
     for &k in keys.get_just_pressed() {
+        // The idle-worker key (`idle`), F6, which the original leaves unbound.
+        if idle_on && k == Key::F(idle::KEY) {
+            select_idle(sim, sel, Some(&mut *mv));
+            continue;
+        }
         // The client plays one human player; while the chat line is open, `chat` has taken the typing keys already.
         let Some(a) = game_key(k).and_then(|key| mouse::key_action(key, m, false, sim.world.rules.enhanced, false))
         else {
@@ -1806,6 +1870,7 @@ pub(crate) fn play_sounds(c: &mut Core) {
         if let Some(n) = heard.subtitle {
             sim.notices.push(messages::Text::Net(n));
         }
+        let voice = heard.voice;
         let Some((name, level)) = heard.play else { continue };
         let path = sound::path(&name);
         let install = &mut sp.install;
@@ -1817,7 +1882,12 @@ pub(crate) fn play_sounds(c: &mut Core) {
         if let Some(s) = decoded {
             // Our choice: a level maps linearly to loudness (the game's volume table isn't specified).
             let (volume, gain) = (level as f32 / 255.0, audio::level_gain(level));
-            audio.play(&s, volume, gain, audio::Mode::Despawn, audio::Group::Effect, 0);
+            // Unit speech answers to its own master volume (`extras`); everything else is an effect.
+            if voice {
+                audio.play_voice(&s, volume, gain, audio::Mode::Despawn, audio::Group::Effect, 0);
+            } else {
+                audio.play(&s, volume, gain, audio::Mode::Despawn, audio::Group::Effect, 0);
+            }
         }
     }
 }
@@ -2086,6 +2156,8 @@ pub(crate) fn update_messages(c: &mut Core) {
 pub(crate) fn draw_hud(c: &mut Core) {
     // While a menu or dialog is open the screen draws the normal arrow instead (`shell`).
     let running = core::game_running(c);
+    let ex = extras(c);
+    let clock_ms = c.game_clock.as_ref().map(|g| g.ms(c.time.elapsed()));
     let Core {
         sim,
         selection: Some(sel),
@@ -2121,6 +2193,7 @@ pub(crate) fn draw_hud(c: &mut Core) {
         world: &sim.world,
         local: sim.human,
     };
+    let clock_line = clock_ms.and_then(|ms| overlay::overlay_text(ex.game_clock(), ms, sim.actions));
     let infos: Vec<panel::UnitInfo> = sel.units.iter().filter_map(|&id| state.unit(id)).collect();
     let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
     let buttons: Vec<(u8, u16)> = slots
@@ -2152,6 +2225,10 @@ pub(crate) fn draw_hud(c: &mut Core) {
             pointer: scr.pointer.filter(|_| running && hud.art.has_pointers()),
             minimap: &hud.minimap.pixels,
             buttons: &buttons,
+            idle_button: ex
+                .idle_worker()
+                .then(|| idle::idle_workers(&sim.world, sim.human).len()),
+            clock: clock_line.as_deref(),
         },
     );
     let mut pic = pic;

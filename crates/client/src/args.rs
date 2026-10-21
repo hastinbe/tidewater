@@ -118,6 +118,9 @@ pub struct Args {
     /// With `--script`: no window and no GPU; the frames are only composed.
     #[arg(long, requires = "script")]
     pub headless: bool,
+    /// The optional improvements (`extras`): `--extra-NAME` and `--no-extra-NAME`, generated from its table.
+    #[command(flatten)]
+    pub extras: crate::extras::ExtraFlags,
 }
 
 pub fn parse_tile(s: &str) -> Result<(i32, i32), String> {

@@ -163,6 +163,75 @@ struct Voice {
     gain: i32,
     loop_from: Option<usize>,
     group: Group,
+    class: Class,
+}
+
+/// Which master trim a voice answers to (the optional separate volumes, `docs/design/extras.md`): unit speech, the
+/// other sound effects (a screen's sounds and narration included), or the music.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Class {
+    Voice,
+    Effect,
+    Music,
+}
+
+impl Class {
+    /// The class of a voice started without naming one: by its group.
+    fn of(group: Group) -> Class {
+        if group == Group::Music {
+            Class::Music
+        } else {
+            Class::Effect
+        }
+    }
+}
+
+/// The three master trims, in 16.16 fixed point ([`UNITY`] leaves a voice as it is). They scale the voices on top of
+/// each voice's own gain and the game menu's volumes; the default changes nothing, to the bit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Trims {
+    pub voices: i32,
+    pub effects: i32,
+    pub music: i32,
+}
+
+impl Default for Trims {
+    fn default() -> Self {
+        Trims {
+            voices: UNITY,
+            effects: UNITY,
+            music: UNITY,
+        }
+    }
+}
+
+impl Trims {
+    /// The trims for three volumes in percent, 0 to 100 (linear, our choice).
+    pub fn from_percent(voices: u8, effects: u8, music: u8) -> Trims {
+        let g = |p: u8| (p.min(100) as i32 * UNITY + 50) / 100;
+        Trims {
+            voices: g(voices),
+            effects: g(effects),
+            music: g(music),
+        }
+    }
+
+    fn of(&self, class: Class) -> i32 {
+        match class {
+            Class::Voice => self.voices,
+            Class::Effect => self.effects,
+            Class::Music => self.music,
+        }
+    }
+}
+
+/// A voice's gain under a trim: exactly the gain at [`UNITY`].
+fn trimmed(gain: i32, trim: i32) -> i64 {
+    if trim == UNITY {
+        gain as i64
+    } else {
+        (gain as i64 * trim as i64) >> 16
+    }
 }
 
 /// The voices and how they sum.
@@ -170,12 +239,26 @@ struct Voice {
 pub struct Mixer {
     voices: Vec<Voice>,
     next: u64,
+    trims: Trims,
 }
 
 impl Mixer {
     /// Starts `sound` at sample frame `start` with a 16.16 `gain`; a looping voice goes on from frame `loop_from`.
     /// A [`Group::Music`] voice takes the music slot: the track already in it stops first.
     pub fn play(&mut self, sound: &Sound, gain: i32, loop_from: Option<usize>, start: usize, group: Group) -> VoiceId {
+        self.play_as(sound, gain, loop_from, start, group, Class::of(group))
+    }
+
+    /// [`Mixer::play`] for a voice that answers to the master trim of `class`.
+    pub fn play_as(
+        &mut self,
+        sound: &Sound,
+        gain: i32,
+        loop_from: Option<usize>,
+        start: usize,
+        group: Group,
+        class: Class,
+    ) -> VoiceId {
         if group == Group::Music {
             self.stop_group(Group::Music);
         }
@@ -195,9 +278,15 @@ impl Mixer {
                 gain,
                 loop_from,
                 group,
+                class,
             });
         }
         id
+    }
+
+    /// Sets the master trims; they apply to every voice from the next mix.
+    pub fn set_trims(&mut self, trims: Trims) {
+        self.trims = trims;
     }
 
     pub fn stop(&mut self, id: VoiceId) {
@@ -241,8 +330,10 @@ impl Mixer {
     /// Mixes the next `out.len() / 2` sample frames into `out` (interleaved left, right).
     pub fn mix(&mut self, out: &mut [i16]) {
         let mut sum = vec![[0i64; 2]; out.len() / 2];
+        let trims = self.trims;
         for v in &mut self.voices {
             let len = v.frames.len();
+            let gain = trimmed(v.gain, trims.of(v.class));
             for s in sum.iter_mut() {
                 if v.at >= len {
                     match v.loop_from {
@@ -251,8 +342,8 @@ impl Mixer {
                     }
                 }
                 let f = v.frames[v.at];
-                s[0] += f[0] as i64 * v.gain as i64;
-                s[1] += f[1] as i64 * v.gain as i64;
+                s[0] += f[0] as i64 * gain;
+                s[1] += f[1] as i64 * gain;
                 v.at += 1;
             }
             if v.loop_from.is_some() && v.at >= len {
@@ -344,6 +435,32 @@ impl Audio {
             group,
         });
         self.output.lock().play(sound, gain, None, start, group)
+    }
+
+    /// Starts `sound` as unit speech: like [`Audio::play`], but the voice answers to the voices' master trim.
+    pub fn play_voice(
+        &mut self,
+        sound: &Sound,
+        volume: f32,
+        gain: i32,
+        mode: Mode,
+        group: Group,
+        start: usize,
+    ) -> VoiceId {
+        self.starts.push(Start {
+            hash: sound.hash,
+            volume,
+            mode,
+            group,
+        });
+        self.output
+            .lock()
+            .play_as(sound, gain, None, start, group, Class::Voice)
+    }
+
+    /// Sets the master trims for voices, effects and music (the separate volumes, `docs/design/extras.md`).
+    pub fn set_trims(&mut self, trims: Trims) {
+        self.output.lock().set_trims(trims);
     }
 
     /// Starts a music track in the music slot, looping from `loop_from` or once; the track already there stops.
@@ -510,6 +627,33 @@ mod tests {
             [0],
             "three frames at twice the rate: one and a half"
         );
+    }
+
+    #[test]
+    fn trims_scale_each_class_and_leave_unity_untouched() {
+        let snd = sound(&[[1000, -1000]; 2]);
+        let mix = |trims: Trims| {
+            let mut m = Mixer::default();
+            m.set_trims(trims);
+            m.play_as(&snd, UNITY, None, 0, Group::Effect, Class::Voice);
+            let mut out = [0i16; 2];
+            m.mix(&mut out);
+            out
+        };
+        assert_eq!(mix(Trims::default()), [1000, -1000], "unity changes nothing");
+        assert_eq!(mix(Trims::from_percent(50, 100, 100)), [500, -500], "half the voices");
+        assert_eq!(
+            mix(Trims::from_percent(100, 0, 0)),
+            [1000, -1000],
+            "other classes do not touch a voice"
+        );
+        assert_eq!(mix(Trims::from_percent(0, 100, 100)), [0, 0]);
+        let mut m = Mixer::default();
+        m.set_trims(Trims::from_percent(100, 50, 100));
+        m.play(&snd, UNITY, None, 0, Group::Effect);
+        let mut out = [0i16; 2];
+        m.mix(&mut out);
+        assert_eq!(out, [500, -500], "a plain effect answers to the effects trim");
     }
 
     #[test]

@@ -92,6 +92,20 @@ pub trait Session: Send + Sync {
     fn start_cheats(&self) -> Option<u32> {
         None
     }
+
+    /// The values of the client-only options that give an edge (**C+L**, `extras`) when this session sets them itself,
+    /// instead of the player's own settings: `None` for a local game, which uses the player's. A replay hands over the
+    /// defaults (off) until a recording carries its own; the lobby of a network game will hand over its choices (M3).
+    fn lobby_client_extras(&self) -> Option<crate::extras::ClientExtras> {
+        None
+    }
+
+    /// The options that change the simulation, when this session decides them (a recording's, a lobby's): `None` lets
+    /// the player's own settings choose, which is only ever so in a local game. They are never read from the local
+    /// settings in any other session.
+    fn sim_extras(&self) -> Option<tidewater_sim::Extras> {
+        None
+    }
 }
 
 /// Single player: the commands the player gives run in the next cycle, in the order given. Optionally records the
@@ -279,6 +293,14 @@ impl Session for ReplaySession {
         None
     }
 
+    fn lobby_client_extras(&self) -> Option<crate::extras::ClientExtras> {
+        Some(crate::extras::ClientExtras::default())
+    }
+
+    fn sim_extras(&self) -> Option<tidewater_sim::Extras> {
+        Some(self.replay.header.rules.extras)
+    }
+
     fn ready_commands(&mut self, tick: u32) -> Option<Vec<Command>> {
         if self.failed.is_some() || self.held {
             return None;
@@ -349,6 +371,7 @@ mod tests {
                 enhanced: true,
                 multiplayer: false,
                 cheats_disabled: false,
+                extras: Default::default(),
             },
             start_cheats: 0,
             local: 0,
