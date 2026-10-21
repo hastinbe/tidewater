@@ -48,8 +48,9 @@ before writing any code, and follow it exactly.
 ## Workflow
 
 - The toolchain is pinned in `rust-toolchain.toml`; dependencies track their newest releases.
-- Building needs CMake and a C compiler besides Rust (SDL 3 is built from source). There is no CI config in the
-  repository; the full check is run locally.
+- Building needs CMake and a C compiler besides Rust (SDL 3 is built from source). GitHub Actions
+  (`.github/workflows/ci.yml`) runs fmt, clippy and the tests without game data, plus release builds on Linux, macOS
+  and Windows; the full check with game data and oracle traces is still run locally.
 - `cargo fmt`, `cargo clippy --all-targets` (no warnings) and `cargo test` before every commit.
 - Conventional commits (`feat:`, `fix:`, `docs:`, ...).
 - Cite the public source for every format detail in the module doc of the code that uses it.
