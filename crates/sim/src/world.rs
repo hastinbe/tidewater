@@ -770,6 +770,24 @@ pub enum Command {
         player: u8,
         flags: u32,
     },
+    /// The game menu's Surrender (`ui/game-menu.md`, "Ending the scenario"): the player is defeated and the game is over
+    /// at once. Single player only so far.
+    ///
+    /// TODO(multiplayer): `net/leave-and-drop.md`, "Surrender and quit (draw)": in a network game surrender is not a
+    /// turn command. No command is sent and no result is set at that moment; the leaver's machine leaves the session
+    /// as its game ends, the others see "left" (network entry 64) or "has left" (entry 111) and mark the slot out at
+    /// their next victory check. Until the network phases land this variant is not sent in a multiplayer game.
+    Surrender {
+        player: u8,
+    },
+    /// The game menu's Quit (draw) (`ui/game-menu.md`; Battle.net, at most 120 s into the game). Locally exactly a
+    /// surrender; the difference is only the result reported to Battle.net.
+    ///
+    /// TODO(multiplayer): `net/leave-and-drop.md`, "Surrender and quit (draw)" and the report table: a game that ends
+    /// within 120 s of game time is reported as a draw for every player, whoever quit. That report is a later phase.
+    QuitDraw {
+        player: u8,
+    },
 }
 
 impl Command {
@@ -889,7 +907,9 @@ impl std::hash::Hasher for Fnv {
     }
 }
 
+mod diff;
 mod save;
+pub use diff::Difference;
 pub use save::RestoreError;
 
 pub(crate) fn layer_index(l: Layer) -> usize {
@@ -1555,6 +1575,7 @@ impl World {
             | Command::Speed { .. }
             | Command::Pause { .. } => return,
             &Command::Cheat { player, flags } => return self.cheat_command(player, crate::cheats::Flags(flags)),
+            &Command::Surrender { player } | &Command::QuitDraw { player } => return self.surrender_command(player),
             &Command::UnloadOne { player, unit, slot } => return self.unload_one_command(player, unit, slot),
         };
         for &id in units {
@@ -2113,10 +2134,44 @@ pub(crate) mod tests {
                 player: 1,
                 flags: 0x8000_0001,
             },
+            Command::Surrender { player: 2 },
+            Command::QuitDraw { player: 3 },
         ];
         let bytes = postcard::to_stdvec(&cmds).unwrap();
         let back: Vec<Command> = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(back, cmds);
+    }
+
+    /// What the game menu did before surrender was a command: it set the player's result and the game's end.
+    fn surrendered_by_hand(w: &mut World, p: usize) {
+        w.players[p].result = Some(crate::victory::Outcome::Defeat);
+        w.victory.over = true;
+    }
+
+    #[test]
+    fn surrender_and_quit_draw_defeat_the_player_and_end_the_game_as_the_menu_did() {
+        for command in [Command::Surrender { player: 0 }, Command::QuitDraw { player: 0 }] {
+            let (mut by_command, mut by_hand) = (world(), world());
+            by_command.turn(std::slice::from_ref(&command));
+            surrendered_by_hand(&mut by_hand, 0);
+            assert_eq!(by_command.players[0].result, Some(crate::victory::Outcome::Defeat));
+            assert!(by_command.victory.over);
+            assert_eq!(by_command.state_hash(), by_hand.state_hash());
+            // In a cycle, too: the same commands in a step.
+            let (mut a, mut b) = (world(), world());
+            a.step(&[command]);
+            surrendered_by_hand(&mut b, 0);
+            b.step(&[]);
+            assert_eq!(a.state_hash(), b.state_hash());
+        }
+    }
+
+    #[test]
+    fn a_surrender_for_a_slot_that_is_not_a_player_is_ignored() {
+        let (mut w, still) = (world(), world());
+        w.turn(&[Command::Surrender { player: 200 }, Command::QuitDraw { player: 16 }]);
+        assert!(!w.victory.over);
+        assert_eq!(w.state_hash(), still.state_hash());
     }
 
     #[test]

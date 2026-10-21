@@ -375,6 +375,17 @@ impl World {
         }
     }
 
+    /// A player's Surrender or Quit (draw) from the game menu (`ui/game-menu.md`, "Ending the scenario"): the player is
+    /// defeated and the game is over at once, in the cycle the command runs in. A slot that is not a player is ignored
+    /// (a remote peer sent it). It pushes no [`Event::GameOver`]: the client's outcome dialog follows from the result.
+    pub(crate) fn surrender_command(&mut self, player: u8) {
+        let Some(p) = self.players.get_mut(player as usize) else {
+            return;
+        };
+        p.result = Some(Outcome::Defeat);
+        self.victory.over = true;
+    }
+
     fn finish(&mut self, p: usize, o: Outcome) {
         self.players[p].result = Some(o);
         self.events.push(Event::GameOver {

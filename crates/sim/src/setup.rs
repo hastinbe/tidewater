@@ -478,7 +478,7 @@ impl Start {
 }
 
 /// The lobby's choices a multiplayer start takes as given (the lobby is a later spec).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Lobby {
     /// Each human's slot and race (0 human, 1 orc, 2 neutral).
     pub humans: Vec<(u8, u8)>,

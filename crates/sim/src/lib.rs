@@ -50,8 +50,8 @@ pub use battle::Missile;
 pub use rng::Rng;
 pub use terrain::{Terrain, WallStage};
 pub use world::{
-    Command, Gather, Layer, Order, Player, RELEASED, RestoreError, Rules, Source, SpawnError, Unit, UnitId, World,
-    WorldError,
+    Command, Difference, Gather, Layer, Order, Player, RELEASED, RestoreError, Rules, Source, SpawnError, Unit, UnitId,
+    World, WorldError,
 };
 
 /// Map pixels per tile.
