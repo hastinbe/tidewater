@@ -34,6 +34,9 @@
   `economy/tech-tree.md` (`ERRATA-audit-game.md` erratum 1, traced); the shipped conversions traced meet held units.
   A traced chat-room knock-out vector. The mission start after a load (Q3) stays held: the round-90 trace doesn't
   decide it.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Q3 closed: a loaded game runs the mission start again from the saved mode (traced for mode AB, G24;
+  the other modes by the same rule, static study, `ERRATA-audit-game.md` erratum 2).
 
 ## Behaviour
 
@@ -260,9 +263,22 @@ condition replaces an earlier result. "Victory" and "defeat" below mean the outc
 
 ### Mission start
 
-When a campaign mission starts, its mode may change the game once, before the first check. A game started by
-loading a saved game doesn't repeat these effects (`game/save-load.md`; default, still held: the static study finds
-that they apply again, see "Open questions"). "Knows" means the bits
+When a campaign mission starts, its mode may change the game, before the first check. **A game started by loading a
+saved game runs the mission start again**, from the saved mode, before its first start-up cycle (traced for mode AB,
+round 91, G24; `game/save-load.md`). Modes E and H switch their rule at the first start and are restored switched, so
+their rows don't run again.
+Every other mode's row applies again to the loaded state (static study, `ERRATA-audit-game.md` erratum 2):
+
+- **AB:** every runestone of players 0 to 7 is set back to 400 hit points, so a damaged one heals.
+- **D, Q, AA, AD:** the conversions apply to the units of the named types present at the load (peasants player 4 got
+  after the start, knights trained since the start), with the goal rule below; a computer player's converted
+  non-held unit draws a fresh first goal, after the loaded game's generator is seeded (`game/save-load.md`, "Random
+  numbers"; the order is a gap-fill, as in a new game, where the mission start comes after the units are created,
+  `game/setup.md` step 9). Mode D's alliance break repeats (no change).
+- **T:** player 15's living dark portals get the rescuable mark again.
+- **Spells known** are added again (no change).
+
+"Knows" means the bits
 are added to the player's **spells known** word, with the spell bit numbers of `economy/tech-tree.md` (bit 20 is the
 paladin or ogre-mage upgrade). "Become" is the unit conversion of `economy/tech-tree.md` ("Converting units"). The
 **rescuable mark** is the per-unit mark that makes a unit count as rescuable (Terms); rescue-owned units have it
@@ -343,6 +359,7 @@ shipped case is traced).
 | **G08.** Custom scenario; the game is paused for 50 cycles at counter 300 (static study) | Checks at counter 201, then 452, 653, …: paused cycles count on the counter but not on the countdown |
 | **G09.** Single player; "you pitiful worm" carried out at counter 250, no pause (static study) | The check at 402 finds the defeat; the defeat dialog opens at the check at 603 |
 | **G10.** Entry 18 (mode E) saved after its mission start, then loaded | The check applies the plain rescue rule (the saved, switched rule) |
+| **G24.** `xhuman9-xhuman9-runestone-alive-saveload-game-60` (oracle trace, Enhanced, local player 1): entry 44 (mode AB); runestone 1547 (owner 4) damaged by two knights to 4 HP (from n = 1643), saved at n = 1653, loaded after n = 1702 | In the loaded game's setup record runestone 1547 has 400 HP, and keeps it through n = 60; the other five runestones (1557, 1558, 1574, 1575, 1581) are at 400 throughout. Nothing else healed it: runestones don't regenerate and no unit was near it |
 | **G20.** `mp-rose-petal-bne-game-21300` (oracle trace, Enhanced, Direct Connect, a chat-room game): the traced human L in slot 4, computers in slots 1, 2, 3 and 5, slots 6 and 7 nobody with nothing, and the idle human B in slot 0, whose only unit, a peon, dies at about n = 21000 | Slots 6 and 7 get "defeat" (2) at the first check, in the second start-up cycle. At the check at counter 21105 (record n = 21107) B gets "defeat" and its controller stays human; 16 cycles later (n = 21123, not at a check) B's slot becomes nobody, which is B's own leave carried out (`net/leave-and-drop.md`; the second machine isn't traced). No slot gets "game ended" |
 
 ## Open questions
@@ -356,15 +373,5 @@ shipped case is traced).
 - The allied-victory setting's source (assumed: the diplomacy screen's allied-victory box).
 - Whether passive and rescue players' units should block destroy-all victory in custom scenarios (they do in the
   program, by the rule above).
-- **Mission start after a load (round 88, Q3 of `ERRATA-game-consolidation.md`; still held after round 90).** Static
-  study finds that a loaded game runs the mission start again from the saved mode: for a mode not yet switched its
-  effects apply again (mode AB runestones back to 400 HP, knights turned into paladins with the goal rule above,
-  spells known added again, mode D's conversion and alliance break, mode T's portal marks). That contradicts
-  `game/save-load.md` ("New-game set-up isn't repeated"). The traced countdown reset at a load (Q4) fits the static
-  reading but doesn't show the effects. The round-90 trace of entry 44 (`xhuman9-xhuman9-runestone-saveload-game-60`)
-  doesn't decide it: the damaged runestone (slot 1547, 164 HP) had become a ruin at n = 1637, before the save, so
-  neither reading touches it, and the other five runestones were at 400 HP already. Default: not repeated. Trace
-  request GA3b: entry 44, damage a runestone without destroying it, save, load, and read its hit points in the
-  loaded game (400 under the static reading).
 - The mission-start conversions name only the human peasant and knight types. Whether a map gives those players orc
   units that would need converting too is a data question. Default: only the named types change.

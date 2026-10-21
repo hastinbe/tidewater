@@ -16,6 +16,8 @@
   2026-10-15, harvest audit round 70 (`ERRATA-audit-harvest.md`, erratum 5; static study): a unit leaves the
   selections and groups when it starts entering a mine, oil platform or depot, not only once it is inside. Both
   round-70 changes reviewed by a spec-review session, 2026-10-15.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Ctrl/Alt+Q in a chat-room multiplayer game opens the quit-to-menu confirmation (traced), not surrender.
 
 ## Behaviour
 
@@ -370,7 +372,7 @@ These keys act in the game screen. While a chat line is being typed, the digit k
 | Alt+M | Game menu |
 | Ctrl/Alt+O, F5 | Options |
 | Ctrl/Alt+P | Pause or resume (below) |
-| Ctrl/Alt+Q | Multiplayer: surrender or quit dialog. Otherwise: quit to the main menu |
+| Ctrl/Alt+Q | Quit to the main menu (its confirmation), in single player and in a chat-room multiplayer game (traced in a chat-room game, round 91: `mp-dark-paths-bne-mp-quit-key-game-320`). Battle.net game: surrender or quit (draw) by the 120-second rule (`ui/game-menu.md`; static study) |
 | Ctrl/Alt+R | Restart the scenario (not in multiplayer) |
 | Ctrl+S | Sound effects on or off |
 | Alt+S, F11 | Save game |

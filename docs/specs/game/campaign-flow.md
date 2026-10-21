@@ -52,6 +52,9 @@
   for the other connections the row stays "the multiplayer screens" (held; static study reads the main menu, MS3).
   Held: round 89's row text "name - label" and local-row-first order (new open question, MS1); the stated rule stays.
   The "Multiplayer score screen" open question is answered by `ui/multiplayer-score.md`.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): after a multiplayer game on the other connections, the game creator goes back to the lobby of the same
+  session (traced after a victory; MS3 closed for that case, both static readings refuted).
 
 ## Behaviour
 
@@ -328,7 +331,7 @@ round 88).
 | Campaign, any other mission | next mission of the same race (entry + 2): act screen, briefing, game | replay the same mission |
 | Custom game | main menu | main menu |
 | Multiplayer, Battle.net | the Battle.net screens | the same |
-| Multiplayer, other connections | back to the multiplayer screens (`ui/multiplayer-score.md`, "What follows the score screen"; held, see "Open questions") | the same |
+| Multiplayer, other connections | the game creator: back to the lobby of the same session (traced, round 91; `ui/multiplayer-score.md`, "What follows the score screen"). A joining player: by default the same (not traced) | the same (default; not traced) |
 
 Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
 because its act was the last shown.
@@ -495,8 +498,8 @@ the next one is due at the same moment.
   and the local player's row first, then the other slots 0 to 7 in order, in single player too. That contradicts the
   stated rule above (slot order, "label - name"), which stays the default. Trace request MS1
   (`ui/multiplayer-score.md`): a screenshot of a single-player custom game's score screen with one computer player.
-- **After a multiplayer game (held).** Static study (rounds 74 and 89) reads the main menu after the score screen of
-  a game that isn't on Battle.net. Default: the multiplayer screens, as the table says. Trace request MS3
+- **After a multiplayer game.** Traced for the creator after a victory (round 91): back to the lobby of the same
+  session; the static reading (the main menu) is refuted. A joiner and a defeat are still open: trace request MS3b
   (`ui/multiplayer-score.md`).
 - **The finale's text in the oracle.** On the ToD human finale (round 72) the scrolling text never moved: one row of
   text pixels stayed at y 308 for about 4 minutes, while the program kept running. The oracle container has no

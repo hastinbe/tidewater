@@ -22,6 +22,9 @@
   saved (`ERRATA-audit-game.md` erratum 3, traced), a loaded game is never paused (erratum 6, static gap-fill), and
   every unit's creation number is renumbered (traced observation). The mission start after a load (Q3) stays held:
   the round-90 trace can't tell the two readings apart (see "Open questions").
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21, see its "Review"): Q3 closed: a load runs the mission start of `game/victory.md` again (traced for mode
+  AB, `game/victory.md` G24), with the goal rule for repeated conversions (`ERRATA-audit-game.md` erratum 2).
 
 ## Behaviour
 
@@ -212,9 +215,12 @@ lists, including:
   unit created after a load gets isn't traced (see "Open questions").
 - **Classic saves.** A Classic multiplayer save doesn't keep the cycle count, the clock, the pause counts or the score
   counters. The cycle count starts again at 0.
-- **New-game set-up isn't repeated.** A loaded game doesn't reset resources, re-place players or choose a new music
-  track. It doesn't repeat the mission start's effects of `game/victory.md` either (default; see "Open questions",
-  "Mission start after a load").
+- **New-game set-up isn't repeated, except the mission start.** A loaded game doesn't reset resources, re-place
+  players or choose a new music track. It **does** run the mission start of `game/victory.md` again, from the saved
+  mission rule, before the loaded game's first start-up cycle; a rule switched before the save stays switched, so
+  modes E and H change nothing again (traced for mode AB, round 91: `xhuman9-xhuman9-runestone-alive-saveload-game-60`,
+  `game/victory.md` G24). The other modes' effects follow from the same rule (static study): see `game/victory.md`,
+  "Mission start".
 - **Colour cycling** steps start counting again from the moment the game starts.
 - **Preferences** such as game speed aren't part of a saved game.
 - **Multiplayer players.** When a multiplayer save is loaded, the saved players are matched to the players now in the
@@ -313,12 +319,6 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
-- **Mission start after a load (round 88, Q3; still held after round 90).** Static study finds that a load runs the
-  mission start's effects again (see `game/victory.md`, "Open questions"). The round-90 trace
-  (`xhuman9-xhuman9-runestone-saveload-game-60`, mode AB) doesn't decide it: the damaged runestone had been destroyed
-  (it was a ruin) before the save, so neither reading touches it, and the other five runestones were at 400 already.
-  Default: not repeated. Trace request GA3b: entry 44, damage a runestone without destroying it, save, load, and read
-  its hit points in the loaded game.
 - **Next creation number after a load.** No trace creates a unit after a load. Default: the next unit gets the
   largest creation number in use plus one.
 - **Running game.** The save and load rules above that say "traced" were watched in the running game (round 90);

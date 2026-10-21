@@ -4,6 +4,9 @@
   `ERRATA-round89-multiplayer.md`, "Review".
 - **Changes:** 2026-10-21, round 90 (oracle traces, `ERRATA-round90-traces.md`; reviewed by a spec-review session,
   2026-10-21): the chat-room knock-out is traced at the check (result only, the slot stays human); vector LV15.
+- **Changes:** 2026-10-21, round 91 (oracle traces with multiplayer commands, `ERRATA-round91-traces.md`; reviewed by
+  a spec-review session, 2026-10-21): the chat-room notices for surrender, Quit to the main menu and Ctrl+F1 are
+  traced (LD2, LD6 closed; vectors LV16 to LV18).
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the dialog files `rez\timeout.bin`, `rez\btimeout.bin`, `rez\surrendr.bin`, `rez\quitdraw.bin` and
   `rez\chatrtrn.bin`, and the tables `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running
@@ -50,8 +53,10 @@ calls a Battle.net game, and "without a network session" for a chat-room game.
 | "Drop Players" in `btimeout.bin`, or the majority rule after bad turn data | one remaining player | not offered | "was dropped" (112) |
 | A sync mismatch (`net/lockstep.md`, "Sync check") | each side | "dropped" (65), or 63 | "was dropped" (112) |
 
-Static study for every row. "Or 63" is the notice rule below: network entry 63 replaces 64 and 65 when the player has
-no units and no buildings left. The automatic drop happens only outside a game, before the lobby's game starts
+Static study for every row, except three chat-room cells traced in round 91 (Enhanced, Direct Connect, two humans;
+LV16 to LV18): Surrender and Quit to the main menu showed "left the game" (64), and Ctrl+F1 while waiting showed "was
+dropped" (65), each carried out in a turn as below. "Or 63" is the notice rule below: network entry 63 replaces 64
+and 65 when the player has no units and no buildings left. The automatic drop happens only outside a game, before the lobby's game starts
 (`net/lockstep.md`, "Stalls", step 7); in a game the waiting dialog opens instead.
 
 ### Chat-room game: carrying out a leave
@@ -280,6 +285,9 @@ All static study. Enhanced unless labelled.
 | LV13. Chat-room game, four humans, host (player 0) leaves; players 1, 2 and 3 remain, all can host | Player 1 becomes the host; player 2 choosing Return to the chat room sees network entry 28 with player 1's name |
 | LV14. Chat-room game, host chooses Return to the chat room | Every machine ends the game in the same turn, no score screen; the host is in the creator's chat room, the others in the joiners' |
 | LV15. `mp-rose-petal-bne-game-21300` (oracle trace, Enhanced, Direct Connect): the traced human in slot 4, four computers, the idle human B in slot 0 whose only unit, a peon, dies at about n = 21000 (traced) | At the check at counter 21105 (record n = 21107) B gets "defeat" and its controller stays human; at n = 21123, not at a check, B's slot becomes "nobody" (B's leave, inferred). No slot gets "game ended" |
+| LV16. `mp-dark-paths-bne-mp-surrender-notice-game-300` (oracle trace, Enhanced, Direct Connect, a chat-room game; traced A in slot 1, B in slot 0, one computer): B opens the game menu, End scenario, Surrender and confirms, after record 150 | In the turn after record 170 (a packet from slot 0 with no command) slot 0 becomes "nobody" on A, and A shows "Player Anonymous left the game." (network entry 64). B sees the defeat background |
+| LV17. `mp-dark-paths-bne-mp-quit-key-game-320` (same set-up): B presses Ctrl+Q, which opens "Are you sure you want to quit to the main menu?", and confirms after record 160 | Slot 0 becomes "nobody" in the turn after record 182; A shows network entry 64 "left the game" |
+| LV18. `mp-dark-paths-bne-mp-drop-key-game-1500` (same set-up): A held stopped so B waits for a turn; B presses Ctrl+F1 after record 150 | Slot 0 becomes "nobody" in the turn after record 194; A shows "Player Anonymous was dropped." (network entry 65). B sees the defeat background |
 
 ## Open questions
 
@@ -287,15 +295,17 @@ All static study. Enhanced unless labelled.
   drop before it) is carried out only there; the dropped player and anyone who didn't drop keep it in the game. Whether the session layer
   in practice makes every machine drop together wasn't traced. **Trace request LD1:** a 3-player chat-room game, delay
   player 2's packets, press Alt+F2 on player 0 only; record each machine's notices and whether player 1 keeps waiting.
-- **Leave notices in practice.** Which notice each way of leaving shows (the "Ways a player leaves" table) is static.
-  **Trace request LD2:** a 2-player Direct Connect game, once with Surrender and once with Ctrl+F1 on player 1;
-  record player 0's notice and the cycle of slot 1's change to "nobody".
 - **What a "nobody" player's units do.** They keep their orders; whether idle ones still fight back wasn't traced
-  (default: the ordinary unit rules). **Trace request LD3:** after LV1, attack one of player 1's idle footmen.
+  (default: the ordinary unit rules). **Trace request LD3:** after LV1, attack one of player 1's idle footmen. Tried
+  in round 91 on Dark Paths BNE and Cramped BNE; on both maps the attackers gave up on the way (the starts aren't
+  joined by land). Needs a map whose starts are joined by land.
 - **Battle.net leave timing.** Whether a leave event is carried out at the same cycle on every machine (default:
   next turn). **Trace request LD4** (needs a Battle.net-style session; probably not reachable).
 - **Host-left texts.** gluAll entries 96 and 104 weren't found used in a game. **Trace request LD5:** a Battle.net
   lobby where the host leaves (not reachable without the service; low priority).
-- **Quit to the main menu, Exit the program** in multiplayer: these were taken to leave the session as any other game
-  end does (static study, not followed in detail). **Trace request LD6:** Quit to the main menu on player 1 of a
-  2-player Direct Connect game; record player 0's notice.
+- **Exit the program** in multiplayer: taken to leave the session as any other game end does (static study, not
+  followed in detail). Quit to the main menu is traced (LV17; LD6 closed, round 91).
+- **Where the leaver goes after Quit to the main menu** in a Direct Connect game: the traced joiner sat on Direct
+  Connect's "Waiting for response" screen (with Cancel Join) for at least 1 s instead of the main menu. Not followed
+  further. Default: the main menu (`ui/game-menu.md`). Trace request LD7: Quit to the main menu on the joiner, then
+  screenshots every second for 30 s.

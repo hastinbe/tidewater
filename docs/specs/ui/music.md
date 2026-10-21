@@ -20,6 +20,9 @@
   music volume 75; vectors; the "Running game" open question narrowed. Reviewed by a spec-review session,
   2026-10-15: the multiplayer score screen's path back is held as an open question with a trace request (static
   study contradicted `game/campaign-flow.md`); the "Main menu opens" row now also covers a return without a fade.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): after a multiplayer game's score screen the creator goes back to the lobby (traced; the music there
+  isn't traced); Ctrl+Q in a chat-room game opens the quit-to-menu confirmation (traced).
 - **Changes:** 2026-10-15: round-75 errata (`ERRATA-round75.md`, U1 and U2; observed on the running game, Enhanced,
   backed by static study): what a fade of all sound does to sound effects and narration (cut at once, with no
   exception); the act screen and the briefing stop every sound effect, their narration included, before their fade;
@@ -159,8 +162,8 @@ The player leaves a single-player game for the main menu through the confirmatio
 (`rez\quit2mnu.bin`). It is reached two ways, both observed (round 74, Enhanced):
 
 - the game menu's End Scenario, then Quit to Menu (`ui/game-menu.md`);
-- Ctrl+Q in a single-player game, which opens the same confirmation at once (`ui/game-menu.md`; in multiplayer the
-  key surrenders instead).
+- Ctrl+Q in a single-player game, which opens the same confirmation at once (`ui/game-menu.md`; a chat-room
+  multiplayer game too, traced in round 91; on Battle.net the key surrenders instead, static study).
 
 Enter confirms it as clicking its Quit to Menu button does (observed). When it is confirmed:
 
@@ -182,8 +185,9 @@ and its Continue button and Enter go on to the game. A request to close the prog
 quits the program (`game/campaign-flow.md`). The act screen's keys only close it early, on to the briefing. After a
 custom game, closing the score screen leads to the main menu (`game/campaign-flow.md`, "After the score screen"):
 its fade of all sound closes the score track, so track 22 starts as above (static study). After a multiplayer game
-the flow goes back to the multiplayer screens (`game/campaign-flow.md`); round 74's static reading that it reaches
-the main menu too is an open question.
+the game creator goes back to the lobby of the same session (traced, round 91; `game/campaign-flow.md`), not the
+main menu. The score screen's fade of all sound closes the score track there too; what plays in the lobby then isn't
+traced (default, gap-fill: nothing, since no row of "Where tracks start" covers the lobby).
 
 **Starting a campaign afterwards.** Whatever was playing on the menu (normally track 22), choosing a campaign fades
 all sound before the screen goes black, so no music is playing at the act screen and the briefing:
@@ -398,12 +402,10 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
 - **Score screen to main menu.** Closing the score screen after a custom or multiplayer game, loading a game from
   the menus and the main menu's Replay Introduction, Show Credits and Exit Program weren't run. Default: the fade of
   all sound the table lists.
-- **Multiplayer score screen: where it goes.** Round 74's static study says the main menu follows the score screen
-  after a multiplayer game as well as a custom one; `game/campaign-flow.md` says a multiplayer game goes back to the
-  multiplayer screens. Static study alone doesn't change that rule. **Trace request:** a multiplayer game (the
-  opt-in multiplayer launch, Enhanced) to its score screen, then close it, logging the flow and the music. Default:
-  the multiplayer screens, as `game/campaign-flow.md` says; the score screen's fade of all sound still closes the
-  score track.
+- **Multiplayer score screen: the lobby's music.** Where it goes is traced for the creator after a victory (the
+  lobby of the same session, round 91); the oracle records no sound. Default: the score screen's fade of all sound
+  closes the score track and nothing starts in the lobby ("Where tracks start" has no lobby row). Trace request MS3b
+  (`ui/multiplayer-score.md`) covers the joiner and a defeat; the music needs a run with a sound device.
 - **Outcome dialog: fade length.** The fade after the outcome dialog wasn't timed with a sound device. The same fade
   of all sound, timed on the quit-to-menu path in round 74, matched the formula (520 ms at volume 75), so the
   default is 540 ms at full volume. The second fade returns at once (static study, round 70; seen on the quit path,

@@ -4,7 +4,13 @@
   `ERRATA-round89-multiplayer.md`, "Review".
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the score dialogs `rez\msnstat2.bin`, `rez\msnstat4.bin`, `rez\msnstat6.bin` and `rez\msnstats.bin`, and the tables
-  `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running game.
+  `Rez\network.tbl` and `rez\gluAll.tbl`. One Enhanced Direct Connect game was watched to its score screen and beyond
+  (round 91, `mp-dark-paths-bne-mp-surrender-game-600`, screenshots of the creator after a victory); the rest is static
+  study.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): row text and order traced for two rows (MS1, multiplayer half); no elapsed time (MS2); after the score
+  screen the creator goes back to the lobby of the same session (MS3 for the creator after a victory; both static
+  readings refuted). The outcome word is shown (traced), so "no result word" is corrected.
 
 This spec gives only what differs from the single-player score screen of `game/campaign-flow.md` ("The victory and
 defeat dialogs", "The score screen", "After the score screen"). "Network entry n" is entry n (counting from 1) of
@@ -37,9 +43,10 @@ Slots that were empty ("nobody") at the start get no row.
 
 ### Row text
 
-Each row is one text line, **name first** (static study, round 89; trace request MS1). The single-player score
-screen keeps its stated "label - name" text and slot order (`game/campaign-flow.md`) until MS1 settles both: round 89
-reads the same row text and order for single player, which the review held.
+Each row is one text line, **name first** (static study, round 89; traced, round 91: "Anonymous" for L and
+"Anonymous - Enemy" for the other human, MS-V8). The single-player score screen keeps its stated "label - name" text
+and slot order (`game/campaign-flow.md`) until the single-player half of MS1 settles both: round 89 reads the same
+row text and order for single player, which the review held.
 
 | Player | Row reads |
 | --- | --- |
@@ -53,7 +60,8 @@ hyphen, space).
 
 ### Row order
 
-**L's row first** (the dialog's first row), then the other rows in slot order, 0 to 7, skipping L (static study). The
+**L's row first** (the dialog's first row), then the other rows in slot order, 0 to 7, skipping L (static study;
+L's row on top traced, round 91, with L in slot 1 and the other human in slot 0, MS-V8). The
 dialog is chosen by the number of rows as in single player (2, 4, 6 or 8 rows).
 
 ### Statistics, score and rank
@@ -64,16 +72,19 @@ dialog is chosen by the number of rows as in single player (2, 4, 6 or 8 rows).
 - **Score and rank.** The campaign total is 0 at the start of every multiplayer game, so the shown score and the rank
   come from L's mission score of this game, plus 500 for a victory (static study; `game/campaign-flow.md`, "Campaign
   total"). The cheat rank (entry 39) applies as in single player, but cheats are off in an Enhanced multiplayer game.
-- **No elapsed time and no result word.** The screen shows no game time and no "Victory!", "Defeat!" or "Draw!" text.
-  gluAll entries 17 "Elapsed Time: %s" and 18 to 22 ("Defeat!", "Victory!", "Draw!", "Disconnect", "Undecided") were
-  not found used anywhere in the program (static study; trace request MS2).
+- **No elapsed time.** The screen shows no game time (traced, round 91, MS-V8: the outcome, rank and score fields and
+  the seven statistic columns only). gluAll entry 17 "Elapsed Time: %s" was not found used (static study).
+- **The outcome word.** The dialog's "Outcome" field shows the outcome word as in single player: "Victory!" after the
+  traced victory (round 91, MS-V8). gluAll entries 18 to 22 ("Defeat!", "Victory!", "Draw!", "Disconnect",
+  "Undecided") were not found used (static study), so where the shown word comes from is open; default: "Victory!"
+  or "Defeat!" by L's outcome, as in single player. Never "Draw!", "Disconnect" or "Undecided" (gap-fill).
 
 ### What follows the score screen
 
 | Game | After the score screen |
 | --- | --- |
 | Battle.net game | back to the Battle.net screens (static study) |
-| Chat-room game (Direct Connect, Modem, IPX network; Enhanced and Classic mode) | **Held** (trace request MS3): "the multiplayer screens", as `game/campaign-flow.md` states. Gap-fill: that is the first multiplayer screen, the Enhanced or Classic choice (`ui/multiplayer-menus.md`, section 1), with the session closed. Static study (rounds 74 and 89) reads the **main menu** instead, after a victory and after a defeat. Either way not the chat room: only Return to the chat room goes there |
+| Chat-room game (Direct Connect, Modem, IPX network; Enhanced and Classic mode) | **The game creator goes back to the lobby** ("Multi Player Setup", `ui/game-setup-lobby.md`) of the same session: its own row, the other seven slots open ("Available"), the chat line, Start Game greyed out (traced after a victory, round 91, MS-V8; it stays there). Both static readings (the first multiplayer screen; the main menu) are refuted for this case. A joining player, and any player after a defeat: not traced; default the same (back to the same session's lobby, as a joiner for a joining player) |
 
 **Tidewater slots.** Direct IP and Local Network games are chat-room games and follow the chat-room row (DECISIONS.md,
 2026-10-21).
@@ -107,29 +118,29 @@ shown on screen (static study). Tidewater has no Battle.net and needs none of it
 
 ## Test vectors
 
-All static study. Enhanced unless labelled.
+Static study unless marked traced. Enhanced unless labelled.
 
 | Case | Expected rows (in order) |
 | --- | --- |
-| MS-V1. Chat-room game, L = slot 1 "Bob", slot 0 "Ann" allied with Bob, slot 2 "Cy" not allied; Bob wins after both leave | "Bob", "Ann - Ally", "Cy - Enemy"; victory background; then the multiplayer screens (held, MS3; static study: the main menu) |
+| MS-V1. Chat-room game, L = slot 1 "Bob", slot 0 "Ann" allied with Bob, slot 2 "Cy" not allied; Bob wins after both leave | "Bob", "Ann - Ally", "Cy - Enemy"; victory background; then the lobby of the same session if Bob created the game (traced for the creator, MS-V8; a joiner by default the same) |
 | MS-V2. As MS-V1, but Bob broke the alliance with Ann after Ann left | Still "Ann - Ally": the label was fixed when Ann's row was made |
 | MS-V3. Chat-room game, L = slot 0 "Ann", one human slot 1 "Bob" (enemy) and a computer orc in slot 3 allied with Ann | "Ann", "Bob - Enemy", and slot 3's orc nation name "- Enemy" |
 | MS-V4. Battle.net, L surrenders | Defeat background; then the Battle.net screens |
 | MS-V5. Skip setting on | No score screen; straight to what follows |
 | MS-V6. Chat-room game ended by Return to the chat room | No score screen |
-| MS-V7. Classic mode chat-room game, L defeated | Defeat background, rows as above; then as MS-V1 |
+| MS-V7. Classic mode chat-room game, L defeated | Defeat background, rows as above; then as MS-V1 (default) |
+| MS-V8. `mp-dark-paths-bne-mp-surrender-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): L (the creator, slot 1, "Anonymous") wins at the check after the other human (slot 0, "Anonymous") surrenders | Rows "Anonymous" (L, on top, L's colour) then "Anonymous - Enemy"; "Outcome" shows "Victory!"; no elapsed time. After Continue: the "Multi Player Setup" lobby with L's row, seven "Available" slots and Start Game greyed out, still there 15 s later |
 
 ## Open questions
 
-- **Row text and order.** Name first and L's row on top come from static study and differ from the single-player text
-  of `game/campaign-flow.md` (which says "label - name", slot order). **Trace request MS1:** screenshot the score
-  screen of a 2-player Direct Connect game and of a single-player custom game with one computer player.
-- **Unused result texts.** gluAll entries 17 to 22 may be used through a path the static study missed. **Trace request
-  MS2:** search a screenshot of a Battle.net-less multiplayer end for "Elapsed Time" (expected: absent).
-- **After the score screen.** Held: `game/campaign-flow.md` and `ui/music.md` say "the multiplayer screens", and the
-  2026-10-15 review ruled that static study alone doesn't change that; rounds 74 and 89 both read the main menu for a
-  chat-room game. **Trace request MS3:** in a 2-player Direct Connect game, finish with a victory and record the
-  screen (and the music) after the score screen. If MS3 shows the main menu, `game/campaign-flow.md`, `ui/music.md`
-  and the table above change together.
+- **Row text and order, single player.** The multiplayer half is traced (MS-V8). Whether a single-player score screen
+  also reads "name - label" with L on top, against `game/campaign-flow.md` ("label - name", slot order), is still
+  held. **Trace request MS1 (single-player half):** screenshot a single-player custom game's score screen with one
+  computer player.
+- **The outcome word's source.** See "The outcome word": shown, but not from gluAll entries 18 to 22 as far as static
+  study found. Default as stated. (MS2, elapsed time, closed: absent, traced.)
+- **After the score screen, other cases.** The creator after a victory is traced (MS-V8). **Trace request MS3b:**
+  the joiner's screen after the score screen, and either side after a defeat, in a 2-player Direct Connect game; and
+  the music in the lobby after the score screen (the oracle records no sound).
 - **Computer rows.** Computer players are always labelled Enemy, even when allied with L (static study).
   Covered by MS1 if the custom game's computer is set as an ally; otherwise default as stated.

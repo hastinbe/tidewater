@@ -21,6 +21,9 @@
   has left the game." in the message list (`net/leave-and-drop.md`). All static study.
 - **Changes:** 2026-10-21, round 90 review (`ERRATA-audit-game.md`, erratum 6; static gap-fill): the pause isn't
   saved; a loaded game always starts running.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Ctrl/Alt+Q opens the quit-to-menu confirmation in a chat-room game (traced); surrender comes from the
+  End scenario menu there.
 
 ## Behaviour
 
@@ -195,8 +198,11 @@ load-custom choices pass a check:
   confirmation opens.
 
 The same choices have keys outside the menu (`ui/selecting-and-commanding.md`): Ctrl/Alt+R restart, Ctrl/Alt+Q
-surrender or quit to menu, Ctrl/Alt+X exit. These open the confirmation directly, so its Cancel returns to the game.
-In a Battle.net game the surrender key opens `surrendr.bin` or `quitdraw.bin` by the 120-second rule.
+quit to menu, Ctrl/Alt+X exit. These open the confirmation directly, so its Cancel returns to the game. Ctrl/Alt+Q
+opens the quit-to-menu confirmation ("Are you sure you want to quit to the main menu?") in single player and in a
+chat-room game (traced in a chat-room game, round 91: `mp-dark-paths-bne-mp-quit-key-game-320`; single player
+observed, round 74, `ui/music.md`). In a Battle.net game it opens `surrendr.bin` or `quitdraw.bin` by the
+120-second rule (static study).
 
 ### Pause
 

@@ -13,7 +13,9 @@
 - **Rules mode:** every rule here is Enhanced unless it says **Classic mode**. The Classic-mode rules, all from static
   study, are: the 101-cycle refresh, holy vision leaving the refresh countdown alone, whose display a reveal changes,
   the reveal's "seen" quirk, detection of invisible units and submarines without shared vision and without the
-  "complete" test, and the diplomacy command leaving vision alone. No Classic trace was used.
+  "complete" test, and the diplomacy command leaving vision alone. No Classic trace was used. F47 was read from the
+  attract demo, which plays with the Enhanced flag clear (the recording's own setting): it states demo-only facts and
+  changes no Enhanced rule.
 - **Changes:** 2026-10-11 to 2026-10-15: rounds 3, 4, 30, 32, 35, 36, 53, 65, 70 and 71 and the review of
   2026-10-12 (listed in the errata file's Inventory; the old text is tidewater-docs `e45ac76`).
 - **Changes:** 2026-10-21, round 87 (B-038 consolidation, `ERRATA-vision-consolidation.md`; static study; reviewed
@@ -37,6 +39,12 @@
   human player (erratum 3), a neutral invisible unit's set (erratum 4, not mirrored), the "detected by" test for
   players 8 to 15 (erratum 6), the gold-mine inside sight's test (erratum 7). Erratum 2 is an implementation note on
   X12 (vector F45). Erratum 8 (demo playback's visible map) is held as Q4.
+- **Changes:** 2026-10-21, round 91 (oracle traces with the `fogmaps` extra and read-only demo logs,
+  `ERRATA-round91-traces.md`; reviewed by a spec-review session, 2026-10-21): switching the option off assigns the
+  local set on unexplored tiles, and switching it on changes no map until the next refresh (traced, F45 now a traced
+  vector). Demo playback has the fog-of-war option **on** and the reveal-map cheat on; its visible map and "seen" bits
+  start clear but the first start-up cycle's refresh fogs them as in any game (traced, F47; Q4 closed). The old
+  reading "demo playback = option off from the start" is withdrawn.
 
 ## Behaviour
 
@@ -92,8 +100,9 @@ bottom-left and bottom-right. A set flag means that quarter is fogged.
 
 - **Explored map.** At the start of a game every quarter of every tile is fogged. Revealing clears quarters, and
   nothing sets them again. A tile with all four quarters fogged is unexplored and is drawn black.
-- **Visible map.** At the start of a game every quarter is fogged (**held, Q4:** static study finds that demo playback
-  starts with it clear). Revealing clears quarters. On each **fog refresh**
+- **Visible map.** At the start of a game every quarter is fogged. (Demo playback starts with it clear, but the fog
+  refresh of its first start-up cycle fogs it again, so this is never seen; traced, round 91, F47.) Revealing clears
+  quarters. On each **fog refresh**
   (below), if the fog-of-war option is on, every quarter is fogged again. If the fog-of-war option is off, the
   visible map is never re-fogged.
 
@@ -135,7 +144,8 @@ code 16 in the visible map is explored but fogged; the main view covers it with 
 One byte per tile, one bit per player (bit p for player p, players 0 to 7). A set bit means the tile is **not seen**
 by that player during the current refresh period. Players 8 and up have no bit: nothing is revealed for them.
 
-- At the start of a game all bits are set, except in demo playback, which clears them all. A multiplayer game set up
+- At the start of a game all bits are set. Demo playback starts with them all clear, and the refresh of its first
+  start-up cycle sets them all (traced, round 91, F47). A multiplayer game set up
   with the fog-of-war option off is no exception: it starts with every bit set too (a single-player custom game
   always has fog on, `game/setup.md`). With the option off the refresh never sets or clears them (below), so in such a
   game a bit clears only where a reveal touches the tile, and a unit on ground its side has never revealed stays
@@ -457,11 +467,10 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
 
 ### Fog-of-war option and cheat
 
-- **Option off from the start** (demo playback, or a multiplayer game set up with fog off in the lobby): the fog maps
-  start fogged as in any game, and refreshes never set or clear the "seen" bits. In demo playback every bit starts
-  clear, so no unit is ever hidden by the fog. A multiplayer game set up with fog off starts with every bit set, so a
-  unit stays hidden from a player until a reveal of that player's side touches its footprint, and then stays visible
-  (traced, round 90; F27, F28, F43).
+- **Option off from the start** (a multiplayer game set up with fog off in the lobby): the fog maps start fogged as in
+  any game, and refreshes never set or clear the "seen" bits. The game starts with every bit set, so a unit stays
+  hidden from a player until a reveal of that player's side touches its footprint, and then stays visible (traced,
+  round 90; F27, F28, F43).
 - **Option off:** the visible map is not re-fogged and the "seen" bits are not set again on refresh, so everything
   seen once stays visible. When the option is switched off during play (the game menu; the change takes effect when
   the dialog closes, `ui/game-menu.md`), the visible map is set equal to the explored map. The "seen" bits are then
@@ -470,15 +479,23 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
   unseen (X12). The option can be switched only in single player (`ui/game-menu.md`), where the local player's set is
   just itself; there it gives the same bits as the old wording ("cleared, except the local player's bits on
   unexplored tiles") whenever the local player's bit on a fully unexplored tile is set, which it is unless the fog
-  cheat cleared it and the option was turned on and off again within one refresh period.
+  cheat cleared it and the option was turned on and off again within one refresh period (traced, round 91: F45).
+  Switching the option **on** changes no map until the next fog refresh (traced, F45).
 - **A cheat** turns fog off in single-player games: the `showpath` developer word, when it turns its flag on during
   a game (`game/cheats.md`, "Word codes"). It clears the option, makes the visible map fully clear and clears all
-  "seen" bits.
+  "seen" bits (traced, round 91, F45).
 - **The reveal-map cheat** makes nothing hidden (except dead, removed and inside units, rule 1 above) and draws the
   whole minimap. It doesn't change the maps. Switching it resets the remembered look of buildings whose whole
   footprint is unexplored (`ui/map-drawing.md`).
+- **Demo playback** (the attract demo) has the fog-of-war option on and the reveal-map cheat on (`game/cheats.md`).
+  Its visible map and every "seen" bit start clear, the refresh of its first start-up cycle fogs the visible map and
+  sets every bit as in any game, and refreshes go on; the reveal-map cheat hides nothing and draws no fog, so none of
+  it shows (traced, round 91: F47). The attract demo plays with the program's Enhanced rules flag clear (Classic rules,
+  `core/timing-and-rng.md`): that is the recording's own setting, observed and not chosen. Nothing in this bullet
+  changes an Enhanced rule.
 
-**Evidence:** static study.
+**Evidence:** static study; switching the option off and on traced (round 91, F45); demo playback traced (round 91,
+F47).
 
 ### Random draws
 
@@ -577,8 +594,14 @@ have it (F40).
 | --- | --- | --- |
 | F43 | `mp-dark-paths-bne-fogoff-game-vision-300` (oracle trace, Enhanced, Direct Connect, fog of war off in the lobby; traced player 1) and its control `mp-dark-paths-bne-game-vision-300` (fog on) | Every record of the two traces is the same apart from the fog option, the hidden-from sets included. Player 0's three units have hidden-from 250 (players 1 and 3 to 7) from the first start-up cycle to n = 300 in both: they stay hidden from player 1 with fog off |
 | F44 | `human12-human12-invisible-passenger-game-vision-4550-5600` (oracle trace, Enhanced): mage 1438 casts invisibility on footman 1445 (owner 1), timer 1999, at n = 4628; the footman boards transport 1428 at n = 5242 | Detected-by 2 (only player 1) from n = 4629. At n = 5242 hidden-from becomes 255 (everyone); from n = 5243 detected-by is 255 (everyone), with the invisibility timer still running (1384). Neither change waits for a fog refresh |
-| F45 | Enhanced single player, local player 0 alone in its set. The `showpath` cheat (every "seen" bit cleared), then the fog option switched on and off again within one refresh period. Tile (20, 20) never explored (X12; static study, `ERRATA-audit-vision.md` erratum 2) | The tile's "seen" bits are exactly {0}: switching off assigns the local set to a fully unexplored tile, it doesn't keep only the bits already set |
+| F45 | `human1-human01-fog-switch-fogmaps-game-400` (oracle trace, Enhanced single player; local player 1 alone in its set): `showpath` at n = 12 (every "seen" bit cleared, visible map all clear), the option switched on at n = 18 and off at n = 21 (X12; traced, round 91, `ERRATA-audit-vision.md` erratum 2) | At n = 18 no map changes. At n = 21 every fully unexplored tile's "seen" byte is 2 (exactly {1}: the local set is assigned, not kept-where-set), every explored or edge tile's is 0, and the visible map equals the explored map (184 clear, 768 fogged, 72 edge tiles). The same assignment at the second switch-off (n = 302, after refreshes had set every bit again) |
 | F46 | A custom map whose slot 3 has owner code 9; a slot-3 unit next to a player-0 unit whose footprint tiles all have slot 3's "seen" bit set (static study, erratum 3) | The player-0 unit is hidden from slot 3 by the footprint test, as for a human player. Where a reveal of a set including slot 3 has cleared the bit, it isn't hidden from slot 3 |
+
+### Round-91 vectors
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| F47 | Attract demo after about 172 s idle at the main menu (startup launch, no words; read-only state log `startup/startup-none-200-peekwatch.jsonl`, round 91). The demo runs with the program's Enhanced flag clear (its own setting) | Before the first start-up cycle: visible map all clear, every "seen" bit clear, fog countdown 1. After the first start-up cycle a refresh has run: visible map all fogged, every "seen" bit set. Refreshes recur (the next one about 100 cycles later, on the demo's Classic schedule). Fog option on and reveal-map cheat on throughout; no fog is drawn on screen |
 
 ## Open questions
 
@@ -589,10 +612,9 @@ have it (F40).
   old text: it counts). No detector can be inside anything with the default data. Trace request VT5: a research-side
   copy of the unit data that lets a detector board a transport (for example a custom map's flying machine data
   changed to a land unit), with the `vision` extra, and an enemy submarine in range.
-- **Q4 (B-040 vision audit, erratum 8):** whether demo playback starts with the **visible** map clear as well as the
-  "seen" bits (static study: yes; default, the old text: fogged, like any game). Display only. Trace request VT6:
-  the startup launch (`LAUNCH=title`, no words) reaches the attract demo after about 180 s idle; a screenshot in its
-  first second shows whether the map starts clear.
+- **Q4 (B-040 vision audit, erratum 8):** closed in round 91: demo playback starts with the visible map and the
+  "seen" bits clear, and the first start-up cycle's refresh fogs both, because the fog option is on in the demo
+  (traced, F47).
 - **Q1 (from round 87):** whether a player can drop itself from its own shared-vision set through the diplomacy
   command (the command carries the whole set). The implementation keeps the player in its own set. Default: the
   player is always in its own set.

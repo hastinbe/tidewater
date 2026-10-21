@@ -16,8 +16,10 @@
   spec-review session, 2026-10-21): Q1, Q2, Q4 and Q5 are answered by traces, each confirming the static reading: the
   `title` word skips the title picture, a loaded game's counter starts at 0 again, a load sets the victory countdown
   to 1 and loses a found outcome, and a load keeps the cheat-used mark. The fog refresh countdown isn't saved
-  (traced) and a loaded game is never paused (static gap-fill). Q3 stays held: the round-90 trace doesn't decide it.
-  G06 and G07 now state the traced results.
+  (traced) and a loaded game is never paused (static gap-fill). G06 and G07 now state the traced results.
+- **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Q3 answered by a trace, confirming the static reading: a load runs the mission start again
+  (`game/victory.md` G24).
 
 ## Behaviour
 
@@ -88,7 +90,7 @@ marks rules the old text didn't state.
 | Map, players, units, resources, alliances | Read from the map (`game/setup.md`) | Restored from the save |
 | Music track | Chosen (`ui/music.md`) | Restored from the save |
 | Random numbers | Seeded (`core/timing-and-rng.md`) | Seeded the same way (`game/save-load.md`) |
-| Mission start (`game/victory.md`, "Mission start") | Runs once, before the first check | Its effects aren't repeated (default; the static study finds they are: `game/save-load.md`, "Open questions", Q3, still held) |
+| Mission start (`game/victory.md`, "Mission start") | Runs before the first check | Runs again from the saved mode, before the first start-up cycle; a mode switched before the save (E, H) doesn't run its row again (traced for mode AB, round 91) |
 | Victory check's rule | Chosen from the mode | Chosen from the saved mode, which keeps any switch made before the save |
 | Victory countdown and a found outcome | Countdown set to 1 (1,400 for demo playback); no outcome | The same as a new game: countdown 1, and an outcome found but not yet shown is lost (traced, round 90) |
 | Fog refresh countdown | Set so that the first start-up cycle refreshes | The same; the saved value isn't used (traced, round 90) |
@@ -170,12 +172,13 @@ count, clock, pause counts or score counters (`game/save-load.md`); the fog refr
 
 ## Open questions
 
-The open questions of this area are in the part specs. The round-88 ones and their state after the round-90 traces:
+The open questions of this area are in the part specs. The round-88 ones and their state after the round-90 and
+round-91 traces:
 
 | Q | Question | Answer or default | Where |
 | --- | --- | --- | --- |
 | Q1 | Does the `title` word skip the title picture? | **Answered (traced): yes** | `game/campaign-flow.md` |
 | Q2 | Does a loaded Enhanced game's cycle counter start at 0 again? | **Answered (traced): yes** | `game/save-load.md`, `core/timing-and-rng.md` |
-| Q3 | Does a load repeat the mission start's effects? | **Still held.** Default: no. Trace request GA3b | `game/save-load.md`, `game/victory.md` |
+| Q3 | Does a load repeat the mission start's effects? | **Answered (traced, round 91): yes** | `game/save-load.md`, `game/victory.md` |
 | Q4 | Does a load set the victory countdown to 1 and drop a found outcome? | **Answered (traced): yes** | `game/save-load.md`, `game/victory.md` |
 | Q5 | Does a load clear the cheat-used mark? | **Answered (traced): no** | `game/cheats.md` |

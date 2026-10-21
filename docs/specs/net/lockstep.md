@@ -2,10 +2,17 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-21; round 89, B-057). The review's rulings are in
   `ERRATA-round89-multiplayer.md`, "Review".
+- **Changes:** 2026-10-21, round 91 (oracle traces with multiplayer commands, `ERRATA-round91-traces.md`; reviewed by
+  a spec-review session, 2026-10-21): command latency traced (MP-L6); the watch and the waiting dialog seen at about
+  3 s and 8 s into a stall (MP-L4, first part); the default sync check catches a generator difference at the second
+  turn after it and doesn't catch a "seen"-map difference (MP-L5, `allowsync` off). Tidewater's wider digest is
+  recorded as a design choice that drops on the original's turn (DECISIONS.md, 2026-10-21).
 - **Sources:** static study of the 2.02 program for both network layers (research notes under `research/notes/`), the
   dialog files `rez\timeout.bin`, `rez\btimeout.bin` and `NetDlg.bin`, and the tables `Rez\connect.tbl` and
   `Rez\network.tbl`. One oracle run confirms the turn spacing of an Enhanced Direct Connect game at speed 8
-  (round 89, Dark Paths BNE, 300 cycles). Every section says which of its rules are traced, static study or gap-fill.
+  (round 89, Dark Paths BNE, 300 cycles); round-91 runs of the same game with injected commands confirm the command
+  latency, the stall dialog and the default sync check (named at each rule). Every section says which of its rules
+  are traced, static study or gap-fill.
 - **Scope:** what players observe and the order in which commands are carried out. Packet layouts are out of scope:
   Tidewater uses its own wire protocol. Leaving and dropping players is in `net/leave-and-drop.md`.
 
@@ -82,7 +89,10 @@ ahead of it, it is carried out in the (q + 1)-th turn to come. In steady play q 
 to come. Input is read once per frame before that frame's cycles, so a command read at cycle counter c (the counter
 of the next cycle to run) is carried out in the turn before counter K × ceil(c / K) + K. That is a delay of K to
 2K − 1 cycles. A second command issued in the same frame runs one turn later, a third one turn after that, and so on.
-Static study; agrees with the speed-8 single-player rule in `oracle/trace-format.md` when K = 1.
+Static study; agrees with the speed-8 single-player rule in `oracle/trace-format.md` when K = 1. Traced (round 91,
+`mp-dark-paths-bne-mp-latency-game-400`): two frames, each with a select and a move, read at counters 198 and 299,
+were carried out in the turns before counters 216 and 228, and 312 and 324, as the rule predicts; the traced player's
+own commands waited like everyone else's.
 
 ### Turn length
 
@@ -140,11 +150,13 @@ X for Battle.net wasn't found (open question).
    again: each one in turn for the first 3 intervals, then all players at once. Each such request adds 1 to the
    turn's resend count, which starts at 0.
 3. Once the resend count is above 1, that is after more than 2 intervals (2 s by default), the cursor becomes the
-   watch (`ui/screen-and-cursors.md`, pointer rule 1).
+   watch (`ui/screen-and-cursors.md`, pointer rule 1). Traced (round 91): the watch and no dialog about 3 s into a
+   stall.
 4. After more than 7 intervals (7 s), the waiting dialog `rez\timeout.bin` opens. It shows "Waiting for players:"
    above one row per missing player, by name, with "Press and hold Ctrl-F1 to abort game" and "Press and hold Alt-F2
    to drop dead players". A row disappears when that player's packet arrives. The dialog closes when the turn
-   completes.
+   completes. Traced (round 91, `mp-dark-paths-bne-mp-stall-game-300`): the dialog, naming the stopped player, was up
+   about 8 s into a 12 s stall and had closed by itself, with nobody dropped, 50 cycles after turns arrived again.
 5. **Ctrl+F1**, checked at every retry while waiting, makes the local player leave: the others are told the player
    dropped, the game waits 2 s, and the game ends for that player.
 6. **Alt+F2**, checked once per interval from the 8th interval on, drops every player still missing.
@@ -169,13 +181,22 @@ changes when cycles run in real time, never what they do.
 
 ### Sync check
 
-**Peer layer (static study).** Each packet carries a sequence number and, when marked, a sync byte. The sync byte is
-the low 7 bits of the game's random generator state at the moment the packet was made, combined with a 7-bit state
-value. Whether that state value is a hash of the game state (units, players, the "seen" map and the alliances) in
-every game, or only with `allowsync` mode on, is an open question ("What the sync check covers"); either way a
-difference in the generator is caught. An empty packet made while fewer than 2 packets wait is marked, so in steady play every
-player's packet is marked unless the player queued a command. The byte is taken when the packet is made and compared
-when it is carried out, 2 turns later.
+**Peer layer.** Each packet carries a sequence number and, when marked, a sync byte. The sync byte is the low 7 bits
+of the game's random generator state at the moment the packet was made, combined with a 7-bit state value (static
+study). An empty packet made while fewer than 2 packets wait is marked, so in steady play every player's packet is
+marked unless the player queued a command (static study).
+
+- **What it catches with `allowsync` off (the default; traced, round 91).** A generator difference is caught: with
+  the generator's lowest bit flipped on one machine between two turns, each machine dropped the other player at the
+  second turn after the change, both showed network entry 65, and both games went on
+  (`mp-dark-paths-bne-mp-desync-rng-game-400`). A difference in the "seen" map alone is not caught: one "seen" bit
+  different on one machine for four turns (until a fog refresh set it again) gave no drop and no notice
+  (`mp-dark-paths-bne-mp-desync-seen-fogmaps-game-400`). Static study reads the state value as a hash of the game
+  state only with `allowsync` mode on; default for other state with `allowsync` off: not caught, unless it changes
+  the generator.
+- **When.** The byte is taken when the packet is made and compared when the packet is carried out. A difference that
+  arises between two turns is caught at the second turn after it (traced); a difference in the generator's higher
+  bits is caught only once it reaches the low 7 bits (static study).
 
 At every turn, for each other player, the game compares that player's sequence number with its own, and, when both
 packets are marked, the two sync bytes.
@@ -192,13 +213,17 @@ Network entry 134 "SYNC ERROR." has no use found.
 Enhanced and Classic mode behave the same. Their packets carry a different checksum, so an Enhanced and a Classic
 game can't mix. A Classic mode session start seeds the generator with 0.
 
-**Tidewater (default until trace request MP-L5 settles the original).** Each turn's check compares a digest of the
-whole lockstep state: the generator, the cycle counter, every unit, every player, the alliance table, the "seen" map
-and every unit's hidden-from and detected-by sets (`vision/fog.md`). A game that stays in sync shows nothing, as in
-the original. On a mismatch, players see what the original's default shows: the mismatched players are dropped and
-network entry 65 appears (`net/leave-and-drop.md`). Tidewater carries the drop out in the same turn on every machine
-(`net/leave-and-drop.md`, "Rules for Tidewater"). Tidewater has no `allowsync` mode. The digest's form is Tidewater's
-own.
+**Tidewater: a design choice, not the original's behaviour (DECISIONS.md, 2026-10-21).** Each turn's check compares
+a digest of the whole lockstep state: the generator, the cycle counter, every unit, every player, the alliance table,
+the "seen" map and every unit's hidden-from and detected-by sets (`vision/fog.md`). That is wider than the original's
+default check, which catches a generator difference but not a "seen"-map difference (traced, above). In Tidewater
+any divergence is a bug, so it is caught as early as the turn structure allows. The digest covers only state that
+every machine computes the same way, never per-machine state (the explored and visible maps, the local player, the
+selection, local settings). A game that stays in sync shows nothing, as in the original. On a mismatch, players see
+what the original's default shows: the mismatched players are dropped and network entry 65 appears
+(`net/leave-and-drop.md`), **on the original's turn**: a difference that arises between two turns drops at the
+second turn after it. Tidewater carries the drop out in the same turn on every machine (`net/leave-and-drop.md`,
+"Rules for Tidewater"). Tidewater has no `allowsync` mode. The digest's form is Tidewater's own.
 
 **Battle.net layer (static study).** Every turn carries one sync record: a hash that cycles through unit state, player
 state with the generator and cycle counter, and one map row at a time, checked against a 16-turn history. On a
@@ -321,6 +346,11 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
 | Battle.net stall of 50 ms | Deadline moves forward by half a cycle |
 | Battle.net, a player sets High latency | Every player sees network entry 107 with that player's name; one more turn in transit |
 | Two players' sync bytes differ, `allowsync` off | Each drops the other; network entry 65 |
+| Enhanced Direct Connect, speed 8, K = 12 (round 91, **traced**: `mp-dark-paths-bne-mp-latency-game-400`): a select and a move read in one frame at counter 198 | Turns before counters 216 and 228 |
+| Same game, a select and a move read in one frame at counter 299 (**traced**) | Turns before counters 312 and 324 |
+| Same game, `allowsync` off: the generator's lowest bit flipped on one machine after record 150, between the turns before counters 144 and 156 (round 91, **traced**: `mp-dark-paths-bne-mp-desync-rng-game-400`) | At the turn before counter 168 each machine drops the other (slot 0 becomes "nobody" on the traced machine); both show network entry 65; both games go on |
+| Same game, one "seen" bit cleared on one machine after record 150, set again by the fog refresh at record 201 (round 91, **traced**: `mp-dark-paths-bne-mp-desync-seen-fogmaps-game-400`) | No drop and no notice. **Tidewater** (design choice above): its digest catches it, and both machines drop each other at the turn before counter 168 |
+| A peer stops sending for 12 s, Direct Connect (round 91, **traced**: `mp-dark-paths-bne-mp-stall-game-300`) | The watch at about 3 s, the waiting dialog naming the player at about 8 s; the dialog closes by itself when turns resume; nobody dropped |
 | Two players' sync bytes differ, `allowsync` on | Network entry 83 for every player; the game continues |
 | Paused game over Direct Connect, row 4, speed 8 | Turns still every 12 cycle slots; a resume command takes effect at a turn |
 
@@ -335,18 +365,12 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
   Battle.net is ever revived.
 - **Classic mode K.** The Classic table is computed, not traced. Trace request MP-L3: a Classic mode Direct Connect game
   at Classic speed 6 and speed 3; expected K = 12 and K = 6.
-- **The stall dialog.** The watch, `rez\timeout.bin` timing, the Alt+F2 drop and the 200 ms deadline reset are static
-  study. Trace request MP-L4: stop one side of a Direct Connect game for 10 s and log when the watch and the dialog
-  appear; then stop it for 150 ms and for 300 ms and log the cycle timing after each.
-- **What the sync check covers.** Static study disagrees with itself. Round 89 reads the state hash as reaching the
-  peer layer's sync byte only with `allowsync` mode on, so by default only the generator is compared; the B-040 vision
-  audit (`ERRATA-audit-vision.md`, "Network notes") reads the per-turn check as covering every unit's hidden-from and
-  detected-by sets, the "seen" map, the alliances and unit positions and orders. Default for Tidewater: the digest
-  above, which covers both readings; nothing players see in a game that stays in sync depends on it. Trace request
-  MP-L5: in an Enhanced Direct Connect game with `allowsync` off, (1) force a generator difference on one side and
-  confirm the drop at the turn 2 turns after the packet was made, with network entry 65; (2) force a difference that
-  leaves the generator alone (one unit's hidden-from set, or one "seen" bit) and record whether a drop follows.
-- **Commands on the multiplayer path.** The oracle can't inject commands in a multiplayer game yet, so the latency
-  vectors (K to 2K − 1 cycles) are static study. Trace request MP-L6: a command at a known counter in the Direct
-  Connect game, logging the turn that carries it out.
+- **The stall dialog.** The watch and the dialog were seen at about 3 s and 8 s into a 12 s stall, and the dialog
+  closes by itself when turns arrive again (traced, round 91). The Alt+F2 drop and the 200 ms deadline reset are
+  static study. Trace request MP-L4 keeps its second part: stop one side for 150 ms and for 300 ms and log the cycle
+  timing after each (needs a timer on the waiting side).
+- **What the sync check covers with `allowsync` on.** Closed for the default (`allowsync` off, traced, round 91: the
+  generator, not the "seen" map). With `allowsync` on, static study reads a hash of the game state in the state
+  value; what it covers isn't traced. Out of scope for Tidewater (no `allowsync` mode). Trace request MP-L5b, low
+  priority: type `allowsync` in a multiplayer chat line, then repeat the "seen" difference.
 - **Network entry 134.** "SYNC ERROR." has no known use. Default: not shown.
