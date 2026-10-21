@@ -122,6 +122,10 @@ pub struct InstallerReader {
 impl InstallerReader {
     /// Opens the installer at `exe` with the `innoextract` found by [`find_tool`].
     pub fn open(exe: &Path) -> Result<Self, ImportError> {
+        // Check the file before the tool, so a non-installer gets the same error whether or not innoextract exists.
+        if !is_inno_installer(exe) {
+            return Err(ImportError::InstallerUnsupported(exe.to_path_buf()));
+        }
         let tool = find_tool().ok_or_else(|| ImportError::InnoextractMissing(exe.to_path_buf()))?;
         Self::open_with(exe, &tool)
     }
