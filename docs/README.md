@@ -10,7 +10,7 @@ Design documents explain how the code is organised and why. They live in [`desig
 |---|---|
 | [Game-file import](design/import.md) | How `--import` finds, checks and copies your *Warcraft II* files into Tidewater's data directory, the exit codes, and what later phases (CD images, the GOG installer) add. |
 | [An engine-neutral client core](design/client-core.md) | How the client is a plain-Rust core that a shell calls once per frame, the SDL 3 shell, the frame and audio snapshot tests, and the record of the move from Bevy to SDL 3. |
-| [Multiplayer determinism](design/multiplayer-determinism.md) | What keeps the simulation identical on every machine in a lockstep game, the rules new sim code must follow, and which local-player reads are still open questions for network play. |
+| [Multiplayer determinism](design/multiplayer-determinism.md) | What keeps the simulation identical on every machine in a lockstep game, the rules new sim code must follow, and which local-player reads are still open questions for network play. Also the session layer and the `.twrep` replay format. |
 
 ## Specifications
 

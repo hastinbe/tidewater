@@ -120,6 +120,8 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--demo-move <X,Y>` | Order all your units to a tile at the start. |
 | `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |
 | `--demo-select <N>`, `--demo-type <N>`, `--demo-place <N>`, `--demo-site <X,Y>` | Preselect your first N units, narrow that to one unit type, start in building placement, and click a site. |
+| `--record-replay` | Record the game to a `.twrep` replay in the `replays` folder of your user data (see [Replays](#replays)). Off unless given. |
+| `--replay <FILE>` | Play a recorded game back, as the recording player saw it. Cannot be combined with `--map`, `--record-replay` or the setup options. |
 | `--script <NAME>`, `--script-out <DIR>`, `--headless` | Run a scripted scene for the frame snapshot test. `--script` and `--script-out` go together; `--headless` uses no window or GPU. |
 
 ### `twtool` (inspection and verification)
@@ -147,7 +149,15 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `fell` | Fell trees in a field of one forest shape and print the resulting forest table rows. |
 | `sim` | Run a map headless: give orders, step some ticks, print where units ended up and the state hash. |
 | `snapshot` | Print fingerprints of the simulation over every campaign and custom map; the behaviour snapshot `tests/snapshot.rs` checks. |
+| `replay` | Play a `.twrep` replay headlessly, check every state-hash checkpoint and exit non-zero at the first mismatch. |
+| `desync-diff` | Play two replays (or one twice with `--local SLOT`) and print the first cycle whose state hash differs and the first differing field. |
 | `oracle` | Compare the simulation cycle by cycle with a trace of the original game and report the first record that differs. |
+
+## Replays
+
+Run with `--record-replay` and the game writes a `.twrep` file to the `replays` folder of your user data (never into the game folder). It holds the map's name and hash, the seed, the setup and the rules, then the commands given each cycle and a state-hash check every 100 cycles. Recording is a flag rather than always on, so nothing is written unless you ask.
+
+`tidewater --replay FILE` plays it back as the recording player saw it. Your input is ignored except the game menu, pause (Ctrl+P) and speed (`+` and `-`). If the game ever stops matching the recording, playback stops at the first check that fails and says which cycle. `twtool replay FILE` does the same check without a window, and `twtool desync-diff` finds the first cycle and field where two runs differ. A replay is refused on a map that is not the one it was recorded on. Games that were loaded from a save, or that used the `--demo-*` options, are not recorded. Multiplayer is still planned; replays are its groundwork.
 
 ## Roadmap
 

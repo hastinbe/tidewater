@@ -22,10 +22,11 @@ before writing any code, and follow it exactly.
   upgrade tables, map restrictions).
 - `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
   `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
-  whole-map behaviour snapshot `tests/snapshot.rs` checks).
+  whole-map behaviour snapshot `tests/snapshot.rs` checks, `replay`: verify a `.twrep`, `desync-diff`: find the first differing cycle and field).
 - `crates/import`: game-file import (`source`: what a path is, `validate`: key-file checks, `copy`: allowlisted copy
   and atomic swap into `<data>/game`, `manifest`); used by `tidewater --import` and `twtool import-check`;
   `docs/design/import.md`.
+- `crates/replay`: the `.twrep` replay format (`format`), rebuilding a game from a header (`start`) and running or comparing replays (`run`); `docs/design/multiplayer-determinism.md`.
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the game client: a library (`lib.rs`, no engine types, no `unsafe`) holding the core (`core.rs`:
   `Core::advance` runs a frame) and `host.rs` (start-up from the command line, the headless scripted loop, helpers
@@ -43,6 +44,7 @@ before writing any code, and follow it exactly.
   `audio.rs` decodes WAV sounds and mixes them at 22,050 Hz stereo; the shell streams the mixer to the device.
   `firstrun.rs` is the first-run import screen shown when there are no game files (`AppState::FirstRun`; its own font
   in `firstrun/font.rs`, the automatic search in `firstrun/search.rs`; `docs/design/import.md`).
+  `session.rs` is the `Session` trait between the game screen and the sim (`LocalSession`, `ReplaySession`).
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
   The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, the shell

@@ -67,9 +67,40 @@ Mark a game-state read of the local player that the specs don't settle with
 | `set_fog_of_war`, `gamemenu.rs` | Skipped in network games (the spec disables the radio there) |
 | `start_cheats`, `cheats.rs` | Skipped in network games; network cheats use `Command::Cheat` |
 | Critter kill, `select_sound` | Never runs in network games |
-| Surrender, `gamemenu.rs` (`Confirm::Surrender`, `QuitDraw`) | **Still direct.** It sets the player's result and `victory.over`, both hashed. Needs a command and a spec for what a network surrender does |
-| Demo options (`--demo-move`, `--demo-outcome`, `--demo-fight`) | Development only; they never run in a network game |
+| Surrender, `gamemenu.rs` (`Confirm::Surrender`, `QuitDraw`) | Now `Command::Surrender` and `Command::QuitDraw`, applied at once through `Sim::apply_now` (same cycle as before, so traces and frame snapshots are unchanged). What a *network* surrender does (leave notices, allies) is still `TODO(multiplayer)`, `docs/specs/net/leave-and-drop.md` "Surrender and quit (draw)" |
+| Demo options (`--demo-move`, `--demo-outcome`, `--demo-fight`) | Development only; they never run in a network game, and a run that uses one is not recorded |
+| Fog switch in Preferences, critter kill | Not reproducible by a replay. The recording notes the event (`Session::note_unsynced`), and playback prints the note |
 | `prepare_save`, `restore` | Single-player save and load only so far. Network saves (`docs/specs/game/save-load.md`) need a review for local-player reads before they ship |
+
+## The session layer
+
+`crates/client/src/session.rs` sits between the game screen and the sim. Each cycle `game::tick` hands the commands the
+local player gave to `Session::submit`, then asks `Session::ready_commands(tick)` what to pass to `World::step`.
+`None` means "do not step yet".
+
+- **`LocalSession`** returns exactly what was submitted, the same cycle. With `--record-replay` it also writes each
+  cycle's commands and a checkpoint to the replay.
+- **`ReplaySession`** ignores `submit` (except pause and speed, which hold or rate-limit the viewer) and returns the
+  recorded commands for the cycle. It compares each checkpoint with the recorded hash and stops at the first mismatch.
+- **A future `NetSession`** plugs in behind the same trait: `submit` queues the command for the next network turn,
+  `ready_commands` returns `None` until every player's turn packet has arrived and then the slot-ordered commands of
+  the cycle (`docs/specs/net/lockstep.md`). `Session::immediate` is for commands that must take effect at once; a
+  network session will return `None` there and carry the command in a turn. No networking exists yet.
+
+## The replay format
+
+A `.twrep` file (`crates/replay`) is: the magic `TWREPLAY`, a `u16` format version (1), the body length as `u64`, the
+body, and an FNV-64 checksum of everything before it (all little-endian). The body is a `postcard` encoding of
+`Replay`: a header (sim build, map file name, FNV-64 of the map bytes, seed, setup, lobby, rules, start cheats, local
+slot), the commands by cycle, the checkpoints (`state_hash` after every 100th cycle) and notes about out-of-band
+events. A cycle is named by `World::tick` before the step. The map hash is only 64 bits, enough to catch the wrong file
+but not an attacker; a stronger hash is a version bump away.
+
+## Finding a desync
+
+`twtool desync-diff A B` (or `A --local SLOT`) runs both replays cycle by cycle, prints the first cycle whose state
+hashes differ, then compares players, units, map and vision piece by piece (`World::first_difference`) and prints the
+first differing field. Run the same replay from two seats to check that no code reads the local player.
 
 ## Open questions
 
