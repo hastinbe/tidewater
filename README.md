@@ -1,47 +1,193 @@
 # Tidewater
 
-A clean-room reimplementation of the *Warcraft II: Battle.net Edition* engine in Rust, including *Beyond the Dark
-Portal*: an engine-neutral game core shown in an [SDL 3](https://libsdl.org) window. It contains no game data: you need
-your own copy of the game (for example from GOG), and Tidewater reads its files at run time.
+**Tidewater is a from-scratch Rust reimplementation of the *Warcraft II: Battle.net Edition* engine, including *Beyond the Dark Portal*, that runs on your own copy of the game.** It is playable in single player today: both campaigns, with menus, saved games, sound, music and video. Multiplayer, a skirmish screen and touch controls are planned but not built yet (see the [roadmap](#roadmap)).
 
-Status: early. The data readers work; the client shows a map and you can select units and move them. Game rules
-beyond movement are not implemented yet.
+The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org) window shows. Tidewater contains no game data: it reads the files of your own copy at run time.
 
-## Importing your game files
+**Status: early but playable.** You can start a campaign from the main menu, play missions against the computer, win or lose, see briefings, score screens, endings and credits, and save and load. The main menu is small: New Campaign, Load Game, Show Credits and Quit. A custom game on any map works from the command line only. There is no multiplayer.
 
-Tidewater needs the files of your own copy of the game. Import them once; Tidewater copies the archives
-(`War2Dat.mpq`, `Install.mpq`, `War2Patch.mpq`) and the `Maps` folder into its own data directory:
+## What you need
+
+- **Your own copy of the game.** Tidewater needs *Warcraft II: Battle.net Edition* (for example the GOG release). No game data is included. The 1995 DOS edition is not supported.
+- **A desktop computer.** Release builds are checked in CI on macOS, Linux and Windows. Day-to-day play testing has been on macOS.
+- **A build toolchain.** There are no prebuilt releases yet, so you build from source (next section).
+
+## Quick start
+
+1. **Install the build tools.**
+   - The Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml) (`rustup` picks it up by itself).
+   - CMake and a C compiler. SDL 3 is built from source and linked into the program, so you do not install SDL itself.
+   - macOS: `xcode-select --install` and `brew install cmake`.
+   - Debian or Ubuntu (the packages CI installs): `sudo apt-get install build-essential cmake pkg-config libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libegl1-mesa-dev libgl1-mesa-dev`
+   - Windows: Visual Studio's C++ build tools and CMake.
+2. **Import your game files, once.** Point `--import` at where the game is installed:
+
+   ```sh
+   cargo run --release -p tidewater-client -- --import <path-to-game>
+   ```
+
+   Tidewater checks the files, copies the archives (`War2Dat.mpq`, `Install.mpq`, `War2Patch.mpq`) and the `Maps` folder into its own per-user data directory, prints a summary and exits. A second import replaces the first.
+3. **Play.**
+
+   ```sh
+   cargo run --release -p tidewater-client
+   ```
+
+   Add a map to start a game on it at once: `cargo run --release -p tidewater-client -- <map.pud>`.
+
+**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. GOG installers (`setup_*.exe`) and CD images (`.iso`, `.bin` with `.cue`) are recognised but cannot be read yet: install the game first or mount the image.
+
+**Where the copy goes.** The per-user data directory: `~/Library/Application Support/Tidewater` on macOS, under `~/.local/share` on Linux, under `%LOCALAPPDATA%\Tidewater` on Windows. Imported files go in `game`, saved games in `Save`, settings in `settings.txt`. `--data-dir <dir>` moves all of it. Tidewater never writes into your game installation.
+
+**Developer override.** `--install <path-to-game>` (or the `TIDEWATER_INSTALL` environment variable) reads the files in place and skips the import. How the import works: [docs/design/import.md](docs/design/import.md).
+
+**Check a path without copying.** `cargo run --release -p twtool -- import-check <path-to-game>` runs the same checks and copies nothing.
+
+## Features today
+
+| Area | What works |
+|---|---|
+| **Campaigns** | All 52 campaign missions: *Tides of Darkness* and *Beyond the Dark Portal*, orc and human. Briefings, act screens, victory and defeat dialogs, score screens, endings and credits. |
+| **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
+| **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
+| **Custom games** | Any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog). No menu screen for this yet. |
+| **Menus** | Main menu, new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
+| **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
+| **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
+| **Cheats** | The original cheat codes, typed into the chat line. |
+| **Display** | A 640 x 480 picture drawn in software and shown at the largest whole-number scale that fits your monitor, with a black border. `--ui-scale N` picks a scale. |
+
+### Controls
+
+| Input | Action |
+|---|---|
+| **Left click or drag** | Select. Shift adds or removes; Ctrl or a double-click takes every unit of that type on screen. |
+| **Right click** | The right-click command (move, attack, harvest). With `--second-mouse-style` it centres the view instead. |
+| **Command buttons** | Click one or press its hotkey. A command that needs a target takes the next left click on the map or minimap; a right click cancels. |
+| **Control groups** | Ctrl+digit sets a group; the digit recalls it (twice quickly centres the view). |
+| **Scrolling** | Screen edge, arrow keys, Home, End, Page Up, Page Down, keypad. Left click or drag on the minimap moves the view. |
+| **Speed and pause** | `+` and `-` change the game speed; Ctrl+P pauses. |
+| **Menu** | F10 or Alt+M opens the game menu; Escape closes it. Tab moves between controls in dialogs and Enter presses a button. |
+
+The pointer is locked to the window during a game, as in full screen, so pushing it against an edge scrolls the map. The game menus free it, and so does holding Cmd (the Windows key elsewhere) or switching to another app. `--no-mouse-lock` turns this off. The full key list is in the specs under [`docs/specs/ui`](docs/specs/ui/).
+
+### How faithful it is
+
+Tidewater follows the behaviour of the original game, not only its looks. The **Enhanced** rules are the default and are what Tidewater mirrors. The **Classic** rules exist in the original only as an opt-in multiplayer choice; Tidewater has them only where the specs describe them.
+
+Fidelity is measured, not assumed. The simulation is deterministic and integer-only. `twtool oracle` compares it cycle by cycle with recorded traces of the original game and reports the first record that differs. Many traces (campaign missions, spells, naval and transport scenarios, computer players) match up to their stated limits. The traces are not in this repository, so this comparison runs on the maintainers' machines, not in CI.
+
+Some screens are our own layout, because the original's dialog definition files are not specified yet: the menus, dialogs, briefing and score screen look different from the original.
+
+## Command-line reference
+
+### `tidewater` (the game)
+
+Run `tidewater --help` for the same list. The optional positional argument is a `.pud` file path or a map name inside the archives.
+
+**Everyday options**
+
+| Flag | What it does |
+|---|---|
+| `--import <PATH>` | Import the game files from a game folder, a folder of `.mpq` files or one archive, then exit. The exit code says what went wrong: 10 path not found, 11 DOS edition, 12 installer, 13 no game files, 14 no `War2Dat.mpq`, 15 damaged archive, 16 incomplete files, 17 no space, 18 i/o error, 19 CD image. |
+| `--data-dir <DIR>` | Tidewater's data directory (imported files, `Save`, settings). Default: the per-user data directory. |
+| `--install <PATH>` | Developer override: read the game files in place instead of the imported copy. Also `TIDEWATER_INSTALL`. |
+| `<MAP>` | Start this map at once (a `.pud` path or an archive name). |
+| `--setup <SETUP>` | Game setup: `campaign:ENTRY`, or `custom` with choices such as `custom:race=orc,opponents=2,resources=high,terrain=swamp,units=one-worker,fixed-starts,fog=off`. |
+| `--no-intro` | Skip the intro video. |
+| `--ui-scale <1-8>` | Open a 640N x 480N-point window instead of the largest whole-number scale that fits. |
+| `--save-dir <DIR>` | Where saved games go (default: `Save` in the data directory). |
+| `--settings <FILE>` | The settings file (default: `settings.txt` beside the saved games). |
+| `--no-mouse-lock` | Do not lock the pointer to the window during a game. |
+| `--second-mouse-style` | Right click centres the view instead of giving a command. |
+| `--mouse-scroll-speed <0-6>` | Mouse scroll speed; 6 is fastest. Default: the stored setting. |
+| `--key-scroll-speed <0-6>` | Keyboard scroll speed; 6 is fastest. Default: the stored setting. |
+
+**Development aids** (not part of the original game)
+
+| Flag | What it does |
+|---|---|
+| `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
+| `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
+| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
+| `--demo-outcome <victory\|defeat>` | End the game at once, to see the dialog and score screen. |
+| `--demo-move <X,Y>` | Order all your units to a tile at the start. |
+| `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |
+| `--demo-select <N>`, `--demo-type <N>`, `--demo-place <N>`, `--demo-site <X,Y>` | Preselect your first N units, narrow that to one unit type, start in building placement, and click a site. |
+| `--script <NAME>`, `--script-out <DIR>`, `--headless` | Run a scripted scene for the frame snapshot test. `--script` and `--script-out` go together; `--headless` uses no window or GPU. |
+
+### `twtool` (inspection and verification)
+
+`twtool` reads game data from a path or `--install` given at run time and stores none. Run `twtool <command> --help` for each command's arguments.
+
+| Subcommand | What it does |
+|---|---|
+| `import-check` | Dry run of the import: classify a path, check the files, print the report, copy nothing. |
+| `mpq-info` | Summarise an archive's block table. |
+| `mpq-probe` | Print which of the names on stdin an archive contains. |
+| `mpq-extract` | Extract the named files into a directory. |
+| `mpq-unnamed` | Dump in-use blocks whose names are not listed. |
+| `render-map` | Render a map's terrain to a PNG. |
+| `render-grp` | Render every frame of a GRP sprite sheet into one PNG. |
+| `grp-sheet` | Draw frame 0 of each GRP named on stdin into one grid. |
+| `render-pcx` | Render a PCX image to a PNG. |
+| `smk-frame` | Decode a Smacker video up to a frame and write it to a PNG. |
+| `smk-audio` | Decode one audio track of a Smacker video to a WAV file. |
+| `units` | Print the unit stats table as TSV. |
+| `upgrades` | Print the upgrade table as TSV (a map's own, or the default). |
+| `strings` | Print a string table (`*.tbl`) as TSV. |
+| `scripts` | Measure each unit type's move and attack timing from the animation scripts. |
+| `script-ops` | List one unit type's animation script instruction by instruction. |
+| `fell` | Fell trees in a field of one forest shape and print the resulting forest table rows. |
+| `sim` | Run a map headless: give orders, step some ticks, print where units ended up and the state hash. |
+| `snapshot` | Print fingerprints of the simulation over every campaign and custom map; the behaviour snapshot `tests/snapshot.rs` checks. |
+| `oracle` | Compare the simulation cycle by cycle with a trace of the original game and report the first record that differs. |
+
+## Roadmap
+
+Everything in this table is **planned**; none of it is built yet.
+
+| Track | What it adds | Status |
+|---|---|---|
+| **Import from the GOG installer** | Read the files straight out of a `setup_*.exe` installer, so you do not install the game first. | Planned |
+| **Import from CD images** | Read `.iso` and `.bin`/`.cue` images directly. | Planned |
+| **First-run import screen** | Pick your game files in a window instead of on the command line. | Planned |
+| **Lockstep multiplayer** | Local Network and Direct IP games. The simulation is deterministic so that this is possible. | Planned |
+| **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
+| **Touch controls** | iOS and Android. PlayStation Vita support is under evaluation. | Planned |
+| **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |
+
+## How it is built
+
+Tidewater is a **clean-room** project. Behaviour comes only from reviewed written specifications in [`docs/specs`](docs/specs/), public format documentation, open-source code under compatible licences, and measurements of the original game's inputs and outputs. No code from the original program and no game data is in this repository. Read [CLEANROOM.md](CLEANROOM.md) for the rules, and [docs/README.md](docs/README.md) for the design documents and the spec index.
+
+The code is a Cargo workspace:
+
+| Crate | Job |
+|---|---|
+| `crates/formats` | Readers for the game's data: MPQ archives, maps, tilesets, sprites, images, fonts, Smacker video, string and unit tables. |
+| `crates/import` | Game-file import (`--import`). |
+| `crates/sim` | The deterministic game simulation, with no engine types. |
+| `crates/client` | The game client: an engine-neutral core that composes each frame, and the `tidewater` binary, the SDL 3 shell. |
+| `crates/twtool` | The inspection and verification tool. |
+
+## Development
+
+Run this before every commit:
 
 ```sh
-cargo run --release -p tidewater-client -- --import <path>
-cargo run --release -p tidewater-client -- [map.pud]
+cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-`<path>` is the folder where the game is installed (the GOG folder, a Wine prefix, a `.app` bundle or a mounted CD
-all work: Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. Installers (GOG
-`setup_*.exe`) and CD images are recognised but not readable yet: install the game first, or mount the image. The
-1995 DOS edition is not supported. `--data-dir <dir>` chooses where the copy goes (default: your user data
-directory); `twtool import-check <path>` checks a path and copies nothing. A second import replaces the first. How it
-works: [docs/design/import.md](docs/design/import.md).
+**Game-data tests.** Some tests need a real installation or recorded oracle traces. They are gated on `TIDEWATER_INSTALL` and `TIDEWATER_ORACLE_TRACES` and skip when those are unset. All other tests use synthetic data built by our own code; no game file is ever committed.
 
-For development, `--install <game directory>` (or `TIDEWATER_INSTALL`) reads the files in place instead.
+**CI.** [GitHub Actions](.github/workflows/ci.yml) runs format, clippy and the tests on Linux (the game-data tests skip there), then builds release binaries of `tidewater` and `twtool` on Linux, macOS and Windows.
 
-Building needs Rust (the toolchain in `rust-toolchain.toml`), **CMake** and a **C compiler**: SDL 3 is built from its
-source and linked into the program, so no SDL install is needed. On macOS, `xcode-select --install` and
-`brew install cmake`; on Debian or Ubuntu, `apt install build-essential cmake` plus the X11, Wayland and ALSA or
-PulseAudio development headers SDL's own build lists.
+**Leak scan.** Run `git config core.hooksPath .githooks` once per clone. The hooks run `tools/leak_scan.py`, which blocks private names, secrets, game-data file types and large files from being committed. Never bypass them.
 
-The window opens at the largest whole-number scale of the 640 × 480 screen that fits your monitor (for example
-960 × 720 points on a Retina laptop); `--ui-scale N` asks for a 640N × 480N-point window instead. A larger or
-resized window keeps a whole-number scale with a black border around the screen.
+Commits use conventional commit messages (`feat:`, `fix:`, `docs:`). Contributors and agents should read [CLAUDE.md](CLAUDE.md) and [CLEANROOM.md](CLEANROOM.md) first.
 
-During a game the pointer is locked to the window, as it would be in full screen, so pushing it against an edge
-scrolls the map; the game menus free it. Switching to another app (Cmd-Tab) or holding Cmd frees it, and clicking back in locks it again;
-`--no-mouse-lock` turns this off.
-
-The arrow keys and the screen edge scroll the map, `+`/`-` change the game speed, F10 opens the game menu (Escape closes it). The map view shows
-the same area as the original; `--free-zoom` (a development aid, not part of the original) lets the mouse wheel zoom. See [CLEANROOM.md](CLEANROOM.md) for how the
-project keeps its code its own.
+## Licence and notices
 
 *Warcraft*, *Warcraft II*, *Beyond the Dark Portal*, *Battle.net* and *Blizzard Entertainment* are trademarks or registered trademarks of Blizzard Entertainment, Inc. Tidewater is an independent project, not affiliated with, endorsed or sponsored by Blizzard. It contains no Blizzard code or game data; to play, you need your own copy of the game.
 
