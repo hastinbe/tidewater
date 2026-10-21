@@ -208,6 +208,34 @@ mod tests {
         assert_eq!(clock.ms(t0 + Duration::from_secs(90)), 65_000);
     }
 
+    /// X7 (`game/save-load.md`, "What the client saves"; `game/campaign-flow.md`, "Campaign total"): the campaign total
+    /// is saved, and a load takes the saved value (and the value at the start of the mission) rather than what a game
+    /// start would give. A game start zeroes it for a first mission, so `record_game`'s order matters: it starts the
+    /// game, then applies the saved state.
+    #[test]
+    fn a_load_takes_the_saved_campaign_total() {
+        use crate::campaign::{CampaignTotal, GameKind};
+        let mut saved = Flow::default();
+        saved.game = Some(GameKind::Campaign(0));
+        saved.total = CampaignTotal {
+            total: 900,
+            at_start: 400,
+        };
+        let state = client_state(&saved, 0, None, (0, 0), None, None);
+        assert_eq!(state.total, saved.total);
+        // The program that loads it was playing something else and starts the saved game the way `record_game` does.
+        let mut flow = Flow::default();
+        flow.total = CampaignTotal {
+            total: 50,
+            at_start: 50,
+        };
+        flow.total.start_game(GameKind::Campaign(0));
+        assert_eq!(flow.total.total, 0, "a first mission starts at 0");
+        apply_client(&mut flow, &state);
+        assert_eq!(flow.total, saved.total);
+        assert_eq!(flow.game, Some(GameKind::Campaign(0)));
+    }
+
     #[test]
     fn a_new_game_or_a_classic_save_starts_the_clock_at_0_with_full_pauses() {
         let t0 = Duration::from_secs(7);
