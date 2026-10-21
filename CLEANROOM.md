@@ -50,6 +50,12 @@ Each spec is reviewed against these rules before it is added to `docs/specs/`. T
 review. Questions from implementation go back to research as requests for a spec, never as "look at what the original
 does".
 
+## The research repository
+
+The specs cite a separate research repository (its notes, errata files, B-/Q- item IDs and the oracle harness). It is
+private by design: it holds the study of the original program, which must not be published. The specs are the
+reviewed, publishable output of that process.
+
 ## Record
 
 Git history is the record: when each spec arrived, what code was written after it, and by whom. History is never

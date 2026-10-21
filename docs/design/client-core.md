@@ -10,31 +10,31 @@ build now needs CMake and a C compiler ([SDL 3, the only shell](#sdl-3-the-only-
 Backlog item B-039. Nothing here changes game behaviour; where a step can't stay pixel-identical, the table in
 [What can't stay identical](#what-cant-stay-identical) says why.
 
-## What we need from you
+## Decisions
 
-- [ ] **Nick:** touchpad scrolling. SDL reports a touchpad's scroll as fractions of a wheel step, which the shell
-      takes as steps, so a touchpad scrolls faster than in the Bevy shell (which counted 50 pixels a step).
-      **[Recommended: accept it** until someone plays with a touchpad and finds it too fast; then scale it in the
-      shell.]
-- [ ] **Nick:** CI. The repository has no CI config. **[Recommended: none yet;** if one is added, it installs CMake
-      and a C compiler ([Building](#building)).]
+Open points, each with the current behaviour:
+
+- **Touchpad scrolling.** SDL reports a touchpad's scroll as fractions of a wheel step, which the shell takes as
+  steps, so a touchpad scrolls faster than in the Bevy shell (which counted 50 pixels a step). Accepted until
+  someone finds it too fast; then the shell scales it.
+- **CI.** The repository has no CI config. If one is added, it installs CMake and a C compiler
+  ([Building](#building)).
 
 Decided 2026-10-15:
 
-- [x] **Nick:** the shell to keep. **Decided: SDL 3,** the only shell. The miniquad and Bevy shells are removed.
-- [x] **Nick:** the SDL wrapper. **Decided: our own** thin safe wrapper over `sdl3-sys` (`shell/sdl.rs`, every
-      `unsafe` in one file), no third-party SDL wrapper crate.
+- **The shell to keep:** SDL 3, the only shell. The miniquad and Bevy shells are removed.
+- **The SDL wrapper:** our own thin safe wrapper over `sdl3-sys` (`shell/sdl.rs`, every `unsafe` in one file), no
+  third-party SDL wrapper crate.
 
 Decided 2026-10-14:
 
-- [x] **Nick:** the frame format. **Decided: RGBA for now.** An indexed frame with a palette comes later, after a
-      spec read of `docs/specs/ui/*`.
-- [x] **Nick:** draw the pointer in the core on every screen, not only in a game? **Decided: yes.** The core draws
-      the game's normal arrow on every screen, per `ui/screen-and-cursors.md` "Pointer shapes". The flow's screens
-      show the game's arrow instead of the system's, so the frame snapshot is re-blessed once, in its own commit.
-- [x] **Nick:** the output sample rate of the mixer. **Decided: 22,050 Hz stereo, 16-bit,** the rate of the music
-      files (`ui/music.md`); shells resample if the device needs it.
-- [x] **Nick:** the 3DS. **Decided: out of the core's requirements for now;** revisit after the SDL3 trial.
+- **The frame format:** RGBA for now. An indexed frame with a palette comes later, after a spec read of `docs/specs/ui/*`.
+- **The pointer:** the core draws it on every screen, not only in a game, per `ui/screen-and-cursors.md` "Pointer
+  shapes". The flow's screens show the game's arrow instead of the system's, so the frame snapshot is re-blessed
+  once, in its own commit.
+- **The mixer's output sample rate:** 22,050 Hz stereo, 16-bit, the rate of the music files (`ui/music.md`); shells
+  resample if the device needs it.
+- **The 3DS:** out of the core's requirements for now; revisit after the SDL3 trial.
 
 ## Short answers
 
@@ -329,7 +329,7 @@ Not built in yet (`no-default-subsystems` leaves the joystick subsystem out). Wh
 
 ### After the removal
 
-Measured once more on 2026-10-15, the same way as the trial ([Measurements](#measurements)): the same M2 Pro, a
+Measured once more on 2026-10-15, the same way as the trial ([Measurements](#measurements)): the same laptop, a
 release build, the first human mission (`--goto mission:0 --ui-scale 1 --no-mouse-lock`, with its own save folder and
 settings file) left idle for 60 s at 120 frames a second.
 
@@ -385,7 +385,7 @@ The window's pixels are read back before each shot is shown: SDL's `SDL_RenderRe
 
 ### Measurements
 
-On an M2 Pro MacBook Pro, release builds. The idle run is the first human mission, `--ui-scale 1 --no-mouse-lock`,
+On a recent laptop, release builds. The idle run is the first human mission, `--ui-scale 1 --no-mouse-lock`,
 for 60 s; the display runs at 120 Hz, so every shell draws 120 frames a second. Another agent's builds shared the
 machine, so the build times are rough.
 
@@ -603,17 +603,3 @@ frame as Bevy's query listed its sound entities (by kind, in the order each kind
 | A full 640 × 480 RGBA composition per frame on handhelds | Measured in phase 3 on the desktop: the whole frame, upload and draw take 2.4 to 2.6 ms (p99 under 4 ms) at 120 frames a second. A handheld's slower CPU may need changed-layer composition or an indexed frame; measure on the device. |
 | Memory: Bevy's client is about 450 MB | Measured in phase 3 in a mission: Bevy 280 to 315 MB, the core in SDL 3 or miniquad about 145 MB. What that is made of is not yet measured; check it against the handhelds' memory. |
 
-### Estimates
-
-Claude does the engineering; Nick reviews and decides.
-
-| Steps | Nick with Claude | By hand |
-|---|---|---|
-| 2–3 (geometry, layers) | 1 day | 4–5 days |
-| 4–6 (input, time, states) | 2–3 days | 2 weeks |
-| 7–8 (audio, storage) | 1–2 days | 1 week |
-| 9 (thin Bevy shell) | half a day | 2 days |
-| 10 (trial shells, measured) | 1 day | 4–5 days |
-| 11 (SDL 3 as the only shell, done) | 1 day | 2 days |
-
-Claude doesn't speed up the reviews, the decisions above, or checking the trial shells on real devices.
