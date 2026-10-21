@@ -2,3 +2,4 @@
 .githooks/blocklist.local
 /local/
 /.claude/
+.DS_Store

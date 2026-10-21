@@ -22,7 +22,9 @@ HOOKS = os.path.join(ROOT, ".githooks")
 SELF_EXEMPT = {".githooks/blocklist.txt", ".githooks/blocklist.local"}
 MAX_BYTES = 1 << 20
 GAME_EXT = (".mpq", ".pud", ".grp", ".pcx", ".wav", ".smk", ".tbl", ".cv4", ".vx4", ".vr4", ".ppl", ".fnt", ".dat", ".bin",
-            ".exe", ".dll", ".iso", ".snp", ".rpl")
+            ".exe", ".dll", ".iso", ".snp", ".rpl", ".png", ".bmp", ".cur", ".ogg", ".gif", ".jpg", ".jpeg")
+# Paths exempt from the file type block (repo-relative). Empty: the repo holds no images today.
+ALLOW_PATHS = set()
 SECRETS = [
     r"glpat-[0-9A-Za-z_\-]{20,}",
     r"gh[pousr]_[0-9A-Za-z]{30,}",
@@ -74,7 +76,7 @@ def scan_diff(diff, where, out):
 
 
 def check_file(path, size, where, out):
-    if path.lower().endswith(GAME_EXT):
+    if path.lower().endswith(GAME_EXT) and path not in ALLOW_PATHS:
         out.append(f"{where}{path}: game data file type")
     if size > MAX_BYTES:
         out.append(f"{where}{path}: {size} bytes (limit {MAX_BYTES})")
