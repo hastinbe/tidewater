@@ -1,14 +1,16 @@
 //! A thin safe wrapper over the parts of SDL 3 the shell uses (`sdl3-sys`, the C API as published in SDL's headers;
-//! <https://wiki.libsdl.org/SDL3/>): the window, a renderer with one streaming texture, the system's events, the mouse
-//! modes and an audio stream fed by a callback. Every `unsafe` block of the shell is here; each owner frees what it
+//! <https://wiki.libsdl.org/SDL3/>): the window, a renderer with one streaming texture, the system's events (including
+//! files dropped on the window), the system's folder and file dialogs, the mouse modes and an audio stream fed by a
+//! callback. Every `unsafe` block of the shell is here; each owner frees what it
 //! made when it is dropped.
 
 #![allow(unsafe_code)]
 
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
@@ -187,6 +189,79 @@ impl<'s> Window<'s> {
         // SAFETY: a live window.
         unsafe { sys::SDL_StartTextInput(self.raw) };
     }
+
+    /// Opens the system's dialog for choosing a folder, over this window. The answer comes later (not before this
+    /// call returns), through [`take_dialog_answers`].
+    pub fn show_folder_dialog(&self) {
+        // SAFETY: a live window; the callback is a plain function that uses no userdata (null).
+        unsafe {
+            sys::SDL_ShowOpenFolderDialog(
+                Some(dialog_done),
+                std::ptr::null_mut(),
+                self.raw,
+                std::ptr::null(),
+                false,
+            )
+        };
+    }
+
+    /// Opens the system's dialog for choosing one file, over this window. `filters` are (name, patterns) pairs, the
+    /// patterns file extensions without dots separated by `;` (`"iso;bin;cue"`), or `"*"` for any file. The answer
+    /// comes later, through [`take_dialog_answers`].
+    pub fn show_file_dialog(&self, filters: &[(&str, &str)]) {
+        // SDL may read the filters until the dialog answers, so they are leaked: a few bytes per dialog opened.
+        let list: Vec<sys::SDL_DialogFileFilter> = filters
+            .iter()
+            .map(|(name, pattern)| sys::SDL_DialogFileFilter {
+                name: cstring(name).into_raw(),
+                pattern: cstring(pattern).into_raw(),
+            })
+            .collect();
+        let list: &'static [sys::SDL_DialogFileFilter] = Box::leak(list.into_boxed_slice());
+        // SAFETY: a live window; `list` lives for the rest of the program and its strings are valid C strings; the
+        // callback uses no userdata (null).
+        unsafe {
+            sys::SDL_ShowOpenFileDialog(
+                Some(dialog_done),
+                std::ptr::null_mut(),
+                self.raw,
+                list.as_ptr(),
+                list.len() as c_int,
+                std::ptr::null(),
+                false,
+            )
+        };
+    }
+}
+
+/// The answers of the dialogs, in the order they came: the path chosen, `None` for a cancelled or failed dialog. SDL
+/// calls [`dialog_done`] from the main thread or another one, so they wait here for the frame to take them.
+static DIALOG_ANSWERS: Mutex<Vec<Option<PathBuf>>> = Mutex::new(Vec::new());
+
+/// SDL's dialog callback: `filelist` is NULL on an error, else a NULL-terminated list of the chosen paths (empty if
+/// the dialog was cancelled).
+unsafe extern "C" fn dialog_done(_userdata: *mut c_void, filelist: *const *const std::ffi::c_char, _filter: c_int) {
+    let path = if filelist.is_null() {
+        None
+    } else {
+        // SAFETY: a non-NULL list holds NULL-terminated UTF-8 strings and ends with a NULL pointer, valid during the
+        // callback; only the first is read, after checking it is not the terminator.
+        unsafe {
+            let first = *filelist;
+            (!first.is_null()).then(|| PathBuf::from(CStr::from_ptr(first).to_string_lossy().into_owned()))
+        }
+    };
+    if let Ok(mut answers) = DIALOG_ANSWERS.lock() {
+        answers.push(path);
+    }
+}
+
+/// The dialogs' answers since the last call.
+pub fn take_dialog_answers() -> Vec<Option<PathBuf>> {
+    DIALOG_ANSWERS
+        .lock()
+        .map(|mut a| std::mem::take(&mut *a))
+        .unwrap_or_default()
 }
 
 impl Drop for Window<'_> {
@@ -348,6 +423,8 @@ pub enum Event {
         dx: f32,
         dy: f32,
     },
+    /// A file or folder dropped on the window.
+    Drop(PathBuf),
     Other,
 }
 
@@ -380,6 +457,9 @@ pub fn poll() -> Option<Event> {
                 dx: e.motion.xrel,
                 dy: e.motion.yrel,
             },
+            sys::SDL_EVENT_DROP_FILE if !e.drop.data.is_null() => Event::Drop(PathBuf::from(
+                CStr::from_ptr(e.drop.data).to_string_lossy().into_owned(),
+            )),
             _ => Event::Other,
         })
     }

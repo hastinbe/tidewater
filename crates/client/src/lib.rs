@@ -14,6 +14,7 @@ mod clock;
 pub mod compose;
 pub mod core;
 pub mod display;
+pub mod firstrun;
 mod fog;
 mod frontend;
 mod game;

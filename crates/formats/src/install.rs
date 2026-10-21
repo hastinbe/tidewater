@@ -93,6 +93,21 @@ impl Install {
         })
     }
 
+    /// An installation with no files at all: every read fails. The client's first-run screen runs on it, before any
+    /// game files have been imported.
+    pub fn none() -> Self {
+        struct Nothing;
+        impl Files for Nothing {
+            fn open(&self, _name: &str) -> std::io::Result<Option<Box<dyn ReadSeek>>> {
+                Ok(None)
+            }
+        }
+        Self {
+            files: Box::new(Nothing),
+            archives: ArchiveSet::new(Vec::new()),
+        }
+    }
+
     /// Reads a game file by its archive name, e.g. `rez\unitdata.dat`.
     pub fn read(&mut self, name: &str) -> Result<Vec<u8>, InstallError> {
         if let Some(mut f) = self.files.open(name)? {

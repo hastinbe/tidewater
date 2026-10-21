@@ -25,8 +25,8 @@ tidewater-formats.workspace = true
 tidewater-import.workspace = true
 tidewater-sim.workspace = true
 # SDL 3 built from its source (CMake and a C compiler; no SDL install needed) and linked in, with only the audio,
-# video and render subsystems. Only the shell (`src/shell/`) uses it.
-sdl3-sys = { version = "0.7", features = ["build-from-source", "link-static", "no-default-subsystems", "sdl-audio", "sdl-render"] }
+# video, render and dialog subsystems (the first-run screen's file pickers). Only the shell (`src/shell/`) uses it.
+sdl3-sys = { version = "0.7", features = ["build-from-source", "link-static", "no-default-subsystems", "sdl-audio", "sdl-render", "sdl-dialog"] }
 
 [dev-dependencies]
 tempfile.workspace = true

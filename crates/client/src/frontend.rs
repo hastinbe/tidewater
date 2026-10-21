@@ -140,6 +140,28 @@ pub struct Front {
 }
 
 impl Front {
+    /// No installation and no fonts: what the core holds on the first-run screen (`firstrun`), before any game files
+    /// have been imported. Nothing but that screen uses it.
+    pub fn none() -> Self {
+        let font = || Font {
+            first: 0,
+            max_width: 0,
+            height: 0,
+            glyphs: Vec::new(),
+        };
+        Front {
+            install: Install::none(),
+            font: font(),
+            big: font(),
+            small: font(),
+            huge: font(),
+            network: StringTable(Vec::new()),
+            arrow: None,
+            button_faces: menuscreen::ButtonFaces::default(),
+            sounds: HashMap::new(),
+        }
+    }
+
     pub fn load(mut install: Install) -> anyhow::Result<Self> {
         let font = |i: &mut Install, names: &[&str]| -> anyhow::Result<Font> {
             for n in names {
@@ -562,7 +584,7 @@ pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
         AppState::Video | AppState::Title | AppState::Act | AppState::Finale => FlowPointer::Hidden,
         AppState::MainMenu | AppState::NewCampaign => FlowPointer::OrcArrow,
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
-        AppState::Boot | AppState::Game => FlowPointer::Default,
+        AppState::Boot | AppState::Game | AppState::FirstRun => FlowPointer::Default,
     }
 }
 

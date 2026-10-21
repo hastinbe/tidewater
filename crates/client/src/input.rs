@@ -14,6 +14,7 @@
 //!   window's size and scale ([`Input::window`]) that turn it into screen and map positions.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 /// A key on the keyboard, by its place (the US layout's name for it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -217,6 +218,15 @@ impl<T> Log<T> {
     }
 }
 
+/// A file or folder that came in from the system, for the first-run screen (`firstrun`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileEvent {
+    /// Dropped on the window.
+    Dropped(PathBuf),
+    /// The answer of a system dialog the screen asked for: the chosen path, `None` if it was cancelled.
+    Picked(Option<PathBuf>),
+}
+
 /// The window the screen shows in.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowGeom {
@@ -244,6 +254,9 @@ pub struct Input {
     pub window: Option<WindowGeom>,
     /// The window has the keyboard focus (a scripted run counts as focused).
     pub focused: bool,
+    /// Files dropped on the window and answers of system dialogs since the last frame that read them
+    /// (`firstrun`); the reader takes them.
+    pub files: Vec<FileEvent>,
     /// This frame's events, applied to the keys and buttons by [`Input::begin_frame`].
     pending: Vec<Event>,
 }
@@ -274,6 +287,16 @@ impl Input {
         self.wheel.push(w);
     }
 
+    /// A file or folder was dropped on the window.
+    pub fn dropped(&mut self, path: PathBuf) {
+        self.files.push(FileEvent::Dropped(path));
+    }
+
+    /// A system dialog answered: the path chosen, `None` if the user cancelled.
+    pub fn picked(&mut self, path: Option<PathBuf>) {
+        self.files.push(FileEvent::Picked(path));
+    }
+
     /// The window lost the keyboard: every key held is released.
     pub fn focus_lost(&mut self) {
         self.pending.push(Event::FocusLost);
@@ -284,6 +307,7 @@ impl Input {
         self.pending.clear();
         self.typed.clear();
         self.wheel.clear();
+        self.files.clear();
     }
 
     /// The typed events and wheel steps age by one update (see the module doc).

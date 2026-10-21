@@ -146,6 +146,9 @@ pub struct Core {
     /// A scripted run (`script`).
     pub script: Option<script::Run>,
     pub commands: Commands,
+
+    /// The first-run screen's state, while there are no game files (`firstrun`).
+    pub first_run: Option<crate::firstrun::FirstRun>,
 }
 
 impl Core {
@@ -206,6 +209,7 @@ impl Core {
             pending_shot: None,
             script,
             commands: Commands::default(),
+            first_run: None,
         }
     }
 
@@ -278,8 +282,18 @@ impl Core {
         self.layers.remove(&mut self.pictures, gone);
     }
 
+    /// The system dialogs the first-run screen has asked for since the last call; the shell shows each and gives the
+    /// answer back with [`Input::picked`](crate::input::Input::picked).
+    pub fn take_pick_requests(&mut self) -> Vec<crate::firstrun::PickKind> {
+        self.first_run.as_mut().map(|f| f.take_requests()).unwrap_or_default()
+    }
+
     /// "Saving": the settings are written when the program exits normally, not on an error exit.
     pub fn store_settings(&self) {
+        // Nothing has been set up yet on the first-run screen.
+        if self.first_run.is_some() {
+            return;
+        }
         if let Err(e) = self.stored.0.store(&*self.store.0) {
             eprintln!("can't write the settings: {e}");
         }
@@ -359,6 +373,9 @@ fn frame_systems(c: &mut Core) {
         frontend::watch_outcome(c);
     }
     frontend::screen_systems(c);
+    if c.states.get() == AppState::FirstRun {
+        crate::firstrun::run(c);
+    }
     if in_game(c) {
         gamemenu::demo_save_load(c);
     }

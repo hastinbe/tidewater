@@ -1,6 +1,8 @@
 //! Tidewater: the client core (`tidewater_client::core`) in an SDL 3 window, the program's only shell
 //! (`docs/design/client-core.md`, "Platform trait"). It loads the user's installation and runs the startup sequence, a
-//! map given on the command line, a `--goto` screen or a scripted scene (`script`).
+//! map given on the command line, a `--goto` screen or a scripted scene (`script`); with no game files it shows the
+//! first-run screen (`firstrun`), for which it also opens the system's folder and file dialogs and passes on the files
+//! dropped on the window.
 //!
 //! The 640 × 480 screen is drawn at a whole number of physical pixels per screen pixel, black-bordered in a larger
 //! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). The mouse wheel
@@ -27,9 +29,14 @@ use tidewater_client::args::Args;
 use tidewater_client::audio::SAMPLE_RATE;
 use tidewater_client::core::{Core, Platform};
 use tidewater_client::display::{self, Letterbox};
+use tidewater_client::firstrun::PickKind;
 use tidewater_client::host::{self, FrameStats, LockedPointer};
 use tidewater_client::input::{Button, Buttons, Key, KeyEvent, Wheel, WindowGeom};
 use tidewater_client::script;
+
+/// The file dialogs' filters (the first-run screen's "Choose GOG installer..." and "Choose CD image...").
+const INSTALLER_FILTERS: &[(&str, &str)] = &[("Installers", "exe;bin;sh;pkg;dmg"), ("All files", "*")];
+const DISC_FILTERS: &[(&str, &str)] = &[("CD images", "iso;bin;cue;img;mdf;nrg"), ("All files", "*")];
 
 /// The audio device's buffer asked for, in sample frames at the device's rate: about 10.7 ms at 48 kHz.
 const DEVICE_FRAMES: u32 = 512;
@@ -135,6 +142,13 @@ fn run(l: host::Launch) -> Result<()> {
         first = false;
         let quit = shell.take_events(&mut core);
         core.advance(elapsed, &mut shell);
+        for kind in core.take_pick_requests() {
+            match kind {
+                PickKind::Folder => window.show_folder_dialog(),
+                PickKind::Installer => window.show_file_dialog(INSTALLER_FILTERS),
+                PickKind::Disc => window.show_file_dialog(DISC_FILTERS),
+            }
+        }
         let exiting = std::mem::take(&mut core.exit) || quit;
         if let Some(t) = core.title.take() {
             window.set_title(&t);
@@ -232,11 +246,16 @@ impl Shell<'_> {
                     self.motion.0 += dx;
                     self.motion.1 += dy;
                 }
+                sdl::Event::Drop(path) => input.dropped(path),
                 sdl::Event::Text(_) | sdl::Event::Other => {}
             }
         }
         if let Some(k) = pending {
             input.key(k);
+        }
+        // The answers of the first-run screen's dialogs.
+        for answer in sdl::take_dialog_answers() {
+            input.picked(answer);
         }
         quit
     }

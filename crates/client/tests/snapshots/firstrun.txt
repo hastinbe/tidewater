@@ -1,0 +1,13 @@
+# frame and sound fingerprints of the scripted scene `firstrun` (hashes only)
+shot	3	list	fe46daa5f4f93d5d
+frames	1-3	fe46daa5f4f93d5d
+shot	6	second-selected	f6f74929159939c1
+frames	4-6	f6f74929159939c1
+shot	8	hover-installer	15d38525d7d7c165
+frames	7-8	15d38525d7d7c165
+shot	11	error	0ea90d72d4172237
+frames	9-11	0ea90d72d4172237
+shot	15	back-to-list	fe46daa5f4f93d5d
+frames	12-15	fe46daa5f4f93d5d
+shot	19	imported	655a15a2353a871f
+frames	16-19	655a15a2353a871f

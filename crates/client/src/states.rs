@@ -17,6 +17,8 @@
 pub enum AppState {
     #[default]
     Boot,
+    /// The first-run screen (`firstrun`): there are no game files yet.
+    FirstRun,
     Video,
     Title,
     MainMenu,
@@ -124,7 +126,7 @@ pub fn on_exit(state: AppState) -> &'static [Hook] {
 pub fn on_enter(state: AppState) -> &'static [Hook] {
     use Hook::*;
     match state {
-        AppState::Boot => &[],
+        AppState::Boot | AppState::FirstRun => &[],
         AppState::Video => &[EnterVideo],
         AppState::Title => &[EnterTitle],
         AppState::MainMenu => &[EnterMenu],
@@ -168,8 +170,9 @@ const HOOKS: [Hook; 17] = {
 mod tests {
     use super::*;
 
-    const ALL: [AppState; 11] = [
+    const ALL: [AppState; 12] = [
         AppState::Boot,
+        AppState::FirstRun,
         AppState::Video,
         AppState::Title,
         AppState::MainMenu,

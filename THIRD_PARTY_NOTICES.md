@@ -67,6 +67,13 @@ The Huffman and IMA ADPCM decoders in `crates/formats/src/mpq_codec/` are ports 
 [StormLib](https://github.com/ladislav-zezula/StormLib) by Ladislav Zezula, under the MIT licence. The full text is in
 [licenses/StormLib-MIT.txt](licenses/StormLib-MIT.txt).
 
+## First-run screen font
+
+The first-run screen (`crates/client/src/firstrun/font.rs`) draws with an embedded 8 x 8 bitmap font, because no game
+font exists before the game files are imported. The glyph table is `font8x8_basic.h` by Daniel Hepper
+([dhepper/font8x8](https://github.com/dhepper/font8x8)), which is in the **public domain**. It is based on the
+public-domain IBM VGA 8 x 8 font as published by Marcel Sondaar. Only U+0020 to U+007E are used, unchanged.
+
 ## Cargo dependencies
 
 Generated from `Cargo.lock`. Regenerate it with `python3 tools/gen_notices.py` after any dependency change.

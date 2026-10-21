@@ -35,6 +35,8 @@ pub enum Cmd {
     Type(&'static str),
     /// Mouse-wheel lines (positive: away from the user).
     Wheel(f32),
+    /// A file or folder is dropped on the window (`firstrun`).
+    Drop(&'static str),
     /// The frame is kept under this name; the next commands run from the next frame.
     Shot(&'static str),
 }
@@ -46,6 +48,9 @@ pub struct Scene {
     pub start: Vec<Step>,
     pub cmds: Vec<Cmd>,
 }
+
+/// The name of the scene that shows the first-run screen (`firstrun`) over a demo backend, with no game files.
+pub const FIRST_RUN: &str = "firstrun";
 
 /// The frame time of a scripted run.
 pub const FRAME_SECS: f64 = 1.0 / 60.0;
@@ -209,6 +214,12 @@ pub fn scenes() -> Vec<Scene> {
             name: "flow",
             start: crate::frontend::startup_steps(false, false, true),
             cmds: flow(),
+        },
+        // Needs no game files: `host::launch` shows the first-run screen over a demo backend.
+        Scene {
+            name: FIRST_RUN,
+            start: Vec::new(),
+            cmds: first_run(),
         },
         // Not in the frame snapshot: `jukebox`'s tests run these to check the music at every frame.
         Scene {
@@ -583,6 +594,32 @@ fn build() -> Vec<Cmd> {
     v
 }
 
+/// The first-run screen over the demo backend (`firstrun::DemoBackend`): the list, the keyboard moving the focus, the
+/// pointer hovering a button, a dropped folder the import refuses, the way back, and a click on an install that imports.
+fn first_run() -> Vec<Cmd> {
+    use Cmd::*;
+    let demo = crate::firstrun::FirstRun::with_candidates(
+        std::sync::Arc::new(crate::firstrun::DemoBackend),
+        crate::firstrun::DemoBackend::candidates(),
+        false,
+    );
+    let at = |item| demo.centre_of(item).expect("the demo screen lists it");
+    let (installer, first) = (
+        at(crate::firstrun::Item::Installer),
+        at(crate::firstrun::Item::Candidate(0)),
+    );
+    let mut v = vec![Move(0.0, 0.0), Wait(2), Shot("list")];
+    v.extend(tap(Key::Down));
+    v.extend([Wait(1), Shot("second-selected")]);
+    v.extend([Move(installer.0, installer.1), Wait(1), Shot("hover-installer")]);
+    v.extend([Drop("/downloads/bad-folder"), Wait(2), Shot("error")]);
+    v.extend(tap(Key::Enter));
+    v.extend([Wait(2), Shot("back-to-list")]);
+    v.extend(click(first.0, first.1));
+    v.extend([Wait(2), Shot("imported")]);
+    v
+}
+
 /// Carried goods and the ground marker: a peasant sent to a tree fells it and walks home carrying lumber, then is given
 /// a move on open ground with a right-click, whose marker grows, holds and shrinks.
 fn carry() -> Vec<Cmd> {
@@ -745,6 +782,7 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
                 }
             }
             Cmd::Wheel(y) => input.wheel(Wheel { y, lines: true }),
+            Cmd::Drop(path) => input.dropped(path.into()),
             // A shot is this frame as the input so far left it: the commands after it wait for the next frame.
             Cmd::Shot(name) => {
                 s.shots.push(name);

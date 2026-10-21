@@ -20,14 +20,20 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
    - macOS: `xcode-select --install` and `brew install cmake`.
    - Debian or Ubuntu (the packages CI installs): `sudo apt-get install build-essential cmake pkg-config libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libegl1-mesa-dev libgl1-mesa-dev`
    - Windows: Visual Studio's C++ build tools and CMake.
-2. **Import your game files, once.** Point `--import` at where the game is installed:
+2. **Run it.** With no game files yet, Tidewater opens an import screen:
+
+   ```sh
+   cargo run --release -p tidewater-client
+   ```
+
+   The screen lists the installs it found in the usual places (a GOG folder, `/Applications`, Wine and CrossOver prefixes). Pick one, or choose a game folder with the buttons, or drop a folder on the window. Tidewater checks the files, copies the archives (`War2Dat.mpq`, `Install.mpq`, `War2Patch.mpq`) and the `Maps` folder into its own per-user data directory once, shows what it imported and goes on into the game. If something is wrong, the screen says what and what to do next. Esc quits.
+
+   **Without a window.** To import from the command line instead, point `--import` at where the game is installed; it prints a summary and exits. A second import replaces the first.
 
    ```sh
    cargo run --release -p tidewater-client -- --import <path-to-game>
    ```
-
-   Tidewater checks the files, copies the archives (`War2Dat.mpq`, `Install.mpq`, `War2Patch.mpq`) and the `Maps` folder into its own per-user data directory, prints a summary and exits. A second import replaces the first.
-3. **Play.**
+3. **Play.** Once the files are imported, the same command starts the game:
 
    ```sh
    cargo run --release -p tidewater-client
@@ -35,7 +41,7 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 
    Add a map to start a game on it at once: `cargo run --release -p tidewater-client -- <map.pud>`.
 
-**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. GOG installers (`setup_*.exe`) and CD images (`.iso`, `.bin` with `.cue`) are recognised but cannot be read yet: install the game first or mount the image.
+**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. GOG installers (`setup_*.exe`) and CD images (`.iso`, `.bin` with `.cue`) are recognised but cannot be read yet (the import screen's "Choose GOG installer..." and "Choose CD image..." buttons say so): install the game first or mount the image.
 
 **Where the copy goes.** The per-user data directory: `~/Library/Application Support/Tidewater` on macOS, under `~/.local/share` on Linux, under `%LOCALAPPDATA%\Tidewater` on Windows. Imported files go in `game`, saved games in `Save`, settings in `settings.txt`. `--data-dir <dir>` moves all of it. Tidewater never writes into your game installation.
 
@@ -151,7 +157,6 @@ Everything in this table is **planned**; none of it is built yet.
 |---|---|---|
 | **Import from the GOG installer** | Read the files straight out of a `setup_*.exe` installer, so you do not install the game first. | Planned |
 | **Import from CD images** | Read `.iso` and `.bin`/`.cue` images directly. | Planned |
-| **First-run import screen** | Pick your game files in a window instead of on the command line. | Planned |
 | **Lockstep multiplayer** | Local Network and Direct IP games. The simulation is deterministic so that this is possible. | Planned |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
 | **Touch controls** | iOS and Android. PlayStation Vita support is under evaluation. | Planned |

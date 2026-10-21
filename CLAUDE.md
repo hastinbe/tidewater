@@ -41,6 +41,8 @@ before writing any code, and follow it exactly.
   `menuscreen.rs` holds the menu screens' rules (the shared menu picture, which switches fade, button and text colours).
   `--goto SCREEN` opens a flow screen directly for development.
   `audio.rs` decodes WAV sounds and mixes them at 22,050 Hz stereo; the shell streams the mixer to the device.
+  `firstrun.rs` is the first-run import screen shown when there are no game files (`AppState::FirstRun`; its own font
+  in `firstrun/font.rs`, the automatic search in `firstrun/search.rs`; `docs/design/import.md`).
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
   The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, the shell

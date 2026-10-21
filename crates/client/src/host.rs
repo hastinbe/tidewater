@@ -12,7 +12,7 @@ use crate::args::Args;
 use crate::core::{Core, Platform};
 use crate::input::{Buttons, Key, WindowGeom};
 use crate::storage::Store;
-use crate::{display, frontend, gamemenu, prefs, script, storage};
+use crate::{display, firstrun, frontend, gamemenu, prefs, script, storage};
 
 /// The program, started from its command line, and what its window asks for.
 pub struct Launch {
@@ -58,6 +58,71 @@ pub fn import_command(path: &std::path::Path, data_dir: Option<&std::path::Path>
     }
 }
 
+/// What the program says when it has no game files and can't show the first-run screen (a scripted or headless run).
+const NO_GAME_FILES: &str = "No game files yet. Import your Warcraft II: Battle.net Edition files first:\n\n    \
+     tidewater --import <path>\n\nwhere <path> is the folder the game is installed in (for example the GOG folder), \
+     or a mounted CD.";
+
+/// The flow's first steps for a run that isn't scripted: the map given on the command line starts at once; otherwise
+/// the startup sequence ("Startup") or a screen named by `--goto`.
+pub(crate) fn start_steps(
+    args: &Args,
+    flow: &mut frontend::Flow,
+    front: &mut frontend::Front,
+) -> Result<Vec<frontend::Step>> {
+    Ok(match (&args.map, &args.goto) {
+        (Some(map), _) => vec![frontend::Step::Play {
+            map: map.clone(),
+            setup: args.setup,
+        }],
+        (None, Some(g)) => {
+            let steps = frontend::goto_steps(g).map_err(anyhow::Error::msg)?;
+            if let Some((what, e)) = g.split_once(':')
+                && what.starts_with("score-")
+            {
+                let e: u8 = e.parse()?;
+                frontend::synthetic_score(flow, front, e, what == "score-victory");
+            }
+            steps
+        }
+        (None, None) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
+    })
+}
+
+/// The core on the first-run screen (`firstrun`), over `store` (whose game folder doesn't exist yet): `backend` does
+/// the searching and the copying. With `candidates` the list is given and the work runs inside the frames (a scripted
+/// scene's, whose frames must come out the same every time); without, the usual places are searched on a thread.
+pub fn first_run_core(
+    args: Args,
+    store: Store,
+    backend: Arc<dyn firstrun::Backend>,
+    candidates: Option<Vec<firstrun::Candidate>>,
+    run: Option<script::Run>,
+) -> Core {
+    let prefs = if run.is_some() {
+        prefs::Prefs::default()
+    } else {
+        prefs::Prefs::load(&*store.0)
+    };
+    let stored =
+        gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
+    let screen = match candidates {
+        Some(list) => firstrun::FirstRun::with_candidates(backend, list, false),
+        None => firstrun::FirstRun::searching(backend),
+    };
+    let mut core = Core::new(
+        args,
+        store,
+        frontend::Front::none(),
+        frontend::Flow::default(),
+        stored,
+        run,
+    );
+    core.first_run = Some(screen);
+    core.states.set(frontend::AppState::FirstRun);
+    core
+}
+
 /// Starts the program from its command line: the desktop's storage (`storage::Desktop`), the installation, the
 /// flow's first steps (a map, a `--goto` screen, a scripted scene or the startup sequence) and the stored settings.
 /// A scripted run gets its own save folder and settings, a wall clock that stands still and no mouse lock.
@@ -97,41 +162,52 @@ pub fn launch(mut args: Args) -> Result<Launch> {
         None => storage::default_save_dir(),
     });
     let data = storage::data_dir(args.data_dir.as_deref());
+    // The first-run scene shows the screen over a demo backend, with no game files.
+    let first_run_scene = scripted.as_ref().is_some_and(|(s, _)| s.name == script::FIRST_RUN);
     let mut desktop = match &args.install {
         // The developer override reads the files in place.
         Some(install) => storage::Desktop::new(install, saves, settings, user),
-        None if tidewater_import::is_imported(&data) => storage::Desktop::from_data_dir(&data, saves, settings, user),
-        None => anyhow::bail!(
-            "No game files yet. Import your Warcraft II: Battle.net Edition files first:\n\n    tidewater --import <path>\n\n\
-             where <path> is the folder the game is installed in (for example the GOG folder), or a mounted CD."
-        ),
+        None if tidewater_import::is_imported(&data) || first_run_scene => {
+            storage::Desktop::from_data_dir(&data, saves, settings, user)
+        }
+        // A script or a run without a window can't use the first-run screen.
+        None if scripted.is_some() || args.headless => anyhow::bail!(NO_GAME_FILES),
+        None => {
+            let store = Store(Arc::new(storage::Desktop::from_data_dir(&data, saves, settings, user)));
+            let (ui_scale, headless) = (args.ui_scale, false);
+            let backend = Arc::new(firstrun::DesktopBackend { data_dir: data });
+            let core = first_run_core(args, store, backend, None, None);
+            return Ok(Launch {
+                core,
+                title: "Tidewater".to_string(),
+                ui_scale,
+                headless,
+            });
+        }
     };
     if scripted.is_some() {
         desktop = desktop.with_fixed_clock(script::WALL_SECS);
     }
     let store = Store(Arc::new(desktop));
+    if first_run_scene {
+        let (scene, out) = scripted.expect("the first-run scene is scripted");
+        let (ui_scale, headless) = (args.ui_scale, args.headless);
+        let backend = Arc::new(firstrun::DemoBackend);
+        let candidates = Some(firstrun::DemoBackend::candidates());
+        let core = first_run_core(args, store, backend, candidates, Some(script::Run::new(scene, out)));
+        return Ok(Launch {
+            core,
+            title: "Tidewater".to_string(),
+            ui_scale,
+            headless,
+        });
+    }
     let install = storage::open_install(&store.0)?;
     let mut front = frontend::Front::load(install)?;
     let mut flow = frontend::Flow::default();
-    // The map given on the command line starts at once; otherwise the startup sequence ("Startup") or a screen
-    // named by `--goto`.
-    let steps = match (&args.map, &args.goto, &scripted) {
-        (_, _, Some((scene, _))) => scene.start.clone(),
-        (Some(map), _, _) => vec![frontend::Step::Play {
-            map: map.clone(),
-            setup: args.setup,
-        }],
-        (None, Some(g), _) => {
-            let steps = frontend::goto_steps(g).map_err(anyhow::Error::msg)?;
-            if let Some((what, e)) = g.split_once(':')
-                && what.starts_with("score-")
-            {
-                let e: u8 = e.parse()?;
-                frontend::synthetic_score(&mut flow, &mut front, e, what == "score-victory");
-            }
-            steps
-        }
-        (None, None, _) => frontend::startup_steps(false, flow.skip_videos, !args.no_intro),
+    let steps = match &scripted {
+        Some((scene, _)) => scene.start.clone(),
+        None => start_steps(&args, &mut flow, &mut front)?,
     };
     flow.steps = steps.into();
     // A scripted run starts from the default settings.

@@ -103,6 +103,38 @@ fn every_scene_shows_and_sounds_as_snapshotted() {
     );
 }
 
+/// The first-run screen (`src/firstrun.rs`) needs no game files: the scene `firstrun` runs it over a demo backend with a
+/// fake list of installs, so this test never skips. Bless it with the others (see the module doc).
+#[test]
+fn the_first_run_screen_shows_as_snapshotted() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let out = dir.path().join("out");
+    let status = Command::new(env!("CARGO_BIN_EXE_tidewater"))
+        // An install in the environment must not matter: the scene never opens one.
+        .env_remove("TIDEWATER_INSTALL")
+        .arg("--data-dir")
+        .arg(dir.path().join("data"))
+        .args(["--script", "firstrun", "--script-out"])
+        .arg(&out)
+        .arg("--headless")
+        .status()
+        .expect("the client runs");
+    assert!(status.success(), "the scripted run of firstrun failed");
+    let got = std::fs::read_to_string(out.join("firstrun.txt")).expect("the run's fingerprints");
+    let file = snapshot("firstrun");
+    if on("TIDEWATER_SNAPSHOT_BLESS") {
+        std::fs::write(&file, &got).expect("writing the snapshot");
+        eprintln!("blessed {}", file.display());
+        return;
+    }
+    let want = std::fs::read_to_string(&file).expect("the snapshot file");
+    if let Some(d) = first_difference(&want, &got) {
+        panic!(
+            "firstrun.txt differs from tests/snapshots/: {d}\nIf the change is intended, bless the file (see this module's doc)."
+        );
+    }
+}
+
 #[test]
 #[ignore = "opens a window"]
 fn the_window_shows_the_composed_frames() {
