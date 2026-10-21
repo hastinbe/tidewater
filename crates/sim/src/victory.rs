@@ -1222,6 +1222,31 @@ mod tests {
         assert_eq!(&checks[..2], [212, 413]);
     }
 
+    /// X5 (G04, `game/victory.md` "Outcome timing" and `game/cheats.md`): the instant victory and defeat cheats are
+    /// found by the next check and, in single player, shown at the one after.
+    #[test]
+    fn the_instant_cheats_are_found_at_the_next_check_and_shown_at_the_one_after() {
+        use crate::cheats::{Flags, flag};
+        for (cheat, want) in [(flag::INSTANT_VICTORY, Outcome::Victory), (flag::INSTANT_DEFEAT, Outcome::Defeat)] {
+            let mut w = world(16, 16);
+            w.spawn(0x00, 0, (2, 2), 0).unwrap();
+            w.spawn(0x00, 1, (20, 20), 0).unwrap();
+            w.start_up();
+            run_to_counter(&mut w, 100);
+            w.cheat_command(0, Flags(cheat));
+            run_to_counter(&mut w, 200);
+            assert_eq!((w.victory.rule, outcomes(&w)), (None, vec![]), "before the check");
+            run_to_counter(&mut w, 201);
+            assert_eq!(w.victory.rule, Some(Rule::Outcome(want)), "found at counter 201");
+            assert!(outcomes(&w).is_empty() && !w.victory.over);
+            run_to_counter(&mut w, 401);
+            assert!(outcomes(&w).is_empty());
+            run_to_counter(&mut w, 402);
+            assert_eq!(outcomes(&w), [(0, want)], "shown at counter 402");
+            assert!(w.victory.over);
+        }
+    }
+
     #[test]
     fn a_player_who_is_out_gets_a_set_of_just_itself() {
         let sets = |w: &World| (0..3).map(|p| w.players[p].shared_vision).collect::<Vec<_>>();
