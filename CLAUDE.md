@@ -23,6 +23,9 @@ before writing any code, and follow it exactly.
 - `crates/twtool`: inspection CLI (`mpq-*`, `render-map`, `render-grp`, `render-pcx`, `smk-frame`, `smk-audio`, `grp-sheet`, `units`, `upgrades`,
   `strings`, `sim`, `oracle`: compare the simulation with a per-cycle trace of the original game, `snapshot`: the
   whole-map behaviour snapshot `tests/snapshot.rs` checks).
+- `crates/import`: game-file import (`source`: what a path is, `validate`: key-file checks, `copy`: allowlisted copy
+  and atomic swap into `<data>/game`, `manifest`); used by `tidewater --import` and `twtool import-check`;
+  `docs/design/import.md`.
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the game client: a library (`lib.rs`, no engine types, no `unsafe`) holding the core (`core.rs`:
   `Core::advance` runs a frame) and `host.rs` (start-up from the command line, the headless scripted loop, helpers

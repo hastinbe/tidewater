@@ -35,7 +35,11 @@ use tidewater_client::script;
 const DEVICE_FRAMES: u32 = 512;
 
 fn main() -> Result<()> {
-    let l = host::launch(Args::parse())?;
+    let args = Args::parse();
+    if let Some(path) = &args.import {
+        std::process::exit(host::import_command(path, args.data_dir.as_deref()));
+    }
+    let l = host::launch(args)?;
     if l.headless {
         host::run_headless(l.core);
         return Ok(());

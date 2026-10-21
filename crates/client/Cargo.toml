@@ -22,6 +22,7 @@ clap.workspace = true
 glam.workspace = true
 png.workspace = true
 tidewater-formats.workspace = true
+tidewater-import.workspace = true
 tidewater-sim.workspace = true
 # SDL 3 built from its source (CMake and a C compiler; no SDL install needed) and linked in, with only the audio,
 # video and render subsystems. Only the shell (`src/shell/`) uses it.

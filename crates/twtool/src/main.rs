@@ -24,6 +24,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Dry run of the game-file import: classify `path` (a game folder, a mounted CD, a folder of `.mpq` files, one
+    /// archive), check the files and print the report. Copies nothing. Exits non-zero when the files can't be imported.
+    ImportCheck { path: PathBuf },
     /// Print `block<TAB>name` for each name (one per line on stdin) that an archive contains, first spelling only.
     MpqProbe { archive: PathBuf },
     /// Extract the named files (one per line on stdin) into a directory, keeping their paths.
@@ -257,6 +260,21 @@ fn sniff(d: &[u8]) -> &'static str {
 
 fn main() -> Result<()> {
     match Cli::parse().cmd {
+        Cmd::ImportCheck { path } => {
+            let source = match tidewater_import::classify(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(e.exit_code());
+                }
+            };
+            let report = tidewater_import::validate(&source);
+            print!("{}", tidewater_import::render_report(&source, &report));
+            if let Err(e) = report.into_result() {
+                eprintln!("{e}");
+                std::process::exit(e.exit_code());
+            }
+        }
         Cmd::MpqProbe { archive } => {
             let a = Archive::open(&archive)?;
             let mut seen = std::collections::HashSet::new();

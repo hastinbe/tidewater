@@ -86,17 +86,28 @@ pub fn default_save_dir() -> PathBuf {
 }
 
 /// The folder for the program's other files (the settings file, Print Screen pictures): the folder given with
-/// `--save-dir`, so a run with its own save folder writes nothing else; otherwise the folder that holds the default
-/// save folder (the original keeps them in the game's folder, which holds `Save`; we never write into the install).
-pub fn user_dir(save_dir: Option<&Path>) -> PathBuf {
-    match save_dir {
-        Some(d) => d.to_path_buf(),
-        None => {
+/// `--save-dir`, so a run with its own save folder writes nothing else; else `--data-dir`; otherwise the folder that
+/// holds the default save folder (the original keeps them in the game's folder, which holds `Save`; we never write
+/// into the install).
+pub fn user_dir(save_dir: Option<&Path>, data_dir: Option<&Path>) -> PathBuf {
+    match (save_dir, data_dir) {
+        (Some(d), _) | (None, Some(d)) => d.to_path_buf(),
+        (None, None) => {
             let d = default_save_dir();
             d.parent()
                 .filter(|p| !p.as_os_str().is_empty())
                 .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
         }
+    }
+}
+
+/// The data directory that holds the imported game files (`game`): `--data-dir`, else the per-user local data
+/// directory (on Windows this is the non-roaming one, as the files are hundreds of megabytes).
+pub fn data_dir(data_dir: Option<&Path>) -> PathBuf {
+    match data_dir {
+        Some(d) => d.to_path_buf(),
+        None => directories::ProjectDirs::from("", "", "Tidewater")
+            .map_or_else(|| PathBuf::from("."), |d| d.data_local_dir().to_path_buf()),
     }
 }
 
@@ -121,6 +132,12 @@ impl Desktop {
             shots,
             fixed_clock: None,
         }
+    }
+
+    /// The imported game in `<data>/game` (`tidewater_import`), saved games in `saves`, the settings file `settings` and
+    /// Print Screen pictures in `shots`.
+    pub fn from_data_dir(data: &Path, saves: PathBuf, settings: PathBuf, shots: PathBuf) -> Self {
+        Self::new(tidewater_import::game_dir(data), saves, settings, shots)
     }
 
     /// The same storage with a wall clock that always reads `secs`.

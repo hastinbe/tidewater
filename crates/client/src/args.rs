@@ -7,9 +7,20 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(about = "Tidewater, the Warcraft II: Battle.net Edition game client")]
 pub struct Args {
-    /// Warcraft II: Battle.net Edition installation directory.
+    /// Development override: read the Warcraft II: Battle.net Edition files in place from this folder instead of the
+    /// copy made by `--import`.
     #[arg(long, env = "TIDEWATER_INSTALL")]
-    pub install: PathBuf,
+    pub install: Option<PathBuf>,
+    /// Import the game files from a game folder (or a folder of `.mpq` archives, or one archive): check them, copy
+    /// them into Tidewater's data directory, print a summary and exit. The exit code tells what went wrong (10 path
+    /// not found, 11 DOS edition, 12 installer, 13 no game files, 14 no `War2Dat.mpq`, 15 damaged archive, 16
+    /// incomplete files, 17 no space, 18 i/o error, 19 CD image).
+    #[arg(long, value_name = "PATH")]
+    pub import: Option<PathBuf>,
+    /// Tidewater's data directory (the imported game files in `game`, saved games in `Save`, the settings file).
+    /// Without it, the per-user data directory.
+    #[arg(long, value_name = "DIR")]
+    pub data_dir: Option<PathBuf>,
     /// A .pud file path, or a name inside the archives; it starts at once. Without one the program starts with its
     /// startup videos and title (`docs/specs/game/campaign-flow.md`).
     pub map: Option<String>,

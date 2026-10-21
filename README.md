@@ -7,9 +7,24 @@ your own copy of the game (for example from GOG), and Tidewater reads its files 
 Status: early. The data readers work; the client shows a map and you can select units and move them. Game rules
 beyond movement are not implemented yet.
 
+## Importing your game files
+
+Tidewater needs the files of your own copy of the game. Import them once; Tidewater copies the archives
+(`War2Dat.mpq`, `Install.mpq`, `War2Patch.mpq`) and the `Maps` folder into its own data directory:
+
 ```sh
-cargo run --release -p tidewater-client -- --install <game directory> [map.pud]
+cargo run --release -p tidewater-client -- --import <path>
+cargo run --release -p tidewater-client -- [map.pud]
 ```
+
+`<path>` is the folder where the game is installed (the GOG folder, a Wine prefix, a `.app` bundle or a mounted CD
+all work: Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. Installers (GOG
+`setup_*.exe`) and CD images are recognised but not readable yet: install the game first, or mount the image. The
+1995 DOS edition is not supported. `--data-dir <dir>` chooses where the copy goes (default: your user data
+directory); `twtool import-check <path>` checks a path and copies nothing. A second import replaces the first. How it
+works: [docs/design/import.md](docs/design/import.md).
+
+For development, `--install <game directory>` (or `TIDEWATER_INSTALL`) reads the files in place instead.
 
 Building needs Rust (the toolchain in `rust-toolchain.toml`), **CMake** and a **C compiler**: SDL 3 is built from its
 source and linked into the program, so no SDL install is needed. On macOS, `xcode-select --install` and

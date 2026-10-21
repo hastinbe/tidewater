@@ -11,6 +11,7 @@ png.workspace = true
 flate2.workspace = true
 serde_json.workspace = true
 tidewater-formats.workspace = true
+tidewater-import.workspace = true
 tidewater-sim.workspace = true
 
 

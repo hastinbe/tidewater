@@ -25,6 +25,39 @@ pub struct Launch {
     pub headless: bool,
 }
 
+/// `--import PATH`: checks the game files at `path`, copies them into the data directory, prints what was done and
+/// returns the process exit code (0 on success; `ImportError::exit_code` otherwise).
+pub fn import_command(path: &std::path::Path, data_dir: Option<&std::path::Path>) -> i32 {
+    let data = storage::data_dir(data_dir);
+    let run = || -> Result<(), tidewater_import::ImportError> {
+        let source = tidewater_import::classify(path)?;
+        let report = tidewater_import::validate(&source);
+        print!("{}", tidewater_import::render_report(&source, &report));
+        let report = report.into_result()?;
+        let mut shown = 0u64;
+        let manifest = tidewater_import::import(&source, &report, &data, &mut |p| {
+            // A progress line about every 10%.
+            let pct = p.done * 10 / p.total.max(1);
+            if pct > shown {
+                shown = pct;
+                eprintln!("  copying... {}%", pct * 10);
+            }
+        })?;
+        print!(
+            "{}",
+            tidewater_import::render_summary(&manifest, &report, &tidewater_import::game_dir(&data))
+        );
+        Ok(())
+    };
+    match run() {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            e.exit_code()
+        }
+    }
+}
+
 /// Starts the program from its command line: the desktop's storage (`storage::Desktop`), the installation, the
 /// flow's first steps (a map, a `--goto` screen, a scripted scene or the startup sequence) and the stored settings.
 /// A scripted run gets its own save folder and settings, a wall clock that stands still and no mouse lock.
@@ -57,16 +90,22 @@ pub fn launch(mut args: Args) -> Result<Launch> {
         _ => None,
     };
     // The desktop's storage (`storage`): a scripted run uses its own folder and a wall clock that stands still.
-    let settings = args
-        .settings
-        .clone()
-        .unwrap_or_else(|| storage::user_dir(args.save_dir.as_deref()).join(prefs::FILE_NAME));
-    let mut desktop = storage::Desktop::new(
-        &args.install,
-        args.save_dir.clone().unwrap_or_else(storage::default_save_dir),
-        settings,
-        storage::user_dir(args.save_dir.as_deref()),
-    );
+    let user = storage::user_dir(args.save_dir.as_deref(), args.data_dir.as_deref());
+    let settings = args.settings.clone().unwrap_or_else(|| user.join(prefs::FILE_NAME));
+    let saves = args.save_dir.clone().unwrap_or_else(|| match &args.data_dir {
+        Some(d) => d.join("Save"),
+        None => storage::default_save_dir(),
+    });
+    let data = storage::data_dir(args.data_dir.as_deref());
+    let mut desktop = match &args.install {
+        // The developer override reads the files in place.
+        Some(install) => storage::Desktop::new(install, saves, settings, user),
+        None if tidewater_import::is_imported(&data) => storage::Desktop::from_data_dir(&data, saves, settings, user),
+        None => anyhow::bail!(
+            "No game files yet. Import your Warcraft II: Battle.net Edition files first:\n\n    tidewater --import <path>\n\n\
+             where <path> is the folder the game is installed in (for example the GOG folder), or a mounted CD."
+        ),
+    };
     if scripted.is_some() {
         desktop = desktop.with_fixed_clock(script::WALL_SECS);
     }
