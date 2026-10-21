@@ -211,6 +211,21 @@ impl World {
         }
         Ok(())
     }
+
+    /// The two start-up cycles of a loaded game (`docs/specs/game/save-load.md`, "What a loaded game starts afresh";
+    /// `core/timing-and-rng.md`, scheduler rule 1; X3): a loaded game starts like any game, so call this after
+    /// [`World::restore`] and before the first normal cycle. They are full cycles, so the restored victory countdown
+    /// and the restored fog refresh countdown count them. Unlike [`World::start_up`], the cycle counter keeps the value
+    /// it had (a Classic save restored it at 0). A game saved while paused runs them unpaused.
+    pub fn start_up_loaded(&mut self) {
+        let (tick, paused) = (self.tick, self.paused);
+        self.paused = false;
+        for _ in 0..START_UP_CYCLES {
+            self.step(&[]);
+        }
+        self.paused = paused;
+        self.tick = tick;
+    }
 }
 
 #[cfg(test)]

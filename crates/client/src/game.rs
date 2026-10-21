@@ -295,12 +295,15 @@ struct GameArgs {
 ///   countdown and the other per-game counts start from their new-game values in `World::from_pud` and `World::new`.
 ///   It runs the two start-up cycles ([`World::start_up`]).
 /// - **A loaded game** has the saved state put over the template ([`World::restore`]): the counts that are saved come
-///   back and the others (random numbers, cheats) start afresh.
+///   back and the others (random numbers, cheats) start afresh. It runs the two start-up cycles too, with the cycle
+///   counter kept ([`World::start_up_loaded`], X3).
 fn start_world(world: &mut World, resume: Option<&savegame::Resume>, wall: u64) -> anyhow::Result<()> {
     if let Some(r) = resume {
         world
             .restore(&r.body.world, savegame::reseed(wall))
             .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
+        // Timing-and-rng spec, scheduler rule 1 for a loaded game: the same two start-up cycles, counter kept.
+        world.start_up_loaded();
     } else {
         // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
         world.start_up();

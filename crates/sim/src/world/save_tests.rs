@@ -213,3 +213,67 @@ fn the_fingerprint_follows_the_whole_state() {
     b.rng.draw();
     assert_ne!(b.fingerprint(), before.0);
 }
+
+/// X3 (`game/save-load.md`, "What a loaded game starts afresh"; vector G11): a load runs the two start-up cycles, which
+/// count against the restored victory countdown, and the cycle counter keeps its saved value.
+#[test]
+fn a_load_runs_the_two_start_up_cycles_and_keeps_the_cycle_counter() {
+    let mut a = battle();
+    run(&mut a, 60);
+    a.victory.countdown = 50;
+    a.vision.countdown = 40;
+    let tick = a.tick;
+    let bytes = a.save_state();
+    let mut b = field(16, 16);
+    b.restore(&bytes, 1).unwrap();
+    assert_eq!((b.tick, b.victory.countdown, b.vision.countdown), (tick, 50, 40));
+    let units = b.units.clone();
+    b.start_up_loaded();
+    assert_eq!(b.tick, tick, "the counter keeps its saved value");
+    assert_eq!(
+        (b.victory.countdown, b.vision.countdown),
+        (48, 38),
+        "both countdowns count the start-up cycles"
+    );
+    assert_ne!(b.units, units, "they are full cycles: the units update");
+    // G11: the first check after the load runs in the 51st cycle after it, the start-up cycles included.
+    let mut n = 2;
+    loop {
+        let before = b.victory.countdown;
+        b.step(&[]);
+        n += 1;
+        if before == 0 {
+            break;
+        }
+        assert!(n < 100);
+    }
+    assert_eq!(n, 51);
+    assert_eq!(b.tick, tick + 49);
+}
+
+/// A game saved while paused still runs its start-up cycles, and is paused again after them.
+#[test]
+fn a_game_saved_paused_runs_its_start_up_cycles_unpaused() {
+    let mut a = battle();
+    a.victory.countdown = 50;
+    a.paused = true;
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert!(b.paused);
+    b.start_up_loaded();
+    assert!(b.paused);
+    assert_eq!(b.victory.countdown, 48);
+}
+
+/// A Classic save restores the cycle counter at 0 and the start-up cycles leave it there.
+#[test]
+fn a_classic_load_starts_counting_at_0() {
+    let mut a = battle();
+    a.rules.enhanced = false;
+    run(&mut a, 30);
+    let mut b = field(16, 16);
+    b.rules.enhanced = false;
+    b.restore(&a.save_state(), 1).unwrap();
+    b.start_up_loaded();
+    assert_eq!(b.tick, 0);
+}
