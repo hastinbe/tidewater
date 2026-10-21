@@ -706,7 +706,8 @@ impl World {
     }
 
     /// A player who is out: in a network game its slot becomes "nobody", it leaves everyone's shared vision and its
-    /// living units take order 32 (the docked wait, which does nothing).
+    /// own shared-vision set becomes just itself (`vision/fog.md`, "Shared vision", X10), and its living units take
+    /// order 32 (the docked wait, which does nothing).
     fn knock_out(&mut self, q: usize) {
         self.players[q].result = Some(Outcome::Defeat);
         if !self.rules.multiplayer {
@@ -716,6 +717,7 @@ impl World {
         for p in &mut self.players {
             p.shared_vision &= !(1 << q);
         }
+        self.players[q].shared_vision = 1 << q;
         for i in 0..self.units.len() {
             if self.units[i].owner as usize == q && !self.units[i].dying {
                 self.give(i, Order::Docked);
@@ -1167,6 +1169,37 @@ mod tests {
         assert_eq!(w.players[0].result, Some(Outcome::Victory));
     }
 
+    /// X10 follows the multiplayer rule's two places (victory spec, "The multiplayer rule", steps 2 and 3): the
+    /// local player out, and another player out. A game that isn't a network game leaves the sets alone.
+    #[test]
+    fn a_player_who_is_out_gets_a_set_of_just_itself() {
+        let sets = |w: &World| (0..3).map(|p| w.players[p].shared_vision).collect::<Vec<_>>();
+        let game = |multiplayer: bool| {
+            let mut w = world(24, 24);
+            w.rules.multiplayer = multiplayer;
+            for p in 0..3 {
+                w.players[p].controller = controller::HUMAN;
+                w.players[p].shared_vision = 0b111;
+                w.spawn(0x00, p as u8, (2 + 6 * p as i32, 2), 0).unwrap();
+            }
+            w
+        };
+        // Step 2: the local player (0) is out, and the rest keep sharing with each other.
+        let mut w = game(true);
+        w.players[0].disconnected = true;
+        w.multiplayer(0);
+        assert_eq!(sets(&w), [0b001, 0b110, 0b110]);
+        // Step 3: another player is out.
+        let mut w = game(true);
+        w.players[2].disconnected = true;
+        w.multiplayer(0);
+        assert_eq!(sets(&w), [0b011, 0b011, 0b100]);
+        // Not a network game: nothing changes.
+        let mut w = game(false);
+        w.knock_out(2);
+        assert_eq!(sets(&w), [0b111; 3]);
+    }
+
     #[test]
     fn a_disconnected_human_is_knocked_out() {
         let mut w = world(24, 24);
@@ -1180,7 +1213,16 @@ mod tests {
         w.multiplayer(0);
         assert_eq!(w.players[1].result, Some(Outcome::Defeat));
         assert_eq!(w.players[1].controller, controller::NOBODY);
-        assert!(w.players.iter().all(|p| p.shared_vision & 0b10 == 0));
+        // X10: the player leaves everyone's shared-vision set, and its own set becomes just itself.
+        assert_eq!(w.players[1].shared_vision, 0b10);
+        assert!(
+            w.players
+                .iter()
+                .enumerate()
+                .all(|(q, p)| q == 1 || p.shared_vision & 0b10 == 0)
+        );
+        assert_eq!((w.players[0].shared_vision, w.players[2].shared_vision), (0b101, 0b101));
+        assert_eq!(w.shared_set(1), 0b10);
         let b = w.units.iter().find(|u| u.owner == 1).unwrap();
         assert_eq!(b.pending, Some(Order::Docked));
         assert!(!w.victory.over);
