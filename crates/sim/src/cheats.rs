@@ -775,6 +775,26 @@ mod tests {
         assert!(w.cheats.used);
     }
 
+    /// X2 (`game/cheats.md`, "Cheat-used mark"): a new game starts with the mark clear (every new game start builds a
+    /// fresh world, so replay, restart and mission select all get that), the local player's cheat command sets it, and
+    /// a load clears it again because the mark isn't saved.
+    #[test]
+    fn the_cheat_used_mark_is_clear_at_a_new_game_and_after_a_load() {
+        let mut w = human_world();
+        assert!(!w.cheats.used, "a new game starts clear");
+        // Mission select's own command carries the flags unchanged, with the mission-select flag on.
+        w.cheat_command(0, Flags(flag::MISSION_SELECT));
+        assert!(w.cheats.used);
+        let bytes = w.save_state();
+        let mut loaded = human_world();
+        loaded.restore(&bytes, 1).unwrap();
+        assert!(!loaded.cheats.used, "a load clears the mark");
+        // The mark is per machine and not in the sync hash.
+        let (mut a, b) = (human_world(), human_world());
+        a.cheats.used = true;
+        assert_eq!(a.state_hash(), b.state_hash());
+    }
+
     #[test]
     fn another_players_cheat_is_not_ours() {
         let mut w = human_world();
