@@ -289,6 +289,49 @@ struct GameArgs {
     demo_outcome: Option<bool>,
 }
 
+/// The world of a game that is starting, from its template (`docs/specs/game/lifecycle.md`, "How a game starts").
+///
+/// - **A new game** is the template as the map and set-up built it: cheat flags, rescued counts, the victory
+///   countdown and the other per-game counts start from their new-game values in `World::from_pud` and `World::new`.
+///   It runs the two start-up cycles ([`World::start_up`]).
+/// - **A loaded game** has the saved state put over the template ([`World::restore`]): the counts that are saved come
+///   back and the others (random numbers, cheats) start afresh.
+fn start_world(world: &mut World, resume: Option<&savegame::Resume>, wall: u64) -> anyhow::Result<()> {
+    if let Some(r) = resume {
+        world
+            .restore(&r.body.world, savegame::reseed(wall))
+            .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
+    } else {
+        // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
+        world.start_up();
+    }
+    Ok(())
+}
+
+/// The flow's record of the game that is starting: its kind, the campaign total and the starting controllers (score
+/// screen). A new game takes the total from the new-game rule ([`campaign::CampaignTotal::start_game`]); a loaded
+/// game then takes the saved record over it, the total included (`game/campaign-flow.md`, "Campaign total").
+fn record_game(
+    flow: &mut frontend::Flow,
+    options: &tidewater_sim::setup::Setup,
+    world: &World,
+    resume: Option<&savegame::Resume>,
+) {
+    let kind = match options.game {
+        tidewater_sim::setup::Game::Campaign { entry } => campaign::GameKind::Campaign(entry),
+        _ => campaign::GameKind::Custom,
+    };
+    flow.game = Some(kind);
+    flow.total.start_game(kind);
+    for (i, p) in world.players.iter().take(8).enumerate() {
+        flow.start_controllers[i] = p.controller;
+    }
+    // A loaded game keeps the flow's record of the saved one, and the screen's position.
+    if let Some(r) = resume {
+        savegame::apply_client(flow, &r.body.client);
+    }
+}
+
 fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>) -> anyhow::Result<()> {
     let a = &c.opts;
     let args = GameArgs {
@@ -319,15 +362,7 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
     let wall = store.wall_clock_secs();
     let seed = resume.as_ref().map_or(wall as u32, |r| r.header.seed);
     let mut scene = scene::load(&mut install, &*store.0, &args.map, &options, seed)?;
-    if let Some(r) = &resume {
-        scene
-            .world
-            .restore(&r.body.world, savegame::reseed(wall))
-            .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
-    } else {
-        // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
-        scene.world.start_up();
-    }
+    start_world(&mut scene.world, resume.as_deref(), wall)?;
     c.origin = Some(savegame::GameOrigin {
         map: args.map.clone(),
         setup: options,
@@ -455,23 +490,7 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
             &mut speaker.director.shuffle,
         ),
     }
-    // The flow's record of the game: its kind, the campaign total and the starting controllers (score screen).
-    {
-        let flow = &mut c.flow;
-        let kind = match options.game {
-            tidewater_sim::setup::Game::Campaign { entry } => campaign::GameKind::Campaign(entry),
-            _ => campaign::GameKind::Custom,
-        };
-        flow.game = Some(kind);
-        flow.total.start_game(kind);
-        for (i, p) in scene.world.players.iter().take(8).enumerate() {
-            flow.start_controllers[i] = p.controller;
-        }
-        // A loaded game keeps the flow's record of the saved one, and the screen's position.
-        if let Some(r) = &resume {
-            savegame::apply_client(flow, &r.body.client);
-        }
-    }
+    record_game(&mut c.flow, &options, &scene.world, resume.as_deref());
     // The system's pointer follows from the frame's pointer (`core::compose_screen`).
     c.title = Some(format!("Tidewater — {}", args.map));
     if let Some(r) = &resume {
