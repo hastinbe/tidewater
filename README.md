@@ -85,6 +85,25 @@ Fidelity is measured, not assumed. The simulation is deterministic and integer-o
 
 Some screens are our own layout, because the original's dialog definition files are not specified yet: the menus, dialogs, briefing and score screen look different from the original.
 
+## Optional improvements
+
+Tidewater adds a few optional improvements that the original game does not have. **They are all off by default**: with
+none switched on, the game looks, sounds and plays as the original does. Turn one on in the `[extras]` section of the
+settings file (`settings.txt`), or for one run with its flag; `--no-extra-NAME` puts an option back to its default.
+The idle-worker key is F6. How they work, and how to add one, is in [`docs/design/extras.md`](docs/design/extras.md).
+
+| Option | Flag | Values | Default | What it does |
+|---|---|---|---|---|
+| `health-bars` | `--extra-health-bars VALUE` | off, hovered, selected, always | off | Hit point bars over units: only those under the pointer, only selected ones, or all (C+L) |
+| `idle-worker` | `--extra-idle-worker` | on, off | off | An idle-worker button at the top of the screen and the F6 key: select your next idle worker |
+| `game-clock` | `--extra-game-clock VALUE` | off, clock, clock-apm | off | The game clock over the map view, with or without your actions per minute |
+| `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
+| `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | 100 | Sound effects, in percent of the sound volume |
+| `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | 100 | Music, in percent of the music volume |
+
+**C+L** marks an option that gives you an edge, so in a game with other players the lobby will set it for everyone
+instead of your own settings.
+
 ## Command-line reference
 
 ### `tidewater` (the game)

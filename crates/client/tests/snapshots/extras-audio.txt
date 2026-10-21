@@ -1,0 +1,22 @@
+# mixed sound fingerprints of the scripted scene `extras` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+blocks	0-0	8f5e9c73c889a340
+blocks	1-1	1add3db401cdbb69
+blocks	2-2	cdd55b084c4829b9
+blocks	3-3	ecbc42482c598bcb
+blocks	4-4	1a961c3e15ac216a
+blocks	5-5	dd94ad6684dae3f6
+blocks	6-6	d8535446a94baeae
+blocks	7-7	a8f82a743b18c871
+blocks	8-8	f8a3eb09f064a275
+blocks	9-9	c4375867046407c8
+blocks	10-10	5bf92c02b33034df
+blocks	11-11	018a0ffc2a05542d
+blocks	12-12	ce604ad3fdb58ff7
+blocks	13-13	e48f3e0d8809cdf8
+blocks	14-14	595ca81d5f3c23eb
+blocks	15-15	0483d1308081fa33
+blocks	16-16	7d8c53053ee09069
+blocks	17-17	a5e0ba15d7ce42e3
+blocks	18-18	137768fca3e3ee8c
+blocks	19-19	61945d026915b0ba
+tail	735	e6a1f03c8232571b

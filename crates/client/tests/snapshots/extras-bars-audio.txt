@@ -1,0 +1,2 @@
+# mixed sound fingerprints of the scripted scene `extras-bars` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+tail	5880	5393820e97e164bb
