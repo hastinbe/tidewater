@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(steps(&mut c), 1, "5 ms left over plus 5 ms");
         c.advance(400 * MS);
         assert_eq!(steps(&mut c), 3, "at most 3 cycles run in a frame");
-        c.advance(0 * MS);
+        c.advance(Duration::ZERO);
         assert_eq!(steps(&mut c), 3, "the rest of the backlog is still there");
     }
 
@@ -186,7 +186,7 @@ mod tests {
         c.advance(200 * MS);
         assert_eq!(steps(&mut c), 3);
         assert_eq!(c.overstep, 80 * MS);
-        c.advance(0 * MS);
+        c.advance(Duration::ZERO);
         assert_eq!(steps(&mut c), 2, "the next frame runs more");
     }
 
@@ -197,7 +197,7 @@ mod tests {
         c.restart_steps(25.0);
         c.advance(600 * MS);
         assert_eq!(steps(&mut c), 0, "reset to now: nothing is owed");
-        c.advance(0 * MS);
+        c.advance(Duration::ZERO);
         assert_eq!(steps(&mut c), 0);
         c.advance(500 * MS);
         assert_eq!(steps(&mut c), 3, "500 ms exactly is kept");
