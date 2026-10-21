@@ -681,27 +681,31 @@ impl World {
 
     /// The owner's units of type `from` become `to` in place ("Converting units"): hit points go up by the
     /// difference of the maximums (each at least 1), mana is set, and a barracks working on `from` works on `to`.
+    ///
+    /// Enhanced goal rule (`economy/tech-tree.md`, "Converting units", "Its goal"; `ai/attack-ai.md`, "When a unit is
+    /// converted"): a unit that isn't held gets its goal cleared and, for a computer player's mobile non-worker, a
+    /// fresh first goal, as at creation. The units are taken in the owner's unit-list order, so any post-walk draws
+    /// come in that order. A held unit keeps its goal; Classic mode leaves goals alone.
     pub(crate) fn convert(&mut self, owner: u8, from: u8, to: u8) {
-        for i in 0..self.units.len() {
-            let u = &mut self.units[i];
-            if u.owner != owner {
-                continue;
+        for u in self.units.iter_mut().filter(|u| u.owner == owner && u.building) {
+            if matches!(u.kind, tech::building::HUMAN_BARRACKS | tech::building::ORC_BARRACKS)
+                && let Some(job) = &mut u.job
+                && job.kind == JobKind::Train(from)
+            {
+                // The progress is kept and the cost was paid as `from`; a refund looks the cost up again, so
+                // it gives back `to`'s.
+                job.kind = JobKind::Train(to);
             }
-            if u.building {
-                if matches!(u.kind, tech::building::HUMAN_BARRACKS | tech::building::ORC_BARRACKS)
-                    && let Some(job) = &mut u.job
-                    && job.kind == JobKind::Train(from)
-                {
-                    // The progress is kept and the cost was paid as `from`; a refund looks the cost up again, so
-                    // it gives back `to`'s.
-                    job.kind = JobKind::Train(to);
-                }
-                continue;
-            }
-            if u.kind != from || u.dying || u.removing || u.inside {
+        }
+        for i in self.list_of(owner) {
+            let u = &self.units[i];
+            if u.building || u.kind != from || u.dying || u.removing || u.inside {
                 continue;
             }
             self.convert_unit(i, to);
+            if self.rules.enhanced && !self.units[i].held {
+                self.first_goal(i);
+            }
         }
     }
 
@@ -1492,7 +1496,7 @@ mod tests {
             let (mut w, _) = training(2);
             run(&mut w, 80);
             assert_eq!(w.players[0].in_training, 0);
-            assert_eq!(pinned(&w), 14277953442941556503);
+            assert_eq!(pinned(&w), 17915623177907672070);
         }
 
         #[test]
@@ -1512,7 +1516,7 @@ mod tests {
                 kind: 2,
             }]);
             run(&mut w, 40);
-            assert_eq!(pinned(&w), 666169062581321506);
+            assert_eq!(pinned(&w), 8820834926549804665);
         }
 
         #[test]
@@ -1522,7 +1526,7 @@ mod tests {
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
             assert_eq!(w.unit(hall).unwrap().job, None);
-            assert_eq!(pinned(&w), 4002968534024783746);
+            assert_eq!(pinned(&w), 15454520896721223640);
         }
 
         #[test]
@@ -1531,7 +1535,7 @@ mod tests {
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 30);
             assert_eq!(w.unit(hall).unwrap().job, None);
-            assert_eq!(pinned(&w), 12797389103836182310);
+            assert_eq!(pinned(&w), 10684096811208041484);
         }
 
         /// A cancel given twice, and a cancel of a resting building, change nothing more.
@@ -1544,7 +1548,7 @@ mod tests {
             run(&mut w, 10);
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
-            assert_eq!(pinned(&w), 16536490222765927957);
+            assert_eq!(pinned(&w), 4720780317318813967);
         }
 
         /// The kill cancels at once: no wait 3 or still animation of "Job end" (the death animation starts).
@@ -1555,7 +1559,7 @@ mod tests {
             let hi = w.index(hall).unwrap();
             w.kill(hi);
             run(&mut w, 3);
-            assert_eq!(pinned(&w), 18263553936505040068);
+            assert_eq!(pinned(&w), 3690394512234706829);
         }
 
         /// Code versus spec: rescue cancels at once, leaving the building's animation as it was (the spec's "Job end"
@@ -1575,7 +1579,7 @@ mod tests {
                 run(&mut w, 3);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [1426564786812375164, 11555122101886924844]);
+            assert_eq!(got, [2874030280771312752, 10426929824414664701]);
         }
 
         #[test]
@@ -1615,10 +1619,10 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    8133953696086712185,
-                    16551267058749962179,
-                    18214275804600485233,
-                    8704031557821091703
+                    10953018571889235259,
+                    4186276528872527610,
+                    12577828450093509125,
+                    5555156148676639038
                 ]
             );
         }
@@ -1636,7 +1640,7 @@ mod tests {
                 assert!(!w.try_job(hi, JobKind::Train(2), tell));
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [13213827380189875725, 14546769762130876319]);
+            assert_eq!(got, [1429329101091103978, 8493515802596454448]);
         }
     }
 }

@@ -101,7 +101,6 @@ pub struct Vision {
     pub(crate) seen: Vec<u8>,
     /// Bumped whenever the explored or visible map changes, so a renderer can skip unchanged ticks.
     pub generation: u32,
-    started: bool,
     /// The refresh countdown ("The fog refresh"): cycles until the next fog refresh (timing spec, phase 3). It starts
     /// at 1, so the first refresh is in the first cycle; a refresh reloads it ([`World::refresh_period`]) and an
     /// Enhanced holy vision sets it to [`HOLY_VISION_COUNTDOWN`] ([`Vision::delay_refresh`]).
@@ -128,7 +127,6 @@ impl Vision {
             previous_visible: vec![ALL; n],
             seen: vec![0xff; n],
             generation: 0,
-            started: false,
             countdown: 1,
         }
     }
@@ -245,12 +243,17 @@ impl World {
             Kind::Human
         } else if self.computer_player(p) {
             Kind::Computer
-        } else if self
-            .players
-            .get(p as usize)
-            .is_some_and(|q| matches!(q.controller, controller::PASSIVE | controller::RESCUE_PASSIVE))
-        {
-            Kind::Passive
+        } else if let Some(q) = self.players.get(p as usize) {
+            match q.controller {
+                controller::PASSIVE | controller::RESCUE_PASSIVE => Kind::Passive,
+                controller::NOBODY => Kind::Nobody,
+                // `vision/fog.md`, "Terms" (static study, `ERRATA-audit-vision.md` erratum 3, F46): a controller code
+                // that is none of the kinds (only a custom map's owner code 8 or more) is tested like a human player.
+                // spec gap: codes 0 and 1 also match no kind here, but `game/setup.md` calls them the same value as
+                // human and computer "in every later test"; only 8 and up are taken as a human here.
+                c if c >= 8 => Kind::Human,
+                _ => Kind::Nobody,
+            }
         } else {
             Kind::Nobody
         }
@@ -389,14 +392,13 @@ impl World {
         let fog = self.rules.fog_of_war;
         let v = &mut self.vision;
         v.previous_visible.clone_from(&v.visible);
+        // With the option off a refresh neither sets nor clears the "seen" bits. A game set up with fog off starts
+        // with every bit set like any other (`vision/fog.md`, "The seen map", C1; traced, F43), so a bit clears only
+        // where a reveal touches the tile. Demo playback, which starts with every bit clear, isn't modelled here.
         if fog {
             v.visible.fill(ALL);
             v.seen.fill(0xff);
-        } else if !v.started {
-            // Fog off from the start (the demo): every tile counts as seen.
-            v.seen.fill(0);
         }
-        v.started = true;
         v.generation = v.generation.wrapping_add(1);
         true
     }
@@ -416,7 +418,7 @@ impl World {
         let v = &mut self.vision;
         v.visible.clone_from(&v.explored);
         for (s, &e) in v.seen.iter_mut().zip(&v.explored) {
-            *s = if e == ALL { *s & keep } else { 0 };
+            *s = if e == ALL { keep } else { 0 };
         }
         v.generation = v.generation.wrapping_add(1);
     }
@@ -450,7 +452,9 @@ impl World {
         for i in 0..self.units.len() {
             let u = &self.units[i];
             let s = self.stats_of(u.kind);
-            let set = if Self::is_dead(u) {
+            // A unit inside something (a passenger, a worker in a mine or building) is detected by everyone, whatever
+            // else holds (C4's passenger half, traced: F44).
+            let set = if Self::is_dead(u) || u.inside {
                 0xff
             } else if u.invisibility > 0 {
                 // Classic: the owner only. Enhanced: the owner's shared-vision set (empty for non-player owners).
@@ -524,20 +528,26 @@ impl World {
     }
 
     /// Whether player `p` can see the unit at all (not invisible or submerged to it).
-    pub(crate) fn detected(u: &Unit, p: u8) -> bool {
-        p >= SEEN_PLAYERS || u.detected_by & bit(p) != 0
+    ///
+    /// A player 8 to 15 has no bit: in Enhanced mode it counts a unit as detected when any player detects it, in
+    /// Classic mode never (`vision/fog.md`, "Detected by a player 8 or more", static study, erratum 6).
+    pub(crate) fn detected(&self, u: &Unit, p: u8) -> bool {
+        if p >= SEEN_PLAYERS {
+            return self.rules.enhanced && u.detected_by != 0;
+        }
+        u.detected_by & bit(p) != 0
     }
 
     /// Whether player `p` detects the unit (orders spec: an order aimed at a unit is lost when this is false; fog does
     /// not matter). False for a unit that does not exist.
     pub fn detected_by(&self, p: u8, id: UnitId) -> bool {
-        self.unit(id).is_some_and(|u| Self::detected(u, p))
+        self.unit(id).is_some_and(|u| self.detected(u, p))
     }
 
     /// Whether a unit is a legal pick for player `p`'s target search: not hidden from `p` and detected by it.
     pub fn visible_to(&self, p: u8, id: UnitId) -> bool {
         self.unit(id)
-            .is_some_and(|u| p >= SEEN_PLAYERS || (u.hidden_from & bit(p) == 0 && Self::detected(u, p)))
+            .is_some_and(|u| p >= SEEN_PLAYERS || (u.hidden_from & bit(p) == 0 && self.detected(u, p)))
     }
 
     /// Whether the local player can place a building on a site: every tile must be explored (some quarter cleared),
@@ -553,7 +563,7 @@ impl World {
     /// Minimap spec, "Units and buildings": dying, removed and inside units are skipped.
     pub fn on_minimap(&self, u: &Unit) -> bool {
         let p = self.vision.local;
-        if u.dying || u.removing || u.inside || !Self::detected(u, p) {
+        if u.dying || u.removing || u.inside || !self.detected(u, p) {
             return false;
         }
         if !u.building {
@@ -988,6 +998,118 @@ mod tests {
         w.change_owner(i, 15);
         w.step(&[]);
         assert_eq!(w.units[i].detected_by, 0);
+    }
+
+    /// C1 / F27 / F28 / F43 (traced, round 90): a game set up with fog off starts with every "seen" bit set, and the
+    /// refresh neither sets nor clears them. A unit on ground its side never revealed stays hidden; a reveal touching
+    /// it unhides it for good.
+    #[test]
+    fn a_game_set_up_with_fog_off_starts_with_every_seen_bit_set() {
+        let mut w = map();
+        w.rules.fog_of_war = false;
+        assert!(w.vision.seen.iter().all(|&b| b == 0xff), "at the start");
+        let far = w.spawn(FOOTMAN, 2, (50, 50), 0).unwrap();
+        let near = w.spawn(FOOTMAN, 0, (10, 10), 0).unwrap();
+        run(&mut w, 150);
+        assert_ne!(
+            w.unit(far).unwrap().hidden_from & 1,
+            0,
+            "F27: hidden from player 0 after the refreshes"
+        );
+        assert_eq!(w.vision.seen[50 * 64 + 50] & 1, 1, "refreshes don't clear");
+        assert_eq!(w.vision.seen[10 * 64 + 10] & 1, 0, "a reveal clears");
+        assert_eq!(w.unit(near).unwrap().hidden_from & 1, 0);
+        // F28: a footman of player 0 walks next to the tile: the unit is no longer hidden, and stays so.
+        let i = w.index(near).unwrap();
+        w.units[i].tile = (49, 50);
+        w.units[i].pos = (49 * crate::TILE_PX, 50 * crate::TILE_PX);
+        w.step_sight(i);
+        run(&mut w, 2);
+        assert_eq!(w.unit(far).unwrap().hidden_from & 1, 0);
+        w.units[i].tile = (10, 10);
+        w.units[i].pos = (10 * crate::TILE_PX, 10 * crate::TILE_PX);
+        run(&mut w, 250);
+        assert_eq!(
+            w.unit(far).unwrap().hidden_from & 1,
+            0,
+            "fog off: nothing sets the bit again"
+        );
+    }
+
+    /// C4's passenger half (traced, F44): an invisible unit inside something is detected by everyone and hidden from
+    /// everyone, though its invisibility timer runs; it has its owner's set again once it comes out.
+    #[test]
+    fn an_inside_unit_is_detected_by_everyone() {
+        let mut w = map();
+        w.rules.enhanced = true;
+        let a = w.spawn(FOOTMAN, 2, (5, 5), 0).unwrap();
+        let i = w.index(a).unwrap();
+        w.units[i].invisibility = 500;
+        w.step(&[]);
+        assert_eq!(w.units[i].detected_by, 1 << 2);
+        w.units[i].inside = true;
+        w.step(&[]);
+        assert_eq!(w.units[i].detected_by, 0xff);
+        assert_eq!(w.units[i].hidden_from, 0xff);
+        assert!(w.units[i].invisibility > 0, "the timer keeps running");
+        w.units[i].inside = false;
+        w.step(&[]);
+        assert_eq!(w.units[i].detected_by, 1 << 2);
+    }
+
+    /// X12 / F45 (static study): switching fog off gives a fully unexplored tile exactly the local player's set, not
+    /// the AND of the old bits and the set.
+    #[test]
+    fn switching_fog_off_assigns_the_local_set_on_an_unexplored_tile() {
+        let mut w = map();
+        w.step(&[]);
+        w.cheat_clear_fog();
+        assert!(w.vision.seen.iter().all(|&b| b == 0));
+        w.set_fog_of_war(true);
+        w.set_fog_of_war(false);
+        let (x, y) = (20, 20);
+        assert!(w.vision.unexplored(x, y));
+        assert_eq!(w.vision.seen[(y * 64 + x) as usize], 1, "exactly {{0}}");
+    }
+
+    /// F46 (static study): a controller code that is none of the kinds is tested like a human player.
+    #[test]
+    fn an_undefined_controller_code_counts_as_human_for_visibility() {
+        let mut w = map();
+        w.players[3].controller = 9;
+        let g = w.spawn(FOOTMAN, 3, (50, 50), 0).unwrap();
+        let p0 = w.spawn(FOOTMAN, 0, (30, 30), 0).unwrap();
+        w.step(&[]);
+        let i = w.index(p0).unwrap();
+        assert_ne!(
+            w.units[i].hidden_from & (1 << 3),
+            0,
+            "hidden from slot 3 by the footprint test"
+        );
+        // A reveal of a set including slot 3 clears the bit.
+        w.reveal(3, (30, 30), 4);
+        w.unit_visibility();
+        assert_eq!(w.units[i].hidden_from & (1 << 3), 0);
+        assert!(w.unit(g).is_some());
+    }
+
+    /// Players 8 to 15 (static study, erratum 6): "detected by p" is "any player detects it" in Enhanced mode, never in
+    /// Classic.
+    #[test]
+    fn detected_by_a_player_8_or_more_follows_the_spec_note() {
+        let mut w = map();
+        let a = w.spawn(FOOTMAN, 2, (5, 5), 0).unwrap();
+        let i = w.index(a).unwrap();
+        w.units[i].invisibility = 50;
+        w.step(&[]);
+        assert_eq!(w.units[i].detected_by, 1 << 2);
+        w.rules.enhanced = true;
+        assert!(w.detected_by(9, a), "its owner detects it, so p detects it");
+        w.units[i].detected_by = 0;
+        assert!(!w.detected_by(9, a), "nobody detects it");
+        w.units[i].detected_by = 0xff;
+        w.rules.enhanced = false;
+        assert!(!w.detected_by(9, a), "Classic: never");
     }
 
     #[test]

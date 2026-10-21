@@ -457,16 +457,18 @@ impl Start {
     /// as allied.
     pub fn alliances(&self) -> [u16; PLAYERS] {
         let c = &self.controllers;
-        // A rescue-active slot starts allied with the local player only, so the table differs by machine.
-        // Network games: open question (see docs/design/multiplayer-determinism.md)
+        // A rescue-active slot starts allied with every human-controlled slot, both ways: in single player that is the
+        // local player alone, in a network game every human slot, the same on every machine (G23, static study,
+        // `ERRATA-audit-game.md` erratum 9).
         let local = self.local as usize;
+        let human = |x: usize| x == local || (self.multiplayer && c[x] == controller::HUMAN);
         let mut table = [u16::MAX; PLAYERS];
         for a in 0..PLAYERS - 1 {
             for b in (0..PLAYERS - 1).filter(|&b| b != a) {
                 let allied = c[a] == controller::RESCUE_PASSIVE
                     || c[b] == controller::RESCUE_PASSIVE
-                    || (a == local && c[b] == controller::RESCUE_ACTIVE)
-                    || (b == local && c[a] == controller::RESCUE_ACTIVE)
+                    || (human(a) && c[b] == controller::RESCUE_ACTIVE)
+                    || (human(b) && c[a] == controller::RESCUE_ACTIVE)
                     || (c[a] == controller::COMPUTER && c[b] == controller::COMPUTER);
                 if !allied {
                     table[a] &= !(1 << b);
@@ -1077,6 +1079,36 @@ mod tests {
         // Passive computer and nobody slots: only rescue (passive), neutral and themselves.
         assert!((0..16).all(|q| allied(3, q) == matches!(q, 3 | 4 | 15)));
         assert!((0..16).all(|q| allied(6, q) == matches!(q, 4 | 6 | 15)));
+    }
+
+    /// G23 (static study): in a network game, with humans in slots 0 and 1 and code 7 in slot 2, slot 2 is allied both
+    /// ways with both humans, whichever machine's local slot it is; in single player only the local player.
+    #[test]
+    fn g23_an_active_rescue_slot_allies_with_every_human() {
+        let m = Map {
+            owners: owners([5, 5, 7, 3, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let mut s = Start::choose(&pud(&m), &Setup::parse("campaign:10").unwrap(), 0).unwrap();
+        s.controllers[..3].copy_from_slice(&[HUMAN, HUMAN, RESCUE_ACTIVE]);
+        s.multiplayer = true;
+        for local in [0, 1] {
+            s.local = local;
+            let t = s.alliances();
+            let allied = |a: usize, b: usize| t[a] & (1 << b) != 0;
+            for h in [0, 1] {
+                assert!(allied(h, 2) && allied(2, h), "local {local}: slot {h} and slot 2");
+            }
+            assert!(
+                !allied(0, 1) && !allied(1, 0),
+                "the humans aren't allied with each other"
+            );
+        }
+        s.multiplayer = false;
+        s.local = 0;
+        let t = s.alliances();
+        let allied = |a: usize, b: usize| t[a] & (1 << b) != 0;
+        assert!(allied(0, 2) && allied(2, 0) && !allied(1, 2) && !allied(2, 1));
     }
 
     #[test]

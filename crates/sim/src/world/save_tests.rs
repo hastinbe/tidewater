@@ -47,6 +47,8 @@ fn save_then_load_reproduces_the_state() {
     let mut b = field(16, 16);
     b.restore(&bytes, 99).unwrap();
     a.rng = Rng::new(99);
+    // What a load starts afresh (counter, pause, countdowns, creation numbers) is not what was saved.
+    a.starts_afresh();
     assert_eq!(a.state_hash(), b.state_hash());
     assert_eq!(a.save_state(), b.save_state(), "everything stored comes back the same");
     for t in 0..300 {
@@ -60,10 +62,11 @@ fn save_then_load_reproduces_the_state() {
 #[test]
 fn the_pending_command_mark_comes_back() {
     // battle() gives its commands in the first cycle; their pending orders haven't taken over yet.
-    let a = battle();
+    let mut a = battle();
     assert!(a.units.iter().any(|u| u.commanded), "a command is pending at the save");
     let mut b = field(16, 16);
     b.restore(&a.save_state(), 1).unwrap();
+    a.starts_afresh();
     assert_eq!(b.units, a.units);
 }
 
@@ -77,6 +80,7 @@ fn the_cooldown_and_the_kept_and_forgotten_targets_come_back() {
     a.units[4].dying_target = Some(3);
     let mut b = field(16, 16);
     b.restore(&a.save_state(), 1).unwrap();
+    a.starts_afresh();
     assert_eq!(
         (b.units[0].cooldown, b.units[0].forgot, b.units[4].dying_target),
         (61, Some(attack), Some(3))
@@ -120,7 +124,7 @@ fn cheats_start_as_for_a_new_game() {
 }
 
 #[test]
-fn a_classic_save_drops_the_cycle_count_and_the_score() {
+fn a_classic_save_drops_the_score() {
     let mut a = battle();
     a.rules.enhanced = false;
     run(&mut a, 30);
@@ -133,14 +137,15 @@ fn a_classic_save_drops_the_cycle_count_and_the_score() {
     assert_eq!(b.tick, 0);
     assert_eq!((b.players[0].score, b.players[0].kills), (0, 0));
     assert_eq!(b.players[0].gold, a.players[0].gold, "resources are kept");
+    a.starts_afresh();
     assert_eq!(b.units, a.units);
-    // Enhanced keeps both.
+    // Enhanced keeps the score (the cycle counter restarts at 0 in both modes).
     let mut c = battle();
     run(&mut c, 30);
     c.players[0].score = 500;
     let mut d = field(16, 16);
     d.restore(&c.save_state(), 1).unwrap();
-    assert_eq!((d.tick, d.players[0].score), (c.tick, 500));
+    assert_eq!((d.tick, d.players[0].score), (0, 500));
 }
 
 #[test]
@@ -214,58 +219,140 @@ fn the_fingerprint_follows_the_whole_state() {
     assert_ne!(b.fingerprint(), before.0);
 }
 
-/// X3 (`game/save-load.md`, "What a loaded game starts afresh"; vector G11): a load runs the two start-up cycles, which
-/// count against the restored victory countdown, and the cycle counter keeps its saved value.
+/// Round 90 (`game/save-load.md`, "What a loaded game starts afresh"; vectors G11 and G17): a load runs the two
+/// start-up cycles like a new game, so the cycle counter, the victory countdown and the fog countdown start afresh
+/// whatever was saved: the counter is 0 after the start-up cycles, the first victory check runs in the second
+/// start-up cycle and then at counter 201, 402, ..., and the fog refreshes in the first start-up cycle.
 #[test]
-fn a_load_runs_the_two_start_up_cycles_and_keeps_the_cycle_counter() {
+fn a_load_starts_the_counter_and_both_countdowns_afresh() {
     let mut a = battle();
     run(&mut a, 60);
     a.victory.countdown = 50;
     a.vision.countdown = 40;
-    let tick = a.tick;
     let bytes = a.save_state();
     let mut b = field(16, 16);
     b.restore(&bytes, 1).unwrap();
-    assert_eq!((b.tick, b.victory.countdown, b.vision.countdown), (tick, 50, 40));
+    assert_eq!((b.tick, b.victory.countdown, b.vision.countdown), (0, 1, 1));
     let units = b.units.clone();
-    b.start_up_loaded();
-    assert_eq!(b.tick, tick, "the counter keeps its saved value");
-    assert_eq!(
-        (b.victory.countdown, b.vision.countdown),
-        (48, 38),
-        "both countdowns count the start-up cycles"
-    );
+    b.start_up();
+    assert_eq!(b.tick, 0, "the counter is 0 again after the start-up cycles");
     assert_ne!(b.units, units, "they are full cycles: the units update");
-    // G11: the first check after the load runs in the 51st cycle after it, the start-up cycles included.
-    let mut n = 2;
-    loop {
+    // G17 (traced, `human1-human01-saveload-game-300`): the victory countdown is 200 after the second start-up cycle
+    // (its check ran in it) and the fog countdown 99 (the refresh ran in the first).
+    assert_eq!((b.victory.countdown, b.vision.countdown), (RELOAD_VICTORY, 99));
+    // The next check runs at counter 201.
+    let mut counters = Vec::new();
+    for _ in 0..403 {
         let before = b.victory.countdown;
         b.step(&[]);
-        n += 1;
         if before == 0 {
-            break;
+            counters.push(b.tick);
         }
-        assert!(n < 100);
     }
-    assert_eq!(n, 51);
-    assert_eq!(b.tick, tick + 49);
+    assert_eq!(counters, [201, 402]);
 }
 
-/// A game saved while paused still runs its start-up cycles, and is paused again after them.
+const RELOAD_VICTORY: u32 = 200;
+
+/// G18 (static study, `game/save-load.md`, "Pause"): a game saved while paused loads running.
 #[test]
-fn a_game_saved_paused_runs_its_start_up_cycles_unpaused() {
+fn a_game_saved_paused_loads_running() {
     let mut a = battle();
-    a.victory.countdown = 50;
     a.paused = true;
     let mut b = field(16, 16);
     b.restore(&a.save_state(), 1).unwrap();
-    assert!(b.paused);
-    b.start_up_loaded();
-    assert!(b.paused);
-    assert_eq!(b.victory.countdown, 48);
+    assert!(!b.paused);
+    b.start_up();
+    assert!(!b.paused);
+    assert_eq!(b.victory.countdown, RELOAD_VICTORY);
 }
 
-/// A Classic save restores the cycle counter at 0 and the start-up cycles leave it there.
+/// Q4 (traced, G07 in `game/lifecycle.md`): an outcome a check found but didn't show yet is lost in a load; the rule
+/// that was in force comes back, so the check finds the outcome again only if the game state still gives it.
+#[test]
+fn a_load_loses_a_found_outcome_and_restores_the_rule() {
+    use crate::victory::{Outcome, Rule};
+    let mut a = battle();
+    let rule = Rule::Standard {
+        destroy_all: true,
+        rescue: None,
+    };
+    a.victory.rule = Some(rule);
+    a.rules.instant_victory = true;
+    a.victory.countdown = 0;
+    a.step(&[]);
+    assert_eq!(
+        a.victory.rule,
+        Some(Rule::Outcome(Outcome::Victory)),
+        "found at the check"
+    );
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!(b.victory.rule, Some(rule), "the outcome is lost");
+    assert!(!b.rules.instant_victory, "the cheat flag isn't saved");
+    b.start_up();
+    run(&mut b, 600);
+    assert!(
+        b.victory.rule != Some(Rule::Outcome(Outcome::Victory)),
+        "not found again"
+    );
+    assert!(!b.victory.over);
+    // A switch made before the save (to destroy all) is kept by the saved rule.
+    assert_eq!(b.victory.rule, Some(rule));
+}
+
+/// Round 90 (traced: 12 units in `human1-human01-saveload-game-300`, 200 in the runestone trace): a load renumbers every
+/// unit's creation number to its slot plus one, and the next unit gets one more than the largest in use.
+#[test]
+fn a_load_renumbers_the_creation_numbers_to_slot_plus_one() {
+    let mut a = battle();
+    run(&mut a, 10);
+    assert!(
+        a.units.iter().any(|u| u.serial.0 != u.slot as u32 + 1),
+        "not the case before the load"
+    );
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert!(b.units.iter().all(|u| u.serial.0 == u.slot as u32 + 1));
+    // Every other field is as saved, and the handles other state refers to are the same.
+    assert_eq!(
+        b.units
+            .iter()
+            .map(|u| (u.id, u.slot, u.kind, u.tile))
+            .collect::<Vec<_>>(),
+        a.units
+            .iter()
+            .map(|u| (u.id, u.slot, u.kind, u.tile))
+            .collect::<Vec<_>>()
+    );
+    let top = b.units.iter().map(|u| u.serial.0).max().unwrap();
+    let n = b.spawn(0, 0, (6, 6), 0).unwrap();
+    assert_eq!(b.unit(n).unwrap().serial.0, top + 1);
+}
+
+/// The creation number counts up from 1 in a new game, one per created unit.
+#[test]
+fn creation_numbers_count_up_from_1_in_a_new_game() {
+    let a = battle();
+    let mut serials: Vec<u32> = a.units.iter().map(|u| u.serial.0).collect();
+    serials.sort_unstable();
+    assert_eq!(serials, (1..=a.units.len() as u32).collect::<Vec<_>>());
+}
+
+/// Round 90 (traced, `human1-human01-cheat-load-game-50`): a load keeps the cheat-used mark as the template has it.
+#[test]
+fn a_load_keeps_the_cheat_used_mark() {
+    let a = battle();
+    let mut b = field(16, 16);
+    b.cheats.used = true;
+    b.restore(&a.save_state(), 1).unwrap();
+    assert!(b.cheats.used);
+    let mut c = field(16, 16);
+    c.restore(&a.save_state(), 1).unwrap();
+    assert!(!c.cheats.used);
+}
+
+/// A Classic load starts counting at 0 as well.
 #[test]
 fn a_classic_load_starts_counting_at_0() {
     let mut a = battle();
@@ -274,7 +361,7 @@ fn a_classic_load_starts_counting_at_0() {
     let mut b = field(16, 16);
     b.rules.enhanced = false;
     b.restore(&a.save_state(), 1).unwrap();
-    b.start_up_loaded();
+    b.start_up();
     assert_eq!(b.tick, 0);
 }
 

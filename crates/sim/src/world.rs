@@ -224,9 +224,23 @@ pub enum Source {
     Tree((i32, i32)),
 }
 
+/// A unit's creation number. It doesn't join the sync hash: nothing in the simulation reads it (it only names the unit in
+/// the trace), so keeping it out leaves every game's hash as it was.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct Serial(pub u32);
+
+impl std::hash::Hash for Serial {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Unit {
     pub id: UnitId,
+    /// The unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3): 1 for the first unit of a map,
+    /// then one more per created unit; a load renumbers every unit to its slot plus one. The trace format's `serial`.
+    /// [`Unit::id`] stays the handle other state refers to, so a renumbering never has to rewrite a reference.
+    pub serial: Serial,
     /// Place in the unit table; units update in ascending slot order.
     pub slot: u16,
     pub kind: u8,
@@ -839,6 +853,12 @@ pub struct World {
     pub upgrade_data: UpgradeTable,
     pub(crate) ai_file: Option<Arc<AiFile>>,
     next_id: u32,
+    /// The creation number the next unit gets (`core/unit-slots.md`, step 3). It follows `next_id` until a load
+    /// renumbers the units; then it is one past the largest number in use (`game/save-load.md`, "Open questions").
+    next_serial: u32,
+    /// The rule that was in force when a check found an outcome, which replaced it ([`crate::victory::Rule::Outcome`]).
+    /// A load loses the found outcome and puts this rule back (`game/save-load.md`, "Victory countdown").
+    pub(crate) rule_before_outcome: Option<crate::victory::Rule>,
     /// Fog maps and "seen" bits (vision spec).
     pub vision: Vision,
     /// The victory check (victory spec).
@@ -1021,6 +1041,8 @@ impl World {
             start: Default::default(),
             cheats: Default::default(),
             next_id: 1,
+            next_serial: 1,
+            rule_before_outcome: None,
             vision: Vision::new(terrain_w, terrain_h),
             victory: Default::default(),
         }
@@ -1160,6 +1182,8 @@ impl World {
         }
         let id = UnitId(self.next_id);
         self.next_id += 1;
+        let serial = self.next_serial;
+        self.next_serial += 1;
         // Unit-slots spec, "Creating a unit", step 3: facing 0; only mobile units then draw one.
         let (mut facing, mut variation) = (0, 0);
         // Spells spec, "Summoned units and decay": a decaying type created during play makes no facing draw.
@@ -1174,6 +1198,7 @@ impl World {
         script.start(anim::STILL, self.scripts.unit(kind, anim::STILL).unwrap_or(0));
         let unit = Unit {
             id,
+            serial: Serial(serial),
             slot,
             kind,
             owner,

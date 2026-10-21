@@ -775,11 +775,12 @@ mod tests {
         assert!(w.cheats.used);
     }
 
-    /// X2 (`game/cheats.md`, "Cheat-used mark"): a new game starts with the mark clear (every new game start builds a
-    /// fresh world, so replay, restart and mission select all get that), the local player's cheat command sets it, and
-    /// a load clears it again because the mark isn't saved.
+    /// X2 (`game/cheats.md`, "Cheat-used mark"; G06 and G19, traced round 90): a new game starts with the mark clear
+    /// (every new game start builds a fresh world, so replay, restart and mission select all get that), the local
+    /// player's cheat command sets it, and a load leaves it as the running program had it: the mark isn't saved, so it
+    /// is the template's (the client hands over the one from the game before).
     #[test]
-    fn the_cheat_used_mark_is_clear_at_a_new_game_and_after_a_load() {
+    fn the_cheat_used_mark_is_clear_at_a_new_game_and_a_load_keeps_it() {
         let mut w = human_world();
         assert!(!w.cheats.used, "a new game starts clear");
         // Mission select's own command carries the flags unchanged, with the mission-select flag on.
@@ -788,7 +789,15 @@ mod tests {
         let bytes = w.save_state();
         let mut loaded = human_world();
         loaded.restore(&bytes, 1).unwrap();
-        assert!(!loaded.cheats.used, "a load clears the mark");
+        assert!(
+            !loaded.cheats.used,
+            "the mark isn't in the save: a template without it stays clear"
+        );
+        // G19 (`human1-human01-cheat-load-game-50`): the program had it set before the load, so it is set after.
+        let mut loaded = human_world();
+        loaded.cheats.used = true;
+        loaded.restore(&bytes, 1).unwrap();
+        assert!(loaded.cheats.used, "a load keeps the mark");
         // The mark is per machine and not in the sync hash.
         let (mut a, b) = (human_world(), human_world());
         a.cheats.used = true;

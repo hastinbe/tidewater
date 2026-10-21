@@ -371,6 +371,7 @@ impl World {
             Rule::Mission { mode, required } => self.mission(l, mode, required),
         };
         if let Some(o) = found {
+            self.rule_before_outcome = self.victory.rule;
             self.victory.rule = Some(Rule::Outcome(o));
         }
     }

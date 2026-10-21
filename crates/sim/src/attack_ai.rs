@@ -357,7 +357,7 @@ impl World {
     }
 
     /// Indices of `owner`'s units in list order.
-    fn list_of(&self, owner: u8) -> Vec<usize> {
+    pub(crate) fn list_of(&self, owner: u8) -> Vec<usize> {
         self.slots
             .list(owner)
             .filter_map(|s| self.units.binary_search_by_key(&s, |u| u.slot).ok())
@@ -2195,6 +2195,136 @@ mod tests {
         assert_eq!(at(&w, p).goal.kind, GoalKind::None);
     }
 
+    // ---- Conversion goal rule (`economy/tech-tree.md` TC1-TC6, `ai/attack-ai.md` AG4) ----
+
+    const PALADIN: u8 = 0x0c;
+
+    /// A game with a computer hall and a human footman (so a post can be chosen) and a knight of `owner`, not held,
+    /// with goal attack at (40, 40) and a move-attack order toward it.
+    fn convert_world(owner: u8) -> (World, UnitId) {
+        let mut w = game();
+        w.stats.0[PALADIN as usize] = melee(110, 10, 4, flags::LAND);
+        spawn(&mut w, TOWN_HALL, 1, (4, 10));
+        spawn(&mut w, FOOTMAN, 0, (30, 10));
+        let k = spawn(&mut w, KNIGHT, owner, (10, 10));
+        let u = um(&mut w, k);
+        u.goal = Goal {
+            kind: GoalKind::Attack,
+            tile: Some((40, 40)),
+            ..Default::default()
+        };
+        u.order = Order::MoveAttack {
+            goal: (40, 40),
+            target: None,
+        };
+        (w, k)
+    }
+
+    fn whole_map_box(w: &mut World) {
+        w.army.boxes[1] = BaseBox {
+            min_x: 0,
+            min_y: 0,
+            max_x: 63,
+            max_y: 63,
+        };
+    }
+
+    #[test]
+    fn tc1_a_converted_computer_unit_that_is_not_held_gets_a_fresh_first_goal() {
+        // TC1 and AG4 (static study): the goal becomes hold at the post; the order is untouched.
+        let (mut w, k) = convert_world(1);
+        let post = {
+            let mut probe = w.clone();
+            let i = ix(&probe, k);
+            probe.post(i)
+        };
+        w.convert(1, KNIGHT, PALADIN);
+        let u = at(&w, k);
+        assert_eq!(u.kind, PALADIN);
+        assert_eq!((u.goal.kind, u.goal.tile), (GoalKind::Hold, Some(post)));
+        assert_ne!(u.goal.tile, Some((40, 40)));
+        assert!(
+            matches!(u.order, Order::MoveAttack { goal: (40, 40), .. }),
+            "order unchanged"
+        );
+    }
+
+    #[test]
+    fn tc2_an_off_map_post_after_a_conversion_draws_twice() {
+        // TC2 (static study): the line walk ends off the map, so the conversion draws x then y.
+        let (mut w, k) = convert_world(1);
+        whole_map_box(&mut w);
+        let mut r = w.rng;
+        let (dx, dy) = (r.draw() % 12, r.draw() % 12);
+        w.convert(1, KNIGHT, PALADIN);
+        assert_eq!(w.rng, r, "2 draws");
+        let want = (10 + dx as i32 - 6, 10 + dy as i32 - 6);
+        let u = at(&w, k);
+        assert_eq!(u.goal.kind, GoalKind::Hold);
+        if want != (10, 10) {
+            assert_eq!(u.goal.tile, Some(want));
+        }
+    }
+
+    #[test]
+    fn tc3_a_human_units_goal_is_cleared_with_no_draw() {
+        let (mut w, k) = convert_world(0);
+        let rng = w.rng;
+        w.convert(0, KNIGHT, PALADIN);
+        let u = at(&w, k);
+        assert_eq!(u.kind, PALADIN);
+        assert_eq!(u.goal, Goal::default());
+        assert_eq!(w.rng, rng, "no draw");
+        assert!(matches!(u.order, Order::MoveAttack { .. }), "order unchanged");
+    }
+
+    #[test]
+    fn tc5_a_held_unit_keeps_its_goal_and_mark() {
+        // TC5 and AG2 (the traced held knights): the goal and the held mark stay, no draw.
+        let (mut w, k) = convert_world(1);
+        um(&mut w, k).held = true;
+        let rng = w.rng;
+        w.convert(1, KNIGHT, PALADIN);
+        let u = at(&w, k);
+        assert_eq!(u.kind, PALADIN);
+        assert_eq!((u.goal.kind, u.goal.tile), (GoalKind::Attack, Some((40, 40))));
+        assert!(u.held);
+        assert_eq!(w.rng, rng);
+    }
+
+    #[test]
+    fn tc6_classic_mode_leaves_the_goal_alone() {
+        let (mut w, k) = convert_world(1);
+        w.rules.enhanced = false;
+        w.convert(1, KNIGHT, PALADIN);
+        let u = at(&w, k);
+        assert_eq!(u.kind, PALADIN);
+        assert_eq!((u.goal.kind, u.goal.tile), (GoalKind::Attack, Some((40, 40))));
+    }
+
+    #[test]
+    fn a_conversion_takes_the_units_in_the_owners_list_order() {
+        // Two knights with off-map posts: the first draws go to the unit that comes first in the owner's list.
+        let (mut w, a) = convert_world(1);
+        let b = spawn(&mut w, KNIGHT, 1, (20, 20));
+        whole_map_box(&mut w);
+        let mut r = w.rng;
+        let first = (r.draw() % 12, r.draw() % 12);
+        let second = (r.draw() % 12, r.draw() % 12);
+        let list: Vec<u16> = w.list_of(1).into_iter().map(|i| w.units[i].slot).collect();
+        let pos = |id| list.iter().position(|&s| s == at(&w, id).slot).unwrap();
+        let (front, back) = if pos(a) < pos(b) { (a, b) } else { (b, a) };
+        w.convert(1, KNIGHT, PALADIN);
+        assert_eq!(w.rng, r, "4 draws");
+        for (id, d) in [(front, first), (back, second)] {
+            let u = at(&w, id);
+            let want = (u.tile.0 + d.0 as i32 - 6, u.tile.1 + d.1 as i32 - 6);
+            if want != u.tile {
+                assert_eq!(u.goal.tile, Some(want), "unit at {:?}", u.tile);
+            }
+        }
+    }
+
     // ---- Base box ----
 
     #[test]
@@ -2704,7 +2834,7 @@ mod tests {
         w.damage(ix(&w, v), 1, sub);
         assert_eq!(at(&w, v).attacked_by, Some(sub));
         w.step(&[]);
-        assert!(!World::detected(at(&w, sub), 1), "nothing detects the submarine");
+        assert!(!w.detected(at(&w, sub), 1), "nothing detects the submarine");
         for _ in 0..50 {
             w.step(&[]);
         }
@@ -2991,7 +3121,7 @@ mod tests {
         #[test]
         fn the_army_through_the_passes() {
             let mut w = army();
-            assert_eq!(trail(&mut w, 900), 17211368900741783736);
+            assert_eq!(trail(&mut w, 900), 12305776190813799121);
             // Two land rounds and an air round went out; the sea wave found nobody.
             assert_eq!(w.army.launched[1], [2, 0, 1]);
         }
@@ -3040,40 +3170,40 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    6042437728563913277,
-                    7513743930288408192,
-                    4427678233780404357,
-                    6900686228984607963,
-                    8823317975428448962,
+                    4556716258711657354,
+                    1770130672051338086,
+                    2501299131844778099,
+                    9399584581746035228,
+                    12030469243166355126,
                     // Round 83 (CP7): with 2 farms and the unfinished platform, B = 3 at the first kill, so no
                     // all-out attack there; the second kill starts it. (With 3 or 4 farms the site has completed by
                     // the kill that brings B under 3.) Every row after an all-out attack changed with the job choice
                     // in order 4 (CP5): the peasant sent off by it takes up a job on the way.
-                    1763155314859678738,
-                    15826794703079266662,
-                    16191897135130498468,
-                    4132461433334496410,
-                    18224364270534115706,
-                    18283054091649668454,
-                    5466927513740763677,
-                    13181640681965463486,
-                    16817622223440180522,
-                    15001787275378286940,
-                    3738157604034410381,
-                    12840339517839624817,
-                    14576159226804369819,
-                    1901386471991242854,
-                    5854360311119351397,
-                    6330159254475103207,
-                    12374259548167110013,
-                    11717065394223980993,
-                    17074189127906525535,
-                    12999341428242869729,
-                    7700757550540119707,
-                    6015892671986007488,
-                    5443590975829554546,
-                    17953788181548926056,
-                    9078793151650143698
+                    4604849604486321979,
+                    16606853075597066782,
+                    14532773515550629797,
+                    16147377080181629715,
+                    10653233437857854795,
+                    4175799970121486509,
+                    15348666297049122937,
+                    1648900853605443283,
+                    15807987665835718283,
+                    10648939701414471184,
+                    3254991481995239277,
+                    4447447204954192081,
+                    8729382357582450487,
+                    6915270578737206914,
+                    14558739908125416761,
+                    12130297062314814180,
+                    16507287986273929050,
+                    13420571301809352748,
+                    12839564461831206537,
+                    10580447938890053749,
+                    11770530999509274751,
+                    17098623068204156627,
+                    680666688213387865,
+                    17258727776900383909,
+                    11289799573322135271
                 ]
             );
         }
@@ -3099,7 +3229,7 @@ mod tests {
             spawn(&mut w, ARCHER, 0, (27, 20));
             spawn(&mut w, SUBMARINE, 0, (33, 22));
             spawn(&mut w, FOOTMAN, 0, (26, 21));
-            assert_eq!(trail(&mut w, 400), 6226891966205405638);
+            assert_eq!(trail(&mut w, 400), 4395304966685140962);
         }
 
         /// A unit on patrol whose logic runs at its patrol end with an enemy in its search box, for a computer and a
@@ -3115,7 +3245,7 @@ mod tests {
                 w.patrol(i, (20, 20), (10, 20));
                 got.push(trail(&mut w, 60));
             }
-            assert_eq!(got, [1738488028321227936, 18181853475217247637]);
+            assert_eq!(got, [15376066003941938586, 9618924667765352836]);
         }
     }
 }

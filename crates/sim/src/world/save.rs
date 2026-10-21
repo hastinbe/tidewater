@@ -17,10 +17,11 @@
 //!
 //! **Afresh on load.** The generator is not stored; [`World::restore`] takes the seed to start it from (the caller
 //! passes the time in seconds, as for a new game, `core/timing-and-rng.md` "Seeding"). The cheat flags are not stored;
-//! a loaded game keeps the template's flags masked to the lasting ones ([`crate::cheats::Cheats::across_games`]). A
-//! Classic save ([`Rules::enhanced`] false) drops the cycle count, which restarts at 0, and the score counters.
-//! The game clock and the pause counts are not in the simulation (the client keeps them), so the client's save state
-//! carries them.
+//! a loaded game keeps the template's flags masked to the lasting ones ([`Flags::for_new_game`]), and leaves the
+//! cheat-used mark as the template has it. A Classic save ([`Rules::enhanced`] false) drops the score counters.
+//! What a load starts afresh in either mode (cycle counter, pause, countdowns, creation numbers) is
+//! [`World::starts_afresh`]. The game clock and the pause counts are not in the simulation (the client keeps them), so
+//! the client's save state carries them.
 
 use serde::{Deserialize, Serialize};
 
@@ -61,6 +62,8 @@ saved! {
     ai: [AiPlayer; SCRIPT_PLAYERS],
     army: crate::attack_ai::Army,
     next_id: u32,
+    next_serial: u32,
+    rule_before_outcome: Option<crate::victory::Rule>,
     vision: Vision,
     victory: crate::victory::Victory,
     occupancy: [Vec<Option<UnitId>>; 2],
@@ -69,7 +72,6 @@ saved! {
     stale: BTreeMap<u16, crate::caster_ai::Stale>,
     selections: [crate::select::PlayerSelection; PLAYERS],
     speed: u8,
-    paused: bool,
     remembered: crate::minimap::Memory,
 }
 
@@ -150,8 +152,8 @@ impl World {
     }
 
     /// Puts a stored world over `self`, which must be the template the same map and set-up build. `seed` starts the
-    /// random generator afresh. Cheats start as for a new game. A Classic save restarts the cycle count at 0 and
-    /// clears the score counters.
+    /// random generator afresh. Cheats start as for a new game. A load starts the counters afresh ([`World::starts_afresh`])
+    /// and a Classic save clears the score counters.
     pub fn restore(&mut self, bytes: &[u8], seed: u32) -> Result<(), RestoreError> {
         let (saved, terrain): (Saved, TerrainOwned) =
             postcard::from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
@@ -177,6 +179,10 @@ impl World {
             .collect();
         let template = self.rules.clone();
         let kept = self.cheats.flags.for_new_game();
+        // The cheat-used mark isn't saved and a load doesn't clear it: it stays as the running program left it
+        // (`game/save-load.md`, "Cheat-used mark"; traced, `human1-human01-cheat-load-game-50`). The caller hands it
+        // over in the template; the client carries it from the game before.
+        let used = self.cheats.used;
         saved.put(self);
         self.rng = Rng::new(seed);
         // Cheats: the flags aren't stored, so the effects the stored rules carry are cleared and the flags that carry
@@ -190,6 +196,7 @@ impl World {
         self.rules.instant_defeat = template.instant_defeat;
         self.rules.disable_victory = template.disable_victory;
         self.cheats = Default::default();
+        self.cheats.used = used;
         self.start_cheats(kept);
         self.events.clear();
         self.loading = false;
@@ -198,8 +205,8 @@ impl World {
         for sel in &mut self.selections {
             sel.places = Default::default();
         }
+        self.starts_afresh();
         if !self.rules.enhanced {
-            self.tick = 0;
             for p in &mut self.players {
                 p.kills = 0;
                 p.razings = 0;
@@ -212,19 +219,30 @@ impl World {
         Ok(())
     }
 
-    /// The two start-up cycles of a loaded game (`docs/specs/game/save-load.md`, "What a loaded game starts afresh";
-    /// `core/timing-and-rng.md`, scheduler rule 1; X3): a loaded game starts like any game, so call this after
-    /// [`World::restore`] and before the first normal cycle. They are full cycles, so the restored victory countdown
-    /// and the restored fog refresh countdown count them. Unlike [`World::start_up`], the cycle counter keeps the value
-    /// it had (a Classic save restored it at 0). A game saved while paused runs them unpaused.
-    pub fn start_up_loaded(&mut self) {
-        let (tick, paused) = (self.tick, self.paused);
+    /// What a loaded game starts afresh, whatever was saved (`game/save-load.md`, "What a loaded game starts afresh";
+    /// `game/lifecycle.md`, "How a game starts"):
+    ///
+    /// - the cycle counter is 0 (the start-up cycles end by setting it to 0 again, [`World::start_up`]);
+    /// - the game is not paused (the pause isn't saved);
+    /// - the victory countdown is 1, and an outcome a check had found but not yet shown is lost: the rule in force
+    ///   before the check found it is back ([`World::rule_before_outcome`]), so a later check finds the outcome again
+    ///   only if the game state still gives it;
+    /// - the fog refresh countdown is 1, so the first start-up cycle refreshes the fog;
+    /// - every unit's creation number is its slot number plus one, and the next unit created gets one more than the
+    ///   largest in use (spec gap: the spec doesn't trace what number the next unit gets; this is its default).
+    fn starts_afresh(&mut self) {
+        self.tick = 0;
         self.paused = false;
-        for _ in 0..START_UP_CYCLES {
-            self.step(&[]);
+        self.victory.countdown = 1;
+        if matches!(self.victory.rule, Some(crate::victory::Rule::Outcome(_))) {
+            self.victory.rule = self.rule_before_outcome;
         }
-        self.paused = paused;
-        self.tick = tick;
+        self.rule_before_outcome = None;
+        self.vision.countdown = 1;
+        for u in &mut self.units {
+            u.serial = super::Serial(u.slot as u32 + 1);
+        }
+        self.next_serial = self.units.iter().map(|u| u.serial.0).max().map_or(1, |m| m + 1);
     }
 }
 
