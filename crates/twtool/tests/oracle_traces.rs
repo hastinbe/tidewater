@@ -124,6 +124,16 @@
 //! the choice at each order-4 step and goes on with no wait, CP13) and human5-30000 (active rescue player 0 starts
 //! no building in 30000 cycles) match to their ends.
 //!
+//! Round 85: xorc10-xorc10-farm-repair-1700 (a computer peasant repairs a farm while dragons hover inside its safety
+//! area: repair safety tests a tile's air only over a ground unit, erratum 2), xhuman5-xhuman05-worker-all-out-goals-3000
+//! (command 4 for a peon past its leash, from the farm site) and xhuman5-xhuman05-worker-all-out-aigoals-goals-2500
+//! (the same with the AI goal compared: kind 2 at (9, 20) from n 754, (6, 19) from the farm job at n 1004, (5, 19) after
+//! the pass of n 2401, erratum 7) match in full.
+//!
+//! Round 86: xhuman12-xhuman12-picker-flip-aigoals-1700 (the target pickers' reference store is measured from the
+//! store's top-left tile, so the waves store (36, 5) at n 101 to 201, 301, 501, 551 and 601 and (13, 66) at n 51 and 351,
+//! with the AI goal compared, erratum 1) matches in full.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -433,4 +443,8 @@ traces! {
     xhuman5_xhuman05_worker_order12_goals_3000: ("xhuman5-xhuman05-worker-order12-goals-3000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
     orc3_orc03_tanker_order4_goals_7500_10500: ("orc3-orc03-tanker-order4-goals-7500-10500.jsonl.gz", "Campaign\\Orc\\Orc03.pud", 5, &[], None),
     human5_30000: ("human5-30000.jsonl.gz", "Campaign\\Human\\Human05.pud", 8, &[], None),
+    xorc10_xorc10_farm_repair_1700: ("xorc10-xorc10-farm-repair-1700.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    xhuman5_xhuman05_worker_all_out_aigoals_goals_2500: ("xhuman5-xhuman05-worker-all-out-aigoals-goals-2500.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    xhuman5_xhuman05_worker_all_out_goals_3000: ("xhuman5-xhuman05-worker-all-out-goals-3000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    xhuman12_xhuman12_picker_flip_aigoals_1700: ("xhuman12-xhuman12-picker-flip-aigoals-1700.jsonl.gz", "Campaign\\XHuman\\2XHum12.pud", 50, &[], None),
 }
