@@ -15,13 +15,19 @@
 - **Changes:** 2026-10-13, round-59 corrections: a multiplayer "Fixed Order" start places no opponents by draw
   (Computer rows take their own slot numbers); zero opponents make no placement draw (static study).
 - **Changes:** 2026-10-13, round-60: Fixed Order is traced (`mp-*-fixed` traces); vectors.
+- **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): the body reading starts again at the beginning of the file (X9, static study; closes
+  "Where the body reading starts"); a single-player custom game runs under Enhanced rules (X10, from
+  `core/timing-and-rng.md`); the intro points at `game/save-load.md` and the new model `game/lifecycle.md` for loaded
+  games (X11).
 
 ## Behaviour
 
 This spec covers how a new single-player game is built from a map file: reading the map's sections, choosing which
 player slots are played and by whom, the custom-game choices, the starting alliances, creating the map's units and
-the starting view. Loading a saved game and the multiplayer lobby (slot choice, start-position and colour shuffles,
-teams) are in later specs; how a multiplayer start places its computer opponents is in "Choosing the players".
+the starting view. Loading a saved game is in `game/save-load.md`, and how a new and a loaded game start compare is
+in `game/lifecycle.md`. The multiplayer lobby (slot choice, start-position and colour shuffles, teams) is in a later
+spec; how a multiplayer start places its computer opponents is in "Choosing the players".
 Choosing a campaign mission and the briefing are in `game/campaign-flow.md`.
 
 A **campaign map** is a map started from the campaign in single player. A **custom game** is a map started from the
@@ -37,8 +43,9 @@ neutral. The **local player** is the slot the person at this computer plays.
 4. The player slots are chosen (see "Choosing the players"). In a custom game the custom choices are applied at the
    end of this step.
 5. The starting alliances and shared-vision sets are set.
-6. The map's **body sections** are read in the order of the body table. The last one, `UNIT`, creates the map's units.
-   If this step fails the game stops with a fatal error.
+6. The map's **body sections** are read in the order of the body table, from the beginning of the file again: the
+   header sections are skipped there as unknown tags (static study, round 88). The last one, `UNIT`, creates the
+   map's units. If this step fails the game stops with a fatal error.
 7. Rescue players become computer or passive computer players (see "After the units").
 8. The starting view is set.
 9. The sound set is chosen, then the mission start of `game/victory.md` runs, then the screen parts are set up.
@@ -363,6 +370,7 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | `mp-gold-rush-bne-fixed-6000` (oracle trace, Enhanced): Gold Rush BNE, Fixed Order, start seed 1, humans in lobby rows 0 and 1, rows 2 and 3 set to Computer | Humans in slots 0 and 1, computers in slots 2 and 3; no placement draw: the setup's 164 draws are the unit-creation draws alone (setup `rng` 0x0452EB91) |
 | `mp-dark-paths-bne-fixed-1000` and `mp-rose-petal-bne-fixed-3000` (oracle traces, Enhanced), Fixed Order, 1 and 4 Computer rows | Computers in slot 2, and in slots 2 to 5; 26 and 86 setup draws, the unit-creation draws alone (their random-start twins make 28 and 91) |
 | Multiplayer with Fixed Order, row 3 set to Computer, map slot 3 has code 3 | No computer in slot 3 (static study) |
+| **G14.** A map whose `MTXM` section comes before its `OWNR` section in the file (static study) | The header reading skips `MTXM`; the body reading starts at the beginning again, skips `OWNR` and the other header sections as unknown, and reads `MTXM` |
 
 ## Open questions
 
@@ -370,9 +378,9 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
   value as "human-controlled" and code 1 the same as "computer" in every later test; 8 and up match nothing. The
   public PUD text calls 0 and 8–255 passive computer and 1 computer. No shipped map uses them; what the game does with
   a code-0 slot wasn't checked in the running game.
-- **Rule mode in single player.** The Low, Random and minimum rules above depend on Enhanced rules. Which rule mode a
-  single-player custom game runs under is in `core/timing-and-rng.md`; whether the custom screen offers "random" for
-  resources and terrain wasn't checked.
+- **Rule mode in single player.** The Low, Random and minimum rules above depend on Enhanced rules. A single-player
+  custom game runs under Enhanced rules (`core/timing-and-rng.md`, "Simulation cycles"; round 88). Whether the custom
+  screen offers "random" for resources and terrain wasn't checked.
 - **Random choice rewrites the options.** After a random resource or terrain choice the game stores the picked value
   in its options in place of "random". The terrain choice also clears the resource choice, so a restart with the same
   options would use "map default" resources. Whether a restart keeps the options wasn't traced.
@@ -382,9 +390,8 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
   checked.
 - **Opponent race.** No custom choice sets the opponents' races; they keep the map's. Whether the custom screen offers
   one wasn't checked.
-- **Where the body reading starts.** Whether the body table's reading starts again at the beginning of the file or
-  carries on from where the header reading stopped wasn't traced. Default: from the beginning, with the header's
-  sections skipped as unknown. Every shipped map lists `AIPL` just before `MTXM`, so both readings load them the same
-  way.
+- **Where the body reading starts.** Answered (round 88, static study): from the beginning of the file, with the
+  header's sections skipped as unknown, as the default said. Every shipped map lists `AIPL` just before `MTXM`, so
+  both readings load them the same way.
 - **Starting view with no units.** The view (−7, −7) is clamped to (0, 0); only a map with no units for the local
   player reaches this.

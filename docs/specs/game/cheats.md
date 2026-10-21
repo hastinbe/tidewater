@@ -9,6 +9,12 @@
   all-spells step's scope, players controlled by a person only, is traced (AI3,
   `xhuman2-xhuman02-cheat-scope-1600`): a computer player's caster still lacks the spells its owner didn't know. The
   mana top-up at a spell command applies to every caster.
+- **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): the open question "Cheat-used flag on mission select" is closed: the cheat-used mark
+  is cleared at every new game start, so the mission that mission select starts never counts as cheated because of it,
+  and it isn't saved (X2, static study). Whether a load clears it is a new open question (Q5); the default is yes. The
+  instant cheats' outcome is found at the next check and shown at the one after (X5). Whether the `title` word also
+  skips the title picture is a new open question (Q1).
 
 ## Behaviour
 
@@ -95,7 +101,9 @@ an Enhanced-rules multiplayer game.
   mission starts, with its act screen and briefing (`game/campaign-flow.md`).
 
 Mission select also sends a cheat command with the flags unchanged. The mission-select flag is on, so the command
-always counts as cheating (but see "Open questions").
+always counts as cheating, but it never takes effect: the game ends before the command is carried out, and in single
+player the new game start drops the commands still waiting. Every new game start also clears the cheat-used mark, so
+the mission that mission select starts doesn't count as cheated unless a cheat is used in it (static study, round 88).
 
 ### Word codes
 
@@ -104,7 +112,7 @@ Developer words, matched exactly (letter case ignored):
 | Word | Effect |
 | --- | --- |
 | `allowsync` | Toggles a network sync-check setting |
-| `title` | Toggles "skip the startup videos" (`game/campaign-flow.md`) |
+| `title` | Toggles "skip the startup videos" (`game/campaign-flow.md`, "Startup"; whether it also skips the title picture is an open question) |
 | `noglues` | Toggles "skip the act screen, briefing and score screens" (`game/campaign-flow.md`) |
 | `showpath` | Toggles a debug flag; when it is turned on during a single-player game, fog of war is also turned off (`vision/fog.md`, the fog-off cheat) |
 | `fastdemo` | Toggles a demo-speed setting |
@@ -126,7 +134,12 @@ match changes the flags at once, with no notices and no music change. Other argu
 
 When a game starts, every flag is cleared except mission select, "skip the startup videos" and "skip the act screen,
 briefing and score screens". During attract-demo playback the reveal-map flag is set. The flags aren't saved with a
-game. So a cheat typed in one mission doesn't carry into the next, but those three do.
+game. So a cheat typed in one mission doesn't carry into the next, but those three do. A loaded game starts with
+the same three (`game/save-load.md`).
+
+The **cheat-used mark** (the local player used a cheat command: rank 39, `game/campaign-flow.md`) is separate from
+the flags. Every new game start clears it, and it isn't saved (static study, round 88). A load clears it too, so a
+loaded game counts as cheated only for cheats used after the load (default; see "Open questions").
 
 ### Lasting effects
 
@@ -137,7 +150,7 @@ game. So a cheat typed in one mission doesn't carry into the next, but those thr
 | Invulnerability and damage | Units of human-controlled players deal fixed high damage; computer-controlled units deal none | `combat/damage.md` |
 | All spells | Casting skips the mana test; mana set to 255 | `spells/spells.md`, `ui/command-buttons.md` |
 | Lumber | Each chop finishes the tree at once (counter straight to 50) | `economy/harvest.md` |
-| Instant victory, instant defeat | Victory or defeat at the next check | `game/victory.md` |
+| Instant victory, instant defeat | Victory or defeat at the next check (found there; in single player it shows at the check after, `game/victory.md`, "Outcome timing") | `game/victory.md` |
 | No victory | Single-player victory checks are frozen | `game/victory.md` |
 | Disco | Disco music | `ui/music.md` |
 
@@ -214,6 +227,7 @@ In checking order.
 | "on screen", then the next mission starts | Reveal is off again |
 | Program started with the argument `title` | Startup videos skipped; the flag stays on across games |
 | "nopalette" during a game | Colour cycling preference toggled; a fixed notice; nothing sent |
+| **G12.** "tigerlily", then "human4" in a single-player mission; no other cheat in the new mission (static study) | Human mission 4 (entry 6) starts; at its score screen the rank isn't entry 39 |
 
 ## Open questions
 
@@ -225,6 +239,14 @@ In checking order.
 - **Empty line after a developer word.** In multiplayer, the three words that aren't cheat commands leave an empty
   line, which may then go out as an empty chat line. Not traced. Default: send nothing.
 - **Command-line words.** How arguments are split (quotes, tabs) is only partly traced.
-- **Cheat-used flag on mission select.** Mission select sends a cheat command, but the game is ending; whether that
-  command is carried out before the mission changes hasn't been traced.
+- **Cheat-used flag on mission select.** Answered (round 88, static study): the game ends before the command is
+  carried out, a single-player game start drops the waiting commands, and every new game start clears the mark, so
+  the selected mission doesn't count as cheated because of it.
+- **The `title` word and the title picture (round 88, Q1 of `ERRATA-game-consolidation.md`).** Static study finds
+  that the startup-skip flag skips the title picture too, not only the videos. `game/campaign-flow.md`, "Startup",
+  step 2 shows the title unless Ctrl is held. Default: step 2 as written. Trace request GA1.
+- **Cheat-used mark after a load (round 88 review, Q5 of `ERRATA-game-consolidation.md`).** Static study finds that
+  a load doesn't clear the mark, so a cheat used earlier in the same program run makes a loaded game in which no cheat
+  was used end with rank 39. That contradicts `game/campaign-flow.md` ("used a cheat during this mission"). Default:
+  a load clears the mark. Trace request GA5 (needs a save and a load in the oracle harness).
 - **Running game.** Not checked in the running game.

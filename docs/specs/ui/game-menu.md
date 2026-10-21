@@ -9,6 +9,10 @@
 - **Changes:** 2026-10-12: the colour-cycling checkbox now points to `ui/palette-effects.md`.
   2026-10-12: the save and load dialogs now cite `game/save-load.md`; Load is missing only in a network session, and
   only Enhanced saved games keep the pause counts.
+- **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): Restart's row now follows `game/campaign-flow.md`, which owns the rule: the act
+  screen isn't shown again for the act shown last, and the skip setting skips both screens (X8). The life of a game is
+  in `game/lifecycle.md`.
 
 ## Behaviour
 
@@ -164,7 +168,7 @@ above.
 
 | Choice | Confirmation | On OK |
 | --- | --- | --- |
-| Restart | `restart.bin` | Replay the same mission: no score screen; the flow goes back to starting the mission, which shows the act screen and the briefing again unless Ctrl is held (`game/campaign-flow.md`, "Starting a mission") |
+| Restart | `restart.bin` | Replay the same mission: no score screen; the flow goes back to starting the mission (`game/campaign-flow.md`, "Starting a mission"): the briefing is shown again unless Ctrl is held or the skip setting is on, and the act screen only if its act isn't the one shown last, so restarting an act's first mission doesn't show it again |
 | Return to the chat room | `chatrtrn.bin` | Leave the game for the multiplayer chat room |
 | Load another custom scenario | `cstcnfrm.bin` | Go to the custom-game screen |
 | Surrender (and on Battle.net after 120 s) | `surrendr.bin` | The local player is defeated. All menus close; in single player the defeat dialog (`rez\lmission.bin`) is shown, then the defeat score screen (`game/campaign-flow.md`) |

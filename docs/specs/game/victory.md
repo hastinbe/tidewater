@@ -11,6 +11,12 @@
   the alliance table starts with every player allied with itself.
 - **Changes:** 2026-10-12, round-32 errata: the countdown counts the two start-up cycles, so the check runs in the
   second start-up cycle and then at cycle counter 201, 402, 603, …; the vectors name cycles by the counter.
+- **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): paused cycles don't move the countdown, so the counter values of the checks hold
+  only for a game that was never paused (X1); the demo end and the instant cheats' timing are spelled out (X4, X5); the
+  rescued counts are reset at every new game start (X12, static study). Two static findings about loaded games are new
+  open questions with the old text as the default: the countdown set to 1 with a found outcome lost (Q4) and the mission
+  start running again (Q3). The life of a game around the check is in the new model, `game/lifecycle.md`.
 
 ## Behaviour
 
@@ -24,11 +30,13 @@ every cycle. Which rule the check applies depends on the kind of game:
 | Single player, custom scenario | The standard rule with "destroy all" on |
 | Demo playback | No rule; the demo ends after 1,400 cycles |
 
-All rules are evaluated for the **local player**, written L below.
+All rules are evaluated for the **local player**, written L below. Where the check sits in the life of a game is in
+`game/lifecycle.md`.
 
 ### When the check runs
 
-- At game start a countdown is set to 1 (1,400 for demo playback).
+- At the start of a new game a countdown is set to 1 (1,400 for demo playback). A loaded game goes on with the saved
+  countdown (`game/save-load.md`; default, see "Open questions", "Victory countdown after a load").
 - Each cycle in phase 8 the countdown is tested and then lowered by 1. If the value tested was 0, it is instead
   set to **200** (not lowered in that cycle) and the check runs.
 - So after a check the countdown takes 200 cycles to come down from 200 to 0, and the next check runs on the cycle
@@ -40,11 +48,22 @@ All rules are evaluated for the **local player**, written L below.
   lowered in the same cycle, so its reload value (100 or 101) is its period. The victory countdown's reload value,
   200, is one less than its period. `core/timing-and-rng.md` gives the same period.
 - In a single-player game, a cheat that disables victory freezes the countdown (no checks at all while it is on).
+- A paused cycle changes no game state, so it doesn't move the countdown, while the cycle counter still counts it
+  (`core/timing-and-rng.md`, "Scheduler", rule 4). The counter values above hold for a game that was never paused;
+  each paused cycle moves every later check one counter value later (static study, round 88).
+- **Demo playback.** The countdown starts at 1,400, so the first check, which ends the demo, runs in the 1,401st cycle,
+  the two start-up cycles included (round 88).
 
 **Outcome timing.** In single-player games, a check that finds victory or defeat does not end the game at once. It
 replaces the rule with the outcome, and the outcome (the victory or defeat screen) happens at the **next** check, 201
 cycles later. A later step of the same check can still replace the outcome (see the mission rules). In multiplayer
 games the outcome happens within the check.
+
+- The instant victory and instant defeat cheats (`game/cheats.md`) work through this: the first check after the
+  cheat command finds the outcome, and the outcome shows at the check after that (static study, round 88).
+- **Loaded games.** A loaded game's check applies the saved rule, which keeps any switch made before the save (to the
+  plain rescue rule or to destroy all). An outcome found but not yet shown is kept and shows at the first check after
+  the load (default, see "Open questions", "Victory countdown after a load").
 
 ### Terms
 
@@ -206,7 +225,9 @@ condition replaces an earlier result. "Victory" and "defeat" below mean the outc
 
 ### Mission start
 
-When a campaign mission starts, its mode may change the game once, before the first check. "Knows" means the bits
+When a campaign mission starts, its mode may change the game once, before the first check. A game started by
+loading a saved game doesn't repeat it (`game/save-load.md`; default: the static study finds that it runs again,
+see "Open questions"). "Knows" means the bits
 are added to the player's **spells known** word, with the spell bit numbers of `economy/tech-tree.md` (bit 20 is the
 paladin or ogre-mage upgrade). "Become" is the unit conversion of `economy/tech-tree.md` ("Converting units"). The
 **rescuable mark** is the per-unit mark that makes a unit count as rescuable (Terms); rescue-owned units have it
@@ -273,17 +294,31 @@ conversions keep the rescuable mark.
 | Entry 14 (mode D) starts; player 4 has 5 peasants, all with the rescuable mark | Player 4 has 5 attack peasants and no rescuable units; L and player 4 are not allied either way |
 | Entry 44 (mode AB) starts; player 4 has a runestone at 5000 HP | It has 400 HP |
 | Entry 40 (mode AA) starts; L has 2 knights at full HP | They are paladins, with HP raised by the difference in maximum HP |
+| **G08.** Custom scenario; the game is paused for 50 cycles at counter 300 (static study) | Checks at counter 201, then 452, 653, …: paused cycles count on the counter but not on the countdown |
+| **G09.** Single player; "you pitiful worm" carried out at counter 250, no pause (static study) | The check at 402 finds the defeat; the defeat dialog opens at the check at 603 |
+| **G10.** Entry 18 (mode E) saved after its mission start, then loaded | The check applies the plain rescue rule (the saved, switched rule) |
 
 ## Open questions
 
 - **Flagged: modes W and Z.** Taken literally, the count drop gives victory at the next check when L's count was 0,
   and defeat if the hero reaches a circle of power first (with nothing else marked). The heroes are rescued like any
   other rescuable unit L owns, by reaching a circle of power (`game/rescue.md`). Whether the shipped missions (32
-  for W, 38 for Z) really play this way, and whether the rescued counts are reset between missions (no reset was
-  found at mission start), hasn't been confirmed in play. Default: the literal behaviour.
+  for W, 38 for Z) really play this way hasn't been confirmed in play. Default: the literal behaviour. The rescued
+  counts are reset between missions: every new game start sets every player's count to 0, before the mission start
+  (static study, round 88, X12; a load restores the saved counts).
 - The allied-victory setting's source (assumed: the diplomacy screen's allied-victory box).
 - The exact result codes reported to the network ("game ended" when nobody has a result) are not specified.
 - Whether passive and rescue players' units should block destroy-all victory in custom scenarios (they do in the
   program, by the rule above).
+- **Victory countdown after a load (round 88 review, Q4 of `ERRATA-game-consolidation.md`).** Static study finds that
+  a loaded game sets the countdown to 1 and chooses the rule afresh from the saved mode, as a new game does: the first
+  check runs in the load's second start-up cycle, and an outcome found but not yet shown is lost (found again only if
+  the game state still gives it). That contradicts `game/save-load.md` ("everything that decides how the game goes
+  on"). Default: the countdown and the found outcome are restored. Trace request GA4.
+- **Mission start after a load (round 88, Q3 of `ERRATA-game-consolidation.md`).** Static study finds that a loaded
+  game runs the mission start again from the saved mode: for a mode not yet switched its effects apply again (mode AB
+  runestones back to 400 HP, knights turned into paladins, spells known added again, mode D's conversion and alliance
+  break, mode T's portal marks). That contradicts `game/save-load.md` ("New-game set-up isn't repeated"). Default:
+  not repeated. Trace request GA3.
 - The mission-start conversions name only the human peasant and knight types. Whether a map gives those players orc
   units that would need converting too is a data question. Default: only the named types change.

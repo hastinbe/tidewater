@@ -4,6 +4,13 @@
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 29 (save and load;
   gap 9)"), the dialog files `Rez\savegame.bin`, `Rez\loadgame.bin` and `Rez\loadgamt.bin`, and `Rez\network.tbl`
   (entries cited by number, from 1). Not yet confirmed against the running game.
+- **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): a loaded game runs the two start-up cycles (X3, static study); the cheat-used mark
+  isn't saved, and the campaign total and rescued counts are (X2, X7, X12, static study). Four static findings that
+  contradict this spec are held as open questions with the old text as the default: the cycle count starting again at 0
+  (Q2), the mission start running again (Q3), the victory countdown set to 1 with a found outcome lost (Q4, split from
+  X3 by the review) and a load keeping the cheat-used mark (Q5, split from X2 by the review, in `game/cheats.md`). The
+  comparison of a new and a loaded game start is in `game/lifecycle.md`.
 
 ## Behaviour
 
@@ -146,9 +153,14 @@ A saved game keeps everything that decides how the game goes on, including:
 - every unit and building, with their orders, and missiles and corpses;
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
-- the game cycle count and the game clock (Enhanced only);
+- the game cycle count and the game clock (Enhanced only; for the cycle count see "Open questions", "Cycle count
+  after a load");
 - each player's pause count (Enhanced only);
 - each player's score counters (Enhanced only);
+- the campaign total (`game/campaign-flow.md`, "Campaign total"; static study, round 88);
+- each player's rescued count (`game/rescue.md`; static study, round 88);
+- the victory countdown and an outcome a check has found but not yet shown (`game/victory.md`; default, see "Open
+  questions", "Victory countdown after a load");
 - which colour cycles are on (`ui/palette-effects.md`);
 - the music track (`ui/music.md`);
 - the screen's map position.
@@ -159,11 +171,18 @@ A saved game keeps everything that decides how the game goes on, including:
   (`core/timing-and-rng.md`). Loading the same file twice gives different random sequences (in single player,
   unless both loads start in the same second).
 - **Cheats.** Cheat flags aren't saved. A loaded game starts with the flags that carry across games, as for a new
-  game (`game/cheats.md`, "Flags across games"). The map-reveal cheat is never kept.
+  game (`game/cheats.md`, "Flags across games"). The map-reveal cheat is never kept. The cheat-used mark that gives
+  rank 39 (`game/campaign-flow.md`, "The score screen") isn't saved either (static study, round 88), and a load
+  clears it, as a new game start does, so only cheats used after the load count (default; see `game/cheats.md`,
+  "Open questions", "Cheat-used mark after a load").
+- **Start-up cycles.** A loaded game starts like any game: the two start-up cycles run (`core/timing-and-rng.md`,
+  "Scheduler"; static study, round 88). They are full cycles, so the restored victory countdown counts them. The
+  check applies the saved rule, with any switch made before the save (`game/victory.md`, "Outcome timing").
 - **Classic saves.** A Classic multiplayer save doesn't keep the cycle count, the clock, the pause counts or the score
   counters. The cycle count starts again at 0.
 - **New-game set-up isn't repeated.** A loaded game doesn't reset resources, re-place players or choose a new music
-  track.
+  track. It doesn't repeat the mission start of `game/victory.md` either (default; see "Open questions", "Mission
+  start after a load").
 - **Colour cycling** steps start counting again from the moment the game starts.
 - **Preferences** such as game speed aren't part of a saved game.
 - **Multiplayer players.** When a multiplayer save is loaded, the saved players are matched to the players now in the
@@ -233,6 +252,7 @@ stays in the running game.
 | Load a campaign save | No act screen, no briefing; the saved music track plays |
 | Load the same save twice and do the same things | The random results differ between the two runs |
 | Save with the reveal cheat on, then load | The map isn't revealed after the load |
+| **G11.** Load an Enhanced single-player save made with the victory countdown at 50 | Two start-up cycles run (static study); the first check after the load runs in the 51st cycle after it, the start-up cycles included, then every 201 cycles (default; held, Q4: the static study predicts the second start-up cycle) |
 
 ## Open questions
 
@@ -258,4 +278,16 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
+- **Cycle count after a load (round 88, Q2 of `ERRATA-game-consolidation.md`).** Static study finds that the cycle
+  count is saved and restored in Enhanced, but every game start, a loaded one included, sets it to 0 again after the
+  two start-up cycles, so a loaded game counts from 0. No rule reads the count except the network sync check and
+  saving. Default: kept, as above. Trace request GA2.
+- **Mission start after a load (round 88, Q3).** Static study finds that the mission start runs again after a load
+  (see `game/victory.md`, "Open questions"). Default: not repeated. Trace request GA3.
+- **Victory countdown after a load (round 88 review, Q4).** Static study finds that a loaded game sets the victory
+  countdown to 1 and chooses the check's rule afresh, as a new game does, so the first check runs in the second
+  start-up cycle and an outcome found but not yet shown is lost (found again only if the game state still gives it;
+  an instant-cheat outcome isn't, since the cheat flags aren't saved). That contradicts "everything that decides how
+  the game goes on" above. Default: both are saved and restored. Trace request GA4 (needs a save and a load in the
+  oracle harness).
 - **Running game.** None of this has been watched in the running game.

@@ -35,6 +35,13 @@
 - **Changes:** 2026-10-16 (round 79 traces, `ERRATA-round79.md`, reviewed by a spec-review session, 2026-10-16): the
   lost-count rules are traced (`human06-build-stats-1800`, with breaks); wall pieces have no count and aren't built or
   lost; an ally's kill is credited (`human05-ally-kill-hits-1000`).
+- **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): "Startup" names the second setting of step 1, the startup-skip flag of the `title`
+  word (X6); whether that flag also skips the title picture (step 2) is a new open question (Q1). A load takes the saved
+  campaign total (X7); the cheat-used mark is cleared by every new game start and isn't saved (X2), and a load clears it
+  too (default; Q5 in `game/cheats.md`). The restart rule of `ui/game-menu.md` now agrees with "The act screen": a
+  restart doesn't show the act screen again for the same act (X8). The whole program flow, from startup to the next
+  mission, is in the new model, `game/lifecycle.md`.
 
 ## Behaviour
 
@@ -92,10 +99,12 @@ Videos are played full screen from the `Smk` folder. Any key or mouse click skip
 
 ### Startup
 
-1. Unless Ctrl is held (or a second, unidentified setting is on), video 0 plays. Then, if the movie archive is
+1. Unless Ctrl is held (or the startup-skip flag is on: the `title` developer word, `game/cheats.md`, "Word codes"),
+   video 0 plays. Then, if the movie archive is
    available and the "play the intro" preference bit is set, the bit is cleared and video 1 plays. So the intro
    plays once, on the first start.
-2. Unless Ctrl is held, the title picture `Art\Title_Rel_BNE.pcx` fades in over 250 ms, music track 22 starts, and
+2. Unless Ctrl is held (whether the startup-skip flag also skips this step is an open question, "Startup-skip flag
+   and the title"), the title picture `Art\Title_Rel_BNE.pcx` fades in over 250 ms, music track 22 starts, and
    the title stays for 100 menu-timer ticks (about 9.8 to 9.9 s; the first tick comes at once) or until a key or
    click (Shift, Ctrl and Alt don't count). It then fades out over 250 ms, or at once (1 ms) if a key or
    click ended it.
@@ -279,7 +288,10 @@ After a victory or a defeat the score screen is shown, unless the skip setting i
      28000, 40000, 55000, 70000, 85000, 105000, 125000, 145000, 165000, 185000, 205000, 230000, 255000, 280000,
      300000. If no threshold is above the total, i = 18.
    - The entry is 2i + 1 + race.
-   - If the local player used a cheat during this mission, the entry is 39 instead.
+   - If the local player used a cheat during this mission, the entry is 39 instead. "During this mission" means
+     since the last game start: the cheat-used mark is cleared by every new game start, a replay and a restart
+     included, and it isn't saved (static study, round 88); a load clears it too (default; `game/cheats.md`, "Flags
+     across games" and "Open questions").
 6. **Closing.** Esc, Enter, Space or the button close the screen. A quit request quits the program.
 
 **Mission score.** Each player has a mission score, 0 at the start of a game. When a unit of one player kills a unit
@@ -290,7 +302,8 @@ razing.
 **Campaign total.** When a game starts, the campaign total is set to 0 if it is a multiplayer or custom game, or the
 first mission of a campaign (entries 0, 1, 28 and 29); otherwise it carries over. The value at the start of the
 mission is remembered. A defeat puts the total back to that value before the mission is replayed, so a lost attempt
-adds nothing.
+adds nothing. A loaded game doesn't reset the total: it takes the saved one (`game/save-load.md`; static study,
+round 88).
 
 ### After the score screen
 
@@ -426,6 +439,7 @@ game's own 640 × 480 display compared with the pictures):
 | Custom game won | Score screen (no campaign total carried; the total started at 0), then the main menu |
 | Single player, slot 1 a computer allied with the local player | Row label `network.tbl` entry 36 |
 | BDP orc campaign, slot 0 local, slot 3 orc computer | Names `network.tbl` entries 94 and 97 |
+| **G13.** ToD human mission 1 started from a new campaign (act screen shown), then restarted from the game menu | No act screen (act 1 was the last shown); the briefing for entry 0; then the mission (static study) |
 
 ### Act screen timeline (static study only)
 
@@ -479,3 +493,7 @@ the next one is due at the same moment.
 - **Campaign total on restart.** Whether a restart from the game menu puts the campaign total back to its value at
   the start of the mission, as a defeat does, wasn't traced. Default: yes.
 - **Title music.** Track 22 is the same file as the orc briefing track. This wasn't checked by ear.
+- **Startup-skip flag and the title (round 88, Q1 of `ERRATA-game-consolidation.md`).** Static study finds that the
+  startup-skip flag (the `title` word) skips everything of "Startup" before the main menu: video 0, the one-time intro
+  and the title picture, and that Ctrl is tested once more before the title picture. Step 2 above shows the title
+  unless Ctrl is held. Default: step 2 as written. Trace request GA1.
