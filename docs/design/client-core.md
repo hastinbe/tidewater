@@ -17,8 +17,9 @@ Open points, each with the current behaviour:
 - **Touchpad scrolling.** SDL reports a touchpad's scroll as fractions of a wheel step, which the shell takes as
   steps, so a touchpad scrolls faster than in the Bevy shell (which counted 50 pixels a step). Accepted until
   someone finds it too fast; then the shell scales it.
-- **CI.** The repository has no CI config. If one is added, it installs CMake and a C compiler
-  ([Building](#building)).
+- **CI.** Decided: GitHub Actions (`.github/workflows/ci.yml`) installs CMake, a C compiler and, on Linux, SDL's
+  development headers, then runs format, clippy and the tests without game data, and builds release binaries on
+  Linux, macOS and Windows ([Building](#building)).
 
 Decided 2026-10-15:
 
@@ -269,21 +270,23 @@ and a C compiler are.
 
 | System | Install first | Tested |
 |---|---|---|
-| macOS | Xcode's command line tools (`xcode-select --install`), CMake (`brew install cmake`) | Yes |
-| Debian or Ubuntu | `build-essential cmake pkg-config` and the development headers SDL's `docs/README-linux.md` lists for X11, Wayland, ALSA or PulseAudio | No |
-| Windows | Visual Studio's C++ build tools, CMake | No |
+| macOS | Xcode's command line tools (`xcode-select --install`), CMake (`brew install cmake`) | Yes, and built in CI |
+| Debian or Ubuntu | `build-essential cmake pkg-config` and the development headers SDL's `docs/README-linux.md` lists for X11, Wayland, ALSA or PulseAudio (the exact package list is in `.github/workflows/ci.yml`) | Built in CI; not played |
+| Windows | Visual Studio's C++ build tools, CMake | Built in CI; not played |
 
 1. Install the tools in the table.
 2. `cargo build --release`. The first build compiles SDL (its C source is about 25 s of a 47 s clean release
    build); later builds reuse it.
-3. `cargo run --release -p tidewater-client -- --install <game directory>`.
+3. `cargo run --release -p tidewater-client -- --import <path-to-game>` once, then `cargo run --release -p tidewater-client`
+   (or `--install <game directory>` to read the files in place).
 4. To check a change: the full check in `CLAUDE.md`'s workflow, including
    `cargo test --release -p tidewater-client --test frames` with `TIDEWATER_INSTALL` set.
 5. To check the window itself (it opens windows on top for about a minute and a half):
    `cargo test --release -p tidewater-client --test frames -- --ignored`.
 
-**CI.** The repository has no CI config. One would install CMake and a C compiler besides Rust, and could run the
-headless snapshot only where an installation is available.
+**CI.** `.github/workflows/ci.yml` installs CMake and a C compiler besides Rust (and SDL's headers on Linux), runs
+format, clippy and the tests on Linux, and builds the release binaries on Linux, macOS and Windows. It has no game
+data, so the tests that need an installation (the frame snapshot among them) skip there and run locally.
 
 ### Parity with the Bevy shell
 
