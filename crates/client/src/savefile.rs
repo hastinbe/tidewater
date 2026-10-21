@@ -36,8 +36,10 @@ pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// "Smart move"). Version 10: order 18 keeps its pulled-back goal beside the target tile (round-68 errata).
 /// Version 11: a building's job keeps its to-be-cancelled mark (round 76, "Cancelling a job"). Version 12: order 22
 /// may have no target, for a builder let out of a cancelled site (round 77, "Cancelling construction"). Version 13: a
-/// job no longer keeps the cost it paid; a refund looks the cost up again (round 77, "Paying").
-pub const VERSION: u16 = 13;
+/// job no longer keeps the cost it paid; a refund looks the cost up again (round 77, "Paying"). Version 14: a unit keeps
+/// its creation number and the world its next one, the world keeps the rule a found outcome replaced, and the pause mark
+/// is no longer stored (round 90, "What a load restarts", `game/save-load.md`).
+pub const VERSION: u16 = 14;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").

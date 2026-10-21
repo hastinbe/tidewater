@@ -252,7 +252,7 @@ impl Core {
         // 4. The game cycles.
         c.time.accumulate();
         while c.time.expend() {
-            if game_running(c) {
+            if game_running(c) && !game::frozen_by_focus(c) {
                 game::tick(c);
             }
         }

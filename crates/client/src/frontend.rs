@@ -120,6 +120,9 @@ pub struct Flow {
     pub resume: Option<Box<crate::savegame::Resume>>,
     /// The cheat flags that carry into the next game (`cheats`).
     pub cheat_flags: tidewater_sim::cheats::Flags,
+    /// The cheat-used mark of the game before (`cheats` keeps it in step): a load keeps it as the running program had
+    /// it, a new game clears it (`game/cheats.md`, "Flags across games").
+    pub cheat_used: bool,
     /// A recorded game to play back as the next game (`--replay`, `session::ReplaySession`): its header gives the
     /// game's map, seed, setup and lobby.
     pub replay: Option<Box<tidewater_replay::Replay>>,
@@ -508,7 +511,8 @@ fn after_score(flow: &mut Flow, s: &ScoreData) -> Step {
 }
 
 /// The startup steps ("Startup"): the videos, the title and the main menu. `skip_videos` is the setting the `title`
-/// developer word turns on (`game/cheats.md`).
+/// developer word turns on (`game/cheats.md`). That setting skips the title picture too, as Ctrl does (`game/campaign-flow.md`,
+/// "Startup" step 2; traced, round 90).
 pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Step> {
     let (videos, _cleared) = cf::startup_videos(cf::StartupInput {
         ctrl,
@@ -517,7 +521,7 @@ pub fn startup_steps(ctrl: bool, skip_videos: bool, play_intro: bool) -> Vec<Ste
         play_intro,
     });
     let mut v: Vec<Step> = videos.into_iter().map(Step::Video).collect();
-    if !ctrl {
+    if !ctrl && !skip_videos {
         v.push(Step::Title);
     }
     v.push(Step::MainMenu);
@@ -2874,7 +2878,8 @@ mod tests {
             [Step::Video(0), Step::Video(1), Step::Title, Step::MainMenu]
         );
         assert_eq!(startup_steps(true, false, true), [Step::MainMenu]);
-        assert_eq!(startup_steps(false, true, true), [Step::Title, Step::MainMenu]);
+        // The startup-skip setting (the `title` word) skips the title picture too (`game/campaign-flow.md`, "Startup").
+        assert_eq!(startup_steps(false, true, true), [Step::MainMenu]);
     }
 
     #[test]

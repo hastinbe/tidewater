@@ -6,7 +6,7 @@
 //! |---|---|
 //! | Real | The sum of the frame times the shell reports. The first frame reports none. |
 //! | Game | The frame's real time, capped at [`MAX_DELTA`]: a long frame (a debugger, a suspended laptop) runs at most 250 ms. |
-//! | Steps | The game time goes into an accumulator; each whole [`step`](FrameClock::step) in it is one game cycle (`timing-and-rng.md`). The step starts at [`FIRST_STEP`]; a game sets its own. |
+//! | Steps | The frame's real time goes into an accumulator (the gap between now and the scheduler's deadline); each whole [`step`](FrameClock::step) in it is one game cycle (`timing-and-rng.md`, "Scheduler"). At most [`MAX_STEPS`] run in a frame (rule 2, G22), and a backlog over [`RESET_BACKLOG`] is dropped (rule 3). The step starts at [`FIRST_STEP`]; a game sets its own. |
 //!
 //! The input logs (`input::Log`) age at the start of a frame only if the frame before ran a step, once any step has
 //! run: the same rule the engine's message buffers had, so a log read only on some frames sees the same events.
@@ -15,6 +15,13 @@ use std::time::Duration;
 
 /// The longest game time one frame can have.
 pub const MAX_DELTA: Duration = Duration::from_millis(250);
+
+/// The most cycles one frame runs (`timing-and-rng.md`, "Scheduler" rule 2).
+pub const MAX_STEPS: u32 = 3;
+
+/// A backlog (the deadline in the past) longer than this is dropped: the deadline is reset to now (rule 3, "more than
+/// 500 ms away").
+pub const RESET_BACKLOG: Duration = Duration::from_millis(500);
 
 /// The step before a game sets its own: 64 a second.
 pub const FIRST_STEP: Duration = Duration::from_micros(15_625);
@@ -27,6 +34,8 @@ pub struct FrameClock {
     overstep: Duration,
     /// A step ran in this frame (until the next frame's steps start).
     stepped: bool,
+    /// How many steps this frame has taken.
+    taken: u32,
     /// A step has ever run.
     ever_stepped: bool,
 }
@@ -40,6 +49,7 @@ impl Default for FrameClock {
             step: FIRST_STEP,
             overstep: Duration::ZERO,
             stepped: false,
+            taken: 0,
             ever_stepped: false,
         }
     }
@@ -55,14 +65,23 @@ impl FrameClock {
 
     /// Puts the frame's game time into the step accumulator; then [`expend`](Self::expend) takes the steps.
     pub fn accumulate(&mut self) {
-        self.overstep += self.game_delta;
+        self.overstep += self.real_delta;
+        // Rule 3: a deadline more than 500 ms from now is reset to now, dropping the backlog.
+        if self.overstep > RESET_BACKLOG {
+            self.overstep = Duration::ZERO;
+        }
         self.stepped = false;
+        self.taken = 0;
     }
 
     /// Takes one step from the accumulator, if a whole one is there.
     pub fn expend(&mut self) -> bool {
+        if self.taken >= MAX_STEPS {
+            return false;
+        }
         match self.overstep.checked_sub(self.step) {
             Some(rest) => {
+                self.taken += 1;
                 self.overstep = rest;
                 self.stepped = true;
                 self.ever_stepped = true;
@@ -153,7 +172,36 @@ mod tests {
         c.advance(5 * MS);
         assert_eq!(steps(&mut c), 1, "5 ms left over plus 5 ms");
         c.advance(400 * MS);
-        assert_eq!(steps(&mut c), 25, "a long frame is capped at 250 ms");
+        assert_eq!(steps(&mut c), 3, "at most 3 cycles run in a frame");
+        c.advance(0 * MS);
+        assert_eq!(steps(&mut c), 3, "the rest of the backlog is still there");
+    }
+
+    /// `core/timing-and-rng.md`, G22: a frame 200 ms after the deadline at 40 ms a cycle runs 3 cycles, not 5; the
+    /// deadline is still 80 ms in the past.
+    #[test]
+    fn g22_a_late_frame_runs_three_cycles_and_keeps_the_rest() {
+        let mut c = FrameClock::default();
+        c.restart_steps(25.0);
+        c.advance(200 * MS);
+        assert_eq!(steps(&mut c), 3);
+        assert_eq!(c.overstep, 80 * MS);
+        c.advance(0 * MS);
+        assert_eq!(steps(&mut c), 2, "the next frame runs more");
+    }
+
+    /// Rule 3: a deadline more than 500 ms away is reset to now, dropping the backlog.
+    #[test]
+    fn a_backlog_over_500_ms_is_dropped() {
+        let mut c = FrameClock::default();
+        c.restart_steps(25.0);
+        c.advance(600 * MS);
+        assert_eq!(steps(&mut c), 0, "reset to now: nothing is owed");
+        c.advance(0 * MS);
+        assert_eq!(steps(&mut c), 0);
+        c.advance(500 * MS);
+        assert_eq!(steps(&mut c), 3, "500 ms exactly is kept");
+        assert_eq!(c.overstep, 380 * MS);
     }
 
     #[test]

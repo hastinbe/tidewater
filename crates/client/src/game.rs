@@ -320,19 +320,24 @@ fn select_sound(sim: &mut Sim, unit: UnitId) {
 ///   countdown and the other per-game counts start from their new-game values in `World::from_pud` and `World::new`.
 ///   It runs the two start-up cycles ([`World::start_up`]).
 /// - **A loaded game** has the saved state put over the template ([`World::restore`]): the counts that are saved come
-///   back and the others (random numbers, cheats) start afresh. It runs the two start-up cycles too, with the cycle
-///   counter kept ([`World::start_up_loaded`], X3).
-fn start_world(world: &mut World, resume: Option<&savegame::Resume>, wall: u64) -> anyhow::Result<()> {
+///   back and the others (random numbers, cheats, the cycle counter, the pause, the victory and fog countdowns, the
+///   creation numbers) start afresh ([`World::restore`]). The cheat-used mark is the one exception: a load leaves it as
+///   the running program had it, so `cheat_used` (the flow's copy from the game before) goes over the template's. It
+///   runs the same two start-up cycles ([`World::start_up`]); the counter is 0 after them in both cases.
+fn start_world(
+    world: &mut World,
+    resume: Option<&savegame::Resume>,
+    wall: u64,
+    cheat_used: bool,
+) -> anyhow::Result<()> {
     if let Some(r) = resume {
+        world.cheats.used = cheat_used;
         world
             .restore(&r.body.world, savegame::reseed(wall))
             .map_err(|e| anyhow::anyhow!("the saved game doesn't fit its map: {e}"))?;
-        // Timing-and-rng spec, scheduler rule 1 for a loaded game: the same two start-up cycles, counter kept.
-        world.start_up_loaded();
-    } else {
-        // Timing-and-rng spec, scheduler rule 1: a new game runs its two start-up cycles at once.
-        world.start_up();
     }
+    // Timing-and-rng spec, scheduler rule 1: a new game or a loaded one runs its two start-up cycles at once.
+    world.start_up();
     Ok(())
 }
 
@@ -405,7 +410,7 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
         lobby.as_ref(),
         replay.as_ref().map(|r| &r.header),
     )?;
-    start_world(&mut scene.world, resume.as_deref(), wall)?;
+    start_world(&mut scene.world, resume.as_deref(), wall, c.flow.cheat_used)?;
     // Where the game's commands come from: a recording, the player (recorded if asked), or the player.
     let session: Box<dyn Session> = match replay {
         Some(r) => {
@@ -759,6 +764,19 @@ fn cycle_secs(enhanced: bool, speed: u8) -> f64 {
         CLASSIC_MS[CLASSIC_ROW[s]].iter().sum::<u32>() as f64 / 3.0
     };
     ms / 1000.0
+}
+
+/// Whether the window being inactive freezes the game (`core/timing-and-rng.md`, "Scheduler" rule 4, G21): in single
+/// player a cycle slot of an unfocused window elapses with no state change and no counter increase, so there is no
+/// backlog when the focus returns; a multiplayer game keeps simulating in the background. A run with no window
+/// (headless) has no focus to lose.
+pub(crate) fn frozen_by_focus(c: &Core) -> bool {
+    let multiplayer = c.sim.as_ref().is_some_and(|s| s.world.rules.multiplayer);
+    freezes(multiplayer, c.input.window.is_some(), c.input.focused)
+}
+
+fn freezes(multiplayer: bool, has_window: bool, focused: bool) -> bool {
+    !multiplayer && has_window && !focused
 }
 
 /// One game cycle.
@@ -2146,6 +2164,16 @@ pub(crate) fn draw_hud(c: &mut Core) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `core/timing-and-rng.md`, G21: in single player an unfocused window freezes the game (no cycle, no counter
+    /// increase); a multiplayer game and a run with no window keep going.
+    #[test]
+    fn g21_an_unfocused_window_freezes_a_single_player_game_only() {
+        assert!(freezes(false, true, false));
+        assert!(!freezes(false, true, true), "focused");
+        assert!(!freezes(true, true, false), "multiplayer simulates in the background");
+        assert!(!freezes(false, false, false), "no window, no focus to lose");
+    }
 
     #[test]
     fn the_marker_goes_at_the_click_or_the_minimap_tile() {

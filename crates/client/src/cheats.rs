@@ -143,6 +143,7 @@ pub(crate) fn run(c: &mut Core) {
         }
     }
     sync_flow(flow, sim.world.cheats.flags);
+    flow.cheat_used = sim.world.cheats.used;
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let steps = if let Some(m) = queue.mission.take() {
         // The game ends with no score screen and the mission starts with its act screen and briefing.
