@@ -42,6 +42,12 @@
   button and a 368-wide heading. The open questions on the 247 outline and on keyboard focus in other dialogs are
   closed; the one on other button sizes is narrowed.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): pointer rule 1's watch comes after more than two retry periods of 1,000 ms (static study; the
+  retry period's open question is answered, MP-L4 confirms); hotkey letters need the control's hotkey mark (static
+  study); the flow-screens open question narrowed (Direct Connect reaches the lobby). Held: static study's arrow keys
+  in a list (new open question, MM8); the stated "arrow keys do nothing" stays the default.
+
 ## Behaviour
 
 This spec covers the in-game screen at 640 × 480: where each part sits, the top resource bar, the two buttons above
@@ -186,8 +192,9 @@ the local race.
 
 The shape is chosen each time input is read. The first rule that applies wins:
 
-1. **Waiting for the network:** in multiplayer, once the game has waited for another player's data for more than
-   one retry period, the watch.
+1. **Waiting for the network:** in multiplayer, once the game has asked a missing player to resend more than once
+   in the current wait, that is after more than two retry periods (2 s with the default 1,000 ms period;
+   `net/lockstep.md`, "Stalls"; static study), the watch.
 2. **Scrolling edge:** the arrow for the edge (north, north-east, east and so on, as in the table below).
 3. **Over the panel or elsewhere** (not the map view or minimap): the normal arrow.
 4. **Over the minimap:** the target cross ("no unit" version) in target mode, otherwise the normal arrow.
@@ -421,7 +428,11 @@ glyph pixel exact.
 - Observed orders (round 75): Tips, OK, Next Tip, the checkbox; Sound, OK, Cancel, the two sliders, the four shown
   checkboxes; Speeds, OK, Cancel, the three sliders; Preferences, OK, Cancel, the six radio buttons, the checkbox;
   load-game screen, Load, Cancel, the list.
-- The arrow keys do nothing. Moving the pointer over a button doesn't move the focus.
+- The arrow keys do nothing (observed on the main menu; for a list, see "Open questions", "Arrow keys in a list").
+  Moving the pointer over a button doesn't move the focus.
+- A button label shows a hotkey letter only when its control is marked in the dialog file as having a hotkey; a label
+  without the mark (the join wait's Cancel, `ui/multiplayer-menus.md`) is drawn whole and has no hotkey (static
+  study, round 89).
 - **Enter** activates the focused button, as a click on it does (for example the focus on Multi Player Game and
   Enter opens the multiplayer menu; Enter on the quit-to-menu confirmation in a game confirms it).
 - Each time the main menu opens, the focus is on its first button again.
@@ -534,9 +545,10 @@ returns to the single-player menu. Full layouts of the other menus are outside t
 - **Unused pointers.** A second arrow (`h_arrow2.cur`, `o_arrow2.cur`) and a cross (`cross.cur`) are loaded. No
   use of them was found in a game or on the flow screens. The 3D arrow is the briefing, score and credits pointer
   (above); it is also set when the game screen opens and replaced at the first input check.
-- **Flow screens not observed.** Battle.net, the multiplayer game setup and the lobby weren't reached: the oracle
-  has no IPX network or serial port, and Battle.net needs a live connection to an outside service, which wasn't
-  attempted. The other videos weren't checked for a pointer (the introduction showed none). The campaign finale was
+- **Flow screens not observed.** Battle.net wasn't reached: it needs a live connection to an outside service, which
+  wasn't attempted. The oracle has no IPX network, but Direct Connect over a linked pair of serial ports reaches the
+  lobby (round 89); the multiplayer menus and the lobby are in `ui/multiplayer-menus.md` and
+  `ui/game-setup-lobby.md`. The other videos weren't checked for a pointer (the introduction showed none). The campaign finale was
   reached in round 72 (ToD human, by the finale cheat): no pointer was drawn, even when the mouse moved, but its
   scrolling text never started in the oracle (`game/campaign-flow.md`, "Open questions"), so the pointer once the
   text scrolls, and on the finale's credits page, is unobserved. Default: no pointer on the finale; like the main menu
@@ -558,7 +570,12 @@ returns to the single-player menu. Full layouts of the other menus are outside t
 - **Unused palette entries.** Every colour seen on the menu screens is the menu picture's own entry; entries that
   nothing on these screens draws can't be observed. Default: all 256 entries come from the picture, as static study
   shows ("Menu screens").
-- **Network wait.** The length of the retry period that brings up the watch wasn't measured.
+- **Network wait.** The retry period (1,000 ms by default) and the watch after more than two of them are static study
+  (`net/lockstep.md`); trace request MP-L4 there confirms them.
+- **Arrow keys in a list.** Held (round 89 review): static study reads a list (the connection list, the load-game
+  list) as moving its selection with Up or Left, Down or Right, Page Up, Page Down, Home and End
+  (`ui/multiplayer-menus.md`). Default: the arrow keys do nothing, as stated above. Trace request MM8 in
+  `ui/multiplayer-menus.md`.
 - **Text placement.** The exact vertical pixel of the bar text (centred, with a 2-pixel offset in the program's
   arithmetic) and the font's baseline belong to the drawing spec.
 - **Bar font.** Which font the bar text uses is set by the dialog framework, not by the item drawing, and wasn't

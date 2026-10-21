@@ -42,6 +42,11 @@
   2026-10-16): "Paying for a building" names both refunds of "Placement on arrival" (the failed site check and the full
   unit table, steps 1 and 3), which that section already gave. No rule change.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): "Placement on arrival", step 1: in a network game no machine makes the unexplored test on
+  arrival, and the hidden-units exception uses the builder's owner's "seen" bits; the single-player rule is unchanged
+  (static study; Tidewater rule for lockstep, the original's machine-dependent check not mirrored).
+
 ## Behaviour
 
 Order numbers refer to `orders/orders.md`. "Build time", "cost" and "hit points" are the unit data (UDTA) fields of
@@ -200,11 +205,15 @@ worker's own tile (below), so that doesn't stop the building.
 **Placement on arrival**, in this order (static study, with the outcomes traced where named):
 
 1. The site is checked for placement: the full site check of `ui/placing-buildings.md` ("The site check"), with
-   its masks (`movement/occupancy.md`), shore and oil-patch tests and spacing rules, and, unlike the command turn,
-   **with** the unexplored test for a builder of the local player (static study; no reachable case is known where
-   this differs from the command turn's check, since the spacing doesn't change during a walk in the shipped data and
-   the builder's own sight explores the site as it arrives). The worker's own tile doesn't
-   block it. A failure shows a placement message. For a computer player the cost is given back, and the worker becomes
+   its masks (`movement/occupancy.md`), shore and oil-patch tests and spacing rules. **In single player**, unlike the
+   command turn, it is made **with** the unexplored test for a builder of the local player (static study; no
+   reachable case is known where this differs from the command turn's check, since the spacing doesn't change during
+   a walk in the shipped data and the builder's own sight explores the site as it arrives). **In a network game** no
+   machine makes the unexplored test on arrival, as in the command turn (Tidewater rule, round 89 review: the
+   original made it on the builder's owner's machine only, against that machine's explored map, so one machine could
+   refuse a build the others carry out; not mirrored). The "hidden units don't block" exception always uses what the
+   builder's owner sees (`ui/placing-buildings.md`; the original read the local player's "seen" bits on arrival,
+   which is the owner in single player; not mirrored in network games). The worker's own tile doesn't block it. A failure shows a placement message. For a computer player the cost is given back, and the worker becomes
    idle: idle **takes over in the same update** (order 2, still animation, wait 3; `orders/orders.md`, "Same-update
    take-over"), not as an immediate order, and the worker's tile stays marked as occupied by it (traced: V33). For a
    player that pays on arrival this failure **wins over a lack of money**: when the site is blocked and the player

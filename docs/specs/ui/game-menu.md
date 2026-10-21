@@ -14,6 +14,12 @@
   screen isn't shown again for the act shown last, and the skip setting skips both screens (X8). The life of a game is
   in `game/lifecycle.md`.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): the Battle.net Network button opens the latency dialog `NetDlg.bin`; Return to the chat room
+  is a turn command that ends the game for everyone; a quit (draw) is reported to Battle.net as a draw for everyone.
+  Both open questions are closed: the Network button, and what others see after a quit (draw): network entry 111 "%s
+  has left the game." in the message list (`net/leave-and-drop.md`). All static study.
+
 ## Behaviour
 
 This spec covers the menus a player opens during a game, plus pause and the player's stored settings:
@@ -68,7 +74,7 @@ Opened by its key or the menu button. The file is `bgamemnu.bin` when the game r
 | 1 | Sound (F7) | The sound dialog |
 | 2 | Speeds (F8) | The speed dialog |
 | 3 | Preferences (F9) | The preferences dialog |
-| 4 | Network (Battle.net file only) | See the open questions |
+| 4 | Network (Battle.net file only) | The latency dialog `NetDlg.bin`, "Network Options": Low, High or Extra high latency (network entries 106 to 108; static study, `net/lockstep.md`). Out of scope: Tidewater shows Battle.net disabled |
 | −3 | Previous | The game menu |
 
 **Help menu** (`helpmenu.bin`):
@@ -169,10 +175,10 @@ above.
 | Choice | Confirmation | On OK |
 | --- | --- | --- |
 | Restart | `restart.bin` | Replay the same mission: no score screen; the flow goes back to starting the mission (`game/campaign-flow.md`, "Starting a mission"): the briefing is shown again unless Ctrl is held or the skip setting is on, and the act screen only if its act isn't the one shown last, so restarting an act's first mission doesn't show it again |
-| Return to the chat room | `chatrtrn.bin` | Leave the game for the multiplayer chat room |
+| Return to the chat room | `chatrtrn.bin` | A command carried out in the turn on every machine: the game ends for everyone with no score screen; the host goes to the creator's chat room, the others to the joiners' chat room, or everyone to the main menu if there is no host (`net/leave-and-drop.md`; static study) |
 | Load another custom scenario | `cstcnfrm.bin` | Go to the custom-game screen |
 | Surrender (and on Battle.net after 120 s) | `surrendr.bin` | The local player is defeated. All menus close; in single player the defeat dialog (`rez\lmission.bin`) is shown, then the defeat score screen (`game/campaign-flow.md`) |
-| Quit (draw), Battle.net before 120 s | `quitdraw.bin` | Locally the same as surrender: a defeat |
+| Quit (draw), Battle.net before 120 s | `quitdraw.bin` | Locally the same as surrender: a defeat. A game that ends within 120 s is reported to Battle.net as a draw for every player (`net/leave-and-drop.md`; static study) |
 | Quit to the main menu | `quit2mnu.bin` | Back to the main menu |
 | Exit the program | `quit.bin` | The program ends (settings are saved; see "Stored settings") |
 
@@ -324,12 +330,8 @@ digital volume. Since the volumes are stored, a program that exits with music of
 
 ## Open questions
 
-- **The Battle.net Network button.** What the Network button (control 4) in the Battle.net options menu opens wasn't
-  traced. Default: a dialog of connection details, outside the scope of the reimplementation's first version.
 - **Volume change delay.** The delay is 5 dialog ticks, but how often a dialog ticks wasn't traced. Default: a
   tick is one frame, so about 0.1 to 0.2 s.
-- **Quit (draw).** What the other players see when someone quits before 120 s on Battle.net wasn't traced (it is
-  handled by the session layer). Default: the same as a player leaving (`ui/messages.md`).
 - **Window focus.** In single player the game also stops while the program's window isn't active. That belongs with
   the scheduler; not covered here.
 - **Restart check without a network session.** The "fewer than three players" test in that case comes from the session

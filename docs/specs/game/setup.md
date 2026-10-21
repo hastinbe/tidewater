@@ -24,6 +24,11 @@
   spec-review session, 2026-10-21): "Starting alliances and shared vision" gains the team-game rule (X10, static
   study, multiplayer only).
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): "Custom choices": fog of war is a multiplayer lobby choice only, and the single-player custom
+  screen never sets fixed start positions (dialog file and static study; with `ERRATA-audit-vision.md` erratum 1's
+  setup half). The custom step 3 rule for fixed starts is kept as what the setting does.
+
 ## Behaviour
 
 This spec covers how a new single-player game is built from a map file: reading the map's sections, choosing which
@@ -133,13 +138,14 @@ spec), not from the map.
 2. **Your race.** If a race (human or orc) was chosen, it replaces the local slot's race. With "map default" the
    map's race stays. The local player's race setting is the local slot's race.
 3. **Opponents.** The number chosen, or with "map default" the number of slots with code 4 (at least 1). For each
-   opponent, draw r (with fixed start positions, no draw and r = 0). Starting at slot r mod 8 and going up, the first
+   opponent, draw r (with fixed start positions, no draw and r = 0; the single-player custom screen never sets them,
+   see "Fixed start positions" below). Starting at slot r mod 8 and going up, the first
    slot with code 4 becomes a computer player. When a search finds no code-4 slot, that opponent and the rest are
    instead taken from the slots with code 5 that are left, the same way, with a new draw for each try. Opponents stop
    when the number is reached or no code-5 slot is left.
 4. **Custom choices** (below).
 
-**Multiplayer game.** The generator is seeded with the lobby's game seed (the lobby is a later spec). The lobby's
+**Multiplayer game.** The generator is seeded with the lobby's game seed (`ui/game-setup-lobby.md`). The lobby's
 humans take the slots they were given, with no draw; there is no local-slot draw (custom step 1). The computer
 opponents are then placed exactly as custom step 3 places them, and the humans' slots don't count as code 5: a draw
 r per try, then a search from slot r mod 8 upward for code 4. When a
@@ -184,10 +190,14 @@ The resource draw, when there is one, comes before the terrain draw.
 **Units:** "map default" or "one worker only" (see "Creating the map's units"). There is no hall: with "one worker
 only" each played slot gets a single worker at its start location.
 
-**Fog of war** on or off is set here too (`vision/fog.md`).
+**Fog of war.** Multiplayer only: the lobby sets fog of war on or off; a single-player custom game always has fog on
+(its screen has no fog control: `rez\loadcstm.bin` has "Opponents:" in that place; `ui/game-setup-lobby.md`;
+`vision/fog.md`).
 
 **Fixed start positions** only changes the opponent search above (no draws, every search starts at slot 0). The local
-slot is still chosen with a draw.
+slot is still chosen with a draw. The single-player custom screen doesn't offer it: its Location control is hidden in
+the dialog file and the screen clears the setting (static study, round 89; `ui/game-setup-lobby.md`), so a
+single-player custom game always draws. Multiplayer's Fixed Order is described under "Multiplayer game" above.
 
 ### Starting alliances and shared vision
 

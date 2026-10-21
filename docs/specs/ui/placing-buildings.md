@@ -12,6 +12,10 @@
   2026-10-13, round-61 errata: the command's own validity test (the builder table) comes first; the affordability
   check is traced.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): the hidden-units exception uses the builder's owner's "seen" bits everywhere; in a network
+  game the unexplored test is a placement-mode (display) rule only (static study; Tidewater rule for lockstep).
+
 ## Behaviour
 
 The error sound (`misc\error`) has exactly one use: a click that tries to place a building where it can't go. This
@@ -62,7 +66,10 @@ something) and X's footprint, grown by d tiles on every side, overlaps the new f
 
 **Hidden units don't block.** For a human player's builder, when the "blocked" test looks at a tile, the marks that
 units and buildings leave (0x0100, 0x0200, 0x0800) are ignored if the builder's owner doesn't currently see that tile
-(`vision/fog.md`, "Placing a building"). The terrain bits are always tested.
+(`vision/fog.md`, "Placing a building"). The terrain bits are always tested. This holds in placement mode, in the command
+turn and on arrival, in single player and network games alike: the owner's "seen" bits are used, never another
+player's (the original read the local player's bits on arrival, the same player in single player; in a network game
+not mirrored; static study, round 89).
 
 **The builder doesn't block itself.** If the builder is a worker or tanker, the ground-unit mark (0x0100) on its own
 tile is ignored during the check, so a builder standing inside the site doesn't make it "blocked".
@@ -86,8 +93,14 @@ table of `economy/build-train.md`; a failure does nothing, with no message). The
 builder, **without the unexplored test**, followed by the affordability check (traced: `orc9-orc09-smart-move-2000`
 n = 10); on a failure the builder gets no order and nothing is paid, and the message is shown only to the builder's
 owner (`economy/build-train.md`, "Carrying out a player's build command"; traced: `orc9-orc09-shore-build-3000`
-n = 27). When the worker reaches the site, the game checks the placement again (`economy/build-train.md`); that
-check plays no error sound.
+n = 27). When the worker reaches the site, the game checks the placement again (`economy/build-train.md`, "Placement
+on arrival"); that check plays no error sound. It makes the unexplored test only in single player, for a builder of
+the local player; in a network game no machine makes it on arrival.
+
+**The unexplored test in network games.** It is a display rule: placement mode on the issuing player's screen
+applies it, against that player's explored map. The command turn never applies it, and in a network game neither does
+the arrival check, so every machine decides a build the same way (round 89 review; trace request LD7 in
+`net/leave-and-drop.md` would show the original's split).
 
 ## Data
 

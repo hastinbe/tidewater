@@ -22,6 +22,14 @@
   game set up with fog off keeping its "seen" bits (C1, Q2) and inside units' detection (C4, Q3). Statements X1 to
   X12 made explicit. Old vectors kept verbatim as F01 to F26; new vectors F27 to F42.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): "What uses vision": the unexplored test is placement-mode only in network games and the
+  hidden-units exception reads the builder's owner's bits everywhere; "Shared vision": a leaving player's removal
+  happens when the leave is carried out (chat-room games, Enhanced; Classic mode never), and a defeat changes the sets
+  only in a Battle.net game (static study; with `ERRATA-audit-game.md` erratum 7). Fog off from the start is a
+  multiplayer lobby choice only (`ERRATA-audit-vision.md` erratum 1, setup half, data-backed): Q2, F27 and the two
+  fog-off passages now name multiplayer games only.
+
 ## Behaviour
 
 ### The model
@@ -118,8 +126,8 @@ code 16 in the visible map is explored but fogged; the main view covers it with 
 One byte per tile, one bit per player (bit p for player p, players 0 to 7). A set bit means the tile is **not seen**
 by that player during the current refresh period. Players 8 and up have no bit: nothing is revealed for them.
 
-- At the start of a game all bits are set, unless fog is off from the start (the demo playback mode, or a custom or
-  multiplayer game set up with the fog-of-war option off), which clears them all. **Held (Q2):** static study
+- At the start of a game all bits are set, unless fog is off from the start (the demo playback mode, or a multiplayer
+  game set up with the fog-of-war option off; a single-player custom game always has fog on, `game/setup.md`), which clears them all. **Held (Q2):** static study
   (round 87, C1) finds that only demo playback clears them, so a game set up with fog off would start with them all
   set like any other; that reading isn't the default until a trace shows it.
 - On each fog refresh, if the fog-of-war option is on, all bits are set again. With the option off they are left as
@@ -327,8 +335,11 @@ changes, and (Enhanced) who detects invisible units and submarines.
 - **The diplomacy command** (multiplayer): in Enhanced mode it sets the sending player's alliance row and its
   shared-vision set to the values the command carries, in the command turn. **Classic mode:** it changes the
   alliances only; shared vision never changes during play (static study; X10).
-- **A player who leaves a network game or is defeated in one** is removed from every set, and its own set becomes
-  just itself (`game/victory.md`; static study; X10).
+- **A player who leaves a network game** is removed from every set, and its own set becomes just itself: in a
+  chat-room game (Direct Connect, modem, IPX; Tidewater's Direct IP and Local Network) when its leave is carried out
+  in the turn (**Classic mode:** never; shared vision doesn't change during play), and in a Battle.net game when its
+  leave is carried out or the victory check finds it out (`net/leave-and-drop.md`, `game/victory.md`; static study,
+  rounds 87 and 89; X10). A player defeated in a chat-room game keeps its sets (DECISIONS.md, 2026-10-21).
 
 Nothing else changes the sets. A set is used as it is; whether one can lose its own player through the diplomacy
 command is open (Q1).
@@ -384,7 +395,7 @@ computer players' decisions never test fog (`ai/computer-player.md`, `ai/attack-
 | --- | --- |
 | Attack target search (`orders/orders.md`, the acquisition search) | The candidate must not be hidden from the searcher's owner and must be detected by it |
 | An order aimed at a unit loses its target (`orders/orders.md`) | Checked on each movement step: the target is lost if it is no longer detected by the owner. The hidden-from set is not checked |
-| Placing a building (human owner) | The local player can't place on an unexplored tile (any tile of the site fully fogged in the explored map) unless the reveal-map cheat is on. Units standing on tiles the owner doesn't see don't block the placement |
+| Placing a building (human owner) | In placement mode (display): the local player can't place on an unexplored tile (any tile of the site fully fogged in the explored map) unless the reveal-map cheat is on. The arrival check makes the same test in single player only; the command turn never does (`ui/placing-buildings.md`). In placement mode, the command turn and on arrival (game state): units standing on tiles the builder's owner doesn't see don't block the placement; the owner's "seen" bits are used, never the local player's |
 | Clicking a building on the map | Possible when its tile is explored and either the building isn't hidden from the local player or it is a building (buildings stay selectable in fog once explored) |
 | Minimap units | A unit (not a building) is drawn when it isn't hidden from the local player and is detected by it. A building is drawn when it has been seen (see the open questions) and is detected |
 
@@ -418,7 +429,7 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
 
 ### Fog-of-war option and cheat
 
-- **Option off from the start** (demo playback, or a custom or multiplayer game set up with fog off): the fog maps
+- **Option off from the start** (demo playback, or a multiplayer game set up with fog off in the lobby): the fog maps
   start fogged as in any game, but every "seen" bit starts clear, and refreshes never set them, so no unit is ever
   hidden by the fog from a human or passive player. **Held (Q2):** the static reading C1 would start the bits set,
   so that a unit on a tile no player of the set has ever seen stays hidden (F27, F28).
@@ -514,7 +525,7 @@ have it (F40).
 
 | ID | Input | Expected |
 | --- | --- | --- |
-| F27 | Custom game, fog-of-war option off from the setup, Enhanced. An enemy grunt stands on a tile that no unit of the human player (or its shared-vision set) has ever revealed, after the first refresh (Q2) | Default (old text): every "seen" bit is clear, so the grunt isn't hidden from the human player and a search of the human's units in range can take it. **Held reading C1** (static study, not the default): the bit is still set, the grunt is hidden from that player, no search takes it and it isn't drawn on the minimap |
+| F27 | Multiplayer game, fog-of-war option off in the lobby, Enhanced (round 89 review: a single-player custom game can't set fog off; the vector is otherwise unchanged). An enemy grunt stands on a tile that no unit of the human player (or its shared-vision set) has ever revealed, after the first refresh (Q2) | Default (old text): every "seen" bit is clear, so the grunt isn't hidden from the human player and a search of the human's units in range can take it. **Held reading C1** (static study, not the default): the bit is still set, the grunt is hidden from that player, no search takes it and it isn't drawn on the minimap |
 | F28 | Same game, a human footman walks next to that tile (Q2) | Default: no change (the bit was already clear). Held reading C1: its step reveals the tile; from the next phase 5 the grunt isn't hidden, and it stays so for the rest of the game (fog off: nothing re-sets the bit) |
 | F29 | A human peasant finishes a farm and is let out on a tile next to it, in a cycle that is not a refresh cycle (C2) | No area is revealed when it comes out. Its sight is next applied at its first movement step, or at the next fog refresh if it stands still |
 | F30 | A human transport unloads a footman onto a shore tile, not a refresh cycle (C3) | No area is revealed for the footman as it lands; its first step or the next refresh reveals |
@@ -533,7 +544,7 @@ have it (F40).
 
 ## Open questions
 
-- **Q2 (round 87, C1, held by review):** whether a custom or multiplayer game set up with the fog-of-war option off
+- **Q2 (round 87, C1, held by review):** whether a multiplayer game set up with the fog-of-war option off
   starts with every "seen" bit clear (the old text, the default) or set (static study: only demo playback clears
   them). Trace request VR3 in `ERRATA-vision-consolidation.md`.
 - **Q3 (round 87, C4, held by review):** whether a unit inside something is detected by everyone, and whether a

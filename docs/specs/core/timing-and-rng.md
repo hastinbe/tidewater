@@ -38,6 +38,10 @@
   spec-review session, 2026-10-21): phase 3 and the "Fog refresh" row say that an Enhanced holy vision sets the
   countdown to 150 (X1, from `spells/spells.md`); phase 5 works out the hidden-from sets for every player, as game
   state (X2). No rule change.
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review session,
+  2026-10-21): rule 5 says how each network layer handles a stall: in a
+  Direct Connect, modem or IPX game a wait over 200 ms resets the deadline; the old half-cycle rule is the Battle.net
+  layer's (static study). Rule 3's stall bullet follows. The turn length is in `net/lockstep.md`.
 
 ## Behaviour
 
@@ -70,17 +74,24 @@ The scheduler keeps a **deadline** in milliseconds on the system tick clock.
 3. The deadline is reset to now (dropping any backlog) when any of these happen:
    - the speed setting changes;
    - the deadline is more than **500 ms** away from now, in either direction;
-   - the game resumes after a network stall.
+   - in a Direct Connect, modem or IPX game (and Tidewater's Direct IP and Local Network), the game resumes after a
+     network stall that lasted more than 200 ms (rule 5).
 4. While the game is paused, cycle slots still elapse on schedule and the cycle counter still increases, but no game
    state changes. The fog refresh and victory countdowns are game state, so they don't move on a paused cycle: the
    counter values given for refreshes and checks below hold for a game that was never paused, and each paused cycle
    moves every later refresh and check one counter value later (static study, round 88). In single player, while
    the game window is inactive, cycle slots elapse with no state change and no counter increase. Multiplayer games
    keep simulating in the background.
-5. In multiplayer, when a cycle has to wait for other players' commands, the deadline is recomputed once the commands
-   arrive. If the wait lasted under 100 ms, the deadline moves forward by half a cycle length only. If it lasted
-   longer, the deadline becomes now plus a speed-dependent multiple of half a cycle length. The network turn length
-   is still an open question.
+5. In multiplayer, when a cycle has to wait for other players' commands (a stall), the cycle runs once they arrive
+   (static study, round 89; `net/lockstep.md`, "Stalls"):
+   - **Direct Connect, modem or IPX game** (and single player; Tidewater's Direct IP and Local Network): if the wait
+     lasted more than 200 ms, the deadline is reset to now at the next frame (rule 3); shorter waits change nothing.
+   - **Battle.net game:** if the wait lasted under 100 ms, the deadline moves forward by half a cycle length only;
+     otherwise it becomes now plus half a turn (the turn length in cycles × the cycle length ÷ 2), and the 500 ms
+     reset of rule 3 is suppressed while the stall lasts.
+
+   Either way this is pacing only: it changes when cycles run, never what they do. The turn length and when a
+   command is carried out are in `net/lockstep.md`.
 
 ### Order of work inside one cycle
 

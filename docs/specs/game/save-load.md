@@ -12,6 +12,10 @@
   X3 by the review) and a load keeping the cheat-used mark (Q5, split from X2 by the review, in `game/cheats.md`). The
   comparison of a new and a loaded game start is in `game/lifecycle.md`.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): "What a saved game keeps" lists the players' results, dropped marks, the Battle.net tie mark
+  and the slot controllers (static study).
+
 ## Behaviour
 
 This spec covers what a player can save, where it goes, the save and load dialogs, who may save in a multiplayer game,
@@ -163,7 +167,9 @@ A saved game keeps everything that decides how the game goes on, including:
   questions", "Victory countdown after a load");
 - which colour cycles are on (`ui/palette-effects.md`);
 - the music track (`ui/music.md`);
-- the screen's map position.
+- the screen's map position;
+- each player's result, which players were dropped, the Battle.net tie mark, and each slot's controller (a player who
+  left is saved as "nobody") (static study, round 89; `net/leave-and-drop.md`, "A save made after a leave").
 
 ### What a loaded game starts afresh
 

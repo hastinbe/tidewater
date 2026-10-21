@@ -43,6 +43,12 @@
   restart doesn't show the act screen again for the same act (X8). The whole program flow, from startup to the next
   mission, is in the new model, `game/lifecycle.md`.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): "After the score screen": a Battle.net game returns to the Battle.net screens (static study);
+  for the other connections the row stays "the multiplayer screens" (held; static study reads the main menu, MS3).
+  Held: round 89's row text "name - label" and local-row-first order (new open question, MS1); the stated rule stays.
+  The "Multiplayer score screen" open question is answered by `ui/multiplayer-score.md`.
+
 ## Behaviour
 
 This spec covers what happens around a single-player game: the startup videos and title, choosing a new campaign,
@@ -313,7 +319,8 @@ round 88).
 | Campaign, last BDP mission (entry 50 human, 51 orc) | BDP ending | replay the same mission |
 | Campaign, any other mission | next mission of the same race (entry + 2): act screen, briefing, game | replay the same mission |
 | Custom game | main menu | main menu |
-| Multiplayer | back to the multiplayer screens (a later spec) | the same |
+| Multiplayer, Battle.net | the Battle.net screens | the same |
+| Multiplayer, other connections | back to the multiplayer screens (`ui/multiplayer-score.md`, "What follows the score screen"; held, see "Open questions") | the same |
 
 Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
 because its act was the last shown.
@@ -475,7 +482,14 @@ the next one is due at the same moment.
   (closing the window, a system menu) wasn't traced.
 - **Gathered resources.** Whether gold, lumber and oil count deliveries only, or also other income (such as
   trading or cheats), wasn't traced.
-- **Multiplayer score screen.** Which players are listed and how in a multiplayer game is left to a later spec.
+- **Multiplayer score screen.** Answered by `ui/multiplayer-score.md`.
+- **Score rows: text and order (held, round 89 review).** Static study in round 89 reads every row as "name - label"
+  and the local player's row first, then the other slots 0 to 7 in order, in single player too. That contradicts the
+  stated rule above (slot order, "label - name"), which stays the default. Trace request MS1
+  (`ui/multiplayer-score.md`): a screenshot of a single-player custom game's score screen with one computer player.
+- **After a multiplayer game (held).** Static study (rounds 74 and 89) reads the main menu after the score screen of
+  a game that isn't on Battle.net. Default: the multiplayer screens, as the table says. Trace request MS3
+  (`ui/multiplayer-score.md`).
 - **The finale's text in the oracle.** On the ToD human finale (round 72) the scrolling text never moved: one row of
   text pixels stayed at y 308 for about 4 minutes, while the program kept running. The oracle container has no
   sound device; whether the scroll waits for the narration to finish wasn't checked. So the finale's scroll, its

@@ -40,6 +40,10 @@
   `cancel` and `cancel-job` command kinds (still version 2), which the input scenarios can now give; traces
   `human06-cancel-site-600` and `human06-cancel-job-500`.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): the "Other speeds" open question is answered from `net/lockstep.md` (single player: a turn
+  before every cycle, static study; Direct Connect launch: K = 12 at speed 8, traced).
+
 ## Behaviour
 
 A trace records the simulation state of one game of the original program after every simulated cycle, so that a
@@ -445,8 +449,10 @@ committed files.
 
 ## Open questions
 
-- **Other speeds.** Input traces so far all run at speed 8, where a command turn follows every cycle. At slower
-  speeds the turns may be further apart; the trace's `turn` records stay authoritative.
+- **Other speeds.** In single player a command turn comes before every cycle at every speed (`net/lockstep.md`,
+  static study). In a network game turns come every K cycles, where K depends on the delay row and the speed; the
+  Direct Connect launch runs with K = 12 at speed 8 (traced, round 89). The trace's `turn` records stay
+  authoritative.
 - **Commands the game queues by itself:** none has been seen; the Human12 select was the harness's own click
   (found in round 35).
 - **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios

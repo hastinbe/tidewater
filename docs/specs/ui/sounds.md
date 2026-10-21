@@ -40,11 +40,15 @@
   reviewed by a spec-review session, 2026-10-16): holy vision's sound at each point used; the eye of Kilrogg's sound only when an eye is
   made.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): the scope points to the menu button click in `ui/multiplayer-menus.md`. No rule change.
+
 ## Behaviour
 
 This spec says which sound file plays for each unit and game event, when it plays, how one of several variants is
-picked, and how the sound options and the screen position change what is heard. It doesn't cover music, menu
-sounds or how sound files are mixed.
+picked, and how the sound options and the screen position change what is heard. It doesn't cover music or how
+sound files are mixed. The one menu sound, the button click `Sfx\Button.wav`, is in `ui/multiplayer-menus.md`,
+"Sounds and keys" (static study).
 
 ### Basics
 

@@ -10,6 +10,12 @@
   2026-10-12: colour 3 alternating between green and red during a game is noted, citing `ui/palette-effects.md`.
   2026-10-12: the cheat check now cites `game/cheats.md`.
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): the multiplayer leave notice is split by game kind: in a chat-room game 64 for a player who
+  left and 65 for one dropped (63 when nothing is left), carried out in the turn; Battle.net uses 111 and 112 in the
+  message list. The "Leave reasons" open question is answered (static study, `net/leave-and-drop.md`; trace request
+  LD2 confirms it).
+
 ## Behaviour
 
 This spec covers the text the game shows over the map view (the **message list** and the **notice line**), the
@@ -70,7 +76,8 @@ player name. It wraps like any other message, and only the first piece carries t
 | Subtitles | network entries 75 to 79 | `ui/sounds.md`, "Subtitles" |
 | A player paused the game | network entry 86, filled in with the player's name and the pauses that player has left; Enhanced multiplayer only (`ui/game-menu.md`, "Pause") | when a pause takes effect |
 | A player resumed the game | network entry 87, filled in with the player's name; Enhanced multiplayer only | when the game resumes |
-| A player is gone (multiplayer) | network entry 63 if that player's two unit counters are both 0 (taken to mean no units and no buildings left); otherwise 64 for one particular leave reason from the session layer, and 65 for any other. Filled in with the player's name | the player leaves the session |
+| A player is gone (chat-room multiplayer game: Direct Connect, modem, IPX; Tidewater's Direct IP and Local Network) | network entry 63 if that player has no units and no buildings left; otherwise 64 if the player left (its machine ended its game), and 65 if it was dropped (lost connection, Ctrl+F1 on its machine, Alt+F2 on this machine, or a sync mismatch; `net/leave-and-drop.md`). Filled in with the player's name | the leave is carried out in the turn |
+| A player is gone (Battle.net) | network entry 111 "%s has left the game." or 112 "%s was dropped from the game." in the message list, colour 4 (in the lobby also 110 "%s has joined the game.") | the leave is carried out |
 | Chat sent (Classic rules) | network entry 66 | the local player sends a chat line |
 
 **"Under attack"** is the subtitle with network entry 77 (a unit) or 78 (a building). It shows only when the
@@ -217,8 +224,6 @@ The history is saved with a saved game. Under Classic rules the space key does n
   the pointer handler runs between buttons. It wasn't checked in the running game.
 - **Network notices.** The texts and triggers of the network-layer notices in the list weren't traced. One of the
   network paths passes a player number of 255 to the chat-line format; what it shows wasn't checked.
-- **Leave reasons.** Which session events give the reason that shows network entry 64 rather than 65 wasn't
-  traced; the names of the two entries suggest leaving versus being dropped.
 - **Space key and the chat line.** Whether the space key reaches the event history while a chat line is open wasn't
   checked; most likely the chat line takes the key.
 - **Other failure messages.** The mana, return-goods and affordability messages of `ui/command-buttons.md` and

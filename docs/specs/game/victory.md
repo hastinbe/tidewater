@@ -21,6 +21,14 @@
   spec-review session, 2026-10-21): a player out of a network game also gets its own shared-vision set back to just
   itself (X10, static study).
 
+- **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
+  session, 2026-10-21): steps 2, 3 and 7: the conversion to "nobody" (with remembered orders cleared and order 32 for
+  units not dead, dying or removed) and the "game ended" result happen in Battle.net games only; chat-room games, and
+  so Tidewater's Direct IP and Local Network (DECISIONS.md, 2026-10-21), only set the result. A present "nobody" slot
+  is in but counts as neither human nor computer. No defeat or victory dialog in multiplayer. New "Sync" paragraph.
+  The result-codes open question is closed by `net/leave-and-drop.md`, "The Battle.net report". Static study, with
+  `ERRATA-audit-game.md` errata 7, 8 and 10.
+
 ## Behaviour
 
 Victory and defeat are decided by a **check** that runs in phase 8 of a cycle (`core/timing-and-rng.md`), but not on
@@ -123,21 +131,35 @@ Consequences worth testing:
 ### The multiplayer rule
 
 1. **Cheats** as above (instant victory goes to step 6).
-2. **L is out** if L is not present, or L is a human player who is no longer connected. Then L is **defeated**: in a
-   network game L's slot is turned into "nobody", L is removed from everyone's shared vision and its own
-   shared-vision set becomes just L (`vision/fog.md`, "Shared vision"), and all of L's living units are given order
-   32. Order 32 is the docked-transport wait of `orders/orders.md` (order table, row 32): its logic does nothing, so
-   the units stand where they are. The defeat screen is shown.
-3. Otherwise each player q (0 to 7) is checked the same way: q is **in** when it is present, and, if q is a human
-   player, still connected (computer players that are present are always in). A player who is out and has no result
-   yet is marked defeated and, in a network game, turned into "nobody" as above.
+2. **L is out** if L is not present, or L is a human player who is no longer connected. Then L is **defeated**. In a
+   **Battle.net game only**, L is also turned into "nobody": L's slot becomes "nobody", L is removed from everyone's
+   shared vision and its own shared-vision set becomes just L (`vision/fog.md`, "Shared vision"), and each of L's
+   units that is not dead, dying or removed has its remembered order cleared and is given order 32. Order 32 is the
+   docked-transport wait of `orders/orders.md` (order table, row 32): its logic does nothing, so the units stand where
+   they are. In a chat-room game (Direct Connect, modem, IPX; Tidewater's Direct IP and Local Network, DECISIONS.md,
+   2026-10-21) L only gets the "defeat" result; its slot, shared vision and units change only when L's leave is
+   carried out (`net/leave-and-drop.md`). In multiplayer there is no defeat dialog: L's game ends at once and the
+   score screen follows (`ui/multiplayer-score.md`).
+3. Otherwise each player q (0 to 7) is checked the same way: q is **in** when it is present and is not a human player
+   who is no longer connected (so computer players and "nobody" slots that are present are always in). A player who
+   is out and has no result yet is marked defeated and, in a Battle.net game only, turned into "nobody" as in step 2.
+
+   A "nobody" slot that is in counts as neither a computer nor a human player in steps 4 to 6, so a player who left a
+   network game never blocks a victory while its units remain.
 4. If any **computer** player is in, **no result**.
 5. If exactly one human player is in (L), **victory**.
 6. If several human players are in: every one of them must have the allied-victory setting on, and each pair of them
    must be allied both ways (the test also takes each player paired with itself, which game setup makes allied;
    `game/setup.md`). Otherwise **no result**. If they are, **victory** for all.
-7. **Victory:** in a network game, if no player has a result yet, every used slot gets the "game ended" result.
-   L's result becomes victory if it has none. The victory screen is shown.
+7. **Victory:** in a **Battle.net game only**, if no slot that wasn't empty at the start has the "dropped" or "defeat"
+   result, every such slot, L included, gets the "game ended" result. L's result becomes victory if it has none (so
+   after "game ended" it stays "game ended"). In multiplayer there is no victory dialog: L's game ends at once and the
+   score screen follows.
+
+**Sync (multiplayer).** Every machine runs the check at the same cycle (the countdown is game state). What it decides
+for each player depends only on game state (presence, controllers and the connection flag, which a chat-room game
+changes only when a leave is carried out in the turn), so all machines agree; only L's own outcome and the end of L's
+game are local. Static study, round 89 (`net/leave-and-drop.md`).
 
 ### Mission rules
 
@@ -285,9 +307,10 @@ conversions keep the rescuable mark.
 | Mission entry 0. L has 1 barracks and 4 farms (complete) | Victory |
 | Multiplayer, 2 humans and 1 computer; the computer is still present | No result |
 | Multiplayer, 2 humans left, allied both ways, both with allied victory on | Victory for both |
-| Multiplayer, L's last unit and building die | Defeat at that check; L's slot becomes nobody |
-| Network game, humans L, B and C, all present, no alliances; B disconnects | At the next check B is out: defeated, B's slot becomes nobody, B leaves everyone's shared vision, and B's living units get order 32 and stand still. L and C are in and not allied: no result |
-| Same, but C has no units and no buildings left | C is out and defeated too. Only L is in: victory for L. Because B and C already have results, no slot gets the "game ended" result |
+| Multiplayer, L's last unit and building die | Defeat at that check; L's game ends at once. Battle.net: L's slot becomes nobody at the check. Chat-room game: the others turn L's slot into nobody when L's leave is carried out |
+| Chat-room game (Tidewater's rule), humans L, B and C, all present, no alliances; B disconnects and its drop is carried out | B's slot is nobody; B leaves everyone's shared vision (Enhanced); B's units keep their orders. At the next check B is in but neither human nor computer, and has no result. L and C are in and not allied: no result |
+| Same, but C has no units and no buildings left | C is out and defeated. L is the only human player in: victory for L |
+| Battle.net game, humans L, B and C, all present, no alliances; B is dropped | When B's leave is carried out B gets the "dropped" result and is turned into nobody (shared vision, order 32; `net/leave-and-drop.md`). At the next check B is in but neither human nor computer. L and C are in and not allied: no result. If C then has no units and no buildings, C is defeated and L wins; because B and C have results, no slot gets "game ended" |
 | Human mission 8 of *Tides of Darkness* | Entry 14, mode D |
 | Orc mission 1 of *Beyond the Dark Portal* | Entry 29, mode L |
 | Entry 0 (mode A). L has 1 barracks and 3 complete farms, and a fourth farm under construction | No result (only complete farms count) |
@@ -311,7 +334,6 @@ conversions keep the rescuable mark.
   counts are reset between missions: every new game start sets every player's count to 0, before the mission start
   (static study, round 88, X12; a load restores the saved counts).
 - The allied-victory setting's source (assumed: the diplomacy screen's allied-victory box).
-- The exact result codes reported to the network ("game ended" when nobody has a result) are not specified.
 - Whether passive and rescue players' units should block destroy-all victory in custom scenarios (they do in the
   program, by the rule above).
 - **Victory countdown after a load (round 88 review, Q4 of `ERRATA-game-consolidation.md`).** Static study finds that
