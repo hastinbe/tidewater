@@ -1,7 +1,7 @@
 //! Game-file import (`docs/design/import.md`): finds the user's Warcraft II: Battle.net Edition files, checks them and
 //! copies the ones Tidewater needs into its own data directory. No engine types, no SDL, no `unsafe`.
 //!
-//! - [`source`]: what kind of thing a path is (game folder, single archive, folder of archives, GOG installer, DOS copy).
+//! - [`source`]: what kind of thing a path is (game folder, single archive, folder of archives, GOG installer, CD image, DOS copy).
 //! - [`validate`]: opens the archives and checks the key files, with player-facing messages.
 //! - [`copy`]: copies the allowlisted files into a temporary folder and swaps it into place.
 //! - [`manifest`]: the record of what was copied (`manifest.json`).
@@ -9,11 +9,14 @@
 #![forbid(unsafe_code)]
 
 pub mod copy;
+pub mod disc;
 pub mod inno;
 pub mod manifest;
 pub mod source;
 pub mod validate;
 
+#[cfg(test)]
+mod testiso;
 #[cfg(test)]
 mod testutil;
 
@@ -65,12 +68,15 @@ pub enum ImportError {
     InnoextractMissing(PathBuf),
     #[error("Couldn't read the installer {}: {detail}. Install the game with it and choose the installed folder instead.", .path.display())]
     InstallerFailed { path: PathBuf, detail: String },
+    #[error("Couldn't read the CD image {}: {detail}. Mount the image (or copy its files to a folder) and choose the mounted disc or the folder instead.", .path.display())]
+    DiscImageUnreadable { path: PathBuf, detail: String },
     #[error(
-        "{} is a CD image, and Tidewater can't read CD images yet. Mount it (or copy its files to a folder), then \
-         choose the mounted disc or the folder.",
+        "{} is a CD image, but the game's files aren't stored on it as plain files: this disc holds an installer. \
+         Tidewater can't read installers on discs yet. Install the game from the disc, then choose the installed \
+         folder.",
         .0.display()
     )]
-    DiscImageUnsupported(PathBuf),
+    DiscHoldsInstaller(PathBuf),
     #[error(
         "No Warcraft II game files (War2Dat.mpq) found in {}. Choose the folder where the game is installed.",
         .0.display()
@@ -97,7 +103,7 @@ impl ImportError {
             Self::DosEdition => 11,
             Self::InstallerUnsupported(_) | Self::InnoextractMissing(_) | Self::InstallerFailed { .. } => 12,
             Self::NoGameFiles(_) => 13,
-            Self::DiscImageUnsupported(_) => 19,
+            Self::DiscImageUnreadable { .. } | Self::DiscHoldsInstaller(_) => 19,
             Self::Invalid(issue) => match issue.kind {
                 IssueKind::NoWar2Dat => 14,
                 IssueKind::Damaged => 15,

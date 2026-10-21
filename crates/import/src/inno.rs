@@ -38,7 +38,7 @@ pub struct Staging {
 }
 
 impl Staging {
-    fn create() -> std::io::Result<Self> {
+    pub(crate) fn create() -> std::io::Result<Self> {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("tidewater-installer-{}-{n}", std::process::id()));

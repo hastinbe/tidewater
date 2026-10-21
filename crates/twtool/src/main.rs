@@ -28,6 +28,10 @@ enum Cmd {
     /// Dry run of the game-file import: classify `path` (a game folder, a mounted CD, a folder of `.mpq` files, one
     /// archive), check the files and print the report. Copies nothing. Exits non-zero when the files can't be imported.
     ImportCheck { path: PathBuf },
+    /// List every file on a CD image (`.iso`, `.bin` with `.cue`, `.mdf`, `.nrg`, `.img`): size and path, one per line.
+    /// The layout and the kind of names (Joliet or ISO 9660) go to stderr. Shows whether the game files are loose on the
+    /// disc or only inside an installer.
+    DiscList { image: PathBuf },
     /// Print `block<TAB>name` for each name (one per line on stdin) that an archive contains, first spelling only.
     MpqProbe { archive: PathBuf },
     /// Extract the named files (one per line on stdin) into a directory, keeping their paths.
@@ -300,6 +304,15 @@ fn main() -> Result<()> {
             if let Err(e) = report.into_result() {
                 eprintln!("{e}");
                 std::process::exit(e.exit_code());
+            }
+        }
+        Cmd::DiscList { image } => {
+            let disc = tidewater_import::disc::Disc::open(&image)
+                .map_err(|e| anyhow::anyhow!("couldn't read {}: {e}", image.display()))?;
+            let names = if disc.is_joliet() { "Joliet" } else { "ISO 9660" };
+            eprintln!("{} ({names} names, {})", image.display(), disc.layout().describe());
+            for f in disc.files() {
+                println!("{:>12}  {}", f.size, f.path);
             }
         }
         Cmd::MpqProbe { archive } => {

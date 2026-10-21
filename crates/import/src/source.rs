@@ -29,6 +29,8 @@ pub enum SourceKind {
     MpqFolder,
     /// A GOG (Inno Setup) installer; its game files are staged in a temporary folder.
     GogInstaller,
+    /// A CD image (ISO 9660); its game files are staged in a temporary folder.
+    CdImage,
 }
 
 impl SourceKind {
@@ -39,6 +41,7 @@ impl SourceKind {
             Self::SingleMpq => "single-mpq",
             Self::MpqFolder => "mpq-folder",
             Self::GogInstaller => "gog-installer",
+            Self::CdImage => "cd-image",
         }
     }
 
@@ -49,6 +52,7 @@ impl SourceKind {
             Self::SingleMpq => "a single archive file",
             Self::MpqFolder => "a folder of archive files",
             Self::GogInstaller => "a GOG installer",
+            Self::CdImage => "a CD image",
         }
     }
 }
@@ -114,7 +118,7 @@ fn classify_file(path: &Path) -> Result<Source, ImportError> {
         return Err(ImportError::InstallerUnsupported(path.to_path_buf()));
     }
     if is_disc_image(path, &name) {
-        return Err(ImportError::DiscImageUnsupported(path.to_path_buf()));
+        return crate::disc::open_source(path);
     }
     if has_ext(&name, "war") {
         return Err(ImportError::DosEdition);
@@ -126,22 +130,13 @@ fn open_installer(exe: &Path) -> Result<Source, ImportError> {
     InstallerReader::open(exe).map(InstallerReader::into_source)
 }
 
-/// A CD image: by extension (`.cue`, `.img`, `.mdf`, `.nrg`), or `.iso` / `.bin` by the ISO 9660 signature `CD001`
-/// at sector 16 (ECMA-119): 2048-byte sectors in an `.iso`, raw 2352-byte sectors (data after a 16- or 24-byte header)
-/// in a `.bin`.
+/// A CD image: a `.cue` sheet, `.img`, `.mdf`, `.mds` or `.nrg` by extension, or any other file (an `.iso`, a `.bin`)
+/// by the ISO 9660 signature `CD001` at sector 16 (ECMA-119), whatever the sector size ([`crate::disc`]).
 fn is_disc_image(path: &Path, name: &str) -> bool {
-    use std::io::{Read, Seek, SeekFrom};
-    if ["cue", "img", "mdf", "nrg"].iter().any(|e| has_ext(name, e)) {
+    if ["cue", "img", "mdf", "mds", "nrg"].iter().any(|e| has_ext(name, e)) {
         return true;
     }
-    if !(has_ext(name, "iso") || has_ext(name, "bin")) {
-        return false;
-    }
-    let Ok(mut f) = fs::File::open(path) else { return false };
-    [16 * 2048 + 1, 16 * 2352 + 17, 16 * 2352 + 25].iter().any(|&off| {
-        let mut b = [0u8; 5];
-        f.seek(SeekFrom::Start(off)).is_ok() && f.read_exact(&mut b).is_ok() && &b == b"CD001"
-    })
+    (has_ext(name, "iso") || has_ext(name, "bin")) && crate::disc::looks_like_disc(path)
 }
 
 /// The files a source can supply, whatever holds them. A plain folder is the first implementation ([`FolderFiles`]);
@@ -450,25 +445,16 @@ mod tests {
     }
 
     #[test]
-    fn disc_images_are_recognised_but_not_read_yet() {
+    fn disc_images_that_are_not_discs_are_refused() {
         let t = tempfile::tempdir().unwrap();
-        let iso = t.path().join("disc.iso");
-        let mut b = vec![0u8; 17 * 2048];
-        b[16 * 2048 + 1..16 * 2048 + 6].copy_from_slice(b"CD001");
-        fs::write(&iso, b).unwrap();
-        assert!(matches!(classify(&iso), Err(ImportError::DiscImageUnsupported(_))));
-        let bin = t.path().join("disc.bin");
-        let mut b = vec![0u8; 17 * 2352];
-        b[16 * 2352 + 17..16 * 2352 + 22].copy_from_slice(b"CD001");
-        fs::write(&bin, b).unwrap();
-        assert!(matches!(classify(&bin), Err(ImportError::DiscImageUnsupported(_))));
-        touch(&t.path().join("disc.cue"));
+        // Recognised by extension, but junk inside.
+        fs::write(t.path().join("disc.cue"), b"nothing useful").unwrap();
         assert!(matches!(
             classify(&t.path().join("disc.cue")),
-            Err(ImportError::DiscImageUnsupported(_))
+            Err(ImportError::DiscImageUnreadable { .. })
         ));
-        // A .iso that isn't a disc image is not one.
-        touch(&t.path().join("notes.iso"));
+        // A .iso or .bin without the ISO 9660 signature is not a disc image.
+        fs::write(t.path().join("notes.iso"), vec![0u8; 20 * 2048]).unwrap();
         assert!(matches!(
             classify(&t.path().join("notes.iso")),
             Err(ImportError::NoGameFiles(_))
