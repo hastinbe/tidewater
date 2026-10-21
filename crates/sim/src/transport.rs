@@ -446,6 +446,16 @@ impl World {
         self.take_over(i, Order::Docked);
     }
 
+    /// [`Command::UnloadOne`]: puts the passenger in `slot` of `transport` ashore, if `player` owns the transport.
+    pub(crate) fn unload_one_command(&mut self, player: u8, transport: UnitId, slot: u8) {
+        let Some(i) = self.index(transport) else { return };
+        let t = &self.units[i];
+        if t.owner != player || t.dying || usize::from(slot) >= t.passengers.len() {
+            return;
+        }
+        self.unload_one(i, usize::from(slot));
+    }
+
     /// Puts the passenger in `slot` ashore, if the transport is unloading or docked and a tile is free.
     pub fn unload_one(&mut self, i: usize, slot: usize) {
         let t = &self.units[i];
@@ -1084,6 +1094,33 @@ mod tests {
             }
         }
         assert!(unloaded, "{:?}", w.unit(tid).unwrap().order);
+    }
+
+    /// `Command::UnloadOne` puts one passenger ashore for the transport's owner only, and ignores a bad slot.
+    #[test]
+    fn the_unload_one_command_is_owner_checked() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (20, 10), Order::Docked);
+        let tid = w.units[t].id;
+        let p = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+        let pi = w.index(p).unwrap();
+        let unit = w.units[pi].clone();
+        w.mark(&unit, unit.tile, None);
+        w.units[pi].inside = true;
+        w.units[pi].order = Order::Aboard { transport: tid };
+        let ti = w.index(tid).unwrap();
+        w.units[ti].passengers[2] = Some(p);
+        let one = |player, slot| crate::Command::UnloadOne {
+            player,
+            unit: tid,
+            slot,
+        };
+        // Another player's request, a slot past the end and an empty slot do nothing.
+        w.turn(&[one(1, 2), one(0, 200), one(0, 3)]);
+        assert_eq!(w.unit(tid).unwrap().passengers[2], Some(p));
+        w.turn(&[one(0, 2)]);
+        assert_eq!(w.unit(tid).unwrap().passengers[2], None);
+        assert!(!w.unit(p).unwrap().inside);
     }
 
     #[test]

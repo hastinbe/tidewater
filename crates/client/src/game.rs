@@ -669,15 +669,20 @@ pub(crate) fn tick(c: &mut Core) {
         return;
     };
     // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
-    // spec's one-passenger rule (open question there: assumed to be that request). The sim has no command for it, so
-    // its one-passenger unload runs here, between ticks, for transports the local player owns.
-    for (t, place) in std::mem::take(&mut sim.unload_one) {
-        let human = sim.human;
-        if let Some(i) = sim.world.units.iter().position(|u| u.id == t && u.owner == human) {
-            sim.world.unload_one(i, place);
-        }
-    }
-    let cmds = std::mem::take(&mut sim.pending);
+    // spec's one-passenger rule (open question there: assumed to be that request). It is a command like any other
+    // (`Command::UnloadOne`, owner-checked in the sim), applied first in the cycle, ahead of the other pending commands.
+    let human = sim.human;
+    let mut cmds: Vec<tidewater_sim::Command> = std::mem::take(&mut sim.unload_one)
+        .into_iter()
+        .filter_map(|(unit, place)| {
+            Some(tidewater_sim::Command::UnloadOne {
+                player: human,
+                unit,
+                slot: u8::try_from(place).ok()?,
+            })
+        })
+        .collect();
+    cmds.append(&mut sim.pending);
     sim.world.step(&cmds);
     // Carried-goods spec, "When the file is chosen": the marks and take-overs of this cycle.
     sim.carried.update(&sim.world);

@@ -587,8 +587,9 @@ pub fn attack_loop(scripts: &Scripts, kind: u8) -> u16 {
     0
 }
 
-/// A player's instruction, applied at the start of the tick it is scheduled for.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// A player's instruction, applied at the start of the tick it is scheduled for. It is serialisable so that a network
+/// turn can carry it (`docs/design/multiplayer-determinism.md`).
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
     Move {
         player: u8,
@@ -756,6 +757,14 @@ pub enum Command {
     Pause {
         player: u8,
     },
+    /// Info-panel spec, "Clicking an icon": the player puts the passenger in `slot` of transport `unit` ashore (the
+    /// transports spec's one-passenger rule). Ignored unless the player owns the transport and it is unloading or
+    /// docked.
+    UnloadOne {
+        player: u8,
+        unit: UnitId,
+        slot: u8,
+    },
     /// A recognised cheat line (cheats spec): `flags` becomes the cheat flags (a [`crate::cheats::Flags`] value).
     Cheat {
         player: u8,
@@ -857,6 +866,27 @@ pub struct World {
     /// set (fog spec, "A unit created during a cycle"). Not game state: always clear between cycles, so not stored
     /// and left out of the hash.
     pub(crate) in_cycle: bool,
+}
+
+/// The hasher behind [`World::state_hash`]: FNV-1a over bytes, with `usize` and `isize` (vector lengths, enum
+/// discriminants) hashed at a fixed 64-bit width so that a 32-bit machine and a 64-bit one agree.
+struct Fnv(u64);
+
+impl std::hash::Hasher for Fnv {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ b as u64).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.write(&(n as u64).to_le_bytes());
+    }
+    fn write_isize(&mut self, n: isize) {
+        self.write(&(n as i64).to_le_bytes());
+    }
 }
 
 mod save;
@@ -1525,6 +1555,7 @@ impl World {
             | Command::Speed { .. }
             | Command::Pause { .. } => return,
             &Command::Cheat { player, flags } => return self.cheat_command(player, crate::cheats::Flags(flags)),
+            &Command::UnloadOne { player, unit, slot } => return self.unload_one_command(player, unit, slot),
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -1668,17 +1699,6 @@ impl World {
 
     /// FNV-1a over everything that defines the game state. Equal hashes on two machines mean they are in sync.
     pub fn state_hash(&self) -> u64 {
-        struct Fnv(u64);
-        impl std::hash::Hasher for Fnv {
-            fn finish(&self) -> u64 {
-                self.0
-            }
-            fn write(&mut self, bytes: &[u8]) {
-                for &b in bytes {
-                    self.0 = (self.0 ^ b as u64).wrapping_mul(0x100_0000_01b3);
-                }
-            }
-        }
         use std::hash::{Hash, Hasher};
         let mut h = Fnv(0xcbf2_9ce4_8422_2325);
         self.tick.hash(&mut h);
@@ -2022,6 +2042,81 @@ pub(crate) mod tests {
         }]);
         a.step(&[]);
         assert_ne!(a.state_hash(), b.state_hash());
+    }
+
+    #[test]
+    fn the_hasher_takes_usize_at_64_bits() {
+        use std::hash::{Hash, Hasher};
+        let (mut a, mut b) = (Fnv(1), Fnv(1));
+        a.write_usize(0x1234_5678);
+        b.write(&0x1234_5678u64.to_le_bytes());
+        assert_eq!(a.finish(), b.finish());
+        let (mut a, mut b) = (Fnv(1), Fnv(1));
+        a.write_isize(-3);
+        b.write(&(-3i64).to_le_bytes());
+        assert_eq!(a.finish(), b.finish());
+        // A vector hashes its length as a 64-bit number, then its items.
+        let (mut a, mut b) = (Fnv(1), Fnv(1));
+        vec![7u8, 9].hash(&mut a);
+        b.write(&2u64.to_le_bytes());
+        b.write(&[7, 9]);
+        assert_eq!(a.finish(), b.finish());
+    }
+
+    /// Pins the sync hash: a fixed world, a few commands and cycles, one constant. If this fails, the hash of every
+    /// game changed, which breaks play between builds; change the constant only on purpose.
+    #[test]
+    fn the_state_hash_is_pinned() {
+        let mut w = world();
+        w.spawn(8, 1, (6, 6), 0).unwrap();
+        w.step(&[Command::Move {
+            player: 0,
+            units: vec![UnitId(1)],
+            to: (3, 5),
+        }]);
+        run(&mut w, 40);
+        assert_eq!(w.state_hash(), 0x389878cab19f51fa);
+    }
+
+    #[test]
+    fn commands_round_trip_through_serde() {
+        let cmds = vec![
+            Command::Move {
+                player: 1,
+                units: vec![UnitId(3), UnitId(9)],
+                to: (-4, 12),
+            },
+            Command::Harvest {
+                player: 2,
+                units: vec![UnitId(5)],
+                target: Some(UnitId(8)),
+                tile: (1, 2),
+            },
+            Command::Smart {
+                player: 0,
+                units: vec![],
+                target: None,
+                tile: (0, 0),
+            },
+            Command::Cast {
+                player: 3,
+                unit: UnitId(4),
+                spell: 40,
+                target: None,
+                tile: (6, 7),
+            },
+            Command::Speed {
+                player: 0,
+                faster: true,
+            },
+            Command::Cheat {
+                player: 1,
+                flags: 0x8000_0001,
+            },
+        ];
+        let bytes = postcard::to_stdvec(&cmds).unwrap();
+        let back: Vec<Command> = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, cmds);
     }
 
     #[test]

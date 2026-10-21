@@ -237,7 +237,8 @@ impl World {
             | Command::RecallGroup { .. }
             | Command::Speed { .. }
             | Command::Pause { .. }
-            | Command::Cheat { .. } => return None,
+            | Command::Cheat { .. }
+            | Command::UnloadOne { .. } => return None,
         };
         // Our own choice (module doc): every other command clears the remembered order.
         match remember {

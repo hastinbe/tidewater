@@ -1092,7 +1092,9 @@ pub(crate) fn run_menu(c: &mut Core) {
                 }
                 m.draft.game_speed = m.speed;
             }
-            if screen == Screen::Prefs && m.fog != m.fog_at_open {
+            // Game-menu spec: the fog radio is disabled in multiplayer. It changes the game state outside the command
+            // stream (`set_fog_of_war` reads the local player), so it never runs in a network game.
+            if screen == Screen::Prefs && m.fog != m.fog_at_open && !sim.world.rules.multiplayer {
                 sim.world.set_fog_of_war(m.fog);
             }
             stored.0 = m.draft.clone();

@@ -435,13 +435,17 @@ impl World {
         self.sound_on(i, Sound::Construction);
     }
 
-    /// Whether this is a single-player game: exactly one human player ("Critters").
+    /// Whether this is a single-player game: exactly one human player ("Critters"). A network game never counts, even
+    /// with one human left: the kill runs from the interface between cycles, outside the command stream, so it would
+    /// desynchronise the other machines.
     fn single_player(&self) -> bool {
-        self.players
-            .iter()
-            .filter(|p| p.controller == crate::ai::controller::HUMAN)
-            .count()
-            == 1
+        !self.rules.multiplayer
+            && self
+                .players
+                .iter()
+                .filter(|p| p.controller == crate::ai::controller::HUMAN)
+                .count()
+                == 1
     }
 
     /// "Acknowledging orders": the local player gave an order (or cast the eye of Kilrogg) with `first` as the

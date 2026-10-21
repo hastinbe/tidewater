@@ -131,8 +131,12 @@ pub(crate) fn run(c: &mut Core) {
     // A game that is new since the last frame this ran (what Bevy's `is_added` told).
     if std::mem::take(sim_new) {
         // "Flags across games": a new game starts with the three kept flags only.
-        let kept = flow.cheat_flags.for_new_game();
-        sim.world.start_cheats(kept);
+        // Cheats are a single-player feature (cheats spec): a network game starts with none, whatever the client kept,
+        // so every machine starts from the same flags. Network cheats go through `Command::Cheat`.
+        if !sim.world.rules.multiplayer {
+            let kept = flow.cheat_flags.for_new_game();
+            sim.world.start_cheats(kept);
+        }
     }
     sync_flow(flow, sim.world.cheats.flags);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
