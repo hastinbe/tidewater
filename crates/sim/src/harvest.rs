@@ -2248,6 +2248,10 @@ mod tests {
             if collapsed {
                 let pi = w.index(platform).unwrap();
                 w.kill(pi);
+                // A collapse is a take-down, which clears the footprint at once; a kill keeps it until the death
+                // animation ends (`core/unit-slots.md`, "Death, corpses and release").
+                let dying = w.unit(platform).unwrap().clone();
+                w.mark(&dying, dying.tile, None);
             }
             come_out_now(&mut w, t, yard);
             let u = w.unit(t).unwrap();
@@ -2327,7 +2331,7 @@ mod tests {
             w.kill(hi);
             assert!(w.unit(a).unwrap().dying);
             run(&mut w, 5);
-            assert_eq!(pinned(&w), 6779244202415217819);
+            assert_eq!(pinned(&w), 9532860105431581578);
         }
 
         /// [`land_with_oil`] with player 0 human, player 1 computer, workers that can attack and a foe type (an
@@ -2452,7 +2456,7 @@ mod tests {
                 }
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [3327629875632948883, 10411063635708709822]);
+            assert_eq!(prints, [17689051769212782550, 11405665669436509632]);
         }
 
         /// Order 23 with no route and an attacker: the tree search comes first and the walk's end runs no reaction
@@ -2548,7 +2552,7 @@ mod tests {
             let u = &w.units[pi];
             assert_eq!(u.pending, Some(Order::Attack { target: a }));
             assert_eq!(u.path, vec![(11, 9)]);
-            assert_eq!(w.fingerprint(), 5083180129386180915);
+            assert_eq!(w.fingerprint(), 14440854347996173131);
         }
 
         /// Order 24's depot re-issue ("Returning goods", step 2) is an ordinary command taken over in the same update
@@ -2588,7 +2592,7 @@ mod tests {
             let u = &w.units[pi];
             assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
             assert_eq!(u.blocked, 0, "the resumed patrol starts afresh");
-            assert_eq!([first, w.fingerprint()], [5763721113784088958, 5472781868606498703]);
+            assert_eq!([first, w.fingerprint()], [14353338902934128014, 11440593515018656229]);
         }
 
         /// V77 ("Returning goods", step 2; audit round 70, erratum 8): order 24 losing its last depot gives no
@@ -2618,7 +2622,7 @@ mod tests {
                 (Order::Idle, None, anim::STILL, 3)
             );
             assert_eq!((u.blocked, u.path.clone(), u.attacked_by), (5, vec![(11, 9)], Some(a)));
-            assert_eq!(w.fingerprint(), 5698017457373773504);
+            assert_eq!(w.fingerprint(), 9705331970962022116);
         }
 
         /// "Entering", step 3 (audit round 70, erratum 9): order 25 first forgets an attacker that is dying, gone,
@@ -2776,7 +2780,7 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [10661141334316599506, 10557360367904692938]);
+            assert_eq!(prints, [10661141334316599506, 9043647395314735218]);
         }
 
         /// "Coming out" with no command and nothing pending: it faces its goal tile, the building's top-left tile
@@ -2814,7 +2818,7 @@ mod tests {
             w.enter_order(pi, mine, false);
             let u = &w.units[pi];
             assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3));
-            assert_eq!(w.fingerprint(), 8094069076712323855);
+            assert_eq!(w.fingerprint(), 7983042427830139720);
         }
 
         /// Whole cycles: human workers mining, chopping (with a tree cut from under one of them), a tanker at its

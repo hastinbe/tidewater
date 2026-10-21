@@ -1441,7 +1441,7 @@ mod tests {
                 assert!(!w.unit(p).unwrap().inside);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [427655117419415628, 9023995242958280302]);
+            assert_eq!(got, [9744658166825344336, 13164505959883254606]);
         }
 
         #[test]
@@ -1453,7 +1453,7 @@ mod tests {
             w.step(&[Command::Cancel { player: 0, unit: farm }]);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 2618938846346574124);
+            assert_eq!(pinned(&w), 5661265841042699767);
         }
 
         #[test]
@@ -1464,7 +1464,7 @@ mod tests {
             w.kill(fi);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 13721907124765988707);
+            assert_eq!(pinned(&w), 12266623285966275026);
         }
 
         /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), a

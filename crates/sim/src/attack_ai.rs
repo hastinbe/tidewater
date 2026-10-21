@@ -1848,6 +1848,27 @@ mod tests {
         assert_eq!(w.sea_picker(0), Some((20, 20)));
     }
 
+    /// `core/unit-slots.md`, "Death, corpses and release" (a building's footprint marks are cleared when its death
+    /// animation ends) with `ai/attack-ai.md`, "Setting a goal" (the blocking test sees the occupancy marks), vector
+    /// `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` n = 754: an all-out attack starting inside the kill of a
+    /// 2 x 2 farm at (7, 19) gives a peon the goal tile (9, 19), whose ring search skips the dying farm's tiles
+    /// (8, 19) and (8, 20) and stores (9, 20); once the death animation has ended they are free.
+    #[test]
+    fn a_dying_buildings_footprint_still_blocks_a_goal_until_its_death_animation_ends() {
+        let mut w = game();
+        let farm = spawn(&mut w, FARM, 1, (7, 19));
+        // Two blockers stand on (9, 18) and (9, 19), as the knights did in the trace.
+        spawn(&mut w, FOOTMAN, 0, (9, 18));
+        spawn(&mut w, FOOTMAN, 0, (9, 19));
+        let p = spawn(&mut w, PEASANT, 1, (7, 29));
+        w.kill(ix(&w, farm));
+        assert!(w.set_goal(ix(&w, p), GoalKind::Attack, Some((9, 19))));
+        assert_eq!(at(&w, p).goal.tile, Some((9, 20)));
+        w.death_done(ix(&w, farm));
+        assert!(w.set_goal(ix(&w, p), GoalKind::Attack, Some((9, 19))));
+        assert_eq!(at(&w, p).goal.tile, Some((8, 19)));
+    }
+
     // ---- Goals ----
 
     #[test]
@@ -3019,40 +3040,40 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    8188799236495032788,
-                    11609423580585000042,
-                    3770080883411666111,
-                    1162795181443115998,
-                    3761294870594310891,
+                    6042437728563913277,
+                    7513743930288408192,
+                    4427678233780404357,
+                    6900686228984607963,
+                    8823317975428448962,
                     // Round 83 (CP7): with 2 farms and the unfinished platform, B = 3 at the first kill, so no
                     // all-out attack there; the second kill starts it. (With 3 or 4 farms the site has completed by
                     // the kill that brings B under 3.) Every row after an all-out attack changed with the job choice
                     // in order 4 (CP5): the peasant sent off by it takes up a job on the way.
-                    1031746324593574190,
-                    5246726972106791062,
-                    9675588191970497284,
-                    14850138899523378090,
-                    11015724436352951852,
-                    16901435502237606729,
-                    11613765020777070394,
-                    14675879980906052181,
-                    15141138015439975851,
-                    3993856210674727675,
-                    15028280418113559886,
-                    946240211817619424,
-                    3882110818410129922,
-                    13537642335894420149,
-                    7554302020517874718,
-                    13405751506375811038,
-                    2296894831355980837,
-                    8174484187575824922,
-                    5045277377292094451,
-                    16638689557184325017,
-                    1122171077792337853,
-                    6937000696008518128,
-                    8134169222432434524,
-                    12844773890857866402,
-                    5273607769965364757
+                    1763155314859678738,
+                    15826794703079266662,
+                    16191897135130498468,
+                    4132461433334496410,
+                    18224364270534115706,
+                    18283054091649668454,
+                    5466927513740763677,
+                    13181640681965463486,
+                    16817622223440180522,
+                    15001787275378286940,
+                    3738157604034410381,
+                    12840339517839624817,
+                    14576159226804369819,
+                    1901386471991242854,
+                    5854360311119351397,
+                    6330159254475103207,
+                    12374259548167110013,
+                    11717065394223980993,
+                    17074189127906525535,
+                    12999341428242869729,
+                    7700757550540119707,
+                    6015892671986007488,
+                    5443590975829554546,
+                    17953788181548926056,
+                    9078793151650143698
                 ]
             );
         }

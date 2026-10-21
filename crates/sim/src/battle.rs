@@ -764,7 +764,8 @@ impl World {
             self.players[unit.owner as usize].under_construction -= 1;
         }
         self.units[ti].construction = None;
-        if !unit.inside {
+        // A building's footprint stays marked until its death animation ends ([`World::death_done`]).
+        if !unit.inside && !unit.building {
             self.mark(&unit, unit.tile, None);
         }
         if unit.building {
@@ -2969,7 +2970,7 @@ mod tests {
             let di = w.index(d).unwrap();
             w.blast(di);
             let got = [pinned(&w), trail(&mut w, 40)];
-            assert_eq!(got, [18281418379776267613, 3582393290367439326]);
+            assert_eq!(got, [7425597059138610055, 962635481664473667]);
         }
 
         /// The apply-damage checks: dying, used, inside, unholy armour, zero damage, and the Dark Portal case.

@@ -67,7 +67,7 @@ impl World {
 
     /// "Oil platform killed with oil left": a patch with the oil that was left, at once, taking a new slot and
     /// creation number with a building's 2 draws. Run last in the kill, since creating a unit moves unit indices. Our
-    /// reading of the open question: the patch is always placed (the dying platform's footprint is already cleared).
+    /// reading of the open question: the patch is always placed, whether or not the dying platform's footprint is still marked.
     pub(crate) fn leave_oil(&mut self, i: usize) {
         let u = &self.units[i];
         if OIL_PLATFORMS.contains(&u.kind) && u.resources > 0 {
@@ -76,13 +76,20 @@ impl World {
         }
     }
 
-    /// The death animation's "step done" ("What a dead unit becomes").
+    /// The death animation's "step done" ("What a dead unit becomes"). A building's footprint marks are cleared here
+    /// (`core/unit-slots.md`, "Death, corpses and release"), not at the kill: so a goal set inside the kill, by the
+    /// all-out attack, still finds the tiles blocked (traced: `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`).
     pub(crate) fn death_done(&mut self, i: usize) {
         let u = &self.units[i];
         let s = self.stats_of(u.kind);
         // A unit inside something carries the used mark (spec, "The used mark").
         let used = u.used || u.inside;
         if u.building {
+            if !u.inside {
+                let unit = u.clone();
+                self.mark(&unit, unit.tile, None);
+            }
+            let u = &self.units[i];
             if used {
                 return self.start_removal(i);
             }

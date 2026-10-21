@@ -1548,18 +1548,18 @@ Campaign\XHuman\2XHum12.pud	fight	25000	15f0ce9bf27c3cdc	cf31f4033d0118a3	245
 Campaign\XHuman\2XHum12.pud	fight	27500	6f61e59c288ae836	6f0eb38d8cfb6d28	242
 Campaign\XHuman\2XHum12.pud	fight	30000	e82885cd7603315e	12eb3705760b561d	240
 Campaign\XHuman\2XHum12.pud	harvest	0	eee396205a3630db	f6af9c18a8f82788	245
-Campaign\XHuman\2XHum12.pud	harvest	2500	c4810cafb518530f	d107ab7589bec794	224
-Campaign\XHuman\2XHum12.pud	harvest	5000	c8e3398aa3b8f1d3	aad020275e470a26	221
-Campaign\XHuman\2XHum12.pud	harvest	7500	111f1ad18943b067	98493435f4fd78e7	216
-Campaign\XHuman\2XHum12.pud	harvest	10000	0c7553f70fb4ac53	5f9853e739e6abfe	192
-Campaign\XHuman\2XHum12.pud	harvest	12500	284999adad9faae0	6eaeef66cfa3ea3c	197
-Campaign\XHuman\2XHum12.pud	harvest	15000	99851cd2bf91b04b	cea8d6dd871eab77	206
-Campaign\XHuman\2XHum12.pud	harvest	17500	bf8db2fbdb2b9fd6	6b3cf167b1760bc5	219
-Campaign\XHuman\2XHum12.pud	harvest	20000	509c6139840e9279	c16e56bd2c0ab0fa	225
-Campaign\XHuman\2XHum12.pud	harvest	22500	fdeb691636e576d3	a6bc94243dee5c66	227
-Campaign\XHuman\2XHum12.pud	harvest	25000	7f1fe4b49729dc12	6d954fcf6e169e20	231
-Campaign\XHuman\2XHum12.pud	harvest	27500	fda6cffa337f6711	77fdf9dcbdc5702a	225
-Campaign\XHuman\2XHum12.pud	harvest	30000	e5764fdd8b6f21a1	79124d3870dc5fa2	224
+Campaign\XHuman\2XHum12.pud	harvest	2500	beff9f91d1f793c4	6b2542eeb2926a03	224
+Campaign\XHuman\2XHum12.pud	harvest	5000	31eeed8b37f0eb31	56f456175d87f27f	222
+Campaign\XHuman\2XHum12.pud	harvest	7500	d3a957bd79ff7cbb	86930ba36dbade21	198
+Campaign\XHuman\2XHum12.pud	harvest	10000	237ca2dc06766403	262e2995b1ae9832	193
+Campaign\XHuman\2XHum12.pud	harvest	12500	524fbe0df671b70d	94c1eb69c4e17cb4	199
+Campaign\XHuman\2XHum12.pud	harvest	15000	dd804cecf441c030	5aa7e184e18208c6	210
+Campaign\XHuman\2XHum12.pud	harvest	17500	17c7a316c94d8fee	bf481b79f684d445	220
+Campaign\XHuman\2XHum12.pud	harvest	20000	8f3a861b70b80ef8	5b3ed816c8184de5	230
+Campaign\XHuman\2XHum12.pud	harvest	22500	4f7239eed4719887	91945510b28844e4	230
+Campaign\XHuman\2XHum12.pud	harvest	25000	0c90cd584c1bdb68	ac28c2980ae79c96	236
+Campaign\XHuman\2XHum12.pud	harvest	27500	52e63efbcea7b8c6	97a9c7065811b1fb	231
+Campaign\XHuman\2XHum12.pud	harvest	30000	8b818705dff27b4f	3c06cd4d6046b56d	234
 Campaign\XOrc\2XOrc01.pud	move	0	cd11f2dd186681a9	95a5fbdcff268a41	112
 Campaign\XOrc\2XOrc01.pud	move	2500	e5a9300100d630af	c9609215fd1fa2bd	111
 Campaign\XOrc\2XOrc01.pud	move	5000	e02157e8541a168e	dd29e73e35f3e12e	109
@@ -3859,8 +3859,8 @@ Maps\Classic\Expansion\Khing.pud	move	17500	ec7c1997cee32300	13af7e952b9211bf	18
 Maps\Classic\Expansion\Khing.pud	move	20000	977b42033a61cab9	c8ddd49f4ab2cd76	189
 Maps\Classic\Expansion\Khing.pud	move	22500	921cd3f01a8f1acd	15dc201b190711de	204
 Maps\Classic\Expansion\Khing.pud	move	25000	fc4d04da66daf184	fa9908bdef0fd83b	217
-Maps\Classic\Expansion\Khing.pud	move	27500	1f9be6be279f1107	30533ba401317aaf	228
-Maps\Classic\Expansion\Khing.pud	move	30000	aed4492cfc0e8ec9	147277f71f642a82	237
+Maps\Classic\Expansion\Khing.pud	move	27500	b8f296514f84d4f1	7628e4a4488b2ed6	228
+Maps\Classic\Expansion\Khing.pud	move	30000	6f542173b89d4b4a	4112a1810a581f44	239
 Maps\Classic\Expansion\Khing.pud	fight	0	ced87e43c36f3ee6	2ffee7c7d768caa9	114
 Maps\Classic\Expansion\Khing.pud	fight	2500	4afcebbd5af9e539	970d299514f1c285	122
 Maps\Classic\Expansion\Khing.pud	fight	5000	cc920b6e2eb6959f	018f54b82663bd5e	128
@@ -4382,18 +4382,18 @@ Maps\Classic\Expansion\Scenario\Burn_It.pud	move	25000	7327d9225048a273	5b8da001
 Maps\Classic\Expansion\Scenario\Burn_It.pud	move	27500	908d069da827806f	61505fcec4a2c10b	52
 Maps\Classic\Expansion\Scenario\Burn_It.pud	move	30000	6292c8fdc22e51f1	68d6567a9637f058	52
 Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	0	843899976e2fd50f	518f2acfbb452e75	96
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	2500	24ebf58c989fabd6	b63638e66f1a01fd	86
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	5000	658809fbe39b8143	76071a05f48754e5	58
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	7500	946104dfb23d0ed8	584bf700e8fb1030	50
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	10000	e2e8b7792bf3f56b	cc02f51143a4c891	52
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	12500	3353874e38cbad6e	2dbd1cd8f6e0657f	55
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	15000	945708e6e8fa3dc4	33fbcdb285bb2d23	57
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	17500	d8e13223c00eb7a2	062869122d85154a	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	20000	de5e5897c6c34c6d	d73e47796b1f2554	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	22500	cfcbecc96490716a	69146cadf0a78f00	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	25000	7f35a2a33671dda7	71e7af8fa537afbd	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	27500	f3d29ef499b5eeec	24280481517c1324	59
-Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	30000	37f5d7015b800c82	74a2aec8c2cdeb68	59
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	2500	afd3801382cf664e	0b4eb022230a5490	86
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	5000	1a921fdcd4fbabcb	540739820880b659	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	7500	4d2a1a180682a146	17724fe2e8462362	52
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	10000	eea60f474ca713a9	70110148cd933ff8	54
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	12500	6ef0c15ee98325b5	8c1f74be4c79ce08	57
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	15000	d8184bff556d4f78	62b7dff637ab4ebd	59
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	17500	5b658ff7552acd37	f479f3a18477ef46	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	20000	c6fe55e2e12f4a48	1557fda331cfc421	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	22500	22ae73a6c87fdc1a	d2dc5ab3c3747367	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	25000	2492cedd1f41b34f	7ded119726aba901	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	27500	49dd17962201dd81	185c8e63d0ac70ad	61
+Maps\Classic\Expansion\Scenario\Burn_It.pud	fight	30000	b8d44dc16e6ffcce	e2f66b64b0162d82	61
 Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	0	843899976e2fd50f	518f2acfbb452e75	96
 Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	2500	af5fcddf0e9984fb	2d038d1f3b84a4e9	100
 Maps\Classic\Expansion\Scenario\Burn_It.pud	harvest	5000	ed7a9520a8780ae2	676cb12116d2d7b8	77
@@ -9333,7 +9333,7 @@ Maps\Scenario\Bombs Away BNE.pud	fight	20000	04365d532e3da249	8ec42823227e534d	8
 Maps\Scenario\Bombs Away BNE.pud	fight	22500	908ff13685895fd8	bc579f0be3ffa456	90
 Maps\Scenario\Bombs Away BNE.pud	fight	25000	177e4f99ce4c1c8e	1f7a044fc241d8cc	97
 Maps\Scenario\Bombs Away BNE.pud	fight	27500	beaf0a431ff27e71	370768bec2a98c7a	102
-Maps\Scenario\Bombs Away BNE.pud	fight	30000	82eb4d6627ddff24	d1bdda65d196556f	103
+Maps\Scenario\Bombs Away BNE.pud	fight	30000	4948e2d68f76d2b7	df901cdec33a2cb7	103
 Maps\Scenario\Bombs Away BNE.pud	harvest	0	07a0eaacdc742ef0	0334bbd43f188810	64
 Maps\Scenario\Bombs Away BNE.pud	harvest	2500	08fb9308d5ca4f30	3d3d8f6dee4c876d	69
 Maps\Scenario\Bombs Away BNE.pud	harvest	5000	f917736100df3cfa	e8d126630595a8e4	76

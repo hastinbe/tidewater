@@ -1555,7 +1555,7 @@ mod tests {
             let hi = w.index(hall).unwrap();
             w.kill(hi);
             run(&mut w, 3);
-            assert_eq!(pinned(&w), 282801298655996242);
+            assert_eq!(pinned(&w), 18263553936505040068);
         }
 
         /// Code versus spec: rescue cancels at once, leaving the building's animation as it was (the spec's "Job end"
