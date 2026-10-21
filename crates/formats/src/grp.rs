@@ -1,7 +1,6 @@
 //! GRP sprite sheets (units, buildings, missiles, icons).
 //!
-//! Format source: the StarCraft GRP format as documented on the Staredit Network wiki ("GRP") and by the open-source
-//! OpenBW project. Header: u16 frame count, u16 width, u16 height. Then per frame: u8 x offset, u8 y offset, u8 width,
+//! Format source: the StarCraft GRP format as documented on the Staredit Network wiki ("GRP"). Header: u16 frame count, u16 width, u16 height. Then per frame: u8 x offset, u8 y offset, u8 width,
 //! u8 height, u32 offset of the frame's row table. The row table holds one u16 per row, each an offset (relative to
 //! the table) of that row's run-length data. A run byte `b`: `b & 0x80` skips `b & 0x7F` transparent pixels;
 //! `b & 0x40` repeats the next byte `b & 0x3F` times; otherwise the next `b` bytes are literal pixels.

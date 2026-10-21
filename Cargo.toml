@@ -30,7 +30,7 @@ unsafe_code = "forbid"
 all = { level = "warn", priority = -1 }
 
 
-# Debug info for dependencies (mostly Bevy) is most of a debug build's size, and each agent worktree has its own
+# Debug info for dependencies is most of a debug build's size, and each agent worktree has its own
 # target directory. Our own crates keep line tables, so backtraces still name files and lines.
 [profile.dev]
 debug = "line-tables-only"

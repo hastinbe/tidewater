@@ -5,9 +5,9 @@
 //! - Justin Olbrantz, "Inside MoPaQ" (2006).
 //!
 //! Only the container is implemented here: header, encrypted hash and block tables, sector tables and file
-//! decryption. Sector decompression (PKWARE DCL, Huffman, IMA ADPCM, zlib) is delegated to the MIT/Apache-2.0
-//! licensed code from the `wow-mpq` and `explode` crates (see [`crate::mpq_codec`]); `wow-mpq`'s own reader can't read
-//! every file in these archives.
+//! decryption. Sector decompression (PKWARE DCL, Huffman, IMA ADPCM, zlib) lives in [`crate::mpq_codec`]: the Huffman
+//! and IMA ADPCM decoders are ports of StormLib (MIT, see `licenses/StormLib-MIT.txt`), PKWARE DCL comes from the
+//! MIT-licensed `explode` crate.
 
 use std::collections::HashMap;
 use std::fs::File;

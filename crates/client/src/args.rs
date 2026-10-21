@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(about = "Tidewater map viewer")]
+#[command(about = "Tidewater, the Warcraft II: Battle.net Edition game client")]
 pub struct Args {
     /// Warcraft II: Battle.net Edition installation directory.
     #[arg(long, env = "TIDEWATER_INSTALL")]
