@@ -2,6 +2,7 @@
 
 mod oracle;
 mod replay;
+mod replays;
 mod snapshot;
 
 use std::io::BufRead;
@@ -151,6 +152,32 @@ enum Cmd {
         /// Write here instead of standard output.
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    /// Play a recorded game (`.twrep`, from `tidewater --record-replay`) headlessly and check every state-hash
+    /// checkpoint. Exits non-zero, with the cycle, on the first mismatch, a damaged file, or a map that is not the one
+    /// the replay was recorded on.
+    Replay {
+        #[arg(long)]
+        install: PathBuf,
+        file: PathBuf,
+        /// The map file, if the replay's map is not a name inside the archives.
+        #[arg(long)]
+        map: Option<PathBuf>,
+    },
+    /// Play two replays side by side (or one replay twice, with `--local` making another human the second run's
+    /// local player) and print the first cycle where their state hashes differ, then the first differing piece of
+    /// the world (players, units, terrain, vision and so on) and field. Exits 1 on a difference.
+    DesyncDiff {
+        #[arg(long)]
+        install: PathBuf,
+        a: PathBuf,
+        b: Option<PathBuf>,
+        /// Run `a` again with this slot as the local player (needs a replay with a lobby).
+        #[arg(long)]
+        local: Option<u8>,
+        /// The map file, if the replay's map is not a name inside the archives.
+        #[arg(long)]
+        map: Option<PathBuf>,
     },
     /// Print the unit stats table (`rez\\unitdata.dat`) as TSV.
     Units {
@@ -391,6 +418,14 @@ fn main() -> Result<()> {
             let setup = setup.unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&map));
             sim(&install, &map, &setup, player, (x, y), ticks, seed, mode)?
         }
+        Cmd::Replay { install, file, map } => replays::replay(&file, &install, map.as_deref())?,
+        Cmd::DesyncDiff {
+            install,
+            a,
+            b,
+            local,
+            map,
+        } => replays::desync_diff(&a, b.as_deref(), local, &install, map.as_deref())?,
         Cmd::Snapshot {
             install,
             cycles,

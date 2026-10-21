@@ -44,6 +44,7 @@ mod scene;
 mod screen;
 mod screenshot;
 pub mod script;
+pub mod session;
 mod sound;
 mod states;
 pub mod storage;

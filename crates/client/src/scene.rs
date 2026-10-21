@@ -7,10 +7,8 @@ use anyhow::{Context, Result};
 use tidewater_formats::grp::Grp;
 use tidewater_formats::install::Install;
 use tidewater_formats::pud::{Era, Pud};
-use tidewater_formats::script::Scripts;
 use tidewater_formats::sprites::unit_sheet_candidates;
 use tidewater_formats::tileset::{Palette, TILE, Tileset};
-use tidewater_formats::udta::UnitTable;
 use tidewater_sim::World;
 
 /// An RGBA8 picture.
@@ -35,6 +33,9 @@ pub struct Scene {
     pub human: u8,
     /// The game's seed, which also starts the sound-variant generator (`client::sound`).
     pub seed: u32,
+    /// The map file's hash (`tidewater_replay::start::map_hash`) and whether the user gave the file by its own path.
+    pub map_hash: u64,
+    pub user_map: bool,
 }
 
 /// The sheet frame and horizontal flip that draw a unit: its animation frame, plus the facing column for units
@@ -128,22 +129,29 @@ pub fn tile_picture(ts: &Tileset, megatile: usize, pal: &Palette) -> Picture {
 ///
 /// `map` is a map file the user named (`Storage::user_map`) or one in the installation. `seed` is the game's start
 /// seed: a new game's is the time in whole seconds (timing-and-rng spec, "Seeding"), a loaded game's is the saved
-/// game's, so the same template world is built (`savefile::Header::seed`). Slot setup draws from it.
+/// game's, so the same template world is built (`savefile::Header::seed`). Slot setup draws from it. A `lobby` starts a
+/// multiplayer game; a `replay` header makes the map's hash checked against the recording's first.
 pub fn load(
     install: &mut Install,
     storage: &dyn crate::storage::Storage,
     map: &str,
     setup: &tidewater_sim::setup::Setup,
     seed: u32,
+    lobby: Option<&tidewater_sim::setup::Lobby>,
+    replay: Option<&tidewater_replay::Header>,
 ) -> Result<Scene> {
-    let data = match storage.user_map(map).with_context(|| format!("reading {map}"))? {
-        Some(d) => d,
-        None => install.read(map)?,
+    let (data, user_map) = match storage.user_map(map).with_context(|| format!("reading {map}"))? {
+        Some(d) => (d, true),
+        None => (install.read(map)?, false),
     };
+    // A replay is refused on a map that is not the one it was recorded on, before anything is built.
+    if let Some(h) = replay {
+        h.check_map(&data)?;
+    }
     let pud = Pud::parse(&data)?;
-    let start = tidewater_sim::setup::Start::choose(&pud, setup, seed)?;
+    let start = tidewater_replay::start::choose_start(&pud, setup, seed, lobby)?;
     let era = start.era;
-    let ts = install.tileset(era)?;
+    let (world, ts) = tidewater_replay::start::build_world(install, &pud, &start)?;
     let (w, h) = (pud.width as usize, pud.height as usize);
     let (px, _) = ts.draw_map(&pud.tiles, w, h);
     let terrain = Picture {
@@ -151,16 +159,6 @@ pub fn load(
         height: (h * TILE) as u32,
         rgba: to_rgba(&px, &ts.palette, false, None),
     };
-    let stats = match pud.section(b"UDTA").map(UnitTable::from_udta).transpose()?.flatten() {
-        Some(t) => t,
-        None => UnitTable::from_table(&install.read("rez\\unitdata.dat")?)?,
-    };
-    let scripts = Scripts::parse(install.read("rez\\script.bin")?)?;
-    let upgrades = tidewater_formats::ugrd::UpgradeTable::from_table(&install.read("rez\\upgrades.dat")?)?;
-    let mut world = World::from_pud(&pud, &ts, stats, upgrades, std::sync::Arc::new(scripts), &start)?;
-    let ai = tidewater_formats::aibin::AiFile::parse(install.read("rez\\ai.bin")?)?;
-    world.start_ai(std::sync::Arc::new(ai));
-
     let sheets = (0..tidewater_formats::script::UNIT_TYPES as u8)
         .filter_map(|k| {
             unit_sheet_candidates(k, era).into_iter().find_map(|name| {
@@ -180,6 +178,8 @@ pub fn load(
         world,
         human,
         seed,
+        map_hash: tidewater_replay::start::map_hash(&data),
+        user_map,
     })
 }
 

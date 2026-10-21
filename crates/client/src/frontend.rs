@@ -120,6 +120,9 @@ pub struct Flow {
     pub resume: Option<Box<crate::savegame::Resume>>,
     /// The cheat flags that carry into the next game (`cheats`).
     pub cheat_flags: tidewater_sim::cheats::Flags,
+    /// A recorded game to play back as the next game (`--replay`, `session::ReplaySession`): its header gives the
+    /// game's map, seed, setup and lobby.
+    pub replay: Option<Box<tidewater_replay::Replay>>,
 }
 
 /// The installation, fonts and tables the screens use, and their sounds by name.

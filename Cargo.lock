@@ -637,6 +637,7 @@ dependencies = [
  "tempfile",
  "tidewater-formats",
  "tidewater-import",
+ "tidewater-replay",
  "tidewater-sim",
 ]
 
@@ -662,6 +663,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidewater-replay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "postcard",
+ "serde",
+ "thiserror",
+ "tidewater-formats",
+ "tidewater-sim",
+]
+
+[[package]]
 name = "tidewater-sim"
 version = "0.1.0"
 dependencies = [
@@ -680,8 +693,10 @@ dependencies = [
  "flate2",
  "png",
  "serde_json",
+ "tempfile",
  "tidewater-formats",
  "tidewater-import",
+ "tidewater-replay",
  "tidewater-sim",
 ]
 

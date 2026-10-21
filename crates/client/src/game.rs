@@ -28,6 +28,7 @@ use crate::core::{self, Core, add_layer, remove_layers};
 use crate::input::{self, Button, Key};
 use crate::layers::{self, Pictures, Role};
 use crate::panel::PanelState;
+use crate::session::{LocalSession, Recorder, ReplaySession, Session};
 use crate::{
     audio, campaign, display, fog, frontend, hud, info, mapview, messages, minimap, mouse, palette, panel, savefile,
     savegame, scene, screen, sound, view,
@@ -39,8 +40,12 @@ pub struct MapSize(pub Vec2);
 
 pub struct Sim {
     pub world: World,
-    /// Commands collected since the last tick.
+    /// Commands the interface made since the last tick. Each cycle `tick` hands them to the session
+    /// (`Session::submit`); they never reach the world any other way.
     pub pending: Vec<Command>,
+    /// Where the game's commands come from: the player (`session::LocalSession`) or a recording
+    /// (`session::ReplaySession`).
+    pub session: Box<dyn Session>,
     pub human: u8,
     /// Notices for the notice line since the last frame (`messages`).
     pub notices: Vec<messages::Text>,
@@ -52,6 +57,15 @@ pub struct Sim {
     pub ui_sounds: Vec<sound::UiSound>,
     /// The carrying files of the workers and tankers, chosen again after each cycle (`carry`).
     pub carried: carry::Carried,
+}
+
+impl Sim {
+    /// Applies `cmd` now, between cycles, if the session takes it (`Session::immediate`): a turn without a cycle.
+    pub(crate) fn apply_now(&mut self, cmd: Command) {
+        if let Some(c) = self.session.immediate(self.world.tick, cmd) {
+            self.world.turn(&[c]);
+        }
+    }
 }
 
 /// Plays the sim's sound cues (`sound.rs`, spec `docs/specs/ui/sounds.md`): reads the files from the install on first
@@ -149,7 +163,7 @@ impl Selection {
     /// sound (sounds spec, "Selecting units": under Classic rules only for one unit).
     fn set(&mut self, sim: &mut Sim, units: Vec<UnitId>, sound: bool) {
         if mouse::sound_wanted(sim.world.rules.enhanced, sound, units.len()) {
-            sim.world.select_sound(units[0]);
+            select_sound(sim, units[0]);
         }
         sim.pending.push(Command::Select {
             player: sim.human,
@@ -289,6 +303,17 @@ struct GameArgs {
     demo_outcome: Option<bool>,
 }
 
+/// The selection sound (`World::select_sound`). In single player the 10th click on a critter kills it, a change to the
+/// world made between cycles (not a command) with random draws; a recording notes it, as a replay can't reproduce it.
+fn select_sound(sim: &mut Sim, unit: UnitId) {
+    let before = sim.world.rng;
+    sim.world.select_sound(unit);
+    if sim.world.rng != before {
+        sim.session
+            .note_unsynced("a critter was killed by repeated clicks (single player)");
+    }
+}
+
 /// The world of a game that is starting, from its template (`docs/specs/game/lifecycle.md`, "How a game starts").
 ///
 /// - **A new game** is the template as the map and set-up built it: cheat flags, rescued counts, the victory
@@ -337,6 +362,7 @@ fn record_game(
 
 fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>) -> anyhow::Result<()> {
     let a = &c.opts;
+    let record = a.record_replay;
     let args = GameArgs {
         map: map.to_string(),
         setup,
@@ -355,17 +381,76 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
     };
     let store = c.store.clone();
     let mut install = crate::storage::open_install(&store.0)?;
-    let options = args
+    let mut options = args
         .setup
         .unwrap_or_else(|| tidewater_sim::setup::Setup::for_map(&args.map));
     // A saved game builds the same game again (same start seed), then its state goes over it.
     let resume = c.flow.resume.take();
+    // A recorded game starts again from its header: its seed, setup and lobby (`session::ReplaySession`).
+    let replay = c.flow.replay.take();
     // Single player seeds with the time in whole seconds (`core/timing-and-rng.md`, "Seeding"), read through the
     // storage's wall clock.
     let wall = store.wall_clock_secs();
-    let seed = resume.as_ref().map_or(wall as u32, |r| r.header.seed);
-    let mut scene = scene::load(&mut install, &*store.0, &args.map, &options, seed)?;
+    let mut seed = resume.as_ref().map_or(wall as u32, |r| r.header.seed);
+    let mut lobby = None;
+    if let Some(r) = &replay {
+        (options, seed, lobby) = (r.header.setup, r.header.seed, r.header.lobby.clone());
+    }
+    let mut scene = scene::load(
+        &mut install,
+        &*store.0,
+        &args.map,
+        &options,
+        seed,
+        lobby.as_ref(),
+        replay.as_ref().map(|r| &r.header),
+    )?;
     start_world(&mut scene.world, resume.as_deref(), wall)?;
+    // Where the game's commands come from: a recording, the player (recorded if asked), or the player.
+    let session: Box<dyn Session> = match replay {
+        Some(r) => {
+            let built = tidewater_replay::start::rules_tag(&scene.world);
+            anyhow::ensure!(
+                built == r.header.rules,
+                "the recording's rules ({}) don't match the game it starts ({built})",
+                r.header.rules
+            );
+            println!(
+                "replaying {} ({} cycles) as player {}",
+                r.header.map_name, r.cycles, r.header.local
+            );
+            Box::new(ReplaySession::new(*r))
+        }
+        None if record => {
+            let direct = args.demo_move.is_some() || args.demo_fight || args.demo_outcome.is_some();
+            if resume.is_some() || direct {
+                eprintln!(
+                    "not recording a replay: a loaded game or a run with --demo-move, --demo-fight or --demo-outcome can't be replayed from its start"
+                );
+                Box::new(LocalSession::new())
+            } else {
+                let start_cheats = if scene.world.rules.multiplayer {
+                    0
+                } else {
+                    c.flow.cheat_flags.for_new_game().0
+                };
+                let header = tidewater_replay::Header::for_game(
+                    tidewater_replay::start::recorded_map_name(&args.map, scene.user_map),
+                    scene.map_hash,
+                    seed,
+                    options,
+                    lobby.clone(),
+                    &scene.world,
+                    start_cheats,
+                    scene.human,
+                );
+                let name = Recorder::file_name(&args.map, wall);
+                Box::new(LocalSession::recording(Recorder::new(header, store.clone(), name)))
+            }
+        }
+        None => Box::new(LocalSession::new()),
+    };
+    c.next_session = Some(session);
     c.origin = Some(savegame::GameOrigin {
         map: args.map.clone(),
         setup: options,
@@ -569,6 +654,7 @@ pub(crate) fn setup(c: &mut Core) {
         hud: Some(hud),
         selection: Some(sel),
         resume_look,
+        next_session,
         ..
     } = c
     else {
@@ -640,9 +726,11 @@ pub(crate) fn setup(c: &mut Core) {
         let p = &scene.world.players[scene.human as usize];
         screen::Counter::open([p.gold, p.lumber, p.oil])
     };
+    let session = next_session.take().unwrap_or_else(|| Box::new(LocalSession::new()));
     let sim = Sim {
         world: scene.world,
         pending,
+        session,
         human: scene.human,
         notices: Vec::new(),
         counter,
@@ -694,7 +782,7 @@ pub(crate) fn tick(c: &mut Core) {
     // spec's one-passenger rule (open question there: assumed to be that request). It is a command like any other
     // (`Command::UnloadOne`, owner-checked in the sim), applied first in the cycle, ahead of the other pending commands.
     let human = sim.human;
-    let mut cmds: Vec<tidewater_sim::Command> = std::mem::take(&mut sim.unload_one)
+    let mut local: Vec<tidewater_sim::Command> = std::mem::take(&mut sim.unload_one)
         .into_iter()
         .filter_map(|(unit, place)| {
             Some(tidewater_sim::Command::UnloadOne {
@@ -704,11 +792,33 @@ pub(crate) fn tick(c: &mut Core) {
             })
         })
         .collect();
-    cmds.append(&mut sim.pending);
+    local.append(&mut sim.pending);
+    // The interface's commands go to the session, which decides what runs in this cycle (`session`).
+    for cmd in local {
+        sim.session.submit(cmd);
+    }
+    for text in sim.session.take_notices() {
+        sim.notices.push(messages::Text::Own(text));
+    }
+    let Some(cmds) = sim.session.ready_commands(sim.world.tick) else {
+        // The session isn't ready (a replay held, ended or stopped): no cycle runs and nothing of one is done.
+        return;
+    };
     sim.world.step(&cmds);
+    if sim.world.victory.over || sim.session.wants_hash(sim.world.tick) {
+        let (tick, hash) = (sim.world.tick, sim.world.state_hash());
+        if let Err(m) = sim.session.checkpoint(tick, hash) {
+            eprintln!("{m}");
+        }
+        for text in sim.session.take_notices() {
+            sim.notices.push(messages::Text::Own(text));
+        }
+    }
     // Carried-goods spec, "When the file is chosen": the marks and take-overs of this cycle.
     sim.carried.update(&sim.world);
-    let step = std::time::Duration::from_secs_f64(cycle_secs(sim.world.rules.enhanced, sim.world.speed));
+    let step = std::time::Duration::from_secs_f64(
+        cycle_secs(sim.world.rules.enhanced, sim.world.speed) / f64::from(sim.session.rate()),
+    );
     if time.step() != step {
         time.set_step(step);
     }
@@ -1606,7 +1716,7 @@ pub(crate) fn keys_input(c: &mut Core) {
                 }
                 if let Some(units) = plan.select {
                     if let Some(&first) = units.first() {
-                        sim.world.select_sound(first);
+                        select_sound(sim, first);
                     }
                     sel.units = units;
                 }

@@ -24,6 +24,17 @@ pub struct Args {
     /// A .pud file path, or a name inside the archives; it starts at once. Without one the program starts with its
     /// startup videos and title (`docs/specs/game/campaign-flow.md`).
     pub map: Option<String>,
+    /// Record the game as played: a `.twrep` file in the `replays` folder of Tidewater's user data directory (the
+    /// `--save-dir` folder if one is given), written as the game goes and when it ends. Off by default. Not for a
+    /// loaded game or a run with a `--demo-*` option; those can't be replayed from their start.
+    #[arg(long)]
+    pub record_replay: bool,
+    /// Play back a recorded game (a `.twrep` file) as the recording player saw it. Input is ignored except the game
+    /// menu, pause (holds the playback) and speed (plays faster or slower). Stops with a message at the first
+    /// checkpoint that doesn't match the recording. The map is found as the recording named it, in the archives or
+    /// by that name in the current folder.
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["map", "record_replay", "setup"])]
+    pub replay: Option<PathBuf>,
     /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `mission:E`, `act:E`,
     /// `briefing:E`, `score-victory:E` or `score-defeat:E` (synthetic statistics), `ending:E`, `credits:tod`,
     /// `credits:bdp` (the credits page after a finale), `show-credits` (the main menu's credits screen) or `video:N`,

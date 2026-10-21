@@ -41,6 +41,9 @@ pub trait Storage: Send + Sync {
     /// Whether a Print Screen picture named `name` exists.
     fn has_screenshot(&self, name: &str) -> bool;
     fn write_screenshot(&self, name: &str, bytes: &[u8]) -> io::Result<()>;
+    /// Writes the replay `name` (a `.twrep` file, `session`) whole into the replay folder, making the folder if need
+    /// be. Replays go into the user's own data and never into the installation.
+    fn write_replay(&self, name: &str, bytes: &[u8]) -> io::Result<()>;
     /// Whole seconds since 1970-01-01 UTC: a new game's seed, a loaded game's reseed, a save's time
     /// (`core/timing-and-rng.md`, "Seeding").
     fn wall_clock_secs(&self) -> u64;
@@ -117,6 +120,8 @@ pub struct Desktop {
     saves: PathBuf,
     settings: PathBuf,
     shots: PathBuf,
+    /// Recorded games: `replays` in the user folder.
+    replays: PathBuf,
     /// A wall clock that stands still (a scripted run's, so its games and saves come out the same every time).
     fixed_clock: Option<u64>,
 }
@@ -129,6 +134,7 @@ impl Desktop {
             install: Folder::new(install),
             saves,
             settings,
+            replays: shots.join("replays"),
             shots,
             fixed_clock: None,
         }
@@ -212,6 +218,14 @@ impl Storage for Desktop {
         std::fs::write(self.shots.join(name), bytes)
     }
 
+    fn write_replay(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
+        std::fs::create_dir_all(&self.replays)?;
+        // Written beside the file and moved over it, so a crash leaves the last whole recording.
+        let tmp = self.replays.join(format!("{name}.part"));
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, self.replays.join(name))
+    }
+
     fn wall_clock_secs(&self) -> u64 {
         // Truncated to 32 bits, as the seed takes it.
         self.fixed_clock.unwrap_or_else(|| {
@@ -257,6 +271,15 @@ mod tests {
             std::fs::read(t.path().join("user").join("screen000.pcx")).unwrap(),
             b"p"
         );
+        // Replays go into the user folder's `replays`, never beside the installation.
+        s.write_replay("a.twrep", b"r1").unwrap();
+        s.write_replay("a.twrep", b"r2").unwrap();
+        assert_eq!(
+            std::fs::read(t.path().join("user").join("replays").join("a.twrep")).unwrap(),
+            b"r2"
+        );
+        assert!(!t.path().join("user").join("replays").join("a.twrep.part").exists());
+        assert!(!t.path().join("install").exists());
     }
 
     #[test]

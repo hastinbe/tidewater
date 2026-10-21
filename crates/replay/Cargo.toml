@@ -1,0 +1,17 @@
+[package]
+name = "tidewater-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The .twrep replay format, the world a replay starts from, and the headless run that verifies one"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+postcard.workspace = true
+tidewater-formats.workspace = true
+tidewater-sim.workspace = true
+
+[lints]
+workspace = true

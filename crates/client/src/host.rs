@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::args::Args;
 use crate::core::{Core, Platform};
@@ -205,11 +205,34 @@ pub fn launch(mut args: Args) -> Result<Launch> {
     let install = storage::open_install(&store.0)?;
     let mut front = frontend::Front::load(install)?;
     let mut flow = frontend::Flow::default();
-    let steps = match &scripted {
-        Some((scene, _)) => scene.start.clone(),
-        None => start_steps(&args, &mut flow, &mut front)?,
+    // The map given on the command line starts at once; otherwise the startup sequence ("Startup") or a screen
+    // named by `--goto`.
+    // `--replay FILE`: the recorded game starts at once (`session::ReplaySession`); a damaged file is refused here.
+    let replay = match &args.replay {
+        Some(path) => {
+            let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            let replay = tidewater_replay::Replay::decode(&bytes).with_context(|| format!("{}", path.display()))?;
+            if replay.header.sim_build != tidewater_replay::format::sim_build() {
+                eprintln!(
+                    "note: the recording is from {}, this is {}; the checkpoints will say whether it still replays",
+                    replay.header.sim_build,
+                    tidewater_replay::format::sim_build()
+                );
+            }
+            Some(replay)
+        }
+        None => None,
+    };
+    let steps = match (&replay, &scripted) {
+        (Some(replay), _) => vec![frontend::Step::Play {
+            map: replay.header.map_name.clone(),
+            setup: Some(replay.header.setup),
+        }],
+        (None, Some((scene, _))) => scene.start.clone(),
+        (None, None) => start_steps(&args, &mut flow, &mut front)?,
     };
     flow.steps = steps.into();
+    flow.replay = replay.map(Box::new);
     // A scripted run starts from the default settings.
     let prefs = if scripted.is_some() {
         prefs::Prefs::default()
@@ -218,10 +241,10 @@ pub fn launch(mut args: Args) -> Result<Launch> {
     };
     let stored =
         gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
-    let title = args
-        .map
-        .as_deref()
-        .map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}"));
+    let title = match (&flow.replay, args.map.as_deref()) {
+        (Some(r), _) => format!("Tidewater — replay of {}", r.header.map_name),
+        (None, m) => m.map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}")),
+    };
     let (ui_scale, headless) = (args.ui_scale, args.headless && scripted.is_some());
     let run = scripted.map(|(scene, out)| script::Run::new(scene, out));
     let core = Core::new(args, store, front, flow, stored, run);

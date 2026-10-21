@@ -13,7 +13,10 @@ serde_json.workspace = true
 tidewater-formats.workspace = true
 tidewater-import.workspace = true
 tidewater-sim.workspace = true
+tidewater-replay.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

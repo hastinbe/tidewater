@@ -14,8 +14,10 @@
 //!   victory dialog's Save opens the same dialog over it ([`open_from_outcome`]); a save there ends the game as
 //!   Continue does, and Cancel shows the victory dialog again.
 //! - Restart fades all sound first, as Quit to Menu does, then rebuilds the mission through the flow
-//!   (`frontend::run_quit`, `frontend::restart`). Surrender sets the local player's result to
-//!   defeat and closes the menus: the defeat dialog and score screen follow from the outcome dialog as for any defeat.
+//!   (`frontend::run_quit`, `frontend::restart`). Surrender (and Quit (draw), locally the same) sends a command
+//!   (`Command::Surrender`) that the sim carries out at once, between cycles: the player's result is defeat and the
+//!   game is over. The menus close, and the defeat dialog and score screen follow from the outcome dialog as for any
+//!   defeat.
 //! - Quit to menu, Return to chat and Load custom scenario all go to the main menu (the client has no chat room or
 //!   custom-game screen yet). Exit ends the program.
 //! - The speed dialog sets the game speed with speed commands when OK is pressed (the game is stopped while it is open,
@@ -38,8 +40,6 @@
 //! - The pause greyscale (`palette.rs`), the Enhanced multiplayer pause counts, Battle.net rules and the restart
 //!   permission check (no multiplayer).
 //! - The dialogs' own art, and the "Network" button of the Battle.net options menu.
-
-use tidewater_sim::victory::Outcome;
 
 use crate::campaign as cf;
 use crate::core::{Commands, Core, add_layer, remove_layers};
@@ -1096,6 +1096,7 @@ pub(crate) fn run_menu(c: &mut Core) {
             // stream (`set_fog_of_war` reads the local player), so it never runs in a network game.
             if screen == Screen::Prefs && m.fog != m.fog_at_open && !sim.world.rules.multiplayer {
                 sim.world.set_fog_of_war(m.fog);
+                sim.session.note_unsynced("the fog of war was switched in Preferences");
             }
             stored.0 = m.draft.clone();
             m.nav.close();
@@ -1112,11 +1113,21 @@ pub(crate) fn run_menu(c: &mut Core) {
                     jukebox.fade_stop(true, None);
                     *quitting = Some(frontend::Leave::Restart);
                 }
-                Confirm::Surrender | Confirm::QuitDraw => {
-                    // The local player is defeated; the defeat dialog and score screen follow.
-                    let h = sim.human as usize;
-                    sim.world.players[h].result = Some(Outcome::Defeat);
-                    sim.world.victory.over = true;
+                // The local player is defeated; the defeat dialog and score screen follow. Both are commands
+                // (`Command::Surrender`) the sim carries out at once, as a turn without a cycle, through the session
+                // (`Sim::apply_now`): the game is stopped while the menu is open, so this is the cycle it was chosen in.
+                //
+                // TODO(multiplayer): `net/leave-and-drop.md`, "Surrender and quit (draw)": in a network game no
+                // command is sent; the machine leaves the session as its game ends and the others mark the slot out
+                // at their next victory check. A quit (draw) within 120 s of game time is reported to Battle.net as
+                // a draw for everyone.
+                Confirm::Surrender => {
+                    let player = sim.human;
+                    sim.apply_now(tidewater_sim::Command::Surrender { player });
+                }
+                Confirm::QuitDraw => {
+                    let player = sim.human;
+                    sim.apply_now(tidewater_sim::Command::QuitDraw { player });
                 }
                 // Music spec, "Leaving a game for the main menu": the game stops and a fade of all sound runs with the
                 // game's picture kept; the main menu follows once it has ended (`frontend::run_quit`). Ours: Load

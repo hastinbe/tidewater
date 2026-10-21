@@ -164,3 +164,66 @@ fn the_window_shows_the_composed_frames() {
     }
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
+
+/// Runs a scene headless with extra arguments; returns whether it succeeded, its frame and sound fingerprints and its
+/// error output.
+fn run_with(install: &std::ffi::OsStr, scene: &str, out: &Path, extra: &[&std::ffi::OsStr]) -> (bool, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_tidewater"))
+        .arg("--install")
+        .arg(install)
+        .args(["--script", scene, "--script-out"])
+        .arg(out)
+        .arg("--headless")
+        .args(extra)
+        .output()
+        .expect("the client runs");
+    let text = |name: String| std::fs::read_to_string(out.join(name)).unwrap_or_default();
+    (
+        output.status.success(),
+        text(format!("{scene}.txt")) + &text(format!("{scene}-audio.txt")),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// The `.twrep` file a recording run wrote.
+fn recorded(out: &Path) -> PathBuf {
+    let dir = out.join("save").join("replays");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("the replays folder")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .collect();
+    files.sort();
+    files.pop().expect("a recorded replay")
+}
+
+#[test]
+fn a_scene_recorded_and_replayed_gives_the_same_frames_and_sound() {
+    let Some(install) = std::env::var_os("TIDEWATER_INSTALL") else {
+        eprintln!("skipped: set TIDEWATER_INSTALL to run");
+        return;
+    };
+    // The `carry` scene sends a peasant to fell a tree and walks it home; the replay drives the same game from the
+    // file (the scene's clicks only select and look; its orders are ignored) and must show and sound the same.
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (ok, want, err) = run_with(&install, "carry", a.path(), &["--record-replay".as_ref()]);
+    assert!(ok, "recording failed: {err}");
+    let file = recorded(a.path());
+    let (ok, got, err) = run_with(&install, "carry", b.path(), &["--replay".as_ref(), file.as_os_str()]);
+    assert!(ok, "replaying failed: {err}");
+    assert!(!want.is_empty());
+    assert_eq!(first_difference(&want, &got), None, "the replay shows something else");
+    // Recording does not change the game: the frames are the snapshotted ones.
+    let snap = std::fs::read_to_string(snapshot("carry")).expect("the snapshot");
+    assert!(want.starts_with(&snap), "recording changed the frames");
+
+    // A damaged file is refused with a message and a failing exit, not a crash.
+    let mut bytes = std::fs::read(&file).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0xff;
+    let bad = b.path().join("bad.twrep");
+    std::fs::write(&bad, &bytes).unwrap();
+    let c = tempfile::tempdir().unwrap();
+    let (ok, _, err) = run_with(&install, "carry", c.path(), &["--replay".as_ref(), bad.as_os_str()]);
+    assert!(!ok, "a damaged replay must not run");
+    assert!(err.contains("bad.twrep") && !err.contains("panicked"), "{err}");
+}

@@ -134,7 +134,11 @@ pub(crate) fn run(c: &mut Core) {
         // Cheats are a single-player feature (cheats spec): a network game starts with none, whatever the client kept,
         // so every machine starts from the same flags. Network cheats go through `Command::Cheat`.
         if !sim.world.rules.multiplayer {
-            let kept = flow.cheat_flags.for_new_game();
+            // A replay starts the flags the recorded game started with.
+            let kept = sim
+                .session
+                .start_cheats()
+                .map_or_else(|| flow.cheat_flags.for_new_game(), Flags);
             sim.world.start_cheats(kept);
         }
     }

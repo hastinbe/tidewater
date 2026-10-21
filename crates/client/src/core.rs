@@ -126,6 +126,8 @@ pub struct Core {
     pub loaded: Option<game::Loaded>,
     pub map_size: Option<game::MapSize>,
     pub sim: Option<game::Sim>,
+    /// Where the starting game's commands come from, from `game::load_game` until `game::setup` gives it to the sim.
+    pub next_session: Option<Box<dyn crate::session::Session>>,
     pub speaker: Option<game::Speaker>,
     pub panel_ui: Option<game::PanelUi>,
     pub screen_ui: Option<game::ScreenUi>,
@@ -191,6 +193,7 @@ impl Core {
             loaded: None,
             map_size: None,
             sim: None,
+            next_session: None,
             speaker: None,
             panel_ui: None,
             screen_ui: None,
