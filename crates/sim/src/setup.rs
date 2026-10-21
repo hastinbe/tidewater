@@ -1194,6 +1194,24 @@ mod tests {
         }
     }
 
+    /// X12 (`game/rescue.md`, "The rescued count"): every player's rescued count is 0 at a new game start, in a campaign
+    /// mission with rescuable units and in a custom game alike, and the start-up cycles leave it there.
+    #[test]
+    fn every_rescued_count_is_zero_at_a_new_game_start() {
+        let mut m = Map {
+            size: 64,
+            owners: owners([5, 3, 6, 3, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        m.units = vec![(10, 10, kind::HUMAN_START, 0, 0), (20, 20, 0x4a, 2, 0)];
+        for setup in [campaign(2), custom(Custom::default())] {
+            let mut w = started(&m, &setup);
+            assert!(w.players.iter().all(|p| p.rescued == 0));
+            w.start_up();
+            assert!(w.players.iter().all(|p| p.rescued == 0));
+        }
+    }
+
     #[test]
     fn one_worker_only() {
         let mut m = Map {

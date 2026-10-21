@@ -277,3 +277,14 @@ fn a_classic_load_starts_counting_at_0() {
     b.start_up_loaded();
     assert_eq!(b.tick, 0);
 }
+
+/// X12 (`game/rescue.md`, `game/save-load.md`): each player's rescued count is saved and comes back.
+#[test]
+fn the_rescued_counts_come_back() {
+    let mut a = battle();
+    a.players[0].rescued = 3;
+    a.players[1].rescued = 0x1001;
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!((b.players[0].rescued, b.players[1].rescued, b.players[2].rescued), (3, 0x1001, 0));
+}
