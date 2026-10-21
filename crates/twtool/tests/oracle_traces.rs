@@ -134,6 +134,16 @@
 //! store's top-left tile, so the waves store (36, 5) at n 101 to 201, 301, 501, 551 and 601 and (13, 66) at n 51 and 351,
 //! with the AI goal compared, erratum 1) matches in full.
 //!
+//! Round 90: the game-start and load rules and the vision extras. human1-human01-cheat-load-game-50 (a load keeps the
+//! cheat-used mark), human1-human01-saveload-game-300 (a load restarts the cycle counter, sets the victory and fog
+//! countdowns to 1 and clears pause), human1-human01-unite-control-game-600 and human1-human01-unite-saveload-game-650
+//! (a load renumbers creation numbers to slot + 1), human12-human12-invisible-passenger-game-vision-4550-5600 (an inside
+//! unit is detected by everyone), mp-dark-paths-bne-game-vision-300 and mp-dark-paths-bne-fogoff-game-vision-300 (fog off
+//! sets every seen bit), mp-rose-petal-bne-game-21300, and the computer-player goal windows orc13-aigoals-goals-17900-18200,
+//! xhuman11-aigoals-goals-0, xhuman9-aigoals-goals-8630-8830 and xorc9-aigoals-goals-0 (the conversion goal rule, TC1 to
+//! TC6 and AG1 to AG4) match in full. xhuman9-xhuman9-runestone-saveload-game-60 is ignored: after the load a moving
+//! unit waits about 3 cycles in the original and ours moves at once, and the rule is held.
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -447,4 +457,29 @@ traces! {
     xhuman5_xhuman05_worker_all_out_aigoals_goals_2500: ("xhuman5-xhuman05-worker-all-out-aigoals-goals-2500.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
     xhuman5_xhuman05_worker_all_out_goals_3000: ("xhuman5-xhuman05-worker-all-out-goals-3000.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
     xhuman12_xhuman12_picker_flip_aigoals_1700: ("xhuman12-xhuman12-picker-flip-aigoals-1700.jsonl.gz", "Campaign\\XHuman\\2XHum12.pud", 50, &[], None),
+    human1_human01_cheat_load_game_50: ("human1-human01-cheat-load-game-50.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    human1_human01_saveload_game_300: ("human1-human01-saveload-game-300.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    human1_human01_unite_control_game_600: ("human1-human01-unite-control-game-600.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    human1_human01_unite_saveload_game_650: ("human1-human01-unite-saveload-game-650.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    human12_human12_invisible_passenger_game_vision_4550_5600: ("human12-human12-invisible-passenger-game-vision-4550-5600.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
+    mp_dark_paths_bne_fogoff_game_vision_300: (mp, "mp-dark-paths-bne-fogoff-game-vision-300.jsonl.gz", &[], None),
+    mp_dark_paths_bne_game_vision_300: (mp, "mp-dark-paths-bne-game-vision-300.jsonl.gz", &[], None),
+    mp_rose_petal_bne_game_21300: (mp, "mp-rose-petal-bne-game-21300.jsonl.gz", &[], None),
+    orc13_aigoals_goals_17900_18200: ("orc13-aigoals-goals-17900-18200.jsonl.gz", "Campaign\\Orc\\Orc13.pud", 25, &[], None),
+    xhuman11_aigoals_goals_0: ("xhuman11-aigoals-goals-0.jsonl.gz", "Campaign\\XHuman\\2XHum11.pud", 48, &[], None),
+    xhuman9_aigoals_goals_8630_8830: ("xhuman9-aigoals-goals-8630-8830.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    xorc9_aigoals_goals_0: ("xorc9-aigoals-goals-0.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
+}
+
+/// The runestone save/load trace: after the load a moving unit waits about 3 cycles in the original and ours moves at
+/// once. The movement state after a load isn't specified, and the held rule (game Q3, the runestone) decides it.
+#[test]
+#[ignore = "movement state after a load, and the held runestone rule, are not specified"]
+fn xhuman9_xhuman9_runestone_saveload_game_60() {
+    check(
+        "xhuman9-xhuman9-runestone-saveload-game-60.jsonl.gz",
+        Some(("Campaign\\XHuman\\2XHum09.pud", 44)),
+        &[],
+        None,
+    );
 }

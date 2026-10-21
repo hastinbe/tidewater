@@ -1093,6 +1093,10 @@ fn oracle_cmd(
         None => Setup::for_map(map),
     };
     setup.enhanced = header.enhanced;
+    // The lobby's Fog of War option (trace format, "Multiplayer launch"): a multiplayer game may set it off.
+    if let (Some(mp), Game::Custom(c)) = (&header.multiplayer, &mut setup.game) {
+        c.fog_of_war = mp.fog_of_war;
+    }
     let start = match &header.multiplayer {
         Some(_) => multiplayer_start(&pud, &header, setup, seed)?,
         None => Start::choose(&pud, &setup, seed)?,

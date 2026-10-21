@@ -170,6 +170,8 @@ pub struct Multiplayer {
     /// `starts`: `"fixed"` (Fixed Order) is true; `"random"`, and a trace made before round 60 without the field, is
     /// false.
     pub fixed_order: bool,
+    /// `fog`: the lobby's Fog of War option; `"off"` is false. A trace without the field has it on.
+    pub fog_of_war: bool,
 }
 
 impl Multiplayer {
@@ -244,6 +246,11 @@ impl Header {
                     None | Some(Some("random")) => false,
                     Some(Some("fixed")) => true,
                     Some(s) => bail!("unknown `starts` {s:?}"),
+                },
+                fog_of_war: match v.get("fog").map(Value::as_str) {
+                    None | Some(Some("on")) => true,
+                    Some(Some("off")) => false,
+                    Some(s) => bail!("unknown `fog` {s:?}"),
                 },
             }),
             Some(p) => bail!("unknown `launch_path` {p:?}"),
@@ -331,6 +338,9 @@ impl Header {
                 v["opponents"] = o.into();
                 v["starts"] = if m.fixed_order { "fixed" } else { "random" }.into();
             }
+            if !m.fog_of_war {
+                v["fog"] = "off".into();
+            }
         }
         if let Some(f) = self.from {
             v["from"] = f.into();
@@ -367,6 +377,32 @@ pub struct Record {
     /// The `aigoals` extra per unit slot, in [`AI_GOAL_FIELDS`] order (kind, tile x, tile y), for the units that carry
     /// it. Ours holds every unit's.
     pub ai_goals: BTreeMap<u16, [Cell; 3]>,
+    /// The `vision` extra per unit slot: `hidden_from` and `detected_by` ([`VISION_FIELDS`] order), for the units that
+    /// carry it. Ours holds every unit's.
+    pub vision: BTreeMap<u16, [Cell; 2]>,
+    /// The `game` extra: the game-wide values the record carries (`None` without the extra).
+    pub game: Option<GameState>,
+    /// A `save` record's save name (`kind` = "save"): the game wrote a saved game here.
+    pub save: Option<String>,
+    /// A `setup` record's `load`: the game was started by loading the saved game of this name.
+    pub load: Option<String>,
+}
+
+/// The `vision` extra's compared unit fields (`vision/fog.md`, "Unit visibility" and "Detection (phase 1)").
+pub const VISION_FIELDS: [&str; 2] = ["hidden_from", "detected_by"];
+
+/// The `game` extra's compared values, in report order (`game/save-load.md`; `vision/fog.md`; `game/victory.md`).
+/// The extra also lists `results` and `controllers`, which are read and not compared.
+pub const GAME_FIELDS: [&str; 4] = ["cheat_used", "fog_of_war", "fog_countdown", "victory_countdown"];
+
+/// A record's `game` extra: the values in [`GAME_FIELDS`] order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameState(pub [Cell; 4]);
+
+impl GameState {
+    fn parse(g: &Value) -> GameState {
+        GameState(GAME_FIELDS.map(|f| Cell::of(g.get(f))))
+    }
 }
 
 /// The `aigoals` extra's compared fields (`ai_goal`: `kind` and `tile`; `extra` is read by no rule in the specs, so it
@@ -479,6 +515,7 @@ impl Record {
         let mut units = BTreeMap::new();
         let mut goals = BTreeMap::new();
         let mut ai_goals = BTreeMap::new();
+        let mut vision = BTreeMap::new();
         for u in v.get("units").and_then(Value::as_array).into_iter().flatten() {
             let slot = int(u, "slot").with_context(|| format!("record n={n}: a unit"))? as u16;
             if let Some(g) = Goals::parse(u) {
@@ -486,6 +523,9 @@ impl Record {
             }
             if let Some(g) = parse_ai_goal(u) {
                 ai_goals.insert(slot, g);
+            }
+            if u.get("hidden_from").is_some() || u.get("detected_by").is_some() {
+                vision.insert(slot, VISION_FIELDS.map(|f| Cell::of(u.get(f))));
             }
             let timers = u.get("timers");
             let fields = UNIT_FIELDS
@@ -517,9 +557,9 @@ impl Record {
         }
         Ok(Record {
             n,
-            kind,
             counter: v.get("counter").and_then(Value::as_u64),
-            rng: int(&v, "rng")? as u32,
+            // A `save` record has no generator state.
+            rng: if kind == "save" { 0 } else { int(&v, "rng")? as u32 },
             resources: RESOURCES.map(list),
             units,
             effects,
@@ -539,6 +579,13 @@ impl Record {
                 .collect::<Result<_>>()?,
             goals,
             ai_goals,
+            vision,
+            game: v.get("game").map(GameState::parse),
+            save: (kind == "save")
+                .then(|| v.get("name").and_then(Value::as_str).map(str::to_string))
+                .flatten(),
+            load: v.get("load").and_then(Value::as_str).map(str::to_string),
+            kind,
         })
     }
 
@@ -758,10 +805,14 @@ pub enum Category {
     Effects,
     /// The `aigoals` extra: the computer player's goal kind and tile.
     AiGoals,
+    /// The `vision` extra: each unit's hidden-from and detected-by sets.
+    Vision,
+    /// The `game` extra: the cheat mark, the fog option and the two countdowns.
+    Game,
 }
 
 impl Category {
-    pub const ALL: [Category; 11] = [
+    pub const ALL: [Category; 13] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -773,6 +824,8 @@ impl Category {
         Category::Stats,
         Category::Effects,
         Category::AiGoals,
+        Category::Vision,
+        Category::Game,
     ];
 
     pub fn name(self) -> &'static str {
@@ -788,12 +841,15 @@ impl Category {
             Category::Stats => "stats",
             Category::Effects => "effects",
             Category::AiGoals => "ai-goals",
+            Category::Vision => "vision",
+            Category::Game => "game",
         }
     }
 }
 
 fn category(scope: Scope, field: &str) -> Category {
     match scope {
+        Scope::Global if GAME_FIELDS.contains(&field) => Category::Game,
         Scope::Global => Category::Rng,
         Scope::Player(_) => Category::Resources,
         Scope::Effect(_) => Category::Effects,
@@ -804,6 +860,7 @@ fn category(scope: Scope, field: &str) -> Category {
             "facing" => Category::Facing,
             "anim" | "frame" | "wait" => Category::Anim,
             f if AI_GOAL_FIELDS.contains(&f) => Category::AiGoals,
+            f if VISION_FIELDS.contains(&f) => Category::Vision,
             _ => Category::Stats,
         },
     }
@@ -945,6 +1002,49 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             }
         }
     }
+    // The `vision` extra: the units' sets, for the units both sides hold where the trace carries it.
+    for (&slot, tv) in &theirs.vision {
+        let Some(ov) = ours.vision.get(&slot) else { continue };
+        if !theirs.units.contains_key(&slot) || !ours.units.contains_key(&slot) {
+            continue;
+        }
+        for ((&f, tc), oc) in VISION_FIELDS.iter().zip(tv).zip(ov) {
+            // spec gap: a map unit's detected-by set in the `setup` record is empty in the trace and everyone's here
+            // until the first detection phase (`vision/fog.md`, "A unit created during a cycle" covers only units made
+            // in a cycle); the set is compared from the first start-up cycle on.
+            if theirs.kind == "setup" && f == "detected_by" {
+                continue;
+            }
+            if oc.matches(tc) == Some(false) && filter.allows(Scope::Unit(slot), f) {
+                out.push(Diff {
+                    scope: Scope::Unit(slot),
+                    field: f,
+                    ours: oc.clone(),
+                    theirs: tc.clone(),
+                });
+            }
+        }
+    }
+    // The `game` extra, where the trace carries it.
+    if let (Some(tg), Some(og)) = (&theirs.game, &ours.game) {
+        for ((&f, tc), oc) in GAME_FIELDS.iter().zip(&tg.0).zip(&og.0) {
+            // spec gap: the fog countdown isn't compared in a `setup` record (before the game start sets it, it holds
+            // the last game's value, so 99 in a load's setup record) nor in the first start-up record (the trace shows
+            // 0 where our refresh in the first start-up cycle has already reloaded it); `game/save-load.md` and
+            // `core/timing-and-rng.md` give the refresh cycle, not the stored value.
+            if f == "fog_countdown" && (theirs.kind == "setup" || (theirs.kind == "startup" && theirs.n == 1)) {
+                continue;
+            }
+            if oc.matches(tc) == Some(false) && filter.allows(Scope::Global, f) {
+                out.push(Diff {
+                    scope: Scope::Global,
+                    field: f,
+                    ours: oc.clone(),
+                    theirs: tc.clone(),
+                });
+            }
+        }
+    }
     out
 }
 
@@ -1061,7 +1161,7 @@ fn unit_cells(w: &World, u: &Unit) -> Vec<Cell> {
     UNIT_FIELDS
         .iter()
         .map(|&f| match f {
-            "serial" => Cell::Int(u.id.0 as i64),
+            "serial" => Cell::Int(u.serial.0 as i64),
             "type" => Cell::Int(u.kind as i64),
             "owner" => Cell::Int(u.owner as i64),
             "x" => Cell::Int(u.pos.0 as i64),
@@ -1130,7 +1230,31 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         hits: Vec::new(),
         goals: BTreeMap::new(),
         ai_goals: w.units.iter().map(|u| (u.slot, ai_goal_cells(u))).collect(),
+        vision: w.units.iter().map(|u| (u.slot, vision_cells(u))).collect(),
+        game: Some(game_state(w)),
+        save: None,
+        load: None,
     }
+}
+
+/// A unit's `hidden_from` and `detected_by` sets as the `vision` extra shows them.
+fn vision_cells(u: &Unit) -> [Cell; 2] {
+    [Cell::Int(u.hidden_from as i64), Cell::Int(u.detected_by as i64)]
+}
+
+/// Our world's `game` extra values.
+fn game_state(w: &World) -> GameState {
+    GameState([
+        Cell::Int(w.cheats.used as i64),
+        Cell::Int(w.rules.fog_of_war as i64),
+        // The trace shows 0 in the cycle of a refresh, where ours has just reloaded it.
+        Cell::Int(if w.fog_countdown() == w.refresh_period() {
+            0
+        } else {
+            w.fog_countdown() as i64
+        }),
+        Cell::Int(w.victory.countdown as i64),
+    ])
 }
 
 /// A unit's goal kind and tile as the `aigoals` extra shows them (`ai/attack-ai.md`, "Unit goals"): a unit with no
@@ -1255,6 +1379,8 @@ pub struct Summary {
     pub from: Option<u64>,
     /// A windowed trace: command turns before F, replayed without comparing.
     pub gap_turns: usize,
+    /// Saved games loaded (`setup` records with `load`).
+    pub loads: usize,
     /// A windowed trace: records compared from F on.
     pub window_records: usize,
     /// A setup-only trace.
@@ -1388,6 +1514,12 @@ pub fn run(
     let mut at = 0u64;
     let mut start_up = false;
     let mut in_window = opts.from.is_none();
+    // The saved games the trace wrote, by name (`save` records): our world's stored bytes at that point.
+    let mut saves: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    // A `save` record names the cycle it saved after (`n`) but can follow later records in the file, so a trace whose
+    // input saves keeps our stored bytes after each of the last few cycles to pick from.
+    let saving = opts.input.iter().any(|e| matches!(e.kind, replay::Kind::Save { .. }));
+    let mut history: std::collections::VecDeque<(u64, Vec<u8>)> = Default::default();
     // The differences of the previous record, and every place each field has differed.
     let mut before: BTreeSet<(Scope, &'static str)> = BTreeSet::new();
     let mut places: BTreeMap<String, BTreeSet<Scope>> = BTreeMap::new();
@@ -1433,7 +1565,38 @@ pub fn run(
             }
         }
         match theirs.kind.as_str() {
-            "setup" => {}
+            "setup" => {
+                // `game/save-load.md`, "Loading": a `setup` record with `load` starts a new game from the saved game
+                // of that name; the counter restarts, so the `n` of the records restarts too.
+                if let Some(name) = &theirs.load {
+                    let Some(bytes) = saves.get(name) else {
+                        bail!(
+                            "record n={}: loads `{name}`, which no earlier `save` record wrote",
+                            theirs.n
+                        );
+                    };
+                    w.restore(bytes, theirs.rng)
+                        .map_err(|e| anyhow::anyhow!("record n={}: loading `{name}`: {e:?}", theirs.n))?;
+                    at = 0;
+                    start_up = false;
+                    prev = Some((theirs.rng, theirs.rng));
+                    history.clear();
+                    s.loads += 1;
+                }
+            }
+            "save" => {
+                // The game wrote a saved game after the cycle before this record; keep ours for a later load.
+                if let Some(name) = &theirs.save {
+                    let Some((_, bytes)) = history.iter().rev().find(|(n, _)| *n == theirs.n) else {
+                        bail!(
+                            "record n={}: saves `{name}`, but our world isn't kept at that cycle",
+                            theirs.n
+                        );
+                    };
+                    saves.insert(name.clone(), bytes.clone());
+                }
+                continue;
+            }
             "turn" => replay_turn(w, &theirs, &mut s),
             "startup" | "cycle" => {
                 if let Some(l) = last_n
@@ -1455,6 +1618,12 @@ pub fn run(
             }
         }
         last_n = Some(theirs.n);
+        if saving && theirs.kind == "cycle" {
+            history.push_back((theirs.n, w.save_state()));
+            if history.len() > 4 {
+                history.pop_front();
+            }
+        }
         let ours = snapshot(w, theirs.n, &theirs.kind);
         let diffs = compare(&theirs, &ours, &opts.filter, &mut s.skipped);
         s.records += 1;
@@ -1754,6 +1923,9 @@ mod tests {
     fn records_round_trip_through_json() {
         for mut r in trace(3) {
             let back = Record::parse(&r.to_json()).unwrap();
+            // The `vision` and `game` extras aren't written by the synthetic writer.
+            r.vision.clear();
+            r.game = None;
             // Fields we don't compare are written as absent, and read back as null.
             for c in r.units.values_mut().flatten() {
                 if matches!(c, Cell::Skip(_)) {
@@ -2109,6 +2281,7 @@ mod tests {
             humans: 2,
             opponents: None,
             fixed_order: false,
+            fog_of_war: true,
         });
         let back = Header::parse(&h.to_json()).unwrap();
         assert_eq!(back.rules.as_deref(), Some("enhanced"));
@@ -2130,6 +2303,7 @@ mod tests {
             humans: 2,
             opponents: Some(2),
             fixed_order: true,
+            fog_of_war: true,
         });
         let m = Header::parse(&h.to_json()).unwrap().multiplayer.unwrap();
         assert_eq!((m.opponents, m.fixed_order), (Some(2), true));

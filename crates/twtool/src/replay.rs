@@ -100,6 +100,12 @@ pub enum Kind {
     Cancel,
     /// Cancel job for the first selected unit (round 77).
     CancelJob,
+    /// A header `input` entry that saves the game under `name` (`game/save-load.md`). It is a menu action, not a
+    /// command: no `turn` record lists it, and the trace's `save` record shows where it ran.
+    Save { name: String },
+    /// A header `input` entry that loads the saved game `name`: the trace restarts with a `setup` record that has
+    /// `load`.
+    Load { name: String },
     /// A command the format doesn't describe.
     Other,
 }
@@ -169,6 +175,12 @@ impl Entry {
             }
             "cancel" => Kind::Cancel,
             "cancel-job" => Kind::CancelJob,
+            "save" => Kind::Save {
+                name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
+            },
+            "load" => Kind::Load {
+                name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
+            },
             _ => Kind::Other,
         };
         Ok(Entry {
@@ -223,6 +235,14 @@ impl Entry {
             }
             Kind::CancelJob => {
                 o.insert("kind".into(), "cancel-job".into());
+            }
+            Kind::Save { name } => {
+                o.insert("kind".into(), "save".into());
+                o.insert("name".into(), name.clone().into());
+            }
+            Kind::Load { name } => {
+                o.insert("kind".into(), "load".into());
+                o.insert("name".into(), name.clone().into());
             }
             Kind::Other => {
                 o.insert("kind".into(), "other".into());
@@ -280,6 +300,8 @@ impl fmt::Display for Entry {
             Kind::CheatAdd { add } => write!(f, "cheat adding {add:?}"),
             Kind::Cancel => f.write_str("cancel"),
             Kind::CancelJob => f.write_str("cancel-job"),
+            Kind::Save { name } => write!(f, "save {name}"),
+            Kind::Load { name } => write!(f, "load {name}"),
             Kind::Other => f.write_str("other"),
         }
     }
@@ -374,7 +396,7 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         // player's own building in the state the command acts in.
         Kind::Cancel => Command::Cancel { player, unit: first()? },
         Kind::CancelJob => Command::CancelJob { player, unit: first()? },
-        Kind::CheatAdd { .. } | Kind::Other => return None,
+        Kind::CheatAdd { .. } | Kind::Save { .. } | Kind::Load { .. } | Kind::Other => return None,
     })
 }
 
@@ -410,8 +432,13 @@ pub struct Timing {
 
 impl Timing {
     pub fn new(input: &[Entry]) -> Timing {
+        // A save or load is a menu action: no turn lists it, so it has no turn to check.
         let mut t = Timing {
-            input: predict(input).into_iter().zip(input.iter().cloned()).collect(),
+            input: predict(input)
+                .into_iter()
+                .zip(input.iter().cloned())
+                .filter(|(_, e)| !matches!(e.kind, Kind::Save { .. } | Kind::Load { .. }))
+                .collect(),
             ..Default::default()
         };
         for (i, (_, e)) in t.input.iter().enumerate() {

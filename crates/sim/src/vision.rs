@@ -225,6 +225,12 @@ const STEP: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1)
 const DETECT_RANGE: i32 = 6;
 
 impl World {
+    /// The fog refresh countdown (`core/timing-and-rng.md`, phase 3): cycles until the next refresh. A game start sets it
+    /// afresh, a load included (`game/save-load.md`); the oracle comparer reads it.
+    pub fn fog_countdown(&self) -> u32 {
+        self.vision.countdown
+    }
+
     /// Vision spec, "Terms": the players that see what `p` sees. In Classic mode only `p`; in Enhanced mode `p` and the
     /// players it shares vision with.
     pub fn shared_set(&self, p: u8) -> u8 {
