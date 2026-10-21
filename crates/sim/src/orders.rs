@@ -1498,16 +1498,19 @@ impl World {
         // too ("A recorded attacker outlives its slot"); an undetected one stays recorded.
         // The non-combat flee has no detection test, so a non-combat or mage-type unit
         // goes on with a valid attacker its owner doesn't detect, and flees from it as in step 1.
-        let undetected = self.units[i]
+        let seed = self.attacker(i);
+        let valid = self.units[i]
             .attacked_by
-            .filter(|&a| self.unit(a).is_some_and(|a| a.present()))
-            .filter(|_| self.non_combat(&self.units[i]) || self.mage_like(&self.units[i]));
-        let Some(a) = self.attacker(i).or(undetected) else {
+            .filter(|&a| self.unit(a).is_some_and(|a| a.present()));
+        let undetected = valid.filter(|_| self.non_combat(&self.units[i]) || self.mage_like(&self.units[i]));
+        // Round 85 (static gap-fill, erratum 12): a valid attacker the owner doesn't detect isn't the seed, but a
+        // combat unit still runs the search without it.
+        if seed.or(undetected).or(valid).is_none() {
             if self.units[i].attacked_by.is_some_and(|a| self.dying_or_gone(a)) {
                 self.units[i].attacked_by = None;
             }
             return false;
-        };
+        }
         let u = &self.units[i];
         let playing = u.owner != slots::NEUTRAL
             && self
@@ -1522,7 +1525,7 @@ impl World {
         if self.non_combat(u) || self.mage_like(u) {
             return self.flee(i);
         }
-        let Some(best) = self.search(i, Some(a), false) else {
+        let Some(best) = self.search(i, seed, false) else {
             return false;
         };
         if Some(best) == target_of(u.order) {
@@ -3475,6 +3478,7 @@ mod tests {
             w.stats.0[FLYER as usize] = w.stats.0[FOOTMAN as usize];
             w.stats.0[FLYER as usize].flags = flags::AIR | flags::CAN_ATTACK;
             w.stats.0[FOOTMAN as usize].can_target = 1;
+            w.rules.reveal_map = true;
             let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
             let d = w.spawn(FOOTMAN, 1, (9, 9), 0).unwrap();
             let g = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
@@ -3854,6 +3858,35 @@ mod tests {
                 assert!(!changed, "hidden {hidden}, detected {detected}");
                 assert_eq!((u.order, u.pending), (Order::Idle, None), "no chase and no flee");
                 assert_eq!(u.attacked_by, Some(g), "the attacker stays recorded");
+            }
+        }
+    }
+
+    /// "The reaction" (round 85, static gap-fill, erratum 12; vector: a destroyer hit by a submarine its owner
+    /// doesn't detect, with an enemy destroyer within its react range, attacks that destroyer): a valid attacker the
+    /// owner doesn't detect isn't the seed, but the search still runs, and a result other than the current target
+    /// gives order 12. With nothing else in reach there is no change, and the attacker stays recorded.
+    #[test]
+    fn the_reaction_searches_without_an_undetected_attacker() {
+        for other in [false, true] {
+            let mut w = map();
+            w.stats.0[FOOTMAN as usize].can_target = 1;
+            w.rules.reveal_map = true;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let g = w.spawn(FOOTMAN, 1, (12, 5), 0).unwrap();
+            let h = other.then(|| w.spawn(FOOTMAN, 1, (6, 5), 0).unwrap());
+            w.unit_visibility();
+            let (i, gi) = (at(&w, f), at(&w, g));
+            w.units[gi].detected_by &= !crate::vision::bit(0);
+            w.units[i].attacked_by = Some(g);
+            assert_eq!(w.react(i), other);
+            let u = &w.units[i];
+            match h {
+                Some(h) => assert_eq!(u.order, Order::Chase { target: h }),
+                None => {
+                    assert_eq!(u.order, Order::Idle);
+                    assert_eq!(u.attacked_by, Some(g), "the attacker stays recorded");
+                }
             }
         }
     }
