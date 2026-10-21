@@ -1201,14 +1201,14 @@ impl World {
     }
 
     /// The escort for a round: the owner's unit nearest the transport that can attack, is an air or sea unit, is not
-    /// held and is not already an escort.
+    /// held and is not already an escort. There is no alive test (round 85, static note, erratum 13): a dying unit
+    /// can be chosen, set goal then fails for it, and the next round picks it again.
     fn escort_for(&self, owner: u8, here: (i32, i32)) -> Option<usize> {
         let mut best: Option<(i32, usize)> = None;
         for k in self.list_of(owner) {
             let u = &self.units[k];
             let f = self.unit_flags(u);
-            if gone(u)
-                || f & flags::CAN_ATTACK == 0
+            if f & flags::CAN_ATTACK == 0
                 || f & (flags::AIR | flags::SEA) == 0
                 || u.held
                 || u.goal.kind == GoalKind::Escort
@@ -1258,7 +1258,8 @@ impl World {
             for k in self.list_of(v_owner) {
                 let s = &self.units[k];
                 let f = self.unit_flags(s);
-                if k == vi || gone(s) || self.live_attacker(s) || f & (flags::AIR | flags::SUBMARINE) == 0 {
+                // Dying units aren't skipped (round 85, static note, erratum 14): command 4 then does nothing for one.
+                if k == vi || self.live_attacker(s) || f & (flags::AIR | flags::SUBMARINE) == 0 {
                     continue;
                 }
                 let d = distance(v_tile, s);
@@ -2445,6 +2446,21 @@ mod tests {
         assert_eq!(at(&w, v).attacked_by, None);
     }
 
+    /// "Ferry", step 3.2 (round 85, static note, erratum 13): the escort search has no alive test, so a dying ship
+    /// nearest the transport is chosen, ahead of a live one farther off, round after round (set goal fails for it).
+    #[test]
+    fn the_ferry_escort_search_does_not_skip_dying_units() {
+        let mut w = game();
+        water(&mut w, 0, 64);
+        let near = spawn(&mut w, DESTROYER, 1, (22, 20));
+        let far = spawn(&mut w, DESTROYER, 1, (40, 20));
+        um(&mut w, near).dying = true;
+        assert_eq!(w.escort_for(1, (20, 20)), Some(ix(&w, near)));
+        assert!(!w.set_goal(ix(&w, near), GoalKind::Escort, Some((10, 10))));
+        assert_eq!(w.escort_for(1, (20, 20)), Some(ix(&w, near)), "picked again");
+        assert_ne!(Some(ix(&w, far)), w.escort_for(1, (20, 20)));
+    }
+
     #[test]
     fn a_submarine_attacker_calls_air_units_and_submarines() {
         let mut w = game();
@@ -2462,6 +2478,16 @@ mod tests {
                 target: Some(v)
             })
         );
+        // Round 85 (static note, erratum 14): a dying gryphon, the nearest, is the one chosen, so nobody is called.
+        let mut w = game();
+        water(&mut w, 0, 64);
+        let v = spawn(&mut w, DESTROYER, 1, (20, 20));
+        let sub = spawn(&mut w, SUBMARINE, 0, (22, 20));
+        let dying = spawn(&mut w, GRYPHON, 1, (24, 24));
+        let far = spawn(&mut w, GRYPHON, 1, (50, 50));
+        um(&mut w, dying).dying = true;
+        w.damage(ix(&w, v), 1, sub);
+        assert_eq!((at(&w, dying).pending, at(&w, far).pending), (None, None));
         // A destroyer attacker: no submarine call.
         let mut w = game();
         water(&mut w, 0, 64);
