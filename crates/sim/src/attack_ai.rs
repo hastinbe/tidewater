@@ -531,6 +531,11 @@ impl World {
     // ---- Target pickers -----------------------------------------------------------------------------------------
 
     /// The player's gold store nearest unit `i`, among those in its region (any, for an air or sea unit).
+    ///
+    /// Round 86 ("The nearest gold store"; traced for the pickers): the distance is the larger axis difference
+    /// between the store's top-left tile and the unit's tile (when the unit is a building, its reference tile as
+    /// seen from the store's top-left tile, `orders/orders.md` "Distance"); strictly nearer replaces, so the first in
+    /// list order wins a tie; there is no alive test, so a store in its death animation counts.
     fn nearest_store(&self, owner: u8, i: usize) -> Option<usize> {
         let u = &self.units[i];
         let any = self.unit_flags(u) & (flags::AIR | flags::SEA) != 0;
@@ -538,13 +543,21 @@ impl World {
         let mut best: Option<(i32, usize)> = None;
         for s in self.list_of(owner) {
             let b = &self.units[s];
-            if self.unit_flags(b) & flags::GOLD_STORAGE == 0 || gone(b) {
+            if self.unit_flags(b) & flags::GOLD_STORAGE == 0 {
                 continue;
             }
             if !any && self.terrain.region(b.tile.0, b.tile.1) != region {
                 continue;
             }
-            let d = distance(u.tile, b);
+            let at = if u.building {
+                (
+                    crate::acquire::reference(b.tile.0, u.tile.0, u.size.0 as i32),
+                    crate::acquire::reference(b.tile.1, u.tile.1, u.size.1 as i32),
+                )
+            } else {
+                u.tile
+            };
+            let d = crate::movement::chebyshev(b.tile, at);
             if best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, s));
             }
@@ -1772,6 +1785,38 @@ mod tests {
         w.army.blocks[2 * 8 + 5].dominant = Some(0);
         spawn(&mut w, DESTROYER, 0, (32, 44));
         assert_eq!(w.land_picker(0), Some((22, 40)));
+    }
+
+    /// `ai/attack-ai.md`, "The nearest gold store" (round 86; vectors from the review): the store is measured from
+    /// its top-left tile. Halls (4 x 4) at (10, 10) and (28, 20) with a unit at (20, 20): the hall at (28, 20) is 8
+    /// away, the one at (10, 10) is 10 (the reference-tile measure would say 8 and 7, the other way round). A farm
+    /// at (30, 10) with halls at (20, 10) and (40, 10): the farm is a building, so its reference tile as seen from
+    /// each store's top-left tile is used, and (40, 10) is the nearer. A tie goes to the first in list order, and a
+    /// store in its death animation still counts.
+    #[test]
+    fn the_nearest_store_is_measured_from_its_top_left_tile() {
+        let mut w = game();
+        spawn(&mut w, TOWN_HALL, 1, (10, 10));
+        let east = spawn(&mut w, TOWN_HALL, 1, (28, 20));
+        let g = spawn(&mut w, GRUNT, 1, (20, 20));
+        let tile = |w: &World, s: Option<usize>| s.map(|s| w.units[s].tile);
+        assert_eq!(tile(&w, w.nearest_store(1, ix(&w, g))), Some((28, 20)));
+        // No alive test.
+        um(&mut w, east).dying = true;
+        assert_eq!(tile(&w, w.nearest_store(1, ix(&w, g))), Some((28, 20)));
+
+        let mut w = game();
+        spawn(&mut w, TOWN_HALL, 1, (20, 10));
+        spawn(&mut w, TOWN_HALL, 1, (40, 10));
+        let farm = spawn(&mut w, FARM, 1, (30, 10));
+        assert_eq!(tile(&w, w.nearest_store(1, ix(&w, farm))), Some((40, 10)));
+
+        // Equal distances: the first in list order (the newest) wins.
+        let mut w = game();
+        spawn(&mut w, TOWN_HALL, 1, (10, 20));
+        spawn(&mut w, TOWN_HALL, 1, (30, 20));
+        let g = spawn(&mut w, GRUNT, 1, (20, 20));
+        assert_eq!(tile(&w, w.nearest_store(1, ix(&w, g))), Some((30, 20)));
     }
 
     #[test]

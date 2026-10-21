@@ -5225,7 +5225,7 @@ Maps\Classic\Expansion\Scenario\Onslaugh.pud	fight	20000	80fea0a3d60ff65f	357f07
 Maps\Classic\Expansion\Scenario\Onslaugh.pud	fight	22500	fe495ffdd5398cf9	5a223162135e5ca7	113
 Maps\Classic\Expansion\Scenario\Onslaugh.pud	fight	25000	8baf4ad8fc5168f1	c37bef2f65fe04c2	121
 Maps\Classic\Expansion\Scenario\Onslaugh.pud	fight	27500	f5fab32c954c7090	bc8af39a9052e5cd	127
-Maps\Classic\Expansion\Scenario\Onslaugh.pud	fight	30000	8027ef2477337f83	17a38c24de416012	142
+Maps\Classic\Expansion\Scenario\Onslaugh.pud	fight	30000	ea5732682ad38254	6775ce1cabede242	142
 Maps\Classic\Expansion\Scenario\Onslaugh.pud	harvest	0	26260dffccb60127	10a8ad6c269bf694	50
 Maps\Classic\Expansion\Scenario\Onslaugh.pud	harvest	2500	d8f22fb47d7c4be3	7ba42251d38a1a8a	59
 Maps\Classic\Expansion\Scenario\Onslaugh.pud	harvest	5000	b37096c7b9fbe3c5	0e084dc29675b07a	65
@@ -5513,44 +5513,44 @@ Maps\Classic\Expansion\Scenario\Suicide.pud	ai	25000	26ff0af3f70b07fa	7746eab120
 Maps\Classic\Expansion\Scenario\Suicide.pud	ai	27500	e694725e9e8e7e9e	efe984c7187383a3	136
 Maps\Classic\Expansion\Scenario\Suicide.pud	ai	30000	e77281cecff0c7ab	91354df0fe44846d	136
 Maps\Classic\Expansion\Scenario\Time.pud	move	0	9803cef875115c19	7bc09bf17437ba2b	266
-Maps\Classic\Expansion\Scenario\Time.pud	move	2500	ca4c906a3cc56645	08af52e787d3f8d8	285
-Maps\Classic\Expansion\Scenario\Time.pud	move	5000	72bc5645fcf06db4	205b99badc228b2d	297
-Maps\Classic\Expansion\Scenario\Time.pud	move	7500	6ee79603208639df	7470295dd3f4566f	306
-Maps\Classic\Expansion\Scenario\Time.pud	move	10000	0b1a99828f457bd3	09ae17cfca379fd0	318
-Maps\Classic\Expansion\Scenario\Time.pud	move	12500	0afaf5dd613f0013	319b788d8e52adf4	332
-Maps\Classic\Expansion\Scenario\Time.pud	move	15000	84b1d53ef2ead011	d6c35e3250f1b1db	344
-Maps\Classic\Expansion\Scenario\Time.pud	move	17500	03ce7753fe6c7c5f	1c828543777ffdf8	354
-Maps\Classic\Expansion\Scenario\Time.pud	move	20000	5dbfa61f163c8747	7ece1c92327a963f	366
-Maps\Classic\Expansion\Scenario\Time.pud	move	22500	50aeb5060a733f0c	e03e613512e3d0e1	370
-Maps\Classic\Expansion\Scenario\Time.pud	move	25000	33eaf1e5de75c080	1b0737585b3bc43d	380
-Maps\Classic\Expansion\Scenario\Time.pud	move	27500	2e91b3b4f9541324	2f2cb494c2a97a08	383
-Maps\Classic\Expansion\Scenario\Time.pud	move	30000	304c0ab099b25f5e	053aeec9c8c0c45a	386
+Maps\Classic\Expansion\Scenario\Time.pud	move	2500	d6641923f35aef79	bd3d4e7e71663d9c	285
+Maps\Classic\Expansion\Scenario\Time.pud	move	5000	0aaff4ff586f113a	049911a66dc6bc2c	297
+Maps\Classic\Expansion\Scenario\Time.pud	move	7500	12ef53a2f56d5289	cd30541b0d66fec7	308
+Maps\Classic\Expansion\Scenario\Time.pud	move	10000	43fe10ce323e39d8	69c990f9ab4da875	319
+Maps\Classic\Expansion\Scenario\Time.pud	move	12500	85f08b629fd1702b	aca68156b3ebb195	328
+Maps\Classic\Expansion\Scenario\Time.pud	move	15000	b74bf91893e16fb2	342dfe70d6f0e4a0	341
+Maps\Classic\Expansion\Scenario\Time.pud	move	17500	9e83794a603b44e7	44f670865f88702d	347
+Maps\Classic\Expansion\Scenario\Time.pud	move	20000	c22a6a842d0009e9	6577d1002bd32c36	357
+Maps\Classic\Expansion\Scenario\Time.pud	move	22500	cf6eeeb8f2b50b9b	322a2da0f91e0f67	361
+Maps\Classic\Expansion\Scenario\Time.pud	move	25000	3665080ea274c43e	35b76cf91e959020	365
+Maps\Classic\Expansion\Scenario\Time.pud	move	27500	de6e474213478f17	eb1fb26354ea4ff2	367
+Maps\Classic\Expansion\Scenario\Time.pud	move	30000	e8eb33e14bf5fd90	c7c130657cc97b3d	368
 Maps\Classic\Expansion\Scenario\Time.pud	fight	0	9803cef875115c19	7bc09bf17437ba2b	266
 Maps\Classic\Expansion\Scenario\Time.pud	fight	2500	6fd63d3e5f137bb4	a345464933938c8c	286
 Maps\Classic\Expansion\Scenario\Time.pud	fight	5000	5177dc8cde3c5f52	ab61b19326963e36	302
-Maps\Classic\Expansion\Scenario\Time.pud	fight	7500	a1ecfdc32a8072f1	f90595f029152f89	312
-Maps\Classic\Expansion\Scenario\Time.pud	fight	10000	3adbc495e0e9bf34	acfff0d5134e5d25	320
-Maps\Classic\Expansion\Scenario\Time.pud	fight	12500	eff998a9edde9fe5	dda3dee10d3862b7	332
-Maps\Classic\Expansion\Scenario\Time.pud	fight	15000	1ea7fcc4a98c0a02	b9468a044b0107e0	352
-Maps\Classic\Expansion\Scenario\Time.pud	fight	17500	c203ed111dffde6d	9d3f47894ce82c5b	362
-Maps\Classic\Expansion\Scenario\Time.pud	fight	20000	b3f1a8e0f262ff9c	95b5b84f084643eb	386
-Maps\Classic\Expansion\Scenario\Time.pud	fight	22500	439863695d5885a7	cdf1eedbd92de154	391
-Maps\Classic\Expansion\Scenario\Time.pud	fight	25000	5fdc7cddf8bd5974	6305e2e4f93fca74	386
-Maps\Classic\Expansion\Scenario\Time.pud	fight	27500	08e0d74069e00d3d	45a5ac2aabe7391c	391
-Maps\Classic\Expansion\Scenario\Time.pud	fight	30000	50574bf36c7b7dd1	6bbde4ad2d511cce	393
+Maps\Classic\Expansion\Scenario\Time.pud	fight	7500	8ec1a090ccfb6918	55fdbb42e871428e	312
+Maps\Classic\Expansion\Scenario\Time.pud	fight	10000	85540f078565c74b	b742453ea478168a	320
+Maps\Classic\Expansion\Scenario\Time.pud	fight	12500	0c50c9fdf0012dab	e0deb1618e729f50	330
+Maps\Classic\Expansion\Scenario\Time.pud	fight	15000	f48a825dd6735c53	a31cf5d6e7a6d7cb	347
+Maps\Classic\Expansion\Scenario\Time.pud	fight	17500	5f625f6b15155b75	13d7dfa24d8f9eb4	356
+Maps\Classic\Expansion\Scenario\Time.pud	fight	20000	0eba49f38978294f	5e546861b7ecb686	368
+Maps\Classic\Expansion\Scenario\Time.pud	fight	22500	e9e2bb78b4d9ce27	acc79f0d971860b9	377
+Maps\Classic\Expansion\Scenario\Time.pud	fight	25000	e5b6bd29ace01191	be0a42fae15f77e1	383
+Maps\Classic\Expansion\Scenario\Time.pud	fight	27500	5cbc7db8bbfc4f06	64a71833aae923d6	385
+Maps\Classic\Expansion\Scenario\Time.pud	fight	30000	5b8d586cba868dd8	1b23bf64997c5dbc	385
 Maps\Classic\Expansion\Scenario\Time.pud	harvest	0	9803cef875115c19	7bc09bf17437ba2b	266
 Maps\Classic\Expansion\Scenario\Time.pud	harvest	2500	711bfa671d72b0d3	1324c1f92b3e00d0	288
 Maps\Classic\Expansion\Scenario\Time.pud	harvest	5000	18218c8aa63f824f	d425d1de95616b61	305
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	7500	9fd9ec6175133cf1	adde7718e5a1ccd1	320
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	10000	b58332c76c4452fc	2a034e071d5ada4e	330
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	12500	29d580e9dec18242	2b90010c5a37028c	345
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	15000	7d4d4e8b3fc329bb	1999cf3fcb8a9b2c	357
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	17500	69ba7e9dbefd842c	ef60e8eee35d0337	368
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	20000	b163593fe70bcf01	9bc902830476da64	377
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	22500	fb99462c5cc3a7cc	72358e0557e5faf5	384
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	25000	10a0d1e8d109c5b7	cc8a4d314f56fae2	393
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	27500	e58af0eea050b691	b41ca731a5e6a91e	396
-Maps\Classic\Expansion\Scenario\Time.pud	harvest	30000	a982d4dee8362f23	9114a2af4b74655b	398
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	7500	ef9ba075ac56f9f5	e07b2cfced105e27	320
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	10000	e0d1120d9e0d7ce6	21697deab6de8160	330
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	12500	c2cf1e848a0c7f83	e64943f42fb56757	345
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	15000	dd57f1dae7b2a1be	c9ff24ebe62924db	357
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	17500	67de0940c15c3d43	562a38a2cc70ecd0	364
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	20000	6bbd5f9589fc6a44	9c38c2078b78d294	378
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	22500	5ea550fd29e39c36	69b459f6c33749ad	384
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	25000	f929282f1b181263	a73b54c41df31403	393
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	27500	73dc99fd17397ce7	f652eb244b1af912	396
+Maps\Classic\Expansion\Scenario\Time.pud	harvest	30000	b1d4ad0c963b2d23	5ab2afb927a69ff7	412
 Maps\Classic\Expansion\Scenario\Time.pud	ai	0	9c07c091756d4405	8fc0f7d0e024cbfc	266
 Maps\Classic\Expansion\Scenario\Time.pud	ai	2500	682807260c8ce74d	279d1c8c9176c9ca	289
 Maps\Classic\Expansion\Scenario\Time.pud	ai	5000	96da0996c341b8aa	a808ad0a7e772ee6	305
@@ -6272,9 +6272,9 @@ Maps\Classic\Expansion\theSiege.pud	harvest	5000	1c3bd45e156bcf57	06c4f3d64cdc28
 Maps\Classic\Expansion\theSiege.pud	harvest	7500	adffe71a848e41b8	acdc882da9b6d0de	116
 Maps\Classic\Expansion\theSiege.pud	harvest	10000	700876375bbd07eb	46d94909f1bfd375	120
 Maps\Classic\Expansion\theSiege.pud	harvest	12500	a48b5028322cc355	f2424858af14bcd8	123
-Maps\Classic\Expansion\theSiege.pud	harvest	15000	9d02da5e5c6f34cb	00c329b2660a1619	125
-Maps\Classic\Expansion\theSiege.pud	harvest	17500	097222bbfcb45425	cb5f4186c1e97d41	125
-Maps\Classic\Expansion\theSiege.pud	harvest	20000	9abaca5dace12e95	84ccfa6f3447cf91	125
+Maps\Classic\Expansion\theSiege.pud	harvest	15000	9d02da5e5c6f34cb	5800d1e1e856f6e7	125
+Maps\Classic\Expansion\theSiege.pud	harvest	17500	097222bbfcb45425	359b28d657bc1ccb	125
+Maps\Classic\Expansion\theSiege.pud	harvest	20000	9abaca5dace12e95	a5134d27d82db3ff	125
 Maps\Classic\Expansion\theSiege.pud	harvest	22500	3217325ae3d560aa	fea744a8cdd516f0	125
 Maps\Classic\Expansion\theSiege.pud	harvest	25000	2bba45d8878a2ec1	01a445e9dbea8ab0	133
 Maps\Classic\Expansion\theSiege.pud	harvest	27500	29b2b8db08b2bbd9	3963d3e9b9e694c0	142
@@ -9296,18 +9296,18 @@ Maps\Scenario\A Tight Spot BNE.pud	harvest	25000	a4ceab55f45c50d5	9526352ecb9f8d
 Maps\Scenario\A Tight Spot BNE.pud	harvest	27500	b52873861c871a42	000601e945e2a9a9	272
 Maps\Scenario\A Tight Spot BNE.pud	harvest	30000	1f9c722b68afd1d3	d4ca2d0ef2c6b18a	299
 Maps\Scenario\A Tight Spot BNE.pud	ai	0	26db693a32f8037a	3dc1263014bf1856	118
-Maps\Scenario\A Tight Spot BNE.pud	ai	2500	939beefa3f67e0f0	18fbb4b4d8429b4f	148
-Maps\Scenario\A Tight Spot BNE.pud	ai	5000	7c63ed3a36554e70	85b177643a62b98c	183
-Maps\Scenario\A Tight Spot BNE.pud	ai	7500	ad1fe4330e4c365b	d075d8c9bafaa4f0	188
-Maps\Scenario\A Tight Spot BNE.pud	ai	10000	b19329590bf067c8	9d62cc1f8c02cefa	198
-Maps\Scenario\A Tight Spot BNE.pud	ai	12500	c3495ac97cdf7f17	e4a990fe4f8e357b	230
-Maps\Scenario\A Tight Spot BNE.pud	ai	15000	00c66227ebf0a9a7	1f526a14f302b09e	250
-Maps\Scenario\A Tight Spot BNE.pud	ai	17500	3bd354bdfa5e574f	ccc89e6c14f670ea	278
-Maps\Scenario\A Tight Spot BNE.pud	ai	20000	797cb3e3dda2da8c	587c22e6cb74f818	300
-Maps\Scenario\A Tight Spot BNE.pud	ai	22500	e86a13dd50586145	e6bccaac15aaf15d	315
-Maps\Scenario\A Tight Spot BNE.pud	ai	25000	f9ace7fd413c6096	f8a4225188d0e468	325
-Maps\Scenario\A Tight Spot BNE.pud	ai	27500	a4bbffd48c64af15	ce4d23fcec899add	350
-Maps\Scenario\A Tight Spot BNE.pud	ai	30000	f6381b4c179ae78f	946e2099a0adef88	375
+Maps\Scenario\A Tight Spot BNE.pud	ai	2500	be709c6a7ed629aa	78e7259fbeb01869	148
+Maps\Scenario\A Tight Spot BNE.pud	ai	5000	51987ef9e24dd004	2271ca11731cdadc	183
+Maps\Scenario\A Tight Spot BNE.pud	ai	7500	9d971fcf7f2613a6	055c97de64512036	188
+Maps\Scenario\A Tight Spot BNE.pud	ai	10000	48034a78a2f60093	48d9fc47fe5c9138	204
+Maps\Scenario\A Tight Spot BNE.pud	ai	12500	644bfb97cd64b328	3791fd565f66e890	233
+Maps\Scenario\A Tight Spot BNE.pud	ai	15000	bde15858b8ecae25	744fd39b8f026178	257
+Maps\Scenario\A Tight Spot BNE.pud	ai	17500	793fa5e7ec881908	7a39afad3b455299	294
+Maps\Scenario\A Tight Spot BNE.pud	ai	20000	750c8bdab8c92ce2	fd6b69fced84c3cf	303
+Maps\Scenario\A Tight Spot BNE.pud	ai	22500	47b6cbe2b968f601	9f2fba788a50bb06	309
+Maps\Scenario\A Tight Spot BNE.pud	ai	25000	a3226cbeaab41919	fe9f6e486a58ad4c	327
+Maps\Scenario\A Tight Spot BNE.pud	ai	27500	080923d08aea4143	66ad5ce0e0c918ea	344
+Maps\Scenario\A Tight Spot BNE.pud	ai	30000	662416c682c0294e	329e2bf9a6154a37	359
 Maps\Scenario\Bombs Away BNE.pud	move	0	07a0eaacdc742ef0	0334bbd43f188810	64
 Maps\Scenario\Bombs Away BNE.pud	move	2500	bf1fb6b43f2da650	017ab950f5115efc	69
 Maps\Scenario\Bombs Away BNE.pud	move	5000	1cebb64e845a96a9	6d8f5d82a48e71af	76
@@ -9330,10 +9330,10 @@ Maps\Scenario\Bombs Away BNE.pud	fight	12500	b05eee410ffdb3c5	81b4e2d7efef5b54	7
 Maps\Scenario\Bombs Away BNE.pud	fight	15000	5e1c7271920953b0	eb15f010e29ec639	74
 Maps\Scenario\Bombs Away BNE.pud	fight	17500	7055681008577333	248aaa6246c552af	84
 Maps\Scenario\Bombs Away BNE.pud	fight	20000	04365d532e3da249	8ec42823227e534d	88
-Maps\Scenario\Bombs Away BNE.pud	fight	22500	6be00dd3f7569bc4	61c955d047fdeea2	90
-Maps\Scenario\Bombs Away BNE.pud	fight	25000	da3dbdd5a20d97ea	ea0e176d17dc055d	96
-Maps\Scenario\Bombs Away BNE.pud	fight	27500	8d789549f14e8cf6	feccd78daa4e7e32	102
-Maps\Scenario\Bombs Away BNE.pud	fight	30000	ae0f665617be8371	d4a49768db7dda1d	102
+Maps\Scenario\Bombs Away BNE.pud	fight	22500	908ff13685895fd8	bc579f0be3ffa456	90
+Maps\Scenario\Bombs Away BNE.pud	fight	25000	177e4f99ce4c1c8e	1f7a044fc241d8cc	97
+Maps\Scenario\Bombs Away BNE.pud	fight	27500	beaf0a431ff27e71	370768bec2a98c7a	102
+Maps\Scenario\Bombs Away BNE.pud	fight	30000	82eb4d6627ddff24	d1bdda65d196556f	103
 Maps\Scenario\Bombs Away BNE.pud	harvest	0	07a0eaacdc742ef0	0334bbd43f188810	64
 Maps\Scenario\Bombs Away BNE.pud	harvest	2500	08fb9308d5ca4f30	3d3d8f6dee4c876d	69
 Maps\Scenario\Bombs Away BNE.pud	harvest	5000	f917736100df3cfa	e8d126630595a8e4	76
@@ -9696,8 +9696,8 @@ Maps\Scenario\Ramparts BNE.pud	fight	17500	b5037c807618d344	3479cf9956800f99	72
 Maps\Scenario\Ramparts BNE.pud	fight	20000	8969a0501daeea3f	0fd5533f8bdab93a	75
 Maps\Scenario\Ramparts BNE.pud	fight	22500	2fb1a10c031dfbf2	67d664486b31ac2f	77
 Maps\Scenario\Ramparts BNE.pud	fight	25000	ece4d6803110298c	926a0e5d4b9e21d7	77
-Maps\Scenario\Ramparts BNE.pud	fight	27500	5601900a1cc0b9c4	666a3da54adaa06c	83
-Maps\Scenario\Ramparts BNE.pud	fight	30000	0cd744f6522b8115	af348c84930c892c	90
+Maps\Scenario\Ramparts BNE.pud	fight	27500	593dff180be3620f	6a3ec33c94f5f327	83
+Maps\Scenario\Ramparts BNE.pud	fight	30000	4e9f851e7e867e4e	f79efb1c6e5cf043	89
 Maps\Scenario\Ramparts BNE.pud	harvest	0	4ac997ed7de860da	b53c8c6b45637f91	46
 Maps\Scenario\Ramparts BNE.pud	harvest	2500	3ad188ef026d44c7	8f3948b2f87d963d	50
 Maps\Scenario\Ramparts BNE.pud	harvest	5000	bf338dd2fb9191ff	ec1b8df87310a5cf	56
