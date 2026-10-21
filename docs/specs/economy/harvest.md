@@ -8,6 +8,9 @@
   both remain open questions (the round-68 ruling).
   **Round 77 edit** (`specs/ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): a killed mine,
   platform or depot kills the units inside it ("Mine and platform amounts"; traced for a depot).
+  **Round 87 edit** (vision consolidation, `specs/ERRATA-vision-consolidation.md`, reviewed by a spec-review
+  session, 2026-10-21): "Entering a mine, platform or depot", step 2 points at the entry sight of `vision/fog.md` (no
+  rule change).
   **Round 82 edit** (AI consolidation, `specs/ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
   2026-10-16): "Coming out", step 3 points at the job choice of `ai/worker-ai.md` instead of "a later spec"; two open
   questions closed. No rule change.
@@ -347,6 +350,8 @@ selection"), before it steps in (static study only; audit round 70, erratum 5).
    - The unit becomes **inside** the building: it is hidden, untargetable, its attacker is forgotten, and its tile
      position becomes the building's position.
    - Its order becomes 26 (inside) at once, and its wait is set to **150 cycles**.
+   - For a human player's unit, a sight-3 area is revealed one step from the building's top-left tile in the
+     direction the unit faces (`vision/fog.md`, "When sight is applied", rule 3; static study).
    - **Delivery branch.** If the unit is a worker and the building stores gold or wood, or the unit is a tanker and the
      building isn't an oil platform, the goods are **delivered** ("Delivering goods"), and nothing else happens, even
      if the building doesn't accept what the unit carries: the delivery table then adds nothing and the load is lost

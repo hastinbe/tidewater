@@ -17,6 +17,9 @@
   rescued counts are reset at every new game start (X12, static study). Two static findings about loaded games are new
   open questions with the old text as the default: the countdown set to 1 with a found outcome lost (Q4) and the mission
   start running again (Q3). The life of a game around the check is in the new model, `game/lifecycle.md`.
+- **Changes:** 2026-10-21, round 87 (B-038 consolidation of vision, `ERRATA-vision-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): a player out of a network game also gets its own shared-vision set back to just
+  itself (X10, static study).
 
 ## Behaviour
 
@@ -121,9 +124,10 @@ Consequences worth testing:
 
 1. **Cheats** as above (instant victory goes to step 6).
 2. **L is out** if L is not present, or L is a human player who is no longer connected. Then L is **defeated**: in a
-   network game L's slot is turned into "nobody", L is removed from everyone's shared vision, and all of L's living
-   units are given order 32. Order 32 is the docked-transport wait of `orders/orders.md` (order table, row 32): its
-   logic does nothing, so the units stand where they are. The defeat screen is shown.
+   network game L's slot is turned into "nobody", L is removed from everyone's shared vision and its own
+   shared-vision set becomes just L (`vision/fog.md`, "Shared vision"), and all of L's living units are given order
+   32. Order 32 is the docked-transport wait of `orders/orders.md` (order table, row 32): its logic does nothing, so
+   the units stand where they are. The defeat screen is shown.
 3. Otherwise each player q (0 to 7) is checked the same way: q is **in** when it is present, and, if q is a human
    player, still connected (computer players that are present are always in). A player who is out and has no result
    yet is marked defeated and, in a network game, turned into "nobody" as above.

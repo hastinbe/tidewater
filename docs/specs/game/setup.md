@@ -20,6 +20,9 @@
   "Where the body reading starts"); a single-player custom game runs under Enhanced rules (X10, from
   `core/timing-and-rng.md`); the intro points at `game/save-load.md` and the new model `game/lifecycle.md` for loaded
   games (X11).
+- **Changes:** 2026-10-21, round 87 (B-038 consolidation of vision, `ERRATA-vision-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): "Starting alliances and shared vision" gains the team-game rule (X10, static
+  study, multiplayer only).
 
 ## Behaviour
 
@@ -200,7 +203,9 @@ computer players are allied with each other, and the local player is allied with
 players and nobody slots are allied with no one but rescue (passive) slots, neutral and themselves. The mission start
 (`game/victory.md`) may change some entries afterwards.
 
-Each slot from 0 to 7 starts with a shared-vision set holding only itself (`vision/fog.md`).
+Each slot from 0 to 7 starts with a shared-vision set holding only itself (`vision/fog.md`). **Multiplayer:** in a
+team game, team-mates are then added to each other's sets (static study; the lobby and its teams are a later spec;
+`vision/fog.md`, "Shared vision").
 
 ### Creating the map's units
 

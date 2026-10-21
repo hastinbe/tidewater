@@ -34,6 +34,10 @@
   that the fog and victory countdowns don't move on a paused cycle, so their counter values hold for a game that was
   never paused (X1). The cycle counter of a loaded game is a new open question (Q2). Where the cycle sits in the life of
   a game is in `game/lifecycle.md`.
+- **Changes:** 2026-10-21, round 87 (B-038 consolidation of vision, `ERRATA-vision-consolidation.md`, reviewed by a
+  spec-review session, 2026-10-21): phase 3 and the "Fog refresh" row say that an Enhanced holy vision sets the
+  countdown to 150 (X1, from `spells/spells.md`); phase 5 works out the hidden-from sets for every player, as game
+  state (X2). No rule change.
 
 ## Behaviour
 
@@ -98,8 +102,11 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
 3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1 and counts every cycle,
    the two start-up cycles included, so the first refresh happens in the first start-up cycle. Then it happens every
    100 cycles (101 in Classic): in the normal cycles that end with the cycle counter at 99, 199, … (Classic: 100,
-   201, …; this follows from the period, as no Classic run was traced). On a refresh cycle each unit's sight is
-   re-applied to the fog during phase 4.
+   201, …; this follows from the period, as no Classic run was traced). In Enhanced mode a holy vision strike, by
+   any player's caster, sets the counter to 150, so the next refresh comes in the 150th cycle after the cast cycle and
+   the 100-cycle schedule goes on from there; "99, 199, …" holds only until the first holy vision of the game
+   (`vision/fog.md`, "The fog refresh"; **Classic mode:** holy vision leaves the counter alone). On a refresh cycle
+   each unit's sight is re-applied to the fog during phase 4.
 4. **Units.** Every unit is updated in slot order (`core/unit-slots.md`):
    - its sight is re-applied if this is a refresh cycle;
    - its per-unit countdowns are advanced;
@@ -109,7 +116,9 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
    Then all **missiles** are advanced. Then the **construction pass** advances buildings under construction
    (`economy/build-train.md`). Then the **timers pass** runs over units: spell durations, regeneration, mana,
    decay of summoned units, and runes.
-5. **Visibility** for the local player is recomputed.
+5. **Visibility.** Every unit's hidden-from set is recomputed for every player, not only the local one. The sets
+   are game state (target searches read them) and don't depend on which player is local (`vision/fog.md`, "Unit
+   visibility (phase 5)").
 6. **Minimap** is refreshed every 40 cycles.
 7. **Fog** bookkeeping for the cycle is closed.
 8. **Victory and defeat** are checked every 201 cycles, first in the second start-up cycle (`game/victory.md`).
@@ -209,7 +218,7 @@ Each row is the pattern of lengths for three cycles in a row; the pattern then r
 
 | Event | Period |
 | --- | --- |
-| Fog refresh | 100 (Enhanced), 101 (Classic); first in the first start-up cycle, then at counter 99 (Classic 100) |
+| Fog refresh | 100 (Enhanced), 101 (Classic); first in the first start-up cycle, then at counter 99 (Classic 100), until an Enhanced holy vision sets the countdown to 150 (`vision/fog.md`, "The fog refresh") |
 | Minimap refresh | 40 |
 | Victory check | 201; first in the second start-up cycle, then at counter 201 (with no pause; scheduler, rule 4) |
 | Mana regeneration (+1, max 255) | 40 |
