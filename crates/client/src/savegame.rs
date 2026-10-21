@@ -215,19 +215,23 @@ mod tests {
     #[test]
     fn a_load_takes_the_saved_campaign_total() {
         use crate::campaign::{CampaignTotal, GameKind};
-        let mut saved = Flow::default();
-        saved.game = Some(GameKind::Campaign(0));
-        saved.total = CampaignTotal {
-            total: 900,
-            at_start: 400,
+        let saved = Flow {
+            game: Some(GameKind::Campaign(0)),
+            total: CampaignTotal {
+                total: 900,
+                at_start: 400,
+            },
+            ..Default::default()
         };
         let state = client_state(&saved, 0, None, (0, 0), None, None);
         assert_eq!(state.total, saved.total);
         // The program that loads it was playing something else and starts the saved game the way `record_game` does.
-        let mut flow = Flow::default();
-        flow.total = CampaignTotal {
-            total: 50,
-            at_start: 50,
+        let mut flow = Flow {
+            total: CampaignTotal {
+                total: 50,
+                at_start: 50,
+            },
+            ..Default::default()
         };
         flow.total.start_game(GameKind::Campaign(0));
         assert_eq!(flow.total.total, 0, "a first mission starts at 0");

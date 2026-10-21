@@ -567,7 +567,10 @@ mod tests {
         let normal = Pud::parse(&m.bytes()).unwrap();
         assert_eq!(p.units, normal.units);
         assert_eq!(p.units.len(), 1);
-        assert_eq!((p.width, p.height, p.tiles), (normal.width, normal.height, normal.tiles));
+        assert_eq!(
+            (p.width, p.height, p.tiles),
+            (normal.width, normal.height, normal.tiles)
+        );
     }
 
     #[test]

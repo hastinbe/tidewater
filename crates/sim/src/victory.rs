@@ -1241,7 +1241,10 @@ mod tests {
     #[test]
     fn the_instant_cheats_are_found_at_the_next_check_and_shown_at_the_one_after() {
         use crate::cheats::{Flags, flag};
-        for (cheat, want) in [(flag::INSTANT_VICTORY, Outcome::Victory), (flag::INSTANT_DEFEAT, Outcome::Defeat)] {
+        for (cheat, want) in [
+            (flag::INSTANT_VICTORY, Outcome::Victory),
+            (flag::INSTANT_DEFEAT, Outcome::Defeat),
+        ] {
             let mut w = world(16, 16);
             w.spawn(0x00, 0, (2, 2), 0).unwrap();
             w.spawn(0x00, 1, (20, 20), 0).unwrap();

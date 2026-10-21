@@ -286,5 +286,8 @@ fn the_rescued_counts_come_back() {
     a.players[1].rescued = 0x1001;
     let mut b = field(16, 16);
     b.restore(&a.save_state(), 1).unwrap();
-    assert_eq!((b.players[0].rescued, b.players[1].rescued, b.players[2].rescued), (3, 0x1001, 0));
+    assert_eq!(
+        (b.players[0].rescued, b.players[1].rescued, b.players[2].rescued),
+        (3, 0x1001, 0)
+    );
 }
