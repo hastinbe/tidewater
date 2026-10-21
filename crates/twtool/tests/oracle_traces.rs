@@ -144,6 +144,10 @@
 //! TC6 and AG1 to AG4) match in full. xhuman9-xhuman9-runestone-saveload-game-60 is ignored: after the load a moving
 //! unit waits about 3 cycles in the original and ours moves at once.
 //!
+//! Round 91: human1-human01-fog-switch-fogmaps-game-400 (F45: the option switched off assigns the local set on
+//! unexplored tiles, switched on changes no map; the comparer reads its `say` and `fog` records and the `fogmaps`
+//! extra) matches in full.
+//!
 //! Round 91: a load runs the mission start again (G24): xhuman9-xhuman9-runestone-alive-saveload-game-60 now has the
 //! damaged runestone back at 400 hit points in the loaded game's setup record (it was 4 before the change) and matches
 //! to n 11; it is ignored from n 12, where the original draws one random number fewer (see its test).
@@ -472,12 +476,16 @@ traces! {
     orc13_aigoals_goals_17900_18200: ("orc13-aigoals-goals-17900-18200.jsonl.gz", "Campaign\\Orc\\Orc13.pud", 25, &[], None),
     xhuman11_aigoals_goals_0: ("xhuman11-aigoals-goals-0.jsonl.gz", "Campaign\\XHuman\\2XHum11.pud", 48, &[], None),
     xhuman9_aigoals_goals_8630_8830: ("xhuman9-aigoals-goals-8630-8830.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    human1_human01_fog_switch_fogmaps_game_400: ("human1-human01-fog-switch-fogmaps-game-400.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     xorc9_aigoals_goals_0: ("xorc9-aigoals-goals-0.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
 }
 
-/// The runestone save/load trace: after the load a moving unit waits about 3 cycles in the original and ours moves at
-/// once. The movement state after a load isn't specified, and the held rule (game Q3, the runestone) decides it.
+/// The runestone save/load trace (the runestone already a ruin before the save). Round 91 closed the mission-start
+/// question (a load runs it again, G24), which this trace never decided, so what remains is the movement state after a
+/// load: at n 1 (startup) unit 1562 (type 0x0b, owner 5, order 3) is at tile (56, 20) with anim 2 and wait 3 in the
+/// original; ours has it at (55, 19) with anim 3 and wait 1. The movement state after a load isn't specified.
 #[test]
+#[ignore = "n 1 (startup), unit 1562 tx/ty/anim/wait: movement state after a load is not specified"]
 fn xhuman9_xhuman9_runestone_saveload_game_60() {
     check(
         "xhuman9-xhuman9-runestone-saveload-game-60.jsonl.gz",

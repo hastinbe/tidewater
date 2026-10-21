@@ -150,6 +150,10 @@ impl Fnv {
                     self.int(*n);
                 }
                 Cell::Null => self.bytes(b"n"),
+                Cell::Text(t) => {
+                    self.bytes(b"t");
+                    self.bytes(t.as_bytes());
+                }
                 Cell::Skip(_) => self.bytes(b"s"),
             }
         }

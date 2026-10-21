@@ -168,6 +168,11 @@ impl Vision {
         self.explored.iter().filter(|&&f| f != ALL).count()
     }
 
+    /// The "seen" map: per tile, bit p set when player p has not seen the tile in the current refresh period.
+    pub fn seen_flags(&self) -> &[u8] {
+        &self.seen
+    }
+
     /// Whether player `p` has not seen the tile this refresh period.
     pub fn unseen_by(&self, p: u8, x: i32, y: i32) -> bool {
         self.at(x, y).is_none_or(|n| self.seen[n] & bit(p) != 0)
@@ -1063,7 +1068,7 @@ mod tests {
         assert_eq!(w.units[i].detected_by, 1 << 2);
     }
 
-    /// X12 / F45 (static study): switching fog off gives a fully unexplored tile exactly the local player's set, not
+    /// X12 / F45 (traced, `human1-human01-fog-switch-fogmaps-game-400`): switching fog off gives a fully unexplored tile exactly the local player's set, not
     /// the AND of the old bits and the set.
     #[test]
     fn switching_fog_off_assigns_the_local_set_on_an_unexplored_tile() {

@@ -16,6 +16,10 @@
 //! `transport_dest`) are read but not compared, as no spec defines their comparison yet. The round-85 `aigoals`
 //! extra (each unit's `ai_goal`) has its kind and tile compared with our units' goals (`ai/attack-ai.md`, "Unit
 //! goals"; a unit with no goal tile shows (0, 0)); its `extra` value is read by no rule in the specs and isn't.
+//! The round-91 `fogmaps` extra (summaries of the "seen", visible and explored maps and the local player's units on
+//! explored tiles) is compared where a record carries it; its `say` and `fog` records (a cheat word typed, the fog
+//! option switched during play; vector F45) hold no units and no generator state, so only the option and the maps
+//! are compared, and a `fog` record switches the option in our world.
 //!
 //! Scenario identity is still free text in the header (the format's open question "Scenario identity"), so the caller
 //! names the map and the campaign entry; the seed, the rules and the table sizes come from the header.
@@ -75,6 +79,8 @@ const MAX_STEPS: u32 = 1 << 20;
 pub enum Cell {
     Int(i64),
     Null,
+    /// A short description of a map, for the `fogmaps` extra's summaries.
+    Text(String),
     /// Not compared, for the reason given (listed once in the report). No field is skipped at present.
     #[allow(dead_code)]
     Skip(&'static str),
@@ -105,6 +111,7 @@ impl Cell {
         match self {
             Cell::Int(n) => Some(Value::from(*n)),
             Cell::Null => Some(Value::Null),
+            Cell::Text(t) => Some(Value::from(t.clone())),
             Cell::Skip(_) => None,
         }
     }
@@ -115,6 +122,7 @@ impl fmt::Display for Cell {
         match self {
             Cell::Int(n) => write!(f, "{n}"),
             Cell::Null => f.write_str("null"),
+            Cell::Text(t) => f.write_str(t),
             Cell::Skip(_) => f.write_str("-"),
         }
     }
@@ -382,6 +390,12 @@ pub struct Record {
     pub vision: BTreeMap<u16, [Cell; 2]>,
     /// The `game` extra: the game-wide values the record carries (`None` without the extra).
     pub game: Option<GameState>,
+    /// The `fogmaps` extra ([`FOGMAP_FIELDS`] order), where the record carries it.
+    pub fogmaps: Option<Vec<Cell>>,
+    /// A `fog` record (`kind` = "fog"): the fog-of-war option was switched to this value in the cycle just run.
+    pub fog_event: Option<bool>,
+    /// The top-level `fog_of_war` of a `say` or `fog` record: the option after the event.
+    pub fog_option: Option<i64>,
     /// A `save` record's save name (`kind` = "save"): the game wrote a saved game here.
     pub save: Option<String>,
     /// A `setup` record's `load`: the game was started by loading the saved game of this name.
@@ -404,6 +418,20 @@ impl GameState {
         GameState(GAME_FIELDS.map(|f| Cell::of(g.get(f))))
     }
 }
+
+/// The `fogmaps` extra's compared values, in report order (`vision/fog.md`, "The fog maps" and "The seen map"; vector
+/// F45): the "seen" bytes of each class of tile (by the explored map: unexplored, explored, edge) as `byte:count`
+/// pairs, the counts of clear, fogged and edge tiles of the visible map and of unexplored, explored and edge tiles of
+/// the explored map, and the local player's units on explored tiles and in all.
+pub const FOGMAP_FIELDS: [&str; 7] = [
+    "seen_unexplored",
+    "seen_explored",
+    "seen_edge",
+    "visible_map",
+    "explored_map",
+    "local_units_on_explored",
+    "local_units",
+];
 
 /// The `aigoals` extra's compared fields (`ai_goal`: `kind` and `tile`; `extra` is read by no rule in the specs, so it
 /// isn't compared).
@@ -497,6 +525,86 @@ impl Goals {
     }
 }
 
+/// The `fogmaps` extra of a record: [`FOGMAP_FIELDS`] order.
+fn parse_fogmaps(f: &Value) -> Vec<Cell> {
+    let hist = |class: &str| {
+        let mut pairs: Vec<(i64, i64)> = f
+            .pointer(&format!("/seen/{class}"))
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, c)| Some((k.parse().ok()?, c.as_i64()?)))
+            .collect();
+        pairs.sort();
+        Cell::Text(histogram(&pairs))
+    };
+    let counts = |map: &str, keys: [&str; 3]| {
+        let n = |k: &str| f.pointer(&format!("/{map}/{k}")).and_then(Value::as_i64).unwrap_or(0);
+        Cell::Text(format!("{}/{}/{}", n(keys[0]), n(keys[1]), n(keys[2])))
+    };
+    let units = f.get("local_units_on_explored").and_then(Value::as_array);
+    vec![
+        hist("unexplored"),
+        hist("explored"),
+        hist("edge"),
+        counts("visible", ["clear", "fogged", "edge"]),
+        counts("explored", ["unexplored", "explored", "edge"]),
+        Cell::of(units.and_then(|a| a.first())),
+        Cell::of(units.and_then(|a| a.get(1))),
+    ]
+}
+
+fn histogram(pairs: &[(i64, i64)]) -> String {
+    if pairs.is_empty() {
+        return "none".into();
+    }
+    pairs
+        .iter()
+        .map(|(k, c)| format!("{k}:{c}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Our world's `fogmaps` extra values ([`FOGMAP_FIELDS`] order).
+pub fn fog_maps(w: &World) -> Vec<Cell> {
+    use tidewater_sim::vision::{Map, quarter};
+    let v = &w.vision;
+    let (explored, visible, seen) = (v.flags(Map::Explored), v.flags(Map::Visible), v.seen_flags());
+    let mut hists: [BTreeMap<i64, i64>; 3] = Default::default();
+    let (mut vis, mut exp) = ([0i64; 3], [0i64; 3]);
+    for ((&e, &vi), &s) in explored.iter().zip(visible).zip(seen) {
+        let class = match e {
+            quarter::ALL => 0,
+            0 => 1,
+            _ => 2,
+        };
+        *hists[class].entry(s as i64).or_default() += 1;
+        exp[class] += 1;
+        vis[match vi {
+            0 => 0,
+            quarter::ALL => 1,
+            _ => 2,
+        }] += 1;
+    }
+    let hist = |h: &BTreeMap<i64, i64>| Cell::Text(histogram(&h.iter().map(|(&k, &c)| (k, c)).collect::<Vec<_>>()));
+    let local = v.local;
+    let (mut on, mut total) = (0i64, 0i64);
+    for u in w.units.iter().filter(|u| u.owner == local && !u.dying && !u.removing) {
+        total += 1;
+        on += i64::from(!v.unexplored(u.tile.0, u.tile.1));
+    }
+    vec![
+        hist(&hists[0]),
+        hist(&hists[1]),
+        hist(&hists[2]),
+        Cell::Text(format!("{}/{}/{}", vis[0], vis[1], vis[2])),
+        // The explored map's classes: unexplored, explored, edge.
+        Cell::Text(format!("{}/{}/{}", exp[0], exp[1], exp[2])),
+        Cell::Int(on),
+        Cell::Int(total),
+    ]
+}
+
 const RESOURCES: [&str; 3] = ["gold", "lumber", "oil"];
 
 impl Record {
@@ -558,8 +666,12 @@ impl Record {
         Ok(Record {
             n,
             counter: v.get("counter").and_then(Value::as_u64),
-            // A `save` record has no generator state.
-            rng: if kind == "save" { 0 } else { int(&v, "rng")? as u32 },
+            // A `save`, `say` or `fog` record has no generator state.
+            rng: if matches!(kind.as_str(), "save" | "say" | "fog") {
+                0
+            } else {
+                int(&v, "rng")? as u32
+            },
             resources: RESOURCES.map(list),
             units,
             effects,
@@ -581,6 +693,11 @@ impl Record {
             ai_goals,
             vision,
             game: v.get("game").map(GameState::parse),
+            fogmaps: v.get("fogmaps").map(parse_fogmaps),
+            fog_event: (kind == "fog")
+                .then(|| v.get("value").and_then(Value::as_str).map(|x| x == "on"))
+                .flatten(),
+            fog_option: v.get("fog_of_war").and_then(Value::as_i64),
             save: (kind == "save")
                 .then(|| v.get("name").and_then(Value::as_str).map(str::to_string))
                 .flatten(),
@@ -809,10 +926,12 @@ pub enum Category {
     Vision,
     /// The `game` extra: the cheat mark, the fog option and the two countdowns.
     Game,
+    /// The `fogmaps` extra: summaries of the "seen", visible and explored maps.
+    FogMaps,
 }
 
 impl Category {
-    pub const ALL: [Category; 13] = [
+    pub const ALL: [Category; 14] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -826,6 +945,7 @@ impl Category {
         Category::AiGoals,
         Category::Vision,
         Category::Game,
+        Category::FogMaps,
     ];
 
     pub fn name(self) -> &'static str {
@@ -843,6 +963,7 @@ impl Category {
             Category::AiGoals => "ai-goals",
             Category::Vision => "vision",
             Category::Game => "game",
+            Category::FogMaps => "fogmaps",
         }
     }
 }
@@ -850,6 +971,7 @@ impl Category {
 fn category(scope: Scope, field: &str) -> Category {
     match scope {
         Scope::Global if GAME_FIELDS.contains(&field) => Category::Game,
+        Scope::Global if FOGMAP_FIELDS.contains(&field) => Category::FogMaps,
         Scope::Global => Category::Rng,
         Scope::Player(_) => Category::Resources,
         Scope::Effect(_) => Category::Effects,
@@ -1035,6 +1157,19 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             if f == "fog_countdown" && (theirs.kind == "setup" || (theirs.kind == "startup" && theirs.n == 1)) {
                 continue;
             }
+            if oc.matches(tc) == Some(false) && filter.allows(Scope::Global, f) {
+                out.push(Diff {
+                    scope: Scope::Global,
+                    field: f,
+                    ours: oc.clone(),
+                    theirs: tc.clone(),
+                });
+            }
+        }
+    }
+    // The `fogmaps` extra, where the trace carries it.
+    if let (Some(tf), Some(of)) = (&theirs.fogmaps, &ours.fogmaps) {
+        for ((&f, tc), oc) in FOGMAP_FIELDS.iter().zip(tf).zip(of) {
             if oc.matches(tc) == Some(false) && filter.allows(Scope::Global, f) {
                 out.push(Diff {
                     scope: Scope::Global,
@@ -1232,6 +1367,9 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         ai_goals: w.units.iter().map(|u| (u.slot, ai_goal_cells(u))).collect(),
         vision: w.units.iter().map(|u| (u.slot, vision_cells(u))).collect(),
         game: Some(game_state(w)),
+        fogmaps: None,
+        fog_event: None,
+        fog_option: None,
         save: None,
         load: None,
     }
@@ -1524,7 +1662,7 @@ pub fn run(
     let mut before: BTreeSet<(Scope, &'static str)> = BTreeSet::new();
     let mut places: BTreeMap<String, BTreeSet<Scope>> = BTreeMap::new();
     for rec in records {
-        let theirs = rec?;
+        let mut theirs = rec?;
         if opts.max_cycles.is_some_and(|m| theirs.n > m) {
             break;
         }
@@ -1598,6 +1736,15 @@ pub fn run(
                 continue;
             }
             "turn" => replay_turn(w, &theirs, &mut s),
+            // A `say` record follows the turn that carried the cheat word (the turn's `cheat` command ran it). A `fog`
+            // record is the fog option switched during play in the cycle just run (`vision/fog.md`, "Fog-of-war
+            // option and cheat"; F45). Neither carries units or a generator state: only the option and the `fogmaps`
+            // extra are compared.
+            "say" | "fog" => {
+                if let Some(on) = theirs.fog_event {
+                    w.set_fog_of_war(on);
+                }
+            }
             "startup" | "cycle" => {
                 if let Some(l) = last_n
                     && theirs.n != l + 1
@@ -1617,14 +1764,32 @@ pub fn run(
                 continue;
             }
         }
-        last_n = Some(theirs.n);
+        // A `say` or `fog` record sits between cycles; it isn't a cycle the next one follows.
+        if !matches!(theirs.kind.as_str(), "say" | "fog") {
+            last_n = Some(theirs.n);
+        }
         if saving && theirs.kind == "cycle" {
             history.push_back((theirs.n, w.save_state()));
             if history.len() > 4 {
                 history.pop_front();
             }
         }
-        let ours = snapshot(w, theirs.n, &theirs.kind);
+        let mut ours = snapshot(w, theirs.n, &theirs.kind);
+        if theirs.fogmaps.is_some() {
+            ours.fogmaps = Some(fog_maps(w));
+        }
+        if matches!(theirs.kind.as_str(), "say" | "fog") {
+            // The record holds the option and the maps alone: take the rest from ours so it compares equal.
+            let (n, kind, fogmaps) = (theirs.n, theirs.kind.clone(), theirs.fogmaps.take());
+            let option = theirs.fog_option;
+            theirs = ours.clone();
+            theirs.n = n;
+            theirs.kind = kind;
+            theirs.fogmaps = fogmaps;
+            if let (Some(g), Some(o)) = (&mut theirs.game, option) {
+                g.0[1] = Cell::Int(o);
+            }
+        }
         let diffs = compare(&theirs, &ours, &opts.filter, &mut s.skipped);
         s.records += 1;
         s.first_n.get_or_insert(theirs.n);

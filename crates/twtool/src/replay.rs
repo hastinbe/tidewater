@@ -106,6 +106,12 @@ pub enum Kind {
     /// A header `input` entry that loads the saved game `name`: the trace restarts with a `setup` record that has
     /// `load`.
     Load { name: String },
+    /// A header `input` entry that types the developer word `word`: a menu-like action. The turn that carries its
+    /// cheat command is listed as a `cheat` command, not as this entry (the trace's `say` record shows where it ran).
+    Say { word: String },
+    /// A header `input` entry that switches the fog-of-war option during play (the game menu): no turn lists it, and
+    /// the trace's `fog` record shows where it ran.
+    Fog { on: bool },
     /// A command the format doesn't describe.
     Other,
 }
@@ -181,6 +187,12 @@ impl Entry {
             "load" => Kind::Load {
                 name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
             },
+            "say" => Kind::Say {
+                word: v.get("word").and_then(Value::as_str).unwrap_or_default().to_string(),
+            },
+            "fog" => Kind::Fog {
+                on: v.get("value").and_then(Value::as_str) == Some("on"),
+            },
             _ => Kind::Other,
         };
         Ok(Entry {
@@ -244,6 +256,14 @@ impl Entry {
                 o.insert("kind".into(), "load".into());
                 o.insert("name".into(), name.clone().into());
             }
+            Kind::Say { word } => {
+                o.insert("kind".into(), "say".into());
+                o.insert("word".into(), word.clone().into());
+            }
+            Kind::Fog { on } => {
+                o.insert("kind".into(), "fog".into());
+                o.insert("value".into(), if *on { "on" } else { "off" }.into());
+            }
             Kind::Other => {
                 o.insert("kind".into(), "other".into());
             }
@@ -302,6 +322,8 @@ impl fmt::Display for Entry {
             Kind::CancelJob => f.write_str("cancel-job"),
             Kind::Save { name } => write!(f, "save {name}"),
             Kind::Load { name } => write!(f, "load {name}"),
+            Kind::Say { word } => write!(f, "say {word}"),
+            Kind::Fog { on } => write!(f, "fog {}", if *on { "on" } else { "off" }),
             Kind::Other => f.write_str("other"),
         }
     }
@@ -396,7 +418,12 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         // player's own building in the state the command acts in.
         Kind::Cancel => Command::Cancel { player, unit: first()? },
         Kind::CancelJob => Command::CancelJob { player, unit: first()? },
-        Kind::CheatAdd { .. } | Kind::Save { .. } | Kind::Load { .. } | Kind::Other => return None,
+        Kind::CheatAdd { .. }
+        | Kind::Save { .. }
+        | Kind::Load { .. }
+        | Kind::Say { .. }
+        | Kind::Fog { .. }
+        | Kind::Other => return None,
     })
 }
 
@@ -428,17 +455,29 @@ pub struct Timing {
     pub disagree: Vec<String>,
     /// Commands the turn records list that aren't in the input (the game queued them itself).
     pub extra: Vec<String>,
+    /// The input has typed words or fog switches: the game queues `cheat` and `other` commands for them that no
+    /// input entry names, so those aren't listed as extra.
+    menu_driven: bool,
 }
 
 impl Timing {
     pub fn new(input: &[Entry]) -> Timing {
-        // A save or load is a menu action: no turn lists it, so it has no turn to check.
+        // A save, load, typed word or fog switch is a menu action: no turn lists it, so it has no turn to check.
+        let menu = |e: &Entry| {
+            matches!(
+                e.kind,
+                Kind::Save { .. } | Kind::Load { .. } | Kind::Say { .. } | Kind::Fog { .. }
+            )
+        };
         let mut t = Timing {
             input: predict(input)
                 .into_iter()
                 .zip(input.iter().cloned())
-                .filter(|(_, e)| !matches!(e.kind, Kind::Save { .. } | Kind::Load { .. }))
+                .filter(|(_, e)| !menu(e))
                 .collect(),
+            menu_driven: input
+                .iter()
+                .any(|e| matches!(e.kind, Kind::Say { .. } | Kind::Fog { .. })),
             ..Default::default()
         };
         for (i, (_, e)) in t.input.iter().enumerate() {
@@ -466,6 +505,7 @@ impl Timing {
                             .push(format!("input entry {} ({c}) ran in turn {n}, T(i) = {t}", i + 1));
                     }
                 }
+                _ if self.menu_driven && matches!(c.kind, Kind::Cheat { .. } | Kind::Other) => {}
                 _ => self.extra.push(format!("turn {n}: {c}")),
             }
         }
@@ -526,6 +566,42 @@ mod tests {
 
     fn cheat_add(n: u64, add: &[&str]) -> Entry {
         entry(Some(n), 1, Kind::CheatAdd { add: names(add) })
+    }
+
+    /// Round-91 `say` and `fog` input entries are menu actions: no turn lists them, and the cheat and other commands
+    /// the game queues for them are not extra.
+    #[test]
+    fn typed_words_and_fog_switches_are_menu_actions() {
+        let say = Entry::parse(&serde_json::json!({"n": 10, "player": 1, "kind": "say", "word": "showpath"})).unwrap();
+        let fog = Entry::parse(&serde_json::json!({"n": 12, "player": 1, "kind": "fog", "value": "on"})).unwrap();
+        assert_eq!(
+            say.kind,
+            Kind::Say {
+                word: "showpath".into()
+            }
+        );
+        assert_eq!(fog.kind, Kind::Fog { on: true });
+        let mut t = Timing::new(&[say, fog]);
+        t.turn(
+            12,
+            &[
+                entry(None, 1, Kind::Other),
+                entry(
+                    None,
+                    1,
+                    Kind::Cheat {
+                        cheats: names(&["showpath"]),
+                    },
+                ),
+            ],
+        );
+        t.finish(400);
+        assert!(
+            t.disagree.is_empty() && t.extra.is_empty(),
+            "{:?} {:?}",
+            t.disagree,
+            t.extra
+        );
     }
 
     /// Trace format, "Cheat commands", and its Human06 vector: the input entry adds build speed and resources to the
