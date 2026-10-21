@@ -650,13 +650,13 @@ impl World {
                 continue;
             }
             if p.0 < w && p.1 < w {
-                self.reveal(owner, p, 9);
+                self.holy_vision_reveal(owner, p);
             }
             self.sound_at_tile(p, Sound::Spell(HOLY_VISION));
             self.cosmetic(kind::BLINK, (p.0 * TILE_PX + 8, p.1 * TILE_PX + 8));
         }
         if enhanced {
-            self.vision.countdown = 150;
+            self.vision.delay_refresh();
         }
     }
 

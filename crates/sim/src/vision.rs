@@ -1,14 +1,36 @@
 //! Fog of war, sight and detection. Spec: `docs/specs/vision/fog.md`; phase numbers are those of
-//! `docs/specs/core/timing-and-rng.md`.
+//! `docs/specs/core/timing-and-rng.md`. The sections below follow the spec's "The model".
 //!
-//! [`Vision`] holds the local player's explored and visible maps (quarter-tile flags, display only) and the per-player
-//! "seen" bits (game state, so they are part of [`World::state_hash`]). The `World` methods below are the phases:
-//! detection (phase 1), the fog refresh (phase 3), a unit applying its sight (phase 4, and on each movement step),
-//! and unit visibility (phase 5).
+//! **State.** [`Vision`] holds the local player's explored and visible maps (quarter-tile flags, display only) and the
+//! per-player "seen" bits (game state, so they are part of [`World::state_hash`]). The refresh countdown is on it too.
+//! Two per-unit sets are kept on [`Unit`]: `detected_by` (phase 1) and `hidden_from` (phase 5), both game state.
 //!
-//! Placeholders (the specs they wait for are not approved yet): shared vision sets
-//! ([`Player::shared_vision`](crate::Player)), the invisibility timer on [`Unit`], and the minimap building marker
-//! (see [`World::on_minimap`]). The minimap's attack marks and remembered buildings are in [`crate::minimap`]. Player kinds come from the player's `OWNR` controller.
+//! **Phases.** The `World` methods are the phases: detection (phase 1, [`World::detection`]), the fog refresh
+//! (phase 3, [`World::fog_refresh`]) and unit visibility (phase 5, [`World::unit_visibility`]).
+//!
+//! **The reveal kinds** ("When sight is applied"). Every one ends in [`World::reveal`], the only code that clears
+//! "seen" bits or fog quarters:
+//!
+//! | Rule | Reveal | Entry point | Called from |
+//! | --- | --- | --- | --- |
+//! | 1 | Fog refresh cycle | [`World::refresh_sight`] | `World::step`, before a unit's own update |
+//! | 2 | Movement step | [`World::step_sight`] | `movement.rs`, `take_step` |
+//! | 3 | Worker or tanker goes inside | [`World::worker_entry_sight`] | `harvest.rs`, `build.rs` |
+//! | 4 | Strike reveal | [`World::strike_reveal_for`] | `battle.rs`, `strike_reveal`, at a strike point |
+//! | 5 | Holy vision | [`World::holy_vision_reveal`] and [`Vision::delay_refresh`] | `spells.rs`, `holy_vision` |
+//!
+//! Nothing else reveals: a unit that is created, let out of a building or put ashore reveals at its first step or the
+//! next refresh.
+//!
+//! **Shared vision.** A reveal for player `p` clears the "seen" bits of [`World::shared_set`]`(p)`; the display maps
+//! change only when the local player is in that set ([`World::local_in`]).
+//!
+//! **Local player.** The explored and visible maps, `site_explored` and `on_minimap` read `vision.local`; they are
+//! display only (`docs/design/multiplayer-determinism.md`). Everything else here depends on game state alone.
+//!
+//! Placeholders (the specs they wait for are not approved yet): the invisibility timer on [`Unit`], and the minimap
+//! building marker (see [`World::on_minimap`]). The minimap's attack marks and remembered buildings are in
+//! [`crate::minimap`]. Player kinds come from the player's `OWNR` controller.
 
 use std::sync::OnceLock;
 
@@ -63,7 +85,8 @@ pub enum Map {
     Visible,
 }
 
-/// Fog state. Display maps are for the local player only; `seen` is per player.
+/// Fog state ("The model"): the display maps for the local player only (`explored`, `visible`, `previous_visible`,
+/// `generation`, `local`), the per-player `seen` map (game state), and the refresh countdown (game state).
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Vision {
     pub width: usize,
@@ -79,12 +102,21 @@ pub struct Vision {
     /// Bumped whenever the explored or visible map changes, so a renderer can skip unchanged ticks.
     pub generation: u32,
     started: bool,
-    /// Cycles until the next fog refresh (timing spec, phase 3): it starts at 1, so the first refresh is in the first
-    /// cycle, and holy vision resets it.
+    /// The refresh countdown ("The fog refresh"): cycles until the next fog refresh (timing spec, phase 3). It starts
+    /// at 1, so the first refresh is in the first cycle; a refresh reloads it ([`World::refresh_period`]) and an
+    /// Enhanced holy vision sets it to [`HOLY_VISION_COUNTDOWN`] ([`Vision::delay_refresh`]).
     pub(crate) countdown: u32,
 }
 
+/// The refresh countdown an Enhanced holy vision sets ("The fog refresh", X1).
+pub const HOLY_VISION_COUNTDOWN: u32 = 150;
+
 impl Vision {
+    /// Holy vision moves the refresh schedule: the next refresh comes [`HOLY_VISION_COUNTDOWN`] cycles on.
+    pub(crate) fn delay_refresh(&mut self) {
+        self.countdown = HOLY_VISION_COUNTDOWN;
+    }
+
     pub fn new(width: usize, height: usize) -> Self {
         let n = width * height;
         Vision {
@@ -298,12 +330,36 @@ impl World {
         Some((centre_tile(u), sight))
     }
 
-    /// A unit applies its sight (phase 4 of a refresh cycle, and each movement step).
+    /// A unit applies its sight (the two reveals that use "Sight of a unit": rules 1 and 2).
     pub(crate) fn apply_unit_sight(&mut self, i: usize) {
         if let Some((c, r)) = self.sight_of(i) {
             let owner = self.units[i].owner;
             self.reveal(owner, c, r);
         }
+    }
+
+    /// Rule 1: unit `i` applies its sight in phase 4 of a fog refresh cycle, just before its own update.
+    pub(crate) fn refresh_sight(&mut self, i: usize) {
+        self.apply_unit_sight(i);
+    }
+
+    /// Rule 2: unit `i` moved onto a new tile and reveals from it at once.
+    pub(crate) fn step_sight(&mut self, i: usize) {
+        self.apply_unit_sight(i);
+    }
+
+    /// Rule 4: the strike reveal. At a strike point of unit `i`, a sight-2 area centred on its tile is revealed for the
+    /// owner of its target `target_owner`, unless that is the attacker's own owner or not a player 0 to 7.
+    pub(crate) fn strike_reveal_for(&mut self, i: usize, target_owner: u8) {
+        let tile = self.units[i].tile;
+        if target_owner != self.units[i].owner && target_owner < SEEN_PLAYERS {
+            self.reveal(target_owner, tile, 2);
+        }
+    }
+
+    /// Rule 5: one of holy vision's sight-9 areas, centred on `centre`, is revealed for the caster's player.
+    pub(crate) fn holy_vision_reveal(&mut self, owner: u8, centre: (i32, i32)) {
+        self.reveal(owner, centre, 9);
     }
 
     /// A worker goes inside a mine, depot or construction site: it reveals a sight-3 area at the building's top-left
@@ -321,8 +377,9 @@ impl World {
         self.reveal(owner, c, 3);
     }
 
-    /// Phase 3. Returns whether this is a fog refresh cycle (the first start-up cycle, then every 100, or 101 in Classic). On a
-    /// refresh with the option on, the visible map and every "seen" bit are fogged again.
+    /// Phase 3, the refresh countdown. Returns whether this is a fog refresh cycle (the first start-up cycle, then every
+    /// 100, or 101 in Classic). On a refresh with the option on, the visible map and every "seen" bit are fogged
+    /// again.
     pub(crate) fn fog_refresh(&mut self) -> bool {
         self.vision.countdown = self.vision.countdown.saturating_sub(1);
         if self.vision.countdown > 0 {

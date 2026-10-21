@@ -455,10 +455,8 @@ impl World {
         let Some(t) = target.and_then(|t| self.unit(t)) else {
             return;
         };
-        let (owner, tile) = (t.owner, self.units[i].tile);
-        if owner != self.units[i].owner && owner < crate::vision::SEEN_PLAYERS {
-            self.reveal(owner, tile, 2);
-        }
+        let owner = t.owner;
+        self.strike_reveal_for(i, owner);
     }
 
     /// A tower's shot from its order-14 logic at the unit at `ti` (damage spec, "Towers"), aimed at its centre.

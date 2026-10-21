@@ -1412,7 +1412,7 @@ impl World {
         while i < self.units.len() {
             let slot = self.units[i].slot;
             if refresh {
-                self.apply_unit_sight(i);
+                self.refresh_sight(i);
             }
             self.updating = Some(slot);
             self.advance(i);

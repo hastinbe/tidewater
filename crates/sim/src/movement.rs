@@ -543,7 +543,7 @@ impl World {
         let unit = self.units[i].clone();
         self.mark(&unit, next, Some(unit.id));
         // Vision spec, "When sight is applied": a unit that moves onto a new tile reveals from it at once.
-        self.apply_unit_sight(i);
+        self.step_sight(i);
         // A transport moving as a one-tile unit keeps its order's animation (6 for orders 30 and 31): only a two-tile
         // mover starts the move animation (transports spec, "Moving near the shore", "Animation").
         if (restart || unit.script.anim != anim::MOVE) && !unit.ship.one_tile {
