@@ -626,7 +626,7 @@ impl World {
             return Some(self.units[s].tile);
         }
         let from = self.units[r].tile;
-        self.farthest(&list, from, |u| self.unit_flags(u) & flags::SEA != 0)
+        self.farthest(&list, from, 0, |u| self.unit_flags(u) & flags::SEA != 0)
     }
 
     /// "Air picker".
@@ -654,11 +654,19 @@ impl World {
         {
             return Some(self.units[s].tile);
         }
-        Some(self.farthest(&list, from, |_| true).unwrap_or(from))
+        Some(self.farthest(&list, from, -1, |_| true).unwrap_or(from))
     }
 
-    /// The unit of `list` passing `keep` that is farthest from `from` (strictly farther replaces): its tile.
-    fn farthest(&self, list: &[usize], from: (i32, i32), keep: impl Fn(&Unit) -> bool) -> Option<(i32, i32)> {
+    /// The unit of `list` passing `keep` that is farthest from `from` (strictly farther replaces): its tile. With
+    /// `floor` 0 the best distance starts at 0, so a unit at distance 0 is never chosen (the sea picker, round 85,
+    /// static gap-fill, erratum 15); with -1 the first unit passing `keep` always qualifies.
+    fn farthest(
+        &self,
+        list: &[usize],
+        from: (i32, i32),
+        floor: i32,
+        keep: impl Fn(&Unit) -> bool,
+    ) -> Option<(i32, i32)> {
         let mut best: Option<(i32, (i32, i32))> = None;
         for &i in list {
             let u = &self.units[i];
@@ -666,7 +674,7 @@ impl World {
                 continue;
             }
             let d = distance(from, u);
-            if best.is_none_or(|(bd, _)| d > bd) {
+            if d > best.map_or(floor, |(bd, _)| bd) {
                 best = Some((d, u.tile));
             }
         }
@@ -1779,6 +1787,20 @@ mod tests {
         // The last shipyard in list order: the oldest.
         assert_eq!(w.sea_picker(0), Some((20, 20)));
         assert_eq!(game().sea_picker(0), None);
+    }
+
+    /// `ai/attack-ai.md`, "Sea picker" step 3 (round 85, static gap-fill, erratum 15; vector: T has no oil platform,
+    /// shipyard or gold store, and its only unit is a ship, which is also the reference unit): distance 0 never
+    /// qualifies, so the picker fails. A second ship farther off is chosen.
+    #[test]
+    fn the_sea_picker_never_chooses_a_ship_at_distance_zero() {
+        let mut w = game();
+        water(&mut w, 0, 64);
+        spawn(&mut w, DESTROYER, 0, (20, 20));
+        assert_eq!(w.sea_picker(0), None);
+        // The newest unit leads the list and is the reference: the older ship is 6 tiles off and is chosen.
+        spawn(&mut w, DESTROYER, 0, (26, 20));
+        assert_eq!(w.sea_picker(0), Some((20, 20)));
     }
 
     // ---- Goals ----
