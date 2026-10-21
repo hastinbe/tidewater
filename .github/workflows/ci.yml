@@ -23,7 +23,7 @@ jobs:
     name: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install SDL 3 build dependencies
         run: |
           sudo apt-get update
@@ -60,7 +60,7 @@ jobs:
             exe: ".exe"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install SDL 3 build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -75,12 +75,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build the client and twtool
         run: cargo build --release -p tidewater-client -p twtool
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tidewater-${{ matrix.name }}
           path: target/release/tidewater${{ matrix.exe }}
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: twtool-${{ matrix.name }}
           path: target/release/twtool${{ matrix.exe }}
