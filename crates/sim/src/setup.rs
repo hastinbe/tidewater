@@ -457,6 +457,8 @@ impl Start {
     /// as allied.
     pub fn alliances(&self) -> [u16; PLAYERS] {
         let c = &self.controllers;
+        // A rescue-active slot starts allied with the local player only, so the table differs by machine.
+        // Network games: open question (see docs/design/multiplayer-determinism.md)
         let local = self.local as usize;
         let mut table = [u16::MAX; PLAYERS];
         for a in 0..PLAYERS - 1 {

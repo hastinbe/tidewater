@@ -130,7 +130,9 @@ impl World {
         }
         let b = self.unit(builder);
         let owner = b.map(|u| u.owner);
-        // 3. Unexplored.
+        // 3. Unexplored. Reads the local player and their explored map, which is game state here: the builder's own
+        // machine can refuse a site that every other machine accepts.
+        // Network games: open question (see docs/design/multiplayer-determinism.md)
         if unexplored_test
             && owner == Some(self.vision.local)
             && !self.site_explored(site, (size.0 as u8, size.1 as u8))
@@ -232,6 +234,7 @@ impl World {
         if all_bad {
             return vec![true; n];
         }
+        // Display only: which tiles the placement overlay marks. It changes no game state.
         let fogged = self.unit(builder).is_some_and(|u| u.owner == self.vision.local) && !self.rules.reveal_map;
         (0..size.1)
             .flat_map(|dy| (0..size.0).map(move |dx| (site.0 + dx, site.1 + dy)))

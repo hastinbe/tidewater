@@ -346,6 +346,9 @@ impl World {
 
     /// Switches the fog-of-war option during play ("Fog-of-war option and cheat"). Turning it off makes the visible map
     /// equal to the explored map and clears the "seen" bits, except the local player's set on unexplored tiles.
+    ///
+    /// Single player only: the "seen" bits are game state and this reads the local player, and it is not a command,
+    /// so a network game must never call it (the game menu disables the option there).
     pub fn set_fog_of_war(&mut self, on: bool) {
         let was = self.rules.fog_of_war;
         self.rules.fog_of_war = on;

@@ -341,6 +341,9 @@ impl World {
     }
 
     fn check(&mut self) {
+        // The check is made for the local player alone (it finishes the game for them and knocks the others out), so
+        // in a network game each machine reaches a different state once a player is out.
+        // Network games: open question (see docs/design/multiplayer-determinism.md)
         let l = self.vision.local as usize;
         let rule = self.victory.rule.unwrap_or(if self.rules.multiplayer {
             Rule::Multiplayer
