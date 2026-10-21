@@ -457,7 +457,8 @@ impl World {
         if cancelled {
             self.pending_idle(k);
         }
-        self.apply_unit_sight(k);
+        // Vision spec, "When sight is applied" (C2): a builder let out reveals nothing at that moment; its first
+        // movement step or the next fog refresh does.
     }
 
     /// "Letting a unit out": the tile a unit of type `k` leaves building `b` on, by the ring search of the placement
@@ -1147,6 +1148,48 @@ mod tests {
         w.step(&[]);
         let u = w.unit(p).unwrap();
         assert_eq!((u.order, u.script.anim, u.script.wait), (Order::Idle, anim::STILL, 3));
+    }
+
+    /// Vision spec, "When sight is applied" (C2): a builder let out of a finished or cancelled building reveals
+    /// nothing at that moment. Its next reveal is its first movement step or the next fog refresh.
+    #[test]
+    fn a_builder_let_out_reveals_nothing_until_it_steps() {
+        for cancel in [false, true] {
+            let (mut w, p) = town();
+            build(&mut w, 0, p, (8, 8));
+            while !w.unit(p).unwrap().inside {
+                w.step(&[]);
+            }
+            let farm = farm_at(&w, (8, 8)).unwrap();
+            // Nothing is seen before each cycle, and none of these cycles is a fog refresh.
+            for _ in 0..400 {
+                w.vision.seen.fill(0xff);
+                assert!(w.vision.countdown > 1, "a refresh would reveal");
+                let commands = if cancel {
+                    vec![Command::Cancel { player: 0, unit: farm }]
+                } else {
+                    vec![]
+                };
+                w.step(&commands);
+                if !w.unit(p).unwrap().inside {
+                    break;
+                }
+            }
+            assert!(!w.unit(p).unwrap().inside, "cancel {cancel}");
+            assert!(
+                w.vision.seen.iter().all(|&b| b == 0xff),
+                "cancel {cancel}: the let-out revealed"
+            );
+            // The first movement step reveals from the new tile, away from the building.
+            w.step(&[Command::Move {
+                player: 0,
+                units: vec![p],
+                to: (2, 8),
+            }]);
+            run(&mut w, 8);
+            let t = w.unit(p).unwrap().tile;
+            assert!(t.0 < 7 && !w.vision.unseen_by(0, t.0, t.1), "cancel {cancel}: {t:?}");
+        }
     }
 
     /// V55: a 3 x 3 site's builder, let out west of the top-left tile, faces that tile (E), not top-left + (1, 1).
