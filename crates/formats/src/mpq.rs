@@ -104,6 +104,21 @@ pub fn decrypt(data: &mut [u8], mut key: u32) {
     }
 }
 
+/// The inverse of [`decrypt`]: encrypts whole little-endian words in place (same key rule). Archive readers don't need
+/// it; tests that build synthetic archives do.
+pub fn encrypt(data: &mut [u8], mut key: u32) {
+    let table = crypt_table();
+    let mut seed: u32 = 0xEEEE_EEEE;
+    for chunk in data.chunks_exact_mut(4) {
+        seed = seed.wrapping_add(table[0x400 + (key & 0xFF) as usize]);
+        let plain = u32::from_le_bytes(chunk.try_into().expect("chunk of 4"));
+        let v = plain ^ key.wrapping_add(seed);
+        key = ((!key << 21).wrapping_add(0x1111_1111)) | (key >> 11);
+        seed = plain.wrapping_add(seed).wrapping_add(seed << 5).wrapping_add(3);
+        chunk.copy_from_slice(&v.to_le_bytes());
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct HashEntry {
     name_a: u32,
@@ -440,6 +455,16 @@ mod tests {
         for t in [HashType::TableOffset, HashType::NameA, HashType::NameB] {
             assert_eq!(hash_string("rez\\unitdata.dat", t), hash_string("REZ/UnitData.dat", t));
         }
+    }
+
+    #[test]
+    fn encrypt_inverts_decrypt() {
+        let plain: Vec<u8> = (0..64u8).collect();
+        let mut d = plain.clone();
+        encrypt(&mut d, 0x0BAD_F00D);
+        assert_ne!(d, plain);
+        decrypt(&mut d, 0x0BAD_F00D);
+        assert_eq!(d, plain);
     }
 
     #[test]

@@ -21,7 +21,8 @@ glam = "0.33"
 flate2 = "1.1.10"
 serde_json = "1.0.154"
 tidewater-formats = { path = "crates/formats" }
-tidewater-sim = { path = "crates/sim" }
+tidewater-import = { path = "crates/import" }
+tidewater-sim ={ path = "crates/sim" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
