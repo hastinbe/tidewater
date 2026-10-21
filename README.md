@@ -28,6 +28,6 @@ The arrow keys and the screen edge scroll the map, `+`/`-` change the game speed
 the same area as the original; `--free-zoom` (a development aid, not part of the original) lets the mouse wheel zoom. See [CLEANROOM.md](CLEANROOM.md) for how the
 project keeps its code its own.
 
-*Warcraft* is a trademark of Blizzard Entertainment. This project is not affiliated with or endorsed by Blizzard.
+*Warcraft*, *Warcraft II*, *Beyond the Dark Portal*, *Battle.net* and *Blizzard Entertainment* are trademarks or registered trademarks of Blizzard Entertainment, Inc. Tidewater is an independent project, not affiliated with, endorsed or sponsored by Blizzard. It contains no Blizzard code or game data; to play, you need your own copy of the game.
 
-License: [MPL-2.0](LICENSE). The MPQ decompressors are ported from StormLib ([MIT](licenses/StormLib-MIT.txt)).
+License: [MPL-2.0](LICENSE). The MPQ decompressors are ported from StormLib ([MIT](licenses/StormLib-MIT.txt)). Licences of the statically included third-party code are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
