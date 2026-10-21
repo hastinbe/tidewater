@@ -41,7 +41,7 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 
    Add a map to start a game on it at once: `cargo run --release -p tidewater-client -- <map.pud>`.
 
-**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. The **GOG installer** (`setup_warcraft_ii_*.exe`, with its `.bin` file in the same folder) works directly, without installing the game: choose the `.exe` (or the folder holding it). This needs the free [`innoextract`](https://constexpr.org/innoextract/) program (`brew install innoextract` on macOS, your package manager on Linux, a download on Windows); Tidewater tells you if it can't find it. CD images (`.iso`, `.bin` with `.cue`) are recognised but cannot be read yet (the import screen's "Choose CD image..." button says so): mount the image and choose the mounted disc.
+**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. The **GOG installer** (`setup_warcraft_ii_*.exe`, with its `.bin` file in the same folder) works directly, without installing the game: choose the `.exe` (or the folder holding it). This needs the free [`innoextract`](https://constexpr.org/innoextract/) program (`brew install innoextract` on macOS, your package manager on Linux, a download on Windows); Tidewater tells you if it can't find it. **CD images** (`.iso`, `.bin` with its `.cue`, `.img`, `.mdf`, `.nrg`) are read directly, with no mounting, when the game's files are on the disc as plain files; choose the image (or its `.cue`). If the disc only holds an installer, Tidewater says so: install the game from the disc and choose the installed folder. `twtool disc-list <image>` shows what is on an image.
 
 **Where the copy goes.** The per-user data directory: `~/Library/Application Support/Tidewater` on macOS, under `~/.local/share` on Linux, under `%LOCALAPPDATA%\Tidewater` on Windows. Imported files go in `game`, saved games in `Save`, settings in `settings.txt`. `--data-dir <dir>` moves all of it. Tidewater never writes into your game installation.
 
@@ -131,6 +131,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | Subcommand | What it does |
 |---|---|
 | `import-check` | Dry run of the import: classify a path, check the files, print the report, copy nothing. |
+| `disc-list` | List the files on a CD image (size and path), to see how a disc is laid out. |
 | `mpq-info` | Summarise an archive's block table. |
 | `mpq-probe` | Print which of the names on stdin an archive contains. |
 | `mpq-extract` | Extract the named files into a directory. |
@@ -165,7 +166,7 @@ Everything in this table is **planned**; none of it is built yet.
 
 | Track | What it adds | Status |
 |---|---|---|
-| **Import from CD images** | Read `.iso` and `.bin`/`.cue` images directly. | Planned |
+| **Import from CD images** | Read `.iso`, `.bin`/`.cue`, `.mdf` and `.nrg` images directly (when the game files are loose on the disc). | Done |
 | **Lockstep multiplayer** | Local Network and Direct IP games. The simulation is deterministic so that this is possible. | Planned |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
 | **Touch controls** | iOS and Android. PlayStation Vita support is under evaluation. | Planned |

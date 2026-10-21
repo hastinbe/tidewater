@@ -2,8 +2,8 @@
 
 Tidewater contains no game data. `crates/import` (no SDL, no `unsafe`) finds the user's *Warcraft II: Battle.net
 Edition* files, checks them and copies the ones the client needs into Tidewater's data directory. This is phase I1:
-the library and the command line, phase I2, the first-run screen (below), and phase I3, reading the GOG installer
-(below). CD images (I3b) come later.
+the library and the command line, phase I2, the first-run screen (below), phase I3, reading the GOG installer
+(below), and phase I3b, reading CD images (below).
 
 ## Decision: always copy
 
@@ -15,8 +15,9 @@ every platform. `--install DIR` stays as a developer override that reads in plac
 
 | Module | Job |
 |---|---|
-| `source` | Classifies a path: game folder (searched 6 levels deep, any letter case, breadth first; covers a GOG folder, a Wine prefix's `drive_c`, a `.app` bundle and a mounted CD, which is just a folder), single `.mpq`, folder of loose `.mpq` files. Reads a GOG installer (`setup_*.exe`, or its `.bin` part, which finds the `.exe`; see "GOG installer" below) and refuses any other `setup_*.exe` (`InstallerUnsupported`), a CD image (`.iso` with `CD001` at sector 16, `.bin`+`.cue` raw 2352-byte sectors, `.img`, `.mdf`, `.nrg`; `DiscImageUnsupported`) and a DOS-edition copy (`DATA/*.WAR`; `DosEdition`). |
+| `source` | Classifies a path: game folder (searched 6 levels deep, any letter case, breadth first; covers a GOG folder, a Wine prefix's `drive_c`, a `.app` bundle and a mounted CD, which is just a folder), single `.mpq`, folder of loose `.mpq` files. Reads a GOG installer (`setup_*.exe`, or its `.bin` part, which finds the `.exe`; see "GOG installer" below) and refuses any other `setup_*.exe` (`InstallerUnsupported`). Reads a CD image through `disc` (see "CD images" below) and refuses a DOS-edition copy (`DATA/*.WAR`; `DosEdition`). |
 | `validate` | Opens every archive; requires `War2Dat.mpq`; reads key files the client loads at start (`rez\unitdata.dat`, `Art\font10x.fnt`, `rez\network.tbl`, the Forest tileset). Missing `Install.mpq` or `Maps/` are warnings ("no videos or music", "no multiplayer map list"); `War2Patch.mpq` is optional and silent. Returns a `Report` with player-facing messages. |
+| `disc` | `Disc`: a read-only ISO 9660 + Joliet reader over the usual image files; `DiscFiles`: the disc as a `SourceFiles` (see "CD images" below). |
 | `inno` | `InstallerReader`: the GOG installer as a `SourceFiles` (see below). |
 | `copy` | Copies the allowlist (`*.mpq` at the top, `Maps/**`) into `<data>/.import-<pid>`, hashing as it goes, then swaps it in as `<data>/game`. The old import is moved aside first and restored if the swap fails; the temporary folder is always removed. |
 | `manifest` | `game/manifest.json`: source kind, edition guess, each file's path, size and SHA-256, the import time (UTC). The known-hash table (`KNOWN_WAR2DAT`) is empty: no hashes collected yet. |
@@ -33,7 +34,7 @@ files must not come along.
 - `--data-dir` moves the whole per-user directory (`game`, `Save`, the settings file); `--save-dir` and `--settings` still override their parts.
 
 Exit codes: 0 success, 10 path not found, 11 DOS edition, 12 installer, 13 no game files, 14 no `War2Dat.mpq`, 15
-damaged archive, 16 key file missing or unreadable, 17 not enough space, 18 other i/o error, 19 CD image. (12 covers every installer problem: not an Inno Setup installer, `innoextract` missing, extraction failed.) (2 is clap's,
+damaged archive, 16 key file missing or unreadable, 17 not enough space, 18 other i/o error, 19 CD image (unreadable, or the disc holds an installer). (12 covers every installer problem: not an Inno Setup installer, `innoextract` missing, extraction failed.) (2 is clap's,
 for a bad command line.)
 
 ## First-run screen (I2)
@@ -55,7 +56,7 @@ every screen of the original stays as it was.
   file dialog (`SDL_ShowOpenFolderDialog`, `SDL_ShowOpenFileDialog`; the `sdl-dialog` feature of `sdl3-sys`), and a
   file or folder dropped on the window (`SDL_EVENT_DROP_FILE`) does the same. Both come into the core as input events
   (`Input::picked`, `Input::dropped`) and go through the same import, so a GOG installer is read like any source and a CD
-  image gets the import crate's "not supported yet" message until I3b. The core asks for a dialog with `Core::take_pick_requests`; the shell
+  image is read like any source (phase I3b). The core asks for a dialog with `Core::take_pick_requests`; the shell
   shows it. Nothing else of SDL is known to the core.
 - **Importing.** The copy runs on a worker thread through `Backend::import` (`DesktopBackend` calls `classify`,
   `validate` and `import`); the screen shows the callback's progress as a bar, then the result line ("Imported
@@ -68,7 +69,7 @@ every screen of the original stays as it was.
 - **Tests.** The rules are tested through the core's input with a fake `Backend`; the scripted scene `firstrun` (a
   demo backend and a fake list of installs, so it needs no game data) has a frame snapshot in
   `tests/snapshots/firstrun.txt`.
-- **Not done here.** Reading CD images (I3b); the sandboxed platforms' pickers (I4).
+- **Not done here.** The sandboxed platforms' pickers (I4).
 
 ## GOG installer (I3)
 
@@ -104,6 +105,55 @@ the real installer when `TIDEWATER_GOG_INSTALLER` names it (skipped otherwise, a
 with `TIDEWATER_INSTALL` set it also compares every imported file's SHA-256 with an installed copy.
 `twtool import-check <setup.exe>` takes the installer path like any other.
 
+## CD images (I3b)
+
+`classify` accepts a disc image and `tidewater --import` / `twtool import-check` take it like any path. `crates/import/src/disc.rs`
+is our own small read-only ISO 9660 reader (no new dependency); its module doc cites the public format sources.
+
+**What is supported.**
+
+| Image | How it is read |
+|---|---|
+| `.iso`, most `.img` | 2048-byte sectors |
+| `.bin` through its `.cue` | the sheet's first data track (`MODE1/2352`, `MODE2/2352`, `MODE1/2048`, `MODE2/2336`); `FILE` names match in any letter case; `INDEX 01` (or `INDEX 00`) gives the track's start, so a data track after audio works |
+| `.bin` alone | raw 2352-byte sectors (mode 1 and mode 2 form 1), found by signature |
+| `.mdf` (or the `.mds`, which finds the `.mdf`) | a plain sector dump, 2352 or 2448 bytes (with sub-channel data); the `.mds` content is not needed |
+| `.nrg` | Nero footers, version 1 (`NERO`) and 2 (`NER5`): the track offsets come from the `ETNF`/`ETN2` chunks |
+
+The sector layout is always decided by finding `CD001` in sector 16 (trying 2048, 2352, 2448 and 2336-byte sectors and
+the data offsets 0, 8, 16 and 24), not by the extension, so a mislabelled image still works. Names come from the Joliet
+tree when there is one (UCS-2 big-endian), else from ISO 9660 level 1 or 2 (`;1` and a trailing dot removed). Lookups
+ignore letter case. HFS on hybrid discs is ignored, Rock Ridge is not needed, multi-extent files are joined.
+
+**Finding the game.** Like a folder search: the shallowest folder (up to 6 levels) holding `.mpq` files, `War2Dat.mpq`
+before `Install.mpq` before any other, plus its `Maps` folder. `DiscFiles` implements `SourceFiles` for exactly those files.
+Because `validate` opens archives by path, `classify` first copies them from the image into a staging folder (the same
+`Staging` the GOG installer uses, removed when the last copy of the `Source` goes), so the source kind is `cd-image` and
+`validate` and `copy` run unchanged. Files are streamed by extent (32 sectors at a time); the image is never held in
+memory. The temp folder needs room for the archives (about 500 MB) on top of the copy.
+
+**When the game is not loose.** A disc with no `.mpq` files gets a specific error (exit 19): `DiscHoldsInstaller` when it
+has `SETUP.EXE`, `INSTALL.EXE`, `.CAB` or `.MSI` files ("this disc holds an installer ... install the game from the disc,
+then choose the installed folder"), `DosEdition` for `.WAR` files, else `NoGameFiles`. Installer-inside-disc support is
+not built. An image that can't be read (no `CD001`, cut short, a cue sheet naming a missing file or no data track,
+looping directories) is `DiscImageUnreadable` (also 19) with the reason. The fallback for every case is the old advice:
+mount the image (or copy its files to a folder) and choose that.
+
+**Finding out what a disc holds.** `twtool disc-list <image>` prints every file's size and path (the layout and the name
+kind go to stderr). Run it on a disc to see at once whether the archives are loose or only inside an installer.
+
+**Robustness.** Reads past the end of the file are errors, a directory seen twice is a loop, and depth (32), entries
+(200,000), one directory's size (16 MiB) and the descriptor scan are capped, so a damaged image ends with an error,
+not a panic or a hang.
+
+**Tests** (all synthetic: a test-only ISO writer in `testiso.rs` makes primary + Joliet volumes, nested and multi-sector
+directories and multi-sector files, then wraps them in raw sectors, `.mdf` and `.nrg` framing): listing and reading,
+Joliet against ISO names, every framing through signature and through a cue sheet (audio-first, mixed case), `.mdf`/`.mds`,
+Nero v1 and v2 with a leading offset, a multi-extent file, a large directory, classify plus a full import into a data
+folder with the manifest, installer and DOS discs, junk images, truncated images, a directory loop, and a byte-flipping
+fuzz loop. The one thing not covered is a real disc: whether Nick's disc holds the archives loose is the open question
+`disc-list` answers.
+
 ## Free space
 
 There is no portable free-space query without `unsafe` or a new dependency, so there is no check before copying. A
@@ -113,6 +163,5 @@ folder; an earlier import is untouched.
 ## Later phases
 
 The copy step reads through the `SourceFiles` trait (`list()` relative paths and sizes, `open(rel)`), with a plain
-folder (`FolderFiles`) and the GOG installer (`InstallerReader`, above) as implementations. A later phase (I3b) adds a
-CD image (ISO 9660 reader) the same way; `copy::import_from` takes any of them unchanged. Validation opens archives by
+folder (`FolderFiles`) and the GOG installer (`InstallerReader`, above) as implementations. The CD image (`DiscFiles`, below) is a third; `copy::import_from` takes any of them unchanged. Validation opens archives by
 path, so a source that isn't a folder first stages the archives in a temporary folder and validates them there.
