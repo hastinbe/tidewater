@@ -123,6 +123,19 @@ fn cheats_start_as_for_a_new_game() {
     assert!(!c.rules.reveal_map);
 }
 
+/// `game/save-load.md`, "Cheats" (traced, `human1-human01-unite-saveload-game-650`): a world that loads over one with
+/// the instant-victory cheat on doesn't keep the effect, so the check after the load doesn't find the cheat's outcome.
+#[test]
+fn a_load_over_a_world_with_a_cheat_on_clears_its_effect() {
+    use crate::cheats::{Flags, flag};
+    let bytes = battle().save_state();
+    let mut b = field(16, 16);
+    b.start_cheats(Flags(flag::INSTANT_VICTORY | flag::INVULNERABLE));
+    assert!(b.rules.instant_victory && b.rules.invulnerable_cheat);
+    b.restore(&bytes, 1).unwrap();
+    assert!(!b.rules.instant_victory && !b.rules.invulnerable_cheat);
+}
+
 #[test]
 fn a_classic_save_drops_the_score() {
     let mut a = battle();

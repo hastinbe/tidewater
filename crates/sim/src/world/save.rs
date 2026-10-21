@@ -177,7 +177,6 @@ impl World {
         t.redraw = (0..t.height as i32)
             .flat_map(|y| (0..t.width as i32).map(move |x| (x, y)))
             .collect();
-        let template = self.rules.clone();
         let kept = self.cheats.flags.for_new_game();
         // The cheat-used mark isn't saved and a load doesn't clear it: it stays as the running program left it
         // (`game/save-load.md`, "Cheat-used mark"; traced, `human1-human01-cheat-load-game-50`). The caller hands it
@@ -185,16 +184,17 @@ impl World {
         let used = self.cheats.used;
         saved.put(self);
         self.rng = Rng::new(seed);
-        // Cheats: the flags aren't stored, so the effects the stored rules carry are cleared and the flags that carry
-        // across games ("Flags across games") are set again.
-        self.rules.reveal_map = template.reveal_map;
-        self.rules.build_speed_cheat = template.build_speed_cheat;
-        self.rules.invulnerable_cheat = template.invulnerable_cheat;
-        self.rules.lumber_cheat = template.lumber_cheat;
-        self.rules.all_spells_cheat = template.all_spells_cheat;
-        self.rules.instant_victory = template.instant_victory;
-        self.rules.instant_defeat = template.instant_defeat;
-        self.rules.disable_victory = template.disable_victory;
+        // Cheats: the flags aren't stored, so the effects the stored rules carry are cleared (`game/save-load.md`, "Cheats":
+        // the instant-cheat outcome is not found again; traced, `human1-human01-unite-saveload-game-650`) and the flags
+        // that carry across games ("Flags across games") are set again.
+        self.rules.reveal_map = false;
+        self.rules.build_speed_cheat = false;
+        self.rules.invulnerable_cheat = false;
+        self.rules.lumber_cheat = false;
+        self.rules.all_spells_cheat = false;
+        self.rules.instant_victory = false;
+        self.rules.instant_defeat = false;
+        self.rules.disable_victory = false;
         self.cheats = Default::default();
         self.cheats.used = used;
         self.start_cheats(kept);
