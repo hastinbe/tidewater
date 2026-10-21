@@ -883,12 +883,14 @@ impl World {
     }
 }
 
-/// The footprint corners (x0, y0) inclusive to (x1, y1) exclusive.
+/// The footprint corners (x0, y0) inclusive to (x1, y1) exclusive. A bordered footprint is w + 2 tiles across from
+/// (x - 1, y - 1), or from x or y itself where that is 0 (round 85, static gap-fill: so it spans w + 2 tiles from 0
+/// there, reaching one tile further than the border would).
 fn footprint(site: (i32, i32), w: i32, border: bool) -> (i32, i32, i32, i32) {
     if border {
         let x0 = if site.0 == 0 { 0 } else { site.0 - 1 };
         let y0 = if site.1 == 0 { 0 } else { site.1 - 1 };
-        (x0, y0, site.0 + w + 1, site.1 + w + 1)
+        (x0, y0, x0 + w + 2, y0 + w + 2)
     } else {
         (site.0, site.1, site.0 + w, site.1 + w)
     }
@@ -1145,6 +1147,18 @@ mod tests {
         let f = w.index(far).unwrap();
         w.units[f].dying = true;
         assert_eq!(w.nearest_gold_store(i), Some((25, 20)));
+    }
+
+    /// Round-85 static gap-fill (`ai/worker-ai.md`, "Ordinary search", the accepted-position rule): a bordered
+    /// footprint is (width + 2) x (width + 2) tiles from (x - 1, y - 1), or from x or y itself where that is 0, so a
+    /// 4 x 4 hall at x = 0 spans 6 tiles from column 0 (columns 0 to 5), not 5; away from the edge it is unchanged.
+    #[test]
+    fn a_bordered_footprint_at_the_edge_spans_width_plus_two() {
+        assert_eq!(footprint((0, 7), 4, true), (0, 6, 6, 12));
+        assert_eq!(footprint((5, 0), 4, true), (4, 0, 10, 6));
+        assert_eq!(footprint((0, 0), 3, true), (0, 0, 5, 5));
+        assert_eq!(footprint((5, 7), 4, true), (4, 6, 10, 12));
+        assert_eq!(footprint((0, 0), 4, false), (0, 0, 4, 4));
     }
 
     /// Round-85 vectors (`ai/worker-ai.md`, "Worker", step 5, static vector, erratum 11): a no-depot hall whose

@@ -2640,18 +2640,18 @@ Maps\Classic\Crossover.pud	harvest	25000	8f650a97069e1543	b65978d0c6653792	55
 Maps\Classic\Crossover.pud	harvest	27500	5527977b6e541001	a4232c30c2a3cdc0	56
 Maps\Classic\Crossover.pud	harvest	30000	5e9b785fa92eca61	d4eb52ef8b7aa947	59
 Maps\Classic\Crossover.pud	ai	0	77fef5345e253d88	4dd40af0f725aa98	33
-Maps\Classic\Crossover.pud	ai	2500	219d9417e86b2572	3c9db3b25be16dba	40
-Maps\Classic\Crossover.pud	ai	5000	d34f54903b132de4	06a8a9c634ccfdb5	47
-Maps\Classic\Crossover.pud	ai	7500	e31a8ed6bb09f34a	8e8879f6b40dbf91	60
-Maps\Classic\Crossover.pud	ai	10000	de12aedc65e31d50	4562949302906617	80
-Maps\Classic\Crossover.pud	ai	12500	1a7c271f7cd872fe	d2705027116edcde	106
-Maps\Classic\Crossover.pud	ai	15000	94e53bd65437f398	d09bf11cbc9866f0	118
-Maps\Classic\Crossover.pud	ai	17500	ff6092ef683bb36d	40c5518d8aae14fa	129
-Maps\Classic\Crossover.pud	ai	20000	e0ca75d2ec9158fe	2ad798764bd29361	152
-Maps\Classic\Crossover.pud	ai	22500	17f9a710580adc4e	e4ed05db4d186291	186
-Maps\Classic\Crossover.pud	ai	25000	a818cbbe582526ac	a5180db53d05ea0d	210
-Maps\Classic\Crossover.pud	ai	27500	033986c020910259	bcd931e118822b9d	233
-Maps\Classic\Crossover.pud	ai	30000	78b457c4ed0b18c3	a0b57b436fac5975	248
+Maps\Classic\Crossover.pud	ai	2500	35d37e315027b946	6f5daef31b7c5340	40
+Maps\Classic\Crossover.pud	ai	5000	ea65b9093e001208	eb2271f80236ce58	47
+Maps\Classic\Crossover.pud	ai	7500	7e2d7374327ba19d	fd4a3dff42b1ec87	60
+Maps\Classic\Crossover.pud	ai	10000	6f2ae0fb12807bbe	7a9f9606a39f3de9	79
+Maps\Classic\Crossover.pud	ai	12500	9e2c0d93f2807a6f	49ea5198e8ff1b0f	104
+Maps\Classic\Crossover.pud	ai	15000	6d5af2990eb8dc78	7d5c0d86cdec9177	118
+Maps\Classic\Crossover.pud	ai	17500	234486907250ff64	0b9639653387be31	128
+Maps\Classic\Crossover.pud	ai	20000	4751351bbb36bcca	8ccc063a5fcb4f86	149
+Maps\Classic\Crossover.pud	ai	22500	d200ad312d1d6b00	307b01498c40c4ea	184
+Maps\Classic\Crossover.pud	ai	25000	6675366a4e6291dd	1c6388eab0736694	211
+Maps\Classic\Crossover.pud	ai	27500	af0a6ce532d273c7	2f16e6b385427b23	230
+Maps\Classic\Crossover.pud	ai	30000	69ce58a5938f2856	771a20604d5e312b	248
 Maps\Classic\Death in the middle.pud	move	0	ad9d61e603984a0e	188abe4ab243f93f	10
 Maps\Classic\Death in the middle.pud	move	2500	c074787d816ecf15	32aff414194ad91d	11
 Maps\Classic\Death in the middle.pud	move	5000	2970f4337d3efa3e	79813f8140dc5f23	13
@@ -6813,57 +6813,57 @@ Maps\Classic\Nowhere to run or hide.pud	ai	25000	9c763851b5d1572d	12ea4f893339ad
 Maps\Classic\Nowhere to run or hide.pud	ai	27500	634169f8392aaf00	8b4f1797f598b175	86
 Maps\Classic\Nowhere to run or hide.pud	ai	30000	80842df963a71209	2527518e4b330655	87
 Maps\Classic\Oil is the key.pud	move	0	22eee0b71f1bd7a2	595c0200c0bb32b2	18
-Maps\Classic\Oil is the key.pud	move	2500	109677c37a587cdf	a90762048ef539ae	19
-Maps\Classic\Oil is the key.pud	move	5000	c568123c3c2fa97d	2efc1601a8db0e5e	20
-Maps\Classic\Oil is the key.pud	move	7500	05712114824b2660	49a253c5c7e3189e	22
-Maps\Classic\Oil is the key.pud	move	10000	061da1d5c362b494	a30d153f02824037	24
-Maps\Classic\Oil is the key.pud	move	12500	1823a71bd559b071	72a3bf5f88d00611	26
-Maps\Classic\Oil is the key.pud	move	15000	7a430b0f37fe532a	0c18421a902a77df	30
-Maps\Classic\Oil is the key.pud	move	17500	14fa720a83c09aef	35ee90d725cb5928	31
-Maps\Classic\Oil is the key.pud	move	20000	660ab2e2d2a38f4c	26f4e8894fd43637	32
-Maps\Classic\Oil is the key.pud	move	22500	d4a16102cd590115	81a4bed3c5fb3cce	35
-Maps\Classic\Oil is the key.pud	move	25000	0ccd5fb273a6b3ed	91e8d97b0536a0c2	40
-Maps\Classic\Oil is the key.pud	move	27500	bd75a3f0a5621f3b	53c9ed75e42b7a33	45
-Maps\Classic\Oil is the key.pud	move	30000	ba96e0cea8c34cca	49b957e590cb078c	46
+Maps\Classic\Oil is the key.pud	move	2500	22d35f25f89a980c	5089667c41de0296	19
+Maps\Classic\Oil is the key.pud	move	5000	14ff45b1546482de	aaf370e96a268cc5	20
+Maps\Classic\Oil is the key.pud	move	7500	1cfa4be46396e93f	ce296208d7e2b66e	21
+Maps\Classic\Oil is the key.pud	move	10000	5c42bd6472646af3	fa1046055b6ff480	23
+Maps\Classic\Oil is the key.pud	move	12500	4215e36806a0da8b	ca5a740910306de4	25
+Maps\Classic\Oil is the key.pud	move	15000	8c9b8785c1bb2218	e2a574d993b9d698	27
+Maps\Classic\Oil is the key.pud	move	17500	c50c5f8586f1d880	17083e2a6580255d	30
+Maps\Classic\Oil is the key.pud	move	20000	390aa6313933bb04	65abc902b2da836a	32
+Maps\Classic\Oil is the key.pud	move	22500	ec4ba47d59d00567	3a95b6488c0d2e03	32
+Maps\Classic\Oil is the key.pud	move	25000	3127474bc6c1e83a	98d1404ea35abdb2	36
+Maps\Classic\Oil is the key.pud	move	27500	91495855801cecb3	e619b390ee4a2443	43
+Maps\Classic\Oil is the key.pud	move	30000	f87ebd66e2a5cbf0	44f33cb5582e0139	45
 Maps\Classic\Oil is the key.pud	fight	0	22eee0b71f1bd7a2	595c0200c0bb32b2	18
-Maps\Classic\Oil is the key.pud	fight	2500	109677c37a587cdf	a90762048ef539ae	19
-Maps\Classic\Oil is the key.pud	fight	5000	c568123c3c2fa97d	2efc1601a8db0e5e	20
-Maps\Classic\Oil is the key.pud	fight	7500	05712114824b2660	49a253c5c7e3189e	22
-Maps\Classic\Oil is the key.pud	fight	10000	061da1d5c362b494	a30d153f02824037	24
-Maps\Classic\Oil is the key.pud	fight	12500	1823a71bd559b071	72a3bf5f88d00611	26
-Maps\Classic\Oil is the key.pud	fight	15000	7a430b0f37fe532a	0c18421a902a77df	30
-Maps\Classic\Oil is the key.pud	fight	17500	14fa720a83c09aef	35ee90d725cb5928	31
-Maps\Classic\Oil is the key.pud	fight	20000	660ab2e2d2a38f4c	26f4e8894fd43637	32
-Maps\Classic\Oil is the key.pud	fight	22500	d4a16102cd590115	81a4bed3c5fb3cce	35
-Maps\Classic\Oil is the key.pud	fight	25000	0ccd5fb273a6b3ed	91e8d97b0536a0c2	40
-Maps\Classic\Oil is the key.pud	fight	27500	bd75a3f0a5621f3b	53c9ed75e42b7a33	45
-Maps\Classic\Oil is the key.pud	fight	30000	ba96e0cea8c34cca	49b957e590cb078c	46
+Maps\Classic\Oil is the key.pud	fight	2500	35c458a3fb05ce8d	e763556feb284075	19
+Maps\Classic\Oil is the key.pud	fight	5000	6150b1af04da7bad	f535d8119033e5a2	20
+Maps\Classic\Oil is the key.pud	fight	7500	fc6bd0f8d3083593	a6bf4a2774c20d91	21
+Maps\Classic\Oil is the key.pud	fight	10000	b9195292aec31def	82f67eae44f93365	23
+Maps\Classic\Oil is the key.pud	fight	12500	20e47f0c714a7d93	48f64c8d84606a76	25
+Maps\Classic\Oil is the key.pud	fight	15000	5fb3e06942ec33ea	195373bb081a0e1f	27
+Maps\Classic\Oil is the key.pud	fight	17500	c43f3bb4a5fa1537	3c7e69874de0304a	30
+Maps\Classic\Oil is the key.pud	fight	20000	63d521d4cbfb210e	1ef867cd86d9cbae	32
+Maps\Classic\Oil is the key.pud	fight	22500	814bfa9095ccd401	58c622868d6e0683	32
+Maps\Classic\Oil is the key.pud	fight	25000	a01618110c277e10	77dc8fad66f971bd	37
+Maps\Classic\Oil is the key.pud	fight	27500	cf9abb987fae294d	216306eb32e1a042	43
+Maps\Classic\Oil is the key.pud	fight	30000	a02c847341dd85b8	556e4660419303b3	46
 Maps\Classic\Oil is the key.pud	harvest	0	22eee0b71f1bd7a2	595c0200c0bb32b2	18
-Maps\Classic\Oil is the key.pud	harvest	2500	081fef255d5f0c22	d391171855f5cbd5	19
-Maps\Classic\Oil is the key.pud	harvest	5000	e1eaf342127a2669	cb8cc0227a447acf	20
-Maps\Classic\Oil is the key.pud	harvest	7500	7cfcaf6b6dd49e9d	9cb35160e06ec17a	22
-Maps\Classic\Oil is the key.pud	harvest	10000	1180d37891fadc84	5296c77755f1eddf	24
-Maps\Classic\Oil is the key.pud	harvest	12500	e4b70906666174f2	70339b16d4d46fba	26
-Maps\Classic\Oil is the key.pud	harvest	15000	621d84033760559e	fe20a2d4943ece44	31
-Maps\Classic\Oil is the key.pud	harvest	17500	71966792349d02e6	c8e7893f1ea13cf8	31
-Maps\Classic\Oil is the key.pud	harvest	20000	8ba86262185fb73d	85231de1a0afd588	32
-Maps\Classic\Oil is the key.pud	harvest	22500	1572b3cc7f9aedcc	02990f05fec925ba	35
-Maps\Classic\Oil is the key.pud	harvest	25000	2bafa9978812f0d2	417c59eaf9d1482a	41
-Maps\Classic\Oil is the key.pud	harvest	27500	8ccf650fe3555a22	0008151c137fb428	46
-Maps\Classic\Oil is the key.pud	harvest	30000	150aaabac2c4958a	da81911946b3472a	46
+Maps\Classic\Oil is the key.pud	harvest	2500	6893670b2ea0ee57	d3b9677afc973b72	19
+Maps\Classic\Oil is the key.pud	harvest	5000	a1ded91843082345	99c3e3b0b9dbfdb8	20
+Maps\Classic\Oil is the key.pud	harvest	7500	48103589c555b999	565d4d53a226e8d0	21
+Maps\Classic\Oil is the key.pud	harvest	10000	c50a633aee0ca976	95e61c9184e2b335	23
+Maps\Classic\Oil is the key.pud	harvest	12500	c238f0c0b0552110	9dd5b27a5bca5ac9	25
+Maps\Classic\Oil is the key.pud	harvest	15000	af1c48354c495383	37aca44eddf0d00c	27
+Maps\Classic\Oil is the key.pud	harvest	17500	99e32f4717035352	5393275c9d0f8717	30
+Maps\Classic\Oil is the key.pud	harvest	20000	e042b8adf36139b5	6677bf1244b94182	32
+Maps\Classic\Oil is the key.pud	harvest	22500	2796c0ba003a7520	480cbfe1e9c08897	32
+Maps\Classic\Oil is the key.pud	harvest	25000	7c10689d55c67800	72962ab53735f3ee	37
+Maps\Classic\Oil is the key.pud	harvest	27500	3fe2740e01565a60	6b20ebe1c3451193	43
+Maps\Classic\Oil is the key.pud	harvest	30000	9db28cb14f4f6009	7147c6a82727e12e	46
 Maps\Classic\Oil is the key.pud	ai	0	ef2144ea321762fb	d3a903b8b48fbae5	20
-Maps\Classic\Oil is the key.pud	ai	2500	b8330190bb888a28	6e47bf58b32ef573	23
-Maps\Classic\Oil is the key.pud	ai	5000	4da64ceb07d57293	d9b0f8fabfc50511	26
-Maps\Classic\Oil is the key.pud	ai	7500	95f6d53067647828	0e01e116e121e995	32
-Maps\Classic\Oil is the key.pud	ai	10000	f17ed75934674a50	8db829e16a9fc47c	40
-Maps\Classic\Oil is the key.pud	ai	12500	d34d574a29389880	f6d3a12d3cd0df75	47
-Maps\Classic\Oil is the key.pud	ai	15000	9c3261efde17a964	475b6886295e3a7f	57
-Maps\Classic\Oil is the key.pud	ai	17500	b46da5c598d973fc	2e2bf8136aac4ba9	61
-Maps\Classic\Oil is the key.pud	ai	20000	449ccbc05dfa5bc4	d171166f6aaf43fc	67
-Maps\Classic\Oil is the key.pud	ai	22500	3cf653a85ef517a0	f22539e5126ea8e3	83
-Maps\Classic\Oil is the key.pud	ai	25000	fa6018f5136af625	c2efda99eefabb4c	100
-Maps\Classic\Oil is the key.pud	ai	27500	8a976d54150398f5	81a83287a1e1350a	106
-Maps\Classic\Oil is the key.pud	ai	30000	63c2bc808f288250	7b1713324aa756ec	110
+Maps\Classic\Oil is the key.pud	ai	2500	24c99ee10d41cfd4	127e0507d55034e4	23
+Maps\Classic\Oil is the key.pud	ai	5000	f317662bfab8c9e5	e50ef9fa67543ba4	26
+Maps\Classic\Oil is the key.pud	ai	7500	b8aeea87b8e25144	2943fd6bd44fa18f	31
+Maps\Classic\Oil is the key.pud	ai	10000	b9d959c6ddf11548	bceab0c2282803de	39
+Maps\Classic\Oil is the key.pud	ai	12500	e8ab2d4e941bc9a3	1eae084dbac00dda	46
+Maps\Classic\Oil is the key.pud	ai	15000	22ef2d151ad0e0a8	34970ed720091d13	54
+Maps\Classic\Oil is the key.pud	ai	17500	bdfd6d9ad099f6db	0b313f3271336e34	60
+Maps\Classic\Oil is the key.pud	ai	20000	da004f0ac333b7aa	73b2164c98b77142	67
+Maps\Classic\Oil is the key.pud	ai	22500	348b9a14a20eb101	f19b1690c01947cc	80
+Maps\Classic\Oil is the key.pud	ai	25000	507888cf772cfa27	3c13051a718b1486	93
+Maps\Classic\Oil is the key.pud	ai	27500	cae254391f90dd82	388e90d9c5e34595	103
+Maps\Classic\Oil is the key.pud	ai	30000	da381cda7699fb70	fbc1b90d651a377c	109
 Maps\Classic\One way in, one way out.pud	move	0	6771d59b2357a67d	34e6885ad659d86a	8
 Maps\Classic\One way in, one way out.pud	move	2500	24021a26f410c2e9	b3f1dfbeac740ed9	9
 Maps\Classic\One way in, one way out.pud	move	5000	abfcc2c2f3c727b4	a9b3b6c061c08d78	10
@@ -7944,18 +7944,18 @@ Maps\Crosshair BNE.pud	harvest	25000	17e1ad6c108a8a8a	5dd25ad9e083f1a5	61
 Maps\Crosshair BNE.pud	harvest	27500	9906153c97a0d806	f5157715ec817bad	63
 Maps\Crosshair BNE.pud	harvest	30000	b529704f6269c25c	41a983966abe55b8	66
 Maps\Crosshair BNE.pud	ai	0	66db3ca5e837735b	9628034f0a1c3e9e	48
-Maps\Crosshair BNE.pud	ai	2500	755beace1039e2b2	ee14273d966dfb1b	55
-Maps\Crosshair BNE.pud	ai	5000	4b0e155c8bbd79aa	6e62a3578b483bae	69
-Maps\Crosshair BNE.pud	ai	7500	dc6fbb7eadd54ebf	50b56df9c4f371b6	82
-Maps\Crosshair BNE.pud	ai	10000	789fa507f59d870f	87cb9a3abdfa52ec	114
-Maps\Crosshair BNE.pud	ai	12500	0c93551eab88cfd1	2a218bd5bbcd58cd	134
-Maps\Crosshair BNE.pud	ai	15000	b1123e955a85fcff	c3352f03fde8be4d	144
-Maps\Crosshair BNE.pud	ai	17500	744d44e1b974c6c5	ca864f75124fcc5d	147
-Maps\Crosshair BNE.pud	ai	20000	46c87b2189dad632	39f51fd5718eb4df	167
-Maps\Crosshair BNE.pud	ai	22500	104558d2d2e9e9f5	557978166982c1aa	194
-Maps\Crosshair BNE.pud	ai	25000	5d5db7dcd6072227	7d4669205b6b3965	230
-Maps\Crosshair BNE.pud	ai	27500	edd9037d54009066	5480812dd13edfe9	248
-Maps\Crosshair BNE.pud	ai	30000	99f88760556ad709	0e556b7ff2805bf9	255
+Maps\Crosshair BNE.pud	ai	2500	52d57772cfae8b6e	dccf534613729f8a	55
+Maps\Crosshair BNE.pud	ai	5000	803c748e9a91dc71	d60b159721208d1c	68
+Maps\Crosshair BNE.pud	ai	7500	571160b818eaaade	20953af3446d37e8	81
+Maps\Crosshair BNE.pud	ai	10000	3bd9ca41848ba6bc	9f783b931c5bd54a	109
+Maps\Crosshair BNE.pud	ai	12500	7c18fe849ae88419	9d6a3f586f032fe3	130
+Maps\Crosshair BNE.pud	ai	15000	2010587fbf94df50	00c73431267087c4	141
+Maps\Crosshair BNE.pud	ai	17500	bd123364f617a552	8b9e2e411ea8c6c9	146
+Maps\Crosshair BNE.pud	ai	20000	7cf2e48550c481c3	ccfd4df0693f7e25	165
+Maps\Crosshair BNE.pud	ai	22500	6c98ebecf940c343	26ac2e76d9fe8e73	190
+Maps\Crosshair BNE.pud	ai	25000	5b1f2026d6fa8dcf	b2c46d7664081b89	223
+Maps\Crosshair BNE.pud	ai	27500	88dca40b4e091c46	547bca0c07afddd1	244
+Maps\Crosshair BNE.pud	ai	30000	c1cee3a720ff5e10	54ab686f2f82099c	260
 Maps\Dark Paths BNE.pud	move	0	37ab5913d11d9729	2df5fa553c3b865c	10
 Maps\Dark Paths BNE.pud	move	2500	463bbf2d1203960f	2dc83b39def5b8a7	14
 Maps\Dark Paths BNE.pud	move	5000	7e93511aed29c6d3	8ca2e9aaefaebb06	17
