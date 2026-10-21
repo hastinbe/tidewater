@@ -209,6 +209,26 @@ pub(crate) fn entry_text(install: &mut Install, name: &str, entry: u16) -> Strin
         .unwrap_or_default()
 }
 
+/// The steps "Starting a mission" gives for `entry`: the act screen (only for the first mission of an act whose act
+/// isn't the last one shown, which makes it the last shown), the briefing, then the game. A restart goes through here
+/// too, so it shows the act screen only if its act isn't the last one shown. The skip setting (or Ctrl) skips both
+/// screens: it leaves the act screen out here, and [`advance`] skips the briefing.
+fn mission_steps(flow: &mut Flow, entry: u8, ctrl: bool) -> Vec<Step> {
+    let mut then = vec![
+        Step::Briefing(entry),
+        Step::Play {
+            map: cf::map_name(entry),
+            setup: None,
+        },
+    ];
+    if !cf::screens_skipped(ctrl, flow.skip_screens)
+        && let Some(a) = flow.memory.act_to_show(entry)
+    {
+        then.insert(0, Step::Act(a));
+    }
+    then
+}
+
 /// Takes steps until one is shown: the state that shows it, or `None` to quit.
 pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppState> {
     loop {
@@ -230,19 +250,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
             }
             Step::NewCampaign => AppState::NewCampaign,
             &Step::Mission(e) => {
-                let mut then = vec![
-                    Step::Briefing(e),
-                    Step::Play {
-                        map: cf::map_name(e),
-                        setup: None,
-                    },
-                ];
-                if !cf::screens_skipped(ctrl, flow.skip_screens)
-                    && let Some(a) = flow.memory.act_to_show(e)
-                {
-                    then.insert(0, Step::Act(a));
-                }
-                for s in then.into_iter().rev() {
+                for s in mission_steps(flow, e, ctrl).into_iter().rev() {
                     flow.steps.push_front(s);
                 }
                 continue;
@@ -2866,6 +2874,35 @@ mod tests {
         assert_eq!(f.steps, [Step::Mission(6)]);
         to_main_menu(&mut f);
         assert_eq!(f.steps, [Step::MainMenu]);
+    }
+
+    /// X8 (`game/campaign-flow.md`, "Starting a mission"; `game/game-menu.md`, "Restart"): a restart shows the act
+    /// screen only if its act isn't the last one shown, and the skip setting skips both the act screen and the briefing.
+    #[test]
+    fn a_restart_shows_the_act_screen_only_if_its_act_is_not_the_last_shown() {
+        let act = |steps: &[Step]| steps.iter().any(|s| matches!(s, Step::Act(_)));
+        let mut f = flow(&[]);
+        let first = mission_steps(&mut f, 0, false);
+        assert!(act(&first), "the first start shows the act screen");
+        assert!(matches!(first[1], Step::Briefing(0)) && matches!(first[2], Step::Play { .. }));
+        // A restart of the same mission: the act is the last one shown.
+        f.game = Some(GameKind::Campaign(0));
+        restart(&mut f);
+        assert_eq!(f.steps, [Step::Mission(0)]);
+        let again = mission_steps(&mut f, 0, false);
+        assert!(!act(&again) && matches!(again[0], Step::Briefing(0)));
+        // Another act's first mission shows its screen, and going back to the first act shows it again.
+        assert!(act(&mission_steps(&mut f, 28, false)));
+        assert!(act(&mission_steps(&mut f, 0, false)));
+        // Skipping (the setting, or Ctrl) leaves the act screen out without making it the last one shown; `advance`
+        // skips the briefing by the same test.
+        for (skip, ctrl) in [(true, false), (false, true)] {
+            let mut f = flow(&[]);
+            f.skip_screens = skip;
+            assert!(!act(&mission_steps(&mut f, 0, ctrl)));
+            assert_eq!(f.memory.last_act, None);
+            assert!(cf::screens_skipped(ctrl, f.skip_screens));
+        }
     }
 
     #[test]
