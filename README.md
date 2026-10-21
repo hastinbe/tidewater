@@ -41,7 +41,7 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 
    Add a map to start a game on it at once: `cargo run --release -p tidewater-client -- <map.pud>`.
 
-**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. GOG installers (`setup_*.exe`) and CD images (`.iso`, `.bin` with `.cue`) are recognised but cannot be read yet (the import screen's "Choose GOG installer..." and "Choose CD image..." buttons say so): install the game first or mount the image.
+**What counts as `<path-to-game>`.** A game folder (a GOG folder, a Wine prefix, a `.app` bundle or a mounted CD all work; Tidewater looks a few levels down), a folder of `.mpq` files, or one `.mpq` file. The **GOG installer** (`setup_warcraft_ii_*.exe`, with its `.bin` file in the same folder) works directly, without installing the game: choose the `.exe` (or the folder holding it). This needs the free [`innoextract`](https://constexpr.org/innoextract/) program (`brew install innoextract` on macOS, your package manager on Linux, a download on Windows); Tidewater tells you if it can't find it. CD images (`.iso`, `.bin` with `.cue`) are recognised but cannot be read yet (the import screen's "Choose CD image..." button says so): mount the image and choose the mounted disc.
 
 **Where the copy goes.** The per-user data directory: `~/Library/Application Support/Tidewater` on macOS, under `~/.local/share` on Linux, under `%LOCALAPPDATA%\Tidewater` on Windows. Imported files go in `game`, saved games in `Save`, settings in `settings.txt`. `--data-dir <dir>` moves all of it. Tidewater never writes into your game installation.
 
@@ -95,7 +95,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 
 | Flag | What it does |
 |---|---|
-| `--import <PATH>` | Import the game files from a game folder, a folder of `.mpq` files or one archive, then exit. The exit code says what went wrong: 10 path not found, 11 DOS edition, 12 installer, 13 no game files, 14 no `War2Dat.mpq`, 15 damaged archive, 16 incomplete files, 17 no space, 18 i/o error, 19 CD image. |
+| `--import <PATH>` | Import the game files from a game folder, a GOG installer, a folder of `.mpq` files or one archive, then exit. The exit code says what went wrong: 10 path not found, 11 DOS edition, 12 installer (not readable, or `innoextract` missing), 13 no game files, 14 no `War2Dat.mpq`, 15 damaged archive, 16 incomplete files, 17 no space, 18 i/o error, 19 CD image. |
 | `--data-dir <DIR>` | Tidewater's data directory (imported files, `Save`, settings). Default: the per-user data directory. |
 | `--install <PATH>` | Developer override: read the game files in place instead of the imported copy. Also `TIDEWATER_INSTALL`. |
 | `<MAP>` | Start this map at once (a `.pud` path or an archive name). |
@@ -165,7 +165,6 @@ Everything in this table is **planned**; none of it is built yet.
 
 | Track | What it adds | Status |
 |---|---|---|
-| **Import from the GOG installer** | Read the files straight out of a `setup_*.exe` installer, so you do not install the game first. | Planned |
 | **Import from CD images** | Read `.iso` and `.bin`/`.cue` images directly. | Planned |
 | **Lockstep multiplayer** | Local Network and Direct IP games. The simulation is deterministic so that this is possible. | Planned |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |

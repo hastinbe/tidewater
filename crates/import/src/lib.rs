@@ -1,7 +1,7 @@
 //! Game-file import (`docs/design/import.md`): finds the user's Warcraft II: Battle.net Edition files, checks them and
 //! copies the ones Tidewater needs into its own data directory. No engine types, no SDL, no `unsafe`.
 //!
-//! - [`source`]: what kind of thing a path is (game folder, single archive, folder of archives, installer, DOS copy).
+//! - [`source`]: what kind of thing a path is (game folder, single archive, folder of archives, GOG installer, DOS copy).
 //! - [`validate`]: opens the archives and checks the key files, with player-facing messages.
 //! - [`copy`]: copies the allowlisted files into a temporary folder and swaps it into place.
 //! - [`manifest`]: the record of what was copied (`manifest.json`).
@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod copy;
+pub mod inno;
 pub mod manifest;
 pub mod source;
 pub mod validate;
@@ -19,6 +20,7 @@ mod testutil;
 use std::path::{Path, PathBuf};
 
 pub use copy::{Progress, import};
+pub use inno::InstallerReader;
 pub use manifest::Manifest;
 pub use source::{Source, SourceKind, classify};
 pub use validate::{Issue, IssueKind, Report, Severity, validate};
@@ -50,11 +52,19 @@ pub enum ImportError {
     )]
     DosEdition,
     #[error(
-        "{} is an installer, and Tidewater can't read installers yet. Install the game with it (or with innoextract), \
-         then choose the installed folder.",
+        "{} is an installer Tidewater can't read. Install the game with it, then choose the installed folder.",
         .0.display()
     )]
     InstallerUnsupported(PathBuf),
+    #[error(
+        "Reading {} needs the free innoextract program, which wasn't found. Install it (innoextract.constexpr.org; \
+         `brew install innoextract` on macOS, your package manager on Linux) and try again, or install the game with \
+         the installer and choose the installed folder.",
+        .0.display()
+    )]
+    InnoextractMissing(PathBuf),
+    #[error("Couldn't read the installer {}: {detail}. Install the game with it and choose the installed folder instead.", .path.display())]
+    InstallerFailed { path: PathBuf, detail: String },
     #[error(
         "{} is a CD image, and Tidewater can't read CD images yet. Mount it (or copy its files to a folder), then \
          choose the mounted disc or the folder.",
@@ -85,7 +95,7 @@ impl ImportError {
         match self {
             Self::NotFound(_) => 10,
             Self::DosEdition => 11,
-            Self::InstallerUnsupported(_) => 12,
+            Self::InstallerUnsupported(_) | Self::InnoextractMissing(_) | Self::InstallerFailed { .. } => 12,
             Self::NoGameFiles(_) => 13,
             Self::DiscImageUnsupported(_) => 19,
             Self::Invalid(issue) => match issue.kind {
@@ -127,7 +137,7 @@ pub fn size_text(bytes: u64) -> String {
 pub fn render_report(source: &Source, report: &Report) -> String {
     let mut s = String::new();
     s += &format!("Source: {} ({})\n", source.given.display(), source.kind.describe());
-    if source.root != source.given {
+    if source.root != source.given && source.staged.is_none() {
         s += &format!("Game files found in: {}\n", source.root.display());
     }
     s += &format!("Edition: {}\n", report.edition);

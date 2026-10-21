@@ -2,7 +2,8 @@
 
 Tidewater contains no game data. `crates/import` (no SDL, no `unsafe`) finds the user's *Warcraft II: Battle.net
 Edition* files, checks them and copies the ones the client needs into Tidewater's data directory. This is phase I1:
-the library and the command line, and phase I2, the first-run screen (below). Installer reading (I3) comes later.
+the library and the command line, phase I2, the first-run screen (below), and phase I3, reading the GOG installer
+(below). CD images (I3b) come later.
 
 ## Decision: always copy
 
@@ -14,8 +15,9 @@ every platform. `--install DIR` stays as a developer override that reads in plac
 
 | Module | Job |
 |---|---|
-| `source` | Classifies a path: game folder (searched 6 levels deep, any letter case, breadth first; covers a GOG folder, a Wine prefix's `drive_c`, a `.app` bundle and a mounted CD, which is just a folder), single `.mpq`, folder of loose `.mpq` files. Refuses a GOG `setup_*.exe`/`.bin` (`InstallerUnsupported`), a CD image (`.iso` with `CD001` at sector 16, `.bin`+`.cue` raw 2352-byte sectors, `.img`, `.mdf`, `.nrg`; `DiscImageUnsupported`) and a DOS-edition copy (`DATA/*.WAR`; `DosEdition`). |
+| `source` | Classifies a path: game folder (searched 6 levels deep, any letter case, breadth first; covers a GOG folder, a Wine prefix's `drive_c`, a `.app` bundle and a mounted CD, which is just a folder), single `.mpq`, folder of loose `.mpq` files. Reads a GOG installer (`setup_*.exe`, or its `.bin` part, which finds the `.exe`; see "GOG installer" below) and refuses any other `setup_*.exe` (`InstallerUnsupported`), a CD image (`.iso` with `CD001` at sector 16, `.bin`+`.cue` raw 2352-byte sectors, `.img`, `.mdf`, `.nrg`; `DiscImageUnsupported`) and a DOS-edition copy (`DATA/*.WAR`; `DosEdition`). |
 | `validate` | Opens every archive; requires `War2Dat.mpq`; reads key files the client loads at start (`rez\unitdata.dat`, `Art\font10x.fnt`, `rez\network.tbl`, the Forest tileset). Missing `Install.mpq` or `Maps/` are warnings ("no videos or music", "no multiplayer map list"); `War2Patch.mpq` is optional and silent. Returns a `Report` with player-facing messages. |
+| `inno` | `InstallerReader`: the GOG installer as a `SourceFiles` (see below). |
 | `copy` | Copies the allowlist (`*.mpq` at the top, `Maps/**`) into `<data>/.import-<pid>`, hashing as it goes, then swaps it in as `<data>/game`. The old import is moved aside first and restored if the swap fails; the temporary folder is always removed. |
 | `manifest` | `game/manifest.json`: source kind, edition guess, each file's path, size and SHA-256, the import time (UTC). The known-hash table (`KNOWN_WAR2DAT`) is empty: no hashes collected yet. |
 
@@ -31,7 +33,7 @@ files must not come along.
 - `--data-dir` moves the whole per-user directory (`game`, `Save`, the settings file); `--save-dir` and `--settings` still override their parts.
 
 Exit codes: 0 success, 10 path not found, 11 DOS edition, 12 installer, 13 no game files, 14 no `War2Dat.mpq`, 15
-damaged archive, 16 key file missing or unreadable, 17 not enough space, 18 other i/o error, 19 CD image. (2 is clap's,
+damaged archive, 16 key file missing or unreadable, 17 not enough space, 18 other i/o error, 19 CD image. (12 covers every installer problem: not an Inno Setup installer, `innoextract` missing, extraction failed.) (2 is clap's,
 for a bad command line.)
 
 ## First-run screen (I2)
@@ -52,8 +54,8 @@ every screen of the original stays as it was.
 - **Choosing.** "Choose game folder...", "Choose GOG installer..." and "Choose CD image..." open the system's folder or
   file dialog (`SDL_ShowOpenFolderDialog`, `SDL_ShowOpenFileDialog`; the `sdl-dialog` feature of `sdl3-sys`), and a
   file or folder dropped on the window (`SDL_EVENT_DROP_FILE`) does the same. Both come into the core as input events
-  (`Input::picked`, `Input::dropped`) and go through the same import, so an installer or a CD image gets the import
-  crate's "not supported yet" message until I3. The core asks for a dialog with `Core::take_pick_requests`; the shell
+  (`Input::picked`, `Input::dropped`) and go through the same import, so a GOG installer is read like any source and a CD
+  image gets the import crate's "not supported yet" message until I3b. The core asks for a dialog with `Core::take_pick_requests`; the shell
   shows it. Nothing else of SDL is known to the core.
 - **Importing.** The copy runs on a worker thread through `Backend::import` (`DesktopBackend` calls `classify`,
   `validate` and `import`); the screen shows the callback's progress as a bar, then the result line ("Imported
@@ -66,7 +68,41 @@ every screen of the original stays as it was.
 - **Tests.** The rules are tested through the core's input with a fake `Backend`; the scripted scene `firstrun` (a
   demo backend and a fake list of installs, so it needs no game data) has a frame snapshot in
   `tests/snapshots/firstrun.txt`.
-- **Not done here.** Reading the GOG installer and CD images (I3, I3b); the sandboxed platforms' pickers (I4).
+- **Not done here.** Reading CD images (I3b); the sandboxed platforms' pickers (I4).
+
+## GOG installer (I3)
+
+`classify` accepts the installer `setup_*.exe` (or its `-1.bin` part; the `.exe` beside it is used), and a folder that
+contains one. Any `.exe` counts when it is an Inno Setup installer: a Windows program with the text `Inno Setup Setup
+Data (` in its first 8 MiB. Another `setup*.exe` is `InstallerUnsupported`.
+
+`inno::InstallerReader` implements `SourceFiles` for it. Today it drives the `innoextract` program (zlib licence; found
+through `TIDEWATER_INNOEXTRACT`, then the `PATH`, then `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`): `innoextract
+--list` finds the top-level `*.mpq` entries, then one `innoextract --include ... --output-dir` run extracts only those
+and `Maps` into a staging folder under the system temp folder (`tidewater-installer-<pid>-<n>`). That folder is then
+an ordinary game folder for `validate` and `copy`; `Source.staged` holds it and removes it when the last copy of the
+source is dropped. So `validate` runs on the staged files before anything is swapped into `<data>/game`, and the
+manifest's source kind is `gog-installer`. Extraction has no progress callback; the GOG installer takes about 3
+seconds for its 500 MB (a whole import is about 4 seconds on a laptop). The temp folder needs room for the extracted
+archives (about 500 MB) on top of the copy.
+
+Errors, all exit code 12: not an Inno installer (`InstallerUnsupported`), `innoextract` not found
+(`InnoextractMissing`, says how to install it), or `innoextract` failed (`InstallerFailed`, with its last lines; an
+Inno version it can't read shows up here, and the message adds a hint when no `.bin` part is next to the `.exe`).
+Every message ends by offering the fallback of installing the game and choosing the folder.
+
+**Why not a Rust reader.** The plan was the `innospect` crate (Apache-2.0, pure Rust). Version 0.2.0 parses this
+installer (Inno Setup 5.6.2, 963 entries) but can't read external `setup-1.bin` slices ("not currently supported" in
+its source; its README lists disk spanning as untested), and GOG's installer keeps all its file data in the `.bin`.
+A pure-Rust path therefore needs slice support added upstream or a fork (decision pending). `InstallerReader` is the
+seam: replacing the two `innoextract` calls leaves `source`, `validate` and `copy` untouched. The platforms that can't
+run a helper program (Vita, sandboxed stores) need that replacement.
+
+**Tests.** Unit tests need no game data: marker detection, `.bin` to `.exe`, listing parser, error paths, and a
+stand-in `innoextract` script (unix) that exercises staging and cleanup. `crates/import/tests/gog_installer.rs` runs
+the real installer when `TIDEWATER_GOG_INSTALLER` names it (skipped otherwise, and when `innoextract` is absent);
+with `TIDEWATER_INSTALL` set it also compares every imported file's SHA-256 with an installed copy.
+`twtool import-check <setup.exe>` takes the installer path like any other.
 
 ## Free space
 
@@ -77,8 +113,6 @@ folder; an earlier import is untouched.
 ## Later phases
 
 The copy step reads through the `SourceFiles` trait (`list()` relative paths and sizes, `open(rel)`), with a plain
-folder (`FolderFiles`) as its first implementation. A later phase adds implementations for a CD image (ISO 9660 reader)
-and a GOG installer (Inno Setup reader), which list and stream only the allowlisted files, and `copy::import_from`
-takes them unchanged. Validation currently opens archives by path, so those sources will first extract the archives to
-the temporary folder and validate them there before the swap; only `source::classify` and the error variants are in
-place for them today.
+folder (`FolderFiles`) and the GOG installer (`InstallerReader`, above) as implementations. A later phase (I3b) adds a
+CD image (ISO 9660 reader) the same way; `copy::import_from` takes any of them unchanged. Validation opens archives by
+path, so a source that isn't a folder first stages the archives in a temporary folder and validates them there.

@@ -1,5 +1,5 @@
-//! Works out what a path the user gave is: a game folder, a single archive, a folder of loose archives, an installer
-//! we can't read yet, or a DOS-edition copy we refuse.
+//! Works out what a path the user gave is: a game folder, a single archive, a folder of loose archives, a GOG
+//! installer (read through [`crate::inno`]), or a DOS-edition copy we refuse.
 //!
 //! Folders are searched a few levels deep (breadth first, so the shallowest match wins), in any letter case, so the
 //! user can point at a GOG folder, a Wine prefix's `drive_c`, a macOS `.app` bundle or a mounted CD and still land on
@@ -8,7 +8,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use crate::ImportError;
+use crate::inno::{self, InstallerReader, Staging};
 
 /// How deep below the given folder to look for the game files.
 const MAX_DEPTH: usize = 6;
@@ -24,6 +27,8 @@ pub enum SourceKind {
     SingleMpq,
     /// A folder holding nothing but archives (and perhaps a `Maps` folder).
     MpqFolder,
+    /// A GOG (Inno Setup) installer; its game files are staged in a temporary folder.
+    GogInstaller,
 }
 
 impl SourceKind {
@@ -33,6 +38,7 @@ impl SourceKind {
             Self::InstallFolder => "install-folder",
             Self::SingleMpq => "single-mpq",
             Self::MpqFolder => "mpq-folder",
+            Self::GogInstaller => "gog-installer",
         }
     }
 
@@ -42,6 +48,7 @@ impl SourceKind {
             Self::InstallFolder => "a game folder",
             Self::SingleMpq => "a single archive file",
             Self::MpqFolder => "a folder of archive files",
+            Self::GogInstaller => "a GOG installer",
         }
     }
 }
@@ -58,6 +65,8 @@ pub struct Source {
     pub archives: Vec<PathBuf>,
     /// The `Maps` folder next to the archives, if there is one.
     pub maps: Option<PathBuf>,
+    /// The temporary folder an installer's files were extracted to; removed when the last copy of the source is dropped.
+    pub staged: Option<Arc<Staging>>,
 }
 
 /// Classifies `path`, or says why the game files can't be taken from it.
@@ -75,7 +84,7 @@ pub fn classify(path: &Path) -> Result<Source, ImportError> {
     }
     // A folder with the installer in it (the download folder) gets the installer message.
     if let Some(exe) = installer_in(path) {
-        return Err(ImportError::InstallerUnsupported(exe));
+        return open_installer(&exe);
     }
     Err(ImportError::NoGameFiles(path.to_path_buf()))
 }
@@ -90,9 +99,18 @@ fn classify_file(path: &Path) -> Result<Source, ImportError> {
             root,
             archives: vec![path.to_path_buf()],
             maps: None,
+            staged: None,
         });
     }
+    if has_ext(&name, "exe") && inno::is_inno_installer(path) {
+        return open_installer(path);
+    }
     if is_installer_name(&name) {
+        if has_ext(&name, "bin")
+            && let Some(exe) = inno::exe_for_part(path)
+        {
+            return open_installer(&exe);
+        }
         return Err(ImportError::InstallerUnsupported(path.to_path_buf()));
     }
     if is_disc_image(path, &name) {
@@ -102,6 +120,10 @@ fn classify_file(path: &Path) -> Result<Source, ImportError> {
         return Err(ImportError::DosEdition);
     }
     Err(ImportError::NoGameFiles(path.to_path_buf()))
+}
+
+fn open_installer(exe: &Path) -> Result<Source, ImportError> {
+    InstallerReader::open(exe).map(InstallerReader::into_source)
 }
 
 /// A CD image: by extension (`.cue`, `.img`, `.mdf`, `.nrg`), or `.iso` / `.bin` by the ISO 9660 signature `CD001`
@@ -238,7 +260,7 @@ fn has_ext(name: &str, ext: &str) -> bool {
         .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case(ext))
 }
 
-fn source_at(given: &Path, root: &Path) -> Source {
+pub(crate) fn source_at(given: &Path, root: &Path) -> Source {
     let mut archives = Vec::new();
     let mut other_files = false;
     let mut maps = None;
@@ -269,6 +291,7 @@ fn source_at(given: &Path, root: &Path) -> Source {
         root: root.to_path_buf(),
         archives,
         maps,
+        staged: None,
     }
 }
 
@@ -412,12 +435,18 @@ mod tests {
     }
 
     #[test]
-    fn an_installer_is_recognised_but_not_read_yet() {
+    fn an_installer_that_is_not_inno_setup_is_refused() {
         let t = tempfile::tempdir().unwrap();
         touch(&t.path().join("setup_warcraft_ii_2.02_v5_(78104).exe"));
         let exe = t.path().join("setup_warcraft_ii_2.02_v5_(78104).exe");
         assert!(matches!(classify(&exe), Err(ImportError::InstallerUnsupported(_))));
         assert!(matches!(classify(t.path()), Err(ImportError::InstallerUnsupported(_))));
+        // A part file with no installer beside it is refused the same way.
+        touch(&t.path().join("setup_lonely-1.bin"));
+        assert!(matches!(
+            classify(&t.path().join("setup_lonely-1.bin")),
+            Err(ImportError::InstallerUnsupported(_))
+        ));
     }
 
     #[test]
