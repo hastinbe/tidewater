@@ -483,7 +483,8 @@ impl World {
         // An immediate idle (V27 to V29): still animation with a wait of 1, no turn, and the idle logic not run
         // here. The passenger's own update, later in the cycle, runs it.
         self.start_anim(pi, anim::STILL);
-        self.apply_unit_sight(pi);
+        // Vision spec, "When sight is applied" (C3): a passenger put ashore reveals nothing as it lands; its first
+        // movement step or the next fog refresh does.
         self.units[i].passengers[slot] = None;
     }
 
@@ -1121,6 +1122,51 @@ mod tests {
         w.turn(&[one(0, 2)]);
         assert_eq!(w.unit(tid).unwrap().passengers[2], None);
         assert!(!w.unit(p).unwrap().inside);
+    }
+
+    /// Vision spec, "When sight is applied" (C3): a passenger put ashore, by order 29 or by `Command::UnloadOne`,
+    /// reveals nothing as it lands. The next fog refresh (or its first step) does.
+    #[test]
+    fn a_passenger_put_ashore_reveals_nothing_as_it_lands() {
+        for one_command in [false, true] {
+            let mut w = sea(20);
+            w.players[0].controller = crate::ai::controller::HUMAN;
+            let t = ship(&mut w, (20, 10), Order::Unload);
+            let tid = w.units[t].id;
+            let p = w.spawn(FOOTMAN, 0, (2, 2), 0).unwrap();
+            let pi = w.index(p).unwrap();
+            let unit = w.units[pi].clone();
+            w.mark(&unit, unit.tile, None);
+            w.units[pi].inside = true;
+            w.units[pi].order = Order::Aboard { transport: tid };
+            let ti = w.index(tid).unwrap();
+            w.units[ti].passengers[1] = Some(p);
+            w.vision.seen.fill(0xff);
+            if one_command {
+                w.units[ti].order = Order::Docked;
+                w.turn(&[crate::Command::UnloadOne {
+                    player: 0,
+                    unit: tid,
+                    slot: 1,
+                }]);
+            } else {
+                w.unload(ti);
+            }
+            let u = w.unit(p).unwrap();
+            assert!(!u.inside, "one_command {one_command}");
+            assert!(
+                w.vision.seen.iter().all(|&b| b == 0xff),
+                "one_command {one_command}: landing revealed"
+            );
+            // The next refresh reveals from the passenger's tile.
+            let tile = u.tile;
+            w.vision.countdown = 1;
+            w.step(&[]);
+            assert!(
+                !w.vision.unseen_by(0, tile.0, tile.1),
+                "one_command {one_command}: the refresh reveals"
+            );
+        }
     }
 
     #[test]
@@ -2184,7 +2230,9 @@ mod tests {
                 }
                 prints.push(w.fingerprint());
             }
-            pinned(&prints, &[9945149469627751725, 15425780563369519976]);
+            // The human run's pin changed with C3 (fog spec): the footmen put ashore no longer reveal as they land, so
+            // the seen bits differ; the computer player's run, which applies no sight, is unchanged.
+            pinned(&prints, &[17187148071507140016, 15425780563369519976]);
         }
     }
 }

@@ -331,7 +331,7 @@ impl World {
     }
 
     /// A unit applies its sight (the two reveals that use "Sight of a unit": rules 1 and 2).
-    pub(crate) fn apply_unit_sight(&mut self, i: usize) {
+    fn apply_unit_sight(&mut self, i: usize) {
         if let Some((c, r)) = self.sight_of(i) {
             let owner = self.units[i].owner;
             self.reveal(owner, c, r);
