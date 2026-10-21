@@ -34,6 +34,9 @@
   2026-10-16): the nearest gold store of the post, the target pickers and the ferry is measured from the store's
   top-left tile (traced for the pickers: CP16; the post and the ferry by review, one shared search). The round-85
   held list loses that item. No other rule here changes.
+- **Changes:** 2026-10-21 (B-040 game audit, `ERRATA-audit-game.md`, erratum 1, traced in round 90; reviewed by a
+  spec-review session, 2026-10-21): the draw table gains the post walk of a converted unit (`ai/attack-ai.md`, "When
+  a unit is converted"). No other rule here changes.
 
 ## Behaviour
 
@@ -220,6 +223,7 @@ search, the call for help, the losses rule and the all-out attack make **no** dr
 | When | Phase, position | Draws | Use | Rules |
 | --- | --- | --- | --- | --- |
 | A computer player's mobile land unit is created and its post walk ends off the map | where created, after the facing draw if any, and before the first-wait draw | 2 | post x = unit x + (r mod 12) − 6, then y | `ai/attack-ai.md`, "Choosing a land unit's post" |
+| Enhanced: a computer player's mobile land unit that isn't held is converted (an upgrade finishing, or a mission start) and its new post walk ends off the map | where the conversion runs, after the unit's type, hit points and mana change; units in the owner's unit-list order | 2 | post x = unit x + (r mod 12) − 6, then y | `ai/attack-ai.md`, "When a unit is converted"; `economy/tech-tree.md`, "Converting units" |
 | Pass B, caster step, each random-search try whose gates pass | 2, in the caster's slot-order turn, before its goal | 1 to 10 | r mod N picks a unit slot (N = 1600; Classic mode 600) | `ai/caster-ai.md`, "Finding a target" |
 | Pass B, roam goal, idle unit | 2, in slot order | 2 | x then y offset (r mod (width / 2)) − width / 4 | `ai/attack-ai.md`, "Roam" |
 | Pass B, sea patrol, idle unit with no platform or oil patch for the far end | 2, in slot order | 2 | x then y: anchor − (r mod 5) − 2 | `ai/attack-ai.md`, "Sea patrol" |

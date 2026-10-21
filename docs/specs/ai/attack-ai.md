@@ -66,6 +66,11 @@
   a reference unit that is a building is measured at its reference tile. Requests AA5b (a dying anchor tanker) and AA7
   (the 128-wide clamp) were tried and skipped or found unreachable, and leave the queue; those questions keep their
   defaults.
+- **Changes:** 2026-10-21 (B-040 game audit, `ERRATA-audit-game.md`, erratum 1, traced in round 90,
+  `ERRATA-round90-traces.md`; reviewed by a spec-review session, 2026-10-21): new "When a unit is converted": in
+  Enhanced a converted unit that isn't held gets its goal again as at creation (a computer player's mobile fighting
+  unit gets a fresh first goal, with the post walk's draws); a held unit keeps its goal. The open question "Units
+  converted during a mission" is answered for conversions; its owner-change default stays.
 
 ## Behaviour
 
@@ -203,6 +208,21 @@ their amount instead, and are excluded, as are oil platforms, `game/setup.md`) g
 
 The held mark is set after the unit is created, so it replaces the first goal only where it sets hold. A map-placed
 unit without the mark keeps the first goal it got when it was created. Finishing a building gives no goal.
+
+**When a unit is converted** (Enhanced; `economy/tech-tree.md`, "Converting units": the ranger, berserker, paladin
+and ogre-mage upgrades and the mission-start conversions of `game/victory.md`): after its type, hit points and mana
+change, a unit that isn't held is treated as just created for its goal. Its goal is cleared (kind none, no tile, no
+needs-a-ferry mark, no assigned transport); then, only for a computer player's unit that is mobile and neither a
+worker nor a tanker, it gets a first goal from the table above. A land unit's post is chosen as above, from the
+player's base box as last rebuilt (at a mission start no pass has built it yet, so it is still in its empty state, as
+for "A land unit's post at map load"), so a line walk that ends off the map makes the 2 draws of step 3. A held unit keeps its goal (and its held mark). The unit's order, stored move goal and target are
+untouched, so a unit that was walking on to an attack keeps walking. The units
+are taken in the owner's unit-list order, so their draws come in that order, in the cycle and phase where the
+conversion runs (an upgrade: when its research job finishes, `economy/build-train.md`; a mission start: at game
+start, before the first start-up cycle). **Classic mode:** a conversion leaves the goal alone (static study).
+
+Evidence: static study (`ERRATA-audit-game.md`, erratum 1); traced in round 90 for both branches (vectors AG1 and
+AG2 below). The off-map post's 2 draws after a conversion aren't traced.
 
 **Boarding.** When a unit goes inside a transport, its needs-a-ferry mark and assigned transport are cleared.
 
@@ -691,6 +711,15 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | A computer land unit created at (20, 20) with its player's 4 × 4 town halls at (10, 10) and (28, 20), in that list order, both in its region (static, round 86 review) | Top-left distances 10 and 8: the post walk starts from the hall at (28, 20) (the reference-tile distances, 7 and 8, would give the hall at (10, 10)) |
 | The target's newest unit F is a 2 × 2 farm at (30, 10); its gold stores, 4 × 4, have top-left tiles (20, 10) and (40, 10), in that list order, both in F's region (static gap-fill, round 86 review) | Seen from (20, 10) the farm's reference tile is (30, 10): distance 10; from (40, 10) it is (31, 10): distance 9. The store at (40, 10) is the reference store (from the farm's top-left tile both are 10 and (20, 10) would win the tie) |
 
+### Round-90 vectors (conversion, traced)
+
+| Input | Expected |
+| --- | --- |
+| **AG1.** `xhuman9-aigoals-goals-8630-8830` (oracle trace, Enhanced; `EXTRAS=aigoals,goals`): computer player 5's axe throwers 1374, 1379 and 1382 (type 0x09), trained in play and so not held, become berserkers (type 0x13) at n = 8730 when the upgrade finishes | Goal hold at (60, 9), (62, 9) and (62, 9) at n = 8630; hold at (59, 9) for all three from n = 8730 (the post a new unit would get). Order 2 and the stored move goal ((60, 9), (62, 9), (62, 9)) are unchanged |
+| **AG2.** `orc13-aigoals-goals-17900-18200` (oracle trace, Enhanced): computer player 3's 20 knights (type 0x06), all placed by the map and held, become paladins (type 0x0C) at n = 17997 | Every one keeps its goal: slot 1470 hold at (28, 115), slot 1475 hold at (66, 110), slot 1476 hold at (68, 110), before and after |
+| **AG3.** `xorc9-aigoals-goals-0` (oracle trace, Enhanced; entry 45, mode Q, setup record): computer player 1's six knights, held, are converted by the mission start | Six paladins, each with the hold goal it got at map load (slot 1511 at (40, 57): hold at (39, 57)) |
+| **AG4.** Enhanced; computer player 1's knight, not held, with goal attack at (40, 40) and order 4 toward it, when the paladin upgrade finishes (static study) | Goal hold at its post; its order 4 and target tile are unchanged |
+
 ## Open questions
 
 - **No dominant owner in hold.** When the unit's block has no dominant owner, the original reads E from outside the
@@ -712,8 +741,9 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
   trace peon 1575's goal tile is (9, 20) from the all-out attack (n = 754), (6, 19) from its farm job at n = 1004
   (still so at n = 1080 and 2291), and (5, 19) after the pass of n = 2401, whose set goal moved it by the ring search,
   as the round-84 review inferred.
-- **Units converted during a mission.** A campaign event that changes units' owner gives non-held units a first goal
-  under a mission flag. Not traced in detail. Default: units that change owner keep their goal.
+- **Units converted during a mission.** Answered for type conversions (B-040 game audit erratum 1, traced in round
+  90): "When a unit is converted". Still open for a campaign event that changes units' **owner**: static study reads
+  the same goal step there (non-held units, Enhanced). Not traced. Default: units that change owner keep their goal.
 - **Escort quirk.** Escort rounds read slot 0x0F of player 0, 1, 2, … in turn rather than the transport owner's.
   Default: implement literally.
 - **Sea escorts.** A sea unit whose goal tile can't be set (different water area) keeps its old goal, so the same

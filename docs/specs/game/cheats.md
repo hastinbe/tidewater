@@ -15,6 +15,9 @@
   and it isn't saved (X2, static study). Whether a load clears it is a new open question (Q5); the default is yes. The
   instant cheats' outcome is found at the next check and shown at the one after (X5). Whether the `title` word also
   skips the title picture is a new open question (Q1).
+- **Changes:** 2026-10-21, round 90 (oracle traces, `ERRATA-round90-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Q1 answered: the `title` word skips the startup videos and the title picture (traced, startup
+  screenshots). Q5 answered: a load doesn't clear the cheat-used mark (traced, `human1-human01-cheat-load-game-50`).
 
 ## Behaviour
 
@@ -112,7 +115,7 @@ Developer words, matched exactly (letter case ignored):
 | Word | Effect |
 | --- | --- |
 | `allowsync` | Toggles a network sync-check setting |
-| `title` | Toggles "skip the startup videos" (`game/campaign-flow.md`, "Startup"; whether it also skips the title picture is an open question) |
+| `title` | Toggles the startup-skip flag: the startup videos and the title picture are skipped, so the program goes straight to the main menu (`game/campaign-flow.md`, "Startup"; traced, round 90) |
 | `noglues` | Toggles "skip the act screen, briefing and score screens" (`game/campaign-flow.md`) |
 | `showpath` | Toggles a debug flag; when it is turned on during a single-player game, fog of war is also turned off (`vision/fog.md`, the fog-off cheat) |
 | `fastdemo` | Toggles a demo-speed setting |
@@ -138,8 +141,9 @@ game. So a cheat typed in one mission doesn't carry into the next, but those thr
 the same three (`game/save-load.md`).
 
 The **cheat-used mark** (the local player used a cheat command: rank 39, `game/campaign-flow.md`) is separate from
-the flags. Every new game start clears it, and it isn't saved (static study, round 88). A load clears it too, so a
-loaded game counts as cheated only for cheats used after the load (default; see "Open questions").
+the flags. Every new game start clears it, and it isn't saved (static study, round 88). A load leaves it as it was in
+the running program: a cheat used earlier in the same program run still counts after loading a save made without one
+(traced, round 90: `human1-human01-cheat-load-game-50`, `human1-human01-unite-saveload-game-650`).
 
 ### Lasting effects
 
@@ -225,7 +229,7 @@ In checking order.
 | "there can be only one" in a *Beyond the Dark Portal* campaign mission | The *Beyond the Dark Portal* finale starts; no notice |
 | "disco" while music plays in a custom orc game | Track 25 after a fade of all sound (`ui/music.md`) |
 | "on screen", then the next mission starts | Reveal is off again |
-| Program started with the argument `title` | Startup videos skipped; the flag stays on across games |
+| Program started with the argument `title` | Startup videos and title picture skipped: the main menu is on screen within 2 s (traced: `oracle/traces/startup/`, `startup-title-45`; without the word, `startup-none-240` shows the videos to about 113 s and the title picture from 115 s to 123 s); the flag stays on across games |
 | "nopalette" during a game | Colour cycling preference toggled; a fixed notice; nothing sent |
 | **G12.** "tigerlily", then "human4" in a single-player mission; no other cheat in the new mission (static study) | Human mission 4 (entry 6) starts; at its score screen the rank isn't entry 39 |
 
@@ -242,11 +246,4 @@ In checking order.
 - **Cheat-used flag on mission select.** Answered (round 88, static study): the game ends before the command is
   carried out, a single-player game start drops the waiting commands, and every new game start clears the mark, so
   the selected mission doesn't count as cheated because of it.
-- **The `title` word and the title picture (round 88, Q1 of `ERRATA-game-consolidation.md`).** Static study finds
-  that the startup-skip flag skips the title picture too, not only the videos. `game/campaign-flow.md`, "Startup",
-  step 2 shows the title unless Ctrl is held. Default: step 2 as written. Trace request GA1.
-- **Cheat-used mark after a load (round 88 review, Q5 of `ERRATA-game-consolidation.md`).** Static study finds that
-  a load doesn't clear the mark, so a cheat used earlier in the same program run makes a loaded game in which no cheat
-  was used end with rank 39. That contradicts `game/campaign-flow.md` ("used a cheat during this mission"). Default:
-  a load clears the mark. Trace request GA5 (needs a save and a load in the oracle harness).
 - **Running game.** Not checked in the running game.

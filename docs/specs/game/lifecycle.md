@@ -12,6 +12,12 @@
   counts with when each is reset, whether it is saved and who reads it. Review (2026-10-21): what a load does to the
   victory countdown, a found outcome and the cheat-used mark is held as open questions (Q4, Q5) with the stated rules
   as the defaults.
+- **Changes:** 2026-10-21, round 90 (oracle traces with save and load, `ERRATA-round90-traces.md`; reviewed by a
+  spec-review session, 2026-10-21): Q1, Q2, Q4 and Q5 are answered by traces, each confirming the static reading: the
+  `title` word skips the title picture, a loaded game's counter starts at 0 again, a load sets the victory countdown
+  to 1 and loses a found outcome, and a load keeps the cheat-used mark. The fog refresh countdown isn't saved
+  (traced) and a loaded game is never paused (static gap-fill). Q3 stays held: the round-90 trace doesn't decide it.
+  G06 and G07 now state the traced results.
 
 ## Behaviour
 
@@ -54,7 +60,7 @@ next game. This spec says how the pieces fit; each rule is in the spec named nex
 4. **Game start**: a new game from the map (`game/setup.md`, steps 1 to 9) or a loaded game (`game/save-load.md`).
    "How a game starts" below compares the two.
 5. **The two start-up cycles**, run at once, then normal cycles on the scheduler (`core/timing-and-rng.md`,
-   "Scheduler"). Both kinds of game start run them (static study).
+   "Scheduler"). Both kinds of game start run them (static study; traced for a load, round 90).
 6. **Play.** Commands, cheats, pause, saves and the game menu act during play (see "Where players act").
 7. **Outcome.** The victory check decides the outcome (`game/victory.md`). In single player it shows at the next
    check, 201 cycles after the check that found it. Surrender and quit from the game menu give a defeat at once
@@ -74,7 +80,7 @@ marks rules the old text didn't state.
 | Step | New game (from a map) | Loaded game |
 | --- | --- | --- |
 | Cheat flags | All cleared except mission select, the startup-skip flag and the skip setting (`game/cheats.md`, "Flags across games") | The same |
-| Cheat-used mark (rank 39) | Cleared (static study) | Not saved (static study). Cleared, so only cheats used after the load count (default; the static study finds a load doesn't clear it: `game/cheats.md`, "Open questions", Q5) |
+| Cheat-used mark (rank 39) | Cleared (static study) | Not saved (static study) and not cleared: it stays as the running program left it (traced, round 90) |
 | Campaign total | Reset to 0 for multiplayer, custom games and the first mission of a campaign; otherwise carried over (`game/campaign-flow.md`, "Campaign total") | Restored from the save |
 | Mission scores and the score screen's statistics | Start at 0 (`game/campaign-flow.md`) | Restored from the save (Enhanced) |
 | Rescued counts | Set to 0 for every player (static study) | Restored from the save |
@@ -82,11 +88,14 @@ marks rules the old text didn't state.
 | Map, players, units, resources, alliances | Read from the map (`game/setup.md`) | Restored from the save |
 | Music track | Chosen (`ui/music.md`) | Restored from the save |
 | Random numbers | Seeded (`core/timing-and-rng.md`) | Seeded the same way (`game/save-load.md`) |
-| Mission start (`game/victory.md`, "Mission start") | Runs once, before the first check | Not repeated (default; the static study finds it runs again: `game/save-load.md`, "Open questions", Q3) |
-| Victory check's rule | Chosen from the mode | The saved rule, with any switch made before the save |
-| Victory countdown and a found outcome | Countdown set to 1 (1,400 for demo playback); no outcome | Restored: the countdown goes on from its saved value and an outcome found but not yet shown is kept (default; the static study finds the countdown set to 1 and the outcome lost: `game/save-load.md`, "Open questions", Q4) |
-| Start-up cycles | Two | Two (static study) |
-| Cycle counter | 0 when the first normal cycle starts | Kept in Enhanced (default; the static study finds it starts at 0 again: `game/save-load.md`, "Open questions", Q2) |
+| Mission start (`game/victory.md`, "Mission start") | Runs once, before the first check | Its effects aren't repeated (default; the static study finds they are: `game/save-load.md`, "Open questions", Q3, still held) |
+| Victory check's rule | Chosen from the mode | Chosen from the saved mode, which keeps any switch made before the save |
+| Victory countdown and a found outcome | Countdown set to 1 (1,400 for demo playback); no outcome | The same as a new game: countdown 1, and an outcome found but not yet shown is lost (traced, round 90) |
+| Fog refresh countdown | Set so that the first start-up cycle refreshes | The same; the saved value isn't used (traced, round 90) |
+| Pause | Not paused | Not paused: the pause isn't saved (static study, round 90 review) |
+| Start-up cycles | Two | Two (traced, round 90) |
+| Cycle counter | 0 when the first normal cycle starts | The same: 0 again, whatever was saved (traced, round 90) |
+| Creation numbers | From 1, one per created unit (`core/unit-slots.md`) | Every unit's number becomes its slot number plus one (traced, round 90) |
 | Game clock and pause counts | Start at 0 | Restored (Enhanced) |
 
 ### Where players act
@@ -114,7 +123,7 @@ The phases are in `core/timing-and-rng.md`. The game-level work in each:
 | 9 | The cycle counter | `core/timing-and-rng.md` |
 
 The victory countdown counts every cycle that runs, the two start-up cycles included, so the first check of a new
-game falls in the second start-up cycle (`game/victory.md`, "When the check runs"; for a loaded game see Q4).
+game, and of a loaded one, falls in the second start-up cycle (`game/victory.md`, "When the check runs").
 
 ### Per-game counts
 
@@ -125,10 +134,11 @@ game falls in the second start-up cycle (`game/victory.md`, "When the check runs
 | Mission score | Each new game | Yes (Enhanced) | Added to the campaign total at the score screen |
 | Kills, razings, units and buildings lost, resources gathered | Each new game | Yes (Enhanced) | Score screen statistics |
 | Rescued counts | Each new game, for every player (static study) | Yes | Victory rules (`game/victory.md`, `game/rescue.md`) |
-| Cheat-used mark | Each new game (static study); a load too (default, Q5) | No (static study) | Score screen rank |
+| Cheat-used mark | Each new game (static study); not at a load (traced) | No (static study) | Score screen rank |
 | Cheat flags | Every game start, except three flags | No | `game/cheats.md` |
-| Victory countdown, found outcome | Each new game (a load restores them: default, Q4) | Yes (default, Q4) | Victory check timing |
-| Cycle counter | Each new game (a load keeps it in Enhanced: default, Q2) | Yes (Enhanced) | Only the network sync check and saving; no rule depends on its value |
+| Victory countdown, found outcome | Every game start, a load included (traced) | No (traced) | Victory check timing |
+| Fog refresh countdown | Every game start, a load included (traced) | No (traced) | Fog refresh timing |
+| Cycle counter | Every game start, a load included (traced) | Written in Enhanced, but a load doesn't use it (traced) | Only the network sync check and saving; no rule depends on its value |
 | Game clock, pause counts | New game | Yes (Enhanced) | Game menu (`ui/game-menu.md`) |
 
 ### Rules mode
@@ -155,18 +165,17 @@ count, clock, pause counts or score counters (`game/save-load.md`); the fog refr
 | **G03.** Demo playback (static study) | The countdown starts at 1,400; the first check, which ends the demo, runs in the 1,401st cycle, the two start-up cycles included |
 | **G04.** Single player, no pause, "unite the clans" carried out at counter 100 (static study) | The check at counter 201 finds the victory; the victory dialog opens at the check at counter 402 |
 | **G05.** Cheat typed in mission 3, mission lost, mission 3 replayed without cheats | Rank entry is not 39 in the replay: the cheat-used mark is cleared at every new game (static study) |
-| **G06.** A cheat is typed in one game; then, in the same program run, a saved game in which no cheat was used is loaded and won (default; held, Q5) | Rank isn't entry 39: the load clears the mark (the static study predicts entry 39) |
-| **G07.** Single player; victory found at a check, the game saved before the next check, then loaded (default; held, Q4) | The found outcome is kept: the victory dialog opens at the first check after the load, when the saved countdown runs out (the static study predicts the outcome is lost and found again only if the game state still gives it) |
+| **G06.** A cheat is typed in one game; then, in the same program run, a saved game in which no cheat was used is loaded and won | Rank entry 39: the load keeps the mark (traced for the mark: `human1-human01-cheat-load-game-50`; the rank follows from `game/campaign-flow.md`) |
+| **G07.** Single player; victory found at a check, the game saved before the next check, then loaded. Traced: `human1-human01-unite-saveload-game-650` ("unite the clans" carried out in record n = 101, the victory found at the check at counter 201, saved in record n = 253, loaded) against its control `human1-human01-unite-control-game-600` | The found outcome is lost: no victory at the loaded game's checks in the second start-up cycle and at counter 201, 402 and 603 (the instant-victory flag isn't saved, so it isn't found again). The control shows the victory at the check at counter 402 |
 
 ## Open questions
 
-The open questions of this area are in the part specs. The round-88 ones, each with the stated rule as the default
-and a trace request:
+The open questions of this area are in the part specs. The round-88 ones and their state after the round-90 traces:
 
-| Q | Question | Default | Where |
+| Q | Question | Answer or default | Where |
 | --- | --- | --- | --- |
-| Q1 | Does the `title` word skip the title picture? | No: only Ctrl skips it | `game/campaign-flow.md` |
-| Q2 | Does a loaded Enhanced game's cycle counter start at 0 again? | No: kept | `game/save-load.md`, `core/timing-and-rng.md` |
-| Q3 | Does a load run the mission start again? | No | `game/save-load.md`, `game/victory.md` |
-| Q4 | Does a load set the victory countdown to 1 and drop a found outcome? | No: both restored | `game/save-load.md`, `game/victory.md` |
-| Q5 | Does a load clear the cheat-used mark? | Yes | `game/cheats.md` |
+| Q1 | Does the `title` word skip the title picture? | **Answered (traced): yes** | `game/campaign-flow.md` |
+| Q2 | Does a loaded Enhanced game's cycle counter start at 0 again? | **Answered (traced): yes** | `game/save-load.md`, `core/timing-and-rng.md` |
+| Q3 | Does a load repeat the mission start's effects? | **Still held.** Default: no. Trace request GA3b | `game/save-load.md`, `game/victory.md` |
+| Q4 | Does a load set the victory countdown to 1 and drop a found outcome? | **Answered (traced): yes** | `game/save-load.md`, `game/victory.md` |
+| Q5 | Does a load clear the cheat-used mark? | **Answered (traced): no** | `game/cheats.md` |

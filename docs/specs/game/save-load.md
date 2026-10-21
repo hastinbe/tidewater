@@ -3,7 +3,7 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-12)
 - **Sources:** static study of the 2.02 program (research notes under `research/notes/`, "Round 29 (save and load;
   gap 9)"), the dialog files `Rez\savegame.bin`, `Rez\loadgame.bin` and `Rez\loadgamt.bin`, and `Rez\network.tbl`
-  (entries cited by number, from 1). Not yet confirmed against the running game.
+  (entries cited by number, from 1), and the round-90 oracle traces with save and load (named at each rule).
 - **Changes:** 2026-10-21, round 88 (B-038 consolidation of the game area, `ERRATA-game-consolidation.md`, reviewed by a
   spec-review session, 2026-10-21): a loaded game runs the two start-up cycles (X3, static study); the cheat-used mark
   isn't saved, and the campaign total and rescued counts are (X2, X7, X12, static study). Four static findings that
@@ -15,6 +15,13 @@
 - **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
   session, 2026-10-21): "What a saved game keeps" lists the players' results, dropped marks, the Battle.net tie mark
   and the slot controllers (static study).
+- **Changes:** 2026-10-21, round 90 (oracle traces with save and load, `ERRATA-round90-traces.md`; reviewed by a
+  spec-review session, 2026-10-21, see its "Review"): three held questions are settled by traces. A loaded game counts
+  its cycles from 0 again (Q2), sets the victory countdown as a new game does and loses an outcome found but not yet
+  shown (Q4), and leaves the cheat-used mark as it was in the running program (Q5). The fog refresh countdown isn't
+  saved (`ERRATA-audit-game.md` erratum 3, traced), a loaded game is never paused (erratum 6, static gap-fill), and
+  every unit's creation number is renumbered (traced observation). The mission start after a load (Q3) stays held:
+  the round-90 trace can't tell the two readings apart (see "Open questions").
 
 ## Behaviour
 
@@ -151,20 +158,18 @@ questions"). Other saves make no draw.
 
 ### What a saved game keeps
 
-A saved game keeps everything that decides how the game goes on, including:
+A saved game keeps everything that decides how the game goes on, apart from what "What a loaded game starts afresh"
+lists, including:
 
 - the map, its terrain and its explored and seen state;
 - every unit and building, with their orders, and missiles and corpses;
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
-- the game cycle count and the game clock (Enhanced only; for the cycle count see "Open questions", "Cycle count
-  after a load");
+- the game clock (Enhanced only). The cycle count is written but not kept: see "What a loaded game starts afresh";
 - each player's pause count (Enhanced only);
 - each player's score counters (Enhanced only);
 - the campaign total (`game/campaign-flow.md`, "Campaign total"; static study, round 88);
 - each player's rescued count (`game/rescue.md`; static study, round 88);
-- the victory countdown and an outcome a check has found but not yet shown (`game/victory.md`; default, see "Open
-  questions", "Victory countdown after a load");
 - which colour cycles are on (`ui/palette-effects.md`);
 - the music track (`ui/music.md`);
 - the screen's map position;
@@ -179,16 +184,37 @@ A saved game keeps everything that decides how the game goes on, including:
 - **Cheats.** Cheat flags aren't saved. A loaded game starts with the flags that carry across games, as for a new
   game (`game/cheats.md`, "Flags across games"). The map-reveal cheat is never kept. The cheat-used mark that gives
   rank 39 (`game/campaign-flow.md`, "The score screen") isn't saved either (static study, round 88), and a load
-  clears it, as a new game start does, so only cheats used after the load count (default; see `game/cheats.md`,
-  "Open questions", "Cheat-used mark after a load").
+  doesn't clear it: it stays as it was in the running program, so a cheat used earlier in the same program run still
+  counts after loading a save made without one (traced, round 90: `human1-human01-cheat-load-game-50`, the mark is 0
+  in the save, 1 from a cheat after it, and still 1 in the loaded game's setup record).
 - **Start-up cycles.** A loaded game starts like any game: the two start-up cycles run (`core/timing-and-rng.md`,
-  "Scheduler"; static study, round 88). They are full cycles, so the restored victory countdown counts them. The
-  check applies the saved rule, with any switch made before the save (`game/victory.md`, "Outcome timing").
+  "Scheduler"; static study, round 88; traced, round 90).
+- **Cycle count.** A loaded Enhanced game counts its cycles from 0 again: after its two start-up cycles the counter is
+  0, as in a new game, whatever it was when the game was saved (traced, round 90: `human1-human01-saveload-game-300`,
+  saved at counter 342; the loaded game's first normal cycle ends with the counter at 1). Only the network sync check
+  and saving read the count.
+- **Victory countdown.** The countdown starts as in a new game (1, so the first check after a load runs in the second
+  start-up cycle, then at counter 201, 402, …), whatever it was when the game was saved. An outcome a check had found
+  but not yet shown is lost; a later check finds it again only if the game state still gives it, which an
+  instant-cheat outcome doesn't, since the cheat flags aren't saved. The check's rule comes from the saved mission
+  rule, which keeps any switch made before the save (`game/victory.md`, "Outcome timing"). Traced, round 90:
+  `human1-human01-saveload-game-300` (saved with the countdown at 59; 1 in the loaded game's setup record, then as a
+  new game) and `human1-human01-unite-saveload-game-650` (no victory after the load; see G07 in `game/lifecycle.md`).
+- **Fog refresh countdown.** It isn't saved: a loaded game refreshes the fog in its first start-up cycle, as a new game
+  does, then every 100 cycles (`core/timing-and-rng.md`, phase 3; traced, round 90: `human1-human01-saveload-game-300`,
+  saved with the countdown at 57, refreshes in the loaded game's first start-up cycle).
+- **Pause.** A loaded game is never paused: the pause isn't saved, and every game start clears it, so a game saved
+  while paused loads running (static study, `ERRATA-audit-game.md` erratum 6; a labelled gap-fill, untraced).
+- **Creation numbers.** Every unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3) is its slot
+  number plus one after a load, whatever it was before; every other unit field is as saved (traced, round 90, in
+  both loads checked: 12 units in `human1-human01-saveload-game-300` and 200 in
+  `xhuman9-xhuman9-runestone-saveload-game-60`, for example slot 1547's number 53 became 1548). What number the next
+  unit created after a load gets isn't traced (see "Open questions").
 - **Classic saves.** A Classic multiplayer save doesn't keep the cycle count, the clock, the pause counts or the score
   counters. The cycle count starts again at 0.
 - **New-game set-up isn't repeated.** A loaded game doesn't reset resources, re-place players or choose a new music
-  track. It doesn't repeat the mission start of `game/victory.md` either (default; see "Open questions", "Mission
-  start after a load").
+  track. It doesn't repeat the mission start's effects of `game/victory.md` either (default; see "Open questions",
+  "Mission start after a load").
 - **Colour cycling** steps start counting again from the moment the game starts.
 - **Preferences** such as game speed aren't part of a saved game.
 - **Multiplayer players.** When a multiplayer save is loaded, the saved players are matched to the players now in the
@@ -258,7 +284,10 @@ stays in the running game.
 | Load a campaign save | No act screen, no briefing; the saved music track plays |
 | Load the same save twice and do the same things | The random results differ between the two runs |
 | Save with the reveal cheat on, then load | The map isn't revealed after the load |
-| **G11.** Load an Enhanced single-player save made with the victory countdown at 50 | Two start-up cycles run (static study); the first check after the load runs in the 51st cycle after it, the start-up cycles included, then every 201 cycles (default; held, Q4: the static study predicts the second start-up cycle) |
+| **G11.** Load an Enhanced single-player save made with the victory countdown at 50 | Two start-up cycles run; the first check after the load runs in the second start-up cycle, then at counter 201, 402, …, as in a new game (traced with a save at countdown 59: `human1-human01-saveload-game-300`) |
+| **G17.** `human1-human01-saveload-game-300` (oracle trace, Enhanced): Human01 saved after the cycle that ends with the counter at 342 (fog countdown 57, victory countdown 59), then loaded | The loaded game's setup record has victory countdown 1; first start-up cycle: fog refresh (fog countdown 0); second start-up cycle: fog countdown 99, victory countdown 200; first normal cycle: counter 1, fog countdown 98, victory countdown 199, the same values as the new game's first three records |
+| **G18.** Pause a single-player game, save from the game menu, load (static study) | The loaded game runs |
+| **G19.** `human1-human01-cheat-load-game-50` (oracle trace): saved with the cheat-used mark clear, then "on screen" twice, then that save loaded | The mark is 1 in the loaded game; the mission would rank 39 |
 
 ## Open questions
 
@@ -284,16 +313,13 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
-- **Cycle count after a load (round 88, Q2 of `ERRATA-game-consolidation.md`).** Static study finds that the cycle
-  count is saved and restored in Enhanced, but every game start, a loaded one included, sets it to 0 again after the
-  two start-up cycles, so a loaded game counts from 0. No rule reads the count except the network sync check and
-  saving. Default: kept, as above. Trace request GA2.
-- **Mission start after a load (round 88, Q3).** Static study finds that the mission start runs again after a load
-  (see `game/victory.md`, "Open questions"). Default: not repeated. Trace request GA3.
-- **Victory countdown after a load (round 88 review, Q4).** Static study finds that a loaded game sets the victory
-  countdown to 1 and chooses the check's rule afresh, as a new game does, so the first check runs in the second
-  start-up cycle and an outcome found but not yet shown is lost (found again only if the game state still gives it;
-  an instant-cheat outcome isn't, since the cheat flags aren't saved). That contradicts "everything that decides how
-  the game goes on" above. Default: both are saved and restored. Trace request GA4 (needs a save and a load in the
-  oracle harness).
-- **Running game.** None of this has been watched in the running game.
+- **Mission start after a load (round 88, Q3; still held after round 90).** Static study finds that a load runs the
+  mission start's effects again (see `game/victory.md`, "Open questions"). The round-90 trace
+  (`xhuman9-xhuman9-runestone-saveload-game-60`, mode AB) doesn't decide it: the damaged runestone had been destroyed
+  (it was a ruin) before the save, so neither reading touches it, and the other five runestones were at 400 already.
+  Default: not repeated. Trace request GA3b: entry 44, damage a runestone without destroying it, save, load, and read
+  its hit points in the loaded game.
+- **Next creation number after a load.** No trace creates a unit after a load. Default: the next unit gets the
+  largest creation number in use plus one.
+- **Running game.** The save and load rules above that say "traced" were watched in the running game (round 90);
+  the rest wasn't.

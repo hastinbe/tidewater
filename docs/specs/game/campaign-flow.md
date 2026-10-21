@@ -43,6 +43,10 @@
   restart doesn't show the act screen again for the same act (X8). The whole program flow, from startup to the next
   mission, is in the new model, `game/lifecycle.md`.
 
+- **Changes:** 2026-10-21, round 90 (oracle traces, `ERRATA-round90-traces.md`; reviewed by a spec-review session,
+  2026-10-21): "Startup": the startup-skip flag skips the title picture too (Q1, traced with the startup
+  screenshots; the open question is closed). The rank's cheat-used mark can come from before a load (Q5, traced).
+
 - **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
   session, 2026-10-21): "After the score screen": a Battle.net game returns to the Battle.net screens (static study);
   for the other connections the row stays "the multiplayer screens" (held; static study reads the main menu, MS3).
@@ -105,15 +109,19 @@ Videos are played full screen from the `Smk` folder. Any key or mouse click skip
 
 ### Startup
 
-1. Unless Ctrl is held (or the startup-skip flag is on: the `title` developer word, `game/cheats.md`, "Word codes"),
+1. Unless Ctrl is held or the startup-skip flag is on (the `title` developer word, `game/cheats.md`, "Word codes"),
    video 0 plays. Then, if the movie archive is
    available and the "play the intro" preference bit is set, the bit is cleared and video 1 plays. So the intro
    plays once, on the first start.
-2. Unless Ctrl is held (whether the startup-skip flag also skips this step is an open question, "Startup-skip flag
-   and the title"), the title picture `Art\Title_Rel_BNE.pcx` fades in over 250 ms, music track 22 starts, and
+2. Unless the startup-skip flag is on or Ctrl is held (Ctrl is tested again here, so Ctrl pressed during the videos
+   skips the title too; static study), the title picture `Art\Title_Rel_BNE.pcx` fades in over 250 ms, music track 22 starts, and
    the title stays for 100 menu-timer ticks (about 9.8 to 9.9 s; the first tick comes at once) or until a key or
    click (Shift, Ctrl and Alt don't count). It then fades out over 250 ms, or at once (1 ms) if a key or
    click ended it.
+
+   Traced (round 90, `oracle/traces/startup/`, nothing pressed): with only the `title` word the main menu is on screen
+   at 2 s and nothing else is shown; with no words the videos play to about 113 s, the title picture shows from about
+   115 s to 123 s, then the main menu. The Ctrl tests aren't traced.
 3. The main menu opens. It is drawn over its own picture, `Art\TitleMenu_BNE.pcx`, in that picture's palette, not
    over the title picture (`ui/screen-and-cursors.md`, "Menu screens"; observed, round 73).
 
@@ -296,8 +304,8 @@ After a victory or a defeat the score screen is shown, unless the skip setting i
    - The entry is 2i + 1 + race.
    - If the local player used a cheat during this mission, the entry is 39 instead. "During this mission" means
      since the last game start: the cheat-used mark is cleared by every new game start, a replay and a restart
-     included, and it isn't saved (static study, round 88); a load clears it too (default; `game/cheats.md`, "Flags
-     across games" and "Open questions").
+     included, and it isn't saved (static study, round 88). A load doesn't clear it, so a cheat used earlier in the
+     same program run, before the load, also counts (traced, round 90; `game/cheats.md`, "Flags across games").
 6. **Closing.** Esc, Enter, Space or the button close the screen. A quit request quits the program.
 
 **Mission score.** Each player has a mission score, 0 at the start of a game. When a unit of one player kills a unit
@@ -507,7 +515,3 @@ the next one is due at the same moment.
 - **Campaign total on restart.** Whether a restart from the game menu puts the campaign total back to its value at
   the start of the mission, as a defeat does, wasn't traced. Default: yes.
 - **Title music.** Track 22 is the same file as the orc briefing track. This wasn't checked by ear.
-- **Startup-skip flag and the title (round 88, Q1 of `ERRATA-game-consolidation.md`).** Static study finds that the
-  startup-skip flag (the `title` word) skips everything of "Startup" before the main menu: video 0, the one-time intro
-  and the title picture, and that Ctrl is tested once more before the title picture. Step 2 above shows the title
-  unless Ctrl is held. Default: step 2 as written. Trace request GA1.

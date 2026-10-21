@@ -2,6 +2,8 @@
 
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-21; round 89, B-057). The review's rulings are in
   `ERRATA-round89-multiplayer.md`, "Review".
+- **Changes:** 2026-10-21, round 90 (oracle traces, `ERRATA-round90-traces.md`; reviewed by a spec-review session,
+  2026-10-21): the chat-room knock-out is traced at the check (result only, the slot stays human); vector LV15.
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the dialog files `rez\timeout.bin`, `rez\btimeout.bin`, `rez\surrendr.bin`, `rez\quitdraw.bin` and
   `rez\chatrtrn.bin`, and the tables `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running
@@ -115,7 +117,10 @@ The multiplayer rule of `game/victory.md` runs on every machine at the same cycl
 
 - **A "nobody" slot that still has units or buildings is "in", but counts as neither a human nor a computer player.**
   So it never blocks a victory: the remaining human players can win while the leaver's units still stand.
-- **A slot with nothing left** is "out" and, if it has no result yet, gets the "defeat" result.
+- **A slot with nothing left** is "out" and, if it has no result yet, gets the "defeat" result. Seen in a Direct
+  Connect trace (round 90, LV15): a defeated human's slot stayed human at the check and became "nobody" 16 cycles
+  later, outside a check. That is most likely that player's own leave after its defeat (the second machine isn't
+  traced).
 - **The conversion** (step 2 and step 3 of the multiplayer rule: "nobody", shared vision, order 32) happens **only in a
   Battle.net game**. In a chat-room game the check only sets the result.
 - **L out.** When L is out, L's machine ends its game with a defeat at once. Every other machine marks L out at the
@@ -274,6 +279,7 @@ All static study. Enhanced unless labelled.
 | LV12. Battle.net, second wait 30 s after a first one closed with 20 s left | Countdown starts at 18 s |
 | LV13. Chat-room game, four humans, host (player 0) leaves; players 1, 2 and 3 remain, all can host | Player 1 becomes the host; player 2 choosing Return to the chat room sees network entry 28 with player 1's name |
 | LV14. Chat-room game, host chooses Return to the chat room | Every machine ends the game in the same turn, no score screen; the host is in the creator's chat room, the others in the joiners' |
+| LV15. `mp-rose-petal-bne-game-21300` (oracle trace, Enhanced, Direct Connect): the traced human in slot 4, four computers, the idle human B in slot 0 whose only unit, a peon, dies at about n = 21000 (traced) | At the check at counter 21105 (record n = 21107) B gets "defeat" and its controller stays human; at n = 21123, not at a check, B's slot becomes "nobody" (B's leave, inferred). No slot gets "game ended" |
 
 ## Open questions
 

@@ -28,6 +28,9 @@
   session, 2026-10-21): "Custom choices": fog of war is a multiplayer lobby choice only, and the single-player custom
   screen never sets fixed start positions (dialog file and static study; with `ERRATA-audit-vision.md` erratum 1's
   setup half). The custom step 3 rule for fixed starts is kept as what the setting does.
+- **Changes:** 2026-10-21, round 90 review (`ERRATA-audit-game.md`, erratum 9; static gap-fill for network games):
+  an active rescue slot is allied with every human-controlled slot, not only the local player. In single player the
+  local player is the only one, so nothing changes there.
 
 ## Behaviour
 
@@ -205,11 +208,14 @@ The alliance table holds, for every ordered pair of slots (a, b), whether a coun
 "allied" everywhere. Then every pair of different slots a and b from 0 to 14 is set to "not allied", unless:
 
 - either slot has code 6 (passive rescue), or
-- one is the local player and the other has code 7 (active rescue), or
+- one is a human-controlled slot and the other has code 7 (active rescue), or
 - both are computer players.
 
 So slot 15 (neutral) counts everyone as allied and everyone counts it as allied, every slot counts itself as allied,
-computer players are allied with each other, and the local player is allied with the rescue players. Passive computer
+computer players are allied with each other, and the human players are allied with the rescue players. In single
+player the only human-controlled slot is the local player. In a network game every human slot is allied both ways
+with every code-7 slot, on every machine (static study, `ERRATA-audit-game.md` erratum 9; untraced, trace request
+GT5). Passive computer
 players and nobody slots are allied with no one but rescue (passive) slots, neutral and themselves. The mission start
 (`game/victory.md`) may change some entries afterwards.
 
@@ -385,6 +391,7 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 | `mp-gold-rush-bne-fixed-6000` (oracle trace, Enhanced): Gold Rush BNE, Fixed Order, start seed 1, humans in lobby rows 0 and 1, rows 2 and 3 set to Computer | Humans in slots 0 and 1, computers in slots 2 and 3; no placement draw: the setup's 164 draws are the unit-creation draws alone (setup `rng` 0x0452EB91) |
 | `mp-dark-paths-bne-fixed-1000` and `mp-rose-petal-bne-fixed-3000` (oracle traces, Enhanced), Fixed Order, 1 and 4 Computer rows | Computers in slot 2, and in slots 2 to 5; 26 and 86 setup draws, the unit-creation draws alone (their random-start twins make 28 and 91) |
 | Multiplayer with Fixed Order, row 3 set to Computer, map slot 3 has code 3 | No computer in slot 3 (static study) |
+| **G23.** Network game, humans in slots 0 and 1, code 7 in slot 2 (static study) | Slot 2 allied both ways with slot 0 and with slot 1, on every machine |
 | **G14.** A map whose `MTXM` section comes before its `OWNR` section in the file (static study) | The header reading skips `MTXM`; the body reading starts at the beginning again, skips `OWNR` and the other header sections as unknown, and reads `MTXM` |
 
 ## Open questions

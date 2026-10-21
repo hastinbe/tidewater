@@ -21,6 +21,9 @@
 - **Changes:** 2026-10-12, round-40 errata: a killed building makes a kind-0x17 explosion at its centre, 8 px up, in the
   lowest free effect slot (not walls or a building with the used mark); `human5` and `xhuman2` vectors.
 - **Changes:** 2026-10-13, round-50 errata: a dying unit keeps the target recorded when it dies, which may be none.
+- **Changes:** 2026-10-21 (B-040 game audit erratum 1 and round-90 traces; reviewed by a spec-review session,
+  2026-10-21): step 6's goal step also runs when a unit that isn't held is converted (Enhanced); a load renumbers
+  every unit's creation number (`game/save-load.md`).
 
 ## Behaviour
 
@@ -72,7 +75,8 @@ Every unit slot belongs to exactly one owner list at all times.
    (step 1).
 3. **Reset:** the slot's contents are cleared, except its list link and its fixed slot identity. The unit then gets
    the next **creation number**, a counter that starts at 1 when the map starts and goes up by 1 per created unit.
-   The counter isn't reused. Its hit points are set to its type's hit points from the unit data, or to 1 if that
+   The counter isn't reused. A loaded game renumbers its units: each one's creation number becomes its slot number
+   plus one (traced, round 90; `game/save-load.md`). The new unit's hit points are set to its type's hit points from the unit data, or to 1 if that
    value is 0 (in the default data: types 0x22, 0x30, 0x36, 0x5D oil patch, 0x5E, 0x5F and 0x64). A unit under
    construction starts from this value too; `economy/build-train.md` then sets its hit points as it builds.
    Its facing is 0, and its mana byte is its type's "magic" value from the unit data (in the default data 1 for
@@ -95,6 +99,8 @@ Every unit slot belongs to exactly one owner list at all times.
 6. **First goal:** after the unit's first order is set and before the extra first-wait draw, the unit's AI goal is
    cleared and the first-goal rule of `ai/attack-ai.md` ("Unit goals") runs. This applies to every created unit,
    the map's units included. Its only draws (a land unit's post, off-map case) therefore come before the wait draw.
+   The same goal step runs again, without the other steps, when a unit that isn't held is converted to another type
+   in Enhanced (`economy/tech-tree.md`, "Converting units"; `ai/attack-ai.md`, "When a unit is converted").
 
 On a fresh map, therefore:
 

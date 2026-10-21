@@ -19,6 +19,8 @@
   is a turn command that ends the game for everyone; a quit (draw) is reported to Battle.net as a draw for everyone.
   Both open questions are closed: the Network button, and what others see after a quit (draw): network entry 111 "%s
   has left the game." in the message list (`net/leave-and-drop.md`). All static study.
+- **Changes:** 2026-10-21, round 90 review (`ERRATA-audit-game.md`, erratum 6; static gap-fill): the pause isn't
+  saved; a loaded game always starts running.
 
 ## Behaviour
 
@@ -208,7 +210,8 @@ Pause and resume are synced commands (`ui/selecting-and-commanding.md`), in sing
   player's name and the pauses that player has left after this one.
 
 A paused game runs no game cycles (`core/timing-and-rng.md`, for what the clock does). The pause button changes to the
-resume button (`ui/screen-and-cursors.md`). Enhanced saved games keep each player's pause count (`game/save-load.md`).
+resume button (`ui/screen-and-cursors.md`). Enhanced saved games keep each player's pause count (`game/save-load.md`), but not the pause itself: a loaded game
+always starts running (static study, round 90 review).
 
 **Greyscale while paused.** When the game pauses, the whole palette is shown in grey. Each colour becomes a grey of
 level floor(77 × red / 256) + floor(151 × green / 256) + floor(28 × blue / 256). Each term is rounded down on its

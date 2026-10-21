@@ -11,6 +11,10 @@
 - **Changes:** 2026-10-16 (B-040 build and train audit, `ERRATA-audit-buildtrain.md`, erratum 16; static study;
   reviewed by a spec-review session, 2026-10-16): the audit's reading that the "being researched" bits are toggled,
   not cleared, is held as an open question; no rule change.
+- **Changes:** 2026-10-21 (B-040 game audit, `ERRATA-audit-game.md`, erratum 1, traced in round 90,
+  `ERRATA-round90-traces.md`; reviewed by a spec-review session, 2026-10-21): "Converting units": in Enhanced a
+  converted unit that isn't held loses its goal, and a computer player's mobile fighting unit gets a fresh first goal,
+  which can make random draws; a held unit keeps its goal.
 
 ## Behaviour
 
@@ -192,9 +196,29 @@ The refund is the job's full cost, gold, lumber and oil, as the upgrade data giv
 "The owner's X become Y" goes over all of that player's units:
 
 - A unit of type X that isn't dead, removed or inside something changes type in place. It keeps its position,
-  orders and other state. Its hit points go up by (Y's maximum − X's maximum), each maximum counted as at least 1.
-  Its mana is set to Y's "magic" value in the unit data, or to **85** if Y can cast spells (unit flag bit 17), in
-  which case its mana counter also starts at 40 (mana regeneration is in a later spec).
+  orders and other state, except its goal (below). Its hit points go up by (Y's maximum − X's maximum), each maximum
+  counted as at least 1. Its mana is set to Y's "magic" value in the unit data, or to **85** if Y can cast spells
+  (unit flag bit 17), in which case its mana counter also starts at 40 (mana regeneration is in a later spec).
+- **Its goal (Enhanced).** Then, if the unit isn't **held** (`ai/attack-ai.md`, "Held units"), its goal is cleared
+  and given again exactly as when a unit is created (`core/unit-slots.md`, "Creating a unit", step 6; `ai/attack-ai.md`,
+  "When a unit is created"): goal kind none, no goal tile, the needs-a-ferry mark and the assigned transport cleared;
+  then, if its owner is a computer player and the unit is mobile and neither a worker (bit 8) nor a tanker (bit 9), it
+  gets its first goal by the same table (transport: ferry; sea unit: sea patrol; air unit: roam; any other: hold at
+  its post). A land unit's post is chosen as for a new unit, from the player's current base box, so its line walk can
+  end off the map and make **2 draws** (x, then y). A human player's unit, a worker or a tanker is left with no goal
+  and makes no draw. A **held** unit keeps its goal and its held mark. Nothing else changes: the unit's order, its
+  stored move goal and its target stay as they were. Units are converted, and so make their draws, in the order of the
+  owner's unit list. **Classic mode:** the goal is left alone (static study).
+
+  This covers every conversion: the ranger, berserker, paladin and ogre-mage upgrades below, and the mission-start
+  conversions of modes D, Q, AA and AD (`game/victory.md`, "Mission start"). Evidence: static study
+  (`ERRATA-audit-game.md`, erratum 1), traced in round 90 for both branches. Not held:
+  `xhuman9-aigoals-goals-8630-8830`, computer player 5's axe throwers 1374, 1379 and 1382 (trained in play, so not
+  held) become berserkers at n = 8730; their goal changes from hold at (60, 9), (62, 9) and (62, 9) to hold at
+  (59, 9) for all three, the post a new unit would get, while their order (2) and stored move goal stay. Held:
+  `orc13-aigoals-goals-17900-18200`, computer player 3's 20 map-placed, held knights become paladins at n = 17997 and
+  every one keeps its goal (for example slot 1470, hold at (28, 115)). The 2 draws of an off-map post weren't traced
+  (no post walk left the map).
 - A **barracks** (either race) that is working on a job for type X now works on type Y. The progress is kept, and Y
   is created when the job finishes. Its cost was already paid as X; a cancel then refunds Y's cost.
 
@@ -368,6 +392,12 @@ Default upgrade data unless stated.
 | Same upgrade finishes but its bit was already cleared by a duplicate job | no conversion and no spell |
 | Cancel a spell job whose bit is set | full refund of the spell's cost |
 | Holy vision research (time 0) | job of 0 steps; ends on its first run, 13 cycles after it takes over (`economy/build-train.md`) |
+| **TC1.** Enhanced; computer player 1 has a knight, not held, with goal attack at (40, 40), and finishes the paladin upgrade (static study) | The knight becomes a paladin with goal hold at its post (from its nearest gold store toward the nearest enemy, as for a new unit); its order is unchanged |
+| **TC2.** As TC1, but the post's line walk ends off the map (static study) | The generator advances by 2 more than without the goal rule (x, then y, after the conversion's other changes) |
+| **TC3.** Enhanced; the human player's knight, not held, converts (static study) | Goal cleared; no draw; no order change |
+| **TC4.** `xhuman9-aigoals-goals-8630-8830` (oracle trace, Enhanced): computer player 5's axe throwers 1374, 1379 and 1382, trained in play, become berserkers at n = 8730 | Goal hold at (60, 9), (62, 9), (62, 9) before; hold at (59, 9) for all three after; order 2 and the stored move goal unchanged |
+| **TC5.** `orc13-aigoals-goals-17900-18200` (oracle trace, Enhanced): computer player 3's 20 held knights become paladins at n = 17997 | Every one keeps its goal (slot 1470: hold at (28, 115) before and after) |
+| **TC6.** Classic mode; as TC1 (static study) | The goal stays attack at (40, 40) |
 
 ## Open questions
 
@@ -383,6 +413,7 @@ Default upgrade data unless stated.
 - Confirm "Research twice" in the running game: two elven lumber mills, arrow level 1; start arrow 2 in both, check
   that both are charged, then cancel one and check the refund and the final level. This decides whether a
   reimplementation must reproduce a cost the player can lose.
+- **Converted units' goals.** Answered (B-040 game audit erratum 1, traced in round 90): see "Converting units".
 - Whether units inside a transport or building are converted by the ranger and paladin upgrades. The program skips
   units with any of three state marks (dead, removed, inside something); which mark covers passengers and workers in
   a mine wasn't confirmed.

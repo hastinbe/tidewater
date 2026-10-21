@@ -42,6 +42,12 @@
   2026-10-21): rule 5 says how each network layer handles a stall: in a
   Direct Connect, modem or IPX game a wait over 200 ms resets the deadline; the old half-cycle rule is the Battle.net
   layer's (static study). Rule 3's stall bullet follows. The turn length is in `net/lockstep.md`.
+- **Changes:** 2026-10-21, round 90 (oracle traces with save and load, `ERRATA-round90-traces.md`, and the B-040 game
+  audit, `ERRATA-audit-game.md`, errata 3 to 6; reviewed by a spec-review session, 2026-10-21): a loaded game's
+  counter starts at 0 again (Q2, traced; open question closed); the fog refresh countdown is set at every game start,
+  a loaded one included, and isn't saved (erratum 3, traced); every game start clears the pause (erratum 6, static
+  gap-fill). Errata 4 and 5 confirm rules 2 to 4 as written (the window-inactive rule and the 3-cycle cap); they are
+  implementation notes, with vectors G21 and G22.
 
 ## Behaviour
 
@@ -67,8 +73,9 @@ The scheduler keeps a **deadline** in milliseconds on the system tick clock.
 1. When a game starts, new or loaded (static study, round 88, for loaded games), two cycles run at once (the
    **start-up cycles**). Then the deadline is set to now and the
    cycle counter to 0, so the first normal cycle ends with the counter at 1. The start-up cycles are full cycles in
-   every other respect: units update and draw. For a loaded Enhanced game, `game/save-load.md` says the saved count
-   is kept (see "Open questions").
+   every other respect: units update and draw. This holds for a loaded game too: its counter starts from 0 again,
+   whatever count was saved (traced, round 90: `human1-human01-saveload-game-300`; `game/save-load.md`). Every game
+   start also clears the pause, so a game never starts paused (static study; `game/save-load.md`).
 2. On each frame, if the deadline has passed, up to **3** cycles run back to back. After each cycle the deadline
    moves forward by the current cycle length, and the loop stops early once the deadline is in the future again.
 3. The deadline is reset to now (dropping any backlog) when any of these happen:
@@ -80,8 +87,9 @@ The scheduler keeps a **deadline** in milliseconds on the system tick clock.
    state changes. The fog refresh and victory countdowns are game state, so they don't move on a paused cycle: the
    counter values given for refreshes and checks below hold for a game that was never paused, and each paused cycle
    moves every later refresh and check one counter value later (static study, round 88). In single player, while
-   the game window is inactive, cycle slots elapse with no state change and no counter increase. Multiplayer games
-   keep simulating in the background.
+   the game window is inactive (it has lost the focus), cycle slots elapse with no state change and **no counter
+   increase**: the game is frozen, unlike a pause, and the refreshes and checks keep their counter values. Multiplayer
+   games keep simulating in the background (static study; confirmed by the B-040 game audit, erratum 4).
 5. In multiplayer, when a cycle has to wait for other players' commands (a stall), the cycle runs once they arrive
    (static study, round 89; `net/lockstep.md`, "Stalls"):
    - **Direct Connect, modem or IPX game** (and single player; Tidewater's Direct IP and Local Network): if the wait
@@ -110,8 +118,10 @@ Each cycle does the following, in this order. Later specs refer to these as **ph
 2. **Computer players.** Each computer-controlled player runs one step of its AI script. Every 50 cycles the passes
    A and B of `ai/attack-ai.md` ("Timing") follow, with the no-workers research pass between them
    (`ai/computer-player.md`, "One cycle, in order").
-3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It starts at 1 and counts every cycle,
-   the two start-up cycles included, so the first refresh happens in the first start-up cycle. Then it happens every
+3. **Fog refresh counter.** A counter counts down from 100 (101 in Classic). It is set to 1 at every game start, a
+   loaded game included (the countdown isn't saved), and counts every cycle, the two start-up cycles included, so the
+   first refresh happens in the first start-up cycle (traced for a new game and a load, round 90:
+   `human1-human01-saveload-game-300`, G17 in `game/save-load.md`). Then it happens every
    100 cycles (101 in Classic): in the normal cycles that end with the cycle counter at 99, 199, … (Classic: 100,
    201, …; this follows from the period, as no Classic run was traced). In Enhanced mode a holy vision strike, by
    any player's caster, sets the counter to 150, so the next refresh comes in the 150th cycle after the cast cycle and
@@ -265,6 +275,8 @@ Outputs are listed in draw order; each draw steps the state first.
 | Human01, Enhanced, no input, 700 cycles (research-side run that logs each refresh and check) | Fog refresh in trace records n = 1, 101, 201, 301, 401, 501, 601 (first start-up cycle, then counter 99, 199, …). Victory check in n = 2, 203, 404, 605 (second start-up cycle, then counter 201, 402, 603). Neither runs in any other record |
 
 | **G15.** Human01, Enhanced, paused for 20 cycles from counter 150 (static study) | Fog refreshes at counter 99, then 219, 319, …; victory checks at counter 221, 422, … |
+| **G21.** Human01, single player, Enhanced; the game window loses the focus for 5 s at counter 150, at Normal speed (static study) | No game cycle runs and the counter stays at 150 while the window is inactive (the cycle slots still elapse, so there is no backlog); play goes on from counter 151 when the window is active again; the refreshes and checks keep their counter values (99, 199, …; 201, 402, …), unlike G15 |
+| **G22.** A frame arrives 200 ms after the deadline at 40 ms per cycle (static study) | 3 cycles run in that frame, not 5; the deadline is still 80 ms in the past, so the next frame runs more |
 
 Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step from 0 gives a state of 1.
 
@@ -276,8 +288,4 @@ Seed 1 gives the same sequence as seed 0 shifted by one draw, because one step f
 - Whether the Classic three-cycle pattern restarts at the first phase after a speed change.
 - Exact draw counts for each area spell.
 - What the building creation value `r mod 6` is used for.
-- **Cycle counter after a load (round 88, Q2 of `ERRATA-game-consolidation.md`).** Static study finds that rule 1
-  sets the counter to 0 after the start-up cycles of every game start, a loaded one included, so a loaded Enhanced
-  game counts from 0 again. `game/save-load.md` says the count is kept. Only the network sync check and saving read
-  the counter. Default: kept. Trace request GA2.
 - How the setup-shuffle generator turns its state into a choice (which bits, and the shuffle method).

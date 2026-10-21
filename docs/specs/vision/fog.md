@@ -29,6 +29,14 @@
   only in a Battle.net game (static study; with `ERRATA-audit-game.md` erratum 7). Fog off from the start is a
   multiplayer lobby choice only (`ERRATA-audit-vision.md` erratum 1, setup half, data-backed): Q2, F27 and the two
   fog-off passages now name multiplayer games only.
+- **Changes:** 2026-10-21, round 90 (oracle traces with the new `vision` extra, `ERRATA-round90-traces.md`, and the
+  B-040 vision audit, `ERRATA-audit-vision.md`; reviewed by a spec-review session, 2026-10-21): a game set up with fog
+  off starts with every "seen" bit set (C1, traced; Q2 closed); a unit inside something is detected by everyone (C4's
+  passenger half, traced; Q3 narrowed to the detector half, still held). F27, F28 and F31 state the traced readings;
+  new traced vectors F43 and F44. Labelled static notes from the audit: an undefined controller code is tested like a
+  human player (erratum 3), a neutral invisible unit's set (erratum 4, not mirrored), the "detected by" test for
+  players 8 to 15 (erratum 6), the gold-mine inside sight's test (erratum 7). Erratum 2 is an implementation note on
+  X12 (vector F45). Erratum 8 (demo playback's visible map) is held as Q4.
 
 ## Behaviour
 
@@ -84,7 +92,8 @@ bottom-left and bottom-right. A set flag means that quarter is fogged.
 
 - **Explored map.** At the start of a game every quarter of every tile is fogged. Revealing clears quarters, and
   nothing sets them again. A tile with all four quarters fogged is unexplored and is drawn black.
-- **Visible map.** At the start of a game every quarter is fogged. Revealing clears quarters. On each **fog refresh**
+- **Visible map.** At the start of a game every quarter is fogged (**held, Q4:** static study finds that demo playback
+  starts with it clear). Revealing clears quarters. On each **fog refresh**
   (below), if the fog-of-war option is on, every quarter is fogged again. If the fog-of-war option is off, the
   visible map is never re-fogged.
 
@@ -126,10 +135,11 @@ code 16 in the visible map is explored but fogged; the main view covers it with 
 One byte per tile, one bit per player (bit p for player p, players 0 to 7). A set bit means the tile is **not seen**
 by that player during the current refresh period. Players 8 and up have no bit: nothing is revealed for them.
 
-- At the start of a game all bits are set, unless fog is off from the start (the demo playback mode, or a multiplayer
-  game set up with the fog-of-war option off; a single-player custom game always has fog on, `game/setup.md`), which clears them all. **Held (Q2):** static study
-  (round 87, C1) finds that only demo playback clears them, so a game set up with fog off would start with them all
-  set like any other; that reading isn't the default until a trace shows it.
+- At the start of a game all bits are set, except in demo playback, which clears them all. A multiplayer game set up
+  with the fog-of-war option off is no exception: it starts with every bit set too (a single-player custom game
+  always has fog on, `game/setup.md`). With the option off the refresh never sets or clears them (below), so in such a
+  game a bit clears only where a reveal touches the tile, and a unit on ground its side has never revealed stays
+  hidden (static study, round 87, C1; traced, round 90: `mp-dark-paths-bne-fogoff-game-vision-300`, F43).
 - On each fog refresh, if the fog-of-war option is on, all bits are set again. With the option off they are left as
   they are, so a tile seen once stays seen.
 - When an area is revealed for player p, every tile that the area touches (any quarter revealed) has the bits of p's
@@ -215,7 +225,9 @@ player 0 to 7 (X5).
    the slot is released (`core/corpses.md`; static study). A unit inside something doesn't, with one exception: a
    worker inside a **gold mine** reveals with the gold mine's sight (3 in the default data), centred on the gold
    mine's centre tile (X7). A tanker inside an oil platform, a passenger in a transport and a worker inside any
-   other building reveal nothing.
+   other building reveal nothing. The test is on the kinds, not on "worker": any **land** unit inside a unit of the
+   **gold-mine type** reveals this way (static study, `ERRATA-audit-vision.md` erratum 7). With the default data the
+   two are the same, as only workers enter mines; the difference matters only for custom unit data.
 2. **Each movement step.** When a human player's unit moves onto a new tile, its sight is applied at once from the
    new tile (`movement/movement.md`). This covers walking, flying and sailing steps, a transport's landing steps and
    its push-off steps.
@@ -274,7 +286,7 @@ Each cycle, each unit gets a **detected-by** set of players. Rules, first match 
 
 | Unit | Detected by |
 | --- | --- |
-| Dead, dying or removed | everyone |
+| Dead, dying, removed or inside something (a passenger, a worker in a mine or building) | everyone |
 | Invisible (the Invisibility spell's timer is running) | its owner's shared-vision set; nobody if the owner is not one of players 0–7. **Classic mode:** its owner only (nobody if the owner is not one of players 0–7) |
 | Its type has the submarine flag (bit 6) | see below |
 | Anything else | everyone |
@@ -287,10 +299,18 @@ Each cycle, each unit gets a **detected-by** set of players. Rules, first match 
   top-left tile of each). A detector is a unit whose type has the "can see submarine" flag (bit 7), that is alive
   (not dead, dying or removed), and that is complete (**Classic mode:** an incomplete one counts too).
 
-A unit **inside something** gets no rule of its own: an invisible passenger, say, falls under the invisible row, and
-a detector inside something is alive and counts. **Held (Q3):** static study (round 87, C4) finds that the first row
-also covers units inside something (detected by everyone) and that a detector inside something doesn't count; that
-reading isn't the default until a trace shows it.
+A unit **inside something** is detected by everyone, whatever else holds: an invisible passenger's set is everyone
+from the first phase 1 after it goes in, though its invisibility timer still runs, and its owner's set again from the
+first phase 1 after it comes out still invisible (static study, round 87, C4; boarding traced, round 90:
+`human12-human12-invisible-passenger-game-vision-4550-5600`, F44; coming out isn't traced). Being inside also hides it from everyone
+("Unit visibility", rule 1), so no search finds it either way. A **detector** inside something still counts as a
+detector. **Held (Q3):** static study (C4's detector half) finds that an inside detector doesn't count; that reading
+isn't the default until a trace shows it. No detector can be inside anything with the default data.
+
+**Players 8 to 15** (Enhanced). An invisible unit or submarine of a player 8 to 15 starts from an empty set (the
+invisible row's "nobody"). The original reads a value past its per-player table here, which for the neutral player is
+another player's "has left or been defeated" mark; Tidewater doesn't mirror that read (static study,
+`ERRATA-audit-vision.md` erratum 4; no shipped map has such a unit).
 
 The set is then **widened** (Enhanced; **Classic mode:** not done): players p = 0, 1, …, 7 are taken in turn, and
 if p is in the set at that moment, p's shared-vision set is added to it. A player added by an earlier p is itself
@@ -303,7 +323,11 @@ them can be inside anything with the default data, so Q3's detector part matters
 
 **"Detected by" a player 8 or more.** In an Enhanced game whose local player number is 8 or more (not possible in
 single player), the UI tests that use "detected by the local player" accept detection by any player
-(`ui/map-drawing.md`).
+(`ui/map-drawing.md`). The game's own "detected by p" test (target searches and lost targets, `orders/orders.md`,
+"Terms") does the same for a player p from 8 to 15: a unit counts as detected by p when any player detects it.
+**Classic mode:** never. This is unreachable with shipped data: only a neutral unit's search would use it, and the
+neutral player is allied with everyone, so its search skips every unit first (static study, `ERRATA-audit-vision.md`
+erratum 6).
 
 #### A unit created during a cycle
 
@@ -369,6 +393,10 @@ Rules, first match wins:
 | Nobody (empty slot) | always |
 | Human or passive | no tile of the unit's footprint is seen by p (its "seen" bit is set on every one of them) |
 
+A player whose controller is none of these kinds (only a custom map's owner code 8 or more can leave one,
+`game/setup.md`, "Other owner codes") is tested like a human player (static study, `ERRATA-audit-vision.md`
+erratum 3; no shipped map has one).
+
 The footprint is the unit's type size in tiles, placed at the tile containing its top-left **pixel** (so a moving unit
 counts from where it is drawn, not from the tile it has claimed). Parts outside the map are ignored. The remembered
 building looks of `ui/map-drawing.md` go through the same pass.
@@ -430,9 +458,10 @@ The minimap is redrawn every 40 cycles. It is cosmetic.
 ### Fog-of-war option and cheat
 
 - **Option off from the start** (demo playback, or a multiplayer game set up with fog off in the lobby): the fog maps
-  start fogged as in any game, but every "seen" bit starts clear, and refreshes never set them, so no unit is ever
-  hidden by the fog from a human or passive player. **Held (Q2):** the static reading C1 would start the bits set,
-  so that a unit on a tile no player of the set has ever seen stays hidden (F27, F28).
+  start fogged as in any game, and refreshes never set or clear the "seen" bits. In demo playback every bit starts
+  clear, so no unit is ever hidden by the fog. A multiplayer game set up with fog off starts with every bit set, so a
+  unit stays hidden from a player until a reveal of that player's side touches its footprint, and then stays visible
+  (traced, round 90; F27, F28, F43).
 - **Option off:** the visible map is not re-fogged and the "seen" bits are not set again on refresh, so everything
   seen once stays visible. When the option is switched off during play (the game menu; the change takes effect when
   the dialog closes, `ui/game-menu.md`), the visible map is set equal to the explored map. The "seen" bits are then
@@ -525,11 +554,11 @@ have it (F40).
 
 | ID | Input | Expected |
 | --- | --- | --- |
-| F27 | Multiplayer game, fog-of-war option off in the lobby, Enhanced (round 89 review: a single-player custom game can't set fog off; the vector is otherwise unchanged). An enemy grunt stands on a tile that no unit of the human player (or its shared-vision set) has ever revealed, after the first refresh (Q2) | Default (old text): every "seen" bit is clear, so the grunt isn't hidden from the human player and a search of the human's units in range can take it. **Held reading C1** (static study, not the default): the bit is still set, the grunt is hidden from that player, no search takes it and it isn't drawn on the minimap |
-| F28 | Same game, a human footman walks next to that tile (Q2) | Default: no change (the bit was already clear). Held reading C1: its step reveals the tile; from the next phase 5 the grunt isn't hidden, and it stays so for the rest of the game (fog off: nothing re-sets the bit) |
+| F27 | Multiplayer game, fog-of-war option off in the lobby, Enhanced (a single-player custom game can't set fog off). An enemy grunt stands on a tile that no unit of the human player (or its shared-vision set) has ever revealed, after the first refresh | The bit is still set: the grunt is hidden from that player, no search takes it and it isn't drawn on the minimap (C1, traced through the hidden-from sets: F43) |
+| F28 | Same game, a human footman walks next to that tile | Its step reveals the tile; from the next phase 5 the grunt isn't hidden, and it stays so for the rest of the game (fog off: nothing re-sets the bit) (C1; static study for the step) |
 | F29 | A human peasant finishes a farm and is let out on a tile next to it, in a cycle that is not a refresh cycle (C2) | No area is revealed when it comes out. Its sight is next applied at its first movement step, or at the next fog refresh if it stands still |
 | F30 | A human transport unloads a footman onto a shore tile, not a refresh cycle (C3) | No area is revealed for the footman as it lands; its first step or the next refresh reveals |
-| F31 | Enhanced. An invisible human mage boards a human transport (Q3) | Default (old text): while it is inside, its detected-by set is still its owner's shared-vision set, and its hidden-from set is everyone. **Held reading C4** (static study, not the default): its detected-by set is everyone while it is inside, and the next phase 1 after it is unloaded, still invisible, gives it its owner's set again |
+| F31 | Enhanced. An invisible human mage boards a human transport | While it is inside, its detected-by set is everyone and its hidden-from set is everyone (C4, traced for a footman: F44). The next phase 1 after it is unloaded, still invisible, gives it its owner's set again (static study) |
 | F32 | Enhanced, fog on. A computer player's paladin casts holy vision; the strike is in the normal cycle that ends with the cycle counter at 120 (X1) | The refresh countdown becomes 150: the next fog refresh is in the normal cycle that ends with the counter at 270 (not 199), then 370, 470, … The human player's "seen" bits and visible map are re-fogged on that schedule |
 | F33 | Enhanced. Holy vision whose strike falls in a refresh cycle (the cycle ending with the counter at 199) | The refresh of that cycle has already happened in phase 3; the next is in the cycle ending with the counter at 349 |
 | F34 | Enhanced, multiplayer after diplomacy: player 3's submarine; player 2 owns a detector 4 tiles away; player 2's shared-vision set is {1, 2}; player 1's set is {0, 1}; player 3's set is {3} (X4) | Before widening: {2, 3}. Widening: p = 0 and p = 1 aren't in the set at their turn; p = 2 adds 1; p = 3 adds 3. Result {1, 2, 3}: player 0 doesn't detect it |
@@ -542,14 +571,28 @@ have it (F40).
 | F41 | Enhanced, local player 0 alone in its set, fog option switched off in the game menu. Tile A explored (code 0 in the explored map, code 16 in the visible map); tile B fully unexplored (X12) | Tile A: visible code 0, all "seen" bits clear. Tile B: visible code 16, "seen" bits = {0} (only player 0 still counts it unseen) |
 | F42 | Enhanced. A human paladin's holy vision strikes in phase 4 of cycle K and uncovers an enemy grunt; a human archer in range of the grunt is updated later in the same cycle, then again in cycle K + 1 (phase timing) | In cycle K the archer's search still sees the grunt as hidden (the sets of cycle K − 1's phase 5) and finds no target; phase 5 of cycle K un-hides the grunt, and the archer's search in cycle K + 1 can take it |
 
+### Round-90 vectors
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| F43 | `mp-dark-paths-bne-fogoff-game-vision-300` (oracle trace, Enhanced, Direct Connect, fog of war off in the lobby; traced player 1) and its control `mp-dark-paths-bne-game-vision-300` (fog on) | Every record of the two traces is the same apart from the fog option, the hidden-from sets included. Player 0's three units have hidden-from 250 (players 1 and 3 to 7) from the first start-up cycle to n = 300 in both: they stay hidden from player 1 with fog off |
+| F44 | `human12-human12-invisible-passenger-game-vision-4550-5600` (oracle trace, Enhanced): mage 1438 casts invisibility on footman 1445 (owner 1), timer 1999, at n = 4628; the footman boards transport 1428 at n = 5242 | Detected-by 2 (only player 1) from n = 4629. At n = 5242 hidden-from becomes 255 (everyone); from n = 5243 detected-by is 255 (everyone), with the invisibility timer still running (1384). Neither change waits for a fog refresh |
+| F45 | Enhanced single player, local player 0 alone in its set. The `showpath` cheat (every "seen" bit cleared), then the fog option switched on and off again within one refresh period. Tile (20, 20) never explored (X12; static study, `ERRATA-audit-vision.md` erratum 2) | The tile's "seen" bits are exactly {0}: switching off assigns the local set to a fully unexplored tile, it doesn't keep only the bits already set |
+| F46 | A custom map whose slot 3 has owner code 9; a slot-3 unit next to a player-0 unit whose footprint tiles all have slot 3's "seen" bit set (static study, erratum 3) | The player-0 unit is hidden from slot 3 by the footprint test, as for a human player. Where a reveal of a set including slot 3 has cleared the bit, it isn't hidden from slot 3 |
+
 ## Open questions
 
-- **Q2 (round 87, C1, held by review):** whether a multiplayer game set up with the fog-of-war option off
-  starts with every "seen" bit clear (the old text, the default) or set (static study: only demo playback clears
-  them). Trace request VR3 in `ERRATA-vision-consolidation.md`.
-- **Q3 (round 87, C4, held by review):** whether a unit inside something is detected by everyone, and whether a
-  detector inside something stops counting (static study: yes to both; default, the old text: no rule for inside
-  units, so an invisible passenger keeps its owner's set and an inside detector counts). Trace request VR4.
+- **Q2 (round 87, C1):** closed in round 90: a multiplayer game set up with fog off starts with every "seen" bit set
+  (traced, F43).
+- **Q3 (round 87, C4; narrowed in round 90):** the passenger half is closed (an inside unit is detected by everyone,
+  traced, F44). Still held: whether a **detector** inside something stops counting (static study: yes; default, the
+  old text: it counts). No detector can be inside anything with the default data. Trace request VT5: a research-side
+  copy of the unit data that lets a detector board a transport (for example a custom map's flying machine data
+  changed to a land unit), with the `vision` extra, and an enemy submarine in range.
+- **Q4 (B-040 vision audit, erratum 8):** whether demo playback starts with the **visible** map clear as well as the
+  "seen" bits (static study: yes; default, the old text: fogged, like any game). Display only. Trace request VT6:
+  the startup launch (`LAUNCH=title`, no words) reaches the attract demo after about 180 s idle; a screenshot in its
+  first second shows whether the map starts clear.
 - **Q1 (from round 87):** whether a player can drop itself from its own shared-vision set through the diplomacy
   command (the command carries the whole set). The implementation keeps the player in its own set. Default: the
   player is always in its own set.
