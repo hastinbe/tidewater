@@ -525,6 +525,8 @@ pub struct Rules {
     pub invulnerable_cheat: bool,
     /// The lobby option that disables cheats; it only matters in multiplayer games (cheats spec).
     pub cheats_disabled: bool,
+    /// The optional improvements that touch the sim (`docs/design/extras.md`); all off by default.
+    pub extras: crate::Extras,
 }
 
 impl Default for Rules {
@@ -545,6 +547,7 @@ impl Default for Rules {
             lumber_cheat: false,
             invulnerable_cheat: false,
             cheats_disabled: false,
+            extras: crate::Extras::default(),
         }
     }
 }
@@ -1764,6 +1767,8 @@ impl World {
         self.selections.hash(&mut h);
         self.speed.hash(&mut h);
         self.paused.hash(&mut h);
+        // The options that touch the sim are game state. An empty set writes nothing (`extras`).
+        self.rules.extras.hash(&mut h);
         // Cheat flags join the hash only when set, so a game without cheats hashes as it always has.
         if self.cheats.flags.0 != 0 {
             self.cheats.flags.hash(&mut h);

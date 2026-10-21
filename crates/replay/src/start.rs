@@ -29,6 +29,7 @@ pub fn rules_tag(world: &World) -> RulesTag {
         enhanced: world.rules.enhanced,
         multiplayer: world.rules.multiplayer,
         cheats_disabled: world.rules.cheats_disabled,
+        extras: world.rules.extras,
     }
 }
 
@@ -136,6 +137,8 @@ pub fn new_world(install: &mut Install, map_bytes: &[u8], header: &Header) -> Re
     let pud = Pud::parse(map_bytes)?;
     let start = choose_start(&pud, &header.setup, header.seed, header.lobby.as_ref())?;
     let (mut world, _) = build_world(install, &pud, &start)?;
+    // The options the game ran with, from the header: never the viewer's own settings.
+    world.rules.extras = header.rules.extras;
     world.start_up();
     if header.start_cheats != 0 {
         world.start_cheats(Flags(header.start_cheats));

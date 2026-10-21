@@ -20,8 +20,8 @@
 //! cycle 99.
 
 use serde::{Deserialize, Serialize};
-use tidewater_sim::Command;
 use tidewater_sim::setup::{Lobby, Setup};
+use tidewater_sim::{Command, Extras};
 
 /// The first bytes of every replay file.
 pub const MAGIC: [u8; 8] = *b"TWREPLAY";
@@ -64,16 +64,21 @@ pub struct RulesTag {
     pub enhanced: bool,
     pub multiplayer: bool,
     pub cheats_disabled: bool,
+    /// The optional improvements that touch the sim, as the game ran with them (`docs/design/extras.md`). Playback
+    /// starts the world with these, never with the viewer's own settings. Empty for now, so it adds no bytes: the
+    /// first option added bumps [`VERSION`].
+    pub extras: Extras,
 }
 
 impl std::fmt::Display for RulesTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}{}{}",
+            "{}{}{}{}",
             if self.enhanced { "Enhanced" } else { "Classic" },
             if self.multiplayer { ", multiplayer" } else { "" },
-            if self.cheats_disabled { ", cheats disabled" } else { "" }
+            if self.cheats_disabled { ", cheats disabled" } else { "" },
+            if self.extras.is_default() { "" } else { ", with extras" }
         )
     }
 }
@@ -271,6 +276,7 @@ mod tests {
                 enhanced: true,
                 multiplayer: true,
                 cheats_disabled: false,
+                extras: Extras::default(),
             },
             start_cheats: 0,
             local: 1,

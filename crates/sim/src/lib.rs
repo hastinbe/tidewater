@@ -19,6 +19,7 @@ pub mod cheats;
 pub mod combat;
 pub mod corpses;
 pub mod economy;
+pub mod extras;
 mod ground;
 mod harvest;
 pub mod idle;
@@ -47,6 +48,7 @@ pub mod worker_ai;
 mod world;
 
 pub use battle::Missile;
+pub use extras::Extras;
 pub use rng::Rng;
 pub use terrain::{Terrain, WallStage};
 pub use world::{
