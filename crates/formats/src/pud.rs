@@ -554,6 +554,22 @@ mod tests {
         assert_eq!(p.width, 32);
     }
 
+    /// X9 (`game/setup.md`, "Where the body reading starts"; vector G14): the body table reads from the start of the
+    /// file again, skipping the header's sections as unknown, so body sections that come before the header ones are
+    /// still read.
+    #[test]
+    fn body_sections_before_the_header_sections_are_read() {
+        let mut m = Map::default();
+        m.units.push((3, 4, 0x5c, 15, 4));
+        let mut parts = m.body();
+        parts.extend(m.header());
+        let p = Pud::parse(&join(&parts)).unwrap();
+        let normal = Pud::parse(&m.bytes()).unwrap();
+        assert_eq!(p.units, normal.units);
+        assert_eq!(p.units.len(), 1);
+        assert_eq!((p.width, p.height, p.tiles), (normal.width, normal.height, normal.tiles));
+    }
+
     #[test]
     fn wrong_lengths_fail() {
         assert!(matches!(
