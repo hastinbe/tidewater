@@ -69,6 +69,12 @@ pub enum Step {
         setup: Option<Setup>,
     },
     Score,
+    /// The lobby of the multiplayer session that just ended (`ui/multiplayer-score.md`, MS-V8). No lobby screen or
+    /// session exists yet.
+    // spec gap: the lobby ("Multi Player Setup", `ui/game-setup-lobby.md`) and its session aren't built, so the main
+    // menu's picture stands in for it; like the lobby it starts no music (`ui/music.md`, "Multiplayer score screen:
+    // the lobby's music").
+    Lobby,
     Ending {
         bdp: bool,
         race: u8,
@@ -109,6 +115,10 @@ pub struct Flow {
     /// The slots' controllers when the game started (for the score screen's rows).
     pub start_controllers: [u8; 8],
     pub score: Option<ScoreData>,
+    /// The player names of the session's slots, for a multiplayer score screen's rows (empty: "Anonymous").
+    pub player_names: [String; 8],
+    /// The screen shown is the multiplayer lobby ([`Step::Lobby`]); no music starts there.
+    pub in_lobby: bool,
     /// A game the flow asks to start.
     pub pending: Option<(String, Option<Setup>)>,
     /// The skip setting: the act screen, the briefing and the score screen are skipped. The `noglues` developer word
@@ -274,6 +284,12 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
             Step::Title => AppState::Title,
             Step::MainMenu => {
                 flow.steps.clear();
+                flow.in_lobby = false;
+                AppState::MainMenu
+            }
+            Step::Lobby => {
+                flow.steps.clear();
+                flow.in_lobby = true;
                 AppState::MainMenu
             }
             Step::NewCampaign => AppState::NewCampaign,
@@ -393,10 +409,14 @@ pub fn end_with(flow: &mut Flow, front: &mut Front, world: &tidewater_sim::World
     let game = flow.game.unwrap_or(GameKind::Custom);
     let bdp = matches!(game, GameKind::Campaign(e) if cf::is_bdp(e));
     let race = world.players[human as usize].race;
-    let rows = cf::rows(world, human, &flow.start_controllers, bdp)
-        .into_iter()
-        .map(|r| (front.net(r.label), front.net(r.name), r.stats))
-        .collect();
+    let rows = if game == GameKind::Multiplayer {
+        multiplayer_rows(flow, front, world, human)
+    } else {
+        cf::rows(world, human, &flow.start_controllers, bdp)
+            .into_iter()
+            .map(|r| (front.net(r.label), front.net(r.name), r.stats))
+            .collect()
+    };
     let mission = flow.total.close(world.players[human as usize].score, victory);
     let rank_entry = cf::rank_entry(flow.total.total, race, false);
     flow.score = Some(ScoreData {
@@ -410,6 +430,39 @@ pub fn end_with(flow: &mut Flow, front: &mut Front, world: &tidewater_sim::World
     });
     flow.steps.clear();
     flow.steps.push_back(Step::Score);
+}
+
+/// The rows of a multiplayer score screen: one text line each, name first, the local player's row on top (`ui/
+/// multiplayer-score.md`). The row's label field is empty and its name field holds the whole line.
+fn multiplayer_rows(
+    flow: &Flow,
+    front: &mut Front,
+    world: &tidewater_sim::World,
+    human: u8,
+) -> Vec<(String, String, cf::Stats)> {
+    let races: [u8; 8] = std::array::from_fn(|s| world.players[s].race);
+    let allies = world.players[human as usize].allies;
+    cf::mp_rows(
+        human,
+        &flow.start_controllers,
+        &races,
+        |q| allies & (1 << q) != 0,
+        |s| cf::Stats::of_world(world, s),
+    )
+    .into_iter()
+    .map(|r| {
+        let name = match r.who {
+            cf::MpWho::Nation(entry) => front.net(entry),
+            // spec gap: a player without a name shows as "Anonymous" (the traced game's rows).
+            cf::MpWho::Human => match flow.player_names[r.slot as usize & 7].as_str() {
+                "" => "Anonymous".to_string(),
+                n => n.to_string(),
+            },
+        };
+        let label = r.label.map(|l| front.net(l));
+        (String::new(), cf::mp_row_text(&name, label.as_deref()), r.stats)
+    })
+    .collect()
 }
 
 /// A synthetic score screen for development (`--goto score-victory:E`).
@@ -506,6 +559,7 @@ fn after_score(flow: &mut Flow, s: &ScoreData) -> Step {
             Step::Mission(e)
         }
         Next::Ending { bdp, race } => Step::Ending { bdp, race },
+        Next::Lobby => Step::Lobby,
         Next::MainMenu | Next::Multiplayer => Step::MainMenu,
     }
 }
@@ -1545,7 +1599,8 @@ fn run_menu(c: &mut Core) {
     // Music spec, "Main menu opens": track 22 starts if nothing is playing, tested once the menu is drawn (after its
     // fade-in when it fades in). After a game left by Quit to Menu nothing is, so 22 starts from its start; coming
     // back from the campaign menu it is still playing and plays on.
-    if !std::mem::replace(&mut menu.music_tested, true) {
+    // The multiplayer lobby, which the main menu stands in for, starts none (`ui/music.md`).
+    if !std::mem::replace(&mut menu.music_tested, true) && !flow.in_lobby {
         music.start_unless_playing(cf::TITLE_MUSIC);
     }
     let at = pointer(input, cam);
@@ -2253,8 +2308,13 @@ fn draw_score(front: &Front, s: &ScoreData, bg: &Picture, ticks: u32, bars_done_
     y += 24;
     for (label, name, stats) in &s.rows {
         shade(&mut p, rect(16, y - 4, 608, 48));
-        hud::text(&mut p, font, 24, y, label);
-        hud::text(&mut p, &front.small, 24, y + 18, name);
+        if label.is_empty() {
+            // A multiplayer row is one line, name first; the screen shows no elapsed time.
+            hud::text(&mut p, font, 24, y + 8, name);
+        } else {
+            hud::text(&mut p, font, 24, y, label);
+            hud::text(&mut p, &front.small, 24, y + 18, name);
+        }
         for (k, v) in stats.values().iter().enumerate() {
             let shown = cf::counted(*v, cf::bar_step(maxes[k]), ticks);
             bars_done &= shown == *v;
@@ -2889,6 +2949,30 @@ mod tests {
         assert!(goto_steps("nope").is_err());
         assert_eq!(goto_steps("credits:bdp").unwrap()[0], Step::Credits { bdp: true });
         assert_eq!(goto_steps("show-credits").unwrap(), [Step::ShowCredits, Step::MainMenu]);
+    }
+
+    /// MS-V8: after a multiplayer score screen the creator is back in the lobby of the session, where no music starts;
+    /// the main menu clears that again.
+    #[test]
+    fn a_multiplayer_score_screen_is_followed_by_the_lobby() {
+        let mut f = flow(&[]);
+        let s = ScoreData {
+            victory: true,
+            race: 0,
+            game: GameKind::Multiplayer,
+            rows: Vec::new(),
+            mission: 0,
+            total: 0,
+            rank: String::new(),
+        };
+        assert_eq!(after_score(&mut f, &s), Step::Lobby);
+        f.steps = VecDeque::from([Step::Lobby]);
+        let install = Install::none();
+        assert_eq!(advance(&mut f, &install, false), Some(AppState::MainMenu));
+        assert!(f.in_lobby);
+        f.steps = VecDeque::from([Step::MainMenu]);
+        assert_eq!(advance(&mut f, &install, false), Some(AppState::MainMenu));
+        assert!(!f.in_lobby);
     }
 
     #[test]

@@ -17,7 +17,8 @@
 //!   the next check.
 //! - The multiplayer rule treats only human and computer slots as players; rescue and passive players are neither in
 //!   nor out. The network game is our multiplayer game.
-//! - Demo playback isn't implemented; [`Victory::for_demo`] is the countdown it will start with.
+//! - Demo playback isn't implemented; [`Victory::for_demo`] is the countdown it will start with. It runs with the fog
+//!   option on and the reveal-map cheat (`vision/fog.md`, F47), so it needs no fog rule of its own.
 
 use tidewater_formats::udta::flags;
 

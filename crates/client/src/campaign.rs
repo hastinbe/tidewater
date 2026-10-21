@@ -20,7 +20,10 @@
 //! - A type change doesn't count as a building lost; gathered resources are deliveries (`tidewater_sim`).
 //! - A restart from the game menu puts the campaign total back as a defeat does.
 //! - No cheats can be entered yet, so the rank is never the cheat rank in play.
-//! - The multiplayer score screen isn't covered; only the single-player rows are built.
+//! - The multiplayer score screen's rows are built by [`mp_rows`] (`ui/multiplayer-score.md`: the local player's row
+//!   first, then slots 0 to 7, name first). No network game exists yet, so nothing builds one in play; a row is made
+//!   at the end of the game for each human still connected (spec gap: the row made when a player leaves early needs
+//!   the leave notices, `net/leave-and-drop.md`).
 
 #![allow(
     dead_code,
@@ -1051,6 +1054,67 @@ pub fn rows(w: &World, local: u8, start_controllers: &[u8; 8], bdp_campaign: boo
         .collect()
 }
 
+/// How a multiplayer score row names its player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MpWho {
+    /// A human player: the name the session holds for the slot.
+    Human,
+    /// A computer player: the nation name, a `network.tbl` entry by slot and race.
+    Nation(u16),
+}
+
+/// One row of the multiplayer score screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MpRow {
+    pub slot: u8,
+    pub who: MpWho,
+    /// "Ally" (36) or "Enemy" (35); none for the local player's own row.
+    pub label: Option<u16>,
+    pub stats: Stats,
+}
+
+/// The rows of a multiplayer score screen (`ui/multiplayer-score.md`, "Which players get a row", "Row text", "Row
+/// order"): the local player first, then the other human and computer slots in slot order, 0 to 7. A computer player
+/// is always "Enemy"; a human is "Ally" when the local player counts it allied. `start_controllers` are the slots'
+/// controllers when the game started.
+pub fn mp_rows(
+    local: u8,
+    start_controllers: &[u8; 8],
+    races: &[u8; 8],
+    allied: impl Fn(u8) -> bool,
+    stats: impl Fn(u8) -> Stats,
+) -> Vec<MpRow> {
+    std::iter::once(local)
+        .chain((0..8u8).filter(|&s| s != local))
+        .filter_map(|slot| {
+            let race = races[slot as usize];
+            let (who, label) = match start_controllers[slot as usize] {
+                _ if slot == local => (MpWho::Human, None),
+                controller::HUMAN => (
+                    MpWho::Human,
+                    Some(if allied(slot) { label::ALLY } else { label::ENEMY }),
+                ),
+                controller::COMPUTER => (MpWho::Nation(name_entry(slot, race, false)), Some(label::ENEMY)),
+                _ => return None,
+            };
+            Some(MpRow {
+                slot,
+                who,
+                label,
+                stats: stats(slot),
+            })
+        })
+        .collect()
+}
+
+/// A multiplayer row's text: the name first, then " - " and the label for every row but the local player's.
+pub fn mp_row_text(name: &str, label: Option<&str>) -> String {
+    match label {
+        Some(l) => format!("{name} - {l}"),
+        None => name.to_string(),
+    }
+}
+
 /// A bar's growth step: max / 40, at least 1, where max is the statistic's largest value among the shown players.
 pub fn bar_step(max: u32) -> u32 {
     (max / 40).max(1)
@@ -1100,8 +1164,11 @@ pub enum Next {
         race: u8,
     },
     MainMenu,
-    /// Back to the multiplayer screens (a later spec).
+    /// After a multiplayer game's restart (not in the specs): the multiplayer screens, which Tidewater doesn't have.
     Multiplayer,
+    /// A multiplayer game's score screen is followed by the lobby of the same session (`ui/multiplayer-score.md`,
+    /// "What follows the score screen", MS-V8; `game/campaign-flow.md`). The music there: none starts (`ui/music.md`).
+    Lobby,
 }
 
 pub fn after_score(game: GameKind, victory: bool) -> Next {
@@ -1117,7 +1184,7 @@ pub fn after_score(game: GameKind, victory: bool) -> Next {
         },
         GameKind::Campaign(e) => Next::Mission(e + 2),
         GameKind::Custom => Next::MainMenu,
-        GameKind::Multiplayer => Next::Multiplayer,
+        GameKind::Multiplayer => Next::Lobby,
     }
 }
 
@@ -1867,7 +1934,34 @@ mod tests {
         first.start_game(GameKind::Campaign(28));
         assert_eq!(first.total, 0, "a campaign's first mission");
         assert_eq!(after_score(GameKind::Custom, true), Next::MainMenu);
-        assert_eq!(after_score(GameKind::Multiplayer, false), Next::Multiplayer);
+        assert_eq!(after_score(GameKind::Multiplayer, false), Next::Lobby);
+        assert_eq!(
+            after_score(GameKind::Multiplayer, true),
+            Next::Lobby,
+            "MS-V8: the creator, after a victory"
+        );
+        assert_eq!(after_restart(GameKind::Multiplayer), Next::Multiplayer);
+    }
+
+    /// MS-V1 and MS-V8: the local player's row first, names first, "Ally" and "Enemy" labels, computers always Enemy.
+    #[test]
+    fn multiplayer_rows_put_the_local_player_first() {
+        let mut c = [controller::NOBODY; 8];
+        c[0] = controller::HUMAN;
+        c[1] = controller::HUMAN;
+        c[2] = controller::HUMAN;
+        c[3] = controller::COMPUTER;
+        c[4] = controller::PASSIVE;
+        let mut races = [HUMAN; 8];
+        races[3] = ORC;
+        let rows = mp_rows(1, &c, &races, |q| q == 0, |_| Stats::default());
+        let order: Vec<u8> = rows.iter().map(|r| r.slot).collect();
+        assert_eq!(order, [1, 0, 2, 3]);
+        let labels: Vec<Option<u16>> = rows.iter().map(|r| r.label).collect();
+        assert_eq!(labels, [None, Some(36), Some(35), Some(35)]);
+        assert_eq!(rows[3].who, MpWho::Nation(name_entry(3, ORC, false)));
+        assert_eq!(mp_row_text("Bob", None), "Bob");
+        assert_eq!(mp_row_text("Ann", Some("Ally")), "Ann - Ally");
     }
 
     /// Test vectors: rows and names.

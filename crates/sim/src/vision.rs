@@ -405,7 +405,9 @@ impl World {
         v.previous_visible.clone_from(&v.visible);
         // With the option off a refresh neither sets nor clears the "seen" bits. A game set up with fog off starts
         // with every bit set like any other (`vision/fog.md`, "The seen map", C1; traced, F43), so a bit clears only
-        // where a reveal touches the tile. Demo playback, which starts with every bit clear, isn't modelled here.
+        // where a reveal touches the tile. "Fog off from the start" is a multiplayer lobby with fog off alone: demo
+        // playback has the option on (with the reveal-map cheat), so its first start-up cycle's refresh fogs the maps
+        // and sets every bit like any game (F47, traced); nothing here is specific to it.
         if fog {
             v.visible.fill(ALL);
             v.seen.fill(0xff);
