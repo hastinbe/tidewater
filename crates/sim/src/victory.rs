@@ -17,7 +17,7 @@
 //!   the next check.
 //! - The multiplayer rule treats only human and computer slots as players; rescue and passive players are neither in
 //!   nor out. The network game is our multiplayer game.
-//! - Demo playback isn't implemented.
+//! - Demo playback isn't implemented; [`Victory::for_demo`] is the countdown it will start with.
 
 use tidewater_formats::udta::flags;
 
@@ -95,6 +95,20 @@ impl Default for Victory {
             campaign: None,
             over: false,
             circle_region: None,
+        }
+    }
+}
+
+/// The countdown demo playback starts with, so its first check (which ends the demo) is the 1,401st cycle, the two
+/// start-up cycles included (`game/victory.md`, "When the check runs", X4).
+pub const DEMO_COUNTDOWN: u32 = 1400;
+
+impl Victory {
+    /// The state a demo playback starts with: [`DEMO_COUNTDOWN`] instead of 1.
+    pub fn for_demo() -> Self {
+        Victory {
+            countdown: DEMO_COUNTDOWN,
+            ..Default::default()
         }
     }
 }
@@ -1245,6 +1259,30 @@ mod tests {
             assert_eq!(outcomes(&w), [(0, want)], "shown at counter 402");
             assert!(w.victory.over);
         }
+    }
+
+    /// X4 (G03, `game/victory.md` "When the check runs"): demo playback starts the countdown at 1,400, so its first
+    /// check, which ends the demo, is the 1,401st cycle, the two start-up cycles included.
+    #[test]
+    fn the_demos_first_check_is_the_1401st_cycle() {
+        let mut w = world(16, 16);
+        w.spawn(0x00, 0, (2, 2), 0).unwrap();
+        w.spawn(0x00, 1, (20, 20), 0).unwrap();
+        w.victory = Victory::for_demo();
+        assert_eq!(w.victory.countdown, 1400);
+        let mut cycles = 0;
+        loop {
+            let before = w.victory.countdown;
+            w.step(&[]);
+            cycles += 1;
+            if before == 0 {
+                break;
+            }
+            assert!(cycles < 2000);
+        }
+        assert_eq!(cycles, 1401);
+        // The two start-up cycles are the first two of them, so the counter reads 1,399 after the check.
+        assert_eq!(w.victory.countdown, RELOAD);
     }
 
     #[test]
