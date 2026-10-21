@@ -282,13 +282,17 @@ pub fn roam_tile(here: (i32, i32), width: i32, rx: u32, ry: u32) -> (i32, i32) {
 }
 
 /// The walk from `from` toward `to` by the keep-clear line rule, returning the first tile outside `inside` (or
-/// `from` itself if it is outside, or if the two tiles are the same: the spec's open question "Line walk").
+/// `from` itself if it is outside). Round 85 (static gap-fill, erratum 4): when the two tiles are the same, the zero
+/// difference counts as an x-major line with non-negative steps, so the walk steps (+1, 0) until it leaves `inside`.
 fn line_walk(from: (i32, i32), to: (i32, i32), inside: impl Fn((i32, i32)) -> bool) -> (i32, i32) {
-    if !inside(from) || from == to {
+    if !inside(from) {
         return from;
     }
     let (ax, ay) = ((to.0 - from.0).abs(), (to.1 - from.1).abs());
-    let (sx, sy) = ((to.0 - from.0).signum(), (to.1 - from.1).signum());
+    let (sx, sy) = (
+        if to.0 == from.0 { 1 } else { (to.0 - from.0).signum() },
+        (to.1 - from.1).signum(),
+    );
     let x_major = ax >= ay;
     let (major, minor) = if x_major { (ax, ay) } else { (ay, ax) };
     let mut counter = (major / 2).max(1);
@@ -1994,6 +1998,34 @@ mod tests {
         assert_eq!(w.rng, before);
     }
 
+    /// `ai/attack-ai.md`, "Choosing a land unit's post" and its open question "Line walk when the store and the enemy
+    /// share a tile" (round 85, static gap-fill, erratum 4; vector: "A computer archer is created while the nearest
+    /// enemy, a gryphon rider, hovers over the gold store's top-left tile, and the base box reaches the map's east
+    /// edge"): the walk steps east one tile at a time, leaves the map, and the post is the random tile of step 3
+    /// (2 draws).
+    #[test]
+    fn a_post_walk_from_the_enemys_own_tile_steps_east_and_draws() {
+        let mut w = game();
+        spawn(&mut w, TOWN_HALL, 1, (58, 10));
+        spawn(&mut w, GRYPHON, 0, (58, 10));
+        w.army.boxes[1] = BaseBox {
+            min_x: 40,
+            min_y: 0,
+            max_x: 63,
+            max_y: 20,
+        };
+        let a = spawn(&mut w, ARCHER, 1, (30, 30));
+        let mut r = w.rng;
+        let (dx, dy) = (r.draw() % 12, r.draw() % 12);
+        let post = w.post(ix(&w, a));
+        assert_eq!(w.rng, r, "2 draws");
+        let want = ((30 + dx as i32 - 6).clamp(0, 63), (30 + dy as i32 - 6).clamp(0, 63));
+        assert!(
+            post == want || (post.0 - want.0).abs() <= 3 && (post.1 - want.1).abs() <= 3,
+            "{post:?} near {want:?}"
+        );
+    }
+
     #[test]
     fn units_get_their_first_goal_when_created() {
         // Unit-slots spec, step 6: every created unit, map units included, with no call from outside.
@@ -2050,7 +2082,9 @@ mod tests {
         let inside = |(x, _): (i32, i32)| x < 3;
         assert_eq!(line_walk((0, 0), (10, 5), inside), (3, 2));
         assert_eq!(line_walk((5, 5), (10, 5), inside), (5, 5), "starts outside");
-        assert_eq!(line_walk((0, 0), (0, 0), inside), (0, 0), "same tile");
+        // Round 85, erratum 4: the same tile is an x-major line with non-negative steps.
+        assert_eq!(line_walk((0, 0), (0, 0), inside), (3, 0), "same tile");
+        assert_eq!(line_walk((1, 7), (1, 7), |(x, _)| x < 9), (9, 7), "same tile");
         assert_eq!(line_walk((0, 0), (1, 8), |(_, y)| y < 4), (1, 4));
     }
 
