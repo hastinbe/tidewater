@@ -1171,6 +1171,57 @@ mod tests {
 
     /// X10 follows the multiplayer rule's two places (victory spec, "The multiplayer rule", steps 2 and 3): the
     /// local player out, and another player out. A game that isn't a network game leaves the sets alone.
+    /// Core timing spec, scheduler rule 4 (G15), and game/victory, "When the check runs" (G02, X1): a paused cycle moves
+    /// neither the fog refresh countdown nor the victory countdown, but the cycle counter counts it, so every later
+    /// refresh and check falls that many counter values later.
+    #[test]
+    fn paused_cycles_move_neither_countdown_but_the_counter_counts_them() {
+        let run = |pause: Option<(u32, u32)>| {
+            let mut w = world(16, 16);
+            w.spawn(0x00, 0, (2, 2), 0).unwrap();
+            w.spawn(0x00, 1, (20, 20), 0).unwrap();
+            w.start_up();
+            let (mut refreshes, mut checks) = (Vec::new(), Vec::new());
+            let mut left = 0;
+            while w.tick < 700 {
+                if let Some((at, n)) = pause
+                    && w.tick == at
+                    && left == 0
+                {
+                    w.step(&[crate::Command::Pause { player: 0 }]);
+                    left = n;
+                }
+                let (fog, vic) = (w.vision.countdown, w.victory.countdown);
+                w.step(&[]);
+                if left > 0 {
+                    // A paused cycle: the countdowns stay where they were, the counter counted.
+                    assert_eq!((w.vision.countdown, w.victory.countdown), (fog, vic));
+                    left -= 1;
+                    if left == 0 {
+                        w.step(&[crate::Command::Pause { player: 0 }]);
+                        assert!(!w.paused);
+                    }
+                    continue;
+                }
+                if fog == 1 {
+                    refreshes.push(w.tick);
+                }
+                if vic == 0 {
+                    checks.push(w.tick);
+                }
+            }
+            (refreshes, checks)
+        };
+        let (refreshes, checks) = run(None);
+        assert_eq!(&refreshes[..3], [99, 199, 299]);
+        assert_eq!(&checks[..3], [201, 402, 603]);
+        // G02: the cycles spent paused (the 10 asked for plus the one that carries the pause command: 11 here) move every
+        // later refresh and check by that many counter values.
+        let (refreshes, checks) = run(Some((100, 10)));
+        assert_eq!(&refreshes[..3], [99, 210, 310]);
+        assert_eq!(&checks[..2], [212, 413]);
+    }
+
     #[test]
     fn a_player_who_is_out_gets_a_set_of_just_itself() {
         let sets = |w: &World| (0..3).map(|p| w.players[p].shared_vision).collect::<Vec<_>>();
