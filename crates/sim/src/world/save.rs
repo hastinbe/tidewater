@@ -206,6 +206,8 @@ impl World {
             sel.places = Default::default();
         }
         self.starts_afresh();
+        // A load runs the mission start again from the saved rule, after the generator is seeded (G24).
+        self.mission_start();
         if !self.rules.enhanced {
             for p in &mut self.players {
                 p.kills = 0;

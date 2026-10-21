@@ -265,11 +265,18 @@ impl World {
 
     /// Starts campaign mission table entry `entry`: sets its rule and makes its mission-start changes.
     pub fn start_campaign(&mut self, entry: u8) {
-        use mode::*;
         let rule = mission_rule(entry);
         self.victory.rule = Some(rule);
         self.victory.campaign = Some(entry);
-        let Rule::Mission { mode, required } = rule else {
+        self.mission_start();
+    }
+
+    /// The mission start's changes for the rule in force (`game/victory.md`, "Mission start"). A new campaign mission
+    /// runs it once through [`World::start_campaign`]; a load runs it again from the saved rule (G24, `game/save-load.md`).
+    /// Modes E and H switch the rule when they run, so a restored game no longer holds their mode and they don't repeat.
+    pub(crate) fn mission_start(&mut self) {
+        use mode::*;
+        let Some(Rule::Mission { mode, required }) = self.victory.rule else {
             return;
         };
         let l = self.vision.local;
@@ -1167,6 +1174,40 @@ mod tests {
         let mut w = world(8, 8);
         w.start_campaign(46);
         assert_eq!(w.players[0].spells_known, 0b11_1111_1011);
+    }
+
+    /// G24 (`game/victory.md`): a load runs the mission start again from the saved rule.
+    #[test]
+    fn a_load_runs_the_mission_start_again() {
+        // Mode AB: a runestone damaged after the start heals at the load.
+        let mut w = world(24, 24);
+        let stone = w.spawn(0x66, 4, (4, 4), 0).unwrap();
+        w.start_campaign(44);
+        let i = w.index(stone).unwrap();
+        w.units[i].hp = 4;
+        let bytes = w.save_state();
+        let mut b = world(24, 24);
+        b.spawn(0x66, 4, (4, 4), 0).unwrap();
+        b.restore(&bytes, 1).unwrap();
+        assert_eq!(b.unit(stone).unwrap().hp, 400);
+        // Mode D: peasants that player 4 has gained since the start are converted at the load.
+        let mut w = world(24, 24);
+        w.start_campaign(14);
+        let p = w.spawn(0x02, 4, (2, 2), 0).unwrap();
+        let bytes = w.save_state();
+        let mut b = world(24, 24);
+        b.spawn(0x02, 4, (2, 2), 0).unwrap();
+        b.restore(&bytes, 1).unwrap();
+        assert_eq!(b.unit(p).unwrap().kind, 0x10);
+        // Mode E switches its rule at the start, so the loaded game no longer holds the mode and doesn't repeat it.
+        let mut w = world(24, 24);
+        w.start_campaign(18);
+        let rule = w.victory.rule;
+        assert!(matches!(rule, Some(Rule::Standard { .. })));
+        let bytes = w.save_state();
+        let mut b = world(24, 24);
+        b.restore(&bytes, 1).unwrap();
+        assert_eq!(b.victory.rule, rule);
     }
 
     #[test]

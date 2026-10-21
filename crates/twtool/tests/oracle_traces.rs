@@ -142,7 +142,11 @@
 //! sets every seen bit), mp-rose-petal-bne-game-21300, and the computer-player goal windows orc13-aigoals-goals-17900-18200,
 //! xhuman11-aigoals-goals-0, xhuman9-aigoals-goals-8630-8830 and xorc9-aigoals-goals-0 (the conversion goal rule, TC1 to
 //! TC6 and AG1 to AG4) match in full. xhuman9-xhuman9-runestone-saveload-game-60 is ignored: after the load a moving
-//! unit waits about 3 cycles in the original and ours moves at once, and the rule is held.
+//! unit waits about 3 cycles in the original and ours moves at once.
+//!
+//! Round 91: a load runs the mission start again (G24): xhuman9-xhuman9-runestone-alive-saveload-game-60 now has the
+//! damaged runestone back at 400 hit points in the loaded game's setup record (it was 4 before the change) and matches
+//! to n 11; it is ignored from n 12, where the original draws one random number fewer (see its test).
 //!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
@@ -474,10 +478,25 @@ traces! {
 /// The runestone save/load trace: after the load a moving unit waits about 3 cycles in the original and ours moves at
 /// once. The movement state after a load isn't specified, and the held rule (game Q3, the runestone) decides it.
 #[test]
-#[ignore = "movement state after a load, and the held runestone rule, are not specified"]
 fn xhuman9_xhuman9_runestone_saveload_game_60() {
     check(
         "xhuman9-xhuman9-runestone-saveload-game-60.jsonl.gz",
+        Some(("Campaign\\XHuman\\2XHum09.pud", 44)),
+        &[],
+        None,
+    );
+}
+
+/// The round-91 runestone trace (a damaged runestone alive at the save): the setup record's runestone is at 400 hit
+/// points (G24) and the loaded game matches to n 11. At n 12 (cycle, counter 10) the original draws 7 random numbers
+/// and ours 8 (the first 7 values are the same; ours draws one more at the end). Every unit and effect field matches
+/// at n 12, so the missing draw is a look-around, a computer building's training chance or a missile flight step of
+/// that cycle that the original doesn't make; the spec doesn't say which.
+#[test]
+#[ignore = "n 12 (cycle): rng draws, ours 8 and theirs 7; the load-time draw difference is not specified"]
+fn xhuman9_xhuman9_runestone_alive_saveload_game_60() {
+    check(
+        "xhuman9-xhuman9-runestone-alive-saveload-game-60.jsonl.gz",
         Some(("Campaign\\XHuman\\2XHum09.pud", 44)),
         &[],
         None,
