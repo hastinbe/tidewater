@@ -1,0 +1,122 @@
+# Builds the downloads for a version tag (vX.Y.Z) and publishes them as a GitHub release. How to cut one:
+# docs/release.md. Tests run in ci.yml, not here. Only the program is packaged: never any game data.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The update check asks this repository for newer releases (crates/client/src/update.rs).
+  TIDEWATER_REPO: ${{ github.repository }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stamp the version
+        run: echo "TIDEWATER_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Install SDL 3 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libegl1-mesa-dev libgl1-mesa-dev
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p tidewater-client
+      - name: Package
+        run: |
+          name="tidewater-${TIDEWATER_VERSION}-linux-x64"
+          mkdir -p "dist/$name"
+          cp target/release/tidewater LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stamp the version
+        run: echo "TIDEWATER_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Install the pinned toolchain and both Mac targets
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build both architectures
+        run: |
+          cargo build --release -p tidewater-client --target aarch64-apple-darwin
+          cargo build --release -p tidewater-client --target x86_64-apple-darwin
+      - name: Make the universal binary and the disk image
+        run: |
+          mkdir -p dist
+          lipo -create -output dist/tidewater \
+            target/aarch64-apple-darwin/release/tidewater target/x86_64-apple-darwin/release/tidewater
+          packaging/macos/build-dmg.sh "$TIDEWATER_VERSION" dist/tidewater "dist/tidewater-${TIDEWATER_VERSION}-macos.dmg"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stamp the version
+        run: echo "TIDEWATER_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p tidewater-client
+      - name: Build the installer
+        run: |
+          choco install innosetup --no-progress -y
+          mkdir -p dist
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            "//DAppVersion=${TIDEWATER_VERSION}" \
+            "//DAppUrl=https://github.com/${TIDEWATER_REPO}" \
+            "//DSourceExe=$(pwd -W)\\target\\release\\tidewater.exe" \
+            "//DOutDir=$(pwd -W)\\dist" \
+            "//DOutName=tidewater-${TIDEWATER_VERSION}-windows-x64-setup" \
+            packaging/windows/tidewater.iss
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/*.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l dist
+          # A tag with a suffix (v1.2.3-rc1) is a pre-release, which "latest" and the update check skip.
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Tidewater ${GITHUB_REF_NAME#v}" --generate-notes $pre
