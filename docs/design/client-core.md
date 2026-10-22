@@ -1,7 +1,7 @@
 # Design: an engine-neutral client core
 
 **Bottom line.** The client is a plain-Rust core that the host calls once per frame:
-`advance(real_time_elapsed, platform) -> &Frame`. The shell only shows a 640 × 480 frame, hands over input, pulls
+`advance(real_time_elapsed, platform) -> &Frame`. The shell only shows the frame (640 × 480, or wider in a game with the `widescreen` option), hands over input, pulls
 mixed audio, provides the files, and knows the time. All three phases are done (steps 1 to 11). **SDL 3 is the only
 shell** (decided 2026-10-15): the `tidewater` binary is the core in an SDL 3 window, through our own thin wrapper over
 `sdl3-sys`. Bevy and the miniquad trial shell are removed. The frame and audio snapshots didn't change, and every
@@ -80,7 +80,7 @@ impl Core {
 // The proposal still to come: an indexed frame.
 
 pub struct Frame {
-    pub pixels: Pixels,         // 640 × 480
+    pub pixels: Pixels,         // 640 × 480 (this proposal; the code's `compose::Frame` carries its own width and height)
     pub pointer_drawn: bool,    // false: the shell may show the system pointer
 }
 
@@ -210,6 +210,73 @@ scene's screenshot), so step 8 is checked to write them byte for byte as before.
 Mobile shells call `suspend` when sent to the background and `resume` when they return (built for iOS, [ios.md](ios.md), and used by Android, [android.md](android.md)). A long frame (a debugger, a suspended laptop) is capped at
 250 ms of game time, as today.
 
+## Widescreen
+
+The `widescreen` option (C+L, `docs/design/extras.md`; `widescreen.rs`) makes the game screen wider than 640 pixels.
+The extra width is map. Off is the default and leaves every frame byte for byte what it was.
+
+**Widths.** The screen stays 480 lines high, so the interface art keeps its pixel size and the map view keeps its
+height. Every width is 640 plus whole tiles (32 pixels), so the view always shows whole tiles across, as the
+original's 14 do and as the view position (a whole tile) assumes.
+
+| Setting | Screen | Map view | Notes |
+|---|---|---|---|
+| `off` | 640 × 480 | 14 tiles | the original |
+| `16:10` | 768 × 480 | 18 tiles | exactly 16:10 |
+| `16:9` | 864 × 480 | 21 tiles | 1.8: 853.3 pixels, the original 16:9, rounded to the nearest whole tile |
+| `auto` | 640 to 864 × 480 | 14 to 21 tiles | the whole tile nearest the window's safe-area shape, never wider than `16:9` (a window narrower than 4:3 gets 640) |
+
+**Fairness.** The view only shows more map to the right: the height, the zoom and the interface's size are the
+original's. That is still an edge, which is why the option is C+L: in a game with other players the lobby's value is
+used for everyone (`game::extras`).
+
+**Where the width lives.** `Core::screen` is the screen's size this frame, set at the start of `advance`
+(`core::screen_size`) and again after the flow's transitions, since a game starting or ending changes it. It is 640 × 480
+unless the state is `Game` with a sim and the option says otherwise. The core stamps it into `WindowGeom::screen`
+before anything reads the window, so `WindowGeom::letterbox` (and with it every pointer mapping) and the
+shell's own letterbox agree. The shell reports the last frame's size in the same field and the core overwrites it. The
+frame (`compose::Frame`) carries its `width` and `height`, `Clip::SCREEN` is "the whole frame, whatever its size", and
+`compose_screen` centres the Interface and Flow planes on the screen's centre. The default path costs a size
+comparison per frame.
+
+**Layout.** `game::hud_layout` lays the interface out for `Core::screen` and again when it changes (`auto` and a resized
+window). `hud::Layout::new` already took any canvas: the panel, minimap, information panel and command buttons stay
+where they were against the left edge; the top and bottom bars and the map viewport widen. The top bar's resource
+items, the status line and the idle-worker button keep their positions from the left (the resource line is not spread
+across the wider bar, so a 16:9 game has the same resource line with more bar to its right); the message list and the
+game clock keep their distance from the view's left, bottom and top edges; the control-group strip is anchored to the
+view's top left. A view that grows or shrinks keeps its left edge (`hud_layout` moves its centre by half the change), so
+a window resize does not jump the map.
+
+**What maps through the width.**
+
+| What | How it follows |
+|---|---|
+| Mouse to map | `Hud::cursor` and `MapView::pointer_map` go through `WindowGeom::letterbox().screen_point`, which clamps to the screen's own width |
+| Selection boxes, building placement, the view rectangle | Use the layout's viewport and `MapView::geom`, so they are as wide as the view |
+| Minimap's view rectangle and a press on it | `minimap::view_rect` / `view_for_press` take the view's size in tiles from `MapView::geom` (18 or 21 across) |
+| Edge scrolling | `screen::edge` takes the canvas (`Layout::canvas`), so the right edge is the wide screen's |
+| Keyboard scroll, the clamp to the map | `MapView::keep_on_map` uses the view's real size |
+| Screenshots (PrintScreen) | `screenshot::write_shot` writes the frame at its own size |
+| Menus, briefings, videos, the score screen | Are 640 × 480 pictures centred on the wide frame with black beside them; `frontend::pointer` uses `Letterbox::flow_of` to take the pointer back to their own pixels. Outside a game the screen is 640 × 480 anyway, so only the game's own dialogs (game menu, save and load, outcome) are ever centred in a wider frame |
+
+**The window.** The window keeps whatever width a game gave it. When the screen widens and the window shows whole-number
+scales, it grows to hold the screen at the scale it had (`fit_window`), if the display has room, and the smallest size
+follows the screen; a window that fits any size (`--extra-scaling sharp`, touch) only changes its letterbox. After a
+game ends the 640 screen sits in the middle of the wider window with black beside it.
+
+**Touch.** On a touch device the pillarbox beside the 4:3 picture holds the touch buttons (`chrome`), so the option
+is ignored there and the screen stays 640 wide: on a phone or tablet (`TouchState::touch_only`, set by the shell on iOS
+and Android), with `--touch-emulation` (which forces it off even before a finger has touched) and while touch is in use
+on a computer with a touch screen (`TouchState::blocks_widescreen`; it comes back the moment the mouse is used again,
+and the layout is made again). Touch gestures therefore never see a wide screen.
+
+**Tests.** The width rules (`widescreen`'s tests), the letterbox with a wide screen (`display`), the clipping of a wide
+frame (`compose`), the layout (`hud`), the view's pointer mapping (`mapview`), the minimap rectangle (`minimap`), the
+right edge (`screen`) and the touch override (`touch`) are unit tests. The frame snapshot has two scenes, `widescreen`
+(16:9: the start, a selection box past the old right edge, the pointer scrolling at the new edge, the game menu in the
+middle) and `widescreen-16x10`; no existing snapshot changed.
+
 ## Platform trait
 
 The core sees only `Input`, `Storage`, the time it is given and, during a frame, `core::Platform`:
@@ -221,6 +288,8 @@ pub trait Platform {
     /// The pointer in the window's logical points and whether the window has the focus, once a frame after the keys
     /// are applied. `game_pointer`: the game draws its own pointer, so the platform may lock the system's.
     fn pointer(&mut self, keys: &Buttons<Key>, game_pointer: bool) -> (Option<(f32, f32)>, bool);
+    /// A run with no real window (the headless scripted loop): the window the core sees is exactly the screen's size.
+    fn headless(&self) -> bool { false }
 }
 ```
 
@@ -231,9 +300,12 @@ A shell does six things around `Core::advance`:
 | Input events | `Shell::take_events`: key (with its typed text), button, wheel and focus-lost events into `Core::input` between frames | the same calls: `Input::key`, `button`, `wheel`, `focus_lost`; `key_of` is the key map |
 | Frame | `core.advance(elapsed, &mut shell)` once a frame, the real time since the last | the same |
 | Window and pointer | `impl Platform for Shell`; the mouse lock (`display::lock_wanted`) inside `pointer`: relative mode on macOS, the grab elsewhere | `impl Platform` |
-| Show | the frame into one streaming texture, drawn at the whole-number scale (`display::Letterbox`) on black; `cursor_visible`, `title` after the frame | upload `Core::frame` (RGBA, 640 × 480) and scale it |
+| Show | the frame into one streaming texture, drawn at the whole-number scale (`display::Letterbox`) on black; `cursor_visible`, `title` after the frame | upload `Core::frame` (RGBA, its own `width` × `height`: 640 × 480 or wider) and scale it |
 | Sound | an SDL audio stream whose callback calls `Output::mix` for what the device needs; SDL converts the rate | the device callback calls `Output::mix` (22,050 Hz stereo) |
 | Files, exit | `storage::Desktop` (`host::launch`); `store_settings` on `Core::exit` or the window's close; then the loop ends | the same `Desktop`; end the loop on `exit` |
+
+The frame's size can change between frames (a game with `widescreen` starts or ends): the shell compares
+`Core::frame`'s size with the last and remakes its texture (`Renderer::set_size`); see [Widescreen](#widescreen).
 
 A scripted run needs one more call after each frame: `script::record(run, frame, output, exiting)`, which also says
 when the run is done; with a window, `script::compare_shot` takes the window's own picture of each shot.

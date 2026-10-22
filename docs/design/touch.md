@@ -67,8 +67,9 @@ A touchscreen has no Shift, Ctrl or Alt, and no pause key. The chrome puts them 
 The latches, **R** and pause show in a game; the keyboard button always shows. The controls go in the left bar and
 right bar, one column each, centred in the bar's height; if only one bar is wide enough they share it, and a window
 with none gets a column over the picture's left edge. A control acts when its finger lifts inside it. The chrome is an
-RGBA overlay of the window's size that the shell blends over the picture; it is never part of the 640 x 480 frame, so
-frames and snapshots do not depend on it.
+RGBA overlay of the window's size that the shell blends over the picture; it is never part of the frame (640 x 480; the game screen is never wider on a touch device, because the `widescreen`
+option is ignored there: the pillarbox is where the chrome lives, see `client-core.md`, "Widescreen"), so frames and
+snapshots do not depend on it.
 
 ## Scaling
 

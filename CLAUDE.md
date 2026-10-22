@@ -52,7 +52,7 @@ before writing any code, and follow it exactly.
   `mpmenu.rs` is the multiplayer menus (Multi Player Game to the game list and Direct IP), `mpwidgets.rs` their edit boxes and pop-ups, `lobbyscreen.rs` the game setup lobby; `chat.rs` is the in-game chat line, sent as `Msg::Chat` outside the turns.
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
-  The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, the shell
+  The window shows one picture composed on the CPU, 640 × 480 or wider in a game with the `widescreen` option (`compose.rs`, `widescreen.rs`; `core.rs` places the layers, the shell
   shows it). `script.rs` runs scripted scenes (`--script NAME --script-out DIR [--headless]`) for the frame
   snapshot `tests/frames.rs`; the design of the core and its shell is `docs/design/client-core.md`.
 - `crates/ios`: the iOS app's static library (`tidewater-ios`): empty except on `target_os = "ios"`, where it builds
