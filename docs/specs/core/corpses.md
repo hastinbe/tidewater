@@ -14,6 +14,9 @@
   bodies and ruins keep their last frame; `orc09-naval` vectors.
 - **Changes:** 2026-10-13, round-54 errata: a water ruin is chosen by the type's naval movement class (or the shore
   building flag), not the layer; every ruin shows frame 0 in the cycle it is made; `human12-25000` vector.
+- **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): a dead body keeps the dead unit's target until a load, which clears it (`game/save-load.md`, SL28,
+  SL29).
 
 ## Behaviour
 
@@ -91,6 +94,10 @@ When a unit becomes a dead body:
 - its sprite facing is kept, except for the ogre and the ogre-mage, whose facing is remapped: N, NE and E become SW;
   SE and S become W; SW becomes NE; W and NW become SE (facings 0–7 become 5, 5, 5, 7, 7, 1, 3, 3);
 - it is deselected;
+- its target is kept (`core/unit-slots.md`, "Death, corpses and release"): the body goes on reporting it, even after
+  that slot is released (`oracle/trace-format.md`, unit `target`), until the body's own slot is released or a game is
+  loaded: after a load every dead body has no target (`game/save-load.md`, SL28, SL29; a ship wreck the same as a
+  human or orc body);
 - it starts the decay animation for its kind.
 
 A ruin is marked complete, its facing is set to 0, it is deselected and it starts the decay animation for its kind.

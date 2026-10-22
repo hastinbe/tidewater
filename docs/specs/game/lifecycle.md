@@ -35,6 +35,8 @@
   2026-10-22): the start and count tables add the computer job choice's counts (0 at every game start, a load
   included, while the loaded workers keep their jobs; 16-bit, wrapping; SL22 to SL25). The load's marks for a known
   spell and an upgrading building are traced (SL26, SL27).
+- **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): a load clears every dead body's target (SL28 to SL30); the repairer count's clearing is traced (SL31).
 
 ## Behaviour
 
@@ -102,7 +104,7 @@ marks rules the old text didn't state.
 | Mission scores and the score screen's statistics | Start at 0 (`game/campaign-flow.md`) | Restored from the save (Enhanced) |
 | Rescued counts | Set to 0 for every player (static study) | Restored from the save |
 | Mission rule (mode) | Taken from the mission table (campaign) or the standard rule (`game/victory.md`) | Restored from the save, already switched if it was switched |
-| Map, players, units, resources, alliances | Read from the map (`game/setup.md`) | Restored from the save |
+| Map, players, units, resources, alliances | Read from the map (`game/setup.md`) | Restored from the save, except that every dead body (type 0x69) has no target (traced, round 96: `game/save-load.md` SL28 to SL30) |
 | Computer player scripts (`ai/ai-scripts.md`, "Game start") | Every player's script starts and runs its opening **before the map's units are placed**, with every count its conditions read at 0; the map's units are counted after it. An opening's final "wait until" is tested again in the second start-up cycle, so the instructions after it run at trace record 4 at the earliest (static study; traced, round 94: AS-V1, AS-V2) | No script runs: each player's script state (wait counter, position, slots, the build-list limit included) is restored from the save (traced for the limit, round 94: AS-V1) |
 | Music track | Chosen (`ui/music.md`) | Restored from the save |
 | Random numbers | Seeded (`core/timing-and-rng.md`) | Seeded the same way (`game/save-load.md`) |
@@ -117,7 +119,7 @@ marks rules the old text didn't state.
 | 50-cycle pass counters (`ai/attack-ai.md`, "Timing") | Start at 1, so the passes run in the first start-up cycle | The same: not saved, start at 1 (traced, round 92) |
 | Training group counts, footmen to submarines (`ai/training-research.md`) | Counted from the map's units | Restored from the save, then every loaded unit is counted again: doubled (traced for every group, rounds 92 to 94; held map ships are never counted). The worker and tanker counts are worked out afresh (traced, round 93) |
 | Computer research requests and build-list done marks (`ai/training-research.md`, `ai/worker-ai.md`) | Requests clear; done marks from levels, researched items and known spells, then a creation mark for each map building | Not kept: requests clear; done marks from levels, researched items and known spells, then the load's building marks for each building that isn't dying or removed, construction sites included; a research running at the save stays unmarked, and a building upgrading at the save marks as its current type with its upgrade's entry left open (traced, rounds 93 to 95) |
-| Computer job counts: miners, lumberjacks, repairers, buildings in progress, hall cooldown (`ai/worker-ai.md`) | 0 | 0, while every loaded worker keeps its job, so each loaded job's release wraps its 16-bit count to 65535 (traced, round 95: `game/save-load.md` SL22 to SL25; the repairers and hall cooldown static study) |
+| Computer job counts: miners, lumberjacks, repairers, buildings in progress, hall cooldown (`ai/worker-ai.md`) | 0 | 0, while every loaded worker keeps its job, so each loaded job's release wraps its 16-bit count to 65535 (traced, round 95: `game/save-load.md` SL22 to SL25; the repairers traced, round 96: SL31, SL32; the hall cooldown static study) |
 | Game clock and pause counts | Start at 0 | Restored (Enhanced) |
 
 ### Where players act

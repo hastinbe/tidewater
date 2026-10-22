@@ -7,6 +7,10 @@
   3 s and 8 s into a stall (MP-L4, first part); the default sync check catches a generator difference at the second
   turn after it and doesn't catch a "seen"-map difference (MP-L5, `allowsync` off). Tidewater's wider digest is
   recorded as a design choice that drops on the original's turn (DECISIONS.md, 2026-10-21).
+- **Changes:** 2026-10-22, round 96 (oracle trace, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): trace request MP-L5b's typing step answered: in an Enhanced game `allowsync` typed as a chat line is
+  plain chat, carried out as a command in a turn, and a generator difference still drops the player (traced). The
+  `allowsync` mode stays untraced.
 - **Sources:** static study of the 2.02 program for both network layers (research notes under `research/notes/`), the
   dialog files `rez\timeout.bin`, `rez\btimeout.bin` and `NetDlg.bin`, and the tables `Rez\connect.tbl` and
   `Rez\network.tbl`. One oracle run confirms the turn spacing of an Enhanced Direct Connect game at speed 8
@@ -349,6 +353,7 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
 | Enhanced Direct Connect, speed 8, K = 12 (round 91, **traced**: `mp-dark-paths-bne-mp-latency-game-400`): a select and a move read in one frame at counter 198 | Turns before counters 216 and 228 |
 | Same game, a select and a move read in one frame at counter 299 (**traced**) | Turns before counters 312 and 324 |
 | Same game, `allowsync` off: the generator's lowest bit flipped on one machine after record 150, between the turns before counters 144 and 156 (round 91, **traced**: `mp-dark-paths-bne-mp-desync-rng-game-400`) | At the turn before counter 168 each machine drops the other (slot 0 becomes "nobody" on the traced machine); both show network entry 65; both games go on |
+| Same game, `allowsync` off; first the second human types the chat line `allowsync` (Return, the nine letters and Return sent to its display at records 60 to 82), then the generator flip after record 150 (round 96, **traced**: `mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400`) | The line is chat (cheats are always disabled in an Enhanced multiplayer game, `ui/game-setup-lobby.md`; `game/cheats.md`): it is carried out as a command of the second human in the turn at record 98 and changes no game state. The drop is exactly the row above's: every record equals `mp-dark-paths-bne-mp-desync-rng-game-400`'s but the chat turn |
 | Same game, one "seen" bit cleared on one machine after record 150, set again by the fog refresh at record 201 (round 91, **traced**: `mp-dark-paths-bne-mp-desync-seen-fogmaps-game-400`) | No drop and no notice. **Tidewater** (design choice above): its digest catches it, and both machines drop each other at the turn before counter 168 |
 | A peer stops sending for 12 s, Direct Connect (round 91, **traced**: `mp-dark-paths-bne-mp-stall-game-300`) | The watch at about 3 s, the waiting dialog naming the player at about 8 s; the dialog closes by itself when turns resume; nobody dropped |
 | Two players' sync bytes differ, `allowsync` on | Network entry 83 for every player; the game continues |
@@ -371,6 +376,9 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
   timing after each (needs a timer on the waiting side).
 - **What the sync check covers with `allowsync` on.** Closed for the default (`allowsync` off, traced, round 91: the
   generator, not the "seen" map). With `allowsync` on, static study reads a hash of the game state in the state
-  value; what it covers isn't traced. Out of scope for Tidewater (no `allowsync` mode). Trace request MP-L5b, low
-  priority: type `allowsync` in a multiplayer chat line, then repeat the "seen" difference.
+  value; what it covers isn't traced. Out of scope for Tidewater (no `allowsync` mode). Trace request MP-L5b's typing
+  step is answered (traced, round 96): in an Enhanced game cheats are always disabled, so a typed `allowsync` is a
+  chat line and can't turn the mode on, and a generator difference still drops the player. The mode can only be
+  reached where cheats are allowed (a Classic mode lobby that allows them, or the word as a program argument,
+  `game/cheats.md`); MP-L5b stays open for that, low priority.
 - **Network entry 134.** "SYNC ERROR." has no known use. Default: not shown.

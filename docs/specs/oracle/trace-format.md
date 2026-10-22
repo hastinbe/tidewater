@@ -43,6 +43,11 @@
 - **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
   session, 2026-10-21): the "Other speeds" open question is answered from `net/lockstep.md` (single player: a turn
   before every cycle, static study; Direct Connect launch: K = 12 at speed 8, traced).
+- **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22), still version 2: the second human's commands and the harness's `peer` actions replace "Idle human",
+  with a check a comparer makes on them; the scenario verbs `save`, `load`, `say` and `fog` and their records; a
+  loaded game's `setup` record; the `aiworkers` extra; after a load a dead body's `target` is `null`
+  (`game/save-load.md`, SL28). The other research extras are listed and held.
 
 ## Behaviour
 
@@ -66,13 +71,20 @@ Records come in the order the work happened. Each has `n` and `kind`.
 | `startup` | After each of the two cycles that run at once during start-up (`core/timing-and-rng.md`, "Scheduler", rule 1). These cycles don't advance the cycle counter. | 1, 2 |
 | `cycle` | After every normal cycle that did simulation work. | 3, 4, … |
 | `turn` | After a command turn (commands from the queue were carried out between cycles), only when the turn drew random numbers or carried out at least one command. Any other turn gets no record. | the `n` of the cycle before it |
+| `setup` with `load` | After a `load` input entry: the loaded game's state, before any of its cycles run ("Saves, loads, cheat words and fog"). The loaded game's `startup` and `cycle` records follow as in a new game | 0: `n` starts again |
+| `save` | After a `save` input entry, once the game has written the file. It holds no unit state ("Saves, loads, cheat words and fog") | the `n` of the cycle whose state was saved |
+| `say` | After a `say` input entry, once the typed word has been carried out. No unit state | the `n` of the turn that carried out the word's cheat command |
+| `fog` | After a `fog` input entry, right after the `cycle` record with the same `n`. No unit state | the `n` of that cycle; the change applies from the next cycle |
+| `peer` | Multiplayer launch only: after a `peer` input entry, right after the `cycle` record with the same `n` and before any `turn` record with that `n`. No game state ("The second human") | the `n` of that cycle |
 
 - `n` counts simulated cycles from the start of the game, start-up cycles included. A `turn` record shares its `n`
   with the `cycle` record before it, so compare records by `n` and `kind` together, in file order.
 - **Paused cycles** (and, in single player, cycles while the game window is inactive) do no simulation work and get
   no record. The program's own cycle counter is given in `counter` for reference only. It can drift from `n` (it
   doesn't count the start-up cycles, and may count paused ones), so a comparer should ignore it.
-- Each record is the full state at that point: it doesn't depend on earlier records.
+- Each record is the full state at that point: it doesn't depend on earlier records. The `save`, `say`, `fog` and
+  `peer` records are markers: they hold no `rng`, resources, units or effects, and a comparer doesn't compare them
+  as state (it uses them as described in their sections).
 
 **Windowed traces.** When the header has `from` = F, the game still ran from the start, but `cycle` and `turn`
 records with n < F are left out, except that the `setup` record, the two `startup` records and every `turn` record
@@ -114,16 +126,16 @@ The setup record is the same as a complete capture's of the same scenario.
 | `races` | 16 entries: `"human"`, `"orc"` or `"neutral"` |
 | `cheats` | The cheat flags on at setup, by their phrase or word as in `game/cheats.md` (for example `"tigerlily"`, mission select, which the launch uses; `"title"`, `"noglues"`); the two notices without a phrase are `"notice A"` and `"notice B"`; any other flag (none is known to be set by anything) is `"unnamed N"`, with N a number from 0 to 31 that only tells such flags apart; empty when none |
 | `unit_slots`, `effect_slots` | Table sizes (`core/unit-slots.md`, "Table sizes") |
-| `input` | The scenario's commands as given to the harness, in file order; an empty list when there is no input. Each entry has `n` (see "When a command runs"), `player` (always the local player) and the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used), and a `cheat` entry has `add` instead of `cheats` ("Cheat commands") |
+| `input` | The scenario's entries as given to the harness, in file order; an empty list when there is no input (a few early traces have no `input` field: read it as empty). Each entry has `n` (see "When a command runs"), `player` (always the local player) and `kind`. A command entry has the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used), and a `cheat` entry has `add` instead of `cheats` ("Cheat commands"). The other kinds, `save`, `load`, `say`, `fog` ("Saves, loads, cheat words and fog") and `peer` ("The second human"), aren't commands: they are things the harness does. Entries after a `load` count `n` from the loaded game, so the list ascends up to each `load` and starts again after it |
 | `launch_path` | Multiplayer launch only: `"multiplayer"`. Absent from campaign traces: a missing field means a campaign start ("Multiplayer launch") |
 | `connection` | Multiplayer launch only: `"direct-connect"`, the game's two-player serial connection |
 | `map` | Multiplayer launch only: the scenario file name from the game's `Maps/` folder, for example `"Dark Paths BNE.pud"` |
 | `start_seed` | Multiplayer launch only: the lobby's start seed, 0 to 255, fixed by the harness ("Start seed") |
-| `humans` | Multiplayer launch only: human players in the lobby, 2: the traced player (`local_player`) and one idle human |
+| `humans` | Multiplayer launch only: human players in the lobby, 2: the traced player (`local_player`) and the second human, which acts only when the harness acts on its display ("The second human") |
 | `opponents` | Multiplayer launch only: the number of lobby rows set to Computer, 0 to 6. It is the count the opponent placement works from (`game/setup.md`, "Multiplayer game"), so with random starts the setup makes 1 + `opponents` placement draws when it is at least 1 (none when 0), even if a placement search fails and fewer computers are placed. Traces made before round 60 (2026-10-13) don't have it; for those, count the computer controllers after setup |
 | `starts` | Multiplayer launch only: the lobby's "Location" option, `"random"` (the default) or `"fixed"` (Fixed Order: each Computer row takes its same-numbered slot, with **no** placement draws; `game/setup.md`, "Fixed Order"). A `"fixed"` trace also has `-fixed` in its file name. Traces made before round 60 don't have it; all of them are `"random"` |
 | `from` | Windowed trace only: F, a whole number of at least 1, the first `n` from which every `cycle` and `turn` record is written ("Windowed traces"). Absent means the trace is complete from n 0 |
-| `extras` | Only when extras are on: the optional fields this trace adds, as a sorted list from `"goals"` and `"hits"` ("Opt-in extras"). Absent means none: no record has `hits` and no unit has `goal`, `pending` or `transport_dest` |
+| `extras` | Only when extras are on: the optional fields this trace adds, as a sorted list of extra names. `"aiworkers"`, `"goals"` and `"hits"` are described in "Opt-in extras"; any other name (`"aigoals"`, `"aigroups"`, `"aijobs"`, `"airesearch"`, `"fogmaps"`, `"game"`, `"vision"`) adds a research field of the same name that a comparer ignores. Absent means none: no record has `aiworkers` or `hits` and no unit has `goal`, `pending` or `transport_dest` |
 | `setup_only` | Only when `true`: the trace is the header and the `setup` record and nothing else ("Setup-only traces") |
 
 None of these three changes `rules`, `enhanced` or any other field: a windowed, setup-only or extras trace is Enhanced
@@ -141,6 +153,9 @@ unless Classic was explicitly requested on the multiplayer path, exactly as a de
 | `effects` | Every effect-table slot in use, in ascending slot order (below) |
 | `commands` | `turn` records only, present when the turn carried out commands: each command, in the order it ran ("Commands") |
 | `hits` | Only when `extras` has `"hits"`: the calls of the damage step made by this record's work, one entry per call in the order they happened ("Hit entries"). Absent when there was no call. The `setup` record never has it |
+| `load` | A loaded game's `setup` record only: the save's name, as in the `load` input entry ("Saves, loads, cheat words and fog") |
+| `aiworkers` | Only when `extras` has `"aiworkers"`, on every `setup`, `startup`, `cycle`, `turn` and `save` record: the computer workers' job counts ("Computer worker jobs") |
+| Research fields | Only when `extras` names them: `aigoals`, `aigroups`, `aijobs`, `airesearch`, `fogmaps`, `game`, `vision`, on any record. Not described here; a comparer ignores them |
 
 ### Unit fields
 
@@ -159,7 +174,7 @@ unless Classic was explicitly requested on the multiplayer path, exactly as a de
 | `frame` | Sprite frame (`core/animation-scripts.md`) |
 | `wait` | Animation wait counter (`core/animation-scripts.md`) |
 | `mana` | The unit's 8-bit mana value for spellcasters. For other units the same value may hold another counter; compare it only where a spec defines it |
-| `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit. A death knight casting death coil has each victim in turn as its target, as each missile is launched, and keeps the last until the idle takes over (`spells/spells.md`, "Death coil victims") |
+| `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit. After a load every dead body (type 0x69) reports `null`, whatever it had at the save; every other unit, dying ones included, keeps its target (`game/save-load.md`, SL28 to SL30). A death knight casting death coil has each victim in turn as its target, as each missile is launched, and keeps the last until the idle takes over (`spells/spells.md`, "Death coil victims") |
 | `trips` | Only for types 0x56 and 0x57 (oil platforms), 0x5C (gold mine) and 0x5D (oil patch): trips left (`economy/harvest.md`) |
 | `timers` | Only when one is running: any of `invisibility`, `unholy_armour`, `bloodlust` (cycles left) and `haste` (cycles; positive = haste, negative = slow) |
 | `goal` | Only when `extras` has `"goals"`, then on every unit: `[x, y]`, the unit's **stored goal**, in tiles like `tx`, `ty`: the tile its movement aims for (`movement/movement.md`, the stored goal of the blocked rules), set when it is sent somewhere and kept afterwards. The values are as stored, each 0 to 65535: a unit that isn't moving, and every building, holds whatever was left there (for example `[0, 65535]`, off the map). Compare it only where a spec defines it |
@@ -191,7 +206,7 @@ and `kind`.
 | `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
 | `cancel` | — | Cancel construction: the first unit of the player's synced selection, if it is the player's own building under construction, is taken down (`economy/build-train.md`, "Cancelling construction"). Otherwise it does nothing |
 | `cancel-job` | — | Cancel job: the first unit of the player's synced selection, if it is the player's own building, has its job marked to be cancelled at its next work run (`economy/build-train.md`, "Cancelling a job"). Otherwise, or if it isn't working, it does nothing |
-| `other` | — | A command of a kind this format doesn't describe. Input scenarios don't give these |
+| `other` | — | A command of a kind this format doesn't describe. No input command entry gives one, but other inputs make them: a `say` entry's typing (the pause and the resume around it), and on the multiplayer launch the second human's chat lines, its leave or drop notice, and the message a click on a command button (such as Move) sends, which changes no unit. A comparer lists them and carries out nothing for them |
 
 A command whose conditions fail (a unit not owned by the player, a builder that is neither a worker nor a tanker, too
 little gold) is still listed: it was carried out and did nothing.
@@ -246,12 +261,55 @@ with T(0) = 0. So a select and a command handed over together run in two consecu
 The `turn` records' `commands` are the authoritative timing: a comparer applies each command in the turn where the
 trace lists it, and uses the rule above only to predict that turn or to drive its own simulation without a trace.
 
+### Saves, loads, cheat words and fog
+
+Four input kinds drive the game's menus or keyboard instead of giving a command. Their entries have `n` and `player`
+like the others; the harness acts at the stop after `cycle` record `n` and needs a few cycles to finish, so each
+has a marker record a little later.
+
+| Entry `kind` | Entry fields | Record | Record fields |
+| --- | --- | --- | --- |
+| `save` | `name`; optional `"clear": true` (the harness empties the name box first) | `save` | `name`; `file`, the file name written (`name` + `.sav`); `size` in bytes; `counter`, the program's cycle counter (reference only); the extras' fields |
+| `load` | `name`; optional `row`: K, the row of the load list to pick (0 = top) | `setup` with `load` = `name` | A full `setup` record of the loaded game |
+| `say` | `word`, a cheat word or phrase (`game/cheats.md`) | `say` | `word`; `cheats`, the cheat flags after it; `fog_of_war`, 1 when the fog-of-war option is on, else 0; the extras' fields |
+| `fog` | `value`: `"on"` or `"off"` | `fog` | `value`; `before` and `fog_of_war`, the option before and after (0 or 1); `cheats`; the extras' fields |
+
+**Save.** The `save` record's `n` is the cycle whose state was saved: a load of that save gives the state of the
+`cycle` record with that `n`, as changed by `game/save-load.md`. The record itself is written 0 to 3 `cycle` records
+later (traced: entry 100, saved state 103, `human1-human01-cheat-load-game-50`; entry 1560, saved state 1564,
+`xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000`). The game goes on after a save.
+
+**Load.** After a `load` entry the harness loads the save and the trace goes on with the loaded game: a `setup`
+record with `"load": name` and `n` 0, then `startup` records 1 and 2 and `cycle` records from 3, as after a new
+game's setup. In every traced load the loaded `setup` record's `rng` equals the header's `clock` (946684800). Input
+entries after the `load` count `n` from the loaded game.
+
+**Say.** The harness types the word on the traced player's keyboard. This makes three commands of the traced player,
+each in a `turn` record of its own: an `other` (the game pauses while the line is typed), the `cheat` command the
+word makes (`game/cheats.md`; a phrase with cheats disabled would be chat instead) and an `other` (the game
+resumes). Several `turn` records can share one `n` here; the `say` record's `n` is the `n` of the turn with the
+`cheat` command, though it is written a few `cycle` records later.
+
+**Fog.** The harness switches the fog-of-war option. This makes no command. The `fog` record follows the `cycle`
+record with its `n`, and the option is switched between that cycle and the next. Two `fog` entries with the same `n`
+are carried out one after the other, each with a record of its own (entry n 12, records n 18 and 21,
+`human1-human01-fog-switch-fogmaps-game-400`).
+
+**What a comparer does.** At a `save` record it keeps its own state of the `cycle` record with that `n` under the
+save's name. At a loaded `setup` record it replaces its game with that kept state, carried through
+`game/save-load.md` (what a saved game keeps and what a load resets, including that a dead body's target becomes
+`null`), and compares the `setup` record; from there it runs and compares as for a new game, counting `n` from 0 and
+taking the input entries that follow the `load`. It applies `say` as the `turn` records list the commands, and the
+fog option at each `fog` record. It doesn't compare the marker records as state.
+
 ### Multiplayer launch
 
 The default launch starts a campaign mission. The harness can also start a skirmish map through the multiplayer menus: a
-Direct Connect game between the traced player and a second human who never gives a command, plus computer opponents.
-Such a trace has the multiplayer header fields (`launch_path` to `starts`; traces made before round 60 stop at
-`humans`). **Its records don't change**, and campaign traces don't have these fields at all. The format version stays 2.
+Direct Connect game between the traced player and a second human, plus computer opponents. The second human gives
+commands only when the harness acts on its display ("The second human"). Such a trace has the multiplayer header
+fields (`launch_path` to `starts`; traces made before round 60 stop at `humans`) and may have `peer` records; its
+other records are as in a campaign trace, and campaign traces don't have these fields at all. The format version
+stays 2.
 
 **Enhanced is still the default and the target.** A multiplayer trace is Enhanced unless Classic was explicitly
 requested. A Classic trace has `"rules": "classic"`, `"enhanced": false` and `-classic` in its file name, and is
@@ -281,10 +339,43 @@ count from its computer controllers after setup, which undercounts the draws onl
 on any traced map). The setup record's `rng` checks the result. The humans' slots and start locations come from the
 lobby (a later spec): take them from the header and the setup record.
 
+**The second human.** The second human is the player number whose `controllers` entry is `"human"` and isn't
+`local_player`. It is a human player, never a computer player, and gives no commands of its own. The harness can act
+on its display, or on the traced player's game; each action is an `input` entry with `"kind": "peer"` and a `peer`
+record. Both have `n`, `player` (the **traced** player's number, not the second human's) and `action`, with that
+action's fields:
+
+| `action` | Fields | What the harness does | Can make a command of the second human |
+| --- | --- | --- | --- |
+| `key` | `key`: the key, as `"Return"`, `"a"` or `"ctrl+q"` | Presses a key on the second human's display | Yes |
+| `click` | `at`: `[x, y]` on the 640 × 480 screen | Clicks on the second human's display | Yes |
+| `hold` | `secs`: 1 to 30 | Holds the traced player's game that long; the second human runs on to the next turn and waits, and may leave or drop the traced player (`net/leave-and-drop.md`) | Yes |
+| `desync` | `what`: `"rng"` (the traced player's generator state, low bit flipped) or `"seen"` (the traced player's seen value on one tile, with `tile`: `[x, y]`); in the record only, `old` and `new`: the value before and after | Changes the traced player's game so that the sync check fails (`net/lockstep.md`) | Yes (the drop notice) |
+| `shot` | In the record only, `files`: the two screenshot names | Takes screenshots of both displays | No |
+| `own-key`, `own-click` | `key` or `at` as above | Presses a key or clicks on the traced player's own display | No |
+
+A `peer` record follows the `cycle` record with the same `n` and comes before any `turn` record with that `n`.
+Several entries with one `n` give consecutive `peer` records, in `input` order. An entry whose `n` is past the
+trace's last record has no record.
+
+The second human acts in its own time, so a command it causes has no fixed cycle: in the traced games it came 8 to
+44 cycles after the action that caused it (round 96: a select 8 cycles after a click on a unit, a leave 33 and a
+drop or surrender notice up to 44 after the action). An action may cause no command at all (a `"seen"` desync, a
+short hold). The second human's commands are in the `turn` records under its own player number, have the same
+fields as the traced player's, and are carried out like anyone's. Most are `other`: chat lines, leave and drop
+notices, and the message a click on a command button sends (it changes no unit; the command itself follows a later
+click on the map). The traced player's commands are still exactly its `input` command entries ("When a command
+runs").
+
 **What a comparer does:**
 
-- **Idle human:** the second human gives no commands for the whole trace. Treat it as a human player with an empty
-  command list, not as a computer player.
+- **The second human:** apply its commands as the `turn` records list them, in their turns; they aren't derived from
+  `input`, and T(i) of "When a command runs" doesn't apply to them. Check them: a **trigger** is a `peer` entry with
+  action `key`, `click`, `hold` or `desync`. Each command of the second human must come in a turn whose `n` is
+  greater than some trigger's `n`; a trace with no trigger has no command from the second human. Don't check the
+  delay, which depends on the second human's pace. A command of the second human with no earlier trigger, or under a
+  player number that is neither the local player nor the second human, is a difference.
+- **Peer records:** skip them when comparing state; they only mark where the harness acted.
 - **Turns:** command turns in a multiplayer game come at the network's pace, not every cycle. As before, a `turn`
   record is written only when the turn drew random numbers or carried out commands.
 
@@ -292,7 +383,7 @@ lobby (a later spec): take them from the header and the setup record.
 
 The harness can add optional fields that a default trace never has. Each is opt-in and named in the header's
 `extras`: `"hits"` adds the record field `hits`, `"goals"` adds the unit fields `goal`, `pending` and
-`transport_dest`. They change nothing else: with these fields removed, a trace with extras has the same records as the
+`transport_dest`, `"aiworkers"` adds the record field `aiworkers`. They change nothing else: with these fields removed, a trace with extras has the same records as the
 default trace of the same scenario, but for the permanent drawing effects in effect slots 0 to 2
 (`core/unit-slots.md`), which can move by a record because watching the hits slows the game's pacing. No comparer
 checks those slots.
@@ -327,6 +418,23 @@ lower the target's hit points. Compare `hp` with the target in the same record t
 entries on one target in a record each show the hit points left by the ones before. Damage that doesn't go through
 the common step is not listed: walls, runes and other direct changes.
 
+**Computer worker jobs.** `"aiworkers"` adds the record field `aiworkers` to every record that has game state
+(`setup`, `startup`, `cycle`, `turn`) and to every `save` record: the counts the computer workers' job choice reads
+(`ai/worker-ai.md`), as stored. A count is a 16-bit number that wraps, so a count lowered past 0 shows as 65535 or
+near it (`game/save-load.md`, SL22 to SL25, SL31, SL32).
+
+| Field | What |
+| --- | --- |
+| `miners`, `lumberjacks`, `repairers` | 16 numbers, one per player number, each 0 to 65535: the player's count of workers with that job |
+| `hall_cooldown` | 16 numbers, one per player number: each player's hall cooldown (`ai/worker-ai.md`) |
+| `building` | An object with one entry for each building type a player has in progress with a nonzero count: key `"P:0xTT"`, the player number in decimal and the type as two lower-case hex digits (for example `"6:0x40"`), value 1 to 65535. A missing key means 0 |
+| `jobs` | An object with one entry per unit of players 0 to 7 that has a job: key the unit's slot as a decimal string, value `[job, mode]` |
+
+`job` is the sum of the unit's job bits: 1 mining gold, 2 cutting lumber, 8 building a farm or town hall the
+worker's own steps started (`ai/worker-ai.md`, "Farm"), 16 building a build-list entry ("Build list"), 32 repairing.
+`mode` is the worker's harvest mode: 128 gold, 64 lumber, 0 neither yet. Values the game keeps next to these that no
+spec defines are left out.
+
 **Which record lists a call.** The record whose work made the call: a `startup`, `cycle` or `turn` record. When a turn
 made calls but gets no record (it drew no random numbers and carried out no command), its entries go with the next
 record written. In a windowed trace calls before F aren't listed, except that a `turn` record in the gap lists its
@@ -335,7 +443,10 @@ own turn's calls.
 **Comparing extras.** A comparer may ignore `extras` entirely: unknown fields don't change the result. When it checks
 them, it compares `hits` only where a spec defines the calls (`combat/damage.md`), `pending` as an order number, and
 `goal` and `transport_dest` only where a spec defines the stored value (leftovers on idle units and buildings mean
-nothing).
+nothing). It compares `aiworkers` as 16-bit numbers, wrapped values included: the counts, `hall_cooldown` and
+`building` exactly, and `jobs` only for slots that are in the same record's `units` (a released slot's leftover
+bits, if one ever showed, would mean nothing; none has been seen). The research fields (`aigoals`, `aigroups`,
+`aijobs`, `airesearch`, `fogmaps`, `game`, `vision`) aren't described by this spec and aren't compared.
 
 ### Format versions
 
@@ -353,6 +464,11 @@ from `version` and an empty `input`.
 The opt-in header fields `from`, `extras` and `setup_only` and the extras' fields came later without a version change:
 a trace without them is exactly as before. A comparer must honour `from` (one that ignores it sees n jump from 2 to F
 and diverges there) and `setup_only` (it isn't a truncated trace); the extras' fields may be ignored.
+
+The input kinds `save`, `load`, `say`, `fog` and `peer`, the record kinds `save`, `say`, `fog` and `peer`, and a
+loaded game's `setup` record (round 96 in this spec; the traces are older) also came without a version change: a
+trace without them is exactly as before. A comparer must honour a loaded `setup` record (n starts again at 0) and
+skip the marker records as state.
 
 **Scenario files.** The harness's input lists in `oracle/` ("Input scenarios") are our own command lists and contain
 nothing from the program, so they may be used as test input like the traces. Their line format isn't part of this
@@ -447,6 +563,19 @@ committed files.
 | `orc10-0`: Orc10, 0 cycles | 2 lines; header `"setup_only": true` and otherwise as `orc10-35000`'s; the setup record equals `orc10-35000`'s |
 | `mp-dark-paths-bne-goals-hits-500-1000` (multiplayer, `from` 500, both extras) | Header `"from": 500`, `"extras": ["goals","hits"]`; records n 0, 1, 2 then the 501 from n 500, equal to `mp-dark-paths-bne-1000`'s with the extras removed; no `hits` by n 1000 |
 
+These come from the round-96 traces and checks (all Enhanced; `ERRATA-round96-traces.md`).
+
+| Input | Expected |
+| --- | --- |
+| `xorc11-xorc11-r96-targets-saveload-game-300`: saved state n = 881, then loaded | Loaded `setup` record: the six dead bodies (type 0x69) have `target` `null`; dead dragon 1526 keeps 1542 and juggernaught 1512 keeps 1519; `rng` 946684800 (`game/save-load.md`, SL28) |
+| `human1-human01-cheat-load-game-50`: `save` entry n = 100, `load` entry n = 250 | `save` record n = 103 (`file` `"ga5.sav"`), written after `cycle` 103; after `cycle` 252 a `setup` record with `"load": "ga5"` and n 0, then `startup` 1 and 2 and `cycle` 3 on |
+| `human1-human01-fog-switch-fogmaps-game-400`: `say` `showpath` at n = 10 | Three `turn` records with n = 12: the traced player's `other`, `cheat` with `["tigerlily", "showpath"]`, `other`; then a `say` record with n = 12 after `cycle` 14 |
+| Same trace: `fog` `"on"` and `"off"`, both at n = 12; `"on"` at n = 150 | `fog` records n = 18 (`before` 0, `fog_of_war` 1) and n = 21 (1, 0), and n = 152 (0, 1); no `turn` record for them |
+| `mp-battle-2-mp-battle2-nobody-moving-game-goals-vision-1450` (traced player 0, second human 1): `peer` clicks at n = 1170 (a unit), 1180 (the Move button), 1190 (the ground), `key` `ctrl+q` at 1212 and `Return` at 1217 | Second human's commands: `select` turn 1178, `other` 1202 (no unit changes), `command` 3 turn 1214, `other` 1250 (the leave); each after a trigger with a smaller `n`. The traced player gives none |
+| `mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400`: `peer` keys at n = 60 to 82 (Return, `allowsync`, Return), then `desync` `"rng"` at 150 | `other` of the second human (player 0) in turn 98 (the chat line) and turn 170 (the drop); the `peer` record at 150 has `old` 2394588402 and `new` 2394588403 (the low bit flipped). Every record equals `mp-dark-paths-bne-mp-desync-rng-game-400`'s but the chat turn |
+| Each of the 45 multiplayer traces in `oracle/traces/` as of round 96 | No command of the second human before a trigger; none at all in the traces without one; the traced player's commands are exactly its `input` command entries; no other player number gives a command |
+| `xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000`, `aiworkers` | On every `setup`, `startup`, `cycle`, `turn` and `save` record; `repairers` of player 6 go 0 → 65535 at n = 634 of the loaded game and 65534 at 653; `building` `"6:0x40"` is 1 in the `save` record, absent from the loaded `setup` record, and 65535 from n = 678 (`game/save-load.md`, SL31, SL32) |
+
 ## Open questions
 
 - **Other speeds.** In single player a command turn comes before every cycle at every speed (`net/lockstep.md`,
@@ -455,8 +584,12 @@ committed files.
   authoritative.
 - **Commands the game queues by itself:** none has been seen; the Human12 select was the harness's own click
   (found in round 35).
-- **Commands from other human players** (multiplayer) would appear under their own player number; input scenarios
-  are single player for now.
+- **The second human's commands** are described ("The second human"). The delay from a `peer` action to the command
+  depends on the second human's own pace (8 to 44 cycles in the traced games), so a comparer checks the order, not
+  the delay. Commands of a kind other than `select`, `command` and `other` from the second human haven't been traced.
+- **Research extras (held).** `aigoals`, `aigroups`, `aijobs`, `airesearch`, `fogmaps`, `game` and `vision` aren't
+  described here: their field definitions (the `game` extra's result codes among them) aren't in a reviewed spec yet.
+  A comparer ignores them until a later round describes them in behaviour terms.
 - **Setting up a multiplayer start:** the generator state and the computer slots can now be derived ("Multiplayer
   launch"); the lobby's start-location draw isn't specified yet, so the humans' slots and start locations still
   come from the trace.
@@ -468,7 +601,8 @@ committed files.
 - **Multiplayer cheats:** the throw-away draw when a game disables cheats hasn't been traced.
 - **Extras not yet observed:** no capture has a `demolish` or `exorcism` hit entry (static study only), and the
   stored goal of a unit that isn't moving has no defined value.
-- Fog of war, the map's tiles (trees cut, walls) and the AI state aren't recorded yet.
+- Fog of war, the map's tiles (trees cut, walls) and most of the AI state aren't recorded in a described field yet
+  (only the option's on/off value in the `say` and `fog` records, and the computer workers' counts in `aiworkers`).
 - **Scenario identity.** `scenario` and `launch` are free text, so a comparer can't yet set up the scenario from the
   header alone. Default: each comparer test names its scenario (campaign entry or map file) itself; a structured
   field can come in a later format version.

@@ -26,6 +26,8 @@
   every unit's creation number (`game/save-load.md`).
 - **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): after a load the creation counter goes on from the unit-slot count plus 26 (1626 in Enhanced, traced).
+- **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): a load clears a dead body's target (`game/save-load.md`, SL28 to SL30).
 
 ## Behaviour
 
@@ -124,7 +126,9 @@ When a unit is killed, it keeps its slot. The game:
 - kills any units inside it (transports, and buildings holding units);
 - sets its order to "dying", which plays its death animation;
 - keeps the target recorded at that moment, which may be none (a killer that forgot its target dies with no target;
-  `combat/damage.md`, "Applying damage");
+  `combat/damage.md`, "Applying damage"). The dead unit, and the body it becomes, keep it until the slot is released;
+  only a load clears it, and only on a body (type 0x69): a dying unit keeps it through a load (`game/save-load.md`,
+  "What a saved game keeps", SL28 to SL30);
 - leaves its HP as it is: no kill, whether by damage or outright, changes a unit's HP (`combat/damage.md`). This
   covers the killing blow, a demolisher killed after its blast, a passenger killed with its transport, a builder
   with no exit tile and every other outright kill. The HP shows unchanged through the death animation;

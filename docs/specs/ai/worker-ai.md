@@ -78,6 +78,9 @@
   so a loaded job's release wraps ("Counts after a load"; traced, `game/save-load.md` SL22 to SL25; the farm,
   build-list and hall tests on a wrapped count are static study). A known spell's mark after a load and an upgrading
   building's mark are traced (SL26, SL27).
+- **Changes:** 2026-10-22, round 96 (oracle trace, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): the repairer count's clearing and wrap and a build-list type's count in progress wrapping are traced
+  (`game/save-load.md` SL31, SL32). The repair, farm, build-list and hall tests on a wrapped count stay static study.
 
 ## Behaviour
 
@@ -180,7 +183,8 @@ progress are 16-bit unsigned values: every +1 and −1 above wraps (65535 + 1 is
 is a separate small count that only goes down while it isn't 0. Every game start sets all of them to 0, a load
 included, while a loaded worker keeps its saved job (`game/save-load.md`, "What a loaded game starts afresh"). So the
 first release of each loaded job wraps its count (traced, round 95: `game/save-load.md` SL23 to SL25, for the
-lumberjacks, the miners and the farms in progress). Nothing recounts the jobs: a count stays off by the loaded jobs of
+lumberjacks, the miners and the farms in progress; round 96: SL31 and SL32, for the repairers and a build-list type
+in progress). Nothing recounts the jobs: a count stays off by the loaded jobs of
 its kind for the rest of the game. The tests read the wrapped value as it is:
 
 | Test | How it reads the count | With a wrapped count |

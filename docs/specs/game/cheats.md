@@ -18,6 +18,8 @@
 - **Changes:** 2026-10-21, round 90 (oracle traces, `ERRATA-round90-traces.md`; reviewed by a spec-review session,
   2026-10-21): Q1 answered: the `title` word skips the startup videos and the title picture (traced, startup
   screenshots). Q5 answered: a load doesn't clear the cheat-used mark (traced, `human1-human01-cheat-load-game-50`).
+- **Changes:** 2026-10-22, round 96 (oracle trace, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): a developer word typed in an Enhanced multiplayer game is chat, like a phrase (traced for `allowsync`).
 
 ## Behaviour
 
@@ -222,6 +224,7 @@ In checking order.
 | Multiplayer, "unite the clans" | Not a cheat in multiplayer: sent as chat |
 | Multiplayer with cheats allowed, player 2 types "make it so" | Every machine turns build speed on; notice: player 2's name, a space, entry 80 |
 | Multiplayer with cheats disabled, "make it so" | Sent as chat |
+| Enhanced Direct Connect game (cheats always disabled, `ui/game-setup-lobby.md`), the second human types `allowsync` (round 96, traced: `mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400`) | Sent as chat: both players' message lists show "*name*: allowsync". No cheat command, so the sync check stays as it was: a later generator difference still drops the player (`net/lockstep.md`) |
 | "tigerlily" then "orc5" in a single-player game | Entry 80 for tigerlily; then orc mission 5 of *Tides of Darkness* (entry 9) starts with its act screen and briefing |
 | "tigerlily" then "xhuman13" | Line used up (not chat); a cheat command with the flags unchanged is sent, so entry 80 shows; no mission change |
 | "xorc 3" with mission select on | *Beyond the Dark Portal* orc mission 3: entry 33 |

@@ -15,6 +15,8 @@
   left and 65 for one dropped (63 when nothing is left), carried out in the turn; Battle.net uses 111 and 112 in the
   message list. The "Leave reasons" open question is answered (static study, `net/leave-and-drop.md`; trace request
   LD2 confirms it).
+- **Changes:** 2026-10-22, round 96 (oracle trace, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22): an Enhanced multiplayer chat line is traced on both screens (one vector).
 
 ## Behaviour
 
@@ -204,6 +206,7 @@ The history is saved with a saved game. Under Classic rules the space key does n
 | Game paused for 10 s right after a notice | The notice is gone when the game resumes |
 | Enhanced, player 2 sends "hi" to all, local player is 1 | Sender sees "*name 2*: hi" in colour 2 on list line 12; player 1 sees the same |
 | Classic, local player sends a chat line | Network entry 66 on the notice line; nothing added to the sender's list |
+| Enhanced Direct Connect (round 96, traced: `mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400`): the second human, named "Anonymous", types `allowsync` and Return | The sender's list shows "Anonymous: allowsync" (screenshot at record 90, before the line is carried out at record 98); the traced player's list shows the same line (next screenshot, record 170) |
 | Pointer moves onto a footman training button | Text = the button's tooltip; gold 600, lumber 0 hidden, oil 0 hidden (footman costs from unit data × 10) |
 | Pointer moves onto a spell button (cost kind 3) | Mana item shows the spell's cost; gold, lumber and oil hidden |
 | Pointer moves off all buttons | Text cleared; all cost items hidden |

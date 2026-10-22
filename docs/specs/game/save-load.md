@@ -48,6 +48,9 @@
   and the counts are 16-bit unsigned, so a loaded job's release wraps to 65535 (SL22 to SL25, traced; parts static
   study). A known spell marks its entry after a load (SL26) and a building upgrading at the save marks as its current
   type, its upgrade's entry staying open (SL27): both traced, trace request R1 closed.
+- **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
+  2026-10-22, see its "Review"): a load clears every dead body's target and no other unit's (SL28 to SL30; traced,
+  every committed load agrees); the repairer count's clearing and a build-list type's count in progress wrapping are traced (SL31, SL32).
 
 ## Behaviour
 
@@ -189,10 +192,22 @@ lists, including:
 
 - the map, its terrain and its explored and seen state;
 - every unit and building, with their orders, and missiles and corpses. A unit's position, order and pending order,
-  target, animation, its place in its animation script with the wait there, and its cached route are kept exactly, so
-  a moving unit resumes mid-step (every traced field matched the saved state in the four round-92 loads). The frozen
+  target (a dead body's excepted, below), animation, its place in its animation script with the wait there, and its
+  cached route are kept exactly, so a moving unit resumes mid-step (every traced field matched the saved state in the
+  four round-92 loads). The frozen
   and about-to-freeze marks of workers (`game/rescue.md`, "Frozen units"; only a multiplayer network command sets
   them) are cleared, so no unit is frozen after a load (static study, round 92; a labelled gap-fill, untraced);
+- **a dead body's target isn't kept.** After a load every dead body (type 0x69, a unit's remains, `core/corpses.md`:
+  a human or orc body or a ship wreck) has no target, whatever it had at the save: a live unit, another body or a
+  released slot, and at any stage of its decay, before or after it turns neutral or in its remove order (traced,
+  round 96: SL28, SL29). The target of a body is only reported (`oracle/trace-format.md`, unit `target`), so play
+  doesn't change. Every other unit keeps its target exactly: a dying unit (order 1, still its own type: SL30), a dead
+  unit with no remains in its remove order, and a live unit whose target is a body (SL28). In every committed load
+  (22 loads in 21 traces, rounds 90 to 96) the bodies' targets are the only unit field the load changes, serial
+  numbers aside and apart from what the mission start then does (the runestone's hit points, `game/victory.md` G24).
+  No traced
+  building or ruin ever has a target, so the rule can't be tested on one. Static study: a body's stored goal
+  (`oracle/trace-format.md`, `goal`) is (0, 0) after a load too; no traced load reports it;
 - each computer player's **training group counts**, the groups from footmen to submarines of `ai/training-research.md`,
   "Training buildings" (not the worker and tanker counts). They are restored as saved, and then the load counts every
   loaded unit again as the map start does: each unit the count includes (complete, not held, not dying) adds 1. So after
@@ -291,8 +306,10 @@ lists, including:
   65535, and a start at 65535 gives 0 (`ai/worker-ai.md`, "Counts after a load"). Nothing recounts them later: each
   count stays off by the loaded jobs of its kind until the game ends, and a further save and load starts them at 0
   again. Traced, round 95 (SL22 to SL25): the miner, lumberjack and building-in-progress counts cleared while the jobs
-  are kept, and the lumberjack, miner and farm-in-progress counts wrapping. Static study: the repairer count and the
-  hall cooldown are cleared too (the traced save had both at 0, so the trace can't tell).
+  are kept, and the lumberjack, miner and farm-in-progress counts wrapping. Traced, round 96 (SL31, SL32): the repairer
+  count cleared while the repairers keep their job, then wrapping (0 → 65535 → 65534), and a build-list type's count
+  in progress (a scout tower) cleared, then wrapping to 65535 when the building is done. Static study: the hall
+  cooldown is cleared too (no traced save had one above 0).
 - **Pause.** A loaded game is never paused: the pause isn't saved, and every game start clears it, so a game saved
   while paused loads running (static study, `ERRATA-audit-game.md` erratum 6; a labelled gap-fill, untraced).
 - **Creation numbers.** Every unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3) is its slot
@@ -411,6 +428,11 @@ stays in the running game.
 | **SL25.** Same trace, player 7's farms in progress: 1499's saved farm job, and peon 1506 starting a farm at n = 130 | 0 in the setup record, 1 at n = 130, 0 at n = 726 (1499's farm done, its job released), **65535** at n = 1402 (1506's farm done). Player 7's miners: 65535 from n = 83 (a saved gold job released) until a new gold job brings them to 0 at n = 1187 |
 | **SL26.** `human14-human14-r95-spell-saveload-aigroups-airesearch-game-60` (oracle trace, Enhanced, saved after n = 2704; game-start spells word 0x4020 marks none of these entries). Player 0: build list 0x93, 0x94, 0x95, 0x96, 0x97, spells word 0x16020 (bits 13 and 16 among others), its temple researching 0x95, done 0, 1, 2 at the save. Players 4 and 5: list 0x90, 0x91, 0x92, …, spells word 0x104021 (bit 20), researching 0x91, done 0, 1 at the save | Loaded setup record: player 0 done 0, 1 (0x93 and 0x94 marked by known spells; entry 2 open); players 4 and 5 done 0 (0x90 marked; entry 1 open). Requests at n = 2: 0x95 for player 0, 0x91 for players 4 and 5 |
 | **SL27.** `xhuman2-xhuman2-r95-upgrading-saveload-aigroups-airesearch-game-1700` (oracle trace, Enhanced, saved after n = 4002): computer player 7, build list 0x4A, 0x3C, 0x4C, 0x98, 0x52, 0x42, 0x44, 0x40, 0x40, 0x40, 0x99, 0x46, …; its great hall 1533 upgrading to a stronghold since n = 3536 (order 37); three guard towers; done 0, 1, 2, 3, 11 at the save | Loaded setup record: done 0, 1, 2, 7, 8, 9, 11 (the hall marks entry 0 as a great hall; entry 3, 0x98, stays open; the towers mark entries 7 to 9). The hall becomes a stronghold at n = 1547. Request 0x98 from n = 152 to the end (n = 1700); entry 3 is never marked |
+| **SL28.** `xorc11-xorc11-r96-targets-saveload-game-300` (oracle trace, Enhanced, saved after n = 881; records n = 0 to 881 identical to `xorc11-10000`). At the save six dead bodies, all ship wrecks of destroyers: 1519 → 1512 and 1521 → 1589 (order 1, owners 6 and 5: not yet neutral), 1493 → 1519 (order 1, owner 15), 1506 → 1519, 1525 → 1558, 1531 → 1512 (order 0, the remove order, owner 15). Targets 1512 (juggernaught), 1589 (gryphon rider) and 1558 (destroyer) are live; 1519 is a body. Dead dragon 1526 (no remains, remove order, owner 15) → 1542; juggernaught 1512 → body 1519 | Loaded setup record (195 units): the six bodies have target `null`; 1526 keeps 1542 and 1512 keeps 1519. Every other field of every unit matches the saved state, serial numbers aside |
+| **SL29.** `xhuman2-xhuman2-r95-upgrading-saveload-aigroups-airesearch-game-1700` (oracle trace, Enhanced, saved after n = 4002). Ogre bodies 1579 and 1583 (order 0, owner 15) → 1516, a footman that died at n = 2373 and whose slot was released and taken at n = 3793 by an axe thrower (type 9, player 0); ogre body 1581 (order 0, owner 15) → 1512, the live knight it was fighting when it died at n = 2537 (the ogre's target from n = 2517) | Loaded setup record: 1579, 1581 and 1583 have target `null`; knight 1512 and unit 1516 are unchanged. Nothing else differs from the saved state but serial numbers |
+| **SL30.** `xhuman9-xhuman9-runestone-alive-saveload-game-60` (oracle trace, Enhanced, saved after n = 1653): dying ogre 1430 (type 7, order 1) → 1414 | Loaded setup record: 1430 keeps target 1414 |
+| **SL31.** `xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000` (oracle trace, Enhanced, saved after n = 1564; records n = 0 to 1564 identical to `xorc10-xorc10-farm-repair-1700`, extras aside). Computer player 6 at the save: repairers 2 (peasants 1423 and 1448, repair job with gold mode, order 27 on farm 1437) | Loaded setup record: repairers 0, both keep the repair job. n = 634: 1448's repair ends, repairers 0 → 65535, and it gets a gold job. n = 653: 1423 the same, repairers 65534, unchanged to n = 6000 |
+| **SL32.** Same trace, player 6: one scout tower (0x40) in progress at the save (site 1422, built by 1454 with a build-list job, order 22) | Loaded setup record: nothing in progress, 1454 keeps its build-list job. n = 678: the tower is done, its count in progress 0 → 65535, unchanged to n = 6000. No later choice reads it: both 0x40 entries the scan reaches (1 and 3) are marked done, and the next build-list job (n = 4960, entry 2, 0x4C) is chosen as usual |
 
 ## Open questions
 
