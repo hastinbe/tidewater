@@ -61,6 +61,11 @@ pub const UNIT_FIELDS: [&str; 20] = [
     "bloodlust",
     "haste",
 ];
+/// Positions in [`UNIT_FIELDS`] the goal comparison reads, and the repair order's number.
+const UNIT_TYPE: usize = 1;
+const UNIT_ORDER: usize = 8;
+const UNIT_TARGET: usize = 14;
+const REPAIR_ORDER: i64 = 27;
 const TIMERS: [&str; 4] = ["invisibility", "unholy_armour", "bloodlust", "haste"];
 
 /// Effect fields in report order; `dest` is flattened into `dest_x` and `dest_y`.
@@ -1365,13 +1370,30 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             }
         }
     }
-    // The `goals` extra, a building's x only (trace format, `goal` row, round 97): its construction pass and repair
-    // counter. Every other `goal` value is read, not compared (no spec defines it).
+    // The `goals` extra, a building's or a transport's x only (trace format, `goal` row, rounds 97 and 98): a
+    // building's construction pass and repair counter, a transport's stored goal x as repair changes it. Every other
+    // `goal` value is read, not compared (no spec defines it).
+    // A transport's x is defined only for one a worker is repairing in this record (its own movement changes the goal
+    // too, and no spec defines that).
+    let repaired: Vec<i64> = theirs
+        .units
+        .values()
+        .filter(|c| c.get(UNIT_ORDER) == Some(&Cell::Int(REPAIR_ORDER)))
+        .filter_map(|c| match c.get(UNIT_TARGET) {
+            Some(Cell::Int(t)) => Some(*t),
+            _ => None,
+        })
+        .collect();
     for (&slot, tg) in &theirs.goals {
         let (Some(t), Some(o)) = (tg.goal, ours.goals.get(&slot).and_then(|g| g.goal)) else {
             continue;
         };
-        if !theirs.units.contains_key(&slot) || !ours.units.contains_key(&slot) {
+        let Some(unit) = theirs.units.get(&slot) else { continue };
+        if !ours.units.contains_key(&slot) {
+            continue;
+        }
+        let transport = matches!(unit.get(UNIT_TYPE), Some(Cell::Int(k)) if is_transport_type(*k as u8));
+        if transport && !repaired.contains(&(i64::from(slot))) {
             continue;
         }
         if t[0] != o[0] && filter.allows(Scope::Unit(slot), "goal_x") {
@@ -1726,9 +1748,10 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         goals: w
             .units
             .iter()
-            .filter(|u| u.building)
+            .filter(|u| u.building || is_transport_type(u.kind))
             .map(|u| {
-                // Trace format, `goal` row (round 97): a building's x is its construction pass and repair counter.
+                // Trace format, `goal` row: a building's x is its construction pass and repair counter (round 97), a
+                // transport's x the stored goal a repair counts in (round 98, RP8).
                 let g = Goals {
                     goal: Some([i64::from(u.goal_x as u16), 0]),
                     ..Goals::default()
@@ -1755,6 +1778,11 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
 /// The town hall types (0x4A human, 0x4B orc), the hall a worker's no-depot step builds.
 fn is_town_hall(kind: u8) -> bool {
     matches!(kind, 0x4a | 0x4b)
+}
+
+/// The transport types (0x1C and 0x1D) whose `goal` x is compared.
+fn is_transport_type(kind: u8) -> bool {
+    matches!(kind, 0x1c | 0x1d)
 }
 
 /// A unit's `hidden_from` and `detected_by` sets as the `vision` extra shows them.

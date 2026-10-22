@@ -204,6 +204,10 @@
 //! full. The second human's commands are checked ("The second human"): mp-battle-2-mp-battle2-nobody-moving matches
 //! in full, and mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400 up to the cycle before the traced player's
 //! generator is flipped (n = 150).
+//!
+//! Round 98: a transport's repair counter is its stored goal x, which the comparer now reads for a transport as for a
+//! building (`economy/repair.md`, RP8; trace format, `goal` row): xhuman6-xhuman06-r98-transport-repair-goals-2500
+//! (20 repair runs, every one paid) matches in full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -530,6 +534,7 @@ traces! {
     orc12_orc12_r93_groups_saveload_aigroups_game_60: ("orc12-orc12-r93-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
     xorc6_xorc6_r93_groups_saveload_aigroups_game_60: ("xorc6-xorc6-r93-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\XOrc\\2XOrc06.pud", 39, &[], None),
     orc10_aigroups_airesearch_12: ("orc10-aigroups-airesearch-12.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
+    xhuman6_xhuman06_r98_transport_repair_goals_2500: ("xhuman6-xhuman06-r98-transport-repair-goals-2500.jsonl.gz", "Campaign\\XHuman\\2XHum06.pud", 38, &[], None),
     xhuman6_xhuman6_r94_keepcastle_saveload_aigroups_airesearch_game_30: ("xhuman6-xhuman6-r94-keepcastle-saveload-aigroups-airesearch-game-30.jsonl.gz", "Campaign\\XHuman\\2XHum06.pud", 38, &[], None),
     xorc11_xorc11_r94_castles_saveload_aigroups_airesearch_game_30: ("xorc11-xorc11-r94-castles-saveload-aigroups-airesearch-game-30.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
     xhuman9_xhuman9_r94_level_resave_aigroups_airesearch_game_60: ("xhuman9-xhuman9-r94-level-resave-aigroups-airesearch-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),

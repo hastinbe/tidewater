@@ -213,6 +213,9 @@ impl World {
         u.ship.target = target;
         u.ship.target_tile = g;
         u.ship.dest = g;
+        // The stored goal a repair counts in (`economy/repair.md`, "Cost and rate"; traced, RP8): the command's target
+        // tile, whatever order the stage then gives (a landing order doesn't carry a goal of its own here).
+        u.goal_x = g.0 as i16;
         (g, target)
     }
 
