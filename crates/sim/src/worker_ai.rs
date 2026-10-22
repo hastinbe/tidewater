@@ -77,7 +77,10 @@ pub enum AiJob {
 /// number isn't stored apart: a list job's is its type with the race bit cleared.
 fn recorded_type(job: AiJob) -> u8 {
     match job {
-        AiJob::List { kind, .. } if matches!(kind, t::WALL | t::ORC_WALL) => t::WALL,
+        AiJob::List {
+            kind: t::WALL | t::ORC_WALL,
+            ..
+        } => t::WALL,
         AiJob::List { kind, .. } => kind & !1,
         AiJob::Build { kind, .. } => kind,
         _ => 0,
