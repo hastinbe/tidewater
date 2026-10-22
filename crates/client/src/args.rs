@@ -150,6 +150,10 @@ pub struct Args {
     /// With `--script`: no window and no GPU; the frames are only composed.
     #[arg(long, requires = "script")]
     pub headless: bool,
+    /// Don't check for a newer release at start-up (the `update_check=0` line of the settings file does the same
+    /// for good). Development builds never check, and neither do scripted or headless runs.
+    #[arg(long)]
+    pub no_update_check: bool,
     /// The optional improvements (`extras`): `--extra-NAME` and `--no-extra-NAME`, generated from its table.
     #[command(flatten)]
     pub extras: crate::extras::ExtraFlags,

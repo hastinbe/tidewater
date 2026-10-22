@@ -85,6 +85,8 @@ pub struct Prefs {
     pub mp_answer: bool,
     pub mp_address: String,
     pub mp_port: String,
+    /// Whether the start-up check for a newer release runs (`update`); the `update_check` line, on by default.
+    pub update_check: bool,
     /// Ctrl+M's remembered music volume, while the music is off by it.
     music_before: Option<u8>,
     /// Ctrl+S's remembered digital volume.
@@ -110,6 +112,7 @@ impl Default for Prefs {
             mp_answer: false,
             mp_address: String::new(),
             mp_port: "6112".to_string(),
+            update_check: true,
             music_before: None,
             digital_before: None,
         }
@@ -181,6 +184,7 @@ impl Prefs {
                 "mp_port" if text.parse::<u16>().is_ok() => p.mp_port = text.to_string(),
                 "mp_method" => p.mp_method = text.parse::<u8>().ok().filter(|&m| m <= 2).unwrap_or(p.mp_method),
                 "mp_answer" => p.mp_answer = text == "1",
+                "update_check" => p.update_check = text != "0",
                 _ => {}
             }
             let Ok(n) = value.trim().parse::<u32>() else {
@@ -205,7 +209,7 @@ impl Prefs {
     /// The text form of everything stored, ending with the `[extras]` section.
     pub fn to_text(&self) -> String {
         format!(
-            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\n{}{}",
+            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\nupdate_check={}\n{}{}",
             self.game_speed,
             self.mouse_scroll,
             self.key_scroll,
@@ -218,6 +222,7 @@ impl Prefs {
             u8::from(self.mp_answer),
             self.mp_address,
             self.mp_port,
+            u8::from(self.update_check),
             self.extras.section_text(),
             self.keys.section_text()
         )
@@ -307,6 +312,17 @@ mod tests {
         assert!(!p.has(bit::SUBTITLES) && !p.has(bit::SYSTEM_POINTER));
         assert!(!p.has(bit::SPEECH_RECOGNITION) && !p.has(bit::SPEAK_MESSAGES));
         assert!(p.minimap_terrain);
+    }
+
+    #[test]
+    fn the_update_check_is_on_unless_the_file_turns_it_off() {
+        assert!(Prefs::from_text("").update_check);
+        assert!(!Prefs::from_text("update_check=0").update_check);
+        let off = Prefs {
+            update_check: false,
+            ..Prefs::default()
+        };
+        assert!(!Prefs::from_text(&off.to_text()).update_check);
     }
 
     #[test]

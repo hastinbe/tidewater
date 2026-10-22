@@ -166,6 +166,8 @@ pub struct Core {
     pub first_run: Option<crate::firstrun::FirstRun>,
     /// Touch input: the gesture machine, the chrome, the emulation (`touch`).
     pub touch: crate::touch::TouchState,
+    /// The start-up check for a newer release, and the install (`update`).
+    pub updater: crate::update::Updater,
 }
 
 impl Core {
@@ -249,7 +251,18 @@ impl Core {
             commands: Commands::default(),
             first_run: None,
             touch: crate::touch::TouchState::new(emulate),
+            updater: crate::update::Updater::default(),
         }
+    }
+
+    /// Starts the background check for a newer release, unless `--no-update-check`, the `update_check` setting, a
+    /// development build or a scripted run says not to (`update`). The desktop shell calls it once, at start-up.
+    pub fn start_update_check(&self) {
+        self.updater.start_check(
+            self.opts.no_update_check,
+            self.stored.0.update_check,
+            self.script.is_some(),
+        );
     }
 
     /// Runs one frame, `elapsed` real time after the last, and returns the screen it composed.

@@ -175,3 +175,7 @@ Two licence notes:
   [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). It is a build tool and is not included in the app.
 - **SDL's Java sources** (`org.libsdl.app`) are copied from the `sdl3-src` crate by `platform/android/build.sh` at build
   time and compiled into the APK under SDL's zlib licence above.
+
+## Update check (desktop builds)
+
+The desktop program links `ureq` (MIT or Apache-2.0), `rustls` (Apache-2.0, ISC or MIT), `rustls-webpki` (ISC), `ring` (an ISC-style licence with OpenSSL-derived parts) and `webpki-roots` (CDLA-Permissive-2.0, Mozilla root certificates) to ask GitHub for the latest release. Their licence texts are in their crates.

@@ -1362,6 +1362,8 @@ struct Menu {
     ready_at: f64,
     /// The main menu's music test has run (once the menu is drawn: `ui/music.md`, "Main menu opens").
     music_tested: bool,
+    /// The update notice line drawn over the picture, while the main menu offers one (`update`).
+    notice: Option<String>,
 }
 
 /// What a menu does once its close ends.
@@ -1461,6 +1463,7 @@ fn open_menu(c: &mut Core, headings: &[(Rect, &str)], items: Vec<MenuItem>, stat
         closing: None,
         ready_at: opening.fade_in_ms as f64,
         music_tested: false,
+        notice: None,
     };
     commands.queue(move |c| c.screens.menu = Some(menu));
     if opening.fade_in_ms > 0 {
@@ -1543,6 +1546,9 @@ fn menu_input(
     let key = (menu.hot, pressed, menu.focus);
     if menu.drawn != Some(key) {
         let mut p = dup(&menu.background);
+        if let Some(text) = &menu.notice {
+            menuscreen::draw_heading(&mut p, &front.font, &menu.palette, UPDATE_NOTICE, text);
+        }
         for (i, it) in menu.items.iter().enumerate() {
             let state = menuscreen::ButtonState {
                 enabled: it.enabled,
@@ -1594,6 +1600,41 @@ fn menu_input(
                 .key
                 .is_some_and(|k| keys.just_pressed(Key::Letter(k.to_ascii_uppercase())))
     })
+}
+
+/// The main menu's five buttons; the update offer adds two below them.
+const MAIN_BUTTONS: usize = 5;
+/// Where the update notice line is: under the fifth button.
+const UPDATE_NOTICE: Rect = Rect::new(0, 427, 640, 18);
+/// The update offer's buttons, side by side under the notice in the 106 × 28 faces.
+const UPDATE_BUTTONS: [Rect; 2] = [Rect::new(208, 448, 106, 28), Rect::new(326, 448, 106, 28)];
+
+/// Makes the menu show what the updater offers (`update`): a notice line and the "Update now" and "Later" buttons, a
+/// busy line while it downloads, or nothing.
+fn sync_update_notice(menu: &mut Menu, notice: &crate::update::Notice) {
+    use crate::update::Notice;
+    let (text, buttons) = match notice {
+        Notice::None => (None, false),
+        Notice::Offer(v) => (Some(format!("Tidewater {v} is available")), true),
+        Notice::Busy => (Some("Updating Tidewater...".to_string()), false),
+    };
+    if menu.notice == text && (menu.items.len() > MAIN_BUTTONS) == buttons {
+        return;
+    }
+    menu.items.truncate(MAIN_BUTTONS);
+    if buttons {
+        for (r, (label, key)) in UPDATE_BUTTONS.into_iter().zip([("Update now", 'U'), ("Later", 'L')]) {
+            menu.items.push(MenuItem {
+                r,
+                label: label.to_string(),
+                key: Some(key),
+                enabled: true,
+            });
+        }
+    }
+    menu.focus = menu.focus.min(menu.items.len() - 1);
+    menu.notice = text;
+    menu.drawn = None;
 }
 
 /// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
@@ -1709,6 +1750,7 @@ fn run_menu(c: &mut Core) {
         exit,
         input,
         jukebox: music,
+        updater,
         ..
     } = c
     else {
@@ -1728,6 +1770,12 @@ fn run_menu(c: &mut Core) {
     // The multiplayer lobby, which the main menu stands in for, starts none (`ui/music.md`).
     if !std::mem::replace(&mut menu.music_tested, true) && !flow.in_lobby && !flow.in_join_screen {
         music.start_unless_playing(cf::TITLE_MUSIC);
+    }
+    // Not in our own spec: a newer release, found by the background check, is offered on the main menu (`update`).
+    sync_update_notice(menu, &updater.notice());
+    if updater.finished() {
+        *exit = true;
+        return;
     }
     let at = pointer(input, cam);
     let pick = menu_input(menu, front, pictures, at, mouse, keys);
@@ -1751,7 +1799,9 @@ fn run_menu(c: &mut Core) {
         // startup (no logo video), then the main menu.
         Some(2) => close(menu, MenuPick::Intro),
         Some(3) => close(menu, MenuPick::ShowCredits),
-        Some(_) => close(menu, MenuPick::Quit),
+        Some(4) => close(menu, MenuPick::Quit),
+        Some(5) => updater.install(),
+        Some(_) => updater.dismiss(),
         None => {}
     }
 }
