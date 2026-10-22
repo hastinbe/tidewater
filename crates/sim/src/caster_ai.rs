@@ -479,7 +479,7 @@ impl World {
                 && w.ally(c, x)
                 && !w.tgt_has(x, flags::BUILDING)
                 && w.units[c].goal.kind == GoalKind::Attack
-                && (w.tgt_has(x, flags::CASTER) || w.range_1(x))
+                && (w.tgt_has(x, flags::CASTER) || !w.range_1(x))
         };
         let shield: Test = &|w, c, x| {
             if w.invisible(c)
@@ -653,6 +653,7 @@ mod tests {
     const GRUNT: u8 = 0x01;
     const PEASANT: u8 = 0x02;
     const KNIGHT: u8 = 0x06;
+    const ARCHER: u8 = 0x08;
     const DEMOLITION: u8 = 0x0e;
     const GRYPHON: u8 = 0x2a;
     const CHOGALL: u8 = 0x31;
@@ -692,6 +693,7 @@ mod tests {
         s[FOOTMAN as usize] = fighter(60, o, 1);
         s[GRUNT as usize] = fighter(60, o, 1);
         s[KNIGHT as usize] = fighter(90, o, 1);
+        s[ARCHER as usize] = fighter(40, o, 4);
         s[PEASANT as usize] = UnitStats {
             flags: flags::LAND | o | flags::PEON,
             ..fighter(30, 0, 1)
@@ -1077,6 +1079,8 @@ mod tests {
         assert!(cast_step(&mut w, c).0, "a lone grunt");
     }
 
+    /// Caster AI vectors (round 97): try 5 takes an allied unit with flag bit 17 or an attack range other than 1, so an
+    /// archer (range 4) is made invisible and its unholy-armour timer becomes 1.
     #[test]
     fn invisibility_marks_the_unholy_armour_timer() {
         let mut w = game();
@@ -1085,27 +1089,35 @@ mod tests {
             kind: GoalKind::Attack,
             ..Default::default()
         };
-        let k = put(&mut w, KNIGHT, 1, (12, 12));
+        let k = put(&mut w, ARCHER, 1, (12, 12));
         assert_eq!(cast_step(&mut w, c), (true, 0));
         assert_eq!(at(&w, c).pending, cast(INVISIBILITY, Some(k), (12, 12)));
         assert_eq!((at(&w, k).unholy_armor, at(&w, k).invisibility), (1, 0));
         // Without the attack goal nothing is chosen.
         let mut w = game();
         let c = caster(&mut w, MAGE, (10, 10), 200);
-        put(&mut w, KNIGHT, 1, (12, 12));
+        put(&mut w, ARCHER, 1, (12, 12));
         assert_eq!(cast_step(&mut w, c), (false, 0));
     }
 
+    /// Round 97: an own knight (range 1, no bit 17) is the only allied unit in the box: try 5 fails, and so does it
+    /// for an own demolition squad (it is not made invisible, so the squad is not killed in the timers pass).
     #[test]
-    fn an_invisibility_mark_kills_a_demolition_squad() {
-        let mut w = game();
-        let c = caster(&mut w, MAGE, (10, 10), 200);
-        um(&mut w, c).goal.kind = GoalKind::Attack;
-        let d = put(&mut w, DEMOLITION, 1, (12, 12));
-        assert!(w.caster_step(ix(&w, c)));
-        assert_eq!(at(&w, c).pending, cast(INVISIBILITY, Some(d), (12, 12)));
-        w.timers_pass();
-        assert!(at(&w, d).dying);
+    fn invisibility_does_not_take_melee_units() {
+        for kind in [KNIGHT, DEMOLITION] {
+            let mut w = game();
+            let c = caster(&mut w, MAGE, (10, 10), 200);
+            um(&mut w, c).goal.kind = GoalKind::Attack;
+            let d = put(&mut w, kind, 1, (12, 12));
+            w.caster_step(ix(&w, c));
+            assert_ne!(
+                at(&w, c).pending,
+                cast(INVISIBILITY, Some(d), (12, 12)),
+                "kind {kind:#x}"
+            );
+            w.timers_pass();
+            assert!(!at(&w, d).dying && at(&w, d).unholy_armor == 0, "kind {kind:#x}");
+        }
     }
 
     #[test]
