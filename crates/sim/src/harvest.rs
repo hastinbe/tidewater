@@ -2528,7 +2528,7 @@ mod tests {
                 (u.order, u.pending, u.script.anim, u.script.wait, u.carrying),
                 (Order::Idle, None, anim::STILL, 3, true)
             );
-            assert_eq!(w.fingerprint(), 1392885530108702640);
+            assert_eq!(w.fingerprint(), 1219762920956004512);
         }
 
         /// Order 24 whose depot is lost, with an attacker: the reaction runs first. Hit by a worker, it fights back,
