@@ -25,8 +25,8 @@ use tidewater_sim::{Command, Extras};
 
 /// The first bytes of every replay file.
 pub const MAGIC: [u8; 8] = *b"TWREPLAY";
-/// The format version this build writes and reads. Version 2: the header's extras (`RulesTag::extras`) have fields. Version 3: the extras gain shift-queued orders.
-pub const VERSION: u16 = 3;
+/// The format version this build writes and reads. Version 2: the header's extras (`RulesTag::extras`) have fields. Version 3: the extras gain shift-queued orders. Version 4: the diplomacy command exists (`game/diplomacy.md`).
+pub const VERSION: u16 = 4;
 /// The file name extension.
 pub const EXTENSION: &str = "twrep";
 /// A checkpoint is recorded every this many cycles (and at the end of a finished game).
