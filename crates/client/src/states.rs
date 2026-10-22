@@ -22,6 +22,8 @@ pub enum AppState {
     Video,
     Title,
     MainMenu,
+    /// The single-player menu (New Campaign, Load Game, Custom Scenario, Previous Menu).
+    SinglePlayer,
     NewCampaign,
     /// The Custom Scenario screen (`customsetup`).
     CustomSetup,
@@ -106,6 +108,7 @@ pub enum Hook {
     EnterVideo,
     EnterTitle,
     EnterMenu,
+    EnterSinglePlayer,
     EnterNewCampaign,
     EnterCustomSetup,
     EnterAct,
@@ -119,7 +122,7 @@ pub enum Hook {
 pub fn on_exit(state: AppState) -> &'static [Hook] {
     use Hook::*;
     match state {
-        AppState::MainMenu => &[CloseMenuLoad],
+        AppState::MainMenu | AppState::SinglePlayer => &[CloseMenuLoad],
         AppState::Game => &[CameraClear, CloseDialog, CloseGameMenu, EndGame],
         _ => &[],
     }
@@ -133,6 +136,7 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
         AppState::Video => &[EnterVideo],
         AppState::Title => &[EnterTitle],
         AppState::MainMenu => &[EnterMenu],
+        AppState::SinglePlayer => &[EnterSinglePlayer],
         AppState::NewCampaign => &[EnterNewCampaign],
         AppState::CustomSetup => &[EnterCustomSetup],
         AppState::Act => &[EnterAct],
@@ -147,7 +151,7 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
 
 /// Every hook: the test checks that each is used.
 #[cfg(test)]
-const HOOKS: [Hook; 18] = {
+const HOOKS: [Hook; 19] = {
     use Hook::*;
     [
         StopMusic,
@@ -161,6 +165,7 @@ const HOOKS: [Hook; 18] = {
         EnterVideo,
         EnterTitle,
         EnterMenu,
+        EnterSinglePlayer,
         EnterNewCampaign,
         EnterCustomSetup,
         EnterAct,
@@ -175,12 +180,13 @@ const HOOKS: [Hook; 18] = {
 mod tests {
     use super::*;
 
-    const ALL: [AppState; 13] = [
+    const ALL: [AppState; 14] = [
         AppState::Boot,
         AppState::FirstRun,
         AppState::Video,
         AppState::Title,
         AppState::MainMenu,
+        AppState::SinglePlayer,
         AppState::NewCampaign,
         AppState::CustomSetup,
         AppState::Act,

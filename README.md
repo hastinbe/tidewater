@@ -65,11 +65,11 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 
 ### Playing a custom game
 
-Press **S** on the main menu (or start with `--goto custom`) to open the Custom Scenario screen. It offers the original's
+Choose **Single Player Game** on the main menu, then **Custom Scenario** (or start with `--goto custom`), to open the Custom Scenario screen. It offers the original's
 choices: Your Race, Opponents, Resources, Map Tileset and Units, each a drop-down that you open with the pointer or step
 with Tab, Enter and the arrow keys. **Select Scenario** (E) opens a dialog that lists the maps and narrows them by type,
 number of players and map size; **Start Game** (S) plays the map you picked with Enhanced rules, and **Cancel Game** (C or
-Esc) returns to the main menu. The list holds every `.pud` in the `Maps` folder of `<data>/game`, subfolders included, so
+Esc) returns to the main menu. The single-player menu also holds New Campaign and Load Game. The list holds every `.pud` in the `Maps` folder of `<data>/game`, subfolders included, so
 copy your own maps there. When the game ends, the score screen leads back to the main menu.
 
 ### Controls
@@ -159,7 +159,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
 | `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
-| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `custom`, `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
+| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `single` (the single-player menu), `custom`, `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
 | `--demo-outcome <victory\|defeat>` | End the game at once, to see the dialog and score screen. |
 | `--demo-move <X,Y>` | Order all your units to a tile at the start. |
 | `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |

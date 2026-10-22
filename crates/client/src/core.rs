@@ -375,6 +375,7 @@ fn run_hook(c: &mut Core, hook: Hook) {
         EnterVideo => frontend::enter_video,
         EnterTitle => frontend::enter_title,
         EnterMenu => frontend::enter_menu,
+        EnterSinglePlayer => frontend::enter_single_player,
         EnterNewCampaign => frontend::enter_new_campaign,
         EnterCustomSetup => frontend::enter_custom_setup,
         EnterAct => frontend::enter_act,

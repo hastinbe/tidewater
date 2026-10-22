@@ -5,8 +5,9 @@
 //!
 //! Every screen is drawn in software into 640x480 pictures shown by one camera on its own render layer, above the
 //! game's cameras. The dialog files (`rez\*.bin`) aren't specified yet, so the layouts of the menu, the dialogs, the
-//! briefing and the score screen are our own, and the menu has only what the flow needs (New Campaign, Load Game,
-//! Show Credits, Quit; N, L, C and Q are our keys for them). The main menu and the campaign choices are drawn on the
+//! briefing and the score screen are our own, and the main menu has only what the flow needs (Single Player Game, Show
+//! Credits, Exit Program: the spec's S, C and x), with the single-player menu behind its first button (New Campaign,
+//! Load Game, Custom Scenario, Previous Menu). The main menu and the campaign choices are drawn on the
 //! menu picture (`menuscreen`): a switch between them doesn't fade, and the main menu fades in over 200 ms from any
 //! other screen. The main menu fades out when it leaves the menus, and the credits fade in and out
 //! (`ui/palette-effects.md`, "Screen fades": 200 ms and 100 ms), like the title and act screens. Choosing a campaign,
@@ -61,7 +62,9 @@ pub enum Step {
     Title,
     MainMenu,
     NewCampaign,
-    /// The Custom Scenario screen (`customsetup`), opened by the main menu.
+    /// The single-player menu on the menu picture: New Campaign, Load Game, Custom Scenario, Previous Menu.
+    SinglePlayer,
+    /// The Custom Scenario screen (`customsetup`), opened by the single-player menu.
     CustomSetup,
     /// "Starting a mission": the act screen check, the briefing, the game.
     Mission(u8),
@@ -315,6 +318,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
             }
             Step::NewCampaign => AppState::NewCampaign,
             Step::CustomSetup => AppState::CustomSetup,
+            Step::SinglePlayer => AppState::SinglePlayer,
             &Step::Mission(e) => {
                 for s in mission_steps(flow, e, ctrl).into_iter().rev() {
                     flow.steps.push_front(s);
@@ -559,6 +563,7 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
         "menu" => vec![Step::MainMenu],
         "campaign" => vec![Step::NewCampaign],
         "custom" => vec![Step::CustomSetup, Step::MainMenu],
+        "single" => vec![Step::SinglePlayer, Step::MainMenu],
         "mission" => vec![Step::Mission(entry()?)],
         "act" => {
             let a = cf::act_for(entry()?).ok_or("not the first mission of an act")?;
@@ -674,7 +679,9 @@ impl FlowPointer {
 pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
     match state {
         AppState::Video | AppState::Title | AppState::Act | AppState::Finale => FlowPointer::Hidden,
-        AppState::MainMenu | AppState::NewCampaign | AppState::CustomSetup => FlowPointer::OrcArrow,
+        AppState::MainMenu | AppState::SinglePlayer | AppState::NewCampaign | AppState::CustomSetup => {
+            FlowPointer::OrcArrow
+        }
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
         AppState::Boot | AppState::Game | AppState::FirstRun => FlowPointer::Default,
     }
@@ -689,7 +696,9 @@ pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
         (AppState::Briefing, Some(Step::Briefing(e)), _) => cf::briefing_background(*e),
         (AppState::Score, _, Some(s)) => cf::score_background(s.race, s.victory),
         (AppState::Credits, _, _) => cf::CREDITS_PICTURE,
-        (AppState::MainMenu | AppState::NewCampaign | AppState::CustomSetup, _, _) => cf::MENU_PICTURE,
+        (AppState::MainMenu | AppState::SinglePlayer | AppState::NewCampaign | AppState::CustomSetup, _, _) => {
+            cf::MENU_PICTURE
+        }
         _ => cf::TITLE_PICTURE,
     }
 }
@@ -817,13 +826,16 @@ pub(crate) fn screen_systems(c: &mut Core) {
     if state(c) == AppState::Act {
         run_act(c);
     }
+    if state(c) == AppState::SinglePlayer && c.screens.menu_load.is_none() {
+        run_single_player(c);
+    }
     if state(c) == AppState::NewCampaign {
         run_new_campaign(c);
     }
     if state(c) == AppState::CustomSetup {
         run_custom_setup(c);
     }
-    if state(c) == AppState::MainMenu && c.screens.menu_load.is_some() {
+    if matches!(state(c), AppState::MainMenu | AppState::SinglePlayer) && c.screens.menu_load.is_some() {
         run_menu_load(c);
     }
     if state(c) == AppState::MainMenu && c.screens.menu_load.is_none() {
@@ -1398,6 +1410,7 @@ fn open_menu(c: &mut Core, headings: &[(Rect, &str)], items: Vec<MenuItem>, stat
 pub(crate) fn menu_screen(state: AppState) -> Option<MenuScreen> {
     match state {
         AppState::MainMenu => Some(MenuScreen::Main),
+        AppState::SinglePlayer => Some(MenuScreen::SinglePlayer),
         AppState::NewCampaign => Some(MenuScreen::Campaign),
         AppState::CustomSetup => Some(MenuScreen::CustomSetup),
         _ => None,
@@ -1522,11 +1535,12 @@ fn menu_input(
 
 /// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
 pub(crate) fn enter_menu(c: &mut Core) {
+    // spec gap: the original's main menu also has Multi Player Game and Replay Introduction, which Tidewater's menu
+    // doesn't offer yet; its other three buttons keep the spec's labels and hotkeys (S, C, x) in consecutive slots.
     let items = menu_items(&[
-        ("New Campaign", Some('N')),
-        ("Load Game", Some('L')),
+        ("Single Player Game", Some('S')),
         ("Show Credits", Some('C')),
-        ("Quit", Some('Q')),
+        ("Exit Program", Some('x')),
     ]);
     open_menu(c, &[], items, AppState::MainMenu);
 }
@@ -1612,14 +1626,12 @@ fn run_menu(c: &mut Core) {
         return;
     }
     let Core {
-        commands,
         screens: Screens {
             menu: Some(menu),
             clock: Some(clock),
             ..
         },
         front,
-        store: folder,
         pictures,
         front_screen: cam,
         flow,
@@ -1653,34 +1665,103 @@ fn run_menu(c: &mut Core) {
     let mut close = |menu: &mut Menu, pick: MenuPick| {
         menu.closing = Some((close_with_sound(music, fades::MENUS), pick));
     };
-    // The Custom Scenario screen (the single-player menu's third button in the original): S opens it. Our main menu has
-    // no button for it (its layout is the one the frame snapshots hold), so its key is the whole way in. It fades out
-    // and in (`menuscreen::switch_fades`) and fades no sound: track 22 plays on (`ui/music.md`, "Where music fades out").
-    if pick.is_none() && keys.just_pressed(Key::Letter('S')) {
-        menu.closing = Some((cf::SoundThenBlack::new(fades::MENUS), MenuPick::CustomSetup));
-    }
     match pick {
-        // Screen spec, "Menu screens": the campaign menu is on the same picture, so the switch has no fade.
+        // Screen spec, "Menu screens": the single-player menu is on the same picture, so the switch has no fade.
+        Some(0) => {
+            flow.steps = VecDeque::from([Step::SinglePlayer]);
+            go_on(flow, front, keys, next, exit);
+        }
+        Some(1) => close(menu, MenuPick::ShowCredits),
+        Some(_) => close(menu, MenuPick::Quit),
+        None => {}
+    }
+}
+
+/// Opens the load dialog over the menu on `state` (`loadgamt.bin`, spec `game/save-load.md`, "Load dialog"). Loading
+/// from the menus is single player, and every single-player game is Enhanced.
+fn open_menu_load(
+    commands: &mut Commands,
+    front: &Front,
+    store: &crate::storage::Store,
+    pictures: &mut Pictures,
+    state: AppState,
+) {
+    let entries = store.folder().list(crate::savefile::Kind::Single, true);
+    let ui = SaveUi::new(saves::Dialog::open(saves::Mode::Load, entries, saves::FORBIDDEN));
+    let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
+    let image = pictures.add(pic);
+    add_layer(
+        commands,
+        ScreenPlace::new(image, Plane::Flow, 1.0),
+        Role::Flow(1),
+        Some(state),
+    );
+    commands.queue(move |c| c.screens.menu_load = Some(MenuLoad { ui, image }));
+}
+
+/// Opens the single-player menu (`snglplay.bin`) on the menu picture: no fade from the main menu or the campaign menu.
+pub(crate) fn enter_single_player(c: &mut Core) {
+    let items = menuscreen::SINGLE_PLAYER_BUTTONS
+        .iter()
+        .map(|&(r, label, key)| MenuItem {
+            r,
+            label: label.to_string(),
+            key: Some(key),
+            enabled: true,
+        })
+        .collect();
+    open_menu(c, &[], items, AppState::SinglePlayer);
+}
+
+fn run_single_player(c: &mut Core) {
+    if run_menu_close(c) {
+        return;
+    }
+    let Core {
+        commands,
+        screens: Screens {
+            menu: Some(menu),
+            clock: Some(clock),
+            ..
+        },
+        front,
+        store,
+        pictures,
+        front_screen: cam,
+        flow,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return;
+    };
+    if clock.0 < menu.ready_at {
+        return;
+    }
+    let keys = &input.keys;
+    let at = pointer(input, cam);
+    let pick = menu_input(menu, front, pictures, at, &input.mouse, keys);
+    match pick {
+        // New Campaign: the campaign menu, on the same picture with no fade.
         Some(0) => {
             flow.steps = VecDeque::from([Step::NewCampaign]);
             go_on(flow, front, keys, next, exit);
         }
-        Some(1) => {
-            // Loading from the main menu is single player, and every single-player game is Enhanced.
-            let entries = folder.folder().list(crate::savefile::Kind::Single, true);
-            let ui = SaveUi::new(saves::Dialog::open(saves::Mode::Load, entries, saves::FORBIDDEN));
-            let pic = ui.draw(&front.font, &front.big, &|n| front.net(n));
-            let image = pictures.add(pic);
-            add_layer(
-                commands,
-                ScreenPlace::new(image, Plane::Flow, 1.0),
-                Role::Flow(1),
-                Some(AppState::MainMenu),
-            );
-            commands.queue(move |c| c.screens.menu_load = Some(MenuLoad { ui, image }));
+        Some(1) => open_menu_load(commands, front, store, pictures, AppState::SinglePlayer),
+        // Screen spec, "Menu screens": Custom Scenario fades out and in. Music spec, "Where music fades out": Previous
+        // Menu and the entry to the setup fade no sound, so track 22 plays on.
+        Some(2) => menu.closing = Some((cf::SoundThenBlack::new(fades::MENUS), MenuPick::CustomSetup)),
+        // Previous Menu; Esc does the same (spec gap: as on the campaign menu).
+        Some(_) => {
+            flow.steps = VecDeque::from([Step::MainMenu]);
+            go_on(flow, front, keys, next, exit);
         }
-        Some(2) => close(menu, MenuPick::ShowCredits),
-        Some(_) => close(menu, MenuPick::Quit),
+        None if keys.just_pressed(Key::Escape) => {
+            flow.steps = VecDeque::from([Step::MainMenu]);
+            go_on(flow, front, keys, next, exit);
+        }
         None => {}
     }
 }
@@ -1819,8 +1900,8 @@ fn run_new_campaign(c: &mut Core) {
             ));
             None
         }
-        Some(_) => Some(VecDeque::from([Step::MainMenu])),
-        None if keys.just_pressed(Key::Escape) => Some(VecDeque::from([Step::MainMenu])),
+        Some(_) => Some(VecDeque::from([Step::SinglePlayer])),
+        None if keys.just_pressed(Key::Escape) => Some(VecDeque::from([Step::SinglePlayer])),
         None => None,
     };
     if let Some(s) = steps {
@@ -3170,6 +3251,10 @@ mod tests {
         assert_eq!(goto_steps("credits:bdp").unwrap()[0], Step::Credits { bdp: true });
         // The Custom Scenario screen: Cancel Game leads back to the main menu, and the screen has its own state.
         assert_eq!(goto_steps("custom").unwrap(), [Step::CustomSetup, Step::MainMenu]);
+        assert_eq!(goto_steps("single").unwrap(), [Step::SinglePlayer, Step::MainMenu]);
+        let mut f = flow(&[]);
+        f.steps = VecDeque::from(goto_steps("single").unwrap());
+        assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::SinglePlayer));
         let mut f = flow(&[]);
         f.steps = VecDeque::from(goto_steps("custom").unwrap());
         assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::CustomSetup));

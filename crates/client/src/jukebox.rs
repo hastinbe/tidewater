@@ -335,11 +335,13 @@ mod tests {
             [
                 Boot,
                 MainMenu,
+                SinglePlayer,
                 NewCampaign,
                 Act,
                 Briefing,
                 Game,
                 MainMenu,
+                SinglePlayer,
                 NewCampaign,
                 Act,
                 Briefing,
@@ -369,8 +371,11 @@ mod tests {
             [
                 Boot,
                 MainMenu,
+                SinglePlayer,
                 NewCampaign,
+                SinglePlayer,
                 MainMenu,
+                SinglePlayer,
                 NewCampaign,
                 Act,
                 // Escape does nothing here: the briefing stays until Enter.
@@ -380,27 +385,31 @@ mod tests {
                 Briefing,
                 Game,
                 MainMenu,
+                SinglePlayer,
                 NewCampaign,
                 // Ctrl held: no act screen or briefing.
                 Game
             ]
         );
-        // Previous Menu (Escape on the campaign menu) goes back with no fade: 22 plays on, not restarted.
-        assert_eq!(visits[2].last, Some(22));
-        assert_eq!((visits[3].first, visits[3].last), (Some(22), Some(22)));
-        assert!(visits[3].started.is_empty(), "22 isn't restarted");
+        // Previous Menu (Escape on the campaign menu, then on the single-player menu) goes back with no fade: 22 plays
+        // on, not restarted.
+        assert_eq!(visits[3].last, Some(22));
+        for v in &visits[4..6] {
+            assert_eq!((v.first, v.last), (Some(22), Some(22)));
+            assert!(v.started.is_empty(), "22 isn't restarted");
+        }
         // Restart Scenario fades the game's track out first (round 75), so the restart's briefing starts its own
         // track (21, the orc briefing's) from its start; each game starts its own track.
         assert_eq!(game_tracks(&visits), [vec![7], vec![7], vec![1]]);
-        assert_eq!(visits[7].last, None, "the game's track has closed when the game ends");
+        assert_eq!(visits[10].last, None, "the game's track has closed when the game ends");
         assert_eq!(
-            visits[8].started,
+            visits[11].started,
             [21],
             "the restart's briefing starts its track from its start"
         );
         quit_to_menu_restarts_22(&visits);
-        assert_eq!(visits[10].started, [22]);
+        assert_eq!(visits[13].started, [22]);
         // The end menu's Quit to Main Menu is the same path as Ctrl+Q; the campaign after it fades 22 out.
-        assert_eq!(visits[11].last, None);
+        assert_eq!(visits[15].last, None);
     }
 }

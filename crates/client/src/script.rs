@@ -97,6 +97,8 @@ pub fn scenes() -> Vec<Scene> {
     campaign.extend([Until(AppState::MainMenu), Wait(6), Shot("menu-fade"), Wait(20)]);
     campaign.extend([Move(320.0, 254.0), Wait(2), Shot("menu-hover")]);
     campaign.extend(click(320.0, 254.0));
+    campaign.extend([Until(AppState::SinglePlayer), Wait(3), Shot("single-player")]);
+    campaign.extend(click(320.0, 254.0));
     campaign.extend([
         Until(AppState::NewCampaign),
         Wait(2),
@@ -378,11 +380,16 @@ fn flow() -> Vec<Cmd> {
     v.extend([Until(AppState::Title), Wait(30), Shot("title")]);
     v.extend(tap(K::Space));
     v.extend([Until(AppState::MainMenu), Wait(25)]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::SinglePlayer), Wait(3), Shot("single-player")]);
     v.extend(tap(K::Letter('N')));
     v.extend([Until(AppState::NewCampaign), Wait(2), Shot("campaigns")]);
     v.extend(tap(K::Escape));
+    v.extend([Until(AppState::SinglePlayer), Wait(3), Shot("single-player-back")]);
+    v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
-    // The focus ring: Tab to Load Game, Shift+Tab back past New Campaign to Quit (wrapping), Tab to New Campaign.
+    // The focus ring: Tab to Show Credits, Shift+Tab back past Single Player Game to Exit Program (wrapping), Tab to
+    // Single Player Game.
     v.extend(tap(K::Tab));
     v.extend([Wait(2), Shot("menu-tab"), Press(K::ShiftLeft)]);
     v.extend(tap(K::Tab));
@@ -391,9 +398,9 @@ fn flow() -> Vec<Cmd> {
     v.extend([Release(K::ShiftLeft), Wait(2), Shot("menu-shift-tab")]);
     v.extend(tap(K::Tab));
     v.extend([Wait(2)]);
-    v.extend(click(320.0, 254.0));
+    v.extend(open_campaigns());
     // Over Previous Menu, then Beyond the Dark Portal's human campaign.
-    v.extend([Until(AppState::NewCampaign), Wait(2), Move(320.0, 434.0), Wait(1)]);
+    v.extend([Move(320.0, 434.0), Wait(1)]);
     v.extend(click(320.0, 398.0));
     v.extend([Until(AppState::Video), Wait(60), Shot("bdp-intro")]);
     v.extend(tap(K::Escape));
@@ -443,16 +450,25 @@ fn flow() -> Vec<Cmd> {
 /// campaigns.
 const TOD_ORC_ROW: f32 = 264.0;
 const TOD_HUMAN_ROW: f32 = 300.0;
-/// The main menu's New Campaign button.
+/// The main menu's Single Player Game button, and the single-player menu's New Campaign button: the same place.
 const NEW_CAMPAIGN_ROW: f32 = 254.0;
+
+/// From the main menu: Single Player Game, then New Campaign, to the campaign menu.
+fn open_campaigns() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = click(320.0, NEW_CAMPAIGN_ROW).to_vec();
+    v.extend([Until(AppState::SinglePlayer), Wait(3)]);
+    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
+    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v
+}
 
 /// From the main menu: New Campaign, the campaign in `row`, its act screen and briefing (closed by Space and Enter), to
 /// the game.
 fn new_campaign(row: f32) -> Vec<Cmd> {
     use Cmd::*;
     let mut v = vec![Until(AppState::MainMenu), Wait(25)];
-    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
-    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v.extend(open_campaigns());
     v.extend(click(320.0, row));
     v.extend([Until(AppState::Act), Wait(40)]);
     v.extend(tap(Key::Space));
@@ -492,12 +508,13 @@ fn music_back() -> Vec<Cmd> {
     use Cmd::*;
     use Key as K;
     let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
-    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
-    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v.extend(open_campaigns());
+    // Escape on the campaign menu and again on the single-player menu go back, and track 22 plays on.
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::SinglePlayer), Wait(3)]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25)]);
-    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
-    v.extend([Until(AppState::NewCampaign), Wait(2)]);
+    v.extend(open_campaigns());
     v.extend(click(320.0, TOD_ORC_ROW));
     v.extend([Until(AppState::Act), Wait(40)]);
     v.extend(tap(K::Escape));
@@ -520,13 +537,8 @@ fn music_back() -> Vec<Cmd> {
     v.extend([Wait(3)]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::MainMenu), Wait(25)]);
-    v.extend(click(320.0, NEW_CAMPAIGN_ROW));
-    v.extend([
-        Until(AppState::NewCampaign),
-        Wait(2),
-        Move(320.0, TOD_HUMAN_ROW),
-        Wait(1),
-    ]);
+    v.extend(open_campaigns());
+    v.extend([Move(320.0, TOD_HUMAN_ROW), Wait(1)]);
     v.extend([Press(K::ControlLeft), Wait(1)]);
     v.extend(click(320.0, TOD_HUMAN_ROW));
     v.extend([
@@ -784,10 +796,15 @@ fn ending() -> Vec<Cmd> {
         Wait(20),
         Shot("menu"),
     ]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::SinglePlayer), Wait(3)]);
     v.extend(tap(K::Letter('L')));
     v.extend([Wait(3), Shot("load-empty")]);
     v.extend(tap(K::Escape));
     v.extend([Wait(3), Shot("load-closed")]);
+    // Previous Menu (Escape) goes back to the main menu.
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::MainMenu), Wait(3)]);
     v.extend(tap(K::Letter('C')));
     v.extend([
         Until(AppState::Credits),
@@ -832,6 +849,8 @@ fn load() -> Vec<Cmd> {
     v.extend([Release(K::ControlLeft), Wait(3), Shot("quit-confirm")]);
     v.extend(tap(K::Enter));
     v.extend([Until(AppState::MainMenu), Wait(25)]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::SinglePlayer), Wait(3)]);
     v.extend(tap(K::Letter('L')));
     v.extend([Wait(3), Shot("menu-load")]);
     v.extend(tap(K::Enter));
@@ -841,7 +860,7 @@ fn load() -> Vec<Cmd> {
     v
 }
 
-/// The Custom Scenario screen (`customsetup`): S on the main menu opens it; the Resources box opened and High picked
+/// The Custom Scenario screen (`customsetup`): Single Player Game, then Custom Scenario opens it; the Resources box opened and High picked
 /// with the pointer; the Opponents box opened and 3 Opponents picked with the keys; the Select scenario dialog
 /// filtered to 5 to 8 players and its first line picked; the race and units chosen; Start Game; the game left by
 /// Ctrl+Q.
@@ -850,6 +869,8 @@ fn custom() -> Vec<Cmd> {
     use Key as K;
     let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
     v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::SinglePlayer), Wait(3), Shot("single-player")]);
+    v.extend(tap(K::Letter('C')));
     v.extend([
         Wait(3),
         Shot("menu-leaving"),
@@ -893,10 +914,12 @@ fn custom() -> Vec<Cmd> {
     v.extend([Wait(2), Shot("second-line")]);
     v.extend(click(470.0, 394.0));
     v.extend([Wait(2), Shot("picked")]);
-    // Cancel Game fades back to the main menu; S opens the screen again with the same map.
+    // Cancel Game fades back to the main menu; S then C opens the screen again with the same map.
     v.extend(tap(K::Letter('C')));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-back")]);
     v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::SinglePlayer), Wait(3)]);
+    v.extend(tap(K::Letter('C')));
     v.extend([Until(AppState::CustomSetup), Wait(25), Shot("setup-again")]);
     // Start Game: the music fades, the screen fades to black and the game starts.
     v.extend(click(500.0, 418.0));

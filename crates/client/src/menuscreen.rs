@@ -280,6 +280,17 @@ pub(crate) const CAMPAIGN_BUTTONS: [(Rect, &str, char); 5] = [
     (column(420), "Previous Menu", 'P'),
 ];
 
+/// The single-player menu's buttons with their hotkeys (`rez\snglplay.bin`: New Campaign, Load Game, Custom Scenario,
+/// Previous Menu). Load Game's rectangle is observed (x 208, y 276); the others follow the main menu's 36-pixel pitch.
+// spec gap: the dialog file's rectangles and hotkeys for the other three buttons aren't in the spec; N, C and P are ours
+// (the campaign menu's Previous Menu is P) and Previous Menu sits in the fourth slot.
+pub(crate) const SINGLE_PLAYER_BUTTONS: [(Rect, &str, char); 4] = [
+    (column(240), "New Campaign", 'N'),
+    (column(276), "Load Game", 'L'),
+    (column(312), "Custom Scenario", 'C'),
+    (column(348), "Previous Menu", 'P'),
+];
+
 /// The pixels a space leaves in a label or heading ("Label placement"): its advance is floor(the font's widest glyph /
 /// 2) + 1 (9 in `font12x`, leaving the 10 of [`SPACE_12X`]).
 pub(crate) fn label_gap(font: &Font) -> u32 {
