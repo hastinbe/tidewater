@@ -4651,8 +4651,8 @@ mod tests {
     }
 
     /// V282, V283 (orders spec, "Search box", round 97): a human player's footman (react range (human) 4, attack range
-    /// 1) following its peasant is hit by a dragon it can't hit. The reaction's search uses the react range (human)
-    /// box, so an idle grunt 3 tiles away is found (V282) and one 5 tiles away is not (V283).
+    /// of 1) following its peasant is hit by a dragon it can't hit. The reaction's search uses the react range
+    /// (human) box, so an idle grunt 3 tiles away is found (V282) and one 5 tiles away is not (V283).
     #[test]
     fn a_follower_reaction_searches_the_react_range_human_box() {
         for (grunt_x, found) in [(8, true), (10, false)] {
