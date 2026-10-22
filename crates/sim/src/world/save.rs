@@ -277,7 +277,8 @@ impl World {
     /// - every research request is clear and each computer player's done marks are made again, with the load's
     ///   building marks (SL9 to SL12);
     /// - the frozen and about-to-freeze marks of workers are cleared (static study, a labelled gap-fill);
-    /// - every dead body's target is cleared, and no other unit's (SL28 to SL30);
+    /// - every dead body's target is cleared, and no other unit's (SL28 to SL30), and so is its stored goal (SL33,
+    ///   static study; the one stored goal we hold is [`Unit::goal_x`]);
     /// - every unit's creation number is its slot number plus one, and the next unit created gets the unit-slot count
     ///   plus 26: 1626 in Enhanced (SL7; the Classic value 626 is the spec's gap-fill).
     fn starts_afresh(&mut self) {
@@ -323,6 +324,8 @@ impl World {
             // (`game/save-load.md` SL28 to SL30). During play a body still keeps its target.
             if u.kind == crate::corpses::DEAD_BODY {
                 u.dying_target = None;
+                // Its stored goal is (0, 0) too, whatever it was at the save (SL33; no rule reads a body's goal).
+                u.goal_x = 0;
             }
         }
         self.next_serial = self.slots.count() as u32 + 26;

@@ -88,7 +88,7 @@ fn the_cooldown_and_the_kept_and_forgotten_targets_come_back() {
     assert_eq!(b.units, a.units);
 }
 
-/// SL28 to SL30: a load clears every dead body's target (type 0x69, any decay stage and owner, wrecks included) and
+/// SL28 to SL30 and SL33: a load clears every dead body's target and stored goal (type 0x69, any decay stage and owner, wrecks included) and
 /// no other unit's; a body keeps its target during play.
 #[test]
 fn a_load_clears_a_dead_bodys_target_and_no_other() {
@@ -103,6 +103,7 @@ fn a_load_clears_a_dead_bodys_target_and_no_other() {
         u.remains = !removing;
         u.removing = removing;
         u.dying_target = Some(5);
+        u.goal_x = 12;
     }
     a.units[2].dying = true;
     a.units[2].dying_target = Some(6);
@@ -110,6 +111,8 @@ fn a_load_clears_a_dead_bodys_target_and_no_other() {
     a.units[3].owner = 15;
     a.units[3].dying = true;
     a.units[3].dying_target = Some(7);
+    a.units[2].goal_x = 12;
+    a.units[3].goal_x = 12;
     a.units[4].order = Order::Attack { target: UnitId(1) };
     let live_target = a.units[4].recorded_target();
     assert!(live_target.is_some());
@@ -122,6 +125,13 @@ fn a_load_clears_a_dead_bodys_target_and_no_other() {
         (b.units[0].dying_target, b.units[1].dying_target),
         (None, None),
         "SL28, SL29"
+    );
+    // SL33: a body's stored goal is zero after a load; every other unit's is kept.
+    assert_eq!((b.units[0].goal_x, b.units[1].goal_x), (0, 0), "SL33");
+    assert_eq!(
+        (b.units[2].goal_x, b.units[3].goal_x),
+        (12, 12),
+        "other units keep their goal"
     );
     assert_eq!(b.units[2].dying_target, Some(6), "SL30: a dying unit keeps its target");
     assert_eq!(
