@@ -406,7 +406,11 @@ fn record_game(
 
 fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>) -> anyhow::Result<()> {
     let a = &c.opts;
-    let record = a.record_replay;
+    // Recorded when `--record-replay` asks, or the `auto-replay` option is on: written as it is played, or (`menu`) only
+    // held for the game menu's Save Replay.
+    let saving = c.extras.replay_saving();
+    let record = a.record_replay || saving != crate::extras::ReplaySaving::Off;
+    let held = !a.record_replay && saving == crate::extras::ReplaySaving::Menu;
     let args = GameArgs {
         map: map.to_string(),
         setup,
@@ -494,7 +498,8 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
                 );
                 // Each side's file carries its own slot in the name, so two machines sharing a folder keep both.
                 let name = format!("p{}-{}", n.me + 1, Recorder::file_name(&args.map, wall));
-                Recorder::new(header, store.clone(), name)
+                let recorder = Recorder::new(header, store.clone(), name);
+                if held { recorder.held() } else { recorder }
             });
             for (slot, name) in n.names.iter().enumerate().take(c.flow.player_names.len()) {
                 c.flow.player_names[slot].clone_from(name);
@@ -534,7 +539,8 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
                     scene.human,
                 );
                 let name = Recorder::file_name(&args.map, wall);
-                Box::new(LocalSession::recording(Recorder::new(header, store.clone(), name)))
+                let recorder = Recorder::new(header, store.clone(), name);
+                Box::new(LocalSession::recording(if held { recorder.held() } else { recorder }))
             }
         }
         None => Box::new(LocalSession::new()),
@@ -1692,8 +1698,22 @@ fn click_target(b: &mouse::Board, world: &World, at: Vec2, tile: (i32, i32)) -> 
     Some((t, mouse::flash_colour(b, b.get(t)?.owner)))
 }
 
+/// A unit command as sent: wrapped as a Shift-command (option `shift-queue`) when `queue` is set, so each unit that
+/// takes it adds the order to its queue instead of replacing its order (`tidewater_sim::Command::Queued`).
+fn shifted(c: Command, queue: bool) -> Command {
+    if queue {
+        Command::Queued {
+            player: c.player(),
+            command: Box::new(c),
+        }
+    } else {
+        c
+    }
+}
+
 /// The right-click command ("Right-click on the map"): from the map view at `at`, or from the minimap (`at` is
-/// `None`) to `tile`.
+/// `None`) to `tile`. `queue` is Shift held with the option on.
+#[allow(clippy::too_many_arguments)]
 fn right_click(
     sim: &mut Sim,
     sel: &mut Selection,
@@ -1702,6 +1722,7 @@ fn right_click(
     at: Option<Vec2>,
     tile: (i32, i32),
     smart_attack: bool,
+    queue: bool,
 ) {
     let human = sim.human;
     let (target, sends) = with_board(&sim.world, human, art, view, |b| {
@@ -1730,13 +1751,16 @@ fn right_click(
     }
     // Smart attack-move (`attackmove`, option `smart-attack-move`): fighting units only, on open ground.
     if smart_attack && attackmove::applies(target.map(|t| t.0), &attackmove::facts(&sim.world, human, &sel.units)) {
-        sim.pending.push(attackmove::command(human, tile));
+        sim.pending.push(shifted(attackmove::command(human, tile), queue));
     } else {
-        sim.pending.push(Command::RightClick {
-            player: human,
-            target: target.map(|t| t.0),
-            tile,
-        });
+        sim.pending.push(shifted(
+            Command::RightClick {
+                player: human,
+                target: target.map(|t| t.0),
+                tile,
+            },
+            queue,
+        ));
     }
     sim.world.acknowledge(sel.units[0]);
     let mark = mark_spot(at, tile, 8);
@@ -1745,6 +1769,7 @@ fn right_click(
 
 /// A target-mode click: the mode's command at the clicked unit or tile (`at` is `None` on the minimap), then the
 /// mode ends.
+#[allow(clippy::too_many_arguments)]
 fn target_click(
     sim: &mut Sim,
     sel: &mut Selection,
@@ -1753,6 +1778,7 @@ fn target_click(
     view: (f32, f32, f32, f32),
     at: Option<Vec2>,
     tile: (i32, i32),
+    queue: bool,
 ) {
     let panel::Mode::Target(t) = ui.mode else { return };
     ui.mode = panel::Mode::None;
@@ -1760,7 +1786,7 @@ fn target_click(
     let Some(&primary) = sel.units.first() else { return };
     let hit = at.and_then(|at| with_board(&sim.world, human, art, view, |b| click_target(b, &sim.world, at, tile)));
     if let Some(c) = panel::target_command(t, human, hit.map(|h| h.0), tile) {
-        sim.pending.push(c);
+        sim.pending.push(shifted(c, queue));
         sim.world.acknowledge(primary);
         let mark = mark_spot(at, tile, 0);
         feedback(sim, sel, hit, mark);
@@ -1768,13 +1794,18 @@ fn target_click(
 }
 
 /// Placement mode's click (spec `ui/placing-buildings.md`, "The click"): a refused site keeps the mode on.
-fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, kind: u8, tile: (i32, i32)) {
+///
+/// With `queue` (Shift held, option `shift-queue`) the build is queued behind the builder's orders and placement mode
+/// stays on, so several buildings can be placed in a row.
+fn place_click(sim: &mut Sim, builder: UnitId, ui: &mut PanelUi, kind: u8, tile: (i32, i32), queue: bool) {
     match panel::place_click(&sim.world, sim.human, builder, kind, tile) {
         panel::PlaceClick::Build(command) => {
             sim.ui_sounds.push(sound::UiSound::Thunk);
             sim.world.acknowledge(builder);
-            sim.pending.push(command);
-            ui.mode = panel::Mode::None;
+            sim.pending.push(shifted(command, queue));
+            if !queue {
+                ui.mode = panel::Mode::None;
+            }
         }
         panel::PlaceClick::Refused(n) => {
             sim.ui_sounds.push(sound::UiSound::Error);
@@ -1821,6 +1852,8 @@ pub(crate) fn mouse_input(c: &mut Core) {
     let shift = keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]);
     let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
     let alt = keys.any_pressed([Key::AltLeft, Key::AltRight]);
+    // Option `shift-queue` (a rule of the game, so the world's, not the local settings'): Shift queues orders.
+    let queue = shift && sim.world.rules.extras.order_queue;
     let at = cursor_map(input, mv);
     let view = mv.tiles();
     // Development aid (`--demo-site`): one placement click, after the first fog refresh so the site is explored.
@@ -1830,7 +1863,7 @@ pub(crate) fn mouse_input(c: &mut Core) {
         && sim.world.tick >= 2
     {
         ui.demo_click = false;
-        place_click(sim, builder, ui, kind, tile);
+        place_click(sim, builder, ui, kind, tile, false);
     }
     if buttons.just_released(Button::Left) {
         sel.minimap_held = false;
@@ -1961,12 +1994,12 @@ pub(crate) fn mouse_input(c: &mut Core) {
             }
             mouse::Action::RightClick => {
                 if let Some(tile) = map_tile {
-                    right_click(sim, sel, art, view, at, tile, smart_attack);
+                    right_click(sim, sel, art, view, at, tile, smart_attack, queue);
                 }
             }
             mouse::Action::RightClickTile => {
                 if let Some(tile) = minimap_tile {
-                    right_click(sim, sel, art, view, None, tile, smart_attack);
+                    right_click(sim, sel, art, view, None, tile, smart_attack, queue);
                 }
             }
             mouse::Action::CentreView => {
@@ -1982,17 +2015,17 @@ pub(crate) fn mouse_input(c: &mut Core) {
             }
             mouse::Action::GiveTarget => {
                 if let Some(tile) = map_tile {
-                    target_click(sim, sel, ui, art, view, at, tile);
+                    target_click(sim, sel, ui, art, view, at, tile, queue);
                 }
             }
             mouse::Action::GiveTargetTile => {
                 if let Some(tile) = minimap_tile {
-                    target_click(sim, sel, ui, art, view, None, tile);
+                    target_click(sim, sel, ui, art, view, None, tile, queue);
                 }
             }
             mouse::Action::Place => {
                 if let (panel::Mode::Place(kind), Some(tile), Some(&builder)) = (ui.mode, map_tile, sel.units.first()) {
-                    place_click(sim, builder, ui, kind, tile);
+                    place_click(sim, builder, ui, kind, tile, queue);
                 }
             }
             mouse::Action::EndMode | mouse::Action::EndModeOrBack => ui.mode = panel::Mode::None,
@@ -2586,6 +2619,19 @@ mod tests {
         assert!(!freezes(false, true, true), "focused");
         assert!(!freezes(true, true, false), "multiplayer simulates in the background");
         assert!(!freezes(false, false, false), "no window, no focus to lose");
+    }
+
+    #[test]
+    fn a_shift_click_wraps_the_command_and_a_plain_one_does_not() {
+        let stop = Command::Stop {
+            player: 3,
+            units: vec![],
+        };
+        assert_eq!(shifted(stop.clone(), false), stop);
+        match shifted(stop.clone(), true) {
+            Command::Queued { player, command } => assert_eq!((player, *command), (3, stop)),
+            other => panic!("not wrapped: {other:?}"),
+        }
     }
 
     #[test]

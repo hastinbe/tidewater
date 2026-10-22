@@ -160,9 +160,11 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit (S) |
 | `speed-levels` | `--extra-speed-levels VALUE` | off, 1, 2, 3 | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) (S) |
 | `minimap-ping` | `--extra-minimap-ping` | on, off | off | Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours |
+| `shift-queue` | `--extra-shift-queue` | on, off | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order (S) |
+| `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 
 **C+L** marks an option that gives you an edge, so in a game with other players the lobby will set it for everyone
-instead of your own settings. **S** marks an option that changes the simulation (rally points, the production queue,
+instead of your own settings. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
 the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a
 network game the host turns it on in the lobby's "Extras" box and everyone plays with the host's choice. The game is
 saved and recorded with it. Every option, S included, is **off by default**.
@@ -255,7 +257,7 @@ The default port is 6112: TCP for the game, which the host opens on its firewall
 
 ## Replays
 
-Run with `--record-replay` and the game writes a `.twrep` file to the `replays` folder of your user data (never into the game folder). It holds the map's name and hash, the seed, the setup and the rules, then the commands given each cycle and a state-hash check every 100 cycles. Recording is a flag rather than always on, so nothing is written unless you ask.
+Run with `--record-replay` and the game writes a `.twrep` file to the `replays` folder of your user data (never into the game folder). It holds the map's name and hash, the seed, the setup and the rules, then the commands given each cycle and a state-hash check every 100 cycles. Recording is a flag rather than always on, so nothing is written unless you ask. The `auto-replay` option does the asking for you: `--extra-auto-replay always` (or the `[extras]` setting) writes every game's replay, single-player or network, and `menu` holds the recording in memory and adds a Save Replay button to the in-game menu.
 
 `tidewater --replay FILE` plays it back as the recording player saw it. Your input is ignored except the game menu, pause (Ctrl+P) and speed (`+` and `-`). If the game ever stops matching the recording, playback stops at the first check that fails and says which cycle. `twtool replay FILE` does the same check without a window, and `twtool desync-diff` finds the first cycle and field where two runs differ. A replay is refused on a map that is not the one it was recorded on. Games that were loaded from a save, or that used the `--demo-*` options, are not recorded. A network game records on each side with the same flag.
 

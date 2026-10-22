@@ -46,6 +46,7 @@ pub mod training_ai;
 mod transport;
 pub mod victory;
 pub mod vision;
+mod waypoints;
 pub mod worker_ai;
 mod world;
 

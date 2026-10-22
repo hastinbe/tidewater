@@ -193,6 +193,10 @@ impl World {
     /// the order stored as pending with the pending-command mark ("Units seen by the search"). Our reading of
     /// `xorc01-death-coil` (death knight 1491, n = 353): the command also drops the unit's cached route.
     pub(crate) fn command(&mut self, i: usize, order: Order) {
+        // Shift-queued orders (`waypoints.rs`): never runs unless the option is on and a player's command is in hand.
+        if self.queue_scope != crate::waypoints::Scope::Off && self.intercept_order(i, order) {
+            return;
+        }
         let order = match order {
             // Pathfinding spec ("Goal pulled back"): a smart move with a target unit that becomes the
             // move stores the target's tile without pulling it back.

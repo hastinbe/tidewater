@@ -75,6 +75,8 @@ pub struct GameMenu {
     enhanced: bool,
     /// The extra speed levels above Fastest this game has.
     extra_speeds: u8,
+    /// The game is recorded (option `auto-replay`), so the menu offers Save Replay.
+    can_save_replay: bool,
     /// Text shown by the current screen (wrapped).
     lines: Vec<String>,
     delay: menu::Delay,
@@ -124,6 +126,8 @@ const INNER_W: u32 = BOX_W - 2 * PAD as u32;
 enum Act {
     Open(Screen),
     CloseAll,
+    /// Writes the recording of the game to the replays folder.
+    SaveReplay,
     Back,
     Ok,
     Cancel,
@@ -281,6 +285,9 @@ impl GameMenu {
             Screen::Game => {
                 b.button(Act::Open(Screen::Saving(Saving::Save)), "Save Game (F11)");
                 b.button(Act::Open(Screen::Saving(Saving::Load)), "Load Game (F12)");
+                if self.can_save_replay {
+                    b.button(Act::SaveReplay, "Save Replay");
+                }
                 b.button(Act::Open(Screen::Options), "Options (F5)");
                 b.button(Act::Open(Screen::Help), "Help (F1)");
                 b.button(Act::Open(Screen::Objectives), "Objectives (O)");
@@ -820,6 +827,7 @@ fn open_menu(
         fog_at_open: sim.world.rules.fog_of_war,
         enhanced: sim.world.rules.enhanced,
         extra_speeds: sim.world.rules.extras.extra_speeds,
+        can_save_replay: sim.session.can_save_replay(),
         lines: Vec::new(),
         delay: menu::Delay::default(),
         hot: None,
@@ -1080,6 +1088,15 @@ pub(crate) fn run_menu(c: &mut Core) {
             enter(m, front, stored, sim, flow, &folder.folder());
         }
         Act::CloseAll => {
+            m.nav.close();
+            close(commands);
+        }
+        Act::SaveReplay => {
+            let text = match sim.session.save_replay() {
+                Some(name) => format!("Replay saved as {name}."),
+                None => "The replay could not be saved.".to_string(),
+            };
+            sim.notices.push(crate::messages::Text::Own(text));
             m.nav.close();
             close(commands);
         }
@@ -1363,6 +1380,7 @@ mod tests {
             fog_at_open: true,
             enhanced: true,
             extra_speeds: 0,
+            can_save_replay: false,
             lines: vec!["text".into()],
             delay: menu::Delay::default(),
             hot: None,

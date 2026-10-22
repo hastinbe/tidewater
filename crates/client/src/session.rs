@@ -72,6 +72,17 @@ pub trait Session: Send + Sync {
     /// a replay of this game may not reproduce it. A recording keeps the note.
     fn note_unsynced(&mut self, _what: &str) {}
 
+    /// Whether this session records the game, so the game menu can offer to save the recording (`auto-replay`).
+    fn can_save_replay(&self) -> bool {
+        false
+    }
+
+    /// Writes the recording of the game so far to the replays folder, and from now on as the game goes on. Returns the
+    /// file's name, or `None` when the game is not recorded or the file can't be written.
+    fn save_replay(&mut self) -> Option<String> {
+        None
+    }
+
     /// Texts for the notice line since the last call (a replay's pause, end and desync).
     fn take_notices(&mut self) -> Vec<String> {
         Vec::new()
@@ -261,6 +272,14 @@ impl Session for LocalSession {
             r.dirty = true;
         }
     }
+
+    fn can_save_replay(&self) -> bool {
+        self.recorder.is_some()
+    }
+
+    fn save_replay(&mut self) -> Option<String> {
+        self.recorder.as_mut()?.start_writing()
+    }
 }
 
 /// A recording is written to disk this often while the game runs, and again when the session ends.
@@ -273,6 +292,9 @@ pub struct Recorder {
     store: Store,
     name: String,
     dirty: bool,
+    /// Whether the file is written. A recording that is only held (`auto-replay` set to `menu`) is written once the
+    /// player asks, and from then on like any other.
+    writing: bool,
 }
 
 impl Recorder {
@@ -283,7 +305,23 @@ impl Recorder {
             store,
             name,
             dirty: true,
+            writing: true,
         }
+    }
+
+    /// This recording, only held in memory until [`start_writing`](Self::start_writing).
+    pub fn held(mut self) -> Recorder {
+        self.writing = false;
+        self
+    }
+
+    /// Starts writing the file (now, and every so often as the game goes on). Returns its name, or `None` if the first
+    /// write failed.
+    pub fn start_writing(&mut self) -> Option<String> {
+        self.writing = true;
+        self.dirty = true;
+        self.flush();
+        (!self.dirty).then(|| self.name.clone())
     }
 
     /// The file name for a game on `map` that started at `wall` seconds: the map's name without folder or extension,
@@ -319,7 +357,7 @@ impl Recorder {
 
     /// Writes the file if anything changed since the last write.
     pub fn flush(&mut self) {
-        if !self.dirty {
+        if !self.dirty || !self.writing {
             return;
         }
         match self.store.write_replay(&self.name, &self.replay.encode()) {
@@ -600,6 +638,45 @@ mod tests {
         assert_eq!(r.commands_at(2), &[pause()]);
         assert_eq!(r.checkpoint_at(100), Some(77));
         assert_eq!(r.notes, ["fog of war changed"]);
+    }
+
+    #[test]
+    fn a_held_recording_writes_nothing_until_the_player_saves_it() {
+        let mem = std::sync::Arc::new(Memory::default());
+        let mut s = LocalSession::recording(Recorder::new(header(), store(&mem), "h.twrep".into()).held());
+        assert!(s.can_save_replay());
+        s.submit(stop());
+        s.ready_commands(0);
+        s.ready_commands(1);
+        assert!(mem.0.lock().unwrap().is_empty(), "held: nothing on disk yet");
+        assert_eq!(s.save_replay().as_deref(), Some("h.twrep"));
+        let first = mem.0.lock().unwrap().last().cloned().unwrap();
+        let r = Replay::decode(&first.1).unwrap();
+        assert_eq!(
+            (r.cycles, r.commands_at(0)),
+            (2, &[stop()][..]),
+            "the game so far is in it"
+        );
+        // From then on it is written like any recording, here when the session ends.
+        s.submit(pause());
+        s.ready_commands(2);
+        s.checkpoint(3, 9).unwrap();
+        drop(s);
+        let last = mem.0.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(Replay::decode(&last.1).unwrap().cycles, 3);
+    }
+
+    #[test]
+    fn a_held_recording_that_is_never_saved_leaves_no_file() {
+        let mem = std::sync::Arc::new(Memory::default());
+        {
+            let mut s = LocalSession::recording(Recorder::new(header(), store(&mem), "n.twrep".into()).held());
+            s.submit(stop());
+            s.ready_commands(0);
+        }
+        assert!(mem.0.lock().unwrap().is_empty());
+        assert!(!LocalSession::new().can_save_replay());
+        assert_eq!(LocalSession::new().save_replay(), None);
     }
 
     #[test]

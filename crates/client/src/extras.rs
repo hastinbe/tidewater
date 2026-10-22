@@ -35,10 +35,12 @@ pub enum Id {
     SelectionLimit,
     SpeedLevels,
     MinimapPing,
+    ShiftQueue,
+    AutoReplay,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 14;
+pub const COUNT: usize = 16;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,6 +92,9 @@ pub const SELECTION_LIMITS: &[&str] = &["9", "12", "18", "unlimited"];
 
 /// How many speed levels to add above Fastest (option `speed-levels`).
 pub const SPEED_LEVELS: &[&str] = &["off", "1", "2", "3"];
+
+/// The values of `auto-replay`.
+pub const REPLAY_SAVING: &[&str] = &["off", "menu", "always"];
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -205,6 +210,22 @@ pub const REGISTRY: [Spec; COUNT] = [
         scope: Scope::Client,
         description: "Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours",
     },
+    Spec {
+        id: Id::ShiftQueue,
+        name: "shift-queue",
+        kind: Kind::Flag,
+        default: 0,
+        scope: Scope::Sim,
+        description: "Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order",
+    },
+    Spec {
+        id: Id::AutoReplay,
+        name: "auto-replay",
+        kind: Kind::Choice(REPLAY_SAVING),
+        default: 0,
+        scope: Scope::Client,
+        description: "Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played",
+    },
 ];
 
 impl Id {
@@ -272,6 +293,17 @@ pub enum HealthBars {
     Off,
     Hovered,
     Selected,
+    Always,
+}
+
+/// What is done with every game's recording (option `auto-replay`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplaySaving {
+    /// Nothing is recorded (unless `--record-replay` asks).
+    Off,
+    /// The game is recorded in memory; the game menu's Save Replay writes it.
+    Menu,
+    /// The game is recorded and written to the replays folder as it is played.
     Always,
 }
 
@@ -365,6 +397,16 @@ impl ClientExtras {
                 _ => 0,
             },
             extra_speeds: self.get(Id::SpeedLevels),
+            order_queue: self.get(Id::ShiftQueue) != 0,
+        }
+    }
+
+    /// What is done with every game's recording (client-only).
+    pub fn replay_saving(&self) -> ReplaySaving {
+        match self.get(Id::AutoReplay) {
+            1 => ReplaySaving::Menu,
+            2 => ReplaySaving::Always,
+            _ => ReplaySaving::Off,
         }
     }
 
@@ -637,6 +679,7 @@ mod tests {
         e.set(Id::ProductionQueue, 1);
         e.set(Id::SelectionLimit, 3);
         e.set(Id::SpeedLevels, 2);
+        e.set(Id::ShiftQueue, 1);
         let sim = e.sim();
         assert_eq!(
             sim,
@@ -645,6 +688,7 @@ mod tests {
                 production_queue: true,
                 selection_limit: UNLIMITED,
                 extra_speeds: 2,
+                order_queue: true,
             }
         );
         // The other limits.
@@ -672,6 +716,24 @@ mod tests {
         assert!(e.sim().rally_points && e.minimap_ping());
         assert_eq!((e.sim().selection_limit, e.sim().extra_speeds), (18, 3));
         assert!(Args::try_parse_from(["tidewater", "--extra-selection-limit", "10"]).is_err());
+    }
+
+    #[test]
+    fn auto_replay_is_off_by_default_and_a_client_option() {
+        let mut e = ClientExtras::default();
+        assert_eq!(e.replay_saving(), ReplaySaving::Off);
+        Args::parse_from(["tidewater", "--extra-auto-replay", "always"])
+            .extras
+            .apply(&mut e);
+        assert_eq!(e.replay_saving(), ReplaySaving::Always);
+        assert!(e.sim().is_default(), "recording is not a rule of the game");
+        Args::parse_from(["tidewater", "--extra-auto-replay", "menu"])
+            .extras
+            .apply(&mut e);
+        assert_eq!(e.replay_saving(), ReplaySaving::Menu);
+        assert_eq!(Id::AutoReplay.spec().scope_mark(), "C");
+        assert_eq!(Id::ShiftQueue.spec().scope_mark(), "S");
+        assert!(Args::try_parse_from(["tidewater", "--extra-auto-replay", "sometimes"]).is_err());
     }
 
     #[test]

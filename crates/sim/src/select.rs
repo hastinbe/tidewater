@@ -320,6 +320,10 @@ impl World {
     /// n = 1502): each unit that takes a player's command forgets its recorded attacker once the command is given,
     /// whatever the attacker's state, so the command's own checks still saw the record.
     pub(crate) fn forget_attacker_after_command(&mut self, id: UnitId) {
+        // A command that only joined the unit's queue (`waypoints.rs`) did not take over: the fight goes on.
+        if self.just_queued.take() == Some(id) {
+            return;
+        }
         if let Some(i) = self.index(id) {
             self.units[i].attacked_by = None;
         }

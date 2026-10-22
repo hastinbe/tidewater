@@ -29,6 +29,8 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | S | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit |
 | `speed-levels` | `--extra-speed-levels VALUE` | off, 1, 2, 3 | S | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) |
 | `minimap-ping` | `--extra-minimap-ping` | on, off | C | off | Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours |
+| `shift-queue` | `--extra-shift-queue` | on, off | S | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order |
+| `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | C | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.
@@ -111,6 +113,32 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
   minimap for about five seconds, and you see your own. At most one ping every 12 cycles per player; each machine
   checks the alliance against its own table. In a single-player game or a replay the click does what it always did.
   Rules in `ping.rs`.
+- **Shift-queued orders** (`shift-queue`, S). With the option on, holding Shift while you give a move, attack,
+  attack-move, patrol, repair, harvest or build order (right-click, a target-mode click, or a building site) adds the
+  order to the end of each selected unit's queue instead of replacing its order. Selection keys behave as always.
+  The client wraps the command in `Command::Queued`, which travels through the turn stream like any command; the sim
+  does the rest in `waypoints.rs`. A machine whose option is off ignores the wrapper, but the option is a lobby-set sim
+  option like the others, so every machine has the same value.
+  - **A plain order clears the queue**, and so does Stop. A Shift-order to an idle unit just runs.
+  - **When the next one starts.** At the start of a cycle a unit with a queue and no order of its own (idle, nothing
+    pending) takes the first queued order. So an order "completes" when the unit falls idle: a move or follow on
+    arrival, an attack when the target dies or is lost, an attack-move on arrival, a repair when the target is
+    whole or gone, a build when the building is finished, a harvest when the source is used up and nothing else
+    is found. A patrol never ends, so queue it last. A queued order whose target has gone is skipped, and a queued
+    build is checked again when it starts (a refused site is skipped).
+  - **Cap: 8** orders waiting behind the current one per unit; more are dropped. A unit that dies loses its queue.
+  - **Building sites.** A Shift-click on a site keeps placement mode on, so you can place several buildings in a row.
+  - **Drawn** while the option is on: for each selected unit of yours, a small hollow square at every queued
+    destination, joined by a dotted line from the unit and from one point to the next (`view::draw_waypoint`).
+  - **State and hash.** The queue lives in `World::ext` (`State::orders`), so it is hashed, fingerprinted and saved
+    only while an option is on, and never when every option is off: a game with every extra off is byte-identical to
+    one without the feature.
+- **Replay saving** (`auto-replay`, C). A client-only option, off by default (`--record-replay` still works on its own).
+  `always` records every game, single-player or network, and writes the file to the `replays` folder of the user data
+  directory as the game is played, through `Storage::write_replay` (the same file `--record-replay` writes).
+  `menu` records in memory only and adds a **Save Replay** button to the in-game menu that writes the game so far
+  (and carries on writing), so a game you decide to keep after the fact is not lost. The default menu is unchanged
+  while the option is off. A game started from a save, or with a `--demo-*` option, is not recorded, as before.
 
 ## Rebindable keys
 
@@ -153,7 +181,7 @@ idle-worker=ctrl+i
 ## Sim options
 
 `tidewater_sim::Extras` (`crates/sim/src/extras.rs`) is the set of options that change the simulation: `rally_points`,
-`production_queue`, `selection_limit` (0 for nine, 12, 18, or `UNLIMITED`) and `extra_speeds` (0 to 3). It is a field of
+`production_queue`, `selection_limit` (0 for nine, 12, 18, or `UNLIMITED`), `extra_speeds` (0 to 3) and `order_queue`. It is a field of
 `Rules`, so it is:
 
 - **hashed** with the world (`World::state_hash`), so two machines with different options desync at once; the state
@@ -174,6 +202,10 @@ A replay uses the recording's; a loaded game keeps the ones it was saved with.
 lobby's messages carry the set. With every extra off the new data is empty or skipped: nothing else in the file or the
 hash differs, and the frame snapshot's `.sav` hash lines are the only snapshot lines that moved (the version number is
 part of the file).
+
+Shift-queued orders then added a fifth byte to the set: the saved game went from 19 to 20, the replay from 2 to 3, and
+the network protocol moved with the observer slot (`docs/design/network.md`, "Observers"). The `.sav` hash lines are
+again the only snapshot lines that moved.
 
 ## Multiplayer (C+L)
 

@@ -833,6 +833,13 @@ pub enum Command {
         target: Option<UnitId>,
         tile: (i32, i32),
     },
+    /// Optional improvement (`waypoints.rs`): the wrapped unit command, given with Shift held, joins the order queue of
+    /// each unit that takes it instead of replacing its order. `player` must be the wrapped command's own player.
+    /// Does nothing unless shift-queued orders are on; a nested `Queued` is ignored.
+    Queued {
+        player: u8,
+        command: Box<Command>,
+    },
 }
 
 impl Command {
@@ -873,7 +880,8 @@ impl Command {
             | Command::QuitDraw { player }
             | Command::Leave { player, .. }
             | Command::Resume { player }
-            | Command::Rally { player, .. } => player,
+            | Command::Rally { player, .. }
+            | Command::Queued { player, .. } => player,
         }
     }
 
@@ -988,6 +996,12 @@ pub struct World {
     /// set (fog spec, "A unit created during a cycle"). Not game state: always clear between cycles, so not stored
     /// and left out of the hash.
     pub(crate) in_cycle: bool,
+    /// Which kind of player command is being carried out (`waypoints.rs`); `Off` between commands and always when
+    /// shift-queued orders are off. Not game state: not stored and left out of the hash.
+    pub(crate) queue_scope: crate::waypoints::Scope,
+    /// The unit whose command was just queued, so the attacker it fights is not forgotten for a command that did not
+    /// take over (`waypoints.rs`). Not game state.
+    pub(crate) just_queued: Option<UnitId>,
 }
 
 /// The hasher behind [`World::state_hash`]: FNV-1a over bytes, with `usize` and `isize` (vector lengths, enum
@@ -1119,6 +1133,8 @@ impl World {
             fallback_run: false,
             updating: None,
             in_cycle: false,
+            queue_scope: Default::default(),
+            just_queued: None,
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,
@@ -1532,6 +1548,7 @@ impl World {
             self.tick += 1;
             return;
         }
+        self.run_order_queues();
         self.detection();
         self.in_cycle = true;
         // Phase 2: the computer players (`ai/computer-player.md`, "One cycle, in order").
@@ -1597,7 +1614,7 @@ impl World {
     /// state after a turn separately from the cycle that follows it, so a comparer runs the two apart.
     pub fn turn(&mut self, commands: &[Command]) {
         for c in commands {
-            self.apply(c);
+            self.apply_scoped(c);
         }
     }
 
@@ -1614,7 +1631,10 @@ impl World {
         self.tick = 0;
     }
 
-    fn apply(&mut self, c: &Command) {
+    pub(crate) fn apply(&mut self, c: &Command) {
+        if let Command::Queued { player, command } = c {
+            return self.apply_queued(*player, command);
+        }
         if self.selection_command(c) {
             return;
         }
@@ -1687,7 +1707,8 @@ impl World {
             | Command::SetGroup { .. }
             | Command::RecallGroup { .. }
             | Command::Speed { .. }
-            | Command::Pause { .. } => return,
+            | Command::Pause { .. }
+            | Command::Queued { .. } => return,
             &Command::Cheat { player, flags } => return self.cheat_command(player, crate::cheats::Flags(flags)),
             &Command::Surrender { player } | &Command::QuitDraw { player } => return self.surrender_command(player),
             &Command::Leave { player, .. } => return self.leave_command(player),

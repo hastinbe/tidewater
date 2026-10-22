@@ -1154,6 +1154,7 @@ fn extras_labels(e: &tidewater_sim::Extras) -> Vec<String> {
         format!("Production queue: {}", on(e.production_queue)),
         format!("Selection: {limit}"),
         format!("Extra speeds: {speeds}"),
+        format!("Shift-queued orders: {}", on(e.order_queue)),
     ]
 }
 
@@ -1181,7 +1182,8 @@ fn cycle_extra(mut e: tidewater_sim::Extras, i: usize) -> tidewater_sim::Extras 
                 _ => 0,
             }
         }
-        _ => e.extra_speeds = (e.extra_speeds + 1) % (MAX_EXTRA_SPEEDS + 1),
+        3 => e.extra_speeds = (e.extra_speeds + 1) % (MAX_EXTRA_SPEEDS + 1),
+        _ => e.order_queue = !e.order_queue,
     }
     e
 }
@@ -1241,9 +1243,16 @@ mod tests {
             e = cycle_extra(e, 3);
             assert_eq!(e.extra_speeds, want);
         }
+        e = cycle_extra(e, 4);
+        assert!(e.order_queue);
+        assert_eq!(
+            extras_summary(&cycle_extra(Extras::default(), 4)),
+            "shift-queued orders"
+        );
+        e = cycle_extra(e, 4);
         e = cycle_extra(e, 0);
         assert!(e.is_default());
-        assert_eq!(extras_labels(&e).len(), 4);
+        assert_eq!(extras_labels(&e).len(), 5);
     }
 
     fn key(k: Key) -> Input {

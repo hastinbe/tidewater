@@ -589,6 +589,14 @@ impl Session for NetSession {
         }
     }
 
+    fn can_save_replay(&self) -> bool {
+        self.recorder.is_some()
+    }
+
+    fn save_replay(&mut self) -> Option<String> {
+        self.recorder.as_mut()?.start_writing()
+    }
+
     fn observe_speed(&mut self, speed: u8) {
         self.speed = speed;
     }

@@ -6,8 +6,8 @@
 //! in a replay's header (`RulesTag`) and in the multiplayer lobby's start message. A network or replay session never
 //! reads it from the local settings: the session hands it over, so every machine runs the same rules.
 //!
-//! **The fields** (batch 1): rally points, the production queue, the selection limit and the speeds beyond Fastest.
-//! Their rules live next to the code they extend (`rally.rs`, `queue.rs`, `select.rs`, `timing.rs`); this module holds
+//! **The fields**: rally points, the production queue, the selection limit, the speeds beyond Fastest and shift-queued
+//! orders. Their rules live next to the code they extend (`rally.rs`, `queue.rs`, `select.rs`, `timing.rs`, `waypoints.rs`); this module holds
 //! the switches and the state they keep ([`State`]).
 //!
 //! **Keeping the defaults honest.** `Rules::extras` is not one of the rules' own stored fields (`#[serde(skip)]`), and
@@ -39,6 +39,8 @@ pub struct Extras {
     pub selection_limit: u8,
     /// How many speed levels there are above Fastest, 0 to [`MAX_EXTRA_SPEEDS`] (`timing.rs`). Enhanced rules only.
     pub extra_speeds: u8,
+    /// Shift-held orders join a unit's order queue instead of replacing its order (`waypoints.rs`).
+    pub order_queue: bool,
 }
 
 impl Extras {
@@ -75,6 +77,9 @@ impl Extras {
                 "{} extra speed level(s)",
                 self.extra_speeds.min(MAX_EXTRA_SPEEDS)
             ));
+        }
+        if self.order_queue {
+            out.push("shift-queued orders".to_string());
         }
         out
     }
@@ -126,12 +131,14 @@ pub struct State {
     /// order. Not stored in a saved game: a load starts with an empty selection.
     #[serde(skip)]
     pub more: [Vec<UnitId>; PLAYERS],
+    /// The orders waiting behind each unit's current one, next first (`waypoints.rs`).
+    pub orders: BTreeMap<UnitId, Vec<crate::world::Order>>,
 }
 
 impl State {
     /// Whether nothing is kept.
     pub fn is_empty(&self) -> bool {
-        self.rally.is_empty() && self.queue.is_empty() && self.more.iter().all(Vec::is_empty)
+        self.rally.is_empty() && self.queue.is_empty() && self.orders.is_empty() && self.more.iter().all(Vec::is_empty)
     }
 }
 
@@ -162,6 +169,7 @@ mod tests {
             production_queue: true,
             selection_limit: 18,
             extra_speeds: 2,
+            order_queue: true,
         };
         let bytes = postcard::to_allocvec(&e).unwrap();
         let back: Extras = postcard::from_bytes(&bytes).unwrap();
@@ -174,7 +182,7 @@ mod tests {
         // The set used to be empty and wrote no bytes. With fields it does, which is why the saved game's and the
         // replay's versions changed when the first one came (`savefile::VERSION`, `tidewater_replay::format::VERSION`).
         let bytes = postcard::to_allocvec(&Extras::default()).unwrap();
-        assert_eq!(bytes.len(), 4);
+        assert_eq!(bytes.len(), 5);
     }
 
     #[test]
@@ -185,6 +193,7 @@ mod tests {
             production_queue: true,
             selection_limit: UNLIMITED,
             extra_speeds: 2,
+            order_queue: true,
         };
         assert_eq!(
             e.describe(),
@@ -192,7 +201,8 @@ mod tests {
                 "rally points",
                 "production queue",
                 "unlimited selection",
-                "2 extra speed level(s)"
+                "2 extra speed level(s)",
+                "shift-queued orders"
             ]
         );
     }
@@ -276,6 +286,7 @@ mod tests {
             production_queue: true,
             selection_limit: 18,
             extra_speeds: 2,
+            order_queue: true,
         };
         a.ext.rally.insert(
             UnitId(3),
@@ -307,9 +318,9 @@ mod tests {
         use crate::world::tests::field;
         let w = field(8, 8);
         let bytes = w.save_state();
-        // The options' part is the last four bytes of the options plus three empty containers.
+        // The options' part is the five bytes of the options plus three empty containers.
         let tail = postcard::to_allocvec(&w.extras_saved()).unwrap();
         assert!(bytes.ends_with(&tail));
-        assert_eq!(tail, [0, 0, 0, 0, 0, 0]);
+        assert_eq!(tail, [0, 0, 0, 0, 0, 0, 0, 0]);
     }
 }

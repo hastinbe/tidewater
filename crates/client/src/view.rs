@@ -623,6 +623,31 @@ pub struct RallyFlag {
     pub colour: u8,
 }
 
+/// A queued-order waypoint (option `shift-queue`) of a selected unit: the map pixel it marks, the pixel of the unit's
+/// previous waypoint (or the unit itself) a dotted line comes from, and the marker's colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Waypoint {
+    pub at: (i32, i32),
+    pub from: (i32, i32),
+    pub colour: u8,
+}
+
+/// Draws a waypoint: a dotted line from the previous point and a five-pixel square marker, hollow in the drag colour
+/// around a pixel of the unit's colour.
+pub fn draw_waypoint(canvas: &mut Canvas, w: &Waypoint) {
+    let (dx, dy) = (w.at.0 - w.from.0, w.at.1 - w.from.1);
+    let steps = dx.abs().max(dy.abs());
+    for k in (0..steps).step_by(4) {
+        canvas.put(w.from.0 + dx * k / steps, w.from.1 + dy * k / steps, DRAG);
+    }
+    for d in -2..=2 {
+        for (x, y) in [(d, -2), (d, 2), (-2, d), (2, d)] {
+            canvas.put(w.at.0 + x, w.at.1 + y, DRAG);
+        }
+    }
+    canvas.put(w.at.0, w.at.1, w.colour);
+}
+
 /// The pole's height and the pennant's size, in pixels.
 pub const FLAG_POLE: i32 = 14;
 pub const FLAG_PENNANT: i32 = 6;
@@ -665,6 +690,8 @@ pub struct ViewFrame {
     pub bars: Vec<Bar>,
     /// The rally flags of the selected training buildings, over the fog; empty unless the option is on.
     pub flags: Vec<RallyFlag>,
+    /// The queued-order waypoints of the selected units, over the fog; empty unless the option is on.
+    pub waypoints: Vec<Waypoint>,
     /// Layer 6: per map tile the visible and explored codes (row by row, `fog.0` tiles wide); `None` with the
     /// reveal-map cheat.
     pub fog: Option<(usize, Vec<(u8, u8)>)>,
@@ -715,6 +742,9 @@ pub fn draw(canvas: &mut Canvas, f: &ViewFrame, art: &Art, shapes: &fog::Shapes)
     }
     for flag in &f.flags {
         draw_flag(canvas, flag);
+    }
+    for w in &f.waypoints {
+        draw_waypoint(canvas, w);
     }
     if let Some(op) = &f.marker {
         run(canvas, op);
@@ -999,6 +1029,19 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
             });
         }
     }
+    // The queued orders of the selected units (option `shift-queue`): a marker at each waypoint, joined in order.
+    if world.rules.extras.order_queue {
+        for &id in local.selected {
+            let Some(u) = world.unit(id) else { continue };
+            let colour = base_of(world, u.owner);
+            let mut from = centre(u);
+            for tile in world.waypoints(id) {
+                let at = (tile.0 * 32 + 16, tile.1 * 32 + 16);
+                f.waypoints.push(Waypoint { at, from, colour });
+                from = at;
+            }
+        }
+    }
     // Layers 8 and 9.
     f.marker = local.marker.and_then(|mk| marker_op(art, mk));
     f.drag = local.drag;
@@ -1071,6 +1114,25 @@ mod tests {
         assert_eq!(c.at(6, 25 - FLAG_POLE), Some(77));
         assert_eq!(c.at(6 + FLAG_PENNANT, 25 - FLAG_POLE), Some(77));
         assert_eq!(c.at(8, 25 - FLAG_POLE + FLAG_PENNANT), Some(CLEAR), "below the pennant");
+    }
+
+    #[test]
+    fn a_waypoint_is_a_dotted_line_and_a_hollow_square() {
+        let mut c = Canvas::new(0, 0, 40, 40);
+        draw_waypoint(
+            &mut c,
+            &Waypoint {
+                at: (20, 20),
+                from: (4, 20),
+                colour: 77,
+            },
+        );
+        assert_eq!(c.at(20, 20), Some(77), "the unit's colour at the centre");
+        assert_eq!(c.at(18, 18), Some(DRAG as u16), "a corner of the square");
+        assert_eq!(c.at(19, 19), Some(CLEAR), "hollow");
+        assert_eq!(c.at(4, 20), Some(DRAG as u16), "the line starts at the previous point");
+        assert_eq!(c.at(5, 20), Some(CLEAR), "dotted: every fourth pixel");
+        assert_eq!(c.at(8, 20), Some(DRAG as u16));
     }
 
     #[test]
