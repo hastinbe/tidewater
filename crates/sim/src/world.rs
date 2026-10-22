@@ -2180,7 +2180,7 @@ pub(crate) mod tests {
             to: (3, 5),
         }]);
         run(&mut w, 40);
-        assert_eq!(w.state_hash(), 0x389878cab19f51fa);
+        assert_eq!(w.state_hash(), 0xbbc0f261865cc9fa);
     }
 
     #[test]

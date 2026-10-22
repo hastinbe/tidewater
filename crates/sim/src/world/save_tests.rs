@@ -452,6 +452,29 @@ fn a_load_clears_the_frozen_marks() {
     assert!(b.units.iter().all(|u| u.freeze == crate::rescue::Freeze::None));
 }
 
+/// `game/save-load.md` SL22: a load sets every computer player's job counts and hall cooldown to 0 while the units
+/// keep their jobs and harvest modes, so the first release wraps (SL23 to SL25).
+#[test]
+fn a_load_clears_the_computer_job_counts_and_keeps_the_jobs() {
+    let mut a = battle();
+    a.units[4].ai_job = crate::worker_ai::AiJob::Lumber;
+    a.units[4].gather = crate::Gather::Lumber;
+    a.ai[1].miners = 4;
+    a.ai[1].lumberjacks = 7;
+    a.ai[1].repairers = 2;
+    a.ai[1].hall_cooldown = 5;
+    a.ai[1].in_progress[0x3a] = 300;
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    let p = &b.ai[1];
+    assert_eq!((p.miners, p.lumberjacks, p.repairers, p.hall_cooldown), (0, 0, 0, 0));
+    assert!(p.in_progress.iter().all(|&n| n == 0));
+    assert_eq!(b.units[4].ai_job, crate::worker_ai::AiJob::Lumber);
+    assert_eq!(b.units[4].gather, crate::Gather::Lumber);
+    b.release_job(4);
+    assert_eq!(b.ai[1].lumberjacks, 65535, "SL23: the first release wraps");
+}
+
 /// The creation number counts up from 1 in a new game, one per created unit.
 #[test]
 fn creation_numbers_count_up_from_1_in_a_new_game() {

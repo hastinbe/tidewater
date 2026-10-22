@@ -88,7 +88,7 @@ pub struct AiPlayer {
     pub miners: u16,
     pub lumberjacks: u16,
     #[serde(with = "crate::bigarray")]
-    pub in_progress: [u8; 128],
+    pub in_progress: [u16; 128],
     pub done: u64,
     pub research_requests: u128,
 }
@@ -661,7 +661,7 @@ mod tests {
         fn the_whole_computer_player() {
             let mut w = town();
             // Round 85 (CP14): a build job writes its site into the worker's goal tile.
-            assert_eq!(trail(&mut w, 2500), 14387799315182433119);
+            assert_eq!(trail(&mut w, 2500), 17108286320118587105);
             // The run did what it is for: the build list was built, workers and footmen were trained and mine, and
             // land waves went out.
             let kinds: Vec<u8> = w.units.iter().filter(|u| u.owner == 1).map(|u| u.kind).collect();
@@ -687,18 +687,18 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    16757140826817618423,
-                    15873856219396783969,
-                    6696068962216826896,
-                    7927662647670350001,
-                    18246104761873004295,
-                    7575554610345709419,
-                    1180840204491056949,
-                    11063807905531067331,
+                    3213507426331524001,
+                    1571374425642285923,
+                    1846234581298391719,
+                    9171750915480468239,
+                    10450163163031200530,
+                    14025304314889512792,
+                    11107217635340028515,
+                    14010802749727734365,
                     // Round 83 (CP5): the losses rule's all-out attack sends the peasants off in order 4, where
                     // they now make their job choice. Round 84: the walk after that choice heads for the job.
-                    3115172933316553062,
-                    18301887181050580610
+                    2491769101848385577,
+                    7973506156342654525
                 ]
             );
         }

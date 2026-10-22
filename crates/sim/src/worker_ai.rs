@@ -253,11 +253,11 @@ impl World {
         let Some(a) = self.ai.get_mut(p) else { return };
         match job {
             AiJob::None => {}
-            AiJob::Repair => a.repairers = a.repairers.saturating_sub(1),
-            AiJob::Gold => a.miners = a.miners.saturating_sub(1),
-            AiJob::Lumber => a.lumberjacks = a.lumberjacks.saturating_sub(1),
+            AiJob::Repair => a.repairers = a.repairers.wrapping_sub(1),
+            AiJob::Gold => a.miners = a.miners.wrapping_sub(1),
+            AiJob::Lumber => a.lumberjacks = a.lumberjacks.wrapping_sub(1),
             AiJob::Build { kind, site } => {
-                a.in_progress[kind as usize] = a.in_progress[kind as usize].saturating_sub(1);
+                a.in_progress[kind as usize] = a.in_progress[kind as usize].wrapping_sub(1);
                 let w = self.stats_of(kind).size.0 as i32;
                 self.keep_clear(site, w, false, false);
             }
@@ -354,7 +354,8 @@ impl World {
     fn start_building(&mut self, i: usize, kind: u8, site: (i32, i32), border: bool) -> Option<Order> {
         let o = self.build_command(i, kind, site)?;
         let p = self.units[i].owner as usize;
-        self.ai[p].in_progress[kind as usize] += 1;
+        let n = &mut self.ai[p].in_progress[kind as usize];
+        *n = n.wrapping_add(1);
         let w = self.stats_of(kind).size.0 as i32;
         self.keep_clear(site, w, border, true);
         self.units[i].ai_job = AiJob::Build { kind, site };
@@ -396,8 +397,11 @@ impl World {
         }
         let farm = for_race(t::FARM, self.race_of(i));
         let supply = self.food_supply(owner);
-        let in_progress = self.ai[owner as usize].in_progress[farm as usize] as u32;
-        if supply >= 200 || supply + 4 * in_progress > self.food_used(owner) + 3 || !self.affordable(owner, farm) {
+        let in_progress = self.ai[owner as usize].in_progress[farm as usize];
+        // Each side is taken modulo 65536 and compared unsigned (`ai/worker-ai.md`, "Counts after a load").
+        let have = (supply as u16).wrapping_add(in_progress.wrapping_mul(4));
+        let used = (self.food_used(owner) as u16).wrapping_add(3);
+        if supply >= 200 || have > used || !self.affordable(owner, farm) {
             return None;
         }
         let search = self.family_search(i, farm)?;
@@ -739,7 +743,7 @@ impl World {
         }
         let (_, target) = best?;
         let o = self.repair_command(i, target)?;
-        self.ai[p].repairers += 1;
+        self.ai[p].repairers = self.ai[p].repairers.wrapping_add(1);
         self.units[i].ai_job = AiJob::Repair;
         Some(o)
     }
@@ -810,7 +814,7 @@ impl World {
         };
         let mine_tile = self.unit(mine).map(|m| m.tile)?;
         let o = self.harvest_command(i, Some(mine), mine_tile)?;
-        self.ai[p].miners += 1;
+        self.ai[p].miners = self.ai[p].miners.wrapping_add(1);
         self.units[i].ai_job = AiJob::Gold;
         for (x, y) in keep_clear_line(depot_tile, mine_tile) {
             self.terrain.set_bits(x, y, KEEP_CLEAR);
@@ -826,7 +830,7 @@ impl World {
         let tree = self.nearest_tree_within(self.units[i].tile, rings)?;
         let o = self.harvest_command(i, None, tree)?;
         let p = self.units[i].owner as usize;
-        self.ai[p].lumberjacks += 1;
+        self.ai[p].lumberjacks = self.ai[p].lumberjacks.wrapping_add(1);
         self.units[i].ai_job = AiJob::Lumber;
         Some(o)
     }
@@ -992,6 +996,78 @@ mod tests {
             .unwrap();
         assert_eq!(w.worker_choice(i), Choice::Wait);
         assert!((44..=59).contains(&w.units[i].script.wait));
+    }
+
+    /// `ai/worker-ai.md`, "Counts after a load" (SL23 to SL25): the counts are 16-bit unsigned and wrap in both
+    /// directions.
+    #[test]
+    fn the_job_counts_wrap_at_both_ends() {
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        for (job, read) in [
+            (
+                AiJob::Gold,
+                (|a: &crate::ai::AiPlayer| a.miners) as fn(&crate::ai::AiPlayer) -> u16,
+            ),
+            (AiJob::Lumber, |a| a.lumberjacks),
+            (AiJob::Repair, |a| a.repairers),
+        ] {
+            w.units[i].ai_job = job;
+            w.release_job(i);
+            assert_eq!(read(&w.ai[1]), 65535, "{job:?}: 0 - 1");
+        }
+        w.units[i].ai_job = AiJob::Build {
+            kind: t::FARM,
+            site: (2, 2),
+        };
+        w.release_job(i);
+        assert_eq!(w.ai[1].in_progress[t::FARM as usize], 65535);
+        // A start at 65535 gives 0.
+        let site = (20, 20);
+        let _ = w.start_building(i, t::FARM, site, false);
+        assert_eq!(w.ai[1].in_progress[t::FARM as usize], 0);
+        w.ai[1].miners = 65535;
+        w.ai[1].lumberjacks = 65535;
+        w.ai[1].repairers = 65535;
+        assert_eq!(w.ai[1].miners.wrapping_add(1), 0);
+        // A wrapped lumberjack count is never fewer than the target, so lumber isn't tried first (SL23).
+        w.units[i].ai_job = AiJob::None;
+        let before = w.ai[1].lumberjacks;
+        let _ = w.try_harvest(i);
+        assert_eq!(w.ai[1].lumberjacks, before);
+    }
+
+    /// `ai/worker-ai.md`, "Counts after a load", the farm vector: each side modulo 65536, compared unsigned.
+    #[test]
+    fn the_farm_test_reads_a_wrapped_count_modulo_65536() {
+        // Supply 9 (hall 1 + two farms), food in use 3: no farm with none in progress (9 > 6) ...
+        let (mut w, _) = town();
+        w.spawn(t::FARM, 1, (2, 2), 0).unwrap();
+        w.spawn(t::FARM, 1, (5, 2), 0).unwrap();
+        let i = peasants(&mut w, 3)[0];
+        assert_eq!(w.try_farm(i), None);
+        // ... but F = 65535 makes the left side 9 - 4 = 5 <= 6, so a farm is wanted.
+        w.ai[1].in_progress[t::FARM as usize] = 65535;
+        assert!(matches!(w.try_farm(i), Some(Order::Build { kind: t::FARM, .. })));
+        // Supply 1 (the hall alone): the left side is 65533, above anything on the right: no farm.
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 3)[0];
+        assert!(w.try_farm(i).is_some(), "1 <= 6 wants a farm");
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 3)[0];
+        w.ai[1].in_progress[t::FARM as usize] = 65535;
+        assert_eq!(w.try_farm(i), None);
+    }
+
+    /// The build list and the hall read "in progress" as "not 0": a wrapped count counts as in progress.
+    #[test]
+    fn a_wrapped_count_reads_as_in_progress() {
+        let (mut w, hall) = town();
+        let n = w.index(hall).unwrap();
+        w.kill(n);
+        let i = peasants(&mut w, 1)[0];
+        w.ai[1].in_progress[t::TOWN_HALL as usize] = 65535;
+        assert_eq!(w.try_hall(i), None);
     }
 
     /// A farm-ready town whose only free peasant is walking in `order`, with an attack goal as the all-out attack
@@ -1579,7 +1655,7 @@ mod tests {
         );
         assert_eq!(u.script.wait, 3);
         crate::world::tests::run(&mut w, 60);
-        assert_eq!(w.fingerprint(), 3028175819945116535);
+        assert_eq!(w.fingerprint(), 14591219035209285539);
     }
 
     #[test]

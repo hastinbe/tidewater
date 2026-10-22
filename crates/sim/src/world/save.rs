@@ -252,6 +252,8 @@ impl World {
     ///   cycle whatever phase the save was in (`game/save-load.md` SL1 to SL3; `ai/attack-ai.md`, "Timing");
     /// - the footmen-to-submarines counts of each computer player double: the surplus becomes the saved surplus plus
     ///   the counts at the save (SL4 to SL6, SL13 to SL15); the worker and tanker counts are worked out afresh;
+    /// - each player's miner, lumberjack and repairer counts, building-in-progress counts and hall cooldown are 0,
+    ///   while the units keep their jobs and harvest modes (SL22 to SL25);
     /// - every research request is clear and each computer player's done marks are made again, with the load's
     ///   building marks (SL9 to SL12);
     /// - the frozen and about-to-freeze marks of workers are cleared (static study, a labelled gap-fill);
@@ -282,6 +284,14 @@ impl World {
         for p in 0..self.ai.len() {
             self.ai[p].research_requests = 0;
             self.ai[p].done = 0;
+            // The job choice's counts start at 0 at every game start, a load included; the units keep their saved
+            // jobs, so the first release of each wraps (`game/save-load.md` SL22 to SL25).
+            let a = &mut self.ai[p];
+            a.miners = 0;
+            a.lumberjacks = 0;
+            a.repairers = 0;
+            a.in_progress = [0; 128];
+            a.hall_cooldown = 0;
             self.mark_load(p);
         }
         for u in &mut self.units {

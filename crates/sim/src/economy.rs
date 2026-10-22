@@ -1496,7 +1496,7 @@ mod tests {
             let (mut w, _) = training(2);
             run(&mut w, 80);
             assert_eq!(w.players[0].in_training, 0);
-            assert_eq!(pinned(&w), 17915623177907672070);
+            assert_eq!(pinned(&w), 7863030540030018854);
         }
 
         #[test]
@@ -1516,7 +1516,7 @@ mod tests {
                 kind: 2,
             }]);
             run(&mut w, 40);
-            assert_eq!(pinned(&w), 8820834926549804665);
+            assert_eq!(pinned(&w), 3478531407621641346);
         }
 
         #[test]
@@ -1526,7 +1526,7 @@ mod tests {
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
             assert_eq!(w.unit(hall).unwrap().job, None);
-            assert_eq!(pinned(&w), 15454520896721223640);
+            assert_eq!(pinned(&w), 5088555108948752945);
         }
 
         #[test]
@@ -1535,7 +1535,7 @@ mod tests {
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 30);
             assert_eq!(w.unit(hall).unwrap().job, None);
-            assert_eq!(pinned(&w), 10684096811208041484);
+            assert_eq!(pinned(&w), 10568568411160717176);
         }
 
         /// A cancel given twice, and a cancel of a resting building, change nothing more.
@@ -1548,7 +1548,7 @@ mod tests {
             run(&mut w, 10);
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
-            assert_eq!(pinned(&w), 4720780317318813967);
+            assert_eq!(pinned(&w), 8029105582252493551);
         }
 
         /// The kill cancels at once: no wait 3 or still animation of "Job end" (the death animation starts).
@@ -1559,7 +1559,7 @@ mod tests {
             let hi = w.index(hall).unwrap();
             w.kill(hi);
             run(&mut w, 3);
-            assert_eq!(pinned(&w), 3690394512234706829);
+            assert_eq!(pinned(&w), 8281082252361071567);
         }
 
         /// Code versus spec: rescue cancels at once, leaving the building's animation as it was (the spec's "Job end"
@@ -1579,7 +1579,7 @@ mod tests {
                 run(&mut w, 3);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [2874030280771312752, 10426929824414664701]);
+            assert_eq!(got, [1489302887747019928, 11656000523072360463]);
         }
 
         #[test]
@@ -1619,10 +1619,10 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    10953018571889235259,
-                    4186276528872527610,
-                    12577828450093509125,
-                    5555156148676639038
+                    11504327416981101834,
+                    6550621728662623200,
+                    18100886986752713748,
+                    1240161694771134273
                 ]
             );
         }
@@ -1640,7 +1640,7 @@ mod tests {
                 assert!(!w.try_job(hi, JobKind::Train(2), tell));
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [1429329101091103978, 8493515802596454448]);
+            assert_eq!(got, [17121163480124078284, 7545235795658232522]);
         }
     }
 }

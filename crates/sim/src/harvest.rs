@@ -2314,7 +2314,7 @@ mod tests {
                 run(&mut w, 20);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [8067940516233673028, 3506919701869478489]);
+            assert_eq!(got, [8355025293381028893, 14505886161454786057]);
         }
 
         /// A depot killed with a worker inside delivering: the worker dies with it (V50's rule).
@@ -2331,7 +2331,7 @@ mod tests {
             w.kill(hi);
             assert!(w.unit(a).unwrap().dying);
             run(&mut w, 5);
-            assert_eq!(pinned(&w), 17772951374862262859);
+            assert_eq!(pinned(&w), 2402755599298151656);
         }
 
         /// [`land_with_oil`] with player 0 human, player 1 computer, workers that can attack and a foe type (an
@@ -2406,7 +2406,7 @@ mod tests {
                 (u.order, u.pending, u.tile, u.script.anim, u.script.wait),
                 (Order::Idle, None, (10, 10), anim::STILL, 3)
             );
-            assert_eq!(w.fingerprint(), 3480738524616592732);
+            assert_eq!(w.fingerprint(), 8079160613220924569);
         }
 
         /// "Going to a mine or platform", no route: the generic no-route idle with no reaction first, with or without
@@ -2429,7 +2429,7 @@ mod tests {
                 assert_eq!(u.attacked_by, None);
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [3064023264594890332; 2]);
+            assert_eq!(prints, [2264728545687905084; 2]);
         }
 
         /// "Going to a mine or platform", step 1 with an attacker: a worker whose mine is gone reacts first; hit by a
@@ -2456,7 +2456,7 @@ mod tests {
                 }
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [6840498427581890950, 12589040319726734358]);
+            assert_eq!(prints, [386713367409861759, 13465517026467412553]);
         }
 
         /// Order 23 with no route and an attacker: the tree search comes first and the walk's end runs no reaction
@@ -2490,7 +2490,7 @@ mod tests {
                 assert_eq!((u.gather, u.attacked_by), (Gather::Lumber, Some(a)));
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [3480828311756259645; 2]);
+            assert_eq!(prints, [3073830054247372993; 2]);
         }
 
         /// The same with no attacker, for a gold worker: the tree search (V30), and the same-update lumber run.
@@ -2508,7 +2508,7 @@ mod tests {
             let u = &w.units[i];
             assert!(matches!(u.order, Order::Harvest { source: None, .. }), "{:?}", u.order);
             assert_eq!((u.gather, u.blocked, u.script.wait), (Gather::Lumber, 0, 3));
-            assert_eq!(w.fingerprint(), 1209473022385790749);
+            assert_eq!(w.fingerprint(), 14137171173634333811);
         }
 
         /// Order 24 arriving at a depot still under construction ("Returning goods", step 3; V89): idle is made pending
@@ -2528,7 +2528,7 @@ mod tests {
                 (u.order, u.pending, u.script.anim, u.script.wait, u.carrying),
                 (Order::Idle, None, anim::STILL, 3, true)
             );
-            assert_eq!(w.fingerprint(), 12107159028515667275);
+            assert_eq!(w.fingerprint(), 4840153733345069650);
         }
 
         /// Order 24 whose depot is lost, with an attacker: the reaction runs first. Hit by a worker, it fights back,
@@ -2552,7 +2552,7 @@ mod tests {
             let u = &w.units[pi];
             assert_eq!(u.pending, Some(Order::Attack { target: a }));
             assert_eq!(u.path, vec![(11, 9)]);
-            assert_eq!(w.fingerprint(), 5849136322066053310);
+            assert_eq!(w.fingerprint(), 16000833016994722157);
         }
 
         /// Order 24's depot re-issue ("Returning goods", step 2) is an ordinary command taken over in the same update
@@ -2592,7 +2592,7 @@ mod tests {
             let u = &w.units[pi];
             assert!(matches!(u.order, Order::Patrol { .. }), "{:?}", u.order);
             assert_eq!(u.blocked, 0, "the resumed patrol starts afresh");
-            assert_eq!([first, w.fingerprint()], [16384762547783005786, 5644876037632777645]);
+            assert_eq!([first, w.fingerprint()], [10630196013471658725, 627932695075532831]);
         }
 
         /// V77 ("Returning goods", step 2; audit round 70, erratum 8): order 24 losing its last depot gives no
@@ -2622,7 +2622,7 @@ mod tests {
                 (Order::Idle, None, anim::STILL, 3)
             );
             assert_eq!((u.blocked, u.path.clone(), u.attacked_by), (5, vec![(11, 9)], Some(a)));
-            assert_eq!(w.fingerprint(), 18184552751425093860);
+            assert_eq!(w.fingerprint(), 4454208621856384980);
         }
 
         /// "Entering", step 3 (audit round 70, erratum 9): order 25 first forgets an attacker that is dying, gone,
@@ -2650,7 +2650,7 @@ mod tests {
                 assert!(matches!(u.order, Order::Enter { .. }), "{:?}", u.order);
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [18055848814231373332, 17926804451770581681]);
+            assert_eq!(prints, [8864507622345907522, 10832240875557712456]);
         }
 
         /// V95 ("Lumber", step 3; audit round 70, erratum 8): felling with no depot gives no command. Idle becomes the
@@ -2677,7 +2677,7 @@ mod tests {
                 (u.order, u.pending, u.script.anim, u.script.wait, u.blocked),
                 (Order::Idle, None, anim::STILL, 3, 4)
             );
-            assert_eq!(w.fingerprint(), 8610901703988588708);
+            assert_eq!(w.fingerprint(), 7641802868832450863);
         }
 
         /// Order 24 with no route: the generic no-route idle and the same-update idle logic, with no reaction first, so
@@ -2698,7 +2698,7 @@ mod tests {
             let u = &w.units[pi];
             assert!(matches!(u.order, Order::Move { .. }), "{:?}", u.order);
             assert_eq!((u.pending, u.attacked_by), (None, None));
-            assert_eq!(w.fingerprint(), 12556476190235443705);
+            assert_eq!(w.fingerprint(), 4229188398743102062);
         }
 
         /// "Lumber", step 4: a chopping worker whose tile is no longer reserved drops the reservation and is sent to the
@@ -2728,7 +2728,7 @@ mod tests {
             );
             assert_eq!((u.chop, u.script.anim, u.script.wait), (0, anim::ATTACK, 3));
             assert_eq!(w.terrain.region(10, 8), Some(region::FOREST));
-            assert_eq!(w.fingerprint(), 15246544507308724588);
+            assert_eq!(w.fingerprint(), 262275290813213562);
         }
 
         /// "Coming out", facing: an order 28 with no stored goal (none is made now; `build_command` stores one) faces
@@ -2780,7 +2780,7 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [14209124387784793711, 7368663518898363292]);
+            assert_eq!(prints, [973434848351242028, 14444300641698867176]);
         }
 
         /// "Coming out" with no command and nothing pending: it faces its goal tile, the building's top-left tile
@@ -2798,7 +2798,7 @@ mod tests {
             let u = w.unit(p).unwrap();
             assert_eq!((u.pending, u.facing), (None, crate::world::face_tile(u.tile, (8, 8))));
             assert_ne!(u.facing, 5);
-            assert_eq!(w.fingerprint(), 16377783690571129064);
+            assert_eq!(w.fingerprint(), 5020543206411950830);
         }
 
         /// Order 25 losing its target before stepping in (OQ-A): a pending idle, taken over at once (V82 as written).
@@ -2818,7 +2818,7 @@ mod tests {
             w.enter_order(pi, mine, false);
             let u = &w.units[pi];
             assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3));
-            assert_eq!(w.fingerprint(), 16602124697864233652);
+            assert_eq!(w.fingerprint(), 17576195605025557868);
         }
 
         /// Whole cycles: human workers mining, chopping (with a tree cut from under one of them), a tanker at its
@@ -2866,18 +2866,18 @@ mod tests {
             assert_eq!(
                 prints,
                 [
-                    9588020299093031757,
-                    698146989918809621,
-                    13251271107110559668,
-                    1401581503801842120,
-                    7655557071394957857,
-                    4672076387407043649,
-                    15166068462386215041,
-                    12889190067282174932,
-                    2570984634014909368,
-                    7473433439992437522,
-                    11128054360379477549,
-                    812486714368084246
+                    16446233672363953338,
+                    16197084911916686775,
+                    7724642230270014460,
+                    1248231546327873573,
+                    1637682617471719611,
+                    5841076586394265791,
+                    17937444954824276864,
+                    2331764426162247931,
+                    10021128769816279897,
+                    6623582841808660503,
+                    575609484821319769,
+                    658523826128435000
                 ]
             );
         }

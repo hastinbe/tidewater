@@ -4821,7 +4821,7 @@ mod tests {
             let bi = at(&w, b);
             assert_eq!(w.command_order(bi, &c(f)), None);
             assert_eq!(w.command_order(i, &c(b)), Some(Order::Attack { target: b }));
-            assert_eq!(w.fingerprint(), 6214535284775197206);
+            assert_eq!(w.fingerprint(), 9263583734169616718);
         }
 
         /// "Commands forget a stale attacker" is for units that aren't buildings: a building keeps a dead attacker.
@@ -4835,7 +4835,7 @@ mod tests {
             w.units[bi].attacked_by = Some(a);
             w.command(bi, Order::Idle);
             assert_eq!(w.units[bi].attacked_by, Some(a));
-            assert_eq!(w.fingerprint(), 17583034015400902841);
+            assert_eq!(w.fingerprint(), 1424853429391260604);
         }
 
         /// A marked unit in order 12 whose target isn't held isn't out of reach: it runs its logic (losing the target)
@@ -4858,7 +4858,7 @@ mod tests {
             );
             let u = w.unit(f).unwrap();
             assert_eq!((u.order, u.skip_search, u.script.wait), (Order::Idle, false, 3));
-            assert_eq!(w.fingerprint(), 2263607773961175139);
+            assert_eq!(w.fingerprint(), 9712263249346792809);
         }
 
         /// "Follow (orders 6 and 7)": a follower whose target is lost at a step boundary runs its reaction first; the
@@ -4894,7 +4894,7 @@ mod tests {
                 assert_eq!((u.order, u.script.wait), (want, 3), "{case}");
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [5828634838243349751, 14060437216325028717, 2277586021291709791]);
+            assert_eq!(prints, [3136424767587213226, 7154414580009388162, 7630152476884576693]);
         }
 
         /// Classic attack-move (order 10) runs the reaction in its walk: a recorded attacker in reach gives order 12
@@ -4909,7 +4909,7 @@ mod tests {
             assert!(w.run_order(i));
             let u = &w.units[i];
             assert_eq!((u.order, u.script.wait), (Order::Chase { target: a }, 1));
-            assert_eq!(after(&mut w, 40), 5888873096768349066);
+            assert_eq!(after(&mut w, 40), 11479966777363950132);
         }
 
         /// Order 4 with a target unit sets its goal from the target where it stands now, at every walk.
@@ -4931,7 +4931,7 @@ mod tests {
             };
             assert_eq!(target, Some(b));
             assert_ne!(goal, (20, 20));
-            assert_eq!(after(&mut w, 60), 12594211297855405489);
+            assert_eq!(after(&mut w, 60), 2055078839725676421);
         }
 
         /// "Special cases" (round 71, S1): an Enhanced demolition unit with a remembered order, idle, gives itself
@@ -5104,10 +5104,10 @@ mod tests {
             assert_eq!(
                 prints,
                 [
-                    8054746818935266047,
-                    4153516397773490181,
-                    14462624116563959142,
-                    14462624116563959142
+                    14524740670503553101,
+                    5181904745273006878,
+                    17027744247578319584,
+                    17027744247578319584
                 ]
             );
         }
@@ -5127,7 +5127,7 @@ mod tests {
             w.units[i].invisibility = 100;
             w.run_order(i);
             assert_eq!((w.units[i].order, w.units[i].attacked_by), (Order::Idle, Some(a)));
-            assert_eq!(w.fingerprint(), 11171410153538327769);
+            assert_eq!(w.fingerprint(), 12653892776497269174);
         }
 
         /// The acquiring strike with no target unit decides nothing; one still cooling down restarts its animation.
@@ -5145,7 +5145,7 @@ mod tests {
             w.units[i].cooldown = 20;
             assert!(w.acquiring_strike(i, Order::Chase { target: g }, g));
             assert_eq!(w.units[i].script.wait, 20);
-            assert_eq!(w.fingerprint(), 13272625246071631990);
+            assert_eq!(w.fingerprint(), 5331188705217771982);
         }
 
         /// Fleeing with no attacker recorded does nothing; the reaction forgets a dying attacker.
@@ -5161,7 +5161,7 @@ mod tests {
             w.units[i].attacked_by = Some(a);
             assert!(!w.react(i));
             assert_eq!(w.units[i].attacked_by, None);
-            assert_eq!(w.fingerprint(), 5947070209261013885);
+            assert_eq!(w.fingerprint(), 1599872449310494835);
         }
 
         /// A released attacker slot with no last type recorded counts as a kind the unit can target.
@@ -5178,7 +5178,7 @@ mod tests {
             w.units[i].attacked_by = Some(d);
             assert!(w.acquire(i, Acquires::Idle, false));
             assert_eq!(w.units[i].order, Order::Chase { target: g });
-            assert_eq!(w.fingerprint(), 15228679685829945375);
+            assert_eq!(w.fingerprint(), 5947758439720373502);
         }
 
         /// The attack order's own checks: a target that fails the kind check gives a pending idle, with the resume step,
@@ -5206,7 +5206,7 @@ mod tests {
                 (u.order, u.pending, u.script.anim, u.script.wait),
                 (patrol, None, anim::STILL, 3)
             );
-            assert_eq!(after(&mut w, 5), 15456150756034458482);
+            assert_eq!(after(&mut w, 5), 11940571555662294664);
         }
 
         /// Order 12's no-route fallback in the run it guards: no second logic run.
@@ -5229,7 +5229,7 @@ mod tests {
                 assert_eq!((u.order, u.skip_search), (Order::Chase { target: near }, true));
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [9683250159747692365, 4209216579335515525]);
+            assert_eq!(prints, [14941724517381384571, 2250859810924621720]);
         }
 
         /// Heading for a target no longer in play does nothing.
@@ -5243,7 +5243,7 @@ mod tests {
             let i = ready(&mut w, f, Order::AttackMove { goal: (20, 20) });
             w.head_for(i, d);
             assert_eq!(w.units[i].order, Order::AttackMove { goal: (20, 20) });
-            assert_eq!(w.fingerprint(), 5289077262836675590);
+            assert_eq!(w.fingerprint(), 4564775621481383974);
         }
 
         /// Order 11 at its wall still cooling down restarts its attack animation and waits.
@@ -5260,7 +5260,7 @@ mod tests {
             w.attack_wall_order(i, (8, 5));
             let u = &w.units[i];
             assert_eq!((u.script.anim, u.script.wait), (anim::ATTACK, 9));
-            assert_eq!(w.fingerprint(), 1661229256139934324);
+            assert_eq!(w.fingerprint(), 11623484438601873433);
         }
 
         /// The command check: a command naming a lost target leaves a pending idle by the common path. With nothing to
@@ -5309,7 +5309,7 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [3486153184834880162, 3837238766937421335]);
+            assert_eq!(prints, [10753509265943787998, 16949698653626646434]);
         }
 
         /// The patrol turnaround: Enhanced (remembered), Classic (not), and an air unit whose other end is next to it
@@ -5338,7 +5338,10 @@ mod tests {
                 assert_eq!((u.blocked, u.attacked_by, u.script.wait), (0, None, 3), "{case}");
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [3339823245000380870, 4435197359076703491, 11976303091887342509]);
+            assert_eq!(
+                prints,
+                [12757813075612634365, 13977448604602638507, 1771864565831321305]
+            );
         }
 
         /// Acquisition's take-over and the at-once switch: both are commands (blocked counter cleared, route dropped,
@@ -5368,7 +5371,7 @@ mod tests {
                 assert_eq!((u.blocked, u.path.is_empty(), u.attacked_by), (0, true, None));
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [1443065363198671568, 12195102699214640206]);
+            assert_eq!(prints, [14664198293370337204, 5301639909514821670]);
         }
 
         /// The friendly-fire hold makes idle pending by the common path and takes it over in the same update (still
@@ -5417,7 +5420,10 @@ mod tests {
                 assert_eq!(u.remembered.is_some(), kept);
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [8047419496851755040, 2596487782720778595, 10347294597896994698]);
+            assert_eq!(
+                prints,
+                [8413331759795149918, 10736475645873822049, 17984971574649633598]
+            );
         }
 
         /// Orders 17 and 18 with no route take the general no-route rule (orders spec, "No route": an immediate idle,
@@ -5459,7 +5465,7 @@ mod tests {
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
             prints.push(after(&mut w, 30));
-            assert_eq!(prints, [420654937339136154, 420654937339136154, 2505695252309601192]);
+            assert_eq!(prints, [2101411806295175511, 2101411806295175511, 11209107502322150454]);
         }
 
         /// Blocked row G: an attacked unit blocked next to its goal makes idle pending (with the resume rules).
@@ -5488,7 +5494,7 @@ mod tests {
                 assert!(u.pending.is_some(), "{:?}", u.pending);
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [1560584021165354794, 17313268070119048422]);
+            assert_eq!(prints, [4144673930624831186, 11610739590596447081]);
         }
 
         /// Whole runs: two small armies of each player kind meeting under move, attack-move, patrol, follow, guard and
@@ -5575,28 +5581,28 @@ mod tests {
                 prints,
                 [
                     [
-                        11525183968156132881,
-                        6302505224056380727,
-                        1466018077931009931,
-                        16190976508667506687
+                        13649501908321462330,
+                        8603371983781560322,
+                        1223965413434877906,
+                        2195300200006318777
                     ],
                     [
-                        9211862982836609003,
-                        6252542899032683274,
-                        6828059071405653345,
-                        6283069314672679846
+                        13514058957096780915,
+                        7788732360795991096,
+                        9566614428431140411,
+                        15049745976531209510
                     ],
                     [
-                        1571194208392218786,
-                        887300750072471240,
-                        15715531239895793397,
-                        3705930393885858901
+                        5781142017318027072,
+                        3027268659479903287,
+                        5337493359256967956,
+                        3153313752365866670
                     ],
                     [
-                        10883631827346098924,
-                        2335255546591348674,
-                        13175772183412894570,
-                        17950562395473484039
+                        6573640405537778992,
+                        9245106195977659784,
+                        11131418993847803524,
+                        4396188258607534433
                     ],
                 ]
             );
