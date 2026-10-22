@@ -1172,9 +1172,10 @@ impl World {
     }
 
     /// "Special cases": mages score every candidate like any other unit, and the rule is applied to
-    /// the chosen target. A target that can attack and isn't a non-combat unit makes them acquire nothing.
+    /// the chosen target. A target that can attack and isn't a non-combat unit makes them acquire nothing, unless it is
+    /// itself a mage-type unit (V285, round 97).
     fn mage_refuses(&self, u: &Unit, t: &Unit) -> bool {
-        self.mage_like(u) && self.flags_of_unit(t) & flags::CAN_ATTACK != 0 && !self.non_combat(t)
+        self.mage_like(u) && self.flags_of_unit(t) & flags::CAN_ATTACK != 0 && !self.non_combat(t) && !self.mage_like(t)
     }
 
     /// Mage-type units: mage and death knight types, heroes included.
@@ -4710,6 +4711,34 @@ mod tests {
                 "enhanced {enhanced}: {:?} {:?}",
                 u.order,
                 u.pending
+            );
+        }
+    }
+
+    /// V285 (orders spec, "Special cases", round 97): an idle mage-type unit takes a mage-type enemy in its attack-range
+    /// box as a target (order 16), while a footman as the best candidate still makes it acquire nothing.
+    #[test]
+    fn a_mage_may_take_a_mage_type_target() {
+        for (mage_like, taken) in [(true, true), (false, false)] {
+            let mut w = map();
+            w.stats.0[2] = w.stats.0[ARCHER as usize];
+            w.stats.0[2].flags = flags::LAND | flags::CAN_ATTACK | flags::MAGE_LIKE;
+            w.stats.0[2].attack_range = 2;
+            w.stats.0[10] = w.stats.0[2];
+            if !mage_like {
+                w.stats.0[10].flags &= !flags::MAGE_LIKE;
+            }
+            let mage = w.spawn(2, 0, (5, 5), 0).unwrap();
+            let target = w.spawn(10, 1, (7, 5), 0).unwrap();
+            for u in &mut w.units {
+                u.hidden_from = 0;
+            }
+            run(&mut w, 30);
+            let o = order_of(&w, mage);
+            assert_eq!(
+                o == Order::IdleReact { target },
+                taken,
+                "mage-type target {mage_like}: {o:?}"
             );
         }
     }
