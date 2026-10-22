@@ -115,8 +115,9 @@ is our own small read-only ISO 9660 reader (no new dependency); its module doc c
 | Image | How it is read |
 |---|---|
 | `.iso`, most `.img` | 2048-byte sectors |
-| `.bin` through its `.cue` | the sheet's first data track (`MODE1/2352`, `MODE2/2352`, `MODE1/2048`, `MODE2/2336`); `FILE` names match in any letter case; `INDEX 01` (or `INDEX 00`) gives the track's start, so a data track after audio works |
-| `.bin` alone | raw 2352-byte sectors (mode 1 and mode 2 form 1), found by signature |
+| `.bin` through its `.cue` (BIN/CUE) | the sheet's first data track (`MODE1/2352`, `MODE2/2352`, `MODE1/2048`, `MODE2/2336`); `FILE` names match in any letter case; `INDEX 01` (or `INDEX 00`) gives the track's start, so a data track after audio works |
+| `.bin` beside its `.cue` | the sheet is used even when you choose the `.bin` (a sheet that can't be read or names another file is ignored) |
+| `.bin` alone | raw 2352-byte sectors (mode 1 and mode 2 form 1), found by signature; mode 1 is the first guess |
 | `.mdf` (or the `.mds`, which finds the `.mdf`) | a plain sector dump, 2352 or 2448 bytes (with sub-channel data); the `.mds` content is not needed |
 | `.nrg` | Nero footers, version 1 (`NERO`) and 2 (`NER5`): the track offsets come from the `ETNF`/`ETN2` chunks |
 
@@ -132,12 +133,30 @@ Because `validate` opens archives by path, `classify` first copies them from the
 `validate` and `copy` run unchanged. Files are streamed by extent (32 sectors at a time); the image is never held in
 memory. The temp folder needs room for the archives (about 500 MB) on top of the copy.
 
-**When the game is not loose.** A disc with no `.mpq` files gets a specific error (exit 19): `DiscHoldsInstaller` when it
-has `SETUP.EXE`, `INSTALL.EXE`, `.CAB` or `.MSI` files ("this disc holds an installer ... install the game from the disc,
-then choose the installed folder"), `DosEdition` for `.WAR` files, else `NoGameFiles`. Installer-inside-disc support is
-not built. An image that can't be read (no `CD001`, cut short, a cue sheet naming a missing file or no data track,
-looping directories) is `DiscImageUnreadable` (also 19) with the reason. The fallback for every case is the old advice:
-mount the image (or copy its files to a folder) and choose that.
+**When the game is inside an installer archive.** The Battle.net Edition CD has no loose `.mpq` files. Its 468 MB
+`INSTALL.EXE` is a small Windows program with an MPQ archive directly behind it (the header is on a 512-byte boundary,
+which `formats::mpq::Archive` already handles). `disc/installer.rs` looks for a large `.exe` or `.mpq` near the top
+whose bytes contain an MPQ header and which holds `Files\War2Dat.mpq`. The archive is read in place through a seekable
+`ExtentReader`. It lists:
+
+- `Install.mpq`: the whole disc file, program and all (an installed game keeps the same file under that name, with the
+  videos and music; the reader skips the program);
+- `War2Dat.mpq` (and `War2Patch.mpq` when present): read out of the archive from `Files\`;
+- `Maps/*.pud`: the 26 stock `* BNE.pud` maps from `Maps\`, by name. The archive holds about 127 more maps, but it
+  stores names only as hashes, so their names can't be recovered and they are left out (an installed game doesn't have
+  them in `Maps` either).
+
+The archive on the disc is the game as first sold. The later patches (`UPDATES\*.EXE` on the disc) are programs that
+patch an installed game; Tidewater doesn't run them, so a disc import has no `War2Patch.mpq` and a `War2Dat.mpq` that is
+14 entries short of, and 6 entries different from, the patched one in a GOG install. The key checks and the scripted
+campaign scene give the same frames as a GOG install.
+
+**When the game is not loose and not in an archive.** A disc with no `.mpq` files and no such archive gets a specific
+error (exit 19): `DiscHoldsInstaller` when it has `SETUP.EXE`, `INSTALL.EXE`, `.CAB` or `.MSI` files ("this disc holds
+an installer ... install the game from the disc, then choose the installed folder"), `DosEdition` for `.WAR` files, else
+`NoGameFiles`. An image that can't be read (no `CD001`, cut short, a cue sheet naming a missing file or listing no data
+track, looping directories) is `DiscImageUnreadable` (also 19) with the reason. The fallback for every case is the old
+advice: mount the image (or copy its files to a folder) and choose that.
 
 **Finding out what a disc holds.** `twtool disc-list <image>` prints every file's size and path (the layout and the name
 kind go to stderr). Run it on a disc to see at once whether the archives are loose or only inside an installer.
@@ -151,8 +170,10 @@ directories and multi-sector files, then wraps them in raw sectors, `.mdf` and `
 Joliet against ISO names, every framing through signature and through a cue sheet (audio-first, mixed case), `.mdf`/`.mds`,
 Nero v1 and v2 with a leading offset, a multi-extent file, a large directory, classify plus a full import into a data
 folder with the manifest, installer and DOS discs, junk images, truncated images, a directory loop, and a byte-flipping
-fuzz loop. The one thing not covered is a real disc: whether Nick's disc holds the archives loose is the open question
-`disc-list` answers.
+fuzz loop; a disc whose game is in an installer archive (as `.iso`, MODE1 and MODE2 `.bin` and a `.cue`), seeking inside
+a disc file, a `.bin` beside a `.cue` with audio first, `MODE1/2048` sheets, a `.bin` with no sheet, and the errors for a
+sheet naming a missing file or listing only audio. A real Battle.net Edition BIN/CUE has been imported by hand (see
+above); no real disc data is in the repository.
 
 ## Free space
 
