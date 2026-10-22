@@ -658,7 +658,7 @@ impl World {
             return false;
         }
         let t = self.unit(target).expect("held");
-        !self.within_strike_reach(u, t)
+        !self.in_range(u, t)
     }
 
     /// The per-step order logic for the orders this module owns. Returns false for orders it doesn't handle.
@@ -868,9 +868,7 @@ impl World {
     fn job_walks(&self, i: usize, o: Order) -> bool {
         match o {
             Order::MoveAttack { .. } | Order::AttackMove { .. } | Order::Patrol { .. } => true,
-            Order::Chase { target } => self
-                .unit(target)
-                .is_some_and(|t| !self.within_strike_reach(&self.units[i], t)),
+            Order::Chase { target } => self.unit(target).is_some_and(|t| !self.in_range(&self.units[i], t)),
             _ => false,
         }
     }
@@ -1435,7 +1433,7 @@ impl World {
             && !reach
             && !forgot
             && let Some(ot) = self.unit(old)
-            && !self.within_strike_reach(u, ot)
+            && !self.in_range(u, ot)
         {
             self.units[i].order = o;
             self.command(i, o);
@@ -2647,6 +2645,36 @@ mod tests {
         assert_eq!(u.order, Order::Chase { target: g });
         assert_ne!((u.script.anim, u.script.wait), (anim::ATTACK, 23), "no cooling restart");
         assert_eq!(u.script.anim, anim::MOVE, "it steps toward the new target");
+    }
+
+    /// Round 105, SW11a (`sweep-human13` battleship 1426, n = 37737): a two-tile attacker whose target is one tile past
+    /// its range by its own tile, though within it by the gap between footprints, is out of reach: it walks and makes
+    /// no friendly-fire check.
+    #[test]
+    fn a_two_tile_attacker_measures_its_reach_from_its_own_tile() {
+        let mut w = map();
+        w.stats.0[FOOTMAN as usize].flags |= flags::GROUND_ATTACK;
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let r = w.reach(&w.units[at(&w, f)]);
+        let g = w.spawn(FOOTMAN, 3, (5 + r + 1, 5), 0).unwrap();
+        // Three of the attacker's side beside the target would hold the strike if the check were made.
+        for k in 0..3 {
+            w.spawn(FOOTMAN, 0, (5 + r + 1, 6 + k), 0).unwrap();
+        }
+        w.players[3].controller = controller::NOBODY;
+        let i = at(&w, f);
+        w.units[i].size = (2, 2);
+        w.units[i].order = Order::Chase { target: g };
+        let (u, t) = (&w.units[i], w.unit(g).unwrap());
+        assert!(w.within_strike_reach(u, t), "within reach by the footprints");
+        assert!(!w.in_range(u, t));
+        assert!(w.out_of_reach(i));
+        w.attack_order(i, g);
+        assert_eq!(
+            w.units[i].order,
+            Order::Chase { target: g },
+            "no friendly-fire hold out of reach"
+        );
     }
 
     /// Traced (`xhuman12-10000` archer 1372, n = 5142): a unit in order 16 whose search gives order 16 on a

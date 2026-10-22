@@ -184,8 +184,14 @@ impl World {
             return;
         }
         // Orders spec, "Friendly-fire check": in order 12 it runs before the range test.
+        // Order 12 walks, so it makes the check only in reach of its target, measured from its own tile (SW11a, round
+        // 105); out of reach the walk runs and no check is made.
         let tile = self.unit(target).expect("checked above").tile;
-        if self.holds_fire(i, tile) {
+        let walking = {
+            let (u, t) = (&self.units[i], self.unit(target).expect("checked above"));
+            matches!(u.order, Order::Chase { .. }) && !self.in_range(u, t)
+        };
+        if !walking && self.holds_fire(i, tile) {
             return;
         }
         let u = &self.units[i];
