@@ -1427,12 +1427,13 @@ impl World {
         // (`xorc01-death-knight` ogre 1490, n = 845; `orc02-assault` footman 1582, n = 800). "Resulting order"
         // (`human5-10000` axe thrower 1533, n = 2754): whenever the old target is still recorded, whatever its state
         // (dying, inside a building or otherwise not detected).
-        // Traced (`xhuman12-10000` grunt 1476, n = 1847): a unit still cooling down is handled as in reach,
-        // below, whichever out-of-reach case would otherwise apply.
+        // Traced (`xhuman12-10000` grunt 1476, n = 1847): a unit still cooling down that is within strike reach of its
+        // old target is handled as in reach, below, whichever out-of-reach case would otherwise apply. Round 104
+        // (`sweep-human13` n = 11464, SW1a): out of strike reach of the old target, a cooling unit takes this case and
+        // steps at once, like any other.
         if let (Order::Chase { target: old }, Order::Chase { target }) = (u.order, o)
             && !reach
             && !forgot
-            && !self.still_cooling(u)
             && let Some(ot) = self.unit(old)
             && !self.within_strike_reach(u, ot)
         {
@@ -2622,6 +2623,30 @@ mod tests {
                 assert_ne!(u.script.wait, 23);
             }
         }
+    }
+
+    /// Round 104, SW1a (`sweep-human13` n = 11464): a cooling unit whose old target is out of strike reach takes an
+    /// out-of-reach switch as the command case and steps, with no cooldown wait.
+    #[test]
+    fn a_cooling_unit_out_of_reach_of_its_old_target_steps_to_the_new_one() {
+        let mut w = map();
+        let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let old = w.spawn(FOOTMAN, 1, (5, 14), 0).unwrap();
+        let g = w.spawn(FOOTMAN, 1, (5, 9), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        w.step(&[]);
+        let i = at(&w, f);
+        let u = &mut w.units[i];
+        u.pending = None;
+        u.order = Order::Chase { target: old };
+        u.facing = 0;
+        u.cooldown = 23;
+        u.script.wait = 1;
+        assert!(w.run_order(i));
+        let u = &w.units[i];
+        assert_eq!(u.order, Order::Chase { target: g });
+        assert_ne!((u.script.anim, u.script.wait), (anim::ATTACK, 23), "no cooling restart");
+        assert_eq!(u.script.anim, anim::MOVE, "it steps toward the new target");
     }
 
     /// Traced (`xhuman12-10000` archer 1372, n = 5142): a unit in order 16 whose search gives order 16 on a
