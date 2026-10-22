@@ -106,6 +106,7 @@ pub struct Vision {
     /// Enhanced holy vision sets it to [`HOLY_VISION_COUNTDOWN`] ([`Vision::delay_refresh`]).
     pub(crate) countdown: u32,
     /// Whether the latest cycle's phase 3 ran a refresh (not part of the saved state; the oracle comparer reads it).
+    #[serde(skip)]
     pub(crate) refreshed: bool,
 }
 
