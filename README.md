@@ -56,12 +56,21 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 | **Campaigns** | All 52 campaign missions: *Tides of Darkness* and *Beyond the Dark Portal*, orc and human. Briefings, act screens, victory and defeat dialogs, score screens, endings and credits. |
 | **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
 | **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
-| **Custom games** | Any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog). No menu screen for this yet. |
+| **Custom games** | Any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog), or the Custom Scenario screen (see below). |
 | **Menus** | Main menu, new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
 | **Cheats** | The original cheat codes, typed into the chat line. |
 | **Display** | A 640 x 480 picture drawn in software and shown at the largest whole-number scale that fits your monitor, with a black border. `--ui-scale N` picks a scale. |
+
+### Playing a custom game
+
+Press **S** on the main menu (or start with `--goto custom`) to open the Custom Scenario screen. It offers the original's
+choices: Your Race, Opponents, Resources, Map Tileset and Units, each a drop-down that you open with the pointer or step
+with Tab, Enter and the arrow keys. **Select Scenario** (E) opens a dialog that lists the maps and narrows them by type,
+number of players and map size; **Start Game** (S) plays the map you picked with Enhanced rules, and **Cancel Game** (C or
+Esc) returns to the main menu. The list holds every `.pud` in the `Maps` folder of `<data>/game`, subfolders included, so
+copy your own maps there. When the game ends, the score screen leads back to the main menu.
 
 ### Controls
 
@@ -150,7 +159,7 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
 | `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
-| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
+| `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `custom`, `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |
 | `--demo-outcome <victory\|defeat>` | End the game at once, to see the dialog and score screen. |
 | `--demo-move <X,Y>` | Order all your units to a tile at the start. |
 | `--demo-fight` | Send every player's units against the nearest enemy within 16 tiles. |
