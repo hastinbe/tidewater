@@ -75,6 +75,11 @@ pub enum Step {
     // menu's picture stands in for it; like the lobby it starts no music (`ui/music.md`, "Multiplayer score screen:
     // the lobby's music").
     Lobby,
+    /// A Direct Connect joiner's join screen, "Waiting for response" with Cancel Join, after a defeat or Quit to the main
+    /// menu (`ui/multiplayer-score.md`, MS-V9; `net/leave-and-drop.md`, LD7).
+    // spec gap: the join screen and its session aren't built, so the main menu's picture stands in for it, as for the
+    // lobby; it starts no music either (not stated; the screen is part of the multiplayer layer).
+    JoinScreen,
     Ending {
         bdp: bool,
         race: u8,
@@ -119,6 +124,11 @@ pub struct Flow {
     pub player_names: [String; 8],
     /// The screen shown is the multiplayer lobby ([`Step::Lobby`]); no music starts there.
     pub in_lobby: bool,
+    /// The screen shown is the join screen ([`Step::JoinScreen`]); no music starts there.
+    pub in_join_screen: bool,
+    /// Which side of the multiplayer session the local player is on (`campaign::Role`). There is no session yet, so
+    /// it is the creator unless a session sets it.
+    pub role: cf::Role,
     /// A game the flow asks to start.
     pub pending: Option<(String, Option<Setup>)>,
     /// The skip setting: the act screen, the briefing and the score screen are skipped. The `noglues` developer word
@@ -285,11 +295,19 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
             Step::MainMenu => {
                 flow.steps.clear();
                 flow.in_lobby = false;
+                flow.in_join_screen = false;
                 AppState::MainMenu
             }
             Step::Lobby => {
                 flow.steps.clear();
                 flow.in_lobby = true;
+                flow.in_join_screen = false;
+                AppState::MainMenu
+            }
+            Step::JoinScreen => {
+                flow.steps.clear();
+                flow.in_lobby = false;
+                flow.in_join_screen = true;
                 AppState::MainMenu
             }
             Step::NewCampaign => AppState::NewCampaign,
@@ -366,7 +384,8 @@ pub fn to_main_menu(flow: &mut Flow) {
 /// Where a game being left goes once its fade of all sound has ended ([`run_quit`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Leave {
-    /// Quit to Menu (and Ctrl+Q's confirmation): the main menu.
+    /// Quit to Menu (and Ctrl+Q's confirmation): the main menu, or a Direct Connect joiner's join screen
+    /// (`cf::after_quit`).
     Menu,
     /// Restart Scenario (the end menu's, and Ctrl+R's confirmation): the mission again ([`restart`]).
     Restart,
@@ -375,7 +394,13 @@ pub enum Leave {
 /// The flow's next steps for a game left for `leave`.
 pub(crate) fn leave_flow(flow: &mut Flow, leave: Leave) {
     match leave {
-        Leave::Menu => to_main_menu(flow),
+        Leave::Menu => match cf::after_quit(flow.game.unwrap_or(GameKind::Custom), flow.role) {
+            Next::JoinScreen => {
+                flow.steps.clear();
+                flow.steps.push_back(Step::JoinScreen);
+            }
+            _ => to_main_menu(flow),
+        },
         Leave::Restart => restart(flow),
     }
 }
@@ -552,7 +577,7 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
 
 /// What follows the score screen ("After the score screen"); a defeat puts the campaign total back first.
 fn after_score(flow: &mut Flow, s: &ScoreData) -> Step {
-    match cf::after_score(s.game, s.victory) {
+    match cf::after_score_as(s.game, s.victory, flow.role) {
         Next::Mission(e) => Step::Mission(e),
         Next::Replay(e) => {
             flow.total.defeat();
@@ -560,6 +585,7 @@ fn after_score(flow: &mut Flow, s: &ScoreData) -> Step {
         }
         Next::Ending { bdp, race } => Step::Ending { bdp, race },
         Next::Lobby => Step::Lobby,
+        Next::JoinScreen => Step::JoinScreen,
         Next::MainMenu | Next::Multiplayer => Step::MainMenu,
     }
 }
@@ -1600,7 +1626,7 @@ fn run_menu(c: &mut Core) {
     // fade-in when it fades in). After a game left by Quit to Menu nothing is, so 22 starts from its start; coming
     // back from the campaign menu it is still playing and plays on.
     // The multiplayer lobby, which the main menu stands in for, starts none (`ui/music.md`).
-    if !std::mem::replace(&mut menu.music_tested, true) && !flow.in_lobby {
+    if !std::mem::replace(&mut menu.music_tested, true) && !flow.in_lobby && !flow.in_join_screen {
         music.start_unless_playing(cf::TITLE_MUSIC);
     }
     let at = pointer(input, cam);
@@ -3029,6 +3055,42 @@ mod tests {
         assert_eq!(f.steps, [Step::Mission(6)]);
         leave_flow(&mut f, Leave::Menu);
         assert_eq!(f.steps, [Step::MainMenu]);
+    }
+
+    /// LD7 and MS-V9 (traced, round 92): a joiner's Quit to the main menu and its defeat's score screen lead to the join
+    /// screen; the creator's lead to the main menu and the lobby.
+    #[test]
+    fn a_joiner_leaves_for_the_join_screen_and_the_creator_for_the_menu_and_lobby() {
+        let install = Install::none();
+        let score = |victory| ScoreData {
+            victory,
+            race: 0,
+            game: GameKind::Multiplayer,
+            rows: Vec::new(),
+            mission: 0,
+            total: 0,
+            rank: String::new(),
+        };
+        let mut f = flow(&[]);
+        f.game = Some(GameKind::Multiplayer);
+        f.role = cf::Role::Joiner;
+        leave_flow(&mut f, Leave::Menu);
+        assert_eq!(f.steps, [Step::JoinScreen]);
+        assert_eq!(advance(&mut f, &install, false), Some(AppState::MainMenu));
+        assert!(f.in_join_screen && !f.in_lobby);
+        assert_eq!(after_score(&mut f, &score(false)), Step::JoinScreen);
+        assert_eq!(
+            after_score(&mut f, &score(true)),
+            Step::Lobby,
+            "not traced: the default"
+        );
+        f.steps = VecDeque::from([Step::MainMenu]);
+        advance(&mut f, &install, false);
+        assert!(!f.in_join_screen, "the main menu clears it");
+        f.role = cf::Role::Creator;
+        leave_flow(&mut f, Leave::Menu);
+        assert_eq!(f.steps, [Step::MainMenu]);
+        assert_eq!(after_score(&mut f, &score(false)), Step::Lobby);
     }
 
     #[test]

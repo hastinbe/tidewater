@@ -1169,10 +1169,36 @@ pub enum Next {
     /// A multiplayer game's score screen is followed by the lobby of the same session (`ui/multiplayer-score.md`,
     /// "What follows the score screen", MS-V8; `game/campaign-flow.md`). The music there: none starts (`ui/music.md`).
     Lobby,
+    /// A Direct Connect joiner's join screen, "Waiting for response" with Cancel Join (`ui/multiplayer-score.md`, MS-V9;
+    /// `net/leave-and-drop.md`, LD7; `ui/game-menu.md`).
+    JoinScreen,
 }
 
+/// Which side of a multiplayer session the local player is on: the player who created the game or one who joined it.
+/// A single-player game is always [`Role::Creator`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Role {
+    #[default]
+    Creator,
+    Joiner,
+}
+
+/// Where the flow goes after the score screen for the creator of the game ([`after_score_as`]).
 pub fn after_score(game: GameKind, victory: bool) -> Next {
+    after_score_as(game, victory, Role::Creator)
+}
+
+/// Where the flow goes after the score screen ("After the score screen"; `ui/multiplayer-score.md`, "What follows the
+/// score screen"). A multiplayer game's creator goes back to the lobby of the same session after a victory (traced,
+/// MS-V8); after a defeat it is not traced and the default is the same. A Direct Connect joiner after a defeat goes to
+/// the join screen (traced after a surrender, MS-V9). A joiner after a victory is not traced: the default is the
+/// session's lobby, as a joiner.
+///
+/// spec gap: Tidewater's multiplayer games are all chat-room games (Direct IP stands in for Direct Connect, Local
+/// Network for IPX), so the Direct Connect rule is applied to every joiner.
+pub fn after_score_as(game: GameKind, victory: bool, role: Role) -> Next {
     match game {
+        GameKind::Multiplayer if role == Role::Joiner && !victory => Next::JoinScreen,
         GameKind::Campaign(e) if !victory => Next::Replay(e),
         GameKind::Campaign(e @ (26 | 27)) => Next::Ending {
             bdp: false,
@@ -1185,6 +1211,17 @@ pub fn after_score(game: GameKind, victory: bool) -> Next {
         GameKind::Campaign(e) => Next::Mission(e + 2),
         GameKind::Custom => Next::MainMenu,
         GameKind::Multiplayer => Next::Lobby,
+    }
+}
+
+/// Where Quit to the main menu from the game menu (or Ctrl+Q) goes (`ui/game-menu.md`; `net/leave-and-drop.md`, LD7): the
+/// main menu, except for a multiplayer game's Direct Connect joiner, who goes to the join screen (traced, round 92,
+/// `mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`: still there 170 cycles later). The creator's quit isn't traced;
+/// the default is the main menu.
+pub fn after_quit(game: GameKind, role: Role) -> Next {
+    match (game, role) {
+        (GameKind::Multiplayer, Role::Joiner) => Next::JoinScreen,
+        _ => Next::MainMenu,
     }
 }
 
@@ -1941,6 +1978,36 @@ mod tests {
             "MS-V8: the creator, after a victory"
         );
         assert_eq!(after_restart(GameKind::Multiplayer), Next::Multiplayer);
+    }
+
+    /// MS-V9 and LD7 (traced, round 92): a Direct Connect joiner goes to the join screen after a defeat and after Quit
+    /// to the main menu; the creator keeps the lobby and the main menu.
+    #[test]
+    fn a_joiner_goes_to_the_join_screen_after_a_defeat_and_after_quitting() {
+        let mp = GameKind::Multiplayer;
+        assert_eq!(after_score_as(mp, false, Role::Joiner), Next::JoinScreen, "MS-V9");
+        assert_eq!(
+            after_score_as(mp, false, Role::Creator),
+            Next::Lobby,
+            "default, not traced"
+        );
+        assert_eq!(after_score_as(mp, true, Role::Creator), Next::Lobby, "MS-V8");
+        assert_eq!(
+            after_score_as(mp, true, Role::Joiner),
+            Next::Lobby,
+            "default, not traced"
+        );
+        assert_eq!(after_score(mp, false), Next::Lobby, "the creator by default");
+        assert_eq!(after_quit(mp, Role::Joiner), Next::JoinScreen, "LD7");
+        assert_eq!(after_quit(mp, Role::Creator), Next::MainMenu);
+        // A role changes nothing outside multiplayer.
+        for game in [GameKind::Custom, GameKind::Campaign(6)] {
+            assert_eq!(after_quit(game, Role::Joiner), Next::MainMenu);
+            assert_eq!(
+                after_score_as(game, false, Role::Joiner),
+                after_score_as(game, false, Role::Creator)
+            );
+        }
     }
 
     /// MS-V1 and MS-V8: the local player's row first, names first, "Ally" and "Enemy" labels, computers always Enemy.
