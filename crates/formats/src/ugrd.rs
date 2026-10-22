@@ -98,16 +98,17 @@ pub struct Upgrade {
 pub struct UpgradeTable(pub Vec<Upgrade>);
 
 impl UpgradeTable {
-    /// Parses a PUD `UGRD` section. Returns `None` for the table if the section says "use default data".
+    /// Parses a PUD `UGRD` section. Returns `None` for the table if the section is empty or says "use default data"
+    /// (any word but 0; the rest of the section is then skipped), as for [`crate::udta::UnitTable::from_udta`].
     pub fn from_ugrd(section: &[u8]) -> Result<Option<Self>, UgrdError> {
+        if section.is_empty() || (section.len() >= 2 && section[..2] != [0, 0]) {
+            return Ok(None);
+        }
         if section.len() < 2 + TABLE_LEN {
             return Err(UgrdError {
                 got: section.len(),
                 need: 2 + TABLE_LEN,
             });
-        }
-        if u16::from_le_bytes([section[0], section[1]]) != 0 {
-            return Ok(None);
         }
         Self::from_table(&section[2..]).map(Some)
     }
@@ -178,6 +179,9 @@ mod tests {
         assert!(UpgradeTable::from_ugrd(&s).unwrap().is_some());
         s[0] = 1;
         assert!(UpgradeTable::from_ugrd(&s).unwrap().is_none());
+        // The word is not 0: the rest is skipped, whatever its length (setup spec, "`UDTA` and `UGRD` lengths").
+        assert!(UpgradeTable::from_ugrd(&s[..100]).unwrap().is_none());
+        s[0] = 0;
         assert!(UpgradeTable::from_ugrd(&s[..100]).is_err());
     }
 }

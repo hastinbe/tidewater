@@ -128,16 +128,18 @@ impl Reader<'_> {
 pub const TABLE_LEN: usize = 5694;
 
 impl UnitTable {
-    /// Parses a PUD `UDTA` section. Returns `None` for the table if the section says "use default data".
+    /// Parses a PUD `UDTA` section. Returns `None` for the table if the section is empty or says "use default data"
+    /// (any word but 0; the rest of the section is then skipped, whatever its length, setup spec, "`UDTA` and `UGRD`
+    /// lengths"). A section longer than the table is read and the extra bytes skipped.
     pub fn from_udta(section: &[u8]) -> Result<Option<Self>, UdtaError> {
+        if section.is_empty() || (section.len() >= 2 && section[..2] != [0, 0]) {
+            return Ok(None);
+        }
         if section.len() < 2 + TABLE_LEN {
             return Err(UdtaError {
                 got: section.len(),
                 need: 2 + TABLE_LEN,
             });
-        }
-        if u16::from_le_bytes([section[0], section[1]]) != 0 {
-            return Ok(None);
         }
         Self::from_table(&section[2..]).map(Some)
     }

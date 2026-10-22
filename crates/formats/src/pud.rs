@@ -12,9 +12,11 @@
 //! - The body table is read from the start of the file again, with the header's sections skipped as unknown (the
 //!   spec's default for "Where the body reading starts").
 //! - A `UNIT` length that isn't a multiple of 8 fails the load (the spec's default for "Short `UNIT` section").
-//! - The spec didn't trace the `UDTA` and `UGRD` length checks. `UGRD` must be the PUD text's 782 bytes. `UDTA` must
-//!   hold at least the "use default" word and the table we read (5696 bytes): the PUD text gives 5950, and shipped maps
-//!   use both lengths.
+//! - The `UDTA` and `UGRD` length rules are the table in the setup spec ("`UDTA` and `UGRD` lengths", round 101): a
+//!   section of length 0, or of at least 2 bytes with a "use default" word that isn't 0, is accepted (the default
+//!   data is used); with the word 0 it must hold the word and the whole table (5696 bytes for `UDTA`, 782 for
+//!   `UGRD`), and a longer one is accepted with its extra bytes skipped (shipped maps hold `UDTA` at 5696 or 5950
+//!   bytes). A section of length 1, or one with the word 0 and fewer bytes than the table, fails the load.
 //! - The tile sections are copied as they are into a size × size map; tiles past the end of a short section are 0.
 //!   A `DIM ` size of 0 or above 128 fails the load, since the tile maps hold at most 128 × 128 words.
 
@@ -72,20 +74,23 @@ enum Len {
     Any,
     Exactly(usize),
     AtMost(usize),
-    AtLeast(usize),
     ZeroOr(usize),
     MultipleOf(usize),
+    /// A unit or upgrade data section of this full length (the "use default" word and the table): the rules of the
+    /// setup spec's length table, which look at the word.
+    Data(usize),
 }
 
 impl Len {
-    fn allows(self, n: usize) -> bool {
+    fn allows(self, payload: &[u8]) -> bool {
+        let n = payload.len();
         match self {
             Len::Any => true,
             Len::Exactly(m) => n == m,
             Len::AtMost(m) => n <= m,
-            Len::AtLeast(m) => n >= m,
             Len::ZeroOr(m) => n == 0 || n == m,
             Len::MultipleOf(m) => n.is_multiple_of(m),
+            Len::Data(m) => n == 0 || (n >= 2 && (payload[0] != 0 || payload[1] != 0 || n >= m)),
         }
     }
 }
@@ -110,8 +115,8 @@ const HEADER: [Entry; 16] = [
     entry(b"ERAX", false, Len::Exactly(2)),
     entry(b"SIGN", false, Len::Exactly(4)),
     entry(b"DIM ", true, Len::Exactly(4)),
-    entry(b"UDTA", false, Len::AtLeast(2 + crate::udta::TABLE_LEN)),
-    entry(b"UGRD", false, Len::Exactly(2 + crate::ugrd::TABLE_LEN)),
+    entry(b"UDTA", false, Len::Data(2 + crate::udta::TABLE_LEN)),
+    entry(b"UGRD", false, Len::Data(2 + crate::ugrd::TABLE_LEN)),
     entry(b"ALOW", false, Len::ZeroOr(crate::alow::LEN)),
     entry(b"SIDE", true, Len::Exactly(16)),
     entry(b"SGLD", true, Len::Exactly(32)),
@@ -154,7 +159,7 @@ fn read_table<'a>(data: &'a [u8], table: &[Entry]) -> Result<Vec<Read<'a>>, PudE
         if let Some(e) = table[pos..k].iter().find(|e| e.required) {
             return Err(PudError::Missing(tag_name(e.tag)));
         }
-        if !table[k].len.allows(len) {
+        if !table[k].len.allows(payload) {
             return Err(PudError::BadLength {
                 tag: tag_name(&tag),
                 got: len,
@@ -504,6 +509,51 @@ mod tests {
             });
             assert_eq!(r.is_ok(), ok, "version {v:#x}");
         }
+    }
+
+    /// The setup spec's length table for `UDTA` and `UGRD` ("`UDTA` and `UGRD` lengths", round 101).
+    #[test]
+    fn udta_and_ugrd_lengths_follow_the_spec_table() {
+        use crate::{udta::UnitTable, ugrd::UpgradeTable};
+        let full = |tag: &[u8; 4], table: usize| (tag.to_vec(), 2 + table);
+        for (tag, full_len) in [full(b"UDTA", crate::udta::TABLE_LEN), full(b"UGRD", crate::ugrd::TABLE_LEN)] {
+            let tag: [u8; 4] = tag.try_into().unwrap();
+            let load = |payload: Vec<u8>| {
+                with_header(|h| {
+                    let at = pos(h, b"SIDE");
+                    h.insert(at, section(&tag, &payload));
+                })
+            };
+            let word = |w: u16, len: usize| {
+                let mut v = vec![0u8; len];
+                v[..2].copy_from_slice(&w.to_le_bytes());
+                v
+            };
+            // Length 0: accepted, default data.
+            let p = load(vec![]).unwrap();
+            assert_eq!(p.section(&tag).map(<[u8]>::len), Some(0));
+            // Length 2 or more, the word not 0: accepted, default data, whatever the length.
+            for len in [2, 100, full_len - 1, full_len + 40] {
+                assert!(load(word(1, len)).is_ok(), "{tag:?} word 1 length {len}");
+            }
+            // The word 0: the full length and longer are accepted; shorter is refused.
+            assert!(load(word(0, full_len)).is_ok());
+            assert!(load(word(0, full_len + 254)).is_ok());
+            assert!(matches!(load(word(0, full_len - 1)), Err(PudError::BadLength { .. })));
+            assert!(matches!(load(word(0, 2)), Err(PudError::BadLength { .. })));
+            // Length 1: refused.
+            assert!(matches!(load(vec![0]), Err(PudError::BadLength { got: 1, .. })));
+            assert!(matches!(load(vec![1]), Err(PudError::BadLength { got: 1, .. })));
+        }
+        // The readers agree: empty and non-zero-word sections mean the default data; a longer table is read.
+        assert_eq!(UnitTable::from_udta(&[]).unwrap(), None);
+        assert_eq!(UnitTable::from_udta(&[1, 0, 9]).unwrap(), None);
+        assert!(UnitTable::from_udta(&[0]).is_err());
+        assert!(UnitTable::from_udta(&vec![0; 2 + crate::udta::TABLE_LEN - 1]).is_err());
+        assert!(UnitTable::from_udta(&vec![0; 2 + crate::udta::TABLE_LEN + 254]).unwrap().is_some());
+        assert_eq!(UpgradeTable::from_ugrd(&[]).unwrap(), None);
+        assert_eq!(UpgradeTable::from_ugrd(&[1, 0, 9]).unwrap(), None);
+        assert!(UpgradeTable::from_ugrd(&vec![0; 2 + crate::ugrd::TABLE_LEN + 5]).unwrap().is_some());
     }
 
     #[test]
