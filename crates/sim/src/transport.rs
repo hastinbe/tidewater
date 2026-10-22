@@ -231,6 +231,9 @@ impl World {
                 return Order::Land { goal: s };
             }
             self.units[i].ship.target_tile = s;
+            // The stored goal is the target tile (transports spec, "When the target tile and the destination change",
+            // V43 to V45): the docked smart stage makes it the transport's own tile.
+            self.units[i].goal_x = s.0 as i16;
             return Order::Docked;
         }
         // Orders 30, 31 and 32, or S shore water: push off first (V04).
@@ -414,6 +417,8 @@ impl World {
         };
         let u = &mut self.units[i];
         u.ship.target_tile = to;
+        // While it pushes off, the stored goal is each tile the ring search picks (V43, V44).
+        u.goal_x = to.0 as i16;
         u.path.clear();
         u.blocked = 0;
         let owner = u.owner;
@@ -561,6 +566,10 @@ impl World {
                     // again (static study): order 34 again, taken over in the same update with no visible effect,
                     // so the net result is the transport's call and the smart move's wait cap.
                     self.board_command(i, transport);
+                    // The smart move is a command, so it clears the unit's own blocked counter too (traced, round
+                    // 100: `mp-r100-tests-mp-r100-tests-fixed-goals-3000` n = 82, where a footman that had been
+                    // blocked once before its restart no longer counts as blocked for row F).
+                    self.command_steps(i);
                     self.cap_smart_wait(i);
                 }
                 return;
@@ -609,6 +618,11 @@ impl World {
             // keeps waiting.
             self.units[i].path.clear();
             if self.react_at_walk_end(i) {
+                // The new order 12 starts as a taken-over one: animation 4 with a first wait of 3 (traced, V288/V42:
+                // `mp-r100-tests-mp-r100-tests-fixed-goals-3000` n = 903).
+                if matches!(self.units[i].order, Order::Chase { .. }) {
+                    self.units[i].script.wait = 3;
+                }
                 return;
             }
             if self.units[i].script.anim != anim::STILL {
@@ -1560,6 +1574,32 @@ mod tests {
         }
     }
 
+    /// Orders spec V288, transports spec V42 (round 100, traced): a human player's footman waiting at a full docked
+    /// transport searches the react range (human) box, not its attack range of 1, when its reaction runs: the grunt 3
+    /// tiles away is taken although the attacker gives no seed.
+    #[test]
+    fn a_waiting_boarder_searches_the_react_range_human_box() {
+        let mut w = sea(20);
+        for kind in [FOOTMAN, 1] {
+            w.stats.0[kind as usize].react_range_human = 4;
+            w.stats.0[kind as usize].attack_range = 1;
+        }
+        let t = ship(&mut w, (20, 10), Order::Idle);
+        w.units[t].ship.dest = (18, 12);
+        let tid = w.units[t].id;
+        let f = w.spawn(FOOTMAN, 0, (19, 10), 0).unwrap();
+        // The attacker is hidden from the footman's owner, so it gives no seed.
+        let a = w.spawn(FOOTMAN, 1, (10, 20), 0).unwrap();
+        let g = w.spawn(1, 1, (19, 13), 0).unwrap();
+        let gi = w.index(g).unwrap();
+        w.units[gi].hidden_from = 0;
+        let fi = w.index(f).unwrap();
+        w.units[fi].order = Order::Board { transport: tid };
+        w.units[fi].attacked_by = Some(a);
+        w.board(fi, tid);
+        assert_eq!(w.units[fi].order, Order::Chase { target: g });
+    }
+
     /// Round-64 vectors (static study): a unit in order 34 whose transport dies while it walks forgets the transport
     /// at its next step boundary and idle becomes the pending order, taken over in the same update; no reaction. An
     /// attacker lost in the same way is forgotten too; a valid one is kept.
@@ -1886,10 +1926,10 @@ mod tests {
                     10769073492478209763,
                     2220216196743237337,
                     3134487529215105021,
-                    14733354621204349779,
-                    671816985406506113,
-                    8430039692419134989,
-                    12333632964458456077,
+                    569971242428521665,
+                    2879596224897964338,
+                    7617448000924731392,
+                    16881019067078729043,
                 ],
             );
         }
@@ -1986,7 +2026,7 @@ mod tests {
                 &prints,
                 &[
                     2053605494979400701,
-                    15470943505722001256,
+                    12142422842925985198,
                     1086294026542919542,
                     6853327285718669543,
                     11959604757437237332,
@@ -2168,8 +2208,8 @@ mod tests {
                 &prints,
                 &[
                     14143226004565989014,
-                    17612710135938525923,
-                    560996565627368457,
+                    18361643593049907441,
+                    18189724903708733300,
                     15230616325358557659,
                     11808286589870446420,
                     10579129746205022943,
