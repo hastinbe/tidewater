@@ -53,9 +53,8 @@ impl World {
             if self.react_at_walk_end(i) {
                 return;
             }
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
-            return;
+            // Step 2 (round 97, RP6): the pending idle of step 4, with the Enhanced resume.
+            return self.idle_now(i);
         };
         // 3. Not arrived: move toward the target.
         let (u, t) = (&self.units[i], &self.units[ti]);
@@ -95,9 +94,8 @@ impl World {
                 player: owner,
                 shortage,
             });
-            self.go_idle(i);
-            self.switch_anim(i, anim::STILL);
-            return;
+            // Step 5 (round 97, RP6): the same pending idle as at full hit points, not the immediate idle.
+            return self.idle_now(i);
         }
         // 6. Repair: face the target (a building at its top-left tile plus (1, 1)), add hit points, count the run.
         let aim = if t.building {
@@ -289,6 +287,38 @@ mod tests {
             to: (5, 0),
         }]);
         assert_eq!(w.units[si].goal_x, 5);
+    }
+
+    /// Repair spec step 2 and 5 (round 97, RP6): a repair that stops for lack of resources or a lost target ends with
+    /// the pending idle, as at full hit points: the still animation keeps its frame, and in Enhanced mode a remembered
+    /// attack-move resumes.
+    #[test]
+    fn a_repair_that_stops_ends_with_the_pending_idle_and_the_resume() {
+        for lost in [false, true] {
+            for enhanced in [true, false] {
+                let (mut w, a, farm) = site();
+                w.rules.enhanced = enhanced;
+                let (ia, fi) = (w.index(a).unwrap(), w.index(farm).unwrap());
+                w.units[ia].tile = (3, 4);
+                w.units[ia].order = Order::Repair { target: farm };
+                w.units[ia].script.frame = 25;
+                w.units[ia].remembered = Some(crate::world::Remembered::AttackMove { goal: (9, 9) });
+                w.units[ia].resume = 0;
+                if lost {
+                    w.units[fi].dying = true;
+                } else {
+                    w.players[0].lumber = 0;
+                }
+                w.repair_order(ia, farm);
+                let u = &w.units[ia];
+                if enhanced {
+                    assert!(matches!(u.order, Order::AttackMove { .. }), "lost {lost}");
+                } else {
+                    assert_eq!(u.order, Order::Idle, "lost {lost}");
+                    assert_eq!((u.script.anim, u.script.frame, u.script.wait), (anim::STILL, 25, 3));
+                }
+            }
+        }
     }
 
     #[test]
