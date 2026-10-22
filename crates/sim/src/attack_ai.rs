@@ -1073,7 +1073,8 @@ impl World {
                 &mut neutral
                     .iter()
                     .map(|&k| &self.units[k])
-                    .filter(|c| self.unit_flags(c) & flags::OIL_PATCH != 0 && c.construction.is_none() && !gone(c)),
+                    // No test but the kind: a patch under a platform or a construction site counts (SW9a, round 105).
+                    .filter(|c| self.unit_flags(c) & flags::OIL_PATCH != 0),
             )
         });
         let far = match far {
