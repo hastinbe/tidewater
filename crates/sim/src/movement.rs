@@ -285,11 +285,13 @@ impl World {
 
     /// The command's pull-back (pathfinding spec, "Goal pulled back"): [`pulled_back`] from the unit's tile with the
     /// command's settings. Usable for the pull-back ("Three tile tests"): no terrain or building bit of the unit's
-    /// mask (units are ignored) and, for a unit that doesn't fly, the unit's region. With no tile usable the goal is
-    /// kept, for transports too (V29).
+    /// mask (units are ignored) and, for a unit that doesn't fly, the unit's region: the region of the tile it stands
+    /// on, and the mask of the movement class it has at that moment (a transport that has landed keeps the landing
+    /// class; transports spec, "Pulled back from the transport's own area", V46 to V48). With no tile usable the goal
+    /// is kept, for transports too (V29).
     pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
         let u = &self.units[i];
-        let mask = u.layer.mask() & !(bits::UNIT | bits::AIR_UNIT);
+        let mask = Self::movement_class(u) & !(bits::UNIT | bits::AIR_UNIT);
         let home = self.terrain.region(u.tile.0, u.tile.1);
         let air = u.layer == Layer::Air;
         let usable = |t: (i32, i32)| {
@@ -1859,8 +1861,8 @@ mod tests {
                 &prints,
                 &[
                     14568212500970877896,
-                    823745891172989643,
-                    1435192066857815199,
+                    10250916415932439337,
+                    3091864323294353337,
                     7016998762328040818,
                 ],
             );

@@ -190,7 +190,11 @@ impl World {
         if unload && self.shore_water(g) {
             self.units[i].ship.unload = true;
         }
-        self.stage(i, g, target)
+        let order = self.stage(i, g, target);
+        if Self::pulls_back(order) {
+            self.pull_back_target_tile(i);
+        }
+        order
     }
 
     /// The smart-move stage of a command that has already recorded the three things (transports spec, "What the
@@ -199,7 +203,30 @@ impl World {
     /// tile `g` the command recorded, without recording again or running the land and shore steps a second time.
     pub(crate) fn smart_stage(&mut self, i: usize, target: Option<UnitId>, g: (i32, i32)) -> Order {
         self.cap_smart_wait(i);
-        self.stage(i, g, target)
+        let order = self.stage(i, g, target);
+        if Self::pulls_back(order) {
+            self.pull_back_target_tile(i);
+        }
+        order
+    }
+
+    /// "Pulled back from the transport's own area" (round 102, traced: V46 to V48): the command's pull-back of the
+    /// target tile the command stored, not of the destination, from the transport's own tile with its current movement
+    /// class ([`World::pull_back`]). Runs when the order the command gives is order 3, 6, 31 or 32; a landing (30)
+    /// keeps the tile ("Land and shore targets" adjusted it already). The stored goal follows the target tile.
+    pub(crate) fn pull_back_target_tile(&mut self, i: usize) {
+        let k = self.pull_back(i, self.units[i].ship.target_tile);
+        let u = &mut self.units[i];
+        u.ship.target_tile = k;
+        u.goal_x = k.0 as i16;
+    }
+
+    /// Whether a transport's command that gave `order` pulls its target tile back (orders 3, 6, 31 and 32).
+    fn pulls_back(order: Order) -> bool {
+        matches!(
+            order,
+            Order::Move { .. } | Order::Follow { .. } | Order::PushOff | Order::Docked
+        )
     }
 
     /// "What the transport stores" and "Land and shore targets": the target unit, the target tile (the target unit's
@@ -415,10 +442,13 @@ impl World {
             self.take_over(i, Order::Docked);
             return;
         };
+        // The pick becomes the target tile, pulled back as a command's is (round 102, static study, V49): a pick next
+        // to the transport never changes; a far one stops before the first tile of the transport's own region. While
+        // it pushes off, the stored goal is each tile the ring search picks (V43, V44), so pulled back.
+        self.units[i].ship.target_tile = to;
+        self.pull_back_target_tile(i);
+        let to = self.units[i].ship.target_tile;
         let u = &mut self.units[i];
-        u.ship.target_tile = to;
-        // While it pushes off, the stored goal is each tile the ring search picks (V43, V44).
-        u.goal_x = to.0 as i16;
         u.path.clear();
         u.blocked = 0;
         let owner = u.owner;

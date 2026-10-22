@@ -182,7 +182,13 @@ impl World {
         // and unload do so in their own rules ([`World::transport_command`]).
         let goal = match *c {
             Command::Move { to, .. } | Command::AttackMove { to, .. } | Command::Patrol { to, .. } => {
-                self.command_goal(i, None, to).0
+                let goal = self.command_goal(i, None, to).0;
+                // A move is order 3, so a transport's target tile is pulled back (transports spec, "Pulled back from
+                // the transport's own area"); an attack-move or patrol (orders 4 and 5) isn't among the traced orders.
+                if matches!(c, Command::Move { .. }) && self.is_transport(&self.units[i]) {
+                    self.pull_back_target_tile(i);
+                }
+                goal
             }
             _ => (0, 0),
         };
@@ -4968,7 +4974,7 @@ mod tests {
             let bi = at(&w, b);
             assert_eq!(w.command_order(bi, &c(f)), None);
             assert_eq!(w.command_order(i, &c(b)), Some(Order::Attack { target: b }));
-            assert_eq!(w.fingerprint(), 11296081837207292688);
+            assert_eq!(w.fingerprint(), 6281164982962308146);
         }
 
         /// "Commands forget a stale attacker" is for units that aren't buildings: a building keeps a dead attacker.
@@ -5353,7 +5359,7 @@ mod tests {
                 (u.order, u.pending, u.script.anim, u.script.wait),
                 (patrol, None, anim::STILL, 3)
             );
-            assert_eq!(after(&mut w, 5), 2449609839596076052);
+            assert_eq!(after(&mut w, 5), 1833944891973767889);
         }
 
         /// Order 12's no-route fallback in the run it guards: no second logic run.
@@ -5487,7 +5493,7 @@ mod tests {
             }
             assert_eq!(
                 prints,
-                [13019763112836063208, 2803787330433387341, 14640942815021232224]
+                [13019763112836063208, 2803787330433387341, 16948418964664777906]
             );
         }
 
