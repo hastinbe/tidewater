@@ -206,6 +206,21 @@ pub(crate) fn chat_keys(c: &mut Core) {
     }
     if send {
         let (rules, flags, human) = (sim.world.rules.clone(), sim.world.cheats.flags, sim.human);
+        // A `/diplomacy` line sends the diplomacy command (`game/diplomacy.md`); it is never chat.
+        if let Some(me) = sim.world.players.get(human as usize) {
+            let now = crate::diplomacy::Current {
+                allies: me.allies,
+                vision: me.shared_vision,
+                victory: me.allied_victory,
+            };
+            if let Some(parsed) = crate::diplomacy::parse(&line, human, now) {
+                match parsed {
+                    Ok(command) => sim.pending.push(command),
+                    Err(why) => sim.notices.push(Text::Own(format!("{}: {why}", crate::diplomacy::WORD))),
+                }
+                return;
+            }
+        }
         let outcome = cheats::submit(&rules, flags, human, &line, &mut sim.pending);
         // A line that is no cheat is chat in a network game; in single player it is dropped.
         if matches!(outcome, Outcome::Chat) && sim.session.is_network() {

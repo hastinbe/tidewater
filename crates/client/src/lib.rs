@@ -16,6 +16,7 @@ mod clock;
 pub mod compose;
 pub mod core;
 mod customsetup;
+mod diplomacy;
 pub mod display;
 pub mod extras;
 pub mod firstrun;
