@@ -1464,6 +1464,9 @@ impl World {
             }
         }
         self.slot_of.insert(id, slot);
+        if self.in_cycle && !self.loading && crate::corpses::is_marking_building(kind) {
+            self.mark_covered_remains(tile, size);
+        }
         // Unit-slots spec, "Creating a unit", step 6: the computer player's creation hook (the goal cleared, and the
         // attack-ai spec's first goal) runs after the first order is set and before the extra first-wait draw, which
         // always comes last.

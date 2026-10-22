@@ -47,7 +47,34 @@ pub fn corpse_kind(t: u8) -> Option<u8> {
     }
 }
 
+/// Whether a created unit of this type is a "building" for the used mark ("The used mark", round 104, SW8): types
+/// 0x3A to 0x68 except the oil patch and type 0x64.
+pub fn is_marking_building(kind: u8) -> bool {
+    (0x3a..=0x68).contains(&kind) && kind != OIL_PATCH && kind != 0x64
+}
+
 impl World {
+    /// "The used mark", a dying unit covered by a new building (round 104, SW8a to SW8e): a building created during
+    /// play whose area at `tile` of `size` overlaps or touches the area of a dying unit (a death animation, a body or
+    /// a ruin; not one that is removed or already marked) gives that unit the used mark. A dead body counts one tile
+    /// larger on every side. The marked unit keeps its animation and timers; the mark hides it from everyone
+    /// (`vision/fog.md`) and keeps its body from being raised.
+    pub(crate) fn mark_covered_remains(&mut self, tile: (i32, i32), size: (u8, u8)) {
+        for u in &mut self.units {
+            if !u.dying || u.removing || u.used || u.script.anim == RELEASED {
+                continue;
+            }
+            let grow = i32::from(u.kind == DEAD_BODY);
+            // Touching counts: the areas' tile ranges are at most adjacent, so the edges may be one tile apart.
+            let apart = |new: i32, new_len: u8, old: i32, old_len: u8| {
+                new > old + i32::from(old_len) + grow || old - grow > new + i32::from(new_len)
+            };
+            if !apart(tile.0, size.0, u.tile.0, u.size.0) && !apart(tile.1, size.1, u.tile.1, u.size.1) {
+                u.used = true;
+            }
+        }
+    }
+
     /// The parts of a kill that belong to this spec, run at the end of the kill. Returns whether the passengers die
     /// with it (not when the dead unit has the explode flag or is type 0x29).
     pub(crate) fn kill_remains(&mut self, i: usize) -> bool {
@@ -212,6 +239,40 @@ mod tests {
     fn kill(w: &mut crate::World, id: crate::UnitId) {
         let i = w.index(id).unwrap();
         w.kill(i);
+    }
+
+    /// Round 104, SW8: a building created during play marks the dying units it overlaps or touches; a body counts one
+    /// tile larger; a site one free row from a ruin leaves it alone (SW8e); nothing is marked out of play (a loading game is the same switch).
+    #[test]
+    fn a_new_building_marks_the_dying_units_it_covers() {
+        let mut w = field(24, 24);
+        let ruin = w.spawn(FARM, 1, (4, 4), 0).unwrap();
+        let (fw, fh) = {
+            let u = w.unit(ruin).unwrap();
+            (i32::from(u.size.0), i32::from(u.size.1))
+        };
+        kill(&mut w, ruin);
+        let body = w.spawn(FOOTMAN, 1, (16, 16), 0).unwrap();
+        kill(&mut w, body);
+        until_remains(&mut w, ruin);
+        until_remains(&mut w, body);
+        assert!(w.unit(ruin).unwrap().kind >= RUIN && w.unit(body).unwrap().kind == DEAD_BODY);
+        // Out of play (no cycle running) nothing is marked.
+        w.spawn(FARM, 0, (4 + fw, 4), 0).unwrap();
+        assert!(!w.unit(ruin).unwrap().used);
+        w.in_cycle = true;
+        // One free row between the ruin and the site: not marked.
+        w.spawn(FARM, 0, (4, 4 + fh + 1), 0).unwrap();
+        assert!(!w.unit(ruin).unwrap().used, "SW8e");
+        // A site whose column is the one just right of the ruin: touching marks it.
+        w.spawn(FARM, 0, (4 + fw, 4), 0).unwrap();
+        assert!(w.unit(ruin).unwrap().used, "touching");
+        // A body counts one tile larger: one free tile from it still marks it, two don't.
+        w.spawn(FARM, 0, (16 + 3, 16), 0).unwrap();
+        assert!(!w.unit(body).unwrap().used);
+        w.spawn(FARM, 0, (16 + 2, 16), 0).unwrap();
+        assert!(w.unit(body).unwrap().used);
+        w.in_cycle = false;
     }
 
     #[test]
