@@ -38,6 +38,12 @@ const SCENES: &[&str] = &[
     "extras-groups",
     "extras-attack",
     "extras-keys",
+    "touch-select",
+    "touch-order",
+    "touch-drag",
+    "touch-pinch",
+    "touch-pan",
+    "touch-menu",
 ];
 
 fn on(var: &str) -> bool {

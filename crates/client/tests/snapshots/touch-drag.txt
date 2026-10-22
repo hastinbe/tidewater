@@ -1,0 +1,15 @@
+# frame and sound fingerprints of the scripted scene `touch-drag` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	a4417597aa5e5de0
+frames	4-7	b89c5024f0bfa434
+frames	8-9	3206b9d2145ebeff
+frames	10-10	ea538b63ada6c6ec
+frames	11-11	0f71f7e4a7868501
+frames	12-13	65e97c42a1923d21
+shot	16	box	629e1e3bef518a04
+sound	17	b18b87133dda1256	0.9882	Despawn
+frames	14-16	629e1e3bef518a04
+frames	17-17	9a17370b51fe7f61
+shot	21	boxed	2cc4bcfbaf4fb02e
+frames	18-21	2cc4bcfbaf4fb02e

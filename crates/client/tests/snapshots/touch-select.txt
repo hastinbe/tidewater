@@ -1,0 +1,15 @@
+# frame and sound fingerprints of the scripted scene `touch-select` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	a4417597aa5e5de0
+shot	8	game	b89c5024f0bfa434
+frames	4-8	b89c5024f0bfa434
+frames	9-9	3206b9d2145ebeff
+sound	11	b18b87133dda1256	0.9882	Despawn
+frames	10-10	4fa3500245db7e0c
+frames	11-11	362af078068ebb80
+shot	14	tapped	c4a6deb38ed8f983
+frames	12-15	c4a6deb38ed8f983
+frames	16-17	42633c0fbe1bd45c
+shot	20	tapped-ground	c4a6deb38ed8f983
+frames	18-20	c4a6deb38ed8f983

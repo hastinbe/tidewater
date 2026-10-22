@@ -1,0 +1,24 @@
+# frame and sound fingerprints of the scripted scene `touch-pinch` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	a4417597aa5e5de0
+shot	8	game	b89c5024f0bfa434
+frames	4-8	b89c5024f0bfa434
+frames	9-10	3206b9d2145ebeff
+frames	11-12	cd5ad05ea428d57b
+frames	13-14	12b1e46bf1e728c9
+frames	15-22	828ae20d8477171f
+shot	23	zoomed-in	596622fc258c5108
+frames	23-28	596622fc258c5108
+frames	29-30	5e446809e0be4519
+frames	31-32	1a1aee40f140d8cb
+frames	33-34	0e866168dc205a6b
+frames	35-36	29eeadbadaff9940
+frames	37-38	3e33aaa820cffdd4
+frames	39-40	5cefe4cbb3538b12
+frames	41-42	acff330a2feff31b
+frames	43-44	c1e848f2423c29af
+frames	45-48	9ce8f96c41226ccd
+shot	49	zoomed-out	fcc1ce667a3bfc69
+shot	53	done	fcc1ce667a3bfc69
+frames	49-53	fcc1ce667a3bfc69

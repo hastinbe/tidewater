@@ -104,7 +104,7 @@ pub struct Input {
     pub buttons: [ButtonEdge; 3],        // left, right, middle: pressed/released this frame, held
     pub keys: Vec<KeyEvent>,             // key code, pressed or released, typed text
     pub wheel: f32,                      // lines
-    pub touches: Vec<Touch>,             // id, phase, screen position
+    pub touches: Vec<Touch>,             // id, phase, window position (points)
     pub pads: Vec<PadState>,             // buttons and sticks, as read this frame
     pub focused: bool,
 }
@@ -114,8 +114,35 @@ pub struct Input {
 |---|---|---|
 | Mouse | pointer, buttons, wheel | As today. The mouse lock (`display`, "Mouse lock") stays in the shell. |
 | Keyboard | key events with text | As today (`KeyboardInput` with text feeds the save dialog and chat). |
-| Touch (proposed) | one finger tap: left click; hold 0.5 s: right click; drag: drag-select; two fingers: scroll the map | Our own rules (not part of the original); a later spec of ours. |
+| Touch (T0 and T1 done) | tap: left click; hold 450 ms: right click; drag: box select; two fingers: pan; pinch: zoom 1 to 4 times; three-finger tap: F10 | Our own rules (not part of the original); see "Touch" below and `touch.md`. |
 | Gamepad (proposed) | left stick moves a drawn pointer with acceleration; A: left, B: right; d-pad or right stick: scroll; Start: game menu (F10) | Our own rules; needs the core-drawn pointer. |
+
+## Touch
+
+Done in phases T0 and T1 (`docs/design/touch.md` is the design; this is where it sits in the core). Touch only
+*translates*: fingers become the mouse and keyboard input above, so the game's rules never see a finger and a run with
+no touch is frame for frame what it was.
+
+- **Input.** The shell (or a scripted scene, or the emulation) puts `Touch { id, phase, pos }` events in with
+  `Input::touch`; `pos` is in the window's logical points, as the pointer is. `WindowGeom` carries what touch needs
+  besides the size and scale: the safe area, the display's density (`ppi`, to turn millimetres into points) and whether
+  the picture fits fractionally.
+- **Where it runs.** `touch::step` runs in step 2 of a frame, after a scripted run's input and before the frame's events
+  are applied. It does nothing until a finger appears or `--touch-emulation` is on. It lays the chrome out, feeds the
+  fingers to the chrome (which takes the ones that land on a control) and the rest to the gesture machine, applies one
+  of the machine's frames (buttons, keys, the tap-tolerance radius) and collects its pan and zoom. The pointer is set
+  from the fingers after the platform's (`TouchState::place_pointer`).
+- **What the game takes.** `game::touch_view`, with the game's other input systems, moves the map view by whole tiles
+  for a pan, zooms it for a pinch and pauses for the chrome's pause button; `mouse_input` hands a tap's release to
+  `mouse::tap_snap` first. Outside a game a pan becomes mouse-wheel lines for lists.
+- **Drawing.** The long-press pulse is drawn into the 640 x 480 frame after it is composed (so it is in snapshots). The
+  chrome is not: it is an RGBA overlay of the window's size (`TouchState::overlay`) that the shell blends over the
+  picture, rebuilt only when `TouchState::revision` changes.
+- **Scaling.** `WindowGeom::letterbox` fits the picture in the safe area, by a whole number or (`fractional`) by any
+  fraction; the shell draws a fractional fit sharp bilinear (`display`, "Fractional scale").
+- **The shell.** `shell/sdl.rs` reads finger events from screens the user touches directly, turns SDL's mouse-from-touch
+  events off when it does, reports the safe area, and draws the overlay and the sharp-bilinear pass. With
+  `--touch-emulation` the left mouse button and motion go to the core as `Input::mouse_touches` instead of as a button.
 
 ## Audio
 
