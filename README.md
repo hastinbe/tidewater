@@ -1,10 +1,10 @@
 # Tidewater
 
-**Tidewater is a from-scratch Rust reimplementation of the *Warcraft II: Battle.net Edition* engine, including *Beyond the Dark Portal*, that runs on your own copy of the game.** It is playable in single player today: both campaigns, with menus, saved games, sound, music and video. Early LAN multiplayer works from the command line (see [Multiplayer (early)](#multiplayer-early)); a skirmish screen, the multiplayer menus and touch controls are planned but not built yet (see the [roadmap](#roadmap)).
+**Tidewater is a from-scratch Rust reimplementation of the *Warcraft II: Battle.net Edition* engine, including *Beyond the Dark Portal*, that runs on your own copy of the game.** It is playable in single player today: both campaigns, with menus, saved games, sound, music and video. Early LAN multiplayer works from the main menu and from the command line (see [Multiplayer (early)](#multiplayer-early)); a skirmish screen and touch controls are planned but not built yet (see the [roadmap](#roadmap)).
 
 The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org) window shows. Tidewater contains no game data: it reads the files of your own copy at run time.
 
-**Status: early but playable.** You can start a campaign from the main menu, play missions against the computer, win or lose, see briefings, score screens, endings and credits, and save and load. The main menu is small: New Campaign, Load Game, Show Credits and Quit. A custom game on any map works from the command line only. Multiplayer is early and command-line only.
+**Status: early but playable.** You can start a campaign from the main menu, play missions against the computer, win or lose, see briefings, score screens, endings and credits, and save and load. The main menu is small: New Campaign, Load Game, Show Credits and Quit. A custom game on any map works from the command line only. Multiplayer is early: Local Network and Direct IP games over TCP.
 
 ## What you need
 
@@ -57,7 +57,7 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 | **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
 | **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
 | **Custom games** | Any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog), or the Custom Scenario screen (see below). |
-| **Menus** | Main menu (Multiplayer: coming, its button is greyed out; Replay Introduction plays the intro video), single-player menu, new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
+| **Menus** | Main menu (Multi Player Game opens the multiplayer menus and lobby; Replay Introduction plays the intro video), single-player menu, new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
 | **Cheats** | The original cheat codes, typed into the chat line. |
@@ -232,14 +232,18 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 
 ## Multiplayer (early)
 
-Two to eight machines can play one game over TCP. Every machine runs the whole simulation and they exchange only commands, so all copies must be the same build with the same game data; the handshake refuses a mismatch and says which part differs.
+Two to eight machines can play one game over TCP. Every machine runs the whole simulation and they exchange only commands, so all copies must be the same build with the same game data; the handshake refuses a mismatch and says which part differs (protocol, build, data tables, game edition or game files).
+
+**From the menus:** Multi Player Game, choose Enhanced or Classic, enter a name, then **Local Network** (games on your network are listed; Create Game opens one) or **Direct IP** (type the host's address, or Create Game). Battle.net is shown greyed out. The game setup lobby has the scenario, up to eight rows with races and chat boxes, and Start Game once two or more people are in. A joiner without the host's map is sent it automatically. In the game, Enter opens the chat line; start a line with `/a ` to send it to allies only. In Enhanced games each player has three pauses and everyone sees who paused and how many are left.
+
+**From the command line** (no menus needed):
 
 ```sh
 tidewater 'Maps\Cramped BNE.pud' --host --lobby humans=2,races=human/orc,seed=1   # host, waits for joiners
 tidewater --join HOST-ADDRESS                                                       # each joiner
 ```
 
-The default port is 6112 (TCP): open it on the host's firewall. Joiners need nothing open. Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game with Surrender or Quit shows "has left the game"; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. There are no lobby screens, chat or pause counts yet. Details: [docs/design/network.md](docs/design/network.md).
+The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game with Surrender or Quit shows "has left the game"; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. Details: [docs/design/network.md](docs/design/network.md).
 
 ## Replays
 
@@ -254,7 +258,7 @@ Everything in this table is **planned**; none of it is built yet.
 | Track | What it adds | Status |
 |---|---|---|
 | **Import from CD images** | Read `.iso`, `.bin`/`.cue`, `.mdf` and `.nrg` images directly (when the game files are loose on the disc). | Done |
-| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: command line only; lobby screens, chat and pause counts planned |
+| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts; no Battle.net, modem or skirmish screen |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
 | **Touch controls** | iOS (Simulator-tested; no device or signing yet) and Android (emulator-tested). PlayStation Vita support is under evaluation. | iOS and Android early (emulator and Simulator only) |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |

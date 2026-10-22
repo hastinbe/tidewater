@@ -1,9 +1,25 @@
 # Network play: lockstep over TCP
 
-**Status: early.** Two to eight Tidewater programs can play one game over TCP, started from the command line. Every
-machine runs the whole simulation and exchanges only commands. The behaviour is `docs/specs/net/lockstep.md` and
-`docs/specs/net/leave-and-drop.md`; the wire format is Tidewater's own, because the original's packets are out of scope
-(`lockstep.md`, "Scope"). The lobby screens, pause counts and chat are the next phase (M4).
+**Status: early.** Two to eight Tidewater programs can play one game over TCP, started from the multiplayer menus or
+from the command line. Every machine runs the whole simulation and exchanges only commands. The behaviour is
+`docs/specs/net/lockstep.md` and `docs/specs/net/leave-and-drop.md`; the menus and lobby are
+`docs/specs/ui/multiplayer-menus.md` and `docs/specs/ui/game-setup-lobby.md`. The wire format is Tidewater's own,
+because the original's packets are out of scope (`lockstep.md`, "Scope").
+
+## Play from the menus
+
+Main menu, **Multi Player Game**: choose Enhanced or Classic, enter a name, then pick a connection method.
+
+- **Local Network** (in the original's IPX place) lists the games found by the beacon (below) and has a Create Game
+  button. **Direct IP** (in Direct Connect's place) asks for the host's address and port, or Create Game, which
+  listens. **Battle.net** is drawn greyed out and cannot be chosen; there is no Modem row.
+- **Create Game** opens the game setup lobby: the scenario, the eight rows (yourself, other players as they join,
+  computers, closed rows), each player's race and chat box, and Classic mode's Ready boxes. **Start Game** is grey until
+  at least two humans are in, every joiner has the map and, in Classic mode, everyone is ready.
+- **A joiner** picks a game (or types an address), is shown the host's map and rules in the lobby and takes the
+  host's choices; it changes only its own race, Ready box and chat line.
+- Code: `mpmenu.rs` (the menus), `mpwidgets.rs` (edit boxes and pop-ups), `lobbyscreen.rs` (the lobby), `net/room.rs`
+  (the lobby's two ends, polled once a frame, no threads of their own beyond the handshake).
 
 ## Play over a LAN
 
@@ -18,8 +34,9 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 
 - **Write the map before `--host`.** A bare `--host` followed by a word reads the word as a port. `--host=7000` and
   `--host 7000` name a port.
-- **Default port: 6112 (TCP).** Open it on the host's firewall; joiners connect out and need nothing open. Nothing uses
-  UDP and there is no discovery, so a joiner needs the host's address.
+- **Default port: 6112 (TCP).** Open it on the host's firewall; joiners connect out and need nothing open. The command
+  line has no discovery: a joiner needs the host's address. (The Local Network menu finds games itself; see "LAN
+  discovery".)
 - **The host sets the lobby**; joiners accept it by joining. `--setup custom:classic,fog=off` picks the rules and the
   game's options; `--lobby` picks the rest (below). The host prints the game it hosts and each joiner prints the game it
   was shown, with Classic rules marked "opt-in".
@@ -27,8 +44,9 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 - **Record each side** with `--record-replay` (the file is `p1-NAME-TIME.twrep`, `p2-...` and so on, in the replay
   folder). `twtool desync-diff A B` on two sides' files finds nothing when the game stayed in step.
 - **Both programs must be the same build with the same game data.** The handshake refuses a joiner that differs and
-  says which of the protocol, the simulation build or the data tables (`unitdata.dat`, `upgrades.dat`, `script.bin`,
-  `ai.bin`) differs. A joiner without the host's map (the same file contents) refuses before the game starts.
+  says which of the protocol, the simulation build, the data tables (`unitdata.dat`, `upgrades.dat`, `script.bin`,
+  `ai.bin`), the game edition or the game files differs ("Compatibility check"). A joiner without the host's map is
+  sent it ("Map transfer"). `--host`, `--join` and `--lobby` work as before and do not need the menus.
 
 | `--lobby` choice | Meaning | Default |
 |---|---|---|
@@ -66,7 +84,7 @@ the end; `Hello` is first so a program of another protocol version can still rea
 
 | Message | Direction | Carries |
 |---|---|---|
-| `Hello` | joiner to host | Identity (protocol, simulation build, data hash) and the name asked for |
+| `Hello` | joiner to host | Identity (protocol, simulation build, data hash, edition, archives hash) and the name asked for |
 | `Refuse` | either | Why the game cannot go on |
 | `Welcome` | host to joiner | The joiner's slot and the whole game: map name and hash, seed, setup, lobby, speed, delay row, names |
 | `Ready` | joiner to host | The game is acceptable here (the map is found, with the same hash) |
@@ -75,6 +93,15 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `Sync` | any | The sender's state digest for a turn |
 | `Drop` | host to joiners | Slot and the sequence number its packets stop at |
 | `DropRequest` | joiner to host | Please drop this slot (Alt+F2) |
+| `Lobby` | host to joiners | The whole lobby (map, rows, options), sent whenever it changes |
+| `SetRace`, `SetReady`, `Say` | joiner to host | The joiner's race, Ready box and chat line |
+| `Go` | host to joiner | Play: the joiner's slot and the game as the lobby settled it |
+| `HaveMap` | joiner to host | Whether this machine has the lobby's map (by hash) |
+| `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
+| `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
+
+The protocol number is **2** (the lobby, map transfer and chat came with it). A joiner of protocol 1 is refused with a
+message naming both versions: the host reads only the first varint of the `Hello` to know that it cannot read the rest.
 
 ## The turn engine
 
@@ -89,7 +116,8 @@ the end; `Hello` is first so a program of another protocol version can still rea
 - **Turn length.** `K = ceil(T * 13 / L)` for Enhanced rules (L the speed's cycle length in ms) and `ceil(T * 60 / S)`
   for Classic. T comes from the delay row. The default is the spec's gap-fill for Direct IP, row 3 (K = 8 at speed 8, about
   104 ms a turn); the creator's row applies to every player. Row 4 (K = 12) is the traced Direct Connect game, which
-  the tests use for the spec's vectors; `--lobby row=4` picks it. Local Network will use row 1 when it lands.
+  the tests use for the spec's vectors; `--lobby row=4` picks it. Local Network games use the same row 3 for now; the
+  spec's IPX row 1 is a one-line change if a LAN proves to want it.
 - **Game speed.** The world starts at Normal. The lobby's speed reaches every machine as `Command::Speed` commands in
   the first turn, so the recording replays at the same speed. Turn 1's length already uses the lobby's speed.
 - **Stalls** (`lockstep.md`, "Stalls"). A turn waits until every human's packet for it has arrived. Over 2 s the cursor
@@ -101,6 +129,100 @@ the end; `Hello` is first so a program of another protocol version can still rea
   are compared. A machine whose digest differs is dropped, in place of its packet, with "Player X was dropped.", on
   the turn the original drops on (the second turn after the divergence). Each machine drops the other; neither keeps a
   game the other cannot be shown to share. Replays still carry the usual checkpoint every 100 cycles.
+
+## LAN discovery
+
+The Local Network game list finds games with a small UDP beacon. Code: `net/beacon.rs`.
+
+- **Who sends.** The creator of a Local Network game, while its lobby is open and has a free row, once a second, to the
+  broadcast address on **UDP port 6112**. A machine that only looks sends nothing. A Direct IP game is never announced.
+- **Who listens.** The game list, from the moment it opens until it closes. Listeners share the port (`SO_REUSEADDR`,
+  and `SO_REUSEPORT` on Unix), so two programs on one machine can both watch. A game stays listed 4 s after its last
+  packet.
+- **The packet** is built by hand (not postcard) so any later version can still read it. All numbers are little endian.
+
+  | Bytes | Field |
+  |---|---|
+  | 4 | magic `TWLN` |
+  | 1 | beacon version, 1 |
+  | 1 | kind, 1 = announce |
+  | 2 | the network protocol (2) |
+  | 2 | the TCP port the lobby listens on |
+  | 1 | players in the lobby |
+  | 1 | rows that can hold a player |
+  | 1 + n | the creator's name, at most 24 bytes of UTF-8 |
+  | 1 + n | the map's name, at most 48 bytes of UTF-8 |
+
+- **Foreign packets are ignored.** Anything that is not exactly this layout (another program's, another version,
+  truncated, trailing bytes, bad UTF-8, port 0) is dropped silently. The sender's address is the game's address. A beacon
+  only says where to connect: the TCP handshake still decides whether the join happens, so a forged beacon can cost a
+  joiner a refused connection and nothing more.
+- **Switch it off** with `TIDEWATER_NO_BEACON=1` (the tests and scripted runs do). Some networks drop broadcasts; Direct
+  IP works there.
+- **Test.** The packet round trips and the foreign-packet cases are unit tests. A real broadcast test runs only with
+  `TIDEWATER_TEST_BROADCAST=1`, because a CI container may have no broadcast route.
+
+## Compatibility check
+
+The `Hello` carries an Identity. The host compares it with its own and refuses with the first difference, in this order:
+
+| Difference | Message |
+|---|---|
+| Protocol | "different network protocol versions (host N, joiner M)" |
+| Simulation build | "different game builds" |
+| Data tables | "different game data (the unit, upgrade, script or AI tables differ)" |
+| Edition | "different game editions" |
+| Archives | "different game files (the two installations' archives differ)" |
+
+- **The edition and the archives hash come from the import manifest** (`<data>/game/manifest.json`, read by
+  `tidewater_import::Manifest`): its edition name, and a hash of the path and SHA-256 of every `.mpq` it lists. It is
+  never 0 and is compared only when both sides have a manifest, so an installation without one is judged by the data
+  tables alone.
+- **The refusal reaches the person.** The joiner's menu shows the host's message in the error box; a command-line
+  joiner prints it.
+
+## Map transfer
+
+A joiner without the host's map (the same file contents, by hash) is sent it by the host. Code: `net/room.rs`,
+`lobbyscreen.rs`.
+
+1. The joiner answers every `Lobby` with `HaveMap { hash, have }`. The host's Start button stays grey while any joiner
+   says no (`StartError::MissingMap`).
+2. A joiner that lacks the map sends `MapRequest { hash }`. The host answers `MapOffer { hash, size }` and then
+   `MapChunk { hash, offset, bytes }` in order, **16 KiB** each; or `MapDenied { hash, reason }`.
+3. **Limits.** At most **4 MiB** (a larger map is never offered); at most **3 requests** per joiner per map; the host
+   sends only the map it has open. The joiner checks that the size fits, that chunks arrive in order and add up to
+   the size, that the content hashes to the lobby's map hash (`tidewater_replay::start::map_hash`) and that it parses
+   as a map, before it keeps anything. A failed transfer is shown in a notice and nothing is written.
+4. **Where it goes.** `Storage::write_received_map` writes `<user dir>/received-maps/<name>-<hash>.pud`. The map is
+   never added to the installation. At Go the joiner plays from that copy; the host's name for the map means nothing there.
+5. The Scenario box shows "Asking for the map..." and "Receiving the map... N%" while it happens (a gap-fill).
+
+## Chat
+
+An in-game chat line is a `Chat` message, not a command: it is in no turn and not in the state hash, so chat cannot
+cause a desync. Code: `chat.rs`, `net/lockstep.rs`.
+
+- **Sending.** Enter opens the chat line, Enter sends it. A line that is a cheat word is a cheat; any other line goes
+  out as chat. A joiner sends to the host, which stamps the sender's slot and relays to the other joiners.
+- **Recipients** (the messages spec leaves them open; a gap-fill): everyone, or only the sender's allies when the line
+  starts with `/a ` or `/allies `. Each receiving machine checks the sender against its own alliance table.
+- **Showing.** A received line is "name: text" in the message list, colour 2. Under Enhanced rules the sender's own line
+  is added at once; under Classic rules the sender sees the "chat sent" notice (network entry 66).
+- **Filtering.** Both ends keep printable ASCII only and at most 99 characters, whatever the sender's program did.
+- **The lobby has its own chat**: each row's chat box, sent on Enter (`Say`).
+
+## Pause counts and leave messages
+
+- **Pause and Resume** are separate synced commands (`Command::Pause`, `Command::Resume`), so a pause while paused and
+  a resume while running do nothing. The pause key, button and the phone's background pause send Resume while the game
+  is paused.
+- **Enhanced multiplayer gives each player 3 pauses** (`World::pauses`). A pause with none left does nothing. The counts
+  join the state hash in that mode only, and Enhanced saves keep them.
+- **Notices** (Enhanced multiplayer only): network entry 86 with the pauser's name and the pauses left, and entry 87 with
+  the resumer's name. Single player and Classic show none.
+- **Leave notices.** Entry 64 for a player who left, 65 for one who was dropped, and entry 63 for either when the player
+  has no units or buildings left.
 
 ## Leaving and dropping
 
@@ -119,18 +241,28 @@ the end; `Hello` is first so a program of another protocol version can still rea
   the host drops every other player where it stands and plays on alone. The other joiners may do the same at slightly
   different turns, so they can drop one another through the sync check. Host migration is not built.
 - **The "Waiting for players" dialog** is a line on the notice bar; the dialog is a lobby-phase screen.
-- **"Eliminated" (entry 63)** shows from the victory check, not from the leave; the check still reads the local player
-  in places (the open questions in `multiplayer-determinism.md`).
-- **Speed changes and pause in a network game** go through the turns like any command, but the pause counts (the limit
-  per player) and the "Pause" and "Resume" names are not built.
-- **Chat, the lobby screens and the player list** are M4.
+- **Entry 63** shows when a leaving player has nothing left, judged on the machine that shows it at the time the leave
+  notice appears; the victory check still reads the local player in places (the open questions in
+  `multiplayer-determinism.md`).
+- **Lobby gaps.** Start needs at least two humans; the Cheat Codes box is cosmetic; Random races are settled by the host
+  from the seed; rows are packed into slots even in Fixed Order; a network game starts without the sound fade; the lobby
+  reuses the menu art, so the logo shows behind the rows and the version line is hidden; Start is greyed, not hidden,
+  when it cannot be used.
+- **The player list** (a per-player summary screen) is not built.
 - **IPv6** works for `--join [::1]:PORT`, and the listener binds IPv4 only.
 
 ## Tests
 
-- **Unit tests** (`net/proto.rs`, `net/tcp.rs`, `net/lockstep.rs`, `net/lobby.rs`) cover the message round trips, the
-  handshake and its refusals, the turn-length tables, the latency vectors, stalls with an injected clock, drops,
-  leaves and the sync check, on a stand-in world over loopback TCP.
+- **Unit tests** (`net/proto.rs`, `net/tcp.rs`, `net/lockstep.rs`, `net/lobby.rs`, `net/room.rs`, `net/beacon.rs`,
+  `mpmenu.rs`, `lobbyscreen.rs`, `chat.rs`) cover the message round trips, the handshake and its refusals, the
+  turn-length tables, the latency vectors, stalls with an injected clock, drops, leaves and the sync check, on a
+  stand-in world over loopback TCP; the lobby's two ends, map transfer and its limits, chat relay, the beacon packet
+  and each menu screen.
+- **Frame snapshots** (`tests/frames.rs`, scenes `multi` and `lobby` in `script.rs`) are the menus and the lobby drawn
+  on synthetic art, compared as text; bless them with `TIDEWATER_SNAPSHOT_BLESS=1` after a deliberate change.
+- **`crates/client/tests/room.rs`** runs the lobby over loopback with each machine on its own thread and no game files:
+  two joiners entering, races and chat, a map sent in chunks and checked, Start held back until it arrives, and the
+  refusals for another game data table, edition or archives.
 - **`crates/client/tests/net.rs`** plays real games between two machines in one process over loopback TCP on the smallest
   installed map, with scripted commands from both sides: hashes at every turn, recordings compared with the same
   checks as `twtool desync-diff`, a forced divergence, a delayed peer, a joiner with a different map, and Classic
