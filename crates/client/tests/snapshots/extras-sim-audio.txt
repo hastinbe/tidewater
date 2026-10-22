@@ -1,0 +1,2 @@
+# mixed sound fingerprints of the scripted scene `extras-sim` (hashes only): 22050 Hz stereo 16-bit, one-second blocks
+tail	11760	77ce98ba175785e4

@@ -303,6 +303,18 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[("smart-attack-move", "on")],
             keys: "",
         },
+        // Rally points and the production queue: a barracks-type building selected, a rally flag, jobs waiting.
+        Scene {
+            name: "extras-sim",
+            start: vec![play(0)],
+            cmds: extras_sim(),
+            extras: &[
+                ("rally-points", "on"),
+                ("production-queue", "on"),
+                ("selection-limit", "unlimited"),
+            ],
+            keys: "",
+        },
         // Rebound keys: the Move button on J, the pause key on Ctrl+U (Ctrl+P no longer pauses), the idle key on Ctrl+I.
         Scene {
             name: "extras-keys",
@@ -1220,6 +1232,23 @@ fn extras_attack() -> Vec<Cmd> {
         Up(Button::Right),
     ]);
     v.extend([Wait(3), Shot("worker-moves")]);
+    v
+}
+
+/// Rally points and the production queue: look around, then select the starting building.
+fn extras_sim() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
+    v.extend(click(395.0, 435.0));
+    v.extend([Wait(2), Shot("selected")]);
+    v.extend([Move(330.0, 330.0), Down(Button::Right), Wait(1), Up(Button::Right)]);
+    v.extend([Wait(3), Shot("rally")]);
+    // Peasants from the Town Hall's first button: one trains, the others wait in the queue, paid for already.
+    for _ in 0..4 {
+        v.extend(click(33.0, 358.0));
+        v.push(Wait(2));
+    }
+    v.extend([Wait(3), Shot("queued")]);
     v
 }
 

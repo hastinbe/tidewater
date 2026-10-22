@@ -40,6 +40,7 @@ const SCENES: &[&str] = &[
     "extras-bars",
     "extras-groups",
     "extras-attack",
+    "extras-sim",
     "extras-keys",
     "touch-select",
     "touch-order",

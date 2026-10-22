@@ -1,0 +1,22 @@
+# frame and sound fingerprints of the scripted scene `extras-sim` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	2ab4d7048026f340
+frames	4-7	c2e52e287af839f4
+sound	9	2d9f4c9ba338d182	0.9882	Despawn
+frames	8-8	c40f9a66d1150e5a
+frames	9-10	122fcbbb88907966
+shot	11	selected	a336fc398e4232b3
+frames	11-11	a336fc398e4232b3
+frames	12-12	b69480de7368cab2
+frames	13-15	de92305cbd89d782
+shot	16	rally	61568ec393cf5512
+frames	16-16	61568ec393cf5512
+frames	17-17	1029db49fd781e20
+frames	18-20	0d81abca1b987568
+frames	21-22	1f58b560ec8e565a
+frames	23-24	cf59f378e77adc5f
+frames	25-27	40bccbf3b997ae73
+frames	28-29	f30c01a7e6404e30
+shot	32	queued	d4a76c92eb076f28
+frames	30-32	d4a76c92eb076f28
