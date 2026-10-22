@@ -55,7 +55,9 @@ pub enum AiJob {
     Repair,
     Gold,
     Lumber,
-    /// A farm or town hall the worker's own steps started (`ai/worker-ai.md`, "Farm"; the trace's job bit 8).
+    /// A farm or town hall the worker's own steps started (`ai/worker-ai.md`, "Farm"; the trace's job bit 8 for a
+    /// farm). A no-depot town hall is a build-list job in the trace (bit 16, round 98, W2); its release is the same, so
+    /// the oracle comparer maps it ([`AiJob::Build`] of a hall type) and the record here keeps the hall's own type.
     Build {
         kind: u8,
         site: (i32, i32),
@@ -67,6 +69,19 @@ pub enum AiJob {
         kind: u8,
         site: (i32, i32),
     },
+}
+
+/// The building type number a build job records next to the worker's goal (`ai/worker-ai.md`, "The goal tile of a
+/// build job", round 98; the trace's `aigoals` `extra`): the farm or town hall job records its own type, a build-list
+/// job the **human** building's number of the pair for either race. Only the release reads it, for the width. The
+/// number isn't stored apart: a list job's is its type with the race bit cleared.
+fn recorded_type(job: AiJob) -> u8 {
+    match job {
+        AiJob::List { kind, .. } if matches!(kind, t::WALL | t::ORC_WALL) => t::WALL,
+        AiJob::List { kind, .. } => kind & !1,
+        AiJob::Build { kind, .. } => kind,
+        _ => 0,
+    }
 }
 
 /// What a choice came to.
@@ -264,10 +279,28 @@ impl World {
             AiJob::Repair => a.repairers = a.repairers.wrapping_sub(1),
             AiJob::Gold => a.miners = a.miners.wrapping_sub(1),
             AiJob::Lumber => a.lumberjacks = a.lumberjacks.wrapping_sub(1),
-            AiJob::Build { kind, site } | AiJob::List { kind, site } => {
+            AiJob::Build { kind, .. } | AiJob::List { kind, .. } => {
                 a.in_progress[kind as usize] = a.in_progress[kind as usize].wrapping_sub(1);
-                let w = self.stats_of(kind).size.0 as i32;
-                self.keep_clear(site, w, false, false);
+                // Round 98 (W1, static study): the keep-clear mark is cleared at the worker's goal tile, not at the
+                // site, sized by the building type number the job recorded (`recorded_type`). The goal tile is the
+                // site unless something set it on the way (the all-out attack).
+                let w = self.stats_of(recorded_type(job)).size.0 as i32;
+                let at = self.units[i].goal.tile.unwrap_or((0, 0));
+                self.clear_keep_clear(at, w);
+            }
+        }
+    }
+
+    /// The release's clear ("Worker: the steps, in order", step 1): a `w` x `w` rectangle from `at`, no border, its
+    /// width and height cut at the map's edge to N - x and M - y. Unlike the set ([`World::keep_clear`]) it has no
+    /// skew: every row starts in the same column. Tiles off the map's top or left are skipped.
+    fn clear_keep_clear(&mut self, at: (i32, i32), w: i32) {
+        let (n, m) = (self.terrain.width as i32, self.terrain.height as i32);
+        for y in at.1..(at.1 + w).min(m) {
+            for x in at.0..(at.0 + w).min(n) {
+                if x >= 0 && y >= 0 {
+                    self.keep_clear_tile(x, y, false);
+                }
             }
         }
     }
@@ -1047,6 +1080,82 @@ mod tests {
         let before = w.ai[1].lumberjacks;
         let _ = w.try_harvest(i);
         assert_eq!(w.ai[1].lumberjacks, before);
+    }
+
+    /// Round-98 vectors, rows 1 and 2 (`ai/worker-ai.md`, "Worker: the steps, in order", step 1; static study, W1): the
+    /// release clears the keep-clear mark at the worker's goal tile, not at the site.
+    #[test]
+    fn a_build_jobs_release_clears_the_mark_at_the_workers_goal_tile() {
+        // Row 1: a farm job for a site at (20, 30), the goal tile the site: the mark there is cleared as before.
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        let _ = w.start_building(i, t::FARM, (20, 30), false).expect("a farm job");
+        assert_eq!(w.units[i].goal.tile, Some((20, 30)));
+        assert_eq!(marked(&w), rect(20..=21, 30..=31));
+        w.release_job(i);
+        assert!(marked(&w).is_empty());
+        assert_eq!(w.ai[1].in_progress[t::FARM as usize], 0);
+
+        // Row 2: the all-out attack sets the goal tile to (60, 10) on the way. The release clears there, whatever
+        // marks are there, and the site's own mark stays.
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        let _ = w.start_building(i, t::FARM, (20, 30), false).expect("a farm job");
+        w.keep_clear((60, 10), 2, false, true);
+        w.units[i].goal.tile = Some((60, 10));
+        w.release_job(i);
+        assert_eq!(marked(&w), rect(20..=21, 30..=31));
+        assert_eq!(w.ai[1].in_progress[t::FARM as usize], 0, "pig farms in progress -1");
+        assert_eq!(w.units[i].ai_job, AiJob::None);
+    }
+
+    /// W1: the width is that of the type number the job recorded: a build-list job records the human building's
+    /// number for either race (an orc barracks job records 0x3c), a farm job its own type.
+    #[test]
+    fn the_release_is_sized_by_the_type_the_job_recorded() {
+        let sized = |recorded: u16, other: u16, list: bool, kind: u8| {
+            let (mut w, _) = town();
+            let i = peasants(&mut w, 1)[0];
+            w.stats.0[(kind & !1) as usize].size = (recorded, recorded);
+            w.stats.0[(kind | 1) as usize] = building(800, other, 0, 35);
+            w.keep_clear((10, 10), 6, false, true);
+            w.units[i].goal.tile = Some((10, 10));
+            let site = (10, 10);
+            w.units[i].ai_job = if list {
+                AiJob::List { kind, site }
+            } else {
+                AiJob::Build { kind, site }
+            };
+            w.release_job(i);
+            marked(&w).len()
+        };
+        // An orc barracks (0x3d) list job clears the human barracks' width 3, not its own 5; 6 x 6 are marked.
+        assert_eq!(sized(3, 5, true, 0x3d), 36 - 9);
+        // A farm job (the orc pig farm, 0x3b) records its own type, width 5 here.
+        assert_eq!(sized(3, 5, false, 0x3b), 36 - 25);
+    }
+
+    /// W1: the clear's rectangle is cut at the map's edge to N - x and M - y with no skew (the set has both).
+    #[test]
+    fn the_release_clip_at_the_map_edge_has_no_skew() {
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        for y in 4..10 {
+            for x in 58..64 {
+                w.terrain.set_bits(x, y, KEEP_CLEAR);
+            }
+        }
+        w.units[i].goal.tile = Some((62, 5));
+        w.units[i].ai_job = AiJob::List {
+            kind: BARRACKS,
+            site: (62, 5),
+        };
+        w.release_job(i);
+        let cleared: Vec<(i32, i32)> = rect(58..=63, 4..=9)
+            .into_iter()
+            .filter(|&(x, y)| !w.keep_clear_at(x, y))
+            .collect();
+        assert_eq!(cleared, rect(62..=63, 5..=7));
     }
 
     /// `ai/worker-ai.md`, "Counts after a load", the farm vector: each side modulo 65536, compared unsigned.
