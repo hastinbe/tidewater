@@ -55,10 +55,10 @@ struct NearShore {
 enum NoRoute {
     /// Landing, step 6.
     LandingStep6,
-    /// Landing farther than 3 tiles out: the ordinary walk (sea class) found no route, so the landing logic runs in the
-    /// same update, plans again in the landing class and, with no route either, applies step 6 (transports spec, open
-    /// question "Order 30 with no route farther than 3 tiles from its goal"; traced by round 103's far push-off run,
-    /// where the shore-water tiles of the landing class open a way around idle ships).
+    /// Landing farther than 3 tiles out: the ordinary walk found no route, so the landing logic runs in the same
+    /// update with the within-3 values, step 2's step size included, and with no route either applies step 6
+    /// (transports spec, "Landing (order 30)", "No route farther out"; traced, round 104: V57, V58, and round 103's
+    /// far push-off run, where the shore-water tiles of the landing class open a way around idle ships).
     LandingRetry,
     /// Pushing off: dock (order 32).
     Dock,
@@ -338,20 +338,29 @@ impl World {
             self.units[i].path.clear();
         }
         let tile = self.units[i].tile;
-        let landing = NearShore {
-            landing_class: if far { None } else { Some(true) },
-            two_tile: far || (even(tile) && even(goal)),
-            // Farther out the steps are ordinary ones, which don't restart the move animation at each step.
-            restart: !far,
-            one_tile_otherwise: true,
-            // Step 5 (`human13-10000` n = 3820, V12): within the 3 tiles every run's arrival test discards the
-            // planned route, so each step is planned afresh from the current tile.
-            fresh_route: !far,
-            no_route: if far {
-                NoRoute::LandingRetry
-            } else {
-                NoRoute::LandingStep6
-            },
+        let landing = if far {
+            // Round 104 (V57, V58): farther out the ordinary walk changes neither the movement class nor the step
+            // size (and doesn't restart the move animation at each step); what an earlier run left stays. With no
+            // route it falls back to the landing logic (`NoRoute::LandingRetry`).
+            NearShore {
+                landing_class: None,
+                two_tile: false,
+                restart: false,
+                one_tile_otherwise: false,
+                fresh_route: false,
+                no_route: NoRoute::LandingRetry,
+            }
+        } else {
+            NearShore {
+                landing_class: Some(true),
+                two_tile: even(tile) && even(goal),
+                restart: true,
+                one_tile_otherwise: true,
+                // Step 5 (`human13-10000` n = 3820, V12): within the 3 tiles every run's arrival test discards the
+                // planned route, so each step is planned afresh from the current tile.
+                fresh_route: true,
+                no_route: NoRoute::LandingStep6,
+            }
         };
         // Step 4: arrived, order 29 if marked unload on arrival, else 32, set at once like an immediate order: the
         // still animation starts with a wait of 1 (orders spec, "Pending orders and immediate orders"; V24: docked at
@@ -389,10 +398,17 @@ impl World {
         if walk == Walk::NoPath {
             match how.no_route {
                 NoRoute::LandingRetry => {
+                    // Landing steps 1 to 6 run in the same update with the within-3 values (round 104, V57, V58):
+                    // the landing class, step 2's step size from the tile and the goal, the move animation restarted
+                    // for a two-tile step, the cached route kept, and step 6 on a second failure.
+                    let tile = self.units[i].tile;
                     let again = NearShore {
                         landing_class: Some(true),
+                        two_tile: even(tile) && even(goal),
+                        restart: true,
+                        one_tile_otherwise: true,
+                        fresh_route: false,
                         no_route: NoRoute::LandingStep6,
-                        ..how
                     };
                     return self.near_shore(i, goal, again);
                 }
