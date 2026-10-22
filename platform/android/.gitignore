@@ -1,0 +1,8 @@
+# Made by build.sh: the native libraries, and SDL's Java sources copied from the SDL that sdl3-sys builds.
+/app/src/main/jniLibs/
+/app/src/main/java/org/
+# Gradle's own folders and the SDK location.
+/.gradle/
+/build/
+/app/build/
+/local.properties

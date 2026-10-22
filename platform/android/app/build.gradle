@@ -1,0 +1,28 @@
+// The app module. There is no native build here: build.sh makes libmain.so with cargo-ndk and puts it in
+// src/main/jniLibs/<abi>/, and copies SDL's Java sources into src/main/java/org/libsdl/app/.
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = "dev.tidewater.client"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "dev.tidewater.client"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    lint {
+        abortOnError = false
+    }
+}

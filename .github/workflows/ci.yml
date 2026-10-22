@@ -103,3 +103,24 @@ jobs:
         env:
           IPHONEOS_DEPLOYMENT_TARGET: "15.0"
         run: cargo build --release --target aarch64-apple-ios-sim -p tidewater-ios
+
+  # The Android app's native library for one ABI (docs/design/android.md): compiles SDL 3 and the shell with the
+  # runner's own NDK, builds no APK and signs nothing. Kept to one ABI so it stays cheap.
+  android:
+    name: android (arm64 library)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain and the Android target
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-linux-android
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - uses: Swatinem/rust-cache@v2
+      - name: Build libmain.so
+        run: |
+          export CMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          cargo ndk -t arm64-v8a -P 24 build --release -p tidewater-android

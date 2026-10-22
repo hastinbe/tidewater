@@ -623,6 +623,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidewater-android"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "sdl3-sys",
+ "tidewater-client",
+]
+
+[[package]]
 name = "tidewater-client"
 version = "0.1.0"
 dependencies = [

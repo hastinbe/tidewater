@@ -1,0 +1,25 @@
+[package]
+name = "tidewater-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Android app's native library (libmain.so): the SDL 3 shell of tidewater-client, loaded by the activity in platform/android"
+
+# `libmain.so`, the library SDL's Java activity loads and enters at `SDL_main` (`platform/android/build.sh`). On any
+# other target the crate is empty.
+[lib]
+name = "main"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tidewater-client.workspace = true
+sdl3-sys.workspace = true
+
+# Like the client: the shell's SDL wrapper (`sdl.rs`) allows `unsafe`; nothing else does.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

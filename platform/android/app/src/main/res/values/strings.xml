@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tidewater</string>
+    <string name="copying">Copying the files you chose. This can take a minute.</string>
+    <string name="copy_failed">Could not copy the files you chose.</string>
+</resources>
