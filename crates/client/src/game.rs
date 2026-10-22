@@ -1333,6 +1333,20 @@ pub(crate) fn touch_view(c: &mut Core) {
     }
 }
 
+/// The program went to the background (`Core::suspend`): a running game pauses as the pause key would, unless it is
+/// paused already or a pause is on its way. In a network game the pause goes to the other players like any other.
+pub(crate) fn pause_for_suspend(c: &mut Core) {
+    if !core::game_running(c) {
+        return;
+    }
+    let Some(sim) = c.sim.as_mut() else { return };
+    let waiting = sim.pending.iter().any(|cmd| matches!(cmd, Command::Pause { .. }));
+    if !sim.world.paused && !waiting {
+        let player = sim.human;
+        sim.pending.push(Command::Pause { player });
+    }
+}
+
 /// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
 pub(crate) fn pan_and_zoom(c: &mut Core) {
     let Core {

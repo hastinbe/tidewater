@@ -240,6 +240,8 @@ pub struct Mixer {
     voices: Vec<Voice>,
     next: u64,
     trims: Trims,
+    /// The program is in the background: the mixer gives silence and keeps every voice where it is.
+    suspended: bool,
 }
 
 impl Mixer {
@@ -329,6 +331,10 @@ impl Mixer {
 
     /// Mixes the next `out.len() / 2` sample frames into `out` (interleaved left, right).
     pub fn mix(&mut self, out: &mut [i16]) {
+        if self.suspended {
+            out.fill(0);
+            return;
+        }
         let mut sum = vec![[0i64; 2]; out.len() / 2];
         let trims = self.trims;
         for v in &mut self.voices {
@@ -461,6 +467,11 @@ impl Audio {
     /// Sets the master trims for voices, effects and music (the separate volumes, `docs/design/extras.md`).
     pub fn set_trims(&mut self, trims: Trims) {
         self.output.lock().set_trims(trims);
+    }
+
+    /// Stops (`true`) or restarts the mixer: while stopped it gives silence and the voices keep their places.
+    pub fn set_suspended(&mut self, suspended: bool) {
+        self.output.lock().suspended = suspended;
     }
 
     /// Starts a music track in the music slot, looping from `loop_from` or once; the track already there stops.
@@ -596,6 +607,23 @@ mod tests {
             hash: 0,
             frames: frames.to_vec().into(),
         }
+    }
+
+    #[test]
+    fn a_suspended_mixer_gives_silence_and_keeps_its_place() {
+        let mut m = Mixer::default();
+        m.play(&sound(&[[100, 100]; 8]), UNITY, None, 0, Group::Effect);
+        let mut out = [7i16; 4];
+        m.mix(&mut out);
+        assert_eq!(out, [100, 100, 100, 100]);
+        m.suspended = true;
+        m.mix(&mut out);
+        assert_eq!(out, [0; 4]);
+        m.suspended = false;
+        let mut rest = [7i16; 16];
+        m.mix(&mut rest);
+        assert_eq!(rest[..12], [100; 12], "the six frames left play on");
+        assert_eq!(rest[12..], [0; 4]);
     }
 
     #[test]

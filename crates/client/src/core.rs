@@ -97,6 +97,8 @@ pub struct Core {
     pub title: Option<String>,
     /// The program asked to end normally.
     pub exit: bool,
+    /// The program is in the background ([`Core::suspend`]).
+    pub suspended: bool,
 
     // The screen.
     pub pictures: Pictures,
@@ -196,6 +198,7 @@ impl Core {
             cursor_visible: true,
             title: None,
             exit: false,
+            suspended: false,
             pictures: Pictures::default(),
             layers: Stack::default(),
             front_screen: FrontScreen::default(),
@@ -323,6 +326,31 @@ impl Core {
     /// answer back with [`Input::picked`](crate::input::Input::picked).
     pub fn take_pick_requests(&mut self) -> Vec<crate::firstrun::PickKind> {
         self.first_run.as_mut().map(|f| f.take_requests()).unwrap_or_default()
+    }
+
+    /// The program was sent to the background (a phone's home gesture, a call): the game pauses as the pause key would,
+    /// the mixer stops and the settings are written, as the system may end the program without another word
+    /// (`docs/design/client-core.md`, "Lifecycle"). The shell runs one more frame so the pause takes effect, then stops
+    /// calling [`Core::advance`] until [`Core::resume`].
+    pub fn suspend(&mut self) {
+        if self.suspended {
+            return;
+        }
+        self.suspended = true;
+        self.audio.set_suspended(true);
+        game::pause_for_suspend(self);
+        self.store_settings();
+    }
+
+    /// The program is in front again: the mixer restarts. A paused game stays paused until the player resumes it. Keys
+    /// and fingers held when it left are let go.
+    pub fn resume(&mut self) {
+        if !self.suspended {
+            return;
+        }
+        self.suspended = false;
+        self.audio.set_suspended(false);
+        self.input.focus_lost();
     }
 
     /// "Saving": the settings are written when the program exits normally, not on an error exit.
