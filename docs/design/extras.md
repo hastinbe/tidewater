@@ -116,7 +116,7 @@ A game never reads sim options from the local settings unless it is a new local 
 A replay uses the recording's; a loaded game keeps the ones it was saved with.
 
 **The layout today.** An empty struct writes no bytes (postcard), so adding it changed neither the saved game
-(version 14, unchanged) nor the replay (version 1, unchanged) nor the state hash; the frame and oracle snapshots and
+(then version 14; it is version 15 since the round-92 load rules, for other reasons) nor the replay (version 1, unchanged) nor the state hash; the frame and oracle snapshots and
 the whole-map snapshot are unchanged. **The first field changes the layout.** In that commit, bump
 `savefile::VERSION` and `tidewater_replay::format::VERSION`, hash the field only when it is not at its default (as the
 cheat flags are), and bless the save-file hashes in the frame snapshot.
