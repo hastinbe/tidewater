@@ -167,3 +167,11 @@ Two licence notes:
 | [zlib-rs](https://github.com/trifectatechfoundation/zlib-rs) | 0.6.8 | Zlib |
 | [zmij](https://github.com/dtolnay/zmij) | 1.0.23 | MIT |
 <!-- END GENERATED -->
+
+## Android build files
+
+- **Gradle wrapper** (`platform/android/gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`), from SDL's
+  Android project template, is part of Gradle and is under the
+  [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). It is a build tool and is not included in the app.
+- **SDL's Java sources** (`org.libsdl.app`) are copied from the `sdl3-src` crate by `platform/android/build.sh` at build
+  time and compiled into the APK under SDL's zlib licence above.
