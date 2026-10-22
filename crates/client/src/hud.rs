@@ -687,6 +687,33 @@ impl HudArt {
         outline(pic, r, [140, 120, 60]);
     }
 
+    /// Draws icon frame `n` at a quarter of its size (every fourth pixel) with its top-left at `(x, y)`, in a thin
+    /// frame, for the production queue.
+    fn small_icon(&self, pic: &mut Picture, x: i32, y: i32, n: u16, owner: u8) {
+        let Some(f) = self.icons.frames.get(n as usize) else {
+            return;
+        };
+        let p = frame_picture(f, &self.pal, Some(owner));
+        let (w, h) = (p.width as i32 / 4, p.height as i32 / 4);
+        outline(pic, Rect::new(x - 1, y - 1, w as u32 + 2, h as u32 + 2), [140, 120, 60]);
+        fill(pic, Rect::new(x, y, w as u32, h as u32), [24, 24, 24]);
+        for sy in 0..h {
+            for sx in 0..w {
+                let from = ((sy * 4 + 2) as usize * p.width as usize + (sx * 4 + 2) as usize) * 4;
+                let Some(px) = p.rgba.get(from..from + 4) else { continue };
+                if px[3] == 0 {
+                    continue;
+                }
+                let (dx, dy) = (x + sx, y + sy);
+                if dx < 0 || dy < 0 || dx as u32 >= pic.width || dy as u32 >= pic.height {
+                    continue;
+                }
+                let to = (dy as usize * pic.width as usize + dx as usize) * 4;
+                pic.rgba[to..to + 4].copy_from_slice(px);
+            }
+        }
+    }
+
     /// Uses the cycled palette (`palette`) from now on: the minimap and the icons drawn later show its colours.
     pub fn set_palette(&mut self, pal: &Palette) {
         self.pal.clone_from(pal);
@@ -774,6 +801,12 @@ impl HudArt {
         if let Some(i) = c.production {
             let r = at(info::PRODUCTION);
             self.button(pic, r.x + 4, r.y + 4, i, v.local);
+            // Production queue (`docs/design/extras.md`): the waiting jobs as quarter-size icons under the running one.
+            for (n, icon) in c.waiting.iter().flatten().enumerate() {
+                let q = info::QUEUE_ICON;
+                let (x, y) = (r.x + q.x + n as i32 * (q.w as i32 + info::QUEUE_GAP), r.y + q.y);
+                self.small_icon(pic, x, y, *icon, v.local);
+            }
         }
         if let Some(p) = c.progress {
             let r = at(info::PROGRESS);

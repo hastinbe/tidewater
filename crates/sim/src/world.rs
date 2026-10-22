@@ -1562,6 +1562,7 @@ impl World {
         self.victory_phase();
         self.prune_selections();
         self.prune_rally();
+        self.prune_queue();
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -1722,7 +1723,7 @@ impl World {
     /// A job for (or, with `None`, a cancel at) one of the player's buildings.
     fn building_command(&mut self, player: u8, id: UnitId, job: JobKind) {
         let Some(i) = self.index(id) else { return };
-        if self.units[i].owner == player {
+        if self.units[i].owner == player && !self.queue_job(i, job) {
             self.start_job(i, job);
         }
     }
@@ -1731,7 +1732,7 @@ impl World {
     /// acting only in its own state (build-train spec, V69).
     fn cancel_command(&mut self, player: u8, id: UnitId, job: bool) {
         let Some(i) = self.index(id) else { return };
-        if self.units[i].owner == player {
+        if self.units[i].owner == player && !(job && self.unqueue_last(i)) {
             self.cancel(i, job);
         }
     }

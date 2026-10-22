@@ -604,6 +604,14 @@ pub enum JobClass {
     Other,
 }
 
+/// A building's production queue (option `production-queue`): how many jobs wait behind the running one, and whether
+/// another can still be queued. `None` in [`UnitInfo::queue`] means the option is off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueueInfo {
+    pub waiting: u8,
+    pub open: bool,
+}
+
 /// A selected unit as the panel needs to know it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnitInfo {
@@ -615,6 +623,8 @@ pub struct UnitInfo {
     /// A building that is not under construction.
     pub completed: bool,
     pub job: Option<JobClass>,
+    /// The building's production queue, if the option is on.
+    pub queue: Option<QueueInfo>,
     /// A worker or tanker.
     pub harvester: bool,
     pub carrying: bool,
@@ -687,7 +697,12 @@ const AVIARY_B: [u8; 2] = [70, 71];
 const SHIPYARD: [u8; 2] = [72, 73];
 
 fn ready(p: &UnitInfo) -> bool {
-    p.building && p.completed && p.job.is_none()
+    p.building && p.completed && (p.job.is_none() || p.queue.is_some_and(|q| q.open))
+}
+
+/// Whether the building is busy and cannot take another job: working with no room in its queue (or no queue).
+fn busy(p: &UnitInfo) -> bool {
+    p.job.is_some() && !p.queue.is_some_and(|q| q.open)
 }
 
 /// The upgrade-allowed bit of the lower level of a two-level line.
@@ -773,7 +788,7 @@ fn harvester_walk(sel: &[UnitInfo], carrying: bool) -> bool {
 pub fn cond_ok(c: Cond, s: &impl PanelState, sel: &[UnitInfo]) -> bool {
     let Some(p) = sel.first() else { return false };
     let one = sel.len() == 1;
-    let working = p.job.is_some();
+    let working = busy(p);
     match c {
         Cond::Never => false,
         Cond::Always => true,
@@ -848,7 +863,7 @@ pub enum Mode {
 
 /// The set a unit shows by itself: the busy set while a building is under construction or working.
 fn own_set(u: &UnitInfo) -> SetId {
-    if u.building && (!u.completed || u.job.is_some()) {
+    if u.building && (!u.completed || busy(u)) {
         SetId::Busy
     } else {
         SetId::Kind(u.kind)
@@ -887,6 +902,18 @@ pub fn fill(id: SetId, s: &impl PanelState, sel: &[UnitInfo]) -> [Option<&'stati
         if n < 9 && slots[n].is_none() && cond_ok(en.cond, s, sel) {
             slots[n] = Some(en);
         }
+    }
+    // Production queue (`docs/design/extras.md`): a building with a running job and room in its queue shows its own
+    // buttons, and Cancel (which removes the last waiting job, or cancels the running one) takes the last place.
+    if matches!(id, SetId::Kind(_))
+        && let Some(p) = sel.first()
+        && p.building
+        && p.completed
+        && p.job.is_some()
+        && p.queue.is_some()
+        && slots[8].is_none()
+    {
+        slots[8] = BUSY.iter().find(|en| en.slot == 8 && cond_ok(en.cond, s, sel));
     }
     slots
 }
@@ -1252,6 +1279,17 @@ impl PanelState for WorldState<'_> {
                 economy::JobKind::Train(_) => JobClass::Training,
                 _ => JobClass::Other,
             }),
+            queue: self.world.rules.extras.production_queue.then(|| {
+                let waiting = self.world.waiting(id);
+                let upgrade_last = waiting.last().map_or_else(
+                    || matches!(u.job.map(|j| j.kind), Some(economy::JobKind::Upgrade(_))),
+                    |q| matches!(q.kind, economy::JobKind::Upgrade(_)),
+                );
+                QueueInfo {
+                    waiting: waiting.len() as u8,
+                    open: 1 + waiting.len() < tidewater_sim::queue::QUEUE_MAX && !upgrade_last,
+                }
+            }),
             harvester: f & (flags::PEON | flags::TANKER) != 0,
             carrying: u.carrying,
             ground_attack: f & flags::GROUND_ATTACK != 0,
@@ -1437,6 +1475,7 @@ mod tests {
             building: kind >= 58,
             completed: true,
             job: None,
+            queue: None,
             harvester: matches!(kind, 2 | 3 | 26 | 27),
             carrying: false,
             ground_attack: matches!(kind, 4 | 5 | 32 | 33),
@@ -1569,6 +1608,33 @@ mod tests {
         let mut c = unit(1, 76);
         c.completed = false;
         assert_eq!(strings(&s, Mode::None, &[c])[8], Some(408));
+    }
+
+    #[test]
+    fn a_building_with_room_in_its_queue_keeps_its_buttons_and_gets_cancel() {
+        let mut s = Fake::all();
+        s.have = HashSet::from([76]);
+        let mut w = unit(1, 60);
+        w.job = Some(JobClass::Training);
+        // The option off: only Cancel, as always.
+        assert_eq!(strings(&s, Mode::None, &[w]).iter().flatten().count(), 1);
+        // On, with room: the training buttons and Cancel.
+        w.queue = Some(QueueInfo { waiting: 1, open: true });
+        let got = icons(&s, Mode::None, &[w]);
+        assert_eq!(&got[..2], &[Some(2), Some(4)]);
+        assert_eq!(strings(&s, Mode::None, &[w])[8], Some(409));
+        // On, full: only Cancel again.
+        w.queue = Some(QueueInfo {
+            waiting: 4,
+            open: false,
+        });
+        let st = strings(&s, Mode::None, &[w]);
+        assert_eq!(st.iter().flatten().count(), 1);
+        assert_eq!(st[8], Some(409));
+        // On and idle: no Cancel.
+        let mut idle = unit(1, 60);
+        idle.queue = Some(QueueInfo::default());
+        assert_eq!(strings(&s, Mode::None, &[idle])[8], None);
     }
 
     #[test]

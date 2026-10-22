@@ -156,6 +156,7 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | 100 | Music, in percent of the music volume |
 | `scaling` | `--extra-scaling VALUE` | integer, sharp | integer | How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp) |
 | `rally-points` | `--extra-rally-points` | on, off | off | Right-click with a training building selected to set a rally point: the units it trains go there (S) |
+| `production-queue` | `--extra-production-queue` | on, off | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last (S) |
 
 **C+L** marks an option that gives you an edge, so in a game with other players the lobby will set it for everyone
 instead of your own settings.

@@ -37,6 +37,10 @@ pub const HP: Rect = Rect::new(9, 60, 54, 10);
 /// The six statistic rows' tops.
 pub const ROW_Y: [i32; 6] = [72, 87, 102, 117, 132, 147];
 pub const PRODUCTION: Rect = Rect::new(107, 78, 54, 46);
+/// The first waiting job's quarter-size icon in the production queue, relative to the production icon, and the gap
+/// between icons (option `production-queue`).
+pub const QUEUE_ICON: Rect = Rect::new(2, 49, 11, 9);
+pub const QUEUE_GAP: i32 = 3;
 pub const PROGRESS: Rect = Rect::new(12, 153, 152, 14);
 /// The mana bar inside row 5's value area.
 pub const MANA_BAR: Rect = Rect::new(107, 149, 59, 10);
@@ -370,6 +374,8 @@ pub struct Subject {
     pub construction: Option<u8>,
     /// The building's job, if it is working on one.
     pub job: Option<JobKind>,
+    /// The jobs waiting behind it (option `production-queue`), next first.
+    pub waiting: [Option<JobKind>; 4],
     pub passengers: u8,
     /// Trips left in a mine, patch or platform.
     pub trips: u32,
@@ -439,6 +445,8 @@ pub struct Content {
     pub rows: [Option<Row>; 6],
     /// Hides the value column.
     pub production: Option<u16>,
+    /// The icons of the jobs waiting in the building's queue, next first (option `production-queue`).
+    pub waiting: [Option<u16>; 4],
     pub progress: Option<u8>,
 }
 
@@ -679,6 +687,9 @@ pub fn content(s: &Subject, o: &Owner, t: &Tables) -> Content {
     };
     if s.building {
         (c.rows, c.production) = building_rows(s, &st, o, t.upgrades);
+        if s.own && s.construction.is_none() && s.job.is_some() {
+            c.waiting = s.waiting.map(|j| j.and_then(|j| job_icon(j, t.upgrades)));
+        }
     } else {
         c.level = Some(level(s.kind, &st, o));
         if s.own {
@@ -803,6 +814,13 @@ pub fn facts(w: &World, id: UnitId, local: u8) -> Option<Subject> {
         mana: u.mana,
         construction: w.construction_progress(id),
         job: u.job.map(|j| j.kind),
+        waiting: {
+            let mut list = [None; 4];
+            for (slot, q) in list.iter_mut().zip(w.waiting(id)) {
+                *slot = Some(q.kind);
+            }
+            list
+        },
         passengers: u.passengers.iter().flatten().count() as u8,
         trips: u.resources,
     })
@@ -851,6 +869,14 @@ pub fn watch(w: &World, slots: &Slots, local: u8) -> Option<Vec<u32>> {
             key.extend([v.hp as u32, v.mana as u32]);
         }
     }
+    // The jobs waiting in a building's queue: a change redraws the icons.
+    key.extend(s.waiting.iter().map(|j| match j {
+        None => 0,
+        Some(JobKind::Train(t)) => 0x100 | *t as u32,
+        Some(JobKind::Upgrade(t)) => 0x200 | *t as u32,
+        Some(JobKind::Research(n)) => 0x300 | *n as u32,
+        Some(JobKind::Spell(n)) => 0x400 | *n as u32,
+    }));
     match set {
         Checks::Carrying => key.push(u.carrying as u32),
         Checks::Passengers => key.extend(u.passengers.iter().map(|p| p.map_or(0, |p| p.0 + 1))),
@@ -1075,6 +1101,20 @@ mod tests {
         assert_eq!((job.progress(), progress_fill(1)), (Some(1), 3));
         job.mana = (255 / 120) as u8;
         assert_eq!((job.progress(), progress_fill(2)), (Some(2), 4));
+    }
+
+    #[test]
+    fn the_waiting_jobs_show_as_icons_only_for_a_working_own_building() {
+        let mut s = own(0x3C);
+        s.building = true;
+        s.job = Some(JobKind::Train(0));
+        s.waiting = [Some(JobKind::Train(0)), Some(JobKind::Train(8)), None, None];
+        let c = content_of(&s, &Owner::default(), table(0x3C, UnitStats::default()), &no_upgrades());
+        assert_eq!(c.waiting, [icon(0), icon(8), None, None]);
+        assert!(c.waiting[0].is_some());
+        s.job = None;
+        let c = content_of(&s, &Owner::default(), table(0x3C, UnitStats::default()), &no_upgrades());
+        assert_eq!(c.waiting, [None; 4]);
     }
 
     #[test]

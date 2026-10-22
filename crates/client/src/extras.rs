@@ -31,10 +31,11 @@ pub enum Id {
     VolumeMusic,
     Scaling,
     RallyPoints,
+    ProductionQueue,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 10;
+pub const COUNT: usize = 11;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +163,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 0,
         scope: Scope::Sim,
         description: "Right-click with a training building selected to set a rally point: the units it trains go there",
+    },
+    Spec {
+        id: Id::ProductionQueue,
+        name: "production-queue",
+        kind: Kind::Flag,
+        default: 0,
+        scope: Scope::Sim,
+        description: "Buildings queue up to five jobs, paid when queued; Cancel removes the last",
     },
 ];
 
@@ -311,6 +320,7 @@ impl ClientExtras {
     pub fn sim(&self) -> tidewater_sim::Extras {
         tidewater_sim::Extras {
             rally_points: self.get(Id::RallyPoints) != 0,
+            production_queue: self.get(Id::ProductionQueue) != 0,
             ..tidewater_sim::Extras::default()
         }
     }

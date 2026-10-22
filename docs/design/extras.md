@@ -24,6 +24,7 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | C | 100 | Music, in percent of the music volume |
 | `scaling` | `--extra-scaling VALUE` | integer, sharp | C | integer | How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp) |
 | `rally-points` | `--extra-rally-points` | on, off | S | off | Right-click with a training building selected to set a rally point: the units it trains go there |
+| `production-queue` | `--extra-production-queue` | on, off | S | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.

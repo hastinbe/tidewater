@@ -177,7 +177,7 @@ pub enum JobKind {
 
 impl JobKind {
     /// The upgrade number and whether it is a spell, for the two research kinds.
-    fn research(self) -> Option<(u8, bool)> {
+    pub(crate) fn research(self) -> Option<(u8, bool)> {
         match self {
             JobKind::Research(n) => Some((n, false)),
             JobKind::Spell(n) => Some((n, true)),
@@ -562,7 +562,12 @@ impl World {
             return;
         }
         let finished = !job.cancelled;
+        let id = u.id;
         self.end_job(i, finished, true);
+        // A trained unit may have moved the building's place in the list: find it again.
+        if let Some(i) = self.index(id) {
+            self.promote_queue(i);
+        }
     }
 
     /// "Job end", finished or cancelled: the job goes, the mana byte goes to 0 (and a building upgrade's frame), the
@@ -709,6 +714,7 @@ impl World {
                 job.kind = JobKind::Train(to);
             }
         }
+        self.convert_queued(owner, from, to);
         for i in self.list_of(owner) {
             let u = &self.units[i];
             if u.building || u.kind != from || u.dying || u.removing || u.inside {
@@ -784,7 +790,9 @@ impl World {
     /// Kept as the code is (an open question): no take-over follows (the spec's "Job end" has order 33 take over
     /// with wait 3); a killed building starts its death animation, a rescued one keeps the still animation's wait.
     pub(crate) fn cancel_job(&mut self, i: usize) -> bool {
-        self.end_job(i, false, false)
+        let had = self.end_job(i, false, false);
+        self.flush_queue(i);
+        had
     }
 }
 
