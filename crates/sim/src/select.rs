@@ -554,7 +554,12 @@ impl World {
                 let Some(target) = target else { return };
                 Command::Repair { player, units, target }
             }
-            29 => Command::Unload { player, units, target, tile },
+            29 => Command::Unload {
+                player,
+                units,
+                target,
+                tile,
+            },
             38..=56 => {
                 let id = u.id;
                 return self.cast_command(player, id, command, target, tile);

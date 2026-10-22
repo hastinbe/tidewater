@@ -55,6 +55,11 @@ struct NearShore {
 enum NoRoute {
     /// Landing, step 6.
     LandingStep6,
+    /// Landing farther than 3 tiles out: the ordinary walk (sea class) found no route, so the landing logic runs in the
+    /// same update, plans again in the landing class and, with no route either, applies step 6 (transports spec, open
+    /// question "Order 30 with no route farther than 3 tiles from its goal"; traced by round 103's far push-off run,
+    /// where the shore-water tiles of the landing class open a way around idle ships).
+    LandingRetry,
     /// Pushing off: dock (order 32).
     Dock,
 }
@@ -334,7 +339,7 @@ impl World {
         }
         let tile = self.units[i].tile;
         let landing = NearShore {
-            landing_class: Some(!far),
+            landing_class: if far { None } else { Some(true) },
             two_tile: far || (even(tile) && even(goal)),
             // Farther out the steps are ordinary ones, which don't restart the move animation at each step.
             restart: !far,
@@ -342,7 +347,11 @@ impl World {
             // Step 5 (`human13-10000` n = 3820, V12): within the 3 tiles every run's arrival test discards the
             // planned route, so each step is planned afresh from the current tile.
             fresh_route: !far,
-            no_route: NoRoute::LandingStep6,
+            no_route: if far {
+                NoRoute::LandingRetry
+            } else {
+                NoRoute::LandingStep6
+            },
         };
         // Step 4: arrived, order 29 if marked unload on arrival, else 32, set at once like an immediate order: the
         // still animation starts with a wait of 1 (orders spec, "Pending orders and immediate orders"; V24: docked at
@@ -379,6 +388,14 @@ impl World {
         let walk = self.move_toward_as(i, Goal::tile(goal, 0), how.two_tile && how.restart);
         if walk == Walk::NoPath {
             match how.no_route {
+                NoRoute::LandingRetry => {
+                    let again = NearShore {
+                        landing_class: Some(true),
+                        no_route: NoRoute::LandingStep6,
+                        ..how
+                    };
+                    return self.near_shore(i, goal, again);
+                }
                 NoRoute::LandingStep6 => self.landing_no_route(i),
                 // Pushing off, step 5 (round 70, M4): order 32 as an immediate order (still animation, wait 1).
                 NoRoute::Dock => self.immediately(i, Order::Docked),
