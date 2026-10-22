@@ -117,6 +117,8 @@ impl Vision {
     /// Holy vision moves the refresh schedule: the next refresh comes [`HOLY_VISION_COUNTDOWN`] cycles on.
     pub(crate) fn delay_refresh(&mut self) {
         self.countdown = HOLY_VISION_COUNTDOWN;
+        // A cast later in a refresh cycle (phase 4 follows phase 3) leaves the record showing the counter (round 105, H2).
+        self.refreshed = false;
     }
 
     pub fn new(width: usize, height: usize) -> Self {
@@ -872,6 +874,19 @@ mod tests {
             }
         }
         assert_eq!(at_100, Some(false), "no refresh while counting down from 150");
+    }
+
+    /// Round 105, H2: a holy vision cast in a refresh cycle comes after the refresh, so the cycle shows the counter.
+    #[test]
+    fn holy_vision_after_a_refresh_clears_the_refreshed_mark() {
+        let mut w = map();
+        w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+        w.start_up();
+        w.step(&[]);
+        assert!(w.fog_refreshed());
+        w.vision.delay_refresh();
+        assert!(!w.fog_refreshed());
+        assert_eq!(w.fog_countdown(), HOLY_VISION_COUNTDOWN);
     }
 
     /// Classic: period 101, so the refreshes are at counter 100, 201, 302 (from the period; no Classic run traced).
