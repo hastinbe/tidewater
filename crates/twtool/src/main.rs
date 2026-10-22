@@ -1093,6 +1093,12 @@ fn oracle_cmd(
         .ok_or_else(|| anyhow::anyhow!("the trace used the real clock; give --seed"))?;
     opts.seed = Some(seed);
     opts.input = header.input.clone();
+    // Net spec, "Turn length": Direct Connect's turns are 12 cycles at speed 8 (traced); other connections aren't known.
+    opts.turn_length = header
+        .multiplayer
+        .as_ref()
+        .filter(|m| m.connection == "direct-connect" && header.speed == 8)
+        .map(|_| 12);
     // Trace format, "Windowed traces" and "Setup-only traces"; neither changes the rules.
     opts.from = header.from;
     opts.setup_only = header.setup_only;

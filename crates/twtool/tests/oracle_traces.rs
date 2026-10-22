@@ -141,8 +141,7 @@
 //! unit is detected by everyone), mp-dark-paths-bne-game-vision-300 and mp-dark-paths-bne-fogoff-game-vision-300 (fog off
 //! sets every seen bit), mp-rose-petal-bne-game-21300, and the computer-player goal windows orc13-aigoals-goals-17900-18200,
 //! xhuman11-aigoals-goals-0, xhuman9-aigoals-goals-8630-8830 and xorc9-aigoals-goals-0 (the conversion goal rule, TC1 to
-//! TC6 and AG1 to AG4) match in full. xhuman9-xhuman9-runestone-saveload-game-60 is ignored: after the load a moving
-//! unit waits about 3 cycles in the original and ours moves at once.
+//! TC6 and AG1 to AG4) match in full. (its runestone trace, xhuman9-xhuman9-runestone-saveload-game-60, matches since round 92.)
 //!
 //! Round 91: human1-human01-fog-switch-fogmaps-game-400 (F45: the option switched off assigns the local set on
 //! unexplored tiles, switched on changes no map; the comparer reads its `say` and `fog` records and the `fogmaps`
@@ -150,7 +149,17 @@
 //!
 //! Round 91: a load runs the mission start again (G24): xhuman9-xhuman9-runestone-alive-saveload-game-60 now has the
 //! damaged runestone back at 400 hit points in the loaded game's setup record (it was 4 before the change) and matches
-//! to n 11; it is ignored from n 12, where the original draws one random number fewer (see its test).
+//! to n 11; it matches in full since round 92.
+//!
+//! Round 92: a load restarts the 50-cycle pass counter at 1 and doubles the footmen, archers, siege and knights training
+//! counts (SL1 to SL6): xhuman9-xhuman9-runestone-saveload-game-60, xhuman9-xhuman9-runestone-alive-saveload-game-60,
+//! xhuman9-xhuman9-r92-pending-game-30, xhuman9-xhuman9-r92-alive-pending-game-30 and
+//! xhuman9-xhuman9-r92-aijobs-aijobs-game-60 (the `aijobs` extra: the four counts of each computer player are compared,
+//! its `wanted` and `have` fields are not) match in full. The multiplayer-launch traces
+//! mp-skirmish-bne-mp-skirmish-nobody-fight-game-600 and -1300 (a joiner leaves; an idle worker of a "nobody" player
+//! doesn't react, LV19) match in full: the comparer skips their `peer` records, checks their commands' turns against
+//! the Direct Connect turn length (12 cycles) and carries out a turn's `other` command as the player leaving.
+//! xhuman9-xhuman9-runestone-saveload-game-400 matches to n 342 and is ignored (see its test).
 //!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
@@ -478,14 +487,36 @@ traces! {
     xhuman9_aigoals_goals_8630_8830: ("xhuman9-aigoals-goals-8630-8830.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
     human1_human01_fog_switch_fogmaps_game_400: ("human1-human01-fog-switch-fogmaps-game-400.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     xorc9_aigoals_goals_0: ("xorc9-aigoals-goals-0.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
+    xhuman9_xhuman9_r92_pending_game_30: ("xhuman9-xhuman9-r92-pending-game-30.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    xhuman9_xhuman9_r92_alive_pending_game_30: ("xhuman9-xhuman9-r92-alive-pending-game-30.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    xhuman9_xhuman9_r92_aijobs_aijobs_game_60: ("xhuman9-xhuman9-r92-aijobs-aijobs-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    mp_skirmish_bne_mp_skirmish_nobody_fight_game_600: (mp, "mp-skirmish-bne-mp-skirmish-nobody-fight-game-600.jsonl.gz", &[], None),
+    mp_skirmish_bne_mp_skirmish_nobody_fight_game_1300: (mp, "mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300.jsonl.gz", &[], None),
 }
 
-/// The runestone save/load trace (the runestone already a ruin before the save). Round 91 closed the mission-start
-/// question (a load runs it again, G24), which this trace never decided, so what remains is the movement state after a
-/// load: at n 1 (startup) unit 1562 (type 0x0b, owner 5, order 3) is at tile (56, 20) with anim 2 and wait 3 in the
-/// original; ours has it at (55, 19) with anim 3 and wait 1. The movement state after a load isn't specified.
+/// The 400-cycle runestone save/load trace (SL7: after the load every unit's number is its slot plus one and the next
+/// two units created get 1626 and 1627, at n = 252, then 1628 at n = 257) matches to n 342, creation numbers included.
+/// At n 343 (cycle, counter 341) player 6's orc blacksmith (unit 1470, type 0x53, finished a long research at n 338,
+/// the generator state matches) starts the research of code 0x88 in ours: player 6 gold 350 to 50, lumber 1450 to 1150
+/// and the unit's mana 0 to 1. The original pays nothing to n 400: the blacksmith stays idle (order 33, mana 0).
+/// The specs say what a loaded game keeps of a computer player's research state only for the pass counters and the
+/// four training counts (`game/save-load.md` SL1 to SL6); why the original doesn't start the research here isn't
+/// stated (its requests and done marks after a load are not specified).
 #[test]
-#[ignore = "n 1 (startup), unit 1562 tx/ty/anim/wait: movement state after a load is not specified"]
+#[ignore = "n 343 (cycle): unit 1470 mana ours 1, theirs 0, and player 6 gold/lumber: ours starts research 0x88, the original does not; research state after a load is not specified"]
+fn xhuman9_xhuman9_runestone_saveload_game_400() {
+    check(
+        "xhuman9-xhuman9-runestone-saveload-game-400.jsonl.gz",
+        Some(("Campaign\\XHuman\\2XHum09.pud", 44)),
+        &[],
+        None,
+    );
+}
+
+/// The runestone save/load trace and the round-91 runestone trace (a damaged runestone alive at the save) match in
+/// full since round 92: a load restarts the 50-cycle pass counter at 1 (SL1 to SL3) and doubles the footmen, archers,
+/// siege and knights counts (SL4 to SL6).
+#[test]
 fn xhuman9_xhuman9_runestone_saveload_game_60() {
     check(
         "xhuman9-xhuman9-runestone-saveload-game-60.jsonl.gz",
@@ -495,13 +526,7 @@ fn xhuman9_xhuman9_runestone_saveload_game_60() {
     );
 }
 
-/// The round-91 runestone trace (a damaged runestone alive at the save): the setup record's runestone is at 400 hit
-/// points (G24) and the loaded game matches to n 11. At n 12 (cycle, counter 10) the original draws 7 random numbers
-/// and ours 8 (the first 7 values are the same; ours draws one more at the end). Every unit and effect field matches
-/// at n 12, so the missing draw is a look-around, a computer building's training chance or a missile flight step of
-/// that cycle that the original doesn't make; the spec doesn't say which.
 #[test]
-#[ignore = "n 12 (cycle): rng draws, ours 8 and theirs 7; the load-time draw difference is not specified"]
 fn xhuman9_xhuman9_runestone_alive_saveload_game_60() {
     check(
         "xhuman9-xhuman9-runestone-alive-saveload-game-60.jsonl.gz",

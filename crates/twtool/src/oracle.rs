@@ -390,6 +390,10 @@ pub struct Record {
     pub vision: BTreeMap<u16, [Cell; 2]>,
     /// The `game` extra: the game-wide values the record carries (`None` without the extra).
     pub game: Option<GameState>,
+    /// The `aijobs` extra's training group counts: per player (0 to 15), the four [`AIJOB_FIELDS`] counts. The
+    /// extra's other fields (`wanted`, `have`) are read by no comparison. Ours holds a count only for a computer
+    /// player and [`Cell::Skip`] for the rest.
+    pub aijobs: Option<Vec<[Cell; 4]>>,
     /// The `fogmaps` extra ([`FOGMAP_FIELDS`] order), where the record carries it.
     pub fogmaps: Option<Vec<Cell>>,
     /// A `fog` record (`kind` = "fog"): the fog-of-war option was switched to this value in the cycle just run.
@@ -417,6 +421,27 @@ impl GameState {
     fn parse(g: &Value) -> GameState {
         GameState(GAME_FIELDS.map(|f| Cell::of(g.get(f))))
     }
+}
+
+/// The `aijobs` extra's compared fields: a computer player's footmen, archers, siege and knights counts
+/// (`game/save-load.md` SL4 to SL6; `ai/training-research.md`, "Training buildings"), the extra's `count` rows in
+/// this order. The extra's other fields (`wanted`, `have`) are read by no rule here and aren't compared.
+pub const AIJOB_FIELDS: [&str; 4] = ["footmen", "archers", "siege", "knights"];
+
+/// The `aijobs` extra of a record: per player, the [`AIJOB_FIELDS`] counts from its `count` rows (group, then player).
+fn parse_aijobs(a: &Value) -> Vec<[Cell; 4]> {
+    let rows = a.get("count").and_then(Value::as_array);
+    (0..16)
+        .map(|p| {
+            std::array::from_fn(|g| {
+                Cell::of(
+                    rows.and_then(|r| r.get(g))
+                        .and_then(Value::as_array)
+                        .and_then(|r| r.get(p)),
+                )
+            })
+        })
+        .collect()
 }
 
 /// The `fogmaps` extra's compared values, in report order (`vision/fog.md`, "The fog maps" and "The seen map"; vector
@@ -666,8 +691,8 @@ impl Record {
         Ok(Record {
             n,
             counter: v.get("counter").and_then(Value::as_u64),
-            // A `save`, `say` or `fog` record has no generator state.
-            rng: if matches!(kind.as_str(), "save" | "say" | "fog") {
+            // A `save`, `say`, `fog` or `peer` record has no generator state.
+            rng: if matches!(kind.as_str(), "save" | "say" | "fog" | "peer") {
                 0
             } else {
                 int(&v, "rng")? as u32
@@ -693,6 +718,7 @@ impl Record {
             ai_goals,
             vision,
             game: v.get("game").map(GameState::parse),
+            aijobs: v.get("aijobs").map(parse_aijobs),
             fogmaps: v.get("fogmaps").map(parse_fogmaps),
             fog_event: (kind == "fog")
                 .then(|| v.get("value").and_then(Value::as_str).map(|x| x == "on"))
@@ -928,10 +954,12 @@ pub enum Category {
     Game,
     /// The `fogmaps` extra: summaries of the "seen", visible and explored maps.
     FogMaps,
+    /// The `aijobs` extra: the computer players' training group counts.
+    AiJobs,
 }
 
 impl Category {
-    pub const ALL: [Category; 14] = [
+    pub const ALL: [Category; 15] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -946,6 +974,7 @@ impl Category {
         Category::Vision,
         Category::Game,
         Category::FogMaps,
+        Category::AiJobs,
     ];
 
     pub fn name(self) -> &'static str {
@@ -964,6 +993,7 @@ impl Category {
             Category::Vision => "vision",
             Category::Game => "game",
             Category::FogMaps => "fogmaps",
+            Category::AiJobs => "aijobs",
         }
     }
 }
@@ -973,6 +1003,7 @@ fn category(scope: Scope, field: &str) -> Category {
         Scope::Global if GAME_FIELDS.contains(&field) => Category::Game,
         Scope::Global if FOGMAP_FIELDS.contains(&field) => Category::FogMaps,
         Scope::Global => Category::Rng,
+        Scope::Player(_) if AIJOB_FIELDS.contains(&field) => Category::AiJobs,
         Scope::Player(_) => Category::Resources,
         Scope::Effect(_) => Category::Effects,
         Scope::Unit(_) => match field {
@@ -1164,6 +1195,22 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
                     ours: oc.clone(),
                     theirs: tc.clone(),
                 });
+            }
+        }
+    }
+    // The `aijobs` extra, where the trace carries it: a computer player's four training counts.
+    if let (Some(tj), Some(oj)) = (&theirs.aijobs, &ours.aijobs) {
+        for (p, (tp, op)) in tj.iter().zip(oj).enumerate() {
+            for ((&f, tc), oc) in AIJOB_FIELDS.iter().zip(tp).zip(op) {
+                let scope = Scope::Player(p as u8);
+                if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
+                    out.push(Diff {
+                        scope,
+                        field: f,
+                        ours: oc.clone(),
+                        theirs: tc.clone(),
+                    });
+                }
             }
         }
     }
@@ -1367,6 +1414,7 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         ai_goals: w.units.iter().map(|u| (u.slot, ai_goal_cells(u))).collect(),
         vision: w.units.iter().map(|u| (u.slot, vision_cells(u))).collect(),
         game: Some(game_state(w)),
+        aijobs: Some(aijob_cells(w)),
         fogmaps: None,
         fog_event: None,
         fog_option: None,
@@ -1378,6 +1426,20 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
 /// A unit's `hidden_from` and `detected_by` sets as the `vision` extra shows them.
 fn vision_cells(u: &Unit) -> [Cell; 2] {
     [Cell::Int(u.hidden_from as i64), Cell::Int(u.detected_by as i64)]
+}
+
+/// Our world's `aijobs` extra values: a computer player's counts (with the surplus a load left), the rest skipped.
+fn aijob_cells(w: &World) -> Vec<[Cell; 4]> {
+    (0..16)
+        .map(|p| {
+            if w.ai_player(p as u8) {
+                let g = w.ai_groups_with_surplus(p);
+                [g.footmen, g.archers, g.siege, g.knights].map(|n| Cell::Int(n as i64))
+            } else {
+                [(); 4].map(|_| Cell::Skip(""))
+            }
+        })
+        .collect()
 }
 
 /// Our world's `game` extra values.
@@ -1467,6 +1529,9 @@ pub struct Options {
     pub seed: Option<u32>,
     /// The header's `input`, to check each entry's turn against T(i) (trace format, "When a command runs").
     pub input: Vec<Entry>,
+    /// The turn length in cycles of a multiplayer game whose command latency is known (Direct Connect, 12 at speed 8,
+    /// `net/lockstep.md`); `None` for a single-player game.
+    pub turn_length: Option<u64>,
     /// The header's `from`: a windowed trace, compared from this `n` on ("Windowed traces").
     pub from: Option<u64>,
     /// The header's `setup_only`: compare the setup record only ("Setup-only traces").
@@ -1613,8 +1678,14 @@ fn step_to(w: &mut World, at: &mut u64, start_up: &mut bool, to: u64) {
 
 /// Carries out a `turn` record's commands one at a time (a build or job acts on the synced selection as the commands
 /// before it left it), and checks them against the input's timing.
-fn replay_turn(w: &mut World, theirs: &Record, s: &mut Summary) {
+fn replay_turn(w: &mut World, theirs: &Record, s: &mut Summary, multiplayer: bool) {
     for c in &theirs.commands {
+        // spec gap: the trace format doesn't say what a turn's `other` command is. In a multiplayer-launch trace it is
+        // the player leaving: `mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300` lists slot 1's `other` in the turn
+        // of n = 1022, where the slot becomes "nobody" (`net/leave-and-drop.md` LV19).
+        if multiplayer && matches!(c.kind, replay::Kind::Other) {
+            w.leave_game(c.player as usize);
+        }
         if let Some(cmd) = replay::sim_command(w, c) {
             w.turn(std::slice::from_ref(&cmd));
         }
@@ -1639,7 +1710,7 @@ pub fn run(
     out: &mut dyn Write,
 ) -> Result<Summary> {
     let mut s = Summary {
-        timing: replay::Timing::new(&opts.input),
+        timing: replay::Timing::with_turn_length(&opts.input, opts.turn_length),
         from: opts.from,
         setup_only: opts.setup_only,
         ..Default::default()
@@ -1674,6 +1745,11 @@ pub fn run(
             )?;
             break;
         }
+        // A `peer` record (multiplayer launch: a key sent to, or a screenshot of, a peer's window) is a note of what
+        // the harness did on the other machine; it holds no game state and nothing to compare.
+        if theirs.kind == "peer" {
+            continue;
+        }
         s.reached = s.reached.max(theirs.n);
         s.hits += theirs.hits.len();
         s.goal_records += usize::from(!theirs.goals.is_empty());
@@ -1681,7 +1757,7 @@ pub fn run(
             if !in_window && theirs.kind == "turn" && theirs.n < from {
                 // A command turn in the gap: run up to it and carry out its commands; it isn't compared.
                 step_to(w, &mut at, &mut start_up, theirs.n);
-                replay_turn(w, &theirs, &mut s);
+                replay_turn(w, &theirs, &mut s, opts.turn_length.is_some());
                 s.gap_turns += 1;
                 prev = None;
                 continue;
@@ -1735,7 +1811,7 @@ pub fn run(
                 }
                 continue;
             }
-            "turn" => replay_turn(w, &theirs, &mut s),
+            "turn" => replay_turn(w, &theirs, &mut s, opts.turn_length.is_some()),
             // A `say` record follows the turn that carried the cheat word (the turn's `cheat` command ran it). A `fog`
             // record is the fog option switched during play in the cycle just run (`vision/fog.md`, "Fog-of-war
             // option and cheat"; F45). Neither carries units or a generator state: only the option and the `fogmaps`
@@ -2091,6 +2167,7 @@ mod tests {
             // The `vision` and `game` extras aren't written by the synthetic writer.
             r.vision.clear();
             r.game = None;
+            r.aijobs = None;
             // Fields we don't compare are written as absent, and read back as null.
             for c in r.units.values_mut().flatten() {
                 if matches!(c, Cell::Skip(_)) {

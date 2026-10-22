@@ -112,6 +112,9 @@ pub enum Kind {
     /// A header `input` entry that switches the fog-of-war option during play (the game menu): no turn lists it, and
     /// the trace's `fog` record shows where it ran.
     Fog { on: bool },
+    /// A header `input` entry the harness ran on a peer's window (a key sent or a screenshot taken, trace format
+    /// "Multiplayer launch"): not a command, so no turn lists it.
+    Peer,
     /// A command the format doesn't describe.
     Other,
 }
@@ -193,6 +196,7 @@ impl Entry {
             "fog" => Kind::Fog {
                 on: v.get("value").and_then(Value::as_str) == Some("on"),
             },
+            "peer" => Kind::Peer,
             _ => Kind::Other,
         };
         Ok(Entry {
@@ -264,6 +268,9 @@ impl Entry {
                 o.insert("kind".into(), "fog".into());
                 o.insert("value".into(), if *on { "on" } else { "off" }.into());
             }
+            Kind::Peer => {
+                o.insert("kind".into(), "peer".into());
+            }
             Kind::Other => {
                 o.insert("kind".into(), "other".into());
             }
@@ -324,6 +331,7 @@ impl fmt::Display for Entry {
             Kind::Load { name } => write!(f, "load {name}"),
             Kind::Say { word } => write!(f, "say {word}"),
             Kind::Fog { on } => write!(f, "fog {}", if *on { "on" } else { "off" }),
+            Kind::Peer => f.write_str("peer"),
             Kind::Other => f.write_str("other"),
         }
     }
@@ -423,6 +431,7 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         | Kind::Load { .. }
         | Kind::Say { .. }
         | Kind::Fog { .. }
+        | Kind::Peer
         | Kind::Other => return None,
     })
 }
@@ -437,6 +446,28 @@ pub fn predict(input: &[Entry]) -> Vec<u64> {
         .map(|e| {
             handed = handed.max(e.n.unwrap_or(0));
             let t = last.get(&e.player).map_or(handed + 1, |&t| (handed + 1).max(t + 1));
+            last.insert(e.player, t);
+            t
+        })
+        .collect()
+}
+
+/// T(i) in a multiplayer game with turns of `k` cycles (`net/lockstep.md`, "A command issued mid-turn"; traced for
+/// Direct Connect, `k` = 12 at speed 8): the entries handed over after record H(i) are read in the frame of the cycle
+/// with counter c = H(i) - 2 (the counter is n - 2: the start-up cycles come first; traced, `mp-skirmish-bne-mp-skirmish-
+/// nobody-fight-game-1300`, where H = 530 ran in the turn of record 542, not 554) and run in the turn before counter
+/// `k` x ceil(c / `k`) + `k`, that is the turn record n = that counter + 2; a player's later commands run one turn
+/// after each other.
+pub fn predict_turns(input: &[Entry], k: u64) -> Vec<u64> {
+    let mut handed = 0;
+    let mut last: BTreeMap<u8, u64> = BTreeMap::new();
+    input
+        .iter()
+        .map(|e| {
+            handed = handed.max(e.n.unwrap_or(0));
+            let c = handed.saturating_sub(2);
+            let first = k * c.div_ceil(k) + k + 2;
+            let t = last.get(&e.player).map_or(first, |&t| first.max(t + k));
             last.insert(e.player, t);
             t
         })
@@ -461,7 +492,16 @@ pub struct Timing {
 }
 
 impl Timing {
+    #[cfg(test)]
     pub fn new(input: &[Entry]) -> Timing {
+        Timing::with_turn_length(input, None)
+    }
+
+    /// As [`Timing::new`]; with `turn_length` (a multiplayer game) the turns follow [`predict_turns`], the harness's
+    /// `peer` entries have no turn, and the game's own `other` and `cheat` commands are not listed as extra.
+    pub fn with_turn_length(input: &[Entry], turn_length: Option<u64>) -> Timing {
+        let input: Vec<Entry> = input.iter().filter(|e| e.kind != Kind::Peer).cloned().collect();
+        let input = &input[..];
         // A save, load, typed word or fog switch is a menu action: no turn lists it, so it has no turn to check.
         let menu = |e: &Entry| {
             matches!(
@@ -470,14 +510,16 @@ impl Timing {
             )
         };
         let mut t = Timing {
-            input: predict(input)
+            input: turn_length
+                .map_or_else(|| predict(input), |k| predict_turns(input, k))
                 .into_iter()
                 .zip(input.iter().cloned())
                 .filter(|(_, e)| !menu(e))
                 .collect(),
-            menu_driven: input
-                .iter()
-                .any(|e| matches!(e.kind, Kind::Say { .. } | Kind::Fog { .. })),
+            menu_driven: turn_length.is_some()
+                || input
+                    .iter()
+                    .any(|e| matches!(e.kind, Kind::Say { .. } | Kind::Fog { .. })),
             ..Default::default()
         };
         for (i, (_, e)) in t.input.iter().enumerate() {
@@ -720,6 +762,28 @@ mod tests {
         let mut two = vec![select(10, &[1]), select(10, &[2])];
         two[1].player = 0;
         assert_eq!(predict(&two), [11, 11]);
+    }
+
+    #[test]
+    fn multiplayer_turns_follow_the_turn_length() {
+        // Traced (`mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`): a select and a move handed over after record 10
+        // ran in the turns of records 26 and 38 with turns of 12 cycles; the harness's peer entries have no turn.
+        let peer = entry(Some(205), 0, Kind::Peer);
+        let input = [select(10, &[1]), attack(10, 2), peer];
+        assert_eq!(predict_turns(&input[..2], 12), [26, 38]);
+        let mut t = Timing::with_turn_length(&input, Some(12));
+        let ran = |e: &Entry| Entry { n: None, ..e.clone() };
+        t.turn(26, &[ran(&input[0])]);
+        t.turn(38, &[ran(&input[1])]);
+        // The game's own command for the other player is not extra.
+        t.turn(230, &[entry(None, 2, Kind::Other)]);
+        t.finish(400);
+        assert_eq!(
+            (t.on_time, t.disagree.len(), t.extra.len()),
+            (2, 0, 0),
+            "{:?}",
+            t.disagree
+        );
     }
 
     #[test]
