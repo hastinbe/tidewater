@@ -194,6 +194,16 @@
 //! mp-frosty-fjords-bne-30000, mp-frosty-fjords-bne-50000, mp-kaboom-bne-40000 and mp-kaboom-bne-70000 (Enhanced; its capture ends at n 67739, when
 //! the game ended), and mp-dark-paths-bne-classic-1000,
 //! mp-gold-rush-bne-classic-8000 and mp-gold-rush-bne-classic-20000 (Classic mode). xorc12-reach-400 matches in full.
+//!
+//! Round 96: a load clears every dead body's target and no other unit's (SL28 to SL30), puts the owner lists in
+//! descending slot order (`core/unit-slots.md`, "Saved games") and builds the vertical list again unit by unit in slot
+//! order (`orders/orders.md`, "Vertical order"): xorc11-xorc11-r96-targets-saveload-game-300 matches in full, and
+//! xhuman2-xhuman2-r95-upgrading-saveload-aigroups-airesearch-game-1700 no longer needs `unit.target` left out. The
+//! `aiworkers` extra (trace format, "Computer worker jobs") is compared where a trace carries it:
+//! xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000 (SL31, SL32) and the round-95 xhuman8 row match in
+//! full. The second human's commands are checked ("The second human"): mp-battle-2-mp-battle2-nobody-moving matches
+//! in full, and mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400 up to the cycle before the traced player's
+//! generator is flipped (n = 150).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -250,6 +260,10 @@ fn check(file: &str, place: Option<(&str, u8)>, fields: &[&str], limit: Option<u
         assert!(
             !stdout.contains("input timing disagrees") && !stdout.contains("not from the input"),
             "{file}: the turn records and the input disagree\n{stdout}"
+        );
+        assert!(
+            !stdout.contains("second human's command not allowed"),
+            "{file}: a command of the second human breaks the trace format's check\n{stdout}"
         );
     }
 }
@@ -522,6 +536,12 @@ traces! {
     xhuman8_xhuman8_r95_workers_saveload_aigroups_aiworkers_game_1500: ("xhuman8-xhuman8-r95-workers-saveload-aigroups-aiworkers-game-1500.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
     human14_human14_r95_spell_saveload_aigroups_airesearch_game_60: ("human14-human14-r95-spell-saveload-aigroups-airesearch-game-60.jsonl.gz", "Campaign\\Human\\Human14.pud", 26, &[], None),
     mp_battle_2_mp_battle2_nobody_moving_game_goals_vision_1450: (mp, "mp-battle-2-mp-battle2-nobody-moving-game-goals-vision-1450.jsonl.gz", &[], None),
+    xorc11_xorc11_r96_targets_saveload_game_300: ("xorc11-xorc11-r96-targets-saveload-game-300.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
+    xorc10_xorc10_r96_repair_saveload_airesearch_aiworkers_game_6000: ("xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    // The traced player's rng is flipped by the harness at n = 150 (the `peer` record's `old` and `new`), so the generator
+    // differs from n = 151 on: the rows are compared up to the cycle before. With the generator resynced the whole trace
+    // (n = 0 to 400, the drop at turn 170 included) matches.
+    mp_dark_paths_bne_mp_r96_allowsync_desync_rng_game_400: (mp, "mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400.jsonl.gz", &[], Some(150)),
 }
 
 /// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load) matches in full
@@ -537,15 +557,11 @@ fn xhuman8_xhuman8_r94_groups_saveload_aigroups_game_60() {
     );
 }
 
-/// SL27 (a building upgrading at the save marks as its current type, its upgrade's entry staying open). The whole trace
-/// matches through n = 1700 (the done marks, the request for 0x98, the stronghold at n = 1547) with `unit.target` left
-/// out (`--fields=-unit.target`), but not with it: in the loaded game's setup record (n = 0) three idle neutral
-/// critters (type 0x69, owner 15, order 0: slots 1579, 1581 and 1583) have no target in the original, while ours keeps
-/// the saved one (slots 1516, 1512 and 1516, units of players 0 and 1). Ours differs in that field only, from n = 0
-/// to n = 353. `game/save-load.md` ("What a saved game keeps") says a unit's target is kept exactly and is silent on
-/// an idle critter's, so this stays open until the spec says what a load does to it.
+/// SL27 (a building upgrading at the save marks as its current type, its upgrade's entry staying open) and SL29 (a load
+/// clears every dead body's target: the ogre bodies 1579, 1581 and 1583 had targets at the save). The whole trace
+/// matches through n = 1700 (the done marks, the request for 0x98, the stronghold at n = 1547), `unit.target` included,
+/// since round 96.
 #[test]
-#[ignore = "loaded game n=0 (setup): three idle neutral critters (slots 1579, 1581, 1583) have target null in the original, ours keeps the saved target (1516, 1512, 1516) until n=353; spec silent"]
 fn xhuman2_xhuman2_r95_upgrading_saveload_aigroups_airesearch_game_1700() {
     check(
         "xhuman2-xhuman2-r95-upgrading-saveload-aigroups-airesearch-game-1700.jsonl.gz",

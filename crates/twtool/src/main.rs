@@ -1111,6 +1111,10 @@ fn oracle_cmd(
         .as_ref()
         .filter(|m| m.connection == "direct-connect" && header.speed == 8)
         .map(|_| 12);
+    // Trace format, "The second human": a multiplayer launch has its other human's commands checked.
+    opts.multiplayer = header.multiplayer.is_some();
+    opts.local_player = header.local_player;
+    opts.controllers = header.controllers.clone();
     // Trace format, "Windowed traces" and "Setup-only traces"; neither changes the rules.
     opts.from = header.from;
     opts.setup_only = header.setup_only;

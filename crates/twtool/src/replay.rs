@@ -113,8 +113,9 @@ pub enum Kind {
     /// the trace's `fog` record shows where it ran.
     Fog { on: bool },
     /// A header `input` entry the harness ran on a peer's window (a key sent or a screenshot taken, trace format
-    /// "Multiplayer launch"): not a command, so no turn lists it.
-    Peer,
+    /// "The second human"): not a command, so no turn lists it. `action` is the harness's action (`key`, `click`,
+    /// `hold`, `desync`, `shot`, `own-key` or `own-click`).
+    Peer { action: String },
     /// A command the format doesn't describe.
     Other,
 }
@@ -196,7 +197,9 @@ impl Entry {
             "fog" => Kind::Fog {
                 on: v.get("value").and_then(Value::as_str) == Some("on"),
             },
-            "peer" => Kind::Peer,
+            "peer" => Kind::Peer {
+                action: v.get("action").and_then(Value::as_str).unwrap_or_default().to_string(),
+            },
             _ => Kind::Other,
         };
         Ok(Entry {
@@ -268,8 +271,9 @@ impl Entry {
                 o.insert("kind".into(), "fog".into());
                 o.insert("value".into(), if *on { "on" } else { "off" }.into());
             }
-            Kind::Peer => {
+            Kind::Peer { action } => {
                 o.insert("kind".into(), "peer".into());
+                o.insert("action".into(), action.clone().into());
             }
             Kind::Other => {
                 o.insert("kind".into(), "other".into());
@@ -331,7 +335,7 @@ impl fmt::Display for Entry {
             Kind::Load { name } => write!(f, "load {name}"),
             Kind::Say { word } => write!(f, "say {word}"),
             Kind::Fog { on } => write!(f, "fog {}", if *on { "on" } else { "off" }),
-            Kind::Peer => f.write_str("peer"),
+            Kind::Peer { action } => write!(f, "peer {action}"),
             Kind::Other => f.write_str("other"),
         }
     }
@@ -431,13 +435,15 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         | Kind::Load { .. }
         | Kind::Say { .. }
         | Kind::Fog { .. }
-        | Kind::Peer
+        | Kind::Peer { .. }
         | Kind::Other => return None,
     })
 }
 
 /// The turn each input entry runs in, T(i) of "When a command runs": an entry is handed over after record H(i), the
-/// largest `n` among it and the entries before it, and runs in the turn after that, one per player per turn.
+/// largest `n` among it and the entries before it, and runs in the turn after that, one per player per turn. Entries
+/// after a `load` count `n` from the loaded game ("Saves, loads, cheat words and fog"), so a load starts the count
+/// again: T(0) = 0.
 pub fn predict(input: &[Entry]) -> Vec<u64> {
     let mut handed = 0;
     let mut last: BTreeMap<u8, u64> = BTreeMap::new();
@@ -447,6 +453,11 @@ pub fn predict(input: &[Entry]) -> Vec<u64> {
             handed = handed.max(e.n.unwrap_or(0));
             let t = last.get(&e.player).map_or(handed + 1, |&t| (handed + 1).max(t + 1));
             last.insert(e.player, t);
+            // The entries after a load count `n` from the loaded game (the load's own `n` is in the game before).
+            if matches!(e.kind, Kind::Load { .. }) {
+                handed = 0;
+                last.clear();
+            }
             t
         })
         .collect()
@@ -469,6 +480,11 @@ pub fn predict_turns(input: &[Entry], k: u64) -> Vec<u64> {
             let first = k * c.div_ceil(k) + k + 2;
             let t = last.get(&e.player).map_or(first, |&t| first.max(t + k));
             last.insert(e.player, t);
+            // The entries after a load count `n` from the loaded game (the load's own `n` is in the game before).
+            if matches!(e.kind, Kind::Load { .. }) {
+                handed = 0;
+                last.clear();
+            }
             t
         })
         .collect()
@@ -478,7 +494,11 @@ pub fn predict_turns(input: &[Entry], k: u64) -> Vec<u64> {
 #[derive(Clone, Debug, Default)]
 pub struct Timing {
     input: Vec<(u64, Entry)>,
-    /// Per player, the input entries (indices) not yet seen in a turn.
+    /// Per entry of `input`, the number of `load` entries before it: the game it belongs to.
+    games: Vec<usize>,
+    /// The game the turn records are in now: the number of loads seen.
+    game: usize,
+    /// Per player, the input entries (indices) of the current game not yet seen in a turn.
     waiting: BTreeMap<u8, VecDeque<usize>>,
     /// Input entries seen in their predicted turn.
     pub on_time: usize,
@@ -489,10 +509,24 @@ pub struct Timing {
     /// The input has typed words or fog switches: the game queues `cheat` and `other` commands for them that no
     /// input entry names, so those aren't listed as extra.
     menu_driven: bool,
-    /// A multiplayer game: the header's `input` lists only the traced player's commands (trace format, "Header"), so
-    /// the commands of a player with no input entries (the second human, whom `mp-battle-2-mp-battle2-nobody-moving-
-    /// game-goals-vision-1450` has select and move a unit) are not listed as extra either.
-    multiplayer: bool,
+    /// A multiplayer launch: the header's `input` lists only the traced player's commands (trace format, "Header").
+    /// The commands of the second human are checked instead (trace format, "The second human").
+    second_human: Option<SecondHuman>,
+    /// Commands of the second human that break the trace format's check, or come under a player number that is neither
+    /// the local player nor the second human.
+    pub second_human_errors: Vec<String>,
+}
+
+/// What a comparer checks of the second human's commands (trace format, "The second human", "What a comparer does").
+#[derive(Clone, Debug, Default)]
+struct SecondHuman {
+    /// The traced player.
+    local: u8,
+    /// The second human: the `controllers` entry that is `"human"` and isn't `local`; `None` when there is none.
+    other: Option<u8>,
+    /// The smallest `n` of a trigger (a `peer` input entry with action `key`, `click`, `hold` or `desync`); a command
+    /// of the second human must come in a turn with a greater `n`. `None` when there is no trigger.
+    first_trigger: Option<u64>,
 }
 
 impl Timing {
@@ -504,7 +538,11 @@ impl Timing {
     /// As [`Timing::new`]; with `turn_length` (a multiplayer game) the turns follow [`predict_turns`], the harness's
     /// `peer` entries have no turn, and the game's own `other` and `cheat` commands are not listed as extra.
     pub fn with_turn_length(input: &[Entry], turn_length: Option<u64>) -> Timing {
-        let input: Vec<Entry> = input.iter().filter(|e| e.kind != Kind::Peer).cloned().collect();
+        let input: Vec<Entry> = input
+            .iter()
+            .filter(|e| !matches!(e.kind, Kind::Peer { .. }))
+            .cloned()
+            .collect();
         let input = &input[..];
         // A save, load, typed word or fog switch is a menu action: no turn lists it, so it has no turn to check.
         let menu = |e: &Entry| {
@@ -513,24 +551,73 @@ impl Timing {
                 Kind::Save { .. } | Kind::Load { .. } | Kind::Say { .. } | Kind::Fog { .. }
             )
         };
+        let mut loads = 0;
+        let games: Vec<usize> = input
+            .iter()
+            .map(|e| {
+                loads += usize::from(matches!(e.kind, Kind::Load { .. }));
+                loads
+            })
+            .collect();
+        let timed: Vec<((u64, Entry), usize)> = turn_length
+            .map_or_else(|| predict(input), |k| predict_turns(input, k))
+            .into_iter()
+            .zip(input.iter().cloned())
+            .zip(games)
+            .filter(|((_, e), _)| !menu(e))
+            .collect();
         let mut t = Timing {
-            input: turn_length
-                .map_or_else(|| predict(input), |k| predict_turns(input, k))
-                .into_iter()
-                .zip(input.iter().cloned())
-                .filter(|(_, e)| !menu(e))
-                .collect(),
+            games: timed.iter().map(|(_, g)| *g).collect(),
+            input: timed.into_iter().map(|(te, _)| te).collect(),
             menu_driven: turn_length.is_some()
                 || input
                     .iter()
                     .any(|e| matches!(e.kind, Kind::Say { .. } | Kind::Fog { .. })),
-            multiplayer: turn_length.is_some(),
             ..Default::default()
         };
-        for (i, (_, e)) in t.input.iter().enumerate() {
-            t.waiting.entry(e.player).or_default().push_back(i);
-        }
+        t.queue_game();
         t
+    }
+
+    /// Queues the current game's input entries to be seen.
+    fn queue_game(&mut self) {
+        self.waiting.clear();
+        for (i, (_, e)) in self.input.iter().enumerate() {
+            if self.games[i] == self.game {
+                self.waiting.entry(e.player).or_default().push_back(i);
+            }
+        }
+    }
+
+    /// A loaded `setup` record: the turn records count `n` from the loaded game now, and the input entries after the
+    /// `load` with them. The entries of the game before are checked as at the end of a trace (`last` is the last `n`
+    /// of that game).
+    pub fn loaded(&mut self, last: u64) {
+        self.finish(last);
+        self.game += 1;
+        self.queue_game();
+    }
+
+    /// Turns on the check of the second human's commands for a multiplayer launch: `input` is the header's whole
+    /// `input` (the triggers are its `peer` entries), `local` the traced player and `controllers` the header's.
+    pub fn check_second_human(&mut self, input: &[Entry], local: u8, controllers: &[String]) {
+        let other = controllers
+            .iter()
+            .enumerate()
+            .position(|(p, c)| c == "human" && p != local as usize)
+            .map(|p| p as u8);
+        let first_trigger = input
+            .iter()
+            .filter(|e| {
+                matches!(&e.kind, Kind::Peer { action } if matches!(action.as_str(), "key" | "click" | "hold" | "desync"))
+            })
+            .filter_map(|e| e.n)
+            .min();
+        self.second_human = Some(SecondHuman {
+            local,
+            other,
+            first_trigger,
+        });
     }
 
     pub fn is_empty(&self) -> bool {
@@ -552,10 +639,29 @@ impl Timing {
                             .push(format!("input entry {} ({c}) ran in turn {n}, T(i) = {t}", i + 1));
                     }
                 }
+                _ if self.second_human.as_ref().is_some_and(|b| c.player != b.local) => {
+                    self.check_other_player(n, c);
+                }
                 _ if self.menu_driven && matches!(c.kind, Kind::Cheat { .. } | Kind::Other) => {}
-                _ if self.multiplayer && !self.input.iter().any(|(_, e)| e.player == c.player) => {}
                 _ => self.extra.push(format!("turn {n}: {c}")),
             }
+        }
+    }
+
+    /// A command of a player that isn't the traced one, in a multiplayer launch: only the second human may give
+    /// one, and only in a turn after some trigger.
+    fn check_other_player(&mut self, n: u64, c: &Entry) {
+        let Some(b) = &self.second_human else { return };
+        if Some(c.player) != b.other {
+            self.second_human_errors.push(format!(
+                "turn {n}: {c} (player {} is neither the local player nor the second human)",
+                c.player
+            ));
+        } else if !b.first_trigger.is_some_and(|t| n > t) {
+            self.second_human_errors.push(match b.first_trigger {
+                Some(t) => format!("turn {n}: {c} (the first trigger is at n={t})"),
+                None => format!("turn {n}: {c} (the trace has no trigger)"),
+            });
         }
     }
 
@@ -774,14 +880,14 @@ mod tests {
     fn multiplayer_turns_follow_the_turn_length() {
         // Traced (`mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`): a select and a move handed over after record 10
         // ran in the turns of records 26 and 38 with turns of 12 cycles; the harness's peer entries have no turn.
-        let peer = entry(Some(205), 0, Kind::Peer);
-        let input = [select(10, &[1]), attack(10, 2), peer];
+        let input = [select(10, &[1]), attack(10, 2), peer(205, "key")];
         assert_eq!(predict_turns(&input[..2], 12), [26, 38]);
         let mut t = Timing::with_turn_length(&input, Some(12));
+        t.check_second_human(&input, 1, &controllers(&["nobody", "human", "human"]));
         let ran = |e: &Entry| Entry { n: None, ..e.clone() };
         t.turn(26, &[ran(&input[0])]);
         t.turn(38, &[ran(&input[1])]);
-        // The game's own command for the other player is not extra.
+        // The second human's command after the trigger is fine.
         t.turn(230, &[entry(None, 2, Kind::Other)]);
         t.finish(400);
         assert_eq!(
@@ -790,6 +896,94 @@ mod tests {
             "{:?}",
             t.disagree
         );
+        assert!(t.second_human_errors.is_empty(), "{:?}", t.second_human_errors);
+    }
+
+    fn peer(n: u64, action: &str) -> Entry {
+        entry(
+            Some(n),
+            1,
+            Kind::Peer {
+                action: action.to_string(),
+            },
+        )
+    }
+
+    fn controllers(c: &[&str]) -> Vec<String> {
+        names(c)
+    }
+
+    /// A multiplayer launch with the traced player 1 and the second human 2.
+    fn launch(input: &[Entry]) -> Timing {
+        let mut t = Timing::with_turn_length(input, Some(12));
+        t.check_second_human(input, 1, &controllers(&["nobody", "human", "human", "computer"]));
+        t
+    }
+
+    /// Trace format, "The second human": a command of the second human must come in a turn after some trigger (a `peer`
+    /// entry with action `key`, `click`, `hold` or `desync`).
+    #[test]
+    fn the_second_humans_commands_need_an_earlier_trigger() {
+        let b_select = entry(None, 2, Kind::Select { units: vec![7] });
+        // No trigger at all: any command of the second human is a difference.
+        let mut t = launch(&[]);
+        t.turn(100, std::slice::from_ref(&b_select));
+        assert_eq!(t.second_human_errors.len(), 1, "{:?}", t.second_human_errors);
+        // A trigger at n = 60 and commands in later turns: fine, whatever the delay.
+        let mut t = launch(&[peer(60, "click")]);
+        t.turn(61, std::slice::from_ref(&b_select));
+        t.turn(500, &[entry(None, 2, Kind::Other)]);
+        assert!(t.second_human_errors.is_empty(), "{:?}", t.second_human_errors);
+        // A command in the trigger's own turn, or before it, is a difference.
+        t.turn(60, std::slice::from_ref(&b_select));
+        assert_eq!(t.second_human_errors.len(), 1);
+        // Actions that can't make a command aren't triggers.
+        let mut t = launch(&[peer(10, "shot"), peer(10, "own-key"), peer(10, "own-click")]);
+        t.turn(100, std::slice::from_ref(&b_select));
+        assert_eq!(t.second_human_errors.len(), 1);
+        // Hold, desync and key are triggers.
+        for action in ["hold", "desync", "key"] {
+            let mut t = launch(&[peer(10, action)]);
+            t.turn(11, std::slice::from_ref(&b_select));
+            assert!(t.second_human_errors.is_empty(), "{action}");
+        }
+    }
+
+    /// Trace format, "Saves, loads, cheat words and fog": input entries after a `load` count `n` from the loaded game,
+    /// and the turn records after the loaded `setup` record do too.
+    #[test]
+    fn input_after_a_load_counts_from_the_loaded_game() {
+        let load = entry(Some(30), 1, Kind::Load { name: "s".into() });
+        let input = [select(10, &[1]), load, select(5, &[2])];
+        assert_eq!(predict(&input), [11, 31, 6]);
+        let mut t = Timing::new(&input);
+        let ran = |e: &Entry| Entry { n: None, ..e.clone() };
+        t.turn(11, &[ran(&input[0])]);
+        t.loaded(40);
+        t.turn(6, &[ran(&input[2])]);
+        t.finish(100);
+        assert_eq!(
+            (t.on_time, t.disagree.len(), t.extra.len()),
+            (2, 0, 0),
+            "{:?}",
+            t.disagree
+        );
+        // An entry before the load that no turn listed is reported when the load comes.
+        let mut t = Timing::new(&input);
+        t.loaded(40);
+        assert_eq!(t.disagree.len(), 1);
+    }
+
+    #[test]
+    fn a_command_under_another_player_number_is_a_difference() {
+        let mut t = launch(&[peer(10, "key")]);
+        // Player 3 is a computer player, player 5 is nobody: neither gives a command.
+        t.turn(50, &[entry(None, 3, Kind::Other), entry(None, 5, Kind::Other)]);
+        assert_eq!(t.second_human_errors.len(), 2, "{:?}", t.second_human_errors);
+        // The traced player's commands are still only its input entries.
+        let mut t = launch(&[peer(10, "key")]);
+        t.turn(50, &[entry(None, 1, Kind::Select { units: vec![4] })]);
+        assert_eq!(t.extra.len(), 1);
     }
 
     #[test]

@@ -400,6 +400,8 @@ pub struct Record {
     /// The `airesearch` extra: per player 0 to 7, the [`AIRESEARCH_FIELDS`] values of a computer player. A player the
     /// trace doesn't list, or that isn't a computer player of ours, is all [`Cell::Skip`].
     pub airesearch: Option<Vec<[Cell; 15]>>,
+    /// The `aiworkers` extra (trace format, "Computer worker jobs"); `None` without it.
+    pub aiworkers: Option<AiWorkers>,
     /// The `fogmaps` extra ([`FOGMAP_FIELDS`] order), where the record carries it.
     pub fogmaps: Option<Vec<Cell>>,
     /// A `fog` record (`kind` = "fog"): the fog-of-war option was switched to this value in the cycle just run.
@@ -564,6 +566,88 @@ fn parse_airesearch(a: &Value) -> Vec<[Cell; 15]> {
             cells.try_into().expect("fifteen cells")
         })
         .collect()
+}
+
+/// The `aiworkers` extra's per-player compared fields (trace format, "Computer worker jobs"): the three job counts as
+/// 16-bit numbers, the hall cooldown and the buildings in progress (`"0x3a=2,0x40=1"`: type and count, ascending, a
+/// missing type is 0).
+pub const AIWORKER_FIELDS: [&str; 5] = [
+    "aiw_miners",
+    "aiw_lumberjacks",
+    "aiw_repairers",
+    "aiw_hall_cooldown",
+    "aiw_building",
+];
+/// The `aiworkers` extra's per-unit compared fields: the job bits and the harvest mode.
+pub const AIWORKER_UNIT_FIELDS: [&str; 2] = ["aiw_job", "aiw_mode"];
+
+/// A record's `aiworkers` extra: per player (0 to 15) the [`AIWORKER_FIELDS`], and per unit slot that has a job the
+/// [`AIWORKER_UNIT_FIELDS`] (the trace's `[job, mode]`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AiWorkers {
+    pub players: Vec<[Cell; 5]>,
+    pub jobs: BTreeMap<u16, [Cell; 2]>,
+}
+
+impl AiWorkers {
+    /// The `building` object as per-player texts: the types with a nonzero count, ascending by type number.
+    fn building_texts(counts: impl Iterator<Item = (usize, u8, u64)>) -> Vec<Cell> {
+        let mut per: Vec<BTreeMap<u8, u64>> = vec![BTreeMap::new(); 16];
+        for (p, t, n) in counts {
+            if n != 0 && p < 16 {
+                per[p].insert(t, n);
+            }
+        }
+        per.into_iter()
+            .map(|m| {
+                Cell::Text(
+                    m.iter()
+                        .map(|(t, n)| format!("{t:#04x}={n}"))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )
+            })
+            .collect()
+    }
+
+    fn parse(a: &Value) -> AiWorkers {
+        let list = |k: &str, p: usize| Cell::of(a.get(k).and_then(Value::as_array).and_then(|r| r.get(p)));
+        // Keys are "P:0xTT", the player in decimal and the type in two lower-case hex digits.
+        let counts = a
+            .get("building")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, v)| {
+                let (p, t) = k.split_once(':')?;
+                let t = u8::from_str_radix(t.strip_prefix("0x")?, 16).ok()?;
+                Some((p.parse::<usize>().ok()?, t, v.as_u64()?))
+            });
+        let building = AiWorkers::building_texts(counts);
+        let players = (0..16)
+            .map(|p| {
+                [
+                    list("miners", p),
+                    list("lumberjacks", p),
+                    list("repairers", p),
+                    list("hall_cooldown", p),
+                    building[p].clone(),
+                ]
+            })
+            .collect();
+        let jobs = a
+            .get("jobs")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, v)| {
+                let slot = k.parse::<u16>().ok()?;
+                let v = v.as_array()?;
+                Some((slot, [Cell::of(v.first()), Cell::of(v.get(1))]))
+            })
+            .collect();
+        AiWorkers { players, jobs }
+    }
 }
 
 /// The `fogmaps` extra's compared values, in report order (`vision/fog.md`, "The fog maps" and "The seen map"; vector
@@ -843,6 +927,7 @@ impl Record {
             aijobs: v.get("aijobs").map(parse_aijobs),
             aigroups: v.get("aigroups").map(parse_aigroups),
             airesearch: v.get("airesearch").map(parse_airesearch),
+            aiworkers: v.get("aiworkers").map(AiWorkers::parse),
             fogmaps: v.get("fogmaps").map(parse_fogmaps),
             fog_event: (kind == "fog")
                 .then(|| v.get("value").and_then(Value::as_str).map(|x| x == "on"))
@@ -1085,10 +1170,12 @@ pub enum Category {
     AiGroups,
     /// The `airesearch` extra: research requests, done marks and the state they read.
     AiResearch,
+    /// The `aiworkers` extra: the computer workers' job counts and jobs.
+    AiWorkers,
 }
 
 impl Category {
-    pub const ALL: [Category; 17] = [
+    pub const ALL: [Category; 18] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -1106,6 +1193,7 @@ impl Category {
         Category::AiJobs,
         Category::AiGroups,
         Category::AiResearch,
+        Category::AiWorkers,
     ];
 
     pub fn name(self) -> &'static str {
@@ -1127,6 +1215,7 @@ impl Category {
             Category::AiJobs => "aijobs",
             Category::AiGroups => "aigroups",
             Category::AiResearch => "airesearch",
+            Category::AiWorkers => "aiworkers",
         }
     }
 }
@@ -1139,6 +1228,7 @@ fn category(scope: Scope, field: &str) -> Category {
         Scope::Player(_) if AIJOB_FIELDS.contains(&field) => Category::AiJobs,
         Scope::Player(_) if AIGROUP_FIELDS.contains(&field) => Category::AiGroups,
         Scope::Player(_) if AIRESEARCH_FIELDS.contains(&field) => Category::AiResearch,
+        Scope::Player(_) if AIWORKER_FIELDS.contains(&field) => Category::AiWorkers,
         Scope::Player(_) => Category::Resources,
         Scope::Effect(_) => Category::Effects,
         Scope::Unit(_) => match field {
@@ -1149,6 +1239,7 @@ fn category(scope: Scope, field: &str) -> Category {
             "anim" | "frame" | "wait" => Category::Anim,
             f if AI_GOAL_FIELDS.contains(&f) => Category::AiGoals,
             f if VISION_FIELDS.contains(&f) => Category::Vision,
+            f if AIWORKER_UNIT_FIELDS.contains(&f) => Category::AiWorkers,
             _ => Category::Stats,
         },
     }
@@ -1381,6 +1472,42 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             }
         }
     }
+    // The `aiworkers` extra: the counts, the hall cooldown and the buildings in progress exactly, as 16-bit numbers
+    // (trace format, "Comparing extras"), and the jobs only for slots that are in the same record's `units`.
+    if let (Some(tj), Some(oj)) = (&theirs.aiworkers, &ours.aiworkers) {
+        for (p, (tp, op)) in tj.players.iter().zip(&oj.players).enumerate() {
+            for ((&f, tc), oc) in AIWORKER_FIELDS.iter().zip(tp).zip(op) {
+                let scope = Scope::Player(p as u8);
+                if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
+                    out.push(Diff {
+                        scope,
+                        field: f,
+                        ours: oc.clone(),
+                        theirs: tc.clone(),
+                    });
+                }
+            }
+        }
+        let slots: BTreeSet<u16> = tj.jobs.keys().chain(oj.jobs.keys()).copied().collect();
+        for slot in slots {
+            if !theirs.units.contains_key(&slot) {
+                continue;
+            }
+            let none = [Cell::Null, Cell::Null];
+            let (tc, oc) = (tj.jobs.get(&slot).unwrap_or(&none), oj.jobs.get(&slot).unwrap_or(&none));
+            for ((&f, tc), oc) in AIWORKER_UNIT_FIELDS.iter().zip(tc).zip(oc) {
+                let scope = Scope::Unit(slot);
+                if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
+                    out.push(Diff {
+                        scope,
+                        field: f,
+                        ours: oc.clone(),
+                        theirs: tc.clone(),
+                    });
+                }
+            }
+        }
+    }
     // The `fogmaps` extra, where the trace carries it.
     if let (Some(tf), Some(of)) = (&theirs.fogmaps, &ours.fogmaps) {
         for ((&f, tc), oc) in FOGMAP_FIELDS.iter().zip(tf).zip(of) {
@@ -1584,6 +1711,7 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         aijobs: Some(aijob_cells(w)),
         aigroups: Some(aigroup_cells(w)),
         airesearch: Some(airesearch_cells(w)),
+        aiworkers: Some(aiworker_cells(w)),
         fogmaps: None,
         fog_event: None,
         fog_option: None,
@@ -1686,6 +1814,53 @@ fn airesearch_cells(w: &World) -> Vec<[Cell; 15]> {
         .collect()
 }
 
+/// Our world's `aiworkers` extra values (trace format, "Computer worker jobs"). The job bits are 1 gold, 2 lumber,
+/// 8 a farm or town hall the worker's own steps started, 16 a build-list entry and 32 repair; the mode is the worker's
+/// gather mode, 128 gold and 64 lumber. A worker with no job isn't listed.
+fn aiworker_cells(w: &World) -> AiWorkers {
+    use tidewater_sim::worker_ai::AiJob;
+    let count = |p: usize, f: fn(&tidewater_sim::ai::AiPlayer) -> i64| Cell::Int(w.ai.get(p).map_or(0, f));
+    let building = AiWorkers::building_texts(w.ai.iter().enumerate().flat_map(|(p, a)| {
+        a.in_progress
+            .iter()
+            .enumerate()
+            .map(move |(t, &n)| (p, t as u8, u64::from(n)))
+    }));
+    let players = (0..16)
+        .map(|p| {
+            [
+                count(p, |a| i64::from(a.miners)),
+                count(p, |a| i64::from(a.lumberjacks)),
+                count(p, |a| i64::from(a.repairers)),
+                count(p, |a| i64::from(a.hall_cooldown)),
+                building[p].clone(),
+            ]
+        })
+        .collect();
+    let jobs = w
+        .units
+        .iter()
+        .filter(|u| u.owner < 8)
+        .filter_map(|u| {
+            let bits = match u.ai_job {
+                AiJob::None => return None,
+                AiJob::Gold => 1,
+                AiJob::Lumber => 2,
+                AiJob::Build { .. } => 8,
+                AiJob::List { .. } => 16,
+                AiJob::Repair => 32,
+            };
+            let mode = match u.gather {
+                tidewater_sim::Gather::None => 0,
+                tidewater_sim::Gather::Gold => 128,
+                tidewater_sim::Gather::Lumber => 64,
+            };
+            Some((u.slot, [Cell::Int(bits), Cell::Int(mode)]))
+        })
+        .collect();
+    AiWorkers { players, jobs }
+}
+
 /// Our world's `game` extra values.
 fn game_state(w: &World) -> GameState {
     GameState([
@@ -1776,6 +1951,11 @@ pub struct Options {
     /// The turn length in cycles of a multiplayer game whose command latency is known (Direct Connect, 12 at speed 8,
     /// `net/lockstep.md`); `None` for a single-player game.
     pub turn_length: Option<u64>,
+    /// A multiplayer launch (the header has the multiplayer fields): the second human's commands are checked
+    /// ("The second human"), against the header's `local_player` and `controllers`.
+    pub multiplayer: bool,
+    pub local_player: u8,
+    pub controllers: Vec<String>,
     /// The header's `from`: a windowed trace, compared from this `n` on ("Windowed traces").
     pub from: Option<u64>,
     /// The header's `setup_only`: compare the setup record only ("Setup-only traces").
@@ -1962,6 +2142,10 @@ pub fn run(
         setup_only: opts.setup_only,
         ..Default::default()
     };
+    if opts.multiplayer {
+        s.timing
+            .check_second_human(&opts.input, opts.local_player, &opts.controllers);
+    }
     let seed = opts.seed.unwrap_or(w.rng.state);
     // Theirs and ours after the previous record compared; `None` across a windowed trace's gap.
     let mut prev = Some((seed, seed));
@@ -2038,6 +2222,9 @@ pub fn run(
                     };
                     w.restore(bytes, theirs.rng)
                         .map_err(|e| anyhow::anyhow!("record n={}: loading `{name}`: {e:?}", theirs.n))?;
+                    // The turn records and the input entries after the `load` count `n` from the loaded game.
+                    s.timing.loaded(s.reached);
+                    s.reached = 0;
                     at = 0;
                     start_up = false;
                     prev = Some((theirs.rng, theirs.rng));
@@ -2208,6 +2395,9 @@ fn print_replay(out: &mut dyn Write, s: &Summary) -> Result<()> {
     }
     for e in &t.extra {
         writeln!(out, "  not from the input: {e}")?;
+    }
+    for e in &t.second_human_errors {
+        writeln!(out, "  second human's command not allowed: {e}")?;
     }
     Ok(())
 }
@@ -2417,6 +2607,7 @@ mod tests {
             r.aijobs = None;
             r.aigroups = None;
             r.airesearch = None;
+            r.aiworkers = None;
             // Fields we don't compare are written as absent, and read back as null.
             for c in r.units.values_mut().flatten() {
                 if matches!(c, Cell::Skip(_)) {
@@ -3106,5 +3297,57 @@ mod tests {
         let mut plain = theirs.clone();
         plain.ai_goals.clear();
         assert!(compare(&plain, &ours, &f, &mut skipped).is_empty());
+    }
+
+    /// The `aiworkers` extra (trace format, "Computer worker jobs", "Comparing extras"): the counts as 16-bit numbers,
+    /// `hall_cooldown` and `building` exactly (a missing key is 0), and `jobs` only for slots in the record's `units`.
+    #[test]
+    fn compares_the_computer_worker_jobs() {
+        let ints = |v: &[(usize, u32)]| {
+            let mut a = [0u32; 16];
+            for &(p, n) in v {
+                a[p] = n;
+            }
+            format!("{a:?}")
+        };
+        let line = format!(
+            r#"{{"n":9,"kind":"cycle","rng":5,"units":[{{"slot":1423,"hp":30}},{{"slot":1448,"hp":30}}],"effects":[],"aiworkers":{{"miners":{},"lumberjacks":{},"repairers":{},"hall_cooldown":{},"building":{{"6:0x40":65535,"0:0x3a":2}},"jobs":{{"1423":[32,128],"1448":[16,0],"1999":[1,128]}}}}}}"#,
+            ints(&[(6, 2)]),
+            ints(&[]),
+            ints(&[(6, 65535)]),
+            ints(&[(3, 7)]),
+        );
+        let theirs = Record::parse(&line).unwrap();
+        let aw = theirs.aiworkers.clone().unwrap();
+        assert_eq!(aw.players[6][2], Cell::Int(65535));
+        assert_eq!(aw.players[6][4], Cell::Text("0x40=65535".into()));
+        assert_eq!(aw.players[0][4], Cell::Text("0x3a=2".into()));
+        assert_eq!(aw.players[1][4], Cell::Text(String::new()), "no key is 0");
+        assert_eq!(aw.jobs[&1423], [Cell::Int(32), Cell::Int(128)]);
+        let mut ours = theirs.clone();
+        let mut skipped = BTreeSet::new();
+        let f = Filter::default();
+        // Slot 1999 isn't in `units`: its job isn't compared, whatever ours says.
+        ours.aiworkers.as_mut().unwrap().jobs.remove(&1999);
+        assert!(compare(&theirs, &ours, &f, &mut skipped).is_empty());
+        // A count that wraps differently, a building count and a job bit each differ.
+        let o = ours.aiworkers.as_mut().unwrap();
+        o.players[6][2] = Cell::Int(65534);
+        o.players[6][4] = Cell::Text("0x40=1".into());
+        o.jobs.insert(1448, [Cell::Int(8), Cell::Int(0)]);
+        o.jobs.remove(&1423);
+        let d = compare(&theirs, &ours, &f, &mut skipped);
+        let named: Vec<_> = d.iter().map(|d| (d.scope, d.field, d.category())).collect();
+        assert_eq!(
+            named,
+            [
+                (Scope::Player(6), "aiw_repairers", Category::AiWorkers),
+                (Scope::Player(6), "aiw_building", Category::AiWorkers),
+                (Scope::Unit(1423), "aiw_job", Category::AiWorkers),
+                (Scope::Unit(1423), "aiw_mode", Category::AiWorkers),
+                (Scope::Unit(1448), "aiw_job", Category::AiWorkers),
+            ]
+        );
+        assert!(compare(&theirs, &ours, &Filter::parse("-aiworkers"), &mut skipped).is_empty());
     }
 }
