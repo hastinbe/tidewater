@@ -9,7 +9,7 @@
 //! |---|---|
 //! | Map | the positional map, as for a single-player game |
 //! | Rules (Enhanced, or Classic, which is opt-in) and the game's options, fog of war among them | `--setup custom:fog=off,classic` |
-//! | Humans, their races, Computer rows, Fixed Order, game speed, network delay, seed | `--lobby humans=2,races=human/orc,computers=1,fixed,speed=8,row=4,seed=N` |
+//! | Humans, their races, Computer rows, Fixed Order, game speed, network delay, seed | `--lobby humans=2,races=human/orc,computers=1,fixed,speed=8,row=3,seed=N` |
 //!
 //! The seed is the host's choice, sent to every machine (the seed exchange): with none given it is the host's clock.
 
@@ -19,7 +19,7 @@ use anyhow::{Context, Result, bail};
 use tidewater_formats::install::Install;
 use tidewater_sim::setup::{Lobby, Setup, race};
 
-use super::lockstep::TRACED_DIRECT_CONNECT_ROW;
+use super::lockstep::DIRECT_IP_ROW;
 use super::proto::{DEFAULT_PORT, GameConfig, Identity, data_hash};
 use super::tcp::{self, Wire};
 use crate::storage::Store;
@@ -62,16 +62,16 @@ impl Default for LobbySpec {
             computers: 0,
             fixed_order: false,
             speed: tidewater_sim::timing::ENHANCED_MS.len() as u8 - 1,
-            // The traced Direct Connect game: 12 cycles to a turn at speed 8. The spec's gap-fill for Direct IP is
-            // row 3 (8 cycles); `row=3` picks it (`lockstep::DIRECT_IP_ROW`, `docs/design/network.md`).
-            row: TRACED_DIRECT_CONNECT_ROW,
+            // The spec's gap-fill for Direct IP: row 3, 8 cycles to a turn at speed 8 (`net/lockstep.md`, "Which
+            // row"). The traced Direct Connect game ran row 4 (12 cycles); `row=4` picks it.
+            row: DIRECT_IP_ROW,
             seed: None,
         }
     }
 }
 
 impl LobbySpec {
-    /// Reads `humans=2,races=human/orc,computers=1,fixed,speed=8,row=4,seed=N`; every part is optional.
+    /// Reads `humans=2,races=human/orc,computers=1,fixed,speed=8,row=3,seed=N`; every part is optional.
     pub fn parse(s: &str) -> Result<LobbySpec, String> {
         let mut spec = LobbySpec::default();
         for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -319,7 +319,7 @@ mod tests {
         );
         assert_eq!(LobbySpec::parse("").unwrap(), LobbySpec::default());
         let d = LobbySpec::default();
-        assert_eq!((d.humans, d.speed, d.row), (2, 8, 4));
+        assert_eq!((d.humans, d.speed, d.row), (2, 8, 3));
     }
 
     #[test]
@@ -358,7 +358,7 @@ mod tests {
         let mut setup = Setup::default();
         let c = LobbySpec::default().config("m.pud".into(), 5, setup, 1, "");
         assert!(describe(&c).contains("Enhanced rules"));
-        assert!(describe(&c).contains("turn length 12 cycles"), "{}", describe(&c));
+        assert!(describe(&c).contains("turn length 8 cycles"), "{}", describe(&c));
         setup.enhanced = false;
         let c = LobbySpec::default().config("m.pud".into(), 5, setup, 1, "");
         assert!(describe(&c).contains("Classic rules (opt-in"));

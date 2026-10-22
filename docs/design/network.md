@@ -87,9 +87,9 @@ the end; `Hello` is first so a program of another protocol version can still rea
   read at counter c runs in the turn before counter `K * ceil(c / K) + K`. The vectors in the spec (MP-L6 and the rest)
   are unit tests.
 - **Turn length.** `K = ceil(T * 13 / L)` for Enhanced rules (L the speed's cycle length in ms) and `ceil(T * 60 / S)`
-  for Classic. T comes from the delay row: row 4 gives K = 12 at speed 8, the traced Direct Connect game. The spec's
-  gap-fill for Direct IP is row 3 (K = 8); `--lobby row=3` picks it. The default is 4 because that is the row the
-  traces measured.
+  for Classic. T comes from the delay row. The default is the spec's gap-fill for Direct IP, row 3 (K = 8 at speed 8, about
+  104 ms a turn); the creator's row applies to every player. Row 4 (K = 12) is the traced Direct Connect game, which
+  the tests use for the spec's vectors; `--lobby row=4` picks it. Local Network will use row 1 when it lands.
 - **Game speed.** The world starts at Normal. The lobby's speed reaches every machine as `Command::Speed` commands in
   the first turn, so the recording replays at the same speed. Turn 1's length already uses the lobby's speed.
 - **Stalls** (`lockstep.md`, "Stalls"). A turn waits until every human's packet for it has arrived. Over 2 s the cursor
@@ -118,7 +118,6 @@ the end; `Hello` is first so a program of another protocol version can still rea
 - **The host leaving.** The original's players each hold every connection and have no host to lose. A joiner that loses
   the host drops every other player where it stands and plays on alone. The other joiners may do the same at slightly
   different turns, so they can drop one another through the sync check. Host migration is not built.
-- **Default delay row** is 4, not the spec's gap-fill of 3 (see above).
 - **The "Waiting for players" dialog** is a line on the notice bar; the dialog is a lobby-phase screen.
 - **"Eliminated" (entry 63)** shows from the victory check, not from the leave; the check still reads the local player
   in places (the open questions in `multiplayer-determinism.md`).
