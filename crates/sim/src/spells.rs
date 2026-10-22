@@ -1474,6 +1474,14 @@ impl World {
                 true
             }
             Fx::Whirl { line, life, goal } => {
+                // Round 104 (`sweep-human14`, SW2a): the step that takes the lifetime to 0 doesn't move the whirlwind and
+                // leaves it in its slot; the next update touches a wall on its tile, as the cloud's does, and frees the
+                // slot.
+                if *life == 0 {
+                    let t = tile_of(m.pos);
+                    self.hit_wall(t, m.damage);
+                    return self.gone(n);
+                }
                 if age == 0 || !age.is_multiple_of(3) {
                     return true;
                 }
@@ -1483,9 +1491,7 @@ impl World {
                 }
                 *life -= 1;
                 if *life == 0 {
-                    let t = tile_of(m.pos);
-                    self.hit_wall(t, m.damage);
-                    return self.gone(n);
+                    return true;
                 }
                 line.step(&mut m.pos, 1);
                 if m.pos == *goal {
@@ -3131,6 +3137,48 @@ mod tests {
         run(&mut w, 1 + 3 * 12);
         let lost = 1000 - hp(&w, k);
         assert!((12..=24).contains(&lost), "{lost}");
+    }
+
+    /// Round 104, SW2a: the whirlwind's last step (the lifetime reaching 0) doesn't move it and leaves it in its
+    /// slot; the slot is free in the next cycle. It holds its slot for 2401 cycles counting the one it was made in.
+    #[test]
+    fn a_whirlwind_ends_without_moving_and_frees_its_slot_a_cycle_later() {
+        let mut w = lab(32);
+        let c = (10 * 32 + 16, 10 * 32 + 16);
+        let fx = Fx::Whirl {
+            line: Line::new(c, (c.0 + 8000, c.1)),
+            life: 800,
+            goal: (c.0 + 8000, c.1),
+        };
+        let n = w.new_fx(12, UnitId(0), None, c, 4, fx).unwrap();
+        // One record per cycle run, the first update in the first cycle: ages 0 to 2400 are in the slot.
+        let mut held = 0;
+        let mut last = c;
+        loop {
+            run(&mut w, 1);
+            let Some(m) = w.missiles[n].as_ref() else { break };
+            held += 1;
+            last = m.pos;
+            assert!(held < 3000);
+        }
+        assert_eq!(held, 2401, "cycles in the slot");
+        // The final step moved nothing: the position at the removal is the one the update before it showed.
+        let mut w2 = lab(32);
+        let fx = Fx::Whirl {
+            line: Line::new(c, (c.0 + 8000, c.1)),
+            life: 800,
+            goal: (c.0 + 8000, c.1),
+        };
+        let n2 = w2.new_fx(12, UnitId(0), None, c, 4, fx).unwrap();
+        run(&mut w2, 2400);
+        let a = w2.missiles[n2].as_ref().unwrap().pos;
+        run(&mut w2, 1);
+        assert_eq!(
+            w2.missiles[n2].as_ref().map(|m| m.pos),
+            Some(a),
+            "unmoved in the last update"
+        );
+        assert_eq!(last, a);
     }
 
     #[test]
