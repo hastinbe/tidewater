@@ -107,6 +107,11 @@ pub enum Kind {
     /// A right-click on the map for the synced selection (round 102, `ui/selecting-and-commanding.md`, "What a
     /// right-click command does"): `target` is a unit slot or none. It doesn't release held workers.
     RightClick { tile: (i32, i32), target: Option<u16> },
+    /// Set control group `group` (0 to 17) from the sender's synced selection (round 103, `ui/selecting-and-commanding.md`,
+    /// "Control groups"). A turn record names it only in a trace with the `groups` extra.
+    SetGroup { group: u8 },
+    /// Recall control group `group` into the sender's synced selection (round 103).
+    RecallGroup { group: u8 },
     /// A header `input` entry that saves the game under `name` (`game/save-load.md`). It is a menu action, not a
     /// command: no `turn` record lists it, and the trace's `save` record shows where it ran.
     Save { name: String },
@@ -198,6 +203,12 @@ impl Entry {
                 tile: tile(v.get("tile"))?.context("missing `tile`")?,
                 target: v.get("target").and_then(Value::as_u64).map(|s| s as u16),
             },
+            "set-group" => Kind::SetGroup {
+                group: v.get("group").and_then(Value::as_u64).context("missing `group`")? as u8,
+            },
+            "recall-group" => Kind::RecallGroup {
+                group: v.get("group").and_then(Value::as_u64).context("missing `group`")? as u8,
+            },
             "save" => Kind::Save {
                 name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
             },
@@ -278,6 +289,14 @@ impl Entry {
                 o.insert("kind".into(), "right-click".into());
                 o.insert("tile".into(), pair(*tile));
                 o.insert("target".into(), target.map_or(Value::Null, Value::from));
+            }
+            Kind::SetGroup { group } => {
+                o.insert("kind".into(), "set-group".into());
+                o.insert("group".into(), (*group).into());
+            }
+            Kind::RecallGroup { group } => {
+                o.insert("kind".into(), "recall-group".into());
+                o.insert("group".into(), (*group).into());
             }
             Kind::Save { name } => {
                 o.insert("kind".into(), "save".into());
@@ -364,6 +383,8 @@ impl fmt::Display for Entry {
                     None => Ok(()),
                 }
             }
+            Kind::SetGroup { group } => write!(f, "set group {group}"),
+            Kind::RecallGroup { group } => write!(f, "recall group {group}"),
             Kind::Save { name } => write!(f, "save {name}"),
             Kind::Load { name } => write!(f, "load {name}"),
             Kind::Say { word } => write!(f, "say {word}"),
@@ -470,6 +491,8 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
             target: target.and_then(live).map(|u| u.id),
             tile,
         },
+        &Kind::SetGroup { group } => Command::SetGroup { player, group },
+        &Kind::RecallGroup { group } => Command::RecallGroup { player, group },
         Kind::CheatAdd { .. }
         | Kind::Save { .. }
         | Kind::Load { .. }
@@ -874,6 +897,8 @@ mod tests {
             r#"{"player":1,"kind":"release-workers"}"#,
             r#"{"player":1,"kind":"right-click","tile":[4,6],"target":null}"#,
             r#"{"player":1,"kind":"right-click","tile":[4,6],"target":9}"#,
+            r#"{"player":0,"kind":"set-group","group":1}"#,
+            r#"{"player":0,"kind":"recall-group","group":17}"#,
         ];
         for l in lines {
             let e = Entry::parse(&serde_json::from_str(l).unwrap()).unwrap();

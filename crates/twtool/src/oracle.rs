@@ -405,6 +405,8 @@ pub struct Record {
     pub airesearch: Option<Vec<[Cell; 15]>>,
     /// The `aiworkers` extra (trace format, "Computer worker jobs"); `None` without it.
     pub aiworkers: Option<AiWorkers>,
+    /// The `groups` extra (trace format, "Control groups"); `None` without it.
+    pub groups: Option<Groups>,
     /// The `fogmaps` extra ([`FOGMAP_FIELDS`] order), where the record carries it.
     pub fogmaps: Option<Vec<Cell>>,
     /// A `fog` record (`kind` = "fog"): the fog-of-war option was switched to this value in the cycle just run.
@@ -650,6 +652,54 @@ impl AiWorkers {
             })
             .collect();
         AiWorkers { players, jobs }
+    }
+}
+
+/// The `groups` extra's per-player compared fields (trace format, "Control groups"): the control groups as
+/// `group:slot,slot;...` ascending by group number (only nonempty groups), and the synced selection as `slot,slot`,
+/// both in order. A player the record doesn't list has both empty.
+pub const GROUP_FIELDS: [&str; 2] = ["groups", "selection"];
+
+/// A record's `groups` extra: players 0 to 7, each with the [`GROUP_FIELDS`] cells.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Groups {
+    pub players: Vec<[Cell; 2]>,
+}
+
+impl Groups {
+    fn texts(groups: impl Iterator<Item = (u32, Vec<u64>)>, selection: Vec<u64>) -> [Cell; 2] {
+        let list = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+        let mut groups: Vec<(u32, Vec<u64>)> = groups.filter(|(_, v)| !v.is_empty()).collect();
+        groups.sort_by_key(|(n, _)| *n);
+        let groups = groups
+            .iter()
+            .map(|(n, v)| format!("{n}:{}", list(v)))
+            .collect::<Vec<_>>()
+            .join(";");
+        [Cell::Text(groups), Cell::Text(list(&selection))]
+    }
+
+    fn parse(g: &Value) -> Groups {
+        let slots = |v: Option<&Value>| -> Vec<u64> {
+            v.and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .collect()
+        };
+        let players = (0..8)
+            .map(|p| {
+                let e = g.get(p.to_string());
+                let groups = e
+                    .and_then(|e| e.get("groups"))
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(k, v)| Some((k.parse::<u32>().ok()?, slots(Some(v)))));
+                Groups::texts(groups, slots(e.and_then(|e| e.get("selection"))))
+            })
+            .collect();
+        Groups { players }
     }
 }
 
@@ -931,6 +981,7 @@ impl Record {
             aigroups: v.get("aigroups").map(parse_aigroups),
             airesearch: v.get("airesearch").map(parse_airesearch),
             aiworkers: v.get("aiworkers").map(AiWorkers::parse),
+            groups: v.get("groups").map(Groups::parse),
             fogmaps: v.get("fogmaps").map(parse_fogmaps),
             fog_event: (kind == "fog")
                 .then(|| v.get("value").and_then(Value::as_str).map(|x| x == "on"))
@@ -1175,10 +1226,12 @@ pub enum Category {
     AiResearch,
     /// The `aiworkers` extra: the computer workers' job counts and jobs.
     AiWorkers,
+    /// The `groups` extra: every player's control groups and synced selection.
+    Groups,
 }
 
 impl Category {
-    pub const ALL: [Category; 18] = [
+    pub const ALL: [Category; 19] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -1197,6 +1250,7 @@ impl Category {
         Category::AiGroups,
         Category::AiResearch,
         Category::AiWorkers,
+        Category::Groups,
     ];
 
     pub fn name(self) -> &'static str {
@@ -1219,6 +1273,7 @@ impl Category {
             Category::AiGroups => "aigroups",
             Category::AiResearch => "airesearch",
             Category::AiWorkers => "aiworkers",
+            Category::Groups => "groups",
         }
     }
 }
@@ -1232,6 +1287,7 @@ fn category(scope: Scope, field: &str) -> Category {
         Scope::Player(_) if AIGROUP_FIELDS.contains(&field) => Category::AiGroups,
         Scope::Player(_) if AIRESEARCH_FIELDS.contains(&field) => Category::AiResearch,
         Scope::Player(_) if AIWORKER_FIELDS.contains(&field) => Category::AiWorkers,
+        Scope::Player(_) if GROUP_FIELDS.contains(&field) => Category::Groups,
         Scope::Player(_) => Category::Resources,
         Scope::Effect(_) => Category::Effects,
         Scope::Unit(_) => match field {
@@ -1549,6 +1605,23 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             }
         }
     }
+    // The `groups` extra: every player's groups with their entries in order, and the selection in order, exactly
+    // (trace format, "Comparing extras"; `ui/selecting-and-commanding.md`, V-G1).
+    if let (Some(tg), Some(og)) = (&theirs.groups, &ours.groups) {
+        for (p, (tp, op)) in tg.players.iter().zip(&og.players).enumerate() {
+            for ((&f, tc), oc) in GROUP_FIELDS.iter().zip(tp).zip(op) {
+                let scope = Scope::Player(p as u8);
+                if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
+                    out.push(Diff {
+                        scope,
+                        field: f,
+                        ours: oc.clone(),
+                        theirs: tc.clone(),
+                    });
+                }
+            }
+        }
+    }
     // The `fogmaps` extra, where the trace carries it.
     if let (Some(tf), Some(of)) = (&theirs.fogmaps, &ours.fogmaps) {
         for ((&f, tc), oc) in FOGMAP_FIELDS.iter().zip(tf).zip(of) {
@@ -1769,6 +1842,7 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         aigroups: Some(aigroup_cells(w)),
         airesearch: Some(airesearch_cells(w)),
         aiworkers: Some(aiworker_cells(w)),
+        groups: Some(group_cells(w)),
         fogmaps: None,
         fog_event: None,
         fog_option: None,
@@ -1918,6 +1992,24 @@ fn aiworker_cells(w: &World) -> AiWorkers {
         })
         .collect();
     AiWorkers { players, jobs }
+}
+
+/// Our world's `groups` extra values (trace format, "Control groups"): each player's nonempty control groups and
+/// synced selection as unit slots, in order.
+fn group_cells(w: &World) -> Groups {
+    let slot = |id: tidewater_sim::UnitId| w.unit(id).map(|u| u64::from(u.slot));
+    let players = (0..8u8)
+        .map(|p| {
+            let groups = w.selections[p as usize]
+                .groups
+                .iter()
+                .enumerate()
+                .map(|(n, g)| (n as u32, g.iter().filter_map(|&id| slot(id)).collect::<Vec<_>>()));
+            let selection = w.selection(p).into_iter().filter_map(slot).collect();
+            Groups::texts(groups, selection)
+        })
+        .collect();
+    Groups { players }
 }
 
 /// The trace's job bit for a worker's job (trace format, "Computer worker jobs"), `None` for no job. Bit 8 is a farm
@@ -2682,6 +2774,7 @@ mod tests {
             r.aigroups = None;
             r.airesearch = None;
             r.aiworkers = None;
+            r.groups = None;
             // Fields we don't compare are written as absent, and read back as null.
             for c in r.units.values_mut().flatten() {
                 if matches!(c, Cell::Skip(_)) {
@@ -3425,6 +3518,35 @@ mod tests {
         let mut plain = theirs.clone();
         plain.ai_goals.clear();
         assert!(compare(&plain, &ours, &f, &mut skipped).is_empty());
+    }
+
+    /// The `groups` extra (trace format, "Control groups", "Comparing extras"): each player's groups with their
+    /// entries in order, and the selection in order, compared exactly; a player the record doesn't list is empty.
+    #[test]
+    fn compares_the_control_groups() {
+        let line = r#"{"n":221,"kind":"cycle","rng":5,"units":[],"effects":[],"groups":{"0":{"groups":{"1":[1599,1596,1597],"10":[1595]},"selection":[1595,1594]}}}"#;
+        let theirs = Record::parse(line).unwrap();
+        let g = theirs.groups.clone().unwrap();
+        assert_eq!(g.players[0][0], Cell::Text("1:1599,1596,1597;10:1595".into()));
+        assert_eq!(g.players[0][1], Cell::Text("1595,1594".into()));
+        assert_eq!(g.players[1], [Cell::Text(String::new()), Cell::Text(String::new())]);
+        let mut ours = theirs.clone();
+        let mut skipped = BTreeSet::new();
+        let f = Filter::default();
+        assert!(compare(&theirs, &ours, &f, &mut skipped).is_empty());
+        // The order of a group's entries and of the selection matters.
+        let o = ours.groups.as_mut().unwrap();
+        o.players[0][0] = Cell::Text("1:1599,1597,1596;10:1595".into());
+        o.players[0][1] = Cell::Text("1594,1595".into());
+        let d = compare(&theirs, &ours, &f, &mut skipped);
+        assert_eq!(
+            d.iter().map(|d| (d.scope, d.field, d.category())).collect::<Vec<_>>(),
+            [
+                (Scope::Player(0), "groups", Category::Groups),
+                (Scope::Player(0), "selection", Category::Groups)
+            ]
+        );
+        assert!(compare(&theirs, &ours, &Filter::parse("-groups"), &mut skipped).is_empty());
     }
 
     /// The `aiworkers` extra (trace format, "Computer worker jobs", "Comparing extras"): the counts as 16-bit numbers,
