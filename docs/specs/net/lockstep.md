@@ -18,6 +18,10 @@
   2026-10-22): "Speed": the speed command carries the speed to set, not a step, and a value above the top speed is
   ignored (static study; NC1, NC2). The Battle.net layer's own command checks are recorded, labelled Battle.net only
   and not mirrored. New open question on two worker commands.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101", and `ERRATA-round101-traces.md` section 1;
+  reviewed by a spec-review session, 2026-10-22): "Other turn content": Hold workers and Release workers (traced),
+  the release before unit and build commands, return to the chat room, the multiplayer load and the debug dump (static
+  study); surrender and quit (draw) send no command. Open question "Two worker commands" closed.
 - **Sources:** static study of the 2.02 program for both network layers (research notes under `research/notes/`), the
   dialog files `rez\timeout.bin`, `rez\btimeout.bin` and `NetDlg.bin`, and the tables `Rez\connect.tbl` and
   `Rez\network.tbl`. One oracle run confirms the turn spacing of an Enhanced Direct Connect game at speed 8
@@ -288,6 +292,14 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
 | Drop and leave notices | Network entries 63 to 65 (`net/leave-and-drop.md`) |
 | Sync-error report (`allowsync` mode) | Network entry 83 |
 | Latency change (Battle.net only) | Network entries 106 to 108 |
+| Hold workers, Release workers (no data) | Sent by the placement interface in every game, single player included: Hold when the player picks a building to place, Release when placement mode ends without a placement. They freeze and release the sender's selected workers (`orders/orders.md`, "Holding and releasing workers"; traced, round 101). Every unit command and every build command first releases the sender's selected workers; a right-click command doesn't. Tidewater carries both as two more command kinds of its own wire protocol and replay format |
+| Return to the chat room | Sent by the confirmation `chatrtrn.bin`, only by the player `ui/game-menu.md` allows. Every machine ends the game (`ui/game-menu.md`, "Ending the scenario"; static study, round 101) |
+| Multiplayer load, carrying the save to load | Sent by the load dialog in a multiplayer game; every machine loads it (`game/save-load.md`; static study, round 101). Tidewater: out of scope (its saves are local) |
+| Debug dump (internal) | Writes a synchronisation dump; nothing in the game changes. No gameplay effect, not mirrored (static study, round 101) |
+
+**Surrender and quit (draw) send no command** (static study, round 101): the sender's machine ends its own game and
+leaves the session, and the others see the leave (`net/leave-and-drop.md`, "Surrender and quit (draw)"). With the rows
+above, every command the peer layer carries has a known meaning.
 
 ## Data
 
@@ -408,9 +420,7 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
   chat line and can't turn the mode on, and a generator difference still drops the player. The mode can only be
   reached where cheats are allowed (a Classic mode lobby that allows them, or the word as a program argument,
   `game/cheats.md`); MP-L5b stays open for that, low priority.
-- **Two worker commands** (round 100). The peer layer carries two more commands, each of which changes two per-unit
-  marks on the sender's selected workers that are in a particular state; a build command first applies the second of
-  them to the selection. What the marks change in play wasn't found, and no reviewed spec reads them. Tidewater has
-  neither command and gives the marks no meaning. Default: nothing (no behaviour specified). Research request: find
-  what reads the marks; if any gameplay rule does, a build command changes it too.
+- **Two worker commands:** **closed in round 101.** They are Hold workers and Release workers ("Other turn content";
+  `orders/orders.md`, "Holding and releasing workers"; traced, HW1 to HW5). The marks are the frozen state, which the
+  path search and the blocked rules read (`movement/movement.md`, row F; `movement/pathfinding.md`).
 - **Network entry 134.** "SYNC ERROR." has no known use. Default: not shown.

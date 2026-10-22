@@ -31,6 +31,9 @@
 - **Changes:** 2026-10-22 (round 100, `ERRATA-round100-traces.md` erratum 1, reviewed by a spec-review session,
   2026-10-22): "Boarding", step 5: the waiting unit's reaction searches the react range (human) box for a
   non-computer player's unit (traced, V42; `orders/orders.md` V288).
+- **Changes:** 2026-10-22 (round 101, `ERRATA-round101-traces.md` section 3 and `ERRATA-audit2-orders.md`, B-063(b);
+  reviewed by a spec-review session, 2026-10-22): "What the transport stores": when the target tile and the
+  destination change, traced (V43 to V45). New open question on a loaded transport moved from the dock (TG4).
 
 ## Behaviour
 
@@ -117,6 +120,21 @@ move or attack; static study, round 70) records three things: the **target unit*
 command has one), the **target tile** (the target unit's tile, or the command's tile), and the **destination**, a
 copy of the target tile made at that moment. Later steps may change the target tile (docking at S, pushing off), but
 they never change the destination, which is what "its destination tile" means below.
+
+**When the target tile and the destination change** (traced, round 101: V43 to V45; one record open, "Open
+questions"). The oracle traces' `goal` of a transport is its target tile and `transport_dest` its destination. They
+change only:
+
+- when the transport takes a command: both are set to the command's target, a land or shore target adjusted first
+  ("Land and shore targets"). A boarding unit's call to its transport is such a command;
+- at the smart-move stage that keeps it **docked** (order 32, the target tile not its own tile): the target tile
+  becomes its own tile S;
+- while it pushes off (order 31): the target tile becomes each tile its ring search picks, and its smart move at the
+  end sets it back to the destination;
+- by repair, which counts in the target tile's x (`economy/repair.md`, RP8).
+
+Sailing (orders 3 and 6), landing (order 30), unloading (order 29) and docking at the end of a landing change
+neither.
 
 The three things are recorded **once per command**, when it is given (static study, round 71, `ERRATA-round71.md`,
 Q3 and Q4). The smart-move stage that picks the order (the table below) works from the target tile the command
@@ -392,6 +410,9 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V21 | Straight line, S = (20, 20), G = (25, 22) | Tiles tested: (20, 20), (21, 21), (22, 21), (23, 21), (24, 22); the walk stops at (25, 22) | Example |
 | V25 | Human04 n = 1 (oracle trace): transport (slot 1543) at (68, 88), open water, region 0. Smart move with the great hall (slot 1550) as the target unit, G = (81, 84), land | Target unit dropped. The line from (68, 88) to (81, 84) has M = 13, m = 4, and the walk back passes (81, 84), (80, 84), (79, 85), (78, 85), (77, 85), (76, 86), (75, 86), (74, 86), (73, 87), (72, 87), (71, 87), (70, 87), (69, 88). The first usable tile is (69, 88) (open water, region 0), so K = (70, 87). (70, 87) is shore water, with no bit of 0x0901 and the same region value as (81, 84), so the target tile and destination are (70, 87): order 30, wait 3 at n = 1. It steps to (69, 87) at n = 4 and (70, 87) at n = 20, and docks at n = 36: order 32 | Trace (Human04) |
 | V26 | As V25 (Human04): the same transport at n = 51, docked on (70, 87) (shore water); the same smart move | Target unit dropped. It isn't on open water, so G stays (81, 84). First rule (S shore water, same region, land first): order 32, target tile S. It stays docked; the same happens every 50 cycles | Trace (Human04) |
+| V43 | `human12-unload-then-refused-goals-900` (oracle trace, Enhanced), transport 1428 | n = 22 (a boarding unit's call): target tile and destination (35, 114), pending 30. n = 45 (docked at (35, 114); a boarder's call from (34, 112)): destination (34, 112), target tile (35, 114) (the docked smart stage). n = 112 (a move to (28, 120)): both (28, 120), pending 31. n = 119: target tile (36, 114) (the push-off tile). n = 135: order 3, target tile (28, 120). n = 302 (unload toward (18, 118)): both (16, 120), pending 30; unchanged through order 30, order 29 (n = 533) and order 32 (n = 534) | Trace |
+| V44 | `mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100` (oracle trace, Enhanced, generated map `R100-tests.pud`; scenario `oracle/scenarios/mp-r101-transport-goals.txt`), transport 1599, empty, docked at (22, 51); a move to (30, 58) in turn record 830 | Turn record 830: both (30, 58), pending 31. n = 834: target tile (22, 52) (the push-off tile). n = 850: order 3, target tile (30, 58) | Trace |
+| V45 | The same trace: transport 1599 with six footmen aboard, sailing (order 3); an unload toward land tile (16, 48) in turn record 530 | Both (22, 51) (the shore tile picked for the land target), pending 30; unchanged through order 30 (from n = 541), order 29 (n = 672) and order 32 (n = 673) | Trace |
 
 ### Landing at the shore
 
@@ -463,6 +484,15 @@ Carried over:
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity. Its rules are now in "Moving near the shore" (static study, round 70).
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
+- **A loaded transport's target tile when moved from the dock** (round 101). In
+  `mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100`, transport 1599, docked at (42, 51) with six footmen
+  aboard, is moved to (20, 58) in turn record 326: in that record its target tile is already **(40, 52)**, not
+  (20, 58), while its destination is (20, 58) and its pending order 31. Then n = 330: target tile (42, 52) (the
+  push-off tile); n = 346: order 3, target tile (20, 58). Nothing in "When the target tile and the destination
+  change" explains (40, 52); an empty transport (V44) and one with four aboard (V43, n = 112) take the command's
+  tile. In the trace the push-off and the sail that follow are as usual. Default: the command's tile, as V43 and
+  V44 show. Trace request TG4: the same move with one passenger and with six, with a break on the target
+  tile's writer in that turn.
 - **Passenger facing.** The static study shows no turn when a passenger is put ashore (an earlier text said it faces
   its target). The `human12-transport` passengers keep their boarding facing, which doesn't settle it. A trace where a
   passenger's target differs from its boarding facing would. Default: no turn.
@@ -550,3 +580,4 @@ round are kept with the research-side specs.
 | 75 | A player's command the transport doesn't take (command 4: the selection filter) keeps the unload-on-arrival mark (traced, V40); a player's command 4 never reaches the smart-move stage (open question for other sources); a no-route landing that ends idle on an even tile also becomes a two-tile mover (static study) | "What the transport stores"; "Clearing the mark"; "Landing", step 6; "Open questions"; V40 |
 | 77 | A transport doesn't take a player's patrol either (traced, V41); a command it doesn't take records nothing; `ERRATA-round77.md`, reviewed | "What the transport stores"; "Clearing the mark"; V41 |
 | 100 | A waiting boarder's reaction searches the react range (human) box (traced, V42; `ERRATA-round100-traces.md`, reviewed) | "Boarding", step 5; V42 |
+| 101 | The target tile and the destination change only on a command, the docked smart stage, the push-off and repair (traced, V43 to V45; `ERRATA-round101-traces.md`, reviewed); one record open (TG4) | "What the transport stores"; "Open questions"; V43 to V45 |

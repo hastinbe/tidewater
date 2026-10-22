@@ -20,6 +20,10 @@
   2026-10-21): Ctrl/Alt+Q in a chat-room multiplayer game opens the quit-to-menu confirmation (traced), not surrender.
 - **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, reviewed by a spec-review session, 2026-10-22): the speed
   keys send the speed to set, one step from the speed the game is at (`net/lockstep.md`, "Speed"; static study).
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101"; reviewed by a spec-review session,
+  2026-10-22): a player's unit command and build command release the issuing player's selected workers first, a
+  right-click command doesn't ("Which units take part in a command"); a right click that ends placement mode sends
+  Release workers (was: nothing).
 
 ## Behaviour
 
@@ -287,7 +291,8 @@ click on the map view, the panel or elsewhere ends the mode without sending anyt
 **Placement mode:** a left click on the map view runs the site check of `ui/placing-buildings.md` ("The click").
 A failed check plays the error sound, shows its message and leaves placement mode **on**, so the player can click
 again. Only an allowed click ends the mode and sends the build command. A right click on the map view, the panel or
-elsewhere ends the mode without sending anything.
+elsewhere ends the mode and sends only the Release workers command (round 101; `orders/orders.md`, "Holding and
+releasing workers": entering placement mode sent Hold workers).
 
 ### Which units take part in a command
 
@@ -305,6 +310,12 @@ forgets its recorded attacker, whatever the attacker's state, so the command's o
 doesn't take the command (another player's, the target itself, or one that fails the filter below) keeps its record.
 Spell commands (38 to 56) forget it like any other command here. A build command, sent from placement mode, takes a
 different path: it keeps the record and leaves the remembered order as it is (static study for these two).
+
+**Release first** (round 101, static study; the release itself traced): before the formation offset and the filter,
+the issuing player's selected workers are released (`orders/orders.md`, "Holding and releasing workers"), so a held
+worker is released even when no selected unit takes the command. A build command releases them too; a right-click
+command doesn't. Whether the release also comes before the "one the game handles, tile on the map" check isn't
+stated; the interface never sends a command that fails it.
 
 | Command | The unit must |
 | --- | --- |

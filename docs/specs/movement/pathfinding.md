@@ -14,6 +14,9 @@
   2026-10-15.
 - **Changes:** 2026-10-15 (round 75, `ERRATA-round75.md`, D2; game data): the air-unit pull-back open question
   is closed as having no effect in play; no rule changed.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-orders.md` erratum 5; reviewed by a spec-review session,
+  2026-10-22): the moving-ally rule's last condition is "not frozen" (a held worker, set in single player too); a
+  frozen walker blocks the search (static study).
 
 ## Behaviour
 
@@ -110,9 +113,9 @@ when either of these holds:
    through enemies, and the unit fights whatever it meets.
 2. **Moving allies:** the tile's unit belongs to an allied player (including the searcher's own player); it is in
    its move animation (3), **or** it has been given a command whose pending order hasn't taken over yet; its blocked
-   counter is 0; and one further state mark is clear. That mark is set only on workers, by a multiplayer network
-   command whose purpose isn't identified, so in single-player play it is always clear (round 72, static study;
-   `movement.md`, "Open questions").
+   counter is 0; and it isn't **frozen** (a held worker: `orders/orders.md`, "Holding and releasing workers"; it
+   happens in single player whenever the player picks a building to place with workers selected; round 101, static
+   study; `movement.md`, row F, V39 and V40).
    Then it is ignored. The pending-command mark is set when a command stores a pending order and cleared when that
    order takes over, or when an order is set at once. This applies to the search only: row F of the blocked rules
    (`movement.md`) tests the move animation alone.
@@ -451,7 +454,8 @@ Closed in round 75:
 Closed in round 72:
 
 - **The moving-ally rule's last condition** (was: a state mark must be clear; "not inside something" was a guess).
-  It is a worker-only mark set by one multiplayer network command; see "Units seen by the search".
+  It is the frozen state of a held worker, which the placement interface sets in single player too (round 101); see
+  "Units seen by the search".
 
 Found by the consolidation (static study, 2026-10-14; the rules above are unchanged):
 
@@ -486,4 +490,5 @@ round are kept with the research-side specs.
 | 65 | When the line is blocked, the line tiles stop **before** G, which counts only if it is in the goal zone (traced: `xhuman5-30000` n = 26761, a boarding walk aimed at its transport's destination); a walk whose order holds a target unit sets G again from the target, where it stands now, every time it runs, so a command's stored goal and its pull-back last only until the first walk (traced for order 4 on a transport; static study only for other orders and for building targets); the open question on the pull-back with a target unit is closed; the `orc09-repair-600` vector no longer lists G as a line tile (same result); vectors | Step 2; "G for a walk with a target unit"; "Goal pulled back"; V35, V51 to V54 |
 | B-038 (2026-10-14) | Consolidated into one model: "The model" added (the search sequence, one walk goal, three tile tests, one line rule, one pull-back); vectors given IDs, a Source column and topic groups; the round citations moved here; the test-vector note says trace rows name their units. No rule changed | Whole spec |
 | 72 | Movement audit: the moving-ally rule's last state mark identified (open question closed); the air-unit pull-back reading filed as an open question with a trace request, step 1 unchanged | "Units seen by the search"; "Open questions" |
+| 101 | The moving-ally rule's mark is the frozen state of a held worker (`orders/orders.md`, "Holding and releasing workers") | "Units seen by the search"; "Open questions" |
 | 75 | The air-unit pull-back question closed by game data (air units stand only on even tiles, so the readings never differ); step 1 unchanged | "Open questions" |

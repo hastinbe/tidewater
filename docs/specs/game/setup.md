@@ -36,6 +36,9 @@
 - **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100", answers 2 and 3; reviewed by a spec-review
   session, 2026-10-22; static study): allied victory starts off for every player; the team-game rule of "Starting
   alliances and shared vision" is a Battle.net team game's, labelled **Battle.net only, not mirrored**.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101", map loading; reviewed by a spec-review
+  session, 2026-10-22; static study): header rows 9 and 10: the `UDTA` and `UGRD` length rules ("`UDTA` and `UGRD`
+  lengths"), replacing "as in the PUD text (the check wasn't traced)". Every other section reader matches this spec.
 
 ## Behaviour
 
@@ -286,14 +289,30 @@ worker: a peon (0x03) for an orc owner and a peasant (0x02) otherwise. The unit 
 | 6 | `ERAX` | no | 2 |
 | 7 | `SIGN` | no | 4 |
 | 8 | `DIM ` | yes | 4 |
-| 9 | `UDTA` | no | as in the PUD text (the check wasn't traced) |
-| 10 | `UGRD` | no | as in the PUD text (the check wasn't traced) |
+| 9 | `UDTA` | no | See "`UDTA` and `UGRD` lengths" below |
+| 10 | `UGRD` | no | See "`UDTA` and `UGRD` lengths" below |
 | 11 | `ALOW` | no | 0 or 384 |
 | 12 | `SIDE` | yes | 16 |
 | 13 | `SGLD` | yes | 32 |
 | 14 | `SLBR` | yes | 32 |
 | 15 | `SOIL` | yes | 32 |
 | 16 | `AIPL` | no | 16 |
+
+**`UDTA` and `UGRD` lengths** (round 101, static study). The full length is the "use default" word plus the table:
+5,696 bytes for `UDTA` and 782 for `UGRD`. The 233 map files of the installation (game data, checked in the
+round-101 review) hold `UGRD` at 782 bytes and `UDTA` at 5,696 or 5,950 bytes (the longer form's extra bytes are
+skipped, fourth row), or no section; the rows for other lengths matter only for malformed maps.
+
+| Section's length and "use default" word | Result |
+| --- | --- |
+| Length 0 | Accepted: the default data is used, as when the section is absent |
+| Length of at least 2, the word not 0 | Accepted: the default data is used and the rest of the section is skipped, whatever its length |
+| The word 0, the full length | Accepted: the table is read |
+| The word 0, longer than the full length | Accepted: the table is read and the extra bytes are skipped |
+| The word 0, shorter than the full length | **Tidewater: refused** (a design choice; the original reads the table on past the section's end, into the bytes that follow) |
+| Length 1 | Not stated by the study. Default: refused |
+
+Some Battle.net games skip both sections and use the default data (**Battle.net only, not mirrored**).
 
 ### Body table (read after the players are chosen)
 

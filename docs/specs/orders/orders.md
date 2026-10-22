@@ -64,6 +64,10 @@
   erratum 4; reviewed by a spec-review session, 2026-10-22): "Search box": a non-computer unit waiting at its
   transport in board (order 34) searches the react range (human) box when its reaction searches (traced, V288). This
   **reverses** the round-97 default (attack range) of the open question "Search box of a waiting boarder", now closed.
+- **Changes:** 2026-10-22, round 101 (oracle trace, `ERRATA-round101-traces.md` section 1, `ERRATA-audit2-net.md` and
+  `ERRATA-audit2-orders.md`, "Round 101"; reviewed by a spec-review session, 2026-10-22): new section "Holding and
+  releasing workers": the Hold workers and Release workers commands, the states they set, the release update with no
+  animation step, and the release before every unit command and build (traced: HW1 to HW5; static: HW6).
 
 ## Behaviour
 
@@ -288,7 +292,8 @@ from their first step done.
 ### How an update runs
 
 A unit's order logic runs only at the "step done" signal of its animation (`movement/movement.md`, "When decisions
-are made"; `core/animation-scripts.md`). At each step done, in this order:
+are made"; `core/animation-scripts.md`). A held worker's update differs ("Holding and releasing workers"). At each step
+done, in this order:
 
 1. **A pending order takes over** if there is one ("Taking over"). That replaces the logic run: nothing else happens
    for the unit in that update, and the new order's logic first runs at its animation's next step done.
@@ -507,6 +512,59 @@ A player's attack command (8 or 9) on a **dying** unit ends the same way: it is 
 target fails the check, and the unit is left in order 2 with no target and a pending idle, as if told to stop. Its still
 animation restarts with wait 3 when the pending idle takes over, and it makes no look-around draw in that update (traced
 with the player's own dying unit: `orc02-dyingcmd-3760`, vector V185; static study gives the same for an enemy unit).
+
+### Holding and releasing workers
+
+Two commands with no data hold and release a player's selected **workers** while that player places a building
+(round 101; traced: HW1 to HW5; the commands' sources and the release before other commands are static study). The
+game's own interface sends them in single player and multiplayer alike (`ui/command-buttons.md`, "build X" and
+"leave placement mode"), so this is ordinary Enhanced play. Static study reads the same in Classic mode.
+
+- **Hold workers** is sent when the player picks a building to place (the panel switches to "Placing a building").
+- **Release workers** is sent when placement mode ends without a placement: the Cancel button, a right click, a
+  click outside the map, or the interface leaving the mode for any other reason (a menu, a lost selection). An
+  allowed placement sends the build command instead, which releases them (below).
+
+**Which units.** Each command acts on the **sending player's current selection**: every selected unit that is a
+worker (flag bit 8 of the unit data), belongs to the sender and isn't dead, removed or inside something. Other units
+in the selection are untouched (a footman, traced: HW1; a tanker has flag bit 9, not 8, so it isn't a worker here).
+
+**The states.** A unit is normal, **about to freeze**, **frozen**, or frozen with a **release pending**:
+
+| Unit's state | Hold workers | Release workers |
+| --- | --- | --- |
+| Normal | About to freeze | Normal |
+| About to freeze | About to freeze | Normal (the mark is cleared) |
+| Frozen | Frozen | Frozen, release pending |
+| Frozen, release pending | Frozen (the pending release is cancelled) | Frozen, release pending |
+
+**In the unit's update** (this replaces the round-12 reading of `game/rescue.md`, "Frozen units"):
+
+- **About to freeze:** the unit updates normally until its animation's next "step done", so a walking worker
+  finishes the step it is taking and stops on a tile boundary. At that step done it becomes frozen instead of running
+  the rescue check and its order logic (traced: HW1, HW3).
+- **Frozen:** its animation doesn't advance and nothing else of its update runs (no rescue check, no order logic).
+  Its order, goal, animation, frame and wait keep their values, so a frozen walker still shows its move animation
+  (traced: HW1, n = 67 to 162).
+- **Release pending:** the next update doesn't advance the animation. It clears the state and runs the rescue check
+  and the order logic at once, as at a step done ("How an update runs"). The animation advances again from the update
+  after (traced: HW2, HW3).
+
+**Release before other commands.** Before a **unit command** (every command of "Commands", the spells included, and
+also one that every selected unit then refuses: `ui/selecting-and-commanding.md`, "Which units take part in a
+command") and before a **build** command (`economy/build-train.md`, "Carrying out a player's build command"), the
+game runs Release workers on the sender's selection, then the command. For a build that releases every selected
+worker, not only the builder, even if the build's checks then fail. A **right-click** command
+(`ui/selecting-and-commanding.md`, "What a right-click command does") doesn't release. A selection change doesn't
+release either: a frozen worker taken out of the selection stays frozen until a release reaches it while it is
+selected (static study).
+
+**Where frozen matters to other units** (static study): a frozen unit is never an ally "walking away" in row F of the
+blocked rules (`movement/movement.md`) and never a moving ally in the path search (`movement/pathfinding.md`, "Units
+seen by the search"); it is a still unit there. The test is the frozen state alone: a unit about to freeze isn't
+frozen yet, and one with a release pending is frozen until its release update.
+
+**Loading a game** clears both marks, so no unit is frozen after a load (`game/save-load.md`; static study, round 92).
 
 ### Pending orders and immediate orders
 
@@ -1420,6 +1478,22 @@ row's trace starts "As" that row's ID and names the trace.
 | V019 | Command 19 on open grass | order 21 | Example |
 | V184 | `orc02-defeat-4021`, turn n = 3602: command 8 on the player's own Zul'jin 1594 (type 0x35) for grunts 1568, 1572, 1575, 1576 and 1578 | Each records target 1594 with order 9 pending; 1575 and 1576 are in order 9 at n = 3603 | Trace (`orc02-defeat-4021`) |
 
+### Holding and releasing workers
+
+`human1-human01-r101-hold-workers-goals-700` (oracle trace, Enhanced; scenario
+`oracle/scenarios/human01-r101-hold-workers.txt`), Human01, local player 1. Peasant 1596 walks west from (14, 9);
+footman 1593 (not a worker) stands at (10, 13). Single player carries out a command in the turn record that lists it
+(the record shows its immediate effects); the units' updates that follow are in the cycle record n + 1 on.
+
+| ID | Input | Expected | Source |
+| --- | --- | --- | --- |
+| HW1 | Hold workers in turn record 62, with 1596 and 1593 selected; 1596 walking, at x = 359 px | 1596 walks on: x = 357 (n = 64), 354 (n = 65), 352 (n = 66, frame 0: step done). From n = 66 to 162 it stays at (352, 288) px: order 3, animation 3, frame 0, wait 1, goal (5, 8). Footman 1593's idle wait keeps counting (3, 2, 1, 1, 4, …): a non-worker is untouched | Trace |
+| HW2 | Release workers in turn record 161 (1596 frozen since HW1) | n = 162: unchanged (the release update: no step). n = 163: (349, 285) px, wait 2: walking again | Trace |
+| HW3 | Hold workers in turn record 32 and Release workers in turn record 33; 1596 walking at x = 418 | n = 33: step done at x = 416 (frame 0): frozen. n = 34: unchanged (the release update). n = 35: x = 413, wait 2 | Trace |
+| HW4 | Hold workers in turn record 221; a move to (14, 9) for 1596 in turn record 302 | Frozen at (224, 256) px from n = 226. Turn record 302: goal (14, 9). n = 303: animation 2 (still), wait 3 (the order logic ran in the release update). n = 306: animation 3; n = 307: x = 227, walking | Trace |
+| HW5 | Hold workers in turn record 361; a build of a farm (type 0x3A) at (8, 6) for 1596 in turn record 442 | Frozen at (352, 288) px from n = 370. Turn record 442: goal (9, 7). n = 443: order 28, animation 2, wait 3. n = 447: (349, 285) px, walking | Trace |
+| HW6 | A footman and a frozen peasant are selected; the player right-clicks a tile (static study) | No release: the peasant stays frozen; the footman takes its command | Static study |
+
 ### Smart move
 
 | ID | Input | Expected | Source |
@@ -2048,3 +2122,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 97 | Second B-040 audit, static study: the react range (human) box covers follow (6) and, in Classic mode, attack-move's walk reaction; a mage-type unit is a target a mage-type searcher may take. Review: the box of a waiting boarder (order 34) is an open question | "Automatic target acquisition" ("Search box", "Special cases"); "Open questions"; vectors V282 to V285 |
 | 99 | Oracle trace on a generated map: the follow row of the search box and the mage-type special case traced; V282's expected order corrected to the follow rules (no rule change) | "Search box"; "Special cases"; vectors V282, V285 to V287 |
 | 100 | Oracle trace on a generated map with a sea: a non-computer unit waiting in board (34) searches the react range (human) box (reverses the round-97 default, the attack range); open question closed | "Search box"; "Open questions"; vector V288 |
+| 101 | Hold workers and Release workers (sent while the player places a building; single player too); the frozen states, the release update, the release before unit and build commands (traced, HW1 to HW5) | "Holding and releasing workers"; "How an update runs"; vectors HW1 to HW6 |

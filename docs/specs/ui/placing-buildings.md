@@ -17,6 +17,8 @@
   game the unexplored test is a placement-mode (display) rule only (static study; Tidewater rule for lockstep).
 - **Changes:** 2026-10-22, round 95 review (`ERRATA-round95-traces.md`): wording only. The stale pointer to trace
   request LD7 (an id since reused for the leaver's destination) is removed; no request covers the unexplored test.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101"; reviewed by a spec-review session,
+  2026-10-22): cancelling placement mode sends Release workers (static study; its effect traced, HW2).
 
 ## Behaviour
 
@@ -84,7 +86,9 @@ When the player clicks on the map in placement mode:
   (`economy/build-train.md`, "Placing a building").
 - **Any failure:** the outcome's message is shown in the message area, and `misc\error` plays. Nothing is sent, and
   placement mode **stays on**, so the player can click again.
-- **Cancelling** placement mode (the Cancel button, or the other ways the mode is ended) plays nothing.
+- **Cancelling** placement mode (the Cancel button, or the other ways the mode is ended) plays nothing and sends the
+  Release workers command (round 101; entering the mode sent Hold workers: `orders/orders.md`, "Holding and releasing
+  workers"). An allowed click sends only the build command, which releases the selected workers itself.
 
 Both `misc\thunk` and `misc\error` are plain sounds: not placed at a tile, always at the normal level, and not under
 any sound option. The off-screen rule in `ui/sounds.md` that silences the error sound therefore never applies to it.
@@ -138,7 +142,7 @@ oil patch 2 × 2.
 | Human builder; an enemy footman stands on a site tile that the builder's owner can't see now (explored, fogged) | The footman's mark is ignored: not blocked |
 | Same, the tile is visible | Blocked: message 443 |
 | The builder, a peasant, stands on one of a farm's site tiles; nothing else is there | Not blocked by the peasant: allowed if nothing else fails |
-| The player cancels placement mode | No sound |
+| The player cancels placement mode | No sound; Release workers is sent (round 101) |
 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): a shipyard command at (52, 81), too close to oil, carried out at n = 26 | The peon gets no order (stays in order 2) |
 | A command whose site is partly unexplored for the builder's owner, carried out (`human01-basics-9500` n = 19) | No unexplored failure: the build goes ahead |
 | `orc9-orc09-smart-move-2000` (oracle trace, Enhanced), n = 14: a human farm command for a peon, on a clear site | The peon gets no order (the builder table) |

@@ -58,6 +58,9 @@
 - **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100", answer 4; reviewed by a spec-review session,
   2026-10-22): a saved game keeps each player's allied-victory setting (both rule sets) and the shared-vision sets of
   players 0 to 7 (Enhanced only) (static study; `game/diplomacy.md` DP11).
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101"; reviewed by a spec-review session,
+  2026-10-22): the frozen worker marks cleared by a load are set by the Hold workers command, which the placement
+  interface sends in single player too (was: only a multiplayer network command). No rule change here.
 
 ## Behaviour
 
@@ -202,8 +205,9 @@ lists, including:
   target (a dead body's excepted, below), animation, its place in its animation script with the wait there, and its
   cached route are kept exactly, so a moving unit resumes mid-step (every traced field matched the saved state in the
   four round-92 loads). The frozen
-  and about-to-freeze marks of workers (`game/rescue.md`, "Frozen units"; only a multiplayer network command sets
-  them) are cleared, so no unit is frozen after a load (static study, round 92; a labelled gap-fill, untraced);
+  and about-to-freeze marks of workers (`orders/orders.md`, "Holding and releasing workers": set by the Hold workers
+  command, which the placement interface sends in single player too; round 101) are cleared, so no unit is frozen
+  after a load (static study, round 92; a labelled gap-fill, untraced);
 - **a dead body's target isn't kept.** After a load every dead body (type 0x69, a unit's remains, `core/corpses.md`:
   a human or orc body or a ship wreck) has no target, whatever it had at the save: a live unit, another body or a
   released slot, and at any stage of its decay, before or after it turns neutral or in its remove order (traced,

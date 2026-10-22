@@ -54,6 +54,11 @@
   falls one pass behind per paid run (traced, `economy/repair.md` RP10; vector V73); "Job end": a hall's upgrade to a
   keep traced (+200 hit points, `economy/repair.md` RP9). New open question on the shown progress when repair has
   filled a site.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-round101-traces.md` sections 1 and 2; reviewed by a spec-review session,
+  2026-10-22): "The construction pass", step 5: the shown progress is worked out from the hit points before the
+  clamp and kept in a byte (traced on two farms with different step shares, V73 and new V74; the open question "Shown
+  progress when repair has filled a site" is closed and its default, 255, withdrawn). A player's build command first
+  releases the sender's selected workers (`orders/orders.md`, "Holding and releasing workers").
 
 ## Behaviour
 
@@ -139,7 +144,10 @@ messages (entries 438 to 441).
 ### Placing a building
 
 **Carrying out a player's build command.** When a build command sent by a player (the click of
-`ui/placing-buildings.md`) is carried out in the command turn, it is checked first, before any order is given:
+`ui/placing-buildings.md`) is carried out in the command turn, the sending player's selected workers are first
+released, every one of them and not only the builder, whatever the checks below then give (`orders/orders.md`,
+"Holding and releasing workers"; round 101, the release traced: HW5). Then the command is checked, before any order
+is given:
 
 1. the command must be valid, all on the command as received: the site's top-left tile is on the map (x and y below
    the map size); the builder belongs to the player who sent the command; the building type is from 0x3A to 0x68,
@@ -296,7 +304,12 @@ study):
 4. **Otherwise, a step:** the building gains hit points so that after k steps it has received floor(k × D / T) of
    them (the remainder carries over between steps). Then:
    - if its hit points have reached M, they are set to M, and P jumps to the total.
-5. The shown progress is the larger of P / total and hit points / M, as a fraction of 255.
+5. The shown progress is the larger of P / total and hit points / M, as a fraction of 255 (rounded down), with the
+   hit points taken **before** step 4's clamp (they include this step's share), and it is kept in a byte, so a value
+   of 256 or more keeps only its remainder after 256 (traced, round 100 and 101: V73, V74). This matters only when a
+   step finds the hit points already at or near M because repair filled the site: then the step's share pushes the
+   value past 255 and the progress shows as 0 or 1, the site goes back to frame 0, and that stays for the 12 passes
+   until completion. A site that reaches M by construction gets exactly M and shows 255.
 6. **Look:** below 64/255 the building shows the first construction-site frame (frame 0), and from 64/255 the second
    (frame 1). From 128/255 the building's own picture replaces the construction site; the frame stays 1. The shown
    progress (0 to 255) is kept in the building's mana byte at every construction step, and only then: between steps
@@ -596,6 +609,7 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V71 | `human06-build-stats-1800`, with a break on the latest-event-location call: barracks 1588 (top-left (88, 5)) finishes a footman, placed at (87, 5), n = 643 | The event location is (88, 5), the building's top-left tile | Trace (break log) |
 | V72 | `orc9-orc09-r97-built-farm-repair-goals-2400` (oracle trace, Enhanced, `goals` extra): pig farm 1473 (type 0x3B, T = 100), placed at n = 138 and damaged while being built | Stored goal x (P) 1 at n = 138, counting up by 1 per cycle; the farm completes at n = 1361 with 367 of 400 HP, P = 1,224, and P stays 1,224 until the farm is repaired (n = 1574) | Trace |
 | V73 | `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (oracle trace, Enhanced, `goals` extra; generated map `R100-tests.pud`): farm site 1583 (type 0x3A, T = 100, M = 400) created at n = 111, repaired by peasant 1586 with runs at n = 156, 181, …, 931 (`economy/repair.md` RP10) | P (the stored goal x) goes up by 1 every cycle except in the 32 run cycles, where it stays; the steps come at P = 12, 24, … as usual. n = 931: 400 HP (by the run), P = 789. n = 934: the step at P = 792 finds the hit points at M and sets P to 1,212. n = 946: completed at P = 1,224 with 400 HP, builder 1587 out | Trace |
+| V74 | `mp-r100-tests-mp-r101-site-repair-two-fixed-goals-1000` (oracle trace, Enhanced, `goals` extra; generated map `R100-tests.pud`; scenario `oracle/scenarios/mp-r101-site-repair-two.txt`): farm site 1583 (type 0x3A, T = 100, M = 400, so D = 360) created at n = 76, repaired by peasants 1586 and 1588 (`economy/repair.md` RP11 to RP13) | n = 772: a run brings it to 400 HP (397 → 400), P = 657, mana byte 253, frame 1. n = 775: the step at P = 660 (the 57th step, since two runs each made a step twice, `economy/repair.md` RP12; its share floor(57 × 360 / 100) − floor(56 × 360 / 100) = 4) finds 400 HP: P = 1,212, mana byte **1** (floor(404 × 255 / 400) = 257, kept as 1), frame 0, until n = 786. n = 787: completed, P = 1,224, mana byte 0, builder 1587 out (order 2). V73's step (the 66th, share 3) gives floor(403 × 255 / 400) = 256, kept as 0, as traced there | Trace |
 | V53 | `orc09-naval-1500` (oracle trace), n = 468, re-run with a break on the work-complete alert (`oracle/README.md`, "Round 76 traces"): oil platform 1468 completes with tanker 1473 (type 0x1B, owner 5, the local player) inside | The alert runs for tanker 1473 at n = 468, the cycle it takes order 25 (V31) | Trace (break log) |
 
 ### Cancelling construction
@@ -639,14 +653,9 @@ The requirement rules, the setting that turns them off and the research jobs' ef
 Trace requests BT1 to BT5 are listed in `specs/ERRATA-buildtrain-consolidation.md`; BT1, BT2 and BT5 were run in
 round 77 (`specs/ERRATA-round77.md`). Trace requests AB1 to AB5 are listed in `specs/ERRATA-audit-buildtrain.md`.
 
-- **Shown progress when repair has filled a site** (round 100 review, traced fact, cause not studied). In V73 the
-  step at n = 934, which found the hit points already at M (filled by repair) and set P to the total, left the mana
-  byte at **0** and the frame at **0** (the first construction-site frame) for the farm's last 12 passes, until
-  completion. A site that reaches M by construction shows 255 and frame 1 there (`orc9-orc09-carry-chop-goals-1400`,
-  farm 1474: P = 1,212 at n = 1256, mana byte 255, frame 1, until completion at n = 1268). Step 5 as written gives 255.
-  One reading that fits: the step's own share of hit points is added before the clamp of step 4 and the shown
-  progress is worked out from that value (the 66th step's share is 3; 403 × 255 / 400 is 256 as a whole number, which a byte keeps as 0). Default: step 5 as written
-  (255, frame 1). Research request: say what the step does with the hit points when they are already at M.
+- **Shown progress when repair has filled a site:** **closed in round 101.** A second farm whose step had a share of 4
+  showed 1 where V73's (share 3) showed 0, as the pre-clamp reading predicts and step 5 now states (traced: V73,
+  V74). What the step does with the stored hit points is unchanged: they are set to M.
 - **Food of summoned units.** Whether eyes of Kilrogg and other summoned units count as food in use. Default (static
   study, round 77): the food-exempt types are exactly the skeleton, the daemon and the critter, so an eye of Kilrogg
   counts as food in use like any other non-building unit while it exists, and a summoned skeleton doesn't. Not
@@ -700,3 +709,4 @@ round are kept with the research-side specs.
 | 77 (audit) | B-040 build and train audit (`ERRATA-audit-buildtrain.md`), static study, reviewed: order at creation; the cheat pass is always a step; a rescued hall sets "ever had a hall"; entering a site forgets the attacker and gives the entry sight; the full site check on arrival; "table full" message; a load the new store doesn't accept is lost; two cancel commands; no clamp on an upgrade's hit-point gain; command-button refresh. The fast first hall per pass and the unit-ready position stay open | "The local player sees it"; "Paying for a building"; "Placement on arrival"; "Construction"; "Completion"; "Cancelling construction"; "A building killed"; "Job end"; "Open questions"; vectors V64 to V69 |
 | 97 (audit) | Second B-040 audit (`ERRATA-audit2-economy.md`), traced: P after completion is 12 × (T + 2), kept, and is the repair counter | "The construction pass"; vector V72 |
 | 100 | Oracle trace (`ERRATA-round100-traces.md`, `ERRATA-audit2-economy.md` erratum 4): repair on a site holds construction back one pass per paid run; hall-to-keep upgrade hit points traced; the shown progress after a repair-filled site held as an open question | "The construction pass", step 1; "Job end"; "Open questions"; vector V73 |
+| 101 | Oracle trace (`ERRATA-round101-traces.md`): the shown progress uses the hit points before the clamp, kept in a byte (open question closed); a player's build command releases the sender's selected workers first | "The construction pass", step 5; "Carrying out a player's build command"; "Open questions"; vector V74 |

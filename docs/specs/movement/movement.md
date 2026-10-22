@@ -17,6 +17,10 @@
   gives (no change). Reviewed by a spec-review session, 2026-10-15.
 - **Changes:** 2026-10-15 (round 75, `ERRATA-round75.md`, D1; game data): the even-patch tanker open question is
   closed (no shipped map has one); no rule changed.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-orders.md` erratum 5 and `ERRATA-round101-traces.md` section 1;
+  reviewed by a spec-review session, 2026-10-22): row F's further state mark is the **frozen** state of a held worker,
+  which the placement interface sets in single player too, so row F doesn't wait for a frozen blocker (static study;
+  the state traced, V39; example V40).
 
 ## Behaviour
 
@@ -201,7 +205,7 @@ applies.
 | C | Counter is 15 | Gives up: the counter is cleared and the order becomes "stand still" (idle as a pending order). Enhanced: a unit that remembers a patrol, or an attack-move more than 1 tile away, with its resume countdown 0, instead starts its still animation with wait 1 and gets the remembered order as its pending order (`orders/orders.md`, "Giving up when blocked"; traced: `xhuman8-25000` n = 11284). Otherwise nothing else changes: the unit keeps the walking animation restarted above (traced: `orc10-10000` n = 3505, `xhuman12-10000` n = 4144) | kept (unused) | 15 cycles (1 when it resumes) |
 | D | Counter is 8 to 14 | Keeps its order | dropped (it searches again) | 15 cycles |
 | E | The blocker is dying or leaving play | Keeps its order | kept | 15 cycles |
-| F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, and is not inside anything (a further state mark on the blocker must also be clear; it is set only on workers, by a multiplayer network command, so in single-player play it is always clear; static study, "Open questions"). It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
+| F | This unit is in its move animation (after the restart above; not in orders 30 and 31). The blocker belongs to an allied player (or the same player), is in its move animation, has a counter of 0, is not inside anything and is not **frozen** (a held worker: `orders/orders.md`, "Holding and releasing workers"; it happens in single player whenever the player picks a building to place with workers selected; a frozen walker keeps showing its move animation, so the animation alone would see it walking; static study, round 101, V39, V40). It has a next cached step, and that step is **not** onto this unit's tile | Waits for it | kept | 15 cycles |
 | G | The unit has an attacker, and it is within 1 tile of its goal (the stored goal, after any pull-back) on both axes (land units) or within 2 tiles (sea and air units) | Stops: "stand still" becomes its **pending** order, so the resume rules of `orders/orders.md` apply (static study only) | kept (unused) | 1 cycle |
 | H | The unit has an attacker, is a sea or air unit, and is within 2 tiles of its goal on x but farther on y | Keeps its order | dropped | 1 cycle |
 | I | Anything else | Keeps its order | dropped (it searches again) | 1 cycle |
@@ -311,6 +315,8 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V35 | `orc10-10000` (oracle trace), n = 3505: tanker 1533 (owner 1) in order 24 gives up (row C), nothing to resume | Animation 3, wait 15 (the move animation restarted when blocked, kept) | Trace (`orc10-10000`) |
 | V36 | `xhuman12-10000` (oracle trace), n = 4144: axe thrower 1521 (owner 2) in order 4 gives up (row C), nothing resumed | Animation 3, wait 15 | Trace (`xhuman12-10000`) |
 | V37 | Computer grunt with an attacker, on a move order, blocked again and again by a tile carrying bit 0x04, counter 15 before the block | Row B: counter 0 (wrapped), order kept, path dropped, acts again next cycle; no row C. If it is then blocked, with no attacker any more, by an enemy unit standing still (no bit 0x04, so rows A and B don't apply), the counter goes to 1 and row I applies, not row C | Static study |
+| V39 | `human1-human01-r101-hold-workers-goals-700` (oracle trace, Enhanced), n = 67 to 162: peasant 1596 frozen at (352, 288) px (tile (11, 9)) in order 3 with animation 3 (move), frame 0, wait 1 (`orders/orders.md`, HW1) | Its stored animation stays the move animation the whole time: a blocker test that reads the animation alone sees it walking, so row F must also check that it isn't frozen | Trace (the state); static study (the test) |
+| V40 | A friendly footman on a move order, blocked by peasant 1596 frozen on (11, 9) as in V39, its next cached step not onto the footman's tile | Row F doesn't apply (frozen): the footman doesn't wait for 1596, and the later rows decide. Its path search counts (11, 9) as occupied (`pathfinding.md`) | Example |
 
 ## Open questions
 
@@ -342,7 +348,10 @@ Closed in round 72:
   meaning hasn't been identified"). The mark is set and cleared only by one multiplayer network command whose purpose
   isn't identified, and only on workers. The simulation itself never sets it, so in single-player play it is always
   clear and row F never fails on it (static study; `ERRATA-audit-movement.md`, S1). The path search's moving-ally rule
-  tests the same mark (`pathfinding.md`, "Units seen by the search").
+  tests the same mark (`pathfinding.md`, "Units seen by the search"). **Round 101:** the mark is the **frozen**
+  state of a held worker, set by the Hold workers command that the game's own placement interface sends, in single
+  player too (`orders/orders.md`, "Holding and releasing workers"; traced, HW1 to HW5), so row F can fail on it in
+  ordinary play (V39, V40).
 
 Found by the consolidation (static study, 2026-10-14; the rules above are unchanged):
 
@@ -380,3 +389,4 @@ round are kept with the research-side specs.
 | 70 | Evidence only: round 70 restated the static reading of row A (order 11 through a command); the rule is unchanged until a trace decides (spec review) | "Open questions" |
 | 72 | Movement audit: the blocked counter wraps after 15 in rows A and B (static study only); row F's further state mark identified (open question closed); tanker arrival on order 28 traced for an odd-placed patch, the even case kept open | "The model"; "Blocked rules", row B and row F; "Open questions"; V37, V38 |
 | 75 | The even-patch tanker question closed by game data (every shipped patch has an odd top-left tile); the rule is unchanged | "Open questions" |
+| 101 | Row F's further state mark is the frozen state of a held worker (`orders/orders.md`, "Holding and releasing workers"), set in single player too | "Blocked rules", row F; "Open questions"; V39, V40 |

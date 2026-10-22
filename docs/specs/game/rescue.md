@@ -16,6 +16,11 @@
   spec-review session, 2026-10-21): every new game start sets each player's rescued count to 0, and a load restores the
   saved counts (X12, static study; closes the reset part of an open question of `game/victory.md`). Where rescue sits in
   the life of a game is in `game/lifecycle.md`. No rule here changes.
+- **Changes:** 2026-10-22, round 101 (oracle trace, `ERRATA-round101-traces.md` section 1 and `ERRATA-audit2-orders.md`
+  erratum 6; reviewed by a spec-review session, 2026-10-22): "Frozen units": the state is set by the Hold workers
+  command (sent when a player picks a building to place, single player included) and cleared by Release workers or
+  any unit or build command (`orders/orders.md`); the release update doesn't advance the animation (traced). Open
+  question "Frozen state" closed.
 
 ## Behaviour
 
@@ -70,14 +75,15 @@ Other sources of the mark are the mission rules in `game/victory.md` ("Mission s
 before the pending order takes over and before the order logic runs. It only runs while the unit's owner is **not**
 human-controlled. Once a rescuable unit belongs to a human-controlled player, it never checks again.
 
-**Frozen units.** There is also a **frozen** state, which only some network commands set, and only on workers of
-the commanding player (the open questions say more). It works like this:
+**Frozen units.** A held worker skips the check: the Hold workers and Release workers commands, which the game's own
+interface sends while its player places a building, in single player too (`orders/orders.md`, "Holding and releasing
+workers"; traced, round 101), set a **frozen** state on the sender's selected workers:
 
-- A unit that is **about to freeze** skips its next "step done": no rescue check and no order logic run. From then
-  on it is frozen.
-- A frozen unit doesn't advance its animation at all, so it never checks.
-- When a frozen unit is **released**, the next update runs the rescue check and the order logic at once, without
-  waiting for a "step done".
+- A unit that is **about to freeze** becomes frozen at its next "step done" instead of running the rescue check and
+  its order logic.
+- A frozen unit doesn't advance its animation and runs nothing else of its update, so it never checks.
+- When a frozen unit is **released**, the next update doesn't advance its animation; it runs the rescue check and the
+  order logic at once, as at a step done. The animation advances again from the update after (traced: HW2, HW3).
 
 Rescue-player units are never workers of the commanding player, so in normal play this doesn't affect them.
 
@@ -224,8 +230,8 @@ A command's target flashes the same way, starting from 31.
 - **Which selections.** The unit is taken out of a set of 16 per-player lists of 9 units, which the command handling
   uses. These are assumed to be each player's current selection; the local player's displayed selection is assumed to
   follow.
-- **Frozen state.** The commands that freeze and release a worker weren't identified (they look like a command that
-  toggles the state for the workers in the command's unit list). Default: implement the state as described, with no
-  command that sets it, until the command is found.
+- **Frozen state:** **closed in round 101.** The commands are Hold workers and Release workers, sent by the
+  placement interface; the release update has no animation step (traced, `orders/orders.md`, "Holding and releasing
+  workers", HW1 to HW5).
 - **Two extra redraw requests** happen at the end of every owner change. What they refresh (probably the minimap or
   the status display) hasn't been traced.

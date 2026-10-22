@@ -7,6 +7,10 @@
 - **Changes:** 2026-10-16 (round 77 and the B-040 audit, reviewed by a spec-review session, 2026-10-16): the cancel
   job button names the cancel-job command, which is separate from cancel construction (`economy/build-train.md`;
   traced: V57 to V59 there). No rule change.
+- **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101", and `ERRATA-round101-traces.md` section 1;
+  reviewed by a spec-review session, 2026-10-22): picking a building to place sends Hold workers, and leaving
+  placement mode without placing sends Release workers (was: nothing is sent). Leaving target mode still sends
+  nothing.
 
 ## Behaviour
 
@@ -89,14 +93,15 @@ unit without a target.
 | return goods | Looks for a depot that takes what the primary unit carries (as order 24 does; `economy/harvest.md`). If there is one, command 24 is sent at once with no target. If not, message 436 is shown and nothing is sent |
 | unload | If the transport is docked (its order or pending order is 32), command 29 is sent at once on its own tile. Otherwise target mode, command 29 (`orders/transports.md`) |
 | cast: command n | If the primary unit's mana is below the button cost of command n (table below), message 435 is shown and nothing happens. A cheat state skips this test (which cheat is open in a later spells spec). Otherwise command 48 (eye of Kilrogg) is sent at once, and every other spell enters target mode |
-| build X | The affordability check of `economy/build-train.md` runs first (food doesn't apply to buildings); a failure shows its message. Otherwise the panel switches to "Placing a building" with X; a valid click sends the build command |
+| build X | The affordability check of `economy/build-train.md` runs first (food doesn't apply to buildings); a failure shows its message. Otherwise the panel switches to "Placing a building" with X and the **Hold workers** command is sent (`orders/orders.md`, "Holding and releasing workers"; traced, round 101); a valid click sends the build command |
 | train X | The affordability check runs (food, gold, lumber, oil); a failure shows its message. Otherwise a job command (train X) is sent for the primary building |
 | research X, upgrade X | The research cost check runs (gold, lumber, oil); a failure shows its message. Otherwise a job command (research or upgrade X) is sent |
 | become X | The affordability check runs with X's costs; a failure shows its message. Otherwise a job command (upgrade the building to X) is sent |
 | cancel construction | Sends the cancel-construction command for the primary building (`economy/build-train.md`) |
 | cancel job | Sends the cancel-job command for the primary building's job (`economy/build-train.md`, "Cancelling a job": full refund, at the job's next work run) |
 | show the … menu, go back | Changes the set only. Nothing is sent |
-| leave target mode, leave placement mode | Ends the mode and goes back to the set of rule 4 to 6 above. Nothing is sent |
+| leave target mode | Ends the mode and goes back to the set of rule 4 to 6 above. Nothing is sent |
+| leave placement mode | Ends the mode and goes back to the set of rule 4 to 6 above, and sends the **Release workers** command. Leaving placement mode any other way without placing (a right click, a click outside the map, a menu, a lost selection) sends it too (`orders/orders.md`, "Holding and releasing workers"; round 101, static study; the effect is traced) |
 
 **Button mana cost** by spell command. These are the values the button compares; what each spell then spends is in
 a later spec (spells), and for healing, exorcism, blizzard, raise dead and death and decay the button cost is only a
