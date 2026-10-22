@@ -37,6 +37,12 @@
   destroyers counts double too, and the worker and tanker counts don't (SL13 to SL15, traced); the flying machine,
   transport, battleship and submarine counts double by a labelled gap-fill (static study). The SL8 question is
   narrowed to those four groups.
+- **Changes:** 2026-10-21, round 94 (oracle traces, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
+  2026-10-21, see its "Review"): the load's building marks are made for every building that isn't dying or removed,
+  construction sites included (SL20, traced; "complete buildings" corrected); the keeps' and castles' 0x98, 0x99 and
+  0x4A marks and a level's game-start mark after a load are traced (SL16 to SL19). The flying machine, transport,
+  battleship and submarine counts double (SL21, traced; SL8 closed). A spell's mark after a load and a building
+  upgrading at a save stay static study.
 
 ## Behaviour
 
@@ -194,9 +200,9 @@ lists, including:
   building tests of the same rules (a complete lumber mill, blacksmith, stables) are worked out afresh and come back
   right. Traced, round 93: the mages (SL13), gryphons (SL15) and destroyers (SL14) counts double the same way; the
   destroyers count leaves out the held map-placed ships, as every group count does, so only the trained ones are counted
-  again. The worker and tanker counts are worked out afresh and come back right (SL13 to SL15). The flying machine,
-  transport, battleship and submarine counts aren't traced; they double too (static study: they are saved and counted
-  again with the traced groups; a labelled gap-fill, see "Open questions");
+  again. The worker and tanker counts are worked out afresh and come back right (SL13 to SL15). Traced, round 94: the
+  flying machine, transport, battleship and submarine counts double the same way (SL21), so every group from footmen
+  to submarines is traced; held map-placed ships are never counted, in the saved count or again at the load;
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
 - the game clock (Enhanced only). The cycle count is written but not kept: see "What a loaded game starts afresh";
@@ -247,8 +253,9 @@ lists, including:
   every research request of every player is clear (`ai/training-research.md`, "Research requests and done marks"),
   and each computer player's done marks (`ai/worker-ai.md`, "Done marks") are made again, in this order:
   1. the game-start marks for what the player already has: upgrade levels, researched items and known spells;
-  2. then the marks of each complete building of the player, the **load's building marks**, which have special
-     cases the creation marks don't have:
+  2. then the marks of each building of the player that isn't dying or removed, **construction sites included**
+     (completeness isn't tested), the **load's building marks**, which have special cases the creation marks don't
+     have:
 
      | Building | Marks |
      | --- | --- |
@@ -257,15 +264,19 @@ lists, including:
      | Castle or fortress (0x5A, 0x5B) | every 0x98 and castle-upgrade (0x99) entry, then the first open 0x4A entry |
      | Any other building | the first open entry of its type with the race bit cleared (an orc barracks, 0x3D, marks a 0x3C entry) |
 
+     A building working on an upgrade at the save (a town hall becoming a keep, say) marks as its current type
+     (static study, untraced; see "Open questions").
+
   Loaded units aren't created again, so they make no creation marks. A research or upgrade still running at the save
   has no level or flag yet, so its entry isn't marked, although its start had marked it in the saved game. The
   research carries on and finishes as saved, and nothing marks its entry afterwards (only a start or the game-start
   marks mark a research entry). When that item can't be started again (its level or flag is already reached), the
-  entry stops both scans for the rest of the game, like any entry the player can't research. Traced, round 93 (SL9 to
-  SL12): the cleared requests, the running research left unmarked, the towers' 0x40 marks and a fortress's 0x98 mark.
-  Static study (labelled gap-fills, untraced): the 0x99 marks, the 0x4A mark after a keep or castle, that only
-  complete buildings mark, and the game-start marks after a load (no traced player had a level, or a spell that marks
-  an entry).
+  entry stops both scans for the rest of the game, like any entry the player can't research. Traced, rounds 93 and 94
+  (SL9 to SL12, SL16 to SL20): the cleared requests, the running research left unmarked, the towers' 0x40 marks, the
+  keeps' and castles' 0x98, 0x99 and 0x4A marks (a second castle finds no open 0x4A entry), construction sites
+  marking like finished buildings, and an upgrade level marking its entry. Static study (labelled gap-fills,
+  untraced): a known spell's mark after a load (no traced computer player knew a spell that marks an entry) and the
+  type an upgrading building marks as.
 - **Pause.** A loaded game is never paused: the pause isn't saved, and every game start clears it, so a game saved
   while paused loads running (static study, `ERRATA-audit-game.md` erratum 6; a labelled gap-fill, untraced).
 - **Creation numbers.** Every unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3) is its slot
@@ -372,6 +383,12 @@ stays in the running game.
 | **SL13.** Same trace: player 5's mages count is 1 at the save | Setup record to n = 400: 2. The worker counts of players 0, 1, 2, 5 and 6 are the same in the save and setup records |
 | **SL14.** `orc12-orc12-r93-groups-saveload-aigroups-game-60` (oracle trace, Enhanced, saved after n = 8004): computer players 1 and 3 at the save: destroyers 3 and 2 (of 6 and 4 on the map; the others held), tankers 4 and 4, workers 7 and 7 | Setup record to n = 60: destroyers 6 and 4; tankers 4 and 4; workers 7 and 7 |
 | **SL15.** `xorc6-xorc6-r93-groups-saveload-aigroups-game-60` (oracle trace, Enhanced, saved after n = 3104): computer player 2 at the save: gryphons 2, workers 4 | Setup record to n = 60: gryphons 4, workers 4 |
+| **SL16.** `xhuman6-xhuman6-r94-keepcastle-saveload-aigroups-airesearch-game-30` (oracle trace, Enhanced, saved after n = 104): computer player 5, build list with 0x4A at entry 0, 0x40 at entries 3, 4, 5, 15, 16 and 17, 0x98 at 6 and 0x99 at 9; it owns a map fortress and 12 guard and cannon towers. At the save: request {0x98}, done 1, 2, 7, 8, 10 to 14 | Loaded setup record: no requests; done 0 to 17 (the fortress marks entries 6, 9 and 0; the towers fill the six 0x40 entries) |
+| **SL17.** Same trace, computer players 0 and 4 (one keep each). Player 0: build list 0x4A, 0x3C, 0x4C, 0x52, 0x40, 0x40, 0x86, 0x98, 0x80, 0x42, 0x88, 0x3C; one barracks, one lumber mill, two cannon towers; done 1, 2 at the save. Player 4: no blacksmith; done 1, 3, 4, 5 at the save | Setup record: player 0 done 0, 1, 2, 4, 5, 7 (the keep marks 7 and 0; entry 11, a second 0x3C, stays open: one barracks marks one entry); player 4 done 0, 1, 3, 4, 5, 7 (entry 2, 0x52, stays open) |
+| **SL18.** `xorc11-xorc11-r94-castles-saveload-aigroups-airesearch-game-30` (oracle trace, Enhanced, saved after n = 105): computer player 6 owns two castles; its list has one 0x4A entry (0), 0x98 at 5 and 0x99 at 12. At the save: done 1, 2, 3, 7, 13, 14, 23 | Setup record: done 0, 1, 2, 3, 5, 7, 12, 13, 14, 23, 30 (the first castle marks 5, 12 and 0; the second finds no open 0x4A entry) |
+| **SL19.** `xhuman9-xhuman9-r94-level-resave-aigroups-airesearch-game-60` (oracle trace, Enhanced): the SL9 scenario, saved after n = 1702 and loaded; the loaded game saved again after its n = 348 and that save loaded. Computer player 6 at the second save: weapon level 1 (its 0x86 research finished in the first loaded game), done 0 to 5, request {0x86} | Second loaded setup record: no requests, done 0 to 6 (the level marks entry 6, 0x86). n = 38: request 0x80 (entry 7); the scan no longer stops at entry 6 |
+| **SL20.** SL9's trace, computer player 2 (build list 0x4A, 0x3C, 0x4C, 0x52, 0x40, …): construction sites 1408 (orc barracks), 1404 (troll lumber mill), 1406 (orc blacksmith) and 1400 (orc scout tower) at the save, hit points still rising after the load; its finished buildings are farms, a great hall and four towers | Setup record: done 0 to 4. Entries 1, 2 and 3 can only have been marked by the three sites |
+| **SL21.** `xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60` (oracle trace, Enhanced, saved after n = 12103): computer player 7 at the save: flying machines 1, transports 2, battleships 3, submarines 1, destroyers 3, tankers 4, workers 9 (3 battleships, 2 destroyers and 2 submarines on the map are held map ships) | Setup record to n = 60: 2, 4, 6, 2, 6, 4, 9 |
 
 ## Open questions
 
@@ -397,10 +414,9 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
-- **Untraced training group counts after a load.** Seven groups are traced doubling (SL4, SL13 to SL15), and the
-  worker and tanker counts are traced coming back right. The flying machine, transport, battleship and submarine
-  counts aren't traced. Default: they double like the traced groups (static study, round 93). **Trace request SL8
-  (narrowed):** a save and load with a computer player that owns a trained, not held, flying machine, transport,
-  battleship or submarine at the save.
+- **Load marks not traced.** A known spell that marks an entry (codes 0x90 to 0x97) after a load, and the type a
+  building working on an upgrade at the save marks as, are static study (defaults as stated in "What a loaded game
+  starts afresh"). **Trace request R1 (narrowed):** a save and load with a computer player that has learnt a marking
+  spell, or whose hall or tower is upgrading at the save.
 - **Running game.** The save and load rules above that say "traced" were watched in the running game (round 90);
   the rest wasn't.

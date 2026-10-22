@@ -18,6 +18,9 @@
   2026-10-21): a load clears every research request and makes the done marks again (traced, `game/save-load.md` SL9
   to SL12); after a load every group count from footmen to submarines is doubled (mages, gryphons and destroyers
   traced, SL13 to SL15; four groups a labelled gap-fill), the worker and tanker counts aren't.
+- **Changes:** 2026-10-21, round 94 (oracle traces, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
+  2026-10-21): the flying machine, transport, battleship and submarine counts are traced doubling too
+  (`game/save-load.md` SL21); no rule change.
 
 ## Behaviour
 
@@ -173,8 +176,8 @@ Heroes are counted in their groups, so a map hero reduces what is trained.
 **After a load** every group count from footmen to submarines is the saved count plus the loaded units counted
 again, so it is doubled when the saved count was right, and the surplus stays (`game/save-load.md`, "What a saved game
 keeps"; traced for footmen, archers, siege and knights in round 92, SL4 to SL6, and for mages, gryphons and
-destroyers in round 93, SL13 to SL15; the flying machine, transport, battleship and submarine counts by a labelled
-static gap-fill). The rules below then compare the doubled counts: a computer player that has loaded trains fewer of
+destroyers in round 93, SL13 to SL15, and for flying machines, transports, battleships and submarines in round 94,
+SL21). The rules below then compare the doubled counts: a computer player that has loaded trains fewer of
 these groups than it would have. The worker and tanker counts aren't affected (traced, round 93), and neither are the
 lumber mill, blacksmith and stables tests.
 

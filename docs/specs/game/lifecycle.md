@@ -27,6 +27,10 @@
   2026-10-21): the comparison and count tables add the computer research requests and done marks (cleared and made
   again by a load, SL9 to SL12) and widen the doubled training group counts to footmen through submarines (SL13 to
   SL15; four groups a labelled gap-fill).
+- **Changes:** 2026-10-21, round 94 (oracle traces, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
+  2026-10-21): the start table adds the scripts' openings (a new game runs them before the map's units are placed; a
+  load runs none; AS-V1, AS-V2). The load's building marks count construction sites, and every training group's
+  doubling is traced (SL16 to SL21).
 
 ## Behaviour
 
@@ -95,6 +99,7 @@ marks rules the old text didn't state.
 | Rescued counts | Set to 0 for every player (static study) | Restored from the save |
 | Mission rule (mode) | Taken from the mission table (campaign) or the standard rule (`game/victory.md`) | Restored from the save, already switched if it was switched |
 | Map, players, units, resources, alliances | Read from the map (`game/setup.md`) | Restored from the save |
+| Computer player scripts (`ai/ai-scripts.md`, "Game start") | Every player's script starts and runs its opening **before the map's units are placed**, with every count its conditions read at 0; the map's units are counted after it. An opening's final "wait until" is tested again in the second start-up cycle, so the instructions after it run at trace record 4 at the earliest (static study; traced, round 94: AS-V1, AS-V2) | No script runs: each player's script state (wait counter, position, slots, the build-list limit included) is restored from the save (traced for the limit, round 94: AS-V1) |
 | Music track | Chosen (`ui/music.md`) | Restored from the save |
 | Random numbers | Seeded (`core/timing-and-rng.md`) | Seeded the same way (`game/save-load.md`) |
 | Mission start (`game/victory.md`, "Mission start") | Runs before the first check | Runs again from the saved mode, before the first start-up cycle; a mode switched before the save (E, H) doesn't run its row again (traced for mode AB, round 91) |
@@ -106,8 +111,8 @@ marks rules the old text didn't state.
 | Cycle counter | 0 when the first normal cycle starts | The same: 0 again, whatever was saved (traced, round 90) |
 | Creation numbers | From 1, one per created unit (`core/unit-slots.md`) | Every unit's number becomes its slot number plus one (traced, round 90); the next created unit gets 1626 in Enhanced (traced, round 92) |
 | 50-cycle pass counters (`ai/attack-ai.md`, "Timing") | Start at 1, so the passes run in the first start-up cycle | The same: not saved, start at 1 (traced, round 92) |
-| Training group counts, footmen to submarines (`ai/training-research.md`) | Counted from the map's units | Restored from the save, then every loaded unit is counted again: doubled (traced for seven groups, rounds 92 and 93; flying machines, transports, battleships and submarines static study). The worker and tanker counts are worked out afresh (traced, round 93) |
-| Computer research requests and build-list done marks (`ai/training-research.md`, `ai/worker-ai.md`) | Requests clear; done marks from levels, researched items and known spells, then a creation mark for each map building | Not kept: requests clear; done marks from levels, researched items and known spells, then the load's building marks for each complete building; a research running at the save stays unmarked (traced, round 93) |
+| Training group counts, footmen to submarines (`ai/training-research.md`) | Counted from the map's units | Restored from the save, then every loaded unit is counted again: doubled (traced for every group, rounds 92 to 94; held map ships are never counted). The worker and tanker counts are worked out afresh (traced, round 93) |
+| Computer research requests and build-list done marks (`ai/training-research.md`, `ai/worker-ai.md`) | Requests clear; done marks from levels, researched items and known spells, then a creation mark for each map building | Not kept: requests clear; done marks from levels, researched items and known spells, then the load's building marks for each building that isn't dying or removed, construction sites included; a research running at the save stays unmarked (traced, rounds 93 and 94) |
 | Game clock and pause counts | Start at 0 | Restored (Enhanced) |
 
 ### Where players act

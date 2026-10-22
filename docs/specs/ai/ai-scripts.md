@@ -12,6 +12,11 @@
   2026-10-16): the model of the whole computer player is in `ai/computer-player.md`. Remarks that the other AI parts are
   "a later spec" now point at their specs; static study fills in that there are exactly four opcodes and eight
   conditions and that slots 0x1F and 0x21 have no reader. No rule change.
+- **Changes:** 2026-10-21, round 94 (oracle traces, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
+  2026-10-21, see its "Review"): a new game runs the scripts' openings before the map's units are placed, so an
+  opening's "wait until" is tested with every count at 0 and, when it passes in the second start-up cycle, the next
+  instructions run at trace record 4 (static study; traced, AS-V1, AS-V2). The "Script 0" vector is corrected (AS-V3)
+  and the open question on the opening's counts is closed.
 
 ## Behaviour
 
@@ -55,8 +60,26 @@ At the start of a new game (not when a saved game is loaded, which restores this
    the build-list limit is 0xFF, the two list offsets are taken from the script record, the position is the first
    instruction, and the script is **run** (below) until it pauses.
 
+This happens **before the map's units are placed**. The game start first sets every count the conditions read
+("Conditions": the live unit counts, workers and buildings included) to 0 for the new game, then runs the openings,
+then places the map's units, which counts them (static study, round 94; the timing below is traced: AS-V1, AS-V2).
+
 So every player's script has already run its opening instructions before the first cycle. For non-computer players
 the script then never runs again.
+
+**An opening that ends in a "wait until"** tests it with no units at all: conditions 0, 1, 2 and 7 are false,
+condition 3 is false unless slot 0x13 is 0, and conditions 4 to 6 are true only when their product is 0. Every
+shipped campaign opening that ends in a "wait until" fails it there (static study of the game's script file and maps,
+round 94). As always the wait counter becomes 1 ("Running a script"). The first start-up cycle takes the counter to
+0; the second start-up cycle tests the condition again, now with the map's units counted. When it is true there, the
+counter is 1 again, the first normal cycle takes it to 0, and the instructions after it run in the second normal
+cycle: trace record n = 4, counting the setup record as 0 and the two start-up cycles as 1 and 2
+(`core/timing-and-rng.md`, "Scheduler"; traced, round 94: AS-V1, AS-V2). A slot an opening sets before the "wait
+until" (the build-list limit, for example) therefore holds its opening value through records 0 to 3.
+
+**A loaded game** runs no script at its start: every player's script state (wait counter, position, slots, the
+build-list limit included, list offsets) is restored as saved, and the start-up cycles go on from it (traced for the
+limit, round 94: AS-V1's loaded game).
 
 ### Each cycle
 
@@ -196,7 +219,7 @@ condition 0 never does. Wait counts range from 300 to 65535.
 | Input | Expected |
 | --- | --- |
 | Script 1 (passive) at game start | Runs: jump; sets slot 0x22, slots 0x09 to 0x20 except 0x13 and 0x18, and slot 0x21 to 0; slot 0x13 ← 2; slot 0x18 ← 1; wait 65535. Then, as a computer player, it doesn't run again until 65536 cycles later, where it jumps back to the same wait |
-| Script 0 (land attack) at game start, player has 1 peasant counted | Runs its opening sets, slot 0x22 ← 3, slot 0x13 ← 1, then "wait until 3": true, wait counter 1. First cycle: counter → 0. Second cycle: slot 0x13 ← 9, slot 0x14 ← 3, slot 0x0D ← 3, "wait until 4" |
+| **AS-V3.** Script 0 (land attack) at a new game, the map gives the computer player 1 peasant | The opening (before the map's units are placed) runs its sets, slot 0x22 ← 3, slot 0x13 ← 1, then "wait until 3": false (0 workers counted), wait counter 1. n = 1 (first start-up cycle): counter → 0. n = 2 (second start-up cycle): "wait until 3" true (1 worker), counter 1. n = 3: counter → 0. n = 4: slot 0x13 ← 9, slot 0x14 ← 3, slot 0x0D ← 3, "wait until 4" |
 | Script 0 continuing, land army 2, slot 0x0D = 3, slot 0x0E = 1 | Condition 4 false; tested again every 2 cycles. In the first test with land army ≥ 3 it is true; 2 cycles later: slot 0x0D ← 1, slot 0x09 ← 1, wait 500; the next instruction runs 501 cycles after that |
 | Wait 500 run in cycle 1000 | Script runs again in cycle 1501 |
 | Wait 0 | No pause: the next instruction runs in the same cycle |
@@ -208,14 +231,13 @@ condition 0 never does. Wait counts range from 300 to 65535.
 | Condition 7, player 1 (computer, no workers of its own) allied with player 2 only; player 2 has peasants; no other player has workers | False |
 | Same, but player 3 (not allied) gets a peon | True |
 | Condition 7 for player *p* whose own workers are the only workers outside its allies (static study) | False |
+| **AS-V1.** `xhuman9-xhuman9-runestone-saveload-aigroups-airesearch-game-400` (oracle trace, Enhanced, `airesearch` extra): computer player 6's opening sets the build-list limit to 29 and ends in "wait until 3" with slot 0x13 = 3; the map gives it more workers than that. Saved after n = 1704 and loaded | New game: limit 29 in records n = 0 to 3, 37 from n = 4 (the sets after the "wait until"). Loaded game: 37 in its setup record and every record after it (no opening runs) |
+| **AS-V2.** `orc10-aigroups-airesearch-12` (oracle trace, Enhanced, no input): computer player 1's opening sets the limit to 0 and ends in "wait until 3" with slot 0x13 = 4; the map gives it 4 peasants | Limit 0 in records n = 0 to 3, 255 from n = 4 |
 | `human11-30000` (oracle trace, Enhanced): player 4's script waits on condition 7; player 3 (passive, allied with player 4) has 6 peasants, player 1 has no peons and player 6 no workers | Never true: the script doesn't pass it, and at n = 22113 player 4's gold is still 6020 (not 5420) |
 
 ## Open questions
 
 - Whether a script number above 127 (a map's `AIPL` byte) is refused somewhere else or reads past the header.
-- At game start the unit counts may still be zero when the scripts first run (the counts appear to be reset just
-  before), so an opening "wait until 3" may be false at that moment and pass two cycles later instead. The vector for
-  script 0 assumes the units are counted first; to check against the running game.
 - Writing slots 0 to 8 or 0x23 and above would overwrite the wait counter, position or list offsets. No shipped
   script does this; what a reimplementation should do with such a script is open.
 - **An opcode above 3 or a condition above 7** has no defined behaviour (static study, round 82). No shipped script

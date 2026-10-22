@@ -69,6 +69,10 @@
   2026-10-21): after a load the done marks are cleared and made again, with the load's building marks (towers mark the
   scout-tower entry, keeps and castles the hall-upgrade entries); traced, `game/save-load.md` SL9 to SL12. The
   creation marks are unchanged.
+- **Changes:** 2026-10-21, round 94 (oracle traces, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
+  2026-10-21): the load's building marks are made for every building that isn't dying or removed, construction sites
+  included (not only complete ones); the keep, castle and level marks after a load are traced (`game/save-load.md`
+  SL16 to SL20).
 
 ## Behaviour
 
@@ -232,14 +236,16 @@ stopping at an 0xFF entry. For each entry:
   the code (its spells-known bit; Data, "Spell bits for done marks at game start").
 - **After a load** (`game/save-load.md`, "What a loaded game starts afresh") a computer player's saved marks aren't
   kept. They are made again: the game-start marks above, from the loaded levels, researched items and known spells;
-  then the **load's building marks** for each complete building of the player: a guard or cannon tower marks the
+  then the **load's building marks** for each building of the player that isn't dying or removed, construction sites
+  included (completeness isn't tested): a guard or cannon tower marks the
   first open scout-tower entry (0x40); a keep or stronghold every 0x98 entry, then the first open 0x4A entry; a castle
   or fortress every 0x98 and 0x99 entry, then the first open 0x4A entry; any other building the first open entry of
   its type with the race bit cleared. Loaded buildings make no creation marks. A new game never makes the load's
   building marks: its map buildings get the creation marks instead. A research or upgrade still running at the save
-  isn't marked. Traced, round 93: `game/save-load.md` SL9 to SL12 (three towers marking three 0x40 entries, a
-  fortress marking 0x98, two running researches left open); the 0x99 and 0x4A parts and the "complete" test are
-  static study.
+  isn't marked. Traced, rounds 93 and 94: `game/save-load.md` SL9 to SL12 and SL16 to SL20 (towers marking 0x40
+  entries, keeps and castles marking 0x98, 0x99 and 0x4A entries, construction sites marking, an upgrade level
+  marking its entry, two running researches left open). Static study, untraced: a known spell's mark after a load,
+  and that a building working on an upgrade at the save marks as its current type.
 
 Nothing else marks an entry done or clears its mark. In particular nothing marks a research entry done because the
 player can't research it.

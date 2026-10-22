@@ -15,6 +15,9 @@
   traced; LD3 closed, the round-92 default refuted); in a Direct Connect game the creator that quits to the main menu
   goes back to the session's lobby, and a waiting joiner enters the lobby once the creator is there (LV22, traced;
   LD7 closed, the default "the main menu" for the creator refuted).
+- **Changes:** 2026-10-21, round 94 (oracle trace, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
+  2026-10-21): a "nobody" player's unit that was attacking at the leave keeps its order and target and goes on
+  striking (LV23, traced; LD3b closed for an attack, the default for a move unchanged).
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the dialog files `rez\timeout.bin`, `rez\btimeout.bin`, `rez\surrendr.bin`, `rez\quitdraw.bin` and
   `rez\chatrtrn.bin`, and the tables `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running
@@ -107,8 +110,12 @@ What a chat-room leave does **not** do (static study):
   player attack: automatic target acquisition skips every candidate hidden from the searcher's owner
   (`orders/orders.md`, "Terms"), and every unit is always hidden from a "nobody" player (`vision/fog.md`, "Unit
   visibility (phase 5)"). So a "nobody" player's grunt stands next to an enemy footman, is struck and doesn't strike
-  back, and its cannon tower lets an enemy archer walk through its reach (traced, round 93: LV20, LV21). Units of the
-  leaver that were carrying out an order at the leave aren't traced (every traced unit was idle).
+  back, and its cannon tower lets an enemy archer walk through its reach (traced, round 93: LV20, LV21). A unit that
+  was carrying out an order at the leave keeps it: a grunt attacking a footman keeps its order and target and goes on
+  striking. The hidden test belongs to the target **search**; an order aimed at a unit loses its target only when the
+  target is no longer **detected** (`orders/orders.md`, "Terms"), and fog doesn't change that (traced, round 94:
+  LV23). When that target is gone, the unit's next search finds nothing, as for an idle unit. A unit moving at the
+  leave isn't traced; by the same rule it finishes its move (default).
 - **No result is set** for the leaver by the leave itself. The victory check sets it (next section).
 - **Alliances are not changed.** The alliance table keeps the leaver's rows and columns.
 
@@ -319,6 +326,7 @@ All static study. Enhanced unless labelled.
 | LV20. `mp-battle-2-mp-battle2-nobody-combat-game-vision-1300` (oracle trace, Enhanced, Direct Connect, Battle_2, no computer player): A (slot 0) walks footmen 1595 to 1597 and archers 1598, 1599 south past B's cannon tower 1590 at tile (30, 26); B (slot 1) quits to the menu and is "nobody" from the turn at n = 1034 | While B plays, tower 1590 shoots at footman 1595 (n = 765) and 1596 (n = 916). After the leave archer 1599 walks from (35, 19) at n = 1155 to (35, 22) at n = 1208, inside the tower's reach and hidden from player 1 throughout: the tower stays in order 14 with no target, launches nothing after n = 926, and 1599 keeps 40 hit points. A wins at n = 1208 |
 | LV21. `mp-battle-2-mp-battle2-nobody-melee-game-vision-1450` (same set-up): B "nobody" from the turn at n = 1238; A moves footman 1595 (a move, not an attack) to (27, 48), next to B's idle grunt 1587 at (27, 49), arriving at n = 1375 | The footman takes the grunt as its target at n = 1378 (order 16) and strikes it at n = 1391 (hit points 60 to 54). The grunt stays in order 2 with no target and the still animation in every record to A's victory at n = 1409; the footman keeps 60 hit points |
 | LV22. `mp-dark-paths-bne-mp-creator-quit-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): the creator (slot 1) presses Ctrl+Q at n = 120 and confirms at n = 130 | The creator's screen: the session's "Multi Player Setup" lobby as creator (own row, seven "Available", Start Game greyed out), not the main menu. The joiner wins at its next check ("Victory!"); after its Continue it is in the creator's lobby with Leave Game, and the creator's lobby lists it with Start Game enabled |
+| LV23. `mp-battle-2-mp-battle2-nobody-busy-game-vision-1450` (oracle trace, Enhanced, Direct Connect, Battle_2, no computer player): B's grunt 1587 (slot 1) at (27, 49) takes A's footman 1595 at (27, 48) as its target at n = 1231 (order 16) while B still plays; B quits to the menu and is "nobody" from the turn at n = 1238; 1595 is hidden from player 1 from n = 1239 | The grunt keeps order 16 and target 1595 in every record to A's victory at n = 1409, and strikes at n = 1244, 1269, 1294, 1319, 1344, 1369 and 1394 (the footman's hit points 60 → 52, 47, 40, 36, 30, 25, 17). The footman takes the grunt as its target at n = 1245 (order 12) and strikes back |
 
 ## Open questions
 
@@ -326,10 +334,9 @@ All static study. Enhanced unless labelled.
   drop before it) is carried out only there; the dropped player and anyone who didn't drop keep it in the game. Whether the session layer
   in practice makes every machine drop together wasn't traced. **Trace request LD1:** a 3-player chat-room game, delay
   player 2's packets, press Alt+F2 on player 0 only; record each machine's notices and whether player 1 keeps waiting.
-- **A "nobody" player's units busy with an order at the leave.** Idle units are traced (LV19 to LV21: no target, no
-  reaction). A unit carrying out an order when its owner leaves (an attack, a move) isn't traced. Default: it keeps
-  the order, as "The units stay as they are" says, and its target searches find nothing (the same hidden test).
-  **Trace request LD3b:** as LV21, with B's unit attacking or moving when B leaves.
+- **A "nobody" player's unit moving at the leave.** Idle units (LV19 to LV21) and an attacking unit (LV23, round 94)
+  are traced. A unit moving when its owner leaves isn't. Default: it keeps the move, as "The units stay as they are"
+  says.
 - **Battle.net leave timing.** Whether a leave event is carried out at the same cycle on every machine (default:
   next turn). **Trace request LD4** (needs a Battle.net-style session; probably not reachable).
 - **Host-left texts.** gluAll entries 96 and 104 weren't found used in a game. **Trace request LD5:** a Battle.net

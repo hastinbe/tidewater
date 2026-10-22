@@ -18,6 +18,9 @@
   2026-10-21): the creator goes back to the lobby after a defeat too (MS-V10); a Direct Connect joiner goes to
   "Waiting for response" after a victory too (MS-V11), and enters the lobby once the creator is there (MS-V12). MS3b
   narrowed to the lobby's music.
+- **Changes:** 2026-10-21, round 94 (`ERRATA-round94-traces.md`; reviewed by a spec-review session, 2026-10-21): the
+  outcome word comes from the rank text table `rank_txt.tbl`, entries 40 to 43 (static study; the traced words agree).
+  The open question on its source is closed.
 
 This spec gives only what differs from the single-player score screen of `game/campaign-flow.md` ("The victory and
 defeat dialogs", "The score screen", "After the score screen"). "Network entry n" is entry n (counting from 1) of
@@ -81,10 +84,14 @@ dialog is chosen by the number of rows as in single player (2, 4, 6 or 8 rows).
   total"). The cheat rank (entry 39) applies as in single player, but cheats are off in an Enhanced multiplayer game.
 - **No elapsed time.** The screen shows no game time (traced, round 91, MS-V8: the outcome, rank and score fields and
   the seven statistic columns only). gluAll entry 17 "Elapsed Time: %s" was not found used (static study).
-- **The outcome word.** The dialog's "Outcome" field shows the outcome word as in single player: "Victory!" after the
-  traced victory (round 91, MS-V8). gluAll entries 18 to 22 ("Defeat!", "Victory!", "Draw!", "Disconnect",
-  "Undecided") were not found used (static study), so where the shown word comes from is open; default: "Victory!"
-  or "Defeat!" by L's outcome, as in single player. Never "Draw!", "Disconnect" or "Undecided" (gap-fill).
+- **The outcome word.** The dialog's "Outcome" field shows a word from the rank text table (`rank_txt.tbl`, entries
+  counted from 1, the table of the ranks and of the cheat rank, entry 39): entry 40 "Defeat!", 41 "Victory!", 42
+  "Draw!", 43 "Disconnect!" (static study, round 94). In every game but a Battle.net one (single player, Direct
+  Connect, modem, IPX) it is "Victory!" when the game ended in L's victory, the same victory that adds 500 to the
+  score ("Score and rank"), and "Defeat!" otherwise. Only a Battle.net game can show "Draw!" or "Disconnect!": there
+  the word follows the result the Battle.net service reports for L, which can't be traced here and which Tidewater
+  doesn't need. Traced: "Victory!" (round 91, MS-V8) and "Defeat!" (round 92, MS-V9) in Direct Connect. gluAll
+  entries 18 to 22 ("Defeat!", "Victory!", "Draw!", "Disconnect", "Undecided") aren't used for it.
 
 ### What follows the score screen
 
@@ -120,6 +127,7 @@ shown on screen (static study). Tidewater has no Battle.net and needs none of it
 | Row text, others | "*name* - *label*" |
 | Labels | network entry 35 "Enemy", 36 "Ally" (34 "You" unused in multiplayer) |
 | Rows | L first, then slots 0 to 7 in order |
+| Outcome words | `rank_txt.tbl` entries 40 "Defeat!", 41 "Victory!", 42 "Draw!", 43 "Disconnect!" (42 and 43 Battle.net only) |
 | Unused texts | gluAll entries 17 to 22 |
 | Report text (not shown) | network entries 137 to 142, 101 to 104 |
 
@@ -148,8 +156,8 @@ Static study unless marked traced. Enhanced unless labelled.
   also reads "name - label" with L on top, against `game/campaign-flow.md` ("label - name", slot order), is still
   held. **Trace request MS1 (single-player half):** screenshot a single-player custom game's score screen with one
   computer player.
-- **The outcome word's source.** See "The outcome word": shown, but not from gluAll entries 18 to 22 as far as static
-  study found. Default as stated. (MS2, elapsed time, closed: absent, traced.)
+- **MS2** (elapsed time) is closed: absent, traced. The outcome word's source is closed by static study (round 94,
+  "The outcome word").
 - **After the score screen: the lobby's music.** Every screen change is traced (MS-V8 to MS-V12). **Trace request
   MS3b (narrowed):** the music in the lobby after the score screen; the oracle records no sound, so it needs a run
   with a sound device or a static study of where tracks start. Default: `ui/music.md` (nothing starts).
