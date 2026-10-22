@@ -840,6 +840,17 @@ pub enum Command {
         player: u8,
         command: Box<Command>,
     },
+    /// The diplomacy command (`game/diplomacy.md`): the player's whole alliance, shared-vision and allied-victory
+    /// settings, sent each time its diplomacy screen is confirmed. `alliances` holds one value for each player 0 to
+    /// 7 (0 not allied, 1 to 3 allied; in Classic mode only 0 and 1), `vision` the new shared-vision set as a bit set
+    /// of players 0 to 7 (unused in Classic mode). A packet acts as the slot it came from, so a command naming
+    /// another player never reaches the world from the network (DP2).
+    Diplomacy {
+        player: u8,
+        alliances: [u8; 8],
+        vision: u8,
+        allied_victory: bool,
+    },
 }
 
 impl Command {
@@ -881,7 +892,8 @@ impl Command {
             | Command::Leave { player, .. }
             | Command::Resume { player }
             | Command::Rally { player, .. }
-            | Command::Queued { player, .. } => player,
+            | Command::Queued { player, .. }
+            | Command::Diplomacy { player, .. } => player,
         }
     }
 
@@ -947,6 +959,10 @@ pub struct World {
     pub(crate) rule_before_outcome: Option<crate::victory::Rule>,
     /// Fog maps and "seen" bits (vision spec).
     pub vision: Vision,
+    /// Players 0 to 7 whose own shared-vision set doesn't hold themselves, which only a diplomacy command can cause
+    /// (`game/diplomacy.md`, "A player outside its own set"). Kept apart from [`Player`] so a game without such a
+    /// command hashes and saves as it always has; see [`World::shared_set`].
+    pub vision_outsiders: u8,
     /// The victory check (victory spec).
     pub victory: crate::victory::Victory,
     /// The ground-unit and air-unit pointer of each tile (occupancy spec, "Run-time marks"). Land units, ships and
@@ -1153,6 +1169,7 @@ impl World {
             next_serial: 1,
             rule_before_outcome: None,
             vision: Vision::new(terrain_w, terrain_h),
+            vision_outsiders: 0,
             victory: Default::default(),
         }
     }
@@ -1733,6 +1750,12 @@ impl World {
                 tile,
             } => return self.rally_command(player, building, target, tile),
             &Command::UnloadOne { player, unit, slot } => return self.unload_one_command(player, unit, slot),
+            &Command::Diplomacy {
+                player,
+                alliances,
+                vision,
+                allied_victory,
+            } => return self.diplomacy_command(player, alliances, vision, allied_victory),
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -1908,6 +1931,11 @@ impl World {
         // Cheat flags join the hash only when set, so a game without cheats hashes as it always has.
         if self.cheats.flags.0 != 0 {
             self.cheats.flags.hash(&mut h);
+        }
+        // The players left out of their own shared-vision sets join the hash only once there is one (a diplomacy
+        // command). The sets and the allied-victory settings themselves are in `players`.
+        if self.vision_outsiders != 0 {
+            self.vision_outsiders.hash(&mut h);
         }
         // The "seen" bits are game state; the explored and visible maps only drive the display.
         self.vision.seen.hash(&mut h);

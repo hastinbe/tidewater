@@ -122,6 +122,9 @@ impl World {
         let mut bytes = self.core_state();
         bytes.extend(postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"));
         bytes.extend(postcard::to_allocvec(&self.extras_saved()).expect("encoding to memory"));
+        // The players left out of their own shared-vision sets (`game/diplomacy.md`, DP11); the sets and the
+        // allied-victory settings themselves are in the stored `players`.
+        bytes.push(self.vision_outsiders);
         bytes
     }
 
@@ -175,6 +178,10 @@ impl World {
                 &postcard::to_allocvec(&self.extras_saved()).expect("encoding to memory"),
             );
         }
+        // The same for a player left out of its own shared-vision set.
+        if self.vision_outsiders != 0 {
+            h = fnv(h, &[self.vision_outsiders]);
+        }
         h = fnv(h, &self.state_hash().to_le_bytes());
         h = fnv(h, &self.rng.state.to_le_bytes());
         h = fnv(
@@ -190,8 +197,11 @@ impl World {
     pub fn restore(&mut self, bytes: &[u8], seed: u32) -> Result<(), RestoreError> {
         let ((saved, terrain, surplus), rest): ((Saved, TerrainOwned, [[u32; DOUBLED_GROUPS]; SCRIPT_PLAYERS]), _) =
             postcard::take_from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
-        let extras: crate::extras::Saved =
-            postcard::from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
+        let (extras, rest): (crate::extras::Saved, _) =
+            postcard::take_from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
+        let [outsiders] = *rest else {
+            return Err(RestoreError::Decode("the stored world ends wrongly".into()));
+        };
         let t = &mut self.terrain;
         let n = t.width as usize * t.height as usize;
         if terrain.size != (t.width, t.height)
@@ -219,6 +229,7 @@ impl World {
         let used = self.cheats.used;
         saved.put(self);
         self.group_surplus = surplus;
+        self.vision_outsiders = outsiders;
         self.rules.extras = extras.extras;
         self.ext = extras.state;
         self.rng = Rng::new(seed);

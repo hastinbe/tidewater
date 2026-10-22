@@ -18,6 +18,7 @@ pub mod caster_ai;
 pub mod cheats;
 pub mod combat;
 pub mod corpses;
+mod diplomacy;
 pub mod economy;
 pub mod extras;
 mod ground;

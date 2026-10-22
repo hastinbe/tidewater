@@ -752,6 +752,8 @@ impl World {
             p.shared_vision &= !(1 << q);
         }
         self.players[q].shared_vision = 1 << q;
+        // Its own set is just itself again, which puts back a player a diplomacy command had taken out of it.
+        self.vision_outsiders &= !(1u8.checked_shl(q as u32).unwrap_or(0));
     }
 
     /// `Command::Leave`: a human's leave, carried out in the turn. Enhanced rules clear the leaver from the
@@ -783,6 +785,7 @@ impl World {
             p.shared_vision &= !(1 << q);
         }
         self.players[q].shared_vision = 1 << q;
+        self.vision_outsiders &= !(1 << q);
         for i in 0..self.units.len() {
             if self.units[i].owner as usize == q && !self.units[i].dying {
                 self.give(i, Order::Docked);
@@ -791,7 +794,7 @@ impl World {
     }
 
     /// "The multiplayer rule".
-    fn multiplayer(&mut self, l: usize) {
+    pub(crate) fn multiplayer(&mut self, l: usize) {
         let cheat = self.cheat();
         if cheat != Some(Outcome::Victory) {
             if cheat == Some(Outcome::Defeat) || !self.is_in(l) {
@@ -813,11 +816,14 @@ impl World {
             let humans: Vec<usize> = players_0_7()
                 .filter(|&q| self.players[q].controller == controller::HUMAN && self.is_in(q))
                 .collect();
-            let allied = |a: usize, b: usize| a == b || self.players[a].allies & (1 << b) != 0;
-            let together = humans.iter().all(|&a| {
-                (humans.len() == 1 || self.players[a].allied_victory)
-                    && humans.iter().all(|&b| allied(a, b) && allied(b, a))
-            });
+            // Step 5: exactly one human in is a victory with no further test. Step 6 (diplomacy spec, DP6, DP7): with
+            // several, each needs allied victory on and every pair, each player with itself too, allied both ways, as
+            // the table stands (a diplomacy command can clear a player's own entry).
+            let allied = |a: usize, b: usize| self.players[a].allies & (1 << b) != 0;
+            let together = humans.len() == 1
+                || humans
+                    .iter()
+                    .all(|&a| self.players[a].allied_victory && humans.iter().all(|&b| allied(a, b) && allied(b, a)));
             if !together {
                 return;
             }
@@ -1299,7 +1305,8 @@ mod tests {
         assert_eq!(w.players[2].result, Some(Outcome::Defeat));
         assert_eq!(w.players[2].controller, controller::NOBODY);
         for (p, q) in [(0, 1), (1, 0)] {
-            w.players[p].allies = 1 << q;
+            // Game setup leaves each player allied with itself; the victory test reads that entry too.
+            w.players[p].allies = 1 << q | 1 << p;
             w.players[p].allied_victory = true;
         }
         w.multiplayer(0);

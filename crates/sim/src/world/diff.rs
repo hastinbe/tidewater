@@ -68,6 +68,9 @@ impl World {
             ("cheats.flags", fnv(&self.cheats.flags)),
             ("vision.seen", fnv(&self.vision.seen)),
         ];
+        if self.vision_outsiders != 0 {
+            parts.push(("vision_outsiders", fnv(&self.vision_outsiders)));
+        }
         // The optional improvements, once one is on (`extras`).
         if !self.rules.extras.is_default() {
             parts.push(("extras", fnv(&self.rules.extras)));
@@ -97,6 +100,7 @@ impl World {
             "paused" => pretty(&self.paused),
             "cheats.flags" => pretty(&self.cheats.flags),
             "vision.seen" => pretty(&self.vision.seen),
+            "vision_outsiders" => pretty(&self.vision_outsiders),
             "extras" => pretty(&self.rules.extras),
             "ext" => pretty(&self.ext),
             _ => String::new(),

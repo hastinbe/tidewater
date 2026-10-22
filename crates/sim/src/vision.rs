@@ -236,14 +236,17 @@ impl World {
         self.vision.countdown
     }
 
-    /// Vision spec, "Terms": the players that see what `p` sees. In Classic mode only `p`; in Enhanced mode `p` and the
-    /// players it shares vision with.
+    /// Vision spec, "Terms": the players that see what `p` sees. In Classic mode only `p`; in Enhanced mode the set
+    /// as it stands, which game setup starts as `p` alone. A diplomacy command writes the whole set, so it may leave
+    /// `p` out: the set is used as it is (`game/diplomacy.md`, "A player outside its own set", DP5).
     pub fn shared_set(&self, p: u8) -> u8 {
         if p >= SEEN_PLAYERS {
             return 0;
         }
         if self.rules.enhanced {
-            self.players[p as usize].shared_vision | bit(p)
+            // A player outside its own set stays outside (DP5); every other set holds its player (setup puts it there).
+            let own = if self.vision_outsiders & bit(p) != 0 { 0 } else { bit(p) };
+            self.players[p as usize].shared_vision | own
         } else {
             bit(p)
         }

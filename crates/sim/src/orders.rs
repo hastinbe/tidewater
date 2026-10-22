@@ -253,6 +253,7 @@ impl World {
             | Command::Leave { .. }
             | Command::Rally { .. }
             | Command::Queued { .. }
+            | Command::Diplomacy { .. }
             | Command::UnloadOne { .. } => return None,
         };
         // Repair spec, "Cost and rate" (round 97): a mobile unit's stored goal x, which a repair of it counts in.
