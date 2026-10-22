@@ -506,7 +506,13 @@ impl World {
             return true;
         }
         let face = target.map_or(tile, |t| crate::world::facing_tile_of(&self.units[t]));
+        // The eye of Kilrogg is cast where the caster stands and doesn't turn it: it keeps its facing through the
+        // casting animation (round 104, SW4a, SW4b).
+        let facing = self.units[i].facing;
         self.face_and_strike(i, face);
+        if spell == EYE_OF_KILROGG {
+            self.units[i].facing = facing;
+        }
         true
     }
 
@@ -2447,6 +2453,25 @@ mod tests {
         assert_eq!(w.rng, advanced(before.state, 1), "the eye's first wait");
     }
 
+    /// Round 104, SW4a and SW4b: the eye of Kilrogg doesn't turn its caster; a point spell still does.
+    #[test]
+    fn the_eye_of_kilrogg_keeps_the_casters_facing() {
+        let mut w = lab(32);
+        let p = caster(&mut w, MAGE, (5, 5), 255);
+        let i = w.index(p).unwrap();
+        w.units[i].facing = 7;
+        w.units[i].order = Order::Cast {
+            spell: EYE_OF_KILROGG,
+            target: None,
+            tile: (5, 5),
+        };
+        assert!(w.run_spell(i));
+        assert_eq!(
+            (w.units[i].facing, w.units[i].script.anim),
+            (7, tidewater_formats::script::anim::ATTACK)
+        );
+    }
+
     #[test]
     fn eye_of_kilrogg_with_no_room_still_costs_mana() {
         let mut w = lab(32);
@@ -4015,8 +4040,8 @@ mod tests {
                     10337535051278006348,
                     17657913548008740652,
                     4629002249583974514,
-                    3776678203856597536,
-                    14457843798970509620,
+                    3154459051164919408,
+                    35470038167684295,
                     3770741842096780277,
                     1007905547548240338,
                     11703406279597951004,
