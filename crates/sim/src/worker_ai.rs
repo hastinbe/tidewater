@@ -55,7 +55,15 @@ pub enum AiJob {
     Repair,
     Gold,
     Lumber,
+    /// A farm or town hall the worker's own steps started (`ai/worker-ai.md`, "Farm"; the trace's job bit 8).
     Build {
+        kind: u8,
+        site: (i32, i32),
+    },
+    /// A building of the player's build list (the trace's job bit 16). Released like [`AiJob::Build`]; it is kept
+    /// apart only so the oracle comparer can tell the two (`oracle/trace-format.md`, "Computer worker jobs"). Added
+    /// last, so a save from before this variant still reads.
+    List {
         kind: u8,
         site: (i32, i32),
     },
@@ -256,7 +264,7 @@ impl World {
             AiJob::Repair => a.repairers = a.repairers.wrapping_sub(1),
             AiJob::Gold => a.miners = a.miners.wrapping_sub(1),
             AiJob::Lumber => a.lumberjacks = a.lumberjacks.wrapping_sub(1),
-            AiJob::Build { kind, site } => {
+            AiJob::Build { kind, site } | AiJob::List { kind, site } => {
                 a.in_progress[kind as usize] = a.in_progress[kind as usize].wrapping_sub(1);
                 let w = self.stats_of(kind).size.0 as i32;
                 self.keep_clear(site, w, false, false);
@@ -484,7 +492,11 @@ impl World {
                     .and_then(|s| self.site_search(i, kind, s, false))
             };
             if let Some(site) = site {
-                return self.start_building(i, kind, site, !farm);
+                let order = self.start_building(i, kind, site, !farm);
+                if order.is_some() {
+                    self.units[i].ai_job = AiJob::List { kind, site };
+                }
+                return order;
             }
         }
         None
