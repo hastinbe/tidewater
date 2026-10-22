@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 use tidewater_replay::format::CHECKPOINT_EVERY;
 use tidewater_replay::run::Mismatch;
 use tidewater_sim::Command;
-use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, ENHANCED_MS};
+use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, enhanced_ms};
 
 use super::proto::Msg;
 use super::tcp::{Inbound, Wire};
@@ -69,10 +69,10 @@ pub const TRACED_DIRECT_CONNECT_ROW: u8 = 4;
 /// `ceil(T × 60 / S)` with S the sum of the speed's three cycle lengths.
 pub fn turn_length(row: u8, enhanced: bool, speed: u8) -> u32 {
     let t = ROW_CYCLES[usize::from(row).min(ROW_CYCLES.len() - 1)];
-    let speed = usize::from(speed).min(ENHANCED_MS.len() - 1);
     let k = if enhanced {
-        (t * 13).div_ceil(ENHANCED_MS[speed])
+        (t * 13).div_ceil(enhanced_ms(speed))
     } else {
+        let speed = usize::from(speed).min(8);
         let sum: u32 = CLASSIC_MS[CLASSIC_ROW[speed]].iter().sum();
         (t * 60).div_ceil(sum)
     };

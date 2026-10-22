@@ -79,6 +79,15 @@ impl Extras {
         out
     }
 
+    /// The highest speed level a speed key reaches under the rules in force.
+    pub fn top_speed(&self, enhanced: bool) -> u8 {
+        if enhanced {
+            crate::select::TOP_SPEED_ENHANCED + self.extra_speed_levels(true)
+        } else {
+            crate::select::TOP_SPEED_CLASSIC
+        }
+    }
+
     /// The speed levels above Fastest this game has (none under Classic rules).
     pub fn extra_speed_levels(&self, enhanced: bool) -> u8 {
         if enhanced {

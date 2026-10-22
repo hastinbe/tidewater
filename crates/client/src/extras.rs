@@ -33,10 +33,11 @@ pub enum Id {
     RallyPoints,
     ProductionQueue,
     SelectionLimit,
+    ExtraSpeed,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 12;
+pub const COUNT: usize = 13;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,6 +86,9 @@ pub const SCALING_MODES: &[&str] = &["integer", "sharp"];
 
 /// The selection limits (option `selection-limit`): the original nine, 12, 18, or no limit.
 pub const SELECTION_LIMITS: &[&str] = &["9", "12", "18", "unlimited"];
+
+/// How many speed levels to add above Fastest (option `extra-speed`).
+pub const EXTRA_SPEEDS: &[&str] = &["off", "1", "2", "3"];
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -183,6 +187,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 0,
         scope: Scope::Sim,
         description: "How many units you can select and command at once: nine as in the original, 12, 18 or no limit",
+    },
+    Spec {
+        id: Id::ExtraSpeed,
+        name: "extra-speed",
+        kind: Kind::Choice(EXTRA_SPEEDS),
+        default: 0,
+        scope: Scope::Sim,
+        description: "Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only)",
     },
 ];
 
@@ -339,7 +351,7 @@ impl ClientExtras {
                 3 => tidewater_sim::extras::UNLIMITED,
                 _ => 0,
             },
-            ..tidewater_sim::Extras::default()
+            extra_speeds: self.get(Id::ExtraSpeed),
         }
     }
 

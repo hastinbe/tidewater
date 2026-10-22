@@ -190,11 +190,7 @@ impl World {
             Command::SetGroup { player, group } => self.set_group(player, group),
             Command::RecallGroup { player, group } => self.recall_group(player, group),
             Command::Speed { faster, .. } => {
-                let top = if self.rules.enhanced {
-                    TOP_SPEED_ENHANCED
-                } else {
-                    TOP_SPEED_CLASSIC
-                };
+                let top = self.rules.extras.top_speed(self.rules.enhanced);
                 self.speed = if faster {
                     (self.speed + 1).min(top)
                 } else {
@@ -1267,6 +1263,57 @@ mod tests {
             faster: false,
         }]);
         assert_eq!(w.speed, 0);
+    }
+
+    #[test]
+    fn extra_speed_levels_raise_the_top_in_enhanced_rules_only() {
+        let up = Command::Speed {
+            player: 0,
+            faster: true,
+        };
+        for (levels, enhanced, top) in [(0, true, 8), (1, true, 9), (3, true, 11), (3, false, 6)] {
+            let mut w = map();
+            w.rules.extras.extra_speeds = levels;
+            w.rules.enhanced = enhanced;
+            w.speed = 5;
+            for _ in 0..8 {
+                w.step(std::slice::from_ref(&up));
+            }
+            assert_eq!(w.speed, top, "{levels} levels, enhanced {enhanced}");
+        }
+    }
+
+    #[test]
+    fn two_machines_agree_at_an_extra_speed() {
+        let one = || {
+            let mut w = map();
+            w.rules.extras.extra_speeds = 2;
+            let f = spawn(&mut w, FOOTMAN, 0, (5, 5));
+            let mut hashes = Vec::new();
+            for step in 0..40 {
+                let cmds = match step {
+                    0 => vec![Command::Select {
+                        player: 0,
+                        units: vec![f],
+                    }],
+                    1..=6 => vec![Command::Speed {
+                        player: 0,
+                        faster: true,
+                    }],
+                    7 => vec![Command::RightClick {
+                        player: 0,
+                        target: None,
+                        tile: (30, 30),
+                    }],
+                    _ => vec![],
+                };
+                w.step(&cmds);
+                hashes.push(w.state_hash());
+            }
+            assert_eq!(w.speed, 10);
+            hashes
+        };
+        assert_eq!(one(), one());
     }
 
     #[test]

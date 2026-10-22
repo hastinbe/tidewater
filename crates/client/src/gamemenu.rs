@@ -73,6 +73,8 @@ pub struct GameMenu {
     fog: bool,
     fog_at_open: bool,
     enhanced: bool,
+    /// The extra speed levels above Fastest this game has.
+    extra_speeds: u8,
     /// Text shown by the current screen (wrapped).
     lines: Vec<String>,
     delay: menu::Delay,
@@ -330,7 +332,7 @@ impl GameMenu {
                     Slide::Game,
                     "Game speed",
                     self.speed,
-                    menu::game_speed_max(self.enhanced),
+                    menu::game_speed_max(self.enhanced, self.extra_speeds),
                     true,
                 );
                 b.slider(
@@ -434,7 +436,7 @@ fn enter(m: &mut GameMenu, front: &mut Front, stored: &mut Stored, sim: &Sim, fl
         Screen::Sound | Screen::Speed | Screen::Prefs => {
             m.snapshot = stored.0.clone();
             m.draft = stored.0.clone();
-            m.speed = sim.world.speed.min(menu::game_speed_max(m.enhanced));
+            m.speed = sim.world.speed.min(menu::game_speed_max(m.enhanced, m.extra_speeds));
             m.fog = sim.world.rules.fog_of_war;
             m.fog_at_open = m.fog;
             m.delay.clear();
@@ -817,6 +819,7 @@ fn open_menu(
         fog: sim.world.rules.fog_of_war,
         fog_at_open: sim.world.rules.fog_of_war,
         enhanced: sim.world.rules.enhanced,
+        extra_speeds: sim.world.rules.extras.extra_speeds,
         lines: Vec::new(),
         delay: menu::Delay::default(),
         hot: None,
@@ -1359,6 +1362,7 @@ mod tests {
             fog: true,
             fog_at_open: true,
             enhanced: true,
+            extra_speeds: 0,
             lines: vec!["text".into()],
             delay: menu::Delay::default(),
             hot: None,

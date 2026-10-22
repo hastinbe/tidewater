@@ -184,12 +184,12 @@ pub fn objectives_entry(game: Option<GameKind>) -> u16 {
 }
 
 /// The ranges of the three speed sliders for the rules in force.
-pub fn game_speed_max(enhanced: bool) -> u8 {
-    if enhanced {
-        tidewater_sim::select::TOP_SPEED_ENHANCED
-    } else {
-        tidewater_sim::select::TOP_SPEED_CLASSIC
+pub fn game_speed_max(enhanced: bool, extra_speeds: u8) -> u8 {
+    tidewater_sim::Extras {
+        extra_speeds,
+        ..Default::default()
     }
+    .top_speed(enhanced)
 }
 
 /// The speed commands (true is faster) that take the game from `from` to `to`.
@@ -335,8 +335,10 @@ mod tests {
 
     #[test]
     fn speed_slider_ranges_and_steps() {
-        assert_eq!(game_speed_max(true), 8);
-        assert_eq!(game_speed_max(false), 6);
+        assert_eq!(game_speed_max(true, 0), 8);
+        assert_eq!(game_speed_max(false, 0), 6);
+        assert_eq!(game_speed_max(true, 2), 10);
+        assert_eq!(game_speed_max(false, 2), 6);
         assert_eq!(speed_steps(3, 7), [true; 4]);
         assert_eq!(speed_steps(7, 3), [false; 4]);
         assert!(speed_steps(4, 4).is_empty());

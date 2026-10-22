@@ -26,6 +26,7 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
 | `rally-points` | `--extra-rally-points` | on, off | S | off | Right-click with a training building selected to set a rally point: the units it trains go there |
 | `production-queue` | `--extra-production-queue` | on, off | S | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last |
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | S | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit |
+| `extra-speed` | `--extra-extra-speed VALUE` | off, 1, 2, 3 | S | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.

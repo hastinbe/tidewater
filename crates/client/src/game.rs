@@ -842,12 +842,11 @@ pub(crate) fn setup(c: &mut Core) {
 /// The fixed timestep for the game speed (timing spec): Enhanced rules use the speed's cycle time, Classic rules the
 /// mean of its row's three-cycle pattern.
 fn cycle_secs(enhanced: bool, speed: u8) -> f64 {
-    use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, ENHANCED_MS};
-    let s = (speed as usize).min(ENHANCED_MS.len() - 1);
+    use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, enhanced_ms};
     let ms = if enhanced {
-        ENHANCED_MS[s] as f64
+        enhanced_ms(speed) as f64
     } else {
-        CLASSIC_MS[CLASSIC_ROW[s]].iter().sum::<u32>() as f64 / 3.0
+        CLASSIC_MS[CLASSIC_ROW[usize::from(speed).min(8)]].iter().sum::<u32>() as f64 / 3.0
     };
     ms / 1000.0
 }
