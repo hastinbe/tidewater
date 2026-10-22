@@ -121,7 +121,16 @@ impl World {
     pub fn save_state(&self) -> Vec<u8> {
         let mut bytes = self.core_state();
         bytes.extend(postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"));
+        bytes.extend(postcard::to_allocvec(&self.extras_saved()).expect("encoding to memory"));
         bytes
+    }
+
+    /// The optional improvements and what they keep, the saved game's last part (`extras`).
+    pub(crate) fn extras_saved(&self) -> crate::extras::Saved {
+        crate::extras::Saved {
+            extras: self.rules.extras,
+            state: self.ext.clone(),
+        }
     }
 
     /// The stored fields and the terrain's changing part: [`World::save_state`] without its trailing surplus.
@@ -159,6 +168,13 @@ impl World {
                 &postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"),
             );
         }
+        // The same for the optional improvements: they count once one is on.
+        if !self.rules.extras.is_default() || !self.ext.is_empty() {
+            h = fnv(
+                h,
+                &postcard::to_allocvec(&self.extras_saved()).expect("encoding to memory"),
+            );
+        }
         h = fnv(h, &self.state_hash().to_le_bytes());
         h = fnv(h, &self.rng.state.to_le_bytes());
         h = fnv(
@@ -172,8 +188,10 @@ impl World {
     /// random generator afresh. Cheats start as for a new game. A load starts the counters afresh ([`World::starts_afresh`])
     /// and a Classic save clears the score counters.
     pub fn restore(&mut self, bytes: &[u8], seed: u32) -> Result<(), RestoreError> {
-        let (saved, terrain, surplus): (Saved, TerrainOwned, [[u32; DOUBLED_GROUPS]; SCRIPT_PLAYERS]) =
-            postcard::from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
+        let ((saved, terrain, surplus), rest): ((Saved, TerrainOwned, [[u32; DOUBLED_GROUPS]; SCRIPT_PLAYERS]), _) =
+            postcard::take_from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
+        let extras: crate::extras::Saved =
+            postcard::from_bytes(rest).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let t = &mut self.terrain;
         let n = t.width as usize * t.height as usize;
         if terrain.size != (t.width, t.height)
@@ -201,6 +219,8 @@ impl World {
         let used = self.cheats.used;
         saved.put(self);
         self.group_surplus = surplus;
+        self.rules.extras = extras.extras;
+        self.ext = extras.state;
         self.rng = Rng::new(seed);
         // Cheats: the flags aren't stored, so the effects the stored rules carry are cleared (`game/save-load.md`, "Cheats":
         // the instant-cheat outcome is not found again; traced, `human1-human01-unite-saveload-game-650`) and the flags

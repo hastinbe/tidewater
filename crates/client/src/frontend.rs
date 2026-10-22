@@ -2260,6 +2260,7 @@ fn run_multiplayer(c: &mut Core) {
         input,
         stored,
         store,
+        extras,
         ..
     } = c
     else {
@@ -2332,6 +2333,9 @@ fn run_multiplayer(c: &mut Core) {
         mpmenu::Outcome::Host(listener) => {
             let enhanced = ms.ui.enhanced();
             let mut view = crate::net::room::new_view(enhanced, &ms.ui.mem.name, tidewater_sim::setup::race::NEUTRAL);
+            // The options that change the simulation start as this player has them; the lobby's Extras box (shown once
+            // any is on) changes them for everyone (`docs/design/extras.md`).
+            view.extras = crate::extras::local_sim_extras(extras);
             // The creator's row applies to every player (`net/lockstep.md`, "Which row").
             if ms.ui.mem.method == mpmenu::Method::Local {
                 view.row = crate::net::lockstep::LOCAL_NETWORK_ROW;

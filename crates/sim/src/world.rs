@@ -525,7 +525,9 @@ pub struct Rules {
     pub invulnerable_cheat: bool,
     /// The lobby option that disables cheats; it only matters in multiplayer games (cheats spec).
     pub cheats_disabled: bool,
-    /// The optional improvements that touch the sim (`docs/design/extras.md`); all off by default.
+    /// The optional improvements that touch the sim (`docs/design/extras.md`); all off by default. Stored after the
+    /// world's own fields (`world::save`), not with the rules, so the stored layout stays what it was.
+    #[serde(skip)]
     pub extras: crate::Extras,
 }
 
@@ -951,6 +953,9 @@ pub struct World {
     /// Each player's pauses left (`ui/game-menu.md`, "Pausing"). Only Enhanced multiplayer spends them, and only
     /// there do they join the state hash.
     pub pauses: [u8; PLAYERS],
+    /// What the optional improvements keep: rally points, queued jobs, the selection beyond nine places
+    /// (`docs/design/extras.md`). Empty while they are off. Hashed once an option is on, stored after the other fields.
+    pub ext: crate::extras::State,
     /// The local player's remembered buildings for the minimap (minimap spec). Not game state: left out of the hash.
     pub remembered: crate::minimap::Memory,
     /// The starting view and sound set game setup chose. Not game state: left out of the hash.
@@ -1105,6 +1110,7 @@ impl World {
             speed: crate::timing::NORMAL,
             paused: false,
             pauses: [PAUSES_PER_PLAYER; PLAYERS],
+            ext: Default::default(),
             remembered: Default::default(),
             start: Default::default(),
             cheats: Default::default(),
@@ -1838,8 +1844,12 @@ impl World {
         if self.rules.multiplayer && self.rules.enhanced {
             self.pauses.hash(&mut h);
         }
-        // The options that touch the sim are game state. An empty set writes nothing (`extras`).
-        self.rules.extras.hash(&mut h);
+        // The options that touch the sim are game state, and so is what they keep; a game with every option off hashes
+        // as it always has (`extras`).
+        if !self.rules.extras.is_default() {
+            self.rules.extras.hash(&mut h);
+            self.ext.hash(&mut h);
+        }
         // Cheat flags join the hash only when set, so a game without cheats hashes as it always has.
         if self.cheats.flags.0 != 0 {
             self.cheats.flags.hash(&mut h);

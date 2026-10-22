@@ -47,7 +47,7 @@ fn pretty<T: Debug + ?Sized>(v: &T) -> String {
 impl World {
     /// The pieces of state [`World::state_hash`] covers, each with its own hash: the same pieces, in the same order.
     pub fn state_parts(&self) -> Vec<(&'static str, u64)> {
-        vec![
+        let mut parts = vec![
             ("tick", fnv(&self.tick)),
             ("players", fnv(&self.players)),
             ("rng", fnv(&self.rng)),
@@ -67,7 +67,13 @@ impl World {
             ("paused", fnv(&self.paused)),
             ("cheats.flags", fnv(&self.cheats.flags)),
             ("vision.seen", fnv(&self.vision.seen)),
-        ]
+        ];
+        // The optional improvements, once one is on (`extras`).
+        if !self.rules.extras.is_default() {
+            parts.push(("extras", fnv(&self.rules.extras)));
+            parts.push(("ext", fnv(&self.ext)));
+        }
+        parts
     }
 
     /// The `Debug` text of one piece named in [`World::state_parts`].
@@ -91,6 +97,8 @@ impl World {
             "paused" => pretty(&self.paused),
             "cheats.flags" => pretty(&self.cheats.flags),
             "vision.seen" => pretty(&self.vision.seen),
+            "extras" => pretty(&self.rules.extras),
+            "ext" => pretty(&self.ext),
             _ => String::new(),
         }
     }

@@ -88,6 +88,8 @@ enum T {
     Tileset,
     Location,
     Units,
+    /// The optional improvements that change the simulation (`docs/design/extras.md`): shown only once any is on.
+    Extras,
     Select,
     Start,
     Cancel,
@@ -132,6 +134,7 @@ const LABELS: [(T, &str, i32, i32); 6] = [
     (T::Location, "Location:", 220, 356),
     (T::Units, "Units:", 400, 256),
 ];
+const EXTRAS_LABEL: (i32, i32) = (400, 306);
 const SPEED_LABEL: (i32, i32) = (40, 356);
 const CHEATS_LABEL: (i32, i32) = (40, 356);
 const SPEED_LESS: Rect = Rect::new(44, 374, 22, 24);
@@ -151,6 +154,7 @@ fn drop_rect(t: T) -> Rect {
         T::Resources => Rect::new(224, 274, 144, 24),
         T::Tileset => Rect::new(224, 324, 144, 24),
         T::Location => Rect::new(224, 374, 144, 24),
+        T::Extras => Rect::new(404, 324, 180, 24),
         _ => Rect::new(404, 274, 180, 24),
     }
 }
@@ -199,6 +203,8 @@ pub(crate) struct Lobby {
     local_map: Option<String>,
     /// A joiner: how much of the creator's map has arrived, of how much (size 0: asked for).
     transfer: Option<(usize, usize)>,
+    /// The creator keeps the Extras box once it shows (a joiner sees it while the lobby has an option on).
+    extras_kept: bool,
     changed: bool,
 }
 
@@ -230,6 +236,7 @@ impl Lobby {
             received: None,
             local_map: None,
             transfer: None,
+            extras_kept: !room.view().extras.is_default(),
             changed: true,
         };
         if let Some(m) = l.picker.map().cloned()
@@ -275,6 +282,7 @@ impl Lobby {
             received: None,
             local_map: None,
             transfer: None,
+            extras_kept: false,
             changed: true,
         }
     }
@@ -552,6 +560,9 @@ impl Lobby {
         let mut v = vec![T::Race];
         if self.is_host() {
             v.extend([T::Fog, T::Resources, T::Tileset, T::Location, T::Units]);
+            if self.extras_box() {
+                v.push(T::Extras);
+            }
         }
         v
     }
@@ -734,7 +745,9 @@ impl Lobby {
                     g.set_ready(on);
                 }
             }
-            T::Race | T::Fog | T::Cheats | T::Resources | T::Tileset | T::Location | T::Units => self.open_list(t),
+            T::Race | T::Fog | T::Cheats | T::Resources | T::Tileset | T::Location | T::Units | T::Extras => {
+                self.open_list(t)
+            }
             T::SpeedLess => self.step_speed(-1),
             T::SpeedMore => self.step_speed(1),
             T::SpeedTrack => {}
@@ -784,6 +797,7 @@ impl Lobby {
             T::Fog => ON_OFF.iter().map(|s| (*s).to_string()).collect(),
             T::Cheats => CHEAT_CHOICES.iter().map(|s| (*s).to_string()).collect(),
             T::Location => LOCATIONS.iter().map(|s| (*s).to_string()).collect(),
+            T::Extras => extras_labels(&self.view.extras),
             T::Resources => opt(Opt::Resources),
             T::Tileset => opt(Opt::Tileset),
             _ => opt(Opt::Units),
@@ -798,10 +812,17 @@ impl Lobby {
             T::Fog => usize::from(!v.custom.fog_of_war),
             T::Cheats => usize::from(!v.cheats_allowed),
             T::Location => usize::from(v.custom.fixed_starts),
+            T::Extras => 0,
             T::Resources => customsetup::choice(&v.custom, Opt::Resources),
             T::Tileset => customsetup::choice(&v.custom, Opt::Tileset),
             _ => customsetup::choice(&v.custom, Opt::Units),
         }
+    }
+
+    /// Whether the Extras box shows: once an optional improvement that changes the simulation is on in this lobby, or
+    /// was on in the creator's settings. A lobby with none looks as it always has.
+    fn extras_box(&self) -> bool {
+        self.extras_kept || !self.view.extras.is_default()
     }
 
     fn open_list(&mut self, t: T) {
@@ -829,7 +850,13 @@ impl Lobby {
                     self.view = h.view().clone();
                 }
             }
-            PopFor::Control(t) => self.set_option(t, i),
+            PopFor::Control(t) => {
+                self.set_option(t, i);
+                // The Extras list stays open for the next change; Escape or a click outside closes it.
+                if t == T::Extras {
+                    self.popup = Some((PopFor::Control(t), Popup::new(100, drop_rect(t), self.choices(t), i)));
+                }
+            }
         }
     }
 
@@ -847,6 +874,12 @@ impl Lobby {
             return;
         }
         let Some(Backend::Host(h)) = &mut self.back else { return };
+        if t == T::Extras {
+            h.set_extras(cycle_extra(self.view.extras, i));
+            self.view = h.view().clone();
+            self.extras_kept = true;
+            return;
+        }
         let mut custom: Custom = self.view.custom;
         let (mut speed, mut cheats) = (self.view.speed, self.view.cheats_allowed);
         match t {
@@ -1042,9 +1075,17 @@ impl Lobby {
             }
             look.label(p, (x, y), title);
         }
-        let boxes = [T::Race, T::Fog, T::Resources, T::Tileset, T::Location, T::Units];
+        let mut boxes = vec![T::Race, T::Fog, T::Resources, T::Tileset, T::Location, T::Units];
+        if self.extras_box() {
+            look.label(p, EXTRAS_LABEL, "Extras:");
+            boxes.push(T::Extras);
+        }
         for t in boxes {
-            let text = self.choices(t).get(self.current(t)).cloned().unwrap_or_default();
+            let text = if t == T::Extras {
+                extras_summary(&self.view.extras)
+            } else {
+                self.choices(t).get(self.current(t)).cloned().unwrap_or_default()
+            };
             let enabled = host || t == T::Race;
             let st = if enabled {
                 self.drop_state(t, modal)
@@ -1094,6 +1135,57 @@ impl Lobby {
     }
 }
 
+/// The Extras list's rows: each option with its value.
+fn extras_labels(e: &tidewater_sim::Extras) -> Vec<String> {
+    use tidewater_sim::extras::UNLIMITED;
+    let on = |b: bool| if b { "On" } else { "Off" };
+    let limit = match e.selection_limit {
+        0 => "9".to_string(),
+        UNLIMITED => "No limit".to_string(),
+        n => n.to_string(),
+    };
+    let speeds = if e.extra_speeds == 0 {
+        "Off".to_string()
+    } else {
+        format!("+{}", e.extra_speeds)
+    };
+    vec![
+        format!("Rally points: {}", on(e.rally_points)),
+        format!("Production queue: {}", on(e.production_queue)),
+        format!("Selection: {limit}"),
+        format!("Extra speeds: {speeds}"),
+    ]
+}
+
+/// The Extras box's text: "None", or the options that are on.
+fn extras_summary(e: &tidewater_sim::Extras) -> String {
+    let on = e.describe();
+    if on.is_empty() {
+        "None".to_string()
+    } else {
+        on.join(", ")
+    }
+}
+
+/// The options with row `i` of the Extras list changed to its next value.
+fn cycle_extra(mut e: tidewater_sim::Extras, i: usize) -> tidewater_sim::Extras {
+    use tidewater_sim::extras::{MAX_EXTRA_SPEEDS, UNLIMITED};
+    match i {
+        0 => e.rally_points = !e.rally_points,
+        1 => e.production_queue = !e.production_queue,
+        2 => {
+            e.selection_limit = match e.selection_limit {
+                0 => 12,
+                12 => 18,
+                18 => UNLIMITED,
+                _ => 0,
+            }
+        }
+        _ => e.extra_speeds = (e.extra_speeds + 1) % (MAX_EXTRA_SPEEDS + 1),
+    }
+    e
+}
+
 /// What the beacon says about a lobby: nothing once every row is taken. The players are the rows with someone in them,
 /// computers too, and the map is its name without the folder and the extension.
 fn announce_of(v: &LobbyView, port: u16) -> Option<Announce> {
@@ -1132,6 +1224,27 @@ mod tests {
     use crate::input::KeyEvent;
     use crate::net::proto::Identity;
     use crate::net::room::{self, Handshake};
+
+    #[test]
+    fn the_extras_rows_cycle_and_summarise() {
+        use tidewater_sim::Extras;
+        use tidewater_sim::extras::UNLIMITED;
+        let mut e = Extras::default();
+        assert_eq!(extras_summary(&e), "None");
+        e = cycle_extra(e, 0);
+        assert!(e.rally_points);
+        for want in [12, 18, UNLIMITED, 0] {
+            e = cycle_extra(e, 2);
+            assert_eq!(e.selection_limit, want);
+        }
+        for want in [1, 2, 3, 0] {
+            e = cycle_extra(e, 3);
+            assert_eq!(e.extra_speeds, want);
+        }
+        e = cycle_extra(e, 0);
+        assert!(e.is_default());
+        assert_eq!(extras_labels(&e).len(), 4);
+    }
 
     fn key(k: Key) -> Input {
         Input {

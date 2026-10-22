@@ -277,7 +277,12 @@ fn network_start(
     let name = args.name.clone().unwrap_or_default();
     if let Some(port) = args.host {
         let map = args.map.as_deref().context("--host needs a map")?;
-        let spec = args.lobby.clone().unwrap_or_default();
+        let mut spec = args.lobby.clone().unwrap_or_default();
+        // The options that change the simulation are the host's, from its settings and its command line, and travel to
+        // every joiner (`docs/design/extras.md`).
+        let mut extras = prefs::Prefs::load(&*store.0).extras;
+        args.extras.apply(&mut extras);
+        spec.extras = crate::extras::local_sim_extras(&extras);
         let setup = args.setup.unwrap_or_default();
         let wall = store.wall_clock_secs();
         return lobby::host(Some(port), &spec, map, setup, install, store, &name, wall, say).map(Some);

@@ -14,8 +14,9 @@ use tidewater_sim::setup::{Lobby, Setup};
 /// The protocol version. Two programs with different versions refuse each other at the handshake.
 ///
 /// Version 2: the identity names the game edition and the archives' contents (from the import manifest), and the lobby
-/// can send a map to a joiner that lacks it.
-pub const PROTOCOL: u16 = 2;
+/// can send a map to a joiner that lacks it. Version 3: the optional improvements that change the simulation
+/// (`tidewater_sim::Extras`) have fields and travel in the lobby, and the rally command exists.
+pub const PROTOCOL: u16 = 3;
 
 /// The largest map a creator sends or a joiner accepts, in bytes. The installation's biggest maps are well under a
 /// megabyte.
@@ -237,6 +238,9 @@ pub struct LobbyView {
     pub cheats_allowed: bool,
     /// The network delay row (`net/lockstep.md`, "Which row").
     pub row: u8,
+    /// The optional improvements that change the simulation, as the host set them (`docs/design/extras.md`); every
+    /// machine starts the game with these, never with its own settings. All off unless the host turned some on.
+    pub extras: tidewater_sim::Extras,
     pub rows: Vec<RowView>,
 }
 
@@ -414,6 +418,11 @@ mod tests {
                 speed: 4,
                 cheats_allowed: false,
                 row: 3,
+                extras: tidewater_sim::Extras {
+                    rally_points: true,
+                    selection_limit: 12,
+                    ..Default::default()
+                },
                 rows: vec![RowView::new(RowState::Human)],
             })),
             Msg::SetRace { race: 1 },

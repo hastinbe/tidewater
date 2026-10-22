@@ -42,6 +42,9 @@ pub enum Scope {
     Client,
     /// **C+L**: client-only but gives an edge; a non-local session sets it.
     ClientLobby,
+    /// **S**: changes the simulation (`tidewater_sim::Extras`). The player's setting starts a local game; in a game
+    /// with other players the lobby's value is used for everyone, and a replay uses the recording's.
+    Sim,
 }
 
 /// What values an option takes. Every kind is stored as a number 0 to 100.
@@ -207,6 +210,7 @@ impl Spec {
         match self.scope {
             Scope::Client => "C",
             Scope::ClientLobby => "C+L",
+            Scope::Sim => "S",
         }
     }
 }
@@ -293,6 +297,12 @@ impl ClientExtras {
         self.get(Id::SmartAttackMove) != 0
     }
 
+    /// The options that change the simulation, as a new local game starts with them (`tidewater_sim::Extras`). Each
+    /// sim option has a registry row of scope [`Scope::Sim`] and is read here.
+    pub fn sim(&self) -> tidewater_sim::Extras {
+        tidewater_sim::Extras::default()
+    }
+
     pub fn game_clock(&self) -> ClockMode {
         match self.get(Id::GameClock) {
             1 => ClockMode::Clock,
@@ -349,11 +359,11 @@ pub fn effective(local: &ClientExtras, lobby: Option<ClientExtras>) -> ClientExt
     out
 }
 
-/// The sim options a new local game starts with: the player's own choice. No option touches the sim yet
-/// ([`tidewater_sim::Extras`] is empty), so this is the default set; the first sim option adds its registry row and
-/// reads it here. A session that isn't local never calls this ([`Session::sim_extras`](crate::session::Session::sim_extras)).
-pub fn local_sim_extras(_local: &ClientExtras) -> tidewater_sim::Extras {
-    tidewater_sim::Extras::default()
+/// The sim options a new local game starts with: the player's own choice (the registry's [`Scope::Sim`] rows). A session
+/// that isn't local never calls this ([`Session::sim_extras`](crate::session::Session::sim_extras)): a network game
+/// takes the lobby's set and a replay the recording's.
+pub fn local_sim_extras(local: &ClientExtras) -> tidewater_sim::Extras {
+    local.sim()
 }
 
 /// What the command line says about the options: values to set and options to put back to their default, in the order
@@ -444,7 +454,8 @@ impl clap::Args for ExtraFlags {
         cmd.after_help(
             "Each --extra-NAME option has a matching --no-extra-NAME that puts it back to its default for this run. \
              The settings file's [extras] section sets them for good. C: client only. C+L: client only, but in a game \
-             with other players the lobby sets it.",
+             with other players the lobby sets it. S: changes the simulation, so in a game with other players the \
+             host's lobby sets it for everyone.",
         )
     }
 

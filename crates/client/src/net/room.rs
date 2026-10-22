@@ -105,6 +105,7 @@ pub fn new_view(enhanced: bool, host_name: &str, host_race: u8) -> LobbyView {
         speed: 4,
         cheats_allowed: true,
         row: super::lockstep::DIRECT_IP_ROW,
+        extras: tidewater_sim::Extras::default(),
         rows,
     }
 }
@@ -169,7 +170,7 @@ impl LobbyView {
             },
             speed: self.speed,
             row: self.row,
-            extras: tidewater_sim::Extras::default(),
+            extras: self.extras,
             names,
         };
         (config, rows)
@@ -349,6 +350,14 @@ impl HostRoom {
         v.speed = speed.min(8);
         v.cheats_allowed = cheats_allowed;
         self.changed(true);
+    }
+
+    /// The optional improvements that change the simulation (`docs/design/extras.md`), the host's choice for everyone.
+    pub fn set_extras(&mut self, extras: tidewater_sim::Extras) {
+        if self.view.extras != extras {
+            self.view.extras = extras;
+            self.changed(true);
+        }
     }
 
     /// The host's own race.
@@ -1148,6 +1157,20 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         assert!(heard);
+    }
+
+    #[test]
+    fn the_hosts_optional_improvements_reach_the_game_config() {
+        let mut room = host(true);
+        assert!(room.view().to_config(1).0.extras.is_default());
+        let on = tidewater_sim::Extras {
+            rally_points: true,
+            selection_limit: 12,
+            ..Default::default()
+        };
+        room.set_extras(on);
+        assert_eq!(room.view().extras, on);
+        assert_eq!(room.view().to_config(1).0.extras, on);
     }
 
     /// A small valid map and its hash.

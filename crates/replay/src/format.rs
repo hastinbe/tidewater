@@ -25,8 +25,8 @@ use tidewater_sim::{Command, Extras};
 
 /// The first bytes of every replay file.
 pub const MAGIC: [u8; 8] = *b"TWREPLAY";
-/// The format version this build writes and reads.
-pub const VERSION: u16 = 1;
+/// The format version this build writes and reads. Version 2: the header's extras (`RulesTag::extras`) have fields.
+pub const VERSION: u16 = 2;
 /// The file name extension.
 pub const EXTENSION: &str = "twrep";
 /// A checkpoint is recorded every this many cycles (and at the end of a finished game).
@@ -65,8 +65,8 @@ pub struct RulesTag {
     pub multiplayer: bool,
     pub cheats_disabled: bool,
     /// The optional improvements that touch the sim, as the game ran with them (`docs/design/extras.md`). Playback
-    /// starts the world with these, never with the viewer's own settings. Empty for now, so it adds no bytes: the
-    /// first option added bumps [`VERSION`].
+    /// starts the world with these, never with the viewer's own settings. Four bytes while the set has its four
+    /// fields (version 2 of the format).
     pub extras: Extras,
 }
 

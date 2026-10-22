@@ -10,6 +10,7 @@
 //! | Map | the positional map, as for a single-player game |
 //! | Rules (Enhanced, or Classic, which is opt-in) and the game's options, fog of war among them | `--setup custom:fog=off,classic` |
 //! | Humans, their races, Computer rows, Fixed Order, game speed, network delay, seed | `--lobby humans=2,races=human/orc,computers=1,fixed,speed=8,row=3,seed=N` |
+//! | Optional improvements that change the simulation (`docs/design/extras.md`) | the host's `--extra-NAME` flags and settings file, e.g. `--extra-rally-points` |
 //!
 //! The seed is the host's choice, sent to every machine (the seed exchange): with none given it is the host's clock.
 
@@ -52,6 +53,9 @@ pub struct LobbySpec {
     pub row: u8,
     /// The host's choice of seed.
     pub seed: Option<u32>,
+    /// The optional improvements that change the simulation, the host's own (`--extra-NAME` flags and settings): the
+    /// game starts with these on every machine. Not a `--lobby` choice; the host's command line sets them.
+    pub extras: tidewater_sim::Extras,
 }
 
 impl Default for LobbySpec {
@@ -66,6 +70,7 @@ impl Default for LobbySpec {
             // row"). The traced Direct Connect game ran row 4 (12 cycles); `row=4` picks it.
             row: DIRECT_IP_ROW,
             seed: None,
+            extras: tidewater_sim::Extras::default(),
         }
     }
 }
@@ -147,7 +152,7 @@ impl LobbySpec {
             },
             speed: self.speed,
             row: self.row,
-            extras: tidewater_sim::Extras::default(),
+            extras: self.extras,
             names,
         }
     }
@@ -215,8 +220,14 @@ pub fn describe(c: &GameConfig) -> String {
             format!("{} ({race})", c.names.get(slot as usize).map_or("?", String::as_str))
         })
         .collect();
+    let extras = c.extras.describe();
+    let extras = if extras.is_empty() {
+        String::new()
+    } else {
+        format!(", with {}", extras.join(", "))
+    };
     format!(
-        "{}: {rules}{fog}, speed {speed}, {} human{}{}: {}; seed {}; turn length {} cycles",
+        "{}: {rules}{fog}{extras}, speed {speed}, {} human{}{}: {}; seed {}; turn length {} cycles",
         c.map_name,
         c.lobby.humans.len(),
         if c.lobby.humans.len() == 1 { "" } else { "s" },
