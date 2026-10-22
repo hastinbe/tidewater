@@ -149,7 +149,7 @@ adb shell am start -n dev.tidewater.client/.TidewaterActivity
 
 Tidewater follows the behaviour of the original game, not only its looks. The **Enhanced** rules are the default and are what Tidewater mirrors. The **Classic** rules exist in the original only as an opt-in multiplayer choice; Tidewater has them only where the specs describe them.
 
-Fidelity is measured, not assumed. The simulation is deterministic and integer-only. `twtool oracle` compares it cycle by cycle with recorded traces of the original game and reports the first record that differs. Many traces (campaign missions, spells, naval and transport scenarios, computer players) match up to their stated limits. The traces are not in this repository, so this comparison runs on the maintainers' machines, not in CI.
+Fidelity is measured, not assumed. The simulation is deterministic and integer-only. `twtool oracle` compares it cycle by cycle with recorded traces of the original game and reports the first record that differs. Every campaign mission (human, orc and both Beyond the Dark Portal campaigns) and six skirmish maps, played by the computer players with the human side idle, run identically to the original for 60000 cycles or until the game ends, about 2.4 million cycles in all, Enhanced rules. Hundreds of shorter traces cover spells, naval and transport scenarios, saves and specific rules. Not yet measured this way: a person's input over a whole mission, the Classic rules, and two-person network play. The traces are not in this repository, so this comparison runs on the maintainers' machines, not in CI.
 
 Some screens are our own layout, because the original's dialog definition files are not specified yet: the menus, dialogs, briefing and score screen look different from the original.
 
@@ -281,7 +281,7 @@ Run with `--record-replay` and the game writes a `.twrep` file to the `replays` 
 
 ## Roadmap
 
-Everything in this table is **planned**; none of it is built yet.
+What is done, started and still planned beyond the single-player game.
 
 | Track | What it adds | Status |
 |---|---|---|
@@ -289,7 +289,7 @@ Everything in this table is **planned**; none of it is built yet.
 | **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts; no Battle.net, modem or skirmish screen; observers by command line only |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
 | **Touch controls** | iOS (Simulator-tested; no device or signing yet) and Android (emulator-tested). PlayStation Vita support is under evaluation. | iOS and Android early (emulator and Simulator only) |
-| **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |
+| **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Done: see [Optional improvements](#optional-improvements) |
 
 ## How it is built
 
