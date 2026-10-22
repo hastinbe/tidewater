@@ -290,6 +290,52 @@ mod tests {
         assert_eq!(w.units[si].goal_x, 5);
     }
 
+    /// Round 98 (RP8, traced): a repaired transport's counter is the x of its stored goal and a run changes only that
+    /// x: every run adds 1 and, at 2 or more, pays 1 gold and 1 lumber and takes 2 off, so while the x is 1 or more the
+    /// x falls by 1 and the run pays; at 0 a run leaves 1 and doesn't pay. The transport's destination, tile and order
+    /// stay as they were, and the next command sets a new goal.
+    #[test]
+    fn a_repaired_transports_goal_x_falls_by_one_per_paid_run_and_nothing_else_changes() {
+        let (mut w, peasant, _) = site();
+        w.stats.0[0x1c].flags |= flags::TRANSPORT;
+        w.stats.0[0x1c].hit_points = 150;
+        let ship = w.spawn(0x1c, 0, (0, 0), 0).unwrap();
+        let si = w.index(ship).unwrap();
+        w.units[si].hp = 20;
+        w.step(&[Command::Move {
+            player: 0,
+            units: vec![ship],
+            to: (8, 2),
+        }]);
+        assert_eq!(w.units[si].goal_x, 8);
+        w.units[si].order = Order::Docked;
+        w.units[si].tile = (5, 5);
+        let (dest, tile) = (w.units[si].ship.dest, w.units[si].tile);
+        let pi = w.index(peasant).unwrap();
+        w.units[pi].tile = (6, 5);
+        w.units[pi].order = Order::Repair { target: ship };
+        for run in 1..=8i16 {
+            w.units[pi].script.frame = 25;
+            w.repair_order(pi, ship);
+            assert_eq!(w.units[si].goal_x, 8 - run, "run {run}");
+            assert_eq!(100 - w.players[0].gold, run as u32, "run {run} pays");
+            assert_eq!(w.units[si].hp, 20 + 4 * run as u16);
+            assert_eq!((w.units[si].ship.dest, w.units[si].tile, w.units[si].order), (dest, tile, Order::Docked));
+        }
+        // At 0 the next run leaves 1 and doesn't pay; the one after pays and is back at 0.
+        w.repair_order(pi, ship);
+        assert_eq!((w.units[si].goal_x, 100 - w.players[0].gold), (1, 8));
+        w.repair_order(pi, ship);
+        assert_eq!((w.units[si].goal_x, 100 - w.players[0].gold), (0, 9));
+        // A command that sends it somewhere sets a new goal.
+        w.step(&[Command::Move {
+            player: 0,
+            units: vec![ship],
+            to: (4, 2),
+        }]);
+        assert_eq!(w.units[si].goal_x, 4);
+    }
+
     /// Repair spec step 2 and 5 (round 97, RP6): a repair that stops for lack of resources or a lost target ends with
     /// the pending idle, as at full hit points: the still animation keeps its frame, and in Enhanced mode a remembered
     /// attack-move resumes.
