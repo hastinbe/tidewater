@@ -410,6 +410,9 @@ pub struct Record {
     pub save: Option<String>,
     /// A `setup` record's `load`: the game was started by loading the saved game of this name.
     pub load: Option<String>,
+    /// The `game` extra's `controllers` after the record's turn (empty without the extra). A turn's `other` command
+    /// is a player leaving only if this shows the player as "nobody" afterwards.
+    pub controllers: Vec<String>,
 }
 
 /// The `vision` extra's compared unit fields (`vision/fog.md`, "Unit visibility" and "Detection (phase 1)").
@@ -849,6 +852,7 @@ impl Record {
                 .then(|| v.get("name").and_then(Value::as_str).map(str::to_string))
                 .flatten(),
             load: v.get("load").and_then(Value::as_str).map(str::to_string),
+            controllers: v.get("game").map(|g| strings(g, "controllers")).unwrap_or_default(),
             kind,
         })
     }
@@ -1585,6 +1589,7 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         fog_option: None,
         save: None,
         load: None,
+        controllers: Vec::new(),
     }
 }
 
@@ -1920,9 +1925,12 @@ fn step_to(w: &mut World, at: &mut u64, start_up: &mut bool, to: u64) {
 fn replay_turn(w: &mut World, theirs: &Record, s: &mut Summary, multiplayer: bool) {
     for c in &theirs.commands {
         // spec gap: the trace format doesn't say what a turn's `other` command is. In a multiplayer-launch trace it is
-        // the player leaving: `mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300` lists slot 1's `other` in the turn
-        // of n = 1022, where the slot becomes "nobody" (`net/leave-and-drop.md` LV19).
-        if multiplayer && matches!(c.kind, replay::Kind::Other) {
+        // the player leaving when the slot is "nobody" in the record's `game` extra afterwards:
+        // `mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300` lists slot 1's `other` in the turn of n = 1022, where the
+        // slot becomes "nobody" (`net/leave-and-drop.md` LV19). `mp-battle-2-mp-battle2-nobody-moving-game-goals-
+        // vision-1450` lists one at n = 1202 that leaves slot 1 a human until its `other` at n = 1250 (LV24).
+        let left = theirs.controllers.get(c.player as usize).is_none_or(|k| k == "nobody");
+        if multiplayer && left && matches!(c.kind, replay::Kind::Other) {
             w.leave_game(c.player as usize);
         }
         if let Some(cmd) = replay::sim_command(w, c) {

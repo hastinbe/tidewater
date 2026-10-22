@@ -489,6 +489,10 @@ pub struct Timing {
     /// The input has typed words or fog switches: the game queues `cheat` and `other` commands for them that no
     /// input entry names, so those aren't listed as extra.
     menu_driven: bool,
+    /// A multiplayer game: the header's `input` lists only the traced player's commands (trace format, "Header"), so
+    /// the commands of a player with no input entries (the second human, whom `mp-battle-2-mp-battle2-nobody-moving-
+    /// game-goals-vision-1450` has select and move a unit) are not listed as extra either.
+    multiplayer: bool,
 }
 
 impl Timing {
@@ -520,6 +524,7 @@ impl Timing {
                 || input
                     .iter()
                     .any(|e| matches!(e.kind, Kind::Say { .. } | Kind::Fog { .. })),
+            multiplayer: turn_length.is_some(),
             ..Default::default()
         };
         for (i, (_, e)) in t.input.iter().enumerate() {
@@ -548,6 +553,7 @@ impl Timing {
                     }
                 }
                 _ if self.menu_driven && matches!(c.kind, Kind::Cheat { .. } | Kind::Other) => {}
+                _ if self.multiplayer && !self.input.iter().any(|(_, e)| e.player == c.player) => {}
                 _ => self.extra.push(format!("turn {n}: {c}")),
             }
         }

@@ -517,24 +517,39 @@ traces! {
     orc10_aigroups_airesearch_12: ("orc10-aigroups-airesearch-12.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
     xhuman6_xhuman6_r94_keepcastle_saveload_aigroups_airesearch_game_30: ("xhuman6-xhuman6-r94-keepcastle-saveload-aigroups-airesearch-game-30.jsonl.gz", "Campaign\\XHuman\\2XHum06.pud", 38, &[], None),
     xorc11_xorc11_r94_castles_saveload_aigroups_airesearch_game_30: ("xorc11-xorc11-r94-castles-saveload-aigroups-airesearch-game-30.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
-    xhuman8_xhuman8_r94_groups_saveload_aigroups_game_60_to_43: ("xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], Some(43)),
     xhuman9_xhuman9_r94_level_resave_aigroups_airesearch_game_60: ("xhuman9-xhuman9-r94-level-resave-aigroups-airesearch-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
     mp_battle_2_mp_battle2_nobody_busy_game_vision_1450: (mp, "mp-battle-2-mp-battle2-nobody-busy-game-vision-1450.jsonl.gz", &[], None),
+    xhuman8_xhuman8_r95_workers_saveload_aigroups_aiworkers_game_1500: ("xhuman8-xhuman8-r95-workers-saveload-aigroups-aiworkers-game-1500.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
+    human14_human14_r95_spell_saveload_aigroups_airesearch_game_60: ("human14-human14-r95-spell-saveload-aigroups-airesearch-game-60.jsonl.gz", "Campaign\\Human\\Human14.pud", 26, &[], None),
+    mp_battle_2_mp_battle2_nobody_moving_game_goals_vision_1450: (mp, "mp-battle-2-mp-battle2-nobody-moving-game-goals-vision-1450.jsonl.gz", &[], None),
 }
 
-/// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load). Its group
-/// counts and everything else match through the loaded game's n = 43 (the row above). At n = 44 (loaded game, counter
-/// 42) a peon of player 3, slot 1511, leaves its town hall (slot 1496, tile 6,73): the original sends it to the gold
-/// mine, slot 1481 (order 2, target 1481, x 224, y 2464, tx 7, ty 77, facing 4), ours moves it east of the hall
-/// (x 320, y 2336, tx 10, ty 73, facing 1) with no target. Clearing the saved miner and lumberjack counts at the
-/// load makes it worse (the divergence moves to n = 40, slot 1455), and `ai/worker-ai.md` and `game/save-load.md`
-/// are silent on which worker-AI counts a load keeps, so this stays open until a spec covers it.
+/// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load) matches in full
+/// since round 95: a load sets the job counts to 0 while the workers keep their jobs (SL22 to SL25), so the peon
+/// leaving the town hall at n = 44 goes to the gold mine.
 #[test]
-#[ignore = "loaded game n=44: a peon leaving a town hall goes east without a target, the original goes to the gold mine; spec silent on the saved worker-job counts"]
 fn xhuman8_xhuman8_r94_groups_saveload_aigroups_game_60() {
     check(
         "xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60.jsonl.gz",
         Some(("Campaign\\XHuman\\2XHum08.pud", 42)),
+        &[],
+        None,
+    );
+}
+
+/// SL27 (a building upgrading at the save marks as its current type, its upgrade's entry staying open). The whole trace
+/// matches through n = 1700 (the done marks, the request for 0x98, the stronghold at n = 1547) with `unit.target` left
+/// out (`--fields=-unit.target`), but not with it: in the loaded game's setup record (n = 0) three idle neutral
+/// critters (type 0x69, owner 15, order 0: slots 1579, 1581 and 1583) have no target in the original, while ours keeps
+/// the saved one (slots 1516, 1512 and 1516, units of players 0 and 1). Ours differs in that field only, from n = 0
+/// to n = 353. `game/save-load.md` ("What a saved game keeps") says a unit's target is kept exactly and is silent on
+/// an idle critter's, so this stays open until the spec says what a load does to it.
+#[test]
+#[ignore = "loaded game n=0 (setup): three idle neutral critters (slots 1579, 1581, 1583) have target null in the original, ours keeps the saved target (1516, 1512, 1516) until n=353; spec silent"]
+fn xhuman2_xhuman2_r95_upgrading_saveload_aigroups_airesearch_game_1700() {
+    check(
+        "xhuman2-xhuman2-r95-upgrading-saveload-aigroups-airesearch-game-1700.jsonl.gz",
+        Some(("Campaign\\XHuman\\2XHum02.pud", 30)),
         &[],
         None,
     );
