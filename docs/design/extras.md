@@ -10,7 +10,8 @@ settings in a game with other players. Enhanced rules stay the target; Classic s
 
 The table is generated from the one registry in `crates/client/src/extras.rs` (`REGISTRY`); a test fails if this copy
 drifts from it. **Scope** C is client-only. **C+L** is client-only but gives an edge, so in a game with other players
-the session (the lobby, later) sets it for everyone instead of your own setting.
+the session (the lobby, later) sets it for everyone instead of your own setting. **S** changes the simulation: the host
+chooses it in the lobby and it travels with the game, saves and replays (see "Sim options").
 
 | Option | Flag | Values | Scope | Default | What it does |
 |---|---|---|---|---|---|
@@ -26,7 +27,7 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
 | `rally-points` | `--extra-rally-points` | on, off | S | off | Right-click with a training building selected to set a rally point: the units it trains go there |
 | `production-queue` | `--extra-production-queue` | on, off | S | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last |
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | S | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit |
-| `extra-speed` | `--extra-extra-speed VALUE` | off, 1, 2, 3 | S | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) |
+| `speed-levels` | `--extra-speed-levels VALUE` | off, 1, 2, 3 | S | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) |
 | `minimap-ping` | `--extra-minimap-ping` | on, off | C | off | Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
@@ -72,6 +73,44 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
   of window pixels that fits, as always. `sharp` fits it by a fraction of the window's safe area: the picture is scaled
   up by the next whole number with the nearest texel and then scaled linearly down, so pixels stay crisp. Touch
   platforms use `sharp` whatever the setting says (`docs/design/touch.md`). Rules in `display.rs` (`Letterbox::fit_area`).
+- **Rally points** (`rally-points`, S). With a training building of yours selected (a town hall, barracks or
+  another building that trains units, not a research-only one), a right-click on the map sets its rally point: on
+  open ground, the units it trains walk there; on a gold mine or a tree, workers harvest it; on a friendly unit they
+  follow it; on an enemy they attack it. A small flag in the owner's colour marks the point while the building is
+  selected. The command is `Command::Rally` (appended last, in the turn like any other), the point lives in
+  `World::ext` and is hashed, saved and compared only when the option is on. The point is dropped when the target
+  goes. Rules in `crates/sim/src/rally.rs`.
+- **Production queue** (`production-queue`, S). A building that is training, researching or upgrading takes up to four
+  more jobs (five including the one running). **Paid when queued:** the cost is taken at once and refunded on cancel,
+  and the food check is the usual one. Cancel (slot 9) removes the last waiting job first, the running one when none
+  waits. Waiting jobs show as small icons under the production icon in the information panel. Research bits are set
+  when the job is queued, so a second copy of a queued research is refused. Nothing queues behind an upgrade (a
+  town hall or tower becoming another building). A job that cannot start when its turn comes (no food, building lost
+  its requirement) is refunded and skipped. Rules in `crates/sim/src/queue.rs`.
+- **Selection limit** (`selection-limit`, S). 12, 18 or unlimited units in a selection, a box select, a control
+  group and a command. The synced selection keeps its nine places (`select::PLACES`); the units past nine are kept
+  in `ext.more` and are not saved (a load starts with nothing selected, as before). The information panel keeps its nine
+  icons and draws "+N" over the last one for the units beyond them. Under the original limit nothing changes, bit
+  for bit. The mouse rules (`mouse.rs`) take the limit from the world.
+- **Speed levels** (`speed-levels`, S, Enhanced rules only). 1 to 3 more speed levels above Fastest, reached with the
+  ordinary speed keys and the game speed slider (in multiplayer too, through `Command::Speed`). The lobby's slider
+  still stops at Fastest.
+
+  | Level | Name | Cycle | Cycles a second |
+  |---|---|---|---|
+  | 8 | Fastest | 13 ms | 77 |
+  | 9 | Fastest +1 | 10 ms | 100 |
+  | 10 | Fastest +2 | 8 ms | 125 |
+  | 11 | Fastest +3 | 6 ms | 167 |
+
+  The network's turn length `K` scales with the cycle (`lockstep::turn_length`). A slow computer simply runs behind
+  at these speeds, the scheduler's limit of three cycles a frame still holds. Under Classic rules the option does
+  nothing.
+- **Minimap ping** (`minimap-ping`, C). Alt-click on the minimap in a network game sends `Msg::Ping` (a message of its
+  own outside the turns and the state hash, like chat). Allies see a blinking ring in the sender's colour on their
+  minimap for about five seconds, and you see your own. At most one ping every 12 cycles per player; each machine
+  checks the alliance against its own table. In a single-player game or a replay the click does what it always did.
+  Rules in `ping.rs`.
 
 ## Rebindable keys
 
@@ -113,23 +152,28 @@ idle-worker=ctrl+i
 
 ## Sim options
 
-`tidewater_sim::Extras` (`crates/sim/src/extras.rs`) is the set of options that change the simulation. It is empty for
-now. It is a field of `Rules`, so it is:
+`tidewater_sim::Extras` (`crates/sim/src/extras.rs`) is the set of options that change the simulation: `rally_points`,
+`production_queue`, `selection_limit` (0 for nine, 12, 18, or `UNLIMITED`) and `extra_speeds` (0 to 3). It is a field of
+`Rules`, so it is:
 
-- **hashed** with the world (`World::state_hash`), so two machines with different options desync at once;
+- **hashed** with the world (`World::state_hash`), so two machines with different options desync at once; the state
+  and its extra data (`World::ext`: rally points, queues, the selection beyond nine places) are in the hash and the
+  fingerprint **only when an option is on**, so a game with every extra off hashes exactly as it did before;
 - **saved** with the rest of the rules in a saved game;
 - **carried in a replay's header** (`RulesTag::extras`), and playback starts the world from the header's value;
-- to be **carried in the lobby's start message** (M3), with the session handing it to the game
-  (`Session::sim_extras`).
+- **carried in the lobby's start message** (`LobbySpec::extras`, `GameConfig`), so every machine starts with the host's
+  choice. The lobby shows an "Extras" box only when at least one sim option is on in it (or was on in the host's own
+  settings), so a lobby with none looks as it always has; only the host can change it
+  (`HostRoom::set_extras`).
 
 A game never reads sim options from the local settings unless it is a new local game (`extras::local_sim_extras`).
 A replay uses the recording's; a loaded game keeps the ones it was saved with.
 
-**The layout today.** An empty struct writes no bytes (postcard), so adding it changed neither the saved game
-(then version 14; it is version 15 since the round-92 load rules, for other reasons) nor the replay (version 1, unchanged) nor the state hash; the frame and oracle snapshots and
-the whole-map snapshot are unchanged. **The first field changes the layout.** In that commit, bump
-`savefile::VERSION` and `tidewater_replay::format::VERSION`, hash the field only when it is not at its default (as the
-cheat flags are), and bless the save-file hashes in the frame snapshot.
+**Versions.** The extras raised the saved game from 17 to 18 (`savefile::VERSION`), the replay from 1 to 2
+(`tidewater_replay::format::VERSION`) and the network protocol from 2 to 3 (`net::proto::PROTOCOL`), because the
+lobby's messages carry the set. With every extra off the new data is empty or skipped: nothing else in the file or the
+hash differs, and the frame snapshot's `.sav` hash lines are the only snapshot lines that moved (the version number is
+part of the file).
 
 ## Multiplayer (C+L)
 

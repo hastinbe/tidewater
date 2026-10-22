@@ -17,7 +17,7 @@ pub const SPEED_NAMES: [&str; 9] = [
 /// Enhanced pacing: cycle length in ms per speed level.
 pub const ENHANCED_MS: [u32; 9] = [80, 60, 53, 46, 40, 33, 26, 20, 13];
 
-/// The cycle length in ms of the speed levels above Fastest (option `extra-speed`, `docs/design/extras.md`), 9 to 11.
+/// The cycle length in ms of the speed levels above Fastest (option `speed-levels`, `docs/design/extras.md`), 9 to 11.
 pub const EXTRA_MS: [u32; 3] = [10, 8, 6];
 
 /// The highest speed level any game reaches (Fastest plus the three extra levels).

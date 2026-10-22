@@ -33,7 +33,7 @@ pub enum Id {
     RallyPoints,
     ProductionQueue,
     SelectionLimit,
-    ExtraSpeed,
+    SpeedLevels,
     MinimapPing,
 }
 
@@ -88,8 +88,8 @@ pub const SCALING_MODES: &[&str] = &["integer", "sharp"];
 /// The selection limits (option `selection-limit`): the original nine, 12, 18, or no limit.
 pub const SELECTION_LIMITS: &[&str] = &["9", "12", "18", "unlimited"];
 
-/// How many speed levels to add above Fastest (option `extra-speed`).
-pub const EXTRA_SPEEDS: &[&str] = &["off", "1", "2", "3"];
+/// How many speed levels to add above Fastest (option `speed-levels`).
+pub const SPEED_LEVELS: &[&str] = &["off", "1", "2", "3"];
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -190,9 +190,9 @@ pub const REGISTRY: [Spec; COUNT] = [
         description: "How many units you can select and command at once: nine as in the original, 12, 18 or no limit",
     },
     Spec {
-        id: Id::ExtraSpeed,
-        name: "extra-speed",
-        kind: Kind::Choice(EXTRA_SPEEDS),
+        id: Id::SpeedLevels,
+        name: "speed-levels",
+        kind: Kind::Choice(SPEED_LEVELS),
         default: 0,
         scope: Scope::Sim,
         description: "Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only)",
@@ -364,7 +364,7 @@ impl ClientExtras {
                 3 => tidewater_sim::extras::UNLIMITED,
                 _ => 0,
             },
-            extra_speeds: self.get(Id::ExtraSpeed),
+            extra_speeds: self.get(Id::SpeedLevels),
         }
     }
 
@@ -626,6 +626,52 @@ mod tests {
             .extras
             .apply(&mut e);
         assert!(e.sim().is_default());
+    }
+
+    #[test]
+    fn the_sim_options_map_to_the_sims_set_and_back() {
+        use tidewater_sim::extras::UNLIMITED;
+        let mut e = ClientExtras::default();
+        assert!(e.sim().is_default() && !e.minimap_ping());
+        e.set(Id::RallyPoints, 1);
+        e.set(Id::ProductionQueue, 1);
+        e.set(Id::SelectionLimit, 3);
+        e.set(Id::SpeedLevels, 2);
+        let sim = e.sim();
+        assert_eq!(
+            sim,
+            tidewater_sim::Extras {
+                rally_points: true,
+                production_queue: true,
+                selection_limit: UNLIMITED,
+                extra_speeds: 2,
+            }
+        );
+        // The other limits.
+        for (v, limit) in [(0, 0), (1, 12), (2, 18)] {
+            e.set(Id::SelectionLimit, v);
+            assert_eq!(e.sim().selection_limit, limit);
+        }
+        assert_eq!(local_sim_extras(&e), e.sim());
+    }
+
+    #[test]
+    fn the_sim_flags_parse() {
+        let mut e = ClientExtras::default();
+        Args::parse_from([
+            "tidewater",
+            "--extra-rally-points",
+            "--extra-selection-limit",
+            "18",
+            "--extra-speed-levels",
+            "3",
+            "--extra-minimap-ping",
+        ])
+        .extras
+        .apply(&mut e);
+        assert!(e.sim().rally_points && e.minimap_ping());
+        assert_eq!((e.sim().selection_limit, e.sim().extra_speeds), (18, 3));
+        assert!(Args::try_parse_from(["tidewater", "--extra-selection-limit", "10"]).is_err());
     }
 
     #[test]

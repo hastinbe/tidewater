@@ -158,11 +158,14 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `rally-points` | `--extra-rally-points` | on, off | off | Right-click with a training building selected to set a rally point: the units it trains go there (S) |
 | `production-queue` | `--extra-production-queue` | on, off | off | Buildings queue up to five jobs, paid when queued; Cancel removes the last (S) |
 | `selection-limit` | `--extra-selection-limit VALUE` | 9, 12, 18, unlimited | 9 | How many units you can select and command at once: nine as in the original, 12, 18 or no limit (S) |
-| `extra-speed` | `--extra-extra-speed VALUE` | off, 1, 2, 3 | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) (S) |
+| `speed-levels` | `--extra-speed-levels VALUE` | off, 1, 2, 3 | off | Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only) (S) |
 | `minimap-ping` | `--extra-minimap-ping` | on, off | off | Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours |
 
 **C+L** marks an option that gives you an edge, so in a game with other players the lobby will set it for everyone
-instead of your own settings.
+instead of your own settings. **S** marks an option that changes the simulation (rally points, the production queue,
+the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a
+network game the host turns it on in the lobby's "Extras" box and everyone plays with the host's choice. The game is
+saved and recorded with it. Every option, S included, is **off by default**.
 
 ## Command-line reference
 
