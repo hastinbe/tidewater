@@ -19,6 +19,10 @@
   still applies to its commands.
   Open question closed; vector added. Review: the timers pass's clearing of the target marks is now step 6 of
   `spells/spells.md`'s step list (labelled static gap-fill).
+- **Changes:** 2026-10-22, round 97 (second B-040 audit, `ERRATA-audit2-ai.md`, static study, reviewed by a
+  spec-review session, 2026-10-22): the mage's invisibility try (try 5) takes an allied unit with flag bit 17 or an
+  attack range **other than 1** (was "of 1"); the two invisibility vectors are replaced by three. The other 21 caster
+  target tests were re-read and match.
 
 ## Behaviour
 
@@ -152,7 +156,7 @@ Try 1 has no mark. In try 4 the mark goes on the last unit drawn.
 | 2, only if invisible | Polymorph (46) | random | not allied; flag bits 19 (can attack), 27 (organic) and 17 (caster); no polymorph mark | none |
 | 3 | Polymorph (46) | nearby | not allied; flag bits 19 and 27; no polymorph mark | polymorph |
 | 4 | Fireball (43) | nearby | not allied; and either no company within 3 for the caster's owner, or the **caster's** HP is below half its maximum (HP < floor(max / 2)) | none |
-| 5 | Invisibility (45) | nearby | caster not invisible; allied; not a building (bit 5); the **caster's** goal kind is attack; the target has flag bit 17 or an attack range of 1 | unholy-armour timer 1 |
+| 5 | Invisibility (45) | nearby | caster not invisible; allied; not a building (bit 5); the **caster's** goal kind is attack; the target has flag bit 17 or an attack range **other than 1** | unholy-armour timer 1 |
 | 6, only if mana ≥ 75 | Blizzard (47) | nearest enemy | not allied; a building (bit 5); no company within 3 for the caster's owner | none |
 | 7 | Flame shield (42) | nearby | caster not invisible; flame-shield timer 0; no company within 2 for the caster's owner; not a building; then, if allied: order 12 and attack range 1; if not allied: company within 1 for the **target's** owner | flame-shield timer 1 |
 | 8 | Slow (44) | nearby | caster not invisible; not allied; not a building; speed timer 0 or more (not slowed); order not 2 (not idle) | speed timer −1 |
@@ -160,6 +164,15 @@ Try 1 has no mark. In try 4 the mark goes on the last unit drawn.
 
 Try 2 casts a unit spell at a tile with no unit (random search), so the cast fails as `spells/spells.md` describes
 for a unit spell without a target. Try 5's mark is the unholy-armour timer, not the invisibility timer.
+
+Try 5 makes **ranged units and casters** invisible, not melee units (round 97; static study, read from the program's
+bytes; no trace has a computer player's invisibility cast). In the default unit data the allied units it can take are
+archers, axe throwers, rangers and berserkers (range 4), ballistas and catapults (8), mages (2) and death knights (3), paladins and
+ogre-mages (range 1, but flag bit 17), gryphon riders and dragons (4), and the ships with a range other than 1
+(destroyers, battleships, submarines and their orc versions); footmen, grunts, knights, ogres, workers, demolition
+units, tankers, transports, flying machines and zeppelins (range 1, no bit 17) can't be taken. Heroes follow the
+same test by their own range and flags. The flame-shield test of try 7
+uses range 1 the other way round (an allied target must have range 1).
 
 ### Death knight
 
@@ -229,8 +242,9 @@ every spell. "Draws" counts the caster step's draws only.
 | Same, the mage at 29 of 60 HP | 29 < 30: fireball at the grunt's tile, no target unit |
 | Same mage, full HP, standing 2 tiles from a lone enemy grunt | The mage itself is company within 3: fireball rejected |
 | Same mage, full HP, 6 tiles from an enemy grunt; a neutral critter 2 tiles from the grunt and no other unit near it | The critter (owner 15, allied with everyone) is company within 3: fireball rejected |
-| Mage with 200 mana and goal kind attack; an own knight (range 1) within the box, nothing earlier succeeds | Invisibility command at the knight; the knight's unholy-armour timer becomes 1, so hits on it in this cycle do nothing |
-| Same, the target is an own demolition squad | Command given; the squad is killed in this cycle's timers pass |
+| Mage with 200 mana and goal kind attack; an own knight (range 1, no bit 17) is the only allied unit in the box, nothing earlier succeeds | Try 5 fails (round 97: the earlier "invisibility at the knight" was wrong); tries 6 to 9 follow |
+| Same, with an own archer (range 4) in the box | Invisibility command at the archer; the archer's unholy-armour timer becomes 1, so hits on it in this cycle do nothing |
+| Same, the only allied unit in the box is an own demolition squad (range 1, no bit 17) | Try 5 fails: the squad isn't made invisible (in the default data try 5 never targets a demolition unit) |
 | Mage, 80 mana; the enemy search's nearest enemy is a grunt; an enemy farm is further away | Try 6 tests only the grunt: not a building, so nothing. Try 7 and 8 follow |
 | Mage, 80 mana; nearest enemy is a farm with no own unit within 3 of its top-left tile | Blizzard at the farm's tile, no target unit |
 | Mage, 70 mana, same farm | Try 6 skipped (below 75) |

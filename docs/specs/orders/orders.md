@@ -52,6 +52,10 @@
 - **Changes:** 2026-10-16 (round 85, `ERRATA-round85.md` for `ERRATA-audit-ai.md` erratum 12, reviewed by a
   spec-review session, 2026-10-16): the plain reaction runs the target search, unseeded, for a combat unit whose attacker its owner doesn't
   detect (static gap-fill: the rule already said the search runs; vector added). No other rule change.
+- **Changes:** 2026-10-22, round 97 (second B-040 audit, `ERRATA-audit2-orders.md`, static study, reviewed by a
+  spec-review session, 2026-10-22): "Search box": the react range (human) box also covers follow (order 6) when its
+  reaction searches (V282, V283), and, in **Classic mode** only, attack-move's walk reaction (V284); "Special cases":
+  a mage-type unit is a target a mage-type searcher may take (V285). No Enhanced rule changed by the Classic item.
 
 ## Behaviour
 
@@ -152,7 +156,7 @@ different splits:
 | Rule | Split | Applies how |
 | --- | --- | --- |
 | Smart-move wait cap ("Commands") | Computer players / every other player | 40 cycles / 10 cycles |
-| Search box R ("Automatic target acquisition") | Computer players / every other player | react range (computer) always / react range (human) in a moving order that acquires, else attack range |
+| Search box R ("Automatic target acquisition") | Computer players / every other player | react range (computer) always / react range (human) in a moving order that acquires and in follow (6), else attack range |
 | Resulting-order table | Computer players / every other player | the "computer player" column / the "every other player" column |
 | Fleeing, rules 2 and 3 | Computer players / every other player | rule 2 / rule 3 |
 | Friendly-fire threshold | Human-controlled / not human-controlled | 1 own unit / 3 own units |
@@ -941,8 +945,17 @@ one.
 | Unit | R |
 | --- | --- |
 | A computer player's unit | Its type's **react range (computer)** from the unit data |
-| Every other player's unit, in a moving order that acquires (4, 5, 12) | Its type's **react range (human)** |
-| Every other player's unit, in any other order (including idle units) | Its **attack range** |
+| Every other player's unit, in a moving order that acquires (4, 5, 12, and in Enhanced mode 10), or in follow (6) | Its type's **react range (human)** |
+| **Classic mode:** every other player's unit in attack-move (10), when its walk reacts ("Walking orders", step 1) | Its type's **react range (human)** |
+| Every other player's unit, in any other order (including idle units, guard (7), stand ground (13), the attack-in-place orders (15, 16) and a docked transport (32)) | Its **attack range** |
+
+Follow (6) searches only from the reaction to an attacker ("Reacting to an attacker", "Walking orders react only when
+the walk has ended"), so the follow row matters only there. In the default data the difference is large for melee
+units: a footman's or grunt's attack range is 1 and its react range (human) 4. Since the attacker seeds the search, the
+box matters for a candidate that outscores the attacker, or when the attacker gives no seed (one the follower can't
+hit, or one its owner doesn't detect). The follow and Classic attack-move rows are static study (round 97). Which box a
+combat unit waiting at its transport in order 34 uses when its reaction searches wasn't settled (open question
+"Search box of a waiting boarder").
 
 A tower's box reaches 1 tile further on the right and bottom sides. A candidate is considered if any tile of its
 footprint is inside the box.
@@ -1093,8 +1106,9 @@ table; only transports use order 32, and they can't attack anyway.
 **Special cases:**
 
 - **Mages** (mage and death knight types, including heroes of those types) search like any other unit, scoring every
-  candidate. The rule is applied to the **chosen** target: if the best candidate can attack and isn't a non-combat unit
-  (workers, tankers, transports, demolition units), they acquire nothing in that run; if they have an attacker, they run
+  candidate. The rule is applied to the **chosen** target: if the best candidate can attack and isn't a worker, a tanker,
+  a demolition unit or a **mage-type unit** (flag bit 26, "acts like a mage": the mage and death knight types, heroes
+  included; round 97, static study), they acquire nothing in that run; if they have an attacker, they run
   the reaction instead, which treats them as non-combat units, so they **flee** ("Reacting to an attacker"). A harmless
   target is never chosen in place of a dangerous one that scores higher.
 - In Enhanced mode a **demolition unit** (dwarven demolition squad, goblin sapper) of any player, the computer
@@ -1628,6 +1642,9 @@ row's trace starts "As" that row's ID and names the trace.
 | V214 | `orc5-40000` (Enhanced), n = 21489: computer catapult 1580 (type 0x05, owner 5) at (122, 7), idle; transport 1516 (type 0x1C, owner 0) landing at (120, 6), d = 2 | Picked: order 16, animation 4, wait 3, target 1516 (a minimum of 3 would have skipped it) | Trace (`orc5-40000`) |
 | V217 | `orc12-30000` (as V216; re-captured identically in round 60), n = 26982: computer ogre mage 1442 (owner 3) at (36, 119), idle; transport 1434 (owner 0) landing on the shore tile (29, 121) | Picked: order 16, animation 4, wait 3, target 1434 | Trace (`orc12-30000`) |
 | V218 | A land-only searcher; candidate a transport in the sea layer on a shore-water tile (static study) | Not skipped for its kind | Static study |
+| V282 | A human player's footman (react range (human) 4, attack range 1) following an own peasant (order 6), stopped next to it. An enemy dragon attacks the footman; an enemy grunt stands idle 3 tiles away, visible (static study, round 97) | At the footman's next logic run the reaction's search (box radius 4; the dragon gives no seed, the footman can't hit air) finds the grunt: order 12 on the grunt, as "Reacting to an attacker" gives. With an attack-range box (radius 1) it would find nothing and keep following | Static study |
+| V283 | As V282, the grunt 5 tiles away | Nothing found; the footman keeps following the peasant | Static study |
+| V284 | **Classic mode** only: a human player's footman on attack-move (order 10), walking; an enemy dragon attacks it; an enemy grunt stands idle 3 tiles away, visible (static study, round 97) | At the next step boundary the walk's reaction searches with box radius 4 and finds the grunt: order 12 on it. (Enhanced mode is unchanged: attack-move acquires there, with the same box) | Static study (Classic mode) |
 
 ### Acquisition: resulting order and target switches
 
@@ -1668,6 +1685,7 @@ row's trace starts "As" that row's ID and names the trace.
 | V172 | `xorc01-death-coil-2500` (oracle trace): death knight 1491 (type 0x0B, owner 5, the human player) idle at (72, 69), hit by a skeleton at n = 1431 | n = 1433: order 3 (flee), still animation, wait 3, 2 draws for the offset. n = 1436: (71, 69), facing 6 | Trace (`xorc01-death-coil-2500`) |
 | V173 | An idle mage hit by a footman, nothing else in its box | Flees | Example |
 | V174 | An idle mage hit by a footman, with an enemy peasant in its box that outscores the footman | Attacks the peasant | Example |
+| V285 | A human player's idle mage (no attacker), an enemy death knight inside its attack-range box (radius 2) as its best candidate (static study, round 97) | The mage acquires the death knight: order 16 (the resulting order for an idle unit with no attacker) | Static study |
 | V278 | `orc11-orc11-sapper-attack-move-goals-1500` (oracle trace, Enhanced; scenario `oracle/scenarios/orc11-sapper-attack-move.txt`): goblin sapper 1573 (owner 0) told at n = 20 to patrol to (89, 25), where unit 1570 of player 2 stands; patrol is remembered | While walking, its search finds 1570: n = 426, pending order 20 (demolish at the unit) on 1570, order 5 kept; n = 440, order 20 takes over with wait 3; n = 443, it blows up. No flee | Trace (`orc11-orc11-sapper-attack-move-goals-1500`) |
 | V279 | As V278: goblin sappers 1580 and 1575 (owner 0) told at n = 20 to move attacking on the way (order 4, nothing remembered) to (89, 25). Player 2's archers 1570 and 1568 attack 1580 from n = 269 and n = 297; 1580 is hit at n = 323 (HP 40 to 33) | Neither takes a target while walking, before or after 1580's hit: at n = 323 1580 is in order 4 with no target, and it walks on with no flee (order 4 isn't one "Fleeing", step 3 allows). They arrive and go idle (1580 at n = 379, 1575 at n = 409). Later, each hit while idle flees at once (order 3: 1575 hit at n = 569, flees at n = 570; 1580 hit at n = 700, flees at n = 702). A unit that took 1570 as its target on the hit would show it at n = 323 and order 12 at n = 337. 1580 doesn't flee while idle from n = 379 to 442, while 1570, which hit it, is alive 2 tiles away: it forgot 1570 on arriving (V280) | Trace (`orc11-orc11-sapper-attack-move-goals-1500`) |
 | V280 | `orc11-orc11-sapper-attack-move-goals-hits-1500` (oracle trace, Enhanced, with the hit list; the same scenario as V278) | The hit list shows one hit on 1580 before it arrives: n = 323, by archer 1570 (a missile, 7 damage). 1580 arrives at n = 379 (order 4 to 2) and forgets 1570 there (the trace has no attacker field: by "Call for help", `ai/attack-ai.md`, the hit records 1570, and "Arriving and losing the target" forgets it), so nothing makes it flee until 1568 hits it at n = 700 (flees at n = 702); 1575 is hit at n = 569 and flees at n = 570. At n = 443 the hit list shows sapper 1573's demolish on 1570 (200 damage) | Trace (`orc11-orc11-sapper-attack-move-goals-hits-1500`) |
@@ -1855,6 +1873,10 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   that setup can't separate the readings, because orders 3, 4 and 10 forget the attacker on arrival anyway. A
   separating trace needs a walking order that keeps its attacker at the walk's end: a walk that ends with no route,
   or orders 6, 23, 24 or 27, whose attacker goes inside or turns invisible while the unit walks.
+- **Search box of a waiting boarder** (round 97 review). A combat unit in order 34 that has reached its transport,
+  can't board and keeps waiting runs the reaction ("Walking orders react only when the walk has ended"), whose search
+  is a combat unit's target search. The round-97 study gives the react range (human) box to orders 4, 5, 6, 12 and
+  10 and doesn't say whether order 34 is among them. Default: the attack range ("any other order"), until traced.
 - **Invisible units acquire nothing.** "Reacting to an attacker", step 3, says an invisible mage-type unit does
   nothing more in a run after the attacker check. The static study finds the same for every invisible unit that isn't
   a worker or tanker, in the order's logic and in the walk: after step 1 it makes no target search and no reaction. No
@@ -2013,3 +2035,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 75 | Hit sapper's attacker forgotten on arrival (traced with the hit list); demolition rule for every player and "nothing else" scoped to the search step (static); idle transport's step-done check isn't a take-over (static); notes on the skip mark, T11 and V277 | "Automatic target acquisition"; "Taking over"; "Open questions"; V279, V280 |
 | 81 | Walking orders: the lost-target drop traced for spell order 44 and made only by the walk (a caster in reach casts at an undetected target, traced); the reach test of "How an update runs" stated to come before the whole walk | "Walking orders" |
 | 82 | Review addition from the AI consolidation trace: patrol (order 5) arrives at a patrol end before the target search (traced, V281; open question closed); the computer job-choice pointers name order 2, other acquiring orders held open | "Arriving and losing the target"; "Automatic target acquisition"; "Reacting to an attacker", step 3; vector V281 |
+| 97 | Second B-040 audit, static study: the react range (human) box covers follow (6) and, in Classic mode, attack-move's walk reaction; a mage-type unit is a target a mage-type searcher may take. Review: the box of a waiting boarder (order 34) is an open question | "Automatic target acquisition" ("Search box", "Special cases"); "Open questions"; vectors V282 to V285 |

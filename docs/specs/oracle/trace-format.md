@@ -48,6 +48,9 @@
   with a check a comparer makes on them; the scenario verbs `save`, `load`, `say` and `fog` and their records; a
   loaded game's `setup` record; the `aiworkers` extra; after a load a dead body's `target` is `null`
   (`game/save-load.md`, SL28). The other research extras are listed and held.
+- **Changes:** 2026-10-22, round 97 (`ERRATA-audit2-economy.md`; reviewed by a spec-review session, 2026-10-22),
+  still version 2: the `goal` row defines a building's x (its construction pass and repair counter), so a comparer may
+  check it.
 
 ## Behaviour
 
@@ -177,7 +180,7 @@ unless Classic was explicitly requested on the multiplayer path, exactly as a de
 | `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit. After a load every dead body (type 0x69) reports `null`, whatever it had at the save; every other unit, dying ones included, keeps its target (`game/save-load.md`, SL28 to SL30). A death knight casting death coil has each victim in turn as its target, as each missile is launched, and keeps the last until the idle takes over (`spells/spells.md`, "Death coil victims") |
 | `trips` | Only for types 0x56 and 0x57 (oil platforms), 0x5C (gold mine) and 0x5D (oil patch): trips left (`economy/harvest.md`) |
 | `timers` | Only when one is running: any of `invisibility`, `unholy_armour`, `bloodlust` (cycles left) and `haste` (cycles; positive = haste, negative = slow) |
-| `goal` | Only when `extras` has `"goals"`, then on every unit: `[x, y]`, the unit's **stored goal**, in tiles like `tx`, `ty`: the tile its movement aims for (`movement/movement.md`, the stored goal of the blocked rules), set when it is sent somewhere and kept afterwards. The values are as stored, each 0 to 65535: a unit that isn't moving, and every building, holds whatever was left there (for example `[0, 65535]`, off the map). Compare it only where a spec defines it |
+| `goal` | Only when `extras` has `"goals"`, then on every unit: `[x, y]`, the unit's **stored goal**, in tiles like `tx`, `ty`: the tile its movement aims for (`movement/movement.md`, the stored goal of the blocked rules), set when it is sent somewhere and kept afterwards. The values are as stored, each 0 to 65535: a unit that isn't moving, and every building, holds whatever was left there (for example `[0, 65535]`, off the map). Compare it only where a spec defines it. One spec does: a **building's x** is its construction pass counter and repair counter (`economy/build-train.md`, "The construction pass"; `economy/repair.md`, "Cost and rate"): counting up from 1 while it is built, 12 × (T + 2) after completion, 0 for one placed by the map; its y has no defined value (round 97) |
 | `pending` | Only when `extras` has `"goals"`, then on every unit: the unit's pending order number (`orders/orders.md`, "Pending orders and immediate orders"; numbers as in `order`), or `null` when it has none |
 | `transport_dest` | Only when `extras` has `"goals"`, and only on transports (types 0x1C and 0x1D), always on those: `[x, y]`, the transport's **destination** tile (`orders/transports.md`, "What the transport stores"). As stored, like `goal`: a transport that has had no command holds leftovers |
 

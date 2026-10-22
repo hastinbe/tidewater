@@ -46,6 +46,9 @@
   session, 2026-10-21): "Placement on arrival", step 1: in a network game no machine makes the unexplored test on
   arrival, and the hidden-units exception uses the builder's owner's "seen" bits; the single-player rule is unchanged
   (static study; Tidewater rule for lockstep, the original's machine-dependent check not mirrored).
+- **Changes:** 2026-10-22, round 97 (second B-040 audit, `ERRATA-audit2-economy.md`, reviewed by a spec-review
+  session, 2026-10-22): "The construction pass": P keeps its last value, 12 × (T + 2), after completion, and it is the
+  building's repair counter (traced, V72).
 
 ## Behaviour
 
@@ -295,6 +298,14 @@ study):
 An undamaged building reaches M at step T, so it completes on pass **12 × (T + 1)**, counting the creation cycle as
 pass 1. A building that took damage during construction doesn't reach M. It shows full progress at step T + 1 and
 completes 12 passes later, with its hit points still below M.
+
+**P after completion** (round 97, traced). Either way P ends at **12 × (T + 2)** (1,224 for a farm), and it keeps that
+value after completion: nothing resets it, and later upgrades and jobs leave it alone. The same value is the
+building's **repair counter** (`economy/repair.md`, "Cost and rate"), so a building completed by construction pays
+for repair on every run. With the build-speed cheat on, P's last value is wherever the 12-per-pass steps left it
+(static study). A building placed by the map has P = 0. Traced: `orc9-orc09-r97-built-farm-repair-goals-2400`
+(a farm damaged while being built: 1,224), `orc9-orc09-carry-chop-goals-1400` (undamaged farms: 1,224),
+`xhuman9-aigoals-goals-8630-8830` (barracks: 2,424; guard towers upgraded from scout towers: 744); vector V72.
 
 ### Completion
 
@@ -575,6 +586,7 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V32 | Same, n = 469 | Tanker: order 26, still animation, wait 150 | Trace |
 | V68 | `human06-carry-build-1000` (oracle trace, Enhanced): peasant 1586 comes out of the mine carrying gold at n = 333 and builds lumber mill 1519 (created at n = 559, gold 1000 to 400) | The mill completes at n = 709 and the peasant comes out carrying nothing: a return-goods command at n = 720 does nothing (order stays 2), it walks at the empty pace (16 cycles a tile, against 22 on the way in), and gold stays 400 | Trace |
 | V71 | `human06-build-stats-1800`, with a break on the latest-event-location call: barracks 1588 (top-left (88, 5)) finishes a footman, placed at (87, 5), n = 643 | The event location is (88, 5), the building's top-left tile | Trace (break log) |
+| V72 | `orc9-orc09-r97-built-farm-repair-goals-2400` (oracle trace, Enhanced, `goals` extra): pig farm 1473 (type 0x3B, T = 100), placed at n = 138 and damaged while being built | Stored goal x (P) 1 at n = 138, counting up by 1 per cycle; the farm completes at n = 1361 with 367 of 400 HP, P = 1,224, and P stays 1,224 until the farm is repaired (n = 1574) | Trace |
 | V53 | `orc09-naval-1500` (oracle trace), n = 468, re-run with a break on the work-complete alert (`oracle/README.md`, "Round 76 traces"): oil platform 1468 completes with tanker 1473 (type 0x1B, owner 5, the local player) inside | The alert runs for tanker 1473 at n = 468, the cycle it takes order 25 (V31) | Trace (break log) |
 
 ### Cancelling construction
@@ -669,3 +681,4 @@ round are kept with the research-side specs.
 | 76 | Consolidation (B-038): one model; job start moved here from `economy/tech-tree.md`; a killed site kills its builder; the job's mana byte is 1 from the start; completion sounds; static statements on cancel commands, a full unit table, job end and refunds | "The model"; "A building killed"; "Starting a job"; "Cancelling a job"; "Job end"; vectors V50 to V53 |
 | 77 | Traced the cancel commands and the broke arrival: a cancelled site's builder faces the top-left tile with a pending idle; a cancelled job ends at the next work run; the site failure wins on arrival; a worker in a killed depot dies; reviewed | "Placement on arrival"; "Construction"; "Cancelling construction"; "A building killed"; "Cancelling a job"; "Open questions"; vectors V54 to V63 |
 | 77 (audit) | B-040 build and train audit (`ERRATA-audit-buildtrain.md`), static study, reviewed: order at creation; the cheat pass is always a step; a rescued hall sets "ever had a hall"; entering a site forgets the attacker and gives the entry sight; the full site check on arrival; "table full" message; a load the new store doesn't accept is lost; two cancel commands; no clamp on an upgrade's hit-point gain; command-button refresh. The fast first hall per pass and the unit-ready position stay open | "The local player sees it"; "Paying for a building"; "Placement on arrival"; "Construction"; "Completion"; "Cancelling construction"; "A building killed"; "Job end"; "Open questions"; vectors V64 to V69 |
+| 97 (audit) | Second B-040 audit (`ERRATA-audit2-economy.md`), traced: P after completion is 12 × (T + 2), kept, and is the repair counter | "The construction pass"; vector V72 |
