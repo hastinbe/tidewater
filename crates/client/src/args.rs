@@ -35,7 +35,7 @@ pub struct Args {
     /// by that name in the current folder.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["map", "record_replay", "setup"])]
     pub replay: Option<PathBuf>,
-    /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `mission:E`, `act:E`,
+    /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `custom` (the Custom Scenario screen), `mission:E`, `act:E`,
     /// `briefing:E`, `score-victory:E` or `score-defeat:E` (synthetic statistics), `ending:E`, `credits:tod`,
     /// `credits:bdp` (the credits page after a finale), `show-credits` (the main menu's credits screen) or `video:N`,
     /// with E a mission entry (0 to 51).

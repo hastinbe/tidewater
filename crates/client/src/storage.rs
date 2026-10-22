@@ -29,6 +29,11 @@ pub trait Storage: Send + Sync {
     /// A map the user named by its own path (`--map`), or `None` when `path` is no such file; the installation's maps
     /// are read through [`install`](Self::install).
     fn user_map(&self, path: &str) -> io::Result<Option<Vec<u8>>>;
+    /// The installation's scenarios: every `.pud` file in its `Maps` folder and the folders below it, as archive-style
+    /// names (`Maps\Sub\Name.pud`), in no particular order. Nothing by default (a platform that can't list files).
+    fn maps(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// The names of the files in the save folder, in the folder's own order.
     fn saves(&self) -> Vec<String>;
     fn read_save(&self, file: &str) -> io::Result<Vec<u8>>;
@@ -114,6 +119,20 @@ pub fn data_dir(data_dir: Option<&Path>) -> PathBuf {
     }
 }
 
+/// Adds the `.pud` files in `dir` and below it to `out`, named `prefix\...`.
+fn list_puds(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let path = e.path();
+        if path.is_dir() {
+            list_puds(&path, &format!("{prefix}\\{name}"), out);
+        } else if path.is_file() && name.to_ascii_lowercase().ends_with(".pud") {
+            out.push(format!("{prefix}\\{name}"));
+        }
+    }
+}
+
 /// The desktop's storage: folders on disk and the system clock.
 pub struct Desktop {
     install: Folder,
@@ -165,6 +184,24 @@ impl Storage for Desktop {
         } else {
             Ok(None)
         }
+    }
+
+    fn maps(&self) -> Vec<String> {
+        let root = self.install.root();
+        // The folder is found in any letter case, as every installation file is.
+        let Some(dir) = std::fs::read_dir(root)
+            .ok()
+            .and_then(|d| {
+                d.flatten()
+                    .find(|e| e.path().is_dir() && e.file_name().to_string_lossy().eq_ignore_ascii_case("maps"))
+            })
+            .map(|e| e.path())
+        else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        list_puds(&dir, crate::customsetup::MAPS_DIR, &mut found);
+        found
     }
 
     fn saves(&self) -> Vec<String> {
@@ -280,6 +317,21 @@ mod tests {
         );
         assert!(!t.path().join("user").join("replays").join("a.twrep.part").exists());
         assert!(!t.path().join("install").exists());
+    }
+
+    #[test]
+    fn the_scenarios_are_the_puds_in_the_maps_folder_and_below_it() {
+        let t = tempfile::tempdir().unwrap();
+        let s = desktop(t.path());
+        assert!(s.maps().is_empty(), "no installation, no maps");
+        let maps = t.path().join("install").join("MAPS");
+        std::fs::create_dir_all(maps.join("Sub")).unwrap();
+        for f in ["One.pud", "Two.PUD", "notes.txt", "Sub/Three.pud"] {
+            std::fs::write(maps.join(f), b"x").unwrap();
+        }
+        let mut got = s.maps();
+        got.sort();
+        assert_eq!(got, ["Maps\\One.pud", "Maps\\Sub\\Three.pud", "Maps\\Two.PUD"]);
     }
 
     #[test]

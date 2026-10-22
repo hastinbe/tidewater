@@ -216,6 +216,15 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // The Custom Scenario screen: opened from the main menu, its options and the Select scenario dialog changed, a game
+        // started with them, and left for the main menu again.
+        Scene {
+            name: "custom",
+            start: vec![Step::MainMenu],
+            cmds: custom(),
+            extras: &[],
+            keys: "",
+        },
         Scene {
             name: "build",
             start: vec![play(0)],
@@ -829,6 +838,81 @@ fn load() -> Vec<Cmd> {
     v.extend([Until(AppState::Game), Wait(30), Shot("menu-loaded")]);
     v.extend(tap(K::PrintScreen));
     v.extend([Wait(1), Shot("printed"), Wait(5), Shot("flash-over")]);
+    v
+}
+
+/// The Custom Scenario screen (`customsetup`): S on the main menu opens it; the Resources box opened and High picked
+/// with the pointer; the Opponents box opened and 3 Opponents picked with the keys; the Select scenario dialog
+/// filtered to 5 to 8 players and its first line picked; the race and units chosen; Start Game; the game left by
+/// Ctrl+Q.
+fn custom() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
+    v.extend(tap(K::Letter('S')));
+    v.extend([
+        Wait(3),
+        Shot("menu-leaving"),
+        Until(AppState::CustomSetup),
+        Wait(3),
+        Shot("fading-in"),
+    ]);
+    v.extend([Wait(20), Shot("setup")]);
+    // Resources: the box opens a list below it; High is its fourth line.
+    v.extend(click(300.0, 285.0));
+    v.extend([Wait(2), Move(300.0, 340.0), Wait(1), Shot("resources-list")]);
+    v.extend(click(300.0, 364.0));
+    v.extend([Wait(2), Shot("resources-high")]);
+    // Opponents with the keys: Tab to the box, Enter opens its list, Down three times, Enter picks.
+    v.extend(tap(K::Tab));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Shot("opponents-list")]);
+    for _ in 0..3 {
+        v.extend(tap(K::Down));
+    }
+    v.extend(tap(K::Enter));
+    v.extend([Wait(2), Shot("opponents-3")]);
+    // Your Race: Orc; Units: One Peasant Only.
+    v.extend(click(100.0, 285.0));
+    v.push(Wait(2));
+    v.extend(click(100.0, 324.0));
+    v.push(Wait(2));
+    v.extend(click(450.0, 285.0));
+    v.push(Wait(2));
+    v.extend(click(450.0, 324.0));
+    v.push(Wait(2));
+    v.extend([Wait(2), Shot("options")]);
+    // Select Scenario: the dialog, the Players filter to 5 to 8 players, then OK.
+    v.extend(click(500.0, 382.0));
+    v.extend([Wait(2), Shot("dialog")]);
+    v.extend(click(300.0, 128.0));
+    v.extend([Wait(2), Shot("players-list")]);
+    v.extend(click(300.0, 186.0));
+    v.extend([Wait(2), Shot("filtered")]);
+    v.extend(tap(K::Down));
+    v.extend([Wait(2), Shot("second-line")]);
+    v.extend(click(470.0, 394.0));
+    v.extend([Wait(2), Shot("picked")]);
+    // Cancel Game fades back to the main menu; S opens the screen again with the same map.
+    v.extend(tap(K::Letter('C')));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-back")]);
+    v.extend(tap(K::Letter('S')));
+    v.extend([Until(AppState::CustomSetup), Wait(25), Shot("setup-again")]);
+    // Start Game: the music fades, the screen fades to black and the game starts.
+    v.extend(click(500.0, 418.0));
+    v.extend([
+        Wait(5),
+        Shot("starting"),
+        Until(AppState::Game),
+        Move(400.0, 240.0),
+        Wait(60),
+        Shot("game"),
+    ]);
+    v.extend([Press(K::ControlLeft), Wait(1)]);
+    v.extend(tap(K::Letter('Q')));
+    v.extend([Release(K::ControlLeft), Wait(3)]);
+    v.extend(tap(K::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
     v
 }
 
@@ -1483,7 +1567,7 @@ mod tests {
             assert!(s.cmds.iter().any(|c| matches!(c, Cmd::Shot(_))), "{}", s.name);
             assert_eq!(all.iter().filter(|o| o.name == s.name).count(), 1);
         }
-        for name in ["campaign", "outcome", "ending", "load"] {
+        for name in ["campaign", "outcome", "ending", "load", "custom"] {
             assert!(scene(name).is_some(), "{name}");
         }
     }

@@ -23,6 +23,8 @@ pub enum AppState {
     Title,
     MainMenu,
     NewCampaign,
+    /// The Custom Scenario screen (`customsetup`).
+    CustomSetup,
     Act,
     Briefing,
     Game,
@@ -105,6 +107,7 @@ pub enum Hook {
     EnterTitle,
     EnterMenu,
     EnterNewCampaign,
+    EnterCustomSetup,
     EnterAct,
     EnterBriefing,
     EnterScore,
@@ -131,6 +134,7 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
         AppState::Title => &[EnterTitle],
         AppState::MainMenu => &[EnterMenu],
         AppState::NewCampaign => &[EnterNewCampaign],
+        AppState::CustomSetup => &[EnterCustomSetup],
         AppState::Act => &[EnterAct],
         AppState::Briefing => &[EnterBriefing],
         // The flow's music stops before the game starts its own.
@@ -143,7 +147,7 @@ pub fn on_enter(state: AppState) -> &'static [Hook] {
 
 /// Every hook: the test checks that each is used.
 #[cfg(test)]
-const HOOKS: [Hook; 17] = {
+const HOOKS: [Hook; 18] = {
     use Hook::*;
     [
         StopMusic,
@@ -158,6 +162,7 @@ const HOOKS: [Hook; 17] = {
         EnterTitle,
         EnterMenu,
         EnterNewCampaign,
+        EnterCustomSetup,
         EnterAct,
         EnterBriefing,
         EnterScore,
@@ -170,13 +175,14 @@ const HOOKS: [Hook; 17] = {
 mod tests {
     use super::*;
 
-    const ALL: [AppState; 12] = [
+    const ALL: [AppState; 13] = [
         AppState::Boot,
         AppState::FirstRun,
         AppState::Video,
         AppState::Title,
         AppState::MainMenu,
         AppState::NewCampaign,
+        AppState::CustomSetup,
         AppState::Act,
         AppState::Briefing,
         AppState::Game,

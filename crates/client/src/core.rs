@@ -376,6 +376,7 @@ fn run_hook(c: &mut Core, hook: Hook) {
         EnterTitle => frontend::enter_title,
         EnterMenu => frontend::enter_menu,
         EnterNewCampaign => frontend::enter_new_campaign,
+        EnterCustomSetup => frontend::enter_custom_setup,
         EnterAct => frontend::enter_act,
         EnterBriefing => frontend::enter_briefing,
         EnterScore => frontend::enter_score,

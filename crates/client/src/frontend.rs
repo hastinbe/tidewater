@@ -36,6 +36,7 @@ use crate::audio::{Audio, Group, Mode, Sound, UNITY};
 use crate::campaign::{self as cf, Act, CampaignTotal, Choice, GameKind, Memory, Next, Scroll};
 use crate::clock::FrameClock;
 use crate::core::{Commands, Core, add_layer, remove_layers};
+use crate::customsetup;
 use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
 use crate::jukebox::Jukebox;
@@ -60,6 +61,8 @@ pub enum Step {
     Title,
     MainMenu,
     NewCampaign,
+    /// The Custom Scenario screen (`customsetup`), opened by the main menu.
+    CustomSetup,
     /// "Starting a mission": the act screen check, the briefing, the game.
     Mission(u8),
     Act(Act),
@@ -311,6 +314,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
                 AppState::MainMenu
             }
             Step::NewCampaign => AppState::NewCampaign,
+            Step::CustomSetup => AppState::CustomSetup,
             &Step::Mission(e) => {
                 for s in mission_steps(flow, e, ctrl).into_iter().rev() {
                     flow.steps.push_front(s);
@@ -554,6 +558,7 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
         "title" => vec![Step::Title, Step::MainMenu],
         "menu" => vec![Step::MainMenu],
         "campaign" => vec![Step::NewCampaign],
+        "custom" => vec![Step::CustomSetup, Step::MainMenu],
         "mission" => vec![Step::Mission(entry()?)],
         "act" => {
             let a = cf::act_for(entry()?).ok_or("not the first mission of an act")?;
@@ -669,7 +674,7 @@ impl FlowPointer {
 pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
     match state {
         AppState::Video | AppState::Title | AppState::Act | AppState::Finale => FlowPointer::Hidden,
-        AppState::MainMenu | AppState::NewCampaign => FlowPointer::OrcArrow,
+        AppState::MainMenu | AppState::NewCampaign | AppState::CustomSetup => FlowPointer::OrcArrow,
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
         AppState::Boot | AppState::Game | AppState::FirstRun => FlowPointer::Default,
     }
@@ -684,7 +689,7 @@ pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
         (AppState::Briefing, Some(Step::Briefing(e)), _) => cf::briefing_background(*e),
         (AppState::Score, _, Some(s)) => cf::score_background(s.race, s.victory),
         (AppState::Credits, _, _) => cf::CREDITS_PICTURE,
-        (AppState::MainMenu | AppState::NewCampaign, _, _) => cf::MENU_PICTURE,
+        (AppState::MainMenu | AppState::NewCampaign | AppState::CustomSetup, _, _) => cf::MENU_PICTURE,
         _ => cf::TITLE_PICTURE,
     }
 }
@@ -764,6 +769,9 @@ pub struct Screens {
     /// The menu picture as last loaded, with its palette, kept for the switches between the menus drawn on it.
     menu_picture: Option<(Picture, Palette)>,
     menu_load: Option<MenuLoad>,
+    custom: Option<CustomScreen>,
+    /// The scenario last picked on the Custom Scenario screen, kept for the session.
+    custom_last: Option<String>,
     act: Option<ActScreen>,
     briefing: Option<Briefing>,
     score: Option<ScoreScreen>,
@@ -811,6 +819,9 @@ pub(crate) fn screen_systems(c: &mut Core) {
     }
     if state(c) == AppState::NewCampaign {
         run_new_campaign(c);
+    }
+    if state(c) == AppState::CustomSetup {
+        run_custom_setup(c);
     }
     if state(c) == AppState::MainMenu && c.screens.menu_load.is_some() {
         run_menu_load(c);
@@ -1289,6 +1300,8 @@ enum MenuPick {
     Quit,
     /// A campaign chosen on the campaign menu: the flow's next steps.
     Campaign(VecDeque<Step>),
+    /// Custom Scenario: the setup screen, after a fade out with the music playing on.
+    CustomSetup,
 }
 
 /// The main menu's load dialog (`loadgamt.bin`, spec `game/save-load.md`, "Load dialog"), open over the menu.
@@ -1386,6 +1399,7 @@ pub(crate) fn menu_screen(state: AppState) -> Option<MenuScreen> {
     match state {
         AppState::MainMenu => Some(MenuScreen::Main),
         AppState::NewCampaign => Some(MenuScreen::Campaign),
+        AppState::CustomSetup => Some(MenuScreen::CustomSetup),
         _ => None,
     }
 }
@@ -1585,6 +1599,10 @@ fn run_menu_close(c: &mut Core) -> bool {
             flow.steps = steps;
             go_on(flow, front, keys, next, exit);
         }
+        MenuPick::CustomSetup => {
+            flow.steps = VecDeque::from([Step::CustomSetup]);
+            go_on(flow, front, keys, next, exit);
+        }
     }
     true
 }
@@ -1635,6 +1653,12 @@ fn run_menu(c: &mut Core) {
     let mut close = |menu: &mut Menu, pick: MenuPick| {
         menu.closing = Some((close_with_sound(music, fades::MENUS), pick));
     };
+    // The Custom Scenario screen (the single-player menu's third button in the original): S opens it. Our main menu has
+    // no button for it (its layout is the one the frame snapshots hold), so its key is the whole way in. It fades out
+    // and in (`menuscreen::switch_fades`) and fades no sound: track 22 plays on (`ui/music.md`, "Where music fades out").
+    if pick.is_none() && keys.just_pressed(Key::Letter('S')) {
+        menu.closing = Some((cf::SoundThenBlack::new(fades::MENUS), MenuPick::CustomSetup));
+    }
     match pick {
         // Screen spec, "Menu screens": the campaign menu is on the same picture, so the switch has no fade.
         Some(0) => {
@@ -1802,6 +1826,176 @@ fn run_new_campaign(c: &mut Core) {
     if let Some(s) = steps {
         flow.steps = s;
         go_on(flow, front, keys, next, exit);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The Custom Scenario screen
+
+/// What the Custom Scenario screen does once its close ends.
+enum CustomPick {
+    /// Cancel Game: the main menu.
+    Cancel,
+    /// Start Game: the map and the options of the game.
+    Start(String, Setup),
+}
+
+/// The Custom Scenario screen (`customsetup`) open on the menu picture.
+struct CustomScreen {
+    image: PictureId,
+    background: Picture,
+    palette: Palette,
+    ui: customsetup::Screen,
+    /// The screen's close and what was chosen.
+    closing: Option<(cf::SoundThenBlack, CustomPick)>,
+    /// When the fade-in ends: the controls are drawn and the screen takes input from then on.
+    ready_at: f64,
+}
+
+pub(crate) fn enter_custom_setup(c: &mut Core) {
+    let opening = MenuScreen::CustomSetup.opening(menu_screen(c.states.previous()));
+    let Core {
+        commands,
+        front,
+        store,
+        pictures,
+        screens,
+        ..
+    } = c;
+    // Screen spec, "Menu screens": the custom-scenario setup loads the menu picture again; it has no version line.
+    let (bg, palette) = menu_art(&mut front.install);
+    screens.menu_picture = Some((dup(&bg), palette.clone()));
+    let names = store.maps();
+    let maps = customsetup::scan_maps(&names, |n| front.install.read(n).ok());
+    let ui = customsetup::Screen::new(maps, screens.custom_last.as_deref());
+    // The title is part of the picture and fades in with it; the controls come with the end of the fade.
+    let mut first = dup(&bg);
+    customsetup::draw_title(&mut first, &front.font, &palette);
+    let image = spawn_layer(commands, pictures, first, 0, AppState::CustomSetup, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let screen = CustomScreen {
+        image,
+        background: bg,
+        palette,
+        ui,
+        closing: None,
+        ready_at: opening.fade_in_ms as f64,
+    };
+    commands.queue(move |c| c.screens.custom = Some(screen));
+    if opening.fade_in_ms > 0 {
+        fade_in_new_screen(commands, opening.fade_in_ms);
+    }
+}
+
+/// One frame of the screen's close, if one runs; when it ends, the flow goes on. Returns whether a close ran.
+fn run_custom_close(c: &mut Core) -> bool {
+    let Core {
+        commands,
+        screens: Screens {
+            custom: Some(cs),
+            clock: Some(clock),
+            ..
+        },
+        layers,
+        jukebox: music,
+        front,
+        flow,
+        states: next,
+        exit,
+        input,
+        ..
+    } = c
+    else {
+        return false;
+    };
+    let Some((close, _)) = &mut cs.closing else {
+        return false;
+    };
+    if !close_done(close, music, commands, layers, clock.0) {
+        return true;
+    }
+    let Some((_, pick)) = cs.closing.take() else {
+        return true;
+    };
+    flow.steps = match pick {
+        CustomPick::Cancel => VecDeque::from([Step::MainMenu]),
+        // Campaign flow, "After the score screen": a custom game's score screen leads to the main menu.
+        CustomPick::Start(map, setup) => VecDeque::from([Step::Play {
+            map,
+            setup: Some(setup),
+        }]),
+    };
+    go_on(flow, front, &input.keys, next, exit);
+    true
+}
+
+/// The frame's input for the screen: the pointer in screen pixels, the left button and the keys that went down.
+fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> customsetup::Input {
+    let lines = if input.scroll_pixels {
+        input.scroll / 40.0
+    } else {
+        input.scroll
+    };
+    customsetup::Input {
+        at: pointer(input, cam).map(|p| (p.x.floor() as i32, p.y.floor() as i32)),
+        down: input.mouse.just_pressed(Button::Left),
+        up: input.mouse.just_released(Button::Left),
+        keys: input.keys.get_just_pressed().copied().collect(),
+        shift: input.keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]),
+        wheel: lines.round() as i32,
+    }
+}
+
+fn run_custom_setup(c: &mut Core) {
+    if run_custom_close(c) {
+        return;
+    }
+    let Core {
+        screens:
+            Screens {
+                custom: Some(cs),
+                clock: Some(clock),
+                custom_last,
+                ..
+            },
+        front,
+        pictures,
+        front_screen: cam,
+        input,
+        jukebox: music,
+        ..
+    } = c
+    else {
+        return;
+    };
+    if clock.0 < cs.ready_at {
+        return;
+    }
+    let outcome = cs.ui.update(&custom_input(input, cam));
+    if cs.ui.take_changed() {
+        let look = customsetup::Look {
+            font: &front.font,
+            pal: &cs.palette,
+            faces: &front.button_faces,
+        };
+        set_image(pictures, &cs.image, cs.ui.draw(&cs.background, &look));
+    }
+    // The map picked stays picked for the session, whichever way the screen is left.
+    if outcome != customsetup::Outcome::Stay {
+        *custom_last = cs.ui.map().map(|m| m.path.clone());
+    }
+    match outcome {
+        customsetup::Outcome::Stay => {}
+        // The main menu fades in again with track 22 still playing.
+        customsetup::Outcome::Cancel => {
+            cs.closing = Some((cf::SoundThenBlack::new(fades::MENUS), CustomPick::Cancel));
+        }
+        // Music spec, "Where music fades out": a custom game starts from this screen after a fade of all sound.
+        customsetup::Outcome::Start => {
+            if let Some((map, setup)) = cs.ui.start() {
+                cs.closing = Some((close_with_sound(music, fades::MENUS), CustomPick::Start(map, setup)));
+            }
+        }
     }
 }
 
@@ -2974,6 +3168,12 @@ mod tests {
         assert!(goto_steps("act:3").is_err());
         assert!(goto_steps("nope").is_err());
         assert_eq!(goto_steps("credits:bdp").unwrap()[0], Step::Credits { bdp: true });
+        // The Custom Scenario screen: Cancel Game leads back to the main menu, and the screen has its own state.
+        assert_eq!(goto_steps("custom").unwrap(), [Step::CustomSetup, Step::MainMenu]);
+        let mut f = flow(&[]);
+        f.steps = VecDeque::from(goto_steps("custom").unwrap());
+        assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::CustomSetup));
+        assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::MainMenu));
         assert_eq!(goto_steps("show-credits").unwrap(), [Step::ShowCredits, Step::MainMenu]);
     }
 

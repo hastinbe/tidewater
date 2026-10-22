@@ -15,6 +15,7 @@ pub mod chrome;
 mod clock;
 pub mod compose;
 pub mod core;
+mod customsetup;
 pub mod display;
 pub mod extras;
 pub mod firstrun;

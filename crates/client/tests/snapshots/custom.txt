@@ -1,0 +1,175 @@
+# frame and sound fingerprints of the scripted scene `custom` (hashes only)
+frames	1-1	156ed4086987e325
+frames	2-2	dea26e54b3c12c41
+frames	3-3	e2aa8138ad662af6
+frames	4-4	8917823d3bdbbdf5
+frames	5-5	1122c0f340a92357
+frames	6-6	b657c68f08b87963
+frames	7-7	4d0b3cc3af483eb5
+frames	8-8	d79a35fbfe7828b3
+frames	9-9	f1f8d777d067b04d
+frames	10-10	1c016ef4fb28060e
+frames	11-11	c75e7abf173b98fc
+frames	12-12	72478de0c5b6dca7
+sound	14	d0e6afe865a35291	0.7516	Loop
+frames	13-28	b8550bdb27451cae
+frames	29-29	f7c5ef7d10fcc3c4
+frames	30-30	3a40a4b56fc8ffb2
+frames	31-31	7b6c832493046c43
+shot	32	menu-leaving	4dad4510938b46d3
+frames	32-32	4dad4510938b46d3
+frames	33-33	d814e8ba22b88de9
+frames	34-34	390394d7fd38805a
+frames	35-35	477aa3275173f6c7
+frames	36-36	30dd601c53330c42
+frames	37-37	1c0cdf88c9ab6a91
+frames	38-38	f7a2bd557a832b56
+frames	39-39	baca979d677ecace
+frames	40-40	1930128f9d046bb0
+frames	41-41	156ed4086987e325
+frames	42-42	f27438aa84b5ede0
+frames	43-43	ee16cc02a4523ad3
+frames	44-44	688fb0c479672db3
+frames	45-45	db58043388f009be
+shot	46	fading-in	49b3180864494c5c
+frames	46-46	49b3180864494c5c
+frames	47-47	35ad8fec5dacf275
+frames	48-48	e2114d18b87251e0
+frames	49-49	f4248f2292a35952
+frames	50-50	b59b22410df8a974
+frames	51-51	8b3564def5b76509
+frames	52-52	8d5e7c1e0885c2d2
+shot	67	setup	c80eaadc32b4fbb1
+frames	53-67	c80eaadc32b4fbb1
+frames	68-68	cb2fdf05e7321d2c
+frames	69-70	99d1d0bfa75901b1
+shot	72	resources-list	159f73d244900872
+frames	71-72	159f73d244900872
+frames	73-73	89dc38178d258cc7
+shot	76	resources-high	743fa1e5c0812d19
+frames	74-76	743fa1e5c0812d19
+frames	77-77	7bac1a163338d8f9
+shot	81	opponents-list	ff98710edac0dc96
+frames	78-81	ff98710edac0dc96
+frames	82-82	dd1d9507b5862fe9
+frames	83-83	f0116d55bfe1c1dc
+frames	84-84	d971b51c3ec984d9
+shot	88	opponents-3	813e3581c443da80
+frames	85-88	813e3581c443da80
+frames	89-89	d60f4853a778ea1d
+frames	90-91	e9a3a7d875bc69cd
+frames	92-92	3b9e6d7a6b570f0f
+frames	93-93	44ac7cd3058cd673
+frames	94-94	f087d401e8ade473
+frames	95-95	301f285416bfddfc
+frames	96-97	d8b0dd962514cbb8
+frames	98-98	b72513021b8c15fb
+shot	103	options	ca7180433184212d
+frames	99-103	ca7180433184212d
+frames	104-104	5c422820cfcdb7d7
+shot	107	dialog	fddc727027ac6c1e
+frames	105-107	fddc727027ac6c1e
+frames	108-108	d75ea997bb43612a
+shot	111	players-list	0eb4da6a233706fa
+frames	109-111	0eb4da6a233706fa
+frames	112-112	8df58a03075b3959
+shot	115	filtered	2bbd35d07e3e8450
+frames	113-115	2bbd35d07e3e8450
+shot	119	second-line	8790a2baafe7f6fb
+frames	116-119	8790a2baafe7f6fb
+frames	120-120	9d3b548a05a230d7
+frames	121-121	b82d1f48d73eb8ae
+shot	123	picked	44fe21049c6f4592
+frames	122-123	44fe21049c6f4592
+frames	124-124	caa97d9bdbaa7bde
+frames	125-125	2ee8a3be627ab8ee
+frames	126-126	9918ceed82fd35f2
+frames	127-127	5163ed3c8042b6a5
+frames	128-128	9345818824ed9e96
+frames	129-129	0d30bdc93368d796
+frames	130-130	ab2ae6833f1b2f29
+frames	131-131	4cf166ee202efd12
+frames	132-132	5df3bc70f371a80b
+frames	133-133	b644ffb073d59b76
+frames	134-134	06ef7268e2d38f36
+frames	135-135	3641cbb920f27816
+frames	136-136	f7075655bdb10138
+frames	137-137	156ed4086987e325
+frames	138-138	dea26e54b3c12c41
+frames	139-139	e2aa8138ad662af6
+frames	140-140	8917823d3bdbbdf5
+frames	141-141	1122c0f340a92357
+frames	142-142	b657c68f08b87963
+frames	143-143	4d0b3cc3af483eb5
+frames	144-144	d79a35fbfe7828b3
+frames	145-145	f1f8d777d067b04d
+frames	146-146	1c016ef4fb28060e
+frames	147-147	c75e7abf173b98fc
+frames	148-148	72478de0c5b6dca7
+shot	164	menu-back	16a91d8e8dcbd85c
+frames	149-165	16a91d8e8dcbd85c
+frames	166-166	c664bc5878c9abb8
+frames	167-167	a3cc5e23f5c8ef1f
+frames	168-168	eeee394145a49fac
+frames	169-169	9720b15b974f4278
+frames	170-170	34615eb03ff981fb
+frames	171-171	c86588cd3a0241e8
+frames	172-172	eedc08e27f8a3348
+frames	173-173	712c4b2a37d03e15
+frames	174-174	5fba7e860e79705c
+frames	175-175	1d66a5c8a9f85efe
+frames	176-176	5d2d86d89cf3d374
+frames	177-177	5eaf4f84ee66ec02
+frames	178-178	156ed4086987e325
+frames	179-179	f27438aa84b5ede0
+frames	180-180	ee16cc02a4523ad3
+frames	181-181	688fb0c479672db3
+frames	182-182	db58043388f009be
+frames	183-183	49b3180864494c5c
+frames	184-184	35ad8fec5dacf275
+frames	185-185	e2114d18b87251e0
+frames	186-186	f4248f2292a35952
+frames	187-187	b59b22410df8a974
+frames	188-188	8b3564def5b76509
+frames	189-189	8d5e7c1e0885c2d2
+shot	205	setup-again	cbb1521ba5027f0e
+frames	190-205	cbb1521ba5027f0e
+frames	206-206	b0962c37e4aded68
+shot	212	starting	85b470ad9c4c7364
+frames	207-238	85b470ad9c4c7364
+frames	239-239	d1a8c36fabe5e6b6
+frames	240-240	172e39cd604c1624
+frames	241-241	52e90a12cfbed02a
+frames	242-242	a98666114879bffc
+frames	243-243	835648ffe8c42603
+frames	244-244	659e7c5ece30c2a2
+frames	245-245	b3117d7fddf21c0d
+frames	246-246	139f87f865f150e2
+frames	247-247	7df9e500e13bd2c7
+frames	248-248	8a44d73f723387cf
+frames	249-249	8c4f83aad788d5d1
+frames	250-250	564beb1fb040fbee
+sound	252	3bb3724654d4194d	0.7516	Once
+frames	251-252	156ed4086987e325
+frames	253-253	62cf081b94560411
+frames	254-270	b4eee73a2a50fc66
+frames	271-289	e73a0dfa8d76e6f8
+shot	313	game	bf66c1d4678c94fb
+frames	290-314	bf66c1d4678c94fb
+frames	315-318	ad99dfeb1ae7be78
+frames	319-350	33db18248b517bb3
+frames	351-351	bf66c1d4678c94fb
+frames	352-352	dea26e54b3c12c41
+frames	353-353	e2aa8138ad662af6
+frames	354-354	8917823d3bdbbdf5
+frames	355-355	1122c0f340a92357
+frames	356-356	b657c68f08b87963
+frames	357-357	4d0b3cc3af483eb5
+frames	358-358	d79a35fbfe7828b3
+frames	359-359	f1f8d777d067b04d
+frames	360-360	1c016ef4fb28060e
+frames	361-361	c75e7abf173b98fc
+frames	362-362	72478de0c5b6dca7
+sound	364	d0e6afe865a35291	0.7516	Loop
+shot	378	menu-end	afe3d135be74f8db
+frames	363-378	afe3d135be74f8db
