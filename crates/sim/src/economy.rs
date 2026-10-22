@@ -147,9 +147,8 @@ pub fn cost(s: &UnitStats) -> Cost {
 /// A building under construction ("Construction").
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Construction {
-    /// The pass counter P.
-    pub passes: u32,
-    /// Build time T.
+    /// Build time T. The pass counter P is not kept here: it is the building's stored goal x ([`Unit::goal_x`]), the
+    /// same value repair counts in (`economy/repair.md`, RP10; round 100).
     pub time: u32,
     /// Hit points still to add at creation, D.
     pub to_add: u32,
@@ -338,18 +337,20 @@ impl World {
     }
 
     /// The construction pass for one building, in slot order after the missiles ("The construction pass").
+    ///
+    /// The pass counter P is the building's stored goal x, the value repair counts in too (round 100: `economy/repair.md`
+    /// RP10, `economy/build-train.md` V73), so a repair run on a site changes what the pass finds.
     pub(crate) fn construct(&mut self, i: usize) {
         let cheat = self.rules.build_speed_cheat;
         let u = &mut self.units[i];
-        let Some(c) = &mut u.construction else { return };
-        if u.dying {
+        if u.construction.is_none() || u.dying {
             return;
         }
-        // Step 1: with the cheat on, the multiple-of-12 test isn't made, so every pass is a step (V65).
-        c.passes += if cheat { PASS_STEP } else { 1 };
-        // Round 97: P is the building's goal x and so its repair counter; nothing resets it at completion.
-        u.goal_x = c.passes as i16;
-        if !cheat && !c.passes.is_multiple_of(PASS_STEP) {
+        // Step 1: with the cheat on, the multiple-of-12 test isn't made, so every pass is a step (V65). Nothing resets
+        // P at completion.
+        let p = u32::from(u.goal_x as u16) + if cheat { PASS_STEP } else { 1 };
+        u.goal_x = p as i16;
+        if !cheat && !p.is_multiple_of(PASS_STEP) {
             return;
         }
         // Sounds spec, "Construction" (traced, round 79): the sound is asked for on every pass that gets past the
@@ -358,31 +359,33 @@ impl World {
         let u = &mut self.units[i];
         let Some(c) = &mut u.construction else { return };
         let total = c.total();
-        if c.passes > total {
+        if p > total {
             self.complete(i);
             return;
         }
-        if c.passes == total {
-            // Shown as full: the mana byte keeps the shown progress (step 6).
-            self.show_construction(i);
+        if p == total {
+            // Shown as full: the mana byte keeps the shown progress (step 5).
+            self.show_construction(i, u32::from(self.units[i].hp));
             return;
         }
         c.steps += 1;
         let given = (c.steps as u64 * c.to_add as u64 / c.time.max(1) as u64) as u32;
         let m = self.stats.0.get(u.kind as usize).map_or(1, |s| s.hit_points.max(1));
-        u.hp = (u.hp as u32 + given - c.added).min(m as u32) as u16;
+        // Step 5 (round 101, V73, V74): the shown progress is worked out from the hit points before step 4's clamp.
+        let before_clamp = u.hp as u32 + given - c.added;
+        u.hp = before_clamp.min(m as u32) as u16;
         c.added = given;
         if u.hp >= m {
             u.hp = m;
-            c.passes = total;
             u.goal_x = total as i16;
         }
-        self.show_construction(i);
+        self.show_construction(i, before_clamp);
     }
 
-    /// Step 6, "Look": the shown progress goes into the mana byte, and the frame is 0 below 64/255 and 1 from there.
-    fn show_construction(&mut self, i: usize) {
-        let Some(p) = self.shown_progress(i) else {
+    /// Steps 5 and 6, "Look": the shown progress goes into the mana byte, and the frame is 0 below 64/255 and 1 from
+    /// there. `hp` is the hit points the progress is worked out from (before step 4's clamp at a step).
+    fn show_construction(&mut self, i: usize, hp: u32) {
+        let Some(p) = self.shown_progress(i, hp) else {
             return;
         };
         let u = &mut self.units[i];
@@ -397,13 +400,14 @@ impl World {
         u.construction.map(|_| u.mana)
     }
 
-    /// Step 5, the shown progress: the larger of passes over the total and hit points over M, as a fraction of 255.
-    fn shown_progress(&self, i: usize) -> Option<u8> {
+    /// Step 5, the shown progress: the larger of passes over the total and hit points over M, as a fraction of 255
+    /// (rounded down), kept in a byte: a value of 256 or more keeps only its remainder after 256 (traced, V73, V74).
+    fn shown_progress(&self, i: usize, hp: u32) -> Option<u8> {
         let u = &self.units[i];
         let c = u.construction?;
         let m = (self.stats_of(u.kind).hit_points as u32).max(1);
-        let by_passes = c.passes.min(c.total()) * 255 / c.total();
-        Some(by_passes.max(u.hp as u32 * 255 / m).min(255) as u8)
+        let by_passes = u32::from(u.goal_x as u16).min(c.total()) * 255 / c.total();
+        Some(by_passes.max(hp * 255 / m) as u8)
     }
 
     fn complete(&mut self, i: usize) {
@@ -861,6 +865,57 @@ mod tests {
         }
     }
 
+    /// RP10, RP11, RP12 and V73 (`economy/repair.md`): the construction pass counter P is the building's stored goal x,
+    /// the counter a repair run counts in too. A run that adds 1 to it in the cycle a step would fall in moves the step
+    /// one cycle later (RP11), and one in the cycle right after a step makes the same step again (RP12).
+    #[test]
+    fn a_repair_run_and_the_construction_pass_share_one_counter() {
+        let (mut w, _) = town();
+        w.stats.0[0x3e].hit_points = 400;
+        w.stats.0[0x3e].build_time = 100;
+        let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
+        let bi = w.index(b).unwrap();
+        run(&mut w, 10);
+        assert_eq!(w.units[bi].goal_x, 10);
+        // A run in the cycle before the step at P = 12 leaves P where it was: the step comes a cycle later.
+        w.units[bi].goal_x -= 1;
+        run(&mut w, 1);
+        assert_eq!((w.units[bi].goal_x, w.units[bi].construction.unwrap().steps), (10, 0));
+        run(&mut w, 2);
+        assert_eq!((w.units[bi].goal_x, w.units[bi].construction.unwrap().steps), (12, 1));
+        // A run in the cycle right after a step makes the same step again.
+        w.units[bi].goal_x -= 1;
+        run(&mut w, 1);
+        assert_eq!((w.units[bi].goal_x, w.units[bi].construction.unwrap().steps), (12, 2));
+        run(&mut w, 1);
+        assert_eq!(w.units[bi].goal_x, 13);
+    }
+
+    /// V73 and V74: the shown progress is worked out from the hit points before the step's clamp and kept as a byte.
+    /// The step that finds the site at its full hit points (400) after a run: before the clamp 404, so 404 * 255 / 400 =
+    /// 257, kept as 1 with frame 0; V73's step gives 403 * 255 / 400 = 256, kept as 0.
+    #[test]
+    fn the_shown_progress_keeps_its_remainder_after_256() {
+        for (steps, p_before, want_before_clamp, want_mana) in [(56u32, 659u32, 404u32, 1u8), (65, 791, 403, 0)] {
+            let (mut w, _) = town();
+            w.stats.0[0x3e].hit_points = 400;
+            w.stats.0[0x3e].build_time = 100;
+            let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
+            let bi = w.index(b).unwrap();
+            let c = w.units[bi].construction.as_mut().unwrap();
+            c.steps = steps;
+            c.added = (steps as u64 * c.to_add as u64 / c.time as u64) as u32;
+            let (added, given) = (c.added, ((steps + 1) as u64 * c.to_add as u64 / c.time as u64) as u32);
+            // A repair run brought it to its full hit points; the next step finds it there.
+            w.units[bi].hp = 400;
+            w.units[bi].goal_x = p_before as i16;
+            assert_eq!(400 + given - added, want_before_clamp, "steps {steps}");
+            run(&mut w, 1);
+            let u = &w.units[bi];
+            assert_eq!((u.hp, u.goal_x, u.mana, u.script.frame), (400, 1212, want_mana, 0), "steps {steps}");
+        }
+    }
+
     /// V65: a farm site at P = 5 when the build-speed cheat goes on steps at P = 17, 29, 41, ... and completes.
     #[test]
     fn the_cheat_makes_every_pass_a_step() {
@@ -869,7 +924,7 @@ mod tests {
         w.stats.0[0x3e].build_time = 100;
         let b = w.place_building(0x3e, 0, (5, 0)).unwrap();
         run(&mut w, 5);
-        let passes = |w: &World| w.unit(b).unwrap().construction.map(|c| c.passes);
+        let passes = |w: &World| w.unit(b).filter(|u| u.construction.is_some()).map(|u| u.goal_x as u32);
         assert_eq!(passes(&w), Some(5));
         w.rules.build_speed_cheat = true;
         let mut hp = w.unit(b).unwrap().hp;
@@ -1193,7 +1248,7 @@ mod tests {
         run(&mut w, 20);
         let (h, s) = (w.unit(hall).unwrap(), w.unit(site).unwrap());
         assert!(h.job.is_some_and(|j| !j.cancelled && j.progress > 0));
-        assert!(!s.dying && s.construction.is_some_and(|c| c.passes == 41));
+        assert!(!s.dying && s.construction.is_some() && s.goal_x == 41);
         assert_eq!(w.players[0].gold, gold);
     }
 
