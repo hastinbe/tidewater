@@ -402,9 +402,15 @@ impl World {
                     // the landing class, step 2's step size from the tile and the goal, the move animation restarted
                     // for a two-tile step, the cached route kept, and step 6 on a second failure.
                     let tile = self.units[i].tile;
+                    let two_tile = even(tile) && even(goal);
+                    // A retry that makes a mover in the move animation a one-tile mover switches it to animation 6
+                    // first, as the arrival switch does (round 105, SW10a, SW10c); animation 6 stays (V57).
+                    if !two_tile && self.units[i].script.anim == anim::MOVE {
+                        self.switch_anim(i, anim::WORK_B);
+                    }
                     let again = NearShore {
                         landing_class: Some(true),
-                        two_tile: even(tile) && even(goal),
+                        two_tile,
                         restart: true,
                         one_tile_otherwise: true,
                         fresh_route: false,
