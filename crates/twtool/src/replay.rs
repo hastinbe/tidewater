@@ -100,6 +100,10 @@ pub enum Kind {
     Cancel,
     /// Cancel job for the first selected unit (round 77).
     CancelJob,
+    /// Hold workers: the sender's selected workers freeze at their next step done (round 101, `orders/orders.md`).
+    HoldWorkers,
+    /// Release workers: the sender's selected held workers are released (round 101).
+    ReleaseWorkers,
     /// A header `input` entry that saves the game under `name` (`game/save-load.md`). It is a menu action, not a
     /// command: no `turn` record lists it, and the trace's `save` record shows where it ran.
     Save { name: String },
@@ -185,6 +189,8 @@ impl Entry {
             }
             "cancel" => Kind::Cancel,
             "cancel-job" => Kind::CancelJob,
+            "hold-workers" => Kind::HoldWorkers,
+            "release-workers" => Kind::ReleaseWorkers,
             "save" => Kind::Save {
                 name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
             },
@@ -254,6 +260,12 @@ impl Entry {
             }
             Kind::CancelJob => {
                 o.insert("kind".into(), "cancel-job".into());
+            }
+            Kind::HoldWorkers => {
+                o.insert("kind".into(), "hold-workers".into());
+            }
+            Kind::ReleaseWorkers => {
+                o.insert("kind".into(), "release-workers".into());
             }
             Kind::Save { name } => {
                 o.insert("kind".into(), "save".into());
@@ -331,6 +343,8 @@ impl fmt::Display for Entry {
             Kind::CheatAdd { add } => write!(f, "cheat adding {add:?}"),
             Kind::Cancel => f.write_str("cancel"),
             Kind::CancelJob => f.write_str("cancel-job"),
+            Kind::HoldWorkers => f.write_str("hold-workers"),
+            Kind::ReleaseWorkers => f.write_str("release-workers"),
             Kind::Save { name } => write!(f, "save {name}"),
             Kind::Load { name } => write!(f, "load {name}"),
             Kind::Say { word } => write!(f, "say {word}"),
@@ -430,6 +444,8 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         // player's own building in the state the command acts in.
         Kind::Cancel => Command::Cancel { player, unit: first()? },
         Kind::CancelJob => Command::CancelJob { player, unit: first()? },
+        Kind::HoldWorkers => Command::HoldWorkers { player },
+        Kind::ReleaseWorkers => Command::ReleaseWorkers { player },
         Kind::CheatAdd { .. }
         | Kind::Save { .. }
         | Kind::Load { .. }
@@ -830,6 +846,8 @@ mod tests {
             r#"{"player":2,"kind":"other"}"#,
             r#"{"player":1,"kind":"cancel"}"#,
             r#"{"player":1,"kind":"cancel-job"}"#,
+            r#"{"player":1,"kind":"hold-workers"}"#,
+            r#"{"player":1,"kind":"release-workers"}"#,
         ];
         for l in lines {
             let e = Entry::parse(&serde_json::from_str(l).unwrap()).unwrap();

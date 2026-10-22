@@ -214,6 +214,13 @@
 //! V287, the follow row of V282 and the computer worker's no-depot town hall), and
 //! xorc11-xorc11-r96-targets-saveload-game-goals-300 compares the six dead bodies' goals in the loaded setup record
 //! (SL33). Both match in full.
+//!
+//! Rounds 100 and 101: mp-r100-tests-mp-r100-tests-fixed-goals-3000 plays the generated map `R100-tests.pud` (with its
+//! sea; `oracle/test-maps.md`), mp-r100-tests-mp-r101-site-repair-two-fixed-goals-1000 a repair on a construction
+//! site (RP10 to RP12), human1-human01-r101-hold-workers-goals-700 the Hold workers and Release workers commands
+//! (HW1 to HW6), and mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100 a transport's goal x and y in every record
+//! (V43 to V45) except n = 326 to 329 (TG4, an open question: the turn record 326 and the cycles after it show the
+//! target tile (40, 52) until the push-off at n = 330; `-transport-goal@326-329`).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -556,6 +563,10 @@ traces! {
     // differs from n = 151 on: the rows are compared up to the cycle before. With the generator resynced the whole trace
     // (n = 0 to 400, the drop at turn 170 included) matches.
     mp_dark_paths_bne_mp_r96_allowsync_desync_rng_game_400: (mp, "mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400.jsonl.gz", &[], Some(150)),
+    mp_r100_tests_mp_r100_tests_fixed_goals_3000: (mp, "mp-r100-tests-mp-r100-tests-fixed-goals-3000.jsonl.gz", &[], None),
+    mp_r100_tests_mp_r101_site_repair_two_fixed_goals_1000: (mp, "mp-r100-tests-mp-r101-site-repair-two-fixed-goals-1000.jsonl.gz", &[], None),
+    mp_r100_tests_mp_r101_transport_goals_fixed_goals_1100: (mp, "mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100.jsonl.gz", &["--fields=-transport-goal@326-329"], None),
+    human1_human01_r101_hold_workers_goals_700: ("human1-human01-r101-hold-workers-goals-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
 }
 
 /// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load) matches in full

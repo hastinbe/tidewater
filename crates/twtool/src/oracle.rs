@@ -61,11 +61,8 @@ pub const UNIT_FIELDS: [&str; 20] = [
     "bloodlust",
     "haste",
 ];
-/// Positions in [`UNIT_FIELDS`] the goal comparison reads, and the repair order's number.
+/// Positions in [`UNIT_FIELDS`] the goal comparison reads.
 const UNIT_TYPE: usize = 1;
-const UNIT_ORDER: usize = 8;
-const UNIT_TARGET: usize = 14;
-const REPAIR_ORDER: i64 = 27;
 const TIMERS: [&str; 4] = ["invisibility", "unholy_armour", "bloodlust", "haste"];
 
 /// Effect fields in report order; `dest` is flattened into `dest_x` and `dest_y`.
@@ -1257,6 +1254,10 @@ fn category(scope: Scope, field: &str) -> Category {
 pub struct Filter {
     include: Option<Vec<String>>,
     exclude: Vec<String>,
+    /// `-transport-goal@N` or `-transport-goal@A-B`: the transports' goal x and y are not compared in the records
+    /// with `n` = N (or A to B): the span in which a transport's target tile is one the specs leave open (TG4 of the
+    /// round-101 transports spec).
+    skip_transport_goal: Vec<std::ops::RangeInclusive<u64>>,
 }
 
 impl Filter {
@@ -1268,6 +1269,13 @@ impl Filter {
             .filter(|t| !t.is_empty())
         {
             match t.strip_prefix('-') {
+                Some(t) if t.starts_with("transport-goal@") => {
+                    let span = &t["transport-goal@".len()..];
+                    let (a, b) = span.split_once('-').unwrap_or((span, span));
+                    if let (Ok(a), Ok(b)) = (a.parse(), b.parse()) {
+                        f.skip_transport_goal.push(a..=b);
+                    }
+                }
                 Some(t) => f.exclude.push(t.to_string()),
                 None => f.include.get_or_insert_with(Vec::new).push(t),
             }
@@ -1370,20 +1378,11 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             }
         }
     }
-    // The `goals` extra, a building's or a transport's x only (trace format, `goal` row, rounds 97 and 98): a
-    // building's construction pass and repair counter, a transport's stored goal x as repair changes it. Every other
-    // `goal` value is read, not compared (no spec defines it).
-    // A transport's x is defined only for one a worker is repairing in this record (its own movement changes the goal
-    // too, and no spec defines that).
-    let repaired: Vec<i64> = theirs
-        .units
-        .values()
-        .filter(|c| c.get(UNIT_ORDER) == Some(&Cell::Int(REPAIR_ORDER)))
-        .filter_map(|c| match c.get(UNIT_TARGET) {
-            Some(Cell::Int(t)) => Some(*t),
-            _ => None,
-        })
-        .collect();
+    // The `goals` extra (trace format, `goal` row, rounds 97, 98 and 101): a building's x is its construction pass and
+    // repair counter; a transport's x and y are its stored goal, the target tile that repair also changes, compared in
+    // every record (V43 to V45) except the ones the filter names (`-transport-goal@N`). Every other `goal` value is
+    // read, not compared (no spec defines it).
+    let skip_transport = filter.skip_transport_goal.iter().any(|r| r.contains(&theirs.n));
     for (&slot, tg) in &theirs.goals {
         let (Some(t), Some(o)) = (tg.goal, ours.goals.get(&slot).and_then(|g| g.goal)) else {
             continue;
@@ -1393,8 +1392,16 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             continue;
         }
         let transport = matches!(unit.get(UNIT_TYPE), Some(Cell::Int(k)) if is_transport_type(*k as u8));
-        if transport && !repaired.contains(&(i64::from(slot))) {
+        if transport && skip_transport {
             continue;
+        }
+        if transport && t[1] != o[1] && filter.allows(Scope::Unit(slot), "goal_y") {
+            out.push(Diff {
+                scope: Scope::Unit(slot),
+                field: "goal_y",
+                ours: Cell::Int(o[1]),
+                theirs: Cell::Int(t[1]),
+            });
         }
         if t[0] != o[0] && filter.allows(Scope::Unit(slot), "goal_x") {
             out.push(Diff {
@@ -1753,7 +1760,10 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
                 // Trace format, `goal` row: a building's x is its construction pass and repair counter (round 97), a
                 // transport's x the stored goal a repair counts in (round 98, RP8).
                 let g = Goals {
-                    goal: Some([i64::from(u.goal_x as u16), 0]),
+                    goal: Some([
+                        i64::from(u.goal_x as u16),
+                        if u.building { 0 } else { i64::from(u.ship.target_tile.1) },
+                    ]),
                     ..Goals::default()
                 };
                 (u.slot, g)
@@ -2688,6 +2698,29 @@ mod tests {
             assert_eq!(back, r);
         }
         assert_eq!(Header::parse(&header().to_json()).unwrap(), header());
+    }
+
+    /// Trace format, "Commands": a job, a cancel and a cancel-job name the first selected unit (the primary unit of
+    /// `ui/selecting-and-commanding.md`, the first filled place), not the lowest slot or the last one selected.
+    #[test]
+    fn a_job_a_cancel_and_a_cancel_job_name_the_first_selected_unit() {
+        let mut w = world(7);
+        let a = w.spawn(0, 0, (3, 3), 0).unwrap();
+        let b = w.spawn(0, 0, (5, 3), 0).unwrap();
+        w.turn(&[tidewater_sim::Command::Select {
+            player: 0,
+            units: vec![b, a],
+        }]);
+        let at = |kind| replay::sim_command(&w, &replay::Entry { n: None, player: 0, kind });
+        assert!(matches!(at(replay::Kind::Cancel), Some(tidewater_sim::Command::Cancel { unit, .. }) if unit == b));
+        assert!(matches!(at(replay::Kind::CancelJob), Some(tidewater_sim::Command::CancelJob { unit, .. }) if unit == b));
+        let job = at(replay::Kind::Job {
+            job: replay::Job::Train,
+            number: 0,
+        });
+        assert!(matches!(job, Some(tidewater_sim::Command::Train { building, .. }) if building == b));
+        assert!(matches!(at(replay::Kind::HoldWorkers), Some(tidewater_sim::Command::HoldWorkers { player: 0 })));
+        assert!(matches!(at(replay::Kind::ReleaseWorkers), Some(tidewater_sim::Command::ReleaseWorkers { player: 0 })));
     }
 
     #[test]
