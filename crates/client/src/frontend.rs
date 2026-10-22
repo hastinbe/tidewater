@@ -152,6 +152,9 @@ pub struct Flow {
     /// A recorded game to play back as the next game (`--replay`, `session::ReplaySession`): its header gives the
     /// game's map, seed, setup and lobby.
     pub replay: Option<Box<tidewater_replay::Replay>>,
+    /// A network game to play as the next game (`--host`, `--join`, `net::lobby`): the handshake is done and the
+    /// connections are open. Its lobby gives the game's map, seed, setup, lobby and speed.
+    pub net: Option<Box<crate::net::NetStart>>,
 }
 
 /// The installation, fonts and tables the screens use, and their sounds by name.

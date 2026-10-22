@@ -276,14 +276,17 @@ impl Core {
         }
         if c.states.get() == AppState::Game {
             chat::chat_keys(c);
+            game::net_keys(c);
         }
         // 3. The flow's change of screen.
         run_transitions(c);
         // 4. The game cycles.
         c.time.accumulate();
         while c.time.expend() {
-            if game_running(c) && !game::frozen_by_focus(c) {
-                game::tick(c);
+            // A network game waiting for a turn does not spend the step (a short wait is caught up).
+            if game_running(c) && !game::frozen_by_focus(c) && game::tick(c) {
+                c.time.unspend();
+                break;
             }
         }
         // 5. The frame's systems.

@@ -91,6 +91,19 @@ impl FrameClock {
         }
     }
 
+    /// Gives back the step the last [`expend`](Self::expend) took: the cycle it was for did not run (a network game
+    /// waiting for another player's turn), so the time stays in the accumulator and is caught up when the turn comes.
+    pub fn unspend(&mut self) {
+        self.overstep += self.step;
+        self.taken = self.taken.saturating_sub(1);
+    }
+
+    /// Drops the accumulated time, as the original resets the cycle deadline to now after a long wait
+    /// (`net/lockstep.md`, "Deadline after a stall").
+    pub fn reset_deadline(&mut self) {
+        self.overstep = Duration::ZERO;
+    }
+
     /// Whether the input logs age at the start of this frame (see the module doc). Read before the frame's steps.
     pub fn logs_age(&self) -> bool {
         !self.ever_stepped || self.stepped

@@ -223,16 +223,23 @@ pub fn launch(mut args: Args) -> Result<Launch> {
         }
         None => None,
     };
-    let steps = match (&replay, &scripted) {
-        (Some(replay), _) => vec![frontend::Step::Play {
+    // `--host` / `--join`: the network game is set up before the window opens, on the command line (`net::lobby`).
+    let net = network_start(&args, &mut front.install, &store)?;
+    let steps = match (&replay, &scripted, &net) {
+        (_, _, Some(net)) => vec![frontend::Step::Play {
+            map: net.config.map_name.clone(),
+            setup: Some(net.config.setup),
+        }],
+        (Some(replay), _, _) => vec![frontend::Step::Play {
             map: replay.header.map_name.clone(),
             setup: Some(replay.header.setup),
         }],
-        (None, Some((scene, _))) => scene.start.clone(),
-        (None, None) => start_steps(&args, &mut flow, &mut front)?,
+        (None, Some((scene, _)), None) => scene.start.clone(),
+        (None, None, None) => start_steps(&args, &mut flow, &mut front)?,
     };
     flow.steps = steps.into();
     flow.replay = replay.map(Box::new);
+    flow.net = net.map(Box::new);
     // A scripted run starts from the default settings.
     let prefs = if scripted.is_some() {
         prefs::Prefs::default()
@@ -243,6 +250,7 @@ pub fn launch(mut args: Args) -> Result<Launch> {
         gamemenu::Stored(prefs.with_args(args.mouse_scroll_speed, args.key_scroll_speed, args.second_mouse_style));
     let title = match (&flow.replay, args.map.as_deref()) {
         (Some(r), _) => format!("Tidewater — replay of {}", r.header.map_name),
+        (None, _) if flow.net.is_some() => "Tidewater — network game".to_string(),
         (None, m) => m.map_or("Tidewater".to_string(), |m| format!("Tidewater — {m}")),
     };
     let (ui_scale, headless) = (args.ui_scale, args.headless && scripted.is_some());
@@ -254,6 +262,29 @@ pub fn launch(mut args: Args) -> Result<Launch> {
         ui_scale,
         headless,
     })
+}
+
+/// `--host` or `--join`: runs the handshake and returns the game it started. Blocks, saying on the terminal what
+/// happens, until every player of the lobby is in. Nothing for a local game.
+fn network_start(
+    args: &Args,
+    install: &mut tidewater_formats::install::Install,
+    store: &Store,
+) -> Result<Option<crate::net::NetStart>> {
+    use crate::net::lobby;
+    let say = |line: &str| eprintln!("{line}");
+    let name = args.name.clone().unwrap_or_default();
+    if let Some(port) = args.host {
+        let map = args.map.as_deref().context("--host needs a map")?;
+        let spec = args.lobby.clone().unwrap_or_default();
+        let setup = args.setup.unwrap_or_default();
+        let wall = store.wall_clock_secs();
+        return lobby::host(Some(port), &spec, map, setup, install, store, &name, wall, say).map(Some);
+    }
+    if let Some(addr) = &args.join {
+        return lobby::join(addr, install, store, &name, say).map(Some);
+    }
+    Ok(None)
 }
 
 /// A scripted run's frame time: none for the first frame (the clock's first frame reports none, as the Bevy shell's

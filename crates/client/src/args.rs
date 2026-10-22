@@ -35,6 +35,23 @@ pub struct Args {
     /// by that name in the current folder.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["map", "record_replay", "setup"])]
     pub replay: Option<PathBuf>,
+    /// Host a network game of MAP on PORT (6112 without one) and wait for the players of `--lobby` to `--join` it
+    /// (`docs/design/network.md`). Write the map before it (`tidewater MAP --host`): a bare `--host` followed by a
+    /// word would read the word as a port. The lobby's other choices are `--setup` and `--lobby`.
+    #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "6112", requires = "map", conflicts_with_all = ["join", "replay", "goto"])]
+    pub host: Option<u16>,
+    /// Join the network game hosted at ADDR (`HOST` or `HOST:PORT`). The map and the lobby come from the host.
+    #[arg(long, value_name = "ADDR", conflicts_with_all = ["map", "setup", "lobby", "replay", "goto"])]
+    pub join: Option<String>,
+    /// With `--host`, the lobby's choices, comma separated: `humans=2` (2 to 8), `races=human/orc` (one per human, or
+    /// `map`), `computers=N`, `fixed` (Fixed Order), `speed=0..8` (8, the fastest, by default), `row=0..15` (the
+    /// network delay: 4, a turn of 12 cycles at speed 8, by default; 3 gives 8) and `seed=N`. Classic rules, which are
+    /// opt-in, and fog of war are `--setup custom:classic,fog=off`.
+    #[arg(long, value_name = "SPEC", value_parser = crate::net::lobby::LobbySpec::parse, requires = "host")]
+    pub lobby: Option<crate::net::lobby::LobbySpec>,
+    /// With `--host` or `--join`, the name this player goes by in the game.
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
     /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `custom` (the Custom Scenario screen), `mission:E`, `act:E`,
     /// `briefing:E`, `score-victory:E` or `score-defeat:E` (synthetic statistics), `ending:E`, `credits:tod`,
     /// `credits:bdp` (the credits page after a finale), `show-credits` (the main menu's credits screen) or `video:N`,

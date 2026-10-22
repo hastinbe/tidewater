@@ -424,6 +424,8 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
     let resume = c.flow.resume.take();
     // A recorded game starts again from its header: its seed, setup and lobby (`session::ReplaySession`).
     let replay = c.flow.replay.take();
+    // A network game starts from the lobby the handshake settled: the same seed, setup and lobby on every machine.
+    let mut net = c.flow.net.take();
     // Single player seeds with the time in whole seconds (`core/timing-and-rng.md`, "Seeding"), read through the
     // storage's wall clock.
     let wall = store.wall_clock_secs();
@@ -431,6 +433,9 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
     let mut lobby = None;
     if let Some(r) = &replay {
         (options, seed, lobby) = (r.header.setup, r.header.seed, r.header.lobby.clone());
+    }
+    if let Some(n) = &net {
+        (options, seed, lobby) = (n.config.setup, n.config.seed, Some(n.config.lobby.clone()));
     }
     let mut scene = scene::load(
         &mut install,
@@ -444,9 +449,10 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
     // The options that touch the sim (`extras`): a recording's own, never the player's settings; a new local game's
     // from the settings (there are none yet). A loaded game keeps the ones it was saved with.
     if resume.is_none() {
-        scene.world.rules.extras = match &replay {
-            Some(r) => r.header.rules.extras,
-            None => crate::extras::local_sim_extras(&c.extras),
+        scene.world.rules.extras = match (&replay, &net) {
+            (Some(r), _) => r.header.rules.extras,
+            (None, Some(n)) => n.config.extras,
+            (None, None) => crate::extras::local_sim_extras(&c.extras),
         };
     }
     start_world(&mut scene.world, resume.as_deref(), wall, c.flow.cheat_used)?;
@@ -464,6 +470,37 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
                 r.header.map_name, r.cycles, r.header.local
             );
             Box::new(ReplaySession::new(*r))
+        }
+        None if net.is_some() => {
+            let n = net.take().expect("checked above");
+            let recorder = record.then(|| {
+                let header = tidewater_replay::Header::for_game(
+                    tidewater_replay::start::recorded_map_name(&args.map, scene.user_map),
+                    scene.map_hash,
+                    seed,
+                    options,
+                    lobby.clone(),
+                    &scene.world,
+                    0,
+                    scene.human,
+                );
+                // Each side's file carries its own slot in the name, so two machines sharing a folder keep both.
+                let name = format!("p{}-{}", n.me + 1, Recorder::file_name(&args.map, wall));
+                Recorder::new(header, store.clone(), name)
+            });
+            for (slot, name) in n.names.iter().enumerate().take(c.flow.player_names.len()) {
+                c.flow.player_names[slot].clone_from(name);
+            }
+            let params = crate::net::lockstep::Params {
+                me: n.me,
+                host: n.config.lobby.humans.first().map_or(0, |h| h.0),
+                humans: n.config.lobby.humans.iter().map(|h| h.0).collect(),
+                names: n.names.clone(),
+                enhanced: scene.world.rules.enhanced,
+                row: n.config.row,
+                speed: n.config.speed,
+            };
+            Box::new(crate::net::NetSession::new(params, n.wire, recorder))
         }
         None if record => {
             let direct = args.demo_move.is_some() || args.demo_fight || args.demo_outcome.is_some();
@@ -820,7 +857,10 @@ fn freezes(multiplayer: bool, has_window: bool, focused: bool) -> bool {
 }
 
 /// One game cycle.
-pub(crate) fn tick(c: &mut Core) {
+///
+/// Returns whether a network game is waiting for the other players' turns: the cycle did not run, and the frame's step
+/// is given back to the clock (`FrameClock::unspend`) so a short wait is caught up as the original does.
+pub(crate) fn tick(c: &mut Core) -> bool {
     let Core {
         sim: Some(sim),
         selection: Some(sel),
@@ -834,7 +874,7 @@ pub(crate) fn tick(c: &mut Core) {
         ..
     } = c
     else {
-        return;
+        return false;
     };
     // Info-panel spec, "Clicking an icon": a click on a passenger puts that one passenger ashore by the transports
     // spec's one-passenger rule (open question there: assumed to be that request). It is a command like any other
@@ -859,9 +899,33 @@ pub(crate) fn tick(c: &mut Core) {
     for text in sim.session.take_notices() {
         sim.notices.push(messages::Text::Own(text));
     }
-    let Some(cmds) = sim.session.ready_commands(sim.world.tick) else {
-        // The session isn't ready (a replay held, ended or stopped): no cycle runs and nothing of one is done.
-        return;
+    sim.session.observe_speed(sim.world.speed);
+    let ready = sim.session.ready_commands(sim.world.tick);
+    // A network game's wait for other players, and who has gone (`net/lockstep.md`, "Stalls"; `net/leave-and-drop.md`).
+    if sim.session.take_deadline_reset() {
+        time.reset_deadline();
+    }
+    for n in sim.session.take_leave_notices() {
+        let entry = if n.dropped {
+            messages::net::PLAYER_DROPPED
+        } else {
+            messages::net::PLAYER_LEFT
+        };
+        sim.notices.push(messages::Text::Own(messages::fill_name(
+            &hud.art.net_string(entry),
+            &n.name,
+        )));
+    }
+    if let Some(cmd) = sim.session.take_exit() {
+        // This machine's game is over for it (it left, or the others dropped it): the rest play on without it.
+        sim.notices
+            .push(messages::Text::Own("You have left the network game.".to_string()));
+        sim.world.turn(&[cmd]);
+    }
+    let Some(cmds) = ready else {
+        // The session isn't ready (a replay held, ended or stopped; a network game waiting): no cycle runs and nothing
+        // of one is done.
+        return sim.session.is_network();
     };
     sim.world.step(&cmds);
     if sim.world.victory.over || sim.session.wants_hash(sim.world.tick) {
@@ -921,6 +985,27 @@ pub(crate) fn tick(c: &mut Core) {
     let p = &sim.world.players[human as usize];
     let real = [p.gold, p.lumber, p.oil];
     sim.counter.update(real);
+    false
+}
+
+/// Ctrl+F1 and Alt+F2 in a network game (`net/lockstep.md`, "Stalls"): leave the game while it waits for a turn, or
+/// drop the players it is waiting for. They act only while the game is waiting; a session that isn't a network's
+/// ignores them.
+pub(crate) fn net_keys(c: &mut Core) {
+    use crate::input::Key;
+    let Some(sim) = c.sim.as_mut() else { return };
+    if !sim.session.is_network() {
+        return;
+    }
+    let keys = &c.input.keys;
+    let ctrl = keys.any_pressed([Key::ControlLeft, Key::ControlRight]);
+    let alt = keys.any_pressed([Key::AltLeft, Key::AltRight]);
+    if ctrl && keys.just_pressed(Key::F(1)) {
+        sim.session.abort_game();
+    }
+    if alt && keys.just_pressed(Key::F(2)) {
+        sim.session.drop_missing();
+    }
 }
 
 /// Steps the colour cycles (`palette`, spec `ui/palette-effects.md`) and applies the palette the screen shows (the
@@ -1724,7 +1809,7 @@ pub(crate) fn mouse_input(c: &mut Core) {
             _ => Vec::new(),
         };
         let shape = screen::pointer(&screen::PointerInput {
-            waiting: false,
+            waiting: sim.session.waiting().is_some_and(|w| w.watch),
             edge: scr.edge,
             paused: sim.world.paused,
             over,
@@ -2235,6 +2320,18 @@ pub(crate) fn update_messages(c: &mut Core) {
     let now = (time.elapsed_secs_f64() * 1000.0) as u64;
     for n in std::mem::take(&mut sim.notices) {
         scr.messages.notice(&text_of(hud, &n), 0, now);
+    }
+    // spec gap (`net/lockstep.md`, "Stalls", step 4): the "Waiting for players" dialog is a notice line until the
+    // lobby phase has dialogs for it; it names who the game waits for and the two keys.
+    if let Some(w) = sim.session.waiting()
+        && w.dialog
+    {
+        let who = w.missing.join(", ");
+        scr.messages.notice(
+            &format!("Waiting for players: {who}. Ctrl+F1 leaves, Alt+F2 drops them."),
+            0,
+            now,
+        );
     }
     // Our wording for the player's name; open question default: the name only.
     let paused = sim.world.paused;

@@ -41,6 +41,7 @@ mod minimap;
 mod mouse;
 #[allow(dead_code)] // the spec's track table and fade helpers are kept whole; some screens don't use them yet
 mod music;
+pub mod net;
 mod overlay;
 mod palette;
 mod panel;

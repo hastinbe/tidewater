@@ -54,7 +54,7 @@ pub enum Text {
 /// Entries of `Rez\network.tbl`.
 #[allow(
     dead_code,
-    reason = "the player-gone, chat and unit-creation entries wait for network games and chat"
+    reason = "the player-gone, chat and unit-creation entries wait for the victory check and chat"
 )]
 pub mod net {
     pub const PLAYER_GONE: u16 = 63;

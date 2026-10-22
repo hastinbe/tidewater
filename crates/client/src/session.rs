@@ -10,9 +10,9 @@
 //! | [`LocalSession`] | The player, in the cycle after they are given (single player; the default) | All of it |
 //! | [`ReplaySession`] | The recording, at the cycle each was recorded | Ignored, except pause and speed, which become the viewer's own controls |
 //!
-//! # How a network session plugs in (later phases; nothing of it is here yet)
+//! # How the network session plugs in (`net::NetSession`, `docs/design/network.md`)
 //!
-//! A `NetSession` follows `docs/specs/net/lockstep.md` and implements this same trait:
+//! `NetSession` follows `docs/specs/net/lockstep.md` and implements this same trait:
 //!
 //! - **Turns.** A turn is K cycles. [`Session::submit`] queues the local player's commands for the turn after the
 //!   next; at a turn boundary the session sends them to the other players. [`Session::ready_commands`] returns `None`
@@ -106,6 +106,66 @@ pub trait Session: Send + Sync {
     fn sim_extras(&self) -> Option<tidewater_sim::Extras> {
         None
     }
+
+    // --- network games (`net`); a local game or a replay keeps the defaults ---
+
+    /// The world's game speed as it stands before the cycle about to run, so a network session can work out the next
+    /// turn's length from it (`net/lockstep.md`, "Turn length").
+    fn observe_speed(&mut self, _speed: u8) {}
+
+    /// Whether the session is waiting for other players' turns, and for whom (`net/lockstep.md`, "Stalls").
+    fn waiting(&self) -> Option<Waiting> {
+        None
+    }
+
+    /// The players who left or were dropped since the last call, for the notice line (`net/leave-and-drop.md`).
+    fn take_leave_notices(&mut self) -> Vec<LeaveNotice> {
+        Vec::new()
+    }
+
+    /// Whether a turn that just finished had waited long enough that the cycle deadline is reset to now
+    /// (`net/lockstep.md`, "Deadline after a stall").
+    fn take_deadline_reset(&mut self) -> bool {
+        false
+    }
+
+    /// A command to carry out on this machine alone, outside the turns, because this machine's game is over for it:
+    /// the player aborted the game while waiting (Ctrl+F1), or the others dropped it.
+    fn take_exit(&mut self) -> Option<Command> {
+        None
+    }
+
+    /// Ctrl+F1 while waiting for a turn: the local player leaves, and the others are told they were dropped.
+    fn abort_game(&mut self) {}
+
+    /// Alt+F2 while waiting for a turn: every player still missing is dropped, on every machine.
+    fn drop_missing(&mut self) {}
+
+    /// Whether the game is played with other machines.
+    fn is_network(&self) -> bool {
+        false
+    }
+}
+
+/// A network session waiting for other players (`net/lockstep.md`, "Stalls").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Waiting {
+    /// The wait is long enough for the watch cursor (more than 2 s).
+    pub watch: bool,
+    /// The wait is long enough for the "Waiting for players" dialog (more than 7 s).
+    pub dialog: bool,
+    /// The names of the players the turn is still waiting for.
+    pub missing: Vec<String>,
+}
+
+/// A player gone from a network game (`net/leave-and-drop.md`, "Chat-room game: carrying out a leave").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeaveNotice {
+    pub slot: u8,
+    pub name: String,
+    /// Dropped (network entry 65) rather than left (entry 64). A player with nothing left is "eliminated" (entry 63)
+    /// either way; the client decides that from the world.
+    pub dropped: bool,
 }
 
 /// Single player: the commands the player gives run in the next cycle, in the order given. Optionally records the
@@ -207,6 +267,21 @@ impl Recorder {
             .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
             .collect();
         format!("{stem}-{wall}.{}", tidewater_replay::format::EXTENSION)
+    }
+
+    /// Records `commands` at cycle `tick`.
+    pub fn record(&mut self, tick: u32, commands: &[Command]) {
+        self.replay.record(tick, commands);
+    }
+
+    /// Records the state hash at `tick` and writes the file now and then, as a local game does.
+    pub fn checkpoint(&mut self, tick: u32, hash: u64) {
+        self.replay.checkpoint(tick, hash);
+        self.dirty = true;
+        // A game that is quit or crashed keeps what was played up to the last flush.
+        if tick.is_multiple_of(FLUSH_EVERY) {
+            self.flush();
+        }
     }
 
     /// Writes the file if anything changed since the last write.
