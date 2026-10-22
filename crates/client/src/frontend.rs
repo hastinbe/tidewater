@@ -2331,7 +2331,11 @@ fn run_multiplayer(c: &mut Core) {
         }
         mpmenu::Outcome::Host(listener) => {
             let enhanced = ms.ui.enhanced();
-            let view = crate::net::room::new_view(enhanced, &ms.ui.mem.name, tidewater_sim::setup::race::NEUTRAL);
+            let mut view = crate::net::room::new_view(enhanced, &ms.ui.mem.name, tidewater_sim::setup::race::NEUTRAL);
+            // The creator's row applies to every player (`net/lockstep.md`, "Which row").
+            if ms.ui.mem.method == mpmenu::Method::Local {
+                view.row = crate::net::lockstep::LOCAL_NETWORK_ROW;
+            }
             let texts = crate::net::room::Texts::from(&|n| front.net(n));
             match crate::net::room::HostRoom::new(listener, ms.identity.clone(), texts.clone(), view) {
                 Ok(room) => {

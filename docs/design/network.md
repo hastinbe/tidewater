@@ -116,8 +116,8 @@ message naming both versions: the host reads only the first varint of the `Hello
 - **Turn length.** `K = ceil(T * 13 / L)` for Enhanced rules (L the speed's cycle length in ms) and `ceil(T * 60 / S)`
   for Classic. T comes from the delay row. The default is the spec's gap-fill for Direct IP, row 3 (K = 8 at speed 8, about
   104 ms a turn); the creator's row applies to every player. Row 4 (K = 12) is the traced Direct Connect game, which
-  the tests use for the spec's vectors; `--lobby row=4` picks it. Local Network games use the same row 3 for now; the
-  spec's IPX row 1 is a one-line change if a LAN proves to want it.
+  the tests use for the spec's vectors; `--lobby row=4` picks it. Local Network games use the spec's
+  row 1 (the original's IPX row: K = 2 at speed 8, about 26 ms a turn).
 - **Game speed.** The world starts at Normal. The lobby's speed reaches every machine as `Command::Speed` commands in
   the first turn, so the recording replays at the same speed. Turn 1's length already uses the lobby's speed.
 - **Stalls** (`lockstep.md`, "Stalls"). A turn waits until every human's packet for it has arrived. Over 2 s the cursor

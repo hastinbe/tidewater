@@ -60,6 +60,8 @@ pub const ROW_CYCLES: [u32; 16] = [1, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 9
 /// The row Direct IP uses (`net/lockstep.md`, "Which row", gap-fill: T = 8, K = 8 at speed 8), and the row the traced
 /// Direct Connect game ran (T = 12, K = 12 at speed 8).
 pub const DIRECT_IP_ROW: u8 = 3;
+/// The row Local Network uses (`net/lockstep.md`, "Which row", gap-fill: the original's IPX row, T = 2).
+pub const LOCAL_NETWORK_ROW: u8 = 1;
 pub const TRACED_DIRECT_CONNECT_ROW: u8 = 4;
 
 /// K, the cycles in one turn, for network delay `row` at game `speed` (0 to 8) under Enhanced or Classic rules
