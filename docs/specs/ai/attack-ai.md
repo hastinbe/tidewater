@@ -71,6 +71,9 @@
   Enhanced a converted unit that isn't held gets its goal again as at creation (a computer player's mobile fighting
   unit gets a fresh first goal, with the post walk's draws); a held unit keeps its goal. The open question "Units
   converted during a mission" is answered for conversions; its owner-change default stays.
+- **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): "Timing": the 50-cycle pass counters aren't saved, so a loaded game runs the passes in its first
+  start-up cycle, as a new game does (traced, `game/save-load.md` SL1 to SL3).
 
 ## Behaviour
 
@@ -96,8 +99,9 @@ top-left tile (round 86).
 
 Two passes run every 50 cycles, in phase 2 of the cycle (`core/timing-and-rng.md`), after all computer players have
 run their script step. Both use counters that start at 1 when a game starts and count every cycle, the two start-up
-cycles included (`core/timing-and-rng.md`, "Scheduler", rule 1). So both run in the **first start-up cycle**, and
-then every 50 cycles: in the normal cycles that end with the cycle counter at 49, 99, 149, and so on. In such a
+cycles included (`core/timing-and-rng.md`, "Scheduler", rule 1). The counters aren't saved: a loaded game starts
+them at 1 too (`game/save-load.md`, "What a loaded game starts afresh"; traced, round 92). So both run in the **first
+start-up cycle** of a new or a loaded game, and then every 50 cycles: in the normal cycles that end with the cycle counter at 49, 99, 149, and so on. In such a
 cycle, in this order:
 
 1. **Pass A:** the threat map is rebuilt, then attack waves are launched (below).

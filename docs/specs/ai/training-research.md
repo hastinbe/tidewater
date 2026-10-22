@@ -11,6 +11,9 @@
 - **Changes:** 2026-10-16, round 82 (AI consolidation, `ERRATA-ai-consolidation.md`, reviewed by a spec-review session,
   2026-10-16): the model of the whole computer player is in `ai/computer-player.md`; the chance draws are placed in
   phase 4, in the building's own update. No rule change.
+- **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): "Training buildings": after a load the footmen, archers, siege and knights counts are doubled (traced,
+  `game/save-load.md` SL4 to SL6).
 
 ## Behaviour
 
@@ -159,6 +162,12 @@ counts):
 | workers | as in `ai/ai-scripts.md` |
 
 Heroes are counted in their groups, so a map hero reduces what is trained.
+
+**After a load** the footmen, archers, siege and knights counts are the saved counts plus the loaded units counted
+again, so they are doubled when the saved counts were right, and the surplus stays (`game/save-load.md`, "What a saved game
+keeps"; traced, round 92, SL4 to SL6). The rules below then compare the doubled counts: a computer player that has
+loaded trains fewer of these four groups than it would have. The lumber mill, blacksmith and stables tests aren't
+affected. The other groups: see `game/save-load.md`, "Open questions".
 
 **Draws.** Every "chance" below is one simulation draw r (`core/timing-and-rng.md`), made in phase 4 during the
 building's own update, and **only** when the condition written before it holds; conditions after it are not checked

@@ -25,6 +25,12 @@
 - **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
   2026-10-21, see its "Review"): Q3 closed: a load runs the mission start of `game/victory.md` again (traced for mode
   AB, `game/victory.md` G24), with the goal rule for repeated conversions (`ERRATA-audit-game.md` erratum 2).
+- **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21, see its "Review"): the computer players' 50-cycle pass counters aren't saved and start at 1 after a
+  load (SL1 to SL3, traced); the four traced training group counts are saved and then counted again, so they double
+  (SL4 to SL6, traced; the other groups held); a unit's animation, script and pending order are kept and the frozen
+  worker marks cleared (static study); the next creation number after a load is 1626 in Enhanced (SL7, traced; open
+  question closed).
 
 ## Behaviour
 
@@ -165,7 +171,23 @@ A saved game keeps everything that decides how the game goes on, apart from what
 lists, including:
 
 - the map, its terrain and its explored and seen state;
-- every unit and building, with their orders, and missiles and corpses;
+- every unit and building, with their orders, and missiles and corpses. A unit's position, order and pending order,
+  target, animation, its place in its animation script with the wait there, and its cached route are kept exactly, so
+  a moving unit resumes mid-step (every traced field matched the saved state in the four round-92 loads). The frozen
+  and about-to-freeze marks of workers (`game/rescue.md`, "Frozen units"; only a multiplayer network command sets
+  them) are cleared, so no unit is frozen after a load (static study, round 92; a labelled gap-fill, untraced);
+- each computer player's **training group counts** for footmen, archers, siege and knights (`ai/training-research.md`,
+  "Training buildings"). They are restored as saved, and then the load counts every loaded unit again as the map start
+  does: each unit the count includes (complete, not held, not dying) adds 1. So after a load each of these counts is
+  its saved value plus the number of such loaded units in its group: twice the saved value when the saved count was
+  right. Nothing corrects the surplus later: the count goes on rising and falling with the units from there, and a
+  further save and load adds the loaded units again (static study; the trace shows the counts unchanged to n = 60,
+  with no unit of the group made or lost). Traced, round 92 (SL4 to SL6): player 6 of
+  `xhuman9-xhuman9-r92-aijobs-aijobs-game-60` saved with footmen 3, archers 2, siege 0, knights 1, loaded with 6, 4,
+  0, 2, unchanged to n = 60; its second ogre was dying at the save and isn't counted again (knights 1 + 1, not
+  1 + 2). The building tests of the same rules (a complete lumber mill, blacksmith, stables) are worked out afresh and
+  come back right. Whether the other groups (mages, gryphons, flying machines, ships) and the worker and tanker counts
+  double too isn't traced: see "Open questions";
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
 - the game clock (Enhanced only). The cycle count is written but not kept: see "What a loaded game starts afresh";
@@ -206,13 +228,23 @@ lists, including:
 - **Fog refresh countdown.** It isn't saved: a loaded game refreshes the fog in its first start-up cycle, as a new game
   does, then every 100 cycles (`core/timing-and-rng.md`, phase 3; traced, round 90: `human1-human01-saveload-game-300`,
   saved with the countdown at 57, refreshes in the loaded game's first start-up cycle).
+- **Computer-player pass counters.** The two counters of the 50-cycle passes (`ai/attack-ai.md`, "Timing") aren't
+  saved. A loaded game starts both at 1, as a new game does, so pass A, the no-workers pass and pass B run in the
+  loaded game's first start-up cycle and then every 50 cycles, whatever phase the saved game was in. A computer unit
+  moving to its goal then gets its move again from pass B; it is already moving, so the move becomes its pending
+  order, which takes over at its next decision with the still animation and wait 3 (`orders/orders.md`). Traced,
+  round 92: SL1 to SL3.
 - **Pause.** A loaded game is never paused: the pause isn't saved, and every game start clears it, so a game saved
   while paused loads running (static study, `ERRATA-audit-game.md` erratum 6; a labelled gap-fill, untraced).
 - **Creation numbers.** Every unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3) is its slot
   number plus one after a load, whatever it was before; every other unit field is as saved (traced, round 90, in
   both loads checked: 12 units in `human1-human01-saveload-game-300` and 200 in
-  `xhuman9-xhuman9-runestone-saveload-game-60`, for example slot 1547's number 53 became 1548). What number the next
-  unit created after a load gets isn't traced (see "Open questions").
+  `xhuman9-xhuman9-runestone-saveload-game-60`, for example slot 1547's number 53 became 1548; the same in every
+  round-92 load). The number doesn't depend on which slots hold units: every slot, in use or free, is numbered.
+  The next unit created after a load gets **1626** in Enhanced, then one more per created unit (traced, round 92:
+  SL7). As a formula it is the unit-slot count plus 26 (1600 slots in Enhanced, `core/unit-slots.md`): after the
+  slots, a load uses up 25 further numbers whatever the game holds (static study). The formula is a labelled
+  gap-fill for Classic mode (600 slots, so 626), where no load has been traced.
 - **Classic saves.** A Classic multiplayer save doesn't keep the cycle count, the clock, the pause counts or the score
   counters. The cycle count starts again at 0.
 - **New-game set-up isn't repeated, except the mission start.** A loaded game doesn't reset resources, re-place
@@ -294,6 +326,13 @@ stays in the running game.
 | **G17.** `human1-human01-saveload-game-300` (oracle trace, Enhanced): Human01 saved after the cycle that ends with the counter at 342 (fog countdown 57, victory countdown 59), then loaded | The loaded game's setup record has victory countdown 1; first start-up cycle: fog refresh (fog countdown 0); second start-up cycle: fog countdown 99, victory countdown 200; first normal cycle: counter 1, fog countdown 98, victory countdown 199, the same values as the new game's first three records |
 | **G18.** Pause a single-player game, save from the game menu, load (static study) | The loaded game runs |
 | **G19.** `human1-human01-cheat-load-game-50` (oracle trace): saved with the cheat-used mark clear, then "on screen" twice, then that save loaded | The mark is 1 in the loaded game; the mission would rank 39 |
+| **SL1.** `xhuman9-xhuman9-runestone-saveload-game-60` (oracle trace, Enhanced): computer unit 1562 (owner 5) moving to its goal (order 3); the loaded game's setup record has it at tile (56, 20), still animation, wait 1 | n = 1: still animation, wait 3 (pass B's move taking over as its pending order); n = 2, 3: wait 2, 1; n = 4: on tile (55, 19) in its move animation. Pass B runs next at n = 51, and the move takes over again at n = 58 (still animation, wait 3) |
+| **SL2.** `xhuman9-xhuman9-r92-pending-game-30` (oracle trace, Enhanced): the same game saved one cycle earlier (1562 saved with wait 2) | Before the save pass B gives 1562 its move in the cycles 1601, 1651, 1701 and 1751; after the load at n = 1 and in no other cycle up to n = 30. 1562: n = 2 still animation, wait 3; n = 5 on tile (55, 19) |
+| **SL3.** `xhuman9-xhuman9-r92-alive-pending-game-30` (oracle trace, Enhanced): saved after n = 1653 | After the load pass B moves units 1532 and 1562 at n = 1. Kept phase would have run the passes at n = 48 instead |
+| **SL4.** `xhuman9-xhuman9-r92-aijobs-aijobs-game-60` (oracle trace, Enhanced): computer player 6 (3 grunts, 2 axethrowers, 2 ogres, one of them dying) saved with footmen, archers, siege, knights counts 3, 2, 0, 1 | The loaded game's counts are 6, 4, 0, 2 from its setup record to n = 60; the lumber mill, blacksmith and stables tests are unchanged |
+| **SL5.** Same trace, loaded game n = 12: player 6's orc barracks (unit 1480) thinks; wanted archers 3 | Archers 4 is not below 3, so rule 3's 1-in-4 draw isn't made; rule 4's 1-in-8 draw is (siege 0 < 1). The cycle makes 7 draws in all |
+| **SL6.** `xhuman9-xhuman9-runestone-alive-saveload-game-60` (oracle trace, Enhanced) | The generator state at n = 12 of the loaded game matches the trace once SL4's counts are used (one draw fewer than with the saved counts) |
+| **SL7.** `xhuman9-xhuman9-runestone-saveload-game-400` (oracle trace, Enhanced, 1600 slots): after the load all 200 units have number slot + 1 (largest 1600) | n = 252: two units are created, slot 1399 gets 1626 and slot 1398 gets 1627; n = 257: slot 1397 gets 1628 |
 
 ## Open questions
 
@@ -319,7 +358,10 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
-- **Next creation number after a load.** No trace creates a unit after a load. Default: the next unit gets the
-  largest creation number in use plus one.
+- **Other training group counts after a load.** Only the footmen, archers, siege and knights counts are traced
+  doubling (SL4). Whether the mages, gryphons, flying machines and ship counts, and the worker and tanker counts,
+  are also restored and counted again isn't traced. Default: they are worked out afresh and come back right, as
+  `ai/training-research.md` states them. **Trace request SL8:** widen the oracle's group-count extra to every group
+  of "Training buildings" and repeat SL4 with a computer player that owns a mage, a ship or a tanker at the save.
 - **Running game.** The save and load rules above that say "traced" were watched in the running game (round 90);
   the rest wasn't.

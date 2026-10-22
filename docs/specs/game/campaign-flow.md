@@ -55,6 +55,9 @@
 - **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
   2026-10-21): after a multiplayer game on the other connections, the game creator goes back to the lobby of the same
   session (traced after a victory; MS3 closed for that case, both static readings refuted).
+- **Changes:** 2026-10-21, round 92 (oracle trace, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): "After the score screen": a Direct Connect joiner after a defeat goes to the join screen (traced
+  after a surrender, MS-V9).
 
 ## Behaviour
 
@@ -331,7 +334,7 @@ round 88).
 | Campaign, any other mission | next mission of the same race (entry + 2): act screen, briefing, game | replay the same mission |
 | Custom game | main menu | main menu |
 | Multiplayer, Battle.net | the Battle.net screens | the same |
-| Multiplayer, other connections | the game creator: back to the lobby of the same session (traced, round 91; `ui/multiplayer-score.md`, "What follows the score screen"). A joining player: by default the same (not traced) | the same (default; not traced) |
+| Multiplayer, other connections | the game creator: back to the lobby of the same session (traced, round 91; `ui/multiplayer-score.md`, "What follows the score screen"). A joining player: by default the same, as a joiner (not traced) | the game creator: the same as after a victory (default; not traced). A Direct Connect joiner: the join screen, "Waiting for response" (traced after a surrender, round 92, `ui/multiplayer-score.md` MS-V9) |
 
 Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
 because its act was the last shown.
@@ -499,8 +502,9 @@ the next one is due at the same moment.
   stated rule above (slot order, "label - name"), which stays the default. Trace request MS1
   (`ui/multiplayer-score.md`): a screenshot of a single-player custom game's score screen with one computer player.
 - **After a multiplayer game.** Traced for the creator after a victory (round 91): back to the lobby of the same
-  session; the static reading (the main menu) is refuted. A joiner and a defeat are still open: trace request MS3b
-  (`ui/multiplayer-score.md`).
+  session; the static reading (the main menu) is refuted. A Direct Connect joiner after a defeat goes to the join
+  screen, "Waiting for response" (traced, round 92, MS-V9). The creator after a defeat and the joiner after a victory
+  are still open: trace request MS3b (`ui/multiplayer-score.md`).
 - **The finale's text in the oracle.** On the ToD human finale (round 72) the scrolling text never moved: one row of
   text pixels stayed at y 308 for about 4 minutes, while the program kept running. The oracle container has no
   sound device; whether the scroll waits for the narration to finish wasn't checked. So the finale's scroll, its

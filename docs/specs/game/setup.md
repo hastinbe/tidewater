@@ -31,6 +31,8 @@
 - **Changes:** 2026-10-21, round 90 review (`ERRATA-audit-game.md`, erratum 9; static gap-fill for network games):
   an active rescue slot is allied with every human-controlled slot, not only the local player. In single player the
   local player is the only one, so nothing changes there.
+- **Changes:** 2026-10-21, round 92 review (`ERRATA-round92-traces.md`, item 2a): "Other owner codes" points at the
+  visibility consequences now stated in `vision/fog.md` and says the rule covers map codes only. No rule change.
 
 ## Behaviour
 
@@ -398,8 +400,10 @@ draws are 0, 346, 130, 10982, 1090, … (`core/timing-and-rng.md`).
 
 - **Other owner codes.** A slot whose `OWNR` code is not 2 to 7 keeps the code unchanged. Code 0 is then the same
   value as "human-controlled" and code 1 the same as "computer" in every later test; 8 and up match nothing. The
-  public PUD text calls 0 and 8–255 passive computer and 1 computer. No shipped map uses them; what the game does with
-  a code-0 slot wasn't checked in the running game.
+  public PUD text calls 0 and 8–255 passive computer and 1 computer. No shipped map uses them (233 maps checked,
+  round 92); what the game does with a code-0 slot wasn't checked in the running game. The visibility consequences
+  are in `vision/fog.md`, "Unit visibility (phase 5)" (static study, round 92). The rule is about the codes a map gives;
+  it says nothing about a player that no map set up.
 - **Rule mode in single player.** The Low, Random and minimum rules above depend on Enhanced rules. A single-player
   custom game runs under Enhanced rules (`core/timing-and-rng.md`, "Simulation cycles"; round 88). Whether the custom
   screen offers "random" for resources and terrain wasn't checked.

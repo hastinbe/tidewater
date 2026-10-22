@@ -20,6 +20,9 @@
 - **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
   2026-10-21): Q3 answered by a trace, confirming the static reading: a load runs the mission start again
   (`game/victory.md` G24).
+- **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): the comparison and count tables add the 50-cycle pass counters (not saved), the doubled training group
+  counts and the first creation number after a load (all traced; `game/save-load.md` SL1 to SL7).
 
 ## Behaviour
 
@@ -97,7 +100,9 @@ marks rules the old text didn't state.
 | Pause | Not paused | Not paused: the pause isn't saved (static study, round 90 review) |
 | Start-up cycles | Two | Two (traced, round 90) |
 | Cycle counter | 0 when the first normal cycle starts | The same: 0 again, whatever was saved (traced, round 90) |
-| Creation numbers | From 1, one per created unit (`core/unit-slots.md`) | Every unit's number becomes its slot number plus one (traced, round 90) |
+| Creation numbers | From 1, one per created unit (`core/unit-slots.md`) | Every unit's number becomes its slot number plus one (traced, round 90); the next created unit gets 1626 in Enhanced (traced, round 92) |
+| 50-cycle pass counters (`ai/attack-ai.md`, "Timing") | Start at 1, so the passes run in the first start-up cycle | The same: not saved, start at 1 (traced, round 92) |
+| Training group counts: footmen, archers, siege, knights (`ai/training-research.md`) | Counted from the map's units | Restored from the save, then every loaded unit is counted again: doubled (traced, round 92) |
 | Game clock and pause counts | Start at 0 | Restored (Enhanced) |
 
 ### Where players act
@@ -140,6 +145,7 @@ game, and of a loaded one, falls in the second start-up cycle (`game/victory.md`
 | Cheat flags | Every game start, except three flags | No | `game/cheats.md` |
 | Victory countdown, found outcome | Every game start, a load included (traced) | No (traced) | Victory check timing |
 | Fog refresh countdown | Every game start, a load included (traced) | No (traced) | Fog refresh timing |
+| 50-cycle pass counters | Every game start, a load included (traced) | No (traced) | Computer players' passes A and B, the no-workers pass |
 | Cycle counter | Every game start, a load included (traced) | Written in Enhanced, but a load doesn't use it (traced) | Only the network sync check and saving; no rule depends on its value |
 | Game clock, pause counts | New game | Yes (Enhanced) | Game menu (`ui/game-menu.md`) |
 

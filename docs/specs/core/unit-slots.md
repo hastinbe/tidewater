@@ -24,6 +24,8 @@
 - **Changes:** 2026-10-21 (B-040 game audit erratum 1 and round-90 traces; reviewed by a spec-review session,
   2026-10-21): step 6's goal step also runs when a unit that isn't held is converted (Enhanced); a load renumbers
   every unit's creation number (`game/save-load.md`).
+- **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): after a load the creation counter goes on from the unit-slot count plus 26 (1626 in Enhanced, traced).
 
 ## Behaviour
 
@@ -76,7 +78,8 @@ Every unit slot belongs to exactly one owner list at all times.
 3. **Reset:** the slot's contents are cleared, except its list link and its fixed slot identity. The unit then gets
    the next **creation number**, a counter that starts at 1 when the map starts and goes up by 1 per created unit.
    The counter isn't reused. A loaded game renumbers its units: each one's creation number becomes its slot number
-   plus one (traced, round 90; `game/save-load.md`). The new unit's hit points are set to its type's hit points from the unit data, or to 1 if that
+   plus one (traced, round 90; `game/save-load.md`), and the counter goes on from the unit-slot count plus 26: 1626 in
+   Enhanced (traced, round 92, `game/save-load.md` SL7; the Classic value 626 is a gap-fill). The new unit's hit points are set to its type's hit points from the unit data, or to 1 if that
    value is 0 (in the default data: types 0x22, 0x30, 0x36, 0x5D oil patch, 0x5E, 0x5F and 0x64). A unit under
    construction starts from this value too; `economy/build-train.md` then sets its hit points as it builds.
    Its facing is 0, and its mana byte is its type's "magic" value from the unit data (in the default data 1 for
@@ -175,6 +178,7 @@ no effect is created. A released effect slot is simply marked unused.
 | Owner values | 0 to 7 players, 14 free list, 15 neutral |
 | Per-player cap | N when P ≤ 1, else `floor(N / P)`, where P counts players 0 to 7 with at least one slot |
 | First creation number | 1 (per map) |
+| First creation number after a load | unit-slot count + 26 (1626 in Enhanced; traced) |
 | Permanent effects at map start | 3, in effect slots 0 to 2 |
 
 ## Test vectors

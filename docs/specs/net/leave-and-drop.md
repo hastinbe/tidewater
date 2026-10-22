@@ -7,6 +7,9 @@
 - **Changes:** 2026-10-21, round 91 (oracle traces with multiplayer commands, `ERRATA-round91-traces.md`; reviewed by
   a spec-review session, 2026-10-21): the chat-room notices for surrender, Quit to the main menu and Ctrl+F1 are
   traced (LD2, LD6 closed; vectors LV16 to LV18).
+- **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): an idle worker of a "nobody" player doesn't react when attacked (LV19, traced; LD3 narrowed to combat
+  units); a Direct Connect joiner that quits to the menu goes to the join screen (LD7 closed for the joiner).
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the dialog files `rez\timeout.bin`, `rez\btimeout.bin`, `rez\surrendr.bin`, `rez\quitdraw.bin` and
   `rez\chatrtrn.bin`, and the tables `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running
@@ -92,7 +95,11 @@ What a chat-room leave does **not** do (static study):
 
 - **The units stay as they are.** The leaver's units and buildings stay on the map and keep their current orders. They
   are not given order 32 and their remembered orders are kept. With the slot "nobody", nothing gives them new orders;
-  what idle units of a "nobody" player do on their own (for example, fight back) follows the ordinary unit rules.
+  what idle units of a "nobody" player do on their own follows the ordinary unit rules. One of those rules decides
+  what happens when one is attacked: the reaction forgets the attacker of a unit whose owner isn't playing
+  (`orders/orders.md`, "Reacting to an attacker"), so an idle worker of a "nobody" player neither fights back nor
+  flees, and stands until it dies (traced, round 92: LV19). An idle combat unit's own target search has no player
+  test, so by the ordinary rules it still attacks an enemy in range (not traced: LD3, narrowed).
 - **No result is set** for the leaver by the leave itself. The victory check sets it (next section).
 - **Alliances are not changed.** The alliance table keeps the leaver's rows and columns.
 
@@ -288,6 +295,7 @@ All static study. Enhanced unless labelled.
 | LV16. `mp-dark-paths-bne-mp-surrender-notice-game-300` (oracle trace, Enhanced, Direct Connect, a chat-room game; traced A in slot 1, B in slot 0, one computer): B opens the game menu, End scenario, Surrender and confirms, after record 150 | In the turn after record 170 (a packet from slot 0 with no command) slot 0 becomes "nobody" on A, and A shows "Player Anonymous left the game." (network entry 64). B sees the defeat background |
 | LV17. `mp-dark-paths-bne-mp-quit-key-game-320` (same set-up): B presses Ctrl+Q, which opens "Are you sure you want to quit to the main menu?", and confirms after record 160 | Slot 0 becomes "nobody" in the turn after record 182; A shows network entry 64 "left the game" |
 | LV18. `mp-dark-paths-bne-mp-drop-key-game-1500` (same set-up): A held stopped so B waits for a turn; B presses Ctrl+F1 after record 150 | Slot 0 becomes "nobody" in the turn after record 194; A shows "Player Anonymous was dropped." (network entry 65). B sees the defeat background |
+| LV19. `mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300` (oracle trace, Enhanced, Direct Connect, Skirmish BNE, no computer player): A (slot 0) walks peasants 1593 and 1596 round the ridge to B's base; B (slot 1, the joiner) quits to the menu after record 1005; A orders both peasants to attack B's idle peon 1587 | Slot 1 becomes "nobody" in the turn at n = 1022. The peasants take the attack order at n = 1047 and 1048 and strike from n = 1067. Peon 1587 at tile (36, 52) loses hit points 30, 25 (n = 1077), 21, 15, 12, 8, 3 (n = 1152), staying in order 2 (idle, still animation) with facing 1 throughout, and dies at n = 1159. B's other units aren't touched; A's result is set by the victory check at n = 1208 |
 
 ## Open questions
 
@@ -295,17 +303,20 @@ All static study. Enhanced unless labelled.
   drop before it) is carried out only there; the dropped player and anyone who didn't drop keep it in the game. Whether the session layer
   in practice makes every machine drop together wasn't traced. **Trace request LD1:** a 3-player chat-room game, delay
   player 2's packets, press Alt+F2 on player 0 only; record each machine's notices and whether player 1 keeps waiting.
-- **What a "nobody" player's units do.** They keep their orders; whether idle ones still fight back wasn't traced
-  (default: the ordinary unit rules). **Trace request LD3:** after LV1, attack one of player 1's idle footmen. Tried
-  in round 91 on Dark Paths BNE and Cramped BNE; on both maps the attackers gave up on the way (the starts aren't
-  joined by land). Needs a map whose starts are joined by land.
+- **What a "nobody" player's combat units do.** An idle worker is traced (LV19: no reaction). Whether an idle combat
+  unit of a "nobody" player still attacks by its own target search when hit isn't traced (default: it does, by the
+  ordinary rules, which have no player test at that step). **Trace request LD3 (narrowed):** as LV19, with B owning
+  a combat unit when it leaves (B trains one first, or a map that gives each start one).
 - **Battle.net leave timing.** Whether a leave event is carried out at the same cycle on every machine (default:
   next turn). **Trace request LD4** (needs a Battle.net-style session; probably not reachable).
 - **Host-left texts.** gluAll entries 96 and 104 weren't found used in a game. **Trace request LD5:** a Battle.net
   lobby where the host leaves (not reachable without the service; low priority).
 - **Exit the program** in multiplayer: taken to leave the session as any other game end does (static study, not
   followed in detail). Quit to the main menu is traced (LV17; LD6 closed, round 91).
-- **Where the leaver goes after Quit to the main menu** in a Direct Connect game: the traced joiner sat on Direct
-  Connect's "Waiting for response" screen (with Cancel Join) for at least 1 s instead of the main menu. Not followed
-  further. Default: the main menu (`ui/game-menu.md`). Trace request LD7: Quit to the main menu on the joiner, then
-  screenshots every second for 30 s.
+- **Where the leaver goes after Quit to the main menu** in a Direct Connect game. The joiner is traced (round 92,
+  LD7 closed for the joiner): it goes to Direct Connect's join screen, "Waiting for response" with a Cancel Join
+  button, not the main menu, and is still there 170 cycles later while the creator plays on
+  (`mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`, screenshots at n = 300 and 380 after the quit at n = 210).
+  Whether it enters the session's lobby once the creator is back there isn't traced (default: it does, as a joiner,
+  as after the score screen, `ui/multiplayer-score.md`). The creator's quit isn't traced (default: the main menu,
+  `ui/game-menu.md`).

@@ -11,6 +11,9 @@
   2026-10-21): row text and order traced for two rows (MS1, multiplayer half); no elapsed time (MS2); after the score
   screen the creator goes back to the lobby of the same session (MS3 for the creator after a victory; both static
   readings refuted). The outcome word is shown (traced), so "no result word" is corrected.
+- **Changes:** 2026-10-21, round 92 (oracle trace, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): a Direct Connect joiner leaves the score screen for the join screen ("Waiting for response") after a
+  defeat by surrender (MS-V9; MS3b narrowed).
 
 This spec gives only what differs from the single-player score screen of `game/campaign-flow.md` ("The victory and
 defeat dialogs", "The score screen", "After the score screen"). "Network entry n" is entry n (counting from 1) of
@@ -84,7 +87,7 @@ dialog is chosen by the number of rows as in single player (2, 4, 6 or 8 rows).
 | Game | After the score screen |
 | --- | --- |
 | Battle.net game | back to the Battle.net screens (static study) |
-| Chat-room game (Direct Connect, Modem, IPX network; Enhanced and Classic mode) | **The game creator goes back to the lobby** ("Multi Player Setup", `ui/game-setup-lobby.md`) of the same session: its own row, the other seven slots open ("Available"), the chat line, Start Game greyed out (traced after a victory, round 91, MS-V8; it stays there). Both static readings (the first multiplayer screen; the main menu) are refuted for this case. A joining player, and any player after a defeat: not traced; default the same (back to the same session's lobby, as a joiner for a joining player) |
+| Chat-room game (Direct Connect, Modem, IPX network; Enhanced and Classic mode) | **The game creator goes back to the lobby** ("Multi Player Setup", `ui/game-setup-lobby.md`) of the same session: its own row, the other seven slots open ("Available"), the chat line, Start Game greyed out (traced after a victory, round 91, MS-V8; it stays there). Both static readings (the first multiplayer screen; the main menu) are refuted for this case. **A joining player** (traced after a defeat by surrender, round 92, MS-V9): Direct Connect's join screen, "Waiting for response" with a Cancel Join button, while the creator plays on; whether it enters the session's lobby once the creator is back there isn't traced (default: it does, as a joiner). The joiner after a victory and the creator after a defeat: not traced; default as above |
 
 **Tidewater slots.** Direct IP and Local Network games are chat-room games and follow the chat-room row (DECISIONS.md,
 2026-10-21).
@@ -130,6 +133,7 @@ Static study unless marked traced. Enhanced unless labelled.
 | MS-V6. Chat-room game ended by Return to the chat room | No score screen |
 | MS-V7. Classic mode chat-room game, L defeated | Defeat background, rows as above; then as MS-V1 (default) |
 | MS-V8. `mp-dark-paths-bne-mp-surrender-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): L (the creator, slot 1, "Anonymous") wins at the check after the other human (slot 0, "Anonymous") surrenders | Rows "Anonymous" (L, on top, L's colour) then "Anonymous - Enemy"; "Outcome" shows "Victory!"; no elapsed time. After Continue: the "Multi Player Setup" lobby with L's row, seven "Available" slots and Start Game greyed out, still there 15 s later |
+| MS-V9. `mp-dark-paths-bne-mp-surrender-joiner-game-650` (oracle trace, Enhanced, Direct Connect, one computer player): the joiner (slot 0, "Anonymous") surrenders between n = 120 and 150; the creator plays on against the computer | The joiner's screens: n = 200 the defeat picture with no text; n = 260 "Outcome" with "Defeat!" drawn over it; n = 320 the score screen with rank "Slave", score 0 and Continue; by n = 380 also the rows "Anonymous", "Anonymous - Enemy", "Nation of Kul Tiras - Enemy" and the first statistic ("Units"). After Continue (n = 390): Direct Connect's join screen, "Waiting for response", Cancel Join, from n = 440 to at least 600. The creator shows "Player Anonymous left the game." |
 
 ## Open questions
 
@@ -139,8 +143,9 @@ Static study unless marked traced. Enhanced unless labelled.
   computer player.
 - **The outcome word's source.** See "The outcome word": shown, but not from gluAll entries 18 to 22 as far as static
   study found. Default as stated. (MS2, elapsed time, closed: absent, traced.)
-- **After the score screen, other cases.** The creator after a victory is traced (MS-V8). **Trace request MS3b:**
-  the joiner's screen after the score screen, and either side after a defeat, in a 2-player Direct Connect game; and
-  the music in the lobby after the score screen (the oracle records no sound).
+- **After the score screen, other cases.** The creator after a victory (MS-V8) and the joiner after a defeat by
+  surrender (MS-V9) are traced. **Trace request MS3b (narrowed):** the creator after a defeat, the joiner after a
+  victory, and whether a waiting joiner enters the lobby once the creator is back there, in a 2-player Direct Connect
+  game; and the music in the lobby after the score screen (the oracle records no sound).
 - **Computer rows.** Computer players are always labelled Enemy, even when allied with L (static study).
   Covered by MS1 if the custom game's computer is set as an ally; otherwise default as stated.

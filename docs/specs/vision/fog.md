@@ -45,6 +45,9 @@
   vector). Demo playback has the fog-of-war option **on** and the reveal-map cheat on; its visible map and "seen" bits
   start clear but the first start-up cycle's refresh fogs them as in any game (traced, F47; Q4 closed). The old
   reading "demo playback = option off from the start" is withdrawn.
+- **Changes:** 2026-10-21, round 92 (`ERRATA-round92-traces.md`, item 2a; reviewed by a spec-review session,
+  2026-10-21): phase 5 states that map owner codes 0 and 1 are the human and computer kinds (static study, untraced;
+  it restates `game/setup.md`, "Other owner codes", and changes no rule).
 
 ## Behaviour
 
@@ -403,9 +406,12 @@ Rules, first match wins:
 | Nobody (empty slot) | always |
 | Human or passive | no tile of the unit's footprint is seen by p (its "seen" bit is set on every one of them) |
 
-A player whose controller is none of these kinds (only a custom map's owner code 8 or more can leave one,
-`game/setup.md`, "Other owner codes") is tested like a human player (static study, `ERRATA-audit-vision.md`
-erratum 3; no shipped map has one).
+A slot whose map owner code is 0 or 1 keeps that code through setup, and the codes are the human and the computer
+kind in every later test (`game/setup.md`, "Other owner codes"): a code-0 player gets the footprint test and a code-1
+player is never hidden from (static study, round 92; untraced, no shipped map has either code). A player whose
+controller is none of these kinds (only a custom map's owner code 8 or more can leave one) is tested like a human
+player (static study, `ERRATA-audit-vision.md` erratum 3; no shipped map has one). Detection (phase 1) has no
+controller test, so none of these codes changes it.
 
 The footprint is the unit's type size in tiles, placed at the tile containing its top-left **pixel** (so a moving unit
 counts from where it is drawn, not from the tile it has claimed). Parts outside the map are ignored. The remembered

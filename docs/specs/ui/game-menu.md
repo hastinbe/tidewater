@@ -24,6 +24,8 @@
 - **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
   2026-10-21): Ctrl/Alt+Q opens the quit-to-menu confirmation in a chat-room game (traced); surrender comes from the
   End scenario menu there.
+- **Changes:** 2026-10-21, round 92 (oracle trace, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Quit to the main menu takes a Direct Connect joiner to the join screen, not the main menu (traced).
 
 ## Behaviour
 
@@ -184,7 +186,7 @@ above.
 | Load another custom scenario | `cstcnfrm.bin` | Go to the custom-game screen |
 | Surrender (and on Battle.net after 120 s) | `surrendr.bin` | The local player is defeated. All menus close; in single player the defeat dialog (`rez\lmission.bin`) is shown, then the defeat score screen (`game/campaign-flow.md`) |
 | Quit (draw), Battle.net before 120 s | `quitdraw.bin` | Locally the same as surrender: a defeat. A game that ends within 120 s is reported to Battle.net as a draw for every player (`net/leave-and-drop.md`; static study) |
-| Quit to the main menu | `quit2mnu.bin` | Back to the main menu |
+| Quit to the main menu | `quit2mnu.bin` | Back to the main menu. A Direct Connect joiner instead goes to the join screen, "Waiting for response" with Cancel Join (traced, round 92; `net/leave-and-drop.md`, LD7) |
 | Exit the program | `quit.bin` | The program ends (settings are saved; see "Stored settings") |
 
 **Who may restart, return or load.** Before its confirmation opens, the restart, return-to-chat-room and
