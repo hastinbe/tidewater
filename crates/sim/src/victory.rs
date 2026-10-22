@@ -754,6 +754,22 @@ impl World {
         self.players[q].shared_vision = 1 << q;
     }
 
+    /// `Command::Leave`: a human's leave, carried out in the turn. Enhanced rules clear the leaver from the
+    /// shared-vision sets; Classic mode leaves them alone (`net/leave-and-drop.md`, "Chat-room game", step 4, LV5 and
+    /// LV6). A slot that is not a human (a computer, or one that already left) is ignored, so a repeated leave or a
+    /// remote peer's wrong slot changes nothing.
+    pub(crate) fn leave_command(&mut self, player: u8) {
+        let q = player as usize;
+        if self.players.get(q).is_none_or(|p| p.controller != controller::HUMAN) {
+            return;
+        }
+        if self.rules.enhanced {
+            self.leave_game(q);
+        } else {
+            self.players[q].controller = controller::NOBODY;
+        }
+    }
+
     /// A player who is out: in a network game its slot becomes "nobody", it leaves everyone's shared vision and its
     /// own shared-vision set becomes just itself (`vision/fog.md`, "Shared vision", X10), and its living units take
     /// order 32 (the docked wait, which does nothing).
@@ -819,6 +835,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Command;
     use crate::world::tests::field;
     use tidewater_formats::udta::UnitStats;
 
@@ -1224,6 +1241,43 @@ mod tests {
         let mut b = world(24, 24);
         b.restore(&bytes, 1).unwrap();
         assert_eq!(b.victory.rule, rule);
+    }
+
+    /// `Command::Leave` (`net/leave-and-drop.md`, "Chat-room game", steps 3 and 4, LV5 and LV6): the slot becomes
+    /// nobody; Enhanced rules also clear it from the shared-vision sets, Classic mode leaves them. A slot that is no
+    /// human, or has already gone, is ignored.
+    #[test]
+    fn a_leave_command_empties_the_slot_and_enhanced_rules_clear_shared_vision() {
+        for enhanced in [true, false] {
+            let mut w = world(24, 24);
+            w.rules.multiplayer = true;
+            w.rules.enhanced = enhanced;
+            w.players[0].controller = controller::HUMAN;
+            w.players[1].controller = controller::HUMAN;
+            w.players[2].controller = controller::COMPUTER;
+            w.players[0].shared_vision = 0b011;
+            w.players[1].shared_vision = 0b011;
+            w.step(&[Command::Leave {
+                player: 1,
+                dropped: false,
+            }]);
+            assert_eq!(w.players[1].controller, controller::NOBODY);
+            // Enhanced: the leaver leaves everyone's set and its own is itself. Classic: nothing else changes.
+            let (seen_by_0, own) = if enhanced { (0b001, 0b010) } else { (0b011, 0b011) };
+            assert_eq!(
+                (w.players[0].shared_vision, w.players[1].shared_vision),
+                (seen_by_0, own)
+            );
+            // A computer's slot, a slot with nobody, and a second leave change nothing.
+            for p in [2u8, 5, 1] {
+                let before = w.players[p as usize].controller;
+                w.step(&[Command::Leave {
+                    player: p,
+                    dropped: true,
+                }]);
+                assert_eq!(w.players[p as usize].controller, before, "slot {p}");
+            }
+        }
     }
 
     #[test]

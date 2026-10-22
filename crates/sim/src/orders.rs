@@ -240,6 +240,7 @@ impl World {
             | Command::Cheat { .. }
             | Command::Surrender { .. }
             | Command::QuitDraw { .. }
+            | Command::Leave { .. }
             | Command::UnloadOne { .. } => return None,
         };
         // Our own choice (module doc): every other command clears the remembered order.

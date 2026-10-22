@@ -805,9 +805,57 @@ pub enum Command {
     QuitDraw {
         player: u8,
     },
+    /// A player leaves a network game (`net/leave-and-drop.md`, "Chat-room game: carrying out a leave", steps 3 and
+    /// 4): the player's slot becomes "nobody" and, under Enhanced rules, it leaves every shared-vision set. Its units
+    /// keep their orders and no result is set. `dropped` only tells the notice apart ("left" or "was dropped"); it
+    /// changes nothing in the world. The network session makes this command (the leaver's own last packet, or the
+    /// drop every machine agrees on), never the interface. Ignored for a slot that is not a human.
+    Leave {
+        player: u8,
+        dropped: bool,
+    },
 }
 
 impl Command {
+    /// The player the command acts as, which a network session checks against the slot a packet came from.
+    pub fn player(&self) -> u8 {
+        match *self {
+            Command::Move { player, .. }
+            | Command::Stop { player, .. }
+            | Command::Attack { player, .. }
+            | Command::Train { player, .. }
+            | Command::Upgrade { player, .. }
+            | Command::Research { player, .. }
+            | Command::Spell { player, .. }
+            | Command::Repair { player, .. }
+            | Command::Harvest { player, .. }
+            | Command::ReturnGoods { player, .. }
+            | Command::Smart { player, .. }
+            | Command::AttackMove { player, .. }
+            | Command::Patrol { player, .. }
+            | Command::StandGround { player, .. }
+            | Command::Build { player, .. }
+            | Command::AttackGround { player, .. }
+            | Command::Demolish { player, .. }
+            | Command::Unload { player, .. }
+            | Command::Cancel { player, .. }
+            | Command::CancelJob { player, .. }
+            | Command::Cast { player, .. }
+            | Command::Select { player, .. }
+            | Command::RightClick { player, .. }
+            | Command::Issue { player, .. }
+            | Command::SetGroup { player, .. }
+            | Command::RecallGroup { player, .. }
+            | Command::Speed { player, .. }
+            | Command::Pause { player }
+            | Command::UnloadOne { player, .. }
+            | Command::Cheat { player, .. }
+            | Command::Surrender { player }
+            | Command::QuitDraw { player }
+            | Command::Leave { player, .. } => player,
+        }
+    }
+
     /// The command number of a unit command whose row of the selection filter (selecting-and-commanding spec,
     /// "Which units take part in a command") asks for flag bit 19 (can attack): attack (8), patrol (5; the filter's
     /// Enhanced exceptions included), stand ground (13), attack the ground (17) and demolish (19). `None` for the rest.
@@ -1609,6 +1657,7 @@ impl World {
             | Command::Pause { .. } => return,
             &Command::Cheat { player, flags } => return self.cheat_command(player, crate::cheats::Flags(flags)),
             &Command::Surrender { player } | &Command::QuitDraw { player } => return self.surrender_command(player),
+            &Command::Leave { player, .. } => return self.leave_command(player),
             &Command::UnloadOne { player, unit, slot } => return self.unload_one_command(player, unit, slot),
         };
         for &id in units {
@@ -2171,6 +2220,10 @@ pub(crate) mod tests {
             },
             Command::Surrender { player: 2 },
             Command::QuitDraw { player: 3 },
+            Command::Leave {
+                player: 4,
+                dropped: true,
+            },
         ];
         let bytes = postcard::to_stdvec(&cmds).unwrap();
         let back: Vec<Command> = postcard::from_bytes(&bytes).unwrap();
