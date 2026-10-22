@@ -388,8 +388,11 @@ fn flow() -> Vec<Cmd> {
     v.extend([Until(AppState::SinglePlayer), Wait(3), Shot("single-player-back")]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
-    // The focus ring: Tab to Show Credits, Shift+Tab back past Single Player Game to Exit Program (wrapping), Tab to
-    // Single Player Game.
+    // Multi Player Game is greyed out: its hotkey does nothing.
+    v.extend(tap(K::Letter('M')));
+    v.extend([Wait(3), Shot("multi-inert")]);
+    // The focus ring skips it: Tab to Replay Introduction, Shift+Tab back past Single Player Game to Exit Program
+    // (wrapping), Tab to Single Player Game.
     v.extend(tap(K::Tab));
     v.extend([Wait(2), Shot("menu-tab"), Press(K::ShiftLeft)]);
     v.extend(tap(K::Tab));

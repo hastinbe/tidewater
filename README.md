@@ -57,7 +57,7 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 | **Game screen** | Map view with fog of war, minimap, resource bar, selection and unit information panel, command buttons and hotkeys, building placement, messages and the status bar. |
 | **Game rules** | Movement and pathfinding, combat, spells, harvesting, construction, training and research, repair, transports, walls, rescue, victory and defeat, and computer players that build, train, attack and cast. |
 | **Custom games** | Any `.pud` map from the command line, with the original custom-game choices through `--setup` (race, opponents, resources, terrain, starting units, fog), or the Custom Scenario screen (see below). |
-| **Menus** | Main menu, new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
+| **Menus** | Main menu (Multiplayer: coming, its button is greyed out; Replay Introduction plays the intro video), single-player menu, new-campaign choice, and the in-game menu (F10) with save, load, options, help, sound, speed and preferences dialogs, objectives, restart and surrender. |
 | **Saved games** | Save and load from the in-game menu and the victory dialog, into the `Save` folder of the data directory. |
 | **Sound, music, video** | Unit and event sounds, the music jukebox, the intro and story videos (Smacker), and palette effects such as colour cycling and fades. |
 | **Cheats** | The original cheat codes, typed into the chat line. |

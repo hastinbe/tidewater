@@ -1310,6 +1310,8 @@ enum MenuPick {
     /// Show Credits: the credits screen (spec "Credits screen"), then the main menu again.
     ShowCredits,
     Quit,
+    /// Replay Introduction: the introduction video, then the main menu again.
+    Intro,
     /// A campaign chosen on the campaign menu: the flow's next steps.
     Campaign(VecDeque<Step>),
     /// Custom Scenario: the setup screen, after a fade out with the music playing on.
@@ -1535,13 +1537,17 @@ fn menu_input(
 
 /// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
 pub(crate) fn enter_menu(c: &mut Core) {
-    // spec gap: the original's main menu also has Multi Player Game and Replay Introduction, which Tidewater's menu
-    // doesn't offer yet; its other three buttons keep the spec's labels and hotkeys (S, C, x) in consecutive slots.
-    let items = menu_items(&[
+    // Screen spec, "Main menu and campaign menu": five buttons with the hotkeys S, M, R, C and x.
+    let mut items = menu_items(&[
         ("Single Player Game", Some('S')),
+        ("Multi Player Game", Some('M')),
+        ("Replay Introduction", Some('R')),
         ("Show Credits", Some('C')),
         ("Exit Program", Some('x')),
     ]);
+    // spec gap: Tidewater has no network play yet (milestone M3), and the spec defines no look for a button that can't
+    // be used, so Multi Player Game takes the menu buttons' disabled face (grey, no focus, hotkey inert).
+    items[1].enabled = false;
     open_menu(c, &[], items, AppState::MainMenu);
 }
 
@@ -1608,6 +1614,10 @@ fn run_menu_close(c: &mut Core) -> bool {
             flow.steps = VecDeque::from([Step::ShowCredits, Step::MainMenu]);
             go_on(flow, front, keys, next, exit);
         }
+        MenuPick::Intro => {
+            flow.steps = VecDeque::from([Step::Video(cf::video::INTRO), Step::MainMenu]);
+            go_on(flow, front, keys, next, exit);
+        }
         MenuPick::Quit => *exit = true,
         MenuPick::Campaign(steps) => {
             flow.steps = steps;
@@ -1671,7 +1681,11 @@ fn run_menu(c: &mut Core) {
             flow.steps = VecDeque::from([Step::SinglePlayer]);
             go_on(flow, front, keys, next, exit);
         }
-        Some(1) => close(menu, MenuPick::ShowCredits),
+        // Music spec, "Where music fades out": Replay Introduction fades all sound first, like Show Credits and Exit
+        // Program, then the menu fades out. spec gap: what follows isn't traced; the introduction video plays as at
+        // startup (no logo video), then the main menu.
+        Some(2) => close(menu, MenuPick::Intro),
+        Some(3) => close(menu, MenuPick::ShowCredits),
         Some(_) => close(menu, MenuPick::Quit),
         None => {}
     }
