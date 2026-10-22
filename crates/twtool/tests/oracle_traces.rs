@@ -600,6 +600,12 @@ traces! {
     win_xorc9_airesearch_aiworkers_0_3000: ("win-xorc9-airesearch-aiworkers-0-3000.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
     win_xorc8_game_40280_40480: ("win-xorc8-game-40280-40480.jsonl.gz", "Campaign\\XOrc\\2XOrc08.pud", 43, &[], None),
     win_mp_gold_rush_o2_game_vision_10400_10620: (mp, "win-mp-gold-rush-o2-game-vision-10400-10620.jsonl.gz", &[], None),
+    // Round 105 windowed traces (the sweep fixes H2 and SW9 to SW11).
+    win_xorc8_game_44400_44480: ("win-xorc8-game-44400-44480.jsonl.gz", "Campaign\\XOrc\\2XOrc08.pud", 43, &[], None),
+    win_xorc12_goals_aigoals_30400_30770: ("win-xorc12-goals-aigoals-30400-30770.jsonl.gz", "Campaign\\XOrc\\2XOrc12.pud", 51, &[], None),
+    win_human13_game_goals_37700_37780: ("win-human13-game-goals-37700-37780.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    win_xhuman8_goals_aigoals_35480_35600: ("win-xhuman8-goals-aigoals-35480-35600.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
+    win_human10_goals_30820_31130: ("win-human10-goals-30820-31130.jsonl.gz", "Campaign\\Human\\Human10.pud", 18, &[], None),
 }
 
 /// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load) matches in full
