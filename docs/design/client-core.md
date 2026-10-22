@@ -207,7 +207,7 @@ scene's screenshot), so step 8 is checked to write them byte for byte as before.
 | `resume()` | Restarts the mixer. The game stays paused until the player resumes it. |
 | Focus lost | `Input::focused = false`: the palette stops cycling (`palette::Gate`), as now. |
 
-Mobile shells call `suspend` when sent to the background and `resume` when they return (built for iOS: [ios.md](ios.md)). A long frame (a debugger, a suspended laptop) is capped at
+Mobile shells call `suspend` when sent to the background and `resume` when they return (built for iOS, [ios.md](ios.md), and used by Android, [android.md](android.md)). A long frame (a debugger, a suspended laptop) is capped at
 250 ms of game time, as today.
 
 ## Platform trait

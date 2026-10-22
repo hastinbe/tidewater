@@ -93,7 +93,7 @@ long press a right click, a drag a box select, two fingers pan the map, a pinch 
 three-finger tap opens the game menu. The controls a touchscreen lacks (Shift, Ctrl, Alt, right-click mode, pause and
 the keyboard) are buttons in the bars beside the picture. You can try all of it on a desktop with `--touch-emulation`:
 the mouse is one finger, and holding Alt as you press adds a second finger (Alt+Shift: beside the first, Alt+Ctrl: a
-third). The iOS app (next section) uses it on a real touchscreen; Android comes later. How it works, and the measurements it uses, is
+third). The iOS and Android apps (next sections) use it on a real touchscreen. How it works, and the measurements it uses, is
 in [`docs/design/touch.md`](docs/design/touch.md).
 
 ### iPhone and iPad (early)
@@ -111,6 +111,22 @@ xcrun simctl launch booted dev.tidewater.client
 For a device, run `platform/ios/build.sh device`, copy `platform/ios/Config/Signing.example.xcconfig` to `Signing.xcconfig`, fill in your team ID and open `platform/ios/Tidewater.xcodeproj`.
 
 **Get the game files onto it.** Copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into Tidewater's folder: in Finder (device, Files tab), in the Files app (On My iPhone, Tidewater), or for the Simulator into the app's `Documents` folder. Open the app and the first-run screen lists what it finds; tap one, or tap Scan again after copying. "Choose game folder..." opens the system picker instead. **A GOG installer (`.exe`) does not work on iOS**, because unpacking it needs `innoextract`, which cannot run there: unpack it on a computer, or install the game and copy the folder.
+
+### Android (early)
+
+Tidewater builds as an Android app that runs in the emulator (it is not yet tried on a phone). It is the same program as the desktop and iOS builds: touch is on from the start, the screen stays in landscape, and the game pauses when you leave the app. Details and limits: [`docs/design/android.md`](docs/design/android.md).
+
+**Build it.** You need rustup, [cargo-ndk](https://github.com/bbqsrc/cargo-ndk) (`cargo install cargo-ndk`), CMake, a JDK (17 to 24) and the Android SDK with an NDK and `platforms;android-35`:
+
+```sh
+platform/android/build.sh          # libmain.so for arm64-v8a and x86_64, then a debug APK
+adb install -r platform/android/app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n dev.tidewater.client/.TidewaterActivity
+```
+
+`--abi arm64-v8a` builds one ABI; `--libs-only` stops before Gradle. The APK is signed with Gradle's debug key.
+
+**Get the game files onto it.** Either copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into the app's folder with a computer, for example `adb push Warcraft2 /sdcard/Android/data/dev.tidewater.client/files/` (open the app once first so the folder exists), then tap Scan again on the first-run screen; or tap "Choose game folder..." or "Choose CD image..." to pick from the phone's storage, which Tidewater copies into its cache first. **A GOG installer (`.exe`) does not work on Android**, because unpacking it needs `innoextract`: unpack it on a computer, or install the game and copy the folder.
 
 ### How faithful it is
 
@@ -240,7 +256,7 @@ Everything in this table is **planned**; none of it is built yet.
 | **Import from CD images** | Read `.iso`, `.bin`/`.cue`, `.mdf` and `.nrg` images directly (when the game files are loose on the disc). | Done |
 | **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: command line only; lobby screens, chat and pause counts planned |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
-| **Touch controls** | iOS (Simulator-tested; no device or signing yet) and Android. PlayStation Vita support is under evaluation. | iOS early; Android planned |
+| **Touch controls** | iOS (Simulator-tested; no device or signing yet) and Android (emulator-tested). PlayStation Vita support is under evaluation. | iOS and Android early (emulator and Simulator only) |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |
 
 ## How it is built

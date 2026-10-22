@@ -60,6 +60,12 @@ before writing any code, and follow it exactly.
 - `platform/ios`: the Xcode project around it: `project.yml` (xcodegen), `Sources/main.c` (hands over to `SDL_RunApp`),
   `Sources/picker.m` (UIDocumentPickerViewController), `Config/*.xcconfig` (signing is the user's own), `build.sh`;
   `docs/design/ios.md`.
+- `crates/android`: the Android app's native library `libmain.so` (`tidewater-android`, a `cdylib`): empty except on
+  `target_os = "android"`, where it builds the same two shell files by `#[path]`; `build.rs` keeps SDL's JNI entry points
+  exported. The entry (`SDL_main`), the picker callback and the environment set-up are in `sdl.rs`.
+- `platform/android`: the Gradle project around it (SDL's `android-project` layout): `TidewaterActivity.java` (arguments
+  and the Storage Access Framework picker), the manifest, the Gradle wrapper, `build.sh` (cargo-ndk, copies SDL's Java
+  sources from the `sdl3-src` crate at build time, runs Gradle); `docs/design/android.md`.
 - `docs/specs/`: reviewed behaviour specifications, the only source for engine behaviour.
 
 ## Workflow
