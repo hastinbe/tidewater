@@ -29,10 +29,11 @@ pub enum Id {
     VolumeVoices,
     VolumeEffects,
     VolumeMusic,
+    Scaling,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 8;
+pub const COUNT: usize = 9;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,6 +73,9 @@ pub struct Spec {
 pub const HEALTH_BAR_MODES: &[&str] = &["off", "hovered", "selected", "always"];
 /// The clock overlay modes.
 pub const CLOCK_MODES: &[&str] = &["off", "clock", "clock-apm"];
+
+/// The picture scaling modes (option `scaling`).
+pub const SCALING_MODES: &[&str] = &["integer", "sharp"];
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -138,6 +142,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 100,
         scope: Scope::Client,
         description: "Music, in percent of the music volume",
+    },
+    Spec {
+        id: Id::Scaling,
+        name: "scaling",
+        kind: Kind::Choice(SCALING_MODES),
+        default: 0,
+        scope: Scope::Client,
+        description: "How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp)",
     },
 ];
 
@@ -216,6 +228,15 @@ pub enum ClockMode {
     ClockApm,
 }
 
+/// How the picture is fitted to the window (option `scaling`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scaling {
+    /// Whole numbers of window pixels per screen pixel, black around.
+    Integer,
+    /// Any size inside the window's safe area, drawn sharp bilinear (`display`, "Fractional scale").
+    Sharp,
+}
+
 /// The values of every option for a run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClientExtras {
@@ -250,6 +271,13 @@ impl ClientExtras {
             2 => HealthBars::Selected,
             3 => HealthBars::Always,
             _ => HealthBars::Off,
+        }
+    }
+
+    pub fn scaling(&self) -> Scaling {
+        match self.get(Id::Scaling) {
+            1 => Scaling::Sharp,
+            _ => Scaling::Integer,
         }
     }
 

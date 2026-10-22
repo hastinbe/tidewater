@@ -28,6 +28,7 @@ use crate::args::Args;
 use crate::audio::Audio;
 use crate::chat;
 use crate::cheats;
+pub use crate::chrome::Chrome;
 use crate::clock::FrameClock;
 use crate::compose::{self, Clip, Frame, Placed};
 use crate::frontend::{self, AppState, Flow, Front, FrontScreen, OutcomeDialog};
@@ -154,6 +155,8 @@ pub struct Core {
 
     /// The first-run screen's state, while there are no game files (`firstrun`).
     pub first_run: Option<crate::firstrun::FirstRun>,
+    /// Touch input: the gesture machine, the chrome, the emulation (`touch`).
+    pub touch: crate::touch::TouchState,
 }
 
 impl Core {
@@ -180,6 +183,7 @@ impl Core {
         if let Some(run) = &script {
             crate::extras::ExtraFlags::from_pairs(run.script.scene.extras).apply(&mut extras);
         }
+        let emulate = opts.touch_emulation;
         let mut audio = Audio::default();
         audio.set_trims(extras.trims());
         Core {
@@ -233,6 +237,7 @@ impl Core {
             script,
             commands: Commands::default(),
             first_run: None,
+            touch: crate::touch::TouchState::new(emulate),
         }
     }
 
@@ -249,6 +254,7 @@ impl Core {
         if c.script.is_some() {
             script::drive(c, window);
         }
+        crate::touch::step(c, elapsed, window);
         c.input.begin_frame();
         match &c.script {
             Some(run) => {
@@ -263,6 +269,10 @@ impl Core {
                 c.input.pointer = pointer;
                 c.input.focused = focused;
             }
+        }
+        if c.touch.active {
+            let scripted = c.script.is_some();
+            c.touch.place_pointer(&mut c.input.pointer, scripted);
         }
         if c.states.get() == AppState::Game {
             chat::chat_keys(c);
@@ -284,6 +294,7 @@ impl Core {
         }
         c.front_screen.ready = true;
         compose_screen(c);
+        crate::touch::draw_pulse(c);
         screenshot::write_shot(c);
         if c.script.is_some() {
             script::note_sounds(c);
@@ -422,6 +433,9 @@ fn frame_systems(c: &mut Core) {
     }
     if in_game(c) {
         if game_running(c) {
+            if c.touch.active {
+                game::touch_view(c);
+            }
             game::panel_input(c);
             game::info_input(c);
             game::keys_input(c);
@@ -603,7 +617,7 @@ fn compose_screen(c: &mut Core) {
     if let (Some((pic, hot)), Some(p)) = (arrow, c.input.pointer)
         && let Some(w) = c.input.window
     {
-        let (x, y) = crate::display::Letterbox::fit(w.size).screen_point(p, w.factor);
+        let (x, y) = w.letterbox().screen_point(p, w.factor);
         let (x, y) = (x.floor() as i32 - hot.0, y.floor() as i32 - hot.1);
         frame.draw(&Placed {
             rgba: &pic.rgba,

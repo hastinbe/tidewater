@@ -12,7 +12,7 @@ use glam::Vec2;
 use crate::compose::{Frame, H, W};
 use crate::core::Core;
 use crate::frontend::{AppState, Step};
-use crate::input::{Button, Key, KeyEvent, Wheel, WindowGeom};
+use crate::input::{Button, Key, KeyEvent, Touch, TouchPhase, Wheel, WindowGeom};
 
 /// One step of a scene's input.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +37,8 @@ pub enum Cmd {
     Wheel(f32),
     /// A file or folder is dropped on the window (`firstrun`).
     Drop(&'static str),
+    /// A finger (by number) does something at this screen pixel (640 × 480): the touch input (`gesture`).
+    Finger(u64, TouchPhase, f32, f32),
     /// The frame is kept under this name; the next commands run from the next frame.
     Shot(&'static str),
 }
@@ -282,6 +284,50 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[("idle-worker", "on")],
             keys: "pause=ctrl+u\nidle-worker=ctrl+i\nbutton-move=j",
         },
+        // Touch: a tap near a unit selects it; a long press orders; a drag boxes; a pinch zooms; two fingers pan; three
+        // fingers tapping open the game menu (`gesture`, `docs/design/touch.md`).
+        Scene {
+            name: "touch-select",
+            start: vec![play(0)],
+            cmds: touch_select(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-order",
+            start: vec![play(0)],
+            cmds: touch_order(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-drag",
+            start: vec![play(0)],
+            cmds: touch_drag(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-pinch",
+            start: vec![play(0)],
+            cmds: touch_pinch(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-pan",
+            start: vec![play(0)],
+            cmds: touch_pan(),
+            extras: &[],
+            keys: "",
+        },
+        Scene {
+            name: "touch-menu",
+            start: vec![play(0)],
+            cmds: touch_menu(),
+            extras: &[],
+            keys: "",
+        },
         // Needs no game files: `host::launch` shows the first-run screen over a demo backend.
         Scene {
             name: FIRST_RUN,
@@ -489,6 +535,169 @@ fn play(entry: u8) -> Step {
         map: crate::campaign::map_name(entry),
         setup: None,
     }
+}
+
+/// A finger touching the screen at a screen pixel.
+fn touch(id: u64, x: f32, y: f32) -> Cmd {
+    Cmd::Finger(id, TouchPhase::Began, x, y)
+}
+
+/// A finger moving to a screen pixel.
+fn slide(id: u64, x: f32, y: f32) -> Cmd {
+    Cmd::Finger(id, TouchPhase::Moved, x, y)
+}
+
+/// A finger lifting at a screen pixel.
+fn lift(id: u64, x: f32, y: f32) -> Cmd {
+    Cmd::Finger(id, TouchPhase::Ended, x, y)
+}
+
+/// A finger tapping a screen pixel: down, a frame, up.
+fn finger_tap(x: f32, y: f32) -> [Cmd; 3] {
+    [touch(1, x, y), Cmd::Wait(1), lift(1, x, y)]
+}
+
+/// The game's first frames, then a tap a finger's width beside the first peasant, which selects it (the tap
+/// tolerance), and a tap on empty ground, which does not deselect it.
+fn touch_select() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Until(AppState::Game), Wait(5), Shot("game")];
+    v.extend(finger_tap(444.0, 318.0));
+    v.extend([Wait(4), Shot("tapped")]);
+    v.extend(finger_tap(300.0, 200.0));
+    v.extend([Wait(4), Shot("tapped-ground")]);
+    v
+}
+
+/// Select a peasant with a tap, then press and hold on open ground: a right click that sends it there, with a pulse.
+fn touch_order() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Until(AppState::Game), Wait(5)];
+    v.extend(finger_tap(416.0, 318.0));
+    v.extend([Wait(4), Shot("selected")]);
+    v.extend([
+        touch(1, 520.0, 400.0),
+        Wait(10),
+        Shot("held"),
+        Wait(26),
+        Shot("pulse"),
+        Wait(10),
+    ]);
+    v.extend([
+        lift(1, 520.0, 400.0),
+        Wait(3),
+        Shot("ordered"),
+        UntilCycle(120),
+        Shot("moved"),
+    ]);
+    v
+}
+
+/// Drag from open ground over the peasants: the box select.
+fn touch_drag() -> Vec<Cmd> {
+    use Cmd::*;
+    vec![
+        Until(AppState::Game),
+        Wait(5),
+        touch(1, 340.0, 250.0),
+        Wait(2),
+        slide(1, 370.0, 280.0),
+        Wait(2),
+        slide(1, 440.0, 340.0),
+        Wait(2),
+        slide(1, 500.0, 400.0),
+        Wait(2),
+        Shot("box"),
+        lift(1, 500.0, 400.0),
+        Wait(4),
+        Shot("boxed"),
+    ]
+}
+
+/// Two fingers spreading zoom the view in around the point between them, and pinching zoom it out again to the
+/// original's view.
+fn touch_pinch() -> Vec<Cmd> {
+    use Cmd::*;
+    // Around the first peasant, which stays under the fingers as the view zooms.
+    let (cx, cy) = (416.0, 318.0);
+    let mut v = vec![
+        Until(AppState::Game),
+        Wait(5),
+        Shot("game"),
+        touch(1, cx - 20.0, cy),
+        touch(2, cx + 20.0, cy),
+        Wait(2),
+    ];
+    for step in 1..=6 {
+        let d = 20.0 + 20.0 * step as f32;
+        v.extend([slide(1, cx - d, cy), slide(2, cx + d, cy), Wait(2)]);
+    }
+    v.extend([
+        Shot("zoomed-in"),
+        lift(1, cx - 140.0, cy),
+        lift(2, cx + 140.0, cy),
+        Wait(3),
+    ]);
+    v.extend([touch(1, cx - 140.0, cy), touch(2, cx + 140.0, cy), Wait(2)]);
+    for step in 1..=10 {
+        let d = 140.0 - 12.0 * step as f32;
+        v.extend([slide(1, cx - d, cy), slide(2, cx + d, cy), Wait(2)]);
+    }
+    v.extend([
+        Shot("zoomed-out"),
+        lift(1, cx - 20.0, cy),
+        lift(2, cx + 20.0, cy),
+        Wait(3),
+        Shot("done"),
+    ]);
+    v
+}
+
+/// Two fingers dragging together pan the view a tile at a time.
+fn touch_pan() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![
+        Until(AppState::Game),
+        Wait(5),
+        Shot("game"),
+        touch(1, 300.0, 300.0),
+        touch(2, 360.0, 300.0),
+        Wait(2),
+    ];
+    for step in 1..=8 {
+        let dx = 14.0 * step as f32;
+        v.extend([
+            slide(1, 300.0 - dx, 300.0 - dx / 2.0),
+            slide(2, 360.0 - dx, 300.0 - dx / 2.0),
+            Wait(2),
+        ]);
+    }
+    v.extend([
+        Shot("panning"),
+        lift(1, 188.0, 244.0),
+        lift(2, 248.0, 244.0),
+        Wait(3),
+        Shot("panned"),
+    ]);
+    v
+}
+
+/// Three fingers tapping open the game menu.
+fn touch_menu() -> Vec<Cmd> {
+    use Cmd::*;
+    vec![
+        Until(AppState::Game),
+        Wait(5),
+        touch(1, 250.0, 240.0),
+        touch(2, 320.0, 240.0),
+        touch(3, 390.0, 240.0),
+        Wait(3),
+        lift(1, 250.0, 240.0),
+        lift(2, 320.0, 240.0),
+        lift(3, 390.0, 240.0),
+        Wait(4),
+        Shot("menu"),
+    ]
 }
 
 /// A line typed into the chat line and sent: Enter opens it, Enter sends it.
@@ -978,6 +1187,15 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
             }
             Cmd::Wheel(y) => input.wheel(Wheel { y, lines: true }),
             Cmd::Drop(path) => input.dropped(path.into()),
+            Cmd::Finger(id, phase, x, y) => {
+                let lb = w.letterbox();
+                let at = |p: f32, offset: u32| (offset as f32 + p * lb.scale) / w.factor;
+                input.touch(Touch {
+                    id,
+                    phase,
+                    pos: (at(x, lb.offset.0), at(y, lb.offset.1)),
+                });
+            }
             // A shot is this frame as the input so far left it: the commands after it wait for the next frame.
             Cmd::Shot(name) => {
                 s.shots.push(name);
@@ -990,9 +1208,9 @@ pub(crate) fn drive(c: &mut Core, window: Option<WindowGeom>) {
     s.done = s.next >= s.scene.cmds.len();
     // The pointer in the window's logical points, where the system's would be (`display::Letterbox`).
     let p = s.pointer;
-    let lb = crate::display::Letterbox::fit(w.size);
+    let lb = w.letterbox();
     let f = w.factor;
-    let at = |p: f32, offset: u32| (offset as f32 + p * lb.scale as f32) / f;
+    let at = |p: f32, offset: u32| (offset as f32 + p * lb.scale) / f;
     run.pointer = Some((at(p.x, lb.offset.0), at(p.y, lb.offset.1)));
 }
 
@@ -1224,6 +1442,11 @@ pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usiz
         }
     }
     rec.compared.push((name, differing));
+    // A window of another size (`TIDEWATER_SCRIPT_WINDOW`) also keeps the whole window: the chrome, the black bars,
+    // the sharp fit.
+    if (w, h) != (W, H) {
+        save_png_sized(&run.out.dir.join(format!("{name}-full.png")), (w, h), gpu);
+    }
     for (suffix, rgba) in [("window", gpu_screen), ("composed", cpu.rgba), ("diff", diff)] {
         save_png(&run.out.dir.join(format!("{name}-{suffix}.png")), &rgba);
     }
@@ -1231,9 +1454,14 @@ pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usiz
 
 /// Saves a 640 × 480 RGBA picture as a PNG file (the `png` crate's encoder).
 fn save_png(path: &std::path::Path, rgba: &[u8]) {
+    save_png_sized(path, (W, H), rgba);
+}
+
+/// Saves an RGBA picture of any size as a PNG file.
+fn save_png_sized(path: &std::path::Path, (w, h): (usize, usize), rgba: &[u8]) {
     let write = || -> Result<(), Box<dyn std::error::Error>> {
         let file = std::io::BufWriter::new(std::fs::File::create(path)?);
-        let mut enc = png::Encoder::new(file, W as u32, H as u32);
+        let mut enc = png::Encoder::new(file, w as u32, h as u32);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
         enc.write_header()?.write_image_data(rgba)?;

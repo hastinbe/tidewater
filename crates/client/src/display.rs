@@ -20,6 +20,12 @@
 //!   Cmd (the Windows key elsewhere) is held. Where the system can confine the pointer to the window, it does; macOS
 //!   can't, so there the system pointer is held still and the game's own pointer moves by the mouse's motion, kept on
 //!   the screen ([`Letterbox::keep_on_screen`]). `--no-mouse-lock` turns it off.
+//! - **Fractional scale** (client-only, not part of the original). Touch platforms fit the screen by a fraction of
+//!   the window's safe area instead of a whole number, drawn "sharp bilinear": the picture is first scaled up by a
+//!   whole number with the nearest texel and then scaled linearly down to the fractional size, so pixels stay crisp
+//!   without a thick uneven edge ([`Letterbox::fit_area`], [`sharp_steps`]). Desktop keeps whole numbers unless the
+//!   `scaling` extra says `sharp`. The safe area is the part of the window the system doesn't cover (a phone's rounded
+//!   corners, notch and home bar).
 
 /// The screen in its own pixels.
 pub const SCREEN: (u32, u32) = (640, 480);
@@ -51,10 +57,14 @@ pub fn window_size(scale: u32) -> (u32, u32) {
     (SCREEN.0 * scale, SCREEN.1 * scale)
 }
 
-/// Where the screen sits in a window: its scale and its top-left corner, in physical pixels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A rectangle of physical window pixels: left, top, width, height.
+pub type Area = (u32, u32, u32, u32);
+
+/// Where the screen sits in a window: its scale and its top-left corner, in physical pixels. The scale is a whole
+/// number unless the letterbox was made by [`Letterbox::fit_area`] in the fractional mode.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Letterbox {
-    pub scale: u32,
+    pub scale: f32,
     pub offset: (u32, u32),
 }
 
@@ -70,19 +80,55 @@ impl Letterbox {
         let scale = fit_scale(size);
         let (w, h) = window_size(scale);
         Self {
-            scale,
+            scale: scale as f32,
             offset: (size.0.saturating_sub(w) / 2, size.1.saturating_sub(h) / 2),
         }
+    }
+
+    /// The screen in the `safe` area of a window of `size` physical pixels, centred in it. `fractional` fits by a
+    /// fraction of the area ("sharp bilinear", module doc); otherwise by a whole number, as [`Letterbox::fit`] does for
+    /// the whole window. A fraction within a thousandth of a whole number is that whole number, so it draws crisply.
+    pub fn fit_area(size: (u32, u32), safe: Area, fractional: bool) -> Self {
+        let (sx, sy, sw, sh) = clip_area(safe, size);
+        if !fractional {
+            let inner = Self::fit((sw, sh));
+            return Self {
+                scale: inner.scale,
+                offset: (sx + inner.offset.0, sy + inner.offset.1),
+            };
+        }
+        let raw = (sw as f32 / SCREEN.0 as f32)
+            .min(sh as f32 / SCREEN.1 as f32)
+            .max(MIN_FRACTION);
+        let scale = if (raw - raw.round()).abs() < 0.001 && raw.round() >= 1.0 {
+            raw.round()
+        } else {
+            raw
+        };
+        let (w, h) = (
+            (SCREEN.0 as f32 * scale).round() as u32,
+            (SCREEN.1 as f32 * scale).round() as u32,
+        );
+        Self {
+            scale,
+            offset: (sx + sw.saturating_sub(w) / 2, sy + sh.saturating_sub(h) / 2),
+        }
+    }
+
+    /// Whether the scale is a whole number (drawn with the nearest texel, no sharp-bilinear pass).
+    pub fn is_whole(&self) -> bool {
+        self.scale.fract() == 0.0
     }
 
     /// A rectangle of screen pixels (`x`, `y`, width, height) in physical window pixels.
     pub fn rect(&self, x: i32, y: i32, w: u32, h: u32) -> (u32, u32, u32, u32) {
         let s = self.scale;
+        let px = |len: f32| (len * s).round() as u32;
         (
-            self.offset.0 + x.max(0) as u32 * s,
-            self.offset.1 + y.max(0) as u32 * s,
-            w * s,
-            h * s,
+            self.offset.0 + px(x.max(0) as f32),
+            self.offset.1 + px(y.max(0) as f32),
+            px(w as f32),
+            px(h as f32),
         )
     }
 
@@ -94,7 +140,7 @@ impl Letterbox {
     /// A window point in logical points (`factor` physical pixels each) in screen pixels, not kept on the screen: a
     /// point on the black border is outside 640 × 480.
     pub fn screen_of(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
-        let s = self.scale as f32;
+        let s = self.scale;
         let on = |p: f32, offset: u32| (p * factor - offset as f32) / s;
         (on(point.0, self.offset.0), on(point.1, self.offset.1))
     }
@@ -112,7 +158,7 @@ impl Letterbox {
     /// A window point in logical points (`factor` physical pixels each) kept on the screen, still in logical points:
     /// a point on the black border or outside the window goes to the nearest screen edge. The locked pointer lives here.
     pub fn keep_on_screen(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
-        let s = self.scale as f32;
+        let s = self.scale;
         let on = |p: f32, offset: u32, len: u32| {
             let lo = offset as f32 / factor;
             p.clamp(lo, lo + (len as f32 - 0.001) * s / factor)
@@ -125,11 +171,31 @@ impl Letterbox {
 
     /// The middle of the screen in logical points.
     pub fn centre(&self, factor: f32) -> (f32, f32) {
-        let s = self.scale as f32;
+        let s = self.scale;
         (
             (self.offset.0 as f32 + SCREEN.0 as f32 * s / 2.0) / factor,
             (self.offset.1 as f32 + SCREEN.1 as f32 * s / 2.0) / factor,
         )
+    }
+}
+
+/// The smallest fractional scale: a window much smaller than the screen still shows all of it.
+pub const MIN_FRACTION: f32 = 0.25;
+
+/// The whole-number scale the sharp-bilinear pass first draws at for a fractional `scale`: the next whole number up.
+pub fn sharp_steps(scale: f32) -> u32 {
+    (scale.ceil() as u32).max(1)
+}
+
+/// `area` kept inside a window of `size` physical pixels; an empty result becomes the whole window.
+fn clip_area(area: Area, size: (u32, u32)) -> Area {
+    let x = area.0.min(size.0);
+    let y = area.1.min(size.1);
+    let (w, h) = (area.2.min(size.0 - x), area.3.min(size.1 - y));
+    if w == 0 || h == 0 {
+        (0, 0, size.0, size.1)
+    } else {
+        (x, y, w, h)
     }
 }
 
@@ -205,7 +271,7 @@ mod tests {
         assert_eq!(
             Letterbox::fit((1920, 1440)),
             Letterbox {
-                scale: 3,
+                scale: 3.0,
                 offset: (0, 0)
             }
         );
@@ -214,7 +280,7 @@ mod tests {
         assert_eq!(
             lb,
             Letterbox {
-                scale: 4,
+                scale: 4.0,
                 offset: (232, 22)
             }
         );
@@ -258,6 +324,67 @@ mod tests {
         assert_eq!(lb.screen_point((x, 0.0), 2.0).0.floor(), 639.0);
         assert_eq!(lb.centre(2.0), (756.0, 491.0));
         assert_eq!(lb.screen_point(lb.centre(2.0), 2.0), (320.0, 240.0));
+    }
+
+    #[test]
+    fn a_fractional_fit_fills_the_safe_area() {
+        // A phone in landscape, 2532 × 1170 pixels: the height limits the scale to 2.4375, the screen is 1560 × 1170.
+        let phone = (2532, 1170);
+        let lb = Letterbox::fit_area(phone, (0, 0, 2532, 1170), true);
+        assert_eq!(lb.scale, 1170.0 / 480.0);
+        assert!(!lb.is_whole());
+        assert_eq!(lb.screen(), (486, 0, 1560, 1170));
+        // The integer mode in the same window keeps whole numbers: 2 × 640 = 1280 across, 960 down.
+        let whole = Letterbox::fit_area(phone, (0, 0, 2532, 1170), false);
+        assert_eq!(whole, Letterbox::fit(phone));
+        assert_eq!(whole.scale, 2.0);
+        // The safe area (a notch on the left, a home bar below) shrinks and shifts it.
+        let safe = Letterbox::fit_area(phone, (132, 0, 2268, 1100), true);
+        assert_eq!(safe.scale, 1100.0 / 480.0);
+        let (x, y, w, h) = safe.screen();
+        assert_eq!((y, h), (0, 1100));
+        assert!(x >= 132 && x + w <= 132 + 2268, "inside the safe area: {x} {w}");
+        assert!((x - 132).abs_diff(132 + 2268 - (x + w)) <= 1, "centred in it");
+        // A whole-number fit in the fractional mode is crisp: no sharp-bilinear pass needed.
+        let exact = Letterbox::fit_area((1920, 1440), (0, 0, 1920, 1440), true);
+        assert_eq!((exact.scale, exact.is_whole()), (3.0, true));
+        assert_eq!(sharp_steps(exact.scale), 3);
+        // A fractional scale first draws at the next whole number up.
+        assert_eq!(sharp_steps(2.4375), 3);
+        assert_eq!(sharp_steps(0.5), 1);
+    }
+
+    #[test]
+    fn a_fractional_fit_can_be_smaller_than_the_screen_and_survives_a_bad_area() {
+        let lb = Letterbox::fit_area((320, 240), (0, 0, 320, 240), true);
+        assert_eq!(lb.scale, 0.5);
+        assert_eq!(lb.screen(), (0, 0, 320, 240));
+        // Never smaller than the floor, never a divide by nothing.
+        assert_eq!(Letterbox::fit_area((10, 10), (0, 0, 10, 10), true).scale, MIN_FRACTION);
+        // An empty or overhanging safe area is the whole window.
+        assert_eq!(
+            Letterbox::fit_area((1280, 960), (0, 0, 0, 0), true),
+            Letterbox::fit_area((1280, 960), (0, 0, 1280, 960), true)
+        );
+        assert_eq!(
+            Letterbox::fit_area((1280, 960), (1000, 0, 5000, 960), false).offset.1,
+            240,
+            "the overhang is cut to the window (280 wide), the screen centred in what is left"
+        );
+    }
+
+    #[test]
+    fn the_pointer_goes_through_a_fractional_scale() {
+        let lb = Letterbox::fit_area((1560, 1170), (0, 0, 1560, 1170), true);
+        assert_eq!(lb.scale, 2.4375);
+        assert_eq!(lb.screen_point((0.0, 0.0), 1.0), (0.0, 0.0));
+        let (x, y) = lb.screen_point((780.0, 585.0), 1.0);
+        assert!((x - 320.0).abs() < 1e-3 && (y - 240.0).abs() < 1e-3, "{x} {y}");
+        // A point on the other side of a point-sized window (factor 2) is the same screen pixel.
+        let (x, _) = lb.screen_point((390.0, 292.5), 2.0);
+        assert!((x - 320.0).abs() < 1e-3);
+        // Rectangles are rounded to whole physical pixels.
+        assert_eq!(lb.rect(176, 16, 448, 448), (429, 39, 1092, 1092));
     }
 
     #[test]

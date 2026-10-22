@@ -77,6 +77,16 @@ The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org
 
 The pointer is locked to the window during a game, as in full screen, so pushing it against an edge scrolls the map. The game menus free it, and so does holding Cmd (the Windows key elsewhere) or switching to another app. `--no-mouse-lock` turns this off. The full key list is in the specs under [`docs/specs/ui`](docs/specs/ui/).
 
+### Touch
+
+Tidewater has an input layer for touchscreens, our own addition (the original has no touch): a tap is a left click, a
+long press a right click, a drag a box select, two fingers pan the map, a pinch zooms it (up to four times) and a
+three-finger tap opens the game menu. The controls a touchscreen lacks (Shift, Ctrl, Alt, right-click mode, pause and
+the keyboard) are buttons in the bars beside the picture. You can try all of it on a desktop with `--touch-emulation`:
+the mouse is one finger, and holding Alt as you press adds a second finger (Alt+Shift: beside the first, Alt+Ctrl: a
+third). iOS and Android builds that bring real touchscreens come later. How it works, and the measurements it uses, is
+in [`docs/design/touch.md`](docs/design/touch.md).
+
 ### How faithful it is
 
 Tidewater follows the behaviour of the original game, not only its looks. The **Enhanced** rules are the default and are what Tidewater mirrors. The **Classic** rules exist in the original only as an opt-in multiplayer choice; Tidewater has them only where the specs describe them.
@@ -103,6 +113,7 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
 | `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | 100 | Sound effects, in percent of the sound volume |
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | 100 | Music, in percent of the music volume |
+| `scaling` | `--extra-scaling VALUE` | integer, sharp | integer | How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp) |
 
 **C+L** marks an option that gives you an edge, so in a game with other players the lobby will set it for everyone
 instead of your own settings.
@@ -135,6 +146,8 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 
 | Flag | What it does |
 |---|---|
+| `--touch-emulation` | The mouse is one finger (Alt, Alt+Shift, Alt+Ctrl at the press add more), and the touch controls show beside the picture. See [Touch](#touch). |
+| `--touch-dpi <PPI>` | The screen's density in physical pixels per inch, for touch sizes (taps, slop, buttons). Default: 140 points to the inch. |
 | `--free-zoom` | The mouse wheel zooms the map view (1/4 to 8 map pixels per screen pixel). |
 | `--zoom <N>` | Starting zoom; implies `--free-zoom`. |
 | `--goto <SCREEN>` | Open a flow screen directly: `title`, `menu`, `campaign`, `mission:E`, `act:E`, `briefing:E`, `score-victory:E`, `score-defeat:E`, `ending:E`, `credits:tod`, `credits:bdp`, `show-credits` or `video:N`, with E a mission entry (0 to 51). |

@@ -1,7 +1,7 @@
 //! A thin safe wrapper over the parts of SDL 3 the shell uses (`sdl3-sys`, the C API as published in SDL's headers;
 //! <https://wiki.libsdl.org/SDL3/>): the window, a renderer with one streaming texture, the system's events (including
-//! files dropped on the window), the system's folder and file dialogs, the mouse modes and an audio stream fed by a
-//! callback. Every `unsafe` block of the shell is here; each owner frees what it
+//! files dropped on the window), fingers on a touch screen, the system's folder and file dialogs, the mouse modes and
+//! an audio stream fed by a callback. Every `unsafe` block of the shell is here; each owner frees what it
 //! made when it is dropped.
 
 #![allow(unsafe_code)]
@@ -9,7 +9,7 @@
 use std::ffi::{CStr, CString, c_int, c_void};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -184,10 +184,32 @@ impl<'s> Window<'s> {
         unsafe { sys::SDL_WarpMouseInWindow(self.raw, x, y) };
     }
 
-    /// Typed text comes in as [`Event::Text`].
+    /// Typed text comes in as [`Event::Text`]; on a touch screen this opens the soft keyboard.
     pub fn start_text_input(&self) {
         // SAFETY: a live window.
         unsafe { sys::SDL_StartTextInput(self.raw) };
+    }
+
+    /// Closes the soft keyboard (and stops [`Event::Text`]).
+    pub fn stop_text_input(&self) {
+        // SAFETY: a live window.
+        unsafe { sys::SDL_StopTextInput(self.raw) };
+    }
+
+    /// The part of the window clear of notches, rounded corners and home bars, in physical pixels: left, top, width,
+    /// height. The whole window where the system reports nothing.
+    pub fn safe_area(&self) -> (u32, u32, u32, u32) {
+        let d = self.pixel_density();
+        let mut r = sys::SDL_Rect { x: 0, y: 0, w: 0, h: 0 };
+        // SAFETY: a live window and a valid out pointer.
+        let ok = unsafe { sys::SDL_GetWindowSafeArea(self.raw, &mut r) };
+        let (w, h) = self.size_in_pixels();
+        if !ok || r.w <= 0 || r.h <= 0 {
+            return (0, 0, w, h);
+        }
+        let px = |v: i32| (v.max(0) as f32 * d).round() as u32;
+        let (x, y) = (px(r.x).min(w), px(r.y).min(h));
+        (x, y, px(r.w).min(w - x), px(r.h).min(h - y))
     }
 
     /// Opens the system's dialog for choosing a folder, over this window. The answer comes later (not before this
@@ -283,11 +305,45 @@ pub fn show_cursor(on: bool) {
     }
 }
 
-/// A renderer for a window with one streaming RGBA texture, scaled with the nearest texel.
+/// Mouse events SDL makes from touches are dropped once real finger events have been seen (see [`poll`]).
+static FINGERS_SEEN: AtomicBool = AtomicBool::new(false);
+
+/// Turns off SDL's mouse-from-touch and touch-from-mouse events: the shell reads the fingers themselves (the touch
+/// emulation and touch screens, `docs/design/touch.md`).
+pub fn own_the_fingers() {
+    // SAFETY: the hints' names are SDL's own constants and the values valid C strings; SDL copies both.
+    unsafe {
+        sys::SDL_SetHint(sys::SDL_HINT_TOUCH_MOUSE_EVENTS, c"0".as_ptr());
+        sys::SDL_SetHint(sys::SDL_HINT_MOUSE_TOUCH_EVENTS, c"0".as_ptr());
+    }
+}
+
+/// Whether a touch screen (a device the fingers touch directly, not a trackpad) is attached.
+pub fn has_touch_screen() -> bool {
+    let mut n: c_int = 0;
+    // SAFETY: a valid out pointer; the array SDL returns (or null) is ours to free and is read before that.
+    unsafe {
+        let ids = sys::SDL_GetTouchDevices(&mut n);
+        if ids.is_null() {
+            return false;
+        }
+        let found =
+            (0..n.max(0) as usize).any(|i| sys::SDL_GetTouchDeviceType(*ids.add(i)) == sys::SDL_TOUCH_DEVICE_DIRECT);
+        sys::SDL_free(ids.cast());
+        found
+    }
+}
+
+/// A renderer for a window with one streaming RGBA texture, scaled with the nearest texel, or (the "sharp bilinear"
+/// fit for fractional scales) first by a whole number with the nearest texel and then down to size with a linear one.
 pub struct Renderer<'w> {
     raw: *mut sys::SDL_Renderer,
     texture: *mut sys::SDL_Texture,
     size: (u32, u32),
+    /// The sharp pass's intermediate picture and its whole-number scale.
+    sharp: Option<(*mut sys::SDL_Texture, u32)>,
+    /// The touch chrome drawn over the picture: its texture and size.
+    overlay: Option<(*mut sys::SDL_Texture, (u32, u32))>,
     _window: PhantomData<&'w Window<'w>>,
 }
 
@@ -322,6 +378,8 @@ impl<'w> Renderer<'w> {
             raw,
             texture,
             size,
+            sharp: None,
+            overlay: None,
             _window: PhantomData,
         })
     }
@@ -335,7 +393,9 @@ impl<'w> Renderer<'w> {
     }
 
     /// Clears the window to black and draws `rgba` (the texture's size) over `dst` (x, y, width, height in pixels).
-    pub fn draw(&mut self, rgba: &[u8], dst: (u32, u32, u32, u32)) {
+    /// `sharp`: the whole-number scale to draw it at first, then scale linearly to `dst` (none: straight to `dst` with
+    /// the nearest texel).
+    pub fn draw(&mut self, rgba: &[u8], dst: (u32, u32, u32, u32), sharp: Option<u32>) {
         let pitch = self.size.0 as usize * 4;
         assert_eq!(
             rgba.len(),
@@ -351,9 +411,97 @@ impl<'w> Renderer<'w> {
         // SAFETY: a live renderer and texture; `rgba` holds the texture's whole size at `pitch` bytes a row.
         unsafe {
             sys::SDL_UpdateTexture(self.texture, std::ptr::null(), rgba.as_ptr().cast(), pitch as c_int);
+        }
+        let stepped = sharp.and_then(|n| self.sharp_target(n.max(1)));
+        // SAFETY: a live renderer and textures; the target is ours and is unset again before the window is drawn.
+        unsafe {
+            if let Some(target) = stepped {
+                sys::SDL_SetRenderTarget(self.raw, target);
+                sys::SDL_RenderTexture(self.raw, self.texture, std::ptr::null(), std::ptr::null());
+                sys::SDL_SetRenderTarget(self.raw, std::ptr::null_mut());
+            }
             sys::SDL_SetRenderDrawColor(self.raw, 0, 0, 0, 255);
             sys::SDL_RenderClear(self.raw);
-            sys::SDL_RenderTexture(self.raw, self.texture, std::ptr::null(), &dst);
+            sys::SDL_RenderTexture(self.raw, stepped.unwrap_or(self.texture), std::ptr::null(), &dst);
+        }
+        self.draw_overlay();
+    }
+
+    /// The intermediate picture for a whole-number scale `n`, made when the scale changes.
+    fn sharp_target(&mut self, n: u32) -> Option<*mut sys::SDL_Texture> {
+        if let Some((t, have)) = self.sharp {
+            if have == n {
+                return Some(t);
+            }
+            // SAFETY: made below, not used again.
+            unsafe { sys::SDL_DestroyTexture(t) };
+            self.sharp = None;
+        }
+        // SAFETY: a live renderer.
+        let t = unsafe {
+            sys::SDL_CreateTexture(
+                self.raw,
+                sys::SDL_PIXELFORMAT_RGBA32,
+                sys::SDL_TEXTUREACCESS_TARGET,
+                (self.size.0 * n) as c_int,
+                (self.size.1 * n) as c_int,
+            )
+        };
+        if t.is_null() {
+            return None;
+        }
+        // SAFETY: a live texture.
+        unsafe { sys::SDL_SetTextureScaleMode(t, sys::SDL_SCALEMODE_LINEAR) };
+        self.sharp = Some((t, n));
+        Some(t)
+    }
+
+    /// Sets the chrome's picture (RGBA, `size` pixels, the window's size), or takes it away.
+    pub fn set_overlay(&mut self, picture: Option<((u32, u32), &[u8])>) {
+        let Some((size, rgba)) = picture else {
+            if let Some((t, _)) = self.overlay.take() {
+                // SAFETY: made below, not used again.
+                unsafe { sys::SDL_DestroyTexture(t) };
+            }
+            return;
+        };
+        if rgba.len() != size.0 as usize * size.1 as usize * 4 || size.0 == 0 || size.1 == 0 {
+            return;
+        }
+        if self.overlay.is_some_and(|(_, s)| s != size) {
+            self.set_overlay(None);
+        }
+        if self.overlay.is_none() {
+            // SAFETY: a live renderer.
+            let t = unsafe {
+                sys::SDL_CreateTexture(
+                    self.raw,
+                    sys::SDL_PIXELFORMAT_RGBA32,
+                    sys::SDL_TEXTUREACCESS_STREAMING,
+                    size.0 as c_int,
+                    size.1 as c_int,
+                )
+            };
+            if t.is_null() {
+                return;
+            }
+            // SAFETY: a live texture.
+            unsafe {
+                sys::SDL_SetTextureBlendMode(t, sys::SDL_BLENDMODE_BLEND);
+                sys::SDL_SetTextureScaleMode(t, sys::SDL_SCALEMODE_NEAREST);
+            }
+            self.overlay = Some((t, size));
+        }
+        if let Some((t, _)) = self.overlay {
+            // SAFETY: a live texture of `size`; `rgba` holds all of it at `size.0 * 4` bytes a row.
+            unsafe { sys::SDL_UpdateTexture(t, std::ptr::null(), rgba.as_ptr().cast(), (size.0 * 4) as c_int) };
+        }
+    }
+
+    fn draw_overlay(&mut self) {
+        if let Some((t, _)) = self.overlay {
+            // SAFETY: a live renderer and texture.
+            unsafe { sys::SDL_RenderTexture(self.raw, t, std::ptr::null(), std::ptr::null()) };
         }
     }
 
@@ -389,8 +537,14 @@ impl<'w> Renderer<'w> {
 
 impl Drop for Renderer<'_> {
     fn drop(&mut self) {
-        // SAFETY: made by `new`, not used again; the texture goes before its renderer.
+        // SAFETY: made by `new`, not used again; the textures go before their renderer.
         unsafe {
+            if let Some((t, _)) = self.sharp {
+                sys::SDL_DestroyTexture(t);
+            }
+            if let Some((t, _)) = self.overlay {
+                sys::SDL_DestroyTexture(t);
+            }
             sys::SDL_DestroyTexture(self.texture);
             sys::SDL_DestroyRenderer(self.raw);
         }
@@ -409,19 +563,32 @@ pub enum Event {
     },
     /// Text typed by the last key.
     Text(String),
-    /// A mouse button (SDL's number: 1 left, 2 middle, 3 right, 4 and 5 the side buttons).
+    /// A mouse button (SDL's number: 1 left, 2 middle, 3 right, 4 and 5 the side buttons), with the pointer's place in
+    /// the window's points.
     Button {
         button: u8,
         down: bool,
+        x: f32,
+        y: f32,
     },
     /// The wheel, in steps (fractions from a touchpad); positive away from the user.
     Wheel {
         y: f32,
     },
-    /// The mouse moved, in points.
+    /// The mouse moved, in points; `x` and `y` are where it is.
     Motion {
         dx: f32,
         dy: f32,
+        x: f32,
+        y: f32,
+    },
+    /// A finger on a touch screen: its number, what it did (0 down, 1 moved, 2 up, 3 taken away) and where, as a
+    /// fraction of the window (0 to 1 each way).
+    Finger {
+        id: u64,
+        phase: u8,
+        x: f32,
+        y: f32,
     },
     /// A file or folder dropped on the window.
     Drop(PathBuf),
@@ -448,15 +615,50 @@ pub fn poll() -> Option<Event> {
             sys::SDL_EVENT_TEXT_INPUT if !e.text.text.is_null() => {
                 Event::Text(CStr::from_ptr(e.text.text).to_string_lossy().into_owned())
             }
+            // What SDL makes of a finger as a mouse is dropped once the fingers themselves are being read.
+            sys::SDL_EVENT_MOUSE_BUTTON_DOWN | sys::SDL_EVENT_MOUSE_BUTTON_UP
+                if FINGERS_SEEN.load(Ordering::Relaxed) && e.button.which == sys::SDL_TOUCH_MOUSEID =>
+            {
+                Event::Other
+            }
+            sys::SDL_EVENT_MOUSE_MOTION
+                if FINGERS_SEEN.load(Ordering::Relaxed) && e.motion.which == sys::SDL_TOUCH_MOUSEID =>
+            {
+                Event::Other
+            }
             sys::SDL_EVENT_MOUSE_BUTTON_DOWN | sys::SDL_EVENT_MOUSE_BUTTON_UP => Event::Button {
                 button: e.button.button,
                 down: e.button.down,
+                x: e.button.x,
+                y: e.button.y,
             },
             sys::SDL_EVENT_MOUSE_WHEEL => Event::Wheel { y: e.wheel.y },
             sys::SDL_EVENT_MOUSE_MOTION => Event::Motion {
                 dx: e.motion.xrel,
                 dy: e.motion.yrel,
+                x: e.motion.x,
+                y: e.motion.y,
             },
+            // Only a screen the fingers touch directly: a trackpad's fingers are not pointers on the picture.
+            sys::SDL_EVENT_FINGER_DOWN
+            | sys::SDL_EVENT_FINGER_MOTION
+            | sys::SDL_EVENT_FINGER_UP
+            | sys::SDL_EVENT_FINGER_CANCELED
+                if sys::SDL_GetTouchDeviceType(e.tfinger.touchID) == sys::SDL_TOUCH_DEVICE_DIRECT =>
+            {
+                FINGERS_SEEN.store(true, Ordering::Relaxed);
+                Event::Finger {
+                    id: e.tfinger.fingerID.into(),
+                    phase: match t {
+                        sys::SDL_EVENT_FINGER_DOWN => 0,
+                        sys::SDL_EVENT_FINGER_MOTION => 1,
+                        sys::SDL_EVENT_FINGER_UP => 2,
+                        _ => 3,
+                    },
+                    x: e.tfinger.x,
+                    y: e.tfinger.y,
+                }
+            }
             sys::SDL_EVENT_DROP_FILE if !e.drop.data.is_null() => Event::Drop(PathBuf::from(
                 CStr::from_ptr(e.drop.data).to_string_lossy().into_owned(),
             )),

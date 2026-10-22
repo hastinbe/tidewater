@@ -271,10 +271,7 @@ struct NoWindow;
 
 impl Platform for NoWindow {
     fn window(&self) -> Option<WindowGeom> {
-        Some(WindowGeom {
-            size: display::SCREEN,
-            factor: 1.0,
-        })
+        Some(WindowGeom::new(display::SCREEN, 1.0))
     }
 
     fn pointer(&mut self, _keys: &Buttons<Key>, _game_pointer: bool) -> (Option<(f32, f32)>, bool) {

@@ -53,10 +53,7 @@ struct Window {
 
 impl Platform for Window {
     fn window(&self) -> Option<WindowGeom> {
-        Some(WindowGeom {
-            size: (640, 480),
-            factor: 1.0,
-        })
+        Some(WindowGeom::new((640, 480), 1.0))
     }
 
     fn pointer(&mut self, _keys: &Buttons<Key>, _game_pointer: bool) -> (Option<(f32, f32)>, bool) {

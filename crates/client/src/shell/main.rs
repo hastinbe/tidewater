@@ -5,8 +5,16 @@
 //! dropped on the window.
 //!
 //! The 640 × 480 screen is drawn at a whole number of physical pixels per screen pixel, black-bordered in a larger
-//! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). The mouse wheel
-//! zooms only with the `--free-zoom` development option. The controls are in the core (`game`).
+//! window, and the map view shows one map pixel per screen pixel, as the original does (`display`). On a touch
+//! platform, or with the `scaling` extra at `sharp`, it fills the window's safe area at any size instead, drawn sharp
+//! bilinear (`display::Letterbox::fit_area`). The mouse wheel zooms only with the `--free-zoom` development option.
+//! The controls are in the core (`game`).
+//!
+//! **Touch** (`docs/design/touch.md`). Fingers on a touch screen go in as `input::Touch` events (a trackpad's do not);
+//! with `--touch-emulation` the left mouse button and motion go in as a finger instead, and the Alt, Shift and Ctrl
+//! held as the button goes down choose the extra fingers. SDL's own mouse-from-touch events are turned off whenever
+//! the fingers are read. The core's chrome (modifier latches, right-click toggle, pause, keyboard) is drawn over the
+//! picture as one overlay texture, and its keyboard button opens the system's soft keyboard.
 //!
 //! The shell does what the design asks of one: the system's key, button, wheel and focus events into the core's input;
 //! [`Core::advance`] once a frame; the composed frame into one streaming texture, drawn at the window's whole-number
@@ -31,7 +39,9 @@ use tidewater_client::core::{Core, Platform};
 use tidewater_client::display::{self, Letterbox};
 use tidewater_client::firstrun::PickKind;
 use tidewater_client::host::{self, FrameStats, LockedPointer};
-use tidewater_client::input::{Button, Buttons, Key, KeyEvent, Wheel, WindowGeom};
+use tidewater_client::input::{
+    Button, Buttons, Key, KeyEvent, MouseTouch, MouseTouchKind, Touch, TouchPhase, Wheel, WindowGeom,
+};
 use tidewater_client::script;
 
 /// The file dialogs' filters (the first-run screen's "Choose GOG installer..." and "Choose CD image...").
@@ -54,6 +64,10 @@ fn main() -> Result<()> {
     run(l)
 }
 
+/// A phone or tablet: the touch screen is the main input, so the picture fits the safe area at any scale, and the soft
+/// keyboard is closed until asked for.
+const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
 /// Whether the mouse lock holds the system's pointer still (macOS can't confine it to the window) rather than
 /// confining it.
 const HOLD_STILL: bool = cfg!(target_os = "macos");
@@ -67,8 +81,24 @@ fn run(l: host::Launch) -> Result<()> {
     } = l;
     let scripted = core.script.is_some();
     let sdl = sdl::Sdl::init(!scripted, DEVICE_FRAMES)?;
+    let emulating = core.opts.touch_emulation;
+    let touch_screen = sdl::has_touch_screen();
+    if emulating || touch_screen {
+        sdl::own_the_fingers();
+    }
     let points = ui_scale.unwrap_or(1);
-    let (w, h) = display::window_size(points);
+    let (mut w, mut h) = display::window_size(points);
+    // Development aid: a larger scripted window (`TIDEWATER_SCRIPT_WINDOW=1000x600`) to look at the chrome and the
+    // sharp fit in; its pixels are no longer the composed frame's, so the shots are not compared.
+    let big_script = scripted
+        && std::env::var("TIDEWATER_SCRIPT_WINDOW")
+            .ok()
+            .and_then(|v| {
+                v.split_once('x')
+                    .and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?)))
+            })
+            .map(|(a, b)| (w, h) = (a, b))
+            .is_some();
     // A scripted window has one pixel per point whatever the display, so the screen fills it exactly; it doesn't
     // take the keyboard (its input is the scene's) and stays on top, as the Bevy shell's does.
     let window = sdl::Window::new(
@@ -98,7 +128,9 @@ fn run(l: host::Launch) -> Result<()> {
         window.centre();
     }
     let mut renderer = sdl::Renderer::new(&window, display::SCREEN, true)?;
-    window.start_text_input();
+    if !MOBILE {
+        window.start_text_input();
+    }
     // A scripted run mixes its sound itself (`script::record`) and plays none.
     let audio_stats = Arc::new(sdl::AudioStats::default());
     let audio = if scripted {
@@ -124,9 +156,25 @@ fn run(l: host::Launch) -> Result<()> {
         locked: LockedPointer::default(),
         grabbed: false,
         motion: (0.0, 0.0),
-        lock_enabled: !core.opts.no_mouse_lock,
+        // The mouse lock fights a dragging "finger", so the emulation does without it.
+        lock_enabled: !core.opts.no_mouse_lock && !emulating,
         cursor_shown: true,
+        emulating,
+        mods: (false, false, false),
+        left_down: false,
+        keyboard: !MOBILE,
+        fractional: MOBILE,
+        ppi_per_density: core.opts.touch_dpi.map_or(
+            if MOBILE {
+                160.0
+            } else {
+                tidewater_client::input::DEFAULT_POINT_PPI
+            },
+            |dpi| dpi,
+        ),
+        ppi_absolute: core.opts.touch_dpi.is_some(),
     };
+    let mut overlay_key: Option<(bool, u64, (u32, u32))> = None;
     let mut stats = FrameStats::default();
     let mut first = true;
     let mut last = Instant::now();
@@ -140,8 +188,18 @@ fn run(l: host::Launch) -> Result<()> {
         let interval = now - last;
         last = now;
         first = false;
+        shell.fractional = MOBILE || core.extras.scaling() == tidewater_client::extras::Scaling::Sharp;
         let quit = shell.take_events(&mut core);
         core.advance(elapsed, &mut shell);
+        // The soft keyboard follows the chrome's button; a desktop keeps its text input open for the real keyboard.
+        if core.touch.chrome.keyboard != shell.keyboard && (core.touch.active || MOBILE) {
+            shell.keyboard = core.touch.chrome.keyboard;
+            if shell.keyboard {
+                window.start_text_input();
+            } else if MOBILE {
+                window.stop_text_input();
+            }
+        }
         for kind in core.take_pick_requests() {
             match kind {
                 PickKind::Folder => window.show_folder_dialog(),
@@ -160,12 +218,29 @@ fn run(l: host::Launch) -> Result<()> {
         if exiting {
             core.store_settings();
         }
-        let size = renderer.output_size();
-        let lb = Letterbox::fit(size);
-        renderer.draw(&core.frame.rgba, lb.screen());
+        let geom = shell
+            .window()
+            .unwrap_or_else(|| WindowGeom::new(renderer.output_size(), 1.0));
+        let lb = geom.letterbox();
+        let sharp = (!lb.is_whole()).then(|| display::sharp_steps(lb.scale));
+        // The chrome's overlay is rebuilt only when it, or the window, changes. A scripted window shows it only when it
+        // is the big development one, so the compared shots stay the composed frames.
+        let want_overlay = core.touch.active && (!scripted || big_script);
+        let key = (want_overlay, core.touch.revision, geom.size);
+        if overlay_key != Some(key) {
+            overlay_key = Some(key);
+            match want_overlay
+                .then(|| core.touch.overlay(geom.size, geom.factor))
+                .flatten()
+            {
+                Some(o) => renderer.set_overlay(Some((o.size, &o.rgba))),
+                None => renderer.set_overlay(None),
+            }
+        }
+        renderer.draw(&core.frame.rgba, lb.screen(), sharp);
         let mut finished = false;
         if let Some(run) = core.script.as_mut() {
-            let shown = (lb.scale == 1).then_some(&core.frame);
+            let shown = (big_script || lb.scale == 1.0).then_some(&core.frame);
             let asked = script::record(run, shown, &core.audio.output(), exiting);
             for name in asked.screenshots {
                 let shot = renderer.read_pixels();
@@ -209,6 +284,19 @@ struct Shell<'a> {
     motion: (f32, f32),
     lock_enabled: bool,
     cursor_shown: bool,
+    /// `--touch-emulation`: the left button and motion are a finger.
+    emulating: bool,
+    /// Shift, Ctrl and Alt are held (for the emulation's extra fingers).
+    mods: (bool, bool, bool),
+    left_down: bool,
+    /// The soft keyboard (or the desktop's text input) is open.
+    keyboard: bool,
+    /// The picture fits the safe area at any scale (`display`).
+    fractional: bool,
+    /// Points to the inch (physical pixels per inch is this times the density), or physical pixels per inch itself when
+    /// `ppi_absolute` (`--touch-dpi`).
+    ppi_per_density: f32,
+    ppi_absolute: bool,
 }
 
 impl Shell<'_> {
@@ -218,11 +306,30 @@ impl Shell<'_> {
         let mut quit = false;
         let mut pending: Option<KeyEvent> = None;
         self.motion = (0.0, 0.0);
+        let touching = core.touch.active || self.emulating;
+        let (points_w, points_h) = {
+            let (w, h) = self.window.size_in_pixels();
+            let d = self.window.pixel_density();
+            (w as f32 / d, h as f32 / d)
+        };
         let input = &mut core.input;
         while let Some(e) = sdl::poll() {
             if let sdl::Event::Text(t) = &e {
                 match pending.as_mut() {
                     Some(k) if k.pressed => k.text.get_or_insert_with(String::new).push_str(t),
+                    // A soft keyboard types text without keys: a key of its own carries it.
+                    _ if touching => {
+                        input.key(KeyEvent {
+                            key: Key::Other(0),
+                            pressed: true,
+                            text: Some(t.clone()),
+                        });
+                        input.key(KeyEvent {
+                            key: Key::Other(0),
+                            pressed: false,
+                            text: None,
+                        });
+                    }
                     _ => {}
                 }
                 continue;
@@ -234,18 +341,49 @@ impl Shell<'_> {
                 sdl::Event::Quit => quit = true,
                 sdl::Event::FocusLost => input.focus_lost(),
                 sdl::Event::Key { scancode, down } => {
-                    pending = Some(KeyEvent {
-                        key: key_of(scancode),
-                        pressed: down,
-                        text: None,
-                    })
+                    let key = key_of(scancode);
+                    match key {
+                        Key::ControlLeft | Key::ControlRight => self.mods.0 = down,
+                        Key::ShiftLeft | Key::ShiftRight => self.mods.1 = down,
+                        Key::AltLeft | Key::AltRight => self.mods.2 = down,
+                        _ => {}
+                    }
+                    // Alt chooses the emulation's extra fingers: the game does not see it.
+                    if !(self.emulating && matches!(key, Key::AltLeft | Key::AltRight)) {
+                        pending = Some(KeyEvent {
+                            key,
+                            pressed: down,
+                            text: None,
+                        })
+                    }
                 }
-                sdl::Event::Button { button, down } => input.button(button_of(button), down),
+                sdl::Event::Button { button: 1, down, x, y } if self.emulating => {
+                    self.left_down = down;
+                    input.mouse_touch(self.mouse_touch(
+                        if down { MouseTouchKind::Down } else { MouseTouchKind::Up },
+                        x,
+                        y,
+                    ));
+                }
+                sdl::Event::Button { button, down, .. } => input.button(button_of(button), down),
                 sdl::Event::Wheel { y } => input.wheel(Wheel { y, lines: true }),
-                sdl::Event::Motion { dx, dy } => {
+                sdl::Event::Motion { dx, dy, x, y } => {
                     self.motion.0 += dx;
                     self.motion.1 += dy;
+                    if self.emulating && self.left_down {
+                        input.mouse_touch(self.mouse_touch(MouseTouchKind::Move, x, y));
+                    }
                 }
+                sdl::Event::Finger { id, phase, x, y } => input.touch(Touch {
+                    id,
+                    phase: match phase {
+                        0 => TouchPhase::Began,
+                        1 => TouchPhase::Moved,
+                        2 => TouchPhase::Ended,
+                        _ => TouchPhase::Cancelled,
+                    },
+                    pos: (x * points_w, y * points_h),
+                }),
                 sdl::Event::Drop(path) => input.dropped(path),
                 sdl::Event::Text(_) | sdl::Event::Other => {}
             }
@@ -261,12 +399,29 @@ impl Shell<'_> {
     }
 }
 
+impl Shell<'_> {
+    fn mouse_touch(&self, kind: MouseTouchKind, x: f32, y: f32) -> MouseTouch {
+        MouseTouch {
+            kind,
+            pos: (x, y),
+            ctrl: self.mods.0,
+            shift: self.mods.1,
+            alt: self.mods.2,
+        }
+    }
+}
+
 impl Platform for Shell<'_> {
     fn window(&self) -> Option<WindowGeom> {
-        Some(WindowGeom {
-            size: self.window.size_in_pixels(),
-            factor: self.window.pixel_density(),
-        })
+        let mut g = WindowGeom::new(self.window.size_in_pixels(), self.window.pixel_density());
+        g.safe = self.window.safe_area();
+        g.ppi = if self.ppi_absolute {
+            self.ppi_per_density
+        } else {
+            self.ppi_per_density * g.factor
+        };
+        g.fractional = self.fractional;
+        Some(g)
     }
 
     fn pointer(&mut self, keys: &Buttons<Key>, game_pointer: bool) -> (Option<(f32, f32)>, bool) {
@@ -287,7 +442,9 @@ impl Platform for Shell<'_> {
             }
         }
         if HOLD_STILL {
-            let lb = Letterbox::fit(w.size_in_pixels());
+            let lb = self
+                .window()
+                .map_or_else(|| Letterbox::fit(w.size_in_pixels()), |g| g.letterbox());
             if let Some((x, y)) = self.locked.update(want, w.mouse(), self.motion, &lb, w.pixel_density()) {
                 w.warp_mouse(x, y);
             }

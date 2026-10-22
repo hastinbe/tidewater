@@ -467,6 +467,28 @@ pub fn release(
     box_rules(board, r, press.shift, press.alt, sel, rem)
 }
 
+/// The tap tolerance of a touchscreen (`docs/design/touch.md`): where a tap at map pixel `p` should select. A finger
+/// is wider than a unit, so a tap that lands on no unit's selection box but within `radius` map pixels of one acts as
+/// a click on the nearest such unit's centre; a tap on a box, or farther than `radius` from every unit, stays where it
+/// was. Only units the local player can pick count, and the closest box wins (the first in slot order on a tie). This
+/// changes which point the ordinary release rules ([`release`]) are given, never the rules.
+pub fn tap_snap(board: &Board, p: (i32, i32), radius: i32) -> (i32, i32) {
+    let mut best: Option<(i64, (i32, i32))> = None;
+    for c in board.units.iter().filter(|c| board.can_pick(c)) {
+        let b = c.sel_box();
+        if b.contains(p) {
+            return p;
+        }
+        let dx = (b.l - p.0).max(p.0 - b.r).max(0) as i64;
+        let dy = (b.t - p.1).max(p.1 - b.b).max(0) as i64;
+        let d = dx * dx + dy * dy;
+        if d <= (radius as i64).pow(2) && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, ((b.l + b.r) / 2, (b.t + b.b) / 2)));
+        }
+    }
+    best.map_or(p, |(_, centre)| centre)
+}
+
 /// The click rules (Enhanced only); `None` hands the click to the box rules.
 fn click_rules(board: &Board, p: (i32, i32), m: Mods, sel: &[UnitId], rem: &mut Remembered) -> Option<Pick> {
     // 1. Find the unit.
@@ -1434,5 +1456,46 @@ mod tests {
         assert_eq!(k(Key::F(3), none), Some(KeyAction::GotoView(1)));
         assert_eq!(k(Key::F(3), shift), Some(KeyAction::RememberView(1)));
         assert_eq!(k(Key::F(10), none), None, "open question: not in the table");
+    }
+
+    #[test]
+    fn a_tap_beside_a_unit_snaps_to_it() {
+        let b = board(true, vec![unit(1, FOOTMAN, 0, (5, 5))]);
+        let c = at((5, 5));
+        // 20 px right of the box's edge (the box is 31 wide around the centre).
+        let near = (c.0 + 15 + 20, c.1);
+        assert_eq!(tap_snap(&b, near, 24), c);
+        assert_eq!(tap_snap(&b, near, 18), near, "too far for the tolerance");
+        assert_eq!(tap_snap(&b, c, 24), c);
+        // On a box already: stays put, wherever on it.
+        let corner = (c.0 + 10, c.1 - 12);
+        assert_eq!(tap_snap(&b, corner, 24), corner);
+    }
+
+    #[test]
+    fn a_tap_picks_the_nearest_of_two_units_and_ignores_unpickable_ones() {
+        let mut hidden = unit(3, FOOTMAN, 0, (6, 5));
+        hidden.hidden = true;
+        let b = board(
+            true,
+            vec![unit(1, FOOTMAN, 0, (2, 5)), unit(2, GRUNT, 1, (8, 5)), hidden],
+        );
+        // Between tile 2 and tile 8, closer to 8 (a hidden unit at tile 6 does not count).
+        let p = (7 * 32 + 8, 5 * 32 + 16);
+        assert_eq!(tap_snap(&b, p, 64), at((8, 5)));
+        // The first of two equally near wins.
+        let b = board(true, vec![unit(1, FOOTMAN, 0, (2, 5)), unit(2, FOOTMAN, 0, (4, 5))]);
+        assert_eq!(tap_snap(&b, (3 * 32 + 16, 5 * 32 + 16), 64), at((2, 5)));
+    }
+
+    #[test]
+    fn a_snapped_tap_selects_through_the_ordinary_rules() {
+        let b = board(true, vec![unit(1, FOOTMAN, 0, (5, 5))]);
+        let c = at((5, 5));
+        let p = tap_snap(&b, (c.0 + 30, c.1 + 2), 24);
+        let m = Mods::default();
+        assert_eq!(click(&b, p, m, &[]), set(ids([1]), true));
+        // Without the tolerance the same tap selects nothing.
+        assert_eq!(click(&b, (c.0 + 30, c.1 + 2), m, &[]), Pick::Keep);
     }
 }

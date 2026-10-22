@@ -260,7 +260,7 @@ impl Hud {
     /// The cursor in screen pixels, through the black border (`display::Letterbox::screen_point`).
     pub fn cursor(&self, input: &input::Input) -> Option<Vec2> {
         let (w, p) = (input.window?, input.pointer?);
-        let (x, y) = display::Letterbox::fit(w.size).screen_point(p, w.factor);
+        let (x, y) = w.letterbox().screen_point(p, w.factor);
         Some(Vec2::new(x, y))
     }
 
@@ -1184,8 +1184,68 @@ pub(crate) fn draw_placement(c: &mut Core) {
 /// (`mapview::MapView::pointer_map`).
 fn cursor_map(input: &input::Input, view: &mapview::MapView) -> Option<Vec2> {
     let (w, p) = (input.window?, input.pointer?);
-    let (x, y) = view.pointer_map(display::Letterbox::fit(w.size).screen_of(p, w.factor))?;
+    let (x, y) = view.pointer_map(w.letterbox().screen_of(p, w.factor))?;
     Some(Vec2::new(x, y))
+}
+
+/// The map view's smallest pinch zoom step is not a step at all: a zoom this close to the original's snaps to it.
+const ZOOM_SNAP: f32 = 0.94;
+
+/// Touch on the game screen (`touch`, `docs/design/touch.md`): the pause control, and the two-finger pan and pinch on
+/// the map view. A pan moves the view by whole tiles, as the minimap and the edge scroll do (the view position is a
+/// whole tile, screen spec "Layout"), carrying what is short of a tile to the next frame. A pinch zooms between the
+/// original's view and four times that magnification, around the point between the fingers, which stays under them
+/// (to within the tile grid).
+pub(crate) fn touch_view(c: &mut Core) {
+    let (pan, zoom_by) = c.touch.take_view();
+    let pause = c.touch.take_pause();
+    let Core {
+        input,
+        sim,
+        view,
+        map_zoom,
+        touch,
+        ..
+    } = c;
+    if pause && let Some(sim) = sim.as_mut() {
+        let player = sim.human;
+        sim.pending.push(Command::Pause { player });
+    }
+    let (Some(w), Some(mv), Some(zoom)) = (input.window, view.as_mut(), map_zoom.as_mut()) else {
+        return;
+    };
+    let lb = w.letterbox();
+    // Window points to screen pixels.
+    let per_screen_px = w.factor / lb.scale;
+    if let Some((factor, at)) = zoom_by
+        && factor.is_finite()
+        && factor > 0.0
+        && let Some(under) = mv.pointer_map(lb.screen_of(at, w.factor))
+        && let Some(r) = mv.rect
+    {
+        let mut z = (zoom.zoom / factor).clamp(display::MIN_ZOOM, 1.0);
+        if z > ZOOM_SNAP {
+            z = 1.0;
+        }
+        let (sx, sy) = lb.screen_of(at, w.factor);
+        let (cx, cy) = (r.x as f32 + r.w as f32 / 2.0, r.y as f32 + r.h as f32 / 2.0);
+        mv.centre = (under.0 - (sx - cx) * z, under.1 - (sy - cy) * z);
+        mv.zoom = z;
+        zoom.zoom = z;
+    }
+    if pan != (0.0, 0.0) {
+        // The content follows the fingers, so the view goes the other way.
+        touch.view_acc.0 -= pan.0 * per_screen_px * mv.zoom;
+        touch.view_acc.1 -= pan.1 * per_screen_px * mv.zoom;
+        let tile = tidewater_sim::TILE_PX as f32;
+        let (dx, dy) = ((touch.view_acc.0 / tile).trunc(), (touch.view_acc.1 / tile).trunc());
+        touch.view_acc.0 -= dx * tile;
+        touch.view_acc.1 -= dy * tile;
+        if dx != 0.0 || dy != 0.0 {
+            let at = mv.tiles();
+            mv.move_to((at.0.round() as i32 + dx as i32, at.1.round() as i32 + dy as i32));
+        }
+    }
 }
 
 /// Keeps the map view on the map and on the tile grid; with `--free-zoom` the mouse wheel zooms first (`display`).
@@ -1600,8 +1660,17 @@ pub(crate) fn mouse_input(c: &mut Core) {
         sel.minimap_held = false;
         if let (Some(from), Some(to)) = (sel.drag_from.take(), at) {
             let press = mouse::Mods { alt, ..sel.press };
+            // A touchscreen tap gets a tolerance (`mouse::tap_snap`); a click or drag of a mouse never does.
+            let radius = input.tap_radius.map(|r| (r * mv.zoom).round() as i32);
             let pick = with_board(&sim.world, sim.human, art, view, |b| {
-                mouse::release(b, px(from), px(to), press, &sel.units, &mut sel.remembered)
+                let (from, to) = match radius {
+                    Some(r) => {
+                        let p = mouse::tap_snap(b, px(to), r);
+                        (p, p)
+                    }
+                    None => (px(from), px(to)),
+                };
+                mouse::release(b, from, to, press, &sel.units, &mut sel.remembered)
             });
             if let mouse::Pick::Set { units, sound } = pick {
                 sel.set(sim, units, sound);
@@ -2328,10 +2397,7 @@ mod tests {
         // The map view at factor 2 and scale 2 (`display::Letterbox`): screen pixel (620, 460) is 220 pixels right of
         // and 220 below the view's centre, at one map pixel per screen pixel.
         let mut input = input::Input::default();
-        input.window = Some(input::WindowGeom {
-            size: (1280, 960),
-            factor: 2.0,
-        });
+        input.window = Some(input::WindowGeom::new((1280, 960), 2.0));
         input.pointer = Some((620.0, 460.0));
         let mut view = mapview::MapView::new((1000.0, 500.0));
         view.rect = Some(mapview::ScreenRect {

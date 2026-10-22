@@ -93,6 +93,16 @@ pub struct Args {
     /// `display`, "Mouse lock"). Cmd (the Windows key elsewhere) frees it while held, and switching away frees it.
     #[arg(long)]
     pub no_mouse_lock: bool,
+    /// Touch emulation for a desktop (not part of the original; `docs/design/touch.md`): the mouse is one finger, and
+    /// the touch controls show beside the picture. Hold Alt as the button goes down for a second finger mirrored
+    /// through the picture's centre (pinch, pan), Alt+Shift for one that moves beside the first (two-finger pan),
+    /// Alt+Ctrl for a third (a three-finger tap opens the game menu).
+    #[arg(long)]
+    pub touch_emulation: bool,
+    /// The screen's density in physical pixels per inch, for the touch sizes (taps, slop, controls). Without it the
+    /// shell's best guess: 140 points to the inch (160 on a phone or tablet).
+    #[arg(long)]
+    pub touch_dpi: Option<f32>,
     /// The Preferences dialog's second mouse style: right click centres the view instead of giving a command.
     #[arg(long)]
     pub second_mouse_style: bool,

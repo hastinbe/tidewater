@@ -12,6 +12,9 @@
 //!   sees what came in just before.
 //! - The pointer and the window: the shell sets [`Input::pointer`] once a frame, after the mouse lock, with the
 //!   window's size and scale ([`Input::window`]) that turn it into screen and map positions.
+//! - Touch: the shell (or a scripted run, or the touch emulation) puts the fingers' events in with [`Input::touch`];
+//!   the core's gesture machine (`gesture`) takes them in the frame's input step and turns them into the mouse and
+//!   keyboard input above, so the game's rules only ever see the mouse model (`docs/design/touch.md`).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -227,6 +230,10 @@ pub enum FileEvent {
     Picked(Option<PathBuf>),
 }
 
+/// Physical pixels per inch of one logical point's worth of screen when the shell knows nothing better: 140 points
+/// to the inch, between a laptop's and a phone's (a phone's point is about 160 to the inch).
+pub const DEFAULT_POINT_PPI: f32 = 140.0;
+
 /// The window the screen shows in.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowGeom {
@@ -234,6 +241,76 @@ pub struct WindowGeom {
     pub size: (u32, u32),
     /// Physical pixels per logical point.
     pub factor: f32,
+    /// The part of the window the system leaves free (not under a notch, rounded corner or home bar), in physical
+    /// pixels: left, top, width, height. The whole window where there is no such thing.
+    pub safe: crate::display::Area,
+    /// Physical pixels per inch (the shell's best knowledge; it turns millimetres into pixels for touch).
+    pub ppi: f32,
+    /// The screen is fitted by a fraction of the safe area rather than a whole number (`display`, "Fractional scale").
+    pub fractional: bool,
+}
+
+impl WindowGeom {
+    /// A window of `size` physical pixels at `factor` physical pixels per point: all of it safe, whole-number scale,
+    /// the default pixel density.
+    pub fn new(size: (u32, u32), factor: f32) -> Self {
+        WindowGeom {
+            size,
+            factor,
+            safe: (0, 0, size.0, size.1),
+            ppi: DEFAULT_POINT_PPI * factor,
+            fractional: false,
+        }
+    }
+
+    /// Where the 640 × 480 screen sits in this window.
+    pub fn letterbox(&self) -> crate::display::Letterbox {
+        crate::display::Letterbox::fit_area(self.size, self.safe, self.fractional)
+    }
+
+    /// Logical points to a millimetre.
+    pub fn points_per_mm(&self) -> f32 {
+        self.ppi / self.factor.max(0.01) / 25.4
+    }
+}
+
+/// What a finger did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchPhase {
+    Began,
+    Moved,
+    Ended,
+    /// The system took the finger away (a palm, a system gesture): not a lift.
+    Cancelled,
+}
+
+/// One finger's event.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Touch {
+    /// Names the finger from its `Began` to its `Ended` or `Cancelled`.
+    pub id: u64,
+    pub phase: TouchPhase,
+    /// In the window's logical points, as [`Input::pointer`] is.
+    pub pos: (f32, f32),
+}
+
+/// What the left mouse button did, for the touch emulation (`touchemu`): the shell puts these in instead of the
+/// button when emulating.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MouseTouch {
+    pub kind: MouseTouchKind,
+    /// In the window's logical points.
+    pub pos: (f32, f32),
+    pub alt: bool,
+    pub shift: bool,
+    pub ctrl: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseTouchKind {
+    Down,
+    Move,
+    Up,
 }
 
 /// The player's input.
@@ -257,6 +334,12 @@ pub struct Input {
     /// Files dropped on the window and answers of system dialogs since the last frame that read them
     /// (`firstrun`); the reader takes them.
     pub files: Vec<FileEvent>,
+    /// The fingers' events since the last frame, oldest first; the core's gesture step takes them (`gesture`).
+    pub touches: Vec<Touch>,
+    /// This frame's left release ends a touchscreen tap: the radius of its tolerance in screen pixels (`mouse::tap_snap`).
+    pub tap_radius: Option<f32>,
+    /// The mouse acting as a finger (`--touch-emulation`): the events since the last frame.
+    pub mouse_touches: Vec<MouseTouch>,
     /// This frame's events, applied to the keys and buttons by [`Input::begin_frame`].
     pending: Vec<Event>,
 }
@@ -287,6 +370,16 @@ impl Input {
         self.wheel.push(w);
     }
 
+    /// A finger went down, moved, lifted or was taken away.
+    pub fn touch(&mut self, t: Touch) {
+        self.touches.push(t);
+    }
+
+    /// The mouse's left button or motion, as a finger of the touch emulation.
+    pub fn mouse_touch(&mut self, t: MouseTouch) {
+        self.mouse_touches.push(t);
+    }
+
     /// A file or folder was dropped on the window.
     pub fn dropped(&mut self, path: PathBuf) {
         self.files.push(FileEvent::Dropped(path));
@@ -305,6 +398,8 @@ impl Input {
     /// Drops every event not yet applied or read: a scripted run's input replaces the system's.
     pub fn clear_events(&mut self) {
         self.pending.clear();
+        self.touches.clear();
+        self.mouse_touches.clear();
         self.typed.clear();
         self.wheel.clear();
         self.files.clear();

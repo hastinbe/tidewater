@@ -920,7 +920,7 @@ pub(crate) fn pointer(input: &crate::input::Input, cam: &FrontScreen) -> Option<
     if !cam.ready {
         return None;
     }
-    let (x, y) = crate::display::Letterbox::fit(w.size).screen_of(p, w.factor);
+    let (x, y) = w.letterbox().screen_of(p, w.factor);
     Some(Vec2::new(x, y))
 }
 

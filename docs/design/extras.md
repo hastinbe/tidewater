@@ -22,6 +22,7 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
 | `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | C | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
 | `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | C | 100 | Sound effects, in percent of the sound volume |
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | C | 100 | Music, in percent of the music volume |
+| `scaling` | `--extra-scaling VALUE` | integer, sharp | C | integer | How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp) |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.
@@ -62,6 +63,10 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
   digital and music volumes, applied in the mixer (`audio.rs`, `Trims`). Voices are unit speech and acknowledgements;
   effects are every other sound (a screen's sounds and narration included); music is the jukebox. At 100 the mixer
   does exactly what it did before (the gain is not touched). The original sound dialog is unchanged.
+- **Fractional scaling** (`scaling`, C). `integer` (the default) draws the 640 × 480 screen at the largest whole number
+  of window pixels that fits, as always. `sharp` fits it by a fraction of the window's safe area: the picture is scaled
+  up by the next whole number with the nearest texel and then scaled linearly down, so pixels stay crisp. Touch
+  platforms use `sharp` whatever the setting says (`docs/design/touch.md`). Rules in `display.rs` (`Letterbox::fit_area`).
 
 ## Rebindable keys
 

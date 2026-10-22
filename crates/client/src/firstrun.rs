@@ -26,7 +26,6 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use crate::core::Core;
-use crate::display::Letterbox;
 use crate::frontend::AppState;
 use crate::input::{FileEvent, Key};
 use crate::layers::{Layer, PictureId, Plane, Role};
@@ -793,7 +792,7 @@ pub(crate) fn run(c: &mut Core) {
         outcome = outcome.or(fr.key(k, shift));
     }
     let at = c.input.window.zip(c.input.pointer).map(|(w, p)| {
-        let (x, y) = Letterbox::fit(w.size).screen_point(p, w.factor);
+        let (x, y) = w.letterbox().screen_point(p, w.factor);
         (x as i32, y as i32)
     });
     let click = c.input.mouse.just_pressed(crate::input::Button::Left);
