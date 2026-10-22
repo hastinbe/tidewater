@@ -101,10 +101,10 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
 | `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
 
-The protocol number is **4**. Protocol 2 brought the lobby, map transfer and chat; protocol 4 added the observer flag to
-`Hello` and the new `Command` variants and `Extras` fields (Shift-queued orders). A joiner of another protocol is refused
-with a message naming both versions: the host reads only the first varint of the `Hello` to know that it cannot read the
-rest.
+The protocol number is **5**. Protocol 2 brought the lobby, map transfer and chat; protocol 4 added the observer flag to
+`Hello` and the new `Command` variants and `Extras` fields (Shift-queued orders); protocol 5 the diplomacy command. A
+joiner of another protocol is refused with a message naming both versions: the host reads only the first varint of the
+`Hello` to know that it cannot read the rest.
 
 ## The turn engine
 
@@ -149,7 +149,7 @@ The Local Network game list finds games with a small UDP beacon. Code: `net/beac
   | 4 | magic `TWLN` |
   | 1 | beacon version, 1 |
   | 1 | kind, 1 = announce |
-  | 2 | the network protocol (2) |
+  | 2 | the network protocol (4) |
   | 2 | the TCP port the lobby listens on |
   | 1 | players in the lobby |
   | 1 | rows that can hold a player |
@@ -214,6 +214,15 @@ cause a desync. Code: `chat.rs`, `net/lockstep.rs`.
   is added at once; under Classic rules the sender sees the "chat sent" notice (network entry 66).
 - **Filtering.** Both ends keep printable ASCII only and at most 99 characters, whatever the sender's program did.
 - **The lobby has its own chat**: each row's chat box, sent on Enter (`Say`).
+
+## Diplomacy
+
+`Command::Diplomacy` (`game/diplomacy.md`) carries the sender's whole alliance row toward players 0 to 7, its
+shared-vision set and its allied-victory setting in its own packet, so it is a turn command and is synced like any
+other. A remote diplomacy command whose player is not its sender's slot is dropped by the same slot filter as every
+command, which is DP2 (nobody changes another player's settings). The client has no diplomacy screen yet: a chat line
+starting `/diplomacy [allies=0,2] [vision=0,2] [victory=on|off]` sends it, keeps the sender in its own set and allied
+with itself, and leaves out fields at their current value. The sets and settings are in the state hash and the save.
 
 ## Pause counts and leave messages
 
