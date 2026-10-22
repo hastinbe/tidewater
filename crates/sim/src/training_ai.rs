@@ -94,7 +94,8 @@ pub struct Groups {
 pub const DOUBLED_GROUPS: usize = 11;
 
 impl Groups {
-    /// The counts a load doubles (`game/save-load.md` SL4 to SL6 and SL13 to SL15): every group from footmen to
+    /// The counts a load doubles (`game/save-load.md` SL4 to SL6, SL13 to SL15 and SL21, which adds the flying machine,
+    /// transport, battleship and submarine counts, held map ships included): every group from footmen to
     /// submarines, in the order of the table in `ai/training-research.md`, "Training buildings". The worker and
     /// tanker counts aren't among them.
     pub fn doubled(&self) -> [u32; DOUBLED_GROUPS] {

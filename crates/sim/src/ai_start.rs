@@ -63,10 +63,9 @@ impl World {
     /// of each building. Loaded units make no creation marks, and a research running at the save is not marked: it
     /// has no level or flag yet.
     ///
-    /// spec gap: the spec says "each complete building" (static study, untraced), but in the SL9 trace player 2's
-    /// scout tower, lumber mill, blacksmith and barracks were still construction sites at the save (hit points still
-    /// rising in the loaded game's setup record) and the loaded game's done marks 1 to 4 include their entries. So a
-    /// building under construction marks too; only a dead or dying one doesn't.
+    /// `game/save-load.md` SL20 (traced): the load's building marks count every building that isn't dying or removed,
+    /// construction sites included (SL9's player 2 had four sites at the save and their entries are marked in the
+    /// loaded game's setup record). Keep, castle and level marks are SL16 to SL19.
     pub(crate) fn mark_load(&mut self, p: usize) {
         if !self.computer_player(p as u8) {
             return;

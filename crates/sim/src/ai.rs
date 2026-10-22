@@ -195,9 +195,13 @@ impl World {
     // ---- The script interpreter -----------------------------------------------------------------------------------
 
     /// Loads the script file and starts every player's script ("Game start"): each of players 0 to 7, whatever its
-    /// controller, runs until its first pause.
+    /// controller, runs until its first pause. The openings run **before the map's units are placed** (round 94,
+    /// `ai/ai-scripts.md`, "Game start"; traced: AS-V1 to AS-V3), so every count a condition reads is 0: the units
+    /// are set aside while they run, which makes conditions 0, 1, 2 and 7 false, workers and armies 0, and
+    /// conditions 3 to 6 true only when their product is 0. The map's units then count from the first start-up cycle.
     pub fn start_ai(&mut self, file: Arc<AiFile>) {
         self.ai_file = Some(file.clone());
+        let units = std::mem::take(&mut self.units);
         for p in 0..SCRIPT_PLAYERS {
             let mut s = AiPlayer::default();
             s.slots[BUILD_LIMIT] = 0xff;
@@ -207,10 +211,13 @@ impl World {
                 s.pos = Some(r.start as u32);
             }
             self.ai[p] = s;
-            self.mark_game_start(p);
             self.run_script(p);
             // Attack-ai spec, "Slots": set after the opening run, so an opening write is overwritten.
             self.ai[p].slots[FERRY_SEARCH] = 1;
+        }
+        self.units = units;
+        for p in 0..SCRIPT_PLAYERS {
+            self.mark_game_start(p);
         }
     }
 
@@ -359,6 +366,24 @@ mod tests {
         }
         w.start_ai(file(code));
         w
+    }
+
+    /// Round 94, AS-V1 to AS-V3: the opening runs before the map's units exist, so a "wait until" on a unit count
+    /// fails at game start even when the map places the units, and the units come back afterwards.
+    #[test]
+    fn the_opening_runs_as_if_no_units_exist() {
+        let mut w = world();
+        let units = w.units.len();
+        let mut code = vec![3, 1];
+        code.extend(set(0x22, 7));
+        w.players[0].controller = controller::COMPUTER;
+        w.players[0].ai_script = 0;
+        w.start_ai(file(&code));
+        assert_eq!(w.units.len(), units);
+        // Condition 1 (a keep or stronghold) is false with no units, so the script waits on it and the write is unreached.
+        assert_eq!(w.ai[0].wait, 1);
+        assert_eq!(w.ai[0].pos, Some(START));
+        assert_eq!(w.ai[0].slots[BUILD_LIMIT], 0xff);
     }
 
     #[test]
