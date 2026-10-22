@@ -65,6 +65,8 @@ fn audio_snapshot(scene: &str) -> PathBuf {
 /// Runs a scene; returns its fingerprint file's text.
 fn run(install: &std::ffi::OsStr, scene: &str, out: &Path, headless: bool) -> String {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tidewater"));
+    // No LAN beacons: a scripted run must not hear (or be heard by) games on the machine's network.
+    cmd.env("TIDEWATER_NO_BEACON", "1");
     cmd.arg("--install")
         .arg(install)
         .args(["--script", scene, "--script-out"])
@@ -191,6 +193,7 @@ fn the_window_shows_the_composed_frames() {
 /// error output.
 fn run_with(install: &std::ffi::OsStr, scene: &str, out: &Path, extra: &[&std::ffi::OsStr]) -> (bool, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_tidewater"))
+        .env("TIDEWATER_NO_BEACON", "1")
         .arg("--install")
         .arg(install)
         .args(["--script", scene, "--script-out"])

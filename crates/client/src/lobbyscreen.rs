@@ -26,6 +26,7 @@ use crate::input::Key;
 use crate::menuscreen::{self, ButtonState, FocusKey, GOLD, GREY, WHITE};
 use crate::mpwidgets::{Charset, EditBox, Popup, PopupKey, Ptr, draw_edit, draw_popup};
 use crate::net::NetStart;
+use crate::net::beacon::{Announce, Announcer};
 use crate::net::proto::{LobbyView, RowState};
 use crate::net::room::{GuestEvent, GuestRoom, HostRoom, ROWS, RowChoice, SAY_MAX, StartError, Texts};
 use crate::scene::Picture;
@@ -173,6 +174,8 @@ pub(crate) struct Lobby {
     notice: Option<String>,
     /// The scenario the lobby shows, to notice a change of it.
     shown_map: u64,
+    /// Tells the local network about this game (the creator's, Local Network only).
+    beacon: Option<Announcer>,
     changed: bool,
 }
 
@@ -200,6 +203,7 @@ impl Lobby {
             draft: EditBox::new("", SAY_MAX, Charset::Name),
             notice: None,
             shown_map: 0,
+            beacon: None,
             changed: true,
         };
         if let Some(m) = l.picker.map().cloned()
@@ -240,7 +244,23 @@ impl Lobby {
             draft: EditBox::new("", SAY_MAX, Charset::Name),
             notice: None,
             shown_map: 0,
+            beacon: None,
             changed: true,
+        }
+    }
+
+    /// From now on this game is announced on the local network while it has a free row.
+    pub(crate) fn set_beacon(&mut self, a: Announcer) {
+        self.beacon = Some(a);
+    }
+
+    /// One beacon, when it is due.
+    fn announce(&mut self) {
+        let (Some(b), Some(Backend::Host(h))) = (&mut self.beacon, &self.back) else {
+            return;
+        };
+        if let Some(a) = announce_of(h.view(), h.port()) {
+            b.tick(std::time::Instant::now(), &a);
         }
     }
 
@@ -267,6 +287,7 @@ impl Lobby {
         if let Some(o) = self.poll_room(ctx) {
             return o;
         }
+        self.announce();
         if !self.have_view {
             // A joiner waits for the creator's lobby; Escape leaves.
             if input.keys.contains(&Key::Escape) {
@@ -963,6 +984,29 @@ impl Lobby {
     }
 }
 
+/// What the beacon says about a lobby: nothing once every row is taken. The players are the rows with someone in them,
+/// computers too, and the map is its name without the folder and the extension.
+fn announce_of(v: &LobbyView, port: u16) -> Option<Announce> {
+    let free = v.rows.iter().filter(|r| r.state == RowState::Available).count();
+    let taken = v
+        .rows
+        .iter()
+        .filter(|r| matches!(r.state, RowState::Human | RowState::Computer))
+        .count();
+    if free == 0 {
+        return None;
+    }
+    let file = v.map_name.rsplit(['\\', '/']).next().unwrap_or("");
+    let map = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
+    Some(Announce::ours(
+        port,
+        taken as u8,
+        (taken + free).min(ROWS) as u8,
+        &v.rows.first().map(|r| r.name.clone()).unwrap_or_default(),
+        map,
+    ))
+}
+
 /// The Scenario box's three lines: the type, the file, the description.
 fn scenario_lines(m: &MapInfo) -> Vec<String> {
     vec![m.kind.label().to_string(), m.file.clone(), m.description.clone()]
@@ -1299,5 +1343,22 @@ mod tests {
             let r = drop_rect(t);
             assert!(r.x + r.w as i32 <= 640 && r.y + r.h as i32 <= 400);
         }
+    }
+
+    #[test]
+    fn the_beacon_counts_taken_rows_names_the_map_and_stops_when_full() {
+        let mut v = crate::net::room::new_view(true, "Ann", race::HUMAN);
+        v.map_name = "Maps\\Gold River.pud".into();
+        v.rows[1].state = RowState::Computer;
+        v.rows[2].state = RowState::Closed;
+        let a = announce_of(&v, 6112).unwrap();
+        assert_eq!((a.players, a.max, a.tcp_port), (2, 7, 6112));
+        assert_eq!((a.owner.as_str(), a.map.as_str()), ("Ann", "Gold River"));
+        for r in v.rows.iter_mut() {
+            if r.state == RowState::Available {
+                r.state = RowState::Closed;
+            }
+        }
+        assert!(announce_of(&v, 6112).is_none(), "no free row: nothing to join");
     }
 }

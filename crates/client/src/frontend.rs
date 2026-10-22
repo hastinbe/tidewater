@@ -2338,6 +2338,16 @@ fn run_multiplayer(c: &mut Core) {
                     let mut read = |n: &str| crate::net::lobby::map_bytes(store, &mut front.install, n).ok();
                     let mut ctx = lobbyscreen::Ctx { read: &mut read, wall };
                     let mut lobby = lobbyscreen::Lobby::new_host(room, maps, custom_last.as_deref(), texts, &mut ctx);
+                    // A Local Network game is announced to the network while it has a free row.
+                    if ms.ui.lan()
+                        && let Some(port) = ms.ui.beacon_port
+                        && let Ok(a) = crate::net::beacon::Announcer::to(std::net::SocketAddr::from((
+                            std::net::Ipv4Addr::BROADCAST,
+                            port,
+                        )))
+                    {
+                        lobby.set_beacon(a);
+                    }
                     lobby.take_changed();
                     look = customsetup::Look {
                         font: &front.font,

@@ -23,6 +23,7 @@ use crate::hud::{self, Rect};
 use crate::input::Key;
 use crate::menuscreen::{self, ButtonState, FocusKey, GOLD, GREY, WHITE};
 use crate::mpwidgets::{Charset, EditBox, Popup, PopupKey, Ptr, draw_edit, draw_panel, draw_popup};
+use crate::net::beacon::{self, Finder};
 use crate::net::proto::{DEFAULT_PORT, Identity};
 use crate::net::room::Handshake;
 use crate::scene::Picture;
@@ -163,6 +164,16 @@ impl Strings {
 impl Default for Strings {
     fn default() -> Self {
         Strings::from(&|_| String::new())
+    }
+}
+
+/// The beacon port the menus listen on: the real one, unless tests or scripted runs (`TIDEWATER_NO_BEACON`) ask for
+/// none.
+fn default_beacon_port() -> Option<u16> {
+    if cfg!(test) || std::env::var_os("TIDEWATER_NO_BEACON").is_some() {
+        None
+    } else {
+        Some(beacon::PORT)
     }
 }
 
@@ -328,6 +339,10 @@ pub(crate) struct Mp {
     port: EditBox,
     popup: Option<Popup>,
     games: Vec<ListedGame>,
+    /// Listens for the beacons that fill the Local Network game list, while that list shows.
+    finder: Option<Finder>,
+    /// The UDP port the beacons use (none: no listening, as in tests and scripted runs).
+    pub(crate) beacon_port: Option<u16>,
     game_sel: usize,
     game_top: usize,
     /// The attempt a join makes, while the wait shows.
@@ -355,6 +370,8 @@ impl Mp {
             mem,
             popup: None,
             games: Vec::new(),
+            finder: None,
+            beacon_port: default_beacon_port(),
             game_sel: 0,
             game_top: 0,
             join: None,
@@ -381,6 +398,7 @@ impl Mp {
         self.overlay = Overlay::None;
         if self.mem.method == Method::Local || (self.mem.method == Method::DirectIp && self.mem.answer) {
             self.go(Stage::Games, T::GameList);
+            self.watch_lan();
         } else {
             self.go(Stage::Methods, T::List);
         }
@@ -395,11 +413,46 @@ impl Mp {
         std::mem::take(&mut self.changed)
     }
 
-    /// The games the list shows (the lobby and the beacon fill it).
-    #[allow(dead_code)]
-    pub(crate) fn games_mut(&mut self) -> &mut Vec<ListedGame> {
-        self.changed = true;
-        &mut self.games
+    /// Starts listening for the beacons of Local Network games (when this method is Local Network and the list shows).
+    fn watch_lan(&mut self) {
+        self.finder = match (self.mem.method, self.beacon_port) {
+            (Method::Local, Some(port)) => Finder::bind(port).ok(),
+            _ => None,
+        };
+    }
+
+    /// Whether this machine's games are announced on the network: the method is Local Network.
+    pub(crate) fn lan(&self) -> bool {
+        self.mem.method == Method::Local
+    }
+
+    /// Takes the beacons heard into the game list, keeping the selection on the same game.
+    fn poll_finder(&mut self) {
+        let Some(f) = &mut self.finder else { return };
+        if self.stage != Stage::Games {
+            return;
+        }
+        let list: Vec<ListedGame> = f
+            .poll(Instant::now())
+            .into_iter()
+            .map(|g| ListedGame {
+                addr: g.addr,
+                owner: g.announce.owner,
+                players: g.announce.players,
+                max: g.announce.max,
+                map: g.announce.map,
+            })
+            .collect();
+        if list != self.games {
+            let was = self.games.get(self.game_sel).map(|g| g.addr.clone());
+            self.games = list;
+            self.game_sel = was
+                .and_then(|a| self.games.iter().position(|g| g.addr == a))
+                .unwrap_or(0)
+                .min(self.games.len().saturating_sub(1));
+            self.game_top = self.game_top.min(self.games.len().saturating_sub(GAMES_LINES));
+            self.changed = true;
+        }
     }
 
     fn rows(&self) -> &'static [Method] {
@@ -532,9 +585,19 @@ impl Mp {
 
     /// One frame: the pointer, the left button, the keys and what the background work has done.
     pub(crate) fn update(&mut self, input: &Input) -> Outcome {
+        let outcome = self.step(input);
+        if outcome != Outcome::Stay {
+            // Leaving, or the lobby opening: nothing listens for games any more.
+            self.finder = None;
+        }
+        outcome
+    }
+
+    fn step(&mut self, input: &Input) -> Outcome {
         if let Some(o) = self.poll_background() {
             return o;
         }
+        self.poll_finder();
         let targets = self.targets();
         let ev = self.ptr.update(&targets, input);
         if ev.changed {
@@ -772,6 +835,9 @@ impl Mp {
     }
 
     fn go(&mut self, stage: Stage, focus: T) {
+        if stage != Stage::Games {
+            self.finder = None;
+        }
         self.stage = stage;
         self.focus = focus;
         self.ptr.reset();
@@ -879,6 +945,7 @@ impl Mp {
             (Method::Local, _) => {
                 self.games.clear();
                 self.go(Stage::Games, T::Create);
+                self.watch_lan();
             }
             (Method::Battle, _) => {}
         }
@@ -1500,5 +1567,39 @@ mod tests {
         assert_eq!(mp.stage, Stage::Waiting);
         assert_eq!(mp.update(&key(Key::Escape)), Outcome::Stay);
         assert_eq!(mp.stage, Stage::Games, "Cancel returns to the list");
+    }
+
+    #[test]
+    fn the_local_network_list_fills_from_beacons_and_stops_listening_on_leaving() {
+        let finder = Finder::bind(0).unwrap();
+        let port = finder.port();
+        drop(finder);
+        let mut mp = at_methods(false);
+        mp.beacon_port = Some(port);
+        click(&mut mp, 100, 224);
+        mp.update(&key(Key::Letter('C')));
+        assert_eq!(mp.stage, Stage::Games);
+        let target = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port));
+        let mut a = beacon::Announcer::to(target).unwrap();
+        let mut b = beacon::Announcer::to(target).unwrap();
+        let (one, two) = (
+            beacon::Announce::ours(7001, 1, 4, "Ann", "Gold River"),
+            beacon::Announce::ours(7002, 2, 3, "Bob", "Dark Paths"),
+        );
+        let end = Instant::now() + Duration::from_secs(10);
+        while mp.games.len() < 2 && Instant::now() < end {
+            a.tick(Instant::now(), &one);
+            b.tick(Instant::now(), &two);
+            std::thread::sleep(Duration::from_millis(20));
+            mp.update(&Input::default());
+        }
+        assert_eq!(mp.games.len(), 2);
+        assert!(mp.stops().contains(&T::Join), "a game to join");
+        let first = &mp.games[0];
+        assert_eq!((first.owner.as_str(), first.players, first.max), ("Ann", 1, 4));
+        assert_eq!(first.map, "Gold River");
+        assert!(first.addr.ends_with(":7001"));
+        assert_eq!(mp.update(&key(Key::Letter('D'))), Outcome::Leave);
+        assert!(mp.finder.is_none(), "leaving the list stops the listening");
     }
 }
