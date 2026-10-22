@@ -1204,19 +1204,21 @@ mod tests {
             "B's game ends"
         );
         peers[0].frozen = false;
+        // Which turn carries the leave depends on where each machine stopped, which thread timing can move by a turn,
+        // so run until it is carried out rather than to a fixed cycle.
+        let left = [Command::Leave {
+            player: 1,
+            dropped: true,
+        }];
         let mut guard = 0;
-        while peers[0].tick < 70 {
+        while !peers[0].applied.iter().any(|(_, c)| c == &left) {
+            assert!(peers[0].tick < 200, "no leave by cycle 200: {:?}", peers[0].applied);
             if !peers[0].advance() {
                 thread::sleep(Duration::from_millis(1));
                 guard += 1;
-                assert!(guard < 3000);
+                assert!(guard < 3000, "A stalled at cycle {}", peers[0].tick);
             }
         }
-        assert!(peers[0].applied.iter().any(|(_, c)| c
-            == &[Command::Leave {
-                player: 1,
-                dropped: true
-            }]));
         assert_eq!(
             peers[0].s.take_leave_notices(),
             [LeaveNotice {
