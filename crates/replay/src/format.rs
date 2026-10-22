@@ -330,6 +330,21 @@ mod tests {
         assert!(back.header.rules.to_string().contains("extras"));
     }
 
+    /// A diplomacy command (`game/diplomacy.md`) is recorded and read back like any other.
+    #[test]
+    fn a_replay_with_a_diplomacy_command_round_trips() {
+        let mut r = Replay::new(header());
+        let cmd = Command::Diplomacy {
+            player: 1,
+            alliances: [1, 1, 0, 3, 0, 0, 0, 0],
+            vision: 0b1010,
+            allied_victory: true,
+        };
+        r.record(5, std::slice::from_ref(&cmd));
+        let back = Replay::decode(&r.encode()).unwrap();
+        assert_eq!(back.commands_at(5), [cmd]);
+    }
+
     #[test]
     fn the_file_starts_with_the_marker_and_the_version() {
         let b = sample().encode();
