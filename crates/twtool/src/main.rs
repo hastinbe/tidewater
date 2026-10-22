@@ -569,6 +569,9 @@ fn parse_era(s: &str) -> Result<Era> {
 fn read_file_or_entry(inst: &mut Install, name: &str) -> Result<Vec<u8>> {
     if std::path::Path::new(name).is_file() {
         Ok(std::fs::read(name)?)
+    } else if let Some(bytes) = tidewater_formats::testmap::generated(name) {
+        // Oracle spec, "Generated test maps": built by our own code, nothing read from the install.
+        Ok(bytes)
     } else {
         Ok(inst.read(name)?)
     }
@@ -1079,6 +1082,9 @@ fn oracle_cmd(
     // A classic map (`Battle_2.pud` and the others of the original and expansion sets) is in a subfolder of `Maps`; the
     // games ran with Enhanced rules whichever folder the map came from.
     let mp_map = header.multiplayer.as_ref().map(|m| {
+        if tidewater_formats::testmap::is_generated_name(&m.map) {
+            return m.map.clone();
+        }
         let maps = install.join("Maps");
         [
             maps.clone(),

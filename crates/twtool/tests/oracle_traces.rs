@@ -208,6 +208,12 @@
 //! Round 98: a transport's repair counter is its stored goal x, which the comparer now reads for a transport as for a
 //! building (`economy/repair.md`, RP8; trace format, `goal` row): xhuman6-xhuman06-r98-transport-repair-goals-2500
 //! (20 repair runs, every one paid) matches in full.
+//!
+//! Round 99: mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400 plays the generated map `R99-tests.pud`,
+//! which our own code builds (`tidewater_formats::testmap`, from `oracle/test-maps.md`; no map file is read; V285 to
+//! V287, the follow row of V282 and the computer worker's no-depot town hall), and
+//! xorc11-xorc11-r96-targets-saveload-game-goals-300 compares the six dead bodies' goals in the loaded setup record
+//! (SL33). Both match in full.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -544,6 +550,8 @@ traces! {
     mp_battle_2_mp_battle2_nobody_moving_game_goals_vision_1450: (mp, "mp-battle-2-mp-battle2-nobody-moving-game-goals-vision-1450.jsonl.gz", &[], None),
     xorc11_xorc11_r96_targets_saveload_game_300: ("xorc11-xorc11-r96-targets-saveload-game-300.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
     xorc10_xorc10_r96_repair_saveload_airesearch_aiworkers_game_6000: ("xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000.jsonl.gz", "Campaign\\XOrc\\2XOrc10.pud", 47, &[], None),
+    mp_r99_tests_mp_r99_tests_fixed_aigoals_airesearch_aiworkers_5400: (mp, "mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400.jsonl.gz", &[], None),
+    xorc11_xorc11_r96_targets_saveload_game_goals_300: ("xorc11-xorc11-r96-targets-saveload-game-goals-300.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
     // The traced player's rng is flipped by the harness at n = 150 (the `peer` record's `old` and `new`), so the generator
     // differs from n = 151 on: the rows are compared up to the cycle before. With the generator resynced the whole trace
     // (n = 0 to 400, the drop at turn 170 included) matches.

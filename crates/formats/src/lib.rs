@@ -16,6 +16,7 @@ pub mod script;
 pub mod smk;
 pub mod sprites;
 pub mod tbl;
+pub mod testmap;
 pub mod tileset;
 pub mod udta;
 pub mod ugrd;

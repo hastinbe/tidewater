@@ -668,6 +668,7 @@ version = "0.1.0"
 dependencies = [
  "explode",
  "serde",
+ "sha2",
  "thiserror",
 ]
 
