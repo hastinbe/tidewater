@@ -2970,7 +2970,7 @@ mod tests {
             let di = w.index(d).unwrap();
             w.blast(di);
             let got = [pinned(&w), trail(&mut w, 40)];
-            assert_eq!(got, [4277876101808047327, 3418503402919981947]);
+            assert_eq!(got, [4277876101808047327, 6936592701643301166]);
         }
 
         /// The apply-damage checks: dying, used, inside, unholy armour, zero damage, and the Dark Portal case.

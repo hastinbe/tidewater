@@ -517,12 +517,13 @@ impl World {
         }
     }
 
-    /// Phase 5: each unit's hidden-from set ("Unit visibility"). A unit that is dead, removed or inside something is
-    /// hidden from everyone; a dying one (its death animation, a body or a ruin) is not, so the map view can draw it.
+    /// Phase 5: each unit's hidden-from set ("Unit visibility"). A unit that is dead, removed, inside something or
+    /// carrying the used mark is hidden from everyone; a dying one without the mark (its death animation, a body or a ruin) is not, so the map view can draw it.
     pub(crate) fn unit_visibility(&mut self) {
         for i in 0..self.units.len() {
             let u = &self.units[i];
-            let hidden = if u.removing || u.script.anim == RELEASED || u.inside {
+            // The used mark hides a unit from everyone, dying or not (round 104, SW5a).
+            let hidden = if u.removing || u.script.anim == RELEASED || u.inside || u.used {
                 0xff
             } else if self.rules.reveal_map {
                 0
@@ -1349,6 +1350,21 @@ mod tests {
         // A non-worker inside something does not see.
         w.stats.0[FOOTMAN as usize].flags &= !flags::PEON;
         assert_eq!(w.sight_of(i), None);
+    }
+
+    /// Round 104, SW5a: a unit with the used mark is hidden from every player, dying or not.
+    #[test]
+    fn the_used_mark_hides_a_dying_unit_from_everyone() {
+        let mut w = map();
+        w.rules.reveal_map = true;
+        let id = w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+        let i = w.index(id).unwrap();
+        w.units[i].dying = true;
+        w.step(&[]);
+        assert_eq!(w.unit(id).unwrap().hidden_from, 0, "dying alone doesn't hide it");
+        w.units[i].used = true;
+        w.step(&[]);
+        assert_eq!(w.unit(id).unwrap().hidden_from, 0xff);
     }
 
     #[test]
