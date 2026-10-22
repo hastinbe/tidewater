@@ -49,6 +49,15 @@ pub trait Storage: Send + Sync {
     /// Writes the replay `name` (a `.twrep` file, `session`) whole into the replay folder, making the folder if need
     /// be. Replays go into the user's own data and never into the installation.
     fn write_replay(&self, name: &str, bytes: &[u8]) -> io::Result<()>;
+    /// Keeps a map a game's creator sent (`net::room`), in the user's own data and never in the installation, and says
+    /// the path to name it by afterwards (what [`user_map`](Self::user_map) reads). `name` is the creator's name for
+    /// the map and `hash` its hash; neither is trusted as a file name. A platform that can't keep files says so.
+    fn write_received_map(&self, _name: &str, _hash: u64, _bytes: &[u8]) -> io::Result<String> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this platform can't keep a received map",
+        ))
+    }
     /// Whole seconds since 1970-01-01 UTC: a new game's seed, a loaded game's reseed, a save's time
     /// (`core/timing-and-rng.md`, "Seeding").
     fn wall_clock_secs(&self) -> u64;
@@ -263,6 +272,26 @@ impl Storage for Desktop {
         std::fs::rename(&tmp, self.replays.join(name))
     }
 
+    fn write_received_map(&self, name: &str, hash: u64, bytes: &[u8]) -> io::Result<String> {
+        let dir = self.shots.join("received-maps");
+        std::fs::create_dir_all(&dir)?;
+        // The creator's name only suggests the file's: plain characters, no folders; the hash makes it unique.
+        let file = name.rsplit(['\\', '/']).next().unwrap_or("");
+        let stem: String = file
+            .rsplit_once('.')
+            .map_or(file, |(s, _)| s)
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_'))
+            .take(40)
+            .collect();
+        let stem = if stem.trim().is_empty() { "map" } else { stem.trim() };
+        let path = dir.join(format!("{stem}-{hash:016x}.pud"));
+        let tmp = dir.join(format!("{stem}-{hash:016x}.part"));
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+
     fn wall_clock_secs(&self) -> u64 {
         // Truncated to 32 bits, as the seed takes it.
         self.fixed_clock.unwrap_or_else(|| {
@@ -286,6 +315,23 @@ mod tests {
             root.join("user").join("settings.txt"),
             root.join("user"),
         )
+    }
+
+    #[test]
+    fn a_received_map_is_kept_in_the_user_folder_under_a_safe_name() {
+        let t = tempfile::tempdir().unwrap();
+        let s = desktop(t.path());
+        let path = s
+            .write_received_map("Maps\\..\\Gold River!.pud", 0xabc, b"pud")
+            .unwrap();
+        assert!(
+            Path::new(&path).starts_with(t.path().join("user").join("received-maps")),
+            "{path}"
+        );
+        assert!(path.ends_with("Gold River-0000000000000abc.pud"), "{path}");
+        assert_eq!(s.user_map(&path).unwrap().unwrap(), b"pud");
+        let odd = s.write_received_map("\\\\??", 1, b"x").unwrap();
+        assert!(odd.ends_with("map-0000000000000001.pud"), "{odd}");
     }
 
     #[test]

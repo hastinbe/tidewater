@@ -12,7 +12,17 @@ use tidewater_sim::Command;
 use tidewater_sim::setup::{Lobby, Setup};
 
 /// The protocol version. Two programs with different versions refuse each other at the handshake.
-pub const PROTOCOL: u16 = 1;
+///
+/// Version 2: the identity names the game edition and the archives' contents (from the import manifest), and the lobby
+/// can send a map to a joiner that lacks it.
+pub const PROTOCOL: u16 = 2;
+
+/// The largest map a creator sends or a joiner accepts, in bytes. The installation's biggest maps are well under a
+/// megabyte.
+pub const MAX_MAP_BYTES: usize = 4 << 20;
+
+/// The size of one map chunk.
+pub const MAP_CHUNK: usize = 16 << 10;
 
 /// The port a game is hosted on when `--host` names none, and the one a joiner tries when the address has none.
 pub const DEFAULT_PORT: u16 = 6112;
@@ -30,25 +40,45 @@ pub struct Identity {
     /// A hash of the data tables the simulation reads (unit, upgrade, script and AI tables). Different game data
     /// computes a different game.
     pub data_hash: u64,
+    /// The edition the import manifest names (empty when the installation has no manifest, as when it was not
+    /// imported). Compared only when both sides have one.
+    pub edition: String,
+    /// A hash of the manifest's archive entries (their names and SHA-256), 0 when there is no manifest. Compared only
+    /// when both sides have one: two copies of the same game files hash alike.
+    pub archives: u64,
 }
 
 impl Identity {
-    /// This program, over data hashing to `data_hash`.
+    /// This program, over data hashing to `data_hash`, with no import manifest.
     pub fn ours(data_hash: u64) -> Identity {
         Identity {
             protocol: PROTOCOL,
             sim_build: tidewater_replay::format::sim_build(),
             data_hash,
+            edition: String::new(),
+            archives: 0,
         }
+    }
+
+    /// This identity with what the import manifest says: the edition, and `archives` (see
+    /// [`manifest_archives`]).
+    pub fn with_manifest(mut self, edition: &str, archives: u64) -> Identity {
+        self.edition = edition.to_string();
+        self.archives = archives;
+        self
+    }
+
+    /// The refusal for a joiner of another protocol, in words for the player.
+    pub fn protocol_reason(host: u16, joiner: u16) -> String {
+        format!(
+            "different network protocol versions (host {host}, joiner {joiner}): both players need the same version of Tidewater"
+        )
     }
 
     /// Why `other` cannot play with `self`, if it cannot, in words for the player.
     pub fn mismatch(&self, other: &Identity) -> Option<String> {
         if self.protocol != other.protocol {
-            return Some(format!(
-                "different network protocol versions (host {}, joiner {})",
-                self.protocol, other.protocol
-            ));
+            return Some(Identity::protocol_reason(self.protocol, other.protocol));
         }
         if self.sim_build != other.sim_build {
             return Some(format!(
@@ -58,6 +88,15 @@ impl Identity {
         }
         if self.data_hash != other.data_hash {
             return Some("different game data (the unit, upgrade, script or AI tables differ)".to_string());
+        }
+        if !self.edition.is_empty() && !other.edition.is_empty() && self.edition != other.edition {
+            return Some(format!(
+                "different game editions (host {}, joiner {})",
+                self.edition, other.edition
+            ));
+        }
+        if self.archives != 0 && other.archives != 0 && self.archives != other.archives {
+            return Some("different game files (the two installations' archives differ)".to_string());
         }
         None
     }
@@ -123,6 +162,18 @@ pub enum Msg {
     Say { text: String },
     /// Host to a joiner: play. `slot` is the joiner's slot in `config`, which is the game as the lobby settled it.
     Go { slot: u8, config: Box<GameConfig> },
+    /// Joiner to host: whether this machine has the map with this hash (the lobby's, or the one that just changed).
+    /// The host does not start a game until every joiner has it.
+    HaveMap { hash: u64, have: bool },
+    /// Joiner to host: please send the map with this hash.
+    MapRequest { hash: u64 },
+    /// Host to joiner, answering a request: the map is `size` bytes (at most [`MAX_MAP_BYTES`]) and follows in
+    /// [`Msg::MapChunk`]s of [`MAP_CHUNK`] bytes, in order.
+    MapOffer { hash: u64, size: u32 },
+    /// Host to joiner: the next bytes of the map being sent. `offset` is where they go.
+    MapChunk { hash: u64, offset: u32, bytes: Vec<u8> },
+    /// Host to joiner: the map will not be sent, and why.
+    MapDenied { hash: u64, reason: String },
 }
 
 /// What a row of the lobby holds (`ui/game-setup-lobby.md`, "Rows").
@@ -146,6 +197,8 @@ pub struct RowView {
     pub ready: bool,
     /// The line in the row's chat box.
     pub say: String,
+    /// The human has the lobby's map (the host's row always has).
+    pub has_map: bool,
 }
 
 impl RowView {
@@ -156,6 +209,7 @@ impl RowView {
             race: tidewater_sim::setup::race::NEUTRAL,
             ready: false,
             say: String::new(),
+            has_map: false,
         }
     }
 }
@@ -207,6 +261,60 @@ pub fn read_frame(r: &mut impl Read) -> io::Result<Msg> {
     let mut body = vec![0u8; len];
     r.read_exact(&mut body)?;
     postcard::from_bytes(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// What a joiner's first frame is, read far enough to give a joiner of another protocol a reason.
+#[derive(Debug)]
+pub enum HelloRead {
+    Hello {
+        identity: Identity,
+        name: String,
+    },
+    /// A Hello of another [`PROTOCOL`] (its layout may differ, so only the version is read).
+    OtherProtocol(u16),
+    /// Anything else: not a Tidewater joiner.
+    NotHello,
+}
+
+/// Reads the first frame of a connection as a Hello.
+pub fn read_hello(r: &mut impl Read) -> io::Result<HelloRead> {
+    let mut len = [0u8; 4];
+    r.read_exact(&mut len)?;
+    let len = u32::from_le_bytes(len) as usize;
+    if len > MAX_FRAME {
+        return Ok(HelloRead::NotHello);
+    }
+    let mut body = vec![0u8; len];
+    r.read_exact(&mut body)?;
+    // Variant 0 (Hello), then the identity's first field, the protocol, as a varint.
+    if body.first() == Some(&0)
+        && let Ok((protocol, _)) = postcard::take_from_bytes::<u16>(&body[1..])
+        && protocol != PROTOCOL
+    {
+        return Ok(HelloRead::OtherProtocol(protocol));
+    }
+    Ok(match postcard::from_bytes::<Msg>(&body) {
+        Ok(Msg::Hello { identity, name }) => HelloRead::Hello { identity, name },
+        _ => HelloRead::NotHello,
+    })
+}
+
+/// The hash of an import manifest's archive entries: `(path, SHA-256)` of every `.mpq`, by path in lower case.
+pub fn manifest_archives<'a>(entries: impl Iterator<Item = (&'a str, &'a str)>) -> u64 {
+    let mut v: Vec<(String, &str)> = entries
+        .filter(|(p, _)| p.to_ascii_lowercase().ends_with(".mpq"))
+        .map(|(p, h)| (p.to_ascii_lowercase(), h))
+        .collect();
+    v.sort();
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for (p, sha) in v {
+        h = fnv_extend(h, p.as_bytes());
+        h = fnv_extend(h, &[0]);
+        h = fnv_extend(h, sha.as_bytes());
+        h = fnv_extend(h, &[0]);
+    }
+    // 0 means "no manifest": an install with no archives hashes to something else.
+    h | 1
 }
 
 /// FNV-1a 64 of `bytes`, folded into `h`: the data identity hashes the tables one after another.
@@ -311,6 +419,18 @@ mod tests {
                 slot: 1,
                 config: Box::new(config()),
             },
+            Msg::HaveMap { hash: 9, have: true },
+            Msg::MapRequest { hash: 9 },
+            Msg::MapOffer { hash: 9, size: 40000 },
+            Msg::MapChunk {
+                hash: 9,
+                offset: 16384,
+                bytes: vec![1, 2, 3],
+            },
+            Msg::MapDenied {
+                hash: 9,
+                reason: "no".into(),
+            },
         ];
         let mut bytes = Vec::new();
         for m in &msgs {
@@ -368,6 +488,66 @@ mod tests {
         let mut d = a.clone();
         d.protocol += 1;
         assert!(a.mismatch(&d).unwrap().contains("protocol"));
+    }
+
+    #[test]
+    fn the_import_manifest_names_the_edition_and_the_archives_when_both_sides_have_one() {
+        let ours = Identity::ours(1).with_manifest("Battle.net Edition", 7);
+        let no_manifest = Identity::ours(1);
+        assert_eq!(
+            ours.mismatch(&no_manifest),
+            None,
+            "a side with no manifest is not judged by it"
+        );
+        assert_eq!(no_manifest.mismatch(&ours), None);
+        let other_edition = Identity::ours(1).with_manifest("Expansion", 7);
+        let why = ours.mismatch(&other_edition).unwrap();
+        assert!(why.contains("editions") && why.contains("Expansion"), "{why}");
+        let other_files = Identity::ours(1).with_manifest("Battle.net Edition", 8);
+        assert!(ours.mismatch(&other_files).unwrap().contains("game files"));
+        assert_eq!(ours.mismatch(&ours.clone()), None);
+    }
+
+    #[test]
+    fn the_archive_hash_ignores_other_files_and_order_and_is_never_zero() {
+        let a = manifest_archives([("War2Dat.mpq", "aa"), ("Maps/x.pud", "11"), ("patch.MPQ", "bb")].into_iter());
+        let b = manifest_archives([("patch.mpq", "bb"), ("war2dat.mpq", "aa")].into_iter());
+        assert_eq!(a, b);
+        let c = manifest_archives([("war2dat.mpq", "ab"), ("patch.mpq", "bb")].into_iter());
+        assert_ne!(a, c);
+        assert_ne!(manifest_archives(std::iter::empty()), 0);
+    }
+
+    #[test]
+    fn a_hello_of_another_protocol_is_recognised_by_its_version_alone() {
+        // A frame whose body is a Hello of version 1 with a layout this program doesn't know.
+        let mut body = vec![0u8, 1];
+        body.extend_from_slice(b"whatever the old layout was");
+        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
+        frame.extend_from_slice(&body);
+        match read_hello(&mut frame.as_slice()).unwrap() {
+            HelloRead::OtherProtocol(1) => {}
+            other => panic!("{other:?}"),
+        }
+        let mut ours = Vec::new();
+        write_frame(
+            &mut ours,
+            &Msg::Hello {
+                identity: Identity::ours(3),
+                name: "Ann".into(),
+            },
+        )
+        .unwrap();
+        match read_hello(&mut ours.as_slice()).unwrap() {
+            HelloRead::Hello { identity, name } => assert_eq!((identity, name.as_str()), (Identity::ours(3), "Ann")),
+            other => panic!("{other:?}"),
+        }
+        let mut other = Vec::new();
+        write_frame(&mut other, &Msg::Ready).unwrap();
+        assert!(matches!(
+            read_hello(&mut other.as_slice()).unwrap(),
+            HelloRead::NotHello
+        ));
     }
 
     #[test]

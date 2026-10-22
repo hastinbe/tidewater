@@ -34,12 +34,28 @@ use crate::scene::Picture;
 /// A scenario reader: the file as the game would read it, and whether it is the user's own.
 pub(crate) type ReadMap<'a> = dyn FnMut(&str) -> Option<(Vec<u8>, bool)> + 'a;
 
+/// Keeps a map received from the creator (its name, hash and bytes) in the user's own folder: where it is now.
+pub(crate) type SaveMap<'a> = dyn FnMut(&str, u64, &[u8]) -> Option<String> + 'a;
+
 /// What the screen needs from the program beyond its input: map files and the clock.
 pub(crate) struct Ctx<'a> {
     /// A scenario's file as the game would read it, and whether it is the user's own: for its hash.
     pub read: &'a mut ReadMap<'a>,
+    /// Where a received map is kept (none: maps can't be received).
+    pub save: Option<&'a mut SaveMap<'a>>,
     /// The wall clock in seconds: the game's seed.
     pub wall: u64,
+}
+
+impl<'a> Ctx<'a> {
+    pub(crate) fn new(read: &'a mut ReadMap<'a>, wall: u64) -> Ctx<'a> {
+        Ctx { read, save: None, wall }
+    }
+
+    pub(crate) fn with_save(mut self, save: &'a mut SaveMap<'a>) -> Ctx<'a> {
+        self.save = Some(save);
+        self
+    }
 }
 
 /// What a frame of the lobby asks of the program.
@@ -176,6 +192,13 @@ pub(crate) struct Lobby {
     shown_map: u64,
     /// Tells the local network about this game (the creator's, Local Network only).
     beacon: Option<Announcer>,
+    /// A joiner: the map the creator sent, by hash and the path it was kept at.
+    received: Option<(u64, String)>,
+    /// A joiner: the path to play the creator's map from, when it is the received one (the creator's name for it
+    /// means nothing here).
+    local_map: Option<String>,
+    /// A joiner: how much of the creator's map has arrived, of how much (size 0: asked for).
+    transfer: Option<(usize, usize)>,
     changed: bool,
 }
 
@@ -204,6 +227,9 @@ impl Lobby {
             notice: None,
             shown_map: 0,
             beacon: None,
+            received: None,
+            local_map: None,
+            transfer: None,
             changed: true,
         };
         if let Some(m) = l.picker.map().cloned()
@@ -215,6 +241,7 @@ impl Lobby {
                 scenario_lines(&m),
                 m.players,
             );
+            room.set_map_data(bytes);
             l.view = room.view().clone();
         }
         l.shown_map = l.view.map_hash;
@@ -245,6 +272,9 @@ impl Lobby {
             notice: None,
             shown_map: 0,
             beacon: None,
+            received: None,
+            local_map: None,
+            transfer: None,
             changed: true,
         }
     }
@@ -341,25 +371,65 @@ impl Lobby {
                 None
             }
             Some(Backend::Guest(g)) => {
-                for e in g.poll() {
+                let events = g.poll();
+                if let Some(v) = &g.view
+                    && events.iter().any(|e| matches!(e, GuestEvent::View))
+                {
+                    self.view = v.clone();
+                    self.have_view = true;
+                    self.changed = true;
+                }
+                for e in events {
                     match e {
-                        GuestEvent::View => {
-                            if let Some(v) = &g.view {
-                                self.view = v.clone();
-                                self.have_view = true;
-                                self.changed = true;
+                        GuestEvent::View => {}
+                        GuestEvent::Go(mut n) => {
+                            // The creator's own name for a map that was sent here means nothing on this machine.
+                            if let Some(path) = &self.local_map
+                                && n.config.map_hash == self.view.map_hash
+                            {
+                                n.config.map_name = path.clone();
+                            }
+                            return Some(Outcome::Start(n));
+                        }
+                        GuestEvent::Ended(why) => return Some(Outcome::Cancel(Some(why))),
+                        GuestEvent::MapProgress { got, size } => {
+                            self.transfer = Some((got, size));
+                            self.changed = true;
+                        }
+                        GuestEvent::MapReceived { hash, bytes } => {
+                            self.transfer = None;
+                            self.changed = true;
+                            let saved = ctx
+                                .save
+                                .as_mut()
+                                .and_then(|save| save(&self.view.map_name, hash, &bytes));
+                            match saved {
+                                Some(path) => {
+                                    self.received = Some((hash, path.clone()));
+                                    self.local_map = Some(path);
+                                    if let Some(g) = self.guest() {
+                                        g.set_have_map(hash, true);
+                                    }
+                                }
+                                None => {
+                                    self.notice = Some("The map could not be kept on this machine.".into());
+                                    self.focus = T::NoticeOk;
+                                }
                             }
                         }
-                        GuestEvent::Go(n) => return Some(Outcome::Start(n)),
-                        GuestEvent::Ended(why) => return Some(Outcome::Cancel(Some(why))),
+                        GuestEvent::MapFailed(why) => {
+                            self.transfer = None;
+                            self.notice = Some(why);
+                            self.focus = T::NoticeOk;
+                            self.changed = true;
+                        }
                     }
                 }
-                // The creator changed the scenario: this machine must have it.
+                // The creator changed the scenario: this machine says whether it has it, and asks for it if not.
                 if self.have_view && self.view.map_hash != self.shown_map {
                     self.shown_map = self.view.map_hash;
-                    if let Some(why) = self.missing_map(ctx) {
-                        return Some(Outcome::Cancel(Some(why)));
-                    }
+                    self.transfer = None;
+                    self.settle_map(ctx);
                 }
                 None
             }
@@ -367,22 +437,55 @@ impl Lobby {
         }
     }
 
-    /// Why this machine cannot play the creator's scenario, if it cannot.
-    fn missing_map(&self, ctx: &mut Ctx) -> Option<String> {
-        if self.view.map_name.is_empty() {
-            return None;
+    fn guest(&mut self) -> Option<&mut GuestRoom> {
+        match &mut self.back {
+            Some(Backend::Guest(g)) => Some(g),
+            _ => None,
         }
-        match (ctx.read)(&self.view.map_name) {
-            None => Some(format!(
-                "This machine doesn't have the scenario {}.",
-                self.view.map_name.rsplit(['\\', '/']).next().unwrap_or("")
-            )),
-            Some((bytes, _)) if tidewater_replay::start::map_hash(&bytes) != self.view.map_hash => Some(format!(
-                "This machine's {} is a different map from the creator's.",
-                self.view.map_name.rsplit(['\\', '/']).next().unwrap_or("")
-            )),
-            Some(_) => None,
+    }
+
+    /// Whether this machine has the creator's map, from the installation, the user's own files or the map sent
+    /// earlier; then `local_map` is where to play it from when that is the sent one.
+    fn have_map(&mut self, ctx: &mut Ctx) -> bool {
+        let (name, hash) = (self.view.map_name.clone(), self.view.map_hash);
+        if name.is_empty() {
+            return true;
         }
+        if let Some((bytes, _)) = (ctx.read)(&name)
+            && tidewater_replay::start::map_hash(&bytes) == hash
+        {
+            self.local_map = None;
+            return true;
+        }
+        if let Some((h, path)) = &self.received
+            && *h == hash
+        {
+            self.local_map = Some(path.clone());
+            return true;
+        }
+        false
+    }
+
+    /// Tells the creator whether this machine has its map and, when it lacks it, asks for it.
+    fn settle_map(&mut self, ctx: &mut Ctx) {
+        let have = self.have_map(ctx);
+        let hash = self.view.map_hash;
+        let can_keep = ctx.save.is_some();
+        let mut asked = false;
+        if let Some(g) = self.guest() {
+            g.set_have_map(hash, have);
+            if !have && can_keep {
+                g.request_map(hash);
+                asked = true;
+            }
+        }
+        if asked {
+            self.transfer = Some((0, 0));
+        } else if !have {
+            self.notice = Some("This machine doesn't have the creator's scenario.".into());
+            self.focus = T::NoticeOk;
+        }
+        self.changed = true;
     }
 
     /// The creator picked another scenario in the dialog: the room is told.
@@ -395,6 +498,7 @@ impl Lobby {
         let hash = tidewater_replay::start::map_hash(&bytes);
         if let Some(Backend::Host(h)) = &mut self.back {
             h.set_map(&name, hash, scenario_lines(&m), m.players);
+            h.set_map_data(bytes);
             self.view = h.view().clone();
             self.shown_map = hash;
         }
@@ -813,7 +917,13 @@ impl Lobby {
         look.label(&mut p, SCENARIO_LABEL, "Scenario:");
         for (i, l) in self.view.scenario.iter().enumerate() {
             let at = (SCENARIO_TEXT.0, SCENARIO_TEXT.1 + i as i32 * 17);
-            look.text(&mut p, at, &fit(look.font, l, SCENARIO_WIDTH), GOLD);
+            // spec gap: while the creator's map is on its way the description line says so.
+            let line = match (i, self.transfer) {
+                (2, Some((_, 0))) => "Asking for the map...".to_string(),
+                (2, Some((got, size))) => format!("Receiving the map... {}%", got * 100 / size.max(1)),
+                _ => l.clone(),
+            };
+            look.text(&mut p, at, &fit(look.font, &line, SCENARIO_WIDTH), GOLD);
         }
         for (t, y, label, key) in BUTTONS {
             if !self.button_visible(t) {
@@ -1083,8 +1193,17 @@ mod tests {
         }
     }
 
+    /// A small valid map: what every name reads as in these tests.
+    fn test_pud() -> Vec<u8> {
+        tidewater_formats::pud::build::Map {
+            size: 32,
+            ..Default::default()
+        }
+        .bytes()
+    }
+
     fn reader() -> impl FnMut(&str) -> Option<(Vec<u8>, bool)> {
-        |n: &str| Some((n.as_bytes().to_vec(), false))
+        |_: &str| Some((test_pud(), false))
     }
 
     fn host_lobby(enhanced: bool, players: u8) -> (Lobby, u16) {
@@ -1093,10 +1212,7 @@ mod tests {
         let room = HostRoom::new(listener, Identity::ours(1), Texts::default(), view).unwrap();
         let port = room.port();
         let mut read = reader();
-        let mut ctx = Ctx {
-            read: &mut read,
-            wall: 5,
-        };
+        let mut ctx = Ctx::new(&mut read, 5);
         let l = Lobby::new_host(room, vec![map("Maps\\a", players)], None, Texts::default(), &mut ctx);
         (l, port)
     }
@@ -1150,10 +1266,7 @@ mod tests {
     fn rows_are_set_from_the_drop_down_and_a_joiner_fills_the_lobby() {
         let (mut l, port) = host_lobby(true, 4);
         let mut read = reader();
-        let mut ctx = Ctx {
-            read: &mut read,
-            wall: 5,
-        };
+        let mut ctx = Ctx::new(&mut read, 5);
         // Row 2's drop-down: Computer is the second line.
         click(&mut l, &mut ctx, 100, NAME_Y[2] + 5);
         assert!(l.popup.is_some());
@@ -1165,7 +1278,6 @@ mod tests {
         assert_eq!(hs.slot, 1);
         let mut g = hs.accept().unwrap();
         until(&mut l, &mut ctx, |l| l.view.rows[1].state == RowState::Human);
-        assert!(l.button_enabled(T::Start));
         // The joiner's lobby is the creator's.
         let end = Instant::now() + Duration::from_secs(10);
         while g.view.is_none() && Instant::now() < end {
@@ -1174,6 +1286,9 @@ mod tests {
         }
         let mut gl = Lobby::new_guest(g, true);
         both(&mut l, &mut gl, &mut ctx, |_, gl| gl.have_view);
+        // It has the map, says so, and then the creator can start.
+        both(&mut l, &mut gl, &mut ctx, |l, _| l.view.rows[1].has_map);
+        assert!(l.button_enabled(T::Start));
         assert_eq!(gl.view.rows[2].state, RowState::Computer);
         assert!(!gl.button_visible(T::Start), "a joiner has no Start button");
         assert!(!gl.button_enabled(T::Select));
@@ -1194,12 +1309,12 @@ mod tests {
     fn start_with_more_rows_than_the_map_has_slots_says_so_and_a_fitting_game_starts() {
         let (mut l, port) = host_lobby(true, 2);
         let mut read = reader();
-        let mut ctx = Ctx {
-            read: &mut read,
-            wall: 5,
-        };
+        let mut ctx = Ctx::new(&mut read, 5);
         let mut g = join(&mut l, &mut ctx, port, "Ann").accept().unwrap();
         until(&mut l, &mut ctx, |l| l.view.humans() == 2);
+        let hash = l.view.map_hash;
+        g.set_have_map(hash, true);
+        until(&mut l, &mut ctx, |l| l.view.rows[1].has_map);
         // A computer in row 2 makes three rows on a two-slot map.
         if let Some(Backend::Host(h)) = &mut l.back {
             h.set_row(2, RowChoice::Computer);
@@ -1232,10 +1347,7 @@ mod tests {
     fn cancel_game_terminates_the_game_for_the_joiner() {
         let (mut l, port) = host_lobby(true, 4);
         let mut read = reader();
-        let mut ctx = Ctx {
-            read: &mut read,
-            wall: 5,
-        };
+        let mut ctx = Ctx::new(&mut read, 5);
         let g = join(&mut l, &mut ctx, port, "Ann").accept().unwrap();
         let mut gl = Lobby::new_guest(g, true);
         both(&mut l, &mut gl, &mut ctx, |_, gl| gl.have_view);
@@ -1255,29 +1367,75 @@ mod tests {
     }
 
     #[test]
-    fn a_joiner_without_the_scenario_leaves_with_the_reason() {
+    fn a_joiner_without_the_scenario_is_sent_it_and_plays_from_the_copy() {
         let (mut l, port) = host_lobby(true, 4);
         let mut have = reader();
-        let mut ctx = Ctx {
-            read: &mut have,
-            wall: 5,
-        };
+        let mut ctx = Ctx::new(&mut have, 5);
         let g = join(&mut l, &mut ctx, port, "Ann").accept().unwrap();
         let mut gl = Lobby::new_guest(g, true);
+        // The joiner has no such map and nowhere it could keep one: it says so, and the creator can't start.
         let mut none = |_: &str| None;
-        let mut bare = Ctx {
-            read: &mut none,
-            wall: 5,
+        let mut bare = Ctx::new(&mut none, 5);
+        both(&mut l, &mut gl, &mut bare, |l, gl| {
+            gl.have_view && l.view.rows[1].state == RowState::Human
+        });
+        let end = Instant::now() + Duration::from_secs(5);
+        while gl.notice.is_none() && Instant::now() < end {
+            l.update(&Input::default(), &mut ctx);
+            gl.update(&Input::default(), &mut bare);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            gl.notice.as_deref().unwrap().contains("doesn't have"),
+            "{:?}",
+            gl.notice
+        );
+        assert!(!l.button_enabled(T::Start), "the joiner lacks the map");
+        // Another joiner that can keep a map asks for it and gets it.
+        let g2 = join(&mut l, &mut ctx, port, "Bob").accept().unwrap();
+        let mut bl = Lobby::new_guest(g2, true);
+        let mut none2 = |_: &str| None;
+        let mut kept: Vec<(String, u64, usize)> = Vec::new();
+        let mut save = |n: &str, h: u64, b: &[u8]| {
+            kept.push((n.to_string(), h, b.len()));
+            Some("kept\\copy.pud".to_string())
         };
+        let mut sending = Ctx::new(&mut none2, 5).with_save(&mut save);
+        let end = Instant::now() + Duration::from_secs(10);
+        while !l.view.rows[2].has_map && Instant::now() < end {
+            l.update(&Input::default(), &mut ctx);
+            bl.update(&Input::default(), &mut sending);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(l.view.rows[2].has_map, "the map arrived and Bob said so");
+        assert_eq!(bl.local_map.as_deref(), Some("kept\\copy.pud"));
+        assert!(bl.transfer.is_none());
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].1, tidewater_replay::start::map_hash(&test_pud()));
+        assert_eq!(kept[0].2, test_pud().len());
+        // Ann leaves; with only Bob who has the map the creator starts, and Bob is told to play the copy.
+        drop(gl);
+        let end = Instant::now() + Duration::from_secs(5);
+        while l.view.rows[1].state == RowState::Human && Instant::now() < end {
+            l.update(&Input::default(), &mut ctx);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(l.button_enabled(T::Start));
+        let Outcome::Start(_) = l.update(&key(Key::Letter('S')), &mut ctx) else {
+            panic!("expected a start")
+        };
+        let mut sending = Ctx::new(&mut none2, 5);
         let end = Instant::now() + Duration::from_secs(10);
         loop {
-            l.update(&Input::default(), &mut ctx);
-            match gl.update(&Input::default(), &mut bare) {
-                Outcome::Cancel(Some(why)) => {
-                    assert!(why.contains("doesn't have the scenario"), "{why}");
+            match bl.update(&Input::default(), &mut sending) {
+                Outcome::Start(n) => {
+                    assert_eq!(
+                        n.config.map_name, "kept\\copy.pud",
+                        "the creator's name for the map is not used here"
+                    );
                     break;
                 }
-                _ if Instant::now() > end => panic!("no refusal"),
+                _ if Instant::now() > end => panic!("no start"),
                 _ => thread::sleep(Duration::from_millis(5)),
             }
         }
@@ -1296,10 +1454,7 @@ mod tests {
         assert_eq!(e.choices(T::Resources).len(), 5);
         assert_eq!(e.view.speed, 4, "the slider opens at the middle");
         let mut read = reader();
-        let mut ctx = Ctx {
-            read: &mut read,
-            wall: 5,
-        };
+        let mut ctx = Ctx::new(&mut read, 5);
         for _ in 0..9 {
             e.activate(T::SpeedMore, &mut ctx);
         }

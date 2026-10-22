@@ -20,7 +20,7 @@ use tidewater_formats::install::Install;
 use tidewater_sim::setup::{Lobby, Setup, race};
 
 use super::lockstep::DIRECT_IP_ROW;
-use super::proto::{DEFAULT_PORT, GameConfig, Identity, data_hash};
+use super::proto::{DEFAULT_PORT, GameConfig, Identity, data_hash, manifest_archives};
 use super::tcp::{self, Wire};
 use crate::storage::Store;
 
@@ -166,10 +166,27 @@ pub(crate) fn map_bytes(store: &Store, install: &mut Install, map: &str) -> Resu
     }
 }
 
-/// This program's identity over the installation's data tables.
-pub fn identity(install: &mut Install) -> Result<Identity> {
+/// This program's identity over the installation's data tables, and over the import manifest next to them when the
+/// installation was imported (`manifest.json`: its edition and archive hashes).
+pub fn identity(install: &mut Install, store: &Store) -> Result<Identity> {
     let hash = data_hash(|n| Ok(install.read(n)?))?;
-    Ok(Identity::ours(hash))
+    let id = Identity::ours(hash);
+    let manifest = store
+        .install(tidewater_import::manifest::FILE_NAME)
+        .ok()
+        .flatten()
+        .and_then(|mut f| {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut f, &mut bytes).ok()?;
+            tidewater_import::Manifest::parse(&bytes)
+        });
+    Ok(match manifest {
+        Some(m) => {
+            let archives = manifest_archives(m.files.iter().map(|f| (f.path.as_str(), f.sha256.as_str())));
+            id.with_manifest(&m.edition, archives)
+        }
+        None => id,
+    })
 }
 
 /// The game, in words, for both sides' terminals (the lobby the command line stands in for).
@@ -231,7 +248,7 @@ pub fn host(
     let (bytes, user_map) = map_bytes(store, install, map)?;
     let map_name = tidewater_replay::start::recorded_map_name(map, user_map);
     let map_hash = tidewater_replay::start::map_hash(&bytes);
-    let identity = identity(install)?;
+    let identity = identity(install, store)?;
     let config = spec.config(map_name, map_hash, setup, wall as u32, name);
     let listener: TcpListener = tcp::listen(port.unwrap_or(DEFAULT_PORT))?;
     let bound = listener.local_addr().map_or(0, |a| a.port());
@@ -264,7 +281,7 @@ pub fn join(
     name: &str,
     mut say: impl FnMut(&str),
 ) -> Result<NetStart> {
-    let identity = identity(install)?;
+    let identity = identity(install, store)?;
     let mut seen = None;
     let joined = {
         let install = &mut *install;

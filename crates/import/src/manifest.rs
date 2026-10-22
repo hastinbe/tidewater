@@ -57,6 +57,11 @@ impl Manifest {
         std::fs::write(dir.join(FILE_NAME), json + "\n").map_err(|e| ImportError::io("writing the manifest", e))
     }
 
+    /// A manifest from the bytes of its file, or `None` when they aren't one.
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok()
+    }
+
     pub fn read(dir: &Path) -> Option<Self> {
         serde_json::from_slice(&std::fs::read(dir.join(FILE_NAME)).ok()?).ok()
     }

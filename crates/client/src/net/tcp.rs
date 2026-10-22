@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::proto::{DEFAULT_PORT, GameConfig, Identity, Msg, read_frame, write_frame};
+use super::proto::{DEFAULT_PORT, GameConfig, HelloRead, Identity, Msg, read_frame, read_hello, write_frame};
 
 /// How long a joiner has, after connecting, to say Hello and to answer a Welcome.
 pub(super) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -272,9 +272,15 @@ pub fn host_game(
         let (mut stream, peer) = listener.accept().context("accepting a connection")?;
         stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
         stream.set_nodelay(true)?;
-        let hello = match read_frame(&mut stream) {
-            Ok(Msg::Hello { identity: theirs, name }) => (theirs, name),
-            Ok(_) | Err(_) => {
+        let hello = match read_hello(&mut stream) {
+            Ok(HelloRead::Hello { identity: theirs, name }) => (theirs, name),
+            Ok(HelloRead::OtherProtocol(p)) => {
+                let why = Identity::protocol_reason(identity.protocol, p);
+                progress(&format!("{peer}: refused, {why}"));
+                let _ = write_frame(&mut stream, &Msg::Refuse { reason: why });
+                continue;
+            }
+            Ok(HelloRead::NotHello) | Err(_) => {
                 progress(&format!("{peer}: not a Tidewater joiner, closed"));
                 continue;
             }

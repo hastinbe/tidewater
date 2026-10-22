@@ -493,7 +493,7 @@ fn a_joiner_with_a_different_map_is_refused_cleanly() {
     let dir = tempfile::tempdir().unwrap();
     let host_store = store(&rig, dir.path(), "host");
     let mut install = storage::open_install(&host_store.0).unwrap();
-    let identity = lobby::identity(&mut install).unwrap();
+    let identity = lobby::identity(&mut install, &host_store).unwrap();
     let mut config = LobbySpec::default().config(rig.name.clone(), map_hash(&rig.bytes) ^ 1, Setup::default(), 1, "");
     config.lobby.local = 0;
     let listener = tcp::listen(0).unwrap();

@@ -2184,6 +2184,7 @@ pub(crate) fn enter_multiplayer(c: &mut Core) {
         pictures,
         screens,
         stored,
+        store,
         ..
     } = c;
     // The multiplayer menus share the main menu's picture: a switch from it neither loads it again nor fades.
@@ -2203,7 +2204,7 @@ pub(crate) fn enter_multiplayer(c: &mut Core) {
     let strings = mpmenu::Strings::from(&|n| front.net(n));
     // spec gap: with no readable data tables the identity is the empty one, which no other machine matches.
     let identity =
-        crate::net::lobby::identity(&mut front.install).unwrap_or_else(|_| crate::net::proto::Identity::ours(0));
+        crate::net::lobby::identity(&mut front.install, store).unwrap_or_else(|_| crate::net::proto::Identity::ours(0));
     let mut ui = mpmenu::Mp::new(mpmenu::Memory::from_prefs(&stored.0), strings).with_identity(identity.clone());
     let look = customsetup::Look {
         font: &front.font,
@@ -2272,7 +2273,8 @@ fn run_multiplayer(c: &mut Core) {
     // The lobby, once open, has the screen.
     if let Some(lobby) = mp_lobby {
         let mut read = |n: &str| crate::net::lobby::map_bytes(store, &mut front.install, n).ok();
-        let mut ctx = lobbyscreen::Ctx { read: &mut read, wall };
+        let mut save = |n: &str, h: u64, b: &[u8]| store.write_received_map(n, h, b).ok();
+        let mut ctx = lobbyscreen::Ctx::new(&mut read, wall).with_save(&mut save);
         let outcome = lobby.update(&typed, &mut ctx);
         let redraw = lobby.take_changed();
         let look = customsetup::Look {
@@ -2336,7 +2338,8 @@ fn run_multiplayer(c: &mut Core) {
                     let names = store.maps();
                     let maps = customsetup::scan_maps(&names, |n| front.install.read(n).ok());
                     let mut read = |n: &str| crate::net::lobby::map_bytes(store, &mut front.install, n).ok();
-                    let mut ctx = lobbyscreen::Ctx { read: &mut read, wall };
+                    let mut save = |n: &str, h: u64, b: &[u8]| store.write_received_map(n, h, b).ok();
+                    let mut ctx = lobbyscreen::Ctx::new(&mut read, wall).with_save(&mut save);
                     let mut lobby = lobbyscreen::Lobby::new_host(room, maps, custom_last.as_deref(), texts, &mut ctx);
                     // A Local Network game is announced to the network while it has a free row.
                     if ms.ui.lan()
@@ -2365,26 +2368,9 @@ fn run_multiplayer(c: &mut Core) {
             }
         }
         mpmenu::Outcome::Join(hs) => {
-            // This machine must have the creator's scenario, with the same contents.
-            let missing = match crate::net::lobby::map_bytes(store, &mut front.install, &hs.config.map_name) {
-                Err(_) => Some(format!(
-                    "This machine doesn't have the scenario {}.",
-                    hs.config.map_name
-                )),
-                Ok((bytes, _)) if tidewater_replay::start::map_hash(&bytes) != hs.config.map_hash => Some(format!(
-                    "This machine's {} is a different map from the creator's.",
-                    hs.config.map_name
-                )),
-                Ok(_) => None,
-            };
+            // The lobby sorts out the creator's map: this machine has it, or asks for it.
             let enhanced = hs.config.setup.enhanced;
-            let entered = match missing {
-                Some(why) => {
-                    hs.decline(&why);
-                    Err(why)
-                }
-                None => hs.accept().map_err(|e| e.to_string()),
-            };
+            let entered = hs.accept().map_err(|e| e.to_string());
             match entered {
                 Ok(room) => {
                     let mut lobby = lobbyscreen::Lobby::new_guest(room, enhanced);

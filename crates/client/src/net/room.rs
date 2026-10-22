@@ -9,8 +9,13 @@
 //!
 //! **Handshake.** A connection is accepted and a short-lived thread reads its [`Msg::Hello`]. The host checks the
 //! [`Identity`] (a refusal says what differs), the name (no duplicates) and that a row is free, reserves the row and
-//! answers [`Msg::Welcome`]; the joiner checks it has the map and answers [`Msg::Ready`]; the host then fills the row
-//! and sends the joiner the lobby. A joiner that vanishes in between frees its row again.
+//! answers [`Msg::Welcome`]; the joiner answers [`Msg::Ready`]; the host then fills the row and sends the joiner the
+//! lobby. A joiner that vanishes in between frees its row again.
+//!
+//! **The map.** A joiner says whether it has the lobby's map ([`Msg::HaveMap`], by hash) each time the lobby's map
+//! changes, and asks for it ([`Msg::MapRequest`]) when it lacks it. The host sends the map it holds in chunks
+//! ([`Msg::MapOffer`], [`Msg::MapChunk`]); the joiner takes it only if it is no bigger than [`MAX_MAP_BYTES`], arrives
+//! in order, hashes to what was asked for and parses as a map. The host starts no game while a joiner lacks the map.
 //!
 //! **Starting.** [`HostRoom::start`] packs the filled rows into slots (Available and Closed rows are skipped, so a
 //! slot never lands on a map slot nobody fills), settles Random races from the game's seed, and sends each joiner
@@ -19,6 +24,7 @@
 
 use std::io;
 use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -26,7 +32,10 @@ use anyhow::{Result, bail};
 use tidewater_sim::setup::{Custom, Game, Lobby, Setup, race};
 
 use super::lobby::NetStart;
-use super::proto::{GameConfig, Identity, LobbyView, Msg, RowState, RowView, read_frame, write_frame};
+use super::proto::{
+    GameConfig, HelloRead, Identity, LobbyView, MAP_CHUNK, MAX_MAP_BYTES, Msg, RowState, RowView, read_frame,
+    read_hello, write_frame,
+};
 use super::tcp::{self, ClientWire, Event, HANDSHAKE_TIMEOUT, HostWire, Link};
 
 /// The lobby's rows.
@@ -83,6 +92,7 @@ pub fn new_view(enhanced: bool, host_name: &str, host_race: u8) -> LobbyView {
         race: host_race,
         ready: true,
         say: String::new(),
+        has_map: true,
     };
     LobbyView {
         enhanced,
@@ -194,6 +204,8 @@ pub enum StartError {
     TooMany,
     /// Classic mode: a joiner has not ticked its Ready box.
     NotReady,
+    /// A joiner does not have the map yet (it may be on its way).
+    MissingMap,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -219,7 +231,12 @@ struct Member {
     id: usize,
     row: usize,
     link: Link,
+    /// Map requests answered for the current map: a joiner can't make the host send it over and over.
+    requests: u8,
 }
+
+/// How many times one joiner may ask for one map.
+const MAP_REQUESTS: u8 = 3;
 
 struct Reserved {
     id: usize,
@@ -240,6 +257,8 @@ pub struct HostRoom {
     members: Vec<Member>,
     reserved: Vec<Reserved>,
     next_id: usize,
+    /// The lobby's map file, to send to a joiner that lacks it.
+    map_data: Option<Arc<Vec<u8>>>,
 }
 
 impl HostRoom {
@@ -260,7 +279,13 @@ impl HostRoom {
             members: Vec::new(),
             reserved: Vec::new(),
             next_id: 0,
+            map_data: None,
         })
+    }
+
+    /// The bytes of the lobby's map, for a joiner that lacks it. Maps over [`MAX_MAP_BYTES`] are never sent.
+    pub fn set_map_data(&mut self, bytes: Vec<u8>) {
+        self.map_data = Some(Arc::new(bytes));
     }
 
     pub fn view(&self) -> &LobbyView {
@@ -296,10 +321,21 @@ impl HostRoom {
         if v.map_name == name && v.map_hash == hash && v.scenario == scenario && v.map_players == players {
             return;
         }
+        let new_map = v.map_hash != hash;
         v.map_name = name.to_string();
         v.map_hash = hash;
         v.scenario = scenario;
         v.map_players = players;
+        if new_map {
+            // Every joiner is asked again whether it has this map.
+            for r in v.rows.iter_mut().skip(1) {
+                r.has_map = false;
+            }
+            for m in &mut self.members {
+                m.requests = 0;
+            }
+            self.map_data = None;
+        }
         self.changed(true);
     }
 
@@ -369,6 +405,9 @@ impl HostRoom {
         if v.participants().len() > usize::from(v.map_players) {
             return Err(StartError::TooMany);
         }
+        if v.rows.iter().skip(1).any(|r| r.state == RowState::Human && !r.has_map) {
+            return Err(StartError::MissingMap);
+        }
         if !v.enhanced && v.rows.iter().skip(1).any(|r| r.state == RowState::Human && !r.ready) {
             return Err(StartError::NotReady);
         }
@@ -384,19 +423,30 @@ impl HostRoom {
             let id = self.next_id;
             self.next_id += 1;
             let tx = self.shake_tx.clone();
+            let ours = self.identity.protocol;
             let _ = thread::Builder::new().name(format!("net-hello-{id}")).spawn(move || {
                 let _ = stream.set_nonblocking(false);
                 let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
                 let _ = stream.set_nodelay(true);
                 let mut stream = stream;
-                match read_frame(&mut stream) {
-                    Ok(Msg::Hello { identity, name }) => {
+                match read_hello(&mut stream) {
+                    Ok(HelloRead::Hello { identity, name }) => {
                         let _ = tx.send(Shake::Hello {
                             id,
                             identity: Box::new(identity),
                             name,
                             stream,
                         });
+                    }
+                    Ok(HelloRead::OtherProtocol(p)) => {
+                        // Its layout is unknown: it is told why, by the version alone.
+                        let _ = write_frame(
+                            &mut stream,
+                            &Msg::Refuse {
+                                reason: Identity::protocol_reason(ours, p),
+                            },
+                        );
+                        let _ = tx.send(Shake::Gone { id });
                     }
                     _ => {
                         let _ = tx.send(Shake::Gone { id });
@@ -488,8 +538,15 @@ impl HostRoom {
                     // Enhanced rules have no Ready box: a joiner is ready the moment it joins.
                     ready: self.view.enhanced,
                     say: String::new(),
+                    // Until the joiner says it has the map.
+                    has_map: false,
                 };
-                self.members.push(Member { id, row: r.row, link });
+                self.members.push(Member {
+                    id,
+                    row: r.row,
+                    link,
+                    requests: 0,
+                });
                 self.broadcast();
                 true
             }
@@ -515,6 +572,22 @@ impl HostRoom {
                 let Some(row) = self.members.iter().find(|m| m.id == id).map(|m| m.row) else {
                     return false;
                 };
+                match msg {
+                    Msg::HaveMap { hash, have } => {
+                        let has = have && hash == self.view.map_hash && !self.view.map_name.is_empty();
+                        if self.view.rows[row].has_map == has {
+                            return false;
+                        }
+                        self.view.rows[row].has_map = has;
+                        self.broadcast();
+                        return true;
+                    }
+                    Msg::MapRequest { hash } => {
+                        self.send_map(id, hash);
+                        return false;
+                    }
+                    _ => {}
+                }
                 let r = &mut self.view.rows[row];
                 match msg {
                     Msg::SetRace { race } if race <= tidewater_sim::setup::race::NEUTRAL => r.race = race,
@@ -525,6 +598,44 @@ impl HostRoom {
                 self.broadcast();
                 true
             }
+        }
+    }
+
+    /// Answers a joiner's request for the map `hash`: the map in chunks, or why not.
+    fn send_map(&mut self, id: usize, hash: u64) {
+        let Some(m) = self.members.iter_mut().find(|m| m.id == id) else {
+            return;
+        };
+        let denied = |reason: &str| Msg::MapDenied {
+            hash,
+            reason: reason.to_string(),
+        };
+        let data = match &self.map_data {
+            Some(d) if hash == self.view.map_hash && !d.is_empty() && d.len() <= MAX_MAP_BYTES => d.clone(),
+            Some(d) if d.len() > MAX_MAP_BYTES => {
+                m.link.send(&denied("The map is too big to send."));
+                return;
+            }
+            _ => {
+                m.link.send(&denied("The game creator can't send this map."));
+                return;
+            }
+        };
+        if m.requests >= MAP_REQUESTS {
+            m.link.send(&denied("The map was already sent to you."));
+            return;
+        }
+        m.requests += 1;
+        m.link.send(&Msg::MapOffer {
+            hash,
+            size: data.len() as u32,
+        });
+        for (i, chunk) in data.chunks(MAP_CHUNK).enumerate() {
+            m.link.send(&Msg::MapChunk {
+                hash,
+                offset: (i * MAP_CHUNK) as u32,
+                bytes: chunk.to_vec(),
+            });
         }
     }
 
@@ -626,6 +737,7 @@ impl Handshake {
         let link = Link::spawn(self.stream, 0, tx)?;
         Ok(GuestRoom {
             parts: Some((link, rx)),
+            incoming: None,
             slot: self.slot,
             view: None,
         })
@@ -648,6 +760,12 @@ pub enum GuestEvent {
     View,
     /// The host started the game.
     Go(Box<NetStart>),
+    /// Part of the requested map has arrived: `got` of `size` bytes.
+    MapProgress { got: usize, size: usize },
+    /// The requested map has arrived whole, hashes to what was asked for and parses.
+    MapReceived { hash: u64, bytes: Vec<u8> },
+    /// The map will not come (refused, too big, damaged), and why.
+    MapFailed(String),
     /// The room is over: kicked out, terminated, or the connection ended. The words are for the player.
     Ended(String),
 }
@@ -655,10 +773,20 @@ pub enum GuestEvent {
 /// The joiner's end of a room.
 pub struct GuestRoom {
     parts: Option<(Link, Receiver<Event>)>,
+    /// The map asked for, and what has arrived of it.
+    incoming: Option<Incoming>,
     /// The joiner's row.
     pub slot: u8,
     /// The lobby, once the host has sent it.
     pub view: Option<LobbyView>,
+}
+
+/// A map being received.
+struct Incoming {
+    hash: u64,
+    /// The size the host offered, once it has.
+    size: Option<usize>,
+    data: Vec<u8>,
 }
 
 impl GuestRoom {
@@ -674,6 +802,70 @@ impl GuestRoom {
 
     pub fn set_ready(&mut self, ready: bool) {
         self.send(Msg::SetReady { ready });
+    }
+
+    /// Tells the host whether this machine has the lobby's map `hash`.
+    pub fn set_have_map(&mut self, hash: u64, have: bool) {
+        self.send(Msg::HaveMap { hash, have });
+    }
+
+    /// Asks the host for the map `hash`; what arrives is reported by [`GuestEvent`]s.
+    pub fn request_map(&mut self, hash: u64) {
+        self.incoming = Some(Incoming {
+            hash,
+            size: None,
+            data: Vec::new(),
+        });
+        self.send(Msg::MapRequest { hash });
+    }
+
+    fn map_message(&mut self, msg: Msg, out: &mut Vec<GuestEvent>) {
+        let Some(inc) = &mut self.incoming else { return };
+        let fail = |why: &str| GuestEvent::MapFailed(why.to_string());
+        match msg {
+            Msg::MapOffer { hash, size } if hash == inc.hash && inc.size.is_none() => {
+                let size = size as usize;
+                if size == 0 || size > MAX_MAP_BYTES {
+                    self.incoming = None;
+                    out.push(fail("The map is too big to receive."));
+                } else {
+                    inc.size = Some(size);
+                    inc.data.reserve(size);
+                    out.push(GuestEvent::MapProgress { got: 0, size });
+                }
+            }
+            Msg::MapChunk { hash, offset, bytes } if hash == inc.hash => {
+                let Some(size) = inc.size else { return };
+                // In order, and no more than was offered.
+                if offset as usize != inc.data.len() || inc.data.len() + bytes.len() > size {
+                    self.incoming = None;
+                    out.push(fail("The map arrived damaged."));
+                    return;
+                }
+                inc.data.extend_from_slice(&bytes);
+                if inc.data.len() < size {
+                    out.push(GuestEvent::MapProgress {
+                        got: inc.data.len(),
+                        size,
+                    });
+                    return;
+                }
+                let (hash, data) = (inc.hash, std::mem::take(&mut inc.data));
+                self.incoming = None;
+                if tidewater_replay::start::map_hash(&data) != hash
+                    || tidewater_formats::pud::Pud::parse(&data).is_err()
+                {
+                    out.push(fail("The map arrived damaged."));
+                } else {
+                    out.push(GuestEvent::MapReceived { hash, bytes: data });
+                }
+            }
+            Msg::MapDenied { hash, reason } if hash == inc.hash => {
+                self.incoming = None;
+                out.push(GuestEvent::MapFailed(reason));
+            }
+            _ => {}
+        }
     }
 
     pub fn say(&mut self, text: &str) {
@@ -711,6 +903,9 @@ impl GuestRoom {
                         names,
                     })));
                 }
+                Event::Msg(_, msg @ (Msg::MapOffer { .. } | Msg::MapChunk { .. } | Msg::MapDenied { .. })) => {
+                    self.map_message(msg, &mut out);
+                }
                 Event::Msg(..) => {}
             }
         }
@@ -745,6 +940,9 @@ mod tests {
         let hs = t.join().unwrap().unwrap();
         let mut g = hs.accept().unwrap();
         wait_guest(room, &mut g, |g| g.view.is_some());
+        let (slot, hash) = (g.slot as usize, room.view().map_hash);
+        g.set_have_map(hash, true);
+        wait_guest(room, &mut g, |g| g.view.as_ref().is_some_and(|v| v.rows[slot].has_map));
         g
     }
 
@@ -952,6 +1150,229 @@ mod tests {
         assert!(heard);
     }
 
+    /// A small valid map and its hash.
+    fn pud() -> (Vec<u8>, u64) {
+        let bytes = tidewater_formats::pud::build::Map {
+            size: 32,
+            ..Default::default()
+        }
+        .bytes();
+        let hash = tidewater_replay::start::map_hash(&bytes);
+        (bytes, hash)
+    }
+
+    /// A room whose map is the synthetic one, held by the host, and a joiner that has asked for it.
+    fn room_with_map() -> (HostRoom, GuestRoom, u64) {
+        let (bytes, hash) = pud();
+        let mut room = host(true);
+        room.set_map("Maps\\x.pud", hash, vec![], 4);
+        room.set_map_data(bytes);
+        let g = join_no_map(&mut room, "Ann");
+        (room, g, hash)
+    }
+
+    /// Joins without saying the map is there.
+    fn join_no_map(room: &mut HostRoom, name: &str) -> GuestRoom {
+        let addr = format!("127.0.0.1:{}", room.port());
+        let name = name.to_string();
+        let t = thread::spawn(move || handshake(&addr, ident(), &name));
+        wait(room, |_| t.is_finished());
+        let mut g = t.join().unwrap().unwrap().accept().unwrap();
+        wait_guest(room, &mut g, |g| g.view.is_some());
+        g
+    }
+
+    /// Both ends run until the joiner has an event that `done` takes.
+    fn events_until(
+        room: &mut HostRoom,
+        g: &mut GuestRoom,
+        mut done: impl FnMut(&GuestEvent) -> bool,
+    ) -> Vec<GuestEvent> {
+        let end = Instant::now() + Duration::from_secs(10);
+        let mut all = Vec::new();
+        while Instant::now() < end {
+            room.poll();
+            for e in g.poll() {
+                let stop = done(&e);
+                all.push(e);
+                if stop {
+                    return all;
+                }
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        panic!("timed out");
+    }
+
+    #[test]
+    fn a_map_the_joiner_lacks_is_sent_in_chunks_checked_and_then_the_host_can_start() {
+        let (mut room, mut g, hash) = room_with_map();
+        assert_eq!(room.can_start(), Err(StartError::MissingMap));
+        g.set_have_map(hash, false);
+        g.request_map(hash);
+        let events = events_until(&mut room, &mut g, |e| {
+            matches!(e, GuestEvent::MapReceived { .. } | GuestEvent::MapFailed(_))
+        });
+        let Some(GuestEvent::MapReceived { hash: h, bytes }) = events.last() else {
+            panic!("no map");
+        };
+        assert_eq!((*h, bytes.as_slice()), (hash, pud().0.as_slice()));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, GuestEvent::MapProgress { got: 0, .. }))
+        );
+        assert_eq!(
+            room.can_start(),
+            Err(StartError::MissingMap),
+            "the joiner has not said it has it"
+        );
+        g.set_have_map(hash, true);
+        wait_guest(&mut room, &mut g, |g| {
+            g.view.as_ref().is_some_and(|v| v.rows[1].has_map)
+        });
+        assert_eq!(room.can_start(), Ok(()));
+        // A new map asks every joiner again.
+        room.set_map("Maps\\y.pud", hash ^ 1, vec![], 4);
+        wait_guest(&mut room, &mut g, |g| {
+            g.view.as_ref().is_some_and(|v| !v.rows[1].has_map)
+        });
+        assert_eq!(room.can_start(), Err(StartError::MissingMap));
+    }
+
+    #[test]
+    fn a_map_is_denied_when_the_host_has_none_to_send_and_after_too_many_requests() {
+        let (mut room, mut g, hash) = room_with_map();
+        g.request_map(hash ^ 1);
+        let ev = events_until(&mut room, &mut g, |e| matches!(e, GuestEvent::MapFailed(_)));
+        assert!(matches!(ev.last(), Some(GuestEvent::MapFailed(_))));
+        for _ in 0..MAP_REQUESTS {
+            g.request_map(hash);
+            events_until(&mut room, &mut g, |e| matches!(e, GuestEvent::MapReceived { .. }));
+        }
+        g.request_map(hash);
+        let ev = events_until(&mut room, &mut g, |e| matches!(e, GuestEvent::MapFailed(_)));
+        let Some(GuestEvent::MapFailed(why)) = ev.last() else {
+            panic!()
+        };
+        assert!(why.contains("already"), "{why}");
+    }
+
+    #[test]
+    fn the_joiner_refuses_a_map_that_is_too_big_out_of_order_or_not_the_one_asked_for() {
+        let (_, hash) = pud();
+        let (mut room, mut g, _) = room_with_map();
+        let mut out = Vec::new();
+        let ask = |g: &mut GuestRoom| {
+            g.incoming = Some(Incoming {
+                hash,
+                size: None,
+                data: Vec::new(),
+            });
+        };
+        // Too big.
+        ask(&mut g);
+        g.map_message(
+            Msg::MapOffer {
+                hash,
+                size: MAX_MAP_BYTES as u32 + 1,
+            },
+            &mut out,
+        );
+        assert!(matches!(out.pop(), Some(GuestEvent::MapFailed(_))));
+        assert!(g.incoming.is_none());
+        // A chunk out of order.
+        ask(&mut g);
+        g.map_message(Msg::MapOffer { hash, size: 100 }, &mut out);
+        assert!(matches!(out.pop(), Some(GuestEvent::MapProgress { .. })));
+        g.map_message(
+            Msg::MapChunk {
+                hash,
+                offset: 50,
+                bytes: vec![0; 10],
+            },
+            &mut out,
+        );
+        assert!(matches!(out.pop(), Some(GuestEvent::MapFailed(_))));
+        // More than offered.
+        ask(&mut g);
+        g.map_message(Msg::MapOffer { hash, size: 10 }, &mut out);
+        out.clear();
+        g.map_message(
+            Msg::MapChunk {
+                hash,
+                offset: 0,
+                bytes: vec![0; 11],
+            },
+            &mut out,
+        );
+        assert!(matches!(out.pop(), Some(GuestEvent::MapFailed(_))));
+        // The right size but not the hash asked for, and not a map.
+        ask(&mut g);
+        g.map_message(Msg::MapOffer { hash, size: 10 }, &mut out);
+        out.clear();
+        g.map_message(
+            Msg::MapChunk {
+                hash,
+                offset: 0,
+                bytes: vec![7; 10],
+            },
+            &mut out,
+        );
+        assert!(matches!(out.pop(), Some(GuestEvent::MapFailed(_))));
+        // The right bytes under another hash than the one asked for.
+        let (bytes, _) = pud();
+        g.incoming = Some(Incoming {
+            hash: hash ^ 5,
+            size: None,
+            data: Vec::new(),
+        });
+        g.map_message(
+            Msg::MapOffer {
+                hash: hash ^ 5,
+                size: bytes.len() as u32,
+            },
+            &mut out,
+        );
+        out.clear();
+        g.map_message(
+            Msg::MapChunk {
+                hash: hash ^ 5,
+                offset: 0,
+                bytes,
+            },
+            &mut out,
+        );
+        assert!(
+            matches!(out.pop(), Some(GuestEvent::MapFailed(_))),
+            "the content must hash to what was asked for"
+        );
+        // Nothing asked for: nothing taken.
+        g.map_message(Msg::MapOffer { hash, size: 10 }, &mut out);
+        assert!(out.is_empty());
+        room.poll();
+    }
+
+    #[test]
+    fn a_joiner_of_another_protocol_is_refused_with_the_reason() {
+        use std::io::Write;
+        let mut room = host(true);
+        let addr = format!("127.0.0.1:{}", room.port());
+        let t = thread::spawn(move || {
+            let mut s = std::net::TcpStream::connect(addr).unwrap();
+            // A protocol-1 Hello: variant 0, version 1, then what that version put after it.
+            let body = [0u8, 1, 5, b'a', b'b', b'c', b'd', b'e', 0, 0];
+            s.write_all(&(body.len() as u32).to_le_bytes()).unwrap();
+            s.write_all(&body).unwrap();
+            read_frame(&mut s)
+        });
+        wait(&mut room, |_| t.is_finished());
+        match t.join().unwrap().unwrap() {
+            Msg::Refuse { reason } => assert!(reason.contains("protocol"), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn random_races_are_settled_from_the_seed_and_stay_the_same_for_a_seed() {
         let mut v = new_view(true, "Host", race::NEUTRAL);
@@ -961,6 +1382,7 @@ mod tests {
             race: race::NEUTRAL,
             ready: true,
             say: String::new(),
+            has_map: true,
         };
         let (a, _) = v.to_config(7);
         let (b, _) = v.to_config(7);
