@@ -345,6 +345,21 @@ mod tests {
         assert_eq!(back.commands_at(5), [cmd]);
     }
 
+    /// Hold workers and Release workers (`orders/orders.md`, "Holding and releasing workers") and a speed command that
+    /// carries its value are recorded and read back like any other.
+    #[test]
+    fn a_replay_with_hold_release_and_speed_commands_round_trips() {
+        let mut r = Replay::new(header());
+        let cmds = [
+            Command::HoldWorkers { player: 0 },
+            Command::ReleaseWorkers { player: 0 },
+            Command::Speed { player: 0, speed: 6 },
+        ];
+        r.record(7, &cmds);
+        let back = Replay::decode(&r.encode()).unwrap();
+        assert_eq!(back.commands_at(7), cmds);
+    }
+
     #[test]
     fn the_file_starts_with_the_marker_and_the_version() {
         let b = sample().encode();
