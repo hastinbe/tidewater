@@ -1177,11 +1177,13 @@ impl World {
                 continue;
             }
             let region = self.terrain.region(u.tile.0, u.tile.1);
+            // Round 104 (SW3a, `sweep-orc9`): the assigned transport's destination, not its target tile, which a command
+            // pulls back.
             let served = u.goal.transport.and_then(|a| self.unit(a)).is_some_and(|a| {
                 !gone(a)
                     && self.is_transport(a)
                     && a.owner == owner
-                    && self.terrain.region(a.ship.target_tile.0, a.ship.target_tile.1) == region
+                    && self.terrain.region(a.ship.dest.0, a.ship.dest.1) == region
             });
             if served {
                 continue;
@@ -2463,6 +2465,42 @@ mod tests {
             let u = at(&w, *g);
             assert_eq!(u.goal.transport, (n < 6).then_some(t), "unit {n}");
             assert_eq!(boards(&w, *g, t), n < 6, "unit {n}: {:?}", u.pending);
+        }
+    }
+
+    /// Round 104, SW3a: a unit is served when its assigned transport's destination (not its pulled-back target tile)
+    /// lies in the unit's region.
+    #[test]
+    fn the_served_test_reads_the_transports_destination() {
+        for dest_here in [true, false] {
+            let (mut w, t) = harbour();
+            let other = spawn(&mut w, TRANSPORT, 1, (42, 12));
+            let g = spawn(&mut w, GRUNT, 1, (10, 10));
+            w.set_goal(ix(&w, g), GoalKind::Attack, Some((60, 10)));
+            um(&mut w, g).goal.transport = Some(other);
+            let here = w.terrain.region(10, 10);
+            let away = w.terrain.region(60, 10);
+            assert_ne!(here, away);
+            // The target tile is where the destination is not, as after a pull-back.
+            let (dest, target) = if dest_here {
+                ((10, 10), (60, 10))
+            } else {
+                ((60, 10), (10, 10))
+            };
+            // The other transport is under way, so only the first one gathers.
+            um(&mut w, other).order = Order::Move {
+                goal: (30, 10),
+                target: None,
+            };
+            um(&mut w, other).ship.dest = dest;
+            um(&mut w, other).ship.target_tile = target;
+            w.run_goals();
+            let assigned = at(&w, g).goal.transport;
+            assert_eq!(
+                assigned,
+                Some(if dest_here { other } else { t }),
+                "dest here: {dest_here}"
+            );
         }
     }
 
