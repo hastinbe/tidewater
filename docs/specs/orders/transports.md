@@ -28,6 +28,9 @@
 - **Changes:** 2026-10-16 (round 77, `ERRATA-round77.md`, reviewed by a spec-review session, 2026-10-16): a
   player's patrol (command 5) is refused like command 4 (traced, vector V41); "every command" in "What the
   transport stores" means every command the transport takes.
+- **Changes:** 2026-10-22 (round 100, `ERRATA-round100-traces.md` erratum 1, reviewed by a spec-review session,
+  2026-10-22): "Boarding", step 5: the waiting unit's reaction searches the react range (human) box for a
+  non-computer player's unit (traced, V42; `orders/orders.md` V288).
 
 ## Behaviour
 
@@ -344,7 +347,8 @@ Each time the order's logic runs (order 34's logic doesn't start with the attack
      `orc14-10000`, V13). This test comes before the next one;
    - otherwise, if the transport's destination tile is in the unit's region, the unit runs the **reaction to an
      attacker** (`orders/orders.md`, "Reacting to an attacker") and, if that gives it no new order, keeps waiting in
-     order 34 (static study only);
+     order 34 (static study only). When the reaction searches, a non-computer player's unit uses its type's **react
+     range (human)** box, not its attack range (`orders/orders.md`, "Search box"; traced: V42);
    - otherwise it gives up: idle becomes the **pending** order, which takes over in the same update (still
      animation, wait 3, target none; traced: `orc12-orc12-guard-board-full-900` n = 607, V38, a unit
      waiting at a full docked transport that pushes off).
@@ -442,6 +446,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V36 | `orc12-orc12-guard-board-full-900` (oracle trace, Enhanced; scenario `oracle/scenarios/orc12-guard-board-full.txt`), n = 22 (turn record of the input at n = 20): four peons (type 0x03) and two goblin sappers (type 0x0F) are told to board orc transport 1434 (type 0x1D, owner 0), docked (order 32) from n = 78 | All six aboard (order 36) by n = 300: the transport is full | Trace (`orc12-orc12-guard-board-full-900`) |
 | V37 | As V36 (`orc12-orc12-guard-board-full-900`), n = 302 (turn record of the input at n = 300): ogre 1443 (type 0x07, owner 0) told to board 1434 | Order 34 from n = 303; it waits next to the transport at (20, 121) from n = 342 | Trace (`orc12-orc12-guard-board-full-900`) |
 | V38 | As V36 (`orc12-orc12-guard-board-full-900`), n = 602 (turn record of the input at n = 600): 1434 told to move to (26, 118) | n = 607: 1434 pushes off (order 31); in the same cycle 1443 gives up: order 2, still animation, wait 3, target none | Trace (`orc12-orc12-guard-board-full-900`) |
+| V42 | `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (oracle trace, Enhanced, generated map `R100-tests.pud`): human player's footman 1592 in order 34 on transport 1599, docked (order 32) at (42, 51) with all 6 slots taken and its destination (24, 48) in the footman's region; the footman was hit on its walk by dragon 1584 and reaches (41, 50) at n = 887; grunt 1585 (owner 1) stands at (41, 47) | n = 903: it can't board (full), the reaction runs and its search, with the react range (human) box (radius 4), picks the grunt 3 tiles away: order 12, target 1585 (`orders/orders.md` V288) | Trace |
 
 ## Open questions
 
@@ -544,3 +549,4 @@ round are kept with the research-side specs.
 | 71 | Recorded once per command; no second recording at the smart-move stage; a command with no tile records the tile fields it carries (static study, implementer questions) | "What the transport stores" |
 | 75 | A player's command the transport doesn't take (command 4: the selection filter) keeps the unload-on-arrival mark (traced, V40); a player's command 4 never reaches the smart-move stage (open question for other sources); a no-route landing that ends idle on an even tile also becomes a two-tile mover (static study) | "What the transport stores"; "Clearing the mark"; "Landing", step 6; "Open questions"; V40 |
 | 77 | A transport doesn't take a player's patrol either (traced, V41); a command it doesn't take records nothing; `ERRATA-round77.md`, reviewed | "What the transport stores"; "Clearing the mark"; V41 |
+| 100 | A waiting boarder's reaction searches the react range (human) box (traced, V42; `ERRATA-round100-traces.md`, reviewed) | "Boarding", step 5; V42 |

@@ -5,8 +5,15 @@
   "Multiplayer launch", `CUSTOMMAP`) in the public PUD layout (the PUD specification text: section tags, lengths,
   the `ALOW` bit orders, the `MTXM` tile code for light ground, the `SQM ` and `REGM` land values, the `UNIT` entry
   layout). A generated map holds no game data: the unit and upgrade data sections say "use the default data", so the
-  game uses its own data files at run time (`game/setup.md`, "Section effects"). Nothing here comes from the program.
+  game uses its own data files at run time (`game/setup.md`, "Section effects"). The sea option's tile codes are the
+  PUD text's general tile codes (its tile appendix: light water, light coast, and the "water and coast" boundary tiles)
+  and its `SQM ` values (dirt 0x0011, coast 0x0082, water 0x0040); the same three tile, movement and region values,
+  with a water region number of 1, are what the shipped maps hold along a straight shore (game data, checked on
+  `Murky River BNE.pud`). Nothing here comes from the program.
 - **Changes:** 2026-10-22: first version (round 99: the map `R99-tests.pud` and its trace).
+- **Changes:** 2026-10-22, round 100 (`ERRATA-round100-traces.md`, section 4; reviewed by a spec-review session,
+  2026-10-22): the optional sea along the bottom edge, the tile order of the map sections, and the map
+  `R100-tests.pud` with its trace. `R99-tests.pud` is unchanged (it has no sea).
 
 ## Behaviour
 
@@ -39,11 +46,26 @@ length and the data; all numbers little-endian). N is the map size; P is the num
 | 12 | `SLBR` | 32 | Each player's starting lumber, likewise |
 | 13 | `SOIL` | 32 | Each player's starting oil, likewise |
 | 14 | `AIPL` | 16 | 16 zero bytes |
-| 15 | `MTXM` | 2 N² | Every tile 0x0050 (light ground) |
-| 16 | `SQM ` | 2 N² | Every word 0x0001 (land) |
+| 15 | `MTXM` | 2 N² | Every tile 0x0050 (light ground), except the sea rows ("Sea") |
+| 16 | `SQM ` | 2 N² | Every word 0x0001 (land), except the sea rows |
 | 17 | `OILM` | N² | Zero bytes |
-| 18 | `REGM` | 2 N² | Every word 0x4000 (land) |
+| 18 | `REGM` | 2 N² | Every word 0x4000 (land), except the sea rows |
 | 19 | `UNIT` | 8 per unit | The map's units in the map's order: x (16-bit), y (16-bit), type (8-bit, the PUD unit number), owner (8-bit), data (16-bit: 0 for a unit that isn't held, 1 for a held unit, or a gold mine's gold / 2500) |
+
+The four map sections (15 to 18) hold one value per tile, row by row: first row y = 0 (the top) from x = 0 to
+N − 1, then row y = 1, and so on to row y = N − 1, so the value of tile (x, y) is entry y × N + x.
+
+**Sea (optional, round 100).** A map may have a sea of K rows along its bottom edge, K from 1 to N − 4. Then the
+bottom K + 2 rows of `MTXM`, `SQM ` and `REGM` hold these values instead (every tile of each row the same; `OILM` stays
+zero); the rows above them are as in the table:
+
+| Rows | `MTXM` tile | `SQM ` | `REGM` |
+| --- | --- | --- | --- |
+| y = N − K − 2 (coast) | 0x0030 (light coast) | 0x0011 | 0x4000 (land) |
+| y = N − K − 1 (shore) | 0x02B0 (a water and coast boundary tile) | 0x0082 | 0x4000 (land) |
+| y = N − K to N − 1 (water) | 0x0010 (light water) | 0x0040 | 0x0001 (sea region 1) |
+
+A map without a sea is built exactly as before: `R99-tests.pud` has none and its bytes are unchanged.
 
 `UGRD` comes after `ALOW`, so by the reading rule of `game/setup.md` ("Reading sections") it is skipped as an entry
 already passed; the game then uses its default upgrade data, which is what the section asks for anyway. With
@@ -102,15 +124,61 @@ start seed 1; players 2 and 3 are the computer rows). Its input: at n = 2 the fl
 n = 4 the footman 1593 is given a smart move (command 3) on the flying machine 1594, which makes it follow; at n = 4650 both ballistas attack the scout
 tower 1587.
 
+### R100-tests.pud (round 100)
+
+Size N = 64, P = 2, id tag 0x7200, description `tidewater r100 tests`, sea K = 12 (row 50 coast, row 51 shore, rows
+52 to 63 water). File length 36 030 bytes, SHA-256
+`009f7bed418ffde11d22aa8d2ad1835ad94b3776aee2f7dd47b85a8bd995eda8`.
+
+| Player | Race | Gold | Lumber | Oil | Spells known | In the trace |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | human | 10 000 | 10 000 | 1 000 | none | The traced human (A) |
+| 1 | orc | 0 | 0 | 0 | none | The second human (B), idle |
+
+Units, in file order (every data value 0):
+
+| # | Tile (x, y) | Type | Owner | Slot |
+| --- | --- | --- | --- | --- |
+| 1 | (10, 10) | 0x5E human start location | 0 | none |
+| 2 | (55, 10) | 0x5F orc start location | 1 | none |
+| 3 | (40, 54) | 0x1C human transport | 0 | 1599 |
+| 4 | (44, 48) | 0x00 footman | 0 | 1598 |
+| 5 | (45, 48) | 0x00 footman | 0 | 1597 |
+| 6 | (46, 48) | 0x00 footman | 0 | 1596 |
+| 7 | (47, 48) | 0x00 footman | 0 | 1595 |
+| 8 | (48, 48) | 0x00 footman | 0 | 1594 |
+| 9 | (49, 48) | 0x00 footman | 0 | 1593 |
+| 10 | (24, 48) | 0x00 footman | 0 | 1592 |
+| 11 | (6, 6) | 0x4A town hall | 0 | 1591 |
+| 12 | (14, 6) | 0x3C human barracks | 0 | 1590 |
+| 13 | (6, 17) | 0x04 ballista | 0 | 1589 |
+| 14 | (11, 8) | 0x02 peasant | 0 | 1588 |
+| 15 | (26, 20) | 0x02 peasant | 0 | 1587 |
+| 16 | (26, 23) | 0x02 peasant | 0 | 1586 |
+| 17 | (41, 47) | 0x01 grunt | 1 | 1585 |
+| 18 | (32, 46) | 0x2B dragon | 1 | 1584 |
+
+Trace: `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (Enhanced; Fixed Order, no computer opponents, start seed 1;
+extra `goals`). Its input (scenario `mp-r100-tests`; each command lands about 30 cycles after the n it is read at, by
+the turn latency of `net/lockstep.md`): at n = 2 footmen 1598 to 1593 are given a smart move (command 3) onto the
+transport and the ballista attacks the hall; n = 10 peasant 1587 builds a farm (type 0x3A) at (28, 20); n = 20 the hall
+starts its upgrade to a keep (type 0x58); n = 100 peasant 1586 repairs the farm site (slot 1583, created at n = 111);
+n = 480 the ballista stops; n = 520 peasant 1588 repairs the hall; n = 600 footman 1592 is given a smart move onto the
+transport; n = 2150 the ballista attacks the keep and stops at n = 2400; n = 2450 peasant 1588 repairs the keep.
+
 ## Test vectors
 
 | Input | Expected |
 | --- | --- |
 | Build `R99-tests.pud` from the tables above | 36 062 bytes with the SHA-256 above |
+| Build `R100-tests.pud` from the tables above | 36 030 bytes with the SHA-256 above |
+| Load `R100-tests.pud` as a multiplayer map with the header of its trace | The trace's setup record: 16 units in slots 1584 to 1599 as listed; player 0 has 10 000 gold, 10 000 lumber and 1 000 oil. In the trace the boarding command of n = 2 docks the transport at (42, 51) at n = 81 (order 32) |
 | Load it as a multiplayer map with the header of the trace above | The trace's setup record: 18 units in slots 1582 to 1599 as listed; gold 2000 and lumber 1000 for player 3, 0 elsewhere; units 1588 to 1590 held (AI goal kind 1 in the `aigoals` research extra); player 2's spells known 128 at n = 1 (`airesearch`). The research extras are only a check here: a comparer still ignores them |
 
 ## Open questions
 
-- Generated maps write light ground only. A coast or water tile (for the transport requests OA3 and later) needs the
-  water tile codes and the matching `SQM ` and `REGM` values; they will be added here with the first map that uses
-  them.
+- Only a straight sea along the bottom edge is described. Other coast shapes need more boundary tile codes and will
+  be added with the first map that uses them.
+- A transport placed elsewhere on the R100 map's sea (for example at (42, 57) or (42, 55)) sailed away instead of
+  docking in round-100 probe captures; the cause wasn't studied. Maps that need a docked transport use the R100
+  placement.

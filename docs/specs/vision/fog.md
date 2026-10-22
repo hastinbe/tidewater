@@ -52,6 +52,9 @@
   2026-10-22): Q1 closed: the diplomacy command (now `game/diplomacy.md`) sets the sender's whole set, its own entry
   included, so a player can leave its own set; Tidewater mirrors it (static study; review ruling). The default "a
   player is always in its own set" is withdrawn.
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100"; reviewed by a spec-review session,
+  2026-10-22): the team-game rule of "Shared vision" is a Battle.net team game's (static study), labelled Battle.net
+  only, not mirrored. The sets of players 0 to 7 are saved in Enhanced mode (`game/save-load.md`).
 
 ## Behaviour
 
@@ -372,8 +375,9 @@ so its starting set makes no difference (Q2).
 Each player 0 to 7 has a **shared-vision set**. It decides whose "seen" bits a reveal clears, whose display a reveal
 changes, and (Enhanced) who detects invisible units and submarines.
 
-- **Game setup** puts each player alone in its own set (`game/setup.md`). **Multiplayer:** in a team game, team-mates
-  are added to each other's sets (static study; X10).
+- **Game setup** puts each player alone in its own set (`game/setup.md`). **Battle.net only (not mirrored):** in a
+  Battle.net team game, team-mates are added to each other's sets (static study; X10, narrowed in round 100).
+- **Saves** keep the sets of players 0 to 7 in Enhanced mode (`game/save-load.md`; static study, round 100).
 - **The diplomacy command** (multiplayer; `game/diplomacy.md`): in Enhanced mode it sets the sending player's alliance
   row and its shared-vision set to the values the command carries, in the command turn. The set is written whole,
   the sender's own entry included, so a command can take the sender out of its own set (a mirrored quirk; static

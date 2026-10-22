@@ -49,6 +49,11 @@
 - **Changes:** 2026-10-22, round 97 (second B-040 audit, `ERRATA-audit2-economy.md`, reviewed by a spec-review
   session, 2026-10-22): "The construction pass": P keeps its last value, 12 × (T + 2), after completion, and it is the
   building's repair counter (traced, V72).
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-economy.md` erratum 4 and `ERRATA-round100-traces.md`; reviewed
+  by a spec-review session, 2026-10-22): "The construction pass", step 1: repair changes P too, so a repaired site
+  falls one pass behind per paid run (traced, `economy/repair.md` RP10; vector V73); "Job end": a hall's upgrade to a
+  keep traced (+200 hit points, `economy/repair.md` RP9). New open question on the shown progress when repair has
+  filled a site.
 
 ## Behaviour
 
@@ -277,7 +282,10 @@ points.)
 the timers pass. It visits units in slot order. For each building under construction (not dying or dead) (static
 study):
 
-1. A pass counter P (0 at creation) goes up by 1. Nothing else happens unless P is a multiple of 12. With the
+1. A pass counter P (0 at creation) goes up by 1. Nothing else happens unless P is a multiple of 12. P is also the
+   building's repair counter, so a repair run changes it too: each paid run on a site takes 1 off, which the pass of
+   the same cycle only makes up, so every later step comes one pass later (`economy/repair.md`, "Cost and rate"; traced:
+   V73). With the
    build-speed cheat on, P goes up by 12 instead and the multiple-of-12 test isn't made, so every pass is a step
    (or reaches the total, step 3), whatever P was when the cheat went on (traced: `human06-build-stats-1800`, V65,
    V70).
@@ -460,7 +468,7 @@ old picture returns) (traced: V19).
 | Train | The unit is created next to the building, on the first tile found by the ring search of `movement/placement.md` (limit 12, starting from the tile west of the building's top-left tile), and the ready sound plays (`ui/sounds.md`), with the building's top-left tile as the latest event location (traced: V71). If it can't be placed (no room, or the unit table is full), the player gets a message and a **full refund** | Full refund |
 | Research a spell | The spell becomes known, if its "being researched" bits are still set (`economy/tech-tree.md`) | Full refund, on the same condition |
 | Upgrade | The level in its line goes up by 1, on the same condition | Full refund, on the same condition |
-| Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M), each maximum counted as at least 1, with no clamp on the result (static study; it differs from a clamped reading only for custom unit data). Towers get order 14, which takes over in the same update (animation 4, wait 3) (traced: V34) | Full refund |
+| Building upgrade | The type changes, and the hit points go up by (new type's M − old type's M), each maximum counted as at least 1, with no clamp on the result (static study; it differs from a clamped reading only for custom unit data). Traced for a town hall to a keep: 1,200 → 1,400 (`economy/repair.md` RP9). Towers get order 14, which takes over in the same update (animation 4, wait 3) (traced: V34) | Full refund |
 
 In every case the "units in training" count (for training) goes back down. The completion sounds of finished
 research, upgrades and building upgrades are in `ui/sounds.md` ("Work complete"; traced: V51).
@@ -587,6 +595,7 @@ examples, not quoted from the game data. Rows that begin "Same" follow the row t
 | V68 | `human06-carry-build-1000` (oracle trace, Enhanced): peasant 1586 comes out of the mine carrying gold at n = 333 and builds lumber mill 1519 (created at n = 559, gold 1000 to 400) | The mill completes at n = 709 and the peasant comes out carrying nothing: a return-goods command at n = 720 does nothing (order stays 2), it walks at the empty pace (16 cycles a tile, against 22 on the way in), and gold stays 400 | Trace |
 | V71 | `human06-build-stats-1800`, with a break on the latest-event-location call: barracks 1588 (top-left (88, 5)) finishes a footman, placed at (87, 5), n = 643 | The event location is (88, 5), the building's top-left tile | Trace (break log) |
 | V72 | `orc9-orc09-r97-built-farm-repair-goals-2400` (oracle trace, Enhanced, `goals` extra): pig farm 1473 (type 0x3B, T = 100), placed at n = 138 and damaged while being built | Stored goal x (P) 1 at n = 138, counting up by 1 per cycle; the farm completes at n = 1361 with 367 of 400 HP, P = 1,224, and P stays 1,224 until the farm is repaired (n = 1574) | Trace |
+| V73 | `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (oracle trace, Enhanced, `goals` extra; generated map `R100-tests.pud`): farm site 1583 (type 0x3A, T = 100, M = 400) created at n = 111, repaired by peasant 1586 with runs at n = 156, 181, …, 931 (`economy/repair.md` RP10) | P (the stored goal x) goes up by 1 every cycle except in the 32 run cycles, where it stays; the steps come at P = 12, 24, … as usual. n = 931: 400 HP (by the run), P = 789. n = 934: the step at P = 792 finds the hit points at M and sets P to 1,212. n = 946: completed at P = 1,224 with 400 HP, builder 1587 out | Trace |
 | V53 | `orc09-naval-1500` (oracle trace), n = 468, re-run with a break on the work-complete alert (`oracle/README.md`, "Round 76 traces"): oil platform 1468 completes with tanker 1473 (type 0x1B, owner 5, the local player) inside | The alert runs for tanker 1473 at n = 468, the cycle it takes order 25 (V31) | Trace (break log) |
 
 ### Cancelling construction
@@ -630,6 +639,14 @@ The requirement rules, the setting that turns them off and the research jobs' ef
 Trace requests BT1 to BT5 are listed in `specs/ERRATA-buildtrain-consolidation.md`; BT1, BT2 and BT5 were run in
 round 77 (`specs/ERRATA-round77.md`). Trace requests AB1 to AB5 are listed in `specs/ERRATA-audit-buildtrain.md`.
 
+- **Shown progress when repair has filled a site** (round 100 review, traced fact, cause not studied). In V73 the
+  step at n = 934, which found the hit points already at M (filled by repair) and set P to the total, left the mana
+  byte at **0** and the frame at **0** (the first construction-site frame) for the farm's last 12 passes, until
+  completion. A site that reaches M by construction shows 255 and frame 1 there (`orc9-orc09-carry-chop-goals-1400`,
+  farm 1474: P = 1,212 at n = 1256, mana byte 255, frame 1, until completion at n = 1268). Step 5 as written gives 255.
+  One reading that fits: the step's own share of hit points is added before the clamp of step 4 and the shown
+  progress is worked out from that value (the 66th step's share is 3; 403 × 255 / 400 is 256 as a whole number, which a byte keeps as 0). Default: step 5 as written
+  (255, frame 1). Research request: say what the step does with the hit points when they are already at M.
 - **Food of summoned units.** Whether eyes of Kilrogg and other summoned units count as food in use. Default (static
   study, round 77): the food-exempt types are exactly the skeleton, the daemon and the critter, so an eye of Kilrogg
   counts as food in use like any other non-building unit while it exists, and a summoned skeleton doesn't. Not
@@ -682,3 +699,4 @@ round are kept with the research-side specs.
 | 77 | Traced the cancel commands and the broke arrival: a cancelled site's builder faces the top-left tile with a pending idle; a cancelled job ends at the next work run; the site failure wins on arrival; a worker in a killed depot dies; reviewed | "Placement on arrival"; "Construction"; "Cancelling construction"; "A building killed"; "Cancelling a job"; "Open questions"; vectors V54 to V63 |
 | 77 (audit) | B-040 build and train audit (`ERRATA-audit-buildtrain.md`), static study, reviewed: order at creation; the cheat pass is always a step; a rescued hall sets "ever had a hall"; entering a site forgets the attacker and gives the entry sight; the full site check on arrival; "table full" message; a load the new store doesn't accept is lost; two cancel commands; no clamp on an upgrade's hit-point gain; command-button refresh. The fast first hall per pass and the unit-ready position stay open | "The local player sees it"; "Paying for a building"; "Placement on arrival"; "Construction"; "Completion"; "Cancelling construction"; "A building killed"; "Job end"; "Open questions"; vectors V64 to V69 |
 | 97 (audit) | Second B-040 audit (`ERRATA-audit2-economy.md`), traced: P after completion is 12 × (T + 2), kept, and is the repair counter | "The construction pass"; vector V72 |
+| 100 | Oracle trace (`ERRATA-round100-traces.md`, `ERRATA-audit2-economy.md` erratum 4): repair on a site holds construction back one pass per paid run; hall-to-keep upgrade hit points traced; the shown progress after a repair-filled site held as an open question | "The construction pass", step 1; "Job end"; "Open questions"; vector V73 |

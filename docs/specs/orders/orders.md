@@ -60,6 +60,10 @@
   2026-10-22): the follow row of "Search box" and the mage-type special case are traced (new V286, V287; V285
   relabelled traced). V282's expected result corrected to what "Follow (orders 6 and 7)" already gives (order 6 with
   the picked unit as target, not order 12). No rule change.
+- **Changes:** 2026-10-22, round 100 (oracle trace, `ERRATA-round100-traces.md` erratum 1 and `ERRATA-audit2-orders.md`
+  erratum 4; reviewed by a spec-review session, 2026-10-22): "Search box": a non-computer unit waiting at its
+  transport in board (order 34) searches the react range (human) box when its reaction searches (traced, V288). This
+  **reverses** the round-97 default (attack range) of the open question "Search box of a waiting boarder", now closed.
 
 ## Behaviour
 
@@ -160,7 +164,7 @@ different splits:
 | Rule | Split | Applies how |
 | --- | --- | --- |
 | Smart-move wait cap ("Commands") | Computer players / every other player | 40 cycles / 10 cycles |
-| Search box R ("Automatic target acquisition") | Computer players / every other player | react range (computer) always / react range (human) in a moving order that acquires and in follow (6), else attack range |
+| Search box R ("Automatic target acquisition") | Computer players / every other player | react range (computer) always / react range (human) in a moving order that acquires, in follow (6) and waiting in board (34), else attack range |
 | Resulting-order table | Computer players / every other player | the "computer player" column / the "every other player" column |
 | Fleeing, rules 2 and 3 | Computer players / every other player | rule 2 / rule 3 |
 | Friendly-fire threshold | Human-controlled / not human-controlled | 1 own unit / 3 own units |
@@ -949,17 +953,18 @@ one.
 | Unit | R |
 | --- | --- |
 | A computer player's unit | Its type's **react range (computer)** from the unit data |
-| Every other player's unit, in a moving order that acquires (4, 5, 12, and in Enhanced mode 10), or in follow (6) | Its type's **react range (human)** |
+| Every other player's unit, in a moving order that acquires (4, 5, 12, and in Enhanced mode 10), in follow (6), or waiting at its transport in board (34) | Its type's **react range (human)** |
 | **Classic mode:** every other player's unit in attack-move (10), when its walk reacts ("Walking orders", step 1) | Its type's **react range (human)** |
 | Every other player's unit, in any other order (including idle units, guard (7), stand ground (13), the attack-in-place orders (15, 16) and a docked transport (32)) | Its **attack range** |
 
-Follow (6) searches only from the reaction to an attacker ("Reacting to an attacker", "Walking orders react only when
-the walk has ended"), so the follow row matters only there. In the default data the difference is large for melee
+Follow (6) and board (34) search only from the reaction to an attacker ("Reacting to an attacker", "Walking orders
+react only when the walk has ended"; for order 34, `orders/transports.md`, "Boarding", step 5), so the row matters for
+them only there. In the default data the difference is large for melee
 units: a footman's or grunt's attack range is 1 and its react range (human) 4. Since the attacker seeds the search, the
 box matters for a candidate that outscores the attacker, or when the attacker gives no seed (one the follower can't
-hit, or one its owner doesn't detect). The follow row is traced (round 99, V286: a grunt at the box's edge, 4 tiles away, taken). The Classic attack-move row is static study (round 97). Which box a
-combat unit waiting at its transport in order 34 uses when its reaction searches wasn't settled (open question
-"Search box of a waiting boarder").
+hit, or one its owner doesn't detect). The follow row is traced (round 99, V286: a grunt at the box's edge, 4 tiles away, taken). The Classic attack-move row is static study (round 97). The board row is
+traced (round 100, V288: a footman waiting by a full docked transport takes a grunt 3 tiles away, beyond its attack
+range of 1); it replaces the round-97 default, the attack range.
 
 A tower's box reaches 1 tile further on the right and bottom sides. A candidate is considered if any tile of its
 footprint is inside the box.
@@ -1649,6 +1654,7 @@ row's trace starts "As" that row's ID and names the trace.
 | V282 | A human player's footman (react range (human) 4, attack range 1) following an own peasant (order 6), stopped next to it. An enemy dragon attacks the footman; an enemy grunt stands idle 3 tiles away, visible (static study, round 97) | At the footman's next logic run the reaction's search (box radius 4; the dragon gives no seed, the footman can't hit air) finds the grunt, and the attack command makes it the target (order 12 pending). The follow steps then run on the grunt ("Follow (orders 6 and 7)"): it is outside the radius, so the follow is given toward it: order 6, still animation, wait 3, target the grunt, and the footman walks next to it. With an attack-range box (radius 1) it would find nothing and keep following the peasant. (Review, round 99: the expected result said "order 12 on the grunt"; V286's trace and the follow rules give order 6 with the grunt as target) | Static study |
 | V283 | As V282, the grunt 5 tiles away | Nothing found; the footman keeps following the peasant | Static study |
 | V286 | `mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400` (oracle trace, Enhanced, generated map `R99-tests.pud`, `oracle/test-maps.md`): footman 1593 (owner 0, human player) follows its own flying machine 1594 (order 6 from n = 52), which patrols between (44, 8) and (56, 8). Dragon 1595 (owner 1) attacks the footman (order 16 on it from n = 136); its breath hits the footman at (49, 8) at n = 198 (59 to 51 HP; a splash of the same breath had taken 1 HP at n = 178 while the footman walked, with no reaction then: "Walking orders react only when the walk has ended"). Grunt 1592 (owner 1) stands idle at (50, 12), 4 tiles away (the box's edge) | n = 199, the footman's first logic run after its walk step ends: order 6, still animation, wait 3, target 1592 (the dragon gives no seed; an attack-range box would find nothing). n = 202 to 234: it walks to (51, 11), next to the grunt; the grunt takes it at n = 238 (order 16). n = 250: inside the radius, and the grunt's order 16 isn't one of 2, 3, 4, 5, 6, 7 or 10, so idle takes over: order 2, target null, wait 3. n = 253: its idle logic flees the dragon it can't hit (order 3, no target) | Trace (`mp-r99-tests-…-5400`) |
+| V288 | `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (oracle trace, Enhanced, generated map `R100-tests.pud`, `oracle/test-maps.md`): footman 1592 (owner 0, a human player; react range (human) 4, attack range 1) is given a smart move onto its own transport 1599 (order 34 from n = 628), which is docked (order 32) at (42, 51) with all six slots taken. Dragon 1584 (owner 1) attacks it on its walk (order 16 on it from n = 683; hits at n = 725 and 745, 60 to 47 HP) and goes idle at n = 900. The footman enters (41, 50), next to the transport, at n = 887, still in order 34. Grunt 1585 (owner 1) stands idle at (41, 47), 3 tiles away | n = 903, the footman's first logic run after its walk ends (it can't board: the transport is full): order 12, target 1585, goal (41, 47), wait 3 (the dragon gives no seed: a footman can't hit air). It walks to (40, 48); the grunt takes it at n = 927 (order 16). With an attack-range box (radius 1) it would find nothing and keep waiting in order 34 | Trace (`mp-r100-tests-…-3000`) |
 | V284 | **Classic mode** only: a human player's footman on attack-move (order 10), walking; an enemy dragon attacks it; an enemy grunt stands idle 3 tiles away, visible (static study, round 97) | At the next step boundary the walk's reaction searches with box radius 4 and finds the grunt: order 12 on it. (Enhanced mode is unchanged: attack-move acquires there, with the same box) | Static study (Classic mode) |
 
 ### Acquisition: resulting order and target switches
@@ -1879,10 +1885,8 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   that setup can't separate the readings, because orders 3, 4 and 10 forget the attacker on arrival anyway. A
   separating trace needs a walking order that keeps its attacker at the walk's end: a walk that ends with no route,
   or orders 6, 23, 24 or 27, whose attacker goes inside or turns invisible while the unit walks.
-- **Search box of a waiting boarder** (round 97 review). A combat unit in order 34 that has reached its transport,
-  can't board and keeps waiting runs the reaction ("Walking orders react only when the walk has ended"), whose search
-  is a combat unit's target search. The round-97 study gives the react range (human) box to orders 4, 5, 6, 12 and
-  10 and doesn't say whether order 34 is among them. Default: the attack range ("any other order"), until traced.
+- **Search box of a waiting boarder** (round 97 review): **closed in round 100.** A non-computer unit waiting in
+  order 34 searches the react range (human) box (traced, V288). The round-97 default (the attack range) is withdrawn.
 - **Invisible units acquire nothing.** "Reacting to an attacker", step 3, says an invisible mage-type unit does
   nothing more in a run after the attacker check. The static study finds the same for every invisible unit that isn't
   a worker or tanker, in the order's logic and in the walk: after step 1 it makes no target search and no reaction. No
@@ -2043,3 +2047,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 82 | Review addition from the AI consolidation trace: patrol (order 5) arrives at a patrol end before the target search (traced, V281; open question closed); the computer job-choice pointers name order 2, other acquiring orders held open | "Arriving and losing the target"; "Automatic target acquisition"; "Reacting to an attacker", step 3; vector V281 |
 | 97 | Second B-040 audit, static study: the react range (human) box covers follow (6) and, in Classic mode, attack-move's walk reaction; a mage-type unit is a target a mage-type searcher may take. Review: the box of a waiting boarder (order 34) is an open question | "Automatic target acquisition" ("Search box", "Special cases"); "Open questions"; vectors V282 to V285 |
 | 99 | Oracle trace on a generated map: the follow row of the search box and the mage-type special case traced; V282's expected order corrected to the follow rules (no rule change) | "Search box"; "Special cases"; vectors V282, V285 to V287 |
+| 100 | Oracle trace on a generated map with a sea: a non-computer unit waiting in board (34) searches the react range (human) box (reverses the round-97 default, the attack range); open question closed | "Search box"; "Open questions"; vector V288 |

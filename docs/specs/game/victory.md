@@ -40,6 +40,8 @@
 - **Changes:** 2026-10-22, round 99 (`ERRATA-audit2-net.md` erratum 3; reviewed by a spec-review session,
   2026-10-22): the allied-victory setting's source is the player's own diplomacy command (`game/diplomacy.md`; static
   study); open question closed. No rule change.
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100"; reviewed by a spec-review session,
+  2026-10-22): the setting's start value is off (`game/diplomacy.md` DP9; static study). No rule change.
 
 ## Behaviour
 
@@ -164,7 +166,7 @@ Consequences worth testing:
 4. If any **computer** player is in, **no result**.
 5. If exactly one human player is in (L), **victory**.
 6. If several human players are in: every one of them must have the allied-victory setting on (each player's own,
-   set by its diplomacy command: `game/diplomacy.md`), and each pair of them must be allied both ways (the test also
+   off at the start and set by its diplomacy command: `game/diplomacy.md`), and each pair of them must be allied both ways (the test also
    takes each player paired with itself, which game setup makes allied, `game/setup.md`, and a diplomacy command can
    clear). Otherwise **no result**. If they are, **victory** for all.
 7. **Victory:** in a **Battle.net game only**, if no slot that wasn't empty at the start has the "dropped" or "defeat"
@@ -376,7 +378,7 @@ shipped case is traced).
   (static study, round 88, X12; a load restores the saved counts).
 - The allied-victory setting's source: closed in round 99. Each player's setting is set and cleared by its own
   diplomacy command, in both rule sets (`game/diplomacy.md`; static study, `ERRATA-audit2-net.md` erratum 3). Its
-  start value is open there (default: off).
+  start value is off (round 100, static study; a Battle.net team game's "on" isn't mirrored).
 - Whether passive and rescue players' units should block destroy-all victory in custom scenarios (they do in the
   program, by the rule above).
 - The mission-start conversions name only the human peasant and knight types. Whether a map gives those players orc

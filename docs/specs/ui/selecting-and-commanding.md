@@ -18,6 +18,8 @@
   round-70 changes reviewed by a spec-review session, 2026-10-15.
 - **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
   2026-10-21): Ctrl/Alt+Q in a chat-room multiplayer game opens the quit-to-menu confirmation (traced), not surrender.
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, reviewed by a spec-review session, 2026-10-22): the speed
+  keys send the speed to set, one step from the speed the game is at (`net/lockstep.md`, "Speed"; static study).
 
 ## Behaviour
 
@@ -361,7 +363,7 @@ These keys act in the game screen. While a chat line is being typed, the digit k
 
 | Key | Effect |
 | --- | --- |
-| + or =, − or _ | Game speed one step up or down (a synced command). Levels 0 to 6 under Classic rules, 0 to 8 under Enhanced rules. Does nothing in Enhanced multiplayer |
+| + or =, − or _ | Game speed one step up or down (a synced command that carries the new speed, worked out from the speed the game is at when the key is pressed: `net/lockstep.md`, "Speed"). Levels 0 to 6 under Classic rules, 0 to 8 under Enhanced rules. Does nothing in Enhanced multiplayer |
 | Digit, Ctrl+digit, Alt+digit | Control groups (above) |
 | Ctrl/Alt+C | Centre the view on the primary unit, if it is the local player's own or isn't invisible (the same rule as clicking the single unit's icon in `ui/info-panel.md`) |
 | Ctrl+D, F7 | Sound options dialog |

@@ -3,13 +3,20 @@
 - **Status:** approved (Reviewed-by: spec-review session, 2026-10-22, round 99). Drafted from
   `ERRATA-audit2-net.md` errata 1 to 3; the review's rulings are in that file's "Review".
 - **Sources:** static study of the 2.02 program: the command's dispatch, its Enhanced and Classic-mode effects, the
-  display rebuild after it and a second place that applies the Enhanced form (research notes, round 99). **No trace**:
+  display rebuild after it and a second place that applies the Enhanced form (research notes, round 99); the
+  game-start setup of the settings, the save and load of them and the second place's purpose (round 100). **No trace**:
   changing an alliance needs the in-game diplomacy screen, which the oracle's multiplayer driver doesn't press yet.
   Every rule here is static study unless it says otherwise.
 - **Rules mode:** every rule is Enhanced unless it says **Classic mode**. The Classic-mode rules are static study and
   change no Enhanced rule.
 - **Changes:** 2026-10-22: first version (round 99, B-040 second audit; fills the "Diplomacy (alliance) changes" gap
   of `net/lockstep.md`).
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100", answers 1 to 5; reviewed by a spec-review
+  session, 2026-10-22; static study): allied victory starts off for every player (DP9); the shared-vision sets and
+  allied-victory settings are saved and restored (DP11); the "second place" is the Battle.net layer, not recorded
+  commands, so nothing changes. The Battle.net team-game start (DP10), the Battle.net computer-alliance settings and
+  the greyed allied-victory box are recorded under "Battle.net games", **Battle.net only, not mirrored**. Open
+  questions "Allied victory at the start", "Saves" and "Recorded commands" closed.
 
 ## Behaviour
 
@@ -22,7 +29,7 @@ rules of `net/leave-and-drop.md` for shared vision):
 | --- | --- | --- |
 | **Alliance row:** for each slot 0 to 15, whether this player counts that slot as allied. The table is directional: player a's row says how a treats b, not how b treats a | `game/setup.md`, "Starting alliances and shared vision" | `game/setup.md` |
 | **Shared-vision set:** the players this player shares its vision with | `vision/fog.md`, "Shared vision" | `game/setup.md` |
-| **Allied-victory setting:** on or off | `game/victory.md`, "The multiplayer rule", step 6 | Not studied (open question "Allied victory at the start"; default: off) |
+| **Allied-victory setting:** on or off | `game/victory.md`, "The multiplayer rule", step 6 | `game/setup.md`: **off** for every player at every new game (static study, round 100; DP9). A Battle.net team game is the only exception ("Battle.net games", not mirrored) |
 
 Every rule that tests an alliance reads the alliance row as it stands at that moment, so a change is seen by the next
 test made after the command, in the same turn included.
@@ -98,20 +105,37 @@ allied with itself after a diplomacy command (no assertion, no repair).
 - **Leaving and dropping.** A leave doesn't change the alliance table (`net/leave-and-drop.md`); it removes the leaver
   from every shared-vision set and makes its own set just itself (`vision/fog.md`), which may put back a player that a
   diplomacy command had taken out of its own set. A player who has left sends no more commands.
-- **Team games.** Team-mates' starting alliances and shared vision come from setup (`game/setup.md`); a diplomacy
-  command can change them later like any other.
+- **Team games.** Only a Battle.net team game starts team-mates allied, in each other's shared-vision sets and with
+  allied victory on ("Battle.net games"; not mirrored). Every game Tidewater offers starts as `game/setup.md` says,
+  and a diplomacy command can change any of it later.
 - **Sync (Tidewater).** The alliance rows, the shared-vision sets and the allied-victory settings are lockstep state,
   part of Tidewater's turn digest (`net/lockstep.md`, "Sync check"). The colour table of step 4 is local and isn't.
-- **Saves.** The alliance table is saved in Enhanced mode (`game/save-load.md`). Whether the shared-vision sets and the
-  allied-victory settings are saved wasn't studied (open question "Saves").
+- **Saves.** A saved game keeps all three settings (`game/save-load.md`, "What a saved game keeps"; static study,
+  round 100; DP11): the alliance table and the shared-vision sets of players 0 to 7 in Enhanced mode (Classic mode
+  never changes the sets during play), and each player's allied-victory setting in both rule sets. A load restores
+  them as saved.
 - **Network commands.** The original's packet layout is out of scope (`net/lockstep.md`, "Scope"): Tidewater carries
   the command in its own wire protocol as one more command kind with the four fields above, and records it in replays
   like any other command. The lobby and the multiplayer menus need nothing new: the diplomacy screen is opened from the
   in-game menu (`ui/game-setup-lobby.md` names its dialog, "CHOOSE YOUR ALLIES", an 8-line list ending with "Allied
   Victory"; its layout is a later UI spec).
-- **Recorded commands.** The original has a second place that applies the Enhanced form of this command, apparently
-  when recorded commands are played back (static study; the purpose is inferred, not traced). See the open question
-  "Recorded commands".
+- **The Battle.net layer.** The second place that applies the Enhanced form of this command is the Battle.net
+  layer's own command handling (`net/lockstep.md`, "Network layers by game type"; static study, round 100), not a
+  playback of recorded commands. Battle.net games are Enhanced only, so it never meets a Classic game: DP3 stands, and
+  Tidewater, which has no Battle.net layer, applies the form of the game's own rules mode everywhere.
+
+### Battle.net games (Battle.net only; not mirrored)
+
+Recorded for completeness from static study (round 100). Tidewater has no Battle.net layer (`net/lockstep.md`,
+"Tidewater slots"), so none of this applies to it, and none of it is a Tidewater test:
+
+- **A Battle.net team game** (a game type chosen when the game is created) starts differently: for slots 0 to 7,
+  after the rescue-slot exceptions of `game/setup.md`, two slots are allied exactly when they are on the same team,
+  team-mates are added to each other's shared-vision sets, and allied victory is **on** for every player (DP10).
+- **Computer players** in a Battle.net game are allied with each other only if the game's settings allow it (two
+  creation settings decide; not identified). In every other game they are allied, as `game/setup.md` says.
+- **The diplomacy screen's allied-victory box** shows the local player's own setting. It is greyed out in a Battle.net
+  game whose settings forbid computer alliances (the same test), and never otherwise.
 
 ## Data
 
@@ -138,20 +162,22 @@ and the command is sent by the player it names.
 | DP6 | Humans 0 and 1 are the only players in; player 0 sends allied with 0 and 1, allied victory on; player 1 hasn't sent anything (not allied with 0, allied victory off) | The victory check gives no result. After player 1 sends allied with 0 and 1 with allied victory on, the next check gives victory to both (`game/victory.md`, "The multiplayer rule", step 6) |
 | DP7 | As DP6, but before the check that follows player 1's command, player 0 sends a second command with its own entry 0 (not allied with itself), still allied with 1, allied victory on | That check gives no result (the self pairing fails) |
 | DP8 | Player 1 sends allied with 0 while its row toward the neutral slot 15 is allied | The entry toward 15 stays allied: slots 8 to 15 are never written |
+| DP9 | Any new game: single player, or a multiplayer game over Direct IP or Local Network (round 100) | Allied victory off for every player at the start |
+| DP10 | **Battle.net only; not mirrored, not a Tidewater test.** A Battle.net team game, slots 0 and 2 on team 1, slots 1 and 3 on team 2, all human (round 100) | 0 and 2 allied both ways and in each other's shared-vision sets; likewise 1 and 3; 0 and 1 not allied; allied victory on for all |
+| DP11 | Enhanced single player: player 1's vision set is {1, 2} and player 0's allied victory is on (for example after diplomacy commands, or set up by a test); save, then load (round 100) | The same set and setting after the load; the alliance table as saved |
 
 ## Open questions
 
-- **Allied victory at the start.** The setting's start value wasn't read (game setup is one of its users not studied
-  in round 99). Default: off for every player at every game start. Trace request DIP1 below would show it.
-- **Saves.** Whether the shared-vision sets and allied-victory settings are saved and restored. Default: they are
-  restored as saved, like the alliance table (no multiplayer save can be captured by the oracle yet).
+- **Allied victory at the start:** closed in round 100 (static study): off for every player (DP9); the Battle.net
+  team-game exception isn't mirrored.
+- **Saves:** closed in round 100 (static study): saved and restored (DP11). Untraced: no save with a changed set or
+  setting has been captured (it needs DIP1's driver, or a test-only setup).
 - **An own alliance entry of 0.** The command can write it (above), and the victory test reads it. Whether every other
   reader (target searches, the colour table) tests the table for a unit of the player's own, or checks the owner
   first, wasn't studied. Default: every reader reads the table as written. Only a command from another program can
   send it, since Tidewater's screen never does.
-- **Recorded commands.** The second place that applies the Enhanced form would, if it is the recorded-command
-  playback, apply it in a Classic-mode recording too. Not mirrored until traced: Tidewater applies the form of the
-  game's own rules mode everywhere.
+- **Recorded commands:** closed in round 100. The second place is the Battle.net layer (Enhanced only), not a
+  playback; nothing to mirror ("The Battle.net layer" above).
 - **The diplomacy screen** (which lines it shows, whether it can send a set without its sender, whether a vision box
   exists for each line) is a later UI spec.
 - **Trace request DIP1** (multiplayer driver, M track): open the diplomacy screen on the traced player, ally with the

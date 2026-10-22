@@ -14,6 +14,10 @@
 - **Changes:** 2026-10-22, round 99 (`ERRATA-audit2-net.md`; reviewed by a spec-review session, 2026-10-22): the
   diplomacy command is specified in `game/diplomacy.md` (static study), and Tidewater's digest names the shared-vision
   sets and allied-victory settings explicitly (player state; a design choice, not the original's check).
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100"; reviewed by a spec-review session,
+  2026-10-22): "Speed": the speed command carries the speed to set, not a step, and a value above the top speed is
+  ignored (static study; NC1, NC2). The Battle.net layer's own command checks are recorded, labelled Battle.net only
+  and not mirrored. New open question on two worker commands.
 - **Sources:** static study of the 2.02 program for both network layers (research notes under `research/notes/`), the
   dialog files `rez\timeout.bin`, `rez\btimeout.bin` and `NetDlg.bin`, and the tables `Rez\connect.tbl` and
   `Rez\network.tbl`. One oracle run confirms the turn spacing of an Enhanced Direct Connect game at speed 8
@@ -238,6 +242,16 @@ state with the generator and cycle counter, and one map row at a time, checked a
 mismatch the player is marked bad. Then the majority decides: if the local player is outnumbered it leaves the game;
 otherwise it drops the mismatched players. The outcome goes into the Battle.net game report.
 
+**Battle.net layer: command checks (static study; Battle.net only, not mirrored).** Recorded so that a future
+Battle.net-compatible mode knows them; Tidewater has no Battle.net layer and follows the peer layer's checks
+everywhere. On the Battle.net layer: a selection of 10 or more units is ignored whole (the peer layer keeps the first
+9); duplicates, units inside something and units in orders 22, 25 or 26 (current or pending) are left out, and after
+the first unit only the sender's units that can be group-selected are taken; cancelling construction is also refused
+for a dying building or one inside something; a save is carried out only when the lowest-numbered player still in
+sends it; speed commands are ignored when more than one human plays (as "Speed" says, the speed is fixed there); each
+player's turn must hold exactly one turn marker, or the player is dropped as out of sync; the diplomacy command always
+takes its Enhanced form (Battle.net games are Enhanced only, `game/diplomacy.md`).
+
 ### Pause and speed
 
 **Pause (static study).** The pause rules are in `ui/game-menu.md`, "Pause". New here: pause and resume are turn
@@ -252,6 +266,13 @@ key is pressed. Any player can resume. Turns keep running during a pause (see "P
 - Classic mode and single player: the speed dialog and keys send a speed command, from any player. The dialog puts the
   local speed back until the command is carried out in a turn, which then changes the speed for every player. The
   change resets the deadline (`core/timing-and-rng.md`, rule 3).
+- **The command carries the speed to set**, not a step (round 100, static study). The + and − keys send the speed
+  the sender's game is at when the key is pressed, one higher or one lower (kept within 0 to the top speed); the
+  dialog sends its slider's value. When carried out, the speed becomes that value. A value above the top speed (8
+  under Enhanced rules, 6 in Classic mode) is ignored. So two commands sent from the same speed set the same value:
+  two presses of + before the first one is carried out make one step, not two, and two players who press + in the
+  same turn in a Classic mode game make one step. Tidewater's wire protocol and replays carry the value (its own
+  format).
 
 ### Other turn content
 
@@ -362,6 +383,8 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
 | A peer stops sending for 12 s, Direct Connect (round 91, **traced**: `mp-dark-paths-bne-mp-stall-game-300`) | The watch at about 3 s, the waiting dialog naming the player at about 8 s; the dialog closes by itself when turns resume; nobody dropped |
 | Two players' sync bytes differ, `allowsync` on | Network entry 83 for every player; the game continues |
 | Paused game over Direct Connect, row 4, speed 8 | Turns still every 12 cycle slots; a resume command takes effect at a turn |
+| NC1: Enhanced single player at speed 4; the + key is pressed twice before the turn that carries the first press (static study) | Both commands carry 5: speed 5 after both are carried out (a step reading would give 6) |
+| NC2: Enhanced; a speed command carrying 9 (static study) | Ignored: the speed doesn't change. Classic mode: a command carrying 7 is ignored |
 
 ## Open questions
 
@@ -385,4 +408,9 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
   chat line and can't turn the mode on, and a generator difference still drops the player. The mode can only be
   reached where cheats are allowed (a Classic mode lobby that allows them, or the word as a program argument,
   `game/cheats.md`); MP-L5b stays open for that, low priority.
+- **Two worker commands** (round 100). The peer layer carries two more commands, each of which changes two per-unit
+  marks on the sender's selected workers that are in a particular state; a build command first applies the second of
+  them to the selection. What the marks change in play wasn't found, and no reviewed spec reads them. Tidewater has
+  neither command and gives the marks no meaning. Default: nothing (no behaviour specified). Research request: find
+  what reads the marks; if any gameplay rule does, a build command changes it too.
 - **Network entry 134.** "SYNC ERROR." has no known use. Default: not shown.

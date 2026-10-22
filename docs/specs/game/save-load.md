@@ -55,6 +55,9 @@
   a load is stated as a rule, not an aside (no rule change; static study), with the static vector SL33.
 - **Changes:** 2026-10-22, round 99 (oracle trace, `ERRATA-round99-traces.md`; reviewed by a spec-review session,
   2026-10-22): the dead body's goal after a load is traced (SL33 replaced by the trace's six bodies). No rule change.
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100", answer 4; reviewed by a spec-review session,
+  2026-10-22): a saved game keeps each player's allied-victory setting (both rule sets) and the shared-vision sets of
+  players 0 to 7 (Enhanced only) (static study; `game/diplomacy.md` DP11).
 
 ## Behaviour
 
@@ -232,6 +235,8 @@ lists, including:
   to submarines is traced; held map-placed ships are never counted, in the saved count or again at the load;
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
+- each player's allied-victory setting (both rule sets), and the shared-vision sets of players 0 to 7 (Enhanced only;
+  Classic mode never changes them during play) (`game/diplomacy.md`, DP11; static study, round 100);
 - the game clock (Enhanced only). The cycle count is written but not kept: see "What a loaded game starts afresh";
 - each player's pause count (Enhanced only);
 - each player's score counters (Enhanced only);

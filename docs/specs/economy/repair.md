@@ -16,6 +16,10 @@
   2026-10-22, round 98 (`ERRATA-round98-traces.md`, reviewed by a spec-review session, 2026-10-22): the transport
   row is traced (RP8: 20 repair runs, each paid, the goal x 110 to 90); a docked transport isn't moved by the changed
   goal. Open question "Repairing a transport" closed.
+  2026-10-22, round 100 (`ERRATA-round100-traces.md` and `ERRATA-audit2-economy.md` erratum 4, reviewed by a
+  spec-review session, 2026-10-22): repair on a building still under construction holds construction back one pass
+  per paid run (traced, RP10; it follows from the counter being P); the hall-to-keep upgrade row is traced (RP9).
+  New open question on a run in the cycle right after a construction step.
 
 ## Behaviour
 
@@ -96,7 +100,25 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
   players' barracks (2,424) and orc guard towers in `xhuman9-aigoals-goals-8630-8830`. The two guard towers (slots
   1400 and 1430) were built as scout towers and upgraded at n = 4682 and 4209 (`xhuman9-10000`); both still hold 744,
   the scout tower's value. The barracks in slot 1408 ran eight training jobs and still holds 2,424. A hall upgrade is
-  the same kind of job and isn't traced; it is taken to behave the same.
+  the same kind of job, traced in round 100 (RP9): a map-placed town hall repaired during its upgrade to a keep keeps
+  the alternating counter of a map-placed building (1, 0, 1, 0), the counter is 0 when the upgrade ends, and the keep
+  goes on with the same alternation. (The counter happened to be 0 at the upgrade's end, so the trace doesn't
+  separate "kept" from "set to 0" for the hall; the guard towers above show a nonzero value kept.)
+- **On a building still under construction** (round 100, traced: RP10). The counter is then the live pass counter P
+  of "The construction pass" (`economy/build-train.md`), which goes up by 1 every cycle. A run adds 1 to P and, as P
+  is 2 or more after the first pass, takes 2 off and is paid. Repair runs in the units phase, before the construction
+  pass of the same cycle (`core/timing-and-rng.md`, phase 4), so over that cycle P doesn't move: the pass's +1 only
+  makes up the run's net −1. So:
+  - every paid run delays every later construction step, and so the site's own hit-point gains and its completion, by
+    one cycle (one pass);
+  - every run is paid, at 1 gold and 1 lumber per 4 hit points, as for a building completed by construction;
+  - the repair's own hit points can fill the site before construction does. The next construction step then finds
+    the hit points at the maximum and sets P to the total 12 × (T + 1) ("The construction pass", step 4), and the
+    building completes 12 passes later, as a site that reaches its maximum by construction does;
+  - a run that comes when P is 1 short of a multiple of 12 moves that cycle's step to the next cycle (static study:
+    it follows from the rule; no trace has it). A run that comes in the cycle right after a step brings P back to that
+    same multiple of 12 at the cycle's pass: whether that is a second step is an open question ("A run right after a
+    construction step").
 - **So the cost depends on the target.** A building **completed by construction** starts far above 2: each paid run
   takes 1 off (the +1 then −2), so it pays on **every** run until the counter is below 2, which takes over 1,200 runs
   for a farm (about 4,800 hit points of repair, more than any default building's maximum): in practice **1 gold and
@@ -123,7 +145,7 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
 | Item | Value |
 | --- | --- |
 | Hit points per run | 4 |
-| Runs per payment | By the target's repair counter: 1 for a building completed by construction, 2 for one placed by the map, 1 for a transport whose goal x is 2 or more |
+| Runs per payment | By the target's repair counter: 1 for a building completed by construction or still under construction, 2 for one placed by the map, 1 for a transport whose goal x is 2 or more |
 | Payment | 1 gold, 1 lumber |
 | Run interval (worker attack loop) | 25 cycles; haste 10; slow 49 |
 | Arrival radius | 1 tile |
@@ -153,6 +175,8 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
 | **RP5** A farm completed while the build-speed cheat was on, P's last value 1,213 (static study) | Pays on every run until the counter is below 2 |
 | **RP6** A worker repairing a damaged building when its player's lumber reaches 0 (any gold) (static study) | At its next run: the lumber message (local player) and the pending idle of step 4 (order 2, still animation, wait 3 with nothing to resume); a remembered patrol or attack-move is resumed (Enhanced) |
 | **RP7** A peasant given repair on an own footman that is walking away (static study) | Order 3 with the footman as its target; each walk heads for the footman's tile at that moment (`movement/pathfinding.md`, "Step 1"); it ends as any order 3 with a target unit |
+| **RP9** (traced: `mp-r100-tests-mp-r100-tests-fixed-goals-3000`, Enhanced, generated map `R100-tests.pud`, `oracle/test-maps.md`; scenario `oracle/scenarios/mp-r100-tests.txt`): map-placed town hall 1591 (counter 0) of player 0, damaged by ballista 1589 to 1,067 of 1,200 HP, starts its upgrade to a keep at n = 102 (order 37); peasant 1588 is told to repair it at n = 520 and is in order 27 from n = 558 | Runs every 25 cycles from n = 577, +4 HP each; the counter goes 1, 0, 1, 0 (n = 577 no payment, n = 602 pays 1 gold and 1 lumber, and so on), during the upgrade; the hall is full (1,200, the last run adding 1) at n = 1402 and the peasant idle at n = 1427. n = 2115: the upgrade ends: type keep, 1,200 → 1,400 HP (+200), order 33, counter 0. The ballista brings the keep to 1,315 HP; repair from n = 2478: counter 1 (no payment), n = 2503 counter 0 and paid, every second run paid; 1,399 HP at n = 2978 |
+| **RP10** (traced: the same trace): peasant 1587 starts farm 1583 (type 0x3A, T = 100, M = 400) at (28, 20) at n = 111 (P = 1, 40 HP); peasant 1586 is told to repair it at n = 100 and is in order 27 on it from n = 137. Player 0 has 10,000 gold and 10,000 lumber | Runs at n = 156, 181, …, 931 (every 25 cycles, 32 runs): each adds 4 HP (the last, 398 to 400, adds 2), pays 1 gold and 1 lumber, and leaves P where it was the cycle before (P = 45 at n = 155 and 156; in general P = n − 110 − the runs so far). Construction steps at P = 12, 24, …, as usual. n = 931: 400 HP, P = 789 (821 without the runs). n = 934 (P = 792, a step): P = 1,212. n = 946: completed, P = 1,224, builder 1587 out (order 2). n = 956: peasant 1586 finds the farm full: order 2, still animation, wait 3 |
 | **RP8** (traced: `xhuman6-xhuman06-r98-transport-repair-goals-2500`, Enhanced; scenario `oracle/scenarios/xhuman06-r98-transport-repair.txt`): destroyer 1564 attacks own transport 1572 from n = 5 to 300 (150 to 71 HP); the transport is moved to coast tile (110, 8), next to land at (110, 7), and is docked (order 32) from n = 399 with goal (110, 8); peasant 1594 is told to repair it at n = 600. Player 1 has 5,000 gold and 2,800 lumber | Order 27 from n = 607; the peasant reaches (111, 7) at n = 674. Runs at n = 690, 715, …, 1165 (20 runs, every 25 cycles): each adds 4 HP (the last, 147 to 150, adds 3), lowers the goal x by 1 and pays 1 gold and 1 lumber. At n = 1165: 150 HP, goal (90, 8), 4,980 gold, 2,780 lumber; `transport_dest` stays (110, 8) throughout. n = 1190: the peasant is idle (order 2). The transport stays at (110, 8) in order 32 to n = 2500 |
 
 ## Open questions
@@ -160,10 +184,17 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
 - Whether custom unit data in a map (which can set flag bit 10 on other types) is meant to make them repairable; the
   rule above follows the flag, whatever the type.
 - Whether the player's interface offers repair on a building still under construction. The order's logic itself
-  doesn't refuse it.
+  doesn't refuse it, and a repair command on a site is carried out (traced, round 100: RP10, a scripted command).
 - **Repairing a transport** (round 97): **closed in round 98.** The counter is the transport's stored goal x (traced,
   RP8), and a docked transport isn't moved by the change (traced). That the next command overwrites the goal is
   static study.
+- **A run right after a construction step** (round 100 review). A run in the cycle after a step takes P from the
+  step's multiple of 12 to one below it, and that cycle's pass brings it back to the same multiple, so the pass test
+  of "The construction pass", step 1, holds again. As written, that is a second step at the same P (one more share of
+  the hit points, and the shown progress worked out again). The round-100 study reads "a step is never made twice at
+  the same P", but doesn't say what stops it. No trace has such a run (RP10's runs all came 3 passes before a step).
+  Default: the construction pass as written (a second step). Trace request RA4 (economy): shift RP10's repair start so
+  that a run lands one cycle after a step.
 - **The build-speed cheat's last value** (round 97). RP5 is static study: with the cheat on, P goes up by 12 per pass
   from whatever it was, so its last value can be any number. Default as stated.
 - Whether the maximum hit points used here include armour or health upgrades.

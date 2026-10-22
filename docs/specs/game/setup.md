@@ -33,6 +33,9 @@
   local player is the only one, so nothing changes there.
 - **Changes:** 2026-10-21, round 92 review (`ERRATA-round92-traces.md`, item 2a): "Other owner codes" points at the
   visibility consequences now stated in `vision/fog.md` and says the rule covers map codes only. No rule change.
+- **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100", answers 2 and 3; reviewed by a spec-review
+  session, 2026-10-22; static study): allied victory starts off for every player; the team-game rule of "Starting
+  alliances and shared vision" is a Battle.net team game's, labelled **Battle.net only, not mirrored**.
 
 ## Behaviour
 
@@ -221,9 +224,14 @@ GT5). Passive computer
 players and nobody slots are allied with no one but rescue (passive) slots, neutral and themselves. The mission start
 (`game/victory.md`) may change some entries afterwards.
 
-Each slot from 0 to 7 starts with a shared-vision set holding only itself (`vision/fog.md`). **Multiplayer:** in a
-team game, team-mates are then added to each other's sets (static study; the lobby and its teams are a later spec;
-`vision/fog.md`, "Shared vision").
+Each slot from 0 to 7 starts with a shared-vision set holding only itself (`vision/fog.md`), and every player starts
+with allied victory **off** (`game/diplomacy.md`, DP9; static study, round 100).
+
+**Battle.net only (not mirrored):** a Battle.net team game (a game type chosen when the game is created) then makes
+team-mates among slots 0 to 7 allied, adds them to each other's sets and turns allied victory on for every player;
+and a Battle.net game's settings can stop computer players from being allied with each other (`game/diplomacy.md`,
+"Battle.net games"; static study, round 100). Tidewater has no Battle.net layer and no team game type, so its games
+start as above.
 
 ### Creating the map's units
 
