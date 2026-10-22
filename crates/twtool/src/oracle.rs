@@ -2032,12 +2032,9 @@ fn game_state(w: &World) -> GameState {
     GameState([
         Cell::Int(w.cheats.used as i64),
         Cell::Int(w.rules.fog_of_war as i64),
-        // The trace shows 0 in the cycle of a refresh, where ours has just reloaded it.
-        Cell::Int(if w.fog_countdown() == w.refresh_period() {
-            0
-        } else {
-            w.fog_countdown() as i64
-        }),
+        // The trace shows 0 in a cycle where the refresh ran, where ours has just reloaded it. A counter at the reload
+        // value in any other cycle (an Enhanced holy vision counts down through 100) shows as it is (round 104, H1).
+        Cell::Int(if w.fog_refreshed() { 0 } else { w.fog_countdown() as i64 }),
         Cell::Int(w.victory.countdown as i64),
     ])
 }

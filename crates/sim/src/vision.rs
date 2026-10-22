@@ -105,6 +105,8 @@ pub struct Vision {
     /// at 1, so the first refresh is in the first cycle; a refresh reloads it ([`World::refresh_period`]) and an
     /// Enhanced holy vision sets it to [`HOLY_VISION_COUNTDOWN`] ([`Vision::delay_refresh`]).
     pub(crate) countdown: u32,
+    /// Whether the latest cycle's phase 3 ran a refresh (not part of the saved state; the oracle comparer reads it).
+    pub(crate) refreshed: bool,
 }
 
 /// The refresh countdown an Enhanced holy vision sets ("The fog refresh", X1).
@@ -128,6 +130,7 @@ impl Vision {
             seen: vec![0xff; n],
             generation: 0,
             countdown: 1,
+            refreshed: false,
         }
     }
 
@@ -234,6 +237,12 @@ impl World {
     /// afresh, a load included (`game/save-load.md`); the oracle comparer reads it.
     pub fn fog_countdown(&self) -> u32 {
         self.vision.countdown
+    }
+
+    /// Whether the latest cycle ran a fog refresh. The record of a refresh cycle shows the counter as 0, though ours
+    /// has just reloaded it, so the comparer needs this rather than the counter's value (round 104, H1).
+    pub fn fog_refreshed(&self) -> bool {
+        self.vision.refreshed
     }
 
     /// Vision spec, "Terms": the players that see what `p` sees. In Classic mode only `p`; in Enhanced mode the set
@@ -401,6 +410,7 @@ impl World {
     /// again.
     pub(crate) fn fog_refresh(&mut self) -> bool {
         self.vision.countdown = self.vision.countdown.saturating_sub(1);
+        self.vision.refreshed = self.vision.countdown == 0;
         if self.vision.countdown > 0 {
             return false;
         }
@@ -835,6 +845,31 @@ mod tests {
             counters.iter().map(|c| c + 2).collect::<Vec<_>>()[..6],
             [101, 201, 301, 401, 501, 601]
         );
+    }
+
+    /// Round 104, H1: `fog_refreshed` is true only in a cycle where the refresh ran, so a counter that holds the reload
+    /// value without a refresh (an Enhanced holy vision counts down through 100) is not mistaken for one.
+    #[test]
+    fn refreshed_is_true_only_in_a_refresh_cycle() {
+        let mut w = map();
+        w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+        w.start_up();
+        let mut shown = Vec::new();
+        for _ in 0..205 {
+            w.step(&[]);
+            shown.push((w.fog_refreshed(), w.fog_countdown()));
+        }
+        assert!(shown.iter().filter(|s| s.0).count() >= 2);
+        assert!(shown.iter().all(|&(r, c)| !r || c == w.refresh_period()));
+        w.vision.delay_refresh();
+        let mut at_100 = None;
+        for _ in 0..60 {
+            w.step(&[]);
+            if w.fog_countdown() == 100 {
+                at_100 = Some(w.fog_refreshed());
+            }
+        }
+        assert_eq!(at_100, Some(false), "no refresh while counting down from 150");
     }
 
     /// Classic: period 101, so the refreshes are at counter 100, 201, 302 (from the period; no Classic run traced).
