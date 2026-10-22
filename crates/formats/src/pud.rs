@@ -516,7 +516,10 @@ mod tests {
     fn udta_and_ugrd_lengths_follow_the_spec_table() {
         use crate::{udta::UnitTable, ugrd::UpgradeTable};
         let full = |tag: &[u8; 4], table: usize| (tag.to_vec(), 2 + table);
-        for (tag, full_len) in [full(b"UDTA", crate::udta::TABLE_LEN), full(b"UGRD", crate::ugrd::TABLE_LEN)] {
+        for (tag, full_len) in [
+            full(b"UDTA", crate::udta::TABLE_LEN),
+            full(b"UGRD", crate::ugrd::TABLE_LEN),
+        ] {
             let tag: [u8; 4] = tag.try_into().unwrap();
             let load = |payload: Vec<u8>| {
                 with_header(|h| {
@@ -550,10 +553,18 @@ mod tests {
         assert_eq!(UnitTable::from_udta(&[1, 0, 9]).unwrap(), None);
         assert!(UnitTable::from_udta(&[0]).is_err());
         assert!(UnitTable::from_udta(&vec![0; 2 + crate::udta::TABLE_LEN - 1]).is_err());
-        assert!(UnitTable::from_udta(&vec![0; 2 + crate::udta::TABLE_LEN + 254]).unwrap().is_some());
+        assert!(
+            UnitTable::from_udta(&vec![0; 2 + crate::udta::TABLE_LEN + 254])
+                .unwrap()
+                .is_some()
+        );
         assert_eq!(UpgradeTable::from_ugrd(&[]).unwrap(), None);
         assert_eq!(UpgradeTable::from_ugrd(&[1, 0, 9]).unwrap(), None);
-        assert!(UpgradeTable::from_ugrd(&vec![0; 2 + crate::ugrd::TABLE_LEN + 5]).unwrap().is_some());
+        assert!(
+            UpgradeTable::from_ugrd(&vec![0; 2 + crate::ugrd::TABLE_LEN + 5])
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]

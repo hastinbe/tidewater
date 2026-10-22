@@ -2711,16 +2711,33 @@ mod tests {
             player: 0,
             units: vec![b, a],
         }]);
-        let at = |kind| replay::sim_command(&w, &replay::Entry { n: None, player: 0, kind });
+        let at = |kind| {
+            replay::sim_command(
+                &w,
+                &replay::Entry {
+                    n: None,
+                    player: 0,
+                    kind,
+                },
+            )
+        };
         assert!(matches!(at(replay::Kind::Cancel), Some(tidewater_sim::Command::Cancel { unit, .. }) if unit == b));
-        assert!(matches!(at(replay::Kind::CancelJob), Some(tidewater_sim::Command::CancelJob { unit, .. }) if unit == b));
+        assert!(
+            matches!(at(replay::Kind::CancelJob), Some(tidewater_sim::Command::CancelJob { unit, .. }) if unit == b)
+        );
         let job = at(replay::Kind::Job {
             job: replay::Job::Train,
             number: 0,
         });
         assert!(matches!(job, Some(tidewater_sim::Command::Train { building, .. }) if building == b));
-        assert!(matches!(at(replay::Kind::HoldWorkers), Some(tidewater_sim::Command::HoldWorkers { player: 0 })));
-        assert!(matches!(at(replay::Kind::ReleaseWorkers), Some(tidewater_sim::Command::ReleaseWorkers { player: 0 })));
+        assert!(matches!(
+            at(replay::Kind::HoldWorkers),
+            Some(tidewater_sim::Command::HoldWorkers { player: 0 })
+        ));
+        assert!(matches!(
+            at(replay::Kind::ReleaseWorkers),
+            Some(tidewater_sim::Command::ReleaseWorkers { player: 0 })
+        ));
     }
 
     #[test]

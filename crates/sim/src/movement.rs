@@ -1720,7 +1720,11 @@ mod tests {
                 assert_eq!(w.ignored_by_search(&u, b), waits, "{freeze:?}: the search");
                 w.move_toward(i, Goal::tile((9, 3), 0));
                 let (_, _, blocked, _, wait, _) = outcome(&w, i);
-                assert_eq!((blocked, wait), (1, if waits { 15 } else { 1 }), "{freeze:?}: row F or row I");
+                assert_eq!(
+                    (blocked, wait),
+                    (1, if waits { 15 } else { 1 }),
+                    "{freeze:?}: row F or row I"
+                );
             }
         }
 

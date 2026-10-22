@@ -912,7 +912,11 @@ mod tests {
             assert_eq!(400 + given - added, want_before_clamp, "steps {steps}");
             run(&mut w, 1);
             let u = &w.units[bi];
-            assert_eq!((u.hp, u.goal_x, u.mana, u.script.frame), (400, 1212, want_mana, 0), "steps {steps}");
+            assert_eq!(
+                (u.hp, u.goal_x, u.mana, u.script.frame),
+                (400, 1212, want_mana, 0),
+                "steps {steps}"
+            );
         }
     }
 

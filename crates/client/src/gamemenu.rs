@@ -1122,7 +1122,8 @@ pub(crate) fn run_menu(c: &mut Core) {
             if screen == Screen::Speed {
                 if m.speed != sim.world.speed {
                     let player = sim.human;
-                    sim.pending.push(tidewater_sim::Command::Speed { player, speed: m.speed });
+                    sim.pending
+                        .push(tidewater_sim::Command::Speed { player, speed: m.speed });
                 }
                 m.draft.game_speed = m.speed;
             }

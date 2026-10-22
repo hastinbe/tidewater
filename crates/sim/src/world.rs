@@ -2362,10 +2362,7 @@ pub(crate) mod tests {
                 target: None,
                 tile: (6, 7),
             },
-            Command::Speed {
-                player: 0,
-                speed: 6,
-            },
+            Command::Speed { player: 0, speed: 6 },
             Command::HoldWorkers { player: 1 },
             Command::ReleaseWorkers { player: 2 },
             Command::Cheat {

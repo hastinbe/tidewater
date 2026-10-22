@@ -923,7 +923,10 @@ mod tests {
     fn hold_and_release_workers_follow_the_frozen_states() {
         let (mut w, worker, footman) = hold_world();
         w.apply(&Command::HoldWorkers { player: 0 });
-        assert_eq!((u(&w, worker).freeze, u(&w, footman).freeze), (Freeze::Freezing, Freeze::None));
+        assert_eq!(
+            (u(&w, worker).freeze, u(&w, footman).freeze),
+            (Freeze::Freezing, Freeze::None)
+        );
         for _ in 0..30 {
             w.step(&[]);
         }
@@ -961,12 +964,20 @@ mod tests {
             target: None,
             tile: (20, 20),
         });
-        assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "a right-click releases nothing (HW6)");
+        assert_eq!(
+            u(&w, worker).freeze,
+            Freeze::Frozen,
+            "a right-click releases nothing (HW6)"
+        );
         w.apply(&Command::Select {
             player: 0,
             units: vec![worker],
         });
-        assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "a selection change releases nothing");
+        assert_eq!(
+            u(&w, worker).freeze,
+            Freeze::Frozen,
+            "a selection change releases nothing"
+        );
         // A command naming only the footman: the selected worker is released all the same.
         w.apply(&Command::Stop {
             player: 0,

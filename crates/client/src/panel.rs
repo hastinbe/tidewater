@@ -1745,7 +1745,10 @@ mod tests {
         };
         assert!(matches!(
             activate(&train, &s, &sel),
-            Effect::Send(Command::Train { building: UnitId(9), .. })
+            Effect::Send(Command::Train {
+                building: UnitId(9),
+                ..
+            })
         ));
         let cancel = Entry {
             act: Act::CancelJob,
