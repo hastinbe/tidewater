@@ -85,6 +85,15 @@ pub(crate) fn order_anim(o: Order) -> u8 {
     }
 }
 
+/// The tile an order sends its unit to, for the orders a command gives with one.
+fn order_goal(o: Order) -> Option<(i32, i32)> {
+    match o {
+        Order::Move { goal, .. } | Order::MoveAttack { goal, .. } | Order::AttackMove { goal } => Some(goal),
+        Order::Patrol { to, .. } => Some(to),
+        _ => None,
+    }
+}
+
 /// The unit an order is aimed at.
 pub(crate) fn target_of(o: Order) -> Option<UnitId> {
     match o {
@@ -245,6 +254,10 @@ impl World {
             | Command::Rally { .. }
             | Command::UnloadOne { .. } => return None,
         };
+        // Repair spec, "Cost and rate" (round 97): a mobile unit's stored goal x, which a repair of it counts in.
+        if let Some((x, _)) = order_goal(order).filter(|_| !self.units[i].building) {
+            self.units[i].goal_x = x as i16;
+        }
         // Our own choice (module doc): every other command clears the remembered order.
         match remember {
             Some(r) if enhanced => self.remember(i, r),
@@ -4840,7 +4853,7 @@ mod tests {
             let bi = at(&w, b);
             assert_eq!(w.command_order(bi, &c(f)), None);
             assert_eq!(w.command_order(i, &c(b)), Some(Order::Attack { target: b }));
-            assert_eq!(w.fingerprint(), 9263583734169616718);
+            assert_eq!(w.fingerprint(), 11296081837207292688);
         }
 
         /// "Commands forget a stale attacker" is for units that aren't buildings: a building keeps a dead attacker.
@@ -4854,7 +4867,7 @@ mod tests {
             w.units[bi].attacked_by = Some(a);
             w.command(bi, Order::Idle);
             assert_eq!(w.units[bi].attacked_by, Some(a));
-            assert_eq!(w.fingerprint(), 1424853429391260604);
+            assert_eq!(w.fingerprint(), 665747585006620624);
         }
 
         /// A marked unit in order 12 whose target isn't held isn't out of reach: it runs its logic (losing the target)
@@ -4877,7 +4890,7 @@ mod tests {
             );
             let u = w.unit(f).unwrap();
             assert_eq!((u.order, u.skip_search, u.script.wait), (Order::Idle, false, 3));
-            assert_eq!(w.fingerprint(), 9712263249346792809);
+            assert_eq!(w.fingerprint(), 1526950972930358442);
         }
 
         /// "Follow (orders 6 and 7)": a follower whose target is lost at a step boundary runs its reaction first; the
@@ -4913,7 +4926,7 @@ mod tests {
                 assert_eq!((u.order, u.script.wait), (want, 3), "{case}");
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [3136424767587213226, 7154414580009388162, 7630152476884576693]);
+            assert_eq!(prints, [266860718067791692, 79548979380095701, 12469755860244275759]);
         }
 
         /// Classic attack-move (order 10) runs the reaction in its walk: a recorded attacker in reach gives order 12
@@ -4928,7 +4941,7 @@ mod tests {
             assert!(w.run_order(i));
             let u = &w.units[i];
             assert_eq!((u.order, u.script.wait), (Order::Chase { target: a }, 1));
-            assert_eq!(after(&mut w, 40), 11479966777363950132);
+            assert_eq!(after(&mut w, 40), 7716719536640269028);
         }
 
         /// Order 4 with a target unit sets its goal from the target where it stands now, at every walk.
@@ -4950,7 +4963,7 @@ mod tests {
             };
             assert_eq!(target, Some(b));
             assert_ne!(goal, (20, 20));
-            assert_eq!(after(&mut w, 60), 2055078839725676421);
+            assert_eq!(after(&mut w, 60), 11908135239758096336);
         }
 
         /// "Special cases" (round 71, S1): an Enhanced demolition unit with a remembered order, idle, gives itself
@@ -5123,10 +5136,10 @@ mod tests {
             assert_eq!(
                 prints,
                 [
-                    14524740670503553101,
-                    5181904745273006878,
-                    17027744247578319584,
-                    17027744247578319584
+                    11183062114731687949,
+                    3820706120718375592,
+                    8422350038768802144,
+                    8422350038768802144
                 ]
             );
         }
@@ -5146,7 +5159,7 @@ mod tests {
             w.units[i].invisibility = 100;
             w.run_order(i);
             assert_eq!((w.units[i].order, w.units[i].attacked_by), (Order::Idle, Some(a)));
-            assert_eq!(w.fingerprint(), 12653892776497269174);
+            assert_eq!(w.fingerprint(), 6019445551136111782);
         }
 
         /// The acquiring strike with no target unit decides nothing; one still cooling down restarts its animation.
@@ -5164,7 +5177,7 @@ mod tests {
             w.units[i].cooldown = 20;
             assert!(w.acquiring_strike(i, Order::Chase { target: g }, g));
             assert_eq!(w.units[i].script.wait, 20);
-            assert_eq!(w.fingerprint(), 5331188705217771982);
+            assert_eq!(w.fingerprint(), 12242108385668709245);
         }
 
         /// Fleeing with no attacker recorded does nothing; the reaction forgets a dying attacker.
@@ -5180,7 +5193,7 @@ mod tests {
             w.units[i].attacked_by = Some(a);
             assert!(!w.react(i));
             assert_eq!(w.units[i].attacked_by, None);
-            assert_eq!(w.fingerprint(), 1599872449310494835);
+            assert_eq!(w.fingerprint(), 5445018561532662921);
         }
 
         /// A released attacker slot with no last type recorded counts as a kind the unit can target.
@@ -5197,7 +5210,7 @@ mod tests {
             w.units[i].attacked_by = Some(d);
             assert!(w.acquire(i, Acquires::Idle, false));
             assert_eq!(w.units[i].order, Order::Chase { target: g });
-            assert_eq!(w.fingerprint(), 5947758439720373502);
+            assert_eq!(w.fingerprint(), 1239718672358266868);
         }
 
         /// The attack order's own checks: a target that fails the kind check gives a pending idle, with the resume step,
@@ -5225,7 +5238,7 @@ mod tests {
                 (u.order, u.pending, u.script.anim, u.script.wait),
                 (patrol, None, anim::STILL, 3)
             );
-            assert_eq!(after(&mut w, 5), 11940571555662294664);
+            assert_eq!(after(&mut w, 5), 2449609839596076052);
         }
 
         /// Order 12's no-route fallback in the run it guards: no second logic run.
@@ -5248,7 +5261,7 @@ mod tests {
                 assert_eq!((u.order, u.skip_search), (Order::Chase { target: near }, true));
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [14941724517381384571, 2250859810924621720]);
+            assert_eq!(prints, [15627828899899967659, 17970790398582780338]);
         }
 
         /// Heading for a target no longer in play does nothing.
@@ -5262,7 +5275,7 @@ mod tests {
             let i = ready(&mut w, f, Order::AttackMove { goal: (20, 20) });
             w.head_for(i, d);
             assert_eq!(w.units[i].order, Order::AttackMove { goal: (20, 20) });
-            assert_eq!(w.fingerprint(), 4564775621481383974);
+            assert_eq!(w.fingerprint(), 9205791115682170127);
         }
 
         /// Order 11 at its wall still cooling down restarts its attack animation and waits.
@@ -5279,7 +5292,7 @@ mod tests {
             w.attack_wall_order(i, (8, 5));
             let u = &w.units[i];
             assert_eq!((u.script.anim, u.script.wait), (anim::ATTACK, 9));
-            assert_eq!(w.fingerprint(), 11623484438601873433);
+            assert_eq!(w.fingerprint(), 475566739953251716);
         }
 
         /// The command check: a command naming a lost target leaves a pending idle by the common path. With nothing to
@@ -5328,7 +5341,7 @@ mod tests {
                 );
                 prints.push(w.fingerprint());
             }
-            assert_eq!(prints, [10753509265943787998, 16949698653626646434]);
+            assert_eq!(prints, [7635666958392004010, 16320873261654259318]);
         }
 
         /// The patrol turnaround: Enhanced (remembered), Classic (not), and an air unit whose other end is next to it
@@ -5359,7 +5372,7 @@ mod tests {
             }
             assert_eq!(
                 prints,
-                [12757813075612634365, 13977448604602638507, 1771864565831321305]
+                [13019763112836063208, 2803787330433387341, 14640942815021232224]
             );
         }
 
@@ -5390,7 +5403,7 @@ mod tests {
                 assert_eq!((u.blocked, u.path.is_empty(), u.attacked_by), (0, true, None));
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [14664198293370337204, 5301639909514821670]);
+            assert_eq!(prints, [15323857609040811528, 3912508690127392615]);
         }
 
         /// The friendly-fire hold makes idle pending by the common path and takes it over in the same update (still
@@ -5439,10 +5452,7 @@ mod tests {
                 assert_eq!(u.remembered.is_some(), kept);
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(
-                prints,
-                [8413331759795149918, 10736475645873822049, 17984971574649633598]
-            );
+            assert_eq!(prints, [8912523889592541620, 12167939233094524143, 2733531689753023547]);
         }
 
         /// Orders 17 and 18 with no route take the general no-route rule (orders spec, "No route": an immediate idle,
@@ -5484,7 +5494,7 @@ mod tests {
             assert!(w.run_order(i));
             assert_eq!(w.units[i].order, Order::AttackGround { tile: (5, 12) });
             prints.push(after(&mut w, 30));
-            assert_eq!(prints, [2101411806295175511, 2101411806295175511, 11209107502322150454]);
+            assert_eq!(prints, [15023975070289513202, 15023975070289513202, 51384544427887189]);
         }
 
         /// Blocked row G: an attacked unit blocked next to its goal makes idle pending (with the resume rules).
@@ -5513,7 +5523,7 @@ mod tests {
                 assert!(u.pending.is_some(), "{:?}", u.pending);
                 prints.push(after(&mut w, 30));
             }
-            assert_eq!(prints, [4144673930624831186, 11610739590596447081]);
+            assert_eq!(prints, [9732319638639738154, 2869384963259848829]);
         }
 
         /// Whole runs: two small armies of each player kind meeting under move, attack-move, patrol, follow, guard and
@@ -5600,28 +5610,28 @@ mod tests {
                 prints,
                 [
                     [
-                        13649501908321462330,
-                        8603371983781560322,
-                        1223965413434877906,
-                        2195300200006318777
+                        9548501161651200162,
+                        6498892930281976012,
+                        4005933555728184119,
+                        16648169186252985632
                     ],
                     [
-                        13514058957096780915,
-                        7788732360795991096,
-                        9566614428431140411,
-                        15049745976531209510
+                        12360360201025347297,
+                        429456978313125261,
+                        5872299226656971456,
+                        6518536163560384535
                     ],
                     [
-                        5781142017318027072,
-                        3027268659479903287,
-                        5337493359256967956,
-                        3153313752365866670
+                        3908133847459464656,
+                        8589145342237034358,
+                        9550071340817053174,
+                        11577305195983554028
                     ],
                     [
-                        6573640405537778992,
-                        9245106195977659784,
-                        11131418993847803524,
-                        4396188258607534433
+                        17653486689459417865,
+                        10626042513316706944,
+                        7358269885563088435,
+                        10856464476631224276
                     ],
                 ]
             );

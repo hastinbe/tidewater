@@ -1667,7 +1667,7 @@ mod tests {
         );
         assert_eq!(u.script.wait, 3);
         crate::world::tests::run(&mut w, 60);
-        assert_eq!(w.fingerprint(), 14591219035209285539);
+        assert_eq!(w.fingerprint(), 4332850139965649477);
     }
 
     #[test]

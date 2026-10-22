@@ -39,8 +39,8 @@ pub const MAGIC: [u8; 8] = *b"TWSAVE\x1a\0";
 /// job no longer keeps the cost it paid; a refund looks the cost up again (round 77, "Paying"). Version 14: a unit keeps
 /// its creation number and the world its next one, the world keeps the rule a found outcome replaced, and the pause mark
 /// is no longer stored (round 90, "What a load restarts", `game/save-load.md`). Version 15: each computer player keeps the
-/// surplus on its footmen, archers, siege and knights counts (round 92, SL4 to SL6). Version 16: the surplus covers eleven groups, footmen to submarines (round 93, SL13 to SL15). Version 17: a computer player's buildings-in-progress counts are 16-bit (round 95, SL25). Version 18: the world's part ends with the optional improvements and what they keep (`tidewater_sim::extras`).
-pub const VERSION: u16 = 18;
+/// surplus on its footmen, archers, siege and knights counts (round 92, SL4 to SL6). Version 16: the surplus covers eleven groups, footmen to submarines (round 93, SL13 to SL15). Version 17: a computer player's buildings-in-progress counts are 16-bit (round 95, SL25). Version 18: the world's part ends with the optional improvements and what they keep (`tidewater_sim::extras`). Version 19: a unit's repair counter is its goal x, a signed 16-bit value (round 97, RP1).
+pub const VERSION: u16 = 19;
 const FIXED: usize = MAGIC.len() + 2;
 
 /// The kind of game a file was saved from; it picks the extension (spec "Where saved games live").

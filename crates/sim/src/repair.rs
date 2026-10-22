@@ -1,8 +1,9 @@
 //! Repair by workers (reviewed spec `docs/specs/economy/repair.md`).
 //!
 //! Repair is order 27: it plays the attack animation, so its logic runs once per attack loop. Each run on an arrived
-//! worker adds 4 hit points to the target; every second run on the same target, by any worker, costs 1 gold and 1
-//! lumber. Step 1, the reaction to an attacker, runs only once the walk has ended (orders spec, round-63 errata).
+//! worker adds 4 hit points to the target and adds 1 to the target's counter (a building's construction pass
+//! counter, a mobile unit's stored goal x); a run that leaves it at 2 or more takes 2 off and costs 1 gold and 1
+//! lumber (round 97). Step 1, the reaction to an attacker, runs only once the walk has ended (orders spec, round-63 errata).
 
 use tidewater_formats::script::anim;
 use tidewater_formats::udta::flags;
@@ -13,8 +14,8 @@ use crate::world::{Order, Unit, UnitId, World};
 
 /// Hit points one run adds.
 const HP_PER_RUN: u16 = 4;
-/// Runs on a target per payment.
-const RUNS_PER_PAYMENT: u8 = 2;
+/// The counter value (after the +1) from which a run pays, and what a payment takes off.
+const PAYMENT_THRESHOLD: i16 = 2;
 const RADIUS: i32 = 1;
 
 impl World {
@@ -107,9 +108,9 @@ impl World {
         let f = crate::world::face_tile(u.tile, aim);
         let t = &mut self.units[ti];
         t.hp = (t.hp + HP_PER_RUN).min(max);
-        t.repair_runs += 1;
-        if t.repair_runs >= RUNS_PER_PAYMENT {
-            t.repair_runs -= RUNS_PER_PAYMENT;
+        t.goal_x = t.goal_x.wrapping_add(1);
+        if t.goal_x >= PAYMENT_THRESHOLD {
+            t.goal_x = t.goal_x.wrapping_sub(PAYMENT_THRESHOLD);
             let p = &mut self.players[owner as usize];
             p.gold -= 1;
             p.lumber -= 1;
@@ -174,7 +175,7 @@ mod tests {
         let paid = 100 - w.players[0].gold;
         assert_eq!((paid, 100 - w.players[0].lumber), (paid, paid));
         assert_eq!(paid as u16, runs / 2);
-        assert_eq!(w.unit(farm).unwrap().repair_runs as u16, runs % 2);
+        assert_eq!(w.unit(farm).unwrap().goal_x as u16, runs % 2);
     }
 
     #[test]
@@ -191,7 +192,7 @@ mod tests {
         w.repair_order(ib, farm);
         w.repair_order(ia, farm);
         assert_eq!(w.units[fi].hp, 312);
-        assert_eq!(w.units[fi].repair_runs, 1);
+        assert_eq!(w.units[fi].goal_x, 1);
         assert_eq!((w.players[0].gold, w.players[0].lumber), (99, 99));
     }
 
@@ -224,6 +225,70 @@ mod tests {
                 shortage: Shortage::Lumber
             })
         );
+    }
+
+    /// Repair spec "Cost and rate" and build-train V72 (round 97): a farm completed by construction (T = 100) holds
+    /// 12 x (T + 2) = 1,224 as its counter, so every repair run pays; the counter goes 1,225, 1,223, 1,224, ...
+    #[test]
+    fn a_built_building_pays_on_every_run() {
+        let (mut w, peasant, _) = site();
+        w.stats.0[0x3a].hit_points = 400;
+        w.stats.0[0x3a].build_time = 100;
+        let farm = w.place_building(0x3a, 0, (7, 7)).unwrap();
+        let fi = w.index(farm).unwrap();
+        assert_eq!(w.units[fi].goal_x, 0);
+        // It counts passes from 1 (the pass that shows the site full moves it up to 12 x (T + 1)).
+        w.step(&[]);
+        assert_eq!(w.units[fi].goal_x, 1);
+        for _ in 0..1230 {
+            w.step(&[]);
+        }
+        assert!(w.units[fi].construction.is_none());
+        assert_eq!(w.units[fi].goal_x, 1224);
+        for _ in 0..5 {
+            w.step(&[]);
+        }
+        assert_eq!(w.units[fi].goal_x, 1224, "nothing resets it");
+        w.units[fi].hp = 300;
+        let pi = w.index(peasant).unwrap();
+        w.units[pi].tile = (6, 7);
+        w.units[pi].order = Order::Repair { target: farm };
+        for run in 1..=10 {
+            w.units[pi].script.frame = 25;
+            w.repair_order(pi, farm);
+            assert_eq!(100 - w.players[0].gold, run, "run {run} pays");
+            assert_eq!(w.units[fi].goal_x, 1224 - run as i16);
+        }
+    }
+
+    /// Round 97: a mobile unit's counter is the x of its stored goal (the tile its last command sent it to).
+    #[test]
+    fn a_transports_counter_is_its_goal_x() {
+        let (mut w, peasant, _) = site();
+        w.stats.0[0x1c].flags |= flags::TRANSPORT;
+        w.stats.0[0x1c].hit_points = 150;
+        let ship = w.spawn(0x1c, 0, (0, 0), 0).unwrap();
+        let si = w.index(ship).unwrap();
+        w.units[si].hp = 100;
+        w.step(&[Command::Move {
+            player: 0,
+            units: vec![ship],
+            to: (3, 0),
+        }]);
+        assert_eq!(w.units[si].goal_x, 3);
+        let pi = w.index(peasant).unwrap();
+        w.units[si].goal_x = 7;
+        w.units[pi].tile = (1, 0);
+        w.units[pi].order = Order::Repair { target: ship };
+        w.repair_order(pi, ship);
+        assert_eq!((w.units[si].goal_x, 100 - w.players[0].gold), (6, 1));
+        // A command that sends it somewhere stores the new goal's x.
+        w.step(&[Command::Move {
+            player: 0,
+            units: vec![ship],
+            to: (5, 0),
+        }]);
+        assert_eq!(w.units[si].goal_x, 5);
     }
 
     #[test]

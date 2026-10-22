@@ -1440,7 +1440,7 @@ mod tests {
             let (mut w, p) = arrive(FARM, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(!w.unit(p).unwrap().inside);
-            assert_eq!(pinned(&w), 12470072425329452937);
+            assert_eq!(pinned(&w), 11007885548916765267);
         }
 
         /// A builder carrying gold in gold mode, of a hall: the load is delivered and it gets the hall-sized exit mark.
@@ -1458,7 +1458,7 @@ mod tests {
             run(&mut w, 12 * 3 + 2);
             let u = w.unit(p).unwrap();
             assert!(!u.inside && u.hall_exit && !u.carrying, "{u:?}");
-            assert_eq!(pinned(&w), 7079687176302346114);
+            assert_eq!(pinned(&w), 10630830300167030346);
         }
 
         #[test]
@@ -1467,7 +1467,7 @@ mod tests {
             hem_in(&mut w, (8, 8));
             run(&mut w, 12 * 3 + 2);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 5493535809316346047);
+            assert_eq!(pinned(&w), 2296481224668214969);
         }
 
         #[test]
@@ -1484,7 +1484,7 @@ mod tests {
                 assert!(!w.unit(p).unwrap().inside);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [2211144396702933908, 17520637522588585573]);
+            assert_eq!(got, [9451536920396796424, 1317015922886338664]);
         }
 
         #[test]
@@ -1496,7 +1496,7 @@ mod tests {
             w.step(&[Command::Cancel { player: 0, unit: farm }]);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 17249194982466781528);
+            assert_eq!(pinned(&w), 9431001133073177622);
         }
 
         #[test]
@@ -1507,7 +1507,7 @@ mod tests {
             w.kill(fi);
             run(&mut w, 3);
             assert!(w.unit(p).unwrap().dying);
-            assert_eq!(pinned(&w), 7664085130290102806);
+            assert_eq!(pinned(&w), 8698174099149543019);
         }
 
         /// Placement failures on arrival: a blocked site (human, then computer, which gets its payment back), a
@@ -1553,10 +1553,10 @@ mod tests {
             assert_eq!(
                 prints,
                 [
-                    4822369156794451883,
-                    5267027410662626900,
-                    11440923329982116077,
-                    17138038711408537859
+                    1359266507974350416,
+                    4208711979419062934,
+                    7138120453720262347,
+                    12109635267252654387
                 ]
             );
         }

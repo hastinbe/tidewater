@@ -287,8 +287,11 @@ pub struct Unit {
     pub resume: u8,
     /// Pathfinding spec, "Units seen by the search": the pending order came from a command and hasn't taken over.
     pub commanded: bool,
-    /// Repair runs on this unit not yet paid for (repair spec: one payment per 2 runs, whoever repairs).
-    pub repair_runs: u8,
+    /// The signed 16-bit counter the unit's "goal x" holds (repair spec, "Cost and rate"; build-train spec, "The
+    /// construction pass"): a building's construction pass counter, kept after completion (12 x (T + 2), 0 for a
+    /// building the map placed), and for a mobile unit the x of the tile its last command sent it to. A repair run
+    /// adds 1 to it of whoever repairs, and pays when it is 2 or more, taking 2 off.
+    pub goal_x: i16,
     /// Spell timers; running while above 0.
     pub bloodlust: u16,
     pub unholy_armor: u16,
@@ -1313,7 +1316,7 @@ impl World {
             passengers: [None; PASSENGER_SLOTS],
             resume: 0,
             commanded: false,
-            repair_runs: 0,
+            goal_x: 0,
             bloodlust: 0,
             unholy_armor: 0,
             attacked_by: None,
@@ -2225,7 +2228,7 @@ pub(crate) mod tests {
             to: (3, 5),
         }]);
         run(&mut w, 40);
-        assert_eq!(w.state_hash(), 0xbbc0f261865cc9fa);
+        assert_eq!(w.state_hash(), 0xd61f75605e58c349);
     }
 
     #[test]

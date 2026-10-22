@@ -347,6 +347,8 @@ impl World {
         }
         // Step 1: with the cheat on, the multiple-of-12 test isn't made, so every pass is a step (V65).
         c.passes += if cheat { PASS_STEP } else { 1 };
+        // Round 97: P is the building's goal x and so its repair counter; nothing resets it at completion.
+        u.goal_x = c.passes as i16;
         if !cheat && !c.passes.is_multiple_of(PASS_STEP) {
             return;
         }
@@ -373,6 +375,7 @@ impl World {
         if u.hp >= m {
             u.hp = m;
             c.passes = total;
+            u.goal_x = total as i16;
         }
         self.show_construction(i);
     }
@@ -1353,6 +1356,24 @@ mod tests {
         assert_eq!(look(&w), (0, 0));
     }
 
+    /// Repair spec "Cost and rate" (round 97): a completed building's counter is kept through an upgrade (and a job).
+    #[test]
+    fn an_upgrade_leaves_the_repair_counter_alone() {
+        let (mut w, hall) = town();
+        w.rules.enforce_requirements = false;
+        w.stats.0[kind::KEEP as usize].build_time = 20;
+        let hi = w.index(hall).unwrap();
+        w.units[hi].goal_x = 1224;
+        w.step(&[Command::Upgrade {
+            player: 0,
+            building: hall,
+            to: kind::KEEP,
+        }]);
+        run(&mut w, 400);
+        let u = w.unit(hall).unwrap();
+        assert_eq!((u.kind, u.job.is_none(), u.goal_x), (kind::KEEP, true, 1224));
+    }
+
     #[test]
     fn a_building_upgrade_shows_frame_1_of_the_new_picture() {
         // Build-train spec, round-33 vector (xhuman4 tower 1423): frame 1 from the upgrade's start through order 37,
@@ -1516,7 +1537,7 @@ mod tests {
             let (mut w, _) = training(2);
             run(&mut w, 80);
             assert_eq!(w.players[0].in_training, 0);
-            assert_eq!(pinned(&w), 7863030540030018854);
+            assert_eq!(pinned(&w), 3987286408303606869);
         }
 
         #[test]
@@ -1536,7 +1557,7 @@ mod tests {
                 kind: 2,
             }]);
             run(&mut w, 40);
-            assert_eq!(pinned(&w), 3478531407621641346);
+            assert_eq!(pinned(&w), 1925407597587241941);
         }
 
         #[test]
@@ -1546,7 +1567,7 @@ mod tests {
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
             assert_eq!(w.unit(hall).unwrap().job, None);
-            assert_eq!(pinned(&w), 5088555108948752945);
+            assert_eq!(pinned(&w), 18111223594494618092);
         }
 
         #[test]
@@ -1555,7 +1576,7 @@ mod tests {
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 30);
             assert_eq!(w.unit(hall).unwrap().job, None);
-            assert_eq!(pinned(&w), 10568568411160717176);
+            assert_eq!(pinned(&w), 8282312501721941865);
         }
 
         /// A cancel given twice, and a cancel of a resting building, change nothing more.
@@ -1568,7 +1589,7 @@ mod tests {
             run(&mut w, 10);
             w.step(&[Command::CancelJob { player: 0, unit: hall }]);
             run(&mut w, 10);
-            assert_eq!(pinned(&w), 8029105582252493551);
+            assert_eq!(pinned(&w), 6619971817057378477);
         }
 
         /// The kill cancels at once: no wait 3 or still animation of "Job end" (the death animation starts).
@@ -1579,7 +1600,7 @@ mod tests {
             let hi = w.index(hall).unwrap();
             w.kill(hi);
             run(&mut w, 3);
-            assert_eq!(pinned(&w), 8281082252361071567);
+            assert_eq!(pinned(&w), 944061967122747266);
         }
 
         /// Code versus spec: rescue cancels at once, leaving the building's animation as it was (the spec's "Job end"
@@ -1599,7 +1620,7 @@ mod tests {
                 run(&mut w, 3);
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [1489302887747019928, 11656000523072360463]);
+            assert_eq!(got, [679221687754037497, 13103019846353226719]);
         }
 
         #[test]
@@ -1639,10 +1660,10 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    11504327416981101834,
-                    6550621728662623200,
-                    18100886986752713748,
-                    1240161694771134273
+                    5154310766479525369,
+                    16511876877434041456,
+                    14804033033533811058,
+                    956264203920822136
                 ]
             );
         }
@@ -1660,7 +1681,7 @@ mod tests {
                 assert!(!w.try_job(hi, JobKind::Train(2), tell));
                 got.push(pinned(&w));
             }
-            assert_eq!(got, [17121163480124078284, 7545235795658232522]);
+            assert_eq!(got, [3204530210880483915, 17289585612289856285]);
         }
     }
 }

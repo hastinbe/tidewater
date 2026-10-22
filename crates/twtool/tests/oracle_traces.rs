@@ -471,6 +471,7 @@ traces! {
     human12_unload_then_refused_goals_900: ("human12-unload-then-refused-goals-900.jsonl.gz", "Campaign\\Human\\Human12.pud", 22, &[], None),
     orc11_orc11_sapper_attack_move_goals_hits_1500: ("orc11-orc11-sapper-attack-move-goals-hits-1500.jsonl.gz", "Campaign\\Orc\\Orc11.pud", 21, &[], None),
     orc9_orc09_carry_chop_goals_1400: ("orc9-orc09-carry-chop-goals-1400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    orc9_orc09_r97_built_farm_repair_goals_2400: ("orc9-orc09-r97-built-farm-repair-goals-2400.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
     human06_site_kill_800: ("human06-site-kill-800.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human06_alerts_1400: ("human06-alerts-1400.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),
     human06_depot_kill_2400: ("human06-depot-kill-2400.jsonl.gz", "Campaign\\Human\\Human06.pud", 10, &[], None),

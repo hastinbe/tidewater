@@ -727,8 +727,8 @@ impl Hit {
     }
 }
 
-/// A unit's `goals` extra (trace format, "Unit fields"). Read, not compared: the stored values mean something only
-/// where a spec defines them.
+/// A unit's `goals` extra (trace format, "Unit fields"). Read; only a building's goal x is compared, because the
+/// stored values mean something only where a spec defines them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 pub struct Goals {
@@ -1364,6 +1364,24 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             }
         }
     }
+    // The `goals` extra, a building's x only (trace format, `goal` row, round 97): its construction pass and repair
+    // counter. Every other `goal` value is read, not compared (no spec defines it).
+    for (&slot, tg) in &theirs.goals {
+        let (Some(t), Some(o)) = (tg.goal, ours.goals.get(&slot).and_then(|g| g.goal)) else {
+            continue;
+        };
+        if !theirs.units.contains_key(&slot) || !ours.units.contains_key(&slot) {
+            continue;
+        }
+        if t[0] != o[0] && filter.allows(Scope::Unit(slot), "goal_x") {
+            out.push(Diff {
+                scope: Scope::Unit(slot),
+                field: "goal_x",
+                ours: Cell::Int(o[0]),
+                theirs: Cell::Int(t[0]),
+            });
+        }
+    }
     // The `aigoals` extra: compared for the units both sides hold where the trace carries it.
     for (&slot, tg) in &theirs.ai_goals {
         let Some(og) = ours.ai_goals.get(&slot) else { continue };
@@ -1704,7 +1722,19 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         effects,
         commands: Vec::new(),
         hits: Vec::new(),
-        goals: BTreeMap::new(),
+        goals: w
+            .units
+            .iter()
+            .filter(|u| u.building)
+            .map(|u| {
+                // Trace format, `goal` row (round 97): a building's x is its construction pass and repair counter.
+                let g = Goals {
+                    goal: Some([i64::from(u.goal_x as u16), 0]),
+                    ..Goals::default()
+                };
+                (u.slot, g)
+            })
+            .collect(),
         ai_goals: w.units.iter().map(|u| (u.slot, ai_goal_cells(u))).collect(),
         vision: w.units.iter().map(|u| (u.slot, vision_cells(u))).collect(),
         game: Some(game_state(w)),

@@ -571,3 +571,16 @@ fn the_rescued_counts_come_back() {
         (3, 0x1001, 0)
     );
 }
+
+/// Repair spec "Cost and rate" (round 97): the counter is part of a unit's stored state, so a load keeps it, a
+/// building's and a mobile unit's alike.
+#[test]
+fn a_load_keeps_the_repair_counter() {
+    let mut a = battle();
+    let (unit, farm) = (0, a.units.iter().position(|u| u.kind == 0x3a).unwrap());
+    a.units[unit].goal_x = 9;
+    a.units[farm].goal_x = 1224;
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!((b.units[unit].goal_x, b.units[farm].goal_x), (9, 1224));
+}
