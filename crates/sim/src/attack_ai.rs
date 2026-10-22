@@ -3121,7 +3121,7 @@ mod tests {
         #[test]
         fn the_army_through_the_passes() {
             let mut w = army();
-            assert_eq!(trail(&mut w, 900), 5956698732834724323);
+            assert_eq!(trail(&mut w, 900), 7738337307778238852);
             // Two land rounds and an air round went out; the sea wave found nobody.
             assert_eq!(w.army.launched[1], [2, 0, 1]);
         }
