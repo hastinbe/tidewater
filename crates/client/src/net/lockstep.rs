@@ -1005,6 +1005,21 @@ mod tests {
         }
     }
 
+    /// Advances `p` until it stalls: 300 rounds in a row, 1 ms apart, without progress. The peers talk over real TCP,
+    /// so a single `false` can be a turn still in flight rather than a stall. Returns the cycles it advanced.
+    fn stall(p: &mut Peer) -> u32 {
+        let (start, mut idle) = (p.tick, 0);
+        while idle < 300 {
+            if p.advance() {
+                idle = 0;
+            } else {
+                idle += 1;
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+        p.tick - start
+    }
+
     /// The cycle counters at which `cmd` was handed out.
     fn when(p: &Peer, cmd: &Command) -> Vec<u32> {
         p.applied
@@ -1313,11 +1328,7 @@ mod tests {
         run(&mut peers, 30);
         // B stops: it is not stepped while A goes on, as far as A's turns allow.
         peers[1].frozen = true;
-        let mut guard = 0;
-        while peers[0].advance() {
-            guard += 1;
-            assert!(guard < 100, "A should stall at its next turn");
-        }
+        assert!(stall(&mut peers[0]) < 100, "A should stall at its next turn");
         let stuck_at = peers[0].tick;
         assert_eq!(stuck_at % 12, 0, "a stall is at a turn: {stuck_at}");
         assert_eq!(peers[0].s.waiting().map(|w| (w.watch, w.dialog)), Some((false, false)));
@@ -1350,7 +1361,7 @@ mod tests {
         let mut peers = game(2, TRACED_DIRECT_CONNECT_ROW, 8, &time);
         run(&mut peers, 30);
         peers[1].frozen = true;
-        while peers[0].advance() {}
+        stall(&mut peers[0]);
         time.advance(Duration::from_millis(150));
         peers[1].frozen = false;
         let to = peers[0].tick + 30;
@@ -1469,7 +1480,7 @@ mod tests {
         run(&mut peers, 30);
         // B waits for A, which has stopped.
         peers[0].frozen = true;
-        while peers[1].advance() {}
+        stall(&mut peers[1]);
         assert!(peers[1].s.waiting().is_some());
         peers[1].s.abort_game();
         assert_eq!(
