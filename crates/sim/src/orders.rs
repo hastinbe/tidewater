@@ -1191,7 +1191,12 @@ impl World {
             self.reach(u)
         } else if self.computer_player(u.owner) {
             s.react_range_computer as i32
-        } else if self.acquires(u.order) == Some(Acquires::Moving) || matches!(u.order, Order::Follow { .. }) {
+        } else if self.acquires(u.order) == Some(Acquires::Moving)
+            || matches!(u.order, Order::Follow { .. })
+            // V284: in Classic mode attack-move acquires nothing, but its walk's reaction searches this box too. (In
+            // Enhanced mode it is already a moving order that acquires.)
+            || matches!(u.order, Order::AttackMove { .. })
+        {
             // Orders spec, "Search box" (round 97, V282, V283): follow (6) uses it too, though it searches only from
             // the reaction to an attacker. Order 34 keeps the attack range (open question "Search box of a waiting
             // boarder", default).
@@ -4675,6 +4680,40 @@ mod tests {
         }
     }
 
+    /// V284 (orders spec, "Search box", round 97), Classic mode: a human footman on attack-move, walking, hit by a
+    /// dragon it can't hit, finds the grunt standing 3 tiles away with the react range (human) box: order 12 on it.
+    /// Enhanced mode gives the same.
+    #[test]
+    fn a_classic_attack_moves_walk_reaction_searches_the_react_range_human_box() {
+        for enhanced in [false, true] {
+            let mut w = map();
+            w.rules.enhanced = enhanced;
+            w.players[1].controller = controller::NOBODY;
+            w.stats.0[9] = w.stats.0[ARCHER as usize];
+            w.stats.0[9].flags = flags::AIR | flags::CAN_ATTACK;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let grunt = w.spawn(FOOTMAN, 1, (8, 5), 0).unwrap();
+            let dragon = w.spawn(9, 1, (5, 9), 0).unwrap();
+            for u in &mut w.units {
+                u.hidden_from = 0;
+            }
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = Order::AttackMove { goal: (20, 5) };
+            u.pending = None;
+            u.attacked_by = Some(dragon);
+            w.start_anim(i, anim::MOVE);
+            assert!(w.react_at_walk_end(i), "enhanced {enhanced}");
+            let u = &w.units[i];
+            assert!(
+                [Some(u.order), u.pending].contains(&Some(Order::Chase { target: grunt })),
+                "enhanced {enhanced}: {:?} {:?}",
+                u.order,
+                u.pending
+            );
+        }
+    }
+
     /// Vectors (static study): a follower whose reaction's search picks an idle unit already within the
     /// radius guards it (order 7).
     #[test]
@@ -5656,10 +5695,10 @@ mod tests {
                         6518536163560384535
                     ],
                     [
-                        3908133847459464656,
-                        8589145342237034358,
-                        9550071340817053174,
-                        11577305195983554028
+                        18338606546925930374,
+                        15175833742196473104,
+                        3288363136526436718,
+                        7502490408811494433
                     ],
                     [
                         17653486689459417865,
