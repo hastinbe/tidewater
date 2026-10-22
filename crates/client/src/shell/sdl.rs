@@ -1,8 +1,9 @@
 //! A thin safe wrapper over the parts of SDL 3 the shell uses (`sdl3-sys`, the C API as published in SDL's headers;
 //! <https://wiki.libsdl.org/SDL3/>): the window, a renderer with one streaming texture, the system's events (including
 //! files dropped on the window), fingers on a touch screen, the system's folder and file dialogs, the mouse modes and
-//! an audio stream fed by a callback. Every `unsafe` block of the shell is here; each owner frees what it
-//! made when it is dropped.
+//! an audio stream fed by a callback. On iOS it also holds the app's entry point, the lifecycle events and the
+//! document picker (SDL has no dialogs there; the picker is a small Objective-C shim in `platform/ios`). Every
+//! `unsafe` block of the shell is here; each owner frees what it made when it is dropped.
 
 #![allow(unsafe_code)]
 
@@ -43,11 +44,40 @@ impl Sdl {
         }
         // SAFETY: called once, from the main thread, before any other SDL call but the hint.
         if unsafe { sys::SDL_Init(flags) } {
+            // SAFETY: the watch is a plain function that uses no userdata (null) and lives for the whole program.
+            unsafe { sys::SDL_AddEventWatch(Some(lifecycle_watch), std::ptr::null_mut()) };
             Ok(Sdl(()))
         } else {
             Err(error("SDL_Init"))
         }
     }
+}
+
+/// Going to the background (`true`, or the system ending the program) and coming back (`false`), in order. They are
+/// noted by an event watch, which SDL calls at once, inside the system's own callback: the queue can be too late, as the
+/// system may stop the program as soon as that callback returns.
+static LIFECYCLE: Mutex<Vec<bool>> = Mutex::new(Vec::new());
+
+unsafe extern "C" fn lifecycle_watch(_userdata: *mut c_void, event: *mut sys::SDL_Event) -> bool {
+    // SAFETY: SDL passes a valid event for the length of the call.
+    let t = sys::SDL_EventType(unsafe { (*event).r#type });
+    let went = match t {
+        sys::SDL_EVENT_WILL_ENTER_BACKGROUND | sys::SDL_EVENT_TERMINATING => Some(true),
+        sys::SDL_EVENT_DID_ENTER_FOREGROUND => Some(false),
+        _ => None,
+    };
+    if let (Some(went), Ok(mut l)) = (went, LIFECYCLE.lock()) {
+        l.push(went);
+    }
+    true
+}
+
+/// The program's trips to the background and back since the last call: `true` for going, `false` for returning.
+pub fn take_lifecycle() -> Vec<bool> {
+    LIFECYCLE
+        .lock()
+        .map(|mut l| std::mem::take(&mut *l))
+        .unwrap_or_default()
 }
 
 impl Drop for Sdl {
@@ -66,6 +96,8 @@ pub struct WindowOpts {
     pub always_on_top: bool,
     /// Doesn't take the keyboard from what the user is doing.
     pub not_focusable: bool,
+    /// Fills the screen (a phone's window).
+    pub fullscreen: bool,
 }
 
 /// A window.
@@ -83,6 +115,7 @@ impl<'s> Window<'s> {
             (o.resizable, sys::SDL_WINDOW_RESIZABLE),
             (o.always_on_top, sys::SDL_WINDOW_ALWAYS_ON_TOP),
             (o.not_focusable, sys::SDL_WINDOW_NOT_FOCUSABLE),
+            (o.fullscreen, sys::SDL_WINDOW_FULLSCREEN),
         ] {
             if on {
                 flags |= f;
@@ -215,6 +248,10 @@ impl<'s> Window<'s> {
     /// Opens the system's dialog for choosing a folder, over this window. The answer comes later (not before this
     /// call returns), through [`take_dialog_answers`].
     pub fn show_folder_dialog(&self) {
+        if IOS {
+            ios_pick(true);
+            return;
+        }
         // SAFETY: a live window; the callback is a plain function that uses no userdata (null).
         unsafe {
             sys::SDL_ShowOpenFolderDialog(
@@ -229,8 +266,13 @@ impl<'s> Window<'s> {
 
     /// Opens the system's dialog for choosing one file, over this window. `filters` are (name, patterns) pairs, the
     /// patterns file extensions without dots separated by `;` (`"iso;bin;cue"`), or `"*"` for any file. The answer
-    /// comes later, through [`take_dialog_answers`].
+    /// comes later, through [`take_dialog_answers`]. On iOS the picker takes any file (the import says what it can
+    /// use) and `filters` are not used.
     pub fn show_file_dialog(&self, filters: &[(&str, &str)]) {
+        if IOS {
+            ios_pick(false);
+            return;
+        }
         // SDL may read the filters until the dialog answers, so they are leaked: a few bytes per dialog opened.
         let list: Vec<sys::SDL_DialogFileFilter> = filters
             .iter()
@@ -254,6 +296,51 @@ impl<'s> Window<'s> {
             )
         };
     }
+}
+
+const IOS: bool = cfg!(target_os = "ios");
+
+// The document picker is `platform/ios/Sources/picker.m`, linked into the app beside this library. It shows a
+// `UIDocumentPickerViewController` for a folder or for any file, opens the chosen item in place (the app holds the
+// security-scoped access until it ends) and calls `done` once, on the main thread, with the path, or NULL if the user
+// cancelled.
+#[cfg(target_os = "ios")]
+unsafe extern "C" {
+    fn tidewater_ios_pick(folder: c_int, done: unsafe extern "C" fn(*const std::ffi::c_char));
+}
+
+/// Shows the iOS document picker for a folder or a file.
+#[cfg(target_os = "ios")]
+fn ios_pick(folder: bool) {
+    // SAFETY: the shim keeps `done` until it calls it, once, and reads nothing else of ours.
+    unsafe { tidewater_ios_pick(folder as c_int, ios_picked) };
+}
+
+#[cfg(not(target_os = "ios"))]
+fn ios_pick(_folder: bool) {}
+
+/// The picker's answer: a NUL-terminated UTF-8 path valid during the call, or NULL.
+#[cfg(target_os = "ios")]
+unsafe extern "C" fn ios_picked(path: *const std::ffi::c_char) {
+    let path = if path.is_null() {
+        None
+    } else {
+        // SAFETY: a non-NULL path is a valid C string for the length of the call.
+        Some(PathBuf::from(
+            unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned(),
+        ))
+    };
+    if let Ok(mut answers) = DIALOG_ANSWERS.lock() {
+        answers.push(path);
+    }
+}
+
+/// The iOS app's entry (`platform/ios/Sources/main.c` hands it to `SDL_RunApp`, which starts UIKit and calls it once
+/// the app has launched): the same program as the desktop's.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub extern "C" fn tidewater_ios_main(_argc: c_int, _argv: *mut *mut std::ffi::c_char) -> c_int {
+    crate::app::ios_main()
 }
 
 /// The answers of the dialogs, in the order they came: the path chosen, `None` for a cancelled or failed dialog. SDL

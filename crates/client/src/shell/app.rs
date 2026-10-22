@@ -16,6 +16,12 @@
 //! the fingers are read. The core's chrome (modifier latches, right-click toggle, pause, keyboard) is drawn over the
 //! picture as one overlay texture, and its keyboard button opens the system's soft keyboard.
 //!
+//! **Phone** (`docs/design/ios.md`). The same loop runs inside the iOS app (`crates/ios` builds this file and `sdl.rs`
+//! as a static library; `platform/ios` is the Xcode project around it). The window fills the screen inside the safe
+//! area, touch is on from the start, and SDL's will-enter-background and did-enter-foreground events call
+//! [`Core::suspend`] and [`Core::resume`]: after a suspend one more frame runs (the pause takes effect), then nothing
+//! runs or draws until the program is back.
+//!
 //! The shell does what the design asks of one: the system's key, button, wheel and focus events into the core's input;
 //! [`Core::advance`] once a frame; the composed frame into one streaming texture, drawn at the window's whole-number
 //! scale with black around it (`display::Letterbox`), with the core's title and system-pointer wish; the core's mixer
@@ -25,8 +31,6 @@
 //!
 //! A scripted run (`--script`) also records each frame (`script::record`) and, with a window, compares the window's
 //! own pixels at each shot (`script::compare_shot`); `--headless` runs it without SDL at all (`host::run_headless`).
-
-mod sdl;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -44,6 +48,8 @@ use tidewater_client::input::{
 };
 use tidewater_client::script;
 
+use crate::sdl;
+
 /// The file dialogs' filters (the first-run screen's "Choose GOG installer..." and "Choose CD image...").
 const INSTALLER_FILTERS: &[(&str, &str)] = &[("Installers", "exe;bin;sh;pkg;dmg"), ("All files", "*")];
 const DISC_FILTERS: &[(&str, &str)] = &[("CD images", "iso;bin;cue;img;mdf;nrg"), ("All files", "*")];
@@ -51,7 +57,21 @@ const DISC_FILTERS: &[(&str, &str)] = &[("CD images", "iso;bin;cue;img;mdf;nrg")
 /// The audio device's buffer asked for, in sample frames at the device's rate: about 10.7 ms at 48 kHz.
 const DEVICE_FRAMES: u32 = 512;
 
-fn main() -> Result<()> {
+/// The iOS app's `main` (`sdl::tidewater_ios_main`): the same program, with an error told on the console and a failing
+/// exit code instead of a returned `Result`.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub fn ios_main() -> i32 {
+    match run_program() {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("tidewater: {e:#}");
+            1
+        }
+    }
+}
+
+/// The program, from its command line: what `main` does on a desktop, and what the iOS app's entry calls.
+pub fn run_program() -> Result<()> {
     let args = Args::parse();
     if let Some(path) = &args.import {
         std::process::exit(host::import_command(path, args.data_dir.as_deref()));
@@ -82,9 +102,13 @@ fn run(l: host::Launch) -> Result<()> {
     let scripted = core.script.is_some();
     let sdl = sdl::Sdl::init(!scripted, DEVICE_FRAMES)?;
     let emulating = core.opts.touch_emulation;
-    let touch_screen = sdl::has_touch_screen();
+    // A phone's screen is the main input: the fingers are read from the start, and the chrome shows.
+    let touch_screen = sdl::has_touch_screen() || MOBILE;
     if emulating || touch_screen {
         sdl::own_the_fingers();
+    }
+    if MOBILE {
+        core.touch.active = true;
     }
     let points = ui_scale.unwrap_or(1);
     let (mut w, mut h) = display::window_size(points);
@@ -111,9 +135,11 @@ fn run(l: host::Launch) -> Result<()> {
             resizable: !scripted,
             always_on_top: scripted,
             not_focusable: scripted,
+            fullscreen: MOBILE,
         },
     )?;
-    if !scripted {
+    // A phone's window fills the screen: no sizes to pick and nowhere to centre it.
+    if !scripted && !MOBILE {
         let d = window.pixel_density();
         let min = |len: u32| (len as f32 / d).ceil() as u32;
         window.set_min_size(min(display::SCREEN.0), min(display::SCREEN.1));
@@ -189,7 +215,19 @@ fn run(l: host::Launch) -> Result<()> {
         last = now;
         first = false;
         shell.fractional = MOBILE || core.extras.scaling() == tidewater_client::extras::Scaling::Sharp;
+        let was_suspended = core.suspended;
         let quit = shell.take_events(&mut core);
+        // In the background nothing runs: no frame, no drawing (the system may stop the program at any moment), only
+        // the events that bring it back, or end it.
+        if was_suspended && core.suspended {
+            if quit {
+                core.store_settings();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+            last = Instant::now();
+            continue;
+        }
         core.advance(elapsed, &mut shell);
         // The soft keyboard follows the chrome's button; a desktop keeps its text input open for the real keyboard.
         if core.touch.chrome.keyboard != shell.keyboard && (core.touch.active || MOBILE) {
@@ -217,6 +255,10 @@ fn run(l: host::Launch) -> Result<()> {
         }
         if exiting {
             core.store_settings();
+        }
+        // The frame that followed `Core::suspend` lets its pause take effect and draws nothing.
+        if core.suspended && !exiting {
+            continue;
         }
         let geom = shell
             .window()
@@ -394,6 +436,14 @@ impl Shell<'_> {
         // The answers of the first-run screen's dialogs.
         for answer in sdl::take_dialog_answers() {
             input.picked(answer);
+        }
+        // The event watch noted these as they happened (a poll may come too late).
+        for suspend in sdl::take_lifecycle() {
+            if suspend {
+                core.suspend();
+            } else {
+                core.resume();
+            }
         }
         quit
     }

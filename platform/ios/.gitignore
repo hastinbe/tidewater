@@ -1,0 +1,6 @@
+# Yours: the team ID and bundle identifier (see Config/Signing.example.xcconfig).
+/Config/Signing.xcconfig
+# Made by build.sh.
+/build/
+/Tidewater.xcodeproj/
+/DerivedData/

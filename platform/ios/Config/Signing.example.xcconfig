@@ -1,0 +1,8 @@
+// Copy this file to Signing.xcconfig (same folder) and fill in your own values. Signing.xcconfig is ignored by git.
+// Only a build for a real device needs them; the Simulator builds without signing.
+
+// Your Apple Developer team ID: ten letters and digits, shown in the developer account's membership page.
+DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// A bundle identifier that is yours. Change it if the default is taken by another team's app.
+PRODUCT_BUNDLE_IDENTIFIER = dev.tidewater.client

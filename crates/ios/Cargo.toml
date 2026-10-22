@@ -1,0 +1,23 @@
+[package]
+name = "tidewater-ios"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The iOS app's static library: the SDL 3 shell of tidewater-client, linked into the Xcode project in platform/ios"
+
+# A static library for the iOS app (`platform/ios/build.sh`). On any other target the crate is empty.
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tidewater-client.workspace = true
+sdl3-sys.workspace = true
+
+# Like the client: the shell's SDL wrapper (`sdl.rs`) allows `unsafe`; nothing else does.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

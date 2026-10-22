@@ -1,0 +1,9 @@
+// Build settings the project reads. Signing lives in Signing.xcconfig, which is yours: copy Signing.example.xcconfig
+// to Signing.xcconfig and fill it in. It is not committed (see ../.gitignore). The build works without it for the
+// Simulator, which needs no signing.
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.tidewater.client
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+
+#include? "Signing.xcconfig"

@@ -85,3 +85,21 @@ jobs:
           name: twtool-${{ matrix.name }}
           path: target/release/twtool${{ matrix.exe }}
           if-no-files-found: error
+
+  # The iOS app's static library for the Simulator (docs/design/ios.md): compiles SDL 3 and the shell for iOS and
+  # links nothing, signs nothing. Kept to one target so it stays cheap.
+  ios:
+    name: ios (simulator library)
+    needs: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain and the iOS target
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the static library
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        run: cargo build --release --target aarch64-apple-ios-sim -p tidewater-ios
