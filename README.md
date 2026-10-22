@@ -81,6 +81,7 @@ copy your own maps there. When the game ends, the score screen leads back to the
 | **Command buttons** | Click one or press its hotkey. A command that needs a target takes the next left click on the map or minimap; a right click cancels. |
 | **Control groups** | Ctrl+digit sets a group; the digit recalls it (twice quickly centres the view). |
 | **Scrolling** | Screen edge, arrow keys, Home, End, Page Up, Page Down, keypad. Left click or drag on the minimap moves the view. |
+| **Placing a building** | While you choose a site, the selected workers stand still; they move again when you place the building, or when you leave placement (right click, Escape, another command). |
 | **Speed and pause** | `+` and `-` change the game speed; Ctrl+P pauses. |
 | **Menu** | F10 or Alt+M opens the game menu; Escape closes it. Tab moves between controls in dialogs and Enter presses a button. |
 

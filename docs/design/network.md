@@ -101,8 +101,9 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
 | `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
 
-The protocol number is **5**. Protocol 2 brought the lobby, map transfer and chat; protocol 4 added the observer flag to
-`Hello` and the new `Command` variants and `Extras` fields (Shift-queued orders); protocol 5 the diplomacy command. A
+The protocol number is **6**. Protocol 2 brought the lobby, map transfer and chat; protocol 4 added the observer flag to
+`Hello` and the new `Command` variants and `Extras` fields (Shift-queued orders); protocol 5 the diplomacy command; protocol 6 the Hold workers and Release workers commands and a speed command that
+carries its value. A
 joiner of another protocol is refused with a message naming both versions: the host reads only the first varint of the
 `Hello` to know that it cannot read the rest.
 
@@ -121,8 +122,10 @@ joiner of another protocol is refused with a message naming both versions: the h
   104 ms a turn); the creator's row applies to every player. Row 4 (K = 12) is the traced Direct Connect game, which
   the tests use for the spec's vectors; `--lobby row=4` picks it. Local Network games use the spec's
   row 1 (the original's IPX row: K = 2 at speed 8, about 26 ms a turn).
-- **Game speed.** The world starts at Normal. The lobby's speed reaches every machine as `Command::Speed` commands in
-  the first turn, so the recording replays at the same speed. Turn 1's length already uses the lobby's speed.
+- **Game speed.** The world starts at Normal. The lobby's speed reaches every machine as one `Command::Speed`
+  command in the first turn (it carries the speed, not a direction), so the recording replays at the same speed. The
+  speed keys send the current speed one up or down, and the Speeds dialog sends the slider's value; a value above the
+  top speed is ignored by the simulation (`orders/orders.md`, NC1 and NC2). Turn 1's length already uses the lobby's speed.
 - **Stalls** (`lockstep.md`, "Stalls"). A turn waits until every human's packet for it has arrived. Over 2 s the cursor
   is the watch; over 7 s a "Waiting for players" notice names who. Ctrl+F1 leaves the game (the others see a drop);
   Alt+F2 drops the players still missing, on every machine at the same turn. A wait over 200 ms resets the cycle
@@ -149,7 +152,7 @@ The Local Network game list finds games with a small UDP beacon. Code: `net/beac
   | 4 | magic `TWLN` |
   | 1 | beacon version, 1 |
   | 1 | kind, 1 = announce |
-  | 2 | the network protocol (5) |
+  | 2 | the network protocol (6) |
   | 2 | the TCP port the lobby listens on |
   | 1 | players in the lobby |
   | 1 | rows that can hold a player |
@@ -223,6 +226,17 @@ other. A remote diplomacy command whose player is not its sender's slot is dropp
 command, which is DP2 (nobody changes another player's settings). The client has no diplomacy screen yet: a chat line
 starting `/diplomacy [allies=0,2] [vision=0,2] [victory=on|off]` sends it, keeps the sender in its own set and allied
 with itself, and leaves out fields at their current value. The sets and settings are in the state hash and the save.
+
+## Holding workers while a building is placed
+
+`Command::HoldWorkers` and `Command::ReleaseWorkers` (`orders/orders.md`, "Holding and releasing workers") name only the
+sender, and act on the sender's selected workers, so each is a turn command like any other and travels in the sender's
+packet. The client sends Hold when it enters building placement and Release when it leaves placement without placing
+(Cancel, a right-click, a click off the map, the game menu, a lost selection). Placing the building sends the build
+command, and every unit command and every build releases the sender's selected held workers first, so the client sends
+no Release for those. A held worker freezes at its next animation step, which keeps it from walking into the site
+(single player and multiplayer alike). Both commands are in the replay format (version 5) and the state hash covers the
+frozen state, not the save (a load releases every unit).
 
 ## Pause counts and leave messages
 

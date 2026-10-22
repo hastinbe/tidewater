@@ -107,6 +107,8 @@ pub struct PanelUi {
     pub demo_pointer: Option<(i32, i32)>,
     /// Development aid: one placement click at `demo_pointer` is still to be made.
     pub demo_click: bool,
+    /// Hold-workers has been sent for the placement mode that is on (`placement_hold`).
+    pub holding: bool,
 }
 
 /// The screen's and the messages' state (`screen`, `messages`).
@@ -890,6 +892,7 @@ pub(crate) fn tick(c: &mut Core) -> bool {
         view,
         cheats: cheat_queue,
         stored,
+        panel_ui: c_panel_ui,
         ..
     } = c
     else {
@@ -909,6 +912,12 @@ pub(crate) fn tick(c: &mut Core) -> bool {
             })
         })
         .collect();
+    if let Some(ui) = c_panel_ui.as_mut() {
+        let placing = matches!(ui.mode, panel::Mode::Place(_));
+        if let Some(cmd) = placement_hold(&mut ui.holding, placing, human, &sim.pending) {
+            local.push(cmd);
+        }
+    }
     local.append(&mut sim.pending);
     sim.actions = sim.actions.saturating_add(local.len() as u32);
     // The interface's commands go to the session, which decides what runs in this cycle (`session`).
@@ -1707,6 +1716,28 @@ fn click_target(b: &mouse::Board, world: &World, at: Vec2, tile: (i32, i32)) -> 
     Some((t, mouse::flash_colour(b, b.get(t)?.owner)))
 }
 
+/// Holding workers while a building is placed (`docs/design/network.md`): returns the command to send when the placement
+/// mode `placing` has just begun (Hold) or has just ended without a build in `pending` (Release; a build releases the
+/// workers itself). `holding` is the state kept between frames.
+fn placement_hold(holding: &mut bool, placing: bool, player: u8, pending: &[Command]) -> Option<Command> {
+    match (placing, *holding) {
+        (true, false) => {
+            *holding = true;
+            Some(Command::HoldWorkers { player })
+        }
+        (false, true) => {
+            *holding = false;
+            let built = pending.iter().any(|c| match c {
+                Command::Build { .. } => true,
+                Command::Queued { command, .. } => matches!(**command, Command::Build { .. }),
+                _ => false,
+            });
+            (!built).then_some(Command::ReleaseWorkers { player })
+        }
+        _ => None,
+    }
+}
+
 /// A unit command as sent: wrapped as a Shift-command (option `shift-queue`) when `queue` is set, so each unit that
 /// takes it adds the order to its queue instead of replacing its order (`tidewater_sim::Command::Queued`).
 fn shifted(c: Command, queue: bool) -> Command {
@@ -2157,7 +2188,11 @@ pub(crate) fn keys_input(c: &mut Core) {
                 // The command carries the value: the current speed one up or down (orders spec, NC1, NC2). A replay
                 // viewer steps its own rate instead of the world's.
                 let now = sim.session.viewer_speed().unwrap_or(sim.world.speed);
-                let speed = if faster { now.saturating_add(1) } else { now.saturating_sub(1) };
+                let speed = if faster {
+                    now.saturating_add(1)
+                } else {
+                    now.saturating_sub(1)
+                };
                 sim.pending.push(Command::Speed { player: human, speed });
             }
             mouse::KeyAction::Pause => sim.pending.push(pause_or_resume(&sim.world, &sim.pending, human)),
@@ -2625,6 +2660,37 @@ pub(crate) fn draw_hud(c: &mut Core) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Entering placement sends Hold once; leaving it without a build sends Release; leaving it by placing sends
+    /// nothing, because the build releases the workers.
+    #[test]
+    fn placement_holds_workers_and_a_cancel_releases_them() {
+        let mut holding = false;
+        assert!(matches!(
+            placement_hold(&mut holding, true, 1, &[]),
+            Some(Command::HoldWorkers { player: 1 })
+        ));
+        assert!(placement_hold(&mut holding, true, 1, &[]).is_none(), "once");
+        assert!(matches!(
+            placement_hold(&mut holding, false, 1, &[]),
+            Some(Command::ReleaseWorkers { player: 1 })
+        ));
+        assert!(placement_hold(&mut holding, false, 1, &[]).is_none());
+        let build = Command::Build {
+            player: 1,
+            unit: tidewater_sim::UnitId(3),
+            kind: 0x3a,
+            tile: (4, 4),
+        };
+        placement_hold(&mut holding, true, 1, &[]);
+        assert!(placement_hold(&mut holding, false, 1, std::slice::from_ref(&build)).is_none());
+        placement_hold(&mut holding, true, 1, &[]);
+        let queued = Command::Queued {
+            player: 1,
+            command: Box::new(build),
+        };
+        assert!(placement_hold(&mut holding, false, 1, &[queued]).is_none());
+    }
 
     /// `core/timing-and-rng.md`, G21: in single player an unfocused window freezes the game (no cycle, no counter
     /// increase); a multiplayer game and a run with no window keep going.
