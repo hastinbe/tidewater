@@ -14,6 +14,10 @@
 - **Changes:** 2026-10-21, round 92 (oracle trace, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): a Direct Connect joiner leaves the score screen for the join screen ("Waiting for response") after a
   defeat by surrender (MS-V9; MS3b narrowed).
+- **Changes:** 2026-10-21, round 93 (oracle traces, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21): the creator goes back to the lobby after a defeat too (MS-V10); a Direct Connect joiner goes to
+  "Waiting for response" after a victory too (MS-V11), and enters the lobby once the creator is there (MS-V12). MS3b
+  narrowed to the lobby's music.
 
 This spec gives only what differs from the single-player score screen of `game/campaign-flow.md` ("The victory and
 defeat dialogs", "The score screen", "After the score screen"). "Network entry n" is entry n (counting from 1) of
@@ -87,7 +91,7 @@ dialog is chosen by the number of rows as in single player (2, 4, 6 or 8 rows).
 | Game | After the score screen |
 | --- | --- |
 | Battle.net game | back to the Battle.net screens (static study) |
-| Chat-room game (Direct Connect, Modem, IPX network; Enhanced and Classic mode) | **The game creator goes back to the lobby** ("Multi Player Setup", `ui/game-setup-lobby.md`) of the same session: its own row, the other seven slots open ("Available"), the chat line, Start Game greyed out (traced after a victory, round 91, MS-V8; it stays there). Both static readings (the first multiplayer screen; the main menu) are refuted for this case. **A joining player** (traced after a defeat by surrender, round 92, MS-V9): Direct Connect's join screen, "Waiting for response" with a Cancel Join button, while the creator plays on; whether it enters the session's lobby once the creator is back there isn't traced (default: it does, as a joiner). The joiner after a victory and the creator after a defeat: not traced; default as above |
+| Chat-room game (Direct Connect, Modem, IPX network; Enhanced and Classic mode) | **The game creator goes back to the lobby** ("Multi Player Setup", `ui/game-setup-lobby.md`) of the same session: its own row, the other seven slots open ("Available"), the chat line, Start Game greyed out (traced after a victory, round 91, MS-V8; it stays there). Both static readings (the first multiplayer screen; the main menu) are refuted for this case. The creator does the same after a defeat (traced, round 93, MS-V10). **A joining player**, after a defeat (traced, round 92, MS-V9) and after a victory (traced, round 93, MS-V11): Direct Connect's join screen, "Waiting for response" with a Cancel Join button, while the creator isn't in the lobby (it is still playing, or still on its own score screen). Once the creator is in the lobby, the joiner enters it as a joiner: its own row and Leave Game, and the creator's lobby lists it with Start Game enabled (traced, round 93: within 8 s of the creator's Continue, MS-V12) |
 
 **Tidewater slots.** Direct IP and Local Network games are chat-room games and follow the chat-room row (DECISIONS.md,
 2026-10-21).
@@ -125,7 +129,7 @@ Static study unless marked traced. Enhanced unless labelled.
 
 | Case | Expected rows (in order) |
 | --- | --- |
-| MS-V1. Chat-room game, L = slot 1 "Bob", slot 0 "Ann" allied with Bob, slot 2 "Cy" not allied; Bob wins after both leave | "Bob", "Ann - Ally", "Cy - Enemy"; victory background; then the lobby of the same session if Bob created the game (traced for the creator, MS-V8; a joiner by default the same) |
+| MS-V1. Chat-room game, L = slot 1 "Bob", slot 0 "Ann" allied with Bob, slot 2 "Cy" not allied; Bob wins after both leave | "Bob", "Ann - Ally", "Cy - Enemy"; victory background; then the lobby of the same session if Bob created the game (traced for the creator, MS-V8); if Bob joined it, "Waiting for response" until the creator is in the lobby, then the lobby (MS-V11, MS-V12) |
 | MS-V2. As MS-V1, but Bob broke the alliance with Ann after Ann left | Still "Ann - Ally": the label was fixed when Ann's row was made |
 | MS-V3. Chat-room game, L = slot 0 "Ann", one human slot 1 "Bob" (enemy) and a computer orc in slot 3 allied with Ann | "Ann", "Bob - Enemy", and slot 3's orc nation name "- Enemy" |
 | MS-V4. Battle.net, L surrenders | Defeat background; then the Battle.net screens |
@@ -134,6 +138,9 @@ Static study unless marked traced. Enhanced unless labelled.
 | MS-V7. Classic mode chat-room game, L defeated | Defeat background, rows as above; then as MS-V1 (default) |
 | MS-V8. `mp-dark-paths-bne-mp-surrender-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): L (the creator, slot 1, "Anonymous") wins at the check after the other human (slot 0, "Anonymous") surrenders | Rows "Anonymous" (L, on top, L's colour) then "Anonymous - Enemy"; "Outcome" shows "Victory!"; no elapsed time. After Continue: the "Multi Player Setup" lobby with L's row, seven "Available" slots and Start Game greyed out, still there 15 s later |
 | MS-V9. `mp-dark-paths-bne-mp-surrender-joiner-game-650` (oracle trace, Enhanced, Direct Connect, one computer player): the joiner (slot 0, "Anonymous") surrenders between n = 120 and 150; the creator plays on against the computer | The joiner's screens: n = 200 the defeat picture with no text; n = 260 "Outcome" with "Defeat!" drawn over it; n = 320 the score screen with rank "Slave", score 0 and Continue; by n = 380 also the rows "Anonymous", "Anonymous - Enemy", "Nation of Kul Tiras - Enemy" and the first statistic ("Units"). After Continue (n = 390): Direct Connect's join screen, "Waiting for response", Cancel Join, from n = 440 to at least 600. The creator shows "Player Anonymous left the game." |
+| MS-V10. `mp-dark-paths-bne-mp-creator-surrender-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): the creator (slot 1) surrenders between n = 120 and 150; screens from about 60 s after its last cycle; the joiner presses Continue first, then the creator | The creator: "Defeat!", rank "Servant", score 0, rows "Anonymous" then "Anonymous - Enemy". After its Continue: the session's "Multi Player Setup" lobby as creator, the joiner's row filled, Start Game enabled |
+| MS-V11. Same trace, and `mp-dark-paths-bne-mp-creator-quit-game-600` (LV22): the joiner wins | The joiner: "Victory!", rank "Slave", score 500. After its Continue: "Waiting for response" with Cancel Join while the creator is still on its score screen (creator-surrender); once the creator is in the lobby, the lobby with the joiner's own row and Leave Game (creator-surrender after the creator's Continue; creator-quit 8 s after the joiner's Continue, the creator already there) |
+| MS-V12. `mp-dark-paths-bne-mp-joiner-waits-game-600` (same set-up): the joiner surrenders and loses; it presses Continue first, then the creator | The joiner waits on "Waiting for response"; 8 s after the creator's Continue both are in the lobby (the creator's lists the joiner, Start Game enabled; the joiner's has Leave Game), and the joiner is still there 30 s later |
 
 ## Open questions
 
@@ -143,9 +150,8 @@ Static study unless marked traced. Enhanced unless labelled.
   computer player.
 - **The outcome word's source.** See "The outcome word": shown, but not from gluAll entries 18 to 22 as far as static
   study found. Default as stated. (MS2, elapsed time, closed: absent, traced.)
-- **After the score screen, other cases.** The creator after a victory (MS-V8) and the joiner after a defeat by
-  surrender (MS-V9) are traced. **Trace request MS3b (narrowed):** the creator after a defeat, the joiner after a
-  victory, and whether a waiting joiner enters the lobby once the creator is back there, in a 2-player Direct Connect
-  game; and the music in the lobby after the score screen (the oracle records no sound).
+- **After the score screen: the lobby's music.** Every screen change is traced (MS-V8 to MS-V12). **Trace request
+  MS3b (narrowed):** the music in the lobby after the score screen; the oracle records no sound, so it needs a run
+  with a sound device or a static study of where tracks start. Default: `ui/music.md` (nothing starts).
 - **Computer rows.** Computer players are always labelled Enemy, even when allied with L (static study).
   Covered by MS1 if the custom game's computer is set as an ally; otherwise default as stated.

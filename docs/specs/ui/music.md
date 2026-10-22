@@ -404,8 +404,9 @@ Attenuation in hundredths of a decibel for volume v = 1 to 100 (ten per row; row
   all sound the table lists.
 - **Multiplayer score screen: the lobby's music.** Where it goes is traced for the creator after a victory (the
   lobby of the same session, round 91); the oracle records no sound. Default: the score screen's fade of all sound
-  closes the score track and nothing starts in the lobby ("Where tracks start" has no lobby row). Trace request MS3b
-  (`ui/multiplayer-score.md`) covers the joiner and a defeat; the music needs a run with a sound device.
+  closes the score track and nothing starts in the lobby ("Where tracks start" has no lobby row). The screens after a
+  defeat and for a joiner are traced too (round 93, `ui/multiplayer-score.md` MS-V10 to MS-V12); trace request MS3b
+  now asks only for the music, which needs a run with a sound device.
 - **Outcome dialog: fade length.** The fade after the outcome dialog wasn't timed with a sound device. The same fade
   of all sound, timed on the quit-to-menu path in round 74, matched the formula (520 ms at volume 75), so the
   default is 540 ms at full volume. The second fade returns at once (static study, round 70; seen on the quit path,

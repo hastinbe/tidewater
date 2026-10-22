@@ -10,6 +10,11 @@
 - **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): an idle worker of a "nobody" player doesn't react when attacked (LV19, traced; LD3 narrowed to combat
   units); a Direct Connect joiner that quits to the menu goes to the join screen (LD7 closed for the joiner).
+- **Changes:** 2026-10-21, round 93 (oracle traces, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21): a "nobody" player's idle combat units and towers take no target and don't strike back (LV20, LV21,
+  traced; LD3 closed, the round-92 default refuted); in a Direct Connect game the creator that quits to the main menu
+  goes back to the session's lobby, and a waiting joiner enters the lobby once the creator is there (LV22, traced;
+  LD7 closed, the default "the main menu" for the creator refuted).
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the dialog files `rez\timeout.bin`, `rez\btimeout.bin`, `rez\surrendr.bin`, `rez\quitdraw.bin` and
   `rez\chatrtrn.bin`, and the tables `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running
@@ -98,8 +103,12 @@ What a chat-room leave does **not** do (static study):
   what idle units of a "nobody" player do on their own follows the ordinary unit rules. One of those rules decides
   what happens when one is attacked: the reaction forgets the attacker of a unit whose owner isn't playing
   (`orders/orders.md`, "Reacting to an attacker"), so an idle worker of a "nobody" player neither fights back nor
-  flees, and stands until it dies (traced, round 92: LV19). An idle combat unit's own target search has no player
-  test, so by the ordinary rules it still attacks an enemy in range (not traced: LD3, narrowed).
+  flees, and stands until it dies (traced, round 92: LV19). Nor does an idle combat unit or tower of a "nobody"
+  player attack: automatic target acquisition skips every candidate hidden from the searcher's owner
+  (`orders/orders.md`, "Terms"), and every unit is always hidden from a "nobody" player (`vision/fog.md`, "Unit
+  visibility (phase 5)"). So a "nobody" player's grunt stands next to an enemy footman, is struck and doesn't strike
+  back, and its cannon tower lets an enemy archer walk through its reach (traced, round 93: LV20, LV21). Units of the
+  leaver that were carrying out an order at the leave aren't traced (every traced unit was idle).
 - **No result is set** for the leaver by the leave itself. The victory check sets it (next section).
 - **Alliances are not changed.** The alliance table keeps the leaver's rows and columns.
 
@@ -151,6 +160,17 @@ The multiplayer rule of `game/victory.md` runs on every machine at the same cycl
 
 Multiplayer has no victory or defeat dialog: the game ends at once (`game/campaign-flow.md`, "The victory and defeat
 dialogs"). Static study; the score screen is `ui/multiplayer-score.md`.
+
+**Where the leaver goes after Quit to the main menu** in a Direct Connect game (traced, rounds 92 and 93):
+
+- **The game's creator** goes back to the session's lobby as creator ("Multi Player Setup",
+  `ui/game-setup-lobby.md`): its own row, the other seven slots "Available", Select Scenario, Start Game greyed out,
+  Cancel Game. It doesn't go to the main menu (LV22). In the traced two-player game the joiner, left alone, won at
+  its next check.
+- **A joiner** goes to Direct Connect's join screen, "Waiting for response" with Cancel Join, and stays there while
+  the creator plays on (round 92: `mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`, screenshots at n = 300 and
+  380 after the quit at n = 210). It enters the session's lobby, as a joiner, once the creator is back there
+  (traced after a score screen, `ui/multiplayer-score.md` MS-V11, MS-V12; default the same after a quit).
 
 ### Surrender and quit (draw)
 
@@ -296,6 +316,9 @@ All static study. Enhanced unless labelled.
 | LV17. `mp-dark-paths-bne-mp-quit-key-game-320` (same set-up): B presses Ctrl+Q, which opens "Are you sure you want to quit to the main menu?", and confirms after record 160 | Slot 0 becomes "nobody" in the turn after record 182; A shows network entry 64 "left the game" |
 | LV18. `mp-dark-paths-bne-mp-drop-key-game-1500` (same set-up): A held stopped so B waits for a turn; B presses Ctrl+F1 after record 150 | Slot 0 becomes "nobody" in the turn after record 194; A shows "Player Anonymous was dropped." (network entry 65). B sees the defeat background |
 | LV19. `mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300` (oracle trace, Enhanced, Direct Connect, Skirmish BNE, no computer player): A (slot 0) walks peasants 1593 and 1596 round the ridge to B's base; B (slot 1, the joiner) quits to the menu after record 1005; A orders both peasants to attack B's idle peon 1587 | Slot 1 becomes "nobody" in the turn at n = 1022. The peasants take the attack order at n = 1047 and 1048 and strike from n = 1067. Peon 1587 at tile (36, 52) loses hit points 30, 25 (n = 1077), 21, 15, 12, 8, 3 (n = 1152), staying in order 2 (idle, still animation) with facing 1 throughout, and dies at n = 1159. B's other units aren't touched; A's result is set by the victory check at n = 1208 |
+| LV20. `mp-battle-2-mp-battle2-nobody-combat-game-vision-1300` (oracle trace, Enhanced, Direct Connect, Battle_2, no computer player): A (slot 0) walks footmen 1595 to 1597 and archers 1598, 1599 south past B's cannon tower 1590 at tile (30, 26); B (slot 1) quits to the menu and is "nobody" from the turn at n = 1034 | While B plays, tower 1590 shoots at footman 1595 (n = 765) and 1596 (n = 916). After the leave archer 1599 walks from (35, 19) at n = 1155 to (35, 22) at n = 1208, inside the tower's reach and hidden from player 1 throughout: the tower stays in order 14 with no target, launches nothing after n = 926, and 1599 keeps 40 hit points. A wins at n = 1208 |
+| LV21. `mp-battle-2-mp-battle2-nobody-melee-game-vision-1450` (same set-up): B "nobody" from the turn at n = 1238; A moves footman 1595 (a move, not an attack) to (27, 48), next to B's idle grunt 1587 at (27, 49), arriving at n = 1375 | The footman takes the grunt as its target at n = 1378 (order 16) and strikes it at n = 1391 (hit points 60 to 54). The grunt stays in order 2 with no target and the still animation in every record to A's victory at n = 1409; the footman keeps 60 hit points |
+| LV22. `mp-dark-paths-bne-mp-creator-quit-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): the creator (slot 1) presses Ctrl+Q at n = 120 and confirms at n = 130 | The creator's screen: the session's "Multi Player Setup" lobby as creator (own row, seven "Available", Start Game greyed out), not the main menu. The joiner wins at its next check ("Victory!"); after its Continue it is in the creator's lobby with Leave Game, and the creator's lobby lists it with Start Game enabled |
 
 ## Open questions
 
@@ -303,20 +326,16 @@ All static study. Enhanced unless labelled.
   drop before it) is carried out only there; the dropped player and anyone who didn't drop keep it in the game. Whether the session layer
   in practice makes every machine drop together wasn't traced. **Trace request LD1:** a 3-player chat-room game, delay
   player 2's packets, press Alt+F2 on player 0 only; record each machine's notices and whether player 1 keeps waiting.
-- **What a "nobody" player's combat units do.** An idle worker is traced (LV19: no reaction). Whether an idle combat
-  unit of a "nobody" player still attacks by its own target search when hit isn't traced (default: it does, by the
-  ordinary rules, which have no player test at that step). **Trace request LD3 (narrowed):** as LV19, with B owning
-  a combat unit when it leaves (B trains one first, or a map that gives each start one).
+- **A "nobody" player's units busy with an order at the leave.** Idle units are traced (LV19 to LV21: no target, no
+  reaction). A unit carrying out an order when its owner leaves (an attack, a move) isn't traced. Default: it keeps
+  the order, as "The units stay as they are" says, and its target searches find nothing (the same hidden test).
+  **Trace request LD3b:** as LV21, with B's unit attacking or moving when B leaves.
 - **Battle.net leave timing.** Whether a leave event is carried out at the same cycle on every machine (default:
   next turn). **Trace request LD4** (needs a Battle.net-style session; probably not reachable).
 - **Host-left texts.** gluAll entries 96 and 104 weren't found used in a game. **Trace request LD5:** a Battle.net
   lobby where the host leaves (not reachable without the service; low priority).
 - **Exit the program** in multiplayer: taken to leave the session as any other game end does (static study, not
   followed in detail). Quit to the main menu is traced (LV17; LD6 closed, round 91).
-- **Where the leaver goes after Quit to the main menu** in a Direct Connect game. The joiner is traced (round 92,
-  LD7 closed for the joiner): it goes to Direct Connect's join screen, "Waiting for response" with a Cancel Join
-  button, not the main menu, and is still there 170 cycles later while the creator plays on
-  (`mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`, screenshots at n = 300 and 380 after the quit at n = 210).
-  Whether it enters the session's lobby once the creator is back there isn't traced (default: it does, as a joiner,
-  as after the score screen, `ui/multiplayer-score.md`). The creator's quit isn't traced (default: the main menu,
-  `ui/game-menu.md`).
+- **A joiner that quit, once the creator is back in the lobby.** LD7 is closed (round 93; "Does the leaver see a
+  defeat?"). Not traced: whether a joiner that quit to the menu (rather than one that left a score screen) enters the
+  lobby when the creator gets there. Default: it does, as after the score screen (MS-V12).

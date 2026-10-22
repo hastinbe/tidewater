@@ -26,6 +26,9 @@
   End scenario menu there.
 - **Changes:** 2026-10-21, round 92 (oracle trace, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): Quit to the main menu takes a Direct Connect joiner to the join screen, not the main menu (traced).
+- **Changes:** 2026-10-21, round 93 (oracle trace, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21): Quit to the main menu takes a Direct Connect game's creator back to the session's lobby, not the main
+  menu (traced, LV22).
 
 ## Behaviour
 
@@ -186,7 +189,7 @@ above.
 | Load another custom scenario | `cstcnfrm.bin` | Go to the custom-game screen |
 | Surrender (and on Battle.net after 120 s) | `surrendr.bin` | The local player is defeated. All menus close; in single player the defeat dialog (`rez\lmission.bin`) is shown, then the defeat score screen (`game/campaign-flow.md`) |
 | Quit (draw), Battle.net before 120 s | `quitdraw.bin` | Locally the same as surrender: a defeat. A game that ends within 120 s is reported to Battle.net as a draw for every player (`net/leave-and-drop.md`; static study) |
-| Quit to the main menu | `quit2mnu.bin` | Back to the main menu. A Direct Connect joiner instead goes to the join screen, "Waiting for response" with Cancel Join (traced, round 92; `net/leave-and-drop.md`, LD7) |
+| Quit to the main menu | `quit2mnu.bin` | Back to the main menu in single player. In a Direct Connect game the creator goes back to the session's lobby as creator (traced, round 93, LV22), and a joiner goes to the join screen, "Waiting for response" with Cancel Join, until the creator is back in the lobby (traced, round 92; `net/leave-and-drop.md`, "Does the leaver see a defeat?") |
 | Exit the program | `quit.bin` | The program ends (settings are saved; see "Stored settings") |
 
 **Who may restart, return or load.** Before its confirmation opens, the restart, return-to-chat-room and

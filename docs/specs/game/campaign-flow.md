@@ -58,6 +58,10 @@
 - **Changes:** 2026-10-21, round 92 (oracle trace, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): "After the score screen": a Direct Connect joiner after a defeat goes to the join screen (traced
   after a surrender, MS-V9).
+- **Changes:** 2026-10-21, round 93 (oracle traces, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21): "After the score screen": the creator goes back to the lobby after a defeat too, and a Direct Connect
+  joiner goes to the join screen after a victory too, then into the lobby once the creator is there (traced,
+  MS-V10 to MS-V12). The open question is closed.
 
 ## Behaviour
 
@@ -334,7 +338,7 @@ round 88).
 | Campaign, any other mission | next mission of the same race (entry + 2): act screen, briefing, game | replay the same mission |
 | Custom game | main menu | main menu |
 | Multiplayer, Battle.net | the Battle.net screens | the same |
-| Multiplayer, other connections | the game creator: back to the lobby of the same session (traced, round 91; `ui/multiplayer-score.md`, "What follows the score screen"). A joining player: by default the same, as a joiner (not traced) | the game creator: the same as after a victory (default; not traced). A Direct Connect joiner: the join screen, "Waiting for response" (traced after a surrender, round 92, `ui/multiplayer-score.md` MS-V9) |
+| Multiplayer, other connections | the game creator: back to the lobby of the same session (traced, round 91; `ui/multiplayer-score.md`, "What follows the score screen"). A Direct Connect joiner: the join screen, "Waiting for response", until the creator is in the lobby, then the lobby as a joiner (traced, round 93, MS-V11, MS-V12) | the game creator: the same as after a victory (traced, round 93, MS-V10). A Direct Connect joiner: the join screen, "Waiting for response" (traced after a surrender, round 92, MS-V9), then the lobby once the creator is there (MS-V12) |
 
 Replaying a mission goes through the act screen check and the briefing again. The act screen won't show again
 because its act was the last shown.
@@ -501,10 +505,6 @@ the next one is due at the same moment.
   and the local player's row first, then the other slots 0 to 7 in order, in single player too. That contradicts the
   stated rule above (slot order, "label - name"), which stays the default. Trace request MS1
   (`ui/multiplayer-score.md`): a screenshot of a single-player custom game's score screen with one computer player.
-- **After a multiplayer game.** Traced for the creator after a victory (round 91): back to the lobby of the same
-  session; the static reading (the main menu) is refuted. A Direct Connect joiner after a defeat goes to the join
-  screen, "Waiting for response" (traced, round 92, MS-V9). The creator after a defeat and the joiner after a victory
-  are still open: trace request MS3b (`ui/multiplayer-score.md`).
 - **The finale's text in the oracle.** On the ToD human finale (round 72) the scrolling text never moved: one row of
   text pixels stayed at y 308 for about 4 minutes, while the program kept running. The oracle container has no
   sound device; whether the scroll waits for the narration to finish wasn't checked. So the finale's scroll, its

@@ -65,6 +65,10 @@
 - **Changes:** 2026-10-16, round 86 (`ERRATA-round86.md`; reviewed by a spec-review session, 2026-10-16): no rule
   here changes. `ai/attack-ai.md` now measures its nearest gold store as the site-search centres do (top-left tile);
   request AA4b (erratum 8) was tried, skipped and taken off the queue.
+- **Changes:** 2026-10-21, round 93 (oracle traces, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21): after a load the done marks are cleared and made again, with the load's building marks (towers mark the
+  scout-tower entry, keeps and castles the hall-upgrade entries); traced, `game/save-load.md` SL9 to SL12. The
+  creation marks are unchanged.
 
 ## Behaviour
 
@@ -208,16 +212,16 @@ stopping at an 0xFF entry. For each entry:
 
 **Done marks.** Each entry can be marked done:
 
-- When a building of a computer player is **created**, the first entry that is not done and has the same type (after
-  the race change) is marked done. "Created" covers the buildings the map places (at load, before the first cycle)
-  and a construction site placed in play, so the mark comes when construction starts, not when it ends. There are no
-  special cases: a guard or cannon tower marks a guard or cannon tower entry, never the scout-tower entry (0x40), and
-  a keep or castle marks a keep or castle entry, never 0x98, 0x99 or a town hall entry. An active rescue player's map
-  buildings mark nothing (round 83, default, untraced; it follows from `game/setup.md`'s order of steps): they are
-  created before the player becomes a computer player, as the creation marks show. Round 84: the rule stays an
-  untraced default; by the stated rules it changes no outcome in any shipped mission, since every shipped active
-  rescue player with map buildings has an empty build list (`human5-30000`: no building started in 30000 cycles,
-  which either reading predicts; `ERRATA-round84.md`, AI7).
+- When a building of a computer player is **created**, the first entry that is not done and has the same type (after the
+  race change) is marked done. "Created" covers the buildings the map places (when the map is read, before the first
+  cycle) and a construction site placed in play, so the mark comes when construction starts, not when it ends. There are
+  no special cases: a guard or cannon tower marks a guard or cannon tower entry, never the scout-tower entry (0x40), and
+  a keep or castle marks a keep or castle entry, never 0x98, 0x99 or a town hall entry. (The load's marks, last bullet,
+  follow other rules and do have such cases.) An active rescue player's map buildings mark nothing (round 83, default,
+  untraced; it follows from `game/setup.md`'s order of steps): they are created before the player becomes a computer
+  player, as the creation marks show. Round 84: the rule stays an untraced default; by the stated rules it changes no
+  outcome in any shipped mission, since every shipped active rescue player with map buildings has an empty build list
+  (`human5-30000`: no building started in 30000 cycles, which either reading predicts; `ERRATA-round84.md`, AI7).
 - When a building of a computer player is **destroyed**, the first entry in list order that is done and whose type
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
@@ -226,6 +230,16 @@ stopping at an 0xFF entry. For each entry:
   and 0x86 to 0x8F when the upgrade line has already reached the level the code asks for; codes 0x82 to 0x85 when
   the item is already researched; and codes 0x90 to 0x97 when the player already knows the human or the orc item of
   the code (its spells-known bit; Data, "Spell bits for done marks at game start").
+- **After a load** (`game/save-load.md`, "What a loaded game starts afresh") a computer player's saved marks aren't
+  kept. They are made again: the game-start marks above, from the loaded levels, researched items and known spells;
+  then the **load's building marks** for each complete building of the player: a guard or cannon tower marks the
+  first open scout-tower entry (0x40); a keep or stronghold every 0x98 entry, then the first open 0x4A entry; a castle
+  or fortress every 0x98 and 0x99 entry, then the first open 0x4A entry; any other building the first open entry of
+  its type with the race bit cleared. Loaded buildings make no creation marks. A new game never makes the load's
+  building marks: its map buildings get the creation marks instead. A research or upgrade still running at the save
+  isn't marked. Traced, round 93: `game/save-load.md` SL9 to SL12 (three towers marking three 0x40 entries, a
+  fortress marking 0x98, two running researches left open); the 0x99 and 0x4A parts and the "complete" test are
+  static study.
 
 Nothing else marks an entry done or clears its mark. In particular nothing marks a research entry done because the
 player can't research it.

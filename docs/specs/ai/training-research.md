@@ -14,6 +14,10 @@
 - **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): "Training buildings": after a load the footmen, archers, siege and knights counts are doubled (traced,
   `game/save-load.md` SL4 to SL6).
+- **Changes:** 2026-10-21, round 93 (oracle traces, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21): a load clears every research request and makes the done marks again (traced, `game/save-load.md` SL9
+  to SL12); after a load every group count from footmen to submarines is doubled (mages, gryphons and destroyers
+  traced, SL13 to SL15; four groups a labelled gap-fill), the worker and tanker counts aren't.
 
 ## Behaviour
 
@@ -71,13 +75,16 @@ is set:
   request set. Entries below 0x80 are passed over.
 
 When a research or building upgrade **starts**, every build-list entry equal to its code (entries 0 to 63, stopping at
-an 0xFF entry) is marked **done**, and the code's request is cleared. A request is never cleared otherwise.
+an 0xFF entry) is marked **done**, and the code's request is cleared. A request is never cleared otherwise during a
+game. A load clears every request and makes the done marks again (`game/save-load.md`, "What a loaded game starts
+afresh"; traced, round 93, SL9 to SL12).
 
 Nothing else marks a research entry done, apart from the marks made at the start of a game for what the player already
-has and for a keep or castle the map places (`ai/worker-ai.md`, "Done marks"). No scan, timeout or missing building
-marks it. If the player never has a building that can research an entry, the entry stays not done, and the requests of
-the entries after it are never set by either scan: both the worker job scan and the no-workers pass stop at that
-entry.
+has (made again after a load) and the load's marks for a keep or castle (`ai/worker-ai.md`, "Done marks"). So a research
+still running at a save is never marked after the load, even when it finishes (`game/save-load.md` SL10). No scan,
+timeout or missing building marks it. If the player never has a building that can research an entry, the entry stays not
+done, and the requests of the entries after it are never set by either scan: both the worker job scan and the no-workers
+pass stop at that entry.
 
 ### Research codes
 
@@ -163,11 +170,13 @@ counts):
 
 Heroes are counted in their groups, so a map hero reduces what is trained.
 
-**After a load** the footmen, archers, siege and knights counts are the saved counts plus the loaded units counted
-again, so they are doubled when the saved counts were right, and the surplus stays (`game/save-load.md`, "What a saved game
-keeps"; traced, round 92, SL4 to SL6). The rules below then compare the doubled counts: a computer player that has
-loaded trains fewer of these four groups than it would have. The lumber mill, blacksmith and stables tests aren't
-affected. The other groups: see `game/save-load.md`, "Open questions".
+**After a load** every group count from footmen to submarines is the saved count plus the loaded units counted
+again, so it is doubled when the saved count was right, and the surplus stays (`game/save-load.md`, "What a saved game
+keeps"; traced for footmen, archers, siege and knights in round 92, SL4 to SL6, and for mages, gryphons and
+destroyers in round 93, SL13 to SL15; the flying machine, transport, battleship and submarine counts by a labelled
+static gap-fill). The rules below then compare the doubled counts: a computer player that has loaded trains fewer of
+these groups than it would have. The worker and tanker counts aren't affected (traced, round 93), and neither are the
+lumber mill, blacksmith and stables tests.
 
 **Draws.** Every "chance" below is one simulation draw r (`core/timing-and-rng.md`), made in phase 4 during the
 building's own update, and **only** when the condition written before it holds; conditions after it are not checked

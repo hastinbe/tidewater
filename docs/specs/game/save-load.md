@@ -31,6 +31,12 @@
   (SL4 to SL6, traced; the other groups held); a unit's animation, script and pending order are kept and the frozen
   worker marks cleared (static study); the next creation number after a load is 1626 in Enhanced (SL7, traced; open
   question closed).
+- **Changes:** 2026-10-21, round 93 (oracle traces, `ERRATA-round93-traces.md`; reviewed by a spec-review session,
+  2026-10-21, see its "Review"): a load clears the computer players' research requests and makes their build-list done
+  marks again, with the load's building marks (SL9 to SL12, traced; parts static study); the mages, gryphons and
+  destroyers counts double too, and the worker and tanker counts don't (SL13 to SL15, traced); the flying machine,
+  transport, battleship and submarine counts double by a labelled gap-fill (static study). The SL8 question is
+  narrowed to those four groups.
 
 ## Behaviour
 
@@ -176,18 +182,21 @@ lists, including:
   a moving unit resumes mid-step (every traced field matched the saved state in the four round-92 loads). The frozen
   and about-to-freeze marks of workers (`game/rescue.md`, "Frozen units"; only a multiplayer network command sets
   them) are cleared, so no unit is frozen after a load (static study, round 92; a labelled gap-fill, untraced);
-- each computer player's **training group counts** for footmen, archers, siege and knights (`ai/training-research.md`,
-  "Training buildings"). They are restored as saved, and then the load counts every loaded unit again as the map start
-  does: each unit the count includes (complete, not held, not dying) adds 1. So after a load each of these counts is
-  its saved value plus the number of such loaded units in its group: twice the saved value when the saved count was
-  right. Nothing corrects the surplus later: the count goes on rising and falling with the units from there, and a
-  further save and load adds the loaded units again (static study; the trace shows the counts unchanged to n = 60,
-  with no unit of the group made or lost). Traced, round 92 (SL4 to SL6): player 6 of
-  `xhuman9-xhuman9-r92-aijobs-aijobs-game-60` saved with footmen 3, archers 2, siege 0, knights 1, loaded with 6, 4,
-  0, 2, unchanged to n = 60; its second ogre was dying at the save and isn't counted again (knights 1 + 1, not
-  1 + 2). The building tests of the same rules (a complete lumber mill, blacksmith, stables) are worked out afresh and
-  come back right. Whether the other groups (mages, gryphons, flying machines, ships) and the worker and tanker counts
-  double too isn't traced: see "Open questions";
+- each computer player's **training group counts**, the groups from footmen to submarines of `ai/training-research.md`,
+  "Training buildings" (not the worker and tanker counts). They are restored as saved, and then the load counts every
+  loaded unit again as the map start does: each unit the count includes (complete, not held, not dying) adds 1. So after
+  a load each of these counts is its saved value plus the number of such loaded units in its group: twice the saved
+  value when the saved count was right. Nothing corrects the surplus later: the count goes on rising and falling with
+  the units from there, and a further save and load adds the loaded units again (static study; the trace shows the
+  counts unchanged to n = 60, with no unit of the group made or lost). Traced, round 92 (SL4 to SL6): player 6 of
+  `xhuman9-xhuman9-r92-aijobs-aijobs-game-60` saved with footmen 3, archers 2, siege 0, knights 1, loaded with 6, 4, 0,
+  2, unchanged to n = 60; its second ogre was dying at the save and isn't counted again (knights 1 + 1, not 1 + 2). The
+  building tests of the same rules (a complete lumber mill, blacksmith, stables) are worked out afresh and come back
+  right. Traced, round 93: the mages (SL13), gryphons (SL15) and destroyers (SL14) counts double the same way; the
+  destroyers count leaves out the held map-placed ships, as every group count does, so only the trained ones are counted
+  again. The worker and tanker counts are worked out afresh and come back right (SL13 to SL15). The flying machine,
+  transport, battleship and submarine counts aren't traced; they double too (static study: they are saved and counted
+  again with the traced groups; a labelled gap-fill, see "Open questions");
 - each player's resources, upgrades, spells and allowances;
 - alliances (Enhanced only);
 - the game clock (Enhanced only). The cycle count is written but not kept: see "What a loaded game starts afresh";
@@ -234,6 +243,29 @@ lists, including:
   moving to its goal then gets its move again from pass B; it is already moving, so the move becomes its pending
   order, which takes over at its next decision with the still animation and wait 3 (`orders/orders.md`). Traced,
   round 92: SL1 to SL3.
+- **Computer research requests and build-list done marks.** A load doesn't keep them. In the loaded game's setup
+  every research request of every player is clear (`ai/training-research.md`, "Research requests and done marks"),
+  and each computer player's done marks (`ai/worker-ai.md`, "Done marks") are made again, in this order:
+  1. the game-start marks for what the player already has: upgrade levels, researched items and known spells;
+  2. then the marks of each complete building of the player, the **load's building marks**, which have special
+     cases the creation marks don't have:
+
+     | Building | Marks |
+     | --- | --- |
+     | Guard tower or cannon tower (0x60 to 0x63) | the first open scout-tower entry (0x40) |
+     | Keep or stronghold (0x58, 0x59) | every keep-upgrade entry (0x98), then the first open town-hall entry (0x4A) |
+     | Castle or fortress (0x5A, 0x5B) | every 0x98 and castle-upgrade (0x99) entry, then the first open 0x4A entry |
+     | Any other building | the first open entry of its type with the race bit cleared (an orc barracks, 0x3D, marks a 0x3C entry) |
+
+  Loaded units aren't created again, so they make no creation marks. A research or upgrade still running at the save
+  has no level or flag yet, so its entry isn't marked, although its start had marked it in the saved game. The
+  research carries on and finishes as saved, and nothing marks its entry afterwards (only a start or the game-start
+  marks mark a research entry). When that item can't be started again (its level or flag is already reached), the
+  entry stops both scans for the rest of the game, like any entry the player can't research. Traced, round 93 (SL9 to
+  SL12): the cleared requests, the running research left unmarked, the towers' 0x40 marks and a fortress's 0x98 mark.
+  Static study (labelled gap-fills, untraced): the 0x99 marks, the 0x4A mark after a keep or castle, that only
+  complete buildings mark, and the game-start marks after a load (no traced player had a level, or a spell that marks
+  an entry).
 - **Pause.** A loaded game is never paused: the pause isn't saved, and every game start clears it, so a game saved
   while paused loads running (static study, `ERRATA-audit-game.md` erratum 6; a labelled gap-fill, untraced).
 - **Creation numbers.** Every unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3) is its slot
@@ -333,6 +365,13 @@ stays in the running game.
 | **SL5.** Same trace, loaded game n = 12: player 6's orc barracks (unit 1480) thinks; wanted archers 3 | Archers 4 is not below 3, so rule 3's 1-in-4 draw isn't made; rule 4's 1-in-8 draw is (siege 0 < 1). The cycle makes 7 draws in all |
 | **SL6.** `xhuman9-xhuman9-runestone-alive-saveload-game-60` (oracle trace, Enhanced) | The generator state at n = 12 of the loaded game matches the trace once SL4's counts are used (one draw fewer than with the saved counts) |
 | **SL7.** `xhuman9-xhuman9-runestone-saveload-game-400` (oracle trace, Enhanced, 1600 slots): after the load all 200 units have number slot + 1 (largest 1600) | n = 252: two units are created, slot 1399 gets 1626 and slot 1398 gets 1627; n = 257: slot 1397 gets 1628 |
+| **SL9.** `xhuman9-xhuman9-runestone-saveload-aigroups-airesearch-game-400` (oracle trace, Enhanced; the SL7 scenario, saved after n = 1704): computer player 6, build list 0x4A, 0x3C, 0x4C, 0x52, 0x40, 0x3C, 0x86, 0x80, 0x88, limit 37. At the save: request {0x88}, done entries 0 to 7, weapon and arrow levels 0, its blacksmith researching 0x86 and its lumber mill 0x80 | The loaded game's setup record: no requests; done entries 0 to 5 (6 and 7 open again) |
+| **SL10.** Same trace, player 6 after the load | n = 55: request 0x86 set (the scan stops at entry 6). n = 329: the 0x86 research finishes (weapon level 1) and the blacksmith goes idle. To n = 400: requests stay {0x86}, done marks stay 0 to 5, no research or upgrade starts (gold 350, lumber 1450 at n = 343), and 0x88 is never requested |
+| **SL11.** Same trace, computer player 5 (build list 0x4A, 0x4C, 0x3C, 0x98, 0x3C, 0x52, 0x42, 0x3E, 0x82, …, limit 30; it owns a map fortress). At the save: request {0x98}, done entries 0, 1, 2, 4, 5, 6, 7, 11 | Setup record: no requests; done 0 to 7 and 11 (entry 3, 0x98, marked by the fortress). n = 15: request 0x82 (entry 8). n = 398: rangers start (gold 1560 to 60) and entry 8 is marked |
+| **SL12.** Same trace, computer player 0 (0x40 at entries 7, 8 and 9; two guard towers and two cannon towers). At the save: done 0, 1, 2, 11 | Setup record: done 0, 1, 2, 7, 8, 9, 11: three towers mark the three scout-tower entries, and the fourth finds none open |
+| **SL13.** Same trace: player 5's mages count is 1 at the save | Setup record to n = 400: 2. The worker counts of players 0, 1, 2, 5 and 6 are the same in the save and setup records |
+| **SL14.** `orc12-orc12-r93-groups-saveload-aigroups-game-60` (oracle trace, Enhanced, saved after n = 8004): computer players 1 and 3 at the save: destroyers 3 and 2 (of 6 and 4 on the map; the others held), tankers 4 and 4, workers 7 and 7 | Setup record to n = 60: destroyers 6 and 4; tankers 4 and 4; workers 7 and 7 |
+| **SL15.** `xorc6-xorc6-r93-groups-saveload-aigroups-game-60` (oracle trace, Enhanced, saved after n = 3104): computer player 2 at the save: gryphons 2, workers 4 | Setup record to n = 60: gryphons 4, workers 4 |
 
 ## Open questions
 
@@ -358,10 +397,10 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
-- **Other training group counts after a load.** Only the footmen, archers, siege and knights counts are traced
-  doubling (SL4). Whether the mages, gryphons, flying machines and ship counts, and the worker and tanker counts,
-  are also restored and counted again isn't traced. Default: they are worked out afresh and come back right, as
-  `ai/training-research.md` states them. **Trace request SL8:** widen the oracle's group-count extra to every group
-  of "Training buildings" and repeat SL4 with a computer player that owns a mage, a ship or a tanker at the save.
+- **Untraced training group counts after a load.** Seven groups are traced doubling (SL4, SL13 to SL15), and the
+  worker and tanker counts are traced coming back right. The flying machine, transport, battleship and submarine
+  counts aren't traced. Default: they double like the traced groups (static study, round 93). **Trace request SL8
+  (narrowed):** a save and load with a computer player that owns a trained, not held, flying machine, transport,
+  battleship or submarine at the save.
 - **Running game.** The save and load rules above that say "traced" were watched in the running game (round 90);
   the rest wasn't.
