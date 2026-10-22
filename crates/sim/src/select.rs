@@ -186,10 +186,42 @@ impl World {
                     self.speed.saturating_sub(1).min(top)
                 };
             }
-            Command::Pause { .. } => self.paused = !self.paused,
+            Command::Pause { player } => self.pause_command(player),
+            Command::Resume { player } => self.resume_command(player),
             _ => return false,
         }
         true
+    }
+
+    /// "Pausing" (`ui/game-menu.md`): nothing if the game is paused already; in Enhanced multiplayer it uses one of the
+    /// player's pauses and nothing happens for a player with none left.
+    fn pause_command(&mut self, player: u8) {
+        if self.paused {
+            return;
+        }
+        let counted = self.rules.multiplayer && self.rules.enhanced;
+        if counted {
+            match self.pauses.get_mut(player as usize) {
+                Some(n) if *n > 0 => *n -= 1,
+                _ => return,
+            }
+        }
+        self.paused = true;
+        if counted {
+            let left = self.pauses[player as usize];
+            self.events.push(crate::economy::Event::Paused { player, left });
+        }
+    }
+
+    /// "Resuming": nothing if the game is not paused; uses no pause.
+    fn resume_command(&mut self, player: u8) {
+        if !self.paused {
+            return;
+        }
+        self.paused = false;
+        if self.rules.multiplayer && self.rules.enhanced {
+            self.events.push(crate::economy::Event::Resumed { player });
+        }
     }
 
     /// "Losing a unit from the selection": a unit that is dying, dead, removed, inside something or entering a mine,
@@ -1101,8 +1133,64 @@ mod tests {
         w.step(&[]);
         assert_eq!(w.tick, tick + 1);
         assert_eq!(w.units, before);
+        // A pause while paused does nothing; a resume ends it.
         w.step(&[Command::Pause { player: 0 }]);
+        assert!(w.paused);
+        w.step(&[Command::Resume { player: 0 }]);
         assert!(!w.paused);
+        w.step(&[Command::Resume { player: 0 }]);
+        assert!(!w.paused);
+        assert!(
+            !w.events.iter().any(is_pause_event),
+            "single player shows no pause notices"
+        );
+    }
+
+    /// `ui/game-menu.md`, "Pausing": three pauses per player in Enhanced multiplayer, shown with the pauses left.
+    #[test]
+    fn enhanced_multiplayer_pauses_are_counted_and_announced() {
+        use crate::economy::Event;
+        let mut w = map();
+        w.rules.multiplayer = true;
+        w.rules.enhanced = true;
+        let before = w.state_hash();
+        for left in [2, 1, 0] {
+            w.step(&[Command::Pause { player: 1 }]);
+            assert!(w.paused);
+            assert!(w.events.contains(&Event::Paused { player: 1, left }));
+            w.events.clear();
+            w.step(&[Command::Pause { player: 1 }]);
+            assert!(!w.events.iter().any(is_pause_event), "already paused: nothing");
+            w.step(&[Command::Resume { player: 0 }]);
+            assert!(!w.paused);
+            assert!(w.events.contains(&Event::Resumed { player: 0 }));
+            w.events.clear();
+        }
+        w.step(&[Command::Pause { player: 1 }]);
+        assert!(!w.paused, "a fourth pause from the same player does nothing");
+        assert_eq!(w.pauses[1], 0);
+        w.step(&[Command::Pause { player: 0 }]);
+        assert!(w.paused, "the other player still has its own");
+        assert_ne!(w.state_hash(), before);
+    }
+
+    #[test]
+    fn classic_multiplayer_has_no_pause_limit_and_no_notices() {
+        let mut w = map();
+        w.rules.multiplayer = true;
+        w.rules.enhanced = false;
+        for _ in 0..5 {
+            w.step(&[Command::Pause { player: 1 }]);
+            assert!(w.paused);
+            w.step(&[Command::Resume { player: 1 }]);
+        }
+        assert!(!w.events.iter().any(is_pause_event));
+        assert_eq!(w.pauses[1], crate::PAUSES_PER_PLAYER);
+    }
+
+    fn is_pause_event(e: &crate::economy::Event) -> bool {
+        use crate::economy::Event;
+        matches!(e, Event::Paused { .. } | Event::Resumed { .. })
     }
 
     /// Harvest spec, round-62 vectors (`orc9-orc09-return-goods-2200` n = 1150 and 1265): command 24 with a target unit

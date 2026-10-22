@@ -68,6 +68,15 @@ pub enum Shortage {
 /// Things the player is told. Not game state: the client drains them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
+    /// Enhanced multiplayer: `player` paused the game and has `left` pauses after this one (`ui/game-menu.md`).
+    Paused {
+        player: u8,
+        left: u8,
+    },
+    /// Enhanced multiplayer: `player` resumed the game.
+    Resumed {
+        player: u8,
+    },
     CantAfford {
         player: u8,
         shortage: Shortage,

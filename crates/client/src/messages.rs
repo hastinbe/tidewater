@@ -118,15 +118,24 @@ pub fn event_notice(e: &Event, human: u8) -> Option<Text> {
     }
 }
 
-/// A table entry with the player's name filled in (the pause notices' default): `%s` takes the name, and the text
-/// is cut before any other placeholder.
+/// A table entry with the player's name filled in: `%s` takes the name, and the text is cut before any other
+/// placeholder.
 pub fn fill_name(template: &str, name: &str) -> String {
+    fill(template, name, None)
+}
+
+/// A table entry with the player's name and, when given, a number filled in: `%s` takes the name, `%d` the number
+/// (the pauses left in entry 86). The text is cut before any other placeholder, and before `%d` without a number.
+pub fn fill(template: &str, name: &str, number: Option<u32>) -> String {
     let mut out = String::new();
     let mut rest = template;
     while let Some(i) = rest.find('%') {
         out.push_str(&rest[..i]);
         if rest[i + 1..].starts_with('s') {
             out.push_str(name);
+            rest = &rest[i + 2..];
+        } else if let (true, Some(n)) = (rest[i + 1..].starts_with('d'), number) {
+            out.push_str(&n.to_string());
             rest = &rest[i + 2..];
         } else {
             let cut = out.trim_end_matches([' ', '(', '[']);
@@ -431,6 +440,13 @@ mod tests {
 
     fn texts(m: &Messages) -> Vec<&str> {
         m.list.iter().map(|l| l.text.as_str()).collect()
+    }
+
+    #[test]
+    fn the_pause_notice_takes_the_name_and_the_pauses_left() {
+        assert_eq!(fill("%s paused (%d left)", "Ann", Some(2)), "Ann paused (2 left)");
+        assert_eq!(fill("%s paused (%d left)", "Ann", None), "Ann paused");
+        assert_eq!(fill("%s resumed", "Ann", Some(1)), "Ann resumed");
     }
 
     #[test]

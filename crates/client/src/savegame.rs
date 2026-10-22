@@ -85,10 +85,10 @@ impl GameClock {
 }
 
 /// The pauses each player starts a game with (`ui/game-menu.md`, "Pausing").
-pub const START_PAUSES: u8 = 3;
+pub const START_PAUSES: u8 = tidewater_sim::PAUSES_PER_PLAYER;
 
-/// Each player's pauses left. Only Enhanced multiplayer games use them (`ui/game-menu.md`, "Pausing"), and this client
-/// has none, so nothing spends them yet: the counts are kept so Enhanced saves carry them (`game/save-load.md`).
+/// Each player's pauses left. Only Enhanced multiplayer games use them (`ui/game-menu.md`, "Pausing"). The world holds
+/// them (`World::pauses`); a game starts with them from a loaded save, and Enhanced saves carry them (`game/save-load.md`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PauseCounts(pub [u8; 16]);
 

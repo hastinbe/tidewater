@@ -52,8 +52,8 @@ pub use extras::Extras;
 pub use rng::Rng;
 pub use terrain::{Terrain, WallStage};
 pub use world::{
-    Command, Difference, Gather, Layer, Order, Player, RELEASED, RestoreError, Rules, Source, SpawnError, Unit, UnitId,
-    World, WorldError,
+    Command, Difference, Gather, Layer, Order, PAUSES_PER_PLAYER, Player, RELEASED, RestoreError, Rules, Source,
+    SpawnError, Unit, UnitId, World, WorldError,
 };
 
 /// Map pixels per tile.

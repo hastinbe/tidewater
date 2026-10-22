@@ -1335,7 +1335,7 @@ mod tests {
                     assert_eq!((w.vision.countdown, w.victory.countdown), (fog, vic));
                     left -= 1;
                     if left == 0 {
-                        w.step(&[crate::Command::Pause { player: 0 }]);
+                        w.step(&[crate::Command::Resume { player: 0 }]);
                         assert!(!w.paused);
                     }
                     continue;

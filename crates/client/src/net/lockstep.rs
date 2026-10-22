@@ -626,6 +626,10 @@ impl Session for NetSession {
         true
     }
 
+    fn player_name(&self, slot: u8) -> String {
+        self.name(slot)
+    }
+
     fn send_chat(&mut self, allies: bool, text: &str) {
         let text = clean_chat(text);
         if text.is_empty() || self.exit || self.left {

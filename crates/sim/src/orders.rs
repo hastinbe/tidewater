@@ -237,6 +237,7 @@ impl World {
             | Command::RecallGroup { .. }
             | Command::Speed { .. }
             | Command::Pause { .. }
+            | Command::Resume { .. }
             | Command::Cheat { .. }
             | Command::Surrender { .. }
             | Command::QuitDraw { .. }

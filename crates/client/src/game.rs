@@ -121,7 +121,6 @@ pub struct ScreenUi {
     pub history: Option<messages::History>,
     pub messages: messages::Messages,
     pub status: messages::StatusBar,
-    pub was_paused: bool,
 }
 
 /// The information panel's state (`info`, spec `ui/info-panel.md`).
@@ -292,7 +291,12 @@ pub(crate) fn capture_game(c: &mut Core, name: &str) -> Option<Vec<u8>> {
     let cycles_on = c.cycling.as_ref()?.state.cycler().on_set();
     let now = c.time.elapsed();
     let clock_ms = c.game_clock.as_ref().map(|g| g.ms(now));
-    let pause_counts = c.pause_counts.as_ref().map(|p| p.0);
+    // The pauses left live in the world; the client keeps the counts only for saved games.
+    let pause_counts = c
+        .sim
+        .as_ref()
+        .map(|s| s.world.pauses)
+        .or(c.pause_counts.as_ref().map(|p| p.0));
     let music = c.jukebox.music().current();
     let screen = c
         .view
@@ -675,6 +679,8 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
         c.time.elapsed(),
     );
     c.game_clock = Some(clock);
+    // A loaded Enhanced multiplayer game goes on with the pauses its players had left.
+    scene.world.pauses = pauses.0;
     c.pause_counts = Some(pauses);
     c.cycling = Some(cycling);
     c.loaded = Some(Loaded(Some(scene)));
@@ -921,7 +927,11 @@ pub(crate) fn tick(c: &mut Core) -> bool {
         time.reset_deadline();
     }
     for n in sim.session.take_leave_notices() {
-        let entry = if n.dropped {
+        // Entry 63 for a player with nothing left, else 64 (left) or 65 (dropped); `ui/messages.md`.
+        let nothing_left = !sim.world.units.iter().any(|u| u.owner == n.slot && !u.dying);
+        let entry = if nothing_left {
+            messages::net::PLAYER_GONE
+        } else if n.dropped {
             messages::net::PLAYER_DROPPED
         } else {
             messages::net::PLAYER_LEFT
@@ -985,10 +995,24 @@ pub(crate) fn tick(c: &mut Core) -> bool {
     let events = std::mem::take(&mut sim.world.events);
     // A unit that changed owner by rescue leaves the selection (rescue spec, "Owner change").
     for e in &events {
-        if let Event::OwnerChanged { unit, .. } = *e {
-            // The pulse colour starts for the rest of the game (palette-effects spec, "Cycle 0, the pulse").
-            cycling.state.owner_changed();
-            sel.units.retain(|&id| id != unit);
+        match *e {
+            Event::OwnerChanged { unit, .. } => {
+                // The pulse colour starts for the rest of the game (palette-effects spec, "Cycle 0, the pulse").
+                cycling.state.owner_changed();
+                sel.units.retain(|&id| id != unit);
+            }
+            // Enhanced multiplayer only (the sim raises them there): entries 86 and 87 with the player's name.
+            Event::Paused { player, left } => {
+                let name = sim.session.player_name(player);
+                let text = messages::fill(&hud.art.net_string(messages::net::PAUSED), &name, Some(u32::from(left)));
+                sim.notices.push(messages::Text::Own(text));
+            }
+            Event::Resumed { player } => {
+                let name = sim.session.player_name(player);
+                let text = messages::fill_name(&hud.art.net_string(messages::net::RESUMED), &name);
+                sim.notices.push(messages::Text::Own(text));
+            }
+            _ => {}
         }
     }
     cheat_queue.take_events(&events);
@@ -1309,7 +1333,8 @@ pub(crate) fn touch_view(c: &mut Core) {
     } = c;
     if pause && let Some(sim) = sim.as_mut() {
         let player = sim.human;
-        sim.pending.push(Command::Pause { player });
+        let cmd = pause_or_resume(&sim.world, &sim.pending, player);
+        sim.pending.push(cmd);
     }
     let (Some(w), Some(mv), Some(zoom)) = (input.window, view.as_mut(), map_zoom.as_mut()) else {
         return;
@@ -1345,6 +1370,17 @@ pub(crate) fn touch_view(c: &mut Core) {
             let at = mv.tiles();
             mv.move_to((at.0.round() as i32 + dx as i32, at.1.round() as i32 + dy as i32));
         }
+    }
+}
+
+/// What the pause key (or button) sends: a resume while the game is paused, else a pause. A pause already waiting to
+/// go out counts as the game being paused, so a double press resumes.
+fn pause_or_resume(world: &tidewater_sim::World, pending: &[Command], player: u8) -> Command {
+    let waiting = pending.iter().any(|c| matches!(c, Command::Pause { .. }));
+    if world.paused != waiting {
+        Command::Resume { player }
+    } else {
+        Command::Pause { player }
     }
 }
 
@@ -1506,8 +1542,8 @@ pub(crate) fn panel_input(c: &mut Core) {
         && let Some(b) = screen::menu_button_at((c.x, c.y), pause_button(sim))
     {
         if b == screen::MenuButton::Pause {
-            let player = sim.human;
-            sim.pending.push(Command::Pause { player });
+            let cmd = pause_or_resume(&sim.world, &sim.pending, sim.human);
+            sim.pending.push(cmd);
         } else {
             ui.menu_requested = true;
         }
@@ -2035,7 +2071,7 @@ pub(crate) fn keys_input(c: &mut Core) {
         };
         match a {
             mouse::KeyAction::Speed(faster) => sim.pending.push(Command::Speed { player: human, faster }),
-            mouse::KeyAction::Pause => sim.pending.push(Command::Pause { player: human }),
+            mouse::KeyAction::Pause => sim.pending.push(pause_or_resume(&sim.world, &sim.pending, human)),
             mouse::KeyAction::Group(key, g) => {
                 let mode = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));
                 let now = (time.elapsed_secs_f64() * 1000.0) as u64;
@@ -2367,19 +2403,6 @@ pub(crate) fn update_messages(c: &mut Core) {
             0,
             now,
         );
-    }
-    // Our wording for the player's name; open question default: the name only.
-    let paused = sim.world.paused;
-    if paused != scr.was_paused {
-        let entry = if paused {
-            messages::net::PAUSED
-        } else {
-            messages::net::RESUMED
-        };
-        let name = format!("Player {}", sim.human + 1);
-        scr.messages
-            .notice(&messages::fill_name(&hud.art.net_string(entry), &name), 0, now);
-        scr.was_paused = paused;
     }
     scr.messages.expire(now);
     for tile in std::mem::take(&mut sim.world.sounds.events) {

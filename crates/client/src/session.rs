@@ -146,6 +146,11 @@ pub trait Session: Send + Sync {
         false
     }
 
+    /// The name of the player in `slot` (a network game's; "Player N" otherwise).
+    fn player_name(&self, slot: u8) -> String {
+        format!("Player {}", u32::from(slot) + 1)
+    }
+
     /// The local player sends a chat line to everyone, or to the allies. A local game or a replay has nobody to tell.
     fn send_chat(&mut self, _allies: bool, _text: &str) {}
 

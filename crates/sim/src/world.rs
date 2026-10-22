@@ -770,7 +770,8 @@ pub enum Command {
         player: u8,
         faster: bool,
     },
-    /// Pause or resume.
+    /// Pause (`ui/game-menu.md`, "Pausing"): does nothing if the game is already paused. In Enhanced multiplayer it
+    /// spends one of the player's [`PAUSES_PER_PLAYER`] pauses, and does nothing for a player with none left.
     Pause {
         player: u8,
     },
@@ -814,6 +815,10 @@ pub enum Command {
         player: u8,
         dropped: bool,
     },
+    /// Resume (`ui/game-menu.md`, "Resuming"): does nothing if the game is not paused. Uses no pause.
+    Resume {
+        player: u8,
+    },
 }
 
 impl Command {
@@ -852,7 +857,8 @@ impl Command {
             | Command::Cheat { player, .. }
             | Command::Surrender { player }
             | Command::QuitDraw { player }
-            | Command::Leave { player, .. } => player,
+            | Command::Leave { player, .. }
+            | Command::Resume { player } => player,
         }
     }
 
@@ -872,6 +878,8 @@ impl Command {
 }
 
 pub const PLAYERS: usize = 16;
+/// The pauses each player starts an Enhanced multiplayer game with (`ui/game-menu.md`, "Pausing").
+pub const PAUSES_PER_PLAYER: u8 = 3;
 /// Cycles run at once when a game starts (timing-and-rng spec, "Scheduler", rule 1).
 pub const START_UP_CYCLES: u32 = 2;
 
@@ -940,6 +948,9 @@ pub struct World {
     /// The game speed, 0 to 8 (timing-and-rng spec, the 9 levels), and whether the game is paused.
     pub speed: u8,
     pub paused: bool,
+    /// Each player's pauses left (`ui/game-menu.md`, "Pausing"). Only Enhanced multiplayer spends them, and only
+    /// there do they join the state hash.
+    pub pauses: [u8; PLAYERS],
     /// The local player's remembered buildings for the minimap (minimap spec). Not game state: left out of the hash.
     pub remembered: crate::minimap::Memory,
     /// The starting view and sound set game setup chose. Not game state: left out of the hash.
@@ -1093,6 +1104,7 @@ impl World {
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,
+            pauses: [PAUSES_PER_PLAYER; PLAYERS],
             remembered: Default::default(),
             start: Default::default(),
             cheats: Default::default(),
@@ -1658,6 +1670,7 @@ impl World {
             &Command::Cheat { player, flags } => return self.cheat_command(player, crate::cheats::Flags(flags)),
             &Command::Surrender { player } | &Command::QuitDraw { player } => return self.surrender_command(player),
             &Command::Leave { player, .. } => return self.leave_command(player),
+            Command::Resume { .. } => return,
             &Command::UnloadOne { player, unit, slot } => return self.unload_one_command(player, unit, slot),
         };
         for &id in units {
@@ -1821,6 +1834,10 @@ impl World {
         self.selections.hash(&mut h);
         self.speed.hash(&mut h);
         self.paused.hash(&mut h);
+        // The pause counts are game state only where they are spent.
+        if self.rules.multiplayer && self.rules.enhanced {
+            self.pauses.hash(&mut h);
+        }
         // The options that touch the sim are game state. An empty set writes nothing (`extras`).
         self.rules.extras.hash(&mut h);
         // Cheat flags join the hash only when set, so a game without cheats hashes as it always has.
