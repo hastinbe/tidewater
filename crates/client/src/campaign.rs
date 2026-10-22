@@ -1191,14 +1191,14 @@ pub fn after_score(game: GameKind, victory: bool) -> Next {
 /// Where the flow goes after the score screen ("After the score screen"; `ui/multiplayer-score.md`, "What follows the
 /// score screen"). A multiplayer game's creator goes back to the lobby of the same session after a victory (traced,
 /// MS-V8); after a defeat it is not traced and the default is the same. A Direct Connect joiner after a defeat goes to
-/// the join screen (traced after a surrender, MS-V9). A joiner after a victory is not traced: the default is the
-/// session's lobby, as a joiner.
+/// the join screen (traced after a surrender, MS-V9), and so does one after a victory (MS-V11, round 93: the
+/// join screen again, which then moves to the lobby once the creator is in it, MS-V12).
 ///
 /// spec gap: Tidewater's multiplayer games are all chat-room games (Direct IP stands in for Direct Connect, Local
 /// Network for IPX), so the Direct Connect rule is applied to every joiner.
 pub fn after_score_as(game: GameKind, victory: bool, role: Role) -> Next {
     match game {
-        GameKind::Multiplayer if role == Role::Joiner && !victory => Next::JoinScreen,
+        GameKind::Multiplayer if role == Role::Joiner => Next::JoinScreen,
         GameKind::Campaign(e) if !victory => Next::Replay(e),
         GameKind::Campaign(e @ (26 | 27)) => Next::Ending {
             bdp: false,
@@ -1216,11 +1216,12 @@ pub fn after_score_as(game: GameKind, victory: bool, role: Role) -> Next {
 
 /// Where Quit to the main menu from the game menu (or Ctrl+Q) goes (`ui/game-menu.md`; `net/leave-and-drop.md`, LD7): the
 /// main menu, except for a multiplayer game's Direct Connect joiner, who goes to the join screen (traced, round 92,
-/// `mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`: still there 170 cycles later). The creator's quit isn't traced;
-/// the default is the main menu.
+/// `mp-skirmish-bne-mp-skirmish-nobody-fight-game-600`: still there 170 cycles later), and its creator, who goes to
+/// the session's lobby (LV22, round 93; this reverses round 92's main menu).
 pub fn after_quit(game: GameKind, role: Role) -> Next {
     match (game, role) {
         (GameKind::Multiplayer, Role::Joiner) => Next::JoinScreen,
+        (GameKind::Multiplayer, Role::Creator) => Next::Lobby,
         _ => Next::MainMenu,
     }
 }
@@ -1992,14 +1993,10 @@ mod tests {
             "default, not traced"
         );
         assert_eq!(after_score_as(mp, true, Role::Creator), Next::Lobby, "MS-V8");
-        assert_eq!(
-            after_score_as(mp, true, Role::Joiner),
-            Next::Lobby,
-            "default, not traced"
-        );
+        assert_eq!(after_score_as(mp, true, Role::Joiner), Next::JoinScreen, "MS-V11");
         assert_eq!(after_score(mp, false), Next::Lobby, "the creator by default");
         assert_eq!(after_quit(mp, Role::Joiner), Next::JoinScreen, "LD7");
-        assert_eq!(after_quit(mp, Role::Creator), Next::MainMenu);
+        assert_eq!(after_quit(mp, Role::Creator), Next::Lobby, "LV22");
         // A role changes nothing outside multiplayer.
         for game in [GameKind::Custom, GameKind::Campaign(6)] {
             assert_eq!(after_quit(game, Role::Joiner), Next::MainMenu);

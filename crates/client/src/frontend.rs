@@ -399,6 +399,22 @@ pub enum Leave {
     Restart,
 }
 
+/// MS-V12: the join screen moves to the lobby, as a joiner, once the creator of the session is in the lobby. Returns
+/// whether it moved. Outside the join screen nothing happens.
+///
+/// spec gap: what tells a joiner the creator is in the lobby is the session's network traffic (M3/M4: lockstep and the
+/// lobby protocol), which doesn't exist yet. Nothing calls this until then; the rule is the flow's half.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn creator_entered_lobby(flow: &mut Flow) -> bool {
+    if !flow.in_join_screen {
+        return false;
+    }
+    flow.role = cf::Role::Joiner;
+    flow.steps.clear();
+    flow.steps.push_back(Step::Lobby);
+    true
+}
+
 /// The flow's next steps for a game left for `leave`.
 pub(crate) fn leave_flow(flow: &mut Flow, leave: Leave) {
     match leave {
@@ -406,6 +422,10 @@ pub(crate) fn leave_flow(flow: &mut Flow, leave: Leave) {
             Next::JoinScreen => {
                 flow.steps.clear();
                 flow.steps.push_back(Step::JoinScreen);
+            }
+            Next::Lobby => {
+                flow.steps.clear();
+                flow.steps.push_back(Step::Lobby);
             }
             _ => to_main_menu(flow),
         },
@@ -3378,18 +3398,29 @@ mod tests {
         assert_eq!(advance(&mut f, &install, false), Some(AppState::MainMenu));
         assert!(f.in_join_screen && !f.in_lobby);
         assert_eq!(after_score(&mut f, &score(false)), Step::JoinScreen);
-        assert_eq!(
-            after_score(&mut f, &score(true)),
-            Step::Lobby,
-            "not traced: the default"
-        );
+        assert_eq!(after_score(&mut f, &score(true)), Step::JoinScreen, "MS-V11");
         f.steps = VecDeque::from([Step::MainMenu]);
         advance(&mut f, &install, false);
         assert!(!f.in_join_screen, "the main menu clears it");
         f.role = cf::Role::Creator;
         leave_flow(&mut f, Leave::Menu);
-        assert_eq!(f.steps, [Step::MainMenu]);
+        assert_eq!(f.steps, [Step::Lobby], "LV22");
         assert_eq!(after_score(&mut f, &score(false)), Step::Lobby);
+    }
+
+    /// MS-V12: the join screen moves to the lobby once the creator is in it; nowhere else.
+    #[test]
+    fn the_join_screen_moves_to_the_lobby_when_the_creator_is_in_it() {
+        let install = Install::none();
+        let mut f = flow(&[]);
+        assert!(!creator_entered_lobby(&mut f), "not in the join screen");
+        f.steps = VecDeque::from([Step::JoinScreen]);
+        advance(&mut f, &install, false);
+        assert!(f.in_join_screen);
+        assert!(creator_entered_lobby(&mut f));
+        assert_eq!(advance(&mut f, &install, false), Some(AppState::MainMenu));
+        assert!(f.in_lobby && !f.in_join_screen);
+        assert_eq!(f.role, cf::Role::Joiner);
     }
 
     #[test]
