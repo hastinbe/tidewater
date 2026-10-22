@@ -20,6 +20,8 @@ struct Spec {
     description: &'static str,
     players: &'static [Player],
     units: &'static [Unit],
+    /// The rows of sea along the bottom edge (0: none; the spec's "Sea" option, 1 to N - 4).
+    sea: u16,
 }
 
 /// A start location of a human player (0x5E) or an orc player (0x5F).
@@ -63,6 +65,39 @@ const R99_TESTS: Spec = Spec {
         // A gold mine of 50 000 gold (data is the gold / 2500), owned by the neutral slot.
         (46, 26, 0x5C, 15, 20),
     ],
+    sea: 0,
+};
+
+/// `R100-tests.pud` (spec: "Data", "R100-tests.pud"): a sea of 12 rows along the bottom.
+const R100_TESTS: Spec = Spec {
+    size: 64,
+    id_tag: 0x7200,
+    description: "tidewater r100 tests",
+    players: &[(0, 10_000, 10_000, 1_000, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (10, 10, HUMAN_START, 0, 0),
+        (55, 10, ORC_START, 1, 0),
+        // The human transport, then six footmen on the shore beside it.
+        (40, 54, 0x1C, 0, 0),
+        (44, 48, 0x00, 0, 0),
+        (45, 48, 0x00, 0, 0),
+        (46, 48, 0x00, 0, 0),
+        (47, 48, 0x00, 0, 0),
+        (48, 48, 0x00, 0, 0),
+        (49, 48, 0x00, 0, 0),
+        (24, 48, 0x00, 0, 0),
+        // The town hall, the barracks, a ballista and three peasants.
+        (6, 6, 0x4A, 0, 0),
+        (14, 6, 0x3C, 0, 0),
+        (6, 17, 0x04, 0, 0),
+        (11, 8, 0x02, 0, 0),
+        (26, 20, 0x02, 0, 0),
+        (26, 23, 0x02, 0, 0),
+        // The orc player's grunt and dragon.
+        (41, 47, 0x01, 1, 0),
+        (32, 46, 0x2B, 1, 0),
+    ],
+    sea: 12,
 };
 
 /// Whether a trace header's map name is a generated test map's: `R<round>-<name>.pud`, a capital R, the round
@@ -79,6 +114,7 @@ pub fn is_generated_name(name: &str) -> bool {
 pub fn generated(name: &str) -> Option<Vec<u8>> {
     match name {
         "R99-tests.pud" => Some(build(&R99_TESTS)),
+        "R100-tests.pud" => Some(build(&R100_TESTS)),
         _ => None,
     }
 }
@@ -104,6 +140,18 @@ fn build(s: &Spec) -> Vec<u8> {
                 _ => other,
             })
             .collect()
+    };
+    // The section words by tile: the spec's sea rows (the coast, the shore, then the water) or the land value.
+    let tile_words = |land: u16, coast: u16, shore: u16, water: u16| {
+        words((0..tiles).map(|t| {
+            let row = (t / n) as u16;
+            match (s.sea > 0).then(|| s.size - s.sea) {
+                Some(w) if row >= w => water,
+                Some(w) if row + 1 == w => shore,
+                Some(w) if row + 2 == w => coast,
+                _ => land,
+            }
+        }))
     };
     let resource = |f: &dyn Fn(&Player) -> u16| words((0..16).map(|i| s.players.get(i).map_or(0, f)));
     let mut ty = b"WAR2 MAP\0\0\x0a\xff".to_vec();
@@ -150,10 +198,10 @@ fn build(s: &Spec) -> Vec<u8> {
         section(b"SLBR", &resource(&|pl| pl.2)),
         section(b"SOIL", &resource(&|pl| pl.3)),
         section(b"AIPL", &[0; 16]),
-        section(b"MTXM", &words(vec![0x0050; tiles])),
-        section(b"SQM ", &words(vec![0x0001; tiles])),
+        section(b"MTXM", &tile_words(0x0050, 0x0030, 0x02B0, 0x0010)),
+        section(b"SQM ", &tile_words(0x0001, 0x0011, 0x0082, 0x0040)),
         section(b"OILM", &vec![0; tiles]),
-        section(b"REGM", &words(vec![0x4000; tiles])),
+        section(b"REGM", &tile_words(0x4000, 0x4000, 0x4000, 0x0001)),
         section(b"UNIT", &units),
     ]
     .concat()
@@ -179,6 +227,27 @@ mod tests {
             sha256(&b),
             "ae532b4ec6bbd8836de20793c2b5f136146389e5fdbdbecaae891b41dfb86091"
         );
+    }
+
+    /// Spec, "R100-tests.pud": 36 030 bytes with this SHA-256.
+    #[test]
+    fn r100_tests_matches_the_spec_hash() {
+        let b = generated("R100-tests.pud").expect("known map");
+        assert_eq!(b.len(), 36_030);
+        assert_eq!(
+            sha256(&b),
+            "009f7bed418ffde11d22aa8d2ad1835ad94b3776aee2f7dd47b85a8bd995eda8"
+        );
+    }
+
+    /// The sea rows: coast at row 50, shore at 51, water from 52 (spec, "Sea").
+    #[test]
+    fn r100_tests_has_its_sea_rows() {
+        let pud = Pud::parse(&generated("R100-tests.pud").unwrap()).unwrap();
+        assert_eq!((pud.width, pud.id_tag, pud.units.len()), (64, 0x7200, 18));
+        let sqm = pud.section(b"SQM ").unwrap();
+        let at = |y: usize| u16::from_le_bytes([sqm[(y * 64 + 5) * 2], sqm[(y * 64 + 5) * 2 + 1]]);
+        assert_eq!((at(49), at(50), at(51), at(52), at(63)), (1, 0x11, 0x82, 0x40, 0x40));
     }
 
     /// The map loads: `ALOW` is read (its spells word is player 2's 128), `UGRD` after it is passed by, and the
