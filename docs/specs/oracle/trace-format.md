@@ -73,6 +73,10 @@
 - **Changes:** 2026-10-22, round 104 (`ERRATA-round104-sweep.md` H1; reviewed by a spec-review session, 2026-10-22),
   still version 2: `fog_countdown` says what the records show around a refresh and after a holy vision, and that a
   comparer shows 0 only in a cycle where the refresh ran (a comparer fix; no game rule and no format change).
+- **Changes:** 2026-10-22, round 105 (`ERRATA-round105-sweep.md` H2; reviewed by a spec-review session, 2026-10-22),
+  still version 2: `fog_countdown` covers a holy vision cast in a refresh cycle (the record shows 150; the comparer
+  shows 0 only when nothing set the counter after the refresh in that cycle); one more vector (a comparer fix; no game
+  rule and no format change).
 
 ## Behaviour
 
@@ -551,7 +555,7 @@ maps themselves. Each map has one code or byte per tile of the whole map.
 | Field | Meaning |
 | --- | --- |
 | `cheat_used` | The cheat-used mark (`game/cheats.md`): 1 once a cheat command from the local player turned a cheat on, else 0 |
-| `fog_countdown` | The fog refresh counter (`core/timing-and-rng.md`, phase 3): a refresh runs in the cycle that finds it at 0; that cycle's record shows **0** and the next record 99 (Enhanced; 100 in Classic mode, static study). An Enhanced holy vision sets it as that phase says: the records then show 150, 149, … 101, 100, 99. So in Enhanced mode a record showing 100 is never a refresh cycle, and a comparer whose own counter holds the reload value after a refresh must show 0 **only in a cycle where the refresh ran**, not whenever its counter is at the reload value (round 104, H1; vector below) |
+| `fog_countdown` | The fog refresh counter (`core/timing-and-rng.md`, phase 3): a refresh runs in the cycle that finds it at 0; that cycle's record shows **0** and the next record 99 (Enhanced; 100 in Classic mode, static study). An Enhanced holy vision sets it as that phase says: the records then show 150, 149, … 101, 100, 99. So in Enhanced mode a record showing 100 is never a refresh cycle, and a comparer whose own counter holds the reload value after a refresh must show 0 **only in a cycle where the refresh ran**, not whenever its counter is at the reload value (round 104, H1; vector below). A holy vision cast in a refresh cycle comes after the refresh (phase 4 follows phase 3), so that cycle's record shows **150**, not 0: the comparer shows 0 only when the refresh ran **and no holy vision set the counter later in the same cycle**; otherwise it shows the counter as it is (round 105, H2; vector below) |
 | `victory_countdown` | The victory countdown (`game/victory.md`, "When the check runs"): the check runs in the cycle that finds it at 0, and that cycle ends with it at 200 |
 | `fog_of_war` | The game's fog-of-war option: 1 on, 0 off |
 | `results` | Eight values, players 0 to 7: each player's result (`game/victory.md`; `net/leave-and-drop.md`, "Data"): **0** none, **1** dropped, **2** defeat, **3** victory, **5** game ended. Codes 0, 2 and 3 are traced (below); codes 1 and 5, and that no other value is ever written, are static study |
@@ -703,6 +707,7 @@ These come from the round-96 traces and checks (all Enhanced; `ERRATA-round96-tr
 | Each of the 45 multiplayer traces in `oracle/traces/` as of round 96 | No command of the second human before a trigger; none at all in the traces without one; the traced player's commands are exactly its `input` command entries; no other player number gives a command |
 | `xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000`, `aiworkers` | On every `setup`, `startup`, `cycle`, `turn` and `save` record; `repairers` of player 6 go 0 → 65535 at n = 634 of the loaded game and 65534 at 653; `building` `"6:0x40"` is 1 in the `save` record, absent from the loaded `setup` record, and 65535 from n = 678 (`game/save-load.md`, SL31, SL32) |
 | `sweep-xorc8` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`), `fog_countdown`: a refresh at n = 40301 (cycle counter 40299); computer paladin 1582 casts holy vision at n = 40414 and n = 40416, then again at n = 40468 | n = 40301: 0; n = 40302: 99. n = 40414: 150; n = 40416: 150, then 149 … n = 40465: 101, n = 40466: **100**, n = 40467: 99 (no refresh between 40416 and 40467); n = 40468: 150. A comparer shows its own counter as 0 at n = 40301 and as 100 at n = 40466 |
+| `win-xorc8-game-44400-44480` (committed windowed trace, Enhanced), `fog_countdown`: 1 at n = 44463, so n = 44464 is a refresh cycle; in it computer paladin 1532 (type 0x0C, order 38) casts holy vision (mana 255 to 185) | n = 44463: 1; n = 44464: **150**; n = 44465: 149, then one less per cycle. The refresh did run at n = 44464 (every other field, the `vision` extra included, matches `sweep-xorc8` to n = 60000 with `fog_countdown` left out). A comparer shows 150 at n = 44464, not 0. Same pattern: `sweep-xorc12`, n = 30615, paladin 1387 |
 
 ## Open questions
 

@@ -48,6 +48,10 @@
   "Landing (order 30)": the far walk keeps the class and step size; with no route farther out the landing logic runs
   in full, step 2's step size included, and what it leaves stays for later far runs (traced, V57, V58). The open
   question "Order 30 with no route farther than 3 tiles from its goal" is closed.
+- **Changes:** 2026-10-22 (round 105, `ERRATA-round105-sweep.md` SW10; reviewed by a spec-review session, 2026-10-22):
+  "Landing (order 30)", "No route farther out": a retry that makes a transport in the move animation a one-tile mover
+  switches it to animation 6 (traced, SW10a, SW10c); SW10b is a second instance of V58. The open question's untraced
+  half (a one-tile mover's later far run with tile and goal even) stays open.
 
 ## Behaviour
 
@@ -114,7 +118,7 @@ blocked and row F never applying (`movement/movement.md`, "Blocked rules").
 | When its own logic moves the transport | within 3 tiles of the goal, and farther out in an update whose ordinary walk finds no route (traced, round 104, V57); otherwise farther out the ordinary walk, which keeps the transport's movement class and step size (after sailing: two-tile steps in the sea class) and doesn't restart the move animation at each step (it runs on as for any walking unit; static study, round 70) | always |
 | Movement class | the landing class | unchanged (the landing class after a landing) |
 | Step size | two-tile while both its tile and its goal tile are even; otherwise one-tile | two-tile on an even tile; otherwise unchanged |
-| Animation | two-tile: the move animation, run at once; one-tile: its own animation 6 | the same |
+| Animation | two-tile: the move animation, run at once; one-tile: its own animation 6 (a far no-route retry that makes a mover in the move animation one-tile switches it to 6 first; round 105, SW10a) | the same |
 | Route | a new route from the current tile at every step | the ring search before every step, then its cached path or a new search |
 | End test | the goal tile exactly (radius 0, no +1) | an even tile of open water |
 | No route | step 6 of "Landing (order 30)" | docks at once (order 32 as an immediate order: still animation, wait 1) |
@@ -260,7 +264,11 @@ two-tile steps with the move animation (3) (traced: V30).
 **No route farther out** (traced, round 104: V57, V58). When the ordinary walk farther than 3 tiles out finds no
 route, steps 1 to 6 below run in the same update: the transport switches to the landing class, takes step 2's step
 size (a two-tile mover only while both its tile and its goal tile are even; otherwise a one-tile mover keeping
-animation 6), plans in that class, and steps; only if that also finds no route does step 6 apply. The class and step
+animation 6), plans in that class, and steps; only if that also finds no route does step 6 apply. If that makes it
+a **one-tile** mover while it is in the **move animation** (3), from its ordinary two-tile steps, it switches to
+animation 6 before the step, as the arrival switch does when a transport comes within 3 tiles (traced, round 105:
+SW10a, SW10c); a transport already in animation 6 (just pushed off, V57) keeps it, and a two-tile retry starts the
+move animation as step 2 says (V58, SW10b). The class and step
 size this leaves stay for the later runs farther out: the ordinary walk goes on with them, so a one-tile mover keeps
 taking one-tile steps with animation 6 all the way to the goal, even across even tiles (V57). Whether a later run
 farther out with both its tile and its goal even goes back to two-tile steps is untraced; by this rule it doesn't
@@ -505,6 +513,9 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V30 | `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8, goal (72, 29) | n = 11 (4 and 5 tiles away): ordinary two-tile step north-east to (70, 32), animation 3. n = 43 (within 3 tiles): animation 6, the landing logic steps one tile north-east to (71, 31); n = 59 (72, 30); n = 75 (72, 29) | Trace (`human12-transport`) |
 | V57 | `sweep-xhuman8` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`) and the windowed trace `win-xhuman8-goals-aigoals-30700-30830` (`EXTRAS=goals,aigoals`): computer transport 1450 (type 0x1D, owner 7, four passengers) pushes off from (47, 73) at n = 30751 (destination (73, 9)); at n = 30802, on (46, 76), an even open-water tile, it finishes the push-off: order 30, target tile and destination (73, 10) (odd x), 66 rows away; animation 6 | n = 30805: the ordinary walk finds no route, so the landing logic runs: one-tile step to (47, 75), facing 1, animation 6, wait 1. Then one-tile steps every 16 cycles, animation 6 throughout, even on even tiles such as (44, 64) and (60, 32): (47, 74) at 30821, (46, 73) at 30837, (45, 72) at 30853, (48, 51) at 31189, … (71, 13) at 31797, (72, 12) at 31813, (73, 11) at 31829, (73, 10) at 31845 (arrival); order 29 (unload) at n = 31861. Not idle at (46, 76) | Trace (`sweep-xhuman8`) |
 | V58 | `mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100` (oracle trace, Enhanced, generated map `R103-far.pud`): transport 1599 at (42, 56) takes order 30 at n = 40 (goal (42, 52), 4 rows away; tile and goal both even; animation 6, wait 3) | n = 43: the ordinary walk finds no route; the landing logic gives a two-tile step to (40, 54), facing 7, animation 3, wait 1 (the move animation started, as step 2 says for a two-tile mover); arrival at (42, 52) by n = 75 | Trace (`mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100`) |
+| SW10a | `sweep-xhuman8` and the committed window `win-xhuman8-goals-aigoals-35480-35600` (`EXTRAS=goals,aigoals`): computer transport 1450 (type 0x1D, owner 7) finishes a push-off at (70, 62) at n = 35489: order 30, goal (62, 51) (odd y), animation 6, wait 3. Ordinary two-tile steps with the move animation: (68, 60) at n = 35492, (68, 58) at n = 35524, where the ordinary walk finds no route | n = 35556: a one-tile step west to (67, 58), **animation 6**, frame 0, wait 1, facing 6 (not animation 3). Then (66, 57) at n = 35572 and (65, 56) at n = 35588, facing 7, animation 6; docked at (62, 51) at n = 35684 (`sweep-xhuman8`) | Trace (`win-xhuman8-goals-aigoals-35480-35600`) |
+| SW10c | `sweep-human10` (Enhanced, 60000 cycles) and the committed window `win-human10-goals-30820-31130` (`EXTRAS=goals`): computer transport 1480 (type 0x1D, owner 1), order 30, goal (101, 117) (both odd), ordinary two-tile steps with the move animation to (52, 48) at n = 30833 | n = 30865: a one-tile step to (53, 49), **animation 6**, facing 3, wait 1; (53, 50) at n = 30881; order 29 at n = 30897, then 32. After a push-off to (54, 48) (order 30 again at n = 30989, animation 6), an ordinary two-tile step to (56, 50) in animation 3 at n = 30992, then a one-tile retry step to (57, 51) in **animation 6** at n = 31024. From then on it goes back and forth between (56, 50) (push-off) and (57, 51) (landing) every 100 cycles, animation 6 on every step, to n = 60000 | Trace (`win-human10-goals-30820-31130`; `sweep-human10` for the rest) |
+| SW10b | `sweep-xhuman8` (no `goals` extra; the goal is the replay's): computer transport in slot 1451 (type 0x1D, owner 7), idle at (66, 42) after an order 3 move, takes order 30 at n = 33751 toward (58, 56) (tile and goal both even), animation 6, wait 3 | n = 33754: a two-tile step south to (66, 44), animation 3; (66, 46) at n = 33786. A second instance of V58's case (both even: two-tile, the move animation started). The record doesn't show whether the ordinary walk or the no-route retry made the step; both give it. It does **not** trace a one-tile mover's later far run with tile and goal even (open question below) | Trace (`sweep-xhuman8`) |
 
 ### Pushing off from the shore
 
@@ -615,6 +626,9 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   included; only if the landing class also finds no route does step 6 apply, not the general no-route rule of
   `orders/orders.md`. The class and step size it leaves stay for the later far runs ("Landing (order 30)", "No route
   farther out"). Still untraced: a later far run with both tile and goal even (by the rule, no change of step size).
+  Round 105 checked: SW10b (tile and goal even) is a transport that had just made an ordinary move (order 3, animation
+  3), so it is a second instance of V58, not this case; the research scan of all 58 sweep traces found no one-tile far
+  mover later on an even tile with an even goal. Trace request: a generated map (`CUSTOMMAP`, multiplayer launch).
 - **Statements made explicit by the consolidation, static study only and untraced:** the no-route restart of order 34
   always reaches step 3, so a human player's transport call is step 3's smart move, and a computer player's unit gets
   command 4 there ("Order 34 (board)"). Round 70 removed the conflict with V10: its n = 17216 record is the take-over
@@ -662,3 +676,4 @@ round are kept with the research-side specs.
 | 102 | A command's target tile is pulled back from the area of the transport's own tile, the land region when docked (traced, V46 to V48; TG4 closed); the push-off's pick is pulled back too (static study, V49); `ERRATA-round102-traces.md`, reviewed | "Pulled back from the transport's own area"; "Pushing off (order 31)", step 2; "Open questions"; V46 to V49 |
 | 103 | The push-off pick's pull-back traced (V50 to V52); the unload command keeps its target unit; command 4 gives a transport plain order 4 (the round-75 default reversed); the boarder's call is a full command (static study, `ERRATA-round103-traces.md`, reviewed) | "Commands given to a transport"; "Pushing off (order 31)", step 2; "Boarding"; "Open questions"; V50 to V56 |
 | 104 | Order 30 with no route farther than 3 tiles out runs the landing logic in full, step 2's step size included, and the class and step size it leaves stay for the later far runs; the far walk changes neither (traced, V57, V58; `ERRATA-round104-sweep.md` SW6, reviewed; partly reverses round 36's "farther out, ordinary two-tile steps") | "Landing (order 30)"; "Moving near the shore"; "Open questions"; V57, V58 |
+| 105 | A far no-route retry that makes a transport in the move animation a one-tile mover switches it to animation 6 (traced, SW10a, SW10c; `ERRATA-round105-sweep.md` SW10, reviewed); SW10b is a second instance of V58; the far run of a one-tile mover on even tiles is still untraced | "Landing (order 30)"; "Moving near the shore"; "Open questions"; SW10a to SW10c |

@@ -80,6 +80,12 @@
   target; out of it, a cooling unit takes the command case and steps (SW1a). V109's explanation corrected: its unit
   was blocked, not held by its attack animation (vector unchanged). "Order 30's radius": the far walk keeps the
   transport's class and step size, and a no-route far walk runs the landing logic (`orders/transports.md`, SW6).
+- **Changes:** 2026-10-22, round 105 (oracle sweep, `ERRATA-round105-sweep.md` SW11; reviewed by a spec-review
+  session, 2026-10-22): "Friendly-fire check": in order 12 the check is made only in a run where the unit is in reach
+  of its target (or its walk ended); out of reach it walks and makes no check (traced for a battleship, SW11a).
+  "Resulting order": reach and strike reach of the old target are defined as the reach test of "How an update runs",
+  step 2, which decides whether the order's search or the walk's search runs (explains SW1's cooling case; V109, V193
+  and SW1a unchanged). New open question: the range test of a two-tile attacker whose walk ended out of reach.
 
 ## Behaviour
 
@@ -984,9 +990,20 @@ for a ground target), clipped to the map. It counts the units and buildings of *
 - for any player that isn't human-controlled (see "Terms"), it takes three.
 
 The check is part of the order's logic: it comes after the cooldown test and the target check, and **before** the range
-test, so it applies whether or not the target is in range. A run that is still cooling down ends at the cooldown test,
+test. In orders 15 and 16, which never walk, it applies whether or not the target is in range. **Order 12 walks**, so
+its logic, and with it this check, runs only in an update where the unit is **in reach** of its target by the reach
+test of "How an update runs", step 2 (the arrival test of `movement/movement.md`, "Arriving", with the attack range as
+radius, measured from the unit's own tile: the top-left tile of a unit bigger than one tile), or where its walk has
+ended there (a lost target, arrival after the walk's search switched targets, no route). **Out of reach the walk runs
+instead and no check is made**, even when the walk's target search has just switched the unit to a new target that
+stands next to its own units: the switch is a command ("Resulting order", "Out of reach") and the unit steps toward the
+new target in that update (traced for a battleship, a two-tile ground attacker, 7 tiles from its target by its own
+tile and 6 by its footprint, range 6: vector SW11a, round 105). For the juggernaught, the other two-tile ground
+attacker, this is the same reach test (static study); for the one-tile ballista and catapult the own tile is the
+whole footprint, and every traced hold in order 12 (V270, V271) has the target within reach.
+A run that is still cooling down ends at the cooldown test,
 so the check isn't made then. It isn't made again at the strike point. In the run in which the target search has just
-switched to a new target (orders 12, 15 and 16 search first), the run goes on with the new target: the cooldown test,
+switched to a new target (orders 12, 15 and 16 search first; order 12 only in a run in reach), the run goes on with the new target: the cooldown test,
 the target check, then this check, made on the **new** target. So a ground attacker whose new target stands next to its
 own units doesn't strike it (traced for order 16: `xhuman4`, `xhuman10-spells`). If the count is reached, the unit
 doesn't strike: it forgets the target, and idle becomes its **pending** order by the common path, with the resume
@@ -1119,6 +1136,14 @@ victim as its attacker (`combat/damage.md`).
 When the searching unit's order is idle-type, the resulting order then takes over in the same update ("Same-update
 take-over"): attack animation, wait 3, and its logic first runs at that animation's next step done. The exception is a
 unit in order 16 that is still cooling down, which keeps order 16 (below).
+
+In the cases below, **reach** (of the new target or the old one) and **strike reach** of the old target mean one test:
+the reach test of "How an update runs", step 2 (the arrival test with the attack range as radius, measured from the
+unit's own tile). For the old target it decides which search runs.
+With the old target within reach, the order's own logic runs: its target search, then the cooldown test, which gives
+the cooling case below. Out of reach, the walk runs: the walk's target search gives the new target as a command and
+the walk steps at once (round 105, static study of the mechanism; it fits V109, V193, SW1a and SW11a, each checked
+against its trace by the round 105 review).
 
 When the searching unit is in order 12 and the search picks a different target:
 
@@ -1721,6 +1746,7 @@ listed; the units' updates that follow are in cycle record n + 1 on.
 | V142 | A ballista in order 16 still cooling down whose search switches to such a target (static study only) | Keeps the new target and waits out the cooldown; no check in that run | Static study |
 | V270 | `orc9-orc09-hold-resume-hits-goals-1600` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-hold-resume.txt`): catapult 1494 (type 0x05, owner 5, the human player) on an attack-move to (8, 87) (order 10 from n = 24); its walking search picks footman 1485 (owner 0), which fights grunts of player 5 near (5, 86) | n = 957: order 12, attack animation, wait 3, target 1485, goal (5, 86). n = 960: fire held: order 10, still animation, wait 3, target none, goal (8, 87) (the attack-move given again). n = 963: order 10, move animation, wait 1, a step to (12, 89); the walking search pends 12 on 1485 again. The same repeats at n = 995/998, 1033/1036 and 1071/1074 | Trace (`orc9-orc09-hold-resume-hits-goals-1600`) |
 | V271 | As V270 (`orc9-orc09-hold-resume-hits-goals-1600`), catapult 1494 at (9, 87), 1 tile from (8, 87) | n = 1109: order 12, wait 3, target 1485. n = 1112: fire held: order 2, still animation, wait 3, target none, goal (5, 86) (the attack-move is complete, so it is forgotten). From n = 1115 its idle logic picks 1485 (order 16, wait 3) and holds again at n = 1118: orders 16 and 2 alternate every 3 cycles | Trace (`orc9-orc09-hold-resume-hits-goals-1600`) |
+| SW11a | `sweep-human13` (oracle sweep trace, Enhanced, kept outside the repository) and the committed window `win-human13-game-goals-37700-37780` (`EXTRAS=game,goals`): battleship 1426 (type 0x20, owner 1, the human player; no input) at (42, 94), range 6. n = 37737: order 12 on axe thrower 1388 (owner 4) at (49, 96): 7 tiles by its own tile, 6 by its footprint, so out of reach; animation 4, wait 3. Ogre 1421 (owner 4) at (50, 96) attacks player 1's shipyard 1427 (type 0x48) at (48, 93), whose footprint covers (49, 95) and (50, 95), inside 1421's 3 × 3 | n = 37740: order 12 on **1421** (pending 12, goal (50, 96)), a step east to (44, 94): animation 3, wait 1, facing 2; it walks on east (pixel x 1346 at n = 37741 … 1392 at n = 37780). No hold (holding would give order 2 at (42, 94), still animation, wait 3) | Trace (`win-human13-game-goals-37700-37780`) |
 
 ### Boarding moves
 
@@ -2026,6 +2052,14 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   Round 75 (static study) adds the same for the Enhanced demolition unit: one with no remembered order runs no search,
   but the reaction it goes on to still forgets a dying attacker, and so does the flee from an attacker it can't
   attack. Default: a skipped search doesn't skip the dying-attacker forget.
+- **The range test of a two-tile attacker out of reach** (round 105, static study only). The reach test that decides
+  between the order's logic and the walk measures from the attacker's own tile (traced, SW11a). Whether the range
+  test inside the order's logic (step 5 of "Attack orders"), which matters only when the logic runs with the target
+  out of reach (the walk ended by no route, for example), uses the same own-tile measure or the gap between the two
+  footprints is not traced; they differ only for two-tile attackers (ships; two-tile flyers). Default: the own-tile
+  measure, as "Attacking without moving" and `movement/movement.md`, "Arriving", state. Trace request: a battleship
+  or juggernaught 7 tiles from its target by its own tile and 6 by its footprint (range 6), with no route toward it,
+  on a generated map: does it strike or not?
 - **Friendly fire before the lost-target check.** "Friendly-fire check (orders 12, 15 and 16)" puts the check after
   the cooldown test and the target check. If "the target check" there means the lost-target check, the static study
   disagrees: it finds the check after the kind check but before the lost-target and range checks, made on the target's
@@ -2160,3 +2194,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 102 | The release before a refused command, the right-click that doesn't release and the build that releases every selected held worker traced (HW7a to HW7c); no rule changed | "Holding and releasing workers"; vectors HW7a to HW7c |
 | 103 | Command 4's smart-move step: workers, tankers, demolition units and casters only; transports get plain order 4 (static study, CB2) | "Commands" (table); "Boarding moves" |
 | 104 | A cooling unit switching out of reach stands only within strike reach of its old target; otherwise the command case and its step (traced, SW1); V109's cause is a blocked step; order 30's far walk keeps class and step size (SW6) | "Resulting order"; "Order 30's radius"; vector SW1a |
+| 105 | Order 12 makes the friendly-fire check only within reach of its target, by the own-tile reach test; out of reach it walks (traced for a battleship, SW11); reach and strike reach of the old target defined as that test, which explains SW1's cooling case | "Friendly-fire check (orders 12, 15 and 16)"; "Resulting order"; "Open questions"; vector SW11a |

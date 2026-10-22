@@ -78,6 +78,10 @@
   2026-10-22): "Ferry (3)", step 4: the served test reads the assigned transport's destination, not its target tile
   (the two differ since round 102's pull-back of the target tile; vector SW3a). The pull-back rule of
   `orders/transports.md` is unchanged.
+- **Changes:** 2026-10-22, round 105 (oracle sweep, `ERRATA-round105-sweep.md` SW9; reviewed by a spec-review session,
+  2026-10-22): "Sea patrol (6)", step 2: the neutral oil-patch fallback has no test besides completeness, so a patch
+  under a platform or a platform's construction site counts (vector SW9a); the own-platform choice's "present" test is
+  now written out (static study; unchanged behaviour). Closes round 104's held SW9 (its walk reading was wrong).
 
 ## Behaviour
 
@@ -443,9 +447,12 @@ idle, and turn into roamers when no enemy is left.
    is inside (or there is none), the anchor is the unit's own tile: the patrol toward it then arrives at once, and
    the swap to the other end takes over with wait 3 (`orders/orders.md`, "Arriving and losing the target"). Whether a
    tanker in its sinking animation can be the anchor is open (Open questions, "A dying anchor tanker"; round 85).
-2. The **far end** is the player's completed oil platform (bit 11) nearest the anchor; else the completed neutral
-   oil patch (bit 21) nearest the anchor; else (anchor x − (r mod 5) − 2, anchor y − (r mod 5) − 2), two draws x first,
-   clamped to the map.
+2. The **far end** is the player's completed oil platform (bit 11) nearest the anchor, counting only a platform that
+   is present (not dying, removed or inside anything; static study); else the completed neutral oil patch (bit 21)
+   nearest the anchor, with **no other test**: a patch covered by a platform or by a platform's construction site
+   counts (traced, SW9a; round 105). A construction site isn't complete, so it is never the own-platform choice, but
+   the patch under it is a neutral candidate. Else (anchor x − (r mod 5) − 2, anchor y − (r mod 5) − 2), two draws x
+   first, clamped to the map.
 3. Give a patrol command (command 5) toward the anchor, then make the unit's patrol ends the anchor and the far end.
    The unit's goal tile becomes the anchor. In Enhanced mode the patrol command remembers the anchor and the tile the
    unit stands on (`orders/orders.md`, "Resuming patrol and attack-move"), and setting the ends doesn't change that. So
@@ -694,6 +701,7 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | `human10-10000`, n = 6956: computer destroyer 1483 (type 0x1F) at (24, 8) | Order 5, wait 3; n = 6959: tile (26, 6), facing 1, animation 3 |
 | `xorc11-air-sea-3000` (Enhanced): computer battleship 1539 (type 0x20, owner 6) at (6, 24) gets the sea patrol at n = 3 (anchor (21, 34), far end oil platform 1556 at (5, 19)); order 12 from n = 112; the patrol resumes at n = 1145 toward (21, 34) and turns at (20, 34) at n = 1413 | Goal (6, 24), not the platform: at n = 1643 it steps west from (12, 28) to (10, 28) |
 | Enhanced: computer warship at (6, 24) idle; sea patrol with anchor (21, 34) and far end (5, 19); it fights during the first leg, then resumes (static study) | The resumed patrol runs to (21, 34) and turns toward (6, 24); without the fight the first leg turns toward (5, 19) |
+| SW9a. `sweep-xorc12` (oracle sweep trace, Enhanced, kept outside the repository) and the committed window `win-xorc12-goals-aigoals-30400-30770`: computer destroyer 1302 (type 0x1E, owner 1) idle at (20, 76); anchor (21, 75). Player 1's only oil platform, 1587 (type 0x56) at (17, 97), is a construction site (hit points 131 at n = 30740, rising). Neutral oil patches: 1350 (type 0x5D) at (17, 97), under the site; 1424 at (55, 59); the others farther from (21, 75) | n = 30751: patrol command toward (21, 75) (pending order 5, goal (21, 75)). n = 30755: the turn at the anchor, goal **(17, 97)**, the covered patch. n = 30758: idle (order 2), still at (20, 76), facing 4, wait 1. Skipping the covered patch instead gives a patrol toward (55, 59) and a step to (22, 74) (wrong) |
 | `human01-order15-range-700` (oracle trace): computer grunt 1592 (owner 0) starts at (29, 14), its hold goal set at its own tile; it chases a target to (21, 7), where the target is lost at n = 401 | The ring search moved the stored goal to (28, 14) when the goal was set. At n = 403, past its leash, it is sent back (order 3, wait 3) to (28, 14), not (29, 14): there at n = 550, idle at n = 566 (wait 3, facing 3) |
 | `xorc12-spells-1500` (oracle trace, Enhanced): computer footman 1504 (type 0x00, owner 2, held) at (93, 26) answers a call for help at n = 492 (order 12 on Teron Gorefiend 1583, type 0x15, owner 5), chases to (101, 22), goes idle at n = 641 and is sent back at n = 654 (order 4, wait 3) | Goal (93, 26), its own tile when it answered, not a ring-search tile: at n = 673 it steps to (99, 23), facing 6 |
 | A computer player's held grunt standing at (10, 10) answers a call for help (static study) | Goal kind attack, tile (10, 10) exactly; no ring search |
