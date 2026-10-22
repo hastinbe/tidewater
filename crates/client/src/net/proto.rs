@@ -18,8 +18,9 @@ use tidewater_sim::setup::{Lobby, Setup};
 /// (`tidewater_sim::Extras`) have fields and travel in the lobby, and the rally command exists. Version 4: Shift-queued
 /// orders (`Command::Queued`, one more byte in `Extras`) and observers (`Msg::Hello` says whether the joiner only
 /// watches, and observers have slots from [`OBSERVER_BASE`] up). Version 5: the diplomacy command exists
-/// (`game/diplomacy.md`).
-pub const PROTOCOL: u16 = 5;
+/// (`game/diplomacy.md`). Version 6: the Hold workers and Release workers commands exist, and the speed command carries the
+/// new speed instead of a direction.
+pub const PROTOCOL: u16 = 6;
 
 /// The first slot number of an observer: a game has eight player slots (0 to 7), so observers are 8, 9 and so on. An
 /// observer's slot only names its connection; it is in no turn and no state.
