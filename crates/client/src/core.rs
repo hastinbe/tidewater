@@ -167,8 +167,16 @@ impl Core {
         script: Option<script::Run>,
     ) -> Self {
         // The settings file's extras, then the command line's, then a scripted scene's own.
+        let mut stored = stored;
         let mut extras = stored.0.extras;
         opts.extras.apply(&mut extras);
+        if let Some(run) = &script
+            && !run.script.scene.keys.is_empty()
+        {
+            // A scripted scene's own `[keys]` section (`keymap`).
+            let lines: Vec<String> = run.script.scene.keys.lines().map(String::from).collect();
+            (stored.0.keys, stored.0.key_problems) = crate::keymap::KeyMap::parse(&lines);
+        }
         if let Some(run) = &script {
             crate::extras::ExtraFlags::from_pairs(run.script.scene.extras).apply(&mut extras);
         }

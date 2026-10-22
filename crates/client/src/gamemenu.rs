@@ -739,7 +739,14 @@ pub(crate) fn open_requests(c: &mut Core) {
             asked = Some(Screen::Game);
             continue;
         }
-        let Some(a) = mouse::key_action(key, m, false, sim.world.rules.enhanced, false) else {
+        // The key map (`keymap`) turns a rebound key into its action's own chord; the pressed key without a `[keys]`
+        // section.
+        let Some(a) = stored
+            .0
+            .keys
+            .game(k, m)
+            .and_then(|(key, m)| mouse::key_action(key, m, false, sim.world.rules.enhanced, false))
+        else {
             continue;
         };
         use mouse::KeyAction as K;

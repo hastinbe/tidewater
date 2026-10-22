@@ -274,6 +274,14 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[("smart-attack-move", "on")],
             keys: "",
         },
+        // Rebound keys: the Move button on J, the pause key on Ctrl+U (Ctrl+P no longer pauses), the idle key on Ctrl+I.
+        Scene {
+            name: "extras-keys",
+            start: vec![play(0)],
+            cmds: extras_keys(),
+            extras: &[("idle-worker", "on")],
+            keys: "pause=ctrl+u\nidle-worker=ctrl+i\nbutton-move=j",
+        },
         // Needs no game files: `host::launch` shows the first-run screen over a demo backend.
         Scene {
             name: FIRST_RUN,
@@ -795,6 +803,35 @@ fn extras_attack() -> Vec<Cmd> {
         Up(Button::Right),
     ]);
     v.extend([Wait(3), Shot("worker-moves")]);
+    v
+}
+
+/// A key tapped with Ctrl held.
+fn ctrl_tap(k: Key) -> Vec<Cmd> {
+    let mut v = vec![Cmd::Press(Key::ControlLeft), Cmd::Wait(1)];
+    v.extend(tap(k));
+    v.extend([Cmd::Release(Key::ControlLeft), Cmd::Wait(2)]);
+    v
+}
+
+/// Rebound keys: J gives the Move command (then a click on the ground), the old pause key does nothing and the new one
+/// pauses, and the idle-worker key selects a worker.
+fn extras_keys() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
+    v.extend(click(511.0, 248.0));
+    v.extend([Wait(2)]);
+    v.extend(tap(Key::Letter('J')));
+    v.extend([Wait(2), Shot("move-mode")]);
+    v.extend(click(330.0, 300.0));
+    v.extend([Wait(3), Shot("moved")]);
+    v.extend(ctrl_tap(Key::Letter('P')));
+    v.extend([Wait(3), Shot("old-pause-key")]);
+    v.extend(ctrl_tap(Key::Letter('U')));
+    v.extend([Wait(3), Shot("paused")]);
+    v.extend(ctrl_tap(Key::Letter('U')));
+    v.extend(ctrl_tap(Key::Letter('I')));
+    v.extend([Wait(3), Shot("idle-key")]);
     v
 }
 

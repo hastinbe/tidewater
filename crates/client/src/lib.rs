@@ -28,6 +28,7 @@ mod idle;
 mod info;
 pub mod input;
 mod jukebox;
+mod keymap;
 mod layers;
 mod mapview;
 mod menu;

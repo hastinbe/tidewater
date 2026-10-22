@@ -1,0 +1,28 @@
+# frame and sound fingerprints of the scripted scene `extras-keys` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	a144403f6aff627c
+frames	4-7	0b6915dc27cfa930
+sound	9	f8787214968df8ae	0.9882	Despawn
+frames	8-8	facaf38b7293c896
+frames	9-10	ba61b85ea2d470cd
+shot	14	move-mode	46fde6b89531b163
+sound	15	2aaf429cb022bada	0.9882	Despawn
+frames	11-14	46fde6b89531b163
+frames	15-15	cefe02ebdc6c0650
+frames	16-17	ff17fd1144b24b84
+shot	19	moved	04cd5494d4c303ee
+frames	18-22	04cd5494d4c303ee
+frames	23-24	cb0c084f1e6e4eb0
+shot	27	old-pause-key	14e1478088ddd81b
+frames	25-27	14e1478088ddd81b
+frames	28-29	3a54e730b15e852a
+shot	35	paused	60eb012440829f2b
+frames	30-39	60eb012440829f2b
+sound	41	52db032368c69602	0.9882	Despawn
+frames	40-40	3ce524089a85e11f
+frames	41-41	6634815154ad2677
+frames	42-44	b7cdf9cbea13c875
+frames	45-46	2a65f0be64718847
+shot	47	idle-key	5e4a2bd126e3d0bb
+frames	47-47	5e4a2bd126e3d0bb

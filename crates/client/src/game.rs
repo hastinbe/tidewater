@@ -1278,6 +1278,7 @@ pub(crate) fn panel_input(c: &mut Core) {
     let group_bar_on = c.extras.group_bar();
     let now = (c.time.elapsed_secs_f64() * 1000.0) as u64;
     let Core {
+        stored,
         sim,
         art,
         selection: Some(sel),
@@ -1375,12 +1376,8 @@ pub(crate) fn panel_input(c: &mut Core) {
         let held = keys.any_pressed([Key::ControlLeft, Key::ControlRight, Key::AltLeft, Key::AltRight]);
         if !ui.consumed && !held {
             for &key in keys.get_just_pressed() {
-                let hk = if key == Key::Escape {
-                    Some(panel::Hotkey::Escape)
-                } else {
-                    key_char(key).map(panel::Hotkey::Char)
-                };
-                let Some(n) = hk.and_then(|hk| panel::hotkey_slot(&slots, &label, hk)) else {
+                // The key map (`keymap`): the button's hotkey from the string table, or the player's own key for it.
+                let Some(n) = stored.0.keys.button(key, &slots, &label) else {
                     continue;
                 };
                 if let Some(en) = slots[n] {
@@ -1838,12 +1835,18 @@ pub(crate) fn keys_input(c: &mut Core) {
     };
     for &k in keys.get_just_pressed() {
         // The idle-worker key (`idle`), F6, which the original leaves unbound.
-        if idle_on && k == Key::F(idle::KEY) {
+        if idle_on && stored.0.keys.idle_pressed(k, m) {
             select_idle(sim, sel, Some(&mut *mv));
             continue;
         }
         // The client plays one human player; while the chat line is open, `chat` has taken the typing keys already.
-        let Some(a) = game_key(k).and_then(|key| mouse::key_action(key, m, false, sim.world.rules.enhanced, false))
+        // The key map (`keymap`) turns a rebound key into the chord of its action first; without a `[keys]` section it
+        // is the pressed key.
+        let Some(a) = stored
+            .0
+            .keys
+            .game(k, m)
+            .and_then(|(key, m)| mouse::key_action(key, m, false, sim.world.rules.enhanced, false))
         else {
             continue;
         };
@@ -2203,6 +2206,7 @@ pub(crate) fn draw_hud(c: &mut Core) {
     let running = core::game_running(c);
     let ex = extras(c);
     let clock_ms = c.game_clock.as_ref().map(|g| g.ms(c.time.elapsed()));
+    let idle_key = c.stored.0.keys.idle_label();
     let Core {
         sim,
         selection: Some(sel),
@@ -2277,7 +2281,7 @@ pub(crate) fn draw_hud(c: &mut Core) {
             buttons: &buttons,
             idle_button: ex
                 .idle_worker()
-                .then(|| idle::idle_workers(&sim.world, sim.human).len()),
+                .then(|| (idle::idle_workers(&sim.world, sim.human).len(), idle_key.as_str())),
             clock: clock_line.as_deref(),
             group_bar: &group_bar,
         },

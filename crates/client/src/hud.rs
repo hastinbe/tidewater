@@ -134,7 +134,7 @@ pub struct View<'a> {
     /// The command panel's shown buttons: slot and icon frame (see [`crate::panel`]).
     pub buttons: &'a [(u8, u16)],
     /// The idle-worker button, with the number of idle workers, when the option is on (`idle`).
-    pub idle_button: Option<usize>,
+    pub idle_button: Option<(usize, &'a str)>,
     /// The game clock line over the map view's top right corner, when the option is on (`overlay`).
     pub clock: Option<&'a str>,
     /// The control-group bar's buttons, none when the option is off (`groupbar`).
@@ -580,12 +580,13 @@ impl HudArt {
         }
     }
 
-    /// The idle-worker button (`idle`): a plain button in the resource bar, dark when no worker is idle.
-    fn draw_idle_button(&self, pic: &mut Picture, idle: usize) {
+    /// The idle-worker button (`idle`): a plain button in the resource bar, dark when no worker is idle. `key` is the
+    /// key that does the same (F6, or the player's own, `keymap`).
+    fn draw_idle_button(&self, pic: &mut Picture, idle: usize, key: &str) {
         let r = crate::screen::IDLE_BUTTON;
         fill(pic, r, if idle > 0 { [40, 36, 28] } else { [24, 24, 24] });
         outline(pic, r, [140, 120, 60]);
-        text_centred(pic, &self.font, r, &format!("Idle {idle} (F{})", crate::idle::KEY));
+        text_centred(pic, &self.font, r, &format!("Idle {idle} ({key})"));
     }
 
     /// The control-group bar (`groupbar`): a button for each group with units, in the map view's top left corner.
@@ -796,8 +797,8 @@ impl HudArt {
         self.draw_status(&mut pic, l.bottom, v.status);
         self.draw_menu_buttons(&mut pic, v.paused, v.pause_button);
         self.draw_messages(&mut pic, l.viewport, v.messages);
-        if let Some(n) = v.idle_button {
-            self.draw_idle_button(&mut pic, n);
+        if let Some((n, key)) = v.idle_button {
+            self.draw_idle_button(&mut pic, n, key);
         }
         self.draw_group_bar(&mut pic, l.viewport, v.group_bar);
         if let Some(line) = v.clock {

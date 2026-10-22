@@ -90,7 +90,8 @@ Some screens are our own layout, because the original's dialog definition files 
 Tidewater adds a few optional improvements that the original game does not have. **They are all off by default**: with
 none switched on, the game looks, sounds and plays as the original does. Turn one on in the `[extras]` section of the
 settings file (`settings.txt`), or for one run with its flag; `--no-extra-NAME` puts an option back to its default.
-The idle-worker key is F6. How they work, and how to add one, is in [`docs/design/extras.md`](docs/design/extras.md).
+The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the same file (for example
+`pause=ctrl+u`, `button-move=j`, `slot-1=q`); with no section they are the original's. How they work, and how to add one, is in [`docs/design/extras.md`](docs/design/extras.md).
 
 | Option | Flag | Values | Default | What it does |
 |---|---|---|---|---|

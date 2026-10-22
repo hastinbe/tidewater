@@ -63,6 +63,44 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
   effects are every other sound (a screen's sounds and narration included); music is the jukebox. At 100 the mixer
   does exactly what it did before (the gain is not touched). The original sound dialog is unchanged.
 
+## Rebindable keys
+
+Not an option with a switch: the `[keys]` section of `settings.txt` rebinds the game's keys and the command buttons'
+keys. With no `[keys]` section every key is the original's (`keymap.rs`: the key table `mouse::key_action`, the buttons'
+hotkeys from the string table, F6 for the idle worker). The game writes the section back exactly as it found it, so a
+mistake in it is never lost.
+
+```
+[keys]
+pause=ctrl+u
+button-move=j
+slot-1=q
+idle-worker=ctrl+i
+```
+
+- **The line.** `action=key`, one per action. A key is optional `ctrl+`, `alt+` and `shift+` then a letter, a digit,
+  `f1` to `f12` (not `f10`), `minus`, or `equal` (`plus` and `numpad-add` mean the same). Escape, Enter, Space, the
+  arrow keys and F10 can't be rebound.
+- **Game keys** need `ctrl+` or `alt+` with a letter (a bare letter belongs to the command buttons). Names:
+  `speed-up`, `speed-down`, `pause`, `centre-primary`, `group-set-0` to `group-set-9`, `group-recall-0` to
+  `group-recall-9`, `group-show-0` to `group-show-9` (Alt+digit), `goto-view-1` to `goto-view-3`, `remember-view-1` to
+  `remember-view-3`, `game-menu`, `options`, `help-menu`, `keyboard-help`, `sound-dialog`, `speed-dialog`,
+  `preferences`, `tips`, `save-game`, `load-game`, `restart`, `quit`, `quit-dialog`, `toggle-music`, `toggle-sounds`,
+  and `idle-worker` (the key of the `idle-worker` option; F6 with any modifiers by default).
+- **Command buttons** take a bare letter or digit. `button-move`, `button-attack`, `button-patrol`, `button-stop`,
+  `button-stand-ground`, `button-harvest`, `button-repair`, `button-return-goods`, `button-unload`,
+  `button-attack-ground`, `button-demolish`, `button-build-basic` and `button-build-advanced` give the button with that
+  command a key of its own (its original hotkey stops working). Every other button is reached by place with `slot-1` to
+  `slot-9`, the 3 × 3 panel read left to right and top to bottom, whatever the button is (so `q w e / a s d / z x c`
+  works as a grid). A slot key wins over a button's own letter.
+- **Conflicts.** A key on two actions, or a key an action you did not rebind still uses, is refused: the game prints
+  `settings: [keys] pause=Ctrl+S: Ctrl+S is already used by toggle-sounds; the line is ignored` at start-up and the
+  action keeps its original key. The first line wins; a second line for the same action is refused too. Rebinding an
+  action frees its original keys, so two actions can swap. Two buttons that show at the same time with the same
+  hotkey letter are not caught (which buttons show depends on the selection); the first in panel order acts.
+- **Checks.** Rules and messages: `keymap.rs` tests. With no section the key map hands every key on unchanged (a test
+  tries every key and modifier). The frame scene `extras-keys` rebinds Move, pause and the idle key.
+
 ## Sim options
 
 `tidewater_sim::Extras` (`crates/sim/src/extras.rs`) is the set of options that change the simulation. It is empty for
@@ -113,6 +151,6 @@ over what its players agreed. Tests: `a_non_local_session_sets_the_c_plus_l_opti
 ## Checks that keep the defaults honest
 
 - The frame snapshot (`crates/client/tests/frames.rs`) runs its original scenes with every extra off and is never
-  re-blessed for an extra; the scenes `extras`, `extras-bars`, `extras-groups` and `extras-attack` turn options on and have their own entries.
+  re-blessed for an extra; the scenes `extras`, `extras-bars`, `extras-groups`, `extras-attack` and `extras-keys` turn options on and have their own entries.
 - `Trims::default()` leaves the mixed sound identical; the audio snapshot of the original scenes shows it.
 - The oracle traces and the whole-map snapshot run on the sim, which an empty `Extras` does not change.

@@ -74,6 +74,10 @@ pub struct Prefs {
     /// The optional improvements as the file's `[extras]` section sets them (`extras`). The command line's overrides
     /// are not in here: they last for the run and are never written back.
     pub extras: crate::extras::ClientExtras,
+    /// The keys the `[keys]` section rebinds (`keymap`); empty, so the original's keys, when the file has none.
+    pub keys: crate::keymap::KeyMap,
+    /// What was wrong in the `[keys]` section when it was read, one message a line.
+    pub key_problems: Vec<String>,
     /// Ctrl+M's remembered music volume, while the music is off by it.
     music_before: Option<u8>,
     /// Ctrl+S's remembered digital volume.
@@ -92,6 +96,8 @@ impl Default for Prefs {
             bits: bit::DEFAULT,
             minimap_terrain: true,
             extras: crate::extras::ClientExtras::default(),
+            keys: crate::keymap::KeyMap::default(),
+            key_problems: Vec::new(),
             music_before: None,
             digital_before: None,
         }
@@ -115,10 +121,14 @@ impl Prefs {
 
     /// Reads the settings file at program start ("Loading"); no file, or one that can't be read, gives the defaults.
     pub fn load(storage: &dyn crate::storage::Storage) -> Self {
-        storage
+        let p = storage
             .read_settings()
             .and_then(|b| String::from_utf8(b).ok())
-            .map_or_else(Self::default, |s| Self::from_text(&s))
+            .map_or_else(Self::default, |s| Self::from_text(&s));
+        for m in &p.key_problems {
+            eprintln!("settings: [keys] {m}");
+        }
+        p
     }
 
     /// Writes the settings file ("Saving": when the program exits normally).
@@ -129,12 +139,19 @@ impl Prefs {
     /// Reads the text form: every setting takes its default, then the stored value when it is in range.
     pub fn from_text(s: &str) -> Self {
         let mut p = Self::default();
-        // A `[extras]` line starts the optional improvements' section, which goes to the end of the file.
+        // A `[extras]` or `[keys]` line starts that section, which goes to the next section line or the file's end.
         let mut in_extras = false;
+        let mut in_keys = false;
+        let mut key_lines: Vec<String> = Vec::new();
         for line in s.lines() {
             let line = line.trim();
             if line.starts_with('[') {
                 in_extras = line == "[extras]";
+                in_keys = line == "[keys]";
+                continue;
+            }
+            if in_keys {
+                key_lines.push(line.to_string());
                 continue;
             }
             let Some((name, value)) = line.split_once('=') else {
@@ -159,13 +176,14 @@ impl Prefs {
                 _ => {}
             }
         }
+        (p.keys, p.key_problems) = crate::keymap::KeyMap::parse(&key_lines);
         p
     }
 
     /// The text form of everything stored, ending with the `[extras]` section.
     pub fn to_text(&self) -> String {
         format!(
-            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\n{}",
+            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\n{}{}",
             self.game_speed,
             self.mouse_scroll,
             self.key_scroll,
@@ -173,7 +191,8 @@ impl Prefs {
             self.digital_volume,
             self.next_tip,
             self.bits,
-            self.extras.section_text()
+            self.extras.section_text(),
+            self.keys.section_text()
         )
     }
 
@@ -302,6 +321,32 @@ mod tests {
         assert!(text.starts_with("game_speed=5\n"));
         assert!(text.contains("\n[extras]\n"));
         assert!(Prefs::from_text(&text).extras.is_default());
+    }
+
+    #[test]
+    fn the_keys_section_is_read_kept_and_written_back_as_it_was() {
+        // No section: the original's keys, and none is written.
+        let p = Prefs::from_text("game_speed=7\n[extras]\nhealth-bars=always\n");
+        assert!(p.keys.is_default() && p.key_problems.is_empty());
+        assert!(!p.to_text().contains("[keys]"));
+        // A section after the extras one, with a mistake in it: the good line works, the bad one is reported and
+        // kept for the next write, and the extras before it are unaffected.
+        let text = "game_speed=7\n[extras]\nhealth-bars=always\n[keys]\n# mine\npause=ctrl+u\nspeed-up=f5\n";
+        let p = Prefs::from_text(text);
+        assert_eq!(p.extras.health_bars(), crate::extras::HealthBars::Always);
+        assert!(!p.keys.is_default());
+        assert_eq!(p.key_problems.len(), 1, "{:?}", p.key_problems);
+        assert!(p.key_problems[0].contains("speed-up") && p.key_problems[0].contains("options"));
+        let written = p.to_text();
+        assert!(
+            written.ends_with("[keys]\n# mine\npause=ctrl+u\nspeed-up=f5\n"),
+            "{written}"
+        );
+        assert_eq!(Prefs::from_text(&written), p);
+        // A [keys] section before [extras] still leaves the extras section readable.
+        let p = Prefs::from_text("[keys]\npause=ctrl+u\n[extras]\nvolume-music=20\n");
+        assert_eq!(p.extras.get(crate::extras::Id::VolumeMusic), 20);
+        assert!(!p.keys.is_default());
     }
 
     #[test]
