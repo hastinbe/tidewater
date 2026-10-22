@@ -19,77 +19,80 @@ sound	29	b8e97aae0b465b67	0.9882	Despawn
 sound	29	6eab1eb9376e8616	0.9882	Despawn
 frames	26-28	876a8662377b8103
 shot	33	placed	c7d978da7bb874e8
-frames	29-44	c7d978da7bb874e8
-frames	45-46	6fee2ec39df153d6
-frames	47-51	99e6570d11d9a81e
-frames	52-53	ca5ac7276d49b86e
-frames	54-58	066f8adcd2902cd6
-frames	59-60	5d22fef3a6030bef
-frames	61-63	59330a2ed0d99ae9
-frames	64-65	2343b00f3d506cc6
-frames	66-70	17e1d515768ffa46
-frames	71-72	717f652e72b4aff6
-frames	73-77	b9aeed3ef4b1a50a
-frames	78-80	975956a878fb08ea
-frames	81-82	91221d24140dfcfa
-frames	83-84	c6a7e14f146fbdb6
-frames	85-89	692547deceb4fc0a
-frames	90-92	baa5e578a1f92f8e
-frames	93-94	d187991909666ada
-frames	95-96	fa5f1ff3106b737a
-frames	97-99	9bb4f8cbbfa0d443
-frames	100-101	9e50243b913a19f9
-frames	102-104	086a80aad0a444e8
-frames	105-108	0d6072b4939323d4
-frames	109-111	0e65d6a2199a3f0b
-frames	112-116	a15a946ea5a0618a
-frames	117-118	7c721695dd3af87d
-frames	119-120	25420a68f6d85aee
-frames	121-123	7946fc62c98ec275
-frames	124-125	73dedde2fe09a5fc
-frames	126-128	8ab2d5716bcf45d5
-frames	129-130	946775eab2b8db6b
-frames	131-132	f2a9e4daf86c256c
-frames	133-135	06bdf94763562140
-frames	136-137	59eb0443d88d07db
-frames	138-140	5b103e9d11e8b82c
-frames	141-142	1c23a099ceaf4600
-frames	143-144	4f75b70c529d9702
-sound	148	36da17beada0e7b3	0.9882	Despawn
-frames	145-147	84d1155fbed528b8
-frames	148-149	f5154f233f8918b4
-frames	150-152	e900cb48f1d0929f
-shot	154	building	8cbc795c096a6a53
-frames	153-154	8cbc795c096a6a53
-frames	155-156	7bbefe7a48573b4e
-frames	157-157	8e7afe26a4eda370
-frames	158-158	8bb19f32a2762949
-frames	159-159	69aa8ffe9504ac13
-frames	160-161	7e61fc0fd56c50de
-shot	162	chat-edited	496d9db99f7854b7
-frames	162-162	496d9db99f7854b7
-frames	163-164	fdfd8097f0aa982c
-shot	166	chat-closed	ab8635a6a7cb7a2b
-frames	165-166	ab8635a6a7cb7a2b
-frames	167-168	d4416ff31bfad4ee
-shot	170	wheel-on-map	0f5692b6d6fa75db
-frames	169-170	0f5692b6d6fa75db
-frames	171-174	006b7673180acf4f
-frames	175-175	26f212929bfd8cca
-frames	176-176	666a628a97c3ca61
-frames	177-178	844add1af7439fc1
-frames	179-179	7d3d7e9b32fdbee5
-frames	180-183	baf941f80ef56695
-frames	184-184	76f1942472b62f48
-frames	185-185	92a8a7e1dd7323bf
-frames	186-188	f485785ea2fa8bb1
-shot	193	load-list	f1ad7f4f5352d00a
-shot	196	load-wheel-down	f1ad7f4f5352d00a
-shot	199	load-wheel-up	f1ad7f4f5352d00a
-frames	189-199	f1ad7f4f5352d00a
-frames	200-200	5baa950f11b73910
-frames	201-202	79bb46aacbc2c79a
-shot	204	load-closed	40927adf2e65f05f
-frames	203-204	40927adf2e65f05f
-file	three.sav	4d27ebddc909063e
-file	two.sav	a03810025dcdf623
+frames	29-36	c7d978da7bb874e8
+frames	37-39	6fee2ec39df153d6
+frames	40-44	99e6570d11d9a81e
+frames	45-46	ca5ac7276d49b86e
+frames	47-51	066f8adcd2902cd6
+frames	52-53	5d22fef3a6030bef
+frames	54-56	59330a2ed0d99ae9
+frames	57-58	2343b00f3d506cc6
+frames	59-63	17e1d515768ffa46
+frames	64-65	717f652e72b4aff6
+frames	66-70	b9aeed3ef4b1a50a
+frames	71-72	975956a878fb08ea
+frames	73-75	91221d24140dfcfa
+frames	76-77	c6a7e14f146fbdb6
+frames	78-82	692547deceb4fc0a
+frames	83-84	1f9a578517a61de7
+frames	85-89	961cae71402b65db
+frames	90-92	813a3f463bb3d9de
+frames	93-94	e6ed1866faeebaf8
+frames	95-96	cfd1cb3222db4e49
+frames	97-99	37f00f9f3004e03e
+frames	100-101	4d13217314cc17e6
+frames	102-104	a6dc3769a5efc5c1
+frames	105-108	923031eb6b6095e4
+frames	109-111	da1660dc4a536607
+frames	112-113	9af430f33ff6c79c
+frames	114-116	f66459848e8fd34f
+frames	117-118	23e25c36a9a65ad6
+frames	119-120	e6542e971ee8236f
+frames	121-123	42cd3e5f05780045
+frames	124-125	0c6405bc5907de46
+frames	126-128	1c0a690e12c024ea
+frames	129-130	a764b3a7214461f5
+frames	131-132	42ffc0641d213b06
+frames	133-135	74cfddfbf9dc55aa
+frames	136-137	7eabe86208989544
+sound	141	36da17beada0e7b3	0.9882	Despawn
+frames	138-140	96dc3b1b6ac90c82
+frames	141-142	07b05fd911a334ae
+frames	143-144	7116567d6794b189
+frames	145-147	a9e4168e991ff94d
+frames	148-149	9b93e14850a304f0
+frames	150-152	20a6a6dd9ab9ddea
+shot	154	building	3c4021e0f9b31ce3
+frames	153-154	3c4021e0f9b31ce3
+frames	155-156	21574ec2dd22f816
+frames	157-157	754caf56e7586a85
+frames	158-158	4ceef415a19e28c4
+frames	159-159	a63cc7ac56055082
+frames	160-161	0403357f0b2e5b13
+shot	162	chat-edited	216546fa9942dab2
+frames	162-162	216546fa9942dab2
+frames	163-164	2fba12f83ec237f5
+shot	166	chat-closed	7afd221bf909829b
+frames	165-166	7afd221bf909829b
+frames	167-168	7c943cda776e603f
+shot	170	wheel-on-map	6128e91840563acb
+frames	169-170	6128e91840563acb
+frames	171-174	698e45d7af226ef5
+frames	175-175	6307885c564fc6dc
+frames	176-176	9505d64a8006b6f1
+frames	177-178	983f87e7c8d55bd8
+frames	179-179	feb57119196aae7c
+frames	180-183	6fa179ebe1a415fe
+frames	184-184	a0c82e34ae5eeb57
+frames	185-185	5e74fa3d586a24f2
+frames	186-188	830b7c8fadde0e49
+shot	193	load-list	16f350cec2ed6757
+shot	196	load-wheel-down	16f350cec2ed6757
+shot	199	load-wheel-up	16f350cec2ed6757
+frames	189-199	16f350cec2ed6757
+frames	200-200	05c3c48510edcb2f
+frames	201-202	9b47b29fa8d73bbc
+shot	204	load-closed	c2672adf69447926
+frames	203-204	c2672adf69447926
+file	three.sav	d40c048e3fe0b0a3
+file	two.sav	6b5615aff7904865
