@@ -37,6 +37,9 @@
 - **Changes:** 2026-10-21 (B-040 game audit, `ERRATA-audit-game.md`, erratum 1, traced in round 90; reviewed by a
   spec-review session, 2026-10-21): the draw table gains the post walk of a converted unit (`ai/attack-ai.md`, "When
   a unit is converted"). No other rule here changes.
+- **Changes:** 2026-10-22, round 95 (`ERRATA-round95-traces.md`; reviewed by a spec-review session, 2026-10-22): the
+  state table's job counts row says they are 16-bit, wrap, and start at 0 after a load while the jobs are kept
+  (traced, `game/save-load.md` SL22 to SL25).
 
 ## Behaviour
 
@@ -102,7 +105,7 @@ first run in the first start-up cycle, then in the cycles that end with the cycl
 | Threat map | pass A | pass A's land picker; the all-out attack's land picker (in the destroyed hook); pass B's hold goal |
 | Base box | pass B | the post choice at creation; the base-edge patrol |
 | Unit goal and its marks | the creation hook, pass A, pass B, the all-out attack, the call for help, the caster retreat, boarding | pass B |
-| Job counts (miners, lumberjacks, repairers, buildings in progress) | the job choice; released at step 1 of the worker's next job choice, or when the worker dies | the job choice |
+| Job counts (miners, lumberjacks, repairers, buildings in progress) | the job choice; released at step 1 of the worker's next job choice, or when the worker dies; 16-bit, wrapping; set to 0 at every game start, a load included, while the units keep their jobs (round 95, `ai/worker-ai.md`, "Counts after a load") | the job choice |
 
 ### Where the job choice runs
 

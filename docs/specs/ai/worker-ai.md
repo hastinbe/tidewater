@@ -73,6 +73,11 @@
   2026-10-21): the load's building marks are made for every building that isn't dying or removed, construction sites
   included (not only complete ones); the keep, castle and level marks after a load are traced (`game/save-load.md`
   SL16 to SL20).
+- **Changes:** 2026-10-22, round 95 (oracle traces, `ERRATA-round95-traces.md`; reviewed by a spec-review session,
+  2026-10-22): the job counts are 16-bit unsigned and wrap; a load starts them at 0 while the workers keep their jobs,
+  so a loaded job's release wraps ("Counts after a load"; traced, `game/save-load.md` SL22 to SL25; the farm,
+  build-list and hall tests on a wrapped count are static study). A known spell's mark after a load and an upgrading
+  building's mark are traced (SL26, SL27).
 
 ## Behaviour
 
@@ -134,7 +139,8 @@ as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new
    | Cutting lumber | the player's lumberjack count −1 |
    | Building | the player's count of that building type in progress −1, and the **keep-clear mark** (below) is cleared on the building's footprint (width × width tiles from its top-left tile, no border) |
 
-   Then the worker has no job.
+   Then the worker has no job. Each count goes down by 1 as a 16-bit unsigned value, so a release at 0 gives 65535
+   ("Counts after a load", below).
 2. **Attacker.** If the worker has an attacker, the reaction of `orders/orders.md` ("Reacting to an attacker") runs.
    If that gives the worker an order (it fights back or flees), the choice ends here.
 3. **Depot.** The nearest reachable depot is found as in `economy/harvest.md` ("Finding the nearest depot"): a
@@ -168,6 +174,26 @@ animation (the unit is still in its order's own animation, as at its first run a
 animation start sets the wait to 1 and runs its first instruction in the same update (`movement/movement.md`, "Which
 first wait applies when"), so the drawn wait is lost (traced: n = 2505 of the same trace, the draw made, wait 1). Once
 the unit is in its move animation the wait stands (n = 2527: 59).
+
+**Counts after a load.** Each player's miner, lumberjack and repairer counts and its count of each building type in
+progress are 16-bit unsigned values: every +1 and −1 above wraps (65535 + 1 is 0, 0 − 1 is 65535); the hall cooldown
+is a separate small count that only goes down while it isn't 0. Every game start sets all of them to 0, a load
+included, while a loaded worker keeps its saved job (`game/save-load.md`, "What a loaded game starts afresh"). So the
+first release of each loaded job wraps its count (traced, round 95: `game/save-load.md` SL23 to SL25, for the
+lumberjacks, the miners and the farms in progress). Nothing recounts the jobs: a count stays off by the loaded jobs of
+its kind for the rest of the game. The tests read the wrapped value as it is:
+
+| Test | How it reads the count | With a wrapped count |
+| --- | --- | --- |
+| Lumber: lumberjacks < T ("Harvest", step 1) | unsigned | never fewer, so no worker is sent for lumber by this test while the count is wrapped; step 3's fallback (no depot or no mine) still tries lumber. **Traced** (SL23, SL24: lumberjacks 65535 and 65534 with T = 6, gold given) |
+| Repair: repairers < limit ("Repair") | unsigned | never fewer: no new repairer (static study) |
+| Farm: S + 4·F ≤ U + 3 ("Farm") | each side taken modulo 65536, then compared unsigned | F = 65535 makes the left side S − 4 when S ≥ 4, so a farm is wanted with up to 4 more spare food than usual; with S < 4 the left side is 65532 or more and no farm is wanted (static study) |
+| Build list step 4, new town hall: "one already in progress" ("Build list", "Worker: the steps, in order", step 5) | the count isn't 0 | a wrapped count reads as in progress: that entry is skipped, or no hall is tried, until enough starts bring the count back to 0 (static study) |
+| Miners | read by no test | none |
+
+The same 0 at the load means a building the loaded game is still constructing isn't counted as in progress: until a
+new start of that type, "one already in progress" reads false for it and the farm test counts F without it (follows
+from SL22; the tests are static study).
 
 **The goal tile of a build job** (round 85, erratum 7). Each build job (the new town hall above, the farm and the
 build list below) also writes the site's top-left tile into the worker's goal tile (`ai/attack-ai.md`, "Unit goals"),
@@ -242,10 +268,12 @@ stopping at an 0xFF entry. For each entry:
   or fortress every 0x98 and 0x99 entry, then the first open 0x4A entry; any other building the first open entry of
   its type with the race bit cleared. Loaded buildings make no creation marks. A new game never makes the load's
   building marks: its map buildings get the creation marks instead. A research or upgrade still running at the save
-  isn't marked. Traced, rounds 93 and 94: `game/save-load.md` SL9 to SL12 and SL16 to SL20 (towers marking 0x40
-  entries, keeps and castles marking 0x98, 0x99 and 0x4A entries, construction sites marking, an upgrade level
-  marking its entry, two running researches left open). Static study, untraced: a known spell's mark after a load,
-  and that a building working on an upgrade at the save marks as its current type.
+  isn't marked. A building working on an upgrade at the save marks as its current type (a great hall becoming a
+  stronghold marks a 0x4A entry, not 0x98), and its upgrade's entry stays open like a running research's. Traced,
+  rounds 93 and 94: `game/save-load.md` SL9 to SL12 and SL16 to SL20 (towers marking 0x40 entries, keeps and castles
+  marking 0x98, 0x99 and 0x4A entries, construction sites marking, an upgrade level marking its entry, two running
+  researches left open). Traced, round 95: a known spell marks its entry (SL26), and an upgrading building marks as
+  its current type, leaving the upgrade's entry open (SL27).
 
 Nothing else marks an entry done or clears its mark. In particular nothing marks a research entry done because the
 player can't research it.
@@ -452,6 +480,7 @@ Open questions, "Worker or tanker choice", round 85):
 | --- | --- |
 | Idle wait | (r AND 15) + 44 cycles, one RNG draw |
 | Hall cooldown after a hall is started | 10 tries |
+| Job counts (miners, lumberjacks, repairers, each building type in progress) | 16-bit unsigned, +1 and −1 wrap; 0 at every game start, a load included (the units keep their jobs) |
 | Farm rule | S + 4·F ≤ U + 3 and S < 200 |
 | Repair limit | trunc((W − 1) / 2) + 1 repairers |
 | Repair threshold | HP < trunc(3M / 4) |
@@ -607,6 +636,14 @@ An entry is marked done at the start of a game when either bit of its code is se
 | A no-depot hall whose bordered search fails and whose unbordered search finds (20, 20), a 4 × 4 hall (static, erratum 11) | Keep-clear tiles (19, 19) to (24, 24) |
 | A bordered site test for a 4 × 4 hall at x = 0 (static, erratum 16) | Columns 0 to 5 tested (w + 2 = 6 wide from 0) |
 | Two oil patches at the same distance from a computer tanker's depot (static, erratum 10) | The patch first in the neutral player's list (the one created later) is chosen |
+
+### Round-95 vectors
+
+| Input | Expected |
+| --- | --- |
+| `xhuman8-xhuman8-r95-workers-saveload-aigroups-aiworkers-game-1500` (oracle trace, Enhanced), loaded game n = 38: computer peon 1455 (player 3) comes out of town hall 1496 with its saved lumber job; lumberjacks 0 (cleared by the load), 12 workers, gold 150, lumber 125, so T = 6 | Release: lumberjacks 65535; 65535 isn't < 6, so gold: command 23 on mine 1481, miners 1 (`game/save-load.md` SL23) |
+| A computer player's farm in progress at the save, finished after a load, no other farm started (static study for the test; the wrap is traced, SL25) | Farms in progress 0 → 65535; the next farm test reads S + 4 · 65535 as S − 4 (S ≥ 4): with S 20 and U 14, 16 ≤ 17, so a farm is wanted, where a right count (0) would give 20 > 17 and no farm |
+| A computer player's lumberjack count wrapped to 65534, T = 9, its depot and a mine reachable (static study) | No lumber job from step 1; the worker mines |
 
 ## Open questions
 

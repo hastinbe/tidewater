@@ -15,6 +15,8 @@
 - **Changes:** 2026-10-21, round 89 (B-057 multiplayer, `ERRATA-round89-multiplayer.md`; reviewed by a spec-review
   session, 2026-10-21): the hidden-units exception uses the builder's owner's "seen" bits everywhere; in a network
   game the unexplored test is a placement-mode (display) rule only (static study; Tidewater rule for lockstep).
+- **Changes:** 2026-10-22, round 95 review (`ERRATA-round95-traces.md`): wording only. The stale pointer to trace
+  request LD7 (an id since reused for the leaver's destination) is removed; no request covers the unexplored test.
 
 ## Behaviour
 
@@ -99,8 +101,8 @@ the local player; in a network game no machine makes it on arrival.
 
 **The unexplored test in network games.** It is a display rule: placement mode on the issuing player's screen
 applies it, against that player's explored map. The command turn never applies it, and in a network game neither does
-the arrival check, so every machine decides a build the same way (round 89 review; trace request LD7 in
-`net/leave-and-drop.md` would show the original's split).
+the arrival check, so every machine decides a build the same way (round 89 review; not traced, and no trace
+request is open).
 
 ## Data
 

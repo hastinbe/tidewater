@@ -18,6 +18,9 @@
 - **Changes:** 2026-10-21, round 94 (oracle trace, `ERRATA-round94-traces.md`; reviewed by a spec-review session,
   2026-10-21): a "nobody" player's unit that was attacking at the leave keeps its order and target and goes on
   striking (LV23, traced; LD3b closed for an attack, the default for a move unchanged).
+- **Changes:** 2026-10-22, round 95 (oracle trace, `ERRATA-round95-traces.md`; reviewed by a spec-review session,
+  2026-10-22): a "nobody" player's unit moving at the leave keeps its move, reaches its goal and stands idle there
+  (LV24, traced; the default confirmed; LD3b closed).
 - **Sources:** static study of the 2.02 program (round 89; research notes for this round stay on the research side),
   the dialog files `rez\timeout.bin`, `rez\btimeout.bin`, `rez\surrendr.bin`, `rez\quitdraw.bin` and
   `rez\chatrtrn.bin`, and the tables `Rez\network.tbl` and `rez\gluAll.tbl`. Nothing here was watched in the running
@@ -115,7 +118,9 @@ What a chat-room leave does **not** do (static study):
   striking. The hidden test belongs to the target **search**; an order aimed at a unit loses its target only when the
   target is no longer **detected** (`orders/orders.md`, "Terms"), and fog doesn't change that (traced, round 94:
   LV23). When that target is gone, the unit's next search finds nothing, as for an idle unit. A unit moving at the
-  leave isn't traced; by the same rule it finishes its move (default).
+  leave keeps its order and goal, finishes its move and then stands idle, as an idle unit of a "nobody" player
+  (traced, round 95: LV24). Being hidden from its own owner, as every unit is from a "nobody" player (fog phase 5),
+  doesn't stop the move (LV24: hidden from player 1 from n = 1251, on its goal at n = 1283).
 - **No result is set** for the leaver by the leave itself. The victory check sets it (next section).
 - **Alliances are not changed.** The alliance table keeps the leaver's rows and columns.
 
@@ -327,6 +332,7 @@ All static study. Enhanced unless labelled.
 | LV21. `mp-battle-2-mp-battle2-nobody-melee-game-vision-1450` (same set-up): B "nobody" from the turn at n = 1238; A moves footman 1595 (a move, not an attack) to (27, 48), next to B's idle grunt 1587 at (27, 49), arriving at n = 1375 | The footman takes the grunt as its target at n = 1378 (order 16) and strikes it at n = 1391 (hit points 60 to 54). The grunt stays in order 2 with no target and the still animation in every record to A's victory at n = 1409; the footman keeps 60 hit points |
 | LV22. `mp-dark-paths-bne-mp-creator-quit-game-600` (oracle trace, Enhanced, Direct Connect, no computer player): the creator (slot 1) presses Ctrl+Q at n = 120 and confirms at n = 130 | The creator's screen: the session's "Multi Player Setup" lobby as creator (own row, seven "Available", Start Game greyed out), not the main menu. The joiner wins at its next check ("Victory!"); after its Continue it is in the creator's lobby with Leave Game, and the creator's lobby lists it with Start Game enabled |
 | LV23. `mp-battle-2-mp-battle2-nobody-busy-game-vision-1450` (oracle trace, Enhanced, Direct Connect, Battle_2, no computer player): B's grunt 1587 (slot 1) at (27, 49) takes A's footman 1595 at (27, 48) as its target at n = 1231 (order 16) while B still plays; B quits to the menu and is "nobody" from the turn at n = 1238; 1595 is hidden from player 1 from n = 1239 | The grunt keeps order 16 and target 1595 in every record to A's victory at n = 1409, and strikes at n = 1244, 1269, 1294, 1319, 1344, 1369 and 1394 (the footman's hit points 60 → 52, 47, 40, 36, 30, 25, 17). The footman takes the grunt as its target at n = 1245 (order 12) and strikes back |
+| LV24. `mp-battle-2-mp-battle2-nobody-moving-game-goals-vision-1450` (oracle trace, Enhanced, Direct Connect, Battle_2, no computer player): B's idle grunt 1587 (slot 1) at (27, 49) is given a move to (30, 54) in the turn at n = 1214 (order 3 from n = 1216); B quits to the menu and is "nobody" from the turn at n = 1250, with the grunt at (28, 51), mid-route; from n = 1251 the grunt is hidden from player 1 too | The grunt keeps order 3 and goal (30, 54): (29, 52) at n = 1251, (30, 53) at 1267, (30, 54) at 1283; idle there (order 2) from n = 1299 to A's victory at the check of n = 1409 |
 
 ## Open questions
 
@@ -334,9 +340,6 @@ All static study. Enhanced unless labelled.
   drop before it) is carried out only there; the dropped player and anyone who didn't drop keep it in the game. Whether the session layer
   in practice makes every machine drop together wasn't traced. **Trace request LD1:** a 3-player chat-room game, delay
   player 2's packets, press Alt+F2 on player 0 only; record each machine's notices and whether player 1 keeps waiting.
-- **A "nobody" player's unit moving at the leave.** Idle units (LV19 to LV21) and an attacking unit (LV23, round 94)
-  are traced. A unit moving when its owner leaves isn't. Default: it keeps the move, as "The units stay as they are"
-  says.
 - **Battle.net leave timing.** Whether a leave event is carried out at the same cycle on every machine (default:
   next turn). **Trace request LD4** (needs a Battle.net-style session; probably not reachable).
 - **Host-left texts.** gluAll entries 96 and 104 weren't found used in a game. **Trace request LD5:** a Battle.net

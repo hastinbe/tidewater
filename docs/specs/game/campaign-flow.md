@@ -62,6 +62,8 @@
   2026-10-21): "After the score screen": the creator goes back to the lobby after a defeat too, and a Direct Connect
   joiner goes to the join screen after a victory too, then into the lobby once the creator is there (traced,
   MS-V10 to MS-V12). The open question is closed.
+- **Changes:** 2026-10-22, round 95 (`ERRATA-round95-traces.md`; reviewed by a spec-review session, 2026-10-22): the
+  score screen's "Outcome" word: `rank_txt.tbl` entry 41 "Victory!" or 40 "Defeat!" (static study, labelled).
 
 ## Behaviour
 
@@ -263,7 +265,11 @@ After a victory or a defeat the score screen is shown, unless the skip setting i
 2. **Layout.** The background is `Art\hwinglu.pcx` (human victory), `Art\owinglu.pcx` (orc victory),
    `Art\hlosglu.pcx` (human defeat) or `Art\olosglu.pcx` (orc defeat). Music track 14 (human) or 15 (orc) plays
    after a victory, 12 or 13 after a defeat. The dialog depends on how many players are shown: `rez\msnstat2.bin`
-   for up to 2, `rez\msnstat4.bin` up to 4, `rez\msnstat6.bin` up to 6, `rez\msnstats.bin` otherwise.
+   for up to 2, `rez\msnstat4.bin` up to 4, `rez\msnstat6.bin` up to 6, `rez\msnstats.bin` otherwise. The
+   "Outcome" field shows `rank_txt.tbl` entry 41 "Victory!" after a victory (the same victory that adds 500 in step
+   1) and entry 40 "Defeat!" otherwise (entries counted from 1, as for the rank). Static study, round 95: the
+   multiplayer screen chooses its word the same way outside Battle.net (`ui/multiplayer-score.md`, "The outcome
+   word"), and single player is never a Battle.net game.
 3. **Players shown** (single player): for each slot 0 to 7, in order:
 
    | Slot | Label (`network.tbl`) |

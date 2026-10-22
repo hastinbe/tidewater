@@ -31,6 +31,10 @@
   2026-10-21): the start table adds the scripts' openings (a new game runs them before the map's units are placed; a
   load runs none; AS-V1, AS-V2). The load's building marks count construction sites, and every training group's
   doubling is traced (SL16 to SL21).
+- **Changes:** 2026-10-22, round 95 (oracle traces, `ERRATA-round95-traces.md`; reviewed by a spec-review session,
+  2026-10-22): the start and count tables add the computer job choice's counts (0 at every game start, a load
+  included, while the loaded workers keep their jobs; 16-bit, wrapping; SL22 to SL25). The load's marks for a known
+  spell and an upgrading building are traced (SL26, SL27).
 
 ## Behaviour
 
@@ -112,7 +116,8 @@ marks rules the old text didn't state.
 | Creation numbers | From 1, one per created unit (`core/unit-slots.md`) | Every unit's number becomes its slot number plus one (traced, round 90); the next created unit gets 1626 in Enhanced (traced, round 92) |
 | 50-cycle pass counters (`ai/attack-ai.md`, "Timing") | Start at 1, so the passes run in the first start-up cycle | The same: not saved, start at 1 (traced, round 92) |
 | Training group counts, footmen to submarines (`ai/training-research.md`) | Counted from the map's units | Restored from the save, then every loaded unit is counted again: doubled (traced for every group, rounds 92 to 94; held map ships are never counted). The worker and tanker counts are worked out afresh (traced, round 93) |
-| Computer research requests and build-list done marks (`ai/training-research.md`, `ai/worker-ai.md`) | Requests clear; done marks from levels, researched items and known spells, then a creation mark for each map building | Not kept: requests clear; done marks from levels, researched items and known spells, then the load's building marks for each building that isn't dying or removed, construction sites included; a research running at the save stays unmarked (traced, rounds 93 and 94) |
+| Computer research requests and build-list done marks (`ai/training-research.md`, `ai/worker-ai.md`) | Requests clear; done marks from levels, researched items and known spells, then a creation mark for each map building | Not kept: requests clear; done marks from levels, researched items and known spells, then the load's building marks for each building that isn't dying or removed, construction sites included; a research running at the save stays unmarked, and a building upgrading at the save marks as its current type with its upgrade's entry left open (traced, rounds 93 to 95) |
+| Computer job counts: miners, lumberjacks, repairers, buildings in progress, hall cooldown (`ai/worker-ai.md`) | 0 | 0, while every loaded worker keeps its job, so each loaded job's release wraps its 16-bit count to 65535 (traced, round 95: `game/save-load.md` SL22 to SL25; the repairers and hall cooldown static study) |
 | Game clock and pause counts | Start at 0 | Restored (Enhanced) |
 
 ### Where players act
@@ -157,6 +162,7 @@ game, and of a loaded one, falls in the second start-up cycle (`game/victory.md`
 | Fog refresh countdown | Every game start, a load included (traced) | No (traced) | Fog refresh timing |
 | 50-cycle pass counters | Every game start, a load included (traced) | No (traced) | Computer players' passes A and B, the no-workers pass |
 | Computer research requests, build-list done marks | Every game start, a load included, then made again (traced) | No: a load doesn't keep them (traced) | The worker job scan, the no-workers pass, the research buildings |
+| Computer job counts (miners, lumberjacks, repairers, buildings in progress, hall cooldown) | Every game start, a load included, to 0 (traced, round 95); the units' jobs are kept | No (traced) | The worker job choice (`ai/worker-ai.md`, "Counts after a load") |
 | Cycle counter | Every game start, a load included (traced) | Written in Enhanced, but a load doesn't use it (traced) | Only the network sync check and saving; no rule depends on its value |
 | Game clock, pause counts | New game | Yes (Enhanced) | Game menu (`ui/game-menu.md`) |
 

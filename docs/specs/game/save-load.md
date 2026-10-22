@@ -43,6 +43,11 @@
   0x4A marks and a level's game-start mark after a load are traced (SL16 to SL19). The flying machine, transport,
   battleship and submarine counts double (SL21, traced; SL8 closed). A spell's mark after a load and a building
   upgrading at a save stay static study.
+- **Changes:** 2026-10-22, round 95 (oracle traces, `ERRATA-round95-traces.md`; reviewed by a spec-review session,
+  2026-10-22, see its "Review"): a load starts the computer job choice's counts at 0 while every worker keeps its job,
+  and the counts are 16-bit unsigned, so a loaded job's release wraps to 65535 (SL22 to SL25, traced; parts static
+  study). A known spell marks its entry after a load (SL26) and a building upgrading at the save marks as its current
+  type, its upgrade's entry staying open (SL27): both traced, trace request R1 closed.
 
 ## Behaviour
 
@@ -264,8 +269,9 @@ lists, including:
      | Castle or fortress (0x5A, 0x5B) | every 0x98 and castle-upgrade (0x99) entry, then the first open 0x4A entry |
      | Any other building | the first open entry of its type with the race bit cleared (an orc barracks, 0x3D, marks a 0x3C entry) |
 
-     A building working on an upgrade at the save (a town hall becoming a keep, say) marks as its current type
-     (static study, untraced; see "Open questions").
+     A building working on an upgrade at the save (a town hall becoming a keep, say) marks as its current type, and
+     its upgrade's entry stays open, as a running research's does (below). The upgrade runs on as saved (traced,
+     round 95: SL27).
 
   Loaded units aren't created again, so they make no creation marks. A research or upgrade still running at the save
   has no level or flag yet, so its entry isn't marked, although its start had marked it in the saved game. The
@@ -274,9 +280,19 @@ lists, including:
   entry stops both scans for the rest of the game, like any entry the player can't research. Traced, rounds 93 and 94
   (SL9 to SL12, SL16 to SL20): the cleared requests, the running research left unmarked, the towers' 0x40 marks, the
   keeps' and castles' 0x98, 0x99 and 0x4A marks (a second castle finds no open 0x4A entry), construction sites
-  marking like finished buildings, and an upgrade level marking its entry. Static study (labelled gap-fills,
-  untraced): a known spell's mark after a load (no traced computer player knew a spell that marks an entry) and the
-  type an upgrading building marks as.
+  marking like finished buildings, and an upgrade level marking its entry. Traced, round 95: a known spell's mark
+  after a load (SL26: spells learnt during play mark their entries, while a spell still being researched at the save
+  leaves its entry open) and an upgrading building marking as its current type (SL27).
+- **Computer job counts.** The job choice's own counts (`ai/worker-ai.md`, "Worker: the steps, in order") aren't
+  saved. In the loaded game's setup every player's miner, lumberjack and repairer counts, its count of each building
+  type in progress and its hall cooldown are 0, as at a new game's start. The units keep their jobs as saved (gold,
+  lumber, a building in progress, repair) and their harvest mode. So the first release of each loaded job (when the
+  worker's next job choice runs, or when it dies) takes its count below 0, and the counts are 16-bit unsigned: 0 − 1 is
+  65535, and a start at 65535 gives 0 (`ai/worker-ai.md`, "Counts after a load"). Nothing recounts them later: each
+  count stays off by the loaded jobs of its kind until the game ends, and a further save and load starts them at 0
+  again. Traced, round 95 (SL22 to SL25): the miner, lumberjack and building-in-progress counts cleared while the jobs
+  are kept, and the lumberjack, miner and farm-in-progress counts wrapping. Static study: the repairer count and the
+  hall cooldown are cleared too (the traced save had both at 0, so the trace can't tell).
 - **Pause.** A loaded game is never paused: the pause isn't saved, and every game start clears it, so a game saved
   while paused loads running (static study, `ERRATA-audit-game.md` erratum 6; a labelled gap-fill, untraced).
 - **Creation numbers.** Every unit's creation number (`core/unit-slots.md`, "Creating a unit", step 3) is its slot
@@ -389,6 +405,12 @@ stays in the running game.
 | **SL19.** `xhuman9-xhuman9-r94-level-resave-aigroups-airesearch-game-60` (oracle trace, Enhanced): the SL9 scenario, saved after n = 1702 and loaded; the loaded game saved again after its n = 348 and that save loaded. Computer player 6 at the second save: weapon level 1 (its 0x86 research finished in the first loaded game), done 0 to 5, request {0x86} | Second loaded setup record: no requests, done 0 to 6 (the level marks entry 6, 0x86). n = 38: request 0x80 (entry 7); the scan no longer stops at entry 6 |
 | **SL20.** SL9's trace, computer player 2 (build list 0x4A, 0x3C, 0x4C, 0x52, 0x40, …): construction sites 1408 (orc barracks), 1404 (troll lumber mill), 1406 (orc blacksmith) and 1400 (orc scout tower) at the save, hit points still rising after the load; its finished buildings are farms, a great hall and four towers | Setup record: done 0 to 4. Entries 1, 2 and 3 can only have been marked by the three sites |
 | **SL21.** `xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60` (oracle trace, Enhanced, saved after n = 12103): computer player 7 at the save: flying machines 1, transports 2, battleships 3, submarines 1, destroyers 3, tankers 4, workers 9 (3 battleships, 2 destroyers and 2 submarines on the map are held map ships) | Setup record to n = 60: 2, 4, 6, 2, 6, 4, 9 |
+| **SL22.** `xhuman8-xhuman8-r95-workers-saveload-aigroups-aiworkers-game-1500` (oracle trace, Enhanced, saved after n = 12105): at the save computer player 3 has miners 4, lumberjacks 7, repairers 0; player 6 has 2, 1, 0; player 7 has 1, 4, 0 and one farm in progress (peon 1499 building it, order 22); every hall cooldown 0 | Loaded setup record: every miner, lumberjack and repairer count 0, no building in progress, every hall cooldown 0. Every unit keeps its saved job and harvest mode: player 3's peons 1455 and 1511 (in town hall 1496, order 26) a lumber job, 1499 its farm job |
+| **SL23.** Same trace, loaded game, player 3: 12 workers, gold 150, lumber 125 or 250, so the lumber target T = floor(12 / 2) = 6 (`ai/worker-ai.md`, "Harvest") | n = 38: 1455 comes out of hall 1496; its saved lumber job is released, lumberjacks 0 → 65535; 65535 isn't fewer than 6, so it gets command 23 on gold mine 1481 (order 2 with target 1481 in that record), miners 0 → 1 |
+| **SL24.** Same trace, player 3, n = 42 | 1511 comes out the same way: lumberjacks 65535 → 65534, command 23 on mine 1481, miners 2. (Keeping the saved counts gives 6 → 5 < 6 and a lumber job here, the wrong result; clearing them with no wrap, 0 − 1 read as 0 or as −1, already gives a lumber job to 1455 at n = 38.) Player 3's lumberjack count never rises in the loaded game and is 65531 by n = 1485 |
+| **SL25.** Same trace, player 7's farms in progress: 1499's saved farm job, and peon 1506 starting a farm at n = 130 | 0 in the setup record, 1 at n = 130, 0 at n = 726 (1499's farm done, its job released), **65535** at n = 1402 (1506's farm done). Player 7's miners: 65535 from n = 83 (a saved gold job released) until a new gold job brings them to 0 at n = 1187 |
+| **SL26.** `human14-human14-r95-spell-saveload-aigroups-airesearch-game-60` (oracle trace, Enhanced, saved after n = 2704; game-start spells word 0x4020 marks none of these entries). Player 0: build list 0x93, 0x94, 0x95, 0x96, 0x97, spells word 0x16020 (bits 13 and 16 among others), its temple researching 0x95, done 0, 1, 2 at the save. Players 4 and 5: list 0x90, 0x91, 0x92, …, spells word 0x104021 (bit 20), researching 0x91, done 0, 1 at the save | Loaded setup record: player 0 done 0, 1 (0x93 and 0x94 marked by known spells; entry 2 open); players 4 and 5 done 0 (0x90 marked; entry 1 open). Requests at n = 2: 0x95 for player 0, 0x91 for players 4 and 5 |
+| **SL27.** `xhuman2-xhuman2-r95-upgrading-saveload-aigroups-airesearch-game-1700` (oracle trace, Enhanced, saved after n = 4002): computer player 7, build list 0x4A, 0x3C, 0x4C, 0x98, 0x52, 0x42, 0x44, 0x40, 0x40, 0x40, 0x99, 0x46, …; its great hall 1533 upgrading to a stronghold since n = 3536 (order 37); three guard towers; done 0, 1, 2, 3, 11 at the save | Loaded setup record: done 0, 1, 2, 7, 8, 9, 11 (the hall marks entry 0 as a great hall; entry 3, 0x98, stays open; the towers mark entries 7 to 9). The hall becomes a stronghold at n = 1547. Request 0x98 from n = 152 to the end (n = 1700); entry 3 is never marked |
 
 ## Open questions
 
@@ -414,9 +436,5 @@ stays in the running game.
   Default: apply the lowest-numbered-player rule to every multiplayer game.
 - **Multiplayer loading.** The lobby side (entries 16 and 17 about player counts, matching players to saved slots) is
   outside this spec and not yet studied.
-- **Load marks not traced.** A known spell that marks an entry (codes 0x90 to 0x97) after a load, and the type a
-  building working on an upgrade at the save marks as, are static study (defaults as stated in "What a loaded game
-  starts afresh"). **Trace request R1 (narrowed):** a save and load with a computer player that has learnt a marking
-  spell, or whose hall or tower is upgrading at the save.
 - **Running game.** The save and load rules above that say "traced" were watched in the running game (round 90);
   the rest wasn't.
