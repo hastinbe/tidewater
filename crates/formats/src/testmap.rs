@@ -22,6 +22,8 @@ struct Spec {
     units: &'static [Unit],
     /// The rows of sea along the bottom edge (0: none; the spec's "Sea" option, 1 to N - 4).
     sea: u16,
+    /// The depth S of the shore band, 1 to `sea` (the spec's "Deeper shore" option; 1 is the plain shore row).
+    shore: u16,
 }
 
 /// A start location of a human player (0x5E) or an orc player (0x5F).
@@ -66,6 +68,7 @@ const R99_TESTS: Spec = Spec {
         (46, 26, 0x5C, 15, 20),
     ],
     sea: 0,
+    shore: 1,
 };
 
 /// `R100-tests.pud` (spec: "Data", "R100-tests.pud"): a sea of 12 rows along the bottom.
@@ -98,6 +101,7 @@ const R100_TESTS: Spec = Spec {
         (32, 46, 0x2B, 1, 0),
     ],
     sea: 12,
+    shore: 1,
 };
 
 /// `R102-flyers.pud` (round 102; the oracle harness's map description, `oracle/maps/R102-flyers.json`): the sea of
@@ -125,6 +129,79 @@ const R102_FLYERS: Spec = Spec {
         (15, 30, 0x00, 0, 0),
     ],
     sea: 12,
+    shore: 1,
+};
+
+/// `R103-tests.pud` (round 103; spec: "Data", "R103-tests.pud"): a sea of 12 rows with a two-row shore band, peasants
+/// and knights for the control-group tidy and transports for near push-off picks.
+const R103_TESTS: Spec = Spec {
+    size: 64,
+    id_tag: 0x7202,
+    description: "tidewater r103 tests",
+    players: &[(0, 10_000, 10_000, 1_000, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (10, 10, HUMAN_START, 0, 0),
+        (55, 10, ORC_START, 1, 0),
+        // Four peasants and three knights.
+        (10, 20, 0x02, 0, 0),
+        (12, 20, 0x02, 0, 0),
+        (14, 20, 0x02, 0, 0),
+        (16, 20, 0x02, 0, 0),
+        (10, 24, 0x06, 0, 0),
+        (12, 24, 0x06, 0, 0),
+        (14, 24, 0x06, 0, 0),
+        // Two docked transports, a destroyer, a transport at sea and a footman.
+        (42, 56, 0x1C, 0, 0),
+        (14, 56, 0x1C, 0, 0),
+        (20, 58, 0x1E, 0, 0),
+        (34, 58, 0x1C, 0, 0),
+        (30, 47, 0x00, 0, 0),
+        // The orc player's grunt, so that player 1 isn't defeated at once.
+        (60, 5, 0x01, 1, 0),
+    ],
+    sea: 12,
+    shore: 2,
+};
+
+/// `R103-far.pud` (round 103; spec: "Data", "R103-far.pud"): one transport and three destroyers filling the even
+/// open-water tiles around its dock, for far push-off picks.
+const R103_FAR: Spec = Spec {
+    size: 64,
+    id_tag: 0x7204,
+    description: "tidewater r103 far push-off",
+    players: &[(0, 10_000, 10_000, 1_000, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (10, 10, HUMAN_START, 0, 0),
+        (55, 10, ORC_START, 1, 0),
+        (42, 56, 0x1C, 0, 0),
+        (36, 60, 0x1E, 0, 0),
+        (40, 60, 0x1E, 0, 0),
+        (48, 60, 0x1E, 0, 0),
+        (60, 5, 0x01, 1, 0),
+    ],
+    sea: 12,
+    shore: 2,
+};
+
+/// `R103-air.pud` (round 103; spec: "Data", "R103-air.pud"): five gryphon riders, one on an odd column, for the air
+/// unit's goal pull-back. No sea.
+const R103_AIR: Spec = Spec {
+    size: 64,
+    id_tag: 0x7205,
+    description: "tidewater r103 air pull-back",
+    players: &[(0, 10_000, 10_000, 1_000, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (10, 10, HUMAN_START, 0, 0),
+        (55, 10, ORC_START, 1, 0),
+        (20, 20, 0x2A, 0, 0),
+        (30, 20, 0x2A, 0, 0),
+        (29, 20, 0x2A, 0, 0),
+        (20, 30, 0x2A, 0, 0),
+        (30, 30, 0x2A, 0, 0),
+        (60, 5, 0x01, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
 };
 
 /// Whether a trace header's map name is a generated test map's: `R<round>-<name>.pud`, a capital R, the round
@@ -143,6 +220,9 @@ pub fn generated(name: &str) -> Option<Vec<u8>> {
         "R99-tests.pud" => Some(build(&R99_TESTS)),
         "R100-tests.pud" => Some(build(&R100_TESTS)),
         "R102-flyers.pud" => Some(build(&R102_FLYERS)),
+        "R103-tests.pud" => Some(build(&R103_TESTS)),
+        "R103-far.pud" => Some(build(&R103_FAR)),
+        "R103-air.pud" => Some(build(&R103_AIR)),
         _ => None,
     }
 }
@@ -169,13 +249,14 @@ fn build(s: &Spec) -> Vec<u8> {
             })
             .collect()
     };
-    // The section words by tile: the spec's sea rows (the coast, the shore, then the water) or the land value.
+    // The section words by tile: the spec's sea rows (the coast, the shore band of depth S, then the water) or the
+    // land value. With w = N - K the coast is row w - 2, the shore rows are w - 1 to w - 2 + S, the water the rest.
     let tile_words = |land: u16, coast: u16, shore: u16, water: u16| {
         words((0..tiles).map(|t| {
             let row = (t / n) as u16;
             match (s.sea > 0).then(|| s.size - s.sea) {
-                Some(w) if row >= w => water,
-                Some(w) if row + 1 == w => shore,
+                Some(w) if row + 1 >= w + s.shore => water,
+                Some(w) if row + 1 >= w => shore,
                 Some(w) if row + 2 == w => coast,
                 _ => land,
             }
@@ -276,6 +357,52 @@ mod tests {
         assert_eq!(
             sha256(&b),
             "9253e1a905ccda488791723269ea1a766cd549d71acd1300ee7e11559a1faf61"
+        );
+    }
+
+    /// `R103-tests.pud` (round 103): 36 006 bytes with the SHA-256 of the spec, shore band two rows deep.
+    #[test]
+    fn r103_tests_matches_the_spec_hash() {
+        let b = generated("R103-tests.pud").expect("known map");
+        assert_eq!(b.len(), 36_006);
+        assert_eq!(
+            sha256(&b),
+            "c4ab8b44e81b7da364cd9fff36cb8719a4576294003cf9667c2f66ccf45533f8"
+        );
+    }
+
+    /// `R103-far.pud` (round 103): 35 942 bytes with the SHA-256 of the spec.
+    #[test]
+    fn r103_far_matches_the_spec_hash() {
+        let b = generated("R103-far.pud").expect("known map");
+        assert_eq!(b.len(), 35_942);
+        assert_eq!(
+            sha256(&b),
+            "04e4df983389a77e5884f32fe79a501b587bb3ec947f6669f1ecaed907a305b9"
+        );
+    }
+
+    /// `R103-air.pud` (round 103): 35 950 bytes with the SHA-256 of the spec, no sea.
+    #[test]
+    fn r103_air_matches_the_spec_hash() {
+        let b = generated("R103-air.pud").expect("known map");
+        assert_eq!(b.len(), 35_950);
+        assert_eq!(
+            sha256(&b),
+            "25c96ee2bfca1ff88f74f371b4022f8d56d04e84340be8f46baaf986f31adde4"
+        );
+    }
+
+    /// The deeper shore (spec, "Deeper shore"): with S = 2 and K = 12 on a 64 map, row 50 is the coast, rows 51 and 52
+    /// the shore and rows 53 to 63 the water.
+    #[test]
+    fn r103_tests_has_a_two_row_shore() {
+        let pud = Pud::parse(&generated("R103-tests.pud").unwrap()).unwrap();
+        let sqm = pud.section(b"SQM ").unwrap();
+        let at = |y: usize| u16::from_le_bytes([sqm[(y * 64 + 5) * 2], sqm[(y * 64 + 5) * 2 + 1]]);
+        assert_eq!(
+            (at(49), at(50), at(51), at(52), at(53), at(63)),
+            (1, 0x11, 0x82, 0x82, 0x40, 0x40)
         );
     }
 

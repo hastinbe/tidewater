@@ -226,6 +226,13 @@
 //! mp-r100-tests-mp-r102-hold-workers-fixed-goals-700 (a refused command, a right-click and a build with the workers
 //! held: HW7a to HW7c) and mp-r102-flyers-fixed-60 (the generated map `R102-flyers.pud`: creation moves no ship or
 //! flyer to an even tile, FL1).
+//!
+//! Round 103 (generated maps `R103-tests.pud`, `R103-far.pud` and `R103-air.pud`, built with the shore-depth option):
+//! mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000 compares the control groups exactly (`groups` extra,
+//! the `set-group` and `recall-group` inputs; V-G1 tidies a group at every kill) and near push-off picks,
+//! mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100 far push-off picks (V50, V51; a landing far out whose ordinary
+//! route is empty plans again in the landing class) and mp-r103-air-mp-r103-air-pullback-fixed-goals-300 an air
+//! unit's goal pull-back (AP1). The odd-ships map has no row.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -573,8 +580,15 @@ traces! {
     mp_r100_tests_mp_r101_transport_goals_fixed_goals_1100: (mp, "mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100.jsonl.gz", &[], None),
     mp_r100_tests_mp_r102_transport_one_fixed_goals_1100: (mp, "mp-r100-tests-mp-r102-transport-one-fixed-goals-1100.jsonl.gz", &[], None),
     mp_r100_tests_mp_r102_hold_workers_fixed_goals_700: (mp, "mp-r100-tests-mp-r102-hold-workers-fixed-goals-700.jsonl.gz", &[], None),
-    // The three ships differ by design (even-tile placement, `core/unit-slots.md` OS1) and so does the random counter.
+    // The three ships stand on odd tiles in the original and differ by design (even-tile placement, `core/unit-slots.md`
+    // OS1), and so does the random counter: round 103 tried dropping `-rng`, and the first difference is n = 8, where
+    // ours draws twice and the original once. Only the ships' idle draws depend on their tile, so the exclusion stays.
     mp_r102_flyers_fixed_60: (mp, "mp-r102-flyers-fixed-60.jsonl.gz", &["--fields=-rng,-slot@1593,-slot@1594,-slot@1595"], None),
+    // Round 103: the control-group tidy at every kill and near push-off picks (V-G1, V52), far push-off picks (V50, V51)
+    // and the air unit's goal pull-back (pathfinding V55, V56), each on its generated map.
+    mp_r103_tests_mp_r103_groups_pushoff_fixed_goals_groups_1000: (mp, "mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000.jsonl.gz", &[], None),
+    mp_r103_far_mp_r103_far_pushoff_fixed_goals_1100: (mp, "mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100.jsonl.gz", &[], None),
+    mp_r103_air_mp_r103_air_pullback_fixed_goals_300: (mp, "mp-r103-air-mp-r103-air-pullback-fixed-goals-300.jsonl.gz", &[], None),
     human1_human01_r101_hold_workers_goals_700: ("human1-human01-r101-hold-workers-goals-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
 }
 
