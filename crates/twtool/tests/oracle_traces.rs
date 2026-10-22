@@ -590,6 +590,16 @@ traces! {
     mp_r103_far_mp_r103_far_pushoff_fixed_goals_1100: (mp, "mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100.jsonl.gz", &[], None),
     mp_r103_air_mp_r103_air_pullback_fixed_goals_300: (mp, "mp-r103-air-mp-r103-air-pullback-fixed-goals-300.jsonl.gz", &[], None),
     human1_human01_r101_hold_workers_goals_700: ("human1-human01-r101-hold-workers-goals-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
+    // Round 104 windowed traces (each starts mid-mission; the sweep fixes SW1 to SW8 and H1).
+    win_orc9_goals_aigoals_24200_24260: ("win-orc9-goals-aigoals-24200-24260.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),
+    win_xhuman8_goals_aigoals_30700_30830: ("win-xhuman8-goals-aigoals-30700-30830.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], None),
+    win_human13_game_11400_11520: ("win-human13-game-11400-11520.jsonl.gz", "Campaign\\Human\\Human13.pud", 24, &[], None),
+    win_human14_game_15950_16060: ("win-human14-game-15950-16060.jsonl.gz", "Campaign\\Human\\Human14.pud", 26, &[], None),
+    win_orc12_game_32200_32300: ("win-orc12-game-32200-32300.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
+    win_xhuman5_game_vision_27600_27660: ("win-xhuman5-game-vision-27600-27660.jsonl.gz", "Campaign\\XHuman\\2XHum05.pud", 36, &[], None),
+    win_xorc9_airesearch_aiworkers_0_3000: ("win-xorc9-airesearch-aiworkers-0-3000.jsonl.gz", "Campaign\\XOrc\\2XOrc09.pud", 45, &[], None),
+    win_xorc8_game_40280_40480: ("win-xorc8-game-40280-40480.jsonl.gz", "Campaign\\XOrc\\2XOrc08.pud", 43, &[], None),
+    win_mp_gold_rush_o2_game_vision_10400_10620: (mp, "win-mp-gold-rush-o2-game-vision-10400-10620.jsonl.gz", &[], None),
 }
 
 /// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load) matches in full
