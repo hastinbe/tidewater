@@ -337,3 +337,19 @@ fn a_load_clears_the_requests_and_makes_the_marks_again() {
     b.restore(&a.save_state(), 1).unwrap();
     assert_eq!(b.ai[P].done, 0b0010);
 }
+
+/// Round 104, SW7a: a new game's marks come before the mission start, so the spells it grants mark nothing; a mark
+/// made with no such snapshot (a load's) reads the current state.
+#[test]
+fn what_the_mission_start_grants_is_not_marked() {
+    let list = [0x90, 0x91, 0x92];
+    let known = (1 << 1) | (1 << 3) | (1 << 20);
+    let mut w = world(&list);
+    w.before_mission = Some(w.players.iter().map(|p| (p.spells_known, p.levels)).collect());
+    w.players[P].spells_known = known;
+    w.mark_game_start(P);
+    assert_eq!(w.ai[P].done, 0);
+    w.before_mission = None;
+    w.mark_game_start(P);
+    assert_eq!(w.ai[P].done, 0b111);
+}

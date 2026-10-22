@@ -219,6 +219,7 @@ impl World {
         for p in 0..SCRIPT_PLAYERS {
             self.mark_game_start(p);
         }
+        self.before_mission = None;
     }
 
     /// Step 1 of the cycle: one script step for each computer-controlled player 0 to 7, in ascending order ("Each

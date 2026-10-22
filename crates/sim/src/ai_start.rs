@@ -18,15 +18,22 @@ const SPELL_BITS: [(u32, u32); 8] = [(20, 20), (1, 11), (3, 18), (4, 13), (6, 16
 
 impl World {
     /// Whether research entry `code` of player `p` is already done at the start of a game.
-    fn research_known(&self, p: usize, code: u8) -> bool {
+    ///
+    /// A new game's marks read what the player had **before the mission start** ([`World::before_mission`]), so what
+    /// the mission start grants marks nothing (round 104, SW7a); a load's read the current state.
+    fn research_known(&self, p: usize, code: u8, before_mission: bool) -> bool {
         let player = &self.players[p];
         let orc = player.race == 1;
+        let (spells_known, levels) = match &self.before_mission {
+            Some(v) if before_mission => v[p],
+            _ => (player.spells_known, player.levels),
+        };
         match research_item(code, orc) {
-            Some(JobKind::Research(n)) if n < 24 => player.levels[fixed_line(n)] > n & 1,
-            Some(JobKind::Research(_)) => player.levels[ranger_line(code).0] != 0,
+            Some(JobKind::Research(n)) if n < 24 => levels[fixed_line(n)] > n & 1,
+            Some(JobKind::Research(_)) => levels[ranger_line(code).0] != 0,
             Some(JobKind::Spell(_)) if (0x90..=0x97).contains(&code) => {
                 let (h, o) = SPELL_BITS[(code - 0x90) as usize];
-                player.spells_known & ((1 << h) | (1 << o)) != 0
+                spells_known & ((1 << h) | (1 << o)) != 0
             }
             _ => false,
         }
@@ -47,12 +54,12 @@ impl World {
     }
 
     /// The game-start marks for what player `p` already has: upgrade levels, researched items and known spells.
-    fn mark_research_known(&mut self, p: usize, list: &[u8]) {
+    fn mark_research_known(&mut self, p: usize, list: &[u8], before_mission: bool) {
         for (n, &e) in list.iter().enumerate() {
             if e == 0xff {
                 break;
             }
-            if e >= 0x80 && self.research_known(p, e) {
+            if e >= 0x80 && self.research_known(p, e, before_mission) {
                 self.ai[p].done |= 1 << n;
             }
         }
@@ -71,7 +78,7 @@ impl World {
             return;
         }
         let list = self.build_list(p);
-        self.mark_research_known(p, &list);
+        self.mark_research_known(p, &list, false);
         let mine: Vec<u8> = self
             .units
             .iter()
@@ -132,7 +139,7 @@ impl World {
             self.creation_mark(i);
         }
         let list = self.build_list(p);
-        self.mark_research_known(p, &list);
+        self.mark_research_known(p, &list, true);
         // Round 36: every building the map places marks the first open entry of its own type, as any creation does;
         // there are no tower, keep or castle cases.
         for i in mine {

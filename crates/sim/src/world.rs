@@ -1021,6 +1021,11 @@ pub struct World {
     /// Set while order 12's no-route fallback runs the order's logic once after its take-over (orders spec, "Order 12
     /// with no route", round-54 errata). Not game state: not stored and left out of the hash.
     pub(crate) fallback_run: bool,
+    /// Each player's spells known and upgrade levels as the map left them, before a new campaign game's mission start
+    /// granted anything: the computer players' game-start done marks read these (`ai/worker-ai.md`, "Done marks", round
+    /// 104, SW7). Cleared once [`World::start_ai`] has made the marks. Not game state: not stored and left out of the
+    /// hash.
+    pub(crate) before_mission: Option<Vec<(u32, [u8; crate::tech::LINES])>>,
     /// The slot whose update is running, during the cycle's walk of the unit table. Not game state: not stored and
     /// left out of the hash.
     pub(crate) updating: Option<u16>,
@@ -1168,6 +1173,7 @@ impl World {
             casts: Default::default(),
             restarts: 0,
             fallback_run: false,
+            before_mission: None,
             updating: None,
             in_cycle: false,
             queue_scope: Default::default(),
@@ -1288,6 +1294,8 @@ impl World {
             orc_sounds: start.race_setting == crate::setup::race::ORC || setup.campaign() == Some(48),
         };
         if let Some(entry) = setup.campaign() {
+            // The game-start done marks come before the mission start (round 104, SW7a): keep what it will grant apart.
+            w.before_mission = Some(w.players.iter().map(|p| (p.spells_known, p.levels)).collect());
             w.start_campaign(entry);
         }
         Ok(w)
