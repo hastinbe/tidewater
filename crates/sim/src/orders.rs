@@ -171,6 +171,12 @@ impl World {
         self.flags_of_unit(u) & (flags::PEON | flags::TANKER | flags::TRANSPORT) != 0 || DEMOLITION.contains(&u.kind)
     }
 
+    /// The units command 4 first handles as a smart move: workers, tankers, demolition units and casters (round 103,
+    /// CB2; `orders/orders.md`, "Commands"). Transports are not among them.
+    pub(crate) fn smart_first(&self, u: &Unit) -> bool {
+        self.flags_of_unit(u) & (flags::PEON | flags::TANKER) != 0 || DEMOLITION.contains(&u.kind) || self.mage_like(u)
+    }
+
     fn is_worker(&self, u: &Unit) -> bool {
         self.flags_of_unit(u) & flags::PEON != 0
     }
@@ -231,11 +237,12 @@ impl World {
             }
             Command::Harvest { target, tile, .. } => self.harvest_command(i, fresh(target), tile)?,
             Command::ReturnGoods { .. } => self.return_command(i)?,
-            Command::Unload { tile, .. } => {
+            Command::Unload { target, tile, .. } => {
                 if !self.is_transport(u) {
                     return None;
                 }
-                self.transport_command(i, None, tile, true)
+                // Round 103, CB1: the unload keeps its target unit ("The unload command keeps its target unit").
+                self.transport_command(i, fresh(target), tile, true)
             }
             Command::Train { .. }
             | Command::Upgrade { .. }

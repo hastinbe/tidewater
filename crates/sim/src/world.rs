@@ -713,10 +713,12 @@ pub enum Command {
         target: Option<UnitId>,
         tile: (i32, i32),
     },
-    /// Command 29: a transport unloads at `tile` (transports spec).
+    /// Command 29: a transport unloads at `tile` (transports spec); `target` is the unit the click named, kept
+    /// unless "Land and shore targets" drops it (round 103, CB1).
     Unload {
         player: u8,
         units: Vec<UnitId>,
+        target: Option<UnitId>,
         tile: (i32, i32),
     },
     /// Cancel construction: the building is taken down if it is under construction; otherwise nothing happens

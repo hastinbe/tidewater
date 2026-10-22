@@ -197,19 +197,6 @@ impl World {
         order
     }
 
-    /// The smart-move stage of a command that has already recorded the three things (transports spec, "What the
-    /// transport stores": once per command, round 71): command 4 given to a transport, which as a non-combat unit goes
-    /// on as a smart move ("Commands", command 4), takes the smart move's wait cap and its stage table on the target
-    /// tile `g` the command recorded, without recording again or running the land and shore steps a second time.
-    pub(crate) fn smart_stage(&mut self, i: usize, target: Option<UnitId>, g: (i32, i32)) -> Order {
-        self.cap_smart_wait(i);
-        let order = self.stage(i, g, target);
-        if Self::pulls_back(order) {
-            self.pull_back_target_tile(i);
-        }
-        order
-    }
-
     /// "Pulled back from the transport's own area" (round 102, traced: V46 to V48): the command's pull-back of the
     /// target tile the command stored, not of the destination, from the transport's own tile with its current movement
     /// class ([`World::pull_back`]). Runs when the order the command gives is order 3, 6, 31 or 32; a landing (30)
@@ -289,12 +276,16 @@ impl World {
             let landing = matches!(t.order, Order::Land { .. }) || matches!(t.pending, Some(Order::Land { .. }));
             if !landing {
                 let (id, tile) = (self.units[i].id, self.units[i].tile);
+                // Round 103, CB3: the call is a full command to the transport (orders spec, "What every command
+                // does"): the smart move's wait cap (10 cycles, 40 for a computer player's transport), the three
+                // things recorded and the target tile pulled back, then the order stored as a command, so the
+                // transport counts as having a command waiting (movement spec, row F) until it takes over. The
+                // order queue is not touched: the call is not the player's command for the transport.
+                self.cap_smart_wait(ti);
                 let o = self.transport_command(ti, Some(id), tile, false);
-                // The transport's smart move is a command: the command steps clear the blocked counter (movement spec),
-                // forget a stale attacker and drop the cached route, as every command does (orders spec, "What every
-                // command does").
-                self.command_steps(ti);
-                self.give(ti, o);
+                let scope = std::mem::replace(&mut self.queue_scope, crate::waypoints::Scope::Off);
+                self.command(ti, o);
+                self.queue_scope = scope;
             }
         }
         Order::Board { transport }
@@ -1046,6 +1037,7 @@ mod tests {
         let unload = crate::Command::Unload {
             player: 0,
             units: vec![tid],
+            target: None,
             tile: (20, 10),
         };
         let smart = crate::Command::Smart {
@@ -1086,6 +1078,7 @@ mod tests {
         w.turn(&[crate::Command::Unload {
             player,
             units: units.clone(),
+            target: None,
             tile: (20, 10),
         }]);
         w.step(&[]);
@@ -1237,6 +1230,7 @@ mod tests {
         let c = crate::Command::Unload {
             player: 0,
             units: vec![tid],
+            target: None,
             tile: (20, 10),
         };
         let ti = w.index(tid).unwrap();
@@ -2151,22 +2145,75 @@ mod tests {
             }
         }
 
-        /// "What the transport stores" (round 71, Q3 and Q4): command 4 to a transport records the three things once.
-        /// Its smart-move stage works from the recorded tile and isn't followed by a second recording, so docking at S
-        /// (the first row of the stage table) leaves the target tile at S, with the destination the command's tile.
+        /// Round 103, CB2 (V55): command 4 to a transport records the three things and leaves plain order 4 pending:
+        /// no smart-move stage (a docked transport isn't docked at S by it) and no wait cap.
         #[test]
-        fn command_4_records_once() {
+        fn command_4_to_a_transport_is_plain() {
             let mut w = sea(20);
             let i = ship(&mut w, (21, 10), Order::Docked);
             let id = w.units[i].id;
             w.units[i].script.wait = 30;
-            w.command_4(i, None, (15, 10));
+            w.command_4(i, None, (30, 10));
             let u = w.unit(id).unwrap();
             assert_eq!(
                 (u.ship.target, u.ship.target_tile, u.ship.dest),
-                (None, (21, 10), (15, 10))
+                (None, (30, 10), (30, 10))
             );
-            assert_eq!(u.script.wait, 10, "the smart move's wait cap");
+            assert_eq!(u.script.wait, 30, "no smart-move wait cap");
+            assert!(matches!(u.pending, Some(Order::MoveAttack { .. })), "{:?}", u.pending);
+        }
+
+        /// Round 103, CB1 (V53, V54): the unload command keeps its target unit unless "Land and shore targets" drops
+        /// it. An own ship on open water is followed (order 6, no unload mark); on shore water the target is dropped
+        /// and the landing unloads.
+        #[test]
+        fn the_unload_command_keeps_its_target_unit() {
+            for (mate_at, follows) in [((30, 12), true), ((21, 14), false)] {
+                let mut w = sea(20);
+                let t = ship(&mut w, (30, 10), Order::Idle);
+                let tid = w.units[t].id;
+                let m = ship(&mut w, mate_at, Order::Idle);
+                let mid = w.units[m].id;
+                // A unit created this cycle isn't detected yet (fog spec); let a cycle pass.
+                w.step(&[]);
+                let c = crate::Command::Unload {
+                    player: 0,
+                    units: vec![tid],
+                    target: Some(mid),
+                    tile: mate_at,
+                };
+                let t = w.index(tid).unwrap();
+                let o = w.command_order(t, &c);
+                let u = w.unit(tid).unwrap();
+                if follows {
+                    assert_eq!(o, Some(Order::Follow { target: mid }));
+                    assert_eq!((u.ship.target, u.ship.target_tile), (Some(mid), mate_at));
+                    assert!(!u.ship.unload);
+                } else {
+                    assert!(matches!(o, Some(Order::Land { .. })), "{o:?}");
+                    assert_eq!(u.ship.target, None);
+                    assert!(u.ship.unload);
+                }
+            }
+        }
+
+        /// Round 103, CB3 (V56): a boarding unit's call to its transport is a full command: the smart move's wait cap
+        /// by owner (10, or 40 for a computer player's transport) and a command waiting.
+        #[test]
+        fn the_boarders_call_is_a_full_command() {
+            for (controller, cap) in [(controller::HUMAN, 10), (controller::COMPUTER, 40)] {
+                let mut w = sea(20);
+                w.players[0].controller = controller;
+                let t = ship(&mut w, (20, 10), Order::Docked);
+                let tid = w.units[t].id;
+                w.units[t].script.wait = 90;
+                let f = w.spawn(FOOTMAN, 0, (14, 10), 0).unwrap();
+                let fi = w.index(f).unwrap();
+                w.board_command(fi, tid);
+                let tr = &w.units[w.index(tid).unwrap()];
+                assert_eq!(tr.script.wait, cap);
+                assert!(tr.commanded && tr.pending.is_some());
+            }
         }
 
         /// Order 34's runs, each pinned: a lost transport (V33), no route with the destination in the unit's region
@@ -2238,8 +2285,8 @@ mod tests {
                 &prints,
                 &[
                     14143226004565989014,
-                    18361643593049907441,
-                    18189724903708733300,
+                    6266016062129869046,
+                    7352669075877324658,
                     15230616325358557659,
                     11808286589870446420,
                     10579129746205022943,
@@ -2283,6 +2330,7 @@ mod tests {
                 w.step(&[crate::Command::Unload {
                     player: 0,
                     units: vec![tid],
+                    target: None,
                     tile: w.unit(tid).unwrap().tile,
                 }]);
                 run(&mut w, 100);

@@ -1364,22 +1364,20 @@ impl World {
         }
     }
 
-    /// Command 4, move attacking on the way: a non-combat unit is first handled as a smart move, then the order
-    /// becomes 4 (`orders/orders.md`, "Commands"). Round-49 errata: a target unit is recorded as the order's target,
-    /// and a computer player's command 4 keeps the remembered patrol or attack-move (`xhuman7-10000` giant turtle
-    /// 1511, `xorc8-10000` submarine 1473).
+    /// Command 4, move attacking on the way: a worker, tanker, demolition unit or caster is first handled as a smart
+    /// move, then the order becomes 4 (`orders/orders.md`, "Commands"). Every other unit, transports included, just
+    /// gets order 4 (round 103, CB2: a transport records the three things but has no smart-move stage and no wait
+    /// cap). Round-49 errata: a target unit is recorded as the order's target, and a computer player's command 4 keeps
+    /// the remembered patrol or attack-move (`xhuman7-10000` giant turtle 1511, `xorc8-10000` submarine 1473).
     pub(crate) fn command_4(&mut self, i: usize, target: Option<UnitId>, tile: (i32, i32)) {
         if !self.takes_commands(i) {
             return;
         }
         let goal = target.and_then(|t| self.unit(t)).map_or(tile, |t| t.tile);
         // Transports spec, "What the transport stores" and "Land and shore targets" (round-40 errata; round 70, M7):
-        // every command to a transport records the three things and runs them, once per command (round 71): the
-        // smart move a non-combat transport goes on with works from the tile recorded here.
+        // every command to a transport records the three things and runs them, once per command (round 71).
         let (goal, target) = self.command_goal(i, target, goal);
-        if self.is_transport(&self.units[i]) {
-            self.smart_stage(i, target, goal);
-        } else if self.non_combat(&self.units[i]) {
+        if self.smart_first(&self.units[i]) {
             let c = Command::Smart {
                 player: self.units[i].owner,
                 units: vec![self.units[i].id],
@@ -3121,7 +3119,7 @@ mod tests {
         #[test]
         fn the_army_through_the_passes() {
             let mut w = army();
-            assert_eq!(trail(&mut w, 900), 7738337307778238852);
+            assert_eq!(trail(&mut w, 900), 6695695657243584436);
             // Two land rounds and an air round went out; the sea wave found nobody.
             assert_eq!(w.army.launched[1], [2, 0, 1]);
         }
