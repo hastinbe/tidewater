@@ -189,13 +189,12 @@ impl World {
             } => self.issue(player, command, target, tile),
             Command::SetGroup { player, group } => self.set_group(player, group),
             Command::RecallGroup { player, group } => self.recall_group(player, group),
-            Command::Speed { faster, .. } => {
-                let top = self.rules.extras.top_speed(self.rules.enhanced);
-                self.speed = if faster {
-                    (self.speed + 1).min(top)
-                } else {
-                    self.speed.saturating_sub(1).min(top)
-                };
+            // `net/lockstep.md`, "Speed" (round 100, static study: NC1, NC2): the speed becomes the value the command
+            // carries; a value above the top speed is ignored.
+            Command::Speed { speed, .. } => {
+                if speed <= self.rules.extras.top_speed(self.rules.enhanced) {
+                    self.speed = speed;
+                }
             }
             Command::Pause { player } => self.pause_command(player),
             Command::Resume { player } => self.resume_command(player),
@@ -450,6 +449,9 @@ impl World {
         if !handled(command) || !self.terrain.contains(tile.0, tile.1) {
             return;
         }
+        // "Release first" (round 101, static study; the release traced: HW4): before the formation offset and the
+        // filter, so a held worker is released even when no selected unit takes the command.
+        self.release_workers(player);
         for (i, aim) in self.aims(player, tile) {
             let u = &self.units[i];
             if u.owner != player || Some(u.id) == target || !self.takes(u, command) {
@@ -1244,46 +1246,50 @@ mod tests {
         }
     }
 
+    fn set_speed(speed: u8) -> Command {
+        Command::Speed { player: 0, speed }
+    }
+
+    /// `net/lockstep.md`, "Speed" (NC2): a value above the top speed is ignored, in both rule sets.
     #[test]
-    fn speed_steps_stop_at_the_limits() {
+    fn a_speed_above_the_top_is_ignored() {
         let mut w = map();
         w.speed = TOP_SPEED_ENHANCED;
-        w.step(&[Command::Speed {
-            player: 0,
-            faster: true,
-        }]);
-        assert_eq!(w.speed, TOP_SPEED_ENHANCED, "nothing changes at the top level");
+        w.step(&[set_speed(TOP_SPEED_ENHANCED + 1)]);
+        assert_eq!(w.speed, TOP_SPEED_ENHANCED, "nothing changes above the top level");
+        w.step(&[set_speed(3)]);
+        assert_eq!(w.speed, 3);
         w.rules.enhanced = false;
-        w.speed = 5;
-        let up = Command::Speed {
-            player: 0,
-            faster: true,
-        };
-        w.step(&[up.clone(), up.clone(), up]);
+        w.step(&[set_speed(TOP_SPEED_CLASSIC + 1)]);
+        assert_eq!(w.speed, 3, "Classic mode: a command carrying 7 is ignored");
+        w.step(&[set_speed(TOP_SPEED_CLASSIC)]);
         assert_eq!(w.speed, TOP_SPEED_CLASSIC);
-        w.speed = 0;
-        w.step(&[Command::Speed {
-            player: 0,
-            faster: false,
-        }]);
+        w.step(&[set_speed(0)]);
         assert_eq!(w.speed, 0);
+    }
+
+    /// NC1: two + presses before the first is carried out both carry 5, so they make one step, not two.
+    #[test]
+    fn two_presses_from_the_same_speed_make_one_step() {
+        let mut w = map();
+        w.speed = 4;
+        w.step(&[set_speed(5), set_speed(5)]);
+        assert_eq!(w.speed, 5);
     }
 
     #[test]
     fn extra_speed_levels_raise_the_top_in_enhanced_rules_only() {
-        let up = Command::Speed {
-            player: 0,
-            faster: true,
-        };
         for (levels, enhanced, top) in [(0, true, 8), (1, true, 9), (3, true, 11), (3, false, 6)] {
             let mut w = map();
             w.rules.extras.extra_speeds = levels;
             w.rules.enhanced = enhanced;
             w.speed = 5;
             for _ in 0..8 {
-                w.step(std::slice::from_ref(&up));
+                w.step(&[set_speed((w.speed + 1).min(top))]);
             }
             assert_eq!(w.speed, top, "{levels} levels, enhanced {enhanced}");
+            w.step(&[set_speed(top + 1)]);
+            assert_eq!(w.speed, top, "{levels} levels, enhanced {enhanced}: above the top");
         }
     }
 
@@ -1300,10 +1306,7 @@ mod tests {
                         player: 0,
                         units: vec![f],
                     }],
-                    1..=6 => vec![Command::Speed {
-                        player: 0,
-                        faster: true,
-                    }],
+                    1..=6 => vec![set_speed(w.speed + 1)],
                     7 => vec![Command::RightClick {
                         player: 0,
                         target: None,

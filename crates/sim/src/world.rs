@@ -771,10 +771,12 @@ pub enum Command {
         player: u8,
         group: u8,
     },
-    /// Game speed one step up (`faster`) or down ("Keys").
+    /// Sets the game speed (`net/lockstep.md`, "Speed"; `ui/selecting-and-commanding.md`, "Keys"). The command carries
+    /// the speed to set, not a step: the + and - keys send the speed the sender's game is at, one higher or lower, and
+    /// the Speeds dialog its slider's value. A value above the top speed is ignored (round 100: NC1, NC2).
     Speed {
         player: u8,
-        faster: bool,
+        speed: u8,
     },
     /// Pause (`ui/game-menu.md`, "Pausing"): does nothing if the game is already paused. In Enhanced multiplayer it
     /// spends one of the player's [`PAUSES_PER_PLAYER`] pauses, and does nothing for a player with none left.
@@ -851,6 +853,16 @@ pub enum Command {
         vision: u8,
         allied_victory: bool,
     },
+    /// Hold workers (`orders/orders.md`, "Holding and releasing workers"): the interface sends it when the player
+    /// picks a building to place. The sender's selected workers are held: each finishes its step and stays frozen.
+    HoldWorkers {
+        player: u8,
+    },
+    /// Release workers (the same section): sent when placement mode ends without a placement. A unit command and a
+    /// build command release the sender's selected workers themselves, before they act.
+    ReleaseWorkers {
+        player: u8,
+    },
 }
 
 impl Command {
@@ -893,7 +905,9 @@ impl Command {
             | Command::Resume { player }
             | Command::Rally { player, .. }
             | Command::Queued { player, .. }
-            | Command::Diplomacy { player, .. } => player,
+            | Command::Diplomacy { player, .. }
+            | Command::HoldWorkers { player }
+            | Command::ReleaseWorkers { player } => player,
         }
     }
 
@@ -1668,6 +1682,26 @@ impl World {
         if self.selection_command(c) {
             return;
         }
+        // Orders spec, "Holding and releasing workers" (round 101: HW4 to HW6): a unit command, even one every unit
+        // then refuses, and a build command first release the sender's selected workers.
+        if let Command::Move { player, .. }
+        | Command::Stop { player, .. }
+        | Command::Attack { player, .. }
+        | Command::Repair { player, .. }
+        | Command::Harvest { player, .. }
+        | Command::ReturnGoods { player, .. }
+        | Command::Smart { player, .. }
+        | Command::AttackMove { player, .. }
+        | Command::Patrol { player, .. }
+        | Command::Unload { player, .. }
+        | Command::AttackGround { player, .. }
+        | Command::Demolish { player, .. }
+        | Command::StandGround { player, .. }
+        | Command::Cast { player, .. }
+        | Command::Build { player, .. } = c
+        {
+            self.release_workers(*player);
+        }
         let (player, units) = match c {
             Command::Move { player, units, .. }
             | Command::Stop { player, units }
@@ -1756,6 +1790,8 @@ impl World {
                 vision,
                 allied_victory,
             } => return self.diplomacy_command(player, alliances, vision, allied_victory),
+            &Command::HoldWorkers { player } => return self.hold_workers(player),
+            &Command::ReleaseWorkers { player } => return self.release_workers(player),
         };
         for &id in units {
             let Some(i) = self.index(id) else { continue };
@@ -1826,16 +1862,22 @@ impl World {
             haste: u.haste,
             carrying: u.carrying,
         };
-        let mut fx = u.script.update(scripts.bytes(), u.facing, m);
+        // Orders spec, "Holding and releasing workers": a release update doesn't advance the animation; it runs the
+        // rescue check and the order logic at once, as at a step done (traced: HW2, HW3).
+        let mut fx = if u.freeze == Freeze::Released {
+            crate::anim::Effects {
+                step_done: true,
+                ..Default::default()
+            }
+        } else {
+            u.script.update(scripts.bytes(), u.facing, m)
+        };
         match u.freeze {
             Freeze::Freezing if fx.step_done => {
                 u.freeze = Freeze::Frozen;
                 fx.step_done = false;
             }
-            Freeze::Released => {
-                u.freeze = Freeze::None;
-                fx.step_done = true;
-            }
+            Freeze::Released => u.freeze = Freeze::None,
             _ => {}
         }
         u.pos.0 += fx.dx;
@@ -2322,8 +2364,10 @@ pub(crate) mod tests {
             },
             Command::Speed {
                 player: 0,
-                faster: true,
+                speed: 6,
             },
+            Command::HoldWorkers { player: 1 },
+            Command::ReleaseWorkers { player: 2 },
             Command::Cheat {
                 player: 1,
                 flags: 0x8000_0001,

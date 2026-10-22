@@ -254,6 +254,8 @@ impl World {
             | Command::Rally { .. }
             | Command::Queued { .. }
             | Command::Diplomacy { .. }
+            | Command::HoldWorkers { .. }
+            | Command::ReleaseWorkers { .. }
             | Command::UnloadOne { .. } => return None,
         };
         // Repair spec, "Cost and rate" (round 97): a mobile unit's stored goal x, which a repair of it counts in.
@@ -1196,13 +1198,15 @@ impl World {
             s.react_range_computer as i32
         } else if self.acquires(u.order) == Some(Acquires::Moving)
             || matches!(u.order, Order::Follow { .. })
+            // Orders spec, "Search box" (round 100, V288; transports spec V42): a unit waiting at its transport in
+            // board (34) searches this box too, when its reaction searches.
+            || matches!(u.order, Order::Board { .. })
             // V284: in Classic mode attack-move acquires nothing, but its walk's reaction searches this box too. (In
             // Enhanced mode it is already a moving order that acquires.)
             || matches!(u.order, Order::AttackMove { .. })
         {
             // Orders spec, "Search box" (round 97, V282, V283): follow (6) uses it too, though it searches only from
-            // the reaction to an attacker. Order 34 keeps the attack range (open question "Search box of a waiting
-            // boarder", default).
+            // the reaction to an attacker; so does board (34) (round 100, V288).
             s.react_range_human as i32
         } else {
             self.reach(u)

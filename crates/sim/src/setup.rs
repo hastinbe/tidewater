@@ -1458,6 +1458,8 @@ mod tests {
             (!0, 0x4020, !0, !0)
         );
         assert!((0..8).all(|q| w.players[q].shared_vision == 1 << q));
+        // Diplomacy spec, DP9: allied victory is off for every player at the start of a new game.
+        assert!(w.players.iter().all(|p| !p.allied_victory));
         assert!((0..16).all(|q| w.players[q].colour == q as u8));
         assert_eq!(w.vision.local, 0);
     }

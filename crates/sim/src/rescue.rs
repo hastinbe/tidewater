@@ -54,21 +54,78 @@ impl std::hash::Hash for Flash {
     fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
 }
 
-/// The frozen state of a unit ("Frozen units"). Nothing sets it yet: the commands that freeze and release a worker
-/// haven't been identified (open question).
+/// The frozen state of a unit (`orders/orders.md`, "Holding and releasing workers"; `game/rescue.md`, "Frozen units").
+/// The Hold workers and Release workers commands set it on the sender's selected workers.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Freeze {
     #[default]
     None,
-    /// Skips its next "step done" (no rescue check, no order logic), then is frozen.
+    /// "About to freeze": updates normally until its animation's next "step done", where it becomes frozen instead of
+    /// running the rescue check and its order logic.
     Freezing,
-    /// Doesn't advance its animation at all.
+    /// Doesn't advance its animation and runs nothing else of its update.
     Frozen,
-    /// Runs the rescue check and the order logic on its next update without waiting for a "step done".
+    /// Frozen with a release pending: its next update doesn't advance the animation; it clears the state and runs the
+    /// rescue check and the order logic at once, as at a step done (traced: HW2, HW3).
     Released,
 }
 
+impl Freeze {
+    /// The state after Hold workers.
+    fn held(self) -> Freeze {
+        match self {
+            Freeze::None | Freeze::Freezing => Freeze::Freezing,
+            Freeze::Frozen | Freeze::Released => Freeze::Frozen,
+        }
+    }
+
+    /// The state after Release workers.
+    fn released(self) -> Freeze {
+        match self {
+            Freeze::None | Freeze::Freezing => Freeze::None,
+            Freeze::Frozen | Freeze::Released => Freeze::Released,
+        }
+    }
+
+    /// Whether the unit counts as a still one for the blocked rules and the path search: only the frozen state does
+    /// (a unit about to freeze isn't frozen yet, and one with a release pending is frozen until its release update).
+    pub fn is_frozen(self) -> bool {
+        matches!(self, Freeze::Frozen | Freeze::Released)
+    }
+}
+
 impl World {
+    /// The sender's selected workers that Hold workers and Release workers act on: flag bit 8, the sender's own, not
+    /// dead, removed or inside something (`orders/orders.md`, "Holding and releasing workers", "Which units").
+    fn selected_workers(&self, player: u8) -> Vec<usize> {
+        self.selection(player)
+            .into_iter()
+            .filter_map(|id| self.index(id))
+            .filter(|&i| {
+                let u = &self.units[i];
+                u.owner == player
+                    && !u.dying
+                    && !u.removing
+                    && !u.inside
+                    && self.stats_of(u.kind).flags & flags::PEON != 0
+            })
+            .collect()
+    }
+
+    /// Hold workers: the sender's selected workers become about to freeze (or stay frozen).
+    pub(crate) fn hold_workers(&mut self, player: u8) {
+        for i in self.selected_workers(player) {
+            self.units[i].freeze = self.units[i].freeze.held();
+        }
+    }
+
+    /// Release workers: the sender's selected workers are released. Every unit command and every build command runs
+    /// this first, even one that every selected unit then refuses (round 101: HW4 to HW6).
+    pub(crate) fn release_workers(&mut self, player: u8) {
+        for i in self.selected_workers(player) {
+            self.units[i].freeze = self.units[i].freeze.released();
+        }
+    }
     /// The global rescuable counts: units with the rescuable mark that aren't dying or removed, and how many of them
     /// are heroes (type flag bit 23).
     pub fn rescuable_counts(&self) -> (u32, u32) {
@@ -845,5 +902,108 @@ mod tests {
         w.units[n].freeze = Freeze::Released;
         w.step(&[]);
         assert_eq!((u(&w, f).owner, u(&w, f).freeze), (0, Freeze::None));
+    }
+
+    /// A world with one worker kind (0x10), a footman and a worker walking, both of player 0 and selected.
+    fn hold_world() -> (World, UnitId, UnitId) {
+        let mut w = world();
+        w.stats.0[0x10].flags |= flags::PEON;
+        let worker = put(&mut w, 0x10, 0, (10, 10));
+        let footman = put(&mut w, FOOTMAN, 0, (12, 10));
+        w.apply(&Command::Select {
+            player: 0,
+            units: vec![worker, footman],
+        });
+        (w, worker, footman)
+    }
+
+    /// Orders spec, "Holding and releasing workers" (HW1, HW2): Hold workers touches the selected workers only; a worker
+    /// freezes at its next step done; Release workers frees it, and its release update doesn't advance the animation.
+    #[test]
+    fn hold_and_release_workers_follow_the_frozen_states() {
+        let (mut w, worker, footman) = hold_world();
+        w.apply(&Command::HoldWorkers { player: 0 });
+        assert_eq!((u(&w, worker).freeze, u(&w, footman).freeze), (Freeze::Freezing, Freeze::None));
+        for _ in 0..30 {
+            w.step(&[]);
+        }
+        assert_eq!(u(&w, worker).freeze, Freeze::Frozen);
+        let still = u(&w, worker).script;
+        w.step(&[]);
+        assert_eq!(u(&w, worker).script, still, "frozen: no animation");
+        assert!(u(&w, footman).script != still, "the footman goes on");
+        // Release: the release update (the next one) doesn't advance the animation; the one after does.
+        w.apply(&Command::ReleaseWorkers { player: 0 });
+        assert_eq!(u(&w, worker).freeze, Freeze::Released);
+        assert!(u(&w, worker).freeze.is_frozen(), "frozen until its release update");
+        w.step(&[]);
+        assert_eq!((u(&w, worker).freeze, u(&w, worker).script), (Freeze::None, still));
+        w.step(&[]);
+        assert!(u(&w, worker).script != still, "walking or idling again");
+        // Holding and releasing a unit that never froze leaves nothing behind.
+        w.apply(&Command::HoldWorkers { player: 0 });
+        w.apply(&Command::ReleaseWorkers { player: 0 });
+        assert_eq!(u(&w, worker).freeze, Freeze::None);
+    }
+
+    /// HW4 to HW6: every unit command releases the sender's selected held workers first, even one that nobody
+    /// takes; a right-click and a selection change release nothing.
+    #[test]
+    fn a_unit_command_releases_held_workers_and_a_right_click_does_not() {
+        let (mut w, worker, footman) = hold_world();
+        let freeze_worker = |w: &mut World| {
+            let n = w.index(worker).unwrap();
+            w.units[n].freeze = Freeze::Frozen;
+        };
+        freeze_worker(&mut w);
+        w.apply(&Command::RightClick {
+            player: 0,
+            target: None,
+            tile: (20, 20),
+        });
+        assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "a right-click releases nothing (HW6)");
+        w.apply(&Command::Select {
+            player: 0,
+            units: vec![worker],
+        });
+        assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "a selection change releases nothing");
+        // A command naming only the footman: the selected worker is released all the same.
+        w.apply(&Command::Stop {
+            player: 0,
+            units: vec![footman],
+        });
+        assert_eq!(u(&w, worker).freeze, Freeze::Released);
+        // A held worker of another player, or one that isn't selected, is not released by the sender.
+        freeze_worker(&mut w);
+        w.apply(&Command::Select {
+            player: 0,
+            units: vec![footman],
+        });
+        w.apply(&Command::Stop {
+            player: 0,
+            units: vec![footman],
+        });
+        assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "not selected: not released");
+        w.apply(&Command::Select {
+            player: 1,
+            units: vec![worker],
+        });
+        w.apply(&Command::Stop {
+            player: 1,
+            units: vec![worker],
+        });
+        assert_eq!(u(&w, worker).freeze, Freeze::Frozen, "not the sender's");
+        // A build command releases all the selected workers, even when the build fails.
+        w.apply(&Command::Select {
+            player: 0,
+            units: vec![worker],
+        });
+        w.apply(&Command::Build {
+            player: 0,
+            unit: worker,
+            kind: 0x3a,
+            tile: (0, 0),
+        });
+        assert_eq!(u(&w, worker).freeze, Freeze::Released);
     }
 }

@@ -647,14 +647,17 @@ impl World {
 
     /// Row F: this unit is in its move animation after the restart (so never in orders 30 and 31, V17), and blocker
     /// `b` is an ally (or of the same player) walking away: in its move animation, counter 0, not inside anything, its
-    /// next cached step not onto this unit's tile (V10, V11, V13, V16, V21). This is not the search's moving-ally rule
-    /// ([`World::ignored_by_search`]): row F tests the move animation alone, not the pending-command mark.
+    /// next cached step not onto this unit's tile (V10, V11, V13, V16, V21), and not frozen (a held worker keeps its move
+    /// animation while frozen: V39, V40; `orders/orders.md`, "Holding and releasing workers"). This is not the search's
+    /// moving-ally rule ([`World::ignored_by_search`]): row F tests the move animation alone, not the pending-command
+    /// mark.
     fn waits_for(&self, u: &Unit, b: &Unit) -> bool {
         u.script.anim == anim::MOVE
             && self.allied(u.owner, b.owner)
             && b.script.anim == anim::MOVE
             && b.blocked == 0
             && !b.inside
+            && !b.freeze.is_frozen()
             && b.path.first().is_some_and(|&t| t != u.tile)
     }
 
@@ -694,7 +697,12 @@ impl World {
         if attack_type && !self.live_attacker(u) && fighter && !allied {
             return true;
         }
-        allied && (o.script.anim == anim::MOVE || (o.commanded && o.pending.is_some())) && o.blocked == 0
+        // The last condition is that the ally isn't frozen (a held worker; round 101, V40): a frozen walker is a still
+        // unit here.
+        allied
+            && (o.script.anim == anim::MOVE || (o.commanded && o.pending.is_some()))
+            && o.blocked == 0
+            && !o.freeze.is_frozen()
     }
 
     /// Up to 20 tiles of route from `u` toward `g` (pathfinding spec). Empty means no path.
@@ -1685,6 +1693,35 @@ mod tests {
                     15733790988262060713,
                 ],
             );
+        }
+
+        /// V39 and V40 (movement spec, row F; orders spec, "Holding and releasing workers"): a frozen blocker keeps its
+        /// move animation, but it isn't walking away. Row F doesn't apply (the footman goes on to row I), and the path
+        /// search no longer sees it as a moving ally, so its tile is occupied. A unit only about to freeze, or one
+        /// whose freeze is released, is the other way round: still moving for the search until it is frozen.
+        #[test]
+        fn a_frozen_blocker_is_a_still_one() {
+            use crate::rescue::Freeze;
+            for (freeze, waits) in [
+                (Freeze::None, true),
+                (Freeze::Freezing, true),
+                (Freeze::Frozen, false),
+                (Freeze::Released, false),
+            ] {
+                let mut w = arena();
+                let f = w.spawn(0, 3, (4, 3), 0).unwrap();
+                let b = w.spawn(0, 3, (5, 3), 0).unwrap();
+                let i = walking(&mut w, f, (9, 3), (5, 3), 0);
+                let j = w.index(b).unwrap();
+                w.start_anim(j, anim::MOVE);
+                w.units[j].path = vec![(6, 3)];
+                w.units[j].freeze = freeze;
+                let u = w.units[i].clone();
+                assert_eq!(w.ignored_by_search(&u, b), waits, "{freeze:?}: the search");
+                w.move_toward(i, Goal::tile((9, 3), 0));
+                let (_, _, blocked, _, wait, _) = outcome(&w, i);
+                assert_eq!((blocked, wait), (1, if waits { 15 } else { 1 }), "{freeze:?}: row F or row I");
+            }
         }
 
         /// Rows G and H: with an attacker, a land unit stops within 1 tile of its goal on both axes; a flyer within

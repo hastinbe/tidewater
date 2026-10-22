@@ -1,4 +1,4 @@
-//! The diplomacy command (`docs/specs/game/diplomacy.md`, DP1 to DP8, DP11): a player's whole alliance row toward
+//! The diplomacy command (`docs/specs/game/diplomacy.md`, DP1 to DP9, DP11): a player's whole alliance row toward
 //! players 0 to 7, shared-vision set and allied-victory setting, replaced in the command turn.
 //!
 //! Static study only (no trace has a diplomacy command). Choices where the spec leaves room:
