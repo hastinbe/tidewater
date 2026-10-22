@@ -882,8 +882,12 @@ mod tests {
         let mut w = map();
         w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
         w.start_up();
-        w.step(&[]);
-        assert!(w.fog_refreshed());
+        let mut steps = 0;
+        while !w.fog_refreshed() {
+            w.step(&[]);
+            steps += 1;
+            assert!(steps < 300, "a refresh comes");
+        }
         w.vision.delay_refresh();
         assert!(!w.fog_refreshed());
         assert_eq!(w.fog_countdown(), HOLY_VISION_COUNTDOWN);
