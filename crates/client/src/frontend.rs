@@ -113,6 +113,9 @@ pub struct ScoreData {
     pub mission: u32,
     pub total: u32,
     pub rank: String,
+    /// The outcome word from `rank_txt.tbl` entry 41 or 40 (`ui/multiplayer-score.md`, "The outcome word"); empty
+    /// when the table can't be read, which falls back to the same words.
+    pub word: String,
 }
 
 #[derive(Default)]
@@ -483,6 +486,11 @@ pub fn end_with(flow: &mut Flow, front: &mut Front, world: &tidewater_sim::World
         mission,
         total: flow.total.total,
         rank: entry_text(&mut front.install, cf::RANK_TABLE, rank_entry),
+        word: entry_text(
+            &mut front.install,
+            cf::RANK_TABLE,
+            if victory { cf::VICTORY_WORD } else { cf::DEFEAT_WORD },
+        ),
     });
     flow.steps.clear();
     flow.steps.push_back(Step::Score);
@@ -565,6 +573,11 @@ pub fn synthetic_score(flow: &mut Flow, front: &mut Front, entry: u8, victory: b
         mission,
         total: flow.total.total,
         rank: entry_text(&mut front.install, cf::RANK_TABLE, rank_entry),
+        word: entry_text(
+            &mut front.install,
+            cf::RANK_TABLE,
+            if victory { cf::VICTORY_WORD } else { cf::DEFEAT_WORD },
+        ),
     });
 }
 
@@ -2630,7 +2643,11 @@ pub(crate) fn enter_score(c: &mut Core) {
 fn draw_score(front: &Front, s: &ScoreData, bg: &Picture, ticks: u32, bars_done_at: Option<u32>) -> (Picture, bool) {
     let mut p = dup(bg);
     let font = &front.font;
-    let head = if s.victory { "Victory!" } else { "Defeat!" };
+    let head = match (s.word.as_str(), s.victory) {
+        ("", true) => "Victory!",
+        ("", false) => "Defeat!",
+        (word, _) => word,
+    };
     centred(&mut p, &front.big, 12, head);
     // The bars: each statistic grows by its step toward its value.
     let maxes: Vec<u32> = (0..7)
@@ -3206,6 +3223,7 @@ mod tests {
             mission: 0,
             total: 0,
             rank: String::new(),
+            word: String::new(),
         });
         assert_eq!(
             pointer_palette(AppState::Score, &f),
@@ -3312,6 +3330,7 @@ mod tests {
             mission: 0,
             total: 0,
             rank: String::new(),
+            word: String::new(),
         };
         assert_eq!(after_score(&mut f, &s), Step::Lobby);
         f.steps = VecDeque::from([Step::Lobby]);
@@ -3392,6 +3411,7 @@ mod tests {
             mission: 0,
             total: 0,
             rank: String::new(),
+            word: String::new(),
         };
         let mut f = flow(&[]);
         f.game = Some(GameKind::Multiplayer);

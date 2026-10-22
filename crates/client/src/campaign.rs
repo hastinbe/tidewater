@@ -1138,6 +1138,9 @@ pub const RANK_THRESHOLDS: [u32; 19] = [
 /// The rank text table and its cheat entry.
 pub const RANK_TABLE: &str = "rez\\rank_txt.tbl";
 pub const CHEAT_RANK: u16 = 39;
+/// The outcome words of the score screen (`ui/multiplayer-score.md`, "The outcome word"): 40 "Defeat!", 41 "Victory!".
+pub const DEFEAT_WORD: u16 = 40;
+pub const VICTORY_WORD: u16 = 41;
 
 /// The `rank_txt.tbl` entry for a campaign total: 2i + 1 + race, with i the position of the first threshold above
 /// the total (18 if none is), or 39 when the local player used a cheat this mission.
