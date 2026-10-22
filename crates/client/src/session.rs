@@ -130,6 +130,12 @@ pub trait Session: Send + Sync {
     /// turn's length from it (`net/lockstep.md`, "Turn length").
     fn observe_speed(&mut self, _speed: u8) {}
 
+    /// The speed a speed key steps from when the session has its own (a replay viewer's rate); `None` steps from
+    /// the world's.
+    fn viewer_speed(&self) -> Option<u8> {
+        None
+    }
+
     /// Whether the session is waiting for other players' turns, and for whom (`net/lockstep.md`, "Stalls").
     fn waiting(&self) -> Option<Waiting> {
         None
@@ -420,6 +426,10 @@ impl ReplaySession {
 }
 
 impl Session for ReplaySession {
+    fn viewer_speed(&self) -> Option<u8> {
+        Some(self.rate as u8)
+    }
+
     fn submit(&mut self, cmd: Command) {
         match cmd {
             Command::Pause { .. } => {
@@ -427,12 +437,8 @@ impl Session for ReplaySession {
                 self.notices
                     .push(if self.held { "Replay paused." } else { "Replay resumed." }.to_string());
             }
-            Command::Speed { faster, .. } => {
-                self.rate = if faster {
-                    (self.rate + 1).min(RATES.len() - 1)
-                } else {
-                    self.rate.saturating_sub(1)
-                };
+            Command::Speed { speed, .. } => {
+                self.rate = usize::from(speed).min(RATES.len() - 1);
                 self.notices.push(format!("Replay speed x{}.", RATES[self.rate]));
             }
             // The viewer's clicks and keys are not the game's.
@@ -711,21 +717,12 @@ mod tests {
         s.submit(pause());
         assert_eq!(s.ready_commands(0), Some(vec![]));
         assert_eq!(s.rate(), 1);
-        s.submit(Command::Speed {
-            player: 0,
-            faster: true,
-        });
-        s.submit(Command::Speed {
-            player: 0,
-            faster: true,
-        });
+        assert_eq!(s.viewer_speed(), Some(0));
+        s.submit(Command::Speed { player: 0, speed: 1 });
+        s.submit(Command::Speed { player: 0, speed: 2 });
         assert_eq!(s.rate(), 4);
-        for _ in 0..9 {
-            s.submit(Command::Speed {
-                player: 0,
-                faster: false,
-            });
-        }
+        assert_eq!(s.viewer_speed(), Some(2));
+        s.submit(Command::Speed { player: 0, speed: 0 });
         assert_eq!(s.rate(), 1);
     }
 

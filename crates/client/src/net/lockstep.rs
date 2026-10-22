@@ -462,12 +462,12 @@ impl NetSession {
         if n == 0 {
             // The lobby's game speed, as the first commands of the game: the world starts at Normal, and commands are
             // what a recording replays (`docs/design/network.md`, "Game speed").
-            let from = i32::from(tidewater_sim::timing::NORMAL);
-            let to = i32::from(self.p.speed.min(8));
-            for _ in 0..(to - from).unsigned_abs() {
+            let from = tidewater_sim::timing::NORMAL;
+            let to = self.p.speed.min(8);
+            if to != from {
                 self.carry.push(Command::Speed {
                     player: self.p.host,
-                    faster: to > from,
+                    speed: to,
                 });
             }
         }

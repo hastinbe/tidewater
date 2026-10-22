@@ -2153,7 +2153,13 @@ pub(crate) fn keys_input(c: &mut Core) {
             continue;
         };
         match a {
-            mouse::KeyAction::Speed(faster) => sim.pending.push(Command::Speed { player: human, faster }),
+            mouse::KeyAction::Speed(faster) => {
+                // The command carries the value: the current speed one up or down (orders spec, NC1, NC2). A replay
+                // viewer steps its own rate instead of the world's.
+                let now = sim.session.viewer_speed().unwrap_or(sim.world.speed);
+                let speed = if faster { now.saturating_add(1) } else { now.saturating_sub(1) };
+                sim.pending.push(Command::Speed { player: human, speed });
+            }
             mouse::KeyAction::Pause => sim.pending.push(pause_or_resume(&sim.world, &sim.pending, human)),
             mouse::KeyAction::Group(key, g) => {
                 let mode = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));

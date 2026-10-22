@@ -1732,6 +1732,58 @@ mod tests {
         );
     }
 
+    /// `ui/selecting-and-commanding.md`: the **primary unit** is the one in the first filled place, and the job, cancel
+    /// and unload buttons act on it. With two buildings selected, the first one is named, whatever the order of the
+    /// units' numbers; the unload command is aimed at the first selected transport's own tile.
+    #[test]
+    fn job_cancel_and_unload_name_the_first_selected_unit() {
+        let s = Fake::all();
+        let sel = [unit(9, 60), unit(2, 60)];
+        let train = Entry {
+            act: Act::Train(0),
+            ..H_BARRACKS[0]
+        };
+        assert!(matches!(
+            activate(&train, &s, &sel),
+            Effect::Send(Command::Train { building: UnitId(9), .. })
+        ));
+        let cancel = Entry {
+            act: Act::CancelJob,
+            ..H_BARRACKS[0]
+        };
+        assert_eq!(
+            activate(&cancel, &s, &sel),
+            Effect::Send(Command::CancelJob {
+                player: 0,
+                unit: UnitId(9)
+            })
+        );
+        let cancel = Entry {
+            act: Act::CancelConstruction,
+            ..cancel
+        };
+        assert_eq!(
+            activate(&cancel, &s, &sel),
+            Effect::Send(Command::Cancel {
+                player: 0,
+                unit: UnitId(9)
+            })
+        );
+        let (mut a, mut b) = (unit(5, 28), unit(1, 28));
+        (a.docked, b.docked) = (true, true);
+        a.tile = (3, 4);
+        b.tile = (30, 40);
+        assert_eq!(
+            activate(&H_UNLOAD[0], &s, &[a, b]),
+            Effect::Send(Command::Issue {
+                player: 0,
+                command: 29,
+                target: None,
+                tile: (3, 4)
+            })
+        );
+    }
+
     #[test]
     fn return_goods_needs_a_depot() {
         let mut s = Fake::all();

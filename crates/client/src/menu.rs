@@ -192,12 +192,6 @@ pub fn game_speed_max(enhanced: bool, extra_speeds: u8) -> u8 {
     .top_speed(enhanced)
 }
 
-/// The speed commands (true is faster) that take the game from `from` to `to`.
-pub fn speed_steps(from: u8, to: u8) -> Vec<bool> {
-    let n = from.abs_diff(to) as usize;
-    vec![to > from; n]
-}
-
 /// A slider's value for a pointer at `x` over a track starting at `left` and `width` wide, 0 to `max`.
 pub fn slider_value(x: f32, left: f32, width: f32, max: u8) -> u8 {
     if width <= 0.0 {
@@ -339,9 +333,6 @@ mod tests {
         assert_eq!(game_speed_max(false, 0), 6);
         assert_eq!(game_speed_max(true, 2), 10);
         assert_eq!(game_speed_max(false, 2), 6);
-        assert_eq!(speed_steps(3, 7), [true; 4]);
-        assert_eq!(speed_steps(7, 3), [false; 4]);
-        assert!(speed_steps(4, 4).is_empty());
     }
 
     #[test]
