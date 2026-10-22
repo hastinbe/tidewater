@@ -605,3 +605,59 @@ fn the_first_run_scene_needs_no_game_files() {
     let text = std::fs::read_to_string(dir.path().join("out/firstrun.txt")).expect("the scene's fingerprints");
     assert!(text.contains("shot\t") && text.contains("\terror\t"));
 }
+
+/// The screen as a phone shows it: the shared folder, no installer, no Quit.
+fn phone_rig() -> Rig {
+    let mut r = rig();
+    let fr = r.core.first_run.take().unwrap().with_intake(Intake::SharedFolder);
+    r.core.first_run = Some(fr);
+    r.frame();
+    r
+}
+
+#[test]
+fn a_phone_offers_the_folder_the_disc_and_a_rescan_but_no_installer_or_quit() {
+    let mut r = phone_rig();
+    let items: Vec<Item> = r.screen().items();
+    assert_eq!(
+        items,
+        [
+            Item::Candidate(0),
+            Item::Candidate(1),
+            Item::Folder,
+            Item::Disc,
+            Item::Rescan
+        ]
+    );
+    // Escape does not quit a phone's program.
+    r.tap(Key::Escape);
+    assert!(!r.core.exit);
+    assert_eq!(r.page(), Page::List);
+    // The explanation says an installer can't be used.
+    assert!(PHONE_INTRO.contains("GOG installer"));
+    assert!(wrap(PHONE_INTRO, 74).len() <= 4, "the intro fits above the list");
+}
+
+#[test]
+fn scanning_again_looks_in_the_folder_anew() {
+    let mut r = phone_rig();
+    r.point_at(Item::Rescan);
+    r.frame();
+    r.core.input.button(Button::Left, true);
+    r.frame();
+    r.core.input.button(Button::Left, false);
+    assert!(r.screen().searching, "the search runs again");
+    r.wait_for(|r| !r.screen().searching);
+    assert_eq!(r.screen().candidates.len(), 2, "the fake finds the same two");
+}
+
+#[test]
+fn suspending_and_resuming_flip_the_core_once() {
+    let mut r = rig();
+    assert!(!r.core.suspended);
+    r.core.suspend();
+    assert!(r.core.suspended);
+    r.core.suspend();
+    r.core.resume();
+    assert!(!r.core.suspended);
+}

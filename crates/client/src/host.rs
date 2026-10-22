@@ -109,7 +109,8 @@ pub fn first_run_core(
     let screen = match candidates {
         Some(list) => firstrun::FirstRun::with_candidates(backend, list, false),
         None => firstrun::FirstRun::searching(backend),
-    };
+    }
+    .with_intake(firstrun::Intake::native());
     let mut core = Core::new(
         args,
         store,

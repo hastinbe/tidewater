@@ -10,6 +10,9 @@
 //!   input event ([`crate::input::FileEvent::Picked`]);
 //! - "Quit"; and a hint that files can be dropped on the window ([`crate::input::FileEvent::Dropped`]).
 //!
+//! On a phone ([`Intake::SharedFolder`]) the screen reads the app's shared folder instead (files copied in with the
+//! Files app or a computer), says a GOG installer can't be used there, offers "Scan again" and has no "Quit".
+//!
 //! The copy runs on a worker thread; its progress comes back over a channel and fills the progress bar. A finished
 //! import shows its result line for a moment and the program goes on into the normal start-up; a failed one shows the
 //! import crate's message (written for the player) with a way back to the list. Mouse and keyboard both work: Up,
@@ -80,7 +83,10 @@ pub struct DesktopBackend {
 
 impl Backend for DesktopBackend {
     fn search(&self) -> Vec<Candidate> {
-        let dirs = search::candidate_dirs(&search::bases(search::Os::current(), &search::Where::here()));
+        let dirs = match Intake::native() {
+            Intake::Dialogs => search::candidate_dirs(&search::bases(search::Os::current(), &search::Where::here())),
+            Intake::SharedFolder => search::shared_folder_candidates(&search::Where::here()),
+        };
         let mut roots: Vec<PathBuf> = Vec::new();
         let mut found = Vec::new();
         for d in dirs {
@@ -106,20 +112,32 @@ impl Backend for DesktopBackend {
     }
 
     fn import(&self, path: &Path, progress: &mut dyn FnMut(u64, u64, &str)) -> Result<Candidate, String> {
-        let source = tidewater_import::classify(path).map_err(|e| e.to_string())?;
+        let source = tidewater_import::classify(path).map_err(|e| describe(&e))?;
         let report = tidewater_import::validate(&source)
             .into_result()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| describe(&e))?;
         let manifest = tidewater_import::import(&source, &report, &self.data_dir, &mut |p| {
             progress(p.done, p.total, p.file)
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| describe(&e))?;
         Ok(Candidate {
             path: path.to_path_buf(),
             edition: manifest.edition,
             extras: report.has_archive("Install.mpq"),
             maps: report.map_count,
         })
+    }
+}
+
+/// The message for the player. On a phone an installer can't be opened (the program that unpacks it can't run
+/// there), which the import crate's message about installing that program would not explain.
+fn describe(e: &tidewater_import::ImportError) -> String {
+    if Intake::native() == Intake::SharedFolder && matches!(e, tidewater_import::ImportError::InnoextractMissing(_)) {
+        "A GOG installer can't be opened on iOS. On a computer, install the game or unpack the installer, then copy \
+         the game folder here; or use a CD image."
+            .to_string()
+    } else {
+        e.to_string()
     }
 }
 
@@ -171,6 +189,28 @@ impl Backend for DemoBackend {
     }
 }
 
+/// How the game files reach the program.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Intake {
+    /// Anywhere on the computer: the system's dialogs, files dropped on the window, a search of the usual places.
+    #[default]
+    Dialogs,
+    /// A phone: the app's own shared folder (that the Files app and a computer can fill) and the system's document
+    /// picker. No installer (it needs a program a phone can't run), no files dropped on the window and no "Quit".
+    SharedFolder,
+}
+
+impl Intake {
+    /// The way this build gets its game files.
+    pub fn native() -> Intake {
+        if cfg!(target_os = "ios") {
+            Intake::SharedFolder
+        } else {
+            Intake::Dialogs
+        }
+    }
+}
+
 /// Which system dialog the screen asks the shell for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickKind {
@@ -189,6 +229,8 @@ pub enum Item {
     Folder,
     Installer,
     Disc,
+    /// Search the shared folder again ([`Intake::SharedFolder`]).
+    Rescan,
     Quit,
     /// The way back from an error.
     Back,
@@ -226,6 +268,12 @@ const BUTTON_GAP: i32 = 6;
 const BUTTONS_Y: i32 = 300;
 /// Frames the result line stays up before the program goes on (about 1.5 s).
 const RESULT_FRAMES: u32 = 90;
+
+const DESKTOP_INTRO: &str = "Tidewater needs the game files from your own copy of Warcraft II: Battle.net Edition. \
+                    Pick the install below, or choose where it is. Tidewater copies the files once.";
+const PHONE_INTRO: &str = "Tidewater needs the game files from your own copy of Warcraft II: Battle.net Edition. \
+                    Put the game folder or a CD image (.iso .bin .cue .mdf .nrg) in Tidewater's folder with the Files \
+                    app or a computer, then tap Scan again. A GOG installer (.exe) can't be used on iOS.";
 
 /// What the screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -274,6 +322,7 @@ pub struct FirstRun {
     requests: Vec<PickKind>,
     rx: Option<Receiver<Msg>>,
     last_pointer: Option<(i32, i32)>,
+    intake: Intake,
     /// Frames the result has been up.
     result_frames: u32,
     dirty: bool,
@@ -284,14 +333,27 @@ impl FirstRun {
     /// The screen over `backend`, searching the usual places on a thread.
     pub fn searching(backend: Arc<dyn Backend>) -> FirstRun {
         let mut f = FirstRun::blank(backend, true);
-        f.searching = true;
+        f.start_search();
+        f
+    }
+
+    /// Looks in the usual places on a thread; the list fills in when it is done.
+    fn start_search(&mut self) {
+        self.searching = true;
+        self.dirty = true;
         let (tx, rx) = channel();
-        f.rx = Some(rx);
-        let b = f.backend.clone();
+        self.rx = Some(rx);
+        let b = self.backend.clone();
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Found(b.search()));
         });
-        f
+    }
+
+    /// The screen for a way of getting the files other than the desktop's ([`Intake`]).
+    pub fn with_intake(mut self, intake: Intake) -> FirstRun {
+        self.intake = intake;
+        self.dirty = true;
+        self
     }
 
     /// The screen with the installs `candidates` already listed (no search). `threads`: the copy runs on a thread; if
@@ -313,6 +375,7 @@ impl FirstRun {
             focus: 0,
             first: 0,
             picking: false,
+            intake: Intake::Dialogs,
             requests: Vec::new(),
             rx: None,
             last_pointer: None,
@@ -332,12 +395,20 @@ impl FirstRun {
         0
     }
 
+    /// The buttons under the list, top to bottom.
+    fn buttons(&self) -> &'static [Item] {
+        match self.intake {
+            Intake::Dialogs => &[Item::Folder, Item::Installer, Item::Disc, Item::Quit],
+            Intake::SharedFolder => &[Item::Folder, Item::Disc, Item::Rescan],
+        }
+    }
+
     /// The items that can be focused, in the order Tab visits them.
     fn items(&self) -> Vec<Item> {
         match self.page {
             Page::List => (0..self.candidates.len())
                 .map(Item::Candidate)
-                .chain([Item::Folder, Item::Installer, Item::Disc, Item::Quit])
+                .chain(self.buttons().iter().copied())
                 .collect(),
             Page::Failed(_) => vec![Item::Back],
             _ => Vec::new(),
@@ -366,10 +437,7 @@ impl FirstRun {
                         },
                     ));
                 }
-                for (n, item) in [Item::Folder, Item::Installer, Item::Disc, Item::Quit]
-                    .into_iter()
-                    .enumerate()
-                {
+                for (n, &item) in self.buttons().iter().enumerate() {
                     v.push((
                         item,
                         Rect {
@@ -423,6 +491,8 @@ impl FirstRun {
                 Key::Enter | Key::NumpadEnter | Key::Space => self.focused().and_then(|i| self.activate(i)),
                 Key::Escape => match self.page {
                     Page::Failed(_) => self.activate(Item::Back),
+                    // A phone's program doesn't quit.
+                    _ if self.intake == Intake::SharedFolder => None,
                     _ => Some(Outcome::Quit),
                 },
                 _ => None,
@@ -505,6 +575,14 @@ impl FirstRun {
             Item::Folder => self.ask(PickKind::Folder),
             Item::Installer => self.ask(PickKind::Installer),
             Item::Disc => self.ask(PickKind::Disc),
+            Item::Rescan => {
+                if !self.searching {
+                    self.candidates.clear();
+                    self.focus = self.default_focus();
+                    self.first = 0;
+                    self.start_search();
+                }
+            }
             Item::Quit => return Some(Outcome::Quit),
             Item::Back => {
                 self.page = Page::List;
@@ -702,24 +780,38 @@ impl FirstRun {
     }
 
     fn draw_list(&self, c: &mut Canvas) {
-        let text = "Tidewater needs the game files from your own copy of Warcraft II: Battle.net Edition. \
-                    Pick the install below, or choose where it is. Tidewater copies the files once.";
+        let phone = self.intake == Intake::SharedFolder;
+        let text = if phone { PHONE_INTRO } else { DESKTOP_INTRO };
         for (n, l) in wrap(text, 74).iter().enumerate() {
             c.text(LIST_X, 94 + n as i32 * 12, 1, TEXT, l);
         }
+        let (looking, none, here) = if phone {
+            (
+                "Looking in Tidewater's folder...",
+                "Nothing found in Tidewater's folder.",
+                "Found in Tidewater's folder:",
+            )
+        } else {
+            (
+                "Looking for installs...",
+                "No install found in the usual places.",
+                "Found on this computer:",
+            )
+        };
         let heading = if self.searching {
-            "Looking for installs...".to_string()
+            looking.to_string()
         } else if self.candidates.is_empty() {
-            "No install found in the usual places.".to_string()
+            none.to_string()
         } else if self.candidates.len() > VISIBLE {
             format!(
-                "Found on this computer ({}-{} of {}):",
+                "{} ({}-{} of {}):",
+                here.trim_end_matches(':'),
                 self.first + 1,
                 (self.first + VISIBLE).min(self.candidates.len()),
                 self.candidates.len()
             )
         } else {
-            "Found on this computer:".to_string()
+            here.to_string()
         };
         c.text(
             LIST_X,
@@ -729,13 +821,22 @@ impl FirstRun {
             &heading,
         );
         self.draw_items(c);
-        c.text_centred(
-            436,
-            1,
-            TEXT,
-            "You can also drop a game folder, an installer or a CD image on this window.",
-        );
-        c.text_centred(454, 1, DIM, "Up/Down or Tab: move    Enter: choose    Esc: quit");
+        if phone {
+            c.text_centred(
+                436,
+                1,
+                TEXT,
+                "Tidewater copies the files once. You can delete your copy afterwards.",
+            );
+        } else {
+            c.text_centred(
+                436,
+                1,
+                TEXT,
+                "You can also drop a game folder, an installer or a CD image on this window.",
+            );
+            c.text_centred(454, 1, DIM, "Up/Down or Tab: move    Enter: choose    Esc: quit");
+        }
         if self.picking {
             c.text_centred(468, 1, BAR, "Waiting for the file dialog...");
         }
@@ -768,6 +869,7 @@ impl FirstRun {
                 Item::Folder => c.text_in(r, 2, TEXT, "Choose game folder..."),
                 Item::Installer => c.text_in(r, 2, TEXT, "Choose GOG installer..."),
                 Item::Disc => c.text_in(r, 2, TEXT, "Choose CD image..."),
+                Item::Rescan => c.text_in(r, 2, TEXT, "Scan again"),
                 Item::Quit => c.text_in(r, 2, TEXT, "Quit"),
                 Item::Back => c.text_in(r, 2, TEXT, "Back"),
             }

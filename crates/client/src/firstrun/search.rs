@@ -144,6 +144,27 @@ fn wine_prefixes(os: Os, home: &Path) -> Vec<PathBuf> {
     roots
 }
 
+/// What could be a game in the app's shared folder on a phone (`Documents` in the app's own folder, which the Files app
+/// and a computer can fill): the folder itself (loose game files), and each folder and file in it, folders first, by
+/// name. Hidden entries are left out. Nothing is opened here: the caller classifies each.
+pub fn shared_folder_candidates(at: &Where) -> Vec<PathBuf> {
+    let Some(home) = &at.home else { return Vec::new() };
+    let dir = home.join("Documents");
+    let Ok(rd) = fs::read_dir(&dir) else { return Vec::new() };
+    let mut entries: Vec<PathBuf> = rd
+        .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| e.path())
+        .collect();
+    entries.sort_by_key(|p| {
+        let name = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase());
+        (!p.is_dir(), name)
+    });
+    let mut out = vec![dir];
+    out.extend(entries);
+    out
+}
+
 /// Whether a folder or file name looks like the game's: it names Warcraft II (`Warcraft II`, `Warcraft2`, `war2`).
 pub fn named_like_the_game(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
@@ -227,6 +248,34 @@ mod tests {
             !b.iter()
                 .any(|p| p.starts_with(h.join("Library/Application Support/CrossOver/Bottles/Empty")))
         );
+    }
+
+    #[test]
+    fn a_phone_looks_at_everything_in_its_shared_folder() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        touch(h, "Documents/Zeta/War2Dat.mpq");
+        touch(h, "Documents/alpha/note.txt");
+        touch(h, "Documents/disc.iso");
+        touch(h, "Documents/.hidden");
+        touch(h, "Library/elsewhere.iso");
+        let at = Where {
+            home: Some(h.to_path_buf()),
+            program_files: Vec::new(),
+        };
+        let docs = h.join("Documents");
+        assert_eq!(
+            shared_folder_candidates(&at),
+            [
+                docs.clone(),
+                docs.join("alpha"),
+                docs.join("Zeta"),
+                docs.join("disc.iso")
+            ],
+            "the folder itself, then folders by name, then files"
+        );
+        let none = Where::default();
+        assert!(shared_folder_candidates(&none).is_empty());
     }
 
     #[test]
