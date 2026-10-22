@@ -38,6 +38,9 @@ use super::proto::{
 };
 use super::tcp::{self, ClientWire, Event, HANDSHAKE_TIMEOUT, HostWire, Link};
 
+/// What a joiner that asks to observe is told by a lobby from the menus.
+const NO_OBSERVERS: &str = "This game has no place for an observer.";
+
 /// The lobby's rows.
 pub const ROWS: usize = 8;
 /// The longest line in a row's chat box.
@@ -217,6 +220,7 @@ enum Shake {
         id: usize,
         identity: Box<Identity>,
         name: String,
+        observer: bool,
         stream: TcpStream,
     },
     Ready {
@@ -439,11 +443,16 @@ impl HostRoom {
                 let _ = stream.set_nodelay(true);
                 let mut stream = stream;
                 match read_hello(&mut stream) {
-                    Ok(HelloRead::Hello { identity, name }) => {
+                    Ok(HelloRead::Hello {
+                        identity,
+                        name,
+                        observer,
+                    }) => {
                         let _ = tx.send(Shake::Hello {
                             id,
                             identity: Box::new(identity),
                             name,
+                            observer,
                             stream,
                         });
                     }
@@ -487,6 +496,7 @@ impl HostRoom {
                 id,
                 identity,
                 name,
+                observer,
                 mut stream,
             } => {
                 let refuse = |stream: &mut TcpStream, reason: String| {
@@ -494,6 +504,12 @@ impl HostRoom {
                 };
                 if let Some(why) = self.identity.mismatch(&identity) {
                     refuse(&mut stream, why);
+                    return false;
+                }
+                // The menu lobby has no places for observers yet; a game hosted from the command line (`--lobby
+                // observers=N`) does (`docs/design/network.md`, "Observers").
+                if observer {
+                    refuse(&mut stream, NO_OBSERVERS.to_string());
                     return false;
                 }
                 let free = (1..ROWS).find(|&i| {
@@ -720,6 +736,7 @@ pub fn handshake(addr: &str, identity: Identity, name: &str) -> Result<Handshake
         &Msg::Hello {
             identity,
             name: name.to_string(),
+            observer: false,
         },
     )?;
     match read_frame(&mut stream) {
@@ -993,6 +1010,17 @@ mod tests {
         wait(&mut room, |_| t.is_finished());
         let err = t.join().unwrap().err().unwrap();
         assert!(format!("{err:#}").contains("game data"), "{err:#}");
+        assert_eq!(room.view().humans(), 1);
+    }
+
+    #[test]
+    fn an_observer_is_refused_by_the_menu_lobby() {
+        let mut room = host(true);
+        let addr = format!("127.0.0.1:{}", room.port());
+        let t = thread::spawn(move || tcp::join_as(&addr, ident(), "Eve", true, |_| Ok(()), |_| {}));
+        wait(&mut room, |_| t.is_finished());
+        let err = t.join().unwrap().err().unwrap();
+        assert!(format!("{err:#}").contains("no place for an observer"), "{err:#}");
         assert_eq!(room.view().humans(), 1);
     }
 

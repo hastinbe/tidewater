@@ -57,6 +57,7 @@ tidewater --join HOST-ADDRESS            # or HOST-ADDRESS:PORT
 | `speed=0..8` | Game speed (8 is Fastest). | 8 |
 | `row=0..15` | Network delay row, which sets the turn length (below). | 4 |
 | `seed=N` | The game's seed. The host's choice, sent to every machine. | the host's clock |
+| `observers=0..4` | Places for watchers (below, "Observers"). The game starts when they are filled too. | 0 |
 
 ## How it fits together
 
@@ -84,7 +85,7 @@ the end; `Hello` is first so a program of another protocol version can still rea
 
 | Message | Direction | Carries |
 |---|---|---|
-| `Hello` | joiner to host | Identity (protocol, simulation build, data hash, edition, archives hash) and the name asked for |
+| `Hello` | joiner to host | Identity (protocol, simulation build, data hash, edition, archives hash), the name asked for, and whether the joiner wants to observe |
 | `Refuse` | either | Why the game cannot go on |
 | `Welcome` | host to joiner | The joiner's slot and the whole game: map name and hash, seed, setup, lobby, speed, delay row, names |
 | `Ready` | joiner to host | The game is acceptable here (the map is found, with the same hash) |
@@ -100,8 +101,10 @@ the end; `Hello` is first so a program of another protocol version can still rea
 | `MapRequest`, `MapOffer`, `MapChunk`, `MapDenied` | see "Map transfer" | The map, in chunks |
 | `Chat` | any (the host relays) | An in-game chat line: sender slot, allies only or not, text |
 
-The protocol number is **2** (the lobby, map transfer and chat came with it). A joiner of protocol 1 is refused with a
-message naming both versions: the host reads only the first varint of the `Hello` to know that it cannot read the rest.
+The protocol number is **4**. Protocol 2 brought the lobby, map transfer and chat; protocol 4 added the observer flag to
+`Hello` and the new `Command` variants and `Extras` fields (Shift-queued orders). A joiner of another protocol is refused
+with a message naming both versions: the host reads only the first varint of the `Hello` to know that it cannot read the
+rest.
 
 ## The turn engine
 
@@ -235,6 +238,34 @@ cause a desync. Code: `chat.rs`, `net/lockstep.rs`.
   The host only passes on packets it counted, which is what makes the count exact.
 - **The dropped machine** is told, ends its game with a surrender and shows that it left.
 
+## Observers
+
+A host can leave places for watchers: `--lobby observers=N` (0 to 4, off by default) and a watcher joins with
+`tidewater --join HOST-ADDRESS --observe`. This is the smallest version of the feature; the menu lobby has no observer
+rows yet.
+
+- **The host decides.** A host without places refuses an observer with "this game has no place for an observer", and so
+  does the menu lobby. A player who joins when the players are all in is refused as full. The game starts when every
+  player slot and every observer place is filled.
+- **Slots.** An observer takes slot 8 plus its number (`OBSERVER_BASE`). It is not in the lobby's humans, so it has no
+  start position, no name in the players' list, and no part in victory or defeat.
+- **It runs the sim.** The host relays every `Turn` to it, as to any joiner, and it steps the same cycles. It starts from
+  the host's player, so its world is the one the host's machine builds.
+- **It sends nothing.** Its session submits no command, sends no `Turn`, `Sync`, `Chat`, ping or leave, and never needs
+  a turn from itself. It does not wait for the others' sync checks, since it has no state digest of its own to send. The
+  host ignores any message from an observer's link and does not treat its leaving as a player leaving. The players never
+  wait for it.
+- **It sees everything.** `World::observing` is display only, not game state, and is never hashed. `reveal_view()` (the
+  reveal-map cheat or an observer) makes the map, the minimap, buildings and units draw with no fog and no remembered
+  ghosts, and lets the mouse pick any unit. The sim itself reads only `rules.reveal_map`, because that setting changes
+  which units are hidden and so what a command may target. An observer's game therefore stays in step with the players'.
+- **The interface.** The HUD is the host player's, the Surrender button is hidden on the end screen, and the victory and
+  defeat dialogs are not shown.
+
+What is left: a host toggle and observer rows in the menu lobby, a joiner's menu to ask to observe, joining after the
+game has started (an observer attaches only before the start), a view with the choice of player, and a spectator
+interface of its own.
+
 ## Spec gaps and choices
 
 - **The host leaving.** The original's players each hold every connection and have no host to lose. A joiner that loses
@@ -263,6 +294,9 @@ cause a desync. Code: `chat.rs`, `net/lockstep.rs`.
 - **`crates/client/tests/room.rs`** runs the lobby over loopback with each machine on its own thread and no game files:
   two joiners entering, races and chat, a map sent in chunks and checked, Start held back until it arrives, and the
   refusals for another game data table, edition or archives.
+- **Observer tests** are in `net/tcp.rs` (the handshake, the refusals, relayed turns, an observer not heard),
+  `net/lockstep.rs` (two players and an observer stay in step and the observer sends nothing), `net/lobby.rs`,
+  `net/room.rs` and `sim/vision.rs` (the observer's view changes nothing the sim hides).
 - **`crates/client/tests/net.rs`** plays real games between two machines in one process over loopback TCP on the smallest
   installed map, with scripted commands from both sides: hashes at every turn, recordings compared with the same
   checks as `twtool desync-diff`, a forced divergence, a delayed peer, a joiner with a different map, and Classic

@@ -288,7 +288,7 @@ fn network_start(
         return lobby::host(Some(port), &spec, map, setup, install, store, &name, wall, say).map(Some);
     }
     if let Some(addr) = &args.join {
-        return lobby::join(addr, install, store, &name, say).map(Some);
+        return lobby::join(addr, install, store, &name, args.observe, say).map(Some);
     }
     Ok(None)
 }

@@ -485,6 +485,8 @@ fn load_game(c: &mut Core, map: &str, setup: Option<tidewater_sim::setup::Setup>
         }
         None if net.is_some() => {
             let n = net.take().expect("checked above");
+            // A slot that is not one of the game's humans is an observer's: it shows the whole map (display only).
+            scene.world.observing = !n.config.lobby.humans.iter().any(|h| h.0 == n.me);
             let recorder = record.then(|| {
                 let header = tidewater_replay::Header::for_game(
                     tidewater_replay::start::recorded_map_name(&args.map, scene.user_map),
@@ -1694,7 +1696,7 @@ fn mark_spot(at: Option<Vec2>, tile: (i32, i32), minimap_offset: i32) -> (i32, i
 fn click_target(b: &mouse::Board, world: &World, at: Vec2, tile: (i32, i32)) -> Option<(UnitId, u8)> {
     let hovered = mouse::hover(b, px(at)).first().copied();
     let explored = !world.vision.unexplored(tile.0, tile.1);
-    let t = mouse::target(b, hovered, tile, world.rules.reveal_map, explored)?;
+    let t = mouse::target(b, hovered, tile, world.reveal_view(), explored)?;
     Some((t, mouse::flash_colour(b, b.get(t)?.owner)))
 }
 

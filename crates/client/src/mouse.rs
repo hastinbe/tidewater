@@ -379,7 +379,7 @@ pub fn cand(world: &World, u: &Unit, local: u8) -> Cand {
         mobile: s.flags & MOBILE != 0,
         dying: u.dying,
         inside: u.inside,
-        hidden: u.owner != local && !world.rules.reveal_map && u.hidden_from & me != 0,
+        hidden: u.owner != local && !world.reveal_view() && u.hidden_from & me != 0,
         detected: u.owner == local || u.detected_by & me != 0,
         busy: busy(u.order) || u.pending.is_some_and(busy),
         rect_selectable: s.rect_selectable,

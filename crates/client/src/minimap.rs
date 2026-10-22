@@ -401,7 +401,7 @@ impl Minimap {
             height: world.terrain.height as u32,
             explored: world.vision.flags(Map::Explored),
             visible: world.vision.flags(Map::Visible),
-            reveal: world.rules.reveal_map,
+            reveal: world.reveal_view(),
             terrain_on,
             local,
             demo: world.sounds.demo,
@@ -426,7 +426,7 @@ impl Minimap {
 pub fn dots(world: &World) -> (Vec<Dot>, Vec<Option<tidewater_sim::UnitId>>) {
     let mut dots = Vec::new();
     let mut ids = Vec::new();
-    for c in world.remembered.copies() {
+    for c in world.remembered.copies().filter(|_| !world.observing) {
         dots.push(Dot {
             kind: c.kind,
             colour: c.colour,

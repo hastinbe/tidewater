@@ -19,7 +19,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::proto::{DEFAULT_PORT, GameConfig, HelloRead, Identity, Msg, read_frame, read_hello, write_frame};
+use super::proto::{
+    DEFAULT_PORT, GameConfig, HelloRead, Identity, MAX_OBSERVERS, Msg, OBSERVER_BASE, read_frame, read_hello,
+    write_frame,
+};
 
 /// How long a joiner has, after connecting, to say Hello and to answer a Welcome.
 pub(super) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -132,6 +135,8 @@ impl Wire for HostWire {
                 Event::Closed(id) => {
                     if let Some(l) = self.links.iter_mut().find(|l| l.id == id)
                         && std::mem::replace(&mut l.open, false)
+                        // An observer leaving is nobody's business but the link's.
+                        && l.slot < OBSERVER_BASE
                     {
                         out.push(Inbound::Closed { slot: l.slot });
                     }
@@ -140,6 +145,10 @@ impl Wire for HostWire {
                     let Some(from) = self.links.iter().find(|l| l.id == id && l.open).map(|l| l.slot) else {
                         continue;
                     };
+                    // An observer only listens: whatever it says is not heard.
+                    if from >= OBSERVER_BASE {
+                        continue;
+                    }
                     // The slot is the connection's, whatever the message claims.
                     let msg = match msg {
                         Msg::Turn { seq, cmd, .. } => Msg::Turn { slot: from, seq, cmd },
@@ -269,19 +278,39 @@ pub fn listen(port: u16) -> Result<TcpListener> {
 /// data), and the slot stays open for the next. A joiner that finds the map missing refuses itself after the Welcome.
 pub fn host_game(
     listener: &TcpListener,
+    config: GameConfig,
+    identity: &Identity,
+    joiner_slots: &[u8],
+    progress: impl FnMut(&str),
+) -> Result<HostWire> {
+    host_game_with(listener, config, identity, joiner_slots, 0, progress)
+}
+
+/// [`host_game`] for a game with `observers` places for watchers as well (the host's choice, `--lobby observers=N`):
+/// the game starts when every player slot and every observer place is filled. An observer gets the slot
+/// [`OBSERVER_BASE`] plus its number, the host's slot as the player whose view it starts from, and the same game; a
+/// player that joins when the players are all in, or an observer when the places are, is refused with the reason.
+pub fn host_game_with(
+    listener: &TcpListener,
     mut config: GameConfig,
     identity: &Identity,
     joiner_slots: &[u8],
+    observers: usize,
     mut progress: impl FnMut(&str),
 ) -> Result<HostWire> {
+    let observers = observers.min(MAX_OBSERVERS);
     let mut ready: Vec<(u8, TcpStream)> = Vec::new();
-    while ready.len() < joiner_slots.len() {
-        let slot = joiner_slots[ready.len()];
+    let (mut players, mut watchers) = (0, 0);
+    while players < joiner_slots.len() || watchers < observers {
         let (mut stream, peer) = listener.accept().context("accepting a connection")?;
         stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
         stream.set_nodelay(true)?;
         let hello = match read_hello(&mut stream) {
-            Ok(HelloRead::Hello { identity: theirs, name }) => (theirs, name),
+            Ok(HelloRead::Hello {
+                identity: theirs,
+                name,
+                observer,
+            }) => (theirs, name, observer),
             Ok(HelloRead::OtherProtocol(p)) => {
                 let why = Identity::protocol_reason(identity.protocol, p);
                 progress(&format!("{peer}: refused, {why}"));
@@ -298,12 +327,38 @@ pub fn host_game(
             let _ = write_frame(&mut stream, &Msg::Refuse { reason: why });
             continue;
         }
-        let name = clean_name(&hello.1).unwrap_or_else(|| format!("Player {}", slot + 1));
-        if let Some(n) = config.names.get_mut(slot as usize) {
+        let observer = hello.2;
+        if observer && watchers >= observers || !observer && players >= joiner_slots.len() {
+            let why = if observer {
+                "this game has no place for an observer"
+            } else {
+                "the game is full"
+            };
+            progress(&format!("{peer}: refused, {why}"));
+            let _ = write_frame(&mut stream, &Msg::Refuse { reason: why.into() });
+            continue;
+        }
+        let slot = if observer {
+            OBSERVER_BASE + watchers as u8
+        } else {
+            joiner_slots[players]
+        };
+        let fallback = if observer {
+            format!("Observer {}", watchers + 1)
+        } else {
+            format!("Player {}", slot + 1)
+        };
+        let name = clean_name(&hello.1).unwrap_or(fallback);
+        if !observer && let Some(n) = config.names.get_mut(slot as usize) {
             *n = name.clone();
         }
         let mut theirs = config.clone();
-        theirs.lobby.local = slot;
+        // An observer starts from the host's view: the game needs some player's place to look from.
+        theirs.lobby.local = if observer {
+            config.lobby.humans.first().map_or(0, |h| h.0)
+        } else {
+            slot
+        };
         let welcome = Msg::Welcome {
             slot,
             config: Box::new(theirs),
@@ -314,7 +369,13 @@ pub fn host_game(
         }
         match read_frame(&mut stream) {
             Ok(Msg::Ready) => {
-                progress(&format!("{name} ({peer}) joined as slot {}", slot + 1));
+                if observer {
+                    progress(&format!("{name} ({peer}) joined to watch"));
+                    watchers += 1;
+                } else {
+                    progress(&format!("{name} ({peer}) joined as slot {}", slot + 1));
+                    players += 1;
+                }
                 ready.push((slot, stream));
             }
             Ok(Msg::Refuse { reason }) => progress(&format!("{peer}: declined the game: {reason}")),
@@ -350,6 +411,19 @@ pub fn join_game(
     identity: Identity,
     name: &str,
     verify: impl FnOnce(&GameConfig) -> std::result::Result<(), String>,
+    progress: impl FnMut(&str),
+) -> Result<Joined> {
+    join_as(addr, identity, name, false, verify, progress)
+}
+
+/// [`join_game`] as an observer when `observer` is set (`--join ADDR --observe`): the host must have a place for one.
+/// The slot in the result is then an observer's ([`OBSERVER_BASE`] and up).
+pub fn join_as(
+    addr: &str,
+    identity: Identity,
+    name: &str,
+    observer: bool,
+    verify: impl FnOnce(&GameConfig) -> std::result::Result<(), String>,
     mut progress: impl FnMut(&str),
 ) -> Result<Joined> {
     let mut stream = connect(addr)?;
@@ -360,6 +434,7 @@ pub fn join_game(
         &Msg::Hello {
             identity,
             name: name.to_string(),
+            observer,
         },
     )
     .context("saying hello")?;
@@ -377,7 +452,11 @@ pub fn join_game(
         bail!("can't play this game: {reason}");
     }
     write_frame(&mut stream, &Msg::Ready).context("saying ready")?;
-    progress(&format!("joined as slot {}; waiting for the other players", slot + 1));
+    if observer {
+        progress("joined to watch; waiting for the players");
+    } else {
+        progress(&format!("joined as slot {}; waiting for the other players", slot + 1));
+    }
     // Waiting for the other players has no limit: the host may take its time.
     stream.set_read_timeout(None)?;
     let names = match read_frame(&mut stream) {
@@ -676,6 +755,94 @@ mod tests {
         }
         join_game(&addr, id, "x", |_| Ok(()), |_| {}).unwrap();
         host.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn an_observer_gets_a_place_of_its_own_and_hears_the_relayed_turns_but_is_not_heard() {
+        let listener = listen(0).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let id = Identity::ours(1);
+        let host = thread::spawn({
+            let id = id.clone();
+            move || host_game_with(&listener, config(2), &id, &[1], 1, |_| {}).unwrap()
+        });
+        let addr = format!("127.0.0.1:{port}");
+        let player = {
+            let (addr, id) = (addr.clone(), id.clone());
+            thread::spawn(move || join_game(&addr, id, "Ann", |_| Ok(()), |_| {}).unwrap())
+        };
+        thread::sleep(Duration::from_millis(100));
+        let mut watcher = join_as(&addr, id, "Eve", true, |_| Ok(()), |_| {}).unwrap();
+        let mut host = host.join().unwrap();
+        let mut player = player.join().unwrap();
+        assert_eq!(watcher.slot, OBSERVER_BASE);
+        assert_eq!(watcher.config.lobby.local, 0, "it looks from the host's place");
+        assert_eq!(watcher.names, ["Player 1", "Ann"], "an observer is not a player's name");
+        // The host's messages reach it, and so do a player's through the host.
+        host.send(Msg::Drop { slot: 1, at_seq: 2 });
+        poll_until(&mut watcher.wire, |s| !s.is_empty());
+        let turn = Msg::Turn {
+            slot: 1,
+            seq: 0,
+            cmd: None,
+        };
+        player.wire.send(turn.clone());
+        let at_host = poll_until(&mut host, |s| !s.is_empty());
+        host.forward(1, &at_host[0].clone().into_msg());
+        let at_watcher = poll_until(&mut watcher.wire, |s| !s.is_empty());
+        assert_eq!(at_watcher[0], Inbound::Msg { from: 1, msg: turn });
+        // Whatever it sends is ignored, and its leaving is not a player leaving.
+        watcher.wire.send(Msg::Turn {
+            slot: 0,
+            seq: 5,
+            cmd: None,
+        });
+        drop(watcher);
+        player.wire.send(Msg::DropRequest { slot: 0 });
+        let at_host = poll_until(&mut host, |s| !s.is_empty());
+        assert_eq!(at_host.len(), 1, "only the player was heard: {at_host:?}");
+        assert!(matches!(at_host[0], Inbound::Msg { from: 1, .. }));
+    }
+
+    #[test]
+    fn an_observer_is_refused_without_a_place_and_a_player_when_the_game_is_full() {
+        let listener = listen(0).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let id = Identity::ours(1);
+        let host = thread::spawn({
+            let id = id.clone();
+            move || {
+                let mut said = Vec::new();
+                host_game_with(&listener, config(2), &id, &[1], 1, |l| said.push(l.to_string())).unwrap();
+                said
+            }
+        });
+        let addr = format!("127.0.0.1:{port}");
+        let watch = || join_as(&addr, id.clone(), "x", true, |_| Ok(()), |_| {});
+        // Joining blocks until the game starts, so the first observer waits in a thread of its own.
+        let first = thread::spawn({
+            let (addr, id) = (addr.clone(), id.clone());
+            move || join_as(&addr, id, "x", true, |_| Ok(()), |_| {}).unwrap()
+        });
+        thread::sleep(Duration::from_millis(100));
+        // The one place is taken; the next observer is turned away, and the player slot is still open.
+        let err = watch().err().expect("no second place");
+        assert!(err.to_string().contains("no place for an observer"), "{err}");
+        join_game(&addr, id.clone(), "x", |_| Ok(()), |_| {}).unwrap();
+        assert_eq!(first.join().unwrap().slot, OBSERVER_BASE);
+        host.join().unwrap();
+        // A host without places says so at once.
+        let listener = listen(0).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let host = thread::spawn({
+            let id = id.clone();
+            move || host_game(&listener, config(2), &id, &[1], |_| {}).unwrap()
+        });
+        let addr = format!("127.0.0.1:{port}");
+        let err = join_as(&addr, id.clone(), "x", true, |_| Ok(()), |_| {}).err().unwrap();
+        assert!(err.to_string().contains("no place for an observer"), "{err}");
+        join_game(&addr, id, "x", |_| Ok(()), |_| {}).unwrap();
+        host.join().unwrap();
     }
 
     #[test]

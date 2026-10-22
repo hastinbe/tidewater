@@ -582,9 +582,16 @@ impl World {
             return false;
         }
         if !u.building {
-            return u.hidden_from & bit(p) == 0;
+            return self.observing || u.hidden_from & bit(p) == 0;
         }
-        self.rules.reveal_map || self.building_seen(u)
+        self.reveal_view() || self.building_seen(u)
+    }
+
+    /// Whether the display shows the whole map: the reveal-map cheat, or an observer's machine (`World::observing`).
+    /// For drawing only. The sim's own rules read `rules.reveal_map`, so an observer's game plays out exactly as the
+    /// players' does.
+    pub fn reveal_view(&self) -> bool {
+        self.rules.reveal_map || self.observing
     }
 
     /// The marker that the local player has seen a building: its remembered look is set (map-drawing spec,
@@ -1232,6 +1239,23 @@ mod tests {
         run(&mut w, 99);
         w.step(&[]);
         assert!(!w.on_minimap(w.unit(u).unwrap()) && w.on_minimap(w.unit(b).unwrap()));
+    }
+
+    #[test]
+    fn an_observer_sees_everything_without_changing_what_the_sim_hides() {
+        let mut w = map();
+        let u = w.spawn(FOOTMAN, 2, (50, 50), 0).unwrap();
+        let b = w.spawn(0x3a, 2, (40, 40), 0).unwrap();
+        w.step(&[]);
+        assert!(!w.reveal_view() && !w.on_minimap(w.unit(u).unwrap()) && !w.on_minimap(w.unit(b).unwrap()));
+        let hidden = w.unit(u).unwrap().hidden_from;
+        let hash = w.state_hash();
+        w.observing = true;
+        assert!(w.reveal_view() && w.on_minimap(w.unit(u).unwrap()) && w.on_minimap(w.unit(b).unwrap()));
+        // Display only: the rules, the units' hidden state and the hash are the players' own.
+        assert!(!w.rules.reveal_map);
+        assert_eq!(w.unit(u).unwrap().hidden_from, hidden);
+        assert_eq!(w.state_hash(), hash);
     }
 
     #[test]

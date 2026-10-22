@@ -44,11 +44,16 @@ pub struct Args {
     #[arg(long, value_name = "ADDR", conflicts_with_all = ["map", "setup", "lobby", "replay", "goto"])]
     pub join: Option<String>,
     /// With `--host`, the lobby's choices, comma separated: `humans=2` (2 to 8), `races=human/orc` (one per human, or
-    /// `map`), `computers=N`, `fixed` (Fixed Order), `speed=0..8` (8, the fastest, by default), `row=0..15` (the
-    /// network delay: 4, a turn of 12 cycles at speed 8, by default; 3 gives 8) and `seed=N`. Classic rules, which are
-    /// opt-in, and fog of war are `--setup custom:classic,fog=off`.
+    /// `map`), `computers=N`, `fixed` (Fixed Order), `observers=0..4` (places for watchers, none by default),
+    /// `speed=0..8` (8, the fastest, by default), `row=0..15` (the network delay: 4, a turn of 12 cycles at speed 8, by
+    /// default; 3 gives 8) and `seed=N`. Classic rules, which are opt-in, and fog of war are
+    /// `--setup custom:classic,fog=off`.
     #[arg(long, value_name = "SPEC", value_parser = crate::net::lobby::LobbySpec::parse, requires = "host")]
     pub lobby: Option<crate::net::lobby::LobbySpec>,
+    /// With `--join`, watch the game instead of playing it: the host must have a place for an observer
+    /// (`--lobby observers=1`). An observer runs the game, sees the whole map and gives no commands.
+    #[arg(long, requires = "join")]
+    pub observe: bool,
     /// With `--host` or `--join`, the name this player goes by in the game.
     #[arg(long, value_name = "NAME")]
     pub name: Option<String>,

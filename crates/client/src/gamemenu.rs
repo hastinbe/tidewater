@@ -77,6 +77,8 @@ pub struct GameMenu {
     extra_speeds: u8,
     /// The game is recorded (option `auto-replay`), so the menu offers Save Replay.
     can_save_replay: bool,
+    /// The player only watches this network game.
+    observer: bool,
     /// Text shown by the current screen (wrapped).
     lines: Vec<String>,
     delay: menu::Delay,
@@ -386,7 +388,11 @@ impl GameMenu {
                 ("Objectives", true)
             }
             Screen::End => {
-                for e in menu::end_buttons(kind) {
+                // An observer has nothing to surrender.
+                for e in menu::end_buttons(kind)
+                    .into_iter()
+                    .filter(|e| !(self.observer && *e == EndButton::Surrender))
+                {
                     let label = match e {
                         EndButton::Restart => "Restart Scenario (Ctrl+R)",
                         EndButton::ReturnToChat => "Return to Chat Room",
@@ -828,6 +834,7 @@ fn open_menu(
         enhanced: sim.world.rules.enhanced,
         extra_speeds: sim.world.rules.extras.extra_speeds,
         can_save_replay: sim.session.can_save_replay(),
+        observer: sim.session.observing(),
         lines: Vec::new(),
         delay: menu::Delay::default(),
         hot: None,
@@ -1381,6 +1388,7 @@ mod tests {
             enhanced: true,
             extra_speeds: 0,
             can_save_replay: false,
+            observer: false,
             lines: vec!["text".into()],
             delay: menu::Delay::default(),
             hot: None,

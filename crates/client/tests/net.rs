@@ -104,7 +104,15 @@ fn handshake(rig: &Rig, dir: &Path, lobby_spec: &str, setup: Setup) -> (NetStart
     };
     let join_store = store(rig, dir, "joiner");
     let mut install = storage::open_install(&join_store.0).unwrap();
-    let joiner = lobby::join(&format!("127.0.0.1:{port}"), &mut install, &join_store, "Bob", |_| {}).unwrap();
+    let joiner = lobby::join(
+        &format!("127.0.0.1:{port}"),
+        &mut install,
+        &join_store,
+        "Bob",
+        false,
+        |_| {},
+    )
+    .unwrap();
     (host.join().unwrap(), joiner)
 }
 
@@ -509,9 +517,16 @@ fn a_joiner_with_a_different_map_is_refused_cleanly() {
     });
     let join_store = store(&rig, dir.path(), "joiner");
     let mut install = storage::open_install(&join_store.0).unwrap();
-    let err = lobby::join(&format!("127.0.0.1:{port}"), &mut install, &join_store, "Bob", |_| {})
-        .err()
-        .expect("refused");
+    let err = lobby::join(
+        &format!("127.0.0.1:{port}"),
+        &mut install,
+        &join_store,
+        "Bob",
+        false,
+        |_| {},
+    )
+    .err()
+    .expect("refused");
     assert!(err.to_string().contains("different map"), "{err:#}");
     // Let the host's loop finish by joining it properly with a stand-in that accepts the same hash.
     let _ = tcp::join_game(&format!("127.0.0.1:{port}"), identity, "x", |_| Ok(()), |_| {});

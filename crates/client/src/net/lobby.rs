@@ -10,6 +10,7 @@
 //! | Map | the positional map, as for a single-player game |
 //! | Rules (Enhanced, or Classic, which is opt-in) and the game's options, fog of war among them | `--setup custom:fog=off,classic` |
 //! | Humans, their races, Computer rows, Fixed Order, game speed, network delay, seed | `--lobby humans=2,races=human/orc,computers=1,fixed,speed=8,row=3,seed=N` |
+//! | Places for observers, who watch with no fog and give no commands (off unless the host asks) | `--lobby observers=1`; an observer joins with `--join ADDR --observe` |
 //! | Optional improvements that change the simulation (`docs/design/extras.md`) | the host's `--extra-NAME` flags and settings file, e.g. `--extra-rally-points` |
 //!
 //! The seed is the host's choice, sent to every machine (the seed exchange): with none given it is the host's clock.
@@ -21,7 +22,7 @@ use tidewater_formats::install::Install;
 use tidewater_sim::setup::{Lobby, Setup, race};
 
 use super::lockstep::DIRECT_IP_ROW;
-use super::proto::{DEFAULT_PORT, GameConfig, Identity, data_hash, manifest_archives};
+use super::proto::{DEFAULT_PORT, GameConfig, Identity, MAX_OBSERVERS, data_hash, manifest_archives};
 use super::tcp::{self, Wire};
 use crate::storage::Store;
 
@@ -47,6 +48,9 @@ pub struct LobbySpec {
     /// Computer rows after the humans.
     pub computers: usize,
     pub fixed_order: bool,
+    /// Places for observers, 0 to [`MAX_OBSERVERS`] (the host's choice, none by default): the game starts when every
+    /// player and every observer is in. An observer watches with no fog and gives no commands.
+    pub observers: usize,
     /// The game speed, 0 to 8.
     pub speed: u8,
     /// The network delay row (`lockstep::ROW_CYCLES`).
@@ -65,6 +69,7 @@ impl Default for LobbySpec {
             races: Vec::new(),
             computers: 0,
             fixed_order: false,
+            observers: 0,
             speed: tidewater_sim::timing::ENHANCED_MS.len() as u8 - 1,
             // The spec's gap-fill for Direct IP: row 3, 8 cycles to a turn at speed 8 (`net/lockstep.md`, "Which
             // row"). The traced Direct Connect game ran row 4 (12 cycles); `row=4` picks it.
@@ -110,12 +115,13 @@ impl LobbySpec {
                 }
                 "computers" => spec.computers = number(7)? as usize,
                 "fixed" => spec.fixed_order = true,
+                "observers" => spec.observers = number(MAX_OBSERVERS as u64)? as usize,
                 "speed" => spec.speed = number(8)? as u8,
                 "row" => spec.row = number(15)? as u8,
                 "seed" => spec.seed = Some(number(u64::from(u32::MAX))? as u32),
                 other => {
                     return Err(format!(
-                        "unknown lobby choice {other:?} (humans, races, computers, fixed, speed, row, seed)"
+                        "unknown lobby choice {other:?} (humans, races, computers, fixed, observers, speed, row, seed)"
                     ));
                 }
             }
@@ -270,7 +276,14 @@ pub fn host(
         joiners.len(),
         if joiners.len() == 1 { "" } else { "s" }
     ));
-    let wire = tcp::host_game(&listener, config.clone(), &identity, &joiners, &mut say)?;
+    if spec.observers > 0 {
+        say(&format!(
+            "and {} observer{} (join with `--join HOST:{bound} --observe`)",
+            spec.observers,
+            if spec.observers == 1 { "" } else { "s" }
+        ));
+    }
+    let wire = tcp::host_game_with(&listener, config.clone(), &identity, &joiners, spec.observers, &mut say)?;
     // The names the joiners gave came in during the handshake.
     let names = wire.names.clone();
     let mut config = config;
@@ -290,6 +303,7 @@ pub fn join(
     install: &mut Install,
     store: &Store,
     name: &str,
+    observe: bool,
     mut say: impl FnMut(&str),
 ) -> Result<NetStart> {
     let identity = identity(install, store)?;
@@ -297,10 +311,11 @@ pub fn join(
     let joined = {
         let install = &mut *install;
         let seen = &mut seen;
-        tcp::join_game(
+        tcp::join_as(
             addr,
             identity,
             name,
+            observe,
             |c| {
                 *seen = Some(describe(c));
                 let (bytes, _) = map_bytes(store, install, &c.map_name)
@@ -348,6 +363,14 @@ mod tests {
         assert_eq!(LobbySpec::parse("").unwrap(), LobbySpec::default());
         let d = LobbySpec::default();
         assert_eq!((d.humans, d.speed, d.row), (2, 8, 3));
+    }
+
+    #[test]
+    fn observers_are_off_unless_the_host_asks_for_them() {
+        assert_eq!(LobbySpec::default().observers, 0);
+        assert_eq!(LobbySpec::parse("observers=2").unwrap().observers, 2);
+        assert!(LobbySpec::parse("observers=5").is_err());
+        assert!(LobbySpec::parse("observers=x").is_err());
     }
 
     #[test]

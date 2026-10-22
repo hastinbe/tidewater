@@ -1002,6 +1002,11 @@ pub struct World {
     /// The unit whose command was just queued, so the attacker it fights is not forgotten for a command that did not
     /// take over (`waypoints.rs`). Not game state.
     pub(crate) just_queued: Option<UnitId>,
+    /// A network observer's machine (`docs/design/network.md`, "Observers"): the display shows the whole map, as the
+    /// reveal-map cheat does, **without** the sim hiding anything differently. [`World::reveal_view`] is what the
+    /// display reads; the sim reads `rules.reveal_map` only, so targeting and every other rule are the players'.
+    /// Not game state: not stored and left out of the hash.
+    pub observing: bool,
 }
 
 /// The hasher behind [`World::state_hash`]: FNV-1a over bytes, with `usize` and `isize` (vector lengths, enum
@@ -1135,6 +1140,7 @@ impl World {
             in_cycle: false,
             queue_scope: Default::default(),
             just_queued: None,
+            observing: false,
             selections: Default::default(),
             speed: crate::timing::NORMAL,
             paused: false,

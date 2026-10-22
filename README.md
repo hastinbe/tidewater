@@ -253,7 +253,7 @@ tidewater 'Maps\Cramped BNE.pud' --host --lobby humans=2,races=human/orc,seed=1 
 tidewater --join HOST-ADDRESS                                                       # each joiner
 ```
 
-The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game with Surrender or Quit shows "has left the game"; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. Details: [docs/design/network.md](docs/design/network.md).
+The default port is 6112: TCP for the game, which the host opens on its firewall (joiners need nothing open), and UDP for the Local Network list, where a game's creator broadcasts a small packet once a second (`TIDEWATER_NO_BEACON=1` turns that off; Direct IP works where broadcasts do not). Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game with Surrender or Quit shows "has left the game"; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. A host can leave places for watchers with `--lobby observers=N` (off by default); a watcher joins with `--join HOST-ADDRESS --observe`, sees the whole map, sends no commands and does not count for victory or defeat. Details: [docs/design/network.md](docs/design/network.md).
 
 ## Replays
 
@@ -268,7 +268,7 @@ Everything in this table is **planned**; none of it is built yet.
 | Track | What it adds | Status |
 |---|---|---|
 | **Import from CD images** | Read `.iso`, `.bin`/`.cue`, `.mdf` and `.nrg` images directly (when the game files are loose on the disc). | Done |
-| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts; no Battle.net, modem or skirmish screen |
+| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: menus, lobby, LAN game list, map transfer, chat and pause counts; no Battle.net, modem or skirmish screen; observers by command line only |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
 | **Touch controls** | iOS (Simulator-tested; no device or signing yet) and Android (emulator-tested). PlayStation Vita support is under evaluation. | iOS and Android early (emulator and Simulator only) |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |

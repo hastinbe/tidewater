@@ -15,8 +15,17 @@ use tidewater_sim::setup::{Lobby, Setup};
 ///
 /// Version 2: the identity names the game edition and the archives' contents (from the import manifest), and the lobby
 /// can send a map to a joiner that lacks it. Version 3: the optional improvements that change the simulation
-/// (`tidewater_sim::Extras`) have fields and travel in the lobby, and the rally command exists.
-pub const PROTOCOL: u16 = 3;
+/// (`tidewater_sim::Extras`) have fields and travel in the lobby, and the rally command exists. Version 4: Shift-queued
+/// orders (`Command::Queued`, one more byte in `Extras`) and observers (`Msg::Hello` says whether the joiner only
+/// watches, and observers have slots from [`OBSERVER_BASE`] up).
+pub const PROTOCOL: u16 = 4;
+
+/// The first slot number of an observer: a game has eight player slots (0 to 7), so observers are 8, 9 and so on. An
+/// observer's slot only names its connection; it is in no turn and no state.
+pub const OBSERVER_BASE: u8 = 8;
+
+/// The most observers one game takes.
+pub const MAX_OBSERVERS: usize = 4;
 
 /// The largest map a creator sends or a joiner accepts, in bytes. The installation's biggest maps are well under a
 /// megabyte.
@@ -131,8 +140,13 @@ pub struct GameConfig {
 /// One message. Variant order is part of the protocol.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Msg {
-    /// Joiner to host, first: who the joiner is and the name it wants.
-    Hello { identity: Identity, name: String },
+    /// Joiner to host, first: who the joiner is and the name it wants. `observer` asks for a place to watch rather than
+    /// play: the joiner runs the game and sees all of it, but gives no commands and is not a player.
+    Hello {
+        identity: Identity,
+        name: String,
+        observer: bool,
+    },
     /// Either side: the game cannot go on, and why.
     Refuse { reason: String },
     /// Host to joiner: your slot, and the game.
@@ -281,6 +295,7 @@ pub enum HelloRead {
     Hello {
         identity: Identity,
         name: String,
+        observer: bool,
     },
     /// A Hello of another [`PROTOCOL`] (its layout may differ, so only the version is read).
     OtherProtocol(u16),
@@ -306,7 +321,15 @@ pub fn read_hello(r: &mut impl Read) -> io::Result<HelloRead> {
         return Ok(HelloRead::OtherProtocol(protocol));
     }
     Ok(match postcard::from_bytes::<Msg>(&body) {
-        Ok(Msg::Hello { identity, name }) => HelloRead::Hello { identity, name },
+        Ok(Msg::Hello {
+            identity,
+            name,
+            observer,
+        }) => HelloRead::Hello {
+            identity,
+            name,
+            observer,
+        },
         _ => HelloRead::NotHello,
     })
 }
@@ -385,6 +408,12 @@ mod tests {
             Msg::Hello {
                 identity: Identity::ours(5),
                 name: "x".into(),
+                observer: false,
+            },
+            Msg::Hello {
+                identity: Identity::ours(5),
+                name: "x".into(),
+                observer: true,
             },
             Msg::Refuse { reason: "no".into() },
             Msg::Welcome {
@@ -472,6 +501,7 @@ mod tests {
         let bytes = postcard::to_stdvec(&Msg::Hello {
             identity: Identity::ours(1),
             name: String::new(),
+            observer: false,
         })
         .unwrap();
         assert_eq!(bytes[0], 0);
@@ -558,11 +588,16 @@ mod tests {
             &Msg::Hello {
                 identity: Identity::ours(3),
                 name: "Ann".into(),
+                observer: true,
             },
         )
         .unwrap();
         match read_hello(&mut ours.as_slice()).unwrap() {
-            HelloRead::Hello { identity, name } => assert_eq!((identity, name.as_str()), (Identity::ours(3), "Ann")),
+            HelloRead::Hello {
+                identity,
+                name,
+                observer,
+            } => assert_eq!((identity, name.as_str(), observer), (Identity::ours(3), "Ann", true)),
             other => panic!("{other:?}"),
         }
         let mut other = Vec::new();

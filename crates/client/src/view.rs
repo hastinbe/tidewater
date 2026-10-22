@@ -818,7 +818,7 @@ fn detected(world: &World, u: &Unit) -> bool {
 }
 
 fn hidden(world: &World, u: &Unit) -> bool {
-    u.hidden_from & bit(world.vision.local) != 0
+    !world.reveal_view() && u.hidden_from & bit(world.vision.local) != 0
 }
 
 pub fn base_of(world: &World, colour: u8) -> u8 {
@@ -857,7 +857,8 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
     let mut f = ViewFrame::default();
     let mut stop = Vec::new();
     // Layer 2: ghosts, then buildings.
-    for g in world.remembered.copies() {
+    // An observer sees the buildings themselves, so it keeps no remembered looks.
+    for g in world.remembered.copies().filter(|_| !world.observing) {
         let c = (
             g.tile.0 * 32 + 16 * g.size.0 as i32,
             g.tile.1 * 32 + 16 * g.size.1 as i32,
@@ -982,7 +983,7 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
         });
     }
     // Layer 5: effects from slot 3 up.
-    let reveal = world.rules.reveal_map;
+    let reveal = world.reveal_view();
     let map = (world.vision.width as i32, world.vision.height as i32);
     for m in world.missiles.iter().skip(PERMANENT_EFFECTS).flatten() {
         if !effect_drawn(m.showing(), reveal, || {

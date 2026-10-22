@@ -2726,6 +2726,10 @@ pub(crate) fn watch_outcome(c: &mut Core) {
     let (Some(sim), None) = (sim.as_ref(), dialog.as_ref()) else {
         return;
     };
+    // An observer is in nobody's victory or defeat: it leaves from the game menu when it has seen enough.
+    if sim.session.observing() {
+        return;
+    }
     let Some(o) = sim.world.players[sim.human as usize].result else {
         return;
     };

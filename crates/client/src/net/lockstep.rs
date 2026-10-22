@@ -214,6 +214,13 @@ impl NetSession {
         s
     }
 
+    /// Whether this machine only watches: its slot is not one of the game's humans (`docs/design/network.md`,
+    /// "Observers"). An observer runs every turn the players run, but sends no packet, no digest, no chat and no
+    /// leave, is waited for by nobody and is never part of a sync check.
+    pub fn observing(&self) -> bool {
+        !self.p.humans.contains(&self.p.me)
+    }
+
     /// The index of the next turn to carry out (turns 0 and 1 are the game start's pair).
     pub fn turn(&self) -> u32 {
         self.turn
@@ -254,6 +261,9 @@ impl NetSession {
 
     /// Puts a packet at the back of the queue and sends it.
     fn queue_packet(&mut self, cmd: Option<Command>) {
+        if self.observing() {
+            return;
+        }
         let packet = Packet {
             seq: self.next_seq,
             cmd,
@@ -394,7 +404,8 @@ impl NetSession {
     /// Whether the check of turn `n` has what it needs from `slot`: its digest for turn `n - 1`, unless its packet is
     /// a leave or a drop (a leaver may be gone before it reached that turn).
     fn sync_ready(&self, slot: u8, n: u32) -> bool {
-        if n < 3 || self.dropped_at.get(&slot) == Some(&n) {
+        // An observer has no digest of its own to check against, so it waits for none.
+        if n < 3 || self.observing() || self.dropped_at.get(&slot) == Some(&n) {
             return true;
         }
         let leaving = matches!(
@@ -420,6 +431,7 @@ impl NetSession {
         if !self.started {
             self.started = true;
             if n >= 2
+                && !self.observing()
                 && let Some(&digest) = self.digests.get(&n)
             {
                 let msg = Msg::Sync {
@@ -429,7 +441,7 @@ impl NetSession {
                 };
                 self.wire().send(msg);
             }
-            while self.queue.len() < QUEUE_TARGET {
+            while !self.observing() && self.queue.len() < QUEUE_TARGET {
                 self.queue_packet(None);
             }
         }
@@ -439,7 +451,12 @@ impl NetSession {
             return false;
         }
         self.missing.clear();
-        let mine = self.queue.pop_front().expect("the queue was topped up");
+        // An observer has no packets of its own: only the players' make the turn.
+        let mine = if self.observing() {
+            Packet { seq: n, cmd: None }
+        } else {
+            self.queue.pop_front().expect("the queue was topped up")
+        };
         debug_assert_eq!(mine.seq, n, "turn {n} carries packet {n}");
         let mut leavers = Vec::new();
         if n == 0 {
@@ -467,7 +484,7 @@ impl NetSession {
                 self.inbox.get_mut(&s).and_then(|m| m.remove(&n)).flatten()
             };
             // The sync check: this player's digest of the last turn against ours.
-            if s != self.p.me && n >= 3 && !matches!(cmd, Some(Command::Leave { .. })) {
+            if s != self.p.me && n >= 3 && !self.observing() && !matches!(cmd, Some(Command::Leave { .. })) {
                 let theirs = self.syncs.get(&(s, n - 1));
                 if let (Some(&mine), Some(&theirs)) = (self.digests.get(&(n - 1)), theirs)
                     && mine != theirs
@@ -522,7 +539,7 @@ impl NetSession {
 
 impl Session for NetSession {
     fn submit(&mut self, cmd: Command) {
-        if self.exit || self.left || self.queue.len() >= QUEUE_LIMIT {
+        if self.observing() || self.exit || self.left || self.queue.len() >= QUEUE_LIMIT {
             return;
         }
         self.queue_packet(Some(cmd));
@@ -531,6 +548,10 @@ impl Session for NetSession {
     /// A surrender is not a turn command: it ends this machine's game at once, and the machine leaves the session as
     /// its game ends, so the others see "left" (`net/leave-and-drop.md`, "Surrender and quit (draw)").
     fn immediate(&mut self, tick: u32, cmd: Command) -> Option<Command> {
+        // An observer has no game to surrender: leaving is quitting to the menu.
+        if self.observing() {
+            return None;
+        }
         match cmd {
             Command::Surrender { .. } | Command::QuitDraw { .. } => {
                 self.send_leave(false);
@@ -623,18 +644,22 @@ impl Session for NetSession {
         std::mem::take(&mut self.exit).then_some(Command::Surrender { player: self.p.me })
     }
 
+    fn observing(&self) -> bool {
+        NetSession::observing(self)
+    }
+
     fn abort_game(&mut self) {
         // Ctrl+F1 is checked while the game waits for a turn (`net/lockstep.md`, "Stalls", step 5).
-        if self.stalled_since.is_some() && !self.exit {
+        if self.stalled_since.is_some() && !self.exit && !self.observing() {
             self.send_leave(true);
             self.exit = true;
         }
     }
 
     fn drop_missing(&mut self) {
-        // Alt+F2 counts from the eighth interval on (step 6): the dialog is open.
+        // Alt+F2 counts from the eighth interval on (step 6): the dialog is open. A drop is a player's call.
         let Some(w) = self.waiting() else { return };
-        if !w.dialog {
+        if !w.dialog || self.observing() {
             return;
         }
         self.pump();
@@ -657,7 +682,7 @@ impl Session for NetSession {
 
     fn send_chat(&mut self, allies: bool, text: &str) {
         let text = clean_chat(text);
-        if text.is_empty() || self.exit || self.left {
+        if text.is_empty() || self.exit || self.left || self.observing() {
             return;
         }
         let slot = self.p.me;
@@ -681,7 +706,7 @@ impl Session for NetSession {
     }
 
     fn send_ping(&mut self, tile: (i32, i32)) {
-        if self.exit || self.left || !(0..256).contains(&tile.0) || !(0..256).contains(&tile.1) {
+        if self.observing() || self.exit || self.left || !(0..256).contains(&tile.0) || !(0..256).contains(&tile.1) {
             return;
         }
         let slot = self.p.me;
@@ -914,6 +939,50 @@ mod tests {
         peers
     }
 
+    /// Two players and one observer on loopback: peers 0 and 1 play, peer 2 watches.
+    fn watched_game(row: u8, speed: u8, time: &Time) -> Vec<Peer> {
+        let listener = tcp::listen(0).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let id = Identity::ours(1);
+        let cfg = config(2, row, speed);
+        let host = thread::spawn({
+            let (id, cfg) = (id.clone(), cfg.clone());
+            move || tcp::host_game_with(&listener, cfg, &id, &[1], 1, |_| {}).unwrap()
+        });
+        let addr = format!("127.0.0.1:{port}");
+        let join = |observe: bool| {
+            let (id, addr) = (id.clone(), addr.clone());
+            thread::spawn(move || tcp::join_as(&addr, id, "", observe, |_| Ok(()), |_| {}).unwrap())
+        };
+        let player = join(false);
+        thread::sleep(Duration::from_millis(60));
+        let watcher = join(true);
+        let host_wire = host.join().unwrap();
+        let mut peers = vec![Peer::new(NetSession::with_clock(
+            params(0, &cfg, cfg.names.clone()),
+            Box::new(host_wire),
+            None,
+            time.clock(),
+        ))];
+        for j in [player.join().unwrap(), watcher.join().unwrap()] {
+            peers.push(Peer::new(NetSession::with_clock(
+                params_for(j.slot, &cfg, &j.config, j.names.clone()),
+                Box::new(j.wire),
+                None,
+                time.clock(),
+            )));
+        }
+        peers
+    }
+
+    /// The session parameters of a joiner: the humans are the game's players, whatever the joiner's own slot.
+    fn params_for(me: u8, _cfg: &GameConfig, shown: &GameConfig, names: Vec<String>) -> Params {
+        Params {
+            me,
+            ..params(0, shown, names)
+        }
+    }
+
     /// Runs every peer until each has reached cycle `until` or `stuck` consecutive rounds gave no progress.
     fn run(peers: &mut [Peer], until: u32) {
         let mut idle = 0;
@@ -943,6 +1012,32 @@ mod tests {
             .filter(|(_, c)| c.contains(cmd))
             .map(|&(t, _)| t)
             .collect()
+    }
+
+    #[test]
+    fn an_observer_runs_the_same_cycles_sends_nothing_and_leaves_the_players_in_sync() {
+        let time = Time::default();
+        let mut peers = watched_game(TRACED_DIRECT_CONNECT_ROW, 8, &time);
+        assert!(!peers[0].s.observing() && !peers[1].s.observing());
+        assert!(peers[2].s.observing());
+        peers[0].script.insert(5, vec![stop(0)]);
+        peers[1].script.insert(30, vec![stop(1)]);
+        // Whatever the observer tries to submit goes nowhere.
+        peers[2].script.insert(5, vec![stop(0), stop(1)]);
+        run(&mut peers, 200);
+        // The same commands in the same cycles on all three, so the same state.
+        assert_eq!(peers[0].state, peers[1].state);
+        assert_eq!(peers[0].state, peers[2].state);
+        assert_eq!(peers[0].applied, peers[2].applied);
+        assert_eq!(when(&peers[2], &stop(0)).len(), 1);
+        assert_eq!(when(&peers[2], &stop(1)).len(), 1);
+        // The players are not waiting for it and never lost it.
+        assert!(peers[0].s.take_leave_notices().is_empty());
+        assert!(peers[1].s.take_leave_notices().is_empty());
+        // The players go on without the observer reading anything.
+        peers[2].frozen = true;
+        run(&mut peers[..2], 400);
+        assert_eq!(peers[0].state, peers[1].state);
     }
 
     #[test]

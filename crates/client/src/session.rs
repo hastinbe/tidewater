@@ -72,6 +72,12 @@ pub trait Session: Send + Sync {
     /// a replay of this game may not reproduce it. A recording keeps the note.
     fn note_unsynced(&mut self, _what: &str) {}
 
+    /// Whether the player only watches this game (a network observer): no commands are taken, the whole map shows and
+    /// the player's own victory or defeat is not announced.
+    fn observing(&self) -> bool {
+        false
+    }
+
     /// Whether this session records the game, so the game menu can offer to save the recording (`auto-replay`).
     fn can_save_replay(&self) -> bool {
         false
