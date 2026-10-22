@@ -4679,6 +4679,13 @@ mod tests {
             // Not found: it goes on following the peasant (a follower next to its unit guards it).
             let want = if found { grunt } else { p };
             assert_eq!(w.units[i].order.target(), Some(want), "grunt at {grunt_x}");
+            if found {
+                // Round 99 review: the follow steps run on the picked grunt, outside the radius, so the follow is
+                // given toward it: order 6 (not 12), the still animation, wait 3 (V286's trace).
+                let u = &w.units[i];
+                assert_eq!(u.order, Order::Follow { target: grunt });
+                assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+            }
         }
     }
 
