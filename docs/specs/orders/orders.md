@@ -72,6 +72,9 @@
   session, 2026-10-22): "Holding and releasing workers": the release before a refused command, the right-click that
   doesn't release and the build that releases every selected held worker are traced (HW7a to HW7c); HW6 is now
   traced by HW7b. No rule changed.
+- **Changes:** 2026-10-22, round 103 (static study, `ERRATA-round103-traces.md` section 1, CB2; reviewed by a
+  spec-review session, 2026-10-22): command 4's smart-move step is for workers, tankers, demolition units and casters
+  only; a transport gets plain order 4 (`orders/transports.md`, "Command 4 to a transport").
 
 ## Behaviour
 
@@ -379,7 +382,7 @@ A command carries a target unit or a target tile (or neither). It turns into an 
 | Command | Result |
 | --- | --- |
 | 3, smart move (right-click) | See "Smart move" below |
-| 4, move and attack on the way | A non-combat unit is first handled as a smart move; the order then becomes 4. (A player's command 4 reaches only units that pass the selection filter, `ui/selecting-and-commanding.md`, "Which units take part in a command": a transport doesn't take it and is left untouched, its unload-on-arrival mark included; traced: `orders/transports.md`, V40.) With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3). As on arrival, the unit also forgets its attacker (static study) |
+| 4, move and attack on the way | A worker, tanker, demolition unit (both kinds) or caster (the mage and death knight types, heroes included) is first handled as a smart move (its step, wait cap included); the order then becomes 4. Every other unit, **transports included**, just gets order 4 (static study, round 103, CB2: a transport gets no smart-move stage, `orders/transports.md`, "Command 4 to a transport"). (A player's command 4 reaches only units that pass the selection filter, `ui/selecting-and-commanding.md`, "Which units take part in a command": a transport doesn't take it and is left untouched, its unload-on-arrival mark included; traced: `orders/transports.md`, V40.) With a target unit, the unit walks to the target's tile and also records the unit as its target (the trace shows it from the command). Each time order 4's logic runs (at a step boundary), if that target is dying or lost ("Arriving and losing the target"), the order ends as on arrival: idle becomes the pending order, with the Enhanced resume, and takes over in the same update (wait 3). As on arrival, the unit also forgets its attacker (static study) |
 | 5, patrol | Order 5 between the unit's position and the target tile. In Enhanced mode the unit also remembers "patrol", with both ends: the command's goal and the tile the unit stands on when the command is given ("Resuming patrol and attack-move") |
 | 8, attack | Target unit, of any owner (the player's own, an ally's and a neutral unit included): order 9. Target tile, as given, is a wall tile: order 11 ("Order 11: attacking a wall tile"). Otherwise: order 10 (attack-move); in Enhanced mode the unit also remembers "attack-move" with the target tile |
 | 9 | Target unit, of any owner: order 9; target tile, as given, a wall tile: order 11; otherwise order 2 |
@@ -1001,8 +1004,8 @@ the other players' move is static study only:
   move (command 3). It meets the boarding rule of "Smart move" again, so the unit **stays in order 34** and the
   transport is told to come again (unless it is landing).
 - **Computer players:** command 4 (move and attack on the way). The unit **leaves order 34**: its order becomes 4,
-  aimed at the transport's tile, wherever the transport stands at each walk ("Attack-move"). A non-combat unit is
-  first handled as a smart move, as for any command 4, but its
+  aimed at the transport's tile, wherever the transport stands at each walk ("Attack-move"). A worker, tanker, demolition unit or caster is
+  first handled as a smart move, as for any command 4 ("Commands"), which calls the transport, but its
   order still becomes 4. It boards only if it is later given the boarding command again.
 
 ### Automatic target acquisition
@@ -2141,3 +2144,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 100 | Oracle trace on a generated map with a sea: a non-computer unit waiting in board (34) searches the react range (human) box (reverses the round-97 default, the attack range); open question closed | "Search box"; "Open questions"; vector V288 |
 | 101 | Hold workers and Release workers (sent while the player places a building; single player too); the frozen states, the release update, the release before unit and build commands (traced, HW1 to HW5) | "Holding and releasing workers"; "How an update runs"; vectors HW1 to HW6 |
 | 102 | The release before a refused command, the right-click that doesn't release and the build that releases every selected held worker traced (HW7a to HW7c); no rule changed | "Holding and releasing workers"; vectors HW7a to HW7c |
+| 103 | Command 4's smart-move step: workers, tankers, demolition units and casters only; transports get plain order 4 (static study, CB2) | "Commands" (table); "Boarding moves" |

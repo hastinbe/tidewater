@@ -66,6 +66,10 @@
   still version 2: the held TG4 case is explained (the command's pull-back, `orders/transports.md` V46 to V48), so a
   transport's `goal` is compared in every record with no exception. One more input kind, `right-click` (`tile`,
   `target`), may appear in the header's `input` and in turn records' `commands`.
+- **Changes:** 2026-10-22, round 103 (`ERRATA-round103-traces.md` section 2; reviewed by a spec-review session,
+  2026-10-22), still version 2: the opt-in extra `groups` (every player's control groups and synced selection,
+  compared) and two input kinds, `set-group` and `recall-group` (`group`), which a turn record names only when the
+  trace has the `groups` extra (otherwise `other`).
 
 ## Behaviour
 
@@ -153,7 +157,7 @@ The setup record is the same as a complete capture's of the same scenario.
 | `opponents` | Multiplayer launch only: the number of lobby rows set to Computer, 0 to 6. It is the count the opponent placement works from (`game/setup.md`, "Multiplayer game"), so with random starts the setup makes 1 + `opponents` placement draws when it is at least 1 (none when 0), even if a placement search fails and fewer computers are placed. Traces made before round 60 (2026-10-13) don't have it; for those, count the computer controllers after setup |
 | `starts` | Multiplayer launch only: the lobby's "Location" option, `"random"` (the default) or `"fixed"` (Fixed Order: each Computer row takes its same-numbered slot, with **no** placement draws; `game/setup.md`, "Fixed Order"). A `"fixed"` trace also has `-fixed` in its file name. Traces made before round 60 don't have it; all of them are `"random"` |
 | `from` | Windowed trace only: F, a whole number of at least 1, the first `n` from which every `cycle` and `turn` record is written ("Windowed traces"). Absent means the trace is complete from n 0 |
-| `extras` | Only when extras are on: the optional fields this trace adds, as a sorted list of extra names. `"aiworkers"`, `"goals"` and `"hits"` are described in "Opt-in extras"; any other name (`"aigoals"`, `"aigroups"`, `"aijobs"`, `"airesearch"`, `"fogmaps"`, `"game"`, `"vision"`) adds a research field of the same name that a comparer ignores. Absent means none: no record has `aiworkers` or `hits` and no unit has `goal`, `pending` or `transport_dest` |
+| `extras` | Only when extras are on: the optional fields this trace adds, as a sorted list of extra names. `"aiworkers"`, `"goals"`, `"groups"` and `"hits"` are described in "Opt-in extras"; any other name (`"aigoals"`, `"aigroups"`, `"aijobs"`, `"airesearch"`, `"fogmaps"`, `"game"`, `"vision"`) adds a research field of the same name that a comparer ignores. Absent means none: no record has `aiworkers`, `groups` or `hits` and no unit has `goal`, `pending` or `transport_dest` |
 | `setup_only` | Only when `true`: the trace is the header and the `setup` record and nothing else ("Setup-only traces") |
 
 None of these three changes `rules`, `enhanced` or any other field: a windowed, setup-only or extras trace is Enhanced
@@ -173,6 +177,7 @@ unless Classic was explicitly requested on the multiplayer path, exactly as a de
 | `hits` | Only when `extras` has `"hits"`: the calls of the damage step made by this record's work, one entry per call in the order they happened ("Hit entries"). Absent when there was no call. The `setup` record never has it |
 | `load` | A loaded game's `setup` record only: the save's name, as in the `load` input entry ("Saves, loads, cheat words and fog") |
 | `aiworkers` | Only when `extras` has `"aiworkers"`, on every `setup`, `startup`, `cycle`, `turn` and `save` record: the computer workers' job counts ("Computer worker jobs") |
+| `groups` | Only when `extras` has `"groups"`, on every record with game state: each player's control groups and synced selection ("Control groups") |
 | Research fields | Only when `extras` names them: `aigoals`, `aigroups`, `aijobs`, `airesearch`, `fogmaps`, `game`, `vision`, on any record. Described in "Research extras"; a comparer ignores them |
 
 ### Unit fields
@@ -227,6 +232,8 @@ and `kind`.
 | `hold-workers` | — | Hold workers: the player's synced selection's workers are held (`orders/orders.md`, "Holding and releasing workers"). The game sends it when its player picks a building to place (round 101) |
 | `release-workers` | — | Release workers: the same units are released (the same section). The game sends it when its player leaves placement mode without placing (round 101) |
 | `right-click` | `tile`, `target` | A right-click command for the player's synced selection (`ui/selecting-and-commanding.md`, "What a right-click command does"), as the game sends it for a right click on the map: `tile` is `[x, y]`, `target` a unit slot or `null`. It doesn't release held workers (`orders/orders.md`, HW7b; round 102) |
+| `set-group` | `group` | Set control group `group` (0 to 17) from the player's synced selection (`ui/selecting-and-commanding.md`, "Control groups"), as the game sends it for its group keys. A turn record names it only when the trace has the `groups` extra; otherwise the same command is listed as `other` (round 103) |
+| `recall-group` | `group` | Recall control group `group` into the player's synced selection (the same section), likewise named only with the `groups` extra (round 103) |
 | `other` | — | A command of a kind this format doesn't describe. No input command entry gives one, but other inputs make them: a `say` entry's typing (the pause and the resume around it), and on the multiplayer launch the second human's chat lines, its leave or drop notice, and the message a click on a command button (such as Move) sends, which changes no unit. A comparer lists them and carries out nothing for them |
 
 A command whose conditions fail (a unit not owned by the player, a builder that is neither a worker nor a tanker, too
@@ -404,7 +411,7 @@ runs").
 
 The harness can add optional fields that a default trace never has. Each is opt-in and named in the header's
 `extras`: `"hits"` adds the record field `hits`, `"goals"` adds the unit fields `goal`, `pending` and
-`transport_dest`, `"aiworkers"` adds the record field `aiworkers`. They change nothing else: with these fields removed, a trace with extras has the same records as the
+`transport_dest`, `"aiworkers"` adds the record field `aiworkers`, `"groups"` adds the record field `groups`. They change nothing else: with these fields removed, a trace with extras has the same records as the
 default trace of the same scenario, but for the permanent drawing effects in effect slots 0 to 2
 (`core/unit-slots.md`), which can move by a record because watching the hits slows the game's pacing. No comparer
 checks those slots.
@@ -458,6 +465,14 @@ n = 2, `[16, 0]`), 32 repairing.
 `mode` is the worker's harvest mode: 128 gold, 64 lumber, 0 neither yet. Values the game keeps next to these that no
 spec defines are left out.
 
+**Control groups.** `"groups"` (round 103) adds the record field `groups` to every record that has game state: an
+object keyed by player number (a decimal string, players 0 to 7), with an entry only for a player that has a nonempty
+group or a nonempty synced selection. Each entry is `{"groups": {...}, "selection": [...]}`: `groups` maps each
+nonempty group's number (a decimal string, 0 to 17) to its units' slots in group order, and `selection` lists the
+slots of the player's synced selection (`ui/selecting-and-commanding.md`, "Two selections") in order. Example
+(`mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000`, n = 221): `{"0": {"groups": {"1": [1599, 1596,
+1597]}, "selection": [1595, 1594, 1593]}}`.
+
 **Which record lists a call.** The record whose work made the call: a `startup`, `cycle` or `turn` record. When a turn
 made calls but gets no record (it drew no random numbers and carried out no command), its entries go with the next
 record written. In a windowed trace calls before F aren't listed, except that a `turn` record in the gap lists its
@@ -468,7 +483,8 @@ them, it compares `hits` only where a spec defines the calls (`combat/damage.md`
 `goal` and `transport_dest` only where a spec defines the stored value (leftovers on idle units and buildings mean
 nothing). It compares `aiworkers` as 16-bit numbers, wrapped values included: the counts, `hall_cooldown` and
 `building` exactly, and `jobs` only for slots that are in the same record's `units` (a released slot's leftover
-bits, if one ever showed, would mean nothing; none has been seen). The research fields (`aigoals`, `aigroups`,
+bits, if one ever showed, would mean nothing; none has been seen). It compares `groups` exactly: each player's groups
+with their entries in order, and the selection in order (V-G1 in `ui/selecting-and-commanding.md`). The research fields (`aigoals`, `aigroups`,
 `aijobs`, `airesearch`, `fogmaps`, `game`, `vision`) are described in "Research extras" but aren't compared.
 
 ### Research extras
@@ -562,7 +578,7 @@ the first start-up cycle.
 | --- | --- | --- | --- |
 | 1 | Header `version` | `1` | `2` |
 | 2 | Header | — | Field `input` |
-| 2 | `commands` kinds | — | `select`, `command`, `build`, `job`, `other`; `cheat` was added later without a version change, since no trace had written a cheat command as `other`, and so were `cancel` and `cancel-job` (round 77), since no input scenario had given either, and `hold-workers` and `release-workers` (round 101), and `right-click` (round 102). A trace written before round 101 would list the first two as `other`, and one written before round 102 a right-click as `other` |
+| 2 | `commands` kinds | — | `select`, `command`, `build`, `job`, `other`; `cheat` was added later without a version change, since no trace had written a cheat command as `other`, and so were `cancel` and `cancel-job` (round 77), since no input scenario had given either, and `hold-workers` and `release-workers` (round 101), `right-click` (round 102), and `set-group` and `recall-group` (round 103, named only in a trace with the `groups` extra). A trace written before round 101 would list the first two as `other`, and one written before round 102 a right-click as `other` |
 | 3 | `turn` record, when written | Only when the turn drew random numbers | When the turn drew random numbers or carried out at least one command |
 | 4 | `turn` record fields | The record fields | The record fields and, when commands ran, `commands` |
 

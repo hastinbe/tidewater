@@ -39,6 +39,11 @@
   "goal pulled back" rule, from the area of the transport's own tile, which is the coast's land area when it is docked
   (traced, V46 to V48); the push-off's picked tile is pulled back the same way (static study, V49). The open question
   "A loaded transport's target tile when moved from the dock" (TG4) is closed: passengers play no part.
+- **Changes:** 2026-10-22 (round 103, `ERRATA-round103-traces.md` sections 1 and 3 and `ERRATA-audit2-orders.md`,
+  "Round 103"; reviewed by a spec-review session, 2026-10-22): the push-off pick's pull-back is traced (V50 to V52);
+  static study: the unload command keeps its target unit (CB1, V53, V54), command 4 gives a transport plain order 4
+  with no smart-move stage (CB2, V55; reverses the round-75 default), and a boarding unit's call to its transport is a
+  full command (CB3, V56). Two open questions closed.
 
 ## Behaviour
 
@@ -164,11 +169,23 @@ pulled-back tile.
 The three things are recorded **once per command**, when it is given (static study, round 71, `ERRATA-round71.md`,
 Q3 and Q4). The smart-move stage that picks the order (the table below) works from the target tile the command
 recorded: it doesn't record them a second time, and the land and shore steps don't run again. That holds for a smart
-move given directly (a player's, the flee's, follow step 1's) and for command 4 given to a transport, which as a
-non-combat unit goes on as a smart move: the command records once, not once more for the smart move. A **player's**
-command 4 never gets this far: the transport doesn't take it ("Clearing the mark", V40), so it records nothing.
-Only a command 4 that reaches the transport some other way (a computer player's routine; see "Open questions") goes
-on as a smart move. A command with no tile of its own (stop, stand ground) records the tile fields the command
+move given directly (a player's, the flee's, follow step 1's).
+
+**Command 4 to a transport** (static study, round 103, CB2). Command 4 (move, attacking on the way) runs the smart
+move's own step first only for workers, tankers, demolition units and casters (`orders/orders.md`, "Commands"); a
+transport isn't one of them. A command 4 that reaches a transport therefore records the three things (with "Land and
+shore targets") and leaves **order 4** pending, with no smart-move stage (none of the table below) and no smart-move
+wait cap. A **player's** command 4 never gets this far: the transport doesn't take it ("Clearing the mark", V40), so
+it records nothing. Only a command 4 from a computer player's routine can reach a transport (V55; no trace has one).
+
+**The unload command keeps its target unit** (static study, round 103, CB1). The unload command (command 29) records
+the target unit the command names, as every command does. The interface's unload button sends command 29 on the
+transport's own tile when it is docked, and otherwise enters target mode (`ui/command-buttons.md`), whose click names
+the unit under the cursor as the target. "Land and shore targets" then drops the target whenever the target tile is
+land or shore water; a target unit on open water is kept, so the table below follows an own unit that isn't a building
+(order 6) and moves to any other target's tile (V53, V54).
+
+A command with no tile of its own (stop, stand ground) records the tile fields the command
 carries, like any other; in the oracle's input those are (0, 0). Which tile the game's own buttons put there isn't established.
 
 **Land and shore targets.** After those are recorded, if the target tile has the land bit (0x01) or the shore-water
@@ -275,10 +292,11 @@ movement logic (path cache, arrival test) doesn't run for it. Instead, each time
    becomes the **pending** order and takes over in the same update (still animation, wait 3; static study, round 70,
    untraced), and the run ends. If one passes, it becomes the target tile (the destination is not touched), the
    cached path is dropped and the blocked counter is cleared. The new target tile is then **pulled back** as a
-   command's is ("Pulled back from the transport's own area"), from the transport's tile (static study, round 102):
-   a pick next to the transport is never changed, since no tile lies between; a pick two or more tiles away becomes
-   the tile before the first usable tile on the line, which happens when a tile of the transport's own region (for
-   a docked transport, a shore-water tile of the coast) lies between (V49).
+   command's is ("Pulled back from the transport's own area"), from the transport's tile (traced, round 103: V50 to
+   V52; first stated from static study in round 102, V49): a pick next to the transport is never changed, since no
+   tile lies between; a pick two or more tiles away becomes the tile before the first usable tile on the line, which
+   happens when a tile of the transport's own region (for a docked transport, a shore-water tile of the coast) lies
+   between (V49 to V51). The next run aims its ring search at the pulled-back tile.
 3. **Forget lost targets:** a target unit or attacker that is no longer valid or no longer detected by the
    transport's owner (fog doesn't matter; see `vision/fog.md`, "What uses vision") is forgotten. If the target unit
    was forgotten, idle (order 2) is made the pending order, so the push-off ends at the next step boundary.
@@ -324,8 +342,19 @@ computer players).
 **The command.** A smart move by a **land-class** unit whose target is a transport **of its own side**:
 
 1. Unless the transport's current order or pending order is 30 (landing), the transport is given a smart move whose
-   target is the boarding unit (so it comes to meet it, by the rules above).
+   target is the boarding unit (so it comes to meet it, by the rules above). This is a **full command** to the
+   transport (static study, round 103, CB3): everything a command does applies (`orders/orders.md`, "What every
+   command does"), so the transport's wait is cut by the smart move's wait cap (`orders/orders.md`, "Smart move",
+   step 1: 10 cycles, 40 for a computer player's transport), its target tile is pulled back ("Pulled back from the
+   transport's own area"), and until its pending order takes over it counts as a unit with a command waiting, which
+   the moving-ally test of `movement/movement.md` (row F) treats as about to move. The human player's no-route
+   restart below calls the transport the same way.
 2. The unit gets order 34.
+
+The same call is made when a worker, tanker, demolition unit or caster is given **command 4** with its own transport
+as the target: command 4 runs the smart move's step first for those units ("Command 4 to a transport";
+`orders/orders.md`, "Commands"), which calls the transport as above and cuts the unit's own wait, and then leaves
+order 4 pending (V56, static study).
 
 **Order 34 (board)** is a walking order. While the unit walks to its goal, only the movement runs at each step, so a
 unit of **any** player, computer players included, stays in order 34 while it walks to the transport. The walk's route
@@ -439,6 +468,8 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V21 | Straight line, S = (20, 20), G = (25, 22) | Tiles tested: (20, 20), (21, 21), (22, 21), (23, 21), (24, 22); the walk stops at (25, 22) | Example |
 | V25 | Human04 n = 1 (oracle trace): transport (slot 1543) at (68, 88), open water, region 0. Smart move with the great hall (slot 1550) as the target unit, G = (81, 84), land | Target unit dropped. The line from (68, 88) to (81, 84) has M = 13, m = 4, and the walk back passes (81, 84), (80, 84), (79, 85), (78, 85), (77, 85), (76, 86), (75, 86), (74, 86), (73, 87), (72, 87), (71, 87), (70, 87), (69, 88). The first usable tile is (69, 88) (open water, region 0), so K = (70, 87). (70, 87) is shore water, with no bit of 0x0901 and the same region value as (81, 84), so the target tile and destination are (70, 87): order 30, wait 3 at n = 1. It steps to (69, 87) at n = 4 and (70, 87) at n = 20, and docks at n = 36: order 32 | Trace (Human04) |
 | V26 | As V25 (Human04): the same transport at n = 51, docked on (70, 87) (shore water); the same smart move | Target unit dropped. It isn't on open water, so G stays (81, 84). First rule (S shore water, same region, land first): order 32, target tile S. It stays docked; the same happens every 50 cycles | Trace (Human04) |
+| V53 | Loaded transport sailing on open water; the player's unload is clicked on an own destroyer standing on open water two tiles from the coast (static study, round 103, CB1) | The transport's target unit is the destroyer and its target tile the destroyer's tile, open water: no unload-on-arrival mark, order 6 (follow) | Example |
+| V54 | As V53, the click on an own destroyer standing on a shore-water tile | "Land and shore targets" drops the target unit and keeps the shore-water target tile (adjusted as that paragraph says); unload-on-arrival is set, as for an unload clicked on the tile with no unit | Example |
 | V43 | `human12-unload-then-refused-goals-900` (oracle trace, Enhanced), transport 1428 | n = 22 (a boarding unit's call): target tile and destination (35, 114), pending 30. n = 45 (docked at (35, 114); a boarder's call from (34, 112)): destination (34, 112), target tile (35, 114) (the docked smart stage). n = 112 (a move to (28, 120)): both (28, 120), pending 31. n = 119: target tile (36, 114) (the push-off tile). n = 135: order 3, target tile (28, 120). n = 302 (unload toward (18, 118)): both (16, 120), pending 30; unchanged through order 30, order 29 (n = 533) and order 32 (n = 534) | Trace |
 | V44 | `mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100` (oracle trace, Enhanced, generated map `R100-tests.pud`; scenario `oracle/scenarios/mp-r101-transport-goals.txt`), transport 1599, empty, docked at (22, 51); a move to (30, 58) in turn record 830 | Turn record 830: both (30, 58), pending 31. n = 834: target tile (22, 52) (the push-off tile). n = 850: order 3, target tile (30, 58) | Trace |
 | V45 | The same trace: transport 1599 with six footmen aboard, sailing (order 3); an unload toward land tile (16, 48) in turn record 530 | Both (22, 51) (the shore tile picked for the land target), pending 30; unchanged through order 30 (from n = 541), order 29 (n = 672) and order 32 (n = 673) | Trace |
@@ -446,6 +477,9 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V47 | `mp-r100-tests-mp-r102-transport-one-fixed-goals-1100` (oracle trace, Enhanced, generated map `R100-tests.pud`; scenario `oracle/scenarios/mp-r102-transport-one.txt`): the move of V46 with one footman (1598) aboard | Turn record 326: target tile (40, 52), destination (20, 58), pending 31. n = 330: (42, 52). n = 346: order 3, target tile (20, 58) | Trace |
 | V48 | The same trace: transport 1599, empty after unloading, docked at (22, 51), moved to (2, 58) in turn record 830 | Turn record 830: target tile **(20, 52)** (the first usable tile on the walk back is (21, 51)), destination (2, 58), pending 31. n = 834: (22, 52) (push-off pick). n = 850: order 3, target tile (2, 58). V44's move from the same dock to (30, 58) tests (29, 57) to (23, 52), none usable, and keeps (30, 58) | Trace |
 | V49 | A transport docked at (42, 51) as in V46 whose push-off ring search picks (46, 52); (44, 51) is a shore-water tile of its region, (45, 52) open water | The walk back tests (45, 52), then (44, 51), usable: the target tile becomes **(45, 52)**, not (46, 52), and the next run's ring search aims at (45, 52) | Example (static study) |
+| V50 | `mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100` (oracle trace, Enhanced, generated map `R103-far.pud`, whose shore band is two rows deep, rows 51 and 52, both in the coast's land region; scenario `mp-r103-far-pushoff`): transport 1599 docked at (42, 52); destroyers on (40, 54), (42, 54) and (44, 54) fill every even open-water tile within three tiles; moved to (42, 60) in turn record 374 | Turn record 374: target tile and destination (42, 60) (nothing usable on the line, kept), pending 31. n = 381: target tile **(40, 53)**: the ring search picks (38, 54), four tiles away; the walk back tests (39, 53) (open water), (40, 53) (open water), then (41, 52), shore water of the transport's region, usable. n = 413: (38, 54) (the next run, from (40, 52) and aimed at (40, 53), picks (38, 54) again; the one tested tile, (39, 53), isn't usable, so it is kept). n = 445: order 3, target tile (42, 60) | Trace |
+| V51 | The same trace: docked again at (42, 52), moved to (50, 60) in turn record 878 | n = 886: target tile **(44, 53)** (pick (46, 54); tests (45, 53), (44, 53), then (43, 52), usable). n = 918: (46, 54). n = 950: order 3, target tile (50, 60) | Trace |
+| V52 | `mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000` (oracle trace, Enhanced, generated map `R103-tests.pud`): transports 1592 and 1591 docked at (42, 52) and (14, 52), moved to (42, 60) and (22, 60) | Picks (44, 54) and (12, 54), two tiles away, unchanged (the one tested tile is open water) | Trace |
 
 ### Landing at the shore
 
@@ -501,6 +535,8 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V37 | As V36 (`orc12-orc12-guard-board-full-900`), n = 302 (turn record of the input at n = 300): ogre 1443 (type 0x07, owner 0) told to board 1434 | Order 34 from n = 303; it waits next to the transport at (20, 121) from n = 342 | Trace (`orc12-orc12-guard-board-full-900`) |
 | V38 | As V36 (`orc12-orc12-guard-board-full-900`), n = 602 (turn record of the input at n = 600): 1434 told to move to (26, 118) | n = 607: 1434 pushes off (order 31); in the same cycle 1443 gives up: order 2, still animation, wait 3, target none | Trace (`orc12-orc12-guard-board-full-900`) |
 | V42 | `mp-r100-tests-mp-r100-tests-fixed-goals-3000` (oracle trace, Enhanced, generated map `R100-tests.pud`): human player's footman 1592 in order 34 on transport 1599, docked (order 32) at (42, 51) with all 6 slots taken and its destination (24, 48) in the footman's region; the footman was hit on its walk by dragon 1584 and reaches (41, 50) at n = 887; grunt 1585 (owner 1) stands at (41, 47) | n = 903: it can't board (full), the reaction runs and its search, with the react range (human) box (radius 4), picks the grunt 3 tiles away: order 12, target 1585 (`orders/orders.md` V288) | Trace |
+| V55 | A computer player's routine gives a transport on open water command 4 to an open-water tile (static study, round 103, CB2) | Target tile and destination recorded; order 4 pending; no smart-move stage and no wait cap | Example |
+| V56 | A computer player's death knight gets command 4 with its own docked transport as the target unit (static study, round 103, CB2 and CB3) | The transport is called with a full command (target the death knight; wait cut to at most 40; command waiting); the death knight's own wait is cut to at most 40; then order 4 | Example |
 
 ## Open questions
 
@@ -516,7 +552,9 @@ Carried over:
   the boarding unit's route blocked so it really restarts, would settle it.
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity. Its rules are now in "Moving near the shore" (static study, round 70).
-- Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
+- **Closed in round 103:** whether the interface offers the unload command with a target tile at all. It does: on
+  the transport's own tile when docked, otherwise through target mode (`ui/command-buttons.md`), and the click's unit
+  is kept as the target ("The unload command keeps its target unit", CB1, static study).
 - **A loaded transport's target tile when moved from the dock** (round 101): **closed in round 102** (traced). The
   (40, 52) is the command's pull-back from the area of the docked transport's tile, the coast's land region;
   passengers play no part ("Pulled back from the transport's own area"; V46 to V48).
@@ -551,7 +589,7 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 - **Pushing off's tile pick makes the last steps of a command.** Besides dropping the cached path and clearing the
   blocked counter (step 2), picking a tile also checks the attacker and the target as a command does; the check
   overlaps step 3. The pull-back part is now a rule (step 2, round 102): a docked transport stands in the land region,
-  so the pick is in another region and a far pick can change (V49). No trace has a pick two or more tiles away.
+  so the pick is in another region and a far pick can change (V49; traced in round 103, V50 to V52).
 - **Step 3's "a walking one at its next step boundary".** The static study finds no way to reach step 3 with the unit
   walking: the order's logic runs only when the walk has ended, and command 4 always takes over in the same update.
   If confirmed, the clause can go.
@@ -570,11 +608,10 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 
 Found by the round-75 spec review (2026-10-15; the rules above are unchanged):
 
-- **A command 4 that reaches a transport other than from a player** (round 75 review). A player's command 4 is
-  never taken by a transport (V40). Round 71's static reading, that command 4 given to a transport goes on as a smart
-  move, can then apply only to a command from a computer player's routine, which doesn't go through the selection
-  filter; no trace has a computer player giving a transport command 4. Default: such a command goes on as a smart
-  move, as "What the transport stores" says.
+- **A command 4 that reaches a transport other than from a player** (round 75 review): **closed in round 103**
+  (static study, CB2). Command 4 runs the smart move's step only for workers, tankers, demolition units and casters,
+  so a transport gets plain order 4 ("Command 4 to a transport", V55). This replaces the round-75 default (a smart
+  move). Still untraced: no trace has a computer player giving a transport command 4.
 
 ## History
 
@@ -608,3 +645,4 @@ round are kept with the research-side specs.
 | 100 | A waiting boarder's reaction searches the react range (human) box (traced, V42; `ERRATA-round100-traces.md`, reviewed) | "Boarding", step 5; V42 |
 | 101 | The target tile and the destination change only on a command, the docked smart stage, the push-off and repair (traced, V43 to V45; `ERRATA-round101-traces.md`, reviewed); one record open (TG4) | "What the transport stores"; "Open questions"; V43 to V45 |
 | 102 | A command's target tile is pulled back from the area of the transport's own tile, the land region when docked (traced, V46 to V48; TG4 closed); the push-off's pick is pulled back too (static study, V49); `ERRATA-round102-traces.md`, reviewed | "Pulled back from the transport's own area"; "Pushing off (order 31)", step 2; "Open questions"; V46 to V49 |
+| 103 | The push-off pick's pull-back traced (V50 to V52); the unload command keeps its target unit; command 4 gives a transport plain order 4 (the round-75 default reversed); the boarder's call is a full command (static study, `ERRATA-round103-traces.md`, reviewed) | "Commands given to a transport"; "Pushing off (order 31)", step 2; "Boarding"; "Open questions"; V50 to V56 |

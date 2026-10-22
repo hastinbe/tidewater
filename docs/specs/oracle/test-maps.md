@@ -14,6 +14,9 @@
 - **Changes:** 2026-10-22, round 100 (`ERRATA-round100-traces.md`, section 4; reviewed by a spec-review session,
   2026-10-22): the optional sea along the bottom edge, the tile order of the map sections, and the map
   `R100-tests.pud` with its trace. `R99-tests.pud` is unchanged (it has no sea).
+- **Changes:** 2026-10-22, round 103 (`ERRATA-round103-traces.md`; reviewed by a spec-review session, 2026-10-22):
+  the optional shore band two or more rows deep; the maps `R102-flyers.pud` (round 102, not listed before),
+  `R103-tests.pud`, `R103-far.pud` and `R103-air.pud` with their traces. The earlier maps' bytes are unchanged.
 
 ## Behaviour
 
@@ -66,6 +69,13 @@ zero); the rows above them are as in the table:
 | y = N − K to N − 1 (water) | 0x0010 (light water) | 0x0040 | 0x0001 (sea region 1) |
 
 A map without a sea is built exactly as before: `R99-tests.pud` has none and its bytes are unchanged.
+
+**Deeper shore (optional, round 103).** A map with a sea may give a shore depth S, 1 to K (default 1). Then the rows
+y = N − K − 1 to N − K − 2 + S are all shore rows (the shore values above), and the water rows are y = N − K − 1 + S
+to N − 1. With S = 1 the map is exactly as above (`R100-tests.pud` and `R102-flyers.pud` keep their bytes). With
+S = 2 and K = 12 on a 64 map: row 50 coast, rows 51 and 52 shore, rows 53 to 63 water. Both shore rows belong to the
+coast's land region, so a transport sent to a shore tile from open water docks on the outer row, 52 (traced, round
+103), where a land unit on row 50 can't reach it.
 
 `UGRD` comes after `ALOW`, so by the reading rule of `game/setup.md` ("Reading sections") it is skipped as an entry
 already passed; the game then uses its default upgrade data, which is what the section asks for anyway. With
@@ -166,12 +176,105 @@ starts its upgrade to a keep (type 0x58); n = 100 peasant 1586 repairs the farm 
 n = 480 the ballista stops; n = 520 peasant 1588 repairs the hall; n = 600 footman 1592 is given a smart move onto the
 transport; n = 2150 the ballista attacks the keep and stops at n = 2400; n = 2450 peasant 1588 repairs the keep.
 
+### R102-flyers.pud (round 102)
+
+Size N = 64, P = 2, id tag 0x7201, description `tidewater r102 flyers`, sea K = 12 (shore depth 1). File length
+35 974 bytes, SHA-256 `9253e1a905ccda488791723269ea1a766cd549d71acd1300ee7e11559a1faf61`. Players as in
+`R100-tests.pud` (player 0 human, 10 000 gold, 10 000 lumber, 1 000 oil; player 1 orc, nothing).
+
+| # | Tile (x, y) | Type | Owner | Slot |
+| --- | --- | --- | --- | --- |
+| 1 | (10, 10) | 0x5E human start location | 0 | none |
+| 2 | (55, 10) | 0x5F orc start location | 1 | none |
+| 3 | (31, 7) | 0x2A gryphon rider | 0 | 1599 |
+| 4 | (33, 9) | 0x28 gnomish flying machine | 0 | 1598 |
+| 5 | (37, 13) | 0x2B dragon | 1 | 1597 |
+| 6 | (39, 15) | 0x29 goblin zeppelin | 1 | 1596 |
+| 7 | (21, 55) | 0x1E elven destroyer | 0 | 1595 |
+| 8 | (41, 57) | 0x1C human transport | 0 | 1594 |
+| 9 | (27, 59) | 0x1F troll destroyer | 1 | 1593 |
+| 10 | (30, 21) | 0x2A gryphon rider | 0 | 1592 |
+| 11 | (15, 30) | 0x00 footman | 0 | 1591 |
+
+Trace: `mp-r102-flyers-fixed-60` (Enhanced; Fixed Order, no computer opponents, start seed 1; no input, no extras):
+every unit keeps its map tile (`core/unit-slots.md`, FL1). The transport, on an odd tile, starts docked (order 32).
+In Tidewater the ships here are aligned (`core/unit-slots.md`, OS1), so a comparer checks the flyers and the footman
+against this trace, not the three ships.
+
+### R103-tests.pud (round 103)
+
+Size N = 64, P = 2, id tag 0x7202, description `tidewater r103 tests`, sea K = 12, shore depth S = 2 (row 50 coast,
+rows 51 and 52 shore, rows 53 to 63 water). File length 36 006 bytes, SHA-256
+`c4ab8b44e81b7da364cd9fff36cb8719a4576294003cf9667c2f66ccf45533f8`. Players as in `R100-tests.pud`.
+
+| # | Tile (x, y) | Type | Owner | Slot |
+| --- | --- | --- | --- | --- |
+| 1 | (10, 10) | 0x5E human start location | 0 | none |
+| 2 | (55, 10) | 0x5F orc start location | 1 | none |
+| 3 | (10, 20) | 0x02 peasant | 0 | 1599 |
+| 4 | (12, 20) | 0x02 peasant | 0 | 1598 |
+| 5 | (14, 20) | 0x02 peasant | 0 | 1597 |
+| 6 | (16, 20) | 0x02 peasant | 0 | 1596 |
+| 7 | (10, 24) | 0x06 knight | 0 | 1595 |
+| 8 | (12, 24) | 0x06 knight | 0 | 1594 |
+| 9 | (14, 24) | 0x06 knight | 0 | 1593 |
+| 10 | (42, 56) | 0x1C human transport | 0 | 1592 |
+| 11 | (14, 56) | 0x1C human transport | 0 | 1591 |
+| 12 | (20, 58) | 0x1E elven destroyer | 0 | 1590 |
+| 13 | (34, 58) | 0x1C human transport | 0 | 1589 |
+| 14 | (30, 47) | 0x00 footman | 0 | 1588 |
+| 15 | (60, 5) | 0x01 grunt | 1 | 1587 |
+
+Trace: `mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000` (Enhanced; Fixed Order, no computer opponents,
+start seed 1; extras `goals` and `groups`; input in the header). It covers the control-group tidy
+(`ui/selecting-and-commanding.md`, V-G1) and near push-off picks (`orders/transports.md`, V52). The grunt is there so
+that player 1 isn't defeated at once.
+
+### R103-far.pud (round 103)
+
+Size N = 64, P = 2, id tag 0x7204, description `tidewater r103 far push-off`, sea K = 12, shore depth S = 2. File
+length 35 942 bytes, SHA-256 `04e4df983389a77e5884f32fe79a501b587bb3ec947f6669f1ecaed907a305b9`. Players as in
+`R100-tests.pud`.
+
+| # | Tile (x, y) | Type | Owner | Slot |
+| --- | --- | --- | --- | --- |
+| 1 | (10, 10) | 0x5E human start location | 0 | none |
+| 2 | (55, 10) | 0x5F orc start location | 1 | none |
+| 3 | (42, 56) | 0x1C human transport | 0 | 1599 |
+| 4 | (36, 60) | 0x1E elven destroyer | 0 | 1598 |
+| 5 | (40, 60) | 0x1E elven destroyer | 0 | 1597 |
+| 6 | (48, 60) | 0x1E elven destroyer | 0 | 1596 |
+| 7 | (60, 5) | 0x01 grunt | 1 | 1595 |
+
+Trace: `mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100` (Enhanced; Fixed Order, no computer opponents, start seed
+1; extra `goals`): far push-off picks pulled back (`orders/transports.md`, V50, V51).
+
+### R103-air.pud (round 103)
+
+Size N = 64, P = 2, id tag 0x7205, description `tidewater r103 air pull-back`, no sea. File length 35 950 bytes,
+SHA-256 `25c96ee2bfca1ff88f74f371b4022f8d56d04e84340be8f46baaf986f31adde4`. Players as in `R100-tests.pud`.
+
+| # | Tile (x, y) | Type | Owner | Slot |
+| --- | --- | --- | --- | --- |
+| 1 | (10, 10) | 0x5E human start location | 0 | none |
+| 2 | (55, 10) | 0x5F orc start location | 1 | none |
+| 3 | (20, 20) | 0x2A gryphon rider | 0 | 1599 |
+| 4 | (30, 20) | 0x2A gryphon rider | 0 | 1598 |
+| 5 | (29, 20) | 0x2A gryphon rider | 0 | 1597 |
+| 6 | (20, 30) | 0x2A gryphon rider | 0 | 1596 |
+| 7 | (30, 30) | 0x2A gryphon rider | 0 | 1595 |
+| 8 | (60, 5) | 0x01 grunt | 1 | 1594 |
+
+Trace: `mp-r103-air-mp-r103-air-pullback-fixed-goals-300` (Enhanced; Fixed Order, no computer opponents, start seed
+1; extra `goals`): the air pull-back with another flyer on the line (`movement/pathfinding.md`, V55, V56).
+
 ## Test vectors
 
 | Input | Expected |
 | --- | --- |
 | Build `R99-tests.pud` from the tables above | 36 062 bytes with the SHA-256 above |
 | Build `R100-tests.pud` from the tables above | 36 030 bytes with the SHA-256 above |
+| Build `R102-flyers.pud`, `R103-tests.pud`, `R103-far.pud` and `R103-air.pud` from the tables above | 35 974, 36 006, 35 942 and 35 950 bytes with the SHA-256 values above |
 | Load `R100-tests.pud` as a multiplayer map with the header of its trace | The trace's setup record: 16 units in slots 1584 to 1599 as listed; player 0 has 10 000 gold, 10 000 lumber and 1 000 oil. In the trace the boarding command of n = 2 docks the transport at (42, 51) at n = 81 (order 32) |
 | Load it as a multiplayer map with the header of the trace above | The trace's setup record: 18 units in slots 1582 to 1599 as listed; gold 2000 and lumber 1000 for player 3, 0 elsewhere; units 1588 to 1590 held (AI goal kind 1 in the `aigoals` research extra); player 2's spells known 128 at n = 1 (`airesearch`). The research extras are only a check here: a comparer still ignores them |
 
@@ -180,5 +283,7 @@ transport; n = 2150 the ballista attacks the keep and stops at n = 2400; n = 245
 - Only a straight sea along the bottom edge is described. Other coast shapes need more boundary tile codes and will
   be added with the first map that uses them.
 - A transport placed elsewhere on the R100 map's sea (for example at (42, 57) or (42, 55)) sailed away instead of
-  docking in round-100 probe captures; the cause wasn't studied. Maps that need a docked transport use the R100
-  placement.
+  docking in round-100 probe captures; the cause wasn't studied. Probably explained by round 103: a map transport on
+  an odd tile starts docked (order 32), so a command makes it push off first, and as a two-tile mover on odd tiles it
+  never finishes (`core/unit-slots.md`, OS1). Maps that need a docked transport use the R100 placement. A map
+  transport placed on a shore-water tile isn't created at all (round 103 probe, not kept).

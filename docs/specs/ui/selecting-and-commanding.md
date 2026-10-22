@@ -28,6 +28,9 @@
   2026-10-22): "Release first" is traced for a refused command, a right-click and a build (HW7a to HW7c in
   `orders/orders.md`). Control groups: in Enhanced every kill tidies every player's groups, with the entry moved into a
   gap not checked again in that pass; a group holds units by slot, and a unit in slot 0 can't be held (static study).
+- **Changes:** 2026-10-22, round 103 (oracle trace, `ERRATA-round103-traces.md` section 2; reviewed by a spec-review
+  session, 2026-10-22): the tidy at every kill is traced (V-G1 now a trace vector); the network-game open question
+  is narrowed. No rule changed.
 
 ## Behaviour
 
@@ -377,7 +380,7 @@ slot 0 is never held: when a set reaches it, the group ends there, and the units
 out too. Slot 0 is the last slot handed out (`core/unit-slots.md`, "Creating a unit"), so this happens only with a
 full unit table. Tidewater, which may name units differently, must give the same group contents.
 
-**The tidy at every kill** (Enhanced; static study, round 102). Each time any unit is killed, right after it starts
+**The tidy at every kill** (Enhanced; traced, round 103: V-G1; first stated from static study in round 102). Each time any unit is killed, right after it starts
 dying (`core/unit-slots.md`, "Death, corpses and release"), every player's 18 groups are tidied with the recall's
 removal rule above: dead or dying units, units no longer the group's player's own, and, in a group of more than one
 entry, units that aren't group-selectable are removed, each removal moving the group's last entry into the gap. One
@@ -477,7 +480,7 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
 | Classic; press 1 | Nothing |
 | Enhanced; target mode on, press 1 | Nothing |
 | Enhanced; target mode on, Alt+1 | View centred on group 1, group recalled |
-| V-G1: Enhanced; group 1 holds footmen A, B, C, D in that order; B is killed, later A is killed, then 1 is pressed (static study) | After B's kill: A, D, C. After A's kill: C, D. The recall selects C, D in that order (a tidy only at the recall would give D, C) |
+| V-G1: `mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000` (oracle trace, Enhanced, generated map `R103-tests.pud`, extra `groups`): group 1 of player 0 set (turn record 26) from peasants A 1599, B 1598, C 1597, D 1596 in that order; three knights kill B, then A; group 1 recalled in turn record 470 | n = 221 (B starts dying, order 1): group 1 = A, D, C. n = 321 (A starts dying): C, D. Turn record 470: the synced selection is C, D (1597, 1596), in that order. A tidy only at the recall would give D, C. Each tidy is in the record where the unit starts dying |
 | V-G2: Enhanced; a group holds A, B, C, and B and C have both stopped being the player's own when another unit anywhere is killed (a constructed state; static study) | The kill's tidy removes B (C moves into its place) and goes on past it: the group is A, C. The next recall's tidy removes C: A |
 | V-G3: Enhanced; full unit table, the synced selection is footmen A (slot 7), B (slot 0), C (slot 12); Ctrl+1 (static study) | Group 1 holds A only |
 | Classic; any unit is killed | No control-group tidy (Classic rules have no control groups) |
@@ -517,7 +520,9 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
 - **Minimap left-click in target mode** gives the tile with no target. Whether the command then gets the
   formation offset the same way as a map click is assumed, not checked.
 - **Control groups in some network games.** In some kinds of network game, setting and recalling a group take
-  another route that wasn't traced. Default: the rules above.
+  another route. Traced in a Direct Connect game (round 103, V-G1): a set and a recall sent as the game sends them
+  for its group keys give the contents and the selection order of the rules above. Other kinds of network game:
+  default, the rules above.
 - **Right-click, cast and build and the attacker record** rest on static study: no trace has one of them given to a
   unit with a recorded attacker.
 - **Box selecting with Alt and a single enemy unit** would recall a remembered group containing an enemy. That can't

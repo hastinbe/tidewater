@@ -34,6 +34,9 @@
   64-pixel alignment for ships and flyers is withdrawn). In Enhanced every kill tidies every player's control groups;
   the release clears the creation number and the local interface's references; when P drops on a release (static
   study).
+- **Changes:** 2026-10-22, round 103 (oracle traces, `ERRATA-round103-traces.md` section 4; reviewed by a spec-review
+  session, 2026-10-22): a Tidewater design choice, labelled as such: map ships are aligned to even tiles, since the
+  original can't play a ship on an odd tile (OS1); flyers keep FL1. The kill-time group tidy is traced (V-G1).
 
 ## Behaviour
 
@@ -109,6 +112,19 @@ Every unit slot belongs to exactly one owner list at all times.
      eye of Kilrogg on a tile of the ring search of `movement/placement.md`, whose air and sea tests take only even
      tiles; a critter from polymorph, a skeleton from raise dead and an oil patch from a killed platform on their
      source's tile. None of these is a ship or flyer on an odd tile, so nothing created during play changes.
+   - **Tidewater design choice (not the original's behaviour): ships are aligned.** In the original a ship that a
+     map places on an odd tile keeps to odd tiles (it moves as a two-tile mover), a map transport placed on an odd
+     tile starts docked (order 32) and can never finish pushing off (the push-off ends only on an even tile of open
+     water, `orders/transports.md`, "Pushing off (order 31)"), and in all three oracle runs with such ships the
+     original game process ended within a few hundred cycles (traced, round 103, OS1; cause unknown). That state
+     can't be mirrored. Tidewater therefore places every unit whose type is a **sea unit moving as a two-tile mover**
+     (the ships: transports, tankers, destroyers, battleships, submarines, giant turtles and their orc counterparts)
+     on the even tile up and to the left: both coordinates rounded down to even, whenever it is created, before the
+     placement check (which then tests the aligned tile). Units
+     created during play already stand on even tiles (the ring search), so this changes only map-placed ships on odd
+     tiles, which no shipped map has (233 maps, 810 sea and air unit placements, all even; game data, round 103).
+     **Flyers are not aligned**: a map flyer keeps its tile, as FL1 traced, and the original plays on with one (an
+     idle flyer on an odd column, traced, round 103: AP1). Land units are never aligned. FL2 is unchanged.
    - If the placement check fails, the slot goes back to the free list (see "Death, corpses and release"), and creation fails
      with the "can't place" message.
    - A failed cap or empty free list shows the "too many units" message instead.
@@ -139,7 +155,7 @@ When a unit is killed, it keeps its slot. The game:
 - kills any units inside it (transports, and buildings holding units);
 - sets its order to "dying", which plays its death animation;
 - right after that, under **Enhanced** rules, tidies the control groups of every player
-  (`ui/selecting-and-commanding.md`, "Control groups", the tidy at every kill; static study). Classic rules have no
+  (`ui/selecting-and-commanding.md`, "Control groups", the tidy at every kill; traced, V-G1). Classic rules have no
   control groups;
 - keeps the target recorded at that moment, which may be none (a killer that forgot its target dies with no target;
   `combat/damage.md`, "Applying damage"). The dead unit, and the body it becomes, keep it until the slot is released;
@@ -234,6 +250,7 @@ no effect is created. A released effect slot is simply marked unused.
 | `xhuman2-10000` (oracle trace), n = 514: guard tower 1546 (type 0x60, 2 × 2 at (56, 69)) destroyed by a catapult rock from 1556 in effect slot 4; slots 0 to 2 in use | Effect slot 3: kind 0x17 at (1824, 2232) ((1792 + 32, 2208 + 32 − 8)), zero fields; the rock's impact effect (kind 0x15) in slot 5 |
 | A wall piece destroyed (static study only) | No explosion |
 | FL1: `mp-r102-flyers-fixed-60` (oracle trace, Enhanced, generated map `R102-flyers.pud`): gryphon riders at (31, 7) and (30, 21), a flying machine at (33, 9), a dragon at (37, 13), a zeppelin at (39, 15), destroyers at (21, 55) and (27, 59), a transport at (41, 57), all placed by the map | Setup record and every record to n = 60: each unit on exactly its map tile, pixels = tile × 32 (gryphon at (31, 7): (992, 224); destroyer at (27, 59): (864, 1888)); no column or row is made even |
+| OS1 (Tidewater design choice; the original's run ends, round 103): a map places a destroyer at (21, 57) and a transport at (33, 55), both on open water, and a gryphon rider at (29, 20) | Tidewater creates the destroyer at (20, 56) and the transport at (32, 54) (pixels (640, 1792) and (1024, 1728)); the gryphon rider stays at (29, 20) (pixels (928, 640)) |
 | FL2: a custom map whose unit data sets the sea-unit flag on type 0 places a footman at (5, 7) and a gryphon rider at (9, 3) (static study only) | Footman at (4, 6), gryphon rider at (8, 2): every created unit is aligned to 64 pixels |
 | A unit in slot 1400 is removed by the "remove" order (static study) | The slot is unused with owner 14 at the front of the free list, and its creation number reads 0; P is unchanged by the release |
 
