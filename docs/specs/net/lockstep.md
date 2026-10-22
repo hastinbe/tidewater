@@ -22,6 +22,8 @@
   reviewed by a spec-review session, 2026-10-22): "Other turn content": Hold workers and Release workers (traced),
   the release before unit and build commands, return to the chat room, the multiplayer load and the debug dump (static
   study); surrender and quit (draw) send no command. Open question "Two worker commands" closed.
+- **Changes:** 2026-10-22, round 102 spec review: the scope states that the Battle.net layer is out of scope for
+  Tidewater, so the audit's coverage covers single player and Direct IP and Local Network games. No rule changed.
 - **Sources:** static study of the 2.02 program for both network layers (research notes under `research/notes/`), the
   dialog files `rez\timeout.bin`, `rez\btimeout.bin` and `NetDlg.bin`, and the tables `Rez\connect.tbl` and
   `Rez\network.tbl`. One oracle run confirms the turn spacing of an Enhanced Direct Connect game at speed 8
@@ -30,6 +32,12 @@
   are traced, static study or gap-fill.
 - **Scope:** what players observe and the order in which commands are carried out. Packet layouts are out of scope:
   Tidewater uses its own wire protocol. Leaving and dropping players is in `net/leave-and-drop.md`.
+- **Out of scope: Battle.net.** Tidewater shows Battle.net disabled and has no Battle.net layer ("Tidewater slots").
+  Everything this spec and `game/diplomacy.md` say about Battle.net games (its turn layer, its sync check, its own
+  command checks, its team-game start and computer-alliance settings) is recorded for completeness, labelled
+  "Battle.net only", not mirrored and not a Tidewater test. The research audit of the original's gameplay routines
+  covers single player and the peer layer's games (Direct IP and Local Network in Tidewater); the Battle.net layer's
+  routines aren't part of it.
 
 Table entries are numbered from 1: "network entry n" is entry n of `Rez\network.tbl`. A **cycle** is one game cycle
 (`core/timing-and-rng.md`). A **turn** is one exchange of commands between all human players; every player carries out

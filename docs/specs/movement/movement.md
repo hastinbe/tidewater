@@ -21,6 +21,9 @@
   reviewed by a spec-review session, 2026-10-22): row F's further state mark is the **frozen** state of a held worker,
   which the placement interface sets in single player too, so row F doesn't wait for a frozen blocker (static study;
   the state traced, V39; example V40).
+- **Changes:** 2026-10-22, round 102 (`ERRATA-round102-traces.md` section 3; reviewed by a spec-review session,
+  2026-10-22): the open question on two-tile movers and even tiles notes that map-placed ships and flyers can start on
+  odd tiles (traced, `core/unit-slots.md` FL1). No rule changed.
 
 ## Behaviour
 
@@ -322,7 +325,10 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 
 Carried over:
 
-- Whether two-tile movers always keep to even tile coordinates.
+- Whether two-tile movers always keep to even tile coordinates. A ship or flyer placed by a map at an odd column or
+  row starts there (traced, round 102: `core/unit-slots.md`, FL1); no shipped map does this for air units (round 75).
+  How such a ship moves, lands or pushes off from an odd tile is untraced. Trace request (low): a generated map with a
+  destroyer and a transport at odd tiles given moves.
 - Row F's condition on the unit's own animation (orders 30 and 31 never wait) is traced for order 30 only
   (`human12-row-f-landing`); order 31 rests on the static study. The blocker's side is its current animation itself,
   read strictly; the pending-command reading is the path search's rule only.
@@ -390,3 +396,4 @@ round are kept with the research-side specs.
 | 72 | Movement audit: the blocked counter wraps after 15 in rows A and B (static study only); row F's further state mark identified (open question closed); tanker arrival on order 28 traced for an odd-placed patch, the even case kept open | "The model"; "Blocked rules", row B and row F; "Open questions"; V37, V38 |
 | 75 | The even-patch tanker question closed by game data (every shipped patch has an odd top-left tile); the rule is unchanged | "Open questions" |
 | 101 | Row F's further state mark is the frozen state of a held worker (`orders/orders.md`, "Holding and releasing workers"), set in single player too | "Blocked rules", row F; "Open questions"; V39, V40 |
+| 102 | Map-placed ships and flyers can start on odd tiles (`core/unit-slots.md`, FL1) | "Open questions" |

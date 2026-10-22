@@ -59,6 +59,9 @@
   clamp and kept in a byte (traced on two farms with different step shares, V73 and new V74; the open question "Shown
   progress when repair has filled a site" is closed and its default, 255, withdrawn). A player's build command first
   releases the sender's selected workers (`orders/orders.md`, "Holding and releasing workers").
+- **Changes:** 2026-10-22, round 102 (oracle trace, `ERRATA-round102-traces.md` section 5; reviewed by a spec-review
+  session, 2026-10-22): the build command's release of every selected worker, not only the builder, is traced
+  (`orders/orders.md`, HW7c). No rule changed.
 
 ## Behaviour
 
@@ -146,7 +149,8 @@ messages (entries 438 to 441).
 **Carrying out a player's build command.** When a build command sent by a player (the click of
 `ui/placing-buildings.md`) is carried out in the command turn, the sending player's selected workers are first
 released, every one of them and not only the builder, whatever the checks below then give (`orders/orders.md`,
-"Holding and releasing workers"; round 101, the release traced: HW5). Then the command is checked, before any order
+"Holding and releasing workers"; round 101, the release traced: HW5; every selected worker traced in round 102: HW7c;
+"whatever the checks give" static study). Then the command is checked, before any order
 is given:
 
 1. the command must be valid, all on the command as received: the site's top-left tile is on the map (x and y below
@@ -710,3 +714,4 @@ round are kept with the research-side specs.
 | 97 (audit) | Second B-040 audit (`ERRATA-audit2-economy.md`), traced: P after completion is 12 × (T + 2), kept, and is the repair counter | "The construction pass"; vector V72 |
 | 100 | Oracle trace (`ERRATA-round100-traces.md`, `ERRATA-audit2-economy.md` erratum 4): repair on a site holds construction back one pass per paid run; hall-to-keep upgrade hit points traced; the shown progress after a repair-filled site held as an open question | "The construction pass", step 1; "Job end"; "Open questions"; vector V73 |
 | 101 | Oracle trace (`ERRATA-round101-traces.md`): the shown progress uses the hit points before the clamp, kept in a byte (open question closed); a player's build command releases the sender's selected workers first | "The construction pass", step 5; "Carrying out a player's build command"; "Open questions"; vector V74 |
+| 102 | The build's release of every selected worker traced (`orders/orders.md` HW7c; `ERRATA-round102-traces.md`) | "Carrying out a player's build command" |

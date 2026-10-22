@@ -17,6 +17,11 @@
 - **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-orders.md` erratum 5; reviewed by a spec-review session,
   2026-10-22): the moving-ally rule's last condition is "not frozen" (a held worker, set in single player too); a
   frozen walker blocks the search (static study).
+- **Changes:** 2026-10-22, round 102 (`ERRATA-round102-traces.md` section 1; reviewed by a spec-review session,
+  2026-10-22): "Goal pulled back", step 1: the unit's own region is the region of the tile it stands on, which for a
+  transport docked on shore water is the coast's land region (traced, `orders/transports.md` V46 to V48). No rule
+  changed. The start-tile open question is answered (map units can start on odd tiles, `core/unit-slots.md` FL1),
+  and the air-unit pull-back question is reopened for custom maps only.
 
 ## Behaviour
 
@@ -289,7 +294,10 @@ footprint (`orders/orders.md`, "Smart move"; traced for a tanker: `orc9-orc09-ta
 study only for land units):
 
 1. A tile is **usable** when it has none of the terrain or building bits of the unit's movement mask (units are
-   ignored) and, for a unit that isn't an air unit, its region is the unit's own region.
+   ignored) and, for a unit that isn't an air unit, its region is the unit's own region: the region of the tile the
+   unit stands on. A transport docked on shore water therefore stands in the coast's land region, and an open-water
+   goal isn't usable for it (traced: `orders/transports.md`, "Pulled back from the transport's own area", V46 to
+   V48).
 2. If the goal is usable, it is kept as it is.
 3. Otherwise, take the k steps of the line rule (Step 2) from the unit's tile to the goal, **one tile per step even
    for a two-tile mover**. Start at the goal and subtract the steps one by one **in their order, first step first**;
@@ -437,8 +445,15 @@ row that builds on another row starts "As" that row's ID, and names the trace wh
 
 Carried over:
 
-- Whether two-tile movers' start tiles are always even.
+- Whether two-tile movers' start tiles are always even. **Not always** (round 102, traced): a ship or flyer that a
+  map places at an odd column or row stays there, since creation aligns nothing (`core/unit-slots.md`, FL1). How such
+  a unit's line and goal zone then behave is untraced.
 - Classic-mode behaviour when S = G (it isn't short-circuited there).
+- **Goal pull-back with other air units, on custom maps** (round 102 review). The round-75 closure below rests on
+  air units always standing on even tiles. FL1 shows a map can place one at an odd tile, so on a map built that way
+  (no shipped map is) an air unit's first tested tile can hold another air unit, and the static reading (only
+  ground-layer units ignored) and step 1 as written (all units ignored) can give different goals. Default: step 1 as
+  written. Trace request (low): a generated map with a flyer on an odd tile on the line of another flyer's move.
 Closed in round 75:
 
 - **Goal pull-back with other air units** (round 72, `ERRATA-audit-movement.md`, erratum 5; T13). The static study
@@ -492,3 +507,4 @@ round are kept with the research-side specs.
 | 72 | Movement audit: the moving-ally rule's last state mark identified (open question closed); the air-unit pull-back reading filed as an open question with a trace request, step 1 unchanged | "Units seen by the search"; "Open questions" |
 | 101 | The moving-ally rule's mark is the frozen state of a held worker (`orders/orders.md`, "Holding and releasing workers") | "Units seen by the search"; "Open questions" |
 | 75 | The air-unit pull-back question closed by game data (air units stand only on even tiles, so the readings never differ); step 1 unchanged | "Open questions" |
+| 102 | The unit's own region is that of its tile: a docked transport's is the coast's land region (traced, `orders/transports.md` V46 to V48); map-placed two-tile movers can start on odd tiles, so the round-75 air-unit pull-back closure holds for shipped maps only (open question) | "Goal pulled back", step 1; "Open questions" |

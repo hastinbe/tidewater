@@ -68,6 +68,10 @@
   `ERRATA-audit2-orders.md`, "Round 101"; reviewed by a spec-review session, 2026-10-22): new section "Holding and
   releasing workers": the Hold workers and Release workers commands, the states they set, the release update with no
   animation step, and the release before every unit command and build (traced: HW1 to HW5; static: HW6).
+- **Changes:** 2026-10-22, round 102 (oracle trace, `ERRATA-round102-traces.md` section 5; reviewed by a spec-review
+  session, 2026-10-22): "Holding and releasing workers": the release before a refused command, the right-click that
+  doesn't release and the build that releases every selected held worker are traced (HW7a to HW7c); HW6 is now
+  traced by HW7b. No rule changed.
 
 ## Behaviour
 
@@ -516,7 +520,8 @@ with the player's own dying unit: `orc02-dyingcmd-3760`, vector V185; static stu
 ### Holding and releasing workers
 
 Two commands with no data hold and release a player's selected **workers** while that player places a building
-(round 101; traced: HW1 to HW5; the commands' sources and the release before other commands are static study). The
+(round 101; traced: HW1 to HW5, and in round 102 the release before other commands, HW7a to HW7c; the commands'
+sources and "a selection change doesn't release" are static study). The
 game's own interface sends them in single player and multiplayer alike (`ui/command-buttons.md`, "build X" and
 "leave placement mode"), so this is ordinary Enhanced play. Static study reads the same in Classic mode.
 
@@ -553,11 +558,12 @@ in the selection are untouched (a footman, traced: HW1; a tanker has flag bit 9,
 **Release before other commands.** Before a **unit command** (every command of "Commands", the spells included, and
 also one that every selected unit then refuses: `ui/selecting-and-commanding.md`, "Which units take part in a
 command") and before a **build** command (`economy/build-train.md`, "Carrying out a player's build command"), the
-game runs Release workers on the sender's selection, then the command. For a build that releases every selected
-worker, not only the builder, even if the build's checks then fail. A **right-click** command
-(`ui/selecting-and-commanding.md`, "What a right-click command does") doesn't release. A selection change doesn't
-release either: a frozen worker taken out of the selection stays frozen until a release reaches it while it is
-selected (static study).
+game runs Release workers on the sender's selection, then the command, even one that every selected unit refuses
+(traced: HW7a). For a build that releases every selected worker, not only the builder (traced: HW7c), even if the
+build's checks then fail (static study). A **right-click** command (`ui/selecting-and-commanding.md`, "What a
+right-click command does") doesn't release: a held worker given one keeps its frozen state, with the command's goal
+and pending order stored, until a release (traced: HW7b). A selection change doesn't release either: a frozen worker
+taken out of the selection stays frozen until a release reaches it while it is selected (static study).
 
 **Where frozen matters to other units** (static study): a frozen unit is never an ally "walking away" in row F of the
 blocked rules (`movement/movement.md`) and never a moving ally in the path search (`movement/pathfinding.md`, "Units
@@ -1492,7 +1498,18 @@ footman 1593 (not a worker) stands at (10, 13). Single player carries out a comm
 | HW3 | Hold workers in turn record 32 and Release workers in turn record 33; 1596 walking at x = 418 | n = 33: step done at x = 416 (frame 0): frozen. n = 34: unchanged (the release update). n = 35: x = 413, wait 2 | Trace |
 | HW4 | Hold workers in turn record 221; a move to (14, 9) for 1596 in turn record 302 | Frozen at (224, 256) px from n = 226. Turn record 302: goal (14, 9). n = 303: animation 2 (still), wait 3 (the order logic ran in the release update). n = 306: animation 3; n = 307: x = 227, walking | Trace |
 | HW5 | Hold workers in turn record 361; a build of a farm (type 0x3A) at (8, 6) for 1596 in turn record 442 | Frozen at (352, 288) px from n = 370. Turn record 442: goal (9, 7). n = 443: order 28, animation 2, wait 3. n = 447: (349, 285) px, walking | Trace |
-| HW6 | A footman and a frozen peasant are selected; the player right-clicks a tile (static study) | No release: the peasant stays frozen; the footman takes its command | Static study |
+| HW6 | A footman and a frozen peasant are selected; the player right-clicks a tile | No release: the peasant stays frozen; the footman takes its command | Static study; traced for the peasant by HW7b |
+
+`mp-r100-tests-mp-r102-hold-workers-fixed-goals-700` (oracle trace, Enhanced, multiplayer launch, generated map
+`R100-tests.pud`; scenario `oracle/scenarios/mp-r102-hold-workers.txt`), player 0. Peasant 1586 walks south from
+(26, 23) toward (26, 40); footman 1592, not a worker, is selected with it. "Turn record n" is where the command is
+listed; the units' updates that follow are in cycle record n + 1 on.
+
+| ID | Input | Expected | Source |
+| --- | --- | --- | --- |
+| HW7a | Hold workers (turn record 74), then attack ground at (20, 30) for the selection 1586, 1592 in turn record 134, a command neither unit takes | 1586 frozen at (832, 832) px from n = 79. n = 135: unchanged (the release update). n = 136: (832, 835), walking on to its old goal (26, 40) in order 3. 1592 idle throughout: **a refused command releases first** | Trace |
+| HW7b | Hold workers (turn record 230), then a right-click on (30, 40) (turn record 290), then Release workers (turn record 362) | Frozen at (832, 1024) px from n = 231. Turn record 290: goal (31, 40) (the formation offset), pending 3, and 1586 **stays frozen** to n = 362. n = 363: order 3 taken, animation 2 (still), wait 3. n = 366: walking: **a right-click doesn't release** | Trace |
+| HW7c | Peasants 1586 and 1587 both walking and held (turn record 494), then a farm at (30, 26) built with the selection 1586, 1587 (turn record 554) | 1586 frozen from n = 498, 1587 from n = 504. Turn record 554: 1586's goal (31, 27), pending 28. n = 555: 1586 order 28; 1587 unchanged (its release update). n = 556: 1587 at (765, 771), walking on to (20, 30): **a build releases every selected held worker, not only the builder** | Trace |
 
 ### Smart move
 
@@ -2123,3 +2140,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 99 | Oracle trace on a generated map: the follow row of the search box and the mage-type special case traced; V282's expected order corrected to the follow rules (no rule change) | "Search box"; "Special cases"; vectors V282, V285 to V287 |
 | 100 | Oracle trace on a generated map with a sea: a non-computer unit waiting in board (34) searches the react range (human) box (reverses the round-97 default, the attack range); open question closed | "Search box"; "Open questions"; vector V288 |
 | 101 | Hold workers and Release workers (sent while the player places a building; single player too); the frozen states, the release update, the release before unit and build commands (traced, HW1 to HW5) | "Holding and releasing workers"; "How an update runs"; vectors HW1 to HW6 |
+| 102 | The release before a refused command, the right-click that doesn't release and the build that releases every selected held worker traced (HW7a to HW7c); no rule changed | "Holding and releasing workers"; vectors HW7a to HW7c |

@@ -24,6 +24,10 @@
   2026-10-22): a player's unit command and build command release the issuing player's selected workers first, a
   right-click command doesn't ("Which units take part in a command"); a right click that ends placement mode sends
   Release workers (was: nothing).
+- **Changes:** 2026-10-22, round 102 (`ERRATA-round102-traces.md` sections 4 and 5; reviewed by a spec-review session,
+  2026-10-22): "Release first" is traced for a refused command, a right-click and a build (HW7a to HW7c in
+  `orders/orders.md`). Control groups: in Enhanced every kill tidies every player's groups, with the entry moved into a
+  gap not checked again in that pass; a group holds units by slot, and a unit in slot 0 can't be held (static study).
 
 ## Behaviour
 
@@ -311,10 +315,10 @@ doesn't take the command (another player's, the target itself, or one that fails
 Spell commands (38 to 56) forget it like any other command here. A build command, sent from placement mode, takes a
 different path: it keeps the record and leaves the remembered order as it is (static study for these two).
 
-**Release first** (round 101, static study; the release itself traced): before the formation offset and the filter,
-the issuing player's selected workers are released (`orders/orders.md`, "Holding and releasing workers"), so a held
-worker is released even when no selected unit takes the command. A build command releases them too; a right-click
-command doesn't. Whether the release also comes before the "one the game handles, tile on the map" check isn't
+**Release first** (round 101; traced in round 102: `orders/orders.md` HW7a to HW7c): before the formation offset and
+the filter, the issuing player's selected workers are released (`orders/orders.md`, "Holding and releasing workers"),
+so a held worker is released even when no selected unit takes the command (HW7a). A build command releases every
+selected held worker, not only the builder (HW7c); a right-click command doesn't (HW7b). Whether the release also comes before the "one the game handles, tile on the map" check isn't
 stated; the interface never sends a command that fails it.
 
 | Command | The unit must |
@@ -367,6 +371,21 @@ Each player has **18 groups** of up to 9 units, as part of the game state. The k
 - **Alt+digit:** centres the view on the group, then recalls it as above (so the double-press rule applies to its
   recall too).
 
+**What a group holds** (static study, round 102). A group is a list of up to 9 **unit slots** in order
+(`core/unit-slots.md`), ended by its first empty entry. Slot 0 can't be told apart from an empty entry, so a unit in
+slot 0 is never held: when a set reaches it, the group ends there, and the units after it in the selection are left
+out too. Slot 0 is the last slot handed out (`core/unit-slots.md`, "Creating a unit"), so this happens only with a
+full unit table. Tidewater, which may name units differently, must give the same group contents.
+
+**The tidy at every kill** (Enhanced; static study, round 102). Each time any unit is killed, right after it starts
+dying (`core/unit-slots.md`, "Death, corpses and release"), every player's 18 groups are tidied with the recall's
+removal rule above: dead or dying units, units no longer the group's player's own, and, in a group of more than one
+entry, units that aren't group-selectable are removed, each removal moving the group's last entry into the gap. One
+difference from the recall's tidy: after a removal the pass goes on to the next entry, so the entry just moved into
+the gap isn't checked again in that pass (the recall's tidy checks it). The recall still tidies as above. Since a
+group loses each killed unit at once, the order of the remaining entries depends on the order the units were killed
+in (V-G1), and a saved game holds the tidied groups. Classic rules have no control groups, so nothing is tidied.
+
 ### Keys
 
 These keys act in the game screen. While a chat line is being typed, the digit keys and + and − type text instead.
@@ -411,7 +430,7 @@ in multiplayer; `vision/fog.md`); minimap terrain on or off (`ui/minimap.md`); c
 | Selection size | 9 |
 | Small rectangle | ≤ 4 pixels on both axes |
 | Remembered groups (local) | 16 × 9 |
-| Control groups (per player) | 18 × 9, keys use 0 to 9 |
+| Control groups (per player) | 18 × 9, keys use 0 to 9; each entry a unit slot, the first empty entry (0) ends the group |
 | Double-press window | 500 ms |
 | Same-type ring search limit | ring side < 2 × view width in tiles (28) |
 | Hover search | 5 × 5 tiles, up to 9 units |
@@ -458,6 +477,10 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
 | Classic; press 1 | Nothing |
 | Enhanced; target mode on, press 1 | Nothing |
 | Enhanced; target mode on, Alt+1 | View centred on group 1, group recalled |
+| V-G1: Enhanced; group 1 holds footmen A, B, C, D in that order; B is killed, later A is killed, then 1 is pressed (static study) | After B's kill: A, D, C. After A's kill: C, D. The recall selects C, D in that order (a tidy only at the recall would give D, C) |
+| V-G2: Enhanced; a group holds A, B, C, and B and C have both stopped being the player's own when another unit anywhere is killed (a constructed state; static study) | The kill's tidy removes B (C moves into its place) and goes on past it: the group is A, C. The next recall's tidy removes C: A |
+| V-G3: Enhanced; full unit table, the synced selection is footmen A (slot 7), B (slot 0), C (slot 12); Ctrl+1 (static study) | Group 1 holds A only |
+| Classic; any unit is killed | No control-group tidy (Classic rules have no control groups) |
 | Placement mode; left click on a site that fails the check (for example too close to a gold mine) | Error sound and the check's message; placement mode stays on; nothing sent |
 | Placement mode; right click on the panel | Placement mode ends; nothing sent |
 | Right-click on the panel while the build sub-menu is shown, no mode on | The panel returns to the selection's own button set |

@@ -34,6 +34,11 @@
 - **Changes:** 2026-10-22 (round 101, `ERRATA-round101-traces.md` section 3 and `ERRATA-audit2-orders.md`, B-063(b);
   reviewed by a spec-review session, 2026-10-22): "What the transport stores": when the target tile and the
   destination change, traced (V43 to V45). New open question on a loaded transport moved from the dock (TG4).
+- **Changes:** 2026-10-22 (round 102, `ERRATA-round102-traces.md` section 1 and `ERRATA-audit2-orders.md`, "Round
+  102"; reviewed by a spec-review session, 2026-10-22): a command's target tile is then pulled back by the ordinary
+  "goal pulled back" rule, from the area of the transport's own tile, which is the coast's land area when it is docked
+  (traced, V46 to V48); the push-off's picked tile is pulled back the same way (static study, V49). The open question
+  "A loaded transport's target tile when moved from the dock" (TG4) is closed: passengers play no part.
 
 ## Behaviour
 
@@ -126,15 +131,35 @@ questions"). The oracle traces' `goal` of a transport is its target tile and `tr
 change only:
 
 - when the transport takes a command: both are set to the command's target, a land or shore target adjusted first
-  ("Land and shore targets"). A boarding unit's call to its transport is such a command;
+  ("Land and shore targets"). Then, as for every command, the **target tile** (not the destination) is pulled back
+  ("Pulled back from the transport's own area", below). A boarding unit's call to its transport is such a command;
 - at the smart-move stage that keeps it **docked** (order 32, the target tile not its own tile): the target tile
   becomes its own tile S;
-- while it pushes off (order 31): the target tile becomes each tile its ring search picks, and its smart move at the
-  end sets it back to the destination;
+- while it pushes off (order 31): the target tile becomes each tile its ring search picks, pulled back, and its
+  smart move at the end sets it back to the destination;
 - by repair, which counts in the target tile's x (`economy/repair.md`, RP8).
 
 Sailing (orders 3 and 6), landing (order 30), unloading (order 29) and docking at the end of a landing change
 neither.
+
+**Pulled back from the transport's own area** (traced, round 102: V46 to V48). A command to a transport ends, like
+every command, with the "goal pulled back" rule of `movement/pathfinding.md` (the command's pull-back: none usable
+keeps the goal) whenever the order it gives is one that rule lists: orders 3, 6, 31 and 32 are, order 30 (landing)
+isn't, so a landing's shore-water target tile is kept (V45). The rule runs on the target tile only; the destination
+stays the command's tile. For a transport the rule's "unit's own region" is the region of the tile the transport
+stands on, and "usable" uses the mask of the movement class it has at that moment:
+
+- **Docked on shore water** (the usual case after a landing, which leaves it in the landing class): the shore-water
+  tile belongs to the coast's **land** region, and so do the coast's other shore-water tiles. An open-water target
+  (another region) isn't usable, so the walk back from the target stops at the first shore-water tile of that land
+  region on the line, and the target tile becomes the tile tested just before it. If no such tile lies among the
+  tested tiles, the target tile is kept (V44, V48).
+- **On open water:** the transport stands in a sea region; a target in that region is usable and kept, and a land or
+  shore-water target has already been adjusted by "Land and shore targets".
+
+Passengers play no part: one passenger, six and none give the same tile (V46 to V48). The order the stage table
+then picks is unchanged (order 31 for a docked transport), and the push-off then aims its ring search at the
+pulled-back tile.
 
 The three things are recorded **once per command**, when it is given (static study, round 71, `ERRATA-round71.md`,
 Q3 and Q4). The smart-move stage that picks the order (the table below) works from the target tile the command
@@ -249,7 +274,11 @@ movement logic (path cache, arrival test) doesn't run for it. Instead, each time
    coordinates are even and no bit of the sea mask (0x0903) is set. If none passes, the transport docks: order 32
    becomes the **pending** order and takes over in the same update (still animation, wait 3; static study, round 70,
    untraced), and the run ends. If one passes, it becomes the target tile (the destination is not touched), the
-   cached path is dropped and the blocked counter is cleared.
+   cached path is dropped and the blocked counter is cleared. The new target tile is then **pulled back** as a
+   command's is ("Pulled back from the transport's own area"), from the transport's tile (static study, round 102):
+   a pick next to the transport is never changed, since no tile lies between; a pick two or more tiles away becomes
+   the tile before the first usable tile on the line, which happens when a tile of the transport's own region (for
+   a docked transport, a shore-water tile of the coast) lies between (V49).
 3. **Forget lost targets:** a target unit or attacker that is no longer valid or no longer detected by the
    transport's owner (fog doesn't matter; see `vision/fog.md`, "What uses vision") is forgotten. If the target unit
    was forgotten, idle (order 2) is made the pending order, so the push-off ends at the next step boundary.
@@ -413,6 +442,10 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V43 | `human12-unload-then-refused-goals-900` (oracle trace, Enhanced), transport 1428 | n = 22 (a boarding unit's call): target tile and destination (35, 114), pending 30. n = 45 (docked at (35, 114); a boarder's call from (34, 112)): destination (34, 112), target tile (35, 114) (the docked smart stage). n = 112 (a move to (28, 120)): both (28, 120), pending 31. n = 119: target tile (36, 114) (the push-off tile). n = 135: order 3, target tile (28, 120). n = 302 (unload toward (18, 118)): both (16, 120), pending 30; unchanged through order 30, order 29 (n = 533) and order 32 (n = 534) | Trace |
 | V44 | `mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100` (oracle trace, Enhanced, generated map `R100-tests.pud`; scenario `oracle/scenarios/mp-r101-transport-goals.txt`), transport 1599, empty, docked at (22, 51); a move to (30, 58) in turn record 830 | Turn record 830: both (30, 58), pending 31. n = 834: target tile (22, 52) (the push-off tile). n = 850: order 3, target tile (30, 58) | Trace |
 | V45 | The same trace: transport 1599 with six footmen aboard, sailing (order 3); an unload toward land tile (16, 48) in turn record 530 | Both (22, 51) (the shore tile picked for the land target), pending 30; unchanged through order 30 (from n = 541), order 29 (n = 672) and order 32 (n = 673) | Trace |
+| V46 | `mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100` (as V44), transport 1599 docked at (42, 51) after a landing, six footmen aboard, moved to (20, 58) in turn record 326. On this generated map the coast's shore-water row 51 belongs to the land region; rows 52 to 63 are one sea region | Turn record 326: target tile **(40, 52)**, destination (20, 58), pending 31. The walk back from (20, 58) tests (21, 58), (22, 57), … , (39, 52), (40, 52), then (41, 51), the first usable tile (shore water of the land region), so the target tile is (40, 52). n = 330: (42, 52) (the push-off pick, next to the transport). n = 346: order 3, target tile (20, 58) | Trace |
+| V47 | `mp-r100-tests-mp-r102-transport-one-fixed-goals-1100` (oracle trace, Enhanced, generated map `R100-tests.pud`; scenario `oracle/scenarios/mp-r102-transport-one.txt`): the move of V46 with one footman (1598) aboard | Turn record 326: target tile (40, 52), destination (20, 58), pending 31. n = 330: (42, 52). n = 346: order 3, target tile (20, 58) | Trace |
+| V48 | The same trace: transport 1599, empty after unloading, docked at (22, 51), moved to (2, 58) in turn record 830 | Turn record 830: target tile **(20, 52)** (the first usable tile on the walk back is (21, 51)), destination (2, 58), pending 31. n = 834: (22, 52) (push-off pick). n = 850: order 3, target tile (2, 58). V44's move from the same dock to (30, 58) tests (29, 57) to (23, 52), none usable, and keeps (30, 58) | Trace |
+| V49 | A transport docked at (42, 51) as in V46 whose push-off ring search picks (46, 52); (44, 51) is a shore-water tile of its region, (45, 52) open water | The walk back tests (45, 52), then (44, 51), usable: the target tile becomes **(45, 52)**, not (46, 52), and the next run's ring search aims at (45, 52) | Example (static study) |
 
 ### Landing at the shore
 
@@ -484,15 +517,9 @@ Carried over:
 - In Classic mode, a passenger that dies aboard stays in its slot. What unloading such a slot does is unknown.
 - The docking sound's identity. Its rules are now in "Moving near the shore" (static study, round 70).
 - Whether the interface offers the unload command with a target tile at all, or always at the transport's own tile.
-- **A loaded transport's target tile when moved from the dock** (round 101). In
-  `mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100`, transport 1599, docked at (42, 51) with six footmen
-  aboard, is moved to (20, 58) in turn record 326: in that record its target tile is already **(40, 52)**, not
-  (20, 58), while its destination is (20, 58) and its pending order 31. Then n = 330: target tile (42, 52) (the
-  push-off tile); n = 346: order 3, target tile (20, 58). Nothing in "When the target tile and the destination
-  change" explains (40, 52); an empty transport (V44) and one with four aboard (V43, n = 112) take the command's
-  tile. In the trace the push-off and the sail that follow are as usual. Default: the command's tile, as V43 and
-  V44 show. Trace request TG4: the same move with one passenger and with six, with a break on the target
-  tile's writer in that turn.
+- **A loaded transport's target tile when moved from the dock** (round 101): **closed in round 102** (traced). The
+  (40, 52) is the command's pull-back from the area of the docked transport's tile, the coast's land region;
+  passengers play no part ("Pulled back from the transport's own area"; V46 to V48).
 - **Passenger facing.** The static study shows no turn when a passenger is put ashore (an earlier text said it faces
   its target). The `human12-transport` passengers keep their boarding facing, which doesn't settle it. A trace where a
   passenger's target differs from its boarding facing would. Default: no turn.
@@ -522,10 +549,9 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   the walk does for orders that neither acquire nor react (`orders/orders.md`, "Walking orders", step 1). Landing's
   steps don't say so. No outcome is known to differ: the attacker reaction doesn't run in either order.
 - **Pushing off's tile pick makes the last steps of a command.** Besides dropping the cached path and clearing the
-  blocked counter (step 2), picking a tile also pulls the new target tile back (`movement/pathfinding.md`, "Goal
-  pulled back") and checks the attacker and the target as a command does. The found tile is even open water, so the
-  pull-back keeps it unless it lies in another region than the transport; the check overlaps step 3. No known case has
-  the tile in another region.
+  blocked counter (step 2), picking a tile also checks the attacker and the target as a command does; the check
+  overlaps step 3. The pull-back part is now a rule (step 2, round 102): a docked transport stands in the land region,
+  so the pick is in another region and a far pick can change (V49). No trace has a pick two or more tiles away.
 - **Step 3's "a walking one at its next step boundary".** The static study finds no way to reach step 3 with the unit
   walking: the order's logic runs only when the walk has ended, and command 4 always takes over in the same update.
   If confirmed, the clause can go.
@@ -581,3 +607,4 @@ round are kept with the research-side specs.
 | 77 | A transport doesn't take a player's patrol either (traced, V41); a command it doesn't take records nothing; `ERRATA-round77.md`, reviewed | "What the transport stores"; "Clearing the mark"; V41 |
 | 100 | A waiting boarder's reaction searches the react range (human) box (traced, V42; `ERRATA-round100-traces.md`, reviewed) | "Boarding", step 5; V42 |
 | 101 | The target tile and the destination change only on a command, the docked smart stage, the push-off and repair (traced, V43 to V45; `ERRATA-round101-traces.md`, reviewed); one record open (TG4) | "What the transport stores"; "Open questions"; V43 to V45 |
+| 102 | A command's target tile is pulled back from the area of the transport's own tile, the land region when docked (traced, V46 to V48; TG4 closed); the push-off's pick is pulled back too (static study, V49); `ERRATA-round102-traces.md`, reviewed | "Pulled back from the transport's own area"; "Pushing off (order 31)", step 2; "Open questions"; V46 to V49 |

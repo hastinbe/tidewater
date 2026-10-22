@@ -28,6 +28,12 @@
   2026-10-21): after a load the creation counter goes on from the unit-slot count plus 26 (1626 in Enhanced, traced).
 - **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
   2026-10-22): a load clears a dead body's target (`game/save-load.md`, SL28 to SL30).
+- **Changes:** 2026-10-22, round 102 (oracle trace and static study, `ERRATA-round102-traces.md` sections 3 and 4;
+  reviewed by a spec-review session, 2026-10-22): "Creating a unit", step 4 corrected: creation aligns every unit to
+  the 32-pixel tile grid only, so ships and flyers placed by a map keep odd columns and rows (traced, FL1; the
+  64-pixel alignment for ships and flyers is withdrawn). In Enhanced every kill tidies every player's control groups;
+  the release clears the creation number and the local interface's references; when P drops on a release (static
+  study).
 
 ## Behaviour
 
@@ -94,8 +100,15 @@ Every unit slot belongs to exactly one owner list at all times.
    unit that can't cast has mana 0 unless it is a summoned unit, a berserker with regeneration
    (`spells/spells.md`) or a building under construction or working on a job (`economy/build-train.md`).
 4. **Placement:**
-   - The position is aligned to the tile grid: 32 pixels for most units, and 64 pixels (an even tile) for ships and
-     flying units.
+   - The position is aligned to the tile grid, 32 pixels, for **every** unit, ships and flyers included: creation
+     never moves a unit to an even tile, so a ship or flyer that a map places at an odd column or odd row stays there
+     (traced: FL1). The one exception is a map whose unit data gives **type 0** the sea-unit flag (bit 3 of the PUD
+     unit flags): creation then aligns every unit it creates, whatever its type, to 64 pixels (an even tile), because
+     the choice is made from type 0's flags, not the new unit's (static study; the default data and every shipped map
+     leave the flag clear; FL2). Units created during play stand where their caller puts them: trained units and an
+     eye of Kilrogg on a tile of the ring search of `movement/placement.md`, whose air and sea tests take only even
+     tiles; a critter from polymorph, a skeleton from raise dead and an oil patch from a killed platform on their
+     source's tile. None of these is a ship or flyer on an odd tile, so nothing created during play changes.
    - If the placement check fails, the slot goes back to the free list (see "Death, corpses and release"), and creation fails
      with the "can't place" message.
    - A failed cap or empty free list shows the "too many units" message instead.
@@ -125,6 +138,9 @@ When a unit is killed, it keeps its slot. The game:
 - releases any tree it had reserved;
 - kills any units inside it (transports, and buildings holding units);
 - sets its order to "dying", which plays its death animation;
+- right after that, under **Enhanced** rules, tidies the control groups of every player
+  (`ui/selecting-and-commanding.md`, "Control groups", the tidy at every kill; static study). Classic rules have no
+  control groups;
 - keeps the target recorded at that moment, which may be none (a killer that forgot its target dies with no target;
   `combat/damage.md`, "Applying damage"). The dead unit, and the body it becomes, keep it until the slot is released;
   only a load clears it, and only on a body (type 0x69): a dying unit keeps it through a load (`game/save-load.md`,
@@ -151,8 +167,15 @@ When the death animation reaches its step-done signal, one of three things happe
 The "remove" order runs at the unit's next step-done signal. It **releases the slot**:
 
 1. The unit is unlinked from its owner list. The owner's count goes down, and if it reaches 0 for a player, P goes
-   down by 1.
+   down by 1. A slot released by the "remove" order belongs to the neutral player (15) by then, so its release never
+   changes P: the count and P changed when it was handed to the neutral player ("Changing owner"). Only a slot
+   released by a failed creation (step 4 of "Creating a unit") still has a player as owner.
 2. The slot is marked unused, with owner 14, and goes to the **front** of the free list.
+3. Its creation number becomes 0 (static study). No rule reads the creation number of an unused slot, so this has no
+   effect in play; it is recorded for completeness.
+
+Before that, the unit is taken out of the local selection and the local remembered groups (interface only,
+`ui/selecting-and-commanding.md`).
 
 The released slot is therefore the **first one reused**. The free list works last in, first out.
 
@@ -210,6 +233,9 @@ no effect is created. A released effect slot is simply marked unused.
 | `human5-10000` (oracle trace), n = 1595: barracks 1529 (type 0x3C, 3 × 3 at (46, 92)) destroyed by an axe from 1534; effect slots 0 to 2 in use, the axe in slot 4 | Effect slot 3: kind 0x17 at (1520, 2984) ((1472 + 48, 2944 + 48 − 8)), destination (0, 0), target null, shooter null, damage 0 |
 | `xhuman2-10000` (oracle trace), n = 514: guard tower 1546 (type 0x60, 2 × 2 at (56, 69)) destroyed by a catapult rock from 1556 in effect slot 4; slots 0 to 2 in use | Effect slot 3: kind 0x17 at (1824, 2232) ((1792 + 32, 2208 + 32 − 8)), zero fields; the rock's impact effect (kind 0x15) in slot 5 |
 | A wall piece destroyed (static study only) | No explosion |
+| FL1: `mp-r102-flyers-fixed-60` (oracle trace, Enhanced, generated map `R102-flyers.pud`): gryphon riders at (31, 7) and (30, 21), a flying machine at (33, 9), a dragon at (37, 13), a zeppelin at (39, 15), destroyers at (21, 55) and (27, 59), a transport at (41, 57), all placed by the map | Setup record and every record to n = 60: each unit on exactly its map tile, pixels = tile × 32 (gryphon at (31, 7): (992, 224); destroyer at (27, 59): (864, 1888)); no column or row is made even |
+| FL2: a custom map whose unit data sets the sea-unit flag on type 0 places a footman at (5, 7) and a gryphon rider at (9, 3) (static study only) | Footman at (4, 6), gryphon rider at (8, 2): every created unit is aligned to 64 pixels |
+| A unit in slot 1400 is removed by the "remove" order (static study) | The slot is unused with owner 14 at the front of the free list, and its creation number reads 0; P is unchanged by the release |
 
 ## Open questions
 

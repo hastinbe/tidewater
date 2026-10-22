@@ -17,6 +17,12 @@
   commands, so nothing changes. The Battle.net team-game start (DP10), the Battle.net computer-alliance settings and
   the greyed allied-victory box are recorded under "Battle.net games", **Battle.net only, not mirrored**. Open
   questions "Allied victory at the start", "Saves" and "Recorded commands" closed.
+- **Changes:** 2026-10-22, round 102 (`ERRATA-round102-traces.md` section 2 and `ERRATA-audit2-net.md`, "Round 102";
+  reviewed by a spec-review session, 2026-10-22; static study): the original's diplomacy screen (lines for the other
+  players only; it sends the player's own entry back as it was, and every allied entry as 2 when allied victory is
+  ticked); every reader of the alliance table listed. An own entry of 0 can't come from either game's screen, so
+  Tidewater may count a player as allied with itself (DP7 is no longer a Tidewater test). Open question "An own
+  alliance entry of 0" closed; "The diplomacy screen" narrowed.
 
 ## Behaviour
 
@@ -75,8 +81,44 @@ before phase 1).
 **Classic mode:** steps 1, 3 and 4 as above, with the 0 or 1 values; step 2 doesn't happen: shared vision never
 changes during play in Classic mode (`vision/fog.md`, "Shared vision").
 
-**A raw value of 2 or 3** counts as allied wherever an alliance is tested; no rule found distinguishes 1, 2 and 3.
-Tidewater may store the entry as allied or not allied.
+**A raw value of 2 or 3** counts as allied wherever an alliance is tested; no rule found distinguishes 1, 2 and 3
+(every reader below tests for nonzero only; static study, round 102). The game's own screen sends 2 for every allied
+entry when allied victory is ticked and 1 when it isn't ("The original's diplomacy screen"). Tidewater may store the
+entry as allied or not allied.
+
+### The original's diplomacy screen (static study, round 102)
+
+- It shows one line for each **other** player; the player's own entry has no line.
+- When it opens, it copies the player's whole alliance row, own entry included, into its boxes (and, in Enhanced, the
+  player's shared-vision set).
+- When the player presses OK it sends one diplomacy command with **all eight** entries: each other player's entry as
+  its box shows it, and the **own entry as it was copied**. Setup makes every player's own entry allied
+  (`game/setup.md`), and only a player's own diplomacy command writes its row, so the own entry it sends is always
+  allied: an own entry of 0 can't arise from the game's own screen, only from a command another program sends.
+- Each allied entry, the own one included, is sent as 2 ("allied, with allied victory") when the allied-victory box
+  is ticked, and as 1 otherwise. In Classic mode the screen sends the one-bit form (static study; not separately
+  checked for the own entry).
+
+### Who reads the alliance table (static study, round 102)
+
+"Owner first" means the reader checks the unit's owner itself and never reads the own entry. The effect column says
+what an own entry of 0 would change; by the screen rule above that state is unreachable in the original's games.
+
+| Reader | Reads the own entry? | If the own entry were 0 |
+| --- | --- | --- |
+| Target search (`orders/orders.md`) | Yes | The player's own units would become candidates |
+| Call for help | Yes | An own attacker would be recorded as an enemy |
+| Blocked step, row F (`movement/movement.md`) | Yes | An own walking unit wouldn't count as an ally |
+| Path search, moving allies and enemies (`movement/pathfinding.md`) | Yes | Own units seen as enemies by an attacker, as still blockers by others |
+| Right-click actions (attack, demolish, harvest choices; `ui/selecting-and-commanding.md`) | Yes | Right-clicking an own unit would attack it (demolish for demolition units) |
+| Exorcism strike (Enhanced; players 0 to 7) | Yes | Own undead would be hit |
+| Allied-victory pairing (`game/victory.md`; DP7) | Yes | The player fails to pair with itself |
+| The diplomacy screen | Copies it | Sent back as 0 |
+| Death coil strike | Owner first | None |
+| Target flash colours and the unit colour table (display) | Owner first | None |
+| Chat recipients | Excludes the sender | None |
+| Computer-player readers | Yes | None possible: a computer player sends no diplomacy command, so its own entry stays allied |
+| Score, saving and loading, the original's sync check | Whole table | None (copied as is) |
 
 ### A player outside its own set (mirrored quirk)
 
@@ -93,15 +135,23 @@ By the rules of `vision/fog.md`, a player outside its own set:
   widened: "Detection (phase 1)"); its own submarines are still detected by it as their owner.
 
 **Tidewater's screen** always sends the sender in its own `vision` set and its own alliance entry as allied, so the
-quirk arises only from a command another program sends. Code must not assume that a player is in its own set or
-allied with itself after a diplomacy command (no assertion, no repair).
+quirk arises only from a command another program sends. Code must not assume that a player is in its own `vision`
+set after a diplomacy command (no assertion, no repair).
+
+**A player's own alliance entry (Tidewater).** Neither the original's screen nor Tidewater's ever sends an own entry
+of 0 (round 102), so a player is allied with itself in every state either game's own screen can reach. Tidewater may
+therefore count a player as allied with itself whatever its own entry holds; that gives the same result as the reader
+table above in every reachable state. If it reads the own entry instead, the entry must start allied at setup
+(`game/setup.md`), and the two then agree too. Only a command another program sends with an own entry of 0 would
+tell them apart (DP7); neither behaviour is required for it.
 
 ### How it meets the other rules
 
 - **Victory.** `game/victory.md`, "The multiplayer rule", step 6, needs every human player who is in to have allied
   victory on and every pair of them allied both ways, each player paired with itself included. So two players reach
   an allied victory only after both have sent a command that allies them with each other and turns allied victory on.
-  A player who cleared its own alliance entry can't share an allied victory while another human player is in.
+  In the original a player whose own entry is 0 (only possible through a command no game screen sends; see "A
+  player's own alliance entry") can't share an allied victory while another human player is in.
 - **Leaving and dropping.** A leave doesn't change the alliance table (`net/leave-and-drop.md`); it removes the leaver
   from every shared-vision set and makes its own set just itself (`vision/fog.md`), which may put back a player that a
   diplomacy command had taken out of its own set. A player who has left sends no more commands.
@@ -160,11 +210,14 @@ and the command is sent by the player it names.
 | DP4 | Player 1 sends the value 3 toward player 2 | Player 1 counts player 2 as allied |
 | DP5 | Player 1 sends vision {2} (mirrored quirk) | Player 1's set is {2}. Player 1's own units' reveals no longer change player 1's explored and visible maps (they change player 2's); player 1's invisible units are detected by player 2 (and whoever player 2's set adds), not by player 1 through the set |
 | DP6 | Humans 0 and 1 are the only players in; player 0 sends allied with 0 and 1, allied victory on; player 1 hasn't sent anything (not allied with 0, allied victory off) | The victory check gives no result. After player 1 sends allied with 0 and 1 with allied victory on, the next check gives victory to both (`game/victory.md`, "The multiplayer rule", step 6) |
-| DP7 | As DP6, but before the check that follows player 1's command, player 0 sends a second command with its own entry 0 (not allied with itself), still allied with 1, allied victory on | That check gives no result (the self pairing fails) |
+| DP7 | As DP6, but before the check that follows player 1's command, player 0 sends a second command with its own entry 0 (not allied with itself), still allied with 1, allied victory on. **Original only; not a Tidewater test** (no game screen sends this; round 102) | In the original that check gives no result (the self pairing fails). Tidewater may give either result ("A player's own alliance entry") |
 | DP8 | Player 1 sends allied with 0 while its row toward the neutral slot 15 is allied | The entry toward 15 stays allied: slots 8 to 15 are never written |
 | DP9 | Any new game: single player, or a multiplayer game over Direct IP or Local Network (round 100) | Allied victory off for every player at the start |
 | DP10 | **Battle.net only; not mirrored, not a Tidewater test.** A Battle.net team game, slots 0 and 2 on team 1, slots 1 and 3 on team 2, all human (round 100) | 0 and 2 allied both ways and in each other's shared-vision sets; likewise 1 and 3; 0 and 1 not allied; allied victory on for all |
 | DP11 | Enhanced single player: player 1's vision set is {1, 2} and player 0's allied victory is on (for example after diplomacy commands, or set up by a test); save, then load (round 100) | The same set and setting after the load; the alliance table as saved |
+| DP12 | The original's screen: player 1, at game start (allied only with itself among players 0 to 3), opens the screen, ticks player 2's box and allied victory, presses OK (round 102) | The command sends player 1's entries as 0, 2, 2, 0 for players 0 to 3 (own entry 2, sent though it has no line) and allied victory on |
+| DP13 | As DP12 without allied victory ticked | Entries 0, 1, 1, 0; allied victory off |
+| DP14 | Tidewater with the "allied with itself" shortcut, any game played through either game's screen | Every alliance test gives the same result as reading the table |
 
 ## Open questions
 
@@ -172,14 +225,14 @@ and the command is sent by the player it names.
   team-game exception isn't mirrored.
 - **Saves:** closed in round 100 (static study): saved and restored (DP11). Untraced: no save with a changed set or
   setting has been captured (it needs DIP1's driver, or a test-only setup).
-- **An own alliance entry of 0.** The command can write it (above), and the victory test reads it. Whether every other
-  reader (target searches, the colour table) tests the table for a unit of the player's own, or checks the owner
-  first, wasn't studied. Default: every reader reads the table as written. Only a command from another program can
-  send it, since Tidewater's screen never does.
+- **An own alliance entry of 0:** closed in round 102 (static study). Every reader is listed ("Who reads the alliance
+  table"); most read the own entry as written, but no game screen sends 0 for it, so the state is unreachable in play
+  and Tidewater may treat a player as allied with itself ("A player's own alliance entry").
 - **Recorded commands:** closed in round 100. The second place is the Battle.net layer (Enhanced only), not a
   playback; nothing to mirror ("The Battle.net layer" above).
-- **The diplomacy screen** (which lines it shows, whether it can send a set without its sender, whether a vision box
-  exists for each line) is a later UI spec.
+- **The diplomacy screen:** which lines it shows and what it sends for the alliances are answered (round 102, "The
+  original's diplomacy screen"). Whether it can send a `vision` set without its sender, the boxes' layout and whether
+  a vision box exists for each line are left to a later UI spec.
 - **Trace request DIP1** (multiplayer driver, M track): open the diplomacy screen on the traced player, ally with the
   second human and tick shared vision and allied victory; then the same on the second human's display; record the
   `turn` records (the command appears as `other` until `oracle/trace-format.md` describes it), the units' target
