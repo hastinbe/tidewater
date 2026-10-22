@@ -4716,6 +4716,62 @@ mod tests {
         }
     }
 
+    /// `net/leave-and-drop.md` LV20 and LV21 (traced, round 93): a "nobody" player's idle combat unit and tower take no
+    /// target and don't strike back. Automatic target acquisition skips every candidate hidden from the searcher's
+    /// owner, and every unit is always hidden from a "nobody" player (`vision/fog.md`, "Unit visibility (phase 5)").
+    #[test]
+    fn a_nobody_players_idle_units_and_towers_find_no_target() {
+        let mut w = map();
+        // LV21: an enemy footman next to the nobody player's idle footman, which it strikes.
+        let foe = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+        let grunt = w.spawn(FOOTMAN, 1, (5, 6), 0).unwrap();
+        // LV20: an enemy footman walking (a move, not an attack) through the nobody player's tower's reach.
+        let walker = w.spawn(FOOTMAN, 0, (18, 7), 0).unwrap();
+        // A guard tower (0x60): the test tower type's owner is forced to the neutral player.
+        w.stats.0[0x60] = w.stats.0[TOWER as usize];
+        let tower = w.spawn(0x60, 1, (18, 12), 0).unwrap();
+        w.players[1].controller = controller::NOBODY;
+        let hp = w.unit(walker).unwrap().hp;
+        let mut struck = false;
+        for k in 0..120 {
+            let go = Command::Move {
+                player: 0,
+                units: vec![walker],
+                to: (18, 17),
+            };
+            w.step(if k == 0 { std::slice::from_ref(&go) } else { &[] });
+            assert_eq!(
+                order_of(&w, grunt),
+                Order::Idle,
+                "the grunt takes no target and no reaction"
+            );
+            assert!(
+                matches!(order_of(&w, tower), Order::Idle | Order::TowerWatch { target: None }),
+                "the tower takes no target"
+            );
+            assert!(
+                w.missiles.iter().all(Option::is_none),
+                "the tower launches nothing at {k}: {:?}",
+                w.missiles
+                    .iter()
+                    .flatten()
+                    .map(|m| (m.kind, m.attacker, m.target))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(w.unit(walker).unwrap().hp, hp, "the walker is not hurt");
+            if k == 60 {
+                let y = w.unit(walker).unwrap().tile.1;
+                assert!((8..=16).contains(&y), "the walker is inside the tower's reach at {y}");
+            }
+            struck |= w.unit(grunt).unwrap().hp < w.stats_of(FOOTMAN).hit_points;
+        }
+        assert!(
+            struck,
+            "the enemy footman takes the idle grunt as a target and strikes it"
+        );
+        assert_ne!(order_of(&w, foe), Order::Idle);
+    }
+
     /// Pins of the current behaviour where no oracle trace reaches (the coverage report's untraced order regions) and
     /// on the paths the B-038 refactor merges, written before it so that it can't change them unseen. Each test states
     /// the outcome in a few fields and pins the whole simulation state with [`World::fingerprint`]. Where a pin

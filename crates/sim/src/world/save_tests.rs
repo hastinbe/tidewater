@@ -380,13 +380,16 @@ fn a_load_restarts_the_pass_counter_at_1() {
     assert_eq!(b.army.countdown, 1);
 }
 
-/// SL4 to SL6 (traced): the footmen, archers, siege and knights counts of a computer player are restored and counted
-/// again: each load adds the counts at the save to the surplus. A dying unit and a held unit aren't counted.
+/// SL4 to SL6, SL13 to SL15 (traced; four groups static study): every training group count from footmen to submarines
+/// of a computer player is restored and counted again: each load adds the counts at the save to the surplus. A dying
+/// unit and a held unit aren't counted; the worker and tanker counts come back right.
 #[test]
-fn a_load_doubles_the_four_training_group_counts() {
+fn a_load_doubles_every_training_group_count_from_footmen_to_submarines() {
     let mut a = field(16, 16);
     a.players[1].controller = crate::ai::controller::COMPUTER;
-    // 3 footmen (one a grunt), 2 archers, a catapult, a knight and a dying knight.
+    // 3 footmen (one a grunt), 2 archers, a catapult, a knight and a dying knight; then a mage, a gryphon, a flying
+    // machine, a transport, two destroyers (one held, as a map ship is), a battleship and a submarine; two
+    // workers and a tanker.
     for (kind, tile) in [
         (0u8, (2, 2)),
         (0, (2, 3)),
@@ -395,23 +398,37 @@ fn a_load_doubles_the_four_training_group_counts() {
         (9, (3, 3)),
         (4, (4, 2)),
         (6, (4, 3)),
+        (0x0a, (5, 2)),
+        (0x16, (5, 3)),
+        (0x28, (5, 4)),
+        (0x1c, (6, 2)),
+        (0x1e, (6, 3)),
+        (0x1e, (6, 4)),
+        (0x20, (7, 2)),
+        (0x26, (7, 3)),
+        (2, (8, 2)),
+        (3, (8, 3)),
+        (0x1a, (8, 4)),
     ] {
         a.spawn(kind, 1, tile, 0).unwrap();
     }
     let dying = a.spawn(6, 1, (4, 4), 0).unwrap();
     let i = a.units.iter().position(|u| u.id == dying).unwrap();
     a.units[i].dying = true;
+    let held = a.units.iter().rposition(|u| u.kind == 0x1e).unwrap();
+    a.units[held].held = true;
     let g = a.ai_groups_with_surplus(1);
-    assert_eq!((g.footmen, g.archers, g.siege, g.knights), (3, 2, 1, 1));
+    assert_eq!(g.doubled(), [3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    let (workers, tankers) = (g.workers, g.tankers);
+    assert_eq!((workers, tankers), (2, 1));
     let mut b = field(16, 16);
     b.players[1].controller = crate::ai::controller::COMPUTER;
     b.restore(&a.save_state(), 1).unwrap();
     let g = b.ai_groups_with_surplus(1);
-    assert_eq!((g.footmen, g.archers, g.siege, g.knights), (6, 4, 2, 2), "doubled");
-    // The other groups are as they were counted.
-    assert_eq!((g.mages, g.gryphons, g.workers), (0, 0, 0));
+    assert_eq!(g.doubled(), [6, 4, 2, 2, 2, 2, 2, 2, 2, 2, 2], "doubled");
+    assert_eq!((g.workers, g.tankers), (workers, tankers), "worked out afresh");
     // The count goes on rising and falling with the units from there.
-    b.spawn(0, 1, (6, 6), 0).unwrap();
+    b.spawn(0, 1, (10, 6), 0).unwrap();
     assert_eq!(b.ai_groups_with_surplus(1).footmen, 7);
     // A further save and load adds the loaded units again.
     let mut c = field(16, 16);
@@ -419,7 +436,7 @@ fn a_load_doubles_the_four_training_group_counts() {
     c.restore(&b.save_state(), 1).unwrap();
     assert_eq!(c.ai_groups_with_surplus(1).footmen, 7 + 4);
     // A human player's counts aren't kept.
-    assert_eq!(c.group_surplus[0], [0; 4]);
+    assert_eq!(c.group_surplus[0], [0; crate::training_ai::DOUBLED_GROUPS]);
 }
 
 /// `game/save-load.md`, "What a saved game keeps" (static study): the frozen and about-to-freeze marks of workers are

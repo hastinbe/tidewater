@@ -26,6 +26,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::*;
+use crate::training_ai::DOUBLED_GROUPS;
 
 /// Why a stored world couldn't be read back.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -152,7 +153,7 @@ impl World {
         let mut h = fnv(0xcbf2_9ce4_8422_2325, &self.core_state());
         // The surplus a load leaves counts only once there is one, so a game that was never loaded keeps its fingerprint
         // from before the surplus was stored.
-        if self.group_surplus != [[0u32; 4]; SCRIPT_PLAYERS] {
+        if self.group_surplus != [[0u32; DOUBLED_GROUPS]; SCRIPT_PLAYERS] {
             h = fnv(
                 h,
                 &postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"),
@@ -171,7 +172,7 @@ impl World {
     /// random generator afresh. Cheats start as for a new game. A load starts the counters afresh ([`World::starts_afresh`])
     /// and a Classic save clears the score counters.
     pub fn restore(&mut self, bytes: &[u8], seed: u32) -> Result<(), RestoreError> {
-        let (saved, terrain, surplus): (Saved, TerrainOwned, [[u32; 4]; SCRIPT_PLAYERS]) =
+        let (saved, terrain, surplus): (Saved, TerrainOwned, [[u32; DOUBLED_GROUPS]; SCRIPT_PLAYERS]) =
             postcard::from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let t = &mut self.terrain;
         let n = t.width as usize * t.height as usize;
@@ -249,8 +250,10 @@ impl World {
     /// - the fog refresh countdown is 1, so the first start-up cycle refreshes the fog;
     /// - the 50-cycle pass counter is 1 again (it isn't saved), so a loaded game runs the passes in its first start-up
     ///   cycle whatever phase the save was in (`game/save-load.md` SL1 to SL3; `ai/attack-ai.md`, "Timing");
-    /// - the footmen, archers, siege and knights counts of each computer player double: the surplus becomes the saved
-    ///   surplus plus the counts at the save (SL4 to SL6);
+    /// - the footmen-to-submarines counts of each computer player double: the surplus becomes the saved surplus plus
+    ///   the counts at the save (SL4 to SL6, SL13 to SL15); the worker and tanker counts are worked out afresh;
+    /// - every research request is clear and each computer player's done marks are made again, with the load's
+    ///   building marks (SL9 to SL12);
     /// - the frozen and about-to-freeze marks of workers are cleared (static study, a labelled gap-fill);
     /// - every unit's creation number is its slot number plus one, and the next unit created gets the unit-slot count
     ///   plus 26: 1626 in Enhanced (SL7; the Classic value 626 is the spec's gap-fill).
@@ -270,9 +273,16 @@ impl World {
             }
             let g = self.ai_groups(p);
             let s = &mut self.group_surplus[p];
-            for (s, n) in s.iter_mut().zip([g.footmen, g.archers, g.siege, g.knights]) {
+            for (s, n) in s.iter_mut().zip(g.doubled()) {
                 *s += n;
             }
+        }
+        // Research requests and done marks aren't kept: every request is clear and the marks are made again
+        // (`game/save-load.md` SL9 to SL12).
+        for p in 0..self.ai.len() {
+            self.ai[p].research_requests = 0;
+            self.ai[p].done = 0;
+            self.mark_load(p);
         }
         for u in &mut self.units {
             u.serial = super::Serial(u.slot as u32 + 1);

@@ -46,6 +46,71 @@ impl World {
         }
     }
 
+    /// The game-start marks for what player `p` already has: upgrade levels, researched items and known spells.
+    fn mark_research_known(&mut self, p: usize, list: &[u8]) {
+        for (n, &e) in list.iter().enumerate() {
+            if e == 0xff {
+                break;
+            }
+            if e >= 0x80 && self.research_known(p, e) {
+                self.ai[p].done |= 1 << n;
+            }
+        }
+    }
+
+    /// The marks a load makes for computer player `p`, whose marks and requests are clear (`ai/worker-ai.md`, "Done
+    /// marks", last bullet; `game/save-load.md` SL9 to SL12): the game-start marks, then the **load's building marks**
+    /// of each building. Loaded units make no creation marks, and a research running at the save is not marked: it
+    /// has no level or flag yet.
+    ///
+    /// spec gap: the spec says "each complete building" (static study, untraced), but in the SL9 trace player 2's
+    /// scout tower, lumber mill, blacksmith and barracks were still construction sites at the save (hit points still
+    /// rising in the loaded game's setup record) and the loaded game's done marks 1 to 4 include their entries. So a
+    /// building under construction marks too; only a dead or dying one doesn't.
+    pub(crate) fn mark_load(&mut self, p: usize) {
+        if !self.computer_player(p as u8) {
+            return;
+        }
+        let list = self.build_list(p);
+        self.mark_research_known(p, &list);
+        let mine: Vec<u8> = self
+            .units
+            .iter()
+            .filter(|u| u.owner as usize == p && u.building && u.hp > 0 && !u.dying)
+            .map(|u| u.kind)
+            .collect();
+        for k in mine {
+            match k {
+                // Guard or cannon tower: the first open scout-tower entry.
+                0x60..=0x63 => self.mark_first(p, &list, |e| e == 0x40),
+                // Keep or stronghold: every 0x98 entry, then the first open town hall entry.
+                0x58 | 0x59 => {
+                    self.mark_all(p, &list, |e| e == 0x98);
+                    self.mark_first(p, &list, |e| e == 0x4a);
+                }
+                // Castle or fortress: every 0x98 and 0x99 entry, then the first open town hall entry.
+                0x5a | 0x5b => {
+                    self.mark_all(p, &list, |e| e == 0x98 || e == 0x99);
+                    self.mark_first(p, &list, |e| e == 0x4a);
+                }
+                // Any other building: the first open entry of its type with the race bit cleared.
+                _ => self.mark_first(p, &list, |e| e < 0x80 && for_race(e, k & 1) == k),
+            }
+        }
+    }
+
+    /// Marks every entry of player `p`'s build list that satisfies `want`, open or not.
+    fn mark_all(&mut self, p: usize, list: &[u8], want: impl Fn(u8) -> bool) {
+        for (n, &e) in list.iter().enumerate() {
+            if e == 0xff {
+                break;
+            }
+            if want(e) {
+                self.ai[p].done |= 1 << n;
+            }
+        }
+    }
+
     /// The marks made at the start of a game for computer player `p`, after its build list is set.
     ///
     /// An active rescue player's map buildings were created before it became a computer player (`game/setup.md`,
@@ -68,14 +133,7 @@ impl World {
             self.creation_mark(i);
         }
         let list = self.build_list(p);
-        for (n, &e) in list.iter().enumerate() {
-            if e == 0xff {
-                break;
-            }
-            if e >= 0x80 && self.research_known(p, e) {
-                self.ai[p].done |= 1 << n;
-            }
-        }
+        self.mark_research_known(p, &list);
         // Round 36: every building the map places marks the first open entry of its own type, as any creation does;
         // there are no tower, keep or castle cases.
         for i in mine {

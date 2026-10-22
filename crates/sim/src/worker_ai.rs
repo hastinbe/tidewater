@@ -433,7 +433,12 @@ impl World {
         p.units_allowed & (1 << bit) != 0 && also
     }
 
-    /// The player's build list (`ai/ai-scripts.md`), read from the script file.
+    /// The player's build list (`ai/ai-scripts.md`), read from the script file (for the oracle comparer).
+    pub fn build_list_of(&self, p: usize) -> Vec<u8> {
+        self.build_list(p)
+    }
+
+    /// The player's build list, as [`World::build_list_of`].
     pub(crate) fn build_list(&self, p: usize) -> Vec<u8> {
         let Some(file) = &self.ai_file else {
             return Vec::new();

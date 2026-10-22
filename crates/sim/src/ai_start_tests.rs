@@ -229,3 +229,111 @@ fn an_active_rescue_players_map_buildings_make_no_marks() {
     }
     assert_eq!(got, [(0b111, true), (0b001, false)]);
 }
+
+/// The marks a load makes for player `P` (`ai/worker-ai.md`, "Done marks", last bullet): the game-start marks, then the
+/// load's building marks.
+fn loaded(list: &[u8], setup: impl Fn(&mut World)) -> u64 {
+    let mut w = world(list);
+    setup(&mut w);
+    w.ai[P].done = 0;
+    w.mark_load(P);
+    w.ai[P].done
+}
+
+/// SL12 (traced): three towers mark the three scout-tower entries, and the fourth finds none open.
+#[test]
+fn a_load_marks_a_scout_tower_entry_for_each_tower() {
+    let list = [0x4a, 0x40, 0x40, 0x40, 0x3c];
+    let towers = |n: usize| {
+        loaded(&list, |w| {
+            let kinds = [
+                b::HUMAN_GUARD_TOWER,
+                b::ORC_GUARD_TOWER,
+                b::HUMAN_CANNON_TOWER,
+                b::ORC_CANNON_TOWER,
+            ];
+            for (i, &k) in kinds.iter().take(n).enumerate() {
+                put(w, k, i as i32);
+            }
+        })
+    };
+    assert_eq!(towers(1), 0b00010);
+    assert_eq!(towers(3), 0b01110);
+    assert_eq!(towers(4), 0b01110, "the fourth tower finds no open entry");
+}
+
+/// SL11 (traced: a fortress marks 0x98); the 0x99 and 0x4A parts are static study.
+#[test]
+fn a_load_marks_the_hall_upgrade_entries_for_keeps_and_castles() {
+    let list = [0x98, 0x4a, 0x99, 0x98, 0x4a];
+    assert_eq!(
+        loaded(&list, |w| put(w, b::STRONGHOLD, 0)),
+        0b01011,
+        "every 0x98, then the first open 0x4A"
+    );
+    assert_eq!(loaded(&list, |w| put(w, b::KEEP, 0)), 0b01011);
+    assert_eq!(
+        loaded(&list, |w| put(w, b::FORTRESS, 0)),
+        0b01111,
+        "every 0x98 and 0x99, then the first 0x4A"
+    );
+    assert_eq!(loaded(&list, |w| put(w, b::CASTLE, 0)), 0b01111);
+    assert_eq!(
+        loaded(&list, |w| {
+            put(w, b::CASTLE, 0);
+            put(w, b::KEEP, 1);
+        }),
+        0b11111,
+        "the second hall finds the second 0x4A open"
+    );
+}
+
+/// Any other building marks the first open entry of its type with the race bit cleared, once; a construction site
+/// marks as well (spec gap, below).
+#[test]
+fn a_load_marks_other_buildings_by_type_sites_included() {
+    let list = [b::HUMAN_BARRACKS, b::HUMAN_BARRACKS, 0x80];
+    assert_eq!(
+        loaded(&list, |w| put(w, b::ORC_BARRACKS, 0)),
+        0b001,
+        "an orc barracks marks a 0x3C entry"
+    );
+    assert_eq!(
+        loaded(&list, |w| (0..2).for_each(|n| put(w, b::HUMAN_BARRACKS, n))),
+        0b011
+    );
+    // spec gap (traced against the spec's "complete" test, SL9 player 2): a construction site marks too.
+    let mut w = world(&list);
+    w.place_building(b::HUMAN_BARRACKS, P as u8, (4, 4)).unwrap();
+    assert_eq!(w.ai[P].done, 0b001);
+    w.ai[P].done = 0;
+    w.mark_load(P);
+    assert_eq!(w.ai[P].done, 0b001);
+}
+
+/// SL9 to SL11 (traced): a load clears every research request and the saved marks, and makes the game-start marks
+/// again; a research running at the save has no level yet, so it stays unmarked.
+#[test]
+fn a_load_clears_the_requests_and_makes_the_marks_again() {
+    let weapons = fixed_line(0);
+    let list = [b::HUMAN_BARRACKS, 0x86, 0x88, 0x80];
+    let mut a = world(&list);
+    put(&mut a, b::HUMAN_BARRACKS, 0);
+    a.players[P].levels[weapons] = 0;
+    a.ai[P].done = 0b1111;
+    a.ai[P].request(0x88);
+    a.ai[0].research_requests = 1;
+    let mut b = world(&list);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert!(b.ai.iter().all(|p| p.research_requests == 0));
+    assert_eq!(
+        b.ai[P].done, 0b0001,
+        "the barracks mark; the researches (weapon level 0) stay open"
+    );
+    // With the level reached, the game-start mark returns.
+    let mut a = world(&list);
+    a.players[P].levels[weapons] = 1;
+    let mut b = world(&list);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!(b.ai[P].done, 0b0010);
+}

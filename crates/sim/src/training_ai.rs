@@ -90,6 +90,46 @@ pub struct Groups {
     pub workers: u32,
 }
 
+/// How many group counts a load doubles: footmen to submarines, in [`Groups::doubled`] order.
+pub const DOUBLED_GROUPS: usize = 11;
+
+impl Groups {
+    /// The counts a load doubles (`game/save-load.md` SL4 to SL6 and SL13 to SL15): every group from footmen to
+    /// submarines, in the order of the table in `ai/training-research.md`, "Training buildings". The worker and
+    /// tanker counts aren't among them.
+    pub fn doubled(&self) -> [u32; DOUBLED_GROUPS] {
+        [
+            self.footmen,
+            self.archers,
+            self.siege,
+            self.knights,
+            self.mages,
+            self.gryphons,
+            self.flying_machines,
+            self.transports,
+            self.destroyers,
+            self.battleships,
+            self.submarines,
+        ]
+    }
+
+    fn doubled_mut(&mut self) -> [&mut u32; DOUBLED_GROUPS] {
+        [
+            &mut self.footmen,
+            &mut self.archers,
+            &mut self.siege,
+            &mut self.knights,
+            &mut self.mages,
+            &mut self.gryphons,
+            &mut self.flying_machines,
+            &mut self.transports,
+            &mut self.destroyers,
+            &mut self.battleships,
+            &mut self.submarines,
+        ]
+    }
+}
+
 impl AiPlayer {
     /// Sets the request flag of research code `code`; codes outside 0x80 to 0x9A are ignored.
     pub(crate) fn request(&mut self, code: u8) {
@@ -232,15 +272,15 @@ impl World {
         g
     }
 
-    /// [`World::ai_groups`] with the surplus a load left on the four traced groups added (`game/save-load.md` SL4 to
-    /// SL6; `ai/training-research.md`, "Training buildings"). The rules compare these counts.
+    /// [`World::ai_groups`] with the surplus a load left on every group from footmen to submarines added
+    /// (`game/save-load.md` SL4 to SL6, SL13 to SL15; `ai/training-research.md`, "Training buildings"). The rules
+    /// compare these counts. The worker and tanker counts come back right and have no surplus.
     pub fn ai_groups_with_surplus(&self, p: usize) -> Groups {
         let mut g = self.ai_groups(p);
-        if let Some(&[f, ar, s, k]) = self.group_surplus.get(p) {
-            g.footmen += f;
-            g.archers += ar;
-            g.siege += s;
-            g.knights += k;
+        if let Some(s) = self.group_surplus.get(p) {
+            for (n, s) in g.doubled_mut().into_iter().zip(s) {
+                *n += s;
+            }
         }
         g
     }
