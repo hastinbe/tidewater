@@ -506,7 +506,8 @@ mod tests {
     fn ships_have_a_two_tile_ring_on_the_left_and_top() {
         let mut w = world();
         let d = put(&mut w, DESTROYER, RESCUE, (20, 20));
-        // Ships stand on even tiles, so the transport asked for at (18, 19) stands at (18, 18).
+        // Ships stand on even tiles (a design choice, `core/unit-slots.md` OS1), so the transport asked for at (18, 19) stands
+        // at (18, 18).
         let t = put(&mut w, TRANSPORT, 0, (18, 19));
         assert_eq!(u(&w, t).tile, (18, 18));
         assert!(join(&mut w, d));

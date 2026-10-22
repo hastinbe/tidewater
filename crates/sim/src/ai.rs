@@ -594,6 +594,11 @@ mod tests {
         /// human player 0 with footmen and a town hall far away.
         fn town() -> World {
             let mut w = field(64, 64);
+            // The test scripts give a peasant a two-tile step, which only flyers and ships have in the game data;
+            // with creation no longer aligning (round 102) that would put trained peasants on odd tiles of a
+            // two-tile mover's grid, so the peasants here take one-tile steps like the real ones.
+            w.stride[PEASANT as usize] = 1;
+            w.stride[PEASANT as usize + 1] = 1;
             for (i, p) in w.players.iter_mut().enumerate() {
                 p.controller = match i {
                     0 => controller::HUMAN,
@@ -661,14 +666,14 @@ mod tests {
         fn the_whole_computer_player() {
             let mut w = town();
             // Round 85 (CP14): a build job writes its site into the worker's goal tile.
-            assert_eq!(trail(&mut w, 2500), 2994701651384003817);
+            assert_eq!(trail(&mut w, 2500), 16220312932591610637);
             // The run did what it is for: the build list was built, workers and footmen were trained and mine, and
             // land waves went out.
             let kinds: Vec<u8> = w.units.iter().filter(|u| u.owner == 1).map(|u| u.kind).collect();
             assert_eq!(kinds, [0, 58, 0, 2, 2, 58, 58, 2, 2, 2, 60, 74]);
             assert_eq!(
                 (w.ai[1].done, w.ai[1].miners, w.army.launched[1]),
-                (0b111, 5, [7, 0, 0])
+                (0b111, 3, [6, 0, 0])
             );
         }
 
@@ -687,18 +692,18 @@ mod tests {
             assert_eq!(
                 got,
                 [
-                    11133846552737041659,
-                    5762494518752635342,
-                    7378214375475161203,
-                    16985773147496188270,
-                    5274748166769857403,
-                    7326804306933757710,
-                    2429227751578172415,
-                    8639470356273486661,
+                    10231283040251933501,
+                    8146064634448431933,
+                    6845754164759817515,
+                    3564900319327771986,
+                    3982668408120412858,
+                    157501765812619654,
+                    5328995101558571313,
+                    18030516461380455173,
                     // Round 83 (CP5): the losses rule's all-out attack sends the peasants off in order 4, where
                     // they now make their job choice. Round 84: the walk after that choice heads for the job.
-                    10456239314902769494,
-                    17155222461012535502
+                    17896987623674850142,
+                    4234930494061441571
                 ]
             );
         }

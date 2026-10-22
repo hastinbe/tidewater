@@ -1297,7 +1297,7 @@ impl World {
 
     /// Creates a unit with full hit points in the front free slot (unit-slots spec), making the creation draws
     /// (timing-and-rng spec, "Draw sites"): a mobile unit's facing, a building's variation value, a computer land
-    /// unit's post choice (its first goal, attack-ai spec), then extra cycles on the first animation wait. Ships and flyers are aligned to even tiles. Placement only checks the map bounds
+    /// unit's post choice (its first goal, attack-ai spec), then extra cycles on the first animation wait. Placement only checks the map bounds
     /// until the placement spec lands. Returns its id.
     pub fn spawn(&mut self, kind: u8, owner: u8, tile: (i32, i32), resources: u32) -> Result<UnitId, SpawnError> {
         let s = self.stats_of(kind);
@@ -1307,14 +1307,16 @@ impl World {
         let slot = self.slots.take(owner).map_err(|_| SpawnError::TooMany)?;
         // Unit-slots spec, "Creating a unit", step 3: a reused slot's old contents are cleared now.
         self.stale.remove(&slot);
-        // Unit-slots spec, "Creating a unit", step 4, says ships and flyers sit on an even tile. The round-99 trace
-        // (`mp-r99-tests-…-5400`, dragon 1595 created from the map at (50, 5)) keeps a map flyer's odd row: while the
-        // map's units are created only a flyer's column is aligned, the narrowest change that fits the trace. No
-        // trace places a map flyer at an odd column, so whether the column is aligned is open (reported to research).
-        // Units created during play are aligned as before.
-        let tile = if self.stride_of(kind) == 2 && layer == Layer::Air && self.loading {
-            (tile.0 & !1, tile.1)
-        } else if self.stride_of(kind) == 2 {
+        // Unit-slots spec, "Creating a unit", step 4 (round 102, traced: FL1): a unit stands at its tile times 32,
+        // ships and flyers included, so a ship or flyer a map places at an odd column or row keeps it. Units created
+        // during play are put on even tiles by their callers' own ring searches (`placement.rs`). The one exception
+        // (static study, FL2): a map whose unit data gives type 0 the sea flag aligns every unit it creates to 64
+        // pixels, an even tile, because the choice is made from type 0's flags, not the new unit's.
+        // A sea unit that moves as a two-tile mover is placed on an even tile at every creation, before the placement
+        // check. This is a Tidewater design choice (`core/unit-slots.md`, OS1), not the original's behaviour: the
+        // original ends its process when a map puts a ship on an odd tile. Air units and land units are never
+        // aligned (FL1 traced for flyers).
+        let tile = if self.stats_of(0).flags & flags::SEA != 0 || (self.stride_of(kind) == 2 && layer == Layer::Sea) {
             (tile.0 & !1, tile.1 & !1)
         } else {
             tile
@@ -2428,11 +2430,25 @@ pub(crate) mod tests {
         assert_eq!(w.spawn(0, 0, (8, 0), 0), Err(SpawnError::CantPlace));
         assert_eq!(w.spawn(0x3a, 0, (7, 7), 0), Err(SpawnError::CantPlace));
         assert_eq!(w.slots.len(0), 1, "a failed placement returns the slot");
-        assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((2, 2)));
-        // The map's own flyers keep their row (round 99 trace: a dragon created at row 5).
+        // Creation aligns to the tile grid only: a unit with a two-tile step keeps an odd column and row (FL1), at the
+        // map's setup and during play alike.
+        assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((3, 3)));
         w.loading = true;
-        assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((2, 3)));
+        assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((3, 3)));
         w.loading = false;
+        // Sea units are placed on even tiles (a design choice, `core/unit-slots.md` OS1).
+        w.stride[3] = 2;
+        w.stats.0[3].flags = flags::SEA;
+        assert_eq!(w.spawn(3, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((2, 2)));
+    }
+
+    /// FL2 (static study): a map whose unit data gives type 0 the sea flag aligns every unit it creates to an even tile.
+    #[test]
+    fn a_sea_flag_on_type_0_aligns_every_created_unit() {
+        let mut w = world();
+        w.stats.0[0].flags |= flags::SEA;
+        assert_eq!(w.spawn(0, 0, (5, 7), 0).map(|id| w.unit(id).unwrap().tile), Ok((4, 6)));
+        assert_eq!(w.spawn(2, 0, (7, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((6, 2)));
     }
 
     #[test]

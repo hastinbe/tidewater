@@ -567,14 +567,16 @@ impl World {
     }
 
     /// Set (Ctrl+digit): the group is cleared and filled from the synced selection in order, stopping at the first
-    /// unit that isn't the player's own.
+    /// unit that isn't the player's own. A group is a list of unit slots ended by its first empty entry, and slot 0
+    /// can't be told apart from an empty entry, so a unit in slot 0 is never held: the group ends there and the units
+    /// after it are left out too ("What a group holds", V-G3; static study).
     fn set_group(&mut self, player: u8, group: u8) {
         if group as usize >= GROUPS || player as usize >= PLAYERS {
             return;
         }
         let mut g = Vec::new();
         for id in self.selection(player) {
-            if self.unit(id).is_none_or(|u| u.owner != player) {
+            if self.unit(id).is_none_or(|u| u.owner != player || u.slot == 0) {
                 break;
             }
             g.push(id);
@@ -588,6 +590,21 @@ impl World {
         if group as usize >= GROUPS || player as usize >= PLAYERS {
             return;
         }
+        self.tidy_group(player, group, true);
+        let g = self.selections[player as usize].groups[group as usize].clone();
+        let picked: Vec<UnitId> = g
+            .iter()
+            .copied()
+            .filter(|&id| self.unit(id).is_some_and(|u| !u.inside && !busy(u.order)))
+            .collect();
+        self.set_selection(player, &picked);
+    }
+
+    /// The group tidy ("Control groups", recall): units that are dead or dying, no longer the player's own, or (in a
+    /// group of more than one entry) not group-selectable are removed, each removal moving the group's last entry into
+    /// the gap. The recall's tidy checks the moved entry again (`recheck`); the tidy at every kill goes on to the next
+    /// entry, so the entry just moved into the gap isn't checked again in that pass (V-G1, V-G2; static study).
+    fn tidy_group(&mut self, player: u8, group: u8, recheck: bool) {
         let mut g = std::mem::take(&mut self.selections[player as usize].groups[group as usize]);
         let mut n = 0;
         while n < g.len() {
@@ -598,17 +615,28 @@ impl World {
             if ok {
                 n += 1;
             } else {
-                // Each removal moves the group's last entry into the gap.
                 g.swap_remove(n);
+                if !recheck {
+                    n += 1;
+                }
             }
         }
-        let picked: Vec<UnitId> = g
-            .iter()
-            .copied()
-            .filter(|&id| self.unit(id).is_some_and(|u| !u.inside && !busy(u.order)))
-            .collect();
         self.selections[player as usize].groups[group as usize] = g;
-        self.set_selection(player, &picked);
+    }
+
+    /// The tidy at every kill (Enhanced only: Classic rules have no control groups): right after a unit starts dying,
+    /// every player's 18 groups are tidied with the recall's removal rule, minus the recheck of the entry moved into
+    /// a gap (`core/unit-slots.md`, "Death, corpses and release"; `ui/selecting-and-commanding.md`, "The tidy at every
+    /// kill").
+    pub(crate) fn tidy_all_groups(&mut self) {
+        if !self.rules.enhanced {
+            return;
+        }
+        for player in 0..PLAYERS as u8 {
+            for group in 0..GROUPS as u8 {
+                self.tidy_group(player, group, false);
+            }
+        }
     }
 }
 
@@ -1176,6 +1204,20 @@ mod tests {
         assert_eq!(w.selections[0].groups[2], vec![a]);
     }
 
+    /// V-G3: slot 0 reads as empty, so setting a group stops at a unit in that slot.
+    #[test]
+    fn setting_a_group_stops_at_slot_zero() {
+        let mut w = map();
+        let a = spawn(&mut w, FOOTMAN, 0, (1, 1));
+        let b = spawn(&mut w, FOOTMAN, 0, (3, 1));
+        let c = spawn(&mut w, FOOTMAN, 0, (5, 1));
+        let i = w.index(b).unwrap();
+        w.units[i].slot = 0;
+        select(&mut w, &[a, b, c]);
+        w.step(&[Command::SetGroup { player: 0, group: 2 }]);
+        assert_eq!(w.selections[0].groups[2], vec![a]);
+    }
+
     #[test]
     fn recall_tidies_the_group() {
         let mut w = map();
@@ -1190,6 +1232,48 @@ mod tests {
         w.step(&[Command::RecallGroup { player: 0, group: 3 }]);
         assert_eq!(w.selections[0].groups[3], vec![units[0], units[3], units[2]]);
         assert_eq!(w.selection(0), vec![units[0], units[3]]);
+    }
+
+    /// V-G1: every kill tidies every player's groups, so the order of the rest depends on the order of the kills; the
+    /// moved entry isn't rechecked in a kill's pass. Classic has no groups, so nothing is tidied there.
+    #[test]
+    fn a_kill_tidies_every_players_groups() {
+        let mut w = map();
+        let u: Vec<UnitId> = (0..4).map(|n| spawn(&mut w, FOOTMAN, 0, (n, 1))).collect();
+        w.selections[0].groups[1] = u.clone();
+        let kill = |w: &mut World, id| {
+            let i = w.index(id).unwrap();
+            w.kill(i);
+        };
+        kill(&mut w, u[1]);
+        assert_eq!(w.selections[0].groups[1], vec![u[0], u[3], u[2]]);
+        kill(&mut w, u[0]);
+        assert_eq!(w.selections[0].groups[1], vec![u[2], u[3]]);
+        let mut c = map();
+        c.rules.enhanced = false;
+        let v: Vec<UnitId> = (0..2).map(|n| spawn(&mut c, FOOTMAN, 0, (n, 1))).collect();
+        c.selections[0].groups[1] = v.clone();
+        let i = c.index(v[0]).unwrap();
+        c.kill(i);
+        assert_eq!(c.selections[0].groups[1], v);
+    }
+
+    /// V-G2: after a removal the kill's pass goes on to the next entry; the recall's tidy checks the moved one.
+    #[test]
+    fn the_kill_tidy_does_not_recheck_the_moved_entry() {
+        let mut w = map();
+        let u: Vec<UnitId> = (0..3).map(|n| spawn(&mut w, FOOTMAN, 0, (n, 1))).collect();
+        w.selections[0].groups[2] = u.clone();
+        for &id in &u[1..] {
+            let i = w.index(id).unwrap();
+            w.change_owner(i, 1);
+        }
+        let other = spawn(&mut w, FOOTMAN, 0, (9, 9));
+        let i = w.index(other).unwrap();
+        w.kill(i);
+        assert_eq!(w.selections[0].groups[2], vec![u[0], u[2]]);
+        w.step(&[Command::RecallGroup { player: 0, group: 2 }]);
+        assert_eq!(w.selections[0].groups[2], vec![u[0]]);
     }
 
     #[test]
