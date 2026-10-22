@@ -17,12 +17,12 @@ frames	23-24	cb0c084f1e6e4eb0
 shot	27	old-pause-key	14e1478088ddd81b
 frames	25-27	14e1478088ddd81b
 frames	28-29	3a54e730b15e852a
-shot	35	paused	60eb012440829f2b
-frames	30-39	60eb012440829f2b
+shot	35	paused	0756bed31ba73070
+frames	30-39	0756bed31ba73070
 sound	41	52db032368c69602	0.9882	Despawn
-frames	40-40	3ce524089a85e11f
-frames	41-41	6634815154ad2677
-frames	42-44	b7cdf9cbea13c875
-frames	45-46	2a65f0be64718847
-shot	47	idle-key	5e4a2bd126e3d0bb
-frames	47-47	5e4a2bd126e3d0bb
+frames	40-40	7b3e8ca37f11e5d0
+frames	41-41	4563dc153063efcf
+frames	42-44	cd489430c131928d
+frames	45-46	f6befe15d5b1ca9f
+shot	47	idle-key	49a7776f1ef51cbb
+frames	47-47	49a7776f1ef51cbb
