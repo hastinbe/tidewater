@@ -315,7 +315,8 @@ fn a_load_loses_a_found_outcome_and_restores_the_rule() {
 }
 
 /// Round 90 (traced: 12 units in `human1-human01-saveload-game-300`, 200 in the runestone trace): a load renumbers every
-/// unit's creation number to its slot plus one, and the next unit gets one more than the largest in use.
+/// unit's creation number to its slot plus one. Round 92 (SL7, traced): the next unit gets the unit-slot count plus 26,
+/// whatever the units hold.
 #[test]
 fn a_load_renumbers_the_creation_numbers_to_slot_plus_one() {
     let mut a = battle();
@@ -338,9 +339,100 @@ fn a_load_renumbers_the_creation_numbers_to_slot_plus_one() {
             .map(|u| (u.id, u.slot, u.kind, u.tile))
             .collect::<Vec<_>>()
     );
-    let top = b.units.iter().map(|u| u.serial.0).max().unwrap();
     let n = b.spawn(0, 0, (6, 6), 0).unwrap();
-    assert_eq!(b.unit(n).unwrap().serial.0, top + 1);
+    assert_eq!(b.unit(n).unwrap().serial.0, b.slots.count() as u32 + 26);
+    let m = b.spawn(0, 0, (6, 8), 0).unwrap();
+    assert_eq!(
+        b.unit(m).unwrap().serial.0,
+        b.slots.count() as u32 + 27,
+        "then one more per unit"
+    );
+}
+
+/// SL7: 1600 unit slots (Enhanced) give 1626, then 1627.
+#[test]
+fn the_first_creation_number_after_a_load_is_1626_with_1600_slots() {
+    let mut a = field(16, 16);
+    a.spawn(0, 0, (2, 2), 0).unwrap();
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    if b.slots.count() == 1600 {
+        let n = b.spawn(0, 0, (6, 6), 0).unwrap();
+        assert_eq!(b.unit(n).unwrap().serial.0, 1626);
+    } else {
+        assert_eq!(
+            b.next_serial,
+            b.slots.count() as u32 + 26,
+            "the formula holds for any slot count"
+        );
+    }
+}
+
+/// SL1 to SL3 (traced): the 50-cycle pass counter isn't saved; a loaded game starts it at 1, so the passes run in its
+/// first start-up cycle whatever phase the save was in.
+#[test]
+fn a_load_restarts_the_pass_counter_at_1() {
+    let mut a = battle();
+    run(&mut a, 20);
+    assert!(a.army.countdown > 1, "the save is mid-phase");
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!(b.army.countdown, 1);
+}
+
+/// SL4 to SL6 (traced): the footmen, archers, siege and knights counts of a computer player are restored and counted
+/// again: each load adds the counts at the save to the surplus. A dying unit and a held unit aren't counted.
+#[test]
+fn a_load_doubles_the_four_training_group_counts() {
+    let mut a = field(16, 16);
+    a.players[1].controller = crate::ai::controller::COMPUTER;
+    // 3 footmen (one a grunt), 2 archers, a catapult, a knight and a dying knight.
+    for (kind, tile) in [
+        (0u8, (2, 2)),
+        (0, (2, 3)),
+        (1, (2, 4)),
+        (8, (3, 2)),
+        (9, (3, 3)),
+        (4, (4, 2)),
+        (6, (4, 3)),
+    ] {
+        a.spawn(kind, 1, tile, 0).unwrap();
+    }
+    let dying = a.spawn(6, 1, (4, 4), 0).unwrap();
+    let i = a.units.iter().position(|u| u.id == dying).unwrap();
+    a.units[i].dying = true;
+    let g = a.ai_groups_with_surplus(1);
+    assert_eq!((g.footmen, g.archers, g.siege, g.knights), (3, 2, 1, 1));
+    let mut b = field(16, 16);
+    b.players[1].controller = crate::ai::controller::COMPUTER;
+    b.restore(&a.save_state(), 1).unwrap();
+    let g = b.ai_groups_with_surplus(1);
+    assert_eq!((g.footmen, g.archers, g.siege, g.knights), (6, 4, 2, 2), "doubled");
+    // The other groups are as they were counted.
+    assert_eq!((g.mages, g.gryphons, g.workers), (0, 0, 0));
+    // The count goes on rising and falling with the units from there.
+    b.spawn(0, 1, (6, 6), 0).unwrap();
+    assert_eq!(b.ai_groups_with_surplus(1).footmen, 7);
+    // A further save and load adds the loaded units again.
+    let mut c = field(16, 16);
+    c.players[1].controller = crate::ai::controller::COMPUTER;
+    c.restore(&b.save_state(), 1).unwrap();
+    assert_eq!(c.ai_groups_with_surplus(1).footmen, 7 + 4);
+    // A human player's counts aren't kept.
+    assert_eq!(c.group_surplus[0], [0; 4]);
+}
+
+/// `game/save-load.md`, "What a saved game keeps" (static study): the frozen and about-to-freeze marks of workers are
+/// cleared by a load.
+#[test]
+fn a_load_clears_the_frozen_marks() {
+    let mut a = battle();
+    a.units[0].freeze = crate::rescue::Freeze::Frozen;
+    a.units[1].freeze = crate::rescue::Freeze::Freezing;
+    a.units[2].freeze = crate::rescue::Freeze::Released;
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert!(b.units.iter().all(|u| u.freeze == crate::rescue::Freeze::None));
 }
 
 /// The creation number counts up from 1 in a new game, one per created unit.

@@ -739,6 +739,21 @@ impl World {
         matches!(self.players[q].controller, controller::HUMAN | controller::COMPUTER)
     }
 
+    /// A player leaves a chat-room game (`net/leave-and-drop.md`, "Chat-room game: carrying out a leave", steps 3 and
+    /// 4, Enhanced): its slot becomes "nobody", it leaves everyone's shared-vision set and its own becomes just itself.
+    /// Its units keep their orders. No result is set by the leave itself. The notice, the score row and the new host
+    /// are the caller's.
+    pub fn leave_game(&mut self, q: usize) {
+        if q >= self.players.len() {
+            return;
+        }
+        self.players[q].controller = controller::NOBODY;
+        for p in &mut self.players {
+            p.shared_vision &= !(1 << q);
+        }
+        self.players[q].shared_vision = 1 << q;
+    }
+
     /// A player who is out: in a network game its slot becomes "nobody", it leaves everyone's shared vision and its
     /// own shared-vision set becomes just itself (`vision/fog.md`, "Shared vision", X10), and its living units take
     /// order 32 (the docked wait, which does nothing).

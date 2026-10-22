@@ -151,7 +151,7 @@ impl World {
     /// computer (code 4): an active rescue player (code 7) becomes one only once the map's units are created
     /// (`game/setup.md`, "After the units"), so while they are created it isn't one, and its map units get no first
     /// goal (`ai/attack-ai.md`, "When a unit is created"; `ai/computer-player.md`, round 83). Code 7 exists only then.
-    pub(crate) fn ai_player(&self, owner: u8) -> bool {
+    pub fn ai_player(&self, owner: u8) -> bool {
         (owner as usize) < SCRIPT_PLAYERS
             && self
                 .players

@@ -850,6 +850,10 @@ pub struct World {
     pub events: Vec<Event>,
     /// Computer player scripts (ai-scripts spec), one state per player 0 to 7.
     pub ai: [AiPlayer; SCRIPT_PLAYERS],
+    /// Per computer player, the surplus on the footmen, archers, siege and knights counts (`game/save-load.md` SL4 to
+    /// SL6): each load adds the counts at the save, and the rules add it to every later count. Stored after the rest of
+    /// the world's state (save version 15), and left out of [`World::fingerprint`] while it is all zero.
+    pub(crate) group_surplus: [[u32; 4]; SCRIPT_PLAYERS],
     /// The computer players' army: threat map, base boxes, pass counter (attack-ai spec).
     pub army: crate::attack_ai::Army,
     /// Upgrade data: the defaults, or the map's UGRD section (tech-tree spec, "Default upgrade data").
@@ -1013,6 +1017,7 @@ impl World {
             slot_of: BTreeMap::new(),
             events: Vec::new(),
             ai: Default::default(),
+            group_surplus: Default::default(),
             army,
             upgrade_data: crate::tech::default_upgrades(),
             ai_file: None,

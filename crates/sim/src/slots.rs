@@ -38,6 +38,11 @@ impl Slots {
         Self { n, lists }
     }
 
+    /// The number of unit slots in all.
+    pub fn count(&self) -> usize {
+        self.n
+    }
+
     pub fn len(&self, owner: u8) -> usize {
         self.lists[owner as usize & 15].len()
     }

@@ -1417,6 +1417,27 @@ mod tests {
         assert!(w.allied(0, 4) && w.allied(4, 0) && w.allied(0, 5) && w.allied(5, 0));
     }
 
+    /// `vision/fog.md`, "Unit visibility (phase 5)" and `game/setup.md`, "Other owner codes" (static study, round 92,
+    /// untraced): a map's owner code 0 is a human player, tested for what it has seen, and code 1 a computer player,
+    /// never hidden from; set up through the map, so the vision rules see the human and computer kinds.
+    #[test]
+    fn owner_codes_0_and_1_set_up_as_human_and_computer() {
+        let m = Map {
+            size: 32,
+            owners: owners([5, 0, 1, 3, 3, 3, 3, 3]),
+            ..Default::default()
+        };
+        let w = started(&m, &campaign(0));
+        assert_eq!(w.players[0].controller, HUMAN, "the code-5 slot is the local player");
+        assert_eq!((w.players[1].controller, w.players[2].controller), (HUMAN, COMPUTER));
+        // Nothing has been seen by player 1 or 2 yet: the footprint test hides the tile from the code-0 player and
+        // never from the code-1 player.
+        assert!(w.footprint_hidden_from(1, (10, 10), (1, 1)));
+        assert!(!w.footprint_hidden_from(2, (10, 10), (1, 1)));
+        // A player that no map set up (code 3) is nobody: hidden from.
+        assert!(w.footprint_hidden_from(3, (10, 10), (1, 1)));
+    }
+
     #[test]
     fn per_player_words_vision_and_colours() {
         let m = Map {

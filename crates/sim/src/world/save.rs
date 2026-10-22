@@ -115,8 +115,16 @@ impl World {
         self.rules.reveal_map = true;
     }
 
-    /// The world's part of a saved game.
+    /// The world's part of a saved game: the stored fields, the terrain's changing part and the training group count
+    /// surplus.
     pub fn save_state(&self) -> Vec<u8> {
+        let mut bytes = self.core_state();
+        bytes.extend(postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"));
+        bytes
+    }
+
+    /// The stored fields and the terrain's changing part: [`World::save_state`] without its trailing surplus.
+    fn core_state(&self) -> Vec<u8> {
         let t = &self.terrain;
         let terrain = TerrainRef {
             size: (t.width, t.height),
@@ -141,7 +149,15 @@ impl World {
                 .iter()
                 .fold(h, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
         };
-        let mut h = fnv(0xcbf2_9ce4_8422_2325, &self.save_state());
+        let mut h = fnv(0xcbf2_9ce4_8422_2325, &self.core_state());
+        // The surplus a load leaves counts only once there is one, so a game that was never loaded keeps its fingerprint
+        // from before the surplus was stored.
+        if self.group_surplus != [[0u32; 4]; SCRIPT_PLAYERS] {
+            h = fnv(
+                h,
+                &postcard::to_allocvec(&self.group_surplus).expect("encoding to memory"),
+            );
+        }
         h = fnv(h, &self.state_hash().to_le_bytes());
         h = fnv(h, &self.rng.state.to_le_bytes());
         h = fnv(
@@ -155,7 +171,7 @@ impl World {
     /// random generator afresh. Cheats start as for a new game. A load starts the counters afresh ([`World::starts_afresh`])
     /// and a Classic save clears the score counters.
     pub fn restore(&mut self, bytes: &[u8], seed: u32) -> Result<(), RestoreError> {
-        let (saved, terrain): (Saved, TerrainOwned) =
+        let (saved, terrain, surplus): (Saved, TerrainOwned, [[u32; 4]; SCRIPT_PLAYERS]) =
             postcard::from_bytes(bytes).map_err(|e| RestoreError::Decode(e.to_string()))?;
         let t = &mut self.terrain;
         let n = t.width as usize * t.height as usize;
@@ -183,6 +199,7 @@ impl World {
         // over in the template; the client carries it from the game before.
         let used = self.cheats.used;
         saved.put(self);
+        self.group_surplus = surplus;
         self.rng = Rng::new(seed);
         // Cheats: the flags aren't stored, so the effects the stored rules carry are cleared (`game/save-load.md`, "Cheats":
         // the instant-cheat outcome is not found again; traced, `human1-human01-unite-saveload-game-650`) and the flags
@@ -230,8 +247,13 @@ impl World {
     ///   before the check found it is back ([`World::rule_before_outcome`]), so a later check finds the outcome again
     ///   only if the game state still gives it;
     /// - the fog refresh countdown is 1, so the first start-up cycle refreshes the fog;
-    /// - every unit's creation number is its slot number plus one, and the next unit created gets one more than the
-    ///   largest in use (spec gap: the spec doesn't trace what number the next unit gets; this is its default).
+    /// - the 50-cycle pass counter is 1 again (it isn't saved), so a loaded game runs the passes in its first start-up
+    ///   cycle whatever phase the save was in (`game/save-load.md` SL1 to SL3; `ai/attack-ai.md`, "Timing");
+    /// - the footmen, archers, siege and knights counts of each computer player double: the surplus becomes the saved
+    ///   surplus plus the counts at the save (SL4 to SL6);
+    /// - the frozen and about-to-freeze marks of workers are cleared (static study, a labelled gap-fill);
+    /// - every unit's creation number is its slot number plus one, and the next unit created gets the unit-slot count
+    ///   plus 26: 1626 in Enhanced (SL7; the Classic value 626 is the spec's gap-fill).
     fn starts_afresh(&mut self) {
         self.tick = 0;
         self.paused = false;
@@ -241,10 +263,22 @@ impl World {
         }
         self.rule_before_outcome = None;
         self.vision.countdown = 1;
+        self.army.countdown = 1;
+        for p in 0..self.ai.len() {
+            if !self.ai_player(p as u8) {
+                continue;
+            }
+            let g = self.ai_groups(p);
+            let s = &mut self.group_surplus[p];
+            for (s, n) in s.iter_mut().zip([g.footmen, g.archers, g.siege, g.knights]) {
+                *s += n;
+            }
+        }
         for u in &mut self.units {
             u.serial = super::Serial(u.slot as u32 + 1);
+            u.freeze = Default::default();
         }
-        self.next_serial = self.units.iter().map(|u| u.serial.0).max().map_or(1, |m| m + 1);
+        self.next_serial = self.slots.count() as u32 + 26;
     }
 }
 

@@ -232,6 +232,19 @@ impl World {
         g
     }
 
+    /// [`World::ai_groups`] with the surplus a load left on the four traced groups added (`game/save-load.md` SL4 to
+    /// SL6; `ai/training-research.md`, "Training buildings"). The rules compare these counts.
+    pub fn ai_groups_with_surplus(&self, p: usize) -> Groups {
+        let mut g = self.ai_groups(p);
+        if let Some(&[f, ar, s, k]) = self.group_surplus.get(p) {
+            g.footmen += f;
+            g.archers += ar;
+            g.siege += s;
+            g.knights += k;
+        }
+        g
+    }
+
     /// The no-workers research pass ("Research requests and done marks"), run every 50 cycles after pass A
     /// (`ai/computer-player.md`, "One cycle, in order", step 2): for each computer player with no workers, the first
     /// build-list entry below min(slot 0x22, 64) that is not done and is 0x80 or more gets its request set. Players 8
@@ -301,7 +314,7 @@ impl World {
         }
         let (p, k) = (unit.owner as usize, unit.kind);
         let race = k & 1;
-        let g = self.ai_groups(p);
+        let g = self.ai_groups_with_surplus(p);
         match k & !1 {
             b::LUMBER_MILL => {
                 if self.slot(p, 0x15) != 0 && g.archers == 0 {

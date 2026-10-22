@@ -260,8 +260,10 @@ impl World {
                 controller::NOBODY => Kind::Nobody,
                 // `vision/fog.md`, "Terms" (static study, `ERRATA-audit-vision.md` erratum 3, F46): a controller code
                 // that is none of the kinds (only a custom map's owner code 8 or more) is tested like a human player.
-                // spec gap: codes 0 and 1 also match no kind here, but `game/setup.md` calls them the same value as
-                // human and computer "in every later test"; only 8 and up are taken as a human here.
+                // Map owner codes 0 and 1 never reach this arm: setup maps them to the human and computer controllers
+                // (`vision/fog.md`, "Unit visibility (phase 5)"; `game/setup.md`, "Other owner codes"; the test
+                // `owner_codes_0_and_1_set_up_as_human_and_computer` in `setup.rs`). A raw 0 or 1 is a player no map
+                // set up and is nobody here; only 8 and up are taken as a human.
                 c if c >= 8 => Kind::Human,
                 _ => Kind::Nobody,
             }
