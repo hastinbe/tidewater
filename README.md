@@ -93,8 +93,24 @@ long press a right click, a drag a box select, two fingers pan the map, a pinch 
 three-finger tap opens the game menu. The controls a touchscreen lacks (Shift, Ctrl, Alt, right-click mode, pause and
 the keyboard) are buttons in the bars beside the picture. You can try all of it on a desktop with `--touch-emulation`:
 the mouse is one finger, and holding Alt as you press adds a second finger (Alt+Shift: beside the first, Alt+Ctrl: a
-third). iOS and Android builds that bring real touchscreens come later. How it works, and the measurements it uses, is
+third). The iOS app (next section) uses it on a real touchscreen; Android comes later. How it works, and the measurements it uses, is
 in [`docs/design/touch.md`](docs/design/touch.md).
+
+### iPhone and iPad (early)
+
+Tidewater builds as an iOS app that runs in the Simulator (a real device needs your own signing). It is the same program: touch is on from the start, the picture fits inside the safe area, and the game pauses when you leave the app. Details, signing and limits: [`docs/design/ios.md`](docs/design/ios.md).
+
+**Build it.** You need Xcode, [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), CMake and rustup:
+
+```sh
+platform/ios/build.sh sim --app     # library, Xcode project and Tidewater.app for the Simulator
+xcrun simctl install booted platform/ios/DerivedData/Build/Products/Debug-iphonesimulator/Tidewater.app
+xcrun simctl launch booted dev.tidewater.client
+```
+
+For a device, run `platform/ios/build.sh device`, copy `platform/ios/Config/Signing.example.xcconfig` to `Signing.xcconfig`, fill in your team ID and open `platform/ios/Tidewater.xcodeproj`.
+
+**Get the game files onto it.** Copy a game folder (a GOG install, or the folder holding `War2Dat.mpq`) or a CD image (`.iso`, `.bin`/`.cue`, `.mdf`, `.nrg`) into Tidewater's folder: in Finder (device, Files tab), in the Files app (On My iPhone, Tidewater), or for the Simulator into the app's `Documents` folder. Open the app and the first-run screen lists what it finds; tap one, or tap Scan again after copying. "Choose game folder..." opens the system picker instead. **A GOG installer (`.exe`) does not work on iOS**, because unpacking it needs `innoextract`, which cannot run there: unpack it on a computer, or install the game and copy the folder.
 
 ### How faithful it is
 
@@ -224,7 +240,7 @@ Everything in this table is **planned**; none of it is built yet.
 | **Import from CD images** | Read `.iso`, `.bin`/`.cue`, `.mdf` and `.nrg` images directly (when the game files are loose on the disc). | Done |
 | **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: command line only; lobby screens, chat and pause counts planned |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
-| **Touch controls** | iOS and Android. PlayStation Vita support is under evaluation. | Planned |
+| **Touch controls** | iOS (Simulator-tested; no device or signing yet) and Android. PlayStation Vita support is under evaluation. | iOS early; Android planned |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |
 
 ## How it is built

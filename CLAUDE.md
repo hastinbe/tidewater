@@ -29,9 +29,9 @@ before writing any code, and follow it exactly.
 - `crates/replay`: the `.twrep` replay format (`format`), rebuilding a game from a header (`start`) and running or comparing replays (`run`); `docs/design/multiplayer-determinism.md`.
 - `crates/sim`: the deterministic game simulation (no engine types; placeholders until specs land, see `Rules`).
 - `crates/client`: the game client: a library (`lib.rs`, no engine types, no `unsafe`) holding the core (`core.rs`:
-  `Core::advance` runs a frame) and `host.rs` (start-up from the command line, the headless scripted loop, helpers
-  for the shell), and the `tidewater` binary, the SDL 3 shell (`shell/main.rs`: window, input events, mouse lock,
-  sound device; `shell/sdl.rs` is our thin safe wrapper over `sdl3-sys` and the only `unsafe` code). SDL is built
+  `Core::advance` runs a frame; `Core::suspend`/`resume` are the phone's background and foreground) and `host.rs` (start-up from the command line, the headless scripted loop, helpers
+  for the shell), and the `tidewater` binary, the SDL 3 shell (`shell/app.rs`: window, input events, mouse lock,
+  sound device, `shell/main.rs` its `main`; `shell/sdl.rs` is our thin safe wrapper over `sdl3-sys` and the only `unsafe` code). SDL is built
   from source and linked in, so every build needs CMake and a C compiler, not an SDL install.
   `game.rs` runs the game screen, `args.rs` holds the command line. `scene.rs` builds the map and unit images, `hud.rs`
   lays out and draws the interface (frame, minimap, resources, selection, command buttons) into one picture, `panel.rs` holds the command panel's button sets and rules, `info.rs` the unit information panel's rules.
@@ -54,6 +54,12 @@ before writing any code, and follow it exactly.
   The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, the shell
   shows it). `script.rs` runs scripted scenes (`--script NAME --script-out DIR [--headless]`) for the frame
   snapshot `tests/frames.rs`; the design of the core and its shell is `docs/design/client-core.md`.
+- `crates/ios`: the iOS app's static library (`tidewater-ios`): empty except on `target_os = "ios"`, where it builds
+  the shell files `crates/client/src/shell/app.rs` and `sdl.rs` by `#[path]`, so desktop and phone run one code path.
+  The iOS entry (`tidewater_ios_main`), the document-picker call and the lifecycle event watch are in `sdl.rs`.
+- `platform/ios`: the Xcode project around it: `project.yml` (xcodegen), `Sources/main.c` (hands over to `SDL_RunApp`),
+  `Sources/picker.m` (UIDocumentPickerViewController), `Config/*.xcconfig` (signing is the user's own), `build.sh`;
+  `docs/design/ios.md`.
 - `docs/specs/`: reviewed behaviour specifications, the only source for engine behaviour.
 
 ## Workflow

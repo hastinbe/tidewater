@@ -71,9 +71,13 @@ impl Core {
     pub fn advance(&mut self, elapsed: Duration, platform: &mut dyn Platform) -> &Frame;
     /// "Saving": the settings, on a normal exit.
     pub fn store_settings(&self);
+    /// The app goes to the background: pauses a running game, silences the mixer, writes the settings (docs/design/ios.md).
+    pub fn suspend(&mut self);
+    /// The app is back: restarts the mixer and lets go of held keys.
+    pub fn resume(&mut self);
 }
 
-// The proposal still to come: suspend(), resume(), and an indexed frame.
+// The proposal still to come: an indexed frame.
 
 pub struct Frame {
     pub pixels: Pixels,         // 640 × 480
@@ -203,7 +207,7 @@ scene's screenshot), so step 8 is checked to write them byte for byte as before.
 | `resume()` | Restarts the mixer. The game stays paused until the player resumes it. |
 | Focus lost | `Input::focused = false`: the palette stops cycling (`palette::Gate`), as now. |
 
-Mobile shells call `suspend` when sent to the background. A long frame (a debugger, a suspended laptop) is capped at
+Mobile shells call `suspend` when sent to the background and `resume` when they return (built for iOS: [ios.md](ios.md)). A long frame (a debugger, a suspended laptop) is capped at
 250 ms of game time, as today.
 
 ## Platform trait

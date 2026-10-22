@@ -3,8 +3,8 @@
 Touch is **our own addition**: the original game has no touch input. The rule behind all of it is that touch only
 *translates*: fingers become the mouse and keyboard events the game already understands, so no rule of the game
 changes, Enhanced stays the default, and with no touch input every frame, sound and oracle trace is exactly what it
-was. This document covers phases T0 (the input layer) and T1 (desktop emulation); the iOS and Android shells that
-bring real touchscreens are later phases.
+was. This document covers phases T0 (the input layer) and T1 (desktop emulation); the iOS shell
+(T2, [ios.md](ios.md)) turns touch on from the first frame; the Android shell is a later phase.
 
 ## Where it lives
 
