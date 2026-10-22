@@ -235,6 +235,14 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // The game setup lobby a creator sees: Direct IP's Call, the name, the lobby, a row's list, a chat line.
+        Scene {
+            name: "lobby",
+            start: vec![Step::MainMenu],
+            cmds: lobby(),
+            extras: &[],
+            keys: "",
+        },
         Scene {
             name: "build",
             start: vec![play(0)],
@@ -1000,6 +1008,35 @@ fn multi() -> Vec<Cmd> {
     v.extend([Wait(3), Shot("classic-methods")]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// The lobby as its creator sees it, then a row's list opened, a chat line sent and Start refused (nobody has joined).
+fn lobby() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25)];
+    v.extend(tap(K::Letter('M')));
+    v.extend([Until(AppState::Multiplayer), Wait(3)]);
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3)]);
+    v.extend(click(100.0, 224.0));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::Letter('C')));
+    v.extend([Wait(3)]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(6), Shot("lobby")]);
+    v.extend(click(100.0, 92.0));
+    v.extend([Wait(3), Shot("row-list")]);
+    v.extend(tap(K::Escape));
+    v.extend(click(300.0, 56.0));
+    v.extend([Wait(2), Type("hello"), Wait(2), Shot("chat-typed")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3), Shot("chat-sent")]);
+    v.extend(tap(K::Escape));
+    v.extend(tap(K::Letter('S')));
+    v.extend([Wait(3), Shot("alone")]);
     v
 }
 

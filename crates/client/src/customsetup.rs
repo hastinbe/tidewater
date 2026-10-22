@@ -40,7 +40,7 @@ pub(crate) enum MapKind {
 }
 
 impl MapKind {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             MapKind::BuiltIn => "Built-in scenario",
             MapKind::Custom => "Custom scenario",
@@ -489,13 +489,11 @@ impl Screen {
     }
 
     /// The multiplayer lobby borrows the Select scenario dialog: whether the dialog (or a list over it) is open.
-    #[allow(dead_code)] // the lobby (commit 2)
     pub(crate) fn picker_open(&self) -> bool {
         self.dialog.is_some() || self.popup.is_some()
     }
 
     /// Opens the Select scenario dialog (the lobby's Select Scenario button).
-    #[allow(dead_code)] // the lobby (commit 2)
     pub(crate) fn open_picker(&mut self) {
         if self.dialog.is_none() {
             self.open_dialog();
@@ -504,22 +502,12 @@ impl Screen {
     }
 
     /// Draws the dialog and the list over it, if open, onto `p` (the lobby draws its own controls under them).
-    #[allow(dead_code)] // the lobby (commit 2)
     pub(crate) fn draw_picker(&self, p: &mut Picture, look: &Look) {
         if let Some(d) = &self.dialog {
             self.draw_dialog(p, look, d);
         }
         if let Some(pop) = &self.popup {
             self.draw_popup(p, look, pop);
-        }
-    }
-
-    /// Picks the scenario with this path, if it is listed.
-    #[allow(dead_code)] // the lobby (commit 2)
-    pub(crate) fn select_path(&mut self, path: &str) {
-        if let Some(i) = self.maps.iter().position(|m| m.path == path) {
-            self.chosen = Some(i);
-            self.changed = true;
         }
     }
 

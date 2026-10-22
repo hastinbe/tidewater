@@ -33,6 +33,7 @@ pub mod input;
 mod jukebox;
 mod keymap;
 mod layers;
+mod lobbyscreen;
 mod mapview;
 mod menu;
 mod menuscreen;

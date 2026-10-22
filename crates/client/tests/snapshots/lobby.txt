@@ -1,0 +1,33 @@
+# frame and sound fingerprints of the scripted scene `lobby` (hashes only)
+frames	1-1	156ed4086987e325
+frames	2-2	dea26e54b3c12c41
+frames	3-3	e2aa8138ad662af6
+frames	4-4	8917823d3bdbbdf5
+frames	5-5	1122c0f340a92357
+frames	6-6	b657c68f08b87963
+frames	7-7	4d0b3cc3af483eb5
+frames	8-8	d79a35fbfe7828b3
+frames	9-9	f1f8d777d067b04d
+frames	10-10	1c016ef4fb28060e
+frames	11-11	c75e7abf173b98fc
+frames	12-12	72478de0c5b6dca7
+sound	14	d0e6afe865a35291	0.7516	Loop
+frames	13-28	53b86b219c9a69d9
+frames	29-32	7edd246c59d2edea
+frames	33-36	e439d18e4198d7bd
+frames	37-37	db2605ff3720db88
+frames	38-41	44704171115fc322
+frames	42-45	483916bc72f8b542
+frames	46-46	d923dc6d08fad01f
+shot	53	lobby	8bbaea8464abcd3f
+frames	47-53	8bbaea8464abcd3f
+frames	54-54	aaf440b1abca7712
+shot	58	row-list	3aaff30ba6240446
+frames	55-58	3aaff30ba6240446
+frames	59-59	4face189ea4500cc
+frames	60-62	3e3e22809401b957
+shot	65	chat-typed	2a83b0ef35d4c833
+shot	70	chat-sent	2a83b0ef35d4c833
+frames	63-70	2a83b0ef35d4c833
+shot	76	alone	0c53feeaa7c53244
+frames	71-76	0c53feeaa7c53244

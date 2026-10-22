@@ -23,7 +23,8 @@ use crate::hud::{self, Rect};
 use crate::input::Key;
 use crate::menuscreen::{self, ButtonState, FocusKey, GOLD, GREY, WHITE};
 use crate::mpwidgets::{Charset, EditBox, Popup, PopupKey, Ptr, draw_edit, draw_panel, draw_popup};
-use crate::net::proto::DEFAULT_PORT;
+use crate::net::proto::{DEFAULT_PORT, Identity};
+use crate::net::room::Handshake;
 use crate::scene::Picture;
 
 /// How long a join waits for the creator before "Unable to join - timed out".
@@ -141,8 +142,6 @@ pub(crate) struct Strings {
     pub establishing: String,
     pub contacting: String,
     pub timed_out: String,
-    #[allow(dead_code)] // read by the lobby (commit 2)
-    pub terminated: String,
 }
 
 impl Strings {
@@ -157,7 +156,6 @@ impl Strings {
             establishing: get(145, "Establishing connection..."),
             contacting: get(146, "Contacting remote computer..."),
             timed_out: get(84, "Unable to join - timed out"),
-            terminated: get(85, "Game terminated by creator"),
         }
     }
 }
@@ -181,11 +179,24 @@ pub(crate) struct ListedGame {
 }
 
 /// What a frame of the screens asks of the program.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum Outcome {
     Stay,
     /// Previous Menu, or Disconnect: back to the main menu.
     Leave,
+    /// Create Game (or Direct IP's Call): the lobby opens as the creator's, on this socket.
+    Host(TcpListener),
+    /// The creator has welcomed this machine: if it has the map, the lobby opens as a joiner's.
+    Join(Box<Handshake>),
+}
+
+impl PartialEq for Outcome {
+    fn eq(&self, other: &Outcome) -> bool {
+        matches!(
+            (self, other),
+            (Outcome::Stay, Outcome::Stay) | (Outcome::Leave, Outcome::Leave)
+        )
+    }
 }
 
 /// The screens.
@@ -196,7 +207,6 @@ enum Stage {
     Direct,
     Games,
     Waiting,
-    Lobby,
 }
 
 /// What name entry leads to.
@@ -246,7 +256,6 @@ enum T {
     Create,
     Disconnect,
     WaitCancel,
-    LobbyCancel,
 }
 
 // The screens' layout: the spec's coordinates.
@@ -300,8 +309,6 @@ const GAMES_BUTTON_X: i32 = 378;
 const WAIT_PANEL: Rect = Rect::new(40, 316, 540, 148);
 const WAIT_TEXT: (i32, i32) = (52, 332);
 const WAIT_CANCEL: Rect = Rect::new(198, 420, 224, 28);
-const LOBBY_TITLE: Rect = Rect::new(160, 8, 320, 20);
-const LOBBY_CANCEL: Rect = Rect::new(400, 440, 224, 28);
 
 fn button_rect(x: i32, y: i32) -> Rect {
     Rect::new(x, y, menuscreen::BUTTON_W, menuscreen::BUTTON_H)
@@ -324,9 +331,9 @@ pub(crate) struct Mp {
     game_sel: usize,
     game_top: usize,
     /// The attempt a join makes, while the wait shows.
-    join: Option<Conn>,
-    /// The socket a game this machine creates listens on (the lobby takes it over).
-    pub(crate) listener: Option<TcpListener>,
+    join: Option<Join>,
+    /// What the creator of a game checks a joiner against: this program's identity.
+    identity: Identity,
     strings: Strings,
     changed: bool,
 }
@@ -351,15 +358,36 @@ impl Mp {
             game_sel: 0,
             game_top: 0,
             join: None,
-            listener: None,
+            identity: Identity::ours(0),
             strings,
             changed: true,
         }
     }
 
-    #[allow(dead_code)]
+    /// Sets the identity a join says hello with (the installation's data decides it).
+    pub(crate) fn with_identity(mut self, identity: Identity) -> Mp {
+        self.identity = identity;
+        self
+    }
+
+    /// The rules chosen: Enhanced (the default) or Classic mode.
     pub(crate) fn enhanced(&self) -> bool {
         self.enhanced
+    }
+
+    /// The lobby has closed: back to the screen it was opened from, with the reason when there is one.
+    pub(crate) fn lobby_closed(&mut self, notice: Option<String>) {
+        self.join = None;
+        self.overlay = Overlay::None;
+        if self.mem.method == Method::Local || (self.mem.method == Method::DirectIp && self.mem.answer) {
+            self.go(Stage::Games, T::GameList);
+        } else {
+            self.go(Stage::Methods, T::List);
+        }
+        if let Some(text) = notice {
+            self.overlay = Overlay::Notice(text);
+            self.focus = T::NoticeOk;
+        }
     }
 
     /// Whether the picture needs drawing again, and forget it does.
@@ -404,7 +432,6 @@ impl Mp {
                 v
             }
             Stage::Waiting => vec![(T::WaitCancel, WAIT_CANCEL, "Cancel", '\0', true)],
-            Stage::Lobby => vec![(T::LobbyCancel, LOBBY_CANCEL, "Cancel Game", 'C', true)],
         }
     }
 
@@ -498,7 +525,6 @@ impl Mp {
                 v
             }
             Stage::Waiting => vec![T::WaitCancel],
-            Stage::Lobby => vec![T::LobbyCancel],
         }
     }
 
@@ -506,7 +532,9 @@ impl Mp {
 
     /// One frame: the pointer, the left button, the keys and what the background work has done.
     pub(crate) fn update(&mut self, input: &Input) -> Outcome {
-        self.poll_background();
+        if let Some(o) = self.poll_background() {
+            return o;
+        }
         let targets = self.targets();
         let ev = self.ptr.update(&targets, input);
         if ev.changed {
@@ -655,7 +683,6 @@ impl Mp {
             // spec gap: Esc does nothing on the game list (trace request MM5, default).
             Stage::Games => None,
             Stage::Waiting => self.activate(T::WaitCancel),
-            Stage::Lobby => self.activate(T::LobbyCancel),
         }
     }
 
@@ -714,7 +741,7 @@ impl Mp {
                     self.focus = T::List;
                 }
             }
-            T::Connect => self.connect_pressed(),
+            T::Connect => return self.connect_pressed(),
             T::Mode => {
                 let at = usize::from(self.mem.answer);
                 self.popup = Some(Popup::new(0, MODE_BOX, vec!["Call".into(), "Answer".into()], at));
@@ -731,7 +758,7 @@ impl Mp {
                 self.focus = T::GameList;
             }
             T::Join => self.join_pressed(),
-            T::Create => self.create_game(),
+            T::Create => return self.create_game(),
             T::Disconnect => {
                 self.close_connection();
                 return Some(Outcome::Leave);
@@ -739,10 +766,6 @@ impl Mp {
             T::WaitCancel => {
                 self.join = None;
                 self.go(Stage::Games, T::GameList);
-            }
-            T::LobbyCancel => {
-                self.close_connection();
-                self.go(Stage::Methods, T::List);
             }
         }
         None
@@ -796,7 +819,7 @@ impl Mp {
         self.overlay = Overlay::None;
         match then {
             AfterName::List => self.go(Stage::Methods, T::List),
-            AfterName::Connect => self.begin_connect(),
+            AfterName::Connect => return self.begin_connect(),
         }
         None
     }
@@ -819,13 +842,13 @@ impl Mp {
         None
     }
 
-    fn connect_pressed(&mut self) {
+    fn connect_pressed(&mut self) -> Option<Outcome> {
         if !self.mem.method.enabled() {
-            return;
+            return None;
         }
         if self.mem.method == Method::DirectIp && self.stage == Stage::Methods {
             self.go(Stage::Direct, T::Connect);
-            return;
+            return None;
         }
         if self.stage == Stage::Direct {
             self.mem.address = self.address.text.clone();
@@ -833,18 +856,19 @@ impl Mp {
         }
         if self.enhanced {
             self.open_name(AfterName::Connect);
+            None
         } else {
-            self.begin_connect();
+            self.begin_connect()
         }
     }
 
     // --- Connecting --------------------------------------------------------------------------------------------
 
     /// Makes the connection the method and the Mode ask for.
-    fn begin_connect(&mut self) {
+    fn begin_connect(&mut self) -> Option<Outcome> {
         match (self.mem.method, self.mem.answer) {
             // Call: this machine creates the game and goes straight to the lobby.
-            (Method::DirectIp, false) => self.create_game(),
+            (Method::DirectIp, false) => return self.create_game(),
             // Answer: the game at the address is looked for.
             (Method::DirectIp, true) => {
                 let addr = self.target_address();
@@ -858,6 +882,7 @@ impl Mp {
             }
             (Method::Battle, _) => {}
         }
+        None
     }
 
     fn target_address(&self) -> String {
@@ -870,7 +895,7 @@ impl Mp {
     }
 
     /// Creates a game: the socket is opened and the lobby follows.
-    fn create_game(&mut self) {
+    fn create_game(&mut self) -> Option<Outcome> {
         let port = self.mem.port.parse::<u16>().unwrap_or(DEFAULT_PORT);
         let port = if self.mem.method == Method::Local {
             DEFAULT_PORT
@@ -878,31 +903,28 @@ impl Mp {
             port
         };
         match crate::net::tcp::listen(port) {
-            Ok(l) => {
-                self.listener = Some(l);
-                self.go(Stage::Lobby, T::LobbyCancel);
-            }
+            Ok(l) => return Some(Outcome::Host(l)),
             Err(e) => {
                 self.overlay = Overlay::Notice(format!("{e:#}"));
                 self.focus = T::NoticeOk;
             }
         }
+        None
     }
 
     fn join_pressed(&mut self) {
         let Some(g) = self.games.get(self.game_sel) else { return };
-        self.join = Some(spawn_connect(g.addr.clone()));
+        self.join = Some(spawn_join(g.addr.clone(), self.identity.clone(), self.mem.name.clone()));
         self.go(Stage::Waiting, T::WaitCancel);
     }
 
     fn close_connection(&mut self) {
-        self.listener = None;
         self.join = None;
         self.overlay = Overlay::None;
     }
 
     /// The connecting box and the join wait, one frame.
-    fn poll_background(&mut self) {
+    fn poll_background(&mut self) -> Option<Outcome> {
         if let Overlay::Connecting(c) = &mut self.overlay {
             match poll_conn(c) {
                 ConnState::Pending => self.changed = true,
@@ -932,26 +954,33 @@ impl Mp {
                 }
             }
         }
-        if let Some(c) = &mut self.join {
-            match poll_conn(c) {
-                ConnState::Pending => {
-                    if c.started.elapsed() > JOIN_TIMEOUT {
+        if let Some(j) = &mut self.join {
+            let got = j.rx.lock().map_or(Err(TryRecvError::Disconnected), |r| r.try_recv());
+            match got {
+                Err(TryRecvError::Empty) => {
+                    if j.started.elapsed() > JOIN_TIMEOUT {
                         self.join = None;
                         self.overlay = Overlay::Notice(self.strings.timed_out.clone());
                         self.go(Stage::Games, T::NoticeOk);
                     }
                 }
-                ConnState::Failed(why) => {
+                Ok(Err(why)) => {
                     self.join = None;
                     self.overlay = Overlay::Notice(why);
                     self.go(Stage::Games, T::NoticeOk);
                 }
-                ConnState::Done => {
+                Err(TryRecvError::Disconnected) => {
                     self.join = None;
-                    self.go(Stage::Lobby, T::LobbyCancel);
+                    self.overlay = Overlay::Notice("Connection terminated.".into());
+                    self.go(Stage::Games, T::NoticeOk);
+                }
+                Ok(Ok(hs)) => {
+                    self.join = None;
+                    return Some(Outcome::Join(Box::new(hs)));
                 }
             }
         }
+        None
     }
 
     // --- Drawing -----------------------------------------------------------------------------------------------
@@ -982,9 +1011,6 @@ impl Mp {
             Stage::Waiting => {
                 draw_panel(look, &mut p, WAIT_PANEL);
                 look.text(&mut p, WAIT_TEXT, "Waiting for response from remote system...", GOLD);
-            }
-            Stage::Lobby => {
-                menuscreen::draw_heading(&mut p, look.font, look.pal, LOBBY_TITLE, "Multi Player Setup");
             }
         }
         for (t, r, label, key, enabled) in self.buttons() {
@@ -1180,6 +1206,24 @@ pub(crate) fn wrap(font: &tidewater_formats::fnt::Font, s: &str, max: u32) -> Ve
     lines
 }
 
+/// A join being made: the connection, the hello and the creator's welcome, on a thread.
+struct Join {
+    started: Instant,
+    rx: Mutex<Receiver<Result<Handshake, String>>>,
+}
+
+fn spawn_join(addr: String, identity: Identity, name: String) -> Join {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let r = crate::net::room::handshake(&addr, identity, &name).map_err(|e| format!("{e:#}"));
+        let _ = tx.send(r);
+    });
+    Join {
+        started: Instant::now(),
+        rx: Mutex::new(rx),
+    }
+}
+
 enum ConnState {
     Pending,
     Done,
@@ -1358,12 +1402,11 @@ mod tests {
         // Call hosts at once: the socket is opened and the lobby follows.
         mp.port = EditBox::new("0", 5, Charset::Digits);
         mp.mem.port = "0".into();
-        mp.update(&key(Key::Enter));
-        assert_eq!(mp.stage, Stage::Lobby);
-        assert!(mp.listener.is_some());
-        mp.update(&key(Key::Escape));
+        let o = mp.update(&key(Key::Enter));
+        assert!(matches!(o, Outcome::Host(_)), "{o:?}");
+        // The lobby closing returns to the connection list.
+        mp.lobby_closed(None);
         assert_eq!(mp.stage, Stage::Methods);
-        assert!(mp.listener.is_none());
     }
 
     #[test]

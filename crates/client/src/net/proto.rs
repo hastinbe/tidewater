@@ -112,6 +112,74 @@ pub enum Msg {
     Drop { slot: u8, at_seq: u32 },
     /// Joiner to host: please drop `slot` (Alt+F2 while waiting for it).
     DropRequest { slot: u8 },
+    /// Host to every joiner, whenever the lobby changes: the whole lobby (`ui/game-setup-lobby.md`). The first one
+    /// follows the joiner's [`Msg::Ready`].
+    Lobby(Box<LobbyView>),
+    /// Joiner to host: my race, for my own row.
+    SetRace { race: u8 },
+    /// Joiner to host: my Ready box (Classic mode).
+    SetReady { ready: bool },
+    /// Joiner to host: the line in my row's chat box.
+    Say { text: String },
+    /// Host to a joiner: play. `slot` is the joiner's slot in `config`, which is the game as the lobby settled it.
+    Go { slot: u8, config: Box<GameConfig> },
+}
+
+/// What a row of the lobby holds (`ui/game-setup-lobby.md`, "Rows").
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowState {
+    Available,
+    Computer,
+    Closed,
+    Human,
+}
+
+/// One of the lobby's eight rows.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RowView {
+    pub state: RowState,
+    /// The human's name (empty for the other states).
+    pub name: String,
+    /// The human's race: [`tidewater_sim::setup::race`] human, orc or neutral (Random).
+    pub race: u8,
+    /// The Ready box (Classic mode); in Enhanced rules a human is always ready.
+    pub ready: bool,
+    /// The line in the row's chat box.
+    pub say: String,
+}
+
+impl RowView {
+    pub fn new(state: RowState) -> RowView {
+        RowView {
+            state,
+            name: String::new(),
+            race: tidewater_sim::setup::race::NEUTRAL,
+            ready: false,
+            say: String::new(),
+        }
+    }
+}
+
+/// The lobby as the host holds it and every joiner sees it. Row 0 is the host.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct LobbyView {
+    pub enhanced: bool,
+    /// The map as [`GameConfig::map_name`] and [`GameConfig::map_hash`] say.
+    pub map_name: String,
+    pub map_hash: u64,
+    /// The Scenario box's three lines.
+    pub scenario: Vec<String>,
+    /// The map's playable slots: the most rows that can be filled.
+    pub map_players: u8,
+    /// The options: resources, tileset, units, fog of war and Fixed Order (`fixed_starts`). `race` and `opponents`
+    /// are the rows'.
+    pub custom: tidewater_sim::setup::Custom,
+    pub speed: u8,
+    /// Classic mode's Cheat Codes box (multiplayer games run with cheats off whatever it says).
+    pub cheats_allowed: bool,
+    /// The network delay row (`net/lockstep.md`, "Which row").
+    pub row: u8,
+    pub rows: Vec<RowView>,
 }
 
 /// Writes one frame.
@@ -224,6 +292,25 @@ mod tests {
             },
             Msg::Drop { slot: 1, at_seq: 8 },
             Msg::DropRequest { slot: 1 },
+            Msg::Lobby(Box::new(LobbyView {
+                enhanced: true,
+                map_name: "Maps\\x.pud".into(),
+                map_hash: 3,
+                scenario: vec!["a".into()],
+                map_players: 4,
+                custom: tidewater_sim::setup::Custom::default(),
+                speed: 4,
+                cheats_allowed: false,
+                row: 3,
+                rows: vec![RowView::new(RowState::Human)],
+            })),
+            Msg::SetRace { race: 1 },
+            Msg::SetReady { ready: true },
+            Msg::Say { text: "hi".into() },
+            Msg::Go {
+                slot: 1,
+                config: Box::new(config()),
+            },
         ];
         let mut bytes = Vec::new();
         for m in &msgs {

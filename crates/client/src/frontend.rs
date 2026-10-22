@@ -42,6 +42,7 @@ use crate::hud::{self, Rect};
 use crate::input::{Button, Buttons, Key, LogCursor};
 use crate::jukebox::Jukebox;
 use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Pictures, Plane, Role, Stack};
+use crate::lobbyscreen;
 use crate::menuscreen::{self, MenuScreen};
 use crate::mpmenu;
 use crate::palette::fades;
@@ -832,6 +833,8 @@ pub struct Screens {
     mp: Option<MpScreen>,
     /// The place in the typed events the multiplayer menus have read.
     mp_typed: LogCursor,
+    /// The game setup lobby, once Create Game or a join has opened it (it takes the screen over from the menus).
+    mp_lobby: Option<lobbyscreen::Lobby>,
     /// The scenario last picked on the Custom Scenario screen, kept for the session.
     custom_last: Option<String>,
     act: Option<ActScreen>,
@@ -2163,8 +2166,12 @@ fn run_custom_setup(c: &mut Core) {
 struct MpScreen {
     image: PictureId,
     background: Picture,
+    /// The same picture without the version line, for the lobby.
+    plain: Picture,
     palette: Palette,
     ui: mpmenu::Mp,
+    /// This program's identity, what a lobby's joiners are checked against.
+    identity: crate::net::proto::Identity,
     /// When the fade-in ends (0 for none).
     ready_at: f64,
 }
@@ -2188,11 +2195,16 @@ pub(crate) fn enter_multiplayer(c: &mut Core) {
             (p, pal)
         }
     };
+    // The lobby has no version line (it would print over the Scenario box).
+    let plain = dup(&bg);
     if opening.version_line {
         version_line(&mut bg, &front.small, &palette);
     }
     let strings = mpmenu::Strings::from(&|n| front.net(n));
-    let mut ui = mpmenu::Mp::new(mpmenu::Memory::from_prefs(&stored.0), strings);
+    // spec gap: with no readable data tables the identity is the empty one, which no other machine matches.
+    let identity =
+        crate::net::lobby::identity(&mut front.install).unwrap_or_else(|_| crate::net::proto::Identity::ours(0));
+    let mut ui = mpmenu::Mp::new(mpmenu::Memory::from_prefs(&stored.0), strings).with_identity(identity.clone());
     let look = customsetup::Look {
         font: &front.font,
         pal: &palette,
@@ -2205,8 +2217,10 @@ pub(crate) fn enter_multiplayer(c: &mut Core) {
     let screen = MpScreen {
         image,
         background: bg,
+        plain,
         palette,
         ui,
+        identity,
         ready_at: opening.fade_in_ms as f64,
     };
     commands.queue(move |c| c.screens.mp = Some(screen));
@@ -2232,6 +2246,8 @@ fn run_multiplayer(c: &mut Core) {
                 mp: Some(ms),
                 clock: Some(clock),
                 mp_typed,
+                mp_lobby,
+                custom_last,
                 ..
             },
         front,
@@ -2242,6 +2258,7 @@ fn run_multiplayer(c: &mut Core) {
         exit,
         input,
         stored,
+        store,
         ..
     } = c
     else {
@@ -2250,20 +2267,128 @@ fn run_multiplayer(c: &mut Core) {
     if clock.0 < ms.ready_at {
         return;
     }
-    let outcome = ms.ui.update(&mp_input(input, cam, mp_typed));
-    if ms.ui.take_changed() {
+    let typed = mp_input(input, cam, mp_typed);
+    let wall = store.wall_clock_secs();
+    // The lobby, once open, has the screen.
+    if let Some(lobby) = mp_lobby {
+        let mut read = |n: &str| crate::net::lobby::map_bytes(store, &mut front.install, n).ok();
+        let mut ctx = lobbyscreen::Ctx { read: &mut read, wall };
+        let outcome = lobby.update(&typed, &mut ctx);
+        let redraw = lobby.take_changed();
         let look = customsetup::Look {
             font: &front.font,
             pal: &ms.palette,
             faces: &front.button_faces,
         };
+        if redraw {
+            set_image(pictures, &ms.image, lobby.draw(&ms.plain, &look));
+        }
+        match outcome {
+            lobbyscreen::Outcome::Stay => {}
+            lobbyscreen::Outcome::Cancel(notice) => {
+                if let Some(m) = lobby.picked_map() {
+                    *custom_last = Some(m);
+                }
+                *mp_lobby = None;
+                ms.ui.lobby_closed(notice);
+                ms.ui.take_changed();
+                set_image(pictures, &ms.image, ms.ui.draw(&ms.background, &look));
+            }
+            lobbyscreen::Outcome::Start(n) => {
+                if let Some(m) = lobby.picked_map() {
+                    *custom_last = Some(m);
+                }
+                ms.ui.mem.store(&mut stored.0);
+                flow.steps = VecDeque::from([Step::Play {
+                    map: n.config.map_name.clone(),
+                    setup: Some(n.config.setup),
+                }]);
+                flow.net = Some(n);
+                *mp_lobby = None;
+                go_on(flow, front, &input.keys, next, exit);
+            }
+        }
+        return;
+    }
+    let outcome = ms.ui.update(&typed);
+    let mut look = customsetup::Look {
+        font: &front.font,
+        pal: &ms.palette,
+        faces: &front.button_faces,
+    };
+    if ms.ui.take_changed() {
         set_image(pictures, &ms.image, ms.ui.draw(&ms.background, &look));
     }
-    if outcome == mpmenu::Outcome::Leave {
-        ms.ui.mem.store(&mut stored.0);
-        // Previous Menu: the main menu again, on the same picture.
-        flow.steps = VecDeque::from([Step::MainMenu]);
-        go_on(flow, front, &input.keys, next, exit);
+    match outcome {
+        mpmenu::Outcome::Stay => {}
+        mpmenu::Outcome::Leave => {
+            ms.ui.mem.store(&mut stored.0);
+            // Previous Menu: the main menu again, on the same picture.
+            flow.steps = VecDeque::from([Step::MainMenu]);
+            go_on(flow, front, &input.keys, next, exit);
+        }
+        mpmenu::Outcome::Host(listener) => {
+            let enhanced = ms.ui.enhanced();
+            let view = crate::net::room::new_view(enhanced, &ms.ui.mem.name, tidewater_sim::setup::race::NEUTRAL);
+            let texts = crate::net::room::Texts::from(&|n| front.net(n));
+            match crate::net::room::HostRoom::new(listener, ms.identity.clone(), texts.clone(), view) {
+                Ok(room) => {
+                    let names = store.maps();
+                    let maps = customsetup::scan_maps(&names, |n| front.install.read(n).ok());
+                    let mut read = |n: &str| crate::net::lobby::map_bytes(store, &mut front.install, n).ok();
+                    let mut ctx = lobbyscreen::Ctx { read: &mut read, wall };
+                    let mut lobby = lobbyscreen::Lobby::new_host(room, maps, custom_last.as_deref(), texts, &mut ctx);
+                    lobby.take_changed();
+                    look = customsetup::Look {
+                        font: &front.font,
+                        pal: &ms.palette,
+                        faces: &front.button_faces,
+                    };
+                    set_image(pictures, &ms.image, lobby.draw(&ms.plain, &look));
+                    *mp_lobby = Some(lobby);
+                }
+                Err(e) => {
+                    ms.ui.lobby_closed(Some(e.to_string()));
+                    ms.ui.take_changed();
+                    set_image(pictures, &ms.image, ms.ui.draw(&ms.background, &look));
+                }
+            }
+        }
+        mpmenu::Outcome::Join(hs) => {
+            // This machine must have the creator's scenario, with the same contents.
+            let missing = match crate::net::lobby::map_bytes(store, &mut front.install, &hs.config.map_name) {
+                Err(_) => Some(format!(
+                    "This machine doesn't have the scenario {}.",
+                    hs.config.map_name
+                )),
+                Ok((bytes, _)) if tidewater_replay::start::map_hash(&bytes) != hs.config.map_hash => Some(format!(
+                    "This machine's {} is a different map from the creator's.",
+                    hs.config.map_name
+                )),
+                Ok(_) => None,
+            };
+            let enhanced = hs.config.setup.enhanced;
+            let entered = match missing {
+                Some(why) => {
+                    hs.decline(&why);
+                    Err(why)
+                }
+                None => hs.accept().map_err(|e| e.to_string()),
+            };
+            match entered {
+                Ok(room) => {
+                    let mut lobby = lobbyscreen::Lobby::new_guest(room, enhanced);
+                    lobby.take_changed();
+                    set_image(pictures, &ms.image, lobby.draw(&ms.plain, &look));
+                    *mp_lobby = Some(lobby);
+                }
+                Err(why) => {
+                    ms.ui.lobby_closed(Some(why));
+                    ms.ui.take_changed();
+                    set_image(pictures, &ms.image, ms.ui.draw(&ms.background, &look));
+                }
+            }
+        }
     }
 }
 

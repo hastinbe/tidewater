@@ -35,6 +35,7 @@ const SCENES: &[&str] = &[
     "flow",
     "custom",
     "multi",
+    "lobby",
     "extras",
     "extras-bars",
     "extras-groups",

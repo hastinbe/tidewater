@@ -22,7 +22,7 @@ use anyhow::{Context, Result, bail};
 use super::proto::{DEFAULT_PORT, GameConfig, Identity, Msg, read_frame, write_frame};
 
 /// How long a joiner has, after connecting, to say Hello and to answer a Welcome.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a joiner waits for the connection itself.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -57,20 +57,20 @@ pub trait Wire: Send {
     fn forward(&mut self, _from: u8, _msg: &Msg) {}
 }
 
-enum Event {
+pub(super) enum Event {
     Msg(usize, Msg),
     Closed(usize),
 }
 
 /// One connection's outgoing queue. Dropping it lets the writer thread finish what is queued, then close the sending
 /// side of the socket, so a last message (a leave) is still delivered.
-struct Link {
+pub(super) struct Link {
     tx: Sender<Msg>,
 }
 
 impl Link {
     /// Starts the threads for `stream`, whose frames arrive as events tagged `id`.
-    fn spawn(stream: TcpStream, id: usize, events: Sender<Event>) -> io::Result<Link> {
+    pub(super) fn spawn(stream: TcpStream, id: usize, events: Sender<Event>) -> io::Result<Link> {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(None)?;
         let mut reader = stream.try_clone()?;
@@ -97,7 +97,7 @@ impl Link {
         Ok(Link { tx })
     }
 
-    fn send(&self, msg: &Msg) {
+    pub(super) fn send(&self, msg: &Msg) {
         // A closed writer is noticed by the reader as a closed connection.
         let _ = self.tx.send(msg.clone());
     }
@@ -165,6 +165,24 @@ impl Wire for HostWire {
 }
 
 impl HostWire {
+    /// The wire over connections the lobby (`room`) already holds: `joiners` are each connection's slot and event id,
+    /// `events` the channel their reader threads send on.
+    pub(super) fn from_parts(joiners: Vec<(u8, usize, Link)>, events: Receiver<Event>, names: Vec<String>) -> HostWire {
+        HostWire {
+            links: joiners
+                .into_iter()
+                .map(|(slot, id, link)| HostLink {
+                    slot,
+                    id,
+                    link,
+                    open: true,
+                })
+                .collect(),
+            events,
+            names,
+        }
+    }
+
     fn forward_to_others(&mut self, from: u8, msg: &Msg) {
         for l in self.links.iter().filter(|l| l.open && l.slot != from) {
             l.link.send(msg);
@@ -178,6 +196,18 @@ pub struct ClientWire {
     events: Receiver<Event>,
     host: u8,
     closed: bool,
+}
+
+impl ClientWire {
+    /// The wire over the connection the lobby (`room`) already holds, to the host in slot `host`.
+    pub(super) fn from_parts(link: Link, events: Receiver<Event>, host: u8) -> ClientWire {
+        ClientWire {
+            link,
+            events,
+            host,
+            closed: false,
+        }
+    }
 }
 
 impl Wire for ClientWire {
@@ -363,7 +393,7 @@ pub(crate) fn probe(addr: &str) -> Result<()> {
     connect(addr).map(drop)
 }
 
-fn connect(addr: &str) -> Result<TcpStream> {
+pub(super) fn connect(addr: &str) -> Result<TcpStream> {
     let candidates: Vec<SocketAddr> = resolve(addr)?;
     let mut last = None;
     for a in candidates {
@@ -403,7 +433,7 @@ fn has_port(addr: &str) -> bool {
 }
 
 /// A name a joiner asks for, trimmed and limited: printable text, 24 characters at most.
-fn clean_name(name: &str) -> Option<String> {
+pub(super) fn clean_name(name: &str) -> Option<String> {
     let name: String = name.trim().chars().filter(|c| !c.is_control()).take(24).collect();
     (!name.is_empty()).then_some(name)
 }

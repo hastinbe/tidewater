@@ -159,7 +159,7 @@ fn clean(name: &str) -> Option<String> {
 }
 
 /// The bytes of `map` as a game would read them: the user's own file, else the installation's.
-fn map_bytes(store: &Store, install: &mut Install, map: &str) -> Result<(Vec<u8>, bool)> {
+pub(crate) fn map_bytes(store: &Store, install: &mut Install, map: &str) -> Result<(Vec<u8>, bool)> {
     match store.user_map(map).with_context(|| format!("reading {map}"))? {
         Some(d) => Ok((d, true)),
         None => Ok((install.read(map).with_context(|| format!("the map {map}"))?, false)),
