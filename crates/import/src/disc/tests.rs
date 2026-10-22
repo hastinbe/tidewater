@@ -438,3 +438,191 @@ fn damaged_images_never_panic_or_hang() {
         }
     }
 }
+
+/// A disc like the Battle.net Edition CD: no loose archives, only a program with an archive behind it that holds
+/// the installer's files under their install names.
+type DiscFilesList = Vec<(String, Vec<u8>)>;
+
+fn installer_disc() -> (DiscFilesList, Vec<u8>, Vec<u8>) {
+    let war2dat = mpq_bytes(&[("rez\\marker.txt", b"from the installer")]);
+    let map = pattern(3000, 9);
+    let music = pattern(1_200_000, 4);
+    let inner = mpq_bytes(&[
+        ("Files\\War2Dat.mpq", &war2dat),
+        ("Maps\\Dark Paths BNE.pud", &map),
+        ("Maps\\Not A Stock Map.pud", b"unlisted"),
+        ("music\\theme.wav", &music),
+    ]);
+    // A program in front of the archive, padded so the archive starts on a 512-byte boundary.
+    let mut exe = b"MZ".to_vec();
+    exe.resize(3 * 512, 0x90);
+    exe.extend_from_slice(&inner);
+    let files = vec![
+        ("INSTALL.EXE".to_string(), exe),
+        ("SETUP.EXE".to_string(), b"MZsmall".to_vec()),
+        ("SUPPORT/PC/FAQ.HTM".to_string(), b"<html>".to_vec()),
+    ];
+    (files, war2dat, map)
+}
+
+#[test]
+fn a_disc_whose_game_is_inside_an_installer_archive_is_imported() {
+    let t = tempfile::tempdir().unwrap();
+    let (files, war2dat, map) = installer_disc();
+    let iso = image_of(&files, IsoOptions::default());
+    let images = [
+        write(t.path(), "plain.iso", &iso),
+        write(t.path(), "raw.bin", &raw_sectors(&iso, Framing::Mode1)),
+        write(t.path(), "raw2.bin", &raw_sectors(&iso, Framing::Mode2Form1)),
+    ];
+    write(
+        t.path(),
+        "raw2.cue",
+        b"FILE \"raw2.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    );
+    for image in images.iter().chain([&t.path().join("raw2.cue")]) {
+        let source = classify(image).unwrap_or_else(|e| panic!("{}: {e}", image.display()));
+        assert_eq!(source.kind, SourceKind::CdImage);
+        let report = validate_with(&source, MARKER);
+        assert!(report.is_ok(), "{:?}", report.issues);
+        let data = t
+            .path()
+            .join(format!("data-{}", image.file_name().unwrap().to_string_lossy()));
+        let manifest = crate::import(&source, &report, &data, &mut |_| {}).unwrap();
+        let mut got: Vec<_> = manifest.files.iter().map(|f| f.path.as_str()).collect();
+        got.sort_unstable();
+        assert_eq!(got, ["Install.mpq", "Maps/Dark Paths BNE.pud", "War2Dat.mpq"]);
+        let game = crate::game_dir(&data);
+        assert_eq!(fs::read(game.join("War2Dat.mpq")).unwrap(), war2dat);
+        assert_eq!(fs::read(game.join("Maps/Dark Paths BNE.pud")).unwrap(), map);
+        // The whole program-plus-archive file is kept as Install.mpq, and still opens as an archive.
+        assert_eq!(fs::read(game.join("Install.mpq")).unwrap(), files[0].1);
+        let mut inst = tidewater_formats::mpq::Archive::open(game.join("Install.mpq")).unwrap();
+        assert_eq!(inst.read("music\\theme.wav").unwrap().len(), 1_200_000);
+    }
+}
+
+#[test]
+fn a_big_program_without_an_archive_behind_it_is_still_just_an_installer() {
+    let t = tempfile::tempdir().unwrap();
+    let mut exe = b"MZ".to_vec();
+    exe.resize(2_000_000, 0x90);
+    let iso = write(
+        t.path(),
+        "inst.iso",
+        &iso_image(&[("INSTALL.EXE", &exe), ("SETUP.EXE", b"MZ")], IsoOptions::default()),
+    );
+    assert!(matches!(classify(&iso), Err(ImportError::DiscHoldsInstaller(_))));
+}
+
+#[test]
+fn a_file_on_a_disc_can_be_read_after_seeking() {
+    let t = tempfile::tempdir().unwrap();
+    let data = pattern(9000, 1);
+    let iso_bytes = iso_image(&[("A/F.BIN", &data), ("B.BIN", b"x")], IsoOptions::default());
+    let iso = write(t.path(), "s.iso", &iso_bytes);
+    let bin = write(t.path(), "s.bin", &raw_sectors(&iso_bytes, Framing::Mode1));
+    for image in [iso, bin] {
+        let disc = Disc::open(&image).unwrap();
+        let f = disc.files().iter().find(|f| f.path == "A/F.BIN").unwrap();
+        let mut r = disc.read_file(f).unwrap();
+        for &(at, len) in &[
+            (0usize, 10usize),
+            (2047, 3),
+            (2048, 5),
+            (5000, 4000),
+            (8990, 10),
+            (1, 8999),
+        ] {
+            r.seek(SeekFrom::Start(at as u64)).unwrap();
+            let mut got = vec![0u8; len];
+            r.read_exact(&mut got).unwrap();
+            assert_eq!(got, data[at..at + len], "at {at}");
+        }
+        assert_eq!(r.seek(SeekFrom::End(-4)).unwrap(), 8996);
+        let mut tail = Vec::new();
+        r.read_to_end(&mut tail).unwrap();
+        assert_eq!(tail, data[8996..]);
+        assert_eq!(r.seek(SeekFrom::Current(-2)).unwrap(), 8998);
+        assert!(r.seek(SeekFrom::Current(-9000)).is_err());
+        r.seek(SeekFrom::Start(20_000)).unwrap();
+        assert_eq!(r.read(&mut [0u8; 4]).unwrap(), 0);
+    }
+}
+
+#[test]
+fn a_bin_beside_its_cue_uses_the_sheet() {
+    let t = tempfile::tempdir().unwrap();
+    let iso = image_of(&game_files(), IsoOptions::default());
+    // Audio first, so the data track doesn't start at byte 0: only the sheet knows where it is.
+    let mut bin = vec![0x22u8; 2352 * 150];
+    bin.extend_from_slice(&raw_sectors(&iso, Framing::Mode2Form1));
+    let bin_path = write(t.path(), "Game.BIN", &bin);
+    write(
+        t.path(),
+        "game.cue",
+        b"FILE \"GAME.bin\" BINARY\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n  TRACK 02 MODE2/2352\n    INDEX 01 00:02:00\n",
+    );
+    let disc = Disc::open(&bin_path).unwrap();
+    assert_eq!(disc.layout().base, 2352 * 150);
+    assert_eq!(read_all(&disc, "README.TXT"), b"hello");
+    let source = classify(&bin_path).unwrap();
+    assert_eq!(source.kind, SourceKind::CdImage);
+}
+
+#[test]
+fn mode1_2048_sheets_and_bins_without_a_sheet_work() {
+    let t = tempfile::tempdir().unwrap();
+    let iso = image_of(&game_files(), IsoOptions::default());
+    write(t.path(), "cooked.bin", &iso);
+    let cue = write(
+        t.path(),
+        "cooked.cue",
+        b"FILE \"cooked.bin\" BINARY\n  TRACK 01 MODE1/2048\n    INDEX 01 00:00:00\n",
+    );
+    assert_eq!(Disc::open(&cue).unwrap().layout().stride, 2048);
+    // No sheet at all: the layout comes from the sync pattern's place in the file.
+    let lone = write(t.path(), "lone.bin", &raw_sectors(&iso, Framing::Mode1));
+    let disc = Disc::open(&lone).unwrap();
+    assert_eq!((disc.layout().stride, disc.layout().data_offset), (2352, 16));
+    assert_eq!(read_all(&disc, "README.TXT"), b"hello");
+}
+
+#[test]
+fn a_bad_sheet_beside_a_bin_does_not_hide_a_plain_disc() {
+    let t = tempfile::tempdir().unwrap();
+    let iso = image_of(&game_files(), IsoOptions::default());
+    let bin = write(t.path(), "d.bin", &raw_sectors(&iso, Framing::Mode1));
+    write(
+        t.path(),
+        "d.cue",
+        b"FILE \"missing.bin\" BINARY\n TRACK 01 MODE1/2352\n  INDEX 01 00:00:00\n",
+    );
+    assert!(Disc::open(&bin).is_ok());
+}
+
+#[test]
+fn a_sheet_with_a_missing_file_or_only_audio_says_so() {
+    let t = tempfile::tempdir().unwrap();
+    let iso = image_of(&game_files(), IsoOptions::default());
+    write(t.path(), "real.bin", &raw_sectors(&iso, Framing::Mode1));
+    let missing = write(
+        t.path(),
+        "missing.cue",
+        b"FILE \"gone.bin\" BINARY\n TRACK 01 MODE1/2352\n  INDEX 01 00:00:00\n",
+    );
+    let err = classify(&missing).unwrap_err();
+    assert!(matches!(err, ImportError::DiscImageUnreadable { .. }), "{err}");
+    assert!(err.to_string().contains("gone.bin"), "{err}");
+    assert!(err.to_string().contains("isn't in the same folder"), "{err}");
+    assert_eq!(err.exit_code(), 19);
+    let audio = write(
+        t.path(),
+        "audio.cue",
+        b"FILE \"real.bin\" BINARY\n TRACK 01 AUDIO\n  INDEX 01 00:00:00\n TRACK 02 AUDIO\n  INDEX 01 00:03:00\n",
+    );
+    let err = classify(&audio).unwrap_err();
+    assert!(matches!(err, ImportError::DiscImageUnreadable { .. }), "{err}");
+    assert!(err.to_string().contains("no data track"), "{err}");
+    assert!(err.to_string().contains("only audio"), "{err}");
+}

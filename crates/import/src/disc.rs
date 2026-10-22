@@ -197,9 +197,12 @@ impl Disc {
             f: File::open(&self.image)?,
             layout: self.layout,
             extents: file.extents.clone(),
+            size: file.size,
+            pos: 0,
             next: 0,
             lba: 0,
             left: 0,
+            skip: 0,
             buf: Vec::new(),
             buf_pos: 0,
         })
@@ -225,7 +228,9 @@ fn find_layout(path: &Path) -> io::Result<(PathBuf, Layout)> {
         "cue" => {
             candidates = parse_cue(&path)?;
             if candidates.is_empty() {
-                return Err(bad("the cue sheet lists no data track"));
+                return Err(bad(
+                    "the cue sheet lists no data track (it has only audio tracks, or no tracks at all)",
+                ));
             }
         }
         ext => {
@@ -233,6 +238,21 @@ fn find_layout(path: &Path) -> io::Result<(PathBuf, Layout)> {
                 // The descriptor of an .mdf: the sectors are in the file beside it.
                 path = sibling_ci(&path.with_extension("mdf"))
                     .ok_or_else(|| bad("this .mds file has no .mdf file beside it"))?;
+            }
+            if ext == "bin"
+                && let Some(cue) = sibling_ci(&path.with_extension("cue"))
+            {
+                // A .bin with its cue sheet beside it: the sheet says where the data track starts and how its
+                // sectors are framed. A sheet that can't be read or doesn't name this file is not an error here: the
+                // signature search below still finds a plain disc.
+                if let Ok(found) = parse_cue(&cue) {
+                    let me = std::fs::canonicalize(&path).ok();
+                    candidates.extend(
+                        found
+                            .into_iter()
+                            .filter(|c| me.is_some() && std::fs::canonicalize(&c.path).ok() == me),
+                    );
+                }
             }
             let mut bases = nrg_tracks(&path)?;
             bases.push(0);
@@ -320,7 +340,11 @@ fn parse_cue(cue: &Path) -> io::Result<Vec<Candidate>> {
                 file = Some(
                     sibling_ci(&dir.join(&name))
                         .or_else(|| sibling_ci(&dir.join(leaf)))
-                        .ok_or_else(|| bad(format!("the cue sheet names {name}, which isn't next to it")))?,
+                        .ok_or_else(|| {
+                            bad(format!(
+                                "the cue sheet names the file {name}, which isn't in the same folder as the sheet"
+                            ))
+                        })?,
                 );
             }
             "TRACK" => {
@@ -570,14 +594,20 @@ fn walk(
     Ok(())
 }
 
-/// Streams one file's bytes from the image, a few sectors at a time.
+/// Reads one file's bytes from the image, a few sectors at a time. It also seeks, so an archive kept inside a file on
+/// the disc can be read in place.
 pub struct ExtentReader {
     f: File,
     layout: Layout,
     extents: Vec<(u64, u64)>,
+    size: u64,
+    /// The position the next read returns.
+    pos: u64,
     next: usize,
     lba: u64,
     left: u64,
+    /// Bytes to drop from the front of the next chunk read (after a seek into the middle of a sector).
+    skip: usize,
     buf: Vec<u8>,
     buf_pos: usize,
 }
@@ -605,7 +635,8 @@ impl ExtentReader {
         self.buf.truncate(take as usize);
         self.left -= take;
         self.lba += sectors;
-        self.buf_pos = 0;
+        self.buf_pos = self.skip.min(self.buf.len());
+        self.skip = 0;
         Ok(true)
     }
 }
@@ -623,7 +654,40 @@ impl Read for ExtentReader {
         let n = out.len().min(self.buf.len() - self.buf_pos);
         out[..n].copy_from_slice(&self.buf[self.buf_pos..self.buf_pos + n]);
         self.buf_pos += n;
+        self.pos += n as u64;
         Ok(n)
+    }
+}
+
+impl Seek for ExtentReader {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        let target = match to {
+            SeekFrom::Start(p) => Some(p),
+            SeekFrom::End(d) => self.size.checked_add_signed(d),
+            SeekFrom::Current(d) => self.pos.checked_add_signed(d),
+        }
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek before the start of the file"))?;
+        self.pos = target;
+        self.buf.clear();
+        self.buf_pos = 0;
+        self.skip = 0;
+        self.left = 0;
+        // Find the extent holding `target`; a position at or past the end reads nothing.
+        let mut start = 0u64;
+        self.next = self.extents.len();
+        for (i, &(lba, len)) in self.extents.iter().enumerate() {
+            if target < start + len {
+                let into = target - start;
+                let whole = into / SECTOR;
+                self.next = i + 1;
+                self.lba = lba + whole;
+                self.left = len - whole * SECTOR;
+                self.skip = (into - whole * SECTOR) as usize;
+                break;
+            }
+            start += len;
+        }
+        Ok(target)
     }
 }
 
@@ -632,9 +696,19 @@ pub struct DiscFiles {
     disc: Disc,
     /// The folder on the disc the game is in ("" for the root), without a trailing slash.
     root: String,
-    /// Relative path (lower case) to the index of the disc file.
-    index: HashMap<String, usize>,
+    /// Relative path (lower case) to where its bytes are.
+    index: HashMap<String, Entry>,
     listing: Vec<SourceFile>,
+    /// The installer archive the files come from, when the disc keeps them in one.
+    installer: Option<installer::Installer>,
+}
+
+/// Where a listed file's bytes are.
+enum Entry {
+    /// A file on the disc (an index into its files).
+    Disc(usize),
+    /// A file inside the installer archive.
+    Inner(installer::Inner),
 }
 
 impl DiscFiles {
@@ -674,6 +748,9 @@ impl DiscFiles {
             }
         }
         let Some((_, _, root)) = best else {
+            if let Some(found) = installer::find(&disc) {
+                return Ok(Self::from_installer(disc, found));
+            }
             if disc.files().iter().any(|f| lower(&f.path).ends_with(".war")) {
                 return Err(ImportError::DosEdition);
             }
@@ -706,7 +783,7 @@ impl DiscFiles {
             } else {
                 continue;
             };
-            index.insert(lower(&rel), i);
+            index.insert(lower(&rel), Entry::Disc(i));
             listing.push(SourceFile { rel, size: f.size });
         }
         Ok(Self {
@@ -714,7 +791,32 @@ impl DiscFiles {
             root,
             index,
             listing,
+            installer: None,
         })
+    }
+
+    /// The game on a disc that keeps it in an installer archive: the archive itself as `Install.mpq` (the videos and
+    /// music), and the data archive and stock maps taken out of it.
+    fn from_installer(disc: Disc, found: installer::Installer) -> Self {
+        let mut index = HashMap::new();
+        let mut listing = Vec::new();
+        let whole = &disc.files()[found.file];
+        index.insert("install.mpq".to_string(), Entry::Disc(found.file));
+        listing.push(SourceFile {
+            rel: "Install.mpq".into(),
+            size: whole.size,
+        });
+        for (rel, inner, size) in found.entries() {
+            index.insert(rel.to_ascii_lowercase(), Entry::Inner(inner));
+            listing.push(SourceFile { rel, size });
+        }
+        Self {
+            disc,
+            root: String::new(),
+            index,
+            listing,
+            installer: Some(found),
+        }
     }
 
     /// The disc, for listing.
@@ -770,11 +872,15 @@ impl SourceFiles for DiscFiles {
     }
 
     fn open(&self, rel: &str) -> io::Result<Box<dyn Read>> {
-        let i = self
+        let entry = self
             .index
             .get(&rel.to_ascii_lowercase())
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-        Ok(Box::new(self.disc.read_file(&self.disc.files()[*i])?))
+        match (entry, &self.installer) {
+            (Entry::Disc(i), _) => Ok(Box::new(self.disc.read_file(&self.disc.files()[*i])?)),
+            (Entry::Inner(inner), Some(installer)) => installer.read(inner),
+            (Entry::Inner(_), None) => Err(io::Error::from(io::ErrorKind::NotFound)),
+        }
     }
 }
 
@@ -783,5 +889,6 @@ pub fn open_source(path: &Path) -> Result<Source, ImportError> {
     DiscFiles::open(path)?.stage(path)
 }
 
+mod installer;
 #[cfg(test)]
 mod tests;
