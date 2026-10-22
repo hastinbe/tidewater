@@ -82,10 +82,10 @@ local player gave to `Session::submit`, then asks `Session::ready_commands(tick)
   cycle's commands and a checkpoint to the replay.
 - **`ReplaySession`** ignores `submit` (except pause and speed, which hold or rate-limit the viewer) and returns the
   recorded commands for the cycle. It compares each checkpoint with the recorded hash and stops at the first mismatch.
-- **A future `NetSession`** plugs in behind the same trait: `submit` queues the command for the next network turn,
+- **`NetSession`** (`docs/design/network.md`) plugs in behind the same trait: `submit` queues the command for the next network turn,
   `ready_commands` returns `None` until every player's turn packet has arrived and then the slot-ordered commands of
   the cycle (`docs/specs/net/lockstep.md`). `Session::immediate` is for commands that must take effect at once; a
-  network session will return `None` there and carry the command in a turn. No networking exists yet.
+  network session returns `None` there and carries the command in a turn (except leaving, which is local).
 
 ## The replay format
 

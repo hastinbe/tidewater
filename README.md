@@ -1,10 +1,10 @@
 # Tidewater
 
-**Tidewater is a from-scratch Rust reimplementation of the *Warcraft II: Battle.net Edition* engine, including *Beyond the Dark Portal*, that runs on your own copy of the game.** It is playable in single player today: both campaigns, with menus, saved games, sound, music and video. Multiplayer, a skirmish screen and touch controls are planned but not built yet (see the [roadmap](#roadmap)).
+**Tidewater is a from-scratch Rust reimplementation of the *Warcraft II: Battle.net Edition* engine, including *Beyond the Dark Portal*, that runs on your own copy of the game.** It is playable in single player today: both campaigns, with menus, saved games, sound, music and video. Early LAN multiplayer works from the command line (see [Multiplayer (early)](#multiplayer-early)); a skirmish screen, the multiplayer menus and touch controls are planned but not built yet (see the [roadmap](#roadmap)).
 
 The game rules live in an engine-neutral core that an [SDL 3](https://libsdl.org) window shows. Tidewater contains no game data: it reads the files of your own copy at run time.
 
-**Status: early but playable.** You can start a campaign from the main menu, play missions against the computer, win or lose, see briefings, score screens, endings and credits, and save and load. The main menu is small: New Campaign, Load Game, Show Credits and Quit. A custom game on any map works from the command line only. There is no multiplayer.
+**Status: early but playable.** You can start a campaign from the main menu, play missions against the computer, win or lose, see briefings, score screens, endings and credits, and save and load. The main menu is small: New Campaign, Load Game, Show Credits and Quit. A custom game on any map works from the command line only. Multiplayer is early and command-line only.
 
 ## What you need
 
@@ -198,11 +198,22 @@ Run `tidewater --help` for the same list. The optional positional argument is a 
 | `desync-diff` | Play two replays (or one twice with `--local SLOT`) and print the first cycle whose state hash differs and the first differing field. |
 | `oracle` | Compare the simulation cycle by cycle with a trace of the original game and report the first record that differs. |
 
+## Multiplayer (early)
+
+Two to eight machines can play one game over TCP. Every machine runs the whole simulation and they exchange only commands, so all copies must be the same build with the same game data; the handshake refuses a mismatch and says which part differs.
+
+```sh
+tidewater 'Maps\Cramped BNE.pud' --host --lobby humans=2,races=human/orc,seed=1   # host, waits for joiners
+tidewater --join HOST-ADDRESS                                                       # each joiner
+```
+
+The default port is 6112 (TCP): open it on the host's firewall. Joiners need nothing open. Write the map before `--host`; `--host PORT` picks another port and `--join ADDR:PORT` follows it. Enhanced rules are the default; Classic is opt-in (`--setup custom:classic`). Leaving the game with Surrender or Quit shows "has left the game"; Ctrl+F1 leaves, and Alt+F2 drops players the game is waiting for. Add `--record-replay` on each side, then `twtool desync-diff` on the two files to confirm both saw the same game. There are no lobby screens, chat or pause counts yet. Details: [docs/design/network.md](docs/design/network.md).
+
 ## Replays
 
 Run with `--record-replay` and the game writes a `.twrep` file to the `replays` folder of your user data (never into the game folder). It holds the map's name and hash, the seed, the setup and the rules, then the commands given each cycle and a state-hash check every 100 cycles. Recording is a flag rather than always on, so nothing is written unless you ask.
 
-`tidewater --replay FILE` plays it back as the recording player saw it. Your input is ignored except the game menu, pause (Ctrl+P) and speed (`+` and `-`). If the game ever stops matching the recording, playback stops at the first check that fails and says which cycle. `twtool replay FILE` does the same check without a window, and `twtool desync-diff` finds the first cycle and field where two runs differ. A replay is refused on a map that is not the one it was recorded on. Games that were loaded from a save, or that used the `--demo-*` options, are not recorded. Multiplayer is still planned; replays are its groundwork.
+`tidewater --replay FILE` plays it back as the recording player saw it. Your input is ignored except the game menu, pause (Ctrl+P) and speed (`+` and `-`). If the game ever stops matching the recording, playback stops at the first check that fails and says which cycle. `twtool replay FILE` does the same check without a window, and `twtool desync-diff` finds the first cycle and field where two runs differ. A replay is refused on a map that is not the one it was recorded on. Games that were loaded from a save, or that used the `--demo-*` options, are not recorded. A network game records on each side with the same flag.
 
 ## Roadmap
 
@@ -211,7 +222,7 @@ Everything in this table is **planned**; none of it is built yet.
 | Track | What it adds | Status |
 |---|---|---|
 | **Import from CD images** | Read `.iso`, `.bin`/`.cue`, `.mdf` and `.nrg` images directly (when the game files are loose on the disc). | Done |
-| **Lockstep multiplayer** | Local Network and Direct IP games. The simulation is deterministic so that this is possible. | Planned |
+| **Lockstep multiplayer** | Local Network and Direct IP games over TCP. The simulation is deterministic so that this is possible. | Early: command line only; lobby screens, chat and pause counts planned |
 | **Skirmish against the computer** | A custom-game setup screen in the menus. The rules and computer players exist; the screen does not. | Planned |
 | **Touch controls** | iOS and Android. PlayStation Vita support is under evaluation. | Planned |
 | **Optional modern improvements** | Quality-of-life additions, all off by default so the default game matches the original. | Planned |

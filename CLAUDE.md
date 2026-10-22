@@ -48,7 +48,7 @@ before writing any code, and follow it exactly.
   Touch (`docs/design/touch.md`): `gesture.rs` is the state machine turning fingers into mouse frames, pan and zoom,
   `chrome.rs` the on-screen Shift/Ctrl/Alt latches, right-click toggle, pause and keyboard buttons in the pillarbox,
   `touchemu.rs` the mouse as fingers (`--touch-emulation`) and `touch.rs` the core's glue (`Core::touch`).
-  `session.rs` is the `Session` trait between the game screen and the sim (`LocalSession`, `ReplaySession`).
+  `session.rs` is the `Session` trait between the game screen and the sim (`LocalSession`, `ReplaySession`); `net/` is network play (`proto`, `tcp`, `lockstep`: `NetSession`, `lobby`; `docs/design/network.md`).
   `storage.rs` is the `Storage` trait for everything read or written outside the core (installation, saves,
   settings, screenshots, wall clock) and the desktop's folders.
   The window shows one 640 × 480 picture composed on the CPU (`compose.rs`; `core.rs` places the layers, the shell
