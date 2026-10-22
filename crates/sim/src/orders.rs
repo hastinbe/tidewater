@@ -1191,7 +1191,10 @@ impl World {
             self.reach(u)
         } else if self.computer_player(u.owner) {
             s.react_range_computer as i32
-        } else if self.acquires(u.order) == Some(Acquires::Moving) {
+        } else if self.acquires(u.order) == Some(Acquires::Moving) || matches!(u.order, Order::Follow { .. }) {
+            // Orders spec, "Search box" (round 97, V282, V283): follow (6) uses it too, though it searches only from
+            // the reaction to an attacker. Order 34 keeps the attack range (open question "Search box of a waiting
+            // boarder", default).
             s.react_range_human as i32
         } else {
             self.reach(u)
@@ -4639,6 +4642,37 @@ mod tests {
         let u = &w.units[i];
         assert_eq!((u.order, u.pending), (Order::Idle, None));
         assert_eq!((u.script.anim, u.script.wait), (anim::STILL, 3));
+    }
+
+    /// V282, V283 (orders spec, "Search box", round 97): a human player's footman (react range (human) 4, attack range
+    /// 1) following its peasant is hit by a dragon it can't hit. The reaction's search uses the react range (human)
+    /// box, so an idle grunt 3 tiles away is found (V282) and one 5 tiles away is not (V283).
+    #[test]
+    fn a_follower_reaction_searches_the_react_range_human_box() {
+        for (grunt_x, found) in [(8, true), (10, false)] {
+            let mut w = map();
+            w.players[1].controller = controller::NOBODY;
+            w.stats.0[9] = w.stats.0[ARCHER as usize];
+            w.stats.0[9].flags = flags::AIR | flags::CAN_ATTACK;
+            let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
+            let p = w.spawn(PEASANT, 0, (6, 5), 0).unwrap();
+            let grunt = w.spawn(FOOTMAN, 1, (grunt_x, 5), 0).unwrap();
+            let dragon = w.spawn(9, 1, (5, 9), 0).unwrap();
+            for u in &mut w.units {
+                u.hidden_from = 0;
+            }
+            assert_eq!(w.stats_of(FOOTMAN).attack_range, 1);
+            let i = at(&w, f);
+            let u = &mut w.units[i];
+            u.order = Order::Follow { target: p };
+            u.pending = None;
+            u.attacked_by = Some(dragon);
+            w.start_anim(i, anim::MOVE);
+            assert!(w.run_order(i));
+            // Not found: it goes on following the peasant (a follower next to its unit guards it).
+            let want = if found { grunt } else { p };
+            assert_eq!(w.units[i].order.target(), Some(want), "grunt at {grunt_x}");
+        }
     }
 
     /// Vectors (static study): a follower whose reaction's search picks an idle unit already within the
