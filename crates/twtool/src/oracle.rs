@@ -1670,15 +1670,9 @@ fn airesearch_cells(w: &World) -> Vec<[Cell; 15]> {
                 list(requests),
                 list(done),
                 list(build),
-                // spec gap: the limit is slot 0x22, written by the player's script. In the SL9 trace the original shows
-                // player 6's write (29 to 37) in the record of n = 4 where ours shows it at n = 2, and nothing else
-                // of the script differs (every later record matches), so the limit isn't compared in the first four
-                // records of a game or of a loaded one.
-                if w.tick < 4 {
-                    Cell::Skip("script timing in the first cycles")
-                } else {
-                    Cell::Int(ai.slots[tidewater_sim::ai::BUILD_LIMIT] as i64)
-                },
+                // The limit is slot 0x22, compared from the first record: a new game's openings run before the map's
+                // units are placed (`ai/ai-scripts.md`, "Game start", AS-V1 to AS-V3) and a load keeps the saved state.
+                Cell::Int(ai.slots[tidewater_sim::ai::BUILD_LIMIT] as i64),
             ];
             cells.extend(AIRESEARCH_LINES.map(|l| Cell::Int(w.players[p].levels[l] as i64)));
             cells.push(Cell::Int(w.players[p].spells_known as i64));

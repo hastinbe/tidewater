@@ -171,6 +171,13 @@
 //! footman and cannon tower find no target, LV20 and LV21) match in full; the comparer finds the classic map
 //! `Battle_2.pud` in the install's `Maps/Classic/Expansion` folder.
 //!
+//! Round 94: a new game's script openings run before the map's units are placed (AS-V1 to AS-V3) and a load keeps the
+//! saved script state, so the build-list limit is compared from the first record. The new rows orc10-aigroups-airesearch-12,
+//! xhuman6-xhuman6-r94-keepcastle-saveload-aigroups-airesearch-game-30, xorc11-xorc11-r94-castles-saveload-aigroups-airesearch-game-30,
+//! xhuman9-xhuman9-r94-level-resave-aigroups-airesearch-game-60 (two saves and two loads) and
+//! mp-battle-2-mp-battle2-nobody-busy-game-vision-1450 match in full; xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60
+//! matches to n 43 of the loaded game and its full row is ignored (see its test).
+//!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
 //! xorc10-19400-24000 match to their ends.
@@ -507,6 +514,30 @@ traces! {
     xhuman9_xhuman9_runestone_saveload_aigroups_airesearch_game_400: ("xhuman9-xhuman9-runestone-saveload-aigroups-airesearch-game-400.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
     orc12_orc12_r93_groups_saveload_aigroups_game_60: ("orc12-orc12-r93-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
     xorc6_xorc6_r93_groups_saveload_aigroups_game_60: ("xorc6-xorc6-r93-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\XOrc\\2XOrc06.pud", 39, &[], None),
+    orc10_aigroups_airesearch_12: ("orc10-aigroups-airesearch-12.jsonl.gz", "Campaign\\Orc\\Orc10.pud", 19, &[], None),
+    xhuman6_xhuman6_r94_keepcastle_saveload_aigroups_airesearch_game_30: ("xhuman6-xhuman6-r94-keepcastle-saveload-aigroups-airesearch-game-30.jsonl.gz", "Campaign\\XHuman\\2XHum06.pud", 38, &[], None),
+    xorc11_xorc11_r94_castles_saveload_aigroups_airesearch_game_30: ("xorc11-xorc11-r94-castles-saveload-aigroups-airesearch-game-30.jsonl.gz", "Campaign\\XOrc\\2XOrc11.pud", 49, &[], None),
+    xhuman8_xhuman8_r94_groups_saveload_aigroups_game_60_to_43: ("xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum08.pud", 42, &[], Some(43)),
+    xhuman9_xhuman9_r94_level_resave_aigroups_airesearch_game_60: ("xhuman9-xhuman9-r94-level-resave-aigroups-airesearch-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    mp_battle_2_mp_battle2_nobody_busy_game_vision_1450: (mp, "mp-battle-2-mp-battle2-nobody-busy-game-vision-1450.jsonl.gz", &[], None),
+}
+
+/// The whole SL21 trace (flying machine, transport, battleship and submarine counts double on a load). Its group
+/// counts and everything else match through the loaded game's n = 43 (the row above). At n = 44 (loaded game, counter
+/// 42) a peon of player 3, slot 1511, leaves its town hall (slot 1496, tile 6,73): the original sends it to the gold
+/// mine, slot 1481 (order 2, target 1481, x 224, y 2464, tx 7, ty 77, facing 4), ours moves it east of the hall
+/// (x 320, y 2336, tx 10, ty 73, facing 1) with no target. Clearing the saved miner and lumberjack counts at the
+/// load makes it worse (the divergence moves to n = 40, slot 1455), and `ai/worker-ai.md` and `game/save-load.md`
+/// are silent on which worker-AI counts a load keeps, so this stays open until a spec covers it.
+#[test]
+#[ignore = "loaded game n=44: a peon leaving a town hall goes east without a target, the original goes to the gold mine; spec silent on the saved worker-job counts"]
+fn xhuman8_xhuman8_r94_groups_saveload_aigroups_game_60() {
+    check(
+        "xhuman8-xhuman8-r94-groups-saveload-aigroups-game-60.jsonl.gz",
+        Some(("Campaign\\XHuman\\2XHum08.pud", 42)),
+        &[],
+        None,
+    );
 }
 
 /// The 400-cycle runestone save/load trace (SL7: after the load every unit's number is its slot plus one and the next
