@@ -141,6 +141,16 @@ pub struct View<'a> {
     pub clock: Option<&'a str>,
     /// The control-group bar's buttons, none when the option is off (`groupbar`).
     pub group_bar: &'a [crate::groupbar::Cell],
+    /// The minimap pings whose marker is on (option `minimap-ping`, `ping`).
+    pub pings: &'a [PingMark],
+}
+
+/// A ping marker on the minimap: the pixel of its tile (0 to 127 each way) and its player's minimap colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PingMark {
+    pub x: i32,
+    pub y: i32,
+    pub colour: u8,
 }
 
 // --- drawing primitives -------------------------------------------------------------------------------------------
@@ -842,6 +852,14 @@ impl HudArt {
             blit(&mut pic, l.minimap.x, l.minimap.y, &mini);
         }
 
+        for m in v.pings {
+            // A ring in the sender's colour round a white centre, over the minimap's pixels.
+            let c = to_rgba(&[m.colour], &self.pal, false, None);
+            let (cx, cy) = (l.minimap.x + m.x, l.minimap.y + m.y);
+            outline(&mut pic, Rect::new(cx - 4, cy - 4, 9, 9), [c[0], c[1], c[2]]);
+            outline(&mut pic, Rect::new(cx - 3, cy - 3, 7, 7), [c[0], c[1], c[2]]);
+            fill(&mut pic, Rect::new(cx - 1, cy - 1, 3, 3), [255, 255, 255]);
+        }
         self.draw_resources(&mut pic, l.top, v);
         self.draw_status(&mut pic, l.bottom, v.status);
         self.draw_menu_buttons(&mut pic, v.paused, v.pause_button);

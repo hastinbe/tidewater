@@ -48,6 +48,7 @@ pub mod net;
 mod overlay;
 mod palette;
 mod panel;
+mod ping;
 mod prefs;
 mod savedlg;
 mod savefile;

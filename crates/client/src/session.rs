@@ -154,6 +154,14 @@ pub trait Session: Send + Sync {
     /// The local player sends a chat line to everyone, or to the allies. A local game or a replay has nobody to tell.
     fn send_chat(&mut self, _allies: bool, _text: &str) {}
 
+    /// The local player pings a minimap tile for the allies (option `minimap-ping`). A local game has nobody to tell.
+    fn send_ping(&mut self, _tile: (i32, i32)) {}
+
+    /// The pings since the last call: the sender's slot and the tile, the local player's own included.
+    fn take_pings(&mut self) -> Vec<(u8, (i32, i32))> {
+        Vec::new()
+    }
+
     /// The chat lines since the last call: others' lines, and the local player's own as it was sent.
     fn take_chat(&mut self) -> Vec<ChatLine> {
         Vec::new()

@@ -179,6 +179,10 @@ pub enum Msg {
     /// It is not a command: it is not in any turn and not in the game's state hash (`docs/design/network.md`,
     /// "Chat"). `allies` limits it to the sender's allies; each machine checks that against its own alliance table.
     Chat { slot: u8, allies: bool, text: String },
+    /// A minimap ping (option `minimap-ping`) at tile `(x, y)` from the player in `slot` (the host stamps it and
+    /// relays it). Like [`Msg::Chat`] it is not in any turn and not in the game's state hash; each machine shows it
+    /// only if the sender is its ally.
+    Ping { slot: u8, x: u16, y: u16 },
 }
 
 /// What a row of the lobby holds (`ui/game-setup-lobby.md`, "Rows").
@@ -449,6 +453,7 @@ mod tests {
                 allies: true,
                 text: "hold the ford".into(),
             },
+            Msg::Ping { slot: 1, x: 40, y: 99 },
         ];
         let mut bytes = Vec::new();
         for m in &msgs {

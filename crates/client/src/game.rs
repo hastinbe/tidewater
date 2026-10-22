@@ -31,7 +31,7 @@ use crate::panel::PanelState;
 use crate::session::{LocalSession, Recorder, ReplaySession, Session};
 use crate::{
     attackmove, audio, campaign, display, fog, frontend, groupbar, hud, idle, info, mapview, messages, minimap, mouse,
-    overlay, palette, panel, savefile, savegame, scene, screen, sound, view,
+    overlay, palette, panel, ping, savefile, savegame, scene, screen, sound, view,
 };
 
 pub struct Loaded(pub Option<scene::Scene>);
@@ -51,6 +51,8 @@ pub struct Sim {
     pub notices: Vec<messages::Text>,
     /// Chat lines for the message list since the last frame ("name: text").
     pub chat: Vec<String>,
+    /// Minimap pings of allies and the local player (option `minimap-ping`, `ping`).
+    pub pings: ping::Pings,
     /// The resource bar's shown gold, lumber and oil, counted once per cycle.
     pub counter: screen::Counter,
     /// Passengers to put ashore one at a time (transport, place 0 to 5), from clicks on the information panel.
@@ -823,6 +825,7 @@ pub(crate) fn setup(c: &mut Core) {
         human: scene.human,
         notices: Vec::new(),
         chat: Vec::new(),
+        pings: ping::Pings::default(),
         counter,
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
@@ -919,6 +922,13 @@ pub(crate) fn tick(c: &mut Core) -> bool {
             sim.chat.push(messages::chat_line(&line.name, &line.text));
         }
     }
+    // Pings come by themselves too; only an ally's is shown, and the local player's own is (`ping`).
+    for (slot, tile) in sim.session.take_pings() {
+        if slot == sim.human || sim.world.allied(slot, sim.human) {
+            sim.pings.add(slot, tile, sim.world.tick);
+        }
+    }
+    sim.pings.expire(sim.world.tick);
     sim.session.observe_speed(sim.world.speed);
     let ready = sim.session.ready_commands(sim.world.tick);
     // A network game's wait for other players, and who has gone (`net/lockstep.md`, "Stalls"; `net/leave-and-drop.md`).
@@ -1783,6 +1793,7 @@ fn centre_view(view: &mut mapview::MapView, c: Vec2) {
 /// clicks, and moving the view.
 pub(crate) fn mouse_input(c: &mut Core) {
     let smart_attack = extras(c).smart_attack_move();
+    let ping_on = extras(c).minimap_ping();
     let Core {
         time,
         view,
@@ -1912,6 +1923,21 @@ pub(crate) fn mouse_input(c: &mut Core) {
         (Button::Right, mouse::Button::Right),
     ] {
         if !buttons.just_pressed(button) {
+            continue;
+        }
+        // Option `minimap-ping`: Alt-click on the minimap in a network game pings that place for the allies.
+        if ping_on
+            && alt
+            && region == mouse::Region::Minimap
+            && !sim.world.paused
+            && sim.session.is_network()
+            && let Some(tile) = minimap_tile
+        {
+            let tick = sim.world.tick;
+            if sim.pings.may_send(tick) {
+                sim.pings.sent(tick);
+                sim.session.send_ping(tile);
+            }
             continue;
         }
         match mouse::action(mode, ui.style, region, b, sim.world.paused, scr.edge != (0, 0)) {
@@ -2491,6 +2517,16 @@ pub(crate) fn draw_hud(c: &mut Core) {
     } else {
         Vec::new()
     };
+    let ping_marks: Vec<hud::PingMark> = sim
+        .pings
+        .shown(sim.world.tick)
+        .iter()
+        .map(|p| hud::PingMark {
+            x: minimap::to_px(hud.map.0, p.tile.0),
+            y: minimap::to_px(hud.map.0, p.tile.1),
+            colour: minimap::player_colour(p.slot),
+        })
+        .collect();
     let infos: Vec<panel::UnitInfo> = sel.units.iter().filter_map(|&id| state.unit(id)).collect();
     let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
     let buttons: Vec<(u8, u16)> = slots
@@ -2528,6 +2564,7 @@ pub(crate) fn draw_hud(c: &mut Core) {
                 .then(|| (idle::idle_workers(&sim.world, sim.human).len(), idle_key.as_str())),
             clock: clock_line.as_deref(),
             group_bar: &group_bar,
+            pings: &ping_marks,
         },
     );
     let mut pic = pic;

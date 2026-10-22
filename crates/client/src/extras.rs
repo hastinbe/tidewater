@@ -34,10 +34,11 @@ pub enum Id {
     ProductionQueue,
     SelectionLimit,
     ExtraSpeed,
+    MinimapPing,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 13;
+pub const COUNT: usize = 14;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,6 +197,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         scope: Scope::Sim,
         description: "Game speeds above Fastest, 1 to 3 more levels (Enhanced rules only)",
     },
+    Spec {
+        id: Id::MinimapPing,
+        name: "minimap-ping",
+        kind: Kind::Flag,
+        default: 0,
+        scope: Scope::Client,
+        description: "Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours",
+    },
 ];
 
 impl Id {
@@ -337,6 +346,10 @@ impl ClientExtras {
 
     pub fn smart_attack_move(&self) -> bool {
         self.get(Id::SmartAttackMove) != 0
+    }
+
+    pub fn minimap_ping(&self) -> bool {
+        self.get(Id::MinimapPing) != 0
     }
 
     /// The options that change the simulation, as a new local game starts with them (`tidewater_sim::Extras`). Each

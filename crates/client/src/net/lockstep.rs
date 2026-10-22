@@ -156,6 +156,8 @@ pub struct NetSession {
     notices: Vec<LeaveNotice>,
     /// Chat lines to hand to the screen.
     chat: Vec<ChatLine>,
+    /// Minimap pings heard and sent, not yet taken (option `minimap-ping`).
+    pings: Vec<(u8, (i32, i32))>,
     /// The turn is waiting since; for whom.
     stalled_since: Option<Duration>,
     missing: Vec<u8>,
@@ -198,6 +200,7 @@ impl NetSession {
             carry: Vec::new(),
             notices: Vec::new(),
             chat: Vec::new(),
+            pings: Vec::new(),
             stalled_since: None,
             missing: Vec::new(),
             reset_deadline: false,
@@ -339,6 +342,18 @@ impl NetSession {
                     allies,
                     mine: false,
                 });
+            }
+            Msg::Ping { slot, x, y } => {
+                let slot = if self.is_host() { from } else { slot };
+                if slot == self.p.me || !self.p.humans.contains(&slot) || x >= 256 || y >= 256 {
+                    return;
+                }
+                if self.is_host() {
+                    self.wire().forward(slot, &Msg::Ping { slot, x, y });
+                }
+                if self.pings.len() < 32 {
+                    self.pings.push((slot, (i32::from(x), i32::from(y))));
+                }
             }
             _ => {}
         }
@@ -655,6 +670,23 @@ impl Session for NetSession {
 
     fn take_chat(&mut self) -> Vec<ChatLine> {
         std::mem::take(&mut self.chat)
+    }
+
+    fn send_ping(&mut self, tile: (i32, i32)) {
+        if self.exit || self.left || !(0..256).contains(&tile.0) || !(0..256).contains(&tile.1) {
+            return;
+        }
+        let slot = self.p.me;
+        self.wire().send(Msg::Ping {
+            slot,
+            x: tile.0 as u16,
+            y: tile.1 as u16,
+        });
+        self.pings.push((slot, tile));
+    }
+
+    fn take_pings(&mut self) -> Vec<(u8, (i32, i32))> {
+        std::mem::take(&mut self.pings)
     }
 }
 
@@ -1054,6 +1086,33 @@ mod tests {
         assert!(peers.iter().all(|p| p.applied.is_empty()));
         let states: BTreeSet<u64> = peers.iter().map(|p| p.state).collect();
         assert_eq!(states.len(), 1);
+    }
+
+    #[test]
+    fn a_ping_reaches_everyone_by_way_of_the_host_and_stays_out_of_the_turns() {
+        let time = Time::default();
+        let mut peers = game(3, 1, 8, &time);
+        run(&mut peers, 4);
+        peers[1].s.send_ping((40, 77));
+        peers[1].s.send_ping((900, 5));
+        let mut heard: Vec<Vec<(u8, (i32, i32))>> = vec![Vec::new(); 3];
+        for _ in 0..400 {
+            let to = peers[0].tick + 1;
+            run(&mut peers, to);
+            for (h, p) in heard.iter_mut().zip(peers.iter_mut()) {
+                h.extend(p.s.take_pings());
+            }
+            if heard.iter().all(|h| !h.is_empty()) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        for h in &heard {
+            assert_eq!(h, &[(1, (40, 77))]);
+        }
+        assert!(peers.iter().all(|p| p.applied.is_empty()), "a ping is not a command");
+        let states: BTreeSet<u64> = peers.iter().map(|p| p.state).collect();
+        assert_eq!(states.len(), 1, "a ping is outside the state");
     }
 
     #[test]
