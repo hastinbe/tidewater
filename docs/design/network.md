@@ -149,7 +149,7 @@ The Local Network game list finds games with a small UDP beacon. Code: `net/beac
   | 4 | magic `TWLN` |
   | 1 | beacon version, 1 |
   | 1 | kind, 1 = announce |
-  | 2 | the network protocol (4) |
+  | 2 | the network protocol (5) |
   | 2 | the TCP port the lobby listens on |
   | 1 | players in the lobby |
   | 1 | rows that can hold a player |
