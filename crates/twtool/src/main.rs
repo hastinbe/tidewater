@@ -1076,10 +1076,22 @@ fn oracle_cmd(
     use tidewater_sim::setup::{Game, Setup, Start};
     let (header, records) = oracle::read(oracle::open(trace)?)?;
     // Trace format, "Multiplayer launch": the map is a skirmish map from the install's `Maps` folder.
-    let mp_map = header
-        .multiplayer
-        .as_ref()
-        .map(|m| install.join("Maps").join(&m.map).to_string_lossy().into_owned());
+    // A classic map (`Battle_2.pud` and the others of the original and expansion sets) is in a subfolder of `Maps`; the
+    // games ran with Enhanced rules whichever folder the map came from.
+    let mp_map = header.multiplayer.as_ref().map(|m| {
+        let maps = install.join("Maps");
+        [
+            maps.clone(),
+            maps.join("Classic"),
+            maps.join("Classic").join("Expansion"),
+        ]
+        .into_iter()
+        .map(|d| d.join(&m.map))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| maps.join(&m.map))
+        .to_string_lossy()
+        .into_owned()
+    });
     let map = map
         .map(str::to_string)
         .or(mp_map)

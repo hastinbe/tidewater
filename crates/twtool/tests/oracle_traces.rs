@@ -159,7 +159,17 @@
 //! mp-skirmish-bne-mp-skirmish-nobody-fight-game-600 and -1300 (a joiner leaves; an idle worker of a "nobody" player
 //! doesn't react, LV19) match in full: the comparer skips their `peer` records, checks their commands' turns against
 //! the Direct Connect turn length (12 cycles) and carries out a turn's `other` command as the player leaving.
-//! xhuman9-xhuman9-runestone-saveload-game-400 matches to n 342 and is ignored (see its test).
+//! xhuman9-xhuman9-runestone-saveload-game-400 matched to n 342 in round 92 and matches in full since round 93.
+//!
+//! Round 93: a load clears every research request and makes the done marks again, with the load's building marks
+//! (SL9 to SL12), and every training group from footmen to submarines doubles (SL13 to SL15). The `airesearch` extra
+//! (per computer player: requests, done marks, build list, limit, upgrade levels, spells) and the `aigroups` extra (all
+//! 14 counts; the demolition count is not compared, the spec has none) are compared by
+//! xhuman9-xhuman9-runestone-saveload-aigroups-airesearch-game-400, orc12-orc12-r93-groups-saveload-aigroups-game-60
+//! and xorc6-xorc6-r93-groups-saveload-aigroups-game-60, which match in full. The multiplayer-launch traces
+//! mp-battle-2-mp-battle2-nobody-combat-game-vision-1300 and -melee-game-vision-1450 (a "nobody" player's idle
+//! footman and cannon tower find no target, LV20 and LV21) match in full; the comparer finds the classic map
+//! `Battle_2.pud` in the install's `Maps/Classic/Expansion` folder.
 //!
 //! Windowed traces (trace format, "Windowed traces") compare from their `from` cycle; their short resync pass covers
 //! the 300 cycles after it. xhuman3-15500-17000, xhuman3-20900-22915 (the mission's defeat), xorc5-26000-30000 and
@@ -492,18 +502,19 @@ traces! {
     xhuman9_xhuman9_r92_aijobs_aijobs_game_60: ("xhuman9-xhuman9-r92-aijobs-aijobs-game-60.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
     mp_skirmish_bne_mp_skirmish_nobody_fight_game_600: (mp, "mp-skirmish-bne-mp-skirmish-nobody-fight-game-600.jsonl.gz", &[], None),
     mp_skirmish_bne_mp_skirmish_nobody_fight_game_1300: (mp, "mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300.jsonl.gz", &[], None),
+    mp_battle_2_mp_battle2_nobody_combat_game_vision_1300: (mp, "mp-battle-2-mp-battle2-nobody-combat-game-vision-1300.jsonl.gz", &[], None),
+    mp_battle_2_mp_battle2_nobody_melee_game_vision_1450: (mp, "mp-battle-2-mp-battle2-nobody-melee-game-vision-1450.jsonl.gz", &[], None),
+    xhuman9_xhuman9_runestone_saveload_aigroups_airesearch_game_400: ("xhuman9-xhuman9-runestone-saveload-aigroups-airesearch-game-400.jsonl.gz", "Campaign\\XHuman\\2XHum09.pud", 44, &[], None),
+    orc12_orc12_r93_groups_saveload_aigroups_game_60: ("orc12-orc12-r93-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\Orc\\Orc12.pud", 23, &[], None),
+    xorc6_xorc6_r93_groups_saveload_aigroups_game_60: ("xorc6-xorc6-r93-groups-saveload-aigroups-game-60.jsonl.gz", "Campaign\\XOrc\\2XOrc06.pud", 39, &[], None),
 }
 
 /// The 400-cycle runestone save/load trace (SL7: after the load every unit's number is its slot plus one and the next
-/// two units created get 1626 and 1627, at n = 252, then 1628 at n = 257) matches to n 342, creation numbers included.
-/// At n 343 (cycle, counter 341) player 6's orc blacksmith (unit 1470, type 0x53, finished a long research at n 338,
-/// the generator state matches) starts the research of code 0x88 in ours: player 6 gold 350 to 50, lumber 1450 to 1150
-/// and the unit's mana 0 to 1. The original pays nothing to n 400: the blacksmith stays idle (order 33, mana 0).
-/// The specs say what a loaded game keeps of a computer player's research state only for the pass counters and the
-/// four training counts (`game/save-load.md` SL1 to SL6); why the original doesn't start the research here isn't
-/// stated (its requests and done marks after a load are not specified).
+/// two units created get 1626 and 1627, at n = 252, then 1628 at n = 257) matches in full since round 93. In round 92
+/// it diverged at n 343, where player 6's blacksmith started the research of code 0x88 in ours and not in the original:
+/// a load clears the requests and makes the done marks again (SL9, SL10), and the research the blacksmith was running
+/// at the save stays unmarked, so the scan stops at it and 0x88 is never requested.
 #[test]
-#[ignore = "n 343 (cycle): unit 1470 mana ours 1, theirs 0, and player 6 gold/lumber: ours starts research 0x88, the original does not; research state after a load is not specified"]
 fn xhuman9_xhuman9_runestone_saveload_game_400() {
     check(
         "xhuman9-xhuman9-runestone-saveload-game-400.jsonl.gz",

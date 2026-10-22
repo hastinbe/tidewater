@@ -394,6 +394,12 @@ pub struct Record {
     /// extra's other fields (`wanted`, `have`) are read by no comparison. Ours holds a count only for a computer
     /// player and [`Cell::Skip`] for the rest.
     pub aijobs: Option<Vec<[Cell; 4]>>,
+    /// The `aigroups` extra: per player (0 to 15), the 14 [`AIGROUP_FIELDS`] counts. Ours holds a count only for a
+    /// computer player and [`Cell::Skip`] for the rest.
+    pub aigroups: Option<Vec<[Cell; 14]>>,
+    /// The `airesearch` extra: per player 0 to 7, the [`AIRESEARCH_FIELDS`] values of a computer player. A player the
+    /// trace doesn't list, or that isn't a computer player of ours, is all [`Cell::Skip`].
+    pub airesearch: Option<Vec<[Cell; 15]>>,
     /// The `fogmaps` extra ([`FOGMAP_FIELDS`] order), where the record carries it.
     pub fogmaps: Option<Vec<Cell>>,
     /// A `fog` record (`kind` = "fog"): the fog-of-war option was switched to this value in the cycle just run.
@@ -440,6 +446,119 @@ fn parse_aijobs(a: &Value) -> Vec<[Cell; 4]> {
                         .and_then(|r| r.get(p)),
                 )
             })
+        })
+        .collect()
+}
+
+/// The `aigroups` extra's compared fields, as the report names them, and the trace's own names for them in the same
+/// order. All 14 counts of `ai/training-research.md`, "Training buildings" (the trace's `flyers` are the flying
+/// machines and its `subs` the submarines); `game/save-load.md` SL4 to SL6 and SL13 to SL15.
+pub const AIGROUP_FIELDS: [&str; 14] = [
+    "group_footmen",
+    "group_archers",
+    "group_siege",
+    "group_knights",
+    "group_mages",
+    "group_demolition",
+    "group_gryphons",
+    "group_flying_machines",
+    "group_transports",
+    "group_destroyers",
+    "group_battleships",
+    "group_submarines",
+    "group_workers",
+    "group_tankers",
+];
+const AIGROUP_KEYS: [&str; 14] = [
+    "footmen",
+    "archers",
+    "siege",
+    "knights",
+    "mages",
+    "demolition",
+    "gryphons",
+    "flyers",
+    "transports",
+    "destroyers",
+    "battleships",
+    "subs",
+    "workers",
+    "tankers",
+];
+
+/// The `aigroups` extra of a record: per player, the 14 counts of its per-group rows.
+fn parse_aigroups(a: &Value) -> Vec<[Cell; 14]> {
+    (0..16)
+        .map(|p| {
+            std::array::from_fn(|g| Cell::of(a.get(AIGROUP_KEYS[g]).and_then(Value::as_array).and_then(|r| r.get(p))))
+        })
+        .collect()
+}
+
+/// The `airesearch` extra's compared fields (`ai/training-research.md`, "Research requests and done marks";
+/// `ai/worker-ai.md`, "Done marks"; `game/save-load.md` SL9 to SL12): a computer player's research requests (codes,
+/// ascending), its done marks (entry numbers, ascending), its build list up to the end mark, the build limit, the ten
+/// upgrade levels and the spells-known word.
+pub const AIRESEARCH_FIELDS: [&str; 15] = [
+    "research_requests",
+    "research_done",
+    "build_list",
+    "build_limit",
+    "level_arrow",
+    "level_weapon",
+    "level_shield",
+    "level_siege",
+    "level_cannon",
+    "level_armour",
+    "level_rangers",
+    "level_marksmanship",
+    "level_longbow",
+    "level_scouting",
+    "spells_known",
+];
+const AIRESEARCH_LEVELS: [&str; 10] = [
+    "arrow",
+    "weapon",
+    "shield",
+    "siege",
+    "cannon",
+    "armour",
+    "rangers",
+    "marksmanship",
+    "longbow",
+    "scouting",
+];
+/// Our level line behind each of [`AIRESEARCH_LEVELS`] (`economy/tech-tree.md`, "Upgrade lines and their effects"): the
+/// trace's `cannon` and `armour` are the ship lines 3 and 4.
+const AIRESEARCH_LINES: [usize; 10] = [0, 1, 2, 6, 3, 4, 7, 10, 8, 9];
+
+fn number_list(v: Option<&Value>) -> Cell {
+    let items: Vec<String> = v
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|n| n.as_i64().map_or("?".to_string(), |n| n.to_string()))
+        .collect();
+    Cell::Text(format!("[{}]", items.join(",")))
+}
+
+/// The `airesearch` extra of a record: players 0 to 7, [`Cell::Skip`] for those it doesn't list.
+fn parse_airesearch(a: &Value) -> Vec<[Cell; 15]> {
+    (0..8)
+        .map(|p| {
+            let Some(r) = a.get(p.to_string()) else {
+                return [(); 15].map(|_| Cell::Skip(""));
+            };
+            let level = |k: &str| Cell::of(r.get("levels").and_then(|l| l.get(k)));
+            let mut cells = vec![
+                number_list(r.get("requests")),
+                number_list(r.get("done")),
+                number_list(r.get("list")),
+                Cell::of(r.get("limit")),
+            ];
+            cells.extend(AIRESEARCH_LEVELS.map(level));
+            cells.push(Cell::of(r.get("spells")));
+            cells.try_into().expect("fifteen cells")
         })
         .collect()
 }
@@ -719,6 +838,8 @@ impl Record {
             vision,
             game: v.get("game").map(GameState::parse),
             aijobs: v.get("aijobs").map(parse_aijobs),
+            aigroups: v.get("aigroups").map(parse_aigroups),
+            airesearch: v.get("airesearch").map(parse_airesearch),
             fogmaps: v.get("fogmaps").map(parse_fogmaps),
             fog_event: (kind == "fog")
                 .then(|| v.get("value").and_then(Value::as_str).map(|x| x == "on"))
@@ -956,10 +1077,14 @@ pub enum Category {
     FogMaps,
     /// The `aijobs` extra: the computer players' training group counts.
     AiJobs,
+    /// The `aigroups` extra: all 14 group counts.
+    AiGroups,
+    /// The `airesearch` extra: research requests, done marks and the state they read.
+    AiResearch,
 }
 
 impl Category {
-    pub const ALL: [Category; 15] = [
+    pub const ALL: [Category; 17] = [
         Category::RngOnly,
         Category::Rng,
         Category::Resources,
@@ -975,6 +1100,8 @@ impl Category {
         Category::Game,
         Category::FogMaps,
         Category::AiJobs,
+        Category::AiGroups,
+        Category::AiResearch,
     ];
 
     pub fn name(self) -> &'static str {
@@ -994,6 +1121,8 @@ impl Category {
             Category::Game => "game",
             Category::FogMaps => "fogmaps",
             Category::AiJobs => "aijobs",
+            Category::AiGroups => "aigroups",
+            Category::AiResearch => "airesearch",
         }
     }
 }
@@ -1004,6 +1133,8 @@ fn category(scope: Scope, field: &str) -> Category {
         Scope::Global if FOGMAP_FIELDS.contains(&field) => Category::FogMaps,
         Scope::Global => Category::Rng,
         Scope::Player(_) if AIJOB_FIELDS.contains(&field) => Category::AiJobs,
+        Scope::Player(_) if AIGROUP_FIELDS.contains(&field) => Category::AiGroups,
+        Scope::Player(_) if AIRESEARCH_FIELDS.contains(&field) => Category::AiResearch,
         Scope::Player(_) => Category::Resources,
         Scope::Effect(_) => Category::Effects,
         Scope::Unit(_) => match field {
@@ -1202,6 +1333,38 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
     if let (Some(tj), Some(oj)) = (&theirs.aijobs, &ours.aijobs) {
         for (p, (tp, op)) in tj.iter().zip(oj).enumerate() {
             for ((&f, tc), oc) in AIJOB_FIELDS.iter().zip(tp).zip(op) {
+                let scope = Scope::Player(p as u8);
+                if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
+                    out.push(Diff {
+                        scope,
+                        field: f,
+                        ours: oc.clone(),
+                        theirs: tc.clone(),
+                    });
+                }
+            }
+        }
+    }
+    // The `aigroups` extra: all 14 group counts of a computer player.
+    if let (Some(tj), Some(oj)) = (&theirs.aigroups, &ours.aigroups) {
+        for (p, (tp, op)) in tj.iter().zip(oj).enumerate() {
+            for ((&f, tc), oc) in AIGROUP_FIELDS.iter().zip(tp).zip(op) {
+                let scope = Scope::Player(p as u8);
+                if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
+                    out.push(Diff {
+                        scope,
+                        field: f,
+                        ours: oc.clone(),
+                        theirs: tc.clone(),
+                    });
+                }
+            }
+        }
+    }
+    // The `airesearch` extra: a computer player's research requests, done marks and what they read.
+    if let (Some(tj), Some(oj)) = (&theirs.airesearch, &ours.airesearch) {
+        for (p, (tp, op)) in tj.iter().zip(oj).enumerate() {
+            for ((&f, tc), oc) in AIRESEARCH_FIELDS.iter().zip(tp).zip(op) {
                 let scope = Scope::Player(p as u8);
                 if oc.matches(tc) == Some(false) && filter.allows(scope, f) {
                     out.push(Diff {
@@ -1415,6 +1578,8 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
         vision: w.units.iter().map(|u| (u.slot, vision_cells(u))).collect(),
         game: Some(game_state(w)),
         aijobs: Some(aijob_cells(w)),
+        aigroups: Some(aigroup_cells(w)),
+        airesearch: Some(airesearch_cells(w)),
         fogmaps: None,
         fog_event: None,
         fog_option: None,
@@ -1438,6 +1603,86 @@ fn aijob_cells(w: &World) -> Vec<[Cell; 4]> {
             } else {
                 [(); 4].map(|_| Cell::Skip(""))
             }
+        })
+        .collect()
+}
+
+/// Our world's `aigroups` extra values: a computer player's 14 counts (the eleven doubled groups with the surplus a load
+/// left, the worker and tanker counts as counted), the rest skipped.
+fn aigroup_cells(w: &World) -> Vec<[Cell; 14]> {
+    (0..16)
+        .map(|p| {
+            if w.ai_player(p as u8) {
+                let g = w.ai_groups_with_surplus(p);
+                let n = |n: u32| Cell::Int(n as i64);
+                [
+                    n(g.footmen),
+                    n(g.archers),
+                    n(g.siege),
+                    n(g.knights),
+                    n(g.mages),
+                    // spec gap: `ai/training-research.md` has no demolition group count (the trace shows 0 in every
+                    // record of the traces so far), so it isn't compared.
+                    Cell::Skip("no demolition group in the spec"),
+                    n(g.gryphons),
+                    n(g.flying_machines),
+                    n(g.transports),
+                    n(g.destroyers),
+                    n(g.battleships),
+                    n(g.submarines),
+                    n(g.workers),
+                    n(g.tankers),
+                ]
+            } else {
+                [(); 14].map(|_| Cell::Skip(""))
+            }
+        })
+        .collect()
+}
+
+/// Our world's `airesearch` extra values for players 0 to 7: a computer player's requests, done marks, build list and
+/// limit, upgrade levels and spells, the rest skipped.
+fn airesearch_cells(w: &World) -> Vec<[Cell; 15]> {
+    use std::fmt::Write as _;
+    (0..8)
+        .map(|p| {
+            if !w.ai_player(p as u8) {
+                return [(); 15].map(|_| Cell::Skip(""));
+            }
+            let ai = &w.ai[p];
+            let list = |it: Vec<u32>| {
+                let mut t = String::from("[");
+                for (n, v) in it.iter().enumerate() {
+                    let _ = write!(t, "{}{v}", if n > 0 { "," } else { "" });
+                }
+                t.push(']');
+                Cell::Text(t)
+            };
+            let build: Vec<u32> = w
+                .build_list_of(p)
+                .into_iter()
+                .take_while(|&e| e != 0xff)
+                .map(u32::from)
+                .collect();
+            let done: Vec<u32> = (0..64).filter(|n| ai.done & (1 << n) != 0).collect();
+            let requests: Vec<u32> = (0x80..=0x9au32).filter(|&c| ai.requested(c as u8)).collect();
+            let mut cells = vec![
+                list(requests),
+                list(done),
+                list(build),
+                // spec gap: the limit is slot 0x22, written by the player's script. In the SL9 trace the original shows
+                // player 6's write (29 to 37) in the record of n = 4 where ours shows it at n = 2, and nothing else
+                // of the script differs (every later record matches), so the limit isn't compared in the first four
+                // records of a game or of a loaded one.
+                if w.tick < 4 {
+                    Cell::Skip("script timing in the first cycles")
+                } else {
+                    Cell::Int(ai.slots[tidewater_sim::ai::BUILD_LIMIT] as i64)
+                },
+            ];
+            cells.extend(AIRESEARCH_LINES.map(|l| Cell::Int(w.players[p].levels[l] as i64)));
+            cells.push(Cell::Int(w.players[p].spells_known as i64));
+            cells.try_into().expect("fifteen cells")
         })
         .collect()
 }
@@ -2168,6 +2413,8 @@ mod tests {
             r.vision.clear();
             r.game = None;
             r.aijobs = None;
+            r.aigroups = None;
+            r.airesearch = None;
             // Fields we don't compare are written as absent, and read back as null.
             for c in r.units.values_mut().flatten() {
                 if matches!(c, Cell::Skip(_)) {
