@@ -219,8 +219,13 @@
 //! sea; `oracle/test-maps.md`), mp-r100-tests-mp-r101-site-repair-two-fixed-goals-1000 a repair on a construction
 //! site (RP10 to RP12), human1-human01-r101-hold-workers-goals-700 the Hold workers and Release workers commands
 //! (HW1 to HW6), and mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100 a transport's goal x and y in every record
-//! (V43 to V45) except n = 326 to 329 (TG4, an open question: the turn record 326 and the cycles after it show the
-//! target tile (40, 52) until the push-off at n = 330; `-transport-goal@326-329`).
+//! (V43 to V46) with no exception since round 102: a command's target tile is pulled back from the area of the
+//! transport's own tile (V46 to V48, TG4 closed).
+//!
+//! Round 102: mp-r100-tests-mp-r102-transport-one-fixed-goals-1100 (the same moves with one passenger, V47, V48),
+//! mp-r100-tests-mp-r102-hold-workers-fixed-goals-700 (a refused command, a right-click and a build with the workers
+//! held: HW7a to HW7c) and mp-r102-flyers-fixed-60 (the generated map `R102-flyers.pud`: creation moves no ship or
+//! flyer to an even tile, FL1).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -565,7 +570,11 @@ traces! {
     mp_dark_paths_bne_mp_r96_allowsync_desync_rng_game_400: (mp, "mp-dark-paths-bne-mp-r96-allowsync-desync-rng-game-400.jsonl.gz", &[], Some(150)),
     mp_r100_tests_mp_r100_tests_fixed_goals_3000: (mp, "mp-r100-tests-mp-r100-tests-fixed-goals-3000.jsonl.gz", &[], None),
     mp_r100_tests_mp_r101_site_repair_two_fixed_goals_1000: (mp, "mp-r100-tests-mp-r101-site-repair-two-fixed-goals-1000.jsonl.gz", &[], None),
-    mp_r100_tests_mp_r101_transport_goals_fixed_goals_1100: (mp, "mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100.jsonl.gz", &["--fields=-transport-goal@326-329"], None),
+    mp_r100_tests_mp_r101_transport_goals_fixed_goals_1100: (mp, "mp-r100-tests-mp-r101-transport-goals-fixed-goals-1100.jsonl.gz", &[], None),
+    mp_r100_tests_mp_r102_transport_one_fixed_goals_1100: (mp, "mp-r100-tests-mp-r102-transport-one-fixed-goals-1100.jsonl.gz", &[], None),
+    mp_r100_tests_mp_r102_hold_workers_fixed_goals_700: (mp, "mp-r100-tests-mp-r102-hold-workers-fixed-goals-700.jsonl.gz", &[], None),
+    // The three ships differ by design (even-tile placement, `core/unit-slots.md` OS1) and so does the random counter.
+    mp_r102_flyers_fixed_60: (mp, "mp-r102-flyers-fixed-60.jsonl.gz", &["--fields=-rng,-slot@1593,-slot@1594,-slot@1595"], None),
     human1_human01_r101_hold_workers_goals_700: ("human1-human01-r101-hold-workers-goals-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
 }
 

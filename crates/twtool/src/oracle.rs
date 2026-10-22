@@ -1254,10 +1254,8 @@ fn category(scope: Scope, field: &str) -> Category {
 pub struct Filter {
     include: Option<Vec<String>>,
     exclude: Vec<String>,
-    /// `-transport-goal@N` or `-transport-goal@A-B`: the transports' goal x and y are not compared in the records
-    /// with `n` = N (or A to B): the span in which a transport's target tile is one the specs leave open (TG4 of the
-    /// round-101 transports spec).
-    skip_transport_goal: Vec<std::ops::RangeInclusive<u64>>,
+    /// Unit slots left out entirely (`-slot@1593`), for units that differ by design.
+    skip_slots: Vec<u16>,
 }
 
 impl Filter {
@@ -1269,14 +1267,10 @@ impl Filter {
             .filter(|t| !t.is_empty())
         {
             match t.strip_prefix('-') {
-                Some(t) if t.starts_with("transport-goal@") => {
-                    let span = &t["transport-goal@".len()..];
-                    let (a, b) = span.split_once('-').unwrap_or((span, span));
-                    if let (Ok(a), Ok(b)) = (a.parse(), b.parse()) {
-                        f.skip_transport_goal.push(a..=b);
-                    }
-                }
-                Some(t) => f.exclude.push(t.to_string()),
+                Some(t) => match t.strip_prefix("slot@").map(str::parse) {
+                    Some(Ok(slot)) => f.skip_slots.push(slot),
+                    _ => f.exclude.push(t.to_string()),
+                },
                 None => f.include.get_or_insert_with(Vec::new).push(t),
             }
         }
@@ -1295,6 +1289,9 @@ impl Filter {
     }
 
     fn allows(&self, scope: Scope, field: &str) -> bool {
+        if matches!(scope, Scope::Unit(s) if self.skip_slots.contains(&s)) {
+            return false;
+        }
         self.include
             .as_ref()
             .is_none_or(|i| i.iter().any(|t| Self::names(scope, field, t)))
@@ -1380,9 +1377,8 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
     }
     // The `goals` extra (trace format, `goal` row, rounds 97, 98 and 101): a building's x is its construction pass and
     // repair counter; a transport's x and y are its stored goal, the target tile that repair also changes, compared in
-    // every record (V43 to V45) except the ones the filter names (`-transport-goal@N`). Every other `goal` value is
-    // read, not compared (no spec defines it).
-    let skip_transport = filter.skip_transport_goal.iter().any(|r| r.contains(&theirs.n));
+    // every record with no exception (V43 to V49: the tile a command stores is already pulled back). Every other `goal`
+    // value is read, not compared (no spec defines it).
     for (&slot, tg) in &theirs.goals {
         let (Some(t), Some(o)) = (tg.goal, ours.goals.get(&slot).and_then(|g| g.goal)) else {
             continue;
@@ -1392,9 +1388,6 @@ pub fn compare(theirs: &Record, ours: &Record, filter: &Filter, skipped: &mut BT
             continue;
         }
         let transport = matches!(unit.get(UNIT_TYPE), Some(Cell::Int(k)) if is_transport_type(*k as u8));
-        if transport && skip_transport {
-            continue;
-        }
         if transport && t[1] != o[1] && filter.allows(Scope::Unit(slot), "goal_y") {
             out.push(Diff {
                 scope: Scope::Unit(slot),

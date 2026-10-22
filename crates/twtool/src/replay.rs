@@ -104,6 +104,9 @@ pub enum Kind {
     HoldWorkers,
     /// Release workers: the sender's selected held workers are released (round 101).
     ReleaseWorkers,
+    /// A right-click on the map for the synced selection (round 102, `ui/selecting-and-commanding.md`, "What a
+    /// right-click command does"): `target` is a unit slot or none. It doesn't release held workers.
+    RightClick { tile: (i32, i32), target: Option<u16> },
     /// A header `input` entry that saves the game under `name` (`game/save-load.md`). It is a menu action, not a
     /// command: no `turn` record lists it, and the trace's `save` record shows where it ran.
     Save { name: String },
@@ -191,6 +194,10 @@ impl Entry {
             "cancel-job" => Kind::CancelJob,
             "hold-workers" => Kind::HoldWorkers,
             "release-workers" => Kind::ReleaseWorkers,
+            "right-click" => Kind::RightClick {
+                tile: tile(v.get("tile"))?.context("missing `tile`")?,
+                target: v.get("target").and_then(Value::as_u64).map(|s| s as u16),
+            },
             "save" => Kind::Save {
                 name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
             },
@@ -266,6 +273,11 @@ impl Entry {
             }
             Kind::ReleaseWorkers => {
                 o.insert("kind".into(), "release-workers".into());
+            }
+            Kind::RightClick { tile, target } => {
+                o.insert("kind".into(), "right-click".into());
+                o.insert("tile".into(), pair(*tile));
+                o.insert("target".into(), target.map_or(Value::Null, Value::from));
             }
             Kind::Save { name } => {
                 o.insert("kind".into(), "save".into());
@@ -345,6 +357,13 @@ impl fmt::Display for Entry {
             Kind::CancelJob => f.write_str("cancel-job"),
             Kind::HoldWorkers => f.write_str("hold-workers"),
             Kind::ReleaseWorkers => f.write_str("release-workers"),
+            Kind::RightClick { tile, target } => {
+                write!(f, "right-click at ({}, {})", tile.0, tile.1)?;
+                match target {
+                    Some(t) => write!(f, " on {t}"),
+                    None => Ok(()),
+                }
+            }
             Kind::Save { name } => write!(f, "save {name}"),
             Kind::Load { name } => write!(f, "load {name}"),
             Kind::Say { word } => write!(f, "say {word}"),
@@ -446,6 +465,11 @@ pub fn sim_command(w: &World, e: &Entry) -> Option<Command> {
         Kind::CancelJob => Command::CancelJob { player, unit: first()? },
         Kind::HoldWorkers => Command::HoldWorkers { player },
         Kind::ReleaseWorkers => Command::ReleaseWorkers { player },
+        &Kind::RightClick { tile, target } => Command::RightClick {
+            player,
+            target: target.and_then(live).map(|u| u.id),
+            tile,
+        },
         Kind::CheatAdd { .. }
         | Kind::Save { .. }
         | Kind::Load { .. }
@@ -848,6 +872,8 @@ mod tests {
             r#"{"player":1,"kind":"cancel-job"}"#,
             r#"{"player":1,"kind":"hold-workers"}"#,
             r#"{"player":1,"kind":"release-workers"}"#,
+            r#"{"player":1,"kind":"right-click","tile":[4,6],"target":null}"#,
+            r#"{"player":1,"kind":"right-click","tile":[4,6],"target":9}"#,
         ];
         for l in lines {
             let e = Entry::parse(&serde_json::from_str(l).unwrap()).unwrap();

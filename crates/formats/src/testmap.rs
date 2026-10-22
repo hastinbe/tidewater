@@ -100,6 +100,33 @@ const R100_TESTS: Spec = Spec {
     sea: 12,
 };
 
+/// `R102-flyers.pud` (round 102; the oracle harness's map description, `oracle/maps/R102-flyers.json`): the sea of
+/// `R100-tests.pud` with flying units and ships placed on odd columns and rows, to show that creation moves none of
+/// them (`core/unit-slots.md`, FL1). Nothing happens on it: the trace is the setup record and 60 cycles.
+const R102_FLYERS: Spec = Spec {
+    size: 64,
+    id_tag: 0x7201,
+    description: "tidewater r102 flyers",
+    players: &[(0, 10_000, 10_000, 1_000, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (10, 10, HUMAN_START, 0, 0),
+        (55, 10, ORC_START, 1, 0),
+        // Gryphon rider, flying machine, dragon and zeppelin.
+        (31, 7, 0x2A, 0, 0),
+        (33, 9, 0x28, 0, 0),
+        (37, 13, 0x2B, 1, 0),
+        (39, 15, 0x29, 1, 0),
+        // Destroyer, transport and the orc destroyer.
+        (21, 55, 0x1E, 0, 0),
+        (41, 57, 0x1C, 0, 0),
+        (27, 59, 0x1F, 1, 0),
+        // A second gryphon rider and a footman.
+        (30, 21, 0x2A, 0, 0),
+        (15, 30, 0x00, 0, 0),
+    ],
+    sea: 12,
+};
+
 /// Whether a trace header's map name is a generated test map's: `R<round>-<name>.pud`, a capital R, the round
 /// number, a hyphen, a name.
 pub fn is_generated_name(name: &str) -> bool {
@@ -115,6 +142,7 @@ pub fn generated(name: &str) -> Option<Vec<u8>> {
     match name {
         "R99-tests.pud" => Some(build(&R99_TESTS)),
         "R100-tests.pud" => Some(build(&R100_TESTS)),
+        "R102-flyers.pud" => Some(build(&R102_FLYERS)),
         _ => None,
     }
 }
@@ -237,6 +265,17 @@ mod tests {
         assert_eq!(
             sha256(&b),
             "009f7bed418ffde11d22aa8d2ad1835ad94b3776aee2f7dd47b85a8bd995eda8"
+        );
+    }
+
+    /// `R102-flyers.pud` (round 102): 35 974 bytes with this SHA-256, the file the oracle harness wrote.
+    #[test]
+    fn r102_flyers_matches_the_harness_hash() {
+        let b = generated("R102-flyers.pud").expect("known map");
+        assert_eq!(b.len(), 35_974);
+        assert_eq!(
+            sha256(&b),
+            "9253e1a905ccda488791723269ea1a766cd549d71acd1300ee7e11559a1faf61"
         );
     }
 
