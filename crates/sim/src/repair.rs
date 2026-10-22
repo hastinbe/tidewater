@@ -38,10 +38,11 @@ impl World {
         Some(if repairable {
             Order::Repair { target }
         } else {
+            // Round 97 (RP7): the unit stays the move's target, as for a smart move that falls through to the move.
             let _ = i;
             Order::Move {
                 goal: t.tile,
-                target: None,
+                target: Some(target),
             }
         })
     }
@@ -329,6 +330,32 @@ mod tests {
         for _ in 0..10 {
             w.step(&[]);
         }
-        assert!(matches!(w.unit(a).unwrap().order, Order::Move { .. }));
+        assert_eq!(
+            w.unit(a).unwrap().order,
+            Order::Move {
+                goal: w.unit(footman).unwrap().tile,
+                target: Some(footman)
+            }
+        );
+    }
+
+    /// Repair spec vectors (round 97, RP7): command 27 on an enemy footman gives order 3 with the footman as target.
+    #[test]
+    fn repair_on_an_enemy_unit_is_a_move_keeping_it_as_target() {
+        let (mut w, a, _) = site();
+        let enemy = w.spawn(1, 1, (8, 8), 0).unwrap();
+        let ai = w.index(a).unwrap();
+        let c = Command::Repair {
+            player: 0,
+            units: vec![a],
+            target: enemy,
+        };
+        assert_eq!(
+            w.command_order(ai, &c),
+            Some(Order::Move {
+                goal: (8, 8),
+                target: Some(enemy)
+            })
+        );
     }
 }
