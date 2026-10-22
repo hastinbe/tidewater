@@ -13,6 +13,9 @@
   mobile unit), so a building completed by construction pays on every run (traced, RP1); a repair that stops for lack
   of resources or a lost target ends with the same pending idle as at full hit points (static study); repair on a
   unit that can't be repaired keeps it as the move's target (static study). Open question on the shared value closed.
+  2026-10-22, round 98 (`ERRATA-round98-traces.md`, reviewed by a spec-review session, 2026-10-22): the transport
+  row is traced (RP8: 20 repair runs, each paid, the goal x 110 to 90); a docked transport isn't moved by the changed
+  goal. Open question "Repairing a transport" closed.
 
 ## Behaviour
 
@@ -84,7 +87,7 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
   | Building completed by construction, build-speed cheat off | 12 × (T + 2), T = the type's build time: 1,224 for a farm (T = 100), 744 for a scout tower (T = 60), 2,424 for a barracks (T = 200) |
   | Building completed while the build-speed cheat was on | P's last value, which needn't be a multiple of 12 (static study) |
   | Building upgraded after it was completed (scout tower to guard tower, hall to keep or castle) | Unchanged by the upgrade: the value the building had before it. Jobs (training, research) don't change it either |
-  | Transport | The x of its stored goal tile (static study) |
+  | Transport | The x of its stored goal tile (traced, round 98: RP8) |
 
   A building completed by construction shows 12 × (T + 2) whether or not it was damaged while being built
   (`economy/build-train.md`, "Construction": it completes 12 passes after P reaches the total 12 × (T + 1)).
@@ -101,8 +104,13 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
   **1 gold and 1 lumber per 8 hit points**, the counter going 1, 0, 1, 0. The last run before full health can add
   fewer than 4 hit points and still pays if the counter says so.
 - **A transport's stored goal changes** as it is repaired: each run adds 1 to the goal's x and each paid run takes 2
-  off. A transport's stored goal is usually its last command's destination, so its x is usually 2 or more and repair
-  usually pays on every run (static study; open question "Repairing a transport").
+  off, so while the x is 2 or more every run pays and the x falls by 1. The goal's y doesn't change, and neither does
+  the transport's destination (`orders/transports.md`, "What the transport stores"). A transport's stored goal is
+  usually its last command's destination, so its x is usually 2 or more and repair usually pays on every run (traced,
+  round 98: RP8, 20 runs, all paid).
+- **The changed goal doesn't move a docked transport** (order 32): in RP8 the transport stays where it is, in order 32,
+  for the 1,335 cycles after the repair (traced). The next command that sends it somewhere sets a new goal (static
+  study), so nothing reads the changed x.
 - The counter is part of the unit's stored state, so a saved and loaded game keeps it (static study; the map-placed
   case's counter is traced across a load in round 96, `xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000`).
 - One worker repairs **4 hit points per 25 cycles**. Several workers add up: each runs its own logic.
@@ -115,7 +123,7 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
 | Item | Value |
 | --- | --- |
 | Hit points per run | 4 |
-| Runs per payment | By the target's repair counter: 1 for a building completed by construction, 2 for one placed by the map |
+| Runs per payment | By the target's repair counter: 1 for a building completed by construction, 2 for one placed by the map, 1 for a transport whose goal x is 2 or more |
 | Payment | 1 gold, 1 lumber |
 | Run interval (worker attack loop) | 25 cycles; haste 10; slow 49 |
 | Arrival radius | 1 tile |
@@ -145,6 +153,7 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
 | **RP5** A farm completed while the build-speed cheat was on, P's last value 1,213 (static study) | Pays on every run until the counter is below 2 |
 | **RP6** A worker repairing a damaged building when its player's lumber reaches 0 (any gold) (static study) | At its next run: the lumber message (local player) and the pending idle of step 4 (order 2, still animation, wait 3 with nothing to resume); a remembered patrol or attack-move is resumed (Enhanced) |
 | **RP7** A peasant given repair on an own footman that is walking away (static study) | Order 3 with the footman as its target; each walk heads for the footman's tile at that moment (`movement/pathfinding.md`, "Step 1"); it ends as any order 3 with a target unit |
+| **RP8** (traced: `xhuman6-xhuman06-r98-transport-repair-goals-2500`, Enhanced; scenario `oracle/scenarios/xhuman06-r98-transport-repair.txt`): destroyer 1564 attacks own transport 1572 from n = 5 to 300 (150 to 71 HP); the transport is moved to coast tile (110, 8), next to land at (110, 7), and is docked (order 32) from n = 399 with goal (110, 8); peasant 1594 is told to repair it at n = 600. Player 1 has 5,000 gold and 2,800 lumber | Order 27 from n = 607; the peasant reaches (111, 7) at n = 674. Runs at n = 690, 715, …, 1165 (20 runs, every 25 cycles): each adds 4 HP (the last, 147 to 150, adds 3), lowers the goal x by 1 and pays 1 gold and 1 lumber. At n = 1165: 150 HP, goal (90, 8), 4,980 gold, 2,780 lumber; `transport_dest` stays (110, 8) throughout. n = 1190: the peasant is idle (order 2). The transport stays at (110, 8) in order 32 to n = 2500 |
 
 ## Open questions
 
@@ -152,9 +161,9 @@ haste, 49 with slow; `core/animation-scripts.md`). Each run, first match wins:
   rule above follows the flag, whatever the type.
 - Whether the player's interface offers repair on a building still under construction. The order's logic itself
   doesn't refuse it.
-- **Repairing a transport** (round 97). That the counter is the transport's stored goal x is static study; no trace
-  has a repaired transport. Whether the changed goal matters to the transport afterwards (a later blocked or resumed
-  move, for example) wasn't studied. Default: the counter is the stored goal x; nothing else reads the change.
+- **Repairing a transport** (round 97): **closed in round 98.** The counter is the transport's stored goal x (traced,
+  RP8), and a docked transport isn't moved by the change (traced). That the next command overwrites the goal is
+  static study.
 - **The build-speed cheat's last value** (round 97). RP5 is static study: with the cheat on, P goes up by 12 per pass
   from whatever it was, so its last value can be any number. Default as stated.
 - Whether the maximum hit points used here include armour or health upgrades.

@@ -51,6 +51,10 @@
 - **Changes:** 2026-10-22, round 97 (`ERRATA-audit2-economy.md`; reviewed by a spec-review session, 2026-10-22),
   still version 2: the `goal` row defines a building's x (its construction pass and repair counter), so a comparer may
   check it.
+- **Changes:** 2026-10-22, round 98 (`ERRATA-round98-traces.md`, `ERRATA-audit2-ai.md`; reviewed by a spec-review
+  session, 2026-10-22), still version 2: the research extras' fields are described ("Research extras"), the `game`
+  extra's result codes included; a comparer still ignores them. The `goal` row adds a repaired transport's x (traced,
+  `economy/repair.md` RP8). A town hall started by a computer worker's no-depot step carries job bit 16, not 8.
 
 ## Behaviour
 
@@ -158,7 +162,7 @@ unless Classic was explicitly requested on the multiplayer path, exactly as a de
 | `hits` | Only when `extras` has `"hits"`: the calls of the damage step made by this record's work, one entry per call in the order they happened ("Hit entries"). Absent when there was no call. The `setup` record never has it |
 | `load` | A loaded game's `setup` record only: the save's name, as in the `load` input entry ("Saves, loads, cheat words and fog") |
 | `aiworkers` | Only when `extras` has `"aiworkers"`, on every `setup`, `startup`, `cycle`, `turn` and `save` record: the computer workers' job counts ("Computer worker jobs") |
-| Research fields | Only when `extras` names them: `aigoals`, `aigroups`, `aijobs`, `airesearch`, `fogmaps`, `game`, `vision`, on any record. Not described here; a comparer ignores them |
+| Research fields | Only when `extras` names them: `aigoals`, `aigroups`, `aijobs`, `airesearch`, `fogmaps`, `game`, `vision`, on any record. Described in "Research extras"; a comparer ignores them |
 
 ### Unit fields
 
@@ -180,7 +184,7 @@ unless Classic was explicitly requested on the multiplayer path, exactly as a de
 | `target` | Slot of the unit's target unit, or `null`. When the target's slot is released, a live unit's target is cleared; a dead unit (dying, remains or in its remove order, `core/corpses.md`) keeps reporting the released slot number. This is reporting only: the slot means nothing for that unit. After a load every dead body (type 0x69) reports `null`, whatever it had at the save; every other unit, dying ones included, keeps its target (`game/save-load.md`, SL28 to SL30). A death knight casting death coil has each victim in turn as its target, as each missile is launched, and keeps the last until the idle takes over (`spells/spells.md`, "Death coil victims") |
 | `trips` | Only for types 0x56 and 0x57 (oil platforms), 0x5C (gold mine) and 0x5D (oil patch): trips left (`economy/harvest.md`) |
 | `timers` | Only when one is running: any of `invisibility`, `unholy_armour`, `bloodlust` (cycles left) and `haste` (cycles; positive = haste, negative = slow) |
-| `goal` | Only when `extras` has `"goals"`, then on every unit: `[x, y]`, the unit's **stored goal**, in tiles like `tx`, `ty`: the tile its movement aims for (`movement/movement.md`, the stored goal of the blocked rules), set when it is sent somewhere and kept afterwards. The values are as stored, each 0 to 65535: a unit that isn't moving, and every building, holds whatever was left there (for example `[0, 65535]`, off the map). Compare it only where a spec defines it. One spec does: a **building's x** is its construction pass counter and repair counter (`economy/build-train.md`, "The construction pass"; `economy/repair.md`, "Cost and rate"): counting up from 1 while it is built, 12 × (T + 2) after completion, 0 for one placed by the map; its y has no defined value (round 97) |
+| `goal` | Only when `extras` has `"goals"`, then on every unit: `[x, y]`, the unit's **stored goal**, in tiles like `tx`, `ty`: the tile its movement aims for (`movement/movement.md`, the stored goal of the blocked rules), set when it is sent somewhere and kept afterwards. The values are as stored, each 0 to 65535: a unit that isn't moving, and every building, holds whatever was left there (for example `[0, 65535]`, off the map). Compare it only where a spec defines it. One spec does: a **building's x** is its construction pass counter and repair counter (`economy/build-train.md`, "The construction pass"; `economy/repair.md`, "Cost and rate"): counting up from 1 while it is built, 12 × (T + 2) after completion, 0 for one placed by the map; its y has no defined value (round 97). A **transport's** goal is changed by repair: each run adds 1 to its x and each paid run takes 2 off, the y unchanged (`economy/repair.md`, "Cost and rate"; traced, RP8), so for a transport sent somewhere and then repaired a comparer may check it (round 98) |
 | `pending` | Only when `extras` has `"goals"`, then on every unit: the unit's pending order number (`orders/orders.md`, "Pending orders and immediate orders"; numbers as in `order`), or `null` when it has none |
 | `transport_dest` | Only when `extras` has `"goals"`, and only on transports (types 0x1C and 0x1D), always on those: `[x, y]`, the transport's **destination** tile (`orders/transports.md`, "What the transport stores"). As stored, like `goal`: a transport that has had no command holds leftovers |
 
@@ -433,8 +437,9 @@ near it (`game/save-load.md`, SL22 to SL25, SL31, SL32).
 | `building` | An object with one entry for each building type a player has in progress with a nonzero count: key `"P:0xTT"`, the player number in decimal and the type as two lower-case hex digits (for example `"6:0x40"`), value 1 to 65535. A missing key means 0 |
 | `jobs` | An object with one entry per unit of players 0 to 7 that has a job: key the unit's slot as a decimal string, value `[job, mode]` |
 
-`job` is the sum of the unit's job bits: 1 mining gold, 2 cutting lumber, 8 building a farm or town hall the
-worker's own steps started (`ai/worker-ai.md`, "Farm"), 16 building a build-list entry ("Build list"), 32 repairing.
+`job` is the sum of the unit's job bits: 1 mining gold, 2 cutting lumber, 8 building a farm (`ai/worker-ai.md`,
+"Farm"), 16 building a build-list entry ("Build list") or a town hall started by the no-depot step ("Worker: the
+steps, in order", step 5; static study, round 98: no trace has that job yet), 32 repairing.
 `mode` is the worker's harvest mode: 128 gold, 64 lumber, 0 neither yet. Values the game keeps next to these that no
 spec defines are left out.
 
@@ -449,7 +454,92 @@ them, it compares `hits` only where a spec defines the calls (`combat/damage.md`
 nothing). It compares `aiworkers` as 16-bit numbers, wrapped values included: the counts, `hall_cooldown` and
 `building` exactly, and `jobs` only for slots that are in the same record's `units` (a released slot's leftover
 bits, if one ever showed, would mean nothing; none has been seen). The research fields (`aigoals`, `aigroups`,
-`aijobs`, `airesearch`, `fogmaps`, `game`, `vision`) aren't described by this spec and aren't compared.
+`aijobs`, `airesearch`, `fogmaps`, `game`, `vision`) are described in "Research extras" but aren't compared.
+
+### Research extras
+
+These extras add fields for research. A comparer ignores them; they are described here so a reader can interpret a
+trace. A field becomes comparable only when a spec defines a rule for it and this spec says so, as the `goal` row did
+for buildings. Every value is raw, as the game holds it at the record: counts are 16-bit unsigned (a count lowered
+below 0 reads 65535), tiles are in tile units (a unit that was never given one holds 0 or a leftover value), and
+per-player lists have 16 entries, players 0 to 15, unless a row says otherwise. The values were read by the harness
+and checked against the committed traces named below; where a meaning comes from static study only, the row says so.
+
+**`aigoals`** adds the unit field `ai_goal` to every unit, whatever its owner: `{"kind", "tile", "extra"}`, the
+unit's computer goal (`ai/attack-ai.md`, "Unit goals"). Only the kind and the tile are the goal of that section; its
+land area and marks aren't recorded.
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | The goal kind: 0 none, 1 hold, 2 attack, 3 ferry, 4 roam, 5 base-edge patrol, 6 sea patrol, 7 escort |
+| `tile` | `[x, y]`, the goal tile. A worker's build job writes its site here (`ai/worker-ai.md`, "The goal tile of a build job") |
+| `extra` | A value kept next to the goal. A computer worker's build job writes a building type number here, and setting a goal doesn't change it: the farm job writes the farm's own type (59, the pig farm, for an orc), a build-list job the list entry as the list holds it, which is the **human** building's number for either race (an orc barracks job writes 60, and the site becomes an orc barracks, 61). Traced in `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`, `xhuman9-aigoals-goals-8630-8830` and `xhuman12-xhuman12-picker-flip-aigoals-1700`. The job's release reads it (`ai/worker-ai.md`, step 1). A transport's ferry steps also change it, but no rule reads that (static study). No other meaning is defined |
+
+**`aigroups`** adds the record field `aigroups`: one 16-entry list per count, keyed `footmen`, `archers`, `siege`,
+`knights`, `mages`, `demolition`, `gryphons`, `flyers` (flying machines and zeppelins), `transports`, `destroyers`,
+`battleships`, `subs` (submarines), `workers` and `tankers`: each computer player's training group counts and its
+worker and tanker counts (`ai/training-research.md`, "Training buildings"). The group counts are the ones a load adds
+the loaded units to again (`game/save-load.md`, "What a saved game keeps"). `demolition` (demolition squads and
+sappers) is a group count that `ai/training-research.md` doesn't list and no rule reads.
+
+**`aijobs`** adds the record field `aijobs` (the name is historical: these are training counts, not worker jobs):
+
+| Field | Meaning |
+| --- | --- |
+| `count` | Four 16-entry lists, in this order: the footmen, archers, siege and knights group counts (the same values as `aigroups`). Indexed `count[group][player]` |
+| `wanted` | 16 lists of four values, one list per player: that player's wanted counts of the same four groups, script slots 0x14 to 0x17 (`ai/ai-scripts.md`, "Slots"), each 0 to 255. Indexed `wanted[player][group]` |
+| `have` | Three 16-entry lists, in this order: each player's counts of lumber mills, blacksmiths and stables, which the barracks rules test (`ai/training-research.md`) |
+
+**`airesearch`** adds the record field `airesearch`: an object keyed by player number as a decimal string, with an
+entry only for the players whose controller is computer at that record. Each value:
+
+| Field | Meaning |
+| --- | --- |
+| `requests` | The research codes (0x80 to 0x9A) whose request flag is set, ascending (`ai/training-research.md`, "Research requests and done marks") |
+| `done` | The build-list entry numbers (0 to 63, from 0) marked done, ascending (`ai/worker-ai.md`, "Done marks") |
+| `list` | The build list's entries in order, up to (not including) the first 0xFF, at most 64 (`ai/ai-scripts.md`, "Build list and second list"); empty when the player has no list |
+| `limit` | Script slot 0x22, the build-list limit, 0 to 255 (0xFF when the script starts; `ai/ai-scripts.md`) |
+| `levels` | The player's upgrade levels by line of `economy/tech-tree.md` ("Upgrade lines and their effects"): `arrow` (line 0, missiles), `weapon` (1), `shield` (2), `cannon` (3, ship cannons), `armour` (4, ship armour), `siege` (6), `rangers` (7), `longbow` (8), `scouting` (9) and `marksmanship` (10). Each is a count, 0 to 255; lines 7 to 10 reach only 1 with the default data |
+| `spells` | The player's spells-known word (`economy/tech-tree.md`): bits 0 to 19 the spells, numbered as in `ai/caster-ai.md`; bit 20 the paladin (ogre-mage) upgrade |
+
+**`fogmaps`** adds the record field `fogmaps`: a summary of the three per-tile fog maps of `vision/fog.md`, not the
+maps themselves. Each map has one code or byte per tile of the whole map.
+
+| Field | Meaning |
+| --- | --- |
+| `visible` | Tile counts of the local player's visible map: `clear` (code 0), `fogged` (code 16), `edge` (any other code) |
+| `explored` | Tile counts of the local player's explored map: `explored` (code 0), `unexplored` (code 16), `edge` (any other code) |
+| `seen` | An object keyed by the explored classes above (`explored`, `unexplored`, `edge`); each value counts the tiles of that class per value of the tile's "seen" byte (`vision/fog.md`, "The 'seen' map": bit p set when player p doesn't see the tile), keyed by the byte value as a decimal string, values with no tile left out |
+| `local_units_on_explored` | `[a, b]`: b is the number of the record's `units` owned by the local player whose tile is on the map, a the number of those whose tile's explored code isn't 16 |
+
+**`game`** adds the record field `game`:
+
+| Field | Meaning |
+| --- | --- |
+| `cheat_used` | The cheat-used mark (`game/cheats.md`): 1 once a cheat command from the local player turned a cheat on, else 0 |
+| `fog_countdown` | The fog refresh counter (`core/timing-and-rng.md`, phase 3): a refresh runs in the cycle that finds it at 0, and that cycle ends with it at 99 (Enhanced; 100 in Classic mode, static study). An Enhanced holy vision sets it as that phase says |
+| `victory_countdown` | The victory countdown (`game/victory.md`, "When the check runs"): the check runs in the cycle that finds it at 0, and that cycle ends with it at 200 |
+| `fog_of_war` | The game's fog-of-war option: 1 on, 0 off |
+| `results` | Eight values, players 0 to 7: each player's result (`game/victory.md`; `net/leave-and-drop.md`, "Data"): **0** none, **1** dropped, **2** defeat, **3** victory, **5** game ended. Codes 0, 2 and 3 are traced (below); codes 1 and 5, and that no other value is ever written, are static study |
+| `controllers` | The 16 slots' controllers, written as in the header, read at each record: a player who leaves becomes `"nobody"` (traced: 16 changes, every one from `"human"` to `"nobody"`) |
+
+**Result codes, the evidence.** In the 23 committed multiplayer traces with the `game` extra, every empty or beaten
+slot gets 2 at a victory check and the winner gets 3 at the check that finds it: for example
+`mp-skirmish-bne-mp-skirmish-nobody-fight-game-1300`, player 0 at n = 1208 (`net/leave-and-drop.md`, LV19), and
+`mp-dark-paths-bne-mp-joiner-waits-game-600`, player 1 at n = 203. No committed trace reaches "dropped" or "game
+ended" (Battle.net only, `net/leave-and-drop.md`); those codes match the Battle.net report table there (1 a
+disconnect, 2 a loss, 3 a win, 5 a draw; "Surrender and quit (draw)"). No single-player trace has a nonzero result. A player who leaves gets 2
+(defeat) from the victory check, not a "left" code.
+
+**`vision`** adds two unit fields to every unit, each a set of players 0 to 7 (bit p = player p):
+
+| Field | Meaning |
+| --- | --- |
+| `hidden_from` | The players the unit is hidden from, as phase 5 last left it (`vision/fog.md`, "Unit visibility (phase 5)") |
+| `detected_by` | The players that detect it, as phase 1 last left it (`vision/fog.md`, "Detection (phase 1)"): 255 (everyone) for a unit no rule restricts; the owner's shared-vision set for an invisible unit; the detecting players for a submarine; 0 for a unit created during the cycle, until the next phase 1 |
+
+At the setup record every unit has `hidden_from` 255 and `detected_by` 0 (traced): the sets are first worked out in
+the first start-up cycle.
 
 ### Format versions
 
@@ -590,9 +680,9 @@ These come from the round-96 traces and checks (all Enhanced; `ERRATA-round96-tr
 - **The second human's commands** are described ("The second human"). The delay from a `peer` action to the command
   depends on the second human's own pace (8 to 44 cycles in the traced games), so a comparer checks the order, not
   the delay. Commands of a kind other than `select`, `command` and `other` from the second human haven't been traced.
-- **Research extras (held).** `aigoals`, `aigroups`, `aijobs`, `airesearch`, `fogmaps`, `game` and `vision` aren't
-  described here: their field definitions (the `game` extra's result codes among them) aren't in a reviewed spec yet.
-  A comparer ignores them until a later round describes them in behaviour terms.
+- **Research extras.** Described in "Research extras" (round 98). They stay research fields: a comparer ignores them.
+  A field becomes comparable only when a spec defines a rule for it, as `goal` did for buildings. The `game` extra's
+  results 1 (dropped) and 5 (game ended) are static study: no committed trace reaches them.
 - **Setting up a multiplayer start:** the generator state and the computer slots can now be derived ("Multiplayer
   launch"); the lobby's start-location draw isn't specified yet, so the humans' slots and start locations still
   come from the trace.

@@ -81,6 +81,11 @@
 - **Changes:** 2026-10-22, round 96 (oracle trace, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
   2026-10-22): the repairer count's clearing and wrap and a build-list type's count in progress wrapping are traced
   (`game/save-load.md` SL31, SL32). The repair, farm, build-list and hall tests on a wrapped count stay static study.
+- **Changes:** 2026-10-22, round 98 (`ERRATA-audit2-ai.md`, "Round 98 additions"; reviewed by a spec-review session,
+  2026-10-22): a build job's release clears the keep-clear mark at the worker's **goal tile**, sized by the type
+  number the job recorded, not at the site (W1, static study); a no-depot town hall job is recorded as a build-list job
+  (W2, static study; trace job bit 16). The build-list job's goal tile write and the recorded type numbers are traced.
+  The clear's edge rule is stated (open question closed).
 
 ## Behaviour
 
@@ -140,7 +145,18 @@ as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new
    | Repairing | the player's repairer count −1 |
    | Mining gold | the player's miner count −1 |
    | Cutting lumber | the player's lumberjack count −1 |
-   | Building | the player's count of that building type in progress −1, and the **keep-clear mark** (below) is cleared on the building's footprint (width × width tiles from its top-left tile, no border) |
+   | Building | the player's count of that building type in progress −1, and the **keep-clear mark** (below) is cleared on a width × width rectangle (no border) whose top-left is the worker's **goal tile** (`ai/attack-ai.md`, "Unit goals"); the width is that of the building type whose number the job recorded ("The goal tile of a build job") |
+
+   Each build job writes its site into the goal tile when it starts, so usually the rectangle is the site's footprint.
+   Anything that sets the worker's goal tile while it walks to its site moves the rectangle. The case found: the
+   all-out attack (`ai/attack-ai.md`, "The all-out attack") gives an attack goal to each worker that isn't inside
+   something, and command 4, so at its
+   next job choice the release clears a rectangle at the attack goal's tile (whatever marks are there) and the site's
+   own mark stays for the rest of the game; the count in progress is lowered either way. A worker already inside its
+   site can't be given a goal, so a building under construction keeps the usual rectangle. Keep-clear marks only steer
+   the computer's site search ("Keep-clear marks and site search"). Static study (round 98, W1): keep-clear marks
+   aren't in the traces. The clear clips its width at the map's edge to N − x (N the map size, x the column) with no
+   skew, unlike the set; no site reaches the last row or column, so the difference never shows.
 
    Then the worker has no job. Each count goes down by 1 as a 16-bit unsigned value, so a release at 0 gives 65535
    ("Counts after a load", below).
@@ -158,7 +174,9 @@ as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new
      already in progress or the player can't afford one (`economy/build-train.md`). Otherwise a site is searched
      (below) for the worker's race's town hall, first with the border, then without. On success, the build command is
      given, the player pays at once, the hall cooldown becomes **10**, and the site is marked keep-clear with the
-     border, whichever of the two searches found it (round 85; static vector, erratum 11).
+     border, whichever of the two searches found it (round 85; static vector, erratum 11). The worker's job is
+     recorded as a **build-list** job (the trace's job bit 16, `oracle/trace-format.md`, "Computer worker jobs"), not
+     as the farm job; its release is the same, so play doesn't change (static study, round 98, W2).
    - If no hall was started: when not carrying, **repair**, then **harvest**, then **wait** (below), the first that
      gives a job. When carrying, **wait**.
 6. **Depot found, not carrying:** the first of these that gives a job:
@@ -202,10 +220,19 @@ from SL22; the tests are static study).
 **The goal tile of a build job** (round 85, erratum 7). Each build job (the new town hall above, the farm and the
 build list below) also writes the site's top-left tile into the worker's goal tile (`ai/attack-ai.md`, "Unit goals"),
 whatever its goal kind; the kind isn't changed. Traced for a farm job
-(`xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`, vectors below); for the town hall and build-list jobs it is a labelled static gap-fill (static study: the same
+(`xhuman5-xhuman05-worker-all-out-aigoals-goals-2500`, vectors below) and for build-list jobs (round 98:
+`xhuman9-aigoals-goals-8630-8830`, `xhuman12-xhuman12-picker-flip-aigoals-1700`, each job's goal tile the top-left of
+the building that then appears); for the town hall job it is a labelled static gap-fill (static study: the same
 write). So a worker with an attack goal from the all-out attack keeps it, and pass B measures its leash from the site
-(`ai/attack-ai.md`, "Attack (2)"). The job also writes a goal value that no rule in these specs reads (the trace's
-`aigoals` extra shows 59, the farm's type, after the farm job), so that changes no outcome.
+(`ai/attack-ai.md`, "Attack (2)"). The job also records a building type number next to the goal (the trace's `aigoals`
+`extra`), and setting a goal doesn't change it (traced: in `xhuman5-xhuman05-worker-all-out-aigoals-goals-2500` pass B
+moves peon 1575's goal tile at n = 2401 and the value stays 59). The farm job records the farm's own type (59, the pig
+farm, for an orc); a build-list job records the list entry as the list holds it, the **human** building's number for
+either race (an orc barracks job records 60 and the site becomes an orc barracks, 61; traced in
+`xhuman9-aigoals-goals-8630-8830` and `xhuman12-xhuman12-picker-flip-aigoals-1700`); the town hall job records the
+hall's type (static study). Only the release reads it, for the width (step 1). The human and orc buildings of a pair
+have the same size in the default data, so this changes no outcome there; with custom unit data that gives them
+different sizes, the release of an orc build-list job uses the human building's width (static study).
 
 ### Farm
 
@@ -649,6 +676,15 @@ An entry is marked done at the start of a game when either bit of its code is se
 | A computer player's farm in progress at the save, finished after a load, no other farm started (static study for the test; the wrap is traced, SL25) | Farms in progress 0 → 65535; the next farm test reads S + 4 · 65535 as S − 4 (S ≥ 4): with S 20 and U 14, 16 ≤ 17, so a farm is wanted, where a right count (0) would give 20 > 17 and no farm |
 | A computer player's lumberjack count wrapped to 65534, T = 9, its depot and a mine reachable (static study) | No lumber job from step 1; the worker mines |
 
+### Round-98 vectors
+
+| Input | Expected |
+| --- | --- |
+| A computer peon with a farm job for a site at (20, 30), keep-clear marked on (20, 30) to (21, 31), walking to it; its goal tile is (20, 30). It releases the job at its next choice (static study, W1) | The mark is cleared on (20, 30) to (21, 31), as before |
+| The same peon, but before the release the all-out attack sets its goal tile to (60, 10) and gives it command 4 (static study, W1) | The release clears (60, 10) to (61, 11), whatever marks are there; (20, 30) to (21, 31) stay marked. Pig farms in progress −1 |
+| A computer peasant with no depot in its region, hall cooldown 0, no town hall in progress, enough gold and lumber, a site found (static study, W2) | Build command for a town hall; `aiworkers` `jobs` shows job 16 for it; town halls in progress +1; hall cooldown 10 |
+| `xhuman12-xhuman12-picker-flip-aigoals-1700` (oracle trace, Enhanced): orc peon 1487 (player 0) takes a build-list job at n = 2 | `ai_goal` tile (86, 34), `extra` 76 (the human lumber mill's number); troll lumber mill (77) at (86, 34) at n = 117 |
+
 ## Open questions
 
 - **Worker or tanker choice** (round 85; held, erratum 6). Static study reads the job-choice dispatch as
@@ -697,7 +733,8 @@ An entry is marked done at the start of a game when either bit of its code is se
   platforms and the rest) come from the static study only.
 - That a computer site started in play gets the creation mark too (so a shore building adds its shore mark) is from
   the static study only.
-- Whether clearing a keep-clear footprint (the job-undone table) has the same right-edge skew wasn't checked.
+- Whether clearing a keep-clear footprint (the job-undone table) has the same right-edge skew: **answered in round
+  98** (static study): no; the clear clips to N − x with no skew (step 1). Unreachable with the site search's rules.
 - A worker inside a depot starts the job choice's tree search from the depot's top-left tile and uses that tile's
   region value. This assumes region values ignore buildings, as `movement/occupancy.md` implies; not checked
   separately.

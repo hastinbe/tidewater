@@ -51,6 +51,8 @@
 - **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
   2026-10-22, see its "Review"): a load clears every dead body's target and no other unit's (SL28 to SL30; traced,
   every committed load agrees); the repairer count's clearing and a build-list type's count in progress wrapping are traced (SL31, SL32).
+- **Changes:** 2026-10-22, round 98 review (`ERRATA-round98-traces.md`, "Review"): the dead body's stored goal after
+  a load is stated as a rule, not an aside (no rule change; static study), with the static vector SL33.
 
 ## Behaviour
 
@@ -206,8 +208,10 @@ lists, including:
   (22 loads in 21 traces, rounds 90 to 96) the bodies' targets are the only unit field the load changes, serial
   numbers aside and apart from what the mission start then does (the runestone's hit points, `game/victory.md` G24).
   No traced
-  building or ruin ever has a target, so the rule can't be tested on one. Static study: a body's stored goal
-  (`oracle/trace-format.md`, `goal`) is (0, 0) after a load too; no traced load reports it;
+  building or ruin ever has a target, so the rule can't be tested on one. **A dead body's stored goal is (0, 0)
+  after a load** too, whatever it was at the save (`oracle/trace-format.md`, `goal`; SL33): a load zeroes it as it
+  clears the target. Static study: no committed load trace has the `goals` extra, so none reports it. No rule reads a
+  body's goal, so play doesn't change;
 - each computer player's **training group counts**, the groups from footmen to submarines of `ai/training-research.md`,
   "Training buildings" (not the worker and tanker counts). They are restored as saved, and then the load counts every
   loaded unit again as the map start does: each unit the count includes (complete, not held, not dying) adds 1. So after
@@ -433,6 +437,7 @@ stays in the running game.
 | **SL30.** `xhuman9-xhuman9-runestone-alive-saveload-game-60` (oracle trace, Enhanced, saved after n = 1653): dying ogre 1430 (type 7, order 1) → 1414 | Loaded setup record: 1430 keeps target 1414 |
 | **SL31.** `xorc10-xorc10-r96-repair-saveload-airesearch-aiworkers-game-6000` (oracle trace, Enhanced, saved after n = 1564; records n = 0 to 1564 identical to `xorc10-xorc10-farm-repair-1700`, extras aside). Computer player 6 at the save: repairers 2 (peasants 1423 and 1448, repair job with gold mode, order 27 on farm 1437) | Loaded setup record: repairers 0, both keep the repair job. n = 634: 1448's repair ends, repairers 0 → 65535, and it gets a gold job. n = 653: 1423 the same, repairers 65534, unchanged to n = 6000 |
 | **SL32.** Same trace, player 6: one scout tower (0x40) in progress at the save (site 1422, built by 1454 with a build-list job, order 22) | Loaded setup record: nothing in progress, 1454 keeps its build-list job. n = 678: the tower is done, its count in progress 0 → 65535, unchanged to n = 6000. No later choice reads it: both 0x40 entries the scan reaches (1 and 3) are marked done, and the next build-list job (n = 4960, entry 2, 0x4C) is chosen as usual |
+| **SL33.** A dead body (type 0x69) whose stored goal is (12, 40) at the save (static study, round 98) | The loaded game's setup record: `goal` (0, 0) and `target` `null` for the body |
 
 ## Open questions
 
