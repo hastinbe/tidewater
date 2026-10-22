@@ -33,6 +33,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use tidewater_sim::worker_ai::AiJob;
 use tidewater_sim::{Order, Unit, World};
 
 use crate::replay::{self, Entry};
@@ -1751,6 +1752,11 @@ pub fn snapshot(w: &World, n: u64, kind: &str) -> Record {
     }
 }
 
+/// The town hall types (0x4A human, 0x4B orc), the hall a worker's no-depot step builds.
+fn is_town_hall(kind: u8) -> bool {
+    matches!(kind, 0x4a | 0x4b)
+}
+
 /// A unit's `hidden_from` and `detected_by` sets as the `vision` extra shows them.
 fn vision_cells(u: &Unit) -> [Cell; 2] {
     [Cell::Int(u.hidden_from as i64), Cell::Int(u.detected_by as i64)]
@@ -1845,10 +1851,9 @@ fn airesearch_cells(w: &World) -> Vec<[Cell; 15]> {
 }
 
 /// Our world's `aiworkers` extra values (trace format, "Computer worker jobs"). The job bits are 1 gold, 2 lumber,
-/// 8 a farm or town hall the worker's own steps started, 16 a build-list entry and 32 repair; the mode is the worker's
+/// 8 a farm the worker's own steps started, 16 a build-list entry or a no-depot town hall, 32 repair; the mode is the worker's
 /// gather mode, 128 gold and 64 lumber. A worker with no job isn't listed.
 fn aiworker_cells(w: &World) -> AiWorkers {
-    use tidewater_sim::worker_ai::AiJob;
     let count = |p: usize, f: fn(&tidewater_sim::ai::AiPlayer) -> i64| Cell::Int(w.ai.get(p).map_or(0, f));
     let building = AiWorkers::building_texts(w.ai.iter().enumerate().flat_map(|(p, a)| {
         a.in_progress
@@ -1872,14 +1877,7 @@ fn aiworker_cells(w: &World) -> AiWorkers {
         .iter()
         .filter(|u| u.owner < 8)
         .filter_map(|u| {
-            let bits = match u.ai_job {
-                AiJob::None => return None,
-                AiJob::Gold => 1,
-                AiJob::Lumber => 2,
-                AiJob::Build { .. } => 8,
-                AiJob::List { .. } => 16,
-                AiJob::Repair => 32,
-            };
+            let bits = job_bits(u.ai_job)?;
             let mode = match u.gather {
                 tidewater_sim::Gather::None => 0,
                 tidewater_sim::Gather::Gold => 128,
@@ -1889,6 +1887,21 @@ fn aiworker_cells(w: &World) -> AiWorkers {
         })
         .collect();
     AiWorkers { players, jobs }
+}
+
+/// The trace's job bit for a worker's job (trace format, "Computer worker jobs"), `None` for no job. Bit 8 is a farm
+/// the worker's own steps started; a town hall its no-depot step started is a build-list job, bit 16, like a list
+/// entry (round 98, W2).
+fn job_bits(job: AiJob) -> Option<i64> {
+    Some(match job {
+        AiJob::None => return None,
+        AiJob::Gold => 1,
+        AiJob::Lumber => 2,
+        AiJob::Build { kind, .. } if is_town_hall(kind) => 16,
+        AiJob::Build { .. } => 8,
+        AiJob::List { .. } => 16,
+        AiJob::Repair => 32,
+    })
 }
 
 /// Our world's `game` extra values.
@@ -3256,6 +3269,20 @@ mod tests {
         v["setup_only"] = false.into();
         v["extras"] = "hits".into();
         assert!(Header::parse(&v.to_string()).is_err());
+    }
+
+    /// Trace format, "Computer worker jobs" (round 98, W2): a town hall the no-depot step started carries bit 16, a farm
+    /// bit 8.
+    #[test]
+    fn a_no_depot_town_hall_job_is_a_build_list_job_bit() {
+        let site = (4, 4);
+        let job = |kind| AiJob::Build { kind, site };
+        assert_eq!(job_bits(job(0x4a)), Some(16));
+        assert_eq!(job_bits(job(0x4b)), Some(16));
+        assert_eq!(job_bits(job(0x3a)), Some(8));
+        assert_eq!(job_bits(job(0x3b)), Some(8));
+        assert_eq!(job_bits(AiJob::List { kind: 0x3a, site }), Some(16));
+        assert_eq!(job_bits(AiJob::None), None);
     }
 
     /// Trace format, "Opt-in extras": `hits` and the units' `goal`, `pending` and `transport_dest` are read and not
