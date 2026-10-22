@@ -148,6 +148,11 @@ impl Wire for HostWire {
                             turn,
                             digest,
                         },
+                        Msg::Chat { allies, text, .. } => Msg::Chat {
+                            slot: from,
+                            allies,
+                            text,
+                        },
                         m @ Msg::DropRequest { .. } => m,
                         // Everything else is the host's to say, or a handshake message out of place.
                         _ => continue,
@@ -228,7 +233,7 @@ impl Wire for ClientWire {
                 }
                 Event::Msg(_, msg) => match msg {
                     Msg::Turn { slot, .. } | Msg::Sync { slot, .. } => out.push(Inbound::Msg { from: slot, msg }),
-                    Msg::Drop { .. } => out.push(Inbound::Msg { from: self.host, msg }),
+                    Msg::Drop { .. } | Msg::Chat { .. } => out.push(Inbound::Msg { from: self.host, msg }),
                     _ => {}
                 },
             }

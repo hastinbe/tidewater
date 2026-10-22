@@ -174,6 +174,10 @@ pub enum Msg {
     MapChunk { hash: u64, offset: u32, bytes: Vec<u8> },
     /// Host to joiner: the map will not be sent, and why.
     MapDenied { hash: u64, reason: String },
+    /// A chat line during the game, from the player in `slot` (the host stamps it, and relays the line to the others).
+    /// It is not a command: it is not in any turn and not in the game's state hash (`docs/design/network.md`,
+    /// "Chat"). `allies` limits it to the sender's allies; each machine checks that against its own alliance table.
+    Chat { slot: u8, allies: bool, text: String },
 }
 
 /// What a row of the lobby holds (`ui/game-setup-lobby.md`, "Rows").
@@ -430,6 +434,11 @@ mod tests {
             Msg::MapDenied {
                 hash: 9,
                 reason: "no".into(),
+            },
+            Msg::Chat {
+                slot: 2,
+                allies: true,
+                text: "hold the ford".into(),
             },
         ];
         let mut bytes = Vec::new();

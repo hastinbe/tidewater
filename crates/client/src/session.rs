@@ -145,6 +145,14 @@ pub trait Session: Send + Sync {
     fn is_network(&self) -> bool {
         false
     }
+
+    /// The local player sends a chat line to everyone, or to the allies. A local game or a replay has nobody to tell.
+    fn send_chat(&mut self, _allies: bool, _text: &str) {}
+
+    /// The chat lines since the last call: others' lines, and the local player's own as it was sent.
+    fn take_chat(&mut self) -> Vec<ChatLine> {
+        Vec::new()
+    }
 }
 
 /// A network session waiting for other players (`net/lockstep.md`, "Stalls").
@@ -156,6 +164,18 @@ pub struct Waiting {
     pub dialog: bool,
     /// The names of the players the turn is still waiting for.
     pub missing: Vec<String>,
+}
+
+/// A chat line of a network game: heard from another player, or the local player's own (`mine`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatLine {
+    pub slot: u8,
+    pub name: String,
+    pub text: String,
+    /// Sent to the sender's allies only.
+    pub allies: bool,
+    /// The local player's own line, handed back so the screen can show it (or the Classic "chat sent" notice).
+    pub mine: bool,
 }
 
 /// A player gone from a network game (`net/leave-and-drop.md`, "Chat-room game: carrying out a leave").

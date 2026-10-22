@@ -41,7 +41,7 @@ use tidewater_sim::timing::{CLASSIC_MS, CLASSIC_ROW, ENHANCED_MS};
 
 use super::proto::Msg;
 use super::tcp::{Inbound, Wire};
-use crate::session::{LeaveNotice, Recorder, Session, Waiting};
+use crate::session::{ChatLine, LeaveNotice, Recorder, Session, Waiting};
 
 /// The most packets a player's queue holds; a command issued with this many waiting is dropped (`net/lockstep.md`).
 pub const QUEUE_LIMIT: usize = 26;
@@ -102,6 +102,17 @@ pub struct Params {
 
 type Clock = Box<dyn Fn() -> Duration + Send + Sync>;
 
+/// A chat line as it is accepted from the network: printable ASCII only, at most the message line's length. What
+/// the typing side lets through anyway; a program that is not ours may send anything.
+fn clean_chat(text: &str) -> String {
+    text.chars()
+        .filter(|c| (' '..='~').contains(c))
+        .take(crate::messages::MAX_CHARS)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 #[derive(Clone, Debug)]
 struct Packet {
     seq: u32,
@@ -141,6 +152,8 @@ pub struct NetSession {
     /// Commands of the cycle being handed out (more than one turn at the start).
     carry: Vec<Command>,
     notices: Vec<LeaveNotice>,
+    /// Chat lines to hand to the screen.
+    chat: Vec<ChatLine>,
     /// The turn is waiting since; for whom.
     stalled_since: Option<Duration>,
     missing: Vec<u8>,
@@ -182,6 +195,7 @@ impl NetSession {
             digests: BTreeMap::new(),
             carry: Vec::new(),
             notices: Vec::new(),
+            chat: Vec::new(),
             stalled_since: None,
             missing: Vec::new(),
             reset_deadline: false,
@@ -295,6 +309,35 @@ impl NetSession {
                 }
             }
             Msg::DropRequest { slot } if self.is_host() => self.issue_drop(slot),
+            Msg::Chat { slot, allies, text } => {
+                // The host knows who sent it; a joiner takes the slot from the host, which stamped it.
+                let slot = if self.is_host() { from } else { slot };
+                if slot == self.p.me || !self.p.humans.contains(&slot) {
+                    return;
+                }
+                let text = clean_chat(&text);
+                if text.is_empty() {
+                    return;
+                }
+                if self.is_host() {
+                    self.wire().forward(
+                        slot,
+                        &Msg::Chat {
+                            slot,
+                            allies,
+                            text: text.clone(),
+                        },
+                    );
+                }
+                let name = self.name(slot);
+                self.chat.push(ChatLine {
+                    slot,
+                    name,
+                    text,
+                    allies,
+                    mine: false,
+                });
+            }
             _ => {}
         }
     }
@@ -581,6 +624,31 @@ impl Session for NetSession {
 
     fn is_network(&self) -> bool {
         true
+    }
+
+    fn send_chat(&mut self, allies: bool, text: &str) {
+        let text = clean_chat(text);
+        if text.is_empty() || self.exit || self.left {
+            return;
+        }
+        let slot = self.p.me;
+        self.wire().send(Msg::Chat {
+            slot,
+            allies,
+            text: text.clone(),
+        });
+        let name = self.name(self.p.me);
+        self.chat.push(ChatLine {
+            slot: self.p.me,
+            name,
+            text,
+            allies,
+            mine: true,
+        });
+    }
+
+    fn take_chat(&mut self) -> Vec<ChatLine> {
+        std::mem::take(&mut self.chat)
     }
 }
 
@@ -942,6 +1010,44 @@ mod tests {
             );
         }
         assert_eq!(peers[0].state, peers[2].state);
+    }
+
+    #[test]
+    fn chat_reaches_everyone_by_way_of_the_host_and_stays_out_of_the_turns() {
+        let time = Time::default();
+        let mut peers = game(3, 1, 8, &time);
+        run(&mut peers, 4);
+        // A joiner talks: the other joiner hears it through the host, the host hears it, and the sender gets its own
+        // line back marked as its own.
+        peers[1].s.send_chat(true, "hold the ford \u{7f}\u{e9}");
+        peers[1].s.send_chat(false, "   ");
+        let mut heard: Vec<Vec<ChatLine>> = vec![Vec::new(); 3];
+        for _ in 0..400 {
+            let to = peers[0].tick + 1;
+            run(&mut peers, to);
+            for (h, p) in heard.iter_mut().zip(peers.iter_mut()) {
+                h.extend(p.s.take_chat());
+            }
+            if heard.iter().all(|h| !h.is_empty()) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let want = |slot: u8, mine: bool| ChatLine {
+            slot,
+            name: format!("Player {}", slot + 1),
+            text: "hold the ford".into(),
+            allies: true,
+            mine,
+        };
+        assert_eq!(heard[0], [want(1, false)]);
+        assert_eq!(heard[2], [want(1, false)]);
+        assert_eq!(heard[1], [want(1, true)]);
+        assert!(peers[0].s.take_chat().is_empty(), "taken once");
+        // Nothing of it is a command.
+        assert!(peers.iter().all(|p| p.applied.is_empty()));
+        let states: BTreeSet<u64> = peers.iter().map(|p| p.state).collect();
+        assert_eq!(states.len(), 1);
     }
 
     #[test]

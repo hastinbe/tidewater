@@ -18,7 +18,10 @@
 //!   the sim's own texts (`Word::notice`, the cheats spec's open-question default). `nopalette` toggles the stored
 //!   colour-cycling bit; the other developer and local words toggle settings of [`LocalSettings`], which nothing in
 //!   this client displays or uses yet (no network or demo playback, no debug displays).
-//! - Multiplayer chat (recipients, the Classic "chat sent" notice) needs network games, which this client doesn't have.
+//! - Multiplayer chat: in a network game a line that is no cheat is sent to everyone, or to the sender's allies when it
+//!   starts with `/a ` or `/allies ` ([`recipients`]; spec gap, the messages spec leaves recipients open). It travels
+//!   as its own network message (`net::proto::Msg::Chat`), outside the turns and the state hash. Under Enhanced rules
+//!   the sender's own line joins the message list at once; under Classic rules the "chat sent" notice shows instead.
 
 use tidewater_sim::cheats::Word;
 
@@ -71,6 +74,19 @@ pub fn typing_key(k: Key) -> bool {
             | Key::CapsLock
             | Key::PrintScreen
     )
+}
+
+/// Who a chat line is for and what it says. A line starting with `/a ` or `/allies ` goes to the sender's allies;
+/// anything else goes to everyone (spec gap: `ui/messages.md` leaves the recipients to a later spec, and the
+/// original's key for choosing them is not documented).
+pub fn recipients(line: &str) -> (bool, &str) {
+    let line = line.trim();
+    for prefix in ["/allies ", "/a "] {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            return (true, rest.trim());
+        }
+    }
+    (false, line)
 }
 
 /// Developer and local settings toggled by typed words (`game/cheats.md`, "Word codes") that only this machine keeps.
@@ -191,6 +207,11 @@ pub(crate) fn chat_keys(c: &mut Core) {
     if send {
         let (rules, flags, human) = (sim.world.rules.clone(), sim.world.cheats.flags, sim.human);
         let outcome = cheats::submit(&rules, flags, human, &line, &mut sim.pending);
+        // A line that is no cheat is chat in a network game; in single player it is dropped.
+        if matches!(outcome, Outcome::Chat) && sim.session.is_network() {
+            let (allies, text) = recipients(&line);
+            sim.session.send_chat(allies, text);
+        }
         match after(outcome, local) {
             After::Nothing => {}
             After::Mission(m) => queue.mission = Some(m),
@@ -263,6 +284,14 @@ mod tests {
         let o = cheats::submit(&rules, Flags(0), 0, "netprof", &mut pending);
         assert_eq!(after(o, &mut local), After::Nothing);
         assert!(local.net_profiling && pending.len() == 2);
+    }
+
+    #[test]
+    fn a_slash_a_prefix_limits_a_line_to_allies() {
+        assert_eq!(recipients("hello all"), (false, "hello all"));
+        assert_eq!(recipients("/a  hold the ford"), (true, "hold the ford"));
+        assert_eq!(recipients("/allies push now"), (true, "push now"));
+        assert_eq!(recipients("/alliesx"), (false, "/alliesx"));
     }
 
     #[test]

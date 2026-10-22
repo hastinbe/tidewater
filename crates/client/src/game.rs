@@ -49,6 +49,8 @@ pub struct Sim {
     pub human: u8,
     /// Notices for the notice line since the last frame (`messages`).
     pub notices: Vec<messages::Text>,
+    /// Chat lines for the message list since the last frame ("name: text").
+    pub chat: Vec<String>,
     /// The resource bar's shown gold, lumber and oil, counted once per cycle.
     pub counter: screen::Counter,
     /// Passengers to put ashore one at a time (transport, place 0 to 5), from clicks on the information panel.
@@ -814,6 +816,7 @@ pub(crate) fn setup(c: &mut Core) {
         session,
         human: scene.human,
         notices: Vec::new(),
+        chat: Vec::new(),
         counter,
         unload_one: Vec::new(),
         ui_sounds: Vec::new(),
@@ -898,6 +901,18 @@ pub(crate) fn tick(c: &mut Core) -> bool {
     }
     for text in sim.session.take_notices() {
         sim.notices.push(messages::Text::Own(text));
+    }
+    // Chat is not in the turns: it comes by itself and only the screen sees it (`chat`).
+    for line in sim.session.take_chat() {
+        if line.mine {
+            if sim.world.rules.enhanced {
+                sim.chat.push(messages::chat_line(&line.name, &line.text));
+            } else {
+                sim.notices.push(messages::Text::Net(messages::net::CHAT_SENT));
+            }
+        } else if !line.allies || sim.world.allied(line.slot, sim.human) {
+            sim.chat.push(messages::chat_line(&line.name, &line.text));
+        }
     }
     sim.session.observe_speed(sim.world.speed);
     let ready = sim.session.ready_commands(sim.world.tick);
@@ -2334,6 +2349,12 @@ pub(crate) fn update_messages(c: &mut Core) {
     let now = (time.elapsed_secs_f64() * 1000.0) as u64;
     for n in std::mem::take(&mut sim.notices) {
         scr.messages.notice(&text_of(hud, &n), 0, now);
+    }
+    for line in std::mem::take(&mut sim.chat) {
+        scr.messages
+            .add(&line, messages::CHAT_COLOUR, messages::TTL, now, &|s| {
+                hud.art.text_width(s)
+            });
     }
     // spec gap (`net/lockstep.md`, "Stalls", step 4): the "Waiting for players" dialog is a notice line until the
     // lobby phase has dialogs for it; it names who the game waits for and the two keys.

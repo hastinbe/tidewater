@@ -1476,7 +1476,7 @@ impl World {
     }
 
     /// Whether player `a` counts player `b` as allied (its own player included), by the alliance table.
-    pub(crate) fn allied(&self, a: u8, b: u8) -> bool {
+    pub fn allied(&self, a: u8, b: u8) -> bool {
         a == b
             || self
                 .players

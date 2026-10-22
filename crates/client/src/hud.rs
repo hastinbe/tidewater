@@ -503,6 +503,11 @@ impl HudArt {
         self.names.text((n as usize).wrapping_sub(1)).unwrap_or_default()
     }
 
+    /// The width of `s` set on one line in the message font (the message list wraps with it).
+    pub fn text_width(&self, s: &str) -> u32 {
+        self.font.width(s.as_bytes())
+    }
+
     /// Entry `n` of `rez\network.tbl`, counting from 1.
     pub fn net_string(&self, n: u16) -> String {
         self.network.text((n as usize).wrapping_sub(1)).unwrap_or_default()

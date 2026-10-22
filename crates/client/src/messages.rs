@@ -39,7 +39,6 @@ pub const MAX_CHARS: usize = 99;
 /// Time to live of every message and notice, in milliseconds.
 pub const TTL: u64 = 7000;
 /// Text colours: chat, and game and network notices.
-#[cfg_attr(not(test), expect(dead_code, reason = "no chat line or network game yet"))]
 pub const CHAT_COLOUR: u8 = 2;
 pub const NOTICE_COLOUR: u8 = 4;
 
@@ -139,7 +138,6 @@ pub fn fill_name(template: &str, name: &str) -> String {
 }
 
 /// A chat line from a player as the list shows it.
-#[cfg_attr(not(test), expect(dead_code, reason = "no chat line or network game yet"))]
 pub fn chat_line(name: &str, text: &str) -> String {
     format!("{name}: {text}")
 }
@@ -233,7 +231,6 @@ impl Messages {
     }
 
     /// Adds a message to the list: split to the width, each piece scrolling the list up by one.
-    // Only the chat line will use it (none yet); reachable from the library's `Core`, so not dead code.
     pub fn add(&mut self, text: &str, colour: u8, ttl: u64, now: u64, width: &dyn Fn(&str) -> u32) {
         for piece in split(text, width) {
             self.list.rotate_left(1);
