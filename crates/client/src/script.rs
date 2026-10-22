@@ -227,6 +227,14 @@ pub fn scenes() -> Vec<Scene> {
             extras: &[],
             keys: "",
         },
+        // The multiplayer menus, up to the game list.
+        Scene {
+            name: "multi",
+            start: vec![Step::MainMenu],
+            cmds: multi(),
+            extras: &[],
+            keys: "",
+        },
         Scene {
             name: "build",
             start: vec![play(0)],
@@ -388,11 +396,13 @@ fn flow() -> Vec<Cmd> {
     v.extend([Until(AppState::SinglePlayer), Wait(3), Shot("single-player-back")]);
     v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-again")]);
-    // Multi Player Game is greyed out: its hotkey does nothing.
+    // Multi Player Game opens the multiplayer menus; Escape returns (the screens are in the `multi` scene).
     v.extend(tap(K::Letter('M')));
-    v.extend([Wait(3), Shot("multi-inert")]);
-    // The focus ring skips it: Tab to Replay Introduction, Shift+Tab back past Single Player Game to Exit Program
-    // (wrapping), Tab to Single Player Game.
+    v.extend([Until(AppState::Multiplayer), Wait(3), Shot("multi-open")]);
+    v.extend(tap(K::Escape));
+    v.extend([Until(AppState::MainMenu), Wait(25)]);
+    // Tab to Multi Player Game, Shift+Tab back past Single Player Game to Exit Program (wrapping), Tab to Single
+    // Player Game.
     v.extend(tap(K::Tab));
     v.extend([Wait(2), Shot("menu-tab"), Press(K::ShiftLeft)]);
     v.extend(tap(K::Tab));
@@ -938,6 +948,57 @@ fn custom() -> Vec<Cmd> {
     v.extend(tap(K::Letter('Q')));
     v.extend([Release(K::ControlLeft), Wait(3)]);
     v.extend(tap(K::Enter));
+    v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
+    v
+}
+
+/// The multiplayer menus (`mpmenu`): the choice, the connection list with Battle.net disabled, the Direct IP setup
+/// with its Mode list, name entry, the game list that Local Network opens, and Classic's name entry first.
+fn multi() -> Vec<Cmd> {
+    use Cmd::*;
+    use Key as K;
+    let mut v = vec![Move(320.0, 240.0), Until(AppState::MainMenu), Wait(25), Shot("menu")];
+    v.extend(tap(K::Letter('M')));
+    v.extend([Until(AppState::Multiplayer), Wait(3), Shot("choice")]);
+    v.extend(tap(K::Letter('E')));
+    v.extend([Wait(3), Shot("methods")]);
+    // Battle.net is the first row, drawn disabled; choosing it shows why.
+    v.extend(click(100.0, 206.0));
+    v.extend([Wait(2), Shot("battle")]);
+    // Direct IP: the setup screen, its Mode list opened, Answer picked and an address typed.
+    v.extend(click(100.0, 224.0));
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3), Shot("direct")]);
+    v.extend(click(130.0, 376.0));
+    v.extend([Wait(2), Shot("mode-list")]);
+    v.extend(click(130.0, 410.0));
+    v.extend(click(200.0, 342.0));
+    v.push(Type("192.168.0.7"));
+    v.extend([Wait(2), Shot("answer")]);
+    // Previous Menu back to the list; Local Network and Connect ask for the name.
+    v.extend(tap(K::Escape));
+    v.extend(click(100.0, 242.0));
+    v.extend([Wait(2), Shot("local")]);
+    v.extend(tap(K::Letter('C')));
+    v.extend([Wait(3), Shot("name")]);
+    for _ in 0..9 {
+        v.extend(tap(K::Backspace));
+    }
+    v.push(Type("Fen"));
+    v.extend([Wait(2), Shot("name-typed")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3), Shot("games")]);
+    // Disconnect leaves for the main menu.
+    v.extend(tap(K::Letter('D')));
+    v.extend([Until(AppState::MainMenu), Wait(25)]);
+    // Classic mode asks for the name before the list, which has no Battle.net row.
+    v.extend(tap(K::Letter('M')));
+    v.extend([Until(AppState::Multiplayer), Wait(3)]);
+    v.extend(tap(K::Letter('C')));
+    v.extend([Wait(3), Shot("classic-name")]);
+    v.extend(tap(K::Enter));
+    v.extend([Wait(3), Shot("classic-methods")]);
+    v.extend(tap(K::Escape));
     v.extend([Until(AppState::MainMenu), Wait(25), Shot("menu-end")]);
     v
 }

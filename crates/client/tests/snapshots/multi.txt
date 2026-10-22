@@ -1,0 +1,60 @@
+# frame and sound fingerprints of the scripted scene `multi` (hashes only)
+frames	1-1	156ed4086987e325
+frames	2-2	dea26e54b3c12c41
+frames	3-3	e2aa8138ad662af6
+frames	4-4	8917823d3bdbbdf5
+frames	5-5	1122c0f340a92357
+frames	6-6	b657c68f08b87963
+frames	7-7	4d0b3cc3af483eb5
+frames	8-8	d79a35fbfe7828b3
+frames	9-9	f1f8d777d067b04d
+frames	10-10	1c016ef4fb28060e
+frames	11-11	c75e7abf173b98fc
+frames	12-12	72478de0c5b6dca7
+sound	14	d0e6afe865a35291	0.7516	Loop
+shot	28	menu	53b86b219c9a69d9
+frames	13-29	53b86b219c9a69d9
+shot	34	choice	7edd246c59d2edea
+frames	30-34	7edd246c59d2edea
+shot	39	methods	e439d18e4198d7bd
+frames	35-39	e439d18e4198d7bd
+frames	40-40	7986dc86fc2e3405
+shot	43	battle	a31602fda7f56295
+frames	41-43	a31602fda7f56295
+frames	44-44	c9d2bfb0d006cdf8
+shot	49	direct	44704171115fc322
+frames	45-49	44704171115fc322
+frames	50-50	90698b3890d7e5b1
+shot	53	mode-list	f5ec82f5a5df7313
+frames	51-53	f5ec82f5a5df7313
+frames	54-54	dee8d1a3d5fbeca7
+shot	58	answer	c856bfbae2e3f229
+frames	55-58	c856bfbae2e3f229
+frames	59-59	2031c561a4da6214
+frames	60-60	7fd1136ecf4362bb
+shot	63	local	a32e7ec8b7651f07
+frames	61-63	a32e7ec8b7651f07
+shot	68	name	f97f26ab590b4ca5
+frames	64-68	f97f26ab590b4ca5
+frames	69-69	47c9f5dd97631df9
+frames	70-70	0078e2973a17e3db
+frames	71-71	9629e414210022d6
+frames	72-72	d0901802c39174d5
+frames	73-73	6c98df5bd9ead84a
+frames	74-74	a62ab94acda83a58
+frames	75-75	9183d15a77d6250d
+frames	76-76	cc2eb4c7d523cb9f
+frames	77-77	1021f8736727ab97
+shot	80	name-typed	61361198b761cbd9
+frames	78-80	61361198b761cbd9
+shot	85	games	70fad0c4df846090
+frames	81-85	70fad0c4df846090
+frames	86-86	447bfc8d86816140
+frames	87-113	0d34f18cde57cad3
+frames	114-117	68bb0e4d4ddb59e2
+shot	122	classic-name	a5669d2bb2788117
+frames	118-122	a5669d2bb2788117
+shot	127	classic-methods	c2977bed903d214a
+frames	123-128	c2977bed903d214a
+shot	155	menu-end	0d34f18cde57cad3
+frames	129-155	0d34f18cde57cad3

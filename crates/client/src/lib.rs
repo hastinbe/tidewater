@@ -39,6 +39,8 @@ mod menuscreen;
 mod messages;
 mod minimap;
 mod mouse;
+mod mpmenu;
+mod mpwidgets;
 #[allow(dead_code)] // the spec's track table and fade helpers are kept whole; some screens don't use them yet
 mod music;
 pub mod net;

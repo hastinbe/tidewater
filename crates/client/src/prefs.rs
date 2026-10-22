@@ -78,6 +78,13 @@ pub struct Prefs {
     pub keys: crate::keymap::KeyMap,
     /// What was wrong in the `[keys]` section when it was read, one message a line.
     pub key_problems: Vec<String>,
+    /// The multiplayer menus' memory (`mpmenu`): the player's name, the connection method last used (0 Battle.net,
+    /// 1 Direct IP, 2 Local Network), the Direct IP Mode (Answer rather than Call), the address and the port.
+    pub mp_name: String,
+    pub mp_method: u8,
+    pub mp_answer: bool,
+    pub mp_address: String,
+    pub mp_port: String,
     /// Ctrl+M's remembered music volume, while the music is off by it.
     music_before: Option<u8>,
     /// Ctrl+S's remembered digital volume.
@@ -98,6 +105,11 @@ impl Default for Prefs {
             extras: crate::extras::ClientExtras::default(),
             keys: crate::keymap::KeyMap::default(),
             key_problems: Vec::new(),
+            mp_name: String::new(),
+            mp_method: 1,
+            mp_answer: false,
+            mp_address: String::new(),
+            mp_port: "6112".to_string(),
             music_before: None,
             digital_before: None,
         }
@@ -161,6 +173,16 @@ impl Prefs {
                 p.extras.read_line(name, value);
                 continue;
             }
+            // The multiplayer menus' text settings; a number that is out of range or text that is too long is ignored.
+            let text = value.trim();
+            match name.trim() {
+                "mp_name" if text.chars().count() <= 11 => p.mp_name = text.to_string(),
+                "mp_address" if text.chars().count() <= 63 && !text.contains(' ') => p.mp_address = text.to_string(),
+                "mp_port" if text.parse::<u16>().is_ok() => p.mp_port = text.to_string(),
+                "mp_method" => p.mp_method = text.parse::<u8>().ok().filter(|&m| m <= 2).unwrap_or(p.mp_method),
+                "mp_answer" => p.mp_answer = text == "1",
+                _ => {}
+            }
             let Ok(n) = value.trim().parse::<u32>() else {
                 continue;
             };
@@ -183,7 +205,7 @@ impl Prefs {
     /// The text form of everything stored, ending with the `[extras]` section.
     pub fn to_text(&self) -> String {
         format!(
-            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\n{}{}",
+            "game_speed={}\nmouse_scroll={}\nkey_scroll={}\nmusic_volume={}\ndigital_volume={}\nnext_tip={}\nbits={}\nmp_name={}\nmp_method={}\nmp_answer={}\nmp_address={}\nmp_port={}\n{}{}",
             self.game_speed,
             self.mouse_scroll,
             self.key_scroll,
@@ -191,6 +213,11 @@ impl Prefs {
             self.digital_volume,
             self.next_tip,
             self.bits,
+            self.mp_name,
+            self.mp_method,
+            u8::from(self.mp_answer),
+            self.mp_address,
+            self.mp_port,
             self.extras.section_text(),
             self.keys.section_text()
         )
@@ -390,6 +417,24 @@ mod tests {
         let stored = Prefs::from_text("mouse_scroll=1\nkey_scroll=2");
         let p = stored.clone().with_args(None, Some(5), false);
         assert_eq!((p.mouse_scroll, p.key_scroll), (1, 5));
+    }
+
+    #[test]
+    fn the_multiplayer_choices_round_trip_and_bad_values_are_ignored() {
+        let p = Prefs {
+            mp_name: "Fen".into(),
+            mp_method: 2,
+            mp_answer: true,
+            mp_address: "10.1.2.3".into(),
+            mp_port: "7000".into(),
+            ..Prefs::default()
+        };
+        let q = Prefs::from_text(&p.to_text());
+        assert_eq!((q.mp_name.as_str(), q.mp_method, q.mp_answer), ("Fen", 2, true));
+        assert_eq!((q.mp_address.as_str(), q.mp_port.as_str()), ("10.1.2.3", "7000"));
+        let bad = Prefs::from_text("mp_port=99999\nmp_method=9\nmp_name=abcdefghijklm\n");
+        assert_eq!((bad.mp_port.as_str(), bad.mp_method), ("6112", 1));
+        assert_eq!(bad.mp_name, "");
     }
 
     #[test]

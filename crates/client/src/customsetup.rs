@@ -343,6 +343,10 @@ pub(crate) struct Input {
     pub shift: bool,
     /// Wheel lines, positive away from the user.
     pub wheel: i32,
+    /// The key events that went down this frame in order, with the text each types: for the screens with a text box.
+    pub typed: Vec<crate::input::KeyEvent>,
+    /// Ctrl or Alt is held (a combination is never typed into a text box).
+    pub command_held: bool,
 }
 
 /// An open drop-down list.
@@ -482,6 +486,41 @@ impl Screen {
                 enhanced: true,
             },
         ))
+    }
+
+    /// The multiplayer lobby borrows the Select scenario dialog: whether the dialog (or a list over it) is open.
+    #[allow(dead_code)] // the lobby (commit 2)
+    pub(crate) fn picker_open(&self) -> bool {
+        self.dialog.is_some() || self.popup.is_some()
+    }
+
+    /// Opens the Select scenario dialog (the lobby's Select Scenario button).
+    #[allow(dead_code)] // the lobby (commit 2)
+    pub(crate) fn open_picker(&mut self) {
+        if self.dialog.is_none() {
+            self.open_dialog();
+        }
+        self.changed = true;
+    }
+
+    /// Draws the dialog and the list over it, if open, onto `p` (the lobby draws its own controls under them).
+    #[allow(dead_code)] // the lobby (commit 2)
+    pub(crate) fn draw_picker(&self, p: &mut Picture, look: &Look) {
+        if let Some(d) = &self.dialog {
+            self.draw_dialog(p, look, d);
+        }
+        if let Some(pop) = &self.popup {
+            self.draw_popup(p, look, pop);
+        }
+    }
+
+    /// Picks the scenario with this path, if it is listed.
+    #[allow(dead_code)] // the lobby (commit 2)
+    pub(crate) fn select_path(&mut self, path: &str) {
+        if let Some(i) = self.maps.iter().position(|m| m.path == path) {
+            self.chosen = Some(i);
+            self.changed = true;
+        }
     }
 
     /// Whether the picture needs drawing again, and forget it does.
@@ -1086,6 +1125,18 @@ pub(crate) fn fit(font: &Font, s: &str, max: u32) -> String {
     out
 }
 
+/// The end of `s` cut short at the front to fit `max` pixels of width (a text box that has scrolled).
+pub(crate) fn fit_tail(font: &Font, s: &str, max: u32) -> String {
+    let mut out: &str = s;
+    while let Some(c) = out.chars().next() {
+        if menuscreen::label_width(font, out) <= max {
+            break;
+        }
+        out = &out[c.len_utf8()..];
+    }
+    out.to_string()
+}
+
 /// What the screen is drawn with.
 pub(crate) struct Look<'a> {
     pub font: &'a Font,
@@ -1094,14 +1145,14 @@ pub(crate) struct Look<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct DropState {
+pub(crate) struct DropState {
     hover: bool,
     focused: bool,
     pressed: bool,
 }
 
 impl DropState {
-    fn of(hover: bool, focused: bool, pressed: bool) -> Self {
+    pub(crate) fn of(hover: bool, focused: bool, pressed: bool) -> Self {
         DropState {
             hover,
             focused,
@@ -1111,16 +1162,16 @@ impl DropState {
 }
 
 impl Look<'_> {
-    fn text(&self, dst: &mut Picture, at: (i32, i32), s: &str, map: menuscreen::ShadeMap) {
+    pub(crate) fn text(&self, dst: &mut Picture, at: (i32, i32), s: &str, map: menuscreen::ShadeMap) {
         menuscreen::draw_text(dst, self.font, self.pal, at, s, map, menuscreen::label_gap(self.font));
     }
 
-    fn label(&self, dst: &mut Picture, at: (i32, i32), s: &str) {
+    pub(crate) fn label(&self, dst: &mut Picture, at: (i32, i32), s: &str) {
         self.text(dst, at, s, menuscreen::GOLD);
     }
 
     /// A drop-down box: the current choice and a down arrow, in a ring (yellow when it has the focus).
-    fn drop(&self, dst: &mut Picture, r: Rect, text: &str, s: DropState) {
+    pub(crate) fn drop(&self, dst: &mut Picture, r: Rect, text: &str, s: DropState) {
         let rgb = |e: u8| self.pal.0[e as usize];
         hud::fill(dst, r, rgb(menuscreen::BLACK));
         hud::outline(

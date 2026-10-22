@@ -358,6 +358,11 @@ pub fn join_game(
     })
 }
 
+/// Whether a game's machine answers at `addr`: connects and closes (the menus' connecting box).
+pub(crate) fn probe(addr: &str) -> Result<()> {
+    connect(addr).map(drop)
+}
+
 fn connect(addr: &str) -> Result<TcpStream> {
     let candidates: Vec<SocketAddr> = resolve(addr)?;
     let mut last = None;

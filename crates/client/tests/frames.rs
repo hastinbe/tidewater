@@ -34,6 +34,7 @@ const SCENES: &[&str] = &[
     "carry",
     "flow",
     "custom",
+    "multi",
     "extras",
     "extras-bars",
     "extras-groups",

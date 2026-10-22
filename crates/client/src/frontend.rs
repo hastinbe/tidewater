@@ -43,6 +43,7 @@ use crate::input::{Button, Buttons, Key, LogCursor};
 use crate::jukebox::Jukebox;
 use crate::layers::{Fade, Layer as ScreenPlace, PictureId, Pictures, Plane, Role, Stack};
 use crate::menuscreen::{self, MenuScreen};
+use crate::mpmenu;
 use crate::palette::fades;
 use crate::savedlg::SaveUi;
 use crate::saves;
@@ -66,6 +67,8 @@ pub enum Step {
     SinglePlayer,
     /// The Custom Scenario screen (`customsetup`), opened by the single-player menu.
     CustomSetup,
+    /// The multiplayer menus and the lobby (`mpmenu`), opened by the main menu's Multi Player Game.
+    Multiplayer,
     /// "Starting a mission": the act screen check, the briefing, the game.
     Mission(u8),
     Act(Act),
@@ -324,6 +327,7 @@ pub fn advance(flow: &mut Flow, install: &Install, ctrl: bool) -> Option<AppStat
             }
             Step::NewCampaign => AppState::NewCampaign,
             Step::CustomSetup => AppState::CustomSetup,
+            Step::Multiplayer => AppState::Multiplayer,
             Step::SinglePlayer => AppState::SinglePlayer,
             &Step::Mission(e) => {
                 for s in mission_steps(flow, e, ctrl).into_iter().rev() {
@@ -599,6 +603,7 @@ pub fn goto_steps(s: &str) -> Result<Vec<Step>, String> {
         "menu" => vec![Step::MainMenu],
         "campaign" => vec![Step::NewCampaign],
         "custom" => vec![Step::CustomSetup, Step::MainMenu],
+        "multi" => vec![Step::Multiplayer, Step::MainMenu],
         "single" => vec![Step::SinglePlayer, Step::MainMenu],
         "mission" => vec![Step::Mission(entry()?)],
         "act" => {
@@ -715,9 +720,11 @@ impl FlowPointer {
 pub(crate) fn flow_pointer(state: AppState) -> FlowPointer {
     match state {
         AppState::Video | AppState::Title | AppState::Act | AppState::Finale => FlowPointer::Hidden,
-        AppState::MainMenu | AppState::SinglePlayer | AppState::NewCampaign | AppState::CustomSetup => {
-            FlowPointer::OrcArrow
-        }
+        AppState::MainMenu
+        | AppState::SinglePlayer
+        | AppState::NewCampaign
+        | AppState::CustomSetup
+        | AppState::Multiplayer => FlowPointer::OrcArrow,
         AppState::Briefing | AppState::Score | AppState::Credits => FlowPointer::Arrow3d,
         AppState::Boot | AppState::Game | AppState::FirstRun => FlowPointer::Default,
     }
@@ -732,9 +739,15 @@ pub(crate) fn pointer_palette(state: AppState, flow: &Flow) -> &'static str {
         (AppState::Briefing, Some(Step::Briefing(e)), _) => cf::briefing_background(*e),
         (AppState::Score, _, Some(s)) => cf::score_background(s.race, s.victory),
         (AppState::Credits, _, _) => cf::CREDITS_PICTURE,
-        (AppState::MainMenu | AppState::SinglePlayer | AppState::NewCampaign | AppState::CustomSetup, _, _) => {
-            cf::MENU_PICTURE
-        }
+        (
+            AppState::MainMenu
+            | AppState::SinglePlayer
+            | AppState::NewCampaign
+            | AppState::CustomSetup
+            | AppState::Multiplayer,
+            _,
+            _,
+        ) => cf::MENU_PICTURE,
         _ => cf::TITLE_PICTURE,
     }
 }
@@ -815,6 +828,10 @@ pub struct Screens {
     menu_picture: Option<(Picture, Palette)>,
     menu_load: Option<MenuLoad>,
     custom: Option<CustomScreen>,
+    /// The multiplayer menus.
+    mp: Option<MpScreen>,
+    /// The place in the typed events the multiplayer menus have read.
+    mp_typed: LogCursor,
     /// The scenario last picked on the Custom Scenario screen, kept for the session.
     custom_last: Option<String>,
     act: Option<ActScreen>,
@@ -870,6 +887,9 @@ pub(crate) fn screen_systems(c: &mut Core) {
     }
     if state(c) == AppState::CustomSetup {
         run_custom_setup(c);
+    }
+    if state(c) == AppState::Multiplayer {
+        run_multiplayer(c);
     }
     if matches!(state(c), AppState::MainMenu | AppState::SinglePlayer) && c.screens.menu_load.is_some() {
         run_menu_load(c);
@@ -1451,6 +1471,7 @@ pub(crate) fn menu_screen(state: AppState) -> Option<MenuScreen> {
         AppState::SinglePlayer => Some(MenuScreen::SinglePlayer),
         AppState::NewCampaign => Some(MenuScreen::Campaign),
         AppState::CustomSetup => Some(MenuScreen::CustomSetup),
+        AppState::Multiplayer => Some(MenuScreen::Multiplayer),
         _ => None,
     }
 }
@@ -1574,7 +1595,7 @@ fn menu_input(
 /// Opens the main menu. Its music test runs once it is drawn ([`run_menu`]), not here.
 pub(crate) fn enter_menu(c: &mut Core) {
     // Screen spec, "Main menu and campaign menu": five buttons with the hotkeys S, M, R, C and x.
-    let mut items = menu_items(&[
+    let items = menu_items(&[
         ("Single Player Game", Some('S')),
         ("Multi Player Game", Some('M')),
         ("Replay Introduction", Some('R')),
@@ -1583,7 +1604,6 @@ pub(crate) fn enter_menu(c: &mut Core) {
     ]);
     // spec gap: Tidewater has no network play yet (milestone M3), and the spec defines no look for a button that can't
     // be used, so Multi Player Game takes the menu buttons' disabled face (grey, no focus, hotkey inert).
-    items[1].enabled = false;
     open_menu(c, &[], items, AppState::MainMenu);
 }
 
@@ -1715,6 +1735,11 @@ fn run_menu(c: &mut Core) {
         // Screen spec, "Menu screens": the single-player menu is on the same picture, so the switch has no fade.
         Some(0) => {
             flow.steps = VecDeque::from([Step::SinglePlayer]);
+            go_on(flow, front, keys, next, exit);
+        }
+        // Multi Player Game: the multiplayer menus, on the same picture with no fade.
+        Some(1) => {
+            flow.steps = VecDeque::from([Step::Multiplayer]);
             go_on(flow, front, keys, next, exit);
         }
         // Music spec, "Where music fades out": Replay Introduction fades all sound first, like Show Credits and Exit
@@ -2074,6 +2099,7 @@ fn custom_input(input: &crate::input::Input, cam: &FrontScreen) -> customsetup::
         keys: input.keys.get_just_pressed().copied().collect(),
         shift: input.keys.any_pressed([Key::ShiftLeft, Key::ShiftRight]),
         wheel: lines.round() as i32,
+        ..Default::default()
     }
 }
 
@@ -2127,6 +2153,117 @@ fn run_custom_setup(c: &mut Core) {
                 cs.closing = Some((close_with_sound(music, fades::MENUS), CustomPick::Start(map, setup)));
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The multiplayer menus
+
+/// The multiplayer menus (`mpmenu`) open on the menu picture.
+struct MpScreen {
+    image: PictureId,
+    background: Picture,
+    palette: Palette,
+    ui: mpmenu::Mp,
+    /// When the fade-in ends (0 for none).
+    ready_at: f64,
+}
+
+pub(crate) fn enter_multiplayer(c: &mut Core) {
+    let opening = MenuScreen::Multiplayer.opening(menu_screen(c.states.previous()));
+    let Core {
+        commands,
+        front,
+        pictures,
+        screens,
+        stored,
+        ..
+    } = c;
+    // The multiplayer menus share the main menu's picture: a switch from it neither loads it again nor fades.
+    let (mut bg, palette) = match (&screens.menu_picture, opening.reload) {
+        (Some((p, pal)), false) => (dup(p), pal.clone()),
+        _ => {
+            let (p, pal) = menu_art(&mut front.install);
+            screens.menu_picture = Some((dup(&p), pal.clone()));
+            (p, pal)
+        }
+    };
+    if opening.version_line {
+        version_line(&mut bg, &front.small, &palette);
+    }
+    let strings = mpmenu::Strings::from(&|n| front.net(n));
+    let mut ui = mpmenu::Mp::new(mpmenu::Memory::from_prefs(&stored.0), strings);
+    let look = customsetup::Look {
+        font: &front.font,
+        pal: &palette,
+        faces: &front.button_faces,
+    };
+    let first = ui.draw(&bg, &look);
+    ui.take_changed();
+    let image = spawn_layer(commands, pictures, first, 0, AppState::Multiplayer, None);
+    commands.queue(|c| c.screens.clock = Some(Clock(0.0)));
+    let screen = MpScreen {
+        image,
+        background: bg,
+        palette,
+        ui,
+        ready_at: opening.fade_in_ms as f64,
+    };
+    commands.queue(move |c| c.screens.mp = Some(screen));
+    if opening.fade_in_ms > 0 {
+        fade_in_new_screen(commands, opening.fade_in_ms);
+    }
+}
+
+/// The frame's input for the multiplayer menus: the custom screen's, with the typed key events.
+fn mp_input(input: &crate::input::Input, cam: &FrontScreen, cursor: &mut LogCursor) -> customsetup::Input {
+    let mut i = custom_input(input, cam);
+    i.typed = input.typed.read(cursor).filter(|e| e.pressed).cloned().collect();
+    i.command_held = input
+        .keys
+        .any_pressed([Key::ControlLeft, Key::ControlRight, Key::AltLeft, Key::AltRight]);
+    i
+}
+
+fn run_multiplayer(c: &mut Core) {
+    let Core {
+        screens:
+            Screens {
+                mp: Some(ms),
+                clock: Some(clock),
+                mp_typed,
+                ..
+            },
+        front,
+        pictures,
+        front_screen: cam,
+        flow,
+        states: next,
+        exit,
+        input,
+        stored,
+        ..
+    } = c
+    else {
+        return;
+    };
+    if clock.0 < ms.ready_at {
+        return;
+    }
+    let outcome = ms.ui.update(&mp_input(input, cam, mp_typed));
+    if ms.ui.take_changed() {
+        let look = customsetup::Look {
+            font: &front.font,
+            pal: &ms.palette,
+            faces: &front.button_faces,
+        };
+        set_image(pictures, &ms.image, ms.ui.draw(&ms.background, &look));
+    }
+    if outcome == mpmenu::Outcome::Leave {
+        ms.ui.mem.store(&mut stored.0);
+        // Previous Menu: the main menu again, on the same picture.
+        flow.steps = VecDeque::from([Step::MainMenu]);
+        go_on(flow, front, &input.keys, next, exit);
     }
 }
 
@@ -3307,6 +3444,7 @@ mod tests {
         // The Custom Scenario screen: Cancel Game leads back to the main menu, and the screen has its own state.
         assert_eq!(goto_steps("custom").unwrap(), [Step::CustomSetup, Step::MainMenu]);
         assert_eq!(goto_steps("single").unwrap(), [Step::SinglePlayer, Step::MainMenu]);
+        assert_eq!(goto_steps("multi").unwrap(), [Step::Multiplayer, Step::MainMenu]);
         let mut f = flow(&[]);
         f.steps = VecDeque::from(goto_steps("single").unwrap());
         assert_eq!(advance(&mut f, &Install::none(), false), Some(AppState::SinglePlayer));

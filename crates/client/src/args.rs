@@ -52,7 +52,7 @@ pub struct Args {
     /// With `--host` or `--join`, the name this player goes by in the game.
     #[arg(long, value_name = "NAME")]
     pub name: Option<String>,
-    /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `custom` (the Custom Scenario screen), `mission:E`, `act:E`,
+    /// Development aid: open a screen of the campaign flow: `title`, `menu`, `campaign`, `custom` (the Custom Scenario screen), `multi` (the multiplayer menus), `mission:E`, `act:E`,
     /// `briefing:E`, `score-victory:E` or `score-defeat:E` (synthetic statistics), `ending:E`, `credits:tod`,
     /// `credits:bdp` (the credits page after a finale), `show-credits` (the main menu's credits screen) or `video:N`,
     /// with E a mission entry (0 to 51).

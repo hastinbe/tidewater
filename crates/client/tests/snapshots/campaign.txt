@@ -31,11 +31,11 @@ frames	77-77	f1f8d777d067b04d
 frames	78-78	1c016ef4fb28060e
 frames	79-79	c75e7abf173b98fc
 frames	80-80	72478de0c5b6dca7
-frames	81-97	86f1e8e8b989cf21
-shot	100	menu-hover	00a2bdfb46f78d2e
-frames	98-100	00a2bdfb46f78d2e
-frames	101-101	e228c8f9b29326ba
-frames	102-102	00a2bdfb46f78d2e
+frames	81-97	53b86b219c9a69d9
+shot	100	menu-hover	1df69a76ddc58816
+frames	98-100	1df69a76ddc58816
+frames	101-101	fb3756dbd08192e2
+frames	102-102	1df69a76ddc58816
 shot	107	single-player	4394a2aad60f7e6a
 frames	103-107	4394a2aad60f7e6a
 frames	108-108	7a5d0c0dbc46de9b

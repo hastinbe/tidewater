@@ -409,6 +409,7 @@ fn run_hook(c: &mut Core, hook: Hook) {
         EnterSinglePlayer => frontend::enter_single_player,
         EnterNewCampaign => frontend::enter_new_campaign,
         EnterCustomSetup => frontend::enter_custom_setup,
+        EnterMultiplayer => frontend::enter_multiplayer,
         EnterAct => frontend::enter_act,
         EnterBriefing => frontend::enter_briefing,
         EnterScore => frontend::enter_score,
