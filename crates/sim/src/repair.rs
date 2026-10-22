@@ -320,7 +320,10 @@ mod tests {
             assert_eq!(w.units[si].goal_x, 8 - run, "run {run}");
             assert_eq!(100 - w.players[0].gold, run as u32, "run {run} pays");
             assert_eq!(w.units[si].hp, 20 + 4 * run as u16);
-            assert_eq!((w.units[si].ship.dest, w.units[si].tile, w.units[si].order), (dest, tile, Order::Docked));
+            assert_eq!(
+                (w.units[si].ship.dest, w.units[si].tile, w.units[si].order),
+                (dest, tile, Order::Docked)
+            );
         }
         // At 0 the next run leaves 1 and doesn't pay; the one after pays and is back at 0.
         w.repair_order(pi, ship);
