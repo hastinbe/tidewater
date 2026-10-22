@@ -285,15 +285,17 @@ impl World {
 
     /// The command's pull-back (pathfinding spec, "Goal pulled back"): [`pulled_back`] from the unit's tile with the
     /// command's settings. Usable for the pull-back ("Three tile tests"): no terrain or building bit of the unit's
-    /// mask (units are ignored) and, for a unit that doesn't fly, the unit's region: the region of the tile it stands
+    /// mask (ground units are ignored; for an air unit a tile holding another air unit fails, round 103, AP1, V55 and
+    /// V56) and, for a unit that doesn't fly, the unit's region: the region of the tile it stands
     /// on, and the mask of the movement class it has at that moment (a transport that has landed keeps the landing
     /// class; transports spec, "Pulled back from the transport's own area", V46 to V48). With no tile usable the goal
     /// is kept, for transports too (V29).
     pub(crate) fn pull_back(&self, i: usize, g: (i32, i32)) -> (i32, i32) {
         let u = &self.units[i];
-        let mask = Self::movement_class(u) & !(bits::UNIT | bits::AIR_UNIT);
-        let home = self.terrain.region(u.tile.0, u.tile.1);
         let air = u.layer == Layer::Air;
+        let ignored = if air { bits::UNIT } else { bits::UNIT | bits::AIR_UNIT };
+        let mask = Self::movement_class(u) & !ignored;
+        let home = self.terrain.region(u.tile.0, u.tile.1);
         let usable = |t: (i32, i32)| {
             self.terrain.contains(t.0, t.1)
                 && self.terrain.word(t.0, t.1) & mask == 0
@@ -1923,6 +1925,33 @@ mod tests {
             assert_eq!(w.pull_back(i, (5, 4)), (5, 4));
             w.terrain.set_bits(9, 4, bits::OBSTACLE);
             assert_eq!(w.pull_back(i, (10, 4)), (9, 4));
+        }
+
+        /// Pathfinding spec, "Goal pulled back", step 1 (round 103, AP1; V55, V56): for an air unit a tile holding
+        /// another air unit isn't usable, a ground unit's tile is; a goal whose first tested tile is free is kept.
+        #[test]
+        fn an_air_units_pull_back_stops_at_another_air_unit() {
+            let mut w = arena();
+            let flyer = w.spawn(FLYER, 3, (4, 2), 0).unwrap();
+            // V56: the goal holds a flyer, the first tested tile is free: the goal is kept.
+            let at_goal = w.spawn(FLYER, 3, (12, 4), 0).unwrap();
+            put(&mut w, at_goal, (10, 2));
+            let fi = w.index(flyer).unwrap();
+            assert_eq!(w.pull_back(fi, (10, 2)), (10, 2));
+            // V55: the first tested tile holds a flyer too, the next is free: the tile tested before it.
+            let odd = w.spawn(FLYER, 3, (8, 4), 0).unwrap();
+            put(&mut w, odd, (9, 2));
+            let fi = w.index(flyer).unwrap();
+            assert_eq!(w.pull_back(fi, (10, 2)), (9, 2));
+            // A ground unit on the first tested tile doesn't count.
+            let mut w = arena();
+            let flyer = w.spawn(FLYER, 3, (4, 2), 0).unwrap();
+            let at_goal = w.spawn(FLYER, 3, (12, 4), 0).unwrap();
+            put(&mut w, at_goal, (10, 2));
+            let ground = w.spawn(0, 3, (8, 4), 0).unwrap();
+            put(&mut w, ground, (9, 2));
+            let fi = w.index(flyer).unwrap();
+            assert_eq!(w.pull_back(fi, (10, 2)), (10, 2));
         }
 
         /// Coverage: a pending order taking over (untraced region): animation, wait 3, counter kept, the command mark
