@@ -37,6 +37,9 @@
 - **Changes:** 2026-10-21, round 91 (oracle trace, `ERRATA-round91-traces.md`; reviewed by a spec-review session,
   2026-10-21): Q3 closed: a loaded game runs the mission start again from the saved mode (traced for mode AB, G24;
   the other modes by the same rule, static study, `ERRATA-audit-game.md` erratum 2).
+- **Changes:** 2026-10-22, round 99 (`ERRATA-audit2-net.md` erratum 3; reviewed by a spec-review session,
+  2026-10-22): the allied-victory setting's source is the player's own diplomacy command (`game/diplomacy.md`; static
+  study); open question closed. No rule change.
 
 ## Behaviour
 
@@ -160,9 +163,10 @@ Consequences worth testing:
    network game never blocks a victory while its units remain.
 4. If any **computer** player is in, **no result**.
 5. If exactly one human player is in (L), **victory**.
-6. If several human players are in: every one of them must have the allied-victory setting on, and each pair of them
-   must be allied both ways (the test also takes each player paired with itself, which game setup makes allied;
-   `game/setup.md`). Otherwise **no result**. If they are, **victory** for all.
+6. If several human players are in: every one of them must have the allied-victory setting on (each player's own,
+   set by its diplomacy command: `game/diplomacy.md`), and each pair of them must be allied both ways (the test also
+   takes each player paired with itself, which game setup makes allied, `game/setup.md`, and a diplomacy command can
+   clear). Otherwise **no result**. If they are, **victory** for all.
 7. **Victory:** in a **Battle.net game only**, if no slot that wasn't empty at the start has the "dropped" or "defeat"
    result, every such slot, L included, gets the "game ended" result. L's result becomes victory if it has none (so
    after "game ended" it stays "game ended"). In multiplayer there is no victory dialog: L's game ends at once and the
@@ -370,7 +374,9 @@ shipped case is traced).
   for W, 38 for Z) really play this way hasn't been confirmed in play. Default: the literal behaviour. The rescued
   counts are reset between missions: every new game start sets every player's count to 0, before the mission start
   (static study, round 88, X12; a load restores the saved counts).
-- The allied-victory setting's source (assumed: the diplomacy screen's allied-victory box).
+- The allied-victory setting's source: closed in round 99. Each player's setting is set and cleared by its own
+  diplomacy command, in both rule sets (`game/diplomacy.md`; static study, `ERRATA-audit2-net.md` erratum 3). Its
+  start value is open there (default: off).
 - Whether passive and rescue players' units should block destroy-all victory in custom scenarios (they do in the
   program, by the rule above).
 - The mission-start conversions name only the human peasant and knight types. Whether a map gives those players orc

@@ -48,6 +48,10 @@
 - **Changes:** 2026-10-21, round 92 (`ERRATA-round92-traces.md`, item 2a; reviewed by a spec-review session,
   2026-10-21): phase 5 states that map owner codes 0 and 1 are the human and computer kinds (static study, untraced;
   it restates `game/setup.md`, "Other owner codes", and changes no rule).
+- **Changes:** 2026-10-22, round 99 (`ERRATA-audit2-net.md` erratum 2; reviewed by a spec-review session,
+  2026-10-22): Q1 closed: the diplomacy command (now `game/diplomacy.md`) sets the sender's whole set, its own entry
+  included, so a player can leave its own set; Tidewater mirrors it (static study; review ruling). The default "a
+  player is always in its own set" is withdrawn.
 
 ## Behaviour
 
@@ -89,7 +93,8 @@ searches in cycle K + 1.
 - **Human, computer, passive, nobody:** the player kinds of `movement/movement.md`, "Player kinds".
 - **Classic and Enhanced:** the two rule modes of `core/timing-and-rng.md`.
 - **Shared-vision set of player p:** in Enhanced mode, the set of players that p shares its vision with ("Shared
-  vision"). It always starts with p in it. **Classic mode:** only p counts.
+  vision"). It always starts with p in it; only a diplomacy command can take p out (`game/diplomacy.md`). **Classic
+  mode:** only p counts.
 - **Unit (as opposed to building):** a type with any of the flag bits 0–4 (land, air, explode, sea, critter).
 - **Complete:** a building whose construction has finished. Units count as complete.
 - **Tile of a unit:** the tile it has claimed, its top-left tile for a building (as in `movement/movement.md`). The
@@ -369,8 +374,10 @@ changes, and (Enhanced) who detects invisible units and submarines.
 
 - **Game setup** puts each player alone in its own set (`game/setup.md`). **Multiplayer:** in a team game, team-mates
   are added to each other's sets (static study; X10).
-- **The diplomacy command** (multiplayer): in Enhanced mode it sets the sending player's alliance row and its
-  shared-vision set to the values the command carries, in the command turn. **Classic mode:** it changes the
+- **The diplomacy command** (multiplayer; `game/diplomacy.md`): in Enhanced mode it sets the sending player's alliance
+  row and its shared-vision set to the values the command carries, in the command turn. The set is written whole,
+  the sender's own entry included, so a command can take the sender out of its own set (a mirrored quirk; static
+  study, round 99). **Classic mode:** it changes the
   alliances only; shared vision never changes during play (static study; X10).
 - **A player who leaves a network game** is removed from every set, and its own set becomes just itself: in a
   chat-room game (Direct Connect, modem, IPX; Tidewater's Direct IP and Local Network) when its leave is carried out
@@ -378,8 +385,9 @@ changes, and (Enhanced) who detects invisible units and submarines.
   leave is carried out or the victory check finds it out (`net/leave-and-drop.md`, `game/victory.md`; static study,
   rounds 87 and 89; X10). A player defeated in a chat-room game keeps its sets (DECISIONS.md, 2026-10-21).
 
-Nothing else changes the sets. A set is used as it is; whether one can lose its own player through the diplomacy
-command is open (Q1).
+Nothing else changes the sets. A set is used as it is, also when it doesn't hold its own player (after a diplomacy
+command; `game/diplomacy.md`, "A player outside its own set"): nothing puts the player back until another diplomacy
+command or a leave changes the set.
 
 **Evidence:** static study.
 
@@ -621,9 +629,9 @@ have it (F40).
 - **Q4 (B-040 vision audit, erratum 8):** closed in round 91: demo playback starts with the visible map and the
   "seen" bits clear, and the first start-up cycle's refresh fogs both, because the fog option is on in the demo
   (traced, F47).
-- **Q1 (from round 87):** whether a player can drop itself from its own shared-vision set through the diplomacy
-  command (the command carries the whole set). The implementation keeps the player in its own set. Default: the
-  player is always in its own set.
+- **Q1 (from round 87):** closed in round 99: a player **can** drop itself from its own shared-vision set through the
+  diplomacy command, which writes the whole set (static study, `ERRATA-audit2-net.md` erratum 2). Tidewater mirrors
+  it (`game/diplomacy.md`); whether the original's diplomacy screen can send such a set is open there.
 - The marker that keeps a building drawn on the minimap after it was seen is the building's remembered look in
   `ui/map-drawing.md`, set whenever the building isn't hidden from the local player. Whether that also happens while
   the building is off the map view is open there.

@@ -86,6 +86,9 @@
   number the job recorded, not at the site (W1, static study); a no-depot town hall job is recorded as a build-list job
   (W2, static study; trace job bit 16). The build-list job's goal tile write and the recorded type numbers are traced.
   The clear's edge rule is stated (open question closed).
+- **Changes:** 2026-10-22, round 99 (oracle trace, `ERRATA-round99-traces.md`; reviewed by a spec-review session,
+  2026-10-22): the no-depot town hall (step 5) is traced: job bit 16, payment at once, cooldown 10 and its fall by 1 per
+  try (W2 vector traced, a second traced vector). No rule change.
 
 ## Behaviour
 
@@ -176,7 +179,8 @@ as for a player's command (`orders/orders.md`, "Commands"); the unit plans a new
      given, the player pays at once, the hall cooldown becomes **10**, and the site is marked keep-clear with the
      border, whichever of the two searches found it (round 85; static vector, erratum 11). The worker's job is
      recorded as a **build-list** job (the trace's job bit 16, `oracle/trace-format.md`, "Computer worker jobs"), not
-     as the farm job; its release is the same, so play doesn't change (static study, round 98, W2).
+     as the farm job; its release is the same, so play doesn't change (round 98, W2; traced, round 99: the job bit,
+     the payment at once and the cooldown of 10, then 1 down per try, vectors below).
    - If no hall was started: when not carrying, **repair**, then **harvest**, then **wait** (below), the first that
      gives a job. When carrying, **wait**.
 6. **Depot found, not carrying:** the first of these that gives a job:
@@ -682,7 +686,8 @@ An entry is marked done at the start of a game when either bit of its code is se
 | --- | --- |
 | A computer peon with a farm job for a site at (20, 30), keep-clear marked on (20, 30) to (21, 31), walking to it; its goal tile is (20, 30). It releases the job at its next choice (static study, W1) | The mark is cleared on (20, 30) to (21, 31), as before |
 | The same peon, but before the release the all-out attack sets its goal tile to (60, 10) and gives it command 4 (static study, W1) | The release clears (60, 10) to (61, 11), whatever marks are there; (20, 30) to (21, 31) stay marked. Pig farms in progress −1 |
-| A computer peasant with no depot in its region, hall cooldown 0, no town hall in progress, enough gold and lumber, a site found (static study, W2) | Build command for a town hall; `aiworkers` `jobs` shows job 16 for it; town halls in progress +1; hall cooldown 10 |
+| A computer peasant with no depot in its region, hall cooldown 0, no town hall in progress, enough gold and lumber, a site found (W2; traced: `mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400`, generated map `R99-tests.pud`, player 3 with two peasants, a gold mine, no hall, 2000 gold and 1000 lumber) | Build command for a town hall; `aiworkers` `jobs` shows job 16 for it; town halls in progress +1; hall cooldown 10. Traced at n = 2 (a start-up record): peasant 1583 `jobs` `[16, 0]`, `building` `"3:0x4a"` 1, `hall_cooldown` 10, gold 2000 → 800 and lumber 1000 → 200 (paid at once); its AI goal tile (52, 20), extra 0x4A. The hall's site appears at (52, 20) at n = 181 |
+| The same trace, player 3's other peasant 1584, not carrying, no depot, at each of its job choices while the cooldown runs | Cooldown 10 → 9 at n = 6, then one down per choice (n = 59, 110, 171, 230, 283, 338, 400, 456, 517: 8 … 0); no hall is tried; no repair or harvest job, so it waits (wait 49 at n = 6, 47 at n = 59, 57 at n = 110, each within 44 to 59). From n = 181 a hall is in progress too; once the cooldown is 0 no second hall is started (none to n = 5400) |
 | `xhuman12-xhuman12-picker-flip-aigoals-1700` (oracle trace, Enhanced): orc peon 1487 (player 0) takes a build-list job at n = 2 | `ai_goal` tile (86, 34), `extra` 76 (the human lumber mill's number); troll lumber mill (77) at (86, 34) at n = 117 |
 
 ## Open questions

@@ -11,6 +11,9 @@
   2026-10-22): trace request MP-L5b's typing step answered: in an Enhanced game `allowsync` typed as a chat line is
   plain chat, carried out as a command in a turn, and a generator difference still drops the player (traced). The
   `allowsync` mode stays untraced.
+- **Changes:** 2026-10-22, round 99 (`ERRATA-audit2-net.md`; reviewed by a spec-review session, 2026-10-22): the
+  diplomacy command is specified in `game/diplomacy.md` (static study), and Tidewater's digest names the shared-vision
+  sets and allied-victory settings explicitly (player state; a design choice, not the original's check).
 - **Sources:** static study of the 2.02 program for both network layers (research notes under `research/notes/`), the
   dialog files `rez\timeout.bin`, `rez\btimeout.bin` and `NetDlg.bin`, and the tables `Rez\connect.tbl` and
   `Rez\network.tbl`. One oracle run confirms the turn spacing of an Enhanced Direct Connect game at speed 8
@@ -219,7 +222,8 @@ game can't mix. A Classic mode session start seeds the generator with 0.
 
 **Tidewater: a design choice, not the original's behaviour (DECISIONS.md, 2026-10-21).** Each turn's check compares
 a digest of the whole lockstep state: the generator, the cycle counter, every unit, every player, the alliance table,
-the "seen" map and every unit's hidden-from and detected-by sets (`vision/fog.md`). That is wider than the original's
+the shared-vision sets and allied-victory settings (`game/diplomacy.md`), the "seen" map and every unit's hidden-from
+and detected-by sets (`vision/fog.md`). That is wider than the original's
 default check, which catches a generator difference but not a "seen"-map difference (traced, above). In Tidewater
 any divergence is a bug, so it is caught as early as the turn structure allows. The digest covers only state that
 every machine computes the same way, never per-machine state (the explored and visible maps, the local player, the
@@ -259,7 +263,7 @@ Every turn command is carried out at the same point. Besides unit commands, a tu
 | Pause, resume | `ui/game-menu.md` |
 | Speed (Classic mode and single player) | See "Speed" |
 | Cheat | `game/cheats.md` |
-| Diplomacy (alliance) changes | No spec yet (`GAPS.md`) |
+| Diplomacy: a player's alliances, shared vision and allied victory | `game/diplomacy.md` (static study). Tidewater sends it as one more command kind of its own wire protocol |
 | Drop and leave notices | Network entries 63 to 65 (`net/leave-and-drop.md`) |
 | Sync-error report (`allowsync` mode) | Network entry 83 |
 | Latency change (Battle.net only) | Network entries 106 to 108 |

@@ -23,6 +23,9 @@
   spec-review session, 2026-10-22): the mage's invisibility try (try 5) takes an allied unit with flag bit 17 or an
   attack range **other than 1** (was "of 1"); the two invisibility vectors are replaced by three. The other 21 caster
   target tests were re-read and match.
+- **Changes:** 2026-10-22, round 99 (oracle trace, `ERRATA-round99-traces.md`; reviewed by a spec-review session,
+  2026-10-22): try 5's target test is traced (the archer taken, the footman skipped); a traced vector added. No rule
+  change.
 
 ## Behaviour
 
@@ -165,8 +168,8 @@ Try 1 has no mark. In try 4 the mark goes on the last unit drawn.
 Try 2 casts a unit spell at a tile with no unit (random search), so the cast fails as `spells/spells.md` describes
 for a unit spell without a target. Try 5's mark is the unholy-armour timer, not the invisibility timer.
 
-Try 5 makes **ranged units and casters** invisible, not melee units (round 97; static study, read from the program's
-bytes; no trace has a computer player's invisibility cast). In the default unit data the allied units it can take are
+Try 5 makes **ranged units and casters** invisible, not melee units (round 97, static study; traced, round 99: a
+computer mage between an own footman and an own archer, both 2 tiles away, takes the archer; vector below). In the default unit data the allied units it can take are
 archers, axe throwers, rangers and berserkers (range 4), ballistas and catapults (8), mages (2) and death knights (3), paladins and
 ogre-mages (range 1, but flag bit 17), gryphon riders and dragons (4), and the ships with a range other than 1
 (destroyers, battleships, submarines and their orc versions); footmen, grunts, knights, ogres, workers, demolition
@@ -245,6 +248,7 @@ every spell. "Draws" counts the caster step's draws only.
 | Mage with 200 mana and goal kind attack; an own knight (range 1, no bit 17) is the only allied unit in the box, nothing earlier succeeds | Try 5 fails (round 97: the earlier "invisibility at the knight" was wrong); tries 6 to 9 follow |
 | Same, with an own archer (range 4) in the box | Invisibility command at the archer; the archer's unholy-armour timer becomes 1, so hits on it in this cycle do nothing |
 | Same, the only allied unit in the box is an own demolition squad (range 1, no bit 17) | Try 5 fails: the squad isn't made invisible (in the default data try 5 never targets a demolition unit) |
+| `mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400` (oracle trace, Enhanced, generated map `R99-tests.pud`, `oracle/test-maps.md`): computer player 2 knows invisibility only. Its held mage 1589 at (12, 44), its footman 1590 at (12, 42) (range 1, no bit 17; on the row above, which the nearby scan reaches first) and its archer 1588 at (12, 46) (range 4). At n = 5079 its scout tower dies, the losses rule starts the all-out attack and all three get AI goal kind 2 (attack), tile (7, 18) | n = 5101: the mage (212 mana) takes archer 1588 as its target; n = 5103: order 45 (invisibility) on 1588; n = 5117: mana 12 (200 spent). The footman is never its target. (The unholy-armour mark isn't in the trace.) No cast before n = 5079, while the three were held with goal kind 1, though the mage had 200 mana from about n = 4600 |
 | Mage, 80 mana; the enemy search's nearest enemy is a grunt; an enemy farm is further away | Try 6 tests only the grunt: not a building, so nothing. Try 7 and 8 follow |
 | Mage, 80 mana; nearest enemy is a farm with no own unit within 3 of its top-left tile | Blizzard at the farm's tile, no target unit |
 | Mage, 70 mana, same farm | Try 6 skipped (below 75) |

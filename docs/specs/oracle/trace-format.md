@@ -55,6 +55,9 @@
   session, 2026-10-22), still version 2: the research extras' fields are described ("Research extras"), the `game`
   extra's result codes included; a comparer still ignores them. The `goal` row adds a repaired transport's x (traced,
   `economy/repair.md` RP8). A town hall started by a computer worker's no-depot step carries job bit 16, not 8.
+- **Changes:** 2026-10-22, round 99 (`ERRATA-round99-traces.md`; reviewed by a spec-review session, 2026-10-22), still
+  version 2: the no-depot town hall's job bit 16 is traced; the header's `map` may name a generated test map
+  (`oracle/test-maps.md`).
 
 ## Behaviour
 
@@ -136,7 +139,7 @@ The setup record is the same as a complete capture's of the same scenario.
 | `input` | The scenario's entries as given to the harness, in file order; an empty list when there is no input (a few early traces have no `input` field: read it as empty). Each entry has `n` (see "When a command runs"), `player` (always the local player) and `kind`. A command entry has the fields of its kind as in "Commands", except that a `command` entry may leave out `tile` (the target unit's tile is then used), and a `cheat` entry has `add` instead of `cheats` ("Cheat commands"). The other kinds, `save`, `load`, `say`, `fog` ("Saves, loads, cheat words and fog") and `peer` ("The second human"), aren't commands: they are things the harness does. Entries after a `load` count `n` from the loaded game, so the list ascends up to each `load` and starts again after it |
 | `launch_path` | Multiplayer launch only: `"multiplayer"`. Absent from campaign traces: a missing field means a campaign start ("Multiplayer launch") |
 | `connection` | Multiplayer launch only: `"direct-connect"`, the game's two-player serial connection |
-| `map` | Multiplayer launch only: the scenario file name from the game's `Maps/` folder, for example `"Dark Paths BNE.pud"` |
+| `map` | Multiplayer launch only: the scenario file name from the game's `Maps/` folder, for example `"Dark Paths BNE.pud"`. A name of the form `R<round>-<name>.pud` (for example `"R99-tests.pud"`) is a generated test map, not one of the game's maps: its whole content is in `oracle/test-maps.md`, and a comparer builds it from there |
 | `start_seed` | Multiplayer launch only: the lobby's start seed, 0 to 255, fixed by the harness ("Start seed") |
 | `humans` | Multiplayer launch only: human players in the lobby, 2: the traced player (`local_player`) and the second human, which acts only when the harness acts on its display ("The second human") |
 | `opponents` | Multiplayer launch only: the number of lobby rows set to Computer, 0 to 6. It is the count the opponent placement works from (`game/setup.md`, "Multiplayer game"), so with random starts the setup makes 1 + `opponents` placement draws when it is at least 1 (none when 0), even if a placement search fails and fewer computers are placed. Traces made before round 60 (2026-10-13) don't have it; for those, count the computer controllers after setup |
@@ -439,7 +442,8 @@ near it (`game/save-load.md`, SL22 to SL25, SL31, SL32).
 
 `job` is the sum of the unit's job bits: 1 mining gold, 2 cutting lumber, 8 building a farm (`ai/worker-ai.md`,
 "Farm"), 16 building a build-list entry ("Build list") or a town hall started by the no-depot step ("Worker: the
-steps, in order", step 5; static study, round 98: no trace has that job yet), 32 repairing.
+steps, in order", step 5; traced, round 99: `mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400`
+n = 2, `[16, 0]`), 32 repairing.
 `mode` is the worker's harvest mode: 128 gold, 64 lumber, 0 neither yet. Values the game keeps next to these that no
 spec defines are left out.
 
