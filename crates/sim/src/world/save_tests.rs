@@ -88,6 +88,54 @@ fn the_cooldown_and_the_kept_and_forgotten_targets_come_back() {
     assert_eq!(b.units, a.units);
 }
 
+/// SL28 to SL30: a load clears every dead body's target (type 0x69, any decay stage and owner, wrecks included) and
+/// no other unit's; a body keeps its target during play.
+#[test]
+fn a_load_clears_a_dead_bodys_target_and_no_other() {
+    let mut a = battle();
+    // A body in its remains stage (owner 1), another in its remove order (neutral), a dying unit and a dead unit that
+    // leaves no remains (still its own type), and a live unit aiming at a body.
+    for (i, owner, removing) in [(0usize, 1u8, false), (1, 15, true)] {
+        let u = &mut a.units[i];
+        u.kind = crate::corpses::DEAD_BODY;
+        u.owner = owner;
+        u.dying = true;
+        u.remains = !removing;
+        u.removing = removing;
+        u.dying_target = Some(5);
+    }
+    a.units[2].dying = true;
+    a.units[2].dying_target = Some(6);
+    a.units[3].removing = true;
+    a.units[3].owner = 15;
+    a.units[3].dying = true;
+    a.units[3].dying_target = Some(7);
+    a.units[4].order = Order::Attack { target: UnitId(1) };
+    let live_target = a.units[4].recorded_target();
+    assert!(live_target.is_some());
+    // During play the bodies keep reporting their targets.
+    run(&mut a, 1);
+    assert_eq!((a.units[0].dying_target, a.units[1].dying_target), (Some(5), Some(5)));
+    let mut b = field(16, 16);
+    b.restore(&a.save_state(), 1).unwrap();
+    assert_eq!(
+        (b.units[0].dying_target, b.units[1].dying_target),
+        (None, None),
+        "SL28, SL29"
+    );
+    assert_eq!(b.units[2].dying_target, Some(6), "SL30: a dying unit keeps its target");
+    assert_eq!(
+        b.units[3].dying_target,
+        Some(7),
+        "SL28: a dead unit with no remains keeps its target"
+    );
+    assert_eq!(
+        b.units[4].recorded_target(),
+        live_target,
+        "a live unit aiming at a body keeps it"
+    );
+}
+
 #[test]
 fn the_generator_starts_afresh_from_the_seed() {
     let mut a = battle();

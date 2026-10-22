@@ -257,6 +257,7 @@ impl World {
     /// - every research request is clear and each computer player's done marks are made again, with the load's
     ///   building marks (SL9 to SL12);
     /// - the frozen and about-to-freeze marks of workers are cleared (static study, a labelled gap-fill);
+    /// - every dead body's target is cleared, and no other unit's (SL28 to SL30);
     /// - every unit's creation number is its slot number plus one, and the next unit created gets the unit-slot count
     ///   plus 26: 1626 in Enhanced (SL7; the Classic value 626 is the spec's gap-fill).
     fn starts_afresh(&mut self) {
@@ -297,8 +298,19 @@ impl World {
         for u in &mut self.units {
             u.serial = super::Serial(u.slot as u32 + 1);
             u.freeze = Default::default();
+            // A dead body (type 0x69: a unit's remains or a ship wreck, any decay stage, any owner) has no target after
+            // a load, whatever it had at the save; every other unit keeps its target, a dying one included
+            // (`game/save-load.md` SL28 to SL30). During play a body still keeps its target.
+            if u.kind == crate::corpses::DEAD_BODY {
+                u.dying_target = None;
+            }
         }
         self.next_serial = self.slots.count() as u32 + 26;
+        // The owner lists are built again from scratch: every list is in descending slot order (`core/unit-slots.md`,
+        // "Saved games").
+        self.slots.rebuild_descending();
+        // The vertical list is built again too, unit by unit in slot order (`orders/orders.md`, "Vertical order").
+        self.rebuild_vertical();
     }
 }
 

@@ -87,6 +87,15 @@ impl Slots {
         self.lists[to as usize & 15].push_front(slot);
     }
 
+    /// After a load the lists are built again by walking slots 0 to N - 1 and adding each to the front of its owner's
+    /// list, so every list, the free list included, is in descending slot order whatever order it had at the save
+    /// (`core/unit-slots.md`, "Saved games").
+    pub fn rebuild_descending(&mut self) {
+        for l in &mut self.lists {
+            l.make_contiguous().sort_unstable_by(|a, b| b.cmp(a));
+        }
+    }
+
     fn unlink(&mut self, slot: u16, owner: u8) {
         let l = &mut self.lists[owner as usize & 15];
         if let Some(i) = l.iter().position(|&s| s == slot) {
@@ -98,6 +107,22 @@ impl Slots {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_load_puts_every_list_in_descending_slot_order() {
+        let mut s = Slots::new(CLASSIC_SLOTS);
+        let (a, b, c) = (s.take(0).unwrap(), s.take(0).unwrap(), s.take(1).unwrap());
+        s.release(b, 0);
+        let d = s.take(0).unwrap();
+        s.change_owner(a, 0, 1);
+        s.release(c, 1);
+        s.release(a, 1);
+        s.release(d, 0);
+        assert_eq!(s.list(FREE).take(3).collect::<Vec<_>>(), [d, a, c], "598, 599, 597");
+        s.rebuild_descending();
+        assert_eq!(s.list(FREE).take(3).collect::<Vec<_>>(), [599, 598, 597]);
+        assert_eq!(s.take(0), Ok(599));
+    }
 
     #[test]
     fn creation_takes_slots_from_the_top_and_reuses_the_last_released() {

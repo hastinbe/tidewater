@@ -1692,6 +1692,23 @@ impl World {
         self.ylist.insert(at, id);
     }
 
+    /// A saved game's load puts every unit into the list again, one by one in slot order, each before any unit with
+    /// the same pixel y ("Vertical order": "or when a saved game is loaded"). The list is then exactly sorted, and
+    /// units of one pixel y stand in descending slot order, whatever the quirk of the once-per-cycle sort had left.
+    pub(crate) fn rebuild_vertical(&mut self) {
+        let mut ids: Vec<(u16, UnitId)> = self
+            .ylist
+            .drain(..)
+            .filter_map(|id| self.units.iter().find(|u| u.id == id).map(|u| (u.slot, id)))
+            .collect();
+        ids.sort_unstable();
+        for (_, id) in ids {
+            if let Some(y) = self.unit(id).map(|u| self.sort_y(u)) {
+                self.insert_vertical(id, y);
+            }
+        }
+    }
+
     /// The pixel y a unit sorts by ("Vertical order"): dying, dead and removed units (remains and
     /// the remove order keep the dying state) sort at −32768. A unit inside something keeps its place: its pixel y
     /// doesn't change while it is inside, and coming out doesn't re-insert it, so it moves only by the sort.
