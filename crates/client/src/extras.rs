@@ -30,10 +30,11 @@ pub enum Id {
     VolumeEffects,
     VolumeMusic,
     Scaling,
+    RallyPoints,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 9;
+pub const COUNT: usize = 10;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +154,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 0,
         scope: Scope::Client,
         description: "How the picture fits the window: only whole-number scales, or any size drawn sharp bilinear (touch platforms always use sharp)",
+    },
+    Spec {
+        id: Id::RallyPoints,
+        name: "rally-points",
+        kind: Kind::Flag,
+        default: 0,
+        scope: Scope::Sim,
+        description: "Right-click with a training building selected to set a rally point: the units it trains go there",
     },
 ];
 
@@ -300,7 +309,10 @@ impl ClientExtras {
     /// The options that change the simulation, as a new local game starts with them (`tidewater_sim::Extras`). Each
     /// sim option has a registry row of scope [`Scope::Sim`] and is read here.
     pub fn sim(&self) -> tidewater_sim::Extras {
-        tidewater_sim::Extras::default()
+        tidewater_sim::Extras {
+            rally_points: self.get(Id::RallyPoints) != 0,
+            ..tidewater_sim::Extras::default()
+        }
     }
 
     pub fn game_clock(&self) -> ClockMode {
@@ -545,6 +557,22 @@ mod tests {
         assert_eq!(e.game_clock(), ClockMode::Off);
         // A volume's "off" leaves the sound alone.
         assert_eq!(e.trims(), crate::audio::Trims::default());
+    }
+
+    #[test]
+    fn rally_points_are_off_by_default_and_the_flag_turns_them_on() {
+        let mut e = ClientExtras::default();
+        assert!(e.sim().is_default());
+        Args::parse_from(["tidewater", "--extra-rally-points"])
+            .extras
+            .apply(&mut e);
+        assert!(e.sim().rally_points);
+        assert_eq!(local_sim_extras(&e), e.sim());
+        assert_eq!(Id::RallyPoints.spec().scope_mark(), "S");
+        Args::parse_from(["tidewater", "--no-extra-rally-points"])
+            .extras
+            .apply(&mut e);
+        assert!(e.sim().is_default());
     }
 
     #[test]

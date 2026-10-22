@@ -821,6 +821,14 @@ pub enum Command {
     Resume {
         player: u8,
     },
+    /// Optional improvement (`rally.rs`): sets the rally point of the player's training building `building` to `target`
+    /// (or `tile`); a target equal to the building clears it. Does nothing unless rally points are on.
+    Rally {
+        player: u8,
+        building: UnitId,
+        target: Option<UnitId>,
+        tile: (i32, i32),
+    },
 }
 
 impl Command {
@@ -860,7 +868,8 @@ impl Command {
             | Command::Surrender { player }
             | Command::QuitDraw { player }
             | Command::Leave { player, .. }
-            | Command::Resume { player } => player,
+            | Command::Resume { player }
+            | Command::Rally { player, .. } => player,
         }
     }
 
@@ -1552,6 +1561,7 @@ impl World {
         self.flash_pass();
         self.victory_phase();
         self.prune_selections();
+        self.prune_rally();
         let gone: Vec<UnitId> = self
             .units
             .iter()
@@ -1677,6 +1687,12 @@ impl World {
             &Command::Surrender { player } | &Command::QuitDraw { player } => return self.surrender_command(player),
             &Command::Leave { player, .. } => return self.leave_command(player),
             Command::Resume { .. } => return,
+            &Command::Rally {
+                player,
+                building,
+                target,
+                tile,
+            } => return self.rally_command(player, building, target, tile),
             &Command::UnloadOne { player, unit, slot } => return self.unload_one_command(player, unit, slot),
         };
         for &id in units {

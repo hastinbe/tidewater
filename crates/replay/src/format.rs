@@ -305,6 +305,31 @@ mod tests {
     }
 
     #[test]
+    fn a_replay_with_the_optional_improvements_on_round_trips() {
+        let mut h = header();
+        h.rules.extras = Extras {
+            rally_points: true,
+            production_queue: true,
+            selection_limit: 18,
+            extra_speeds: 2,
+        };
+        let mut r = Replay::new(h);
+        r.record(
+            4,
+            &[Command::Rally {
+                player: 0,
+                building: tidewater_sim::UnitId(3),
+                target: None,
+                tile: (7, 8),
+            }],
+        );
+        let back = Replay::decode(&r.encode()).unwrap();
+        assert_eq!(back, r);
+        assert!(!back.header.rules.extras.is_default());
+        assert!(back.header.rules.to_string().contains("extras"));
+    }
+
+    #[test]
     fn the_file_starts_with_the_marker_and_the_version() {
         let b = sample().encode();
         assert_eq!(&b[..8], b"TWREPLAY");

@@ -597,7 +597,10 @@ impl World {
                     .ok_or(SpawnError::CantPlace)
                     .and_then(|t| self.spawn(k, u.owner, t, 0));
                 match placed {
-                    Ok(id) => self.ready_sound(id, u.tile),
+                    Ok(id) => {
+                        self.ready_sound(id, u.tile);
+                        self.send_to_rally(u.id, id);
+                    }
                     Err(_) => {
                         self.refund(u.owner, self.job_cost(job.kind));
                         self.tell(Event::NoRoom {

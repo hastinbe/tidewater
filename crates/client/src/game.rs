@@ -1700,6 +1700,22 @@ fn right_click(
         let sends = mouse::right_click_sends(b, &sel.units, target.map(|t| t.0), sim.world.paused);
         (target, sends)
     });
+    // Rally points (option `rally-points`): with a training building selected, a right-click sets its rally point.
+    if sel.units.first().is_some_and(|&b| sim.world.can_rally(human, b)) {
+        if !sim.world.paused {
+            for &b in sel.units.iter().filter(|&&b| sim.world.can_rally(human, b)) {
+                sim.pending.push(Command::Rally {
+                    player: human,
+                    building: b,
+                    target: target.map(|t| t.0),
+                    tile,
+                });
+            }
+            let mark = mark_spot(at, tile, 8);
+            feedback(sim, sel, target, mark);
+        }
+        return;
+    }
     if !sends {
         return;
     }

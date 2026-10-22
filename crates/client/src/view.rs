@@ -615,6 +615,30 @@ pub struct Bar {
     pub colour: u8,
 }
 
+/// A rally-point flag (option `rally-points`) of a selected training building: the map pixel of the foot of its pole
+/// and the pennant's colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RallyFlag {
+    pub at: (i32, i32),
+    pub colour: u8,
+}
+
+/// The pole's height and the pennant's size, in pixels.
+pub const FLAG_POLE: i32 = 14;
+pub const FLAG_PENNANT: i32 = 6;
+
+/// Draws a rally flag: a one-pixel pole in the drag colour and a triangular pennant at its top.
+pub fn draw_flag(canvas: &mut Canvas, f: &RallyFlag) {
+    for y in 0..=FLAG_POLE {
+        canvas.put(f.at.0, f.at.1 - y, DRAG);
+    }
+    for row in 0..FLAG_PENNANT {
+        for x in 1..=(FLAG_PENNANT + 1 - row) {
+            canvas.put(f.at.0 + x, f.at.1 - FLAG_POLE + row, f.colour);
+        }
+    }
+}
+
 /// Draws a health bar: the filled part, then the empty part, [`overlay::BAR_HEIGHT`] rows high.
 pub fn draw_bar(canvas: &mut Canvas, b: &Bar) {
     for row in 0..overlay::BAR_HEIGHT {
@@ -639,6 +663,8 @@ pub struct ViewFrame {
     pub effects: Vec<Op>,
     /// The optional health bars (`overlay`), over the units and effects; empty unless the option is on.
     pub bars: Vec<Bar>,
+    /// The rally flags of the selected training buildings, over the fog; empty unless the option is on.
+    pub flags: Vec<RallyFlag>,
     /// Layer 6: per map tile the visible and explored codes (row by row, `fog.0` tiles wide); `None` with the
     /// reveal-map cheat.
     pub fog: Option<(usize, Vec<(u8, u8)>)>,
@@ -686,6 +712,9 @@ pub fn draw(canvas: &mut Canvas, f: &ViewFrame, art: &Art, shapes: &fog::Shapes)
     }
     if let Some((width, codes)) = &f.fog {
         fog::draw(canvas, *width, codes, shapes);
+    }
+    for flag in &f.flags {
+        draw_flag(canvas, flag);
     }
     if let Some(op) = &f.marker {
         run(canvas, op);
@@ -953,6 +982,23 @@ pub fn frame(world: &World, art: &Art, view: &Canvas, local: &Local) -> (ViewFra
             .collect();
         f.fog = Some((v.width, codes));
     }
+    // The rally flags of the selected buildings (option `rally-points`), at the tile or on the unit they were set on.
+    if world.rules.extras.rally_points {
+        for &id in local.selected {
+            let Some(r) = world.rally_point(id) else { continue };
+            let spot = r
+                .target
+                .and_then(|t| world.unit(t))
+                .map_or((r.tile.0 * 32 + 16, r.tile.1 * 32 + 24), |t| {
+                    let c = centre(t);
+                    (c.0, c.1 + 8)
+                });
+            f.flags.push(RallyFlag {
+                at: spot,
+                colour: base_of(world, world.unit(id).map_or(0, |u| u.owner)),
+            });
+        }
+    }
     // Layers 8 and 9.
     f.marker = local.marker.and_then(|mk| marker_op(art, mk));
     f.drag = local.drag;
@@ -1007,6 +1053,24 @@ mod tests {
         }
         assert_eq!(c.at(2, 3), Some(CLEAR));
         assert_eq!(c.at(2, 7), Some(CLEAR));
+    }
+
+    #[test]
+    fn a_rally_flag_is_a_pole_with_a_pennant() {
+        let mut c = Canvas::new(0, 0, 30, 30);
+        draw_flag(
+            &mut c,
+            &RallyFlag {
+                at: (5, 25),
+                colour: 77,
+            },
+        );
+        assert_eq!(c.at(5, 25), Some(DRAG as u16));
+        assert_eq!(c.at(5, 25 - FLAG_POLE), Some(DRAG as u16));
+        assert_eq!(c.at(5, 25 - FLAG_POLE - 1), Some(CLEAR));
+        assert_eq!(c.at(6, 25 - FLAG_POLE), Some(77));
+        assert_eq!(c.at(6 + FLAG_PENNANT, 25 - FLAG_POLE), Some(77));
+        assert_eq!(c.at(8, 25 - FLAG_POLE + FLAG_PENNANT), Some(CLEAR), "below the pennant");
     }
 
     #[test]

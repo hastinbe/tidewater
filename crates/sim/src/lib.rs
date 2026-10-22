@@ -28,6 +28,7 @@ mod movement;
 mod orders;
 pub mod path;
 pub mod placement;
+mod rally;
 mod repair;
 pub mod rescue;
 pub mod rng;

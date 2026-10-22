@@ -242,6 +242,7 @@ impl World {
             | Command::Surrender { .. }
             | Command::QuitDraw { .. }
             | Command::Leave { .. }
+            | Command::Rally { .. }
             | Command::UnloadOne { .. } => return None,
         };
         // Our own choice (module doc): every other command clears the remembered order.

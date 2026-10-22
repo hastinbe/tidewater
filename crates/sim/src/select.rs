@@ -436,7 +436,7 @@ impl World {
     }
 
     /// Gives one unit command `command` with its target and aimed tile (orders spec, "Commands").
-    fn give_command(&mut self, i: usize, command: u8, target: Option<UnitId>, tile: (i32, i32)) {
+    pub(crate) fn give_command(&mut self, i: usize, command: u8, target: Option<UnitId>, tile: (i32, i32)) {
         let u = &self.units[i];
         if u.dying || u.building || self.stride_of(u.kind) == 0 {
             return;
