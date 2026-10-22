@@ -112,6 +112,8 @@ pub struct InfoView<'a> {
     pub content: Option<&'a crate::info::Content>,
     /// The local player, whose colour the production icon takes.
     pub local: u8,
+    /// How many selected units the nine icons do not show (option `selection-limit`): drawn as "+N" on the last icon.
+    pub more: usize,
 }
 
 /// The changing state the interface shows.
@@ -743,6 +745,15 @@ impl HudArt {
             let (filled, c) = info::health_bar(s.hp, s.max_hp);
             fill(pic, Rect::new(r.x + 2, r.y + 46, 50, 5), self.colour(99));
             fill(pic, Rect::new(r.x + 2, r.y + 46, filled, 5), self.colour(c));
+        }
+        if v.more > 0 {
+            // Option `selection-limit`: "+N" in the corner of the last icon for the units without an icon of their own.
+            let label = format!("+{}", v.more);
+            let r = at(info::slot_rect(info::SLOTS - 1));
+            let w = self.font.width(label.as_bytes());
+            let (x, y) = (r.x + r.w as i32 - w as i32 - 4, r.y + 28);
+            fill(pic, Rect::new(x - 2, y - 1, w + 4, 14), [24, 24, 24]);
+            text(pic, &self.font, x, y, &label);
         }
         let Some(c) = v.content else { return };
         let font = &self.font;

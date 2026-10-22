@@ -32,10 +32,11 @@ pub enum Id {
     Scaling,
     RallyPoints,
     ProductionQueue,
+    SelectionLimit,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 11;
+pub const COUNT: usize = 12;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +82,9 @@ pub const CLOCK_MODES: &[&str] = &["off", "clock", "clock-apm"];
 
 /// The picture scaling modes (option `scaling`).
 pub const SCALING_MODES: &[&str] = &["integer", "sharp"];
+
+/// The selection limits (option `selection-limit`): the original nine, 12, 18, or no limit.
+pub const SELECTION_LIMITS: &[&str] = &["9", "12", "18", "unlimited"];
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -171,6 +175,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 0,
         scope: Scope::Sim,
         description: "Buildings queue up to five jobs, paid when queued; Cancel removes the last",
+    },
+    Spec {
+        id: Id::SelectionLimit,
+        name: "selection-limit",
+        kind: Kind::Choice(SELECTION_LIMITS),
+        default: 0,
+        scope: Scope::Sim,
+        description: "How many units you can select and command at once: nine as in the original, 12, 18 or no limit",
     },
 ];
 
@@ -321,6 +333,12 @@ impl ClientExtras {
         tidewater_sim::Extras {
             rally_points: self.get(Id::RallyPoints) != 0,
             production_queue: self.get(Id::ProductionQueue) != 0,
+            selection_limit: match self.get(Id::SelectionLimit) {
+                1 => 12,
+                2 => 18,
+                3 => tidewater_sim::extras::UNLIMITED,
+                _ => 0,
+            },
             ..tidewater_sim::Extras::default()
         }
     }

@@ -737,7 +737,8 @@ pub enum Command {
         target: Option<UnitId>,
         tile: (i32, i32),
     },
-    /// Replaces the player's synced selection with up to 9 units (selecting-and-commanding spec, "Two selections").
+    /// Replaces the player's synced selection with up to 9 units (selecting-and-commanding spec, "Two selections"), or
+    /// up to the limit of the optional `selection-limit` improvement.
     Select {
         player: u8,
         units: Vec<UnitId>,

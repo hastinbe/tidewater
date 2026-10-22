@@ -204,6 +204,9 @@ pub fn frame(one: Option<&Subject>) -> u8 {
 /// The grid's slots: which unit each shows.
 pub type Slots = [Option<UnitId>; 9];
 
+/// How many icons the grid has.
+pub const SLOTS: usize = 9;
+
 /// The two-pass slot assignment (spec "What the panel shows"): units already in a slot keep it, the rest take the
 /// lowest empty slots. One unit always moves to slot 0. Units past nine get no slot.
 pub fn assign(prev: &Slots, sel: &[UnitId]) -> Slots {

@@ -2268,7 +2268,11 @@ pub(crate) fn update_info(c: &mut Core) {
     let rebuild = sel.units != panel.built_for;
     if rebuild {
         let slots = info::assign(&panel.slots, &sel.units);
-        sel.units = info::in_slot_order(&slots);
+        let shown = info::in_slot_order(&slots);
+        // Units past the nine icons (option `selection-limit`) stay selected after the shown ones.
+        let rest: Vec<UnitId> = sel.units.iter().copied().filter(|id| !shown.contains(id)).collect();
+        sel.units = shown;
+        sel.units.extend(rest);
         panel.slots = slots;
         panel.built_for = sel.units.clone();
     }
@@ -2511,6 +2515,7 @@ pub(crate) fn draw_hud(c: &mut Core) {
                 pressed: info_panel.pressed,
                 content: info_panel.content.as_ref(),
                 local: sim.human,
+                more: info_panel.built_for.len().saturating_sub(info::SLOTS),
             },
             status: &scr.status,
             messages: &scr.messages,

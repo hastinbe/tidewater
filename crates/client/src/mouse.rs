@@ -26,6 +26,7 @@ use tidewater_sim::{TILE_PX, Unit, UnitId, World};
 use crate::hud::Rect;
 
 /// Places in a selection.
+#[cfg(test)]
 pub const PLACES: usize = 9;
 /// A drag at most this many pixels wide and high is a click.
 pub const SMALL: i32 = 4;
@@ -273,6 +274,8 @@ pub struct View {
     pub view_tiles: i32,
     /// The map's size in tiles.
     pub map: (i32, i32),
+    /// How many units a selection holds: nine, or what the option `selection-limit` allows.
+    pub limit: usize,
 }
 
 /// Whether map pixel `p` falls on a non-transparent pixel of the unit's current sprite frame.
@@ -327,6 +330,7 @@ impl<'a> Board<'a> {
             view,
             view_tiles,
             map: (world.terrain.width as i32, world.terrain.height as i32),
+            limit: world.rules.extras.selection_cap(),
         };
         Board::new(v, units, opaque)
     }
@@ -402,7 +406,7 @@ impl Remembered {
         let n = (0..REMEMBERED)
             .find(|&n| self.groups[n].is_empty())
             .unwrap_or_else(|| (0..REMEMBERED).min_by_key(|&n| self.used[n]).unwrap_or(0));
-        self.groups[n] = units.iter().copied().take(PLACES).collect();
+        self.groups[n] = units.to_vec();
         self.touch(n);
     }
 
@@ -540,7 +544,7 @@ fn click_rules(board: &Board, p: (i32, i32), m: Mods, sel: &[UnitId], rem: &mut 
         }
         let mut merged = sel.to_vec();
         for id in ring {
-            if merged.len() < PLACES && !merged.contains(&id) {
+            if merged.len() < board.view.limit && !merged.contains(&id) {
                 merged.push(id);
             }
         }
@@ -575,7 +579,7 @@ fn same_type(board: &Board, found: &Cand) -> Vec<UnitId> {
     let mut taken = vec![found.id];
     let limit = 2 * board.view.view_tiles.max(1);
     let mut side = 3;
-    while side < limit && taken.len() < PLACES {
+    while side < limit && taken.len() < board.view.limit {
         let mut touched = false;
         for t in ring(found.tile, side) {
             if t.0 < 0 || t.1 < 0 || t.0 >= board.view.map.0 || t.1 >= board.view.map.1 {
@@ -584,7 +588,7 @@ fn same_type(board: &Board, found: &Cand) -> Vec<UnitId> {
             touched = true;
             let at = if found.air { board.air_at(t) } else { board.ground_at(t) };
             let Some(c) = at else { continue };
-            if taken.len() < PLACES
+            if taken.len() < board.view.limit
                 && !taken.contains(&c.id)
                 && board.can_pick(c)
                 && board.group_selectable(c)
@@ -623,7 +627,7 @@ fn box_rules(board: &Board, r: PxRect, shift: bool, alt: bool, sel: &[UnitId], r
             .find(|&id| board.get(id).is_some_and(|c| c.sel_box().overlaps(&r)));
         kept.retain(|&id| Some(id) != toggled);
     }
-    if kept.len() >= PLACES {
+    if kept.len() >= board.view.limit {
         return Pick::Keep;
     }
     // 2 and 3.
@@ -635,7 +639,7 @@ fn box_rules(board: &Board, r: PxRect, shift: bool, alt: bool, sel: &[UnitId], r
         }
         if !board.group_selectable(c) {
             fallback = Some(c.id);
-        } else if kept.len() + found.len() < PLACES {
+        } else if kept.len() + found.len() < board.view.limit {
             found.push(c);
         }
     }
@@ -1003,6 +1007,7 @@ mod tests {
             },
             view_tiles: 14,
             map: (64, 64),
+            limit: PLACES,
         }
     }
 
@@ -1145,6 +1150,23 @@ mod tests {
             assert_eq!(p, set(ids(1..=9), sound));
             // Classic asks for the sound only with one unit.
             assert_eq!(sound_wanted(enhanced, sound, 9), enhanced);
+        }
+    }
+
+    #[test]
+    fn a_larger_selection_limit_lets_a_box_take_more() {
+        for (limit, want) in [(12, 12), (5, 5)] {
+            let mut b = board(true, twelve(FOOTMAN));
+            b.view.limit = limit;
+            let p = release(
+                &b,
+                (0, 0),
+                (20 * 32, 4 * 32),
+                Mods::default(),
+                &[],
+                &mut Remembered::default(),
+            );
+            assert_eq!(p, set(ids(1..=want), true));
         }
     }
 

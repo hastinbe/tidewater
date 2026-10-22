@@ -150,21 +150,36 @@ impl World {
         owner == slots::NEUTRAL || self.allied(player, owner)
     }
 
-    /// The player's synced selection.
+    /// The player's synced selection: the units of the nine places in order, then (option `selection-limit`) the ones
+    /// beyond them that the larger limit allows.
     pub fn selection(&self, player: u8) -> Vec<UnitId> {
-        self.selections
-            .get(player as usize)
-            .map_or_else(Vec::new, |s| s.units().collect())
+        self.selections.get(player as usize).map_or_else(Vec::new, |s| {
+            s.units()
+                .chain(self.ext.more[player as usize].iter().copied())
+                .collect()
+        })
+    }
+
+    /// Replaces the player's synced selection with `units`: the first nine take the places, and with the option
+    /// `selection-limit` on up to the limit in all are kept after them. At the original limit of nine nothing but
+    /// the places is touched.
+    pub(crate) fn set_selection(&mut self, player: u8, units: &[UnitId]) {
+        let cap = self.rules.extras.selection_cap();
+        let Some(s) = self.selections.get_mut(player as usize) else {
+            return;
+        };
+        s.set(units.iter().copied());
+        self.ext.more[player as usize] = if cap > PLACES {
+            units.iter().copied().skip(PLACES).take(cap - PLACES).collect()
+        } else {
+            Vec::new()
+        };
     }
 
     /// Applies the commands of this module; `false` for any other command.
     pub(crate) fn selection_command(&mut self, c: &Command) -> bool {
         match *c {
-            Command::Select { player, ref units } => {
-                if let Some(s) = self.selections.get_mut(player as usize) {
-                    s.set(units.iter().copied());
-                }
-            }
+            Command::Select { player, ref units } => self.set_selection(player, units),
             Command::RightClick { player, target, tile } => self.right_click(player, target, tile),
             Command::Issue {
                 player,
@@ -231,6 +246,12 @@ impl World {
     pub(crate) fn prune_selections(&mut self) {
         let enhanced = self.rules.enhanced;
         for p in 0..PLAYERS {
+            // The units beyond the nine places (option `selection-limit`) simply leave when lost.
+            if !self.ext.more[p].is_empty() {
+                let mut more = std::mem::take(&mut self.ext.more[p]);
+                more.retain(|&id| self.unit(id).is_some_and(|u| u.stays_selected()));
+                self.ext.more[p] = more;
+            }
             let places = self.selections[p].places;
             let keep: Vec<bool> = places
                 .iter()
@@ -239,14 +260,22 @@ impl World {
             if keep.iter().all(|&k| k) {
                 continue;
             }
-            let s = &mut self.selections[p];
             if enhanced {
-                s.set(places.iter().zip(&keep).filter(|(_, k)| **k).filter_map(|(id, _)| *id));
-            } else {
-                for (n, k) in keep.iter().enumerate() {
-                    if !k {
-                        s.places[n] = None;
-                    }
+                // The rest close up, and the units beyond the places move up into the room.
+                let mut all: Vec<UnitId> = places
+                    .iter()
+                    .zip(&keep)
+                    .filter(|(_, k)| **k)
+                    .filter_map(|(id, _)| *id)
+                    .collect();
+                all.extend(std::mem::take(&mut self.ext.more[p]));
+                self.set_selection(p as u8, &all);
+                continue;
+            }
+            let s = &mut self.selections[p];
+            for (n, k) in keep.iter().enumerate() {
+                if !k {
+                    s.places[n] = None;
                 }
             }
         }
@@ -576,9 +605,8 @@ impl World {
             .copied()
             .filter(|&id| self.unit(id).is_some_and(|u| !u.inside && !busy(u.order)))
             .collect();
-        let s = &mut self.selections[player as usize];
-        s.groups[group as usize] = g;
-        s.set(picked);
+        self.selections[player as usize].groups[group as usize] = g;
+        self.set_selection(player, &picked);
     }
 }
 
@@ -844,6 +872,125 @@ mod tests {
             goals,
             [(29, 20), (30, 20), (31, 21)].map(|goal| Some(Order::Move { goal, target: None }))
         );
+    }
+
+    /// A world with `n` footmen for player 0 in a row and the selection limit `limit` (0 for nine).
+    fn crowd(n: i32, limit: u8) -> (World, Vec<UnitId>) {
+        let mut w = map();
+        w.rules.extras.selection_limit = limit;
+        let men: Vec<UnitId> = (0..n).map(|x| spawn(&mut w, FOOTMAN, 0, (5 + x, 10))).collect();
+        (w, men)
+    }
+
+    #[test]
+    fn the_selection_limit_decides_how_many_units_are_kept() {
+        use crate::extras::UNLIMITED;
+        for (limit, kept) in [(0, 9), (12, 12), (18, 14), (UNLIMITED, 14)] {
+            let (mut w, men) = crowd(14, limit);
+            select(&mut w, &men);
+            assert_eq!(w.selection(0), men[..kept], "limit {limit}");
+        }
+    }
+
+    #[test]
+    fn a_command_reaches_every_selected_unit_and_the_formation_covers_them_all() {
+        let (mut w, men) = crowd(14, 18);
+        select(&mut w, &men);
+        w.step(&[Command::RightClick {
+            player: 0,
+            target: None,
+            tile: (40, 30),
+        }]);
+        let tiles: Vec<_> = men.iter().map(|&m| w.unit(m).unwrap().tile).collect();
+        let want = formation(&tiles, (40, 30), false, (64, 64));
+        for (&m, goal) in men.iter().zip(want) {
+            assert_eq!(intent(&w, m), Some(Order::Move { goal, target: None }));
+        }
+        // With the original limit the rest of the crowd does not move.
+        let (mut w, men) = crowd(14, 0);
+        select(&mut w, &men);
+        w.step(&[Command::RightClick {
+            player: 0,
+            target: None,
+            tile: (40, 30),
+        }]);
+        assert!(matches!(intent(&w, men[8]), Some(Order::Move { .. })));
+        assert!(!matches!(intent(&w, men[9]), Some(Order::Move { .. })));
+    }
+
+    #[test]
+    fn a_lost_unit_closes_the_selection_up_from_the_overflow() {
+        let (mut w, men) = crowd(12, 12);
+        select(&mut w, &men);
+        let i = w.index(men[2]).unwrap();
+        w.kill(i);
+        w.step(&[]);
+        let mut want = men.clone();
+        want.remove(2);
+        assert_eq!(w.selection(0), want);
+        assert_eq!(
+            w.selections[0].places.iter().flatten().count(),
+            9,
+            "the overflow moved up into the places"
+        );
+        assert_eq!(w.ext.more[0], want[9..]);
+    }
+
+    #[test]
+    fn a_big_selection_is_a_control_group_and_comes_back() {
+        let (mut w, men) = crowd(14, 18);
+        select(&mut w, &men);
+        w.step(&[Command::SetGroup { player: 0, group: 3 }]);
+        select(&mut w, &men[..1]);
+        assert_eq!(w.selection(0).len(), 1);
+        w.step(&[Command::RecallGroup { player: 0, group: 3 }]);
+        assert_eq!(w.selection(0), men);
+    }
+
+    #[test]
+    fn two_machines_agree_with_a_big_selection() {
+        let one = || {
+            let (mut w, men) = crowd(14, 255);
+            let mut hashes = Vec::new();
+            for step in 0..60 {
+                let cmds = match step {
+                    0 => vec![Command::Select {
+                        player: 0,
+                        units: men.clone(),
+                    }],
+                    1 => vec![Command::RightClick {
+                        player: 0,
+                        target: None,
+                        tile: (30, 30),
+                    }],
+                    _ => vec![],
+                };
+                w.step(&cmds);
+                hashes.push(w.state_hash());
+            }
+            hashes
+        };
+        assert_eq!(one(), one());
+    }
+
+    #[test]
+    fn the_overflow_is_not_saved_and_a_load_starts_with_no_selection() {
+        let (mut a, men) = crowd(14, 18);
+        select(&mut a, &men);
+        let bytes = a.save_state();
+        let (mut b, _) = crowd(14, 0);
+        b.restore(&bytes, 1).unwrap();
+        assert_eq!(b.rules.extras.selection_limit, 18);
+        assert!(b.selection(0).is_empty());
+        assert!(b.ext.more.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn with_the_original_limit_the_hash_and_state_are_as_before() {
+        let (mut a, men) = crowd(14, 0);
+        select(&mut a, &men);
+        assert!(a.ext.is_empty());
+        assert!(a.rules.extras.is_default());
     }
 
     fn filter(w: &World, id: UnitId, c: u8) -> bool {
