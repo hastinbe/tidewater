@@ -62,6 +62,9 @@
 - **Changes:** 2026-10-22, round 102 (oracle trace, `ERRATA-round102-traces.md` section 5; reviewed by a spec-review
   session, 2026-10-22): the build command's release of every selected worker, not only the builder, is traced
   (`orders/orders.md`, HW7c). No rule changed.
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW8; reviewed by a spec-review session,
+  2026-10-22): creating the building under construction marks the dying units it overlaps or touches (step 3; the
+  rule is in `core/corpses.md`).
 
 ## Behaviour
 
@@ -245,7 +248,9 @@ worker's own tile (below), so that doesn't stop the building.
    full, the owner (if local) is shown the unit table's own "table full" message, not a placement message, a computer
    player's cost is given back, and the worker becomes idle the same way (static study, checked again in round 77 and
    by the B-040 audit; no trace reaches a full table). A player that pays on arrival has paid nothing at this point,
-   so it gets nothing back.
+   so it gets nothing back. Creating it marks the dying units it covers: each ruin, body or unit in its death
+   animation whose area overlaps or touches the new building's gets the used mark and so is hidden from everyone
+   (`core/corpses.md`, "The used mark"; traced for ruins overlapped by a site: SW8a there).
 4. On success the cost of a player that pays on arrival is taken, and the worker **goes inside** the building, in
    order 22, the same way a worker enters a mine (`economy/harvest.md`, step 2 of "Entering"). Its target is the new
    building and its target tile the building's top-left tile. As for any entering worker, it **forgets its attacker
@@ -715,3 +720,4 @@ round are kept with the research-side specs.
 | 100 | Oracle trace (`ERRATA-round100-traces.md`, `ERRATA-audit2-economy.md` erratum 4): repair on a site holds construction back one pass per paid run; hall-to-keep upgrade hit points traced; the shown progress after a repair-filled site held as an open question | "The construction pass", step 1; "Job end"; "Open questions"; vector V73 |
 | 101 | Oracle trace (`ERRATA-round101-traces.md`): the shown progress uses the hit points before the clamp, kept in a byte (open question closed); a player's build command releases the sender's selected workers first | "The construction pass", step 5; "Carrying out a player's build command"; "Open questions"; vector V74 |
 | 102 | The build's release of every selected worker traced (`orders/orders.md` HW7c; `ERRATA-round102-traces.md`) | "Carrying out a player's build command" |
+| 104 | Creating a site marks the dying units it covers with the used mark (`ERRATA-round104-sweep.md` SW8; traced for overlapped ruins, `core/corpses.md` SW8a to SW8d) | "Carrying out a player's build command", step 3 |

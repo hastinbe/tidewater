@@ -27,6 +27,9 @@
 - **Changes:** 2026-10-22, round 103 (`ERRATA-round103-traces.md` section 4; reviewed by a spec-review session,
   2026-10-22): the open question on two-tile movers and even tiles records what the original does with a ship on an
   odd tile (OS1) and Tidewater's design choice to align map ships (`core/unit-slots.md`). No rule changed.
+- **Changes:** 2026-10-22, round 104 (`ERRATA-round104-sweep.md` SW6; reviewed by a spec-review session, 2026-10-22):
+  V32 says which transport it is (one that has been sailing) and points to the far no-route landing of
+  `orders/transports.md`. No rule changed here.
 
 ## Behaviour
 
@@ -289,7 +292,7 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V26 | Attack order, target 3 tiles away, attacker range 4 | already in range; no movement; attack starts | Example |
 | V27 | Destroyer ordered to a tile it can only get within 1 tile of | stops when within 1 tile on both axes (radius +1) | Example |
 | V31 | Transport landing (order 30) whose goal is 1 tile away on both axes | General test met (radius 3); the landing logic's own test (radius 0, no +1) isn't, so it keeps moving | Example |
-| V32 | Transport landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation | Example |
+| V32 | Transport that has been sailing, landing (order 30) whose goal is 5 tiles away | Not arrived (radius 3, no +1): an ordinary two-tile step with the move animation (the ordinary walk keeps its class and step size; with no route the landing logic runs, `orders/transports.md` V57) | Example |
 | V34 | `orc9-orc09-shore-build-3000` (oracle trace, Enhanced): archer 1476 (range 4) attacking shipyard 1469, corner goal (55, 88) | At (60, 91), distance 5: walks on; at (59, 91), distance 4: there | Trace (`orc9-orc09-shore-build-3000`) |
 | V38 | `xhuman5-30000` (oracle trace, Enhanced): tanker 1542 sent to build an oil platform on the patch whose top-left tile is (75, 107), odd on both axes | Its goal is (76, 108), even, radius 0, no +1. It stands exactly on (76, 108) at n = 27600 and starts building at n = 27632. Here a +1 changes nothing: at (78, 106), before its last two-tile step, it is 2 tiles away, so the run doesn't separate radius 0 from radius 1 | Trace (`xhuman5-30000`) |
 
@@ -406,3 +409,4 @@ round are kept with the research-side specs.
 | 101 | Row F's further state mark is the frozen state of a held worker (`orders/orders.md`, "Holding and releasing workers"), set in single player too | "Blocked rules", row F; "Open questions"; V39, V40 |
 | 102 | Map-placed ships and flyers can start on odd tiles (`core/unit-slots.md`, FL1) | "Open questions" |
 | 103 | The original can't play a map ship on an odd tile (OS1); Tidewater aligns map ships (design choice) and keeps odd map flyers | "Open questions" |
+| 104 | V32 narrowed to a transport that has been sailing; the far no-route landing is in `orders/transports.md` (SW6) | V32 |

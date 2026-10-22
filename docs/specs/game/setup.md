@@ -39,6 +39,9 @@
 - **Changes:** 2026-10-22, round 101 (`ERRATA-audit2-net.md`, "Round 101", map loading; reviewed by a spec-review
   session, 2026-10-22; static study): header rows 9 and 10: the `UDTA` and `UGRD` length rules ("`UDTA` and `UGRD`
   lengths"), replacing "as in the PUD text (the check wasn't traced)". Every other section reader matches this spec.
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW7; reviewed by a spec-review session,
+  2026-10-22): "Order of the steps": the computer players' game-start done marks are made at step 4, before the
+  mission start (traced outcome, `ai/worker-ai.md` SW7a).
 
 ## Behaviour
 
@@ -60,14 +63,16 @@ neutral. The **local player** is the slot the person at this computer plays.
    start.
 3. Unit data and upgrade data come from the game's own files unless the map supplied its own (see "Section effects").
 4. The player slots are chosen (see "Choosing the players"). In a custom game the custom choices are applied at the
-   end of this step.
+   end of this step. Each computer player's game-start done marks (`ai/worker-ai.md`, "Done marks") are made here
+   (static study; that they come before the mission start of step 9 is traced, `ai/worker-ai.md` SW7a).
 5. The starting alliances and shared-vision sets are set.
 6. The map's **body sections** are read in the order of the body table, from the beginning of the file again: the
    header sections are skipped there as unknown tags (static study, round 88). The last one, `UNIT`, creates the
    map's units. If this step fails the game stops with a fatal error.
 7. Rescue players become computer or passive computer players (see "After the units").
 8. The starting view is set.
-9. The sound set is chosen, then the mission start of `game/victory.md` runs, then the screen parts are set up.
+9. The sound set is chosen, then the mission start of `game/victory.md` runs, then the screen parts are set up. What
+   the mission start grants comes after the game-start done marks of step 4, so it marks nothing.
 
 ### Reading sections
 

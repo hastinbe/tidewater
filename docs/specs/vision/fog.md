@@ -55,6 +55,9 @@
 - **Changes:** 2026-10-22, round 100 (`ERRATA-audit2-net.md`, "Round 100"; reviewed by a spec-review session,
   2026-10-22): the team-game rule of "Shared vision" is a Battle.net team game's (static study), labelled Battle.net
   only, not mirrored. The sets of players 0 to 7 are saved in Enhanced mode (`game/save-load.md`).
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW5; reviewed by a spec-review session,
+  2026-10-22): "Unit visibility (phase 5)", rule 1: a unit with the used mark is hidden from everyone, dying or not
+  (traced for the oil patch, SW5a, and a covered ruin, SW8a; static study for the other cases).
 
 ## Behaviour
 
@@ -405,9 +408,13 @@ under "The "seen" map" reads the local visible map but leaves the same bits). On
 building looks and what they drive (drawing, the minimap, sounds, the placement test) belong to the local player.
 Rules, first match wins:
 
-1. A unit that is dead, removed or inside something is hidden from everyone, **even with the reveal-map cheat on**
-   (X3; the old text said both this and "with the cheat, nothing is hidden", and this order settles it). A dying unit
-   is not covered by this rule. No target search depends on the order: the search skip list leaves out dying, dead
+1. A unit that is dead, removed, inside something or **carries the used mark** (`core/corpses.md`, "The used mark";
+   the inside mark is that same mark) is hidden from everyone, **even with the reveal-map cheat on** (X3; the old text
+   said both this and "with the cheat, nothing is hidden", and this order settles it). So a unit given the used mark
+   while dying is hidden from that cycle on: an oil patch under a new oil platform (traced: `sweep-xhuman5`, SW5a), a
+   ruin or body a new building covers (traced: SW8a in `core/corpses.md`), and by static study a polymorph victim, a
+   body raised by raise dead and an oil platform killed with oil left. A dying unit without the used mark is not
+   covered by this rule. No target search depends on the order: the search skip list leaves out dying, dead
    and inside units by itself (`orders/orders.md`, "A candidate is skipped if").
 2. With the reveal-map cheat on, nothing else is hidden from anyone.
 3. Otherwise, for each player p:
@@ -620,6 +627,12 @@ have it (F40).
 | ID | Input | Expected |
 | --- | --- | --- |
 | F47 | Attract demo after about 172 s idle at the main menu (startup launch, no words; read-only state log `startup/startup-none-200-peekwatch.jsonl`, round 91). The demo runs with the program's Enhanced flag clear (its own setting) | Before the first start-up cycle: visible map all clear, every "seen" bit clear, fog countdown 1. After the first start-up cycle a refresh has run: visible map all fogged, every "seen" bit set. Refreshes recur (the next one about 100 cycles later, on the demo's Classic schedule). Fog option on and reveal-map cheat on throughout; no fog is drawn on screen |
+
+### Round-104 vectors
+
+| ID | Input | Expected |
+| --- | --- | --- |
+| SW5a | `sweep-xhuman5` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`), n = 27632: tanker 1542 (owner 7, in a slot above the patch's) starts oil platform 1594 on oil patch 1530 at (75, 107); the patch's hidden-from set was 99 | Patch 1530: order 1, death animation, wait 1, and hidden-from set **255** from n = 27632 on; order 0 (remove) from n = 27633, still 255 |
 
 ## Open questions
 

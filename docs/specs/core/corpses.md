@@ -17,6 +17,9 @@
 - **Changes:** 2026-10-22, round 96 (oracle traces, `ERRATA-round96-traces.md`; reviewed by a spec-review session,
   2026-10-22): a dead body keeps the dead unit's target until a load, which clears it (`game/save-load.md`, SL28,
   SL29).
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW5 and SW8; reviewed by a spec-review
+  session, 2026-10-22): "The used mark": a building created during play marks the dying units it overlaps or touches
+  (SW8a to SW8e); every unit with the mark is hidden from everyone (`vision/fog.md`).
 
 ## Behaviour
 
@@ -58,7 +61,18 @@ uses for the unit) has the shore-water flag (0x02) in the tile flags of `movemen
 - an oil patch gets it when an oil platform is placed on it, just before it is killed (`economy/build-train.md`), so
   it leaves no ruin: its order becomes "remove" in the same cycle and its slot is released 513 cycles later;
 - a transport that dies on shore water gets it at its death step done, at the same moment it is removed. Because
-  it is removed at once, the mark has no further effect there.
+  it is removed at once, the mark has no further effect there;
+- a **dying** unit (in its death animation, a body or a ruin; not already dead, removed or marked) gets it when a
+  **building is created during play** whose area overlaps or touches the dying unit's area. A dead body (type 0x69)
+  counts one tile larger on every side. "A building" is a construction site or any other created unit of types 0x3A to
+  0x68 except the oil patch (0x5D) and type 0x64; nothing is marked while a saved game is being loaded. The marked
+  unit keeps its death animation and timers, and a body marked this way can't be raised. Traced for 3 × 3 ruins
+  overlapped by new 3 × 3 sites (SW8a to SW8d); a site that only touches, the bodies' wider area and the other building
+  types are static study only. A ruin two tiles from a new site isn't marked (traced: `sweep-mp-gold-rush-bne-o2`
+  n = 5550, SW8e).
+
+Every unit with the used mark is hidden from everyone (`vision/fog.md`, "Unit visibility (phase 5)", rule 1), so from
+the cycle it gets the mark a dying unit drops out of every player's view.
 
 **Passengers.** When a transport is killed, every unit inside it (carrying the used mark and recorded as being in that
 transport) is killed at the same moment, at the kill and not at the death step done, whether or not the transport is
@@ -194,6 +208,13 @@ Cycle numbers count updates of the unit: update 1 is its first update after it i
 | `orc02-assault-3000` (oracle trace), slot 1588 (type 0x40), destroyed | Ruin type 0x6B at n = 843, mana 0 |
 | 30 conversions to bodies and ruins in the `orc02-assault`, `orc02-victory` and `human06-attack-wave` traces | Mana 0 before and after every one |
 | `research/oracle-round36/xhuman10-r36a-700.jsonl.gz` (oracle trace): player 1's mage 1481 (type 0x0A, no corpse kind) has 89 mana; it is killed and is in order 1 from n = 197 to n = 232 | Mana 89 throughout; no gain at n = 200. From n = 233 to n = 700 the slot shows owner 15, order 0, animation 0 and mana 89 |
+| SW8a: `sweep-mp-gold-rush-bne-o2` (oracle sweep trace, Enhanced, Gold Rush BNE through the multiplayer launch with two computer players; kept outside the repository, reproducible with `oracle/sweep.py capture`), n = 10478: gold mine 1549 at (12, 43) collapsed at n = 10198 and is a 3 × 3 ruin (type 0x6C, order 1, animation 4, wait 121), hidden-from set 246. Peon 1509 (owner 3) starts a 3 × 3 site, 1567 (type 0x3D), at (11, 43) | Ruin 1549: the used mark, so hidden-from set **255** from n = 10478 on until it is removed at n = 10599; its animation, waits and removal time don't change |
+| SW8b: same trace, n = 12973: ruin 1569 (type 0x6C) at (9, 18); site 1568 (type 0x4C, owner 0) at (11, 17) shares column 11 with it | Ruin 1569: hidden-from set 255 from n = 12973 |
+| SW8c: same trace, n = 18377: ruin 1533 at (18, 49); site 1498 (type 0x53, owner 3) at (17, 49) | Ruin 1533: 255 from n = 18377 |
+| SW8d: same trace, n = 19225: ruin 1592 at (18, 9); site 1533 (type 0x3C, owner 0) at (17, 11) | Ruin 1592: 255 from n = 19225 |
+| SW8e: same trace, n = 5550: a 2 × 2 site (type 0x3B) at (7, 47) is started; ruin 1547 (type 0x6C, 3 × 3) at (6, 43), hidden-from set 246, ends at row 45, so row 46 lies between them | Ruin 1547 isn't marked: hidden-from set still 246 |
+| A 2 × 2 site placed so that its left column is the column just right of a dying 3 × 3 ruin's area, rows overlapping (static study) | The ruin gets the used mark (touching counts) |
+| A 2 × 2 site placed with one free tile between it and a dead body (type 0x69), then raise dead aimed at the body (static study) | The body gets the used mark at the site's creation (a body counts one tile larger); raise dead raises no skeleton from it |
 
 ## Open questions
 

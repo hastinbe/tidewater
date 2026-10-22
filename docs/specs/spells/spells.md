@@ -95,6 +95,9 @@
   computer player's included (AI3, traced: `xhuman2-xhuman02-cheat-scope-1600`); vector S101. Review (labelled static
   gap-fill, raised by the round-82 review): "The timers pass" lists the clearing of the computer casters' target marks
   as step 6, as `ai/caster-ai.md` ("Marks") states it.
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW2 and SW4; reviewed by a spec-review
+  session, 2026-10-22): the eye of Kilrogg doesn't turn its caster (SW4a, SW4b); a whirlwind's last update doesn't
+  move it and its slot is freed in the next cycle (SW2a).
 
 ## Behaviour
 
@@ -204,7 +207,8 @@ the point spells' target.
 Each time the order's logic runs, the caster moves toward the target until it is within the spell's radius
 (`movement/movement.md`), and then casts:
 
-- **Point spells:** once arrived, the caster turns to face the point and plays its casting animation.
+- **Point spells:** once arrived, the caster turns to face the point and plays its casting animation (except the eye
+  of Kilrogg, below).
 - **Unit spells** (flame shield, slow, invisibility, haste, unholy armour): the target must still be valid and must not
   be a building.
 - **Organic-target spells** (healing, polymorph, bloodlust): the target must also have flag bit 27 (organic).
@@ -215,7 +219,9 @@ given ("Giving the order") and, while the caster walks, at each step boundary of
 caster's player no longer detects (`orders/orders.md`, "Walking orders", step 2); the decision then fails for lack of a
 target. A caster already within the radius doesn't walk, so **it casts at a target its player no longer detects** (round
 81; traced: `xhuman10-invisible-reach-goals-400`, S92). **Eye of Kilrogg** (order 48, radius "always") has no walk and
-no decision checks: the caster casts where it stands, and only the strike's mana check applies.
+no decision checks: the caster casts where it stands, and only the strike's mana check applies. The caster doesn't
+turn: it keeps its facing and plays its casting animation that way (traced: `sweep-orc12`, `sweep-xhuman12`; vectors
+SW4a, SW4b).
 
 The not-a-building and organic tests are made only once the caster is within the radius: a caster ordered to cast
 such a spell on a building or a non-organic unit first walks into reach, and only then becomes idle. Out of reach,
@@ -590,7 +596,9 @@ every 24 cycles). At its next step (cycle 274) it ends, and one cycle later it t
 **Whirlwind.** Created with a lifetime of **800** and damage **4**. It starts at the target point's centre plus ((r &
 127) − 64) px on x and on y (2 draws) and walks toward the target point at 1 px per step, one step every 3 cycles. On
 each step, if the lifetime is odd it splashes; the lifetime then goes down by 1, and the whirlwind ends when it reaches
-0 (touching a wall on its final tile with damage 4). When it reaches its goal exactly, it picks a new goal at its
+0 (touching a wall on its final tile with damage 4). That last update doesn't move it: it stays in its slot, unmoved,
+and is removed in the next cycle with no draw, as for the other ending effects; so it holds its slot for 2401 cycles,
+counting the cycle it was created (traced: `sweep-human14`, vector SW2a). When it reaches its goal exactly, it picks a new goal at its
 position plus ((r & 127) − 64) px on x and on y (2 draws). It lasts 2400 cycles and splashes 400 times. A new goal equal
 to its position is never reached, so it then drifts east until it ends. Its destination is always its current goal: the
 target point's centre from creation, then each new goal as it is picked (traced: `xorc01-death-knight-2100`, vectors
@@ -884,6 +892,9 @@ IDs S01 to S83 are the rows before round 80, unchanged apart from the ID column;
 | S99 | Holy vision at the map centre; then at tile (0, 0) (static study) (round 81) | 7 placed sounds, one per point; at (0, 0), 3 (T, T + (0, 8), T + (6, 4)) |
 | S100 | An ogre-mage casts eye of Kilrogg with 100 mana when the free-tile search finds no tile for the eye, an air unit (every air-layer tile in the search occupied; ground units around the caster don't block it) (static study, constructed) (round 81) | 70 paid, no eye, the blocked-exit message, no sound |
 | S101 | `xhuman2-xhuman02-cheat-scope-1600` (oracle trace, Enhanced; round 83): all-spells cheat on; computer death knight 1557 (player 5) is given death coil by its spell step at the pass of n = 751 with 103 mana | Mana 255 in that record; 155 after the strike (n = 896); the same at the passes of n = 901 to 1051. It never casts a spell its owner didn't know |
+| SW2a | `sweep-human14` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`; round 104), effect slot 3: a whirlwind (kind 12) cast by death knight 1503, first in its slot at n = 13617 | It moves every 3 cycles up to n = 16014; at n = 16017 (its last update, the lifetime reaching 0) it is still in slot 3, unmoved, at x 2394, y 3067; the slot is free from n = 16018. 2401 records in all |
+| SW4a | `sweep-orc12` (as SW2a), n = 32251: ogre-magi 1452 at (41, 115), 1480 at (81, 81) and 1547 at (94, 32) (type 0x0D, owner 3, a computer player), idle with mana 255, take order 48 (`ai/caster-ai.md`, try 4); facings 7, 0 and 1 | The casts keep facings 7, 0 and 1 through n = 32262; mana 255 to 185 at the strike. No turn toward the caster's own tile (that would give facing 2) |
+| SW4b | `sweep-xhuman12` (as SW2a), n = 28205: ogre-magi 1527 at (78, 33) and 1534 (type 0x0D, owner 0) cast the eye of Kilrogg | Facings 7 and 3 kept |
 
 ## Open questions
 

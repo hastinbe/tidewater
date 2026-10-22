@@ -74,6 +74,10 @@
 - **Changes:** 2026-10-21, round 92 (oracle traces, `ERRATA-round92-traces.md`; reviewed by a spec-review session,
   2026-10-21): "Timing": the 50-cycle pass counters aren't saved, so a loaded game runs the passes in its first
   start-up cycle, as a new game does (traced, `game/save-load.md` SL1 to SL3).
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW3; reviewed by a spec-review session,
+  2026-10-22): "Ferry (3)", step 4: the served test reads the assigned transport's destination, not its target tile
+  (the two differ since round 102's pull-back of the target tile; vector SW3a). The pull-back rule of
+  `orders/transports.md` is unchanged.
 
 ## Behaviour
 
@@ -496,8 +500,9 @@ the transport.
    Stop.
 4. **Gather:** otherwise (no passengers, nobody assigned), walk the player's units in list order. A unit is a
    **candidate** if it is mobile, alive and has the needs-a-ferry mark, unless its assigned transport is alive, is a
-   transport of the same owner, and that transport's target tile (`orders/transports.md`) has the same region value
-   as the unit's tile. For each candidate:
+   transport of the same owner, and that transport's **destination** (`orders/transports.md`, "What the transport
+   stores"; not its target tile, which a command pulls back) has the same region value as the unit's tile (traced:
+   `sweep-orc9`, vector SW3a). For each candidate:
    - its assigned transport becomes T;
    - the first candidate fixes the **trip area** (its goal land area); a candidate with the same goal land area as
      the trip area (the first one included) is given a smart move with T as the target unit, and counted;
@@ -723,6 +728,12 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | **AG2.** `orc13-aigoals-goals-17900-18200` (oracle trace, Enhanced): computer player 3's 20 knights (type 0x06), all placed by the map and held, become paladins (type 0x0C) at n = 17997 | Every one keeps its goal: slot 1470 hold at (28, 115), slot 1475 hold at (66, 110), slot 1476 hold at (68, 110), before and after |
 | **AG3.** `xorc9-aigoals-goals-0` (oracle trace, Enhanced; entry 45, mode Q, setup record): computer player 1's six knights, held, are converted by the mission start | Six paladins, each with the hold goal it got at map load (slot 1511 at (40, 57): hold at (39, 57)) |
 | **AG4.** Enhanced; computer player 1's knight, not held, with goal attack at (40, 40) and order 4 toward it, when the paladin upgrade finishes (static study) | Goal hold at its post; its order 4 and target tile are unchanged |
+
+### Round-104 vector (ferry gather, traced)
+
+| Input | Expected |
+| --- | --- |
+| **SW3a.** `sweep-orc9` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`) and the windowed trace `win-orc9-goals-aigoals-24200-24260` (`EXTRAS=goals,aigoals`), n = 24251: computer player 0's footmen 1448 at (80, 44) and 1450 at (32, 2) need a ferry. Transports 1455 at (53, 36) and 1456 at (52, 36) are docked (order 32); each one's target tile is its own tile and its destination (61, 24). The gather runs | 1448 and 1450 get 1455 as their transport (pending order 34, then order 34). 1455: pending order 31, target tile (49, 30) (pulled back, open water), destination (32, 2). 1456 finds no candidate and gets the smart move to the gold store: pending order 32, target tile (52, 36), unchanged otherwise. Reading the target tile instead of the destination makes 1456 the transport and gives it target tile (49, 31) |
 
 ## Open questions
 

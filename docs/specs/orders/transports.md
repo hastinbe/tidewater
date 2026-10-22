@@ -44,6 +44,10 @@
   static study: the unload command keeps its target unit (CB1, V53, V54), command 4 gives a transport plain order 4
   with no smart-move stage (CB2, V55; reverses the round-75 default), and a boarding unit's call to its transport is a
   full command (CB3, V56). Two open questions closed.
+- **Changes:** 2026-10-22 (round 104, `ERRATA-round104-sweep.md` SW6; reviewed by a spec-review session, 2026-10-22):
+  "Landing (order 30)": the far walk keeps the class and step size; with no route farther out the landing logic runs
+  in full, step 2's step size included, and what it leaves stays for later far runs (traced, V57, V58). The open
+  question "Order 30 with no route farther than 3 tiles from its goal" is closed.
 
 ## Behaviour
 
@@ -107,7 +111,7 @@ blocked and row F never applying (`movement/movement.md`, "Blocked rules").
 
 | Point | Landing (order 30) | Pushing off (order 31) |
 | --- | --- | --- |
-| When its own logic moves the transport | within 3 tiles of the goal; farther out, ordinary two-tile steps in the sea class, which don't restart the move animation at each step (it runs on as for any walking unit; static study, round 70) | always |
+| When its own logic moves the transport | within 3 tiles of the goal, and farther out in an update whose ordinary walk finds no route (traced, round 104, V57); otherwise farther out the ordinary walk, which keeps the transport's movement class and step size (after sailing: two-tile steps in the sea class) and doesn't restart the move animation at each step (it runs on as for any walking unit; static study, round 70) | always |
 | Movement class | the landing class | unchanged (the landing class after a landing) |
 | Step size | two-tile while both its tile and its goal tile are even; otherwise one-tile | two-tile on an even tile; otherwise unchanged |
 | Animation | two-tile: the move animation, run at once; one-tile: its own animation 6 | the same |
@@ -248,8 +252,19 @@ region ends the walk with "land first". A tile with the open-water bit ends it w
 
 ### Landing (order 30)
 
-This logic runs only when the transport is within 3 tiles of its goal on both axes. Farther out it moves with
-ordinary steps (sea class, two-tile mover, move animation 3; `orders/orders.md`, "Order 30's radius").
+This logic runs when the transport is within 3 tiles of its goal on both axes. Farther out, order 30 moves the
+transport with the ordinary walk (`orders/orders.md`, "Order 30's radius"), which changes neither its movement class
+nor its step size. A transport that has been sailing is a two-tile mover in the sea class, so it takes ordinary
+two-tile steps with the move animation (3) (traced: V30).
+
+**No route farther out** (traced, round 104: V57, V58). When the ordinary walk farther than 3 tiles out finds no
+route, steps 1 to 6 below run in the same update: the transport switches to the landing class, takes step 2's step
+size (a two-tile mover only while both its tile and its goal tile are even; otherwise a one-tile mover keeping
+animation 6), plans in that class, and steps; only if that also finds no route does step 6 apply. The class and step
+size this leaves stay for the later runs farther out: the ordinary walk goes on with them, so a one-tile mover keeps
+taking one-tile steps with animation 6 all the way to the goal, even across even tiles (V57). Whether a later run
+farther out with both its tile and its goal even goes back to two-tile steps is untraced; by this rule it doesn't
+(the ordinary walk changes nothing).
 
 Each time the order's logic runs:
 
@@ -488,6 +503,8 @@ row starts "As" that row's ID, and names the trace when that row is from one.
 | V12 | `human13-10000` (oracle trace), n = 3820: transport 1389 (type 0x1D, owner 0) in order 30 at (103, 13), landing goal (101, 12) | Plans afresh: tile (102, 13), facing 6, order 30 (the route planned two steps earlier would step to (102, 12), facing 7) | Trace (`human13-10000`) |
 | V24 | Human04 (oracle trace), transport slot 1543, landing at (70, 87) from (68, 88) | n = 1: order 30, animation 6, wait 3. Steps to (69, 87) at n = 4 and (70, 87) at n = 20, still animation 6 (the goal has odd y, so one-tile steps). n = 36: order 32, animation 2 | Trace (Human04) |
 | V30 | `human12-transport` (oracle trace): transport 1522 at (68, 34), order 30 from n = 8, goal (72, 29) | n = 11 (4 and 5 tiles away): ordinary two-tile step north-east to (70, 32), animation 3. n = 43 (within 3 tiles): animation 6, the landing logic steps one tile north-east to (71, 31); n = 59 (72, 30); n = 75 (72, 29) | Trace (`human12-transport`) |
+| V57 | `sweep-xhuman8` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`) and the windowed trace `win-xhuman8-goals-aigoals-30700-30830` (`EXTRAS=goals,aigoals`): computer transport 1450 (type 0x1D, owner 7, four passengers) pushes off from (47, 73) at n = 30751 (destination (73, 9)); at n = 30802, on (46, 76), an even open-water tile, it finishes the push-off: order 30, target tile and destination (73, 10) (odd x), 66 rows away; animation 6 | n = 30805: the ordinary walk finds no route, so the landing logic runs: one-tile step to (47, 75), facing 1, animation 6, wait 1. Then one-tile steps every 16 cycles, animation 6 throughout, even on even tiles such as (44, 64) and (60, 32): (47, 74) at 30821, (46, 73) at 30837, (45, 72) at 30853, (48, 51) at 31189, … (71, 13) at 31797, (72, 12) at 31813, (73, 11) at 31829, (73, 10) at 31845 (arrival); order 29 (unload) at n = 31861. Not idle at (46, 76) | Trace (`sweep-xhuman8`) |
+| V58 | `mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100` (oracle trace, Enhanced, generated map `R103-far.pud`): transport 1599 at (42, 56) takes order 30 at n = 40 (goal (42, 52), 4 rows away; tile and goal both even; animation 6, wait 3) | n = 43: the ordinary walk finds no route; the landing logic gives a two-tile step to (40, 54), facing 7, animation 3, wait 1 (the move animation started, as step 2 says for a two-tile mover); arrival at (42, 52) by n = 75 | Trace (`mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100`) |
 
 ### Pushing off from the shore
 
@@ -593,13 +610,11 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
 - **Step 3's "a walking one at its next step boundary".** The static study finds no way to reach step 3 with the unit
   walking: the order's logic runs only when the walk has ended, and command 4 always takes over in the same update.
   If confirmed, the clause can go.
-- **Order 30 with no route farther than 3 tiles from its goal.** "Landing (order 30)" says the landing logic runs only
-  within 3 tiles. The static study finds that when the ordinary walk finds no route farther out, the landing logic
-  runs in that update too: it plans again in the landing class and, if it also finds no route, applies its own step 6
-  (on an even tile away from the shore, idle in the sea class), not the general no-route rule of `orders/orders.md`
-  ("No route": immediate idle with the idle logic in the same update). The two can differ in that update's draws and
-  in whether the transport moves. `orc8-10000` n = 3555 (movement V19: no route, idle, wait 1) fits both, so it doesn't
-  separate them. Untraced.
+- **Order 30 with no route farther than 3 tiles from its goal:** **closed in round 104** (traced, V57). When the
+  ordinary walk finds no route farther out, the landing logic's steps 1 to 6 run in that update, step 2's step size
+  included; only if the landing class also finds no route does step 6 apply, not the general no-route rule of
+  `orders/orders.md`. The class and step size it leaves stay for the later far runs ("Landing (order 30)", "No route
+  farther out"). Still untraced: a later far run with both tile and goal even (by the rule, no change of step size).
 - **Statements made explicit by the consolidation, static study only and untraced:** the no-route restart of order 34
   always reaches step 3, so a human player's transport call is step 3's smart move, and a computer player's unit gets
   command 4 there ("Order 34 (board)"). Round 70 removed the conflict with V10: its n = 17216 record is the take-over
@@ -646,3 +661,4 @@ round are kept with the research-side specs.
 | 101 | The target tile and the destination change only on a command, the docked smart stage, the push-off and repair (traced, V43 to V45; `ERRATA-round101-traces.md`, reviewed); one record open (TG4) | "What the transport stores"; "Open questions"; V43 to V45 |
 | 102 | A command's target tile is pulled back from the area of the transport's own tile, the land region when docked (traced, V46 to V48; TG4 closed); the push-off's pick is pulled back too (static study, V49); `ERRATA-round102-traces.md`, reviewed | "Pulled back from the transport's own area"; "Pushing off (order 31)", step 2; "Open questions"; V46 to V49 |
 | 103 | The push-off pick's pull-back traced (V50 to V52); the unload command keeps its target unit; command 4 gives a transport plain order 4 (the round-75 default reversed); the boarder's call is a full command (static study, `ERRATA-round103-traces.md`, reviewed) | "Commands given to a transport"; "Pushing off (order 31)", step 2; "Boarding"; "Open questions"; V50 to V56 |
+| 104 | Order 30 with no route farther than 3 tiles out runs the landing logic in full, step 2's step size included, and the class and step size it leaves stay for the later far runs; the far walk changes neither (traced, V57, V58; `ERRATA-round104-sweep.md` SW6, reviewed; partly reverses round 36's "farther out, ordinary two-tile steps") | "Landing (order 30)"; "Moving near the shore"; "Open questions"; V57, V58 |

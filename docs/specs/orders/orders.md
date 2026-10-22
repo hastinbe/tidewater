@@ -75,6 +75,11 @@
 - **Changes:** 2026-10-22, round 103 (static study, `ERRATA-round103-traces.md` section 1, CB2; reviewed by a
   spec-review session, 2026-10-22): command 4's smart-move step is for workers, tankers, demolition units and casters
   only; a transport gets plain order 4 (`orders/transports.md`, "Command 4 to a transport").
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW1; reviewed by a spec-review
+  session, 2026-10-22): "Resulting order": the out-of-reach cooling case applies only within strike reach of the old
+  target; out of it, a cooling unit takes the command case and steps (SW1a). V109's explanation corrected: its unit
+  was blocked, not held by its attack animation (vector unchanged). "Order 30's radius": the far walk keeps the
+  transport's class and step size, and a no-route far walk runs the landing logic (`orders/transports.md`, SW6).
 
 ## Behaviour
 
@@ -239,8 +244,10 @@ Columns:
 | 59 | Circle of power's resting order | 2 | 0 | — | — |
 
 **Order 30's radius.** The general movement logic uses radius 3 for order 30, with no +1: until the transport is
-within 3 tiles of its goal on both axes it moves with ordinary steps (sea class, two-tile mover, move animation 3),
-and the landing logic doesn't run. Within 3 tiles the arrival switch starts the order's own animation (6) and the
+within 3 tiles of its goal on both axes it moves with ordinary steps, which keep its movement class and step size
+(after sailing: sea class, two-tile mover, move animation 3), and the landing logic doesn't run, except in an update
+whose ordinary walk finds no route: then the landing logic runs in full in that update (`orders/transports.md`,
+"Landing (order 30)", "No route farther out"; traced, round 104). Within 3 tiles the arrival switch starts the order's own animation (6) and the
 landing logic of `orders/transports.md` runs; from then on it does the moving, with its own exact arrival test
 (radius 0).
 
@@ -1118,7 +1125,8 @@ When the searching unit is in order 12 and the search picks a different target:
 - **In reach:** the order's logic continues in the same update with the new target: the cooldown test, then the
   strike decision (with its turn toward the target). If the unit is still cooling down, the new target and order
   take effect at once and the order's animation restarts with the cooldown left as its wait (no wait of 3).
-- **Out of reach while still cooling down:** handled as in reach, whichever of the out-of-reach cases below would apply:
+- **Out of reach while still cooling down, and within strike reach of the old target:** handled as in reach,
+  whichever of the out-of-reach cases below would apply:
   the new target and order take effect at once and the attack animation restarts with the cooldown left as its wait.
   There is no command, no wait of 3 and no step in that update, and a strike already decided on the old target still
   lands (traced: `xhuman12-10000`, a unit within strike reach of its old target; vector V193).
@@ -1126,7 +1134,12 @@ When the searching unit is in order 12 and the search picks a different target:
   route is dropped and the blocked counter cleared (as for every command). The logic carries on in the same update
   and the unit starts its next step, toward the new target, in that update. The new order takes over at the next
   step done ("Pending orders and immediate orders") with the attack animation and wait 3, and the unit walks on at
-  the run after that. A unit standing in its attack animation doesn't step: it keeps standing until the take-over.
+  the run after that. A unit whose step is blocked keeps standing until the take-over (V109: at n = 66 every tile
+  toward the new target was taken; the unit's attack animation is not what stops it, see SW1a).
+  A unit still cooling down takes this case too when its old target is out of strike reach: the target changes, it
+  steps in that update and no strike follows on either target (traced: `sweep-human13` n = 11464, an ogre at its attack
+  animation's step done; vector SW1a). Every cooling unit that the traces show standing instead had its old target
+  within strike reach (V193).
   This case applies whenever the unit still records an old target, whatever that target's state: dying, inside a
   building (a worker in a gold mine, for example) or otherwise not detected. The exceptions are the next two cases: this
   unit killed the old target (and so forgot it) in this update, or it's within strike reach of the old target. The
@@ -1762,7 +1775,7 @@ listed; the units' updates that follow are in cycle record n + 1 on.
 | V098 | `orc02-assault`, `orc02-defeat` and `orc02-victory` (oracle traces), n = 570: footman 1582 (owner 1) in order 12 at (52, 26), target 1564, acquires 1572 at (54, 23), out of reach | Order 12, target 1572; it keeps walking: tile (53, 25), animation 3, wait 1, frame 0 | Trace (`orc02-assault`, `orc02-defeat`, `orc02-victory`) |
 | V099 | A unit in order 12 acquires a new target already in reach, its cooldown run out (static study only) | The strike decision in the same update: it turns to the target and strikes as usual | Static study |
 | V100 | `orc02-assault-3000` (oracle trace; the same in `orc02-defeat` and `orc02-victory`), n = 617: footman 1587 (type 0x00) in order 12 on 1568, still cooling down, switches to 1573, in reach | Order 12, target 1573, animation 4, wait 23 (the cooldown left) in the same record; no wait of 3 | Trace (`orc02-assault-3000`) |
-| V109 | `xhuman4-7000`, n = 66: footman 1497 (owner 1) at (71, 61) in order 12 on 1490, standing in its attack animation (animation 4, wait 1 at n = 65), acquires 1505 at (73, 60), out of reach | No step: n = 66: tile and pixel unchanged, animation 3, target 1505; n = 67: animation 4, wait 3, target 1505; first step at n = 70 | Trace (`xhuman4-7000`) |
+| V109 | `xhuman4-7000`, n = 66: footman 1497 (owner 1) at (71, 61) in order 12 on 1490, standing in its attack animation (animation 4, wait 1 at n = 65), acquires 1505 at (73, 60), out of reach | No step: n = 66: tile and pixel unchanged, animation 3, target 1505 (the tiles toward 1505, (71, 60), (72, 60) and (72, 61), are taken by 1510, 1518 and 1498); n = 67: animation 4, wait 3, target 1505; first step at n = 70 | Trace (`xhuman4-7000`) |
 | V110 | `orc02-assault` (oracle trace), n = 586: footman 1582 (switched to 1572 at n = 570) reaches its step done at (53, 25) | Order 12, animation 4, wait 3, target 1572; n = 589: it steps to (54, 24) | Trace (`orc02-assault`) |
 | V111 | `xhuman2-10000`, n = 206: catapult 1556 (owner 5) at (67, 60), order 12 with no target, acquires guard tower 1546 (type 0x60) at (56, 69) | Target 1546, animation 4, wait 3 at once, facing unchanged (5) | Trace (`xhuman2-10000`) |
 | V112 | `xhuman2-10000`, n = 205: catapult 1555 at (56, 63) in order 12; its target 1548 has just died; guard tower 1546 in range | Order 12, target 1546, facing 4, wait 3; it fires (wait 198 at n = 208) | Trace (`xhuman2-10000`) |
@@ -1777,6 +1790,7 @@ listed; the units' updates that follow are in cycle record n + 1 on.
 | V186 | `human5-10000`, n = 2754: axe thrower 1533 (type 0x09, owner 5) in order 12 on peasant 1513, which is inside a gold mine; the new target, town hall 1525 (type 0x4A), is out of strike reach | Command switch: target 1525, it steps to (36, 99), animation 3, facing 1, wait 1 | Trace (`human5-10000`) |
 | V193 | `xhuman12-10000` (oracle trace): grunt 1476 (type 0x01, owner 2) in order 12 on farm 1455 decides a strike at n = 1844; at n = 1847, still cooling down, its search picks castle 1443 (type 0x5A), out of reach | n = 1847: order 12, target 1443, animation 4, wait 23. The strike lands: 1455 goes from 400 to 394 HP at n = 1869; 1476 steps at n = 1870 | Trace (`xhuman12-10000`) |
 | V194 | As V193 (`xhuman12-10000`), n = 1841: the switch of V193 while not cooling down | The command case: wait 3 | Trace (`xhuman12-10000`) |
+| SW1a | `sweep-human13` (oracle sweep trace, human 13, kept outside the repository; reproducible with `oracle/sweep.py capture`), n = 11461: ogre 1385 (type 0x07, owner 4) at (51, 98) switches in reach to demolition squad 1424 (attack animation, wait 3) and is still cooling down at n = 11464. n = 11462: 1424 steps to (52, 100), two tiles away, out of strike reach. n = 11464: the search picks ballista 1419 at (55, 103), out of reach | n = 11464: order 12, target 1419; it steps to (52, 99): facing 3, animation 3, wait 1. 1424 keeps its 29 HP. n = 11476: animation 4, wait 3 (the take-over); next step at n = 11479. Not the cooling case (animation 4, the cooldown left as its wait, no step) | Trace (`sweep-human13`) |
 | V195 | `xhuman12-10000`, n = 5142: archer 1372 (type 0x08, owner 1) in order 16 on 1363, cooling down, picks 1480 | Order 16, target 1480, animation 4, wait 63 | Trace (`xhuman12-10000`) |
 | V255 | `xorc5-30000` (oracle capture, Enhanced, **not committed**; reproducible with `oracle/capture.sh xorc5 30000`), n = 20526: ogre 1450 (type 0x07, owner 5, the human player) at (6, 89) in order 16, attacked by footmen 1474 at (6, 88) and 1403 at (7, 88) (type 0x00, owner 1); its target changed from 1474 to 1403 at n = 20523, and it was hit at n = 20525 (hp 82) | Traced (also shown by `orc9-orc09-order16-keep-2000`, V264). Its search, with that attacker, picks 1474: order 16, target 1474, wait 23 (the cooldown left), not order 12 with wait 3. It goes on striking in order 16 (n = 20550: frame 25, wait 3); order 12 never appears | Trace (`xorc5-30000`, not committed; also `orc9-orc09-order16-keep-2000`) |
 | V264 | `orc9-orc09-order16-keep-2000` (oracle trace, Enhanced; scenario `oracle/scenarios/orc09-order16-keep.txt`), n = 936: grunt 1492 (type 0x01, owner 5, the human player) at (6, 87) in order 16 on footman 1485 (type 0x00, owner 0) since n = 934, wait 1, still cooling down; footman 1484 (type 0x00, owner 0) at (5, 88), in order 12 on 1492, strikes it (hp 60 to 52) | n = 937: order 16, target 1484, wait 23 (the cooldown left), animation 4, frame 0, facing 7; not order 12 with wait 3. It goes on striking in order 16 (n = 967: frame 35, wait 3) and kills 1484 (order 1 at n = 1070); from n = 937 to 2000 it is only ever in order 16 or 2. With this rule off the comparison fails at n = 937 | Trace (`orc9-orc09-order16-keep-2000`) |
@@ -2145,3 +2159,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 101 | Hold workers and Release workers (sent while the player places a building; single player too); the frozen states, the release update, the release before unit and build commands (traced, HW1 to HW5) | "Holding and releasing workers"; "How an update runs"; vectors HW1 to HW6 |
 | 102 | The release before a refused command, the right-click that doesn't release and the build that releases every selected held worker traced (HW7a to HW7c); no rule changed | "Holding and releasing workers"; vectors HW7a to HW7c |
 | 103 | Command 4's smart-move step: workers, tankers, demolition units and casters only; transports get plain order 4 (static study, CB2) | "Commands" (table); "Boarding moves" |
+| 104 | A cooling unit switching out of reach stands only within strike reach of its old target; otherwise the command case and its step (traced, SW1); V109's cause is a blocked step; order 30's far walk keeps class and step size (SW6) | "Resulting order"; "Order 30's radius"; vector SW1a |

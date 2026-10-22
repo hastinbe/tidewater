@@ -89,6 +89,9 @@
 - **Changes:** 2026-10-22, round 99 (oracle trace, `ERRATA-round99-traces.md`; reviewed by a spec-review session,
   2026-10-22): the no-depot town hall (step 5) is traced: job bit 16, payment at once, cooldown 10 and its fall by 1 per
   try (W2 vector traced, a second traced vector). No rule change.
+- **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW7; reviewed by a spec-review session,
+  2026-10-22): "Done marks": a new game's game-start marks come before the mission start, so what it grants marks
+  nothing (traced outcome, SW7a; the place in the setup is static study).
 
 ## Behaviour
 
@@ -291,7 +294,11 @@ stopping at an 0xFF entry. For each entry:
   (after changing its race to the destroyed building's race) is the destroyed building's type loses its done mark,
   so it will be built again. If no entry matches, nothing changes.
 - Entries of 0x80 or more are marked done when the research or building upgrade starts (`ai/training-research.md`).
-- At the start of a game, entries of 0x80 or more for what the player already has are marked done: codes 0x80, 0x81
+- At the start of a game, entries of 0x80 or more for what the player already has are marked done. In a new game these
+  marks are made **before the mission start** of `game/victory.md` (traced: `sweep-xorc9`, SW7a), so the spells,
+  research and upgrade levels the mission start grants mark nothing: those entries stay open until the research or
+  upgrade starts, or until a load makes the game-start marks again. By static study they are made when the player
+  slots are chosen (`game/setup.md`, "Order of the steps", step 4), before the map's units are created. The codes: 0x80, 0x81
   and 0x86 to 0x8F when the upgrade line has already reached the level the code asks for; codes 0x82 to 0x85 when
   the item is already researched; and codes 0x90 to 0x97 when the player already knows the human or the orc item of
   the code (its spells-known bit; Data, "Spell bits for done marks at game start").
@@ -690,7 +697,18 @@ An entry is marked done at the start of a game when either bit of its code is se
 | The same trace, player 3's other peasant 1584, not carrying, no depot, at each of its job choices while the cooldown runs | Cooldown 10 → 9 at n = 6, then one down per choice (n = 59, 110, 171, 230, 283, 338, 400, 456, 517: 8 … 0); no hall is tried; no repair or harvest job, so it waits (wait 49 at n = 6, 47 at n = 59, 57 at n = 110, each within 44 to 59). From n = 181 a hall is in progress too; once the cooldown is 0 no second hall is started (none to n = 5400) |
 | `xhuman12-xhuman12-picker-flip-aigoals-1700` (oracle trace, Enhanced): orc peon 1487 (player 0) takes a build-list job at n = 2 | `ai_goal` tile (86, 34), `extra` 76 (the human lumber mill's number); troll lumber mill (77) at (86, 34) at n = 117 |
 
+### Round-104 vectors
+
+| Input | Expected |
+| --- | --- |
+| **SW7a.** `sweep-xorc9` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`; Beyond the Dark Portal orc 9, mode Q; the map has no `ALOW` section), the setup record: player 1, a computer player, whose build list has entries 21, 22 and 23 with codes 0x90, 0x91 and 0x92; after the mission start it knows spell bits 1, 3 and 20 | Player 1's done marks: none (still none at n = 3000). With the research fields left out, the trace's other fields match a build that marks 21, 22 and 23 up to n = 60000 |
+
 ## Open questions
+
+- **Game-start marks and the map's own sections** (round 104, SW7). By static study the game-start marks come before
+  the map's body sections are read (`game/setup.md`, steps 4 and 6), so what those sections give a player (an
+  `ALOW` section's spells, for example) would mark nothing either. Untraced: SW7a's map has no `ALOW` section.
+  **Default:** as stated (marks before the body sections).
 
 - **Worker or tanker choice** (round 85; held, erratum 6). Static study reads the job-choice dispatch as
   testing the **worker** flag first: any worker takes the worker's job choice (a sea worker only gets the oil-depot
