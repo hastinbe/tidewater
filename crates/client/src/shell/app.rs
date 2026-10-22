@@ -22,6 +22,9 @@
 //! [`Core::suspend`] and [`Core::resume`]: after a suspend one more frame runs (the pause takes effect), then nothing
 //! runs or draws until the program is back.
 //!
+//! **Android** (`docs/design/android.md`) is the same: `crates/android` builds this file and `sdl.rs` as `libmain.so`,
+//! which SDL's Java activity loads and enters at `SDL_main`; the lifecycle is the same pair of events.
+//!
 //! The shell does what the design asks of one: the system's key, button, wheel and focus events into the core's input;
 //! [`Core::advance`] once a frame; the composed frame into one streaming texture, drawn at the window's whole-number
 //! scale with black around it (`display::Letterbox`), with the core's title and system-pointer wish; the core's mixer
@@ -70,9 +73,27 @@ pub fn ios_main() -> i32 {
     }
 }
 
+/// The Android app's `SDL_main` (`sdl::SDL_main`): the program on the command line the activity gave it, with an
+/// error told in the system log and a failing exit code. The app has no command line of its own; `adb shell am start`
+/// can set one (`docs/design/android.md`).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn android_main(argv: Vec<std::ffi::OsString>) -> i32 {
+    match run_program_from(Args::parse_from(argv)) {
+        Ok(()) => 0,
+        Err(e) => {
+            sdl::log_error(&format!("tidewater: {e:#}"));
+            1
+        }
+    }
+}
+
 /// The program, from its command line: what `main` does on a desktop, and what the iOS app's entry calls.
 pub fn run_program() -> Result<()> {
-    let args = Args::parse();
+    run_program_from(Args::parse())
+}
+
+/// The program, from parsed arguments.
+fn run_program_from(args: Args) -> Result<()> {
     if let Some(path) = &args.import {
         std::process::exit(host::import_command(path, args.data_dir.as_deref()));
     }

@@ -2,7 +2,8 @@
 //! <https://wiki.libsdl.org/SDL3/>): the window, a renderer with one streaming texture, the system's events (including
 //! files dropped on the window), fingers on a touch screen, the system's folder and file dialogs, the mouse modes and
 //! an audio stream fed by a callback. On iOS it also holds the app's entry point, the lifecycle events and the
-//! document picker (SDL has no dialogs there; the picker is a small Objective-C shim in `platform/ios`). Every
+//! document picker (SDL has no dialogs there; the picker is a small Objective-C shim in `platform/ios`). On Android
+//! it holds the entry `SDL_main` and the activity's picker callback (the picker is `TidewaterActivity.java`). Every
 //! `unsafe` block of the shell is here; each owner frees what it made when it is dropped.
 
 #![allow(unsafe_code)]
@@ -38,6 +39,12 @@ impl Sdl {
         let frames = cstring(&sample_frames.to_string());
         // SAFETY: the hint's name is SDL's own constant and the value a valid C string; SDL copies both.
         unsafe { sys::SDL_SetHint(sys::SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, frames.as_ptr()) };
+        // A phone shows the picture in landscape only (iOS says so in its Info.plist; Android's window would otherwise
+        // follow the sensor into portrait, as the window is resizable).
+        if cfg!(any(target_os = "ios", target_os = "android")) {
+            // SAFETY: as above.
+            unsafe { sys::SDL_SetHint(sys::SDL_HINT_ORIENTATIONS, c"LandscapeLeft LandscapeRight".as_ptr()) };
+        }
         let mut flags = sys::SDL_INIT_VIDEO;
         if audio {
             flags |= sys::SDL_INIT_AUDIO;
@@ -248,8 +255,8 @@ impl<'s> Window<'s> {
     /// Opens the system's dialog for choosing a folder, over this window. The answer comes later (not before this
     /// call returns), through [`take_dialog_answers`].
     pub fn show_folder_dialog(&self) {
-        if IOS {
-            ios_pick(true);
+        if PICKER {
+            phone_pick(true);
             return;
         }
         // SAFETY: a live window; the callback is a plain function that uses no userdata (null).
@@ -266,11 +273,11 @@ impl<'s> Window<'s> {
 
     /// Opens the system's dialog for choosing one file, over this window. `filters` are (name, patterns) pairs, the
     /// patterns file extensions without dots separated by `;` (`"iso;bin;cue"`), or `"*"` for any file. The answer
-    /// comes later, through [`take_dialog_answers`]. On iOS the picker takes any file (the import says what it can
-    /// use) and `filters` are not used.
+    /// comes later, through [`take_dialog_answers`]. On iOS and Android the picker takes any file (the import says what
+    /// it can use) and `filters` are not used.
     pub fn show_file_dialog(&self, filters: &[(&str, &str)]) {
-        if IOS {
-            ios_pick(false);
+        if PICKER {
+            phone_pick(false);
             return;
         }
         // SDL may read the filters until the dialog answers, so they are leaked: a few bytes per dialog opened.
@@ -298,7 +305,8 @@ impl<'s> Window<'s> {
     }
 }
 
-const IOS: bool = cfg!(target_os = "ios");
+/// Whether the system's picker is our own (a phone's document picker) instead of SDL's dialogs.
+const PICKER: bool = cfg!(any(target_os = "ios", target_os = "android"));
 
 // The document picker is `platform/ios/Sources/picker.m`, linked into the app beside this library. It shows a
 // `UIDocumentPickerViewController` for a folder or for any file, opens the chosen item in place (the app holds the
@@ -311,13 +319,88 @@ unsafe extern "C" {
 
 /// Shows the iOS document picker for a folder or a file.
 #[cfg(target_os = "ios")]
-fn ios_pick(folder: bool) {
+fn phone_pick(folder: bool) {
     // SAFETY: the shim keeps `done` until it calls it, once, and reads nothing else of ours.
     unsafe { tidewater_ios_pick(folder as c_int, ios_picked) };
 }
 
-#[cfg(not(target_os = "ios"))]
-fn ios_pick(_folder: bool) {}
+/// Asks the Android activity (`TidewaterActivity`, `platform/android`) to show the Storage Access Framework picker.
+/// SDL 3's own file dialog gives `content:` addresses and has no folder dialog on Android, so the activity picks,
+/// copies the chosen item into the app's cache and calls [`Java_dev_tidewater_client_TidewaterActivity_nativePicked`].
+#[cfg(target_os = "android")]
+fn phone_pick(folder: bool) {
+    // Messages from 0x8000 up reach the activity's `onUnhandledMessage`, on the UI thread.
+    let command = if folder { ANDROID_PICK_FOLDER } else { ANDROID_PICK_FILE };
+    // SAFETY: plain integers.
+    if !unsafe { sys::SDL_SendAndroidMessage(command, 0) }
+        && let Ok(mut answers) = DIALOG_ANSWERS.lock()
+    {
+        answers.push(None);
+    }
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn phone_pick(_folder: bool) {}
+
+/// The activity's message numbers (`TidewaterActivity.java` has the same two).
+#[cfg(target_os = "android")]
+const ANDROID_PICK_FOLDER: u32 = 0x8001;
+#[cfg(target_os = "android")]
+const ANDROID_PICK_FILE: u32 = 0x8002;
+
+/// The activity calls this when its picker has finished, from the UI thread: the chosen item, copied into the app's
+/// cache, has its path in `pick-result.txt` in the app's files folder (empty when the user cancelled or the copy
+/// failed). It is a JNI function by name, found in `libmain.so` when the activity declares it `native`.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "C" fn Java_dev_tidewater_client_TidewaterActivity_nativePicked(_env: *mut c_void, _class: *mut c_void) {
+    let answer = android_files_dir()
+        .and_then(|dir| std::fs::read_to_string(dir.join("pick-result.txt")).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
+    if let Ok(mut answers) = DIALOG_ANSWERS.lock() {
+        answers.push(answer);
+    }
+}
+
+/// The app's private files folder (SDL's internal storage path).
+#[cfg(target_os = "android")]
+fn android_files_dir() -> Option<PathBuf> {
+    // SAFETY: SDL returns a string it owns (or NULL), read at once.
+    let p = unsafe { sys::SDL_GetAndroidInternalStoragePath() };
+    // SAFETY: non-NULL is a valid C string.
+    (!p.is_null()).then(|| PathBuf::from(unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()))
+}
+
+/// Points the program at the app's own folders before it reads its command line: `HOME` is the private files folder
+/// (so the data, saved games and settings go under it, as on any Unix), and `TIDEWATER_SHARED_DIR` the external files
+/// folder that `adb push` and a computer can fill (the first-run screen scans it).
+#[cfg(target_os = "android")]
+fn android_environment() {
+    if let Some(dir) = android_files_dir() {
+        // SAFETY: called first thing in `SDL_main`, before the program starts any thread of its own.
+        unsafe { std::env::set_var("HOME", dir) };
+    }
+    // SAFETY: SDL returns a string it owns (or NULL), read at once.
+    let p = unsafe { sys::SDL_GetAndroidExternalStoragePath() };
+    if !p.is_null() {
+        // SAFETY: non-NULL is a valid C string; as above, no other thread yet.
+        unsafe { std::env::set_var("TIDEWATER_SHARED_DIR", CStr::from_ptr(p).to_string_lossy().into_owned()) };
+    }
+}
+
+/// Writes a line to the system log (`adb logcat -s SDL`) as an error.
+pub fn log_error(msg: &str) {
+    // SAFETY: a fixed format string and a valid C string for its one argument.
+    unsafe {
+        sys::SDL_LogError(
+            sys::SDL_LOG_CATEGORY_APPLICATION.0,
+            c"%s".as_ptr(),
+            cstring(msg).as_ptr(),
+        )
+    };
+}
 
 /// The picker's answer: a NUL-terminated UTF-8 path valid during the call, or NULL.
 #[cfg(target_os = "ios")]
@@ -886,4 +969,25 @@ impl<F> Drop for AudioOut<'_, F> {
             drop(Box::from_raw(self.feed));
         }
     }
+}
+
+/// The Android app's entry. SDL's Java activity loads `libmain.so`, starts a thread and calls this by name with the
+/// arguments `TidewaterActivity.getArguments()` gave: the same program as the desktop's.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "C" fn SDL_main(argc: c_int, argv: *mut *mut std::ffi::c_char) -> c_int {
+    android_environment();
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    for i in 0..argc.max(0) as usize {
+        // SAFETY: SDL passes `argc` valid, NUL-terminated strings in `argv`.
+        let a = unsafe { *argv.add(i) };
+        if !a.is_null() {
+            // SAFETY: as above.
+            args.push(unsafe { CStr::from_ptr(a) }.to_string_lossy().into_owned().into());
+        }
+    }
+    if args.is_empty() {
+        args.push("tidewater".into());
+    }
+    crate::app::android_main(args)
 }

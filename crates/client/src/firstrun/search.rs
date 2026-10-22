@@ -35,6 +35,9 @@ pub struct Where {
     pub home: Option<PathBuf>,
     /// Windows: the `Program Files` folders (`ProgramFiles` and `ProgramFiles(x86)`).
     pub program_files: Vec<PathBuf>,
+    /// A phone's shared folder when it is not `Documents` under the home folder: Android's external files folder
+    /// (the shell gives it in `TIDEWATER_SHARED_DIR`).
+    pub shared: Option<PathBuf>,
 }
 
 impl Where {
@@ -46,6 +49,7 @@ impl Where {
                 .iter()
                 .filter_map(|v| std::env::var_os(v).map(PathBuf::from))
                 .collect(),
+            shared: std::env::var_os("TIDEWATER_SHARED_DIR").map(PathBuf::from),
         }
     }
 }
@@ -145,11 +149,16 @@ fn wine_prefixes(os: Os, home: &Path) -> Vec<PathBuf> {
 }
 
 /// What could be a game in the app's shared folder on a phone (`Documents` in the app's own folder, which the Files app
-/// and a computer can fill): the folder itself (loose game files), and each folder and file in it, folders first, by
+/// and a computer can fill, or `at.shared`): the folder itself (loose game files), and each folder and file in it, folders first, by
 /// name. Hidden entries are left out. Nothing is opened here: the caller classifies each.
 pub fn shared_folder_candidates(at: &Where) -> Vec<PathBuf> {
-    let Some(home) = &at.home else { return Vec::new() };
-    let dir = home.join("Documents");
+    let Some(dir) = at
+        .shared
+        .clone()
+        .or_else(|| at.home.as_ref().map(|h| h.join("Documents")))
+    else {
+        return Vec::new();
+    };
     let Ok(rd) = fs::read_dir(&dir) else { return Vec::new() };
     let mut entries: Vec<PathBuf> = rd
         .flatten()
@@ -229,6 +238,7 @@ mod tests {
         let at = Where {
             home: Some(h.to_path_buf()),
             program_files: Vec::new(),
+            shared: None,
         };
         let b = bases(Os::Mac, &at);
         assert!(b.contains(&PathBuf::from("/Applications")));
@@ -262,6 +272,7 @@ mod tests {
         let at = Where {
             home: Some(h.to_path_buf()),
             program_files: Vec::new(),
+            shared: None,
         };
         let docs = h.join("Documents");
         assert_eq!(
@@ -273,6 +284,16 @@ mod tests {
                 docs.join("disc.iso")
             ],
             "the folder itself, then folders by name, then files"
+        );
+        // Android names its shared folder (the external files folder) instead of `Documents`.
+        let shared = h.join("Documents/Zeta");
+        let at = Where {
+            shared: Some(shared.clone()),
+            ..at
+        };
+        assert_eq!(
+            shared_folder_candidates(&at),
+            [shared.clone(), shared.join("War2Dat.mpq")]
         );
         let none = Where::default();
         assert!(shared_folder_candidates(&none).is_empty());
@@ -286,6 +307,7 @@ mod tests {
         let at = Where {
             home: Some(h.to_path_buf()),
             program_files: Vec::new(),
+            shared: None,
         };
         let b = bases(Os::Linux, &at);
         assert_eq!(b[0], h.join("GOG Games"));
@@ -298,6 +320,7 @@ mod tests {
         let at = Where {
             home: Some(PathBuf::from("/home/<user>")),
             program_files: vec![PathBuf::from("/pf"), PathBuf::from("/pf86")],
+            shared: None,
         };
         let b = bases(Os::Windows, &at);
         assert!(b.contains(&PathBuf::from("/pf")));

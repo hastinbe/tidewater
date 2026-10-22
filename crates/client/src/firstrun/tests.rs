@@ -636,6 +636,11 @@ fn a_phone_offers_the_folder_the_disc_and_a_rescan_but_no_installer_or_quit() {
     // The explanation says an installer can't be used.
     assert!(PHONE_INTRO.contains("GOG installer"));
     assert!(wrap(PHONE_INTRO, 74).len() <= 4, "the intro fits above the list");
+    assert!(ANDROID_INTRO.contains("GOG installer"));
+    assert!(
+        wrap(ANDROID_INTRO, 74).len() <= 4,
+        "the Android intro fits above the list"
+    );
 }
 
 #[test]

@@ -11,7 +11,7 @@
 //! - "Quit"; and a hint that files can be dropped on the window ([`crate::input::FileEvent::Dropped`]).
 //!
 //! On a phone ([`Intake::SharedFolder`]) the screen reads the app's shared folder instead (files copied in with the
-//! Files app or a computer), says a GOG installer can't be used there, offers "Scan again" and has no "Quit".
+//! Files app or a computer; on Android, the app's external files folder), says a GOG installer can't be used there, offers "Scan again" and has no "Quit".
 //!
 //! The copy runs on a worker thread; its progress comes back over a channel and fills the progress bar. A finished
 //! import shows its result line for a moment and the program goes on into the normal start-up; a failed one shows the
@@ -133,9 +133,11 @@ impl Backend for DesktopBackend {
 /// there), which the import crate's message about installing that program would not explain.
 fn describe(e: &tidewater_import::ImportError) -> String {
     if Intake::native() == Intake::SharedFolder && matches!(e, tidewater_import::ImportError::InnoextractMissing(_)) {
-        "A GOG installer can't be opened on iOS. On a computer, install the game or unpack the installer, then copy \
-         the game folder here; or use a CD image."
-            .to_string()
+        format!(
+            "A GOG installer can't be opened on {}. On a computer, install the game or unpack the installer, then \
+             copy the game folder here; or use a CD image.",
+            Intake::phone_name()
+        )
     } else {
         e.to_string()
     }
@@ -203,11 +205,16 @@ pub enum Intake {
 impl Intake {
     /// The way this build gets its game files.
     pub fn native() -> Intake {
-        if cfg!(target_os = "ios") {
+        if cfg!(any(target_os = "ios", target_os = "android")) {
             Intake::SharedFolder
         } else {
             Intake::Dialogs
         }
+    }
+
+    /// The phone system's name, for the screen's messages.
+    fn phone_name() -> &'static str {
+        if cfg!(target_os = "android") { "Android" } else { "iOS" }
     }
 }
 
@@ -274,6 +281,19 @@ const DESKTOP_INTRO: &str = "Tidewater needs the game files from your own copy o
 const PHONE_INTRO: &str = "Tidewater needs the game files from your own copy of Warcraft II: Battle.net Edition. \
                     Put the game folder or a CD image (.iso .bin .cue .mdf .nrg) in Tidewater's folder with the Files \
                     app or a computer, then tap Scan again. A GOG installer (.exe) can't be used on iOS.";
+
+const ANDROID_INTRO: &str = "Tidewater needs the game files from your own copy of Warcraft II: Battle.net Edition. \
+                    Choose the game folder or a CD image (.iso .bin .cue .mdf .nrg) below, or put it in Tidewater's \
+                    folder from a computer, then tap Scan again. A GOG installer (.exe) can't be used on Android.";
+
+/// The introduction on a phone.
+fn phone_intro() -> &'static str {
+    if cfg!(target_os = "android") {
+        ANDROID_INTRO
+    } else {
+        PHONE_INTRO
+    }
+}
 
 /// What the screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -781,7 +801,7 @@ impl FirstRun {
 
     fn draw_list(&self, c: &mut Canvas) {
         let phone = self.intake == Intake::SharedFolder;
-        let text = if phone { PHONE_INTRO } else { DESKTOP_INTRO };
+        let text = if phone { phone_intro() } else { DESKTOP_INTRO };
         for (n, l) in wrap(text, 74).iter().enumerate() {
             c.text(LIST_X, 94 + n as i32 * 12, 1, TEXT, l);
         }
