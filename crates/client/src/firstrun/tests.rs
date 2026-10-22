@@ -1,6 +1,7 @@
 //! The first-run screen's rules, driven through the core's input with a fake import backend.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -17,10 +18,12 @@ use crate::storage::{Desktop, Store};
 struct Fake {
     found: Vec<Candidate>,
     calls: Mutex<Vec<PathBuf>>,
+    searches: AtomicUsize,
 }
 
 impl Backend for Fake {
     fn search(&self) -> Vec<Candidate> {
+        self.searches.fetch_add(1, Ordering::SeqCst);
         self.found.clone()
     }
 
@@ -646,13 +649,21 @@ fn a_phone_offers_the_folder_the_disc_and_a_rescan_but_no_installer_or_quit() {
 #[test]
 fn scanning_again_looks_in_the_folder_anew() {
     let mut r = phone_rig();
+    r.wait_for(|r| !r.screen().searching);
+    let before = r.fake.searches.load(Ordering::SeqCst);
     r.point_at(Item::Rescan);
     r.frame();
     r.core.input.button(Button::Left, true);
     r.frame();
     r.core.input.button(Button::Left, false);
-    assert!(r.screen().searching, "the search runs again");
+    // The search runs on a thread and the fake answers at once, so it may already be over by now: wait for it to end
+    // rather than catching it running.
     r.wait_for(|r| !r.screen().searching);
+    assert_eq!(
+        r.fake.searches.load(Ordering::SeqCst),
+        before + 1,
+        "the search runs again"
+    );
     assert_eq!(r.screen().candidates.len(), 2, "the fake finds the same two");
 }
 
