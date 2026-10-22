@@ -1,0 +1,22 @@
+# frame and sound fingerprints of the scripted scene `extras-groups` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	2ab4d7048026f340
+shot	8	none	c2e52e287af839f4
+frames	4-8	c2e52e287af839f4
+sound	10	f8787214968df8ae	0.9882	Despawn
+frames	9-9	5dd4d3e803f343da
+frames	10-10	c494053bfb9f4fa9
+frames	11-15	0efa7fe868e93014
+sound	17	cbea95825791f782	0.9882	Despawn
+frames	16-16	aaf685aafb09d45a
+frames	17-20	7a059b90eea33bf6
+frames	21-22	c2d144cee1ded1d2
+frames	23-23	f93dec68ea392f5a
+frames	24-24	27a9060a41552329
+frames	25-29	f79b7e2eb1af3d56
+frames	30-30	8ae84b578f8e544e
+shot	35	bar	1792a99b936d8a6d
+frames	31-35	1792a99b936d8a6d
+shot	40	recalled	c91b60ad7d647db4
+frames	36-40	c91b60ad7d647db4

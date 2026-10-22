@@ -97,6 +97,8 @@ The idle-worker key is F6. How they work, and how to add one, is in [`docs/desig
 | `health-bars` | `--extra-health-bars VALUE` | off, hovered, selected, always | off | Hit point bars over units: only those under the pointer, only selected ones, or all (C+L) |
 | `idle-worker` | `--extra-idle-worker` | on, off | off | An idle-worker button at the top of the screen and the F6 key: select your next idle worker |
 | `game-clock` | `--extra-game-clock VALUE` | off, clock, clock-apm | off | The game clock over the map view, with or without your actions per minute |
+| `group-bar` | `--extra-group-bar` | on, off | off | A strip over the map view's top left listing your control groups with their sizes: click one to recall it |
+| `smart-attack-move` | `--extra-smart-attack-move` | on, off | off | A right-click on open ground with only fighting units selected attack-moves there instead of moving (C+L) |
 | `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
 | `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | 100 | Sound effects, in percent of the sound volume |
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | 100 | Music, in percent of the music volume |

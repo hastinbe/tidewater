@@ -35,6 +35,8 @@ const SCENES: &[&str] = &[
     "flow",
     "extras",
     "extras-bars",
+    "extras-groups",
+    "extras-attack",
 ];
 
 fn on(var: &str) -> bool {

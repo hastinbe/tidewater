@@ -137,6 +137,8 @@ pub struct View<'a> {
     pub idle_button: Option<usize>,
     /// The game clock line over the map view's top right corner, when the option is on (`overlay`).
     pub clock: Option<&'a str>,
+    /// The control-group bar's buttons, none when the option is off (`groupbar`).
+    pub group_bar: &'a [crate::groupbar::Cell],
 }
 
 // --- drawing primitives -------------------------------------------------------------------------------------------
@@ -586,6 +588,16 @@ impl HudArt {
         text_centred(pic, &self.font, r, &format!("Idle {idle} (F{})", crate::idle::KEY));
     }
 
+    /// The control-group bar (`groupbar`): a button for each group with units, in the map view's top left corner.
+    fn draw_group_bar(&self, pic: &mut Picture, view: Rect, cells: &[crate::groupbar::Cell]) {
+        for (n, &cell) in cells.iter().enumerate() {
+            let r = crate::groupbar::cell_rect(view, n);
+            fill(pic, r, [40, 36, 28]);
+            outline(pic, r, [140, 120, 60]);
+            text_centred(pic, &self.font, r, &crate::groupbar::label(cell));
+        }
+    }
+
     /// The clock line (`overlay`): right-aligned at the top of the map view.
     fn draw_clock(&self, pic: &mut Picture, view: Rect, line: &str) {
         let w = self.font.width(line.as_bytes()) as i32;
@@ -787,6 +799,7 @@ impl HudArt {
         if let Some(n) = v.idle_button {
             self.draw_idle_button(&mut pic, n);
         }
+        self.draw_group_bar(&mut pic, l.viewport, v.group_bar);
         if let Some(line) = v.clock {
             self.draw_clock(&mut pic, l.viewport, line);
         }

@@ -837,7 +837,7 @@ pub fn group_view(board: &Board, units: &[UnitId]) -> Option<(i32, i32)> {
 // --- keys ----------------------------------------------------------------------------------------------------------
 
 /// A key as the in-game table names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     /// A letter, upper case.
     Letter(char),
@@ -850,7 +850,7 @@ pub enum Key {
     F(u8),
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct KeyMods {
     pub shift: bool,
     pub ctrl: bool,

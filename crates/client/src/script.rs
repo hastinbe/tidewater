@@ -50,6 +50,9 @@ pub struct Scene {
     /// Optional improvements (`extras`) the scene runs with, as (name, value) pairs; none in every scene but the ones
     /// that show an improvement, so the others show the game as it is.
     pub extras: &'static [(&'static str, &'static str)],
+    /// The text of a `[keys]` section (`keymap`) the scene runs with; empty in every scene but the ones that show a
+    /// rebinding, so the others use the original's keys.
+    pub keys: &'static str,
 }
 
 /// The name of the scene that shows the first-run screen (`firstrun`) over a demo backend, with no game files.
@@ -188,42 +191,49 @@ pub fn scenes() -> Vec<Scene> {
             start: vec![Step::Title, Step::MainMenu],
             cmds: campaign,
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "outcome",
             start: vec![play(0)],
             cmds: outcome(),
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "ending",
             start: vec![play(1)],
             cmds: ending(),
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "load",
             start: vec![play(0)],
             cmds: load(),
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "build",
             start: vec![play(0)],
             cmds: build(),
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "carry",
             start: vec![play(0)],
             cmds: carry(),
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "flow",
             start: crate::frontend::startup_steps(false, false, true),
             cmds: flow(),
             extras: &[],
+            keys: "",
         },
         // Optional improvements switched on: every health bar, the idle-worker button and key, the clock with APM.
         Scene {
@@ -238,6 +248,7 @@ pub fn scenes() -> Vec<Scene> {
                 ("volume-effects", "60"),
                 ("volume-music", "50"),
             ],
+            keys: "",
         },
         // Hit point bars only over the unit under the pointer.
         Scene {
@@ -245,6 +256,23 @@ pub fn scenes() -> Vec<Scene> {
             start: vec![play(0)],
             cmds: extras_bars(),
             extras: &[("health-bars", "hovered")],
+            keys: "",
+        },
+        // The control-group bar: groups set by keys, the strip over the view's corner, a click on it recalls a group.
+        Scene {
+            name: "extras-groups",
+            start: vec![play(0)],
+            cmds: extras_groups(),
+            extras: &[("group-bar", "on")],
+            keys: "",
+        },
+        // Smart attack-move: a right-click on open ground with a fighting unit selected.
+        Scene {
+            name: "extras-attack",
+            start: vec![play(0)],
+            cmds: extras_attack(),
+            extras: &[("smart-attack-move", "on")],
+            keys: "",
         },
         // Needs no game files: `host::launch` shows the first-run screen over a demo backend.
         Scene {
@@ -252,6 +280,7 @@ pub fn scenes() -> Vec<Scene> {
             start: Vec::new(),
             cmds: first_run(),
             extras: &[],
+            keys: "",
         },
         // Not in the frame snapshot: `jukebox`'s tests run these to check the music at every frame.
         Scene {
@@ -259,12 +288,14 @@ pub fn scenes() -> Vec<Scene> {
             start: vec![Step::MainMenu],
             cmds: music_quit(),
             extras: &[],
+            keys: "",
         },
         Scene {
             name: "music-back",
             start: vec![Step::MainMenu],
             cmds: music_back(),
             extras: &[],
+            keys: "",
         },
     ]
 }
@@ -708,6 +739,62 @@ fn extras() -> Vec<Cmd> {
         Up(Button::Right),
     ]);
     v.extend([UntilCycle(500), Shot("apm")]);
+    v
+}
+
+/// A control group set from the selection with Ctrl and the number key.
+fn set_group(d: u8) -> Vec<Cmd> {
+    let mut v = vec![Cmd::Press(Key::ControlLeft), Cmd::Wait(1)];
+    v.extend(tap(Key::Digit(d)));
+    v.extend([Cmd::Release(Key::ControlLeft), Cmd::Wait(2)]);
+    v
+}
+
+/// The control-group bar: three groups made from clicks and a box, the strip, a click on its second button.
+fn extras_groups() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5), Shot("none")];
+    v.extend(click(511.0, 248.0));
+    v.extend([Wait(2)]);
+    v.extend(set_group(1));
+    v.extend(click(416.0, 318.0));
+    v.extend([Wait(2)]);
+    v.extend(set_group(2));
+    v.extend([
+        Move(260.0, 225.0),
+        Down(Button::Left),
+        Wait(1),
+        Move(540.0, 340.0),
+        Wait(1),
+        Up(Button::Left),
+    ]);
+    v.extend([Wait(2)]);
+    v.extend(set_group(5));
+    v.extend(click(300.0, 400.0));
+    v.extend([Wait(3), Shot("bar")]);
+    // The second button is group 2.
+    v.extend(click(250.0, 27.0));
+    v.extend([Wait(3), Shot("recalled")]);
+    v
+}
+
+/// Smart attack-move: a unit selected, a right-click on the ground, and the same with a worker.
+fn extras_attack() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5)];
+    v.extend(click(511.0, 248.0));
+    v.extend([Wait(2), Shot("selected")]);
+    v.extend([Move(330.0, 300.0), Down(Button::Right), Wait(1), Up(Button::Right)]);
+    v.extend([Wait(3), Shot("attack-move")]);
+    v.extend(click(416.0, 318.0));
+    v.extend([
+        Wait(2),
+        Move(330.0, 250.0),
+        Down(Button::Right),
+        Wait(1),
+        Up(Button::Right),
+    ]);
+    v.extend([Wait(3), Shot("worker-moves")]);
     v
 }
 

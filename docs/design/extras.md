@@ -17,6 +17,8 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
 | `health-bars` | `--extra-health-bars VALUE` | off, hovered, selected, always | C+L | off | Hit point bars over units: only those under the pointer, only selected ones, or all |
 | `idle-worker` | `--extra-idle-worker` | on, off | C | off | An idle-worker button at the top of the screen and the F6 key: select your next idle worker |
 | `game-clock` | `--extra-game-clock VALUE` | off, clock, clock-apm | C | off | The game clock over the map view, with or without your actions per minute |
+| `group-bar` | `--extra-group-bar` | on, off | C | off | A strip over the map view's top left listing your control groups with their sizes: click one to recall it |
+| `smart-attack-move` | `--extra-smart-attack-move` | on, off | C+L | off | A right-click on open ground with only fighting units selected attack-moves there instead of moving |
 | `volume-voices` | `--extra-volume-voices VALUE` | 0 to 100 | C | 100 | Unit voices, in percent of the sound volume (100 leaves them as the game sets them) |
 | `volume-effects` | `--extra-volume-effects VALUE` | 0 to 100 | C | 100 | Sound effects, in percent of the sound volume |
 | `volume-music` | `--extra-volume-music VALUE` | 0 to 100 | C | 100 | Music, in percent of the music volume |
@@ -42,6 +44,20 @@ the session (the lobby, later) sets it for everyone instead of your own setting.
 - **Game clock** (`game-clock`). The game's own clock (`M:SS`, `H:MM:SS` from the first hour) in the map view's top
   right corner; `clock-apm` adds your actions per minute (every command you give, selecting included, over the clock),
   shown from the first full second. Rules in `overlay.rs`.
+- **Control-group bar** (`group-bar`). A strip of small buttons over the map view's top left corner, starting 4 pixels in
+  from the corner, one for each control group 0 to 9 that has units (`1:5` is group 1, five units; units no longer in the
+  game are not counted). A click on a button sends what the group's number key sends (`mouse::GroupKeys::press`: select
+  the group, and a second click within the double-press time centres the view). It reads the synced groups
+  (`World::selections`), the lists the number keys recall. **Where it sits:** that corner holds none of the original
+  interface. The message list starts 194 pixels down the screen, the notice line is at the bottom, and the game clock
+  (when on) is at the top right; ten buttons are at most 400 pixels long, so they never reach the clock. Rules in
+  `groupbar.rs`.
+- **Smart attack-move** (`smart-attack-move`, C+L). A right-click on open ground (no unit under the pointer) with only
+  fighting units selected sends the Attack button's command for the ground (`Command::Issue`, command 8, no target),
+  which the sim already turns into an attack-move, instead of the right-click's move. "Fighting" means every selected
+  unit is yours, can attack, and is not a worker, an oil tanker or a building; one peasant in the selection keeps the
+  normal move. The simulation is not changed. It follows the session in a game with other players because it saves an
+  order. Rules in `attackmove.rs`.
 - **Separate volumes** (`volume-voices`, `volume-effects`, `volume-music`). Master trims on top of the game menu's
   digital and music volumes, applied in the mixer (`audio.rs`, `Trims`). Voices are unit speech and acknowledgements;
   effects are every other sound (a screen's sounds and narration included); music is the jukebox. At 100 the mixer
@@ -97,6 +113,6 @@ over what its players agreed. Tests: `a_non_local_session_sets_the_c_plus_l_opti
 ## Checks that keep the defaults honest
 
 - The frame snapshot (`crates/client/tests/frames.rs`) runs its original scenes with every extra off and is never
-  re-blessed for an extra; the scenes `extras` and `extras-bars` turn options on and have their own entries.
+  re-blessed for an extra; the scenes `extras`, `extras-bars`, `extras-groups` and `extras-attack` turn options on and have their own entries.
 - `Trims::default()` leaves the mixed sound identical; the audio snapshot of the original scenes shows it.
 - The oracle traces and the whole-map snapshot run on the sim, which an empty `Extras` does not change.

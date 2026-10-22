@@ -30,8 +30,8 @@ use crate::layers::{self, Pictures, Role};
 use crate::panel::PanelState;
 use crate::session::{LocalSession, Recorder, ReplaySession, Session};
 use crate::{
-    audio, campaign, display, fog, frontend, hud, idle, info, mapview, messages, minimap, mouse, overlay, palette,
-    panel, savefile, savegame, scene, screen, sound, view,
+    attackmove, audio, campaign, display, fog, frontend, groupbar, hud, idle, info, mapview, messages, minimap, mouse,
+    overlay, palette, panel, savefile, savegame, scene, screen, sound, view,
 };
 
 pub struct Loaded(pub Option<scene::Scene>);
@@ -166,6 +166,13 @@ pub struct Selection {
 /// (C+L), which a session that isn't the player's own sets itself.
 pub(crate) fn extras(c: &Core) -> crate::extras::ClientExtras {
     crate::extras::effective(&c.extras, c.sim.as_ref().and_then(|s| s.session.lobby_client_extras()))
+}
+
+/// The control-group bar's buttons (`groupbar`): the local player's synced groups with units left.
+fn group_bar_cells(world: &World, player: u8) -> Vec<groupbar::Cell> {
+    world.selections.get(player as usize).map_or_else(Vec::new, |s| {
+        groupbar::cells(&s.groups, |u| world.unit(u).is_some_and(|u| !u.dying && !u.removing))
+    })
 }
 
 /// The idle-worker button and key (`idle`): selects the next idle worker as a click on it would, and centres the view.
@@ -1268,8 +1275,11 @@ pub(crate) fn key_char(k: Key) -> Option<char> {
 /// placement mode (`panel`, spec `ui/command-buttons.md`).
 pub(crate) fn panel_input(c: &mut Core) {
     let idle_on = c.extras.idle_worker();
+    let group_bar_on = c.extras.group_bar();
+    let now = (c.time.elapsed_secs_f64() * 1000.0) as u64;
     let Core {
         sim,
+        art,
         selection: Some(sel),
         hud: Some(hud),
         screen_ui: Some(scr),
@@ -1301,6 +1311,19 @@ pub(crate) fn panel_input(c: &mut Core) {
         select_idle(sim, sel, view.as_mut());
         ui.consumed = true;
         return;
+    }
+    // The control-group bar (`groupbar`), when the option is on: a click recalls the group, as its number key does.
+    if pressed
+        && group_bar_on
+        && let (Some(c), Some(l), Some(mv)) = (hud.cursor(input), hud.layout, view.as_mut())
+    {
+        let cells = group_bar_cells(&sim.world, sim.human);
+        if let Some(g) = groupbar::group_at(l.viewport, &cells, c.x, c.y) {
+            let mode = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));
+            group_press(sim, sel, art.as_ref(), mv, mouse::GroupKey::Recall, g, mode, now);
+            ui.consumed = true;
+            return;
+        }
     }
     // The menu and pause buttons (screen spec, "Menu buttons").
     if pressed
@@ -1462,6 +1485,7 @@ fn right_click(
     view: (f32, f32, f32, f32),
     at: Option<Vec2>,
     tile: (i32, i32),
+    smart_attack: bool,
 ) {
     let human = sim.human;
     let (target, sends) = with_board(&sim.world, human, art, view, |b| {
@@ -1472,11 +1496,16 @@ fn right_click(
     if !sends {
         return;
     }
-    sim.pending.push(Command::RightClick {
-        player: human,
-        target: target.map(|t| t.0),
-        tile,
-    });
+    // Smart attack-move (`attackmove`, option `smart-attack-move`): fighting units only, on open ground.
+    if smart_attack && attackmove::applies(target.map(|t| t.0), &attackmove::facts(&sim.world, human, &sel.units)) {
+        sim.pending.push(attackmove::command(human, tile));
+    } else {
+        sim.pending.push(Command::RightClick {
+            player: human,
+            target: target.map(|t| t.0),
+            tile,
+        });
+    }
     sim.world.acknowledge(sel.units[0]);
     let mark = mark_spot(at, tile, 8);
     feedback(sim, sel, target, mark);
@@ -1531,6 +1560,7 @@ fn centre_view(view: &mut mapview::MapView, c: Vec2) {
 /// `ui/selecting-and-commanding.md`, "Mouse regions"): selecting, the right-click command, target-mode and placement
 /// clicks, and moving the view.
 pub(crate) fn mouse_input(c: &mut Core) {
+    let smart_attack = extras(c).smart_attack_move();
     let Core {
         time,
         view,
@@ -1674,12 +1704,12 @@ pub(crate) fn mouse_input(c: &mut Core) {
             }
             mouse::Action::RightClick => {
                 if let Some(tile) = map_tile {
-                    right_click(sim, sel, art, view, at, tile);
+                    right_click(sim, sel, art, view, at, tile, smart_attack);
                 }
             }
             mouse::Action::RightClickTile => {
                 if let Some(tile) = minimap_tile {
-                    right_click(sim, sel, art, view, None, tile);
+                    right_click(sim, sel, art, view, None, tile, smart_attack);
                 }
             }
             mouse::Action::CentreView => {
@@ -1724,6 +1754,46 @@ pub(crate) fn game_key(k: Key) -> Option<mouse::Key> {
             c => mouse::Key::Letter(c),
         },
     })
+}
+
+/// A control-group key, or a click on the group bar (`groupbar`): selects and sends what the key does
+/// (`mouse::GroupKeys::press`). `mode` is whether target or placement mode is on; `now` is in milliseconds.
+#[allow(clippy::too_many_arguments)]
+fn group_press(
+    sim: &mut Sim,
+    sel: &mut Selection,
+    art: Option<&Art>,
+    mv: &mut mapview::MapView,
+    key: mouse::GroupKey,
+    g: u8,
+    mode: bool,
+    now: u64,
+) {
+    let human = sim.human;
+    let view = mv.tiles();
+    let group = sim.world.selections[human as usize]
+        .groups
+        .get(g as usize)
+        .cloned()
+        .unwrap_or_default();
+    let (plan, half) = with_board(&sim.world, human, art, view, |b| {
+        (sel.groups.press(b, key, g, &group, mode, now), b.view.view_tiles / 2)
+    });
+    if let Some(t) = plan.view {
+        let c = Vec2::new((t.0 + half) as f32 + 0.5, (t.1 + half) as f32 + 0.5);
+        centre_view(mv, c * TILE_PX as f32);
+    }
+    if let Some(units) = plan.select {
+        if let Some(&first) = units.first() {
+            select_sound(sim, first);
+        }
+        sel.units = units;
+    }
+    match plan.send {
+        Some(mouse::GroupSend::Set(group)) => sim.pending.push(Command::SetGroup { player: human, group }),
+        Some(mouse::GroupSend::Recall(group)) => sim.pending.push(Command::RecallGroup { player: human, group }),
+        None => {}
+    }
 }
 
 /// The in-game keys (`mouse::key_action`, spec `ui/selecting-and-commanding.md`, "Keys" and "Control groups"). The
@@ -1781,34 +1851,9 @@ pub(crate) fn keys_input(c: &mut Core) {
             mouse::KeyAction::Speed(faster) => sim.pending.push(Command::Speed { player: human, faster }),
             mouse::KeyAction::Pause => sim.pending.push(Command::Pause { player: human }),
             mouse::KeyAction::Group(key, g) => {
-                let view = mv.tiles();
-                let group = sim.world.selections[human as usize]
-                    .groups
-                    .get(g as usize)
-                    .cloned()
-                    .unwrap_or_default();
                 let mode = matches!(ui.mode, panel::Mode::Target(_) | panel::Mode::Place(_));
                 let now = (time.elapsed_secs_f64() * 1000.0) as u64;
-                let (plan, half) = with_board(&sim.world, human, art.as_ref(), view, |b| {
-                    (sel.groups.press(b, key, g, &group, mode, now), b.view.view_tiles / 2)
-                });
-                if let Some(t) = plan.view {
-                    let c = Vec2::new((t.0 + half) as f32 + 0.5, (t.1 + half) as f32 + 0.5);
-                    centre_view(mv, c * TILE_PX as f32);
-                }
-                if let Some(units) = plan.select {
-                    if let Some(&first) = units.first() {
-                        select_sound(sim, first);
-                    }
-                    sel.units = units;
-                }
-                match plan.send {
-                    Some(mouse::GroupSend::Set(group)) => sim.pending.push(Command::SetGroup { player: human, group }),
-                    Some(mouse::GroupSend::Recall(group)) => {
-                        sim.pending.push(Command::RecallGroup { player: human, group })
-                    }
-                    None => {}
-                }
+                group_press(sim, sel, art.as_ref(), mv, key, g, mode, now);
             }
             mouse::KeyAction::CentrePrimary => {
                 // Info-panel spec: an own unit, or one that isn't invisible.
@@ -2194,6 +2239,11 @@ pub(crate) fn draw_hud(c: &mut Core) {
         local: sim.human,
     };
     let clock_line = clock_ms.and_then(|ms| overlay::overlay_text(ex.game_clock(), ms, sim.actions));
+    let group_bar = if ex.group_bar() {
+        group_bar_cells(&sim.world, sim.human)
+    } else {
+        Vec::new()
+    };
     let infos: Vec<panel::UnitInfo> = sel.units.iter().filter_map(|&id| state.unit(id)).collect();
     let slots = panel::fill(panel::choose_set(ui.mode, &infos, &state), &state, &infos);
     let buttons: Vec<(u8, u16)> = slots
@@ -2229,6 +2279,7 @@ pub(crate) fn draw_hud(c: &mut Core) {
                 .idle_worker()
                 .then(|| idle::idle_workers(&sim.world, sim.human).len()),
             clock: clock_line.as_deref(),
+            group_bar: &group_bar,
         },
     );
     let mut pic = pic;

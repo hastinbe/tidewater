@@ -24,13 +24,15 @@ pub enum Id {
     HealthBars,
     IdleWorker,
     GameClock,
+    ControlGroupBar,
+    SmartAttackMove,
     VolumeVoices,
     VolumeEffects,
     VolumeMusic,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 6;
+pub const COUNT: usize = 8;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +98,22 @@ pub const REGISTRY: [Spec; COUNT] = [
         default: 0,
         scope: Scope::Client,
         description: "The game clock over the map view, with or without your actions per minute",
+    },
+    Spec {
+        id: Id::ControlGroupBar,
+        name: "group-bar",
+        kind: Kind::Flag,
+        default: 0,
+        scope: Scope::Client,
+        description: "A strip over the map view's top left listing your control groups with their sizes: click one to recall it",
+    },
+    Spec {
+        id: Id::SmartAttackMove,
+        name: "smart-attack-move",
+        kind: Kind::Flag,
+        default: 0,
+        scope: Scope::ClientLobby,
+        description: "A right-click on open ground with only fighting units selected attack-moves there instead of moving",
     },
     Spec {
         id: Id::VolumeVoices,
@@ -237,6 +255,14 @@ impl ClientExtras {
 
     pub fn idle_worker(&self) -> bool {
         self.get(Id::IdleWorker) != 0
+    }
+
+    pub fn group_bar(&self) -> bool {
+        self.get(Id::ControlGroupBar) != 0
+    }
+
+    pub fn smart_attack_move(&self) -> bool {
+        self.get(Id::SmartAttackMove) != 0
     }
 
     pub fn game_clock(&self) -> ClockMode {
@@ -475,6 +501,8 @@ mod tests {
         assert!(e.is_default());
         assert_eq!(e.health_bars(), HealthBars::Off);
         assert!(!e.idle_worker());
+        assert!(!e.group_bar());
+        assert!(!e.smart_attack_move());
         assert_eq!(e.game_clock(), ClockMode::Off);
         // A volume's "off" leaves the sound alone.
         assert_eq!(e.trims(), crate::audio::Trims::default());

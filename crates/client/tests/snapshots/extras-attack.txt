@@ -1,0 +1,21 @@
+# frame and sound fingerprints of the scripted scene `extras-attack` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-2	156ed4086987e325
+frames	3-3	2ab4d7048026f340
+frames	4-7	c2e52e287af839f4
+sound	9	f8787214968df8ae	0.9882	Despawn
+frames	8-8	5dd4d3e803f343da
+frames	9-10	c494053bfb9f4fa9
+shot	11	selected	0efa7fe868e93014
+sound	12	2aaf429cb022bada	0.9882	Despawn
+frames	11-11	0efa7fe868e93014
+frames	12-15	1d92f9c14756aa80
+shot	16	attack-move	efe6f5c33cc7bea2
+frames	16-16	efe6f5c33cc7bea2
+sound	18	52db032368c69602	0.9882	Despawn
+frames	17-17	46e6909cee3a0958
+sound	20	76e51688a7bca1bd	0.9882	Despawn
+frames	18-19	51aa60208860a90c
+frames	20-22	1ce37a059ade8e1c
+shot	24	worker-moves	dd8244ec4b752bca
+frames	23-24	dd8244ec4b752bca

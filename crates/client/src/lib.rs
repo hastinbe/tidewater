@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod args;
+mod attackmove;
 pub mod audio;
 mod campaign;
 mod carry;
@@ -20,6 +21,7 @@ mod fog;
 mod frontend;
 mod game;
 mod gamemenu;
+mod groupbar;
 pub mod host;
 mod hud;
 mod idle;
