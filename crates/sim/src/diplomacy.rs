@@ -79,7 +79,10 @@ mod tests {
         assert_eq!(w.players[1].allies, 0xff00 | 0b110);
         assert_eq!((w.players[1].shared_vision, w.players[1].allied_victory), (0b110, true));
         assert_eq!(w.players[2].allies, 0xff00 | 1 << 2);
-        assert_eq!((w.players[2].shared_vision, w.players[2].allied_victory), (0b100, false));
+        assert_eq!(
+            (w.players[2].shared_vision, w.players[2].allied_victory),
+            (0b100, false)
+        );
         assert!(w.allied(1, 2) && !w.allied(2, 1));
     }
 

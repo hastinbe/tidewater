@@ -216,7 +216,9 @@ pub(crate) fn chat_keys(c: &mut Core) {
             if let Some(parsed) = crate::diplomacy::parse(&line, human, now) {
                 match parsed {
                     Ok(command) => sim.pending.push(command),
-                    Err(why) => sim.notices.push(Text::Own(format!("{}: {why}", crate::diplomacy::WORD))),
+                    Err(why) => sim
+                        .notices
+                        .push(Text::Own(format!("{}: {why}", crate::diplomacy::WORD))),
                 }
                 return;
             }
