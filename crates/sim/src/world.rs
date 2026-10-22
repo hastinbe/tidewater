@@ -1276,7 +1276,14 @@ impl World {
         let slot = self.slots.take(owner).map_err(|_| SpawnError::TooMany)?;
         // Unit-slots spec, "Creating a unit", step 3: a reused slot's old contents are cleared now.
         self.stale.remove(&slot);
-        let tile = if self.stride_of(kind) == 2 {
+        // Unit-slots spec, "Creating a unit", step 4, says ships and flyers sit on an even tile. The round-99 trace
+        // (`mp-r99-tests-…-5400`, dragon 1595 created from the map at (50, 5)) keeps a map flyer's odd row: while the
+        // map's units are created only a flyer's column is aligned, the narrowest change that fits the trace. No
+        // trace places a map flyer at an odd column, so whether the column is aligned is open (reported to research).
+        // Units created during play are aligned as before.
+        let tile = if self.stride_of(kind) == 2 && layer == Layer::Air && self.loading {
+            (tile.0 & !1, tile.1)
+        } else if self.stride_of(kind) == 2 {
             (tile.0 & !1, tile.1 & !1)
         } else {
             tile
@@ -2353,6 +2360,10 @@ pub(crate) mod tests {
         assert_eq!(w.spawn(0x3a, 0, (7, 7), 0), Err(SpawnError::CantPlace));
         assert_eq!(w.slots.len(0), 1, "a failed placement returns the slot");
         assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((2, 2)));
+        // The map's own flyers keep their row (round 99 trace: a dragon created at row 5).
+        w.loading = true;
+        assert_eq!(w.spawn(2, 0, (3, 3), 0).map(|id| w.unit(id).unwrap().tile), Ok((2, 3)));
+        w.loading = false;
     }
 
     #[test]
