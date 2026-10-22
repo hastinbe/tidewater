@@ -67,3 +67,4 @@ pub mod touch;
 mod touchemu;
 mod video;
 mod view;
+pub mod widescreen;

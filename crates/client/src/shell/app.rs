@@ -130,6 +130,8 @@ fn run(l: host::Launch) -> Result<()> {
     }
     if MOBILE {
         core.touch.active = true;
+        // The touch screen is the main input for good: the `widescreen` option is ignored (`widescreen::width`).
+        core.touch.touch_only = true;
     }
     let points = ui_scale.unwrap_or(1);
     let (mut w, mut h) = display::window_size(points);
@@ -220,6 +222,7 @@ fn run(l: host::Launch) -> Result<()> {
             |dpi| dpi,
         ),
         ppi_absolute: core.opts.touch_dpi.is_some(),
+        screen: display::SCREEN,
     };
     let mut overlay_key: Option<(bool, u64, (u32, u32))> = None;
     let mut stats = FrameStats::default();
@@ -281,6 +284,15 @@ fn run(l: host::Launch) -> Result<()> {
         if core.suspended && !exiting {
             continue;
         }
+        // A game with `widescreen` has a wider screen: the picture's texture follows, and the window grows to hold it.
+        let screen = (core.frame.width as u32, core.frame.height as u32);
+        if screen != shell.screen {
+            renderer.set_size(screen)?;
+            if !MOBILE && !big_script {
+                fit_window(&window, shell.screen, screen, shell.fractional, scripted);
+            }
+            shell.screen = screen;
+        }
         let geom = shell
             .window()
             .unwrap_or_else(|| WindowGeom::new(renderer.output_size(), 1.0));
@@ -325,6 +337,38 @@ fn run(l: host::Launch) -> Result<()> {
     Ok(())
 }
 
+/// Makes the window hold a new screen size. A window that shows whole-number scales grows to keep its scale (the
+/// screen is as high as before, so only the width changes) if the display has room; one that fits any size needs
+/// nothing. The smallest size follows the screen.
+fn fit_window(window: &sdl::Window, old: (u32, u32), new: (u32, u32), fractional: bool, scripted: bool) {
+    let d = window.pixel_density();
+    let points = |len: u32| (len as f32 / d).ceil() as u32;
+    if !scripted {
+        window.set_min_size(points(new.0), points(new.1));
+    }
+    if fractional && !scripted {
+        return;
+    }
+    let (wx, wy) = window.size_in_pixels();
+    let scale = display::fit_scale_of((wx, wy), old);
+    let want = (new.0 * scale, new.1 * scale);
+    if want.0 <= wx && want.1 <= wy && !scripted {
+        return;
+    }
+    let (w, h) = if scripted {
+        new
+    } else {
+        (want.0.max(wx), want.1.max(wy))
+    };
+    if !scripted
+        && let Some(((mw, mh), _)) = window.display()
+        && (points(w) > mw || points(h) > mh)
+    {
+        return;
+    }
+    window.set_size(points(w), points(h));
+}
+
 fn print_audio_stats(s: &sdl::AudioStats) {
     use std::sync::atomic::Ordering::Relaxed;
     let calls = s.calls.load(Relaxed);
@@ -360,6 +404,8 @@ struct Shell<'a> {
     /// `ppi_absolute` (`--touch-dpi`).
     ppi_per_density: f32,
     ppi_absolute: bool,
+    /// The screen's size in screen pixels as the last frame showed it (`widescreen`).
+    screen: (u32, u32),
 }
 
 impl Shell<'_> {
@@ -492,6 +538,7 @@ impl Platform for Shell<'_> {
             self.ppi_per_density * g.factor
         };
         g.fractional = self.fractional;
+        g.screen = self.screen;
         Some(g)
     }
 

@@ -995,14 +995,15 @@ fn pressed(keys: &Buttons<Key>, mouse: &Buttons<Button>) -> bool {
     mouse.just_pressed(Button::Left) || keys.any_just_pressed([Key::Escape, Key::Enter, Key::NumpadEnter, Key::Space])
 }
 
-/// The pointer in screen pixels (640x480).
+/// The pointer in the pixels of the 640 x 480 pictures of the flow's screens and dialogs ([`crate::display::Letterbox::flow_of`]:
+/// in a wide game screen they sit in the middle).
 pub(crate) fn pointer(input: &crate::input::Input, cam: &FrontScreen) -> Option<Vec2> {
     let w = input.window?;
     let p = input.pointer?;
     if !cam.ready {
         return None;
     }
-    let (x, y) = w.letterbox().screen_of(p, w.factor);
+    let (x, y) = w.letterbox().flow_of(p, w.factor);
     Some(Vec2::new(x, y))
 }
 

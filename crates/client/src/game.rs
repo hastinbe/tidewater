@@ -1449,7 +1449,7 @@ fn real_ms(real: &FrameClock) -> u64 {
     real.elapsed().as_millis() as u64
 }
 
-/// Lays the interface out on the 640 × 480 screen once, and keeps the map view on its place in the layout at the
+/// Lays the interface out on the screen (640 × 480, or wider with `widescreen`) when it changes, and keeps the map view on its place in the layout at the
 /// zoom (one map pixel per screen pixel unless `--free-zoom`).
 pub(crate) fn hud_layout(c: &mut Core) {
     let Core {
@@ -1458,6 +1458,7 @@ pub(crate) fn hud_layout(c: &mut Core) {
         map_zoom: Some(zoom),
         view,
         layers,
+        screen,
         ..
     } = c
     else {
@@ -1466,10 +1467,16 @@ pub(crate) fn hud_layout(c: &mut Core) {
     let (Some(_), Some(view), true) = (input.window, view, layers.has(Role::Hud)) else {
         return;
     };
+    // The layout is made again when the screen's width changes (`widescreen`, or the window's shape with `auto`).
     let layout = match hud.layout {
-        Some(l) => l,
-        None => {
-            let layout = hud.art.layout(display::SCREEN);
+        Some(l) if l.canvas == *screen => l,
+        old => {
+            let layout = hud.art.layout(*screen);
+            // A view that grows or shrinks keeps its left edge (it shows more map to the right, as `widescreen` says).
+            if let Some(old) = old {
+                let grown = layout.viewport.w as f32 - old.viewport.w as f32;
+                view.centre.0 += grown * zoom.zoom / 2.0;
+            }
             hud.frame = hud.art.frame(&layout);
             hud.layout = Some(layout);
             layout

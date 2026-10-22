@@ -248,6 +248,9 @@ pub struct WindowGeom {
     pub ppi: f32,
     /// The screen is fitted by a fraction of the safe area rather than a whole number (`display`, "Fractional scale").
     pub fractional: bool,
+    /// The screen's size in screen pixels: 640 × 480, or the wider one of a widescreen game. The shell reports the
+    /// size of the last frame it showed and the core sets the current one (`Core::advance`) before anything reads it.
+    pub screen: (u32, u32),
 }
 
 impl WindowGeom {
@@ -260,12 +263,13 @@ impl WindowGeom {
             safe: (0, 0, size.0, size.1),
             ppi: DEFAULT_POINT_PPI * factor,
             fractional: false,
+            screen: crate::display::SCREEN,
         }
     }
 
-    /// Where the 640 × 480 screen sits in this window.
+    /// Where the screen (640 × 480, or the wider one of a widescreen game) sits in this window.
     pub fn letterbox(&self) -> crate::display::Letterbox {
-        crate::display::Letterbox::fit_area(self.size, self.safe, self.fractional)
+        crate::display::Letterbox::fit_area_screen(self.size, self.safe, self.fractional, self.screen)
     }
 
     /// Logical points to a millimetre.

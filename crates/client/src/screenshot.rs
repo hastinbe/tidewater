@@ -66,7 +66,7 @@ pub(crate) fn print_screen(c: &mut Core) {
     commands.queue(move |c| c.pending_shot = Some(shot));
 }
 
-/// Writes the screenshot asked for from the frame just composed (the 640 × 480 screen, without the window's border),
+/// Writes the screenshot asked for from the frame just composed (the whole screen, 640 × 480 or wider with `widescreen`, without the window's border),
 /// and starts the flash.
 pub(crate) fn write_shot(c: &mut Core) {
     let Some(shot) = c.pending_shot.take() else {
@@ -75,7 +75,7 @@ pub(crate) fn write_shot(c: &mut Core) {
     let frame = &c.frame;
     let px = index_pixels(
         &frame.rgba,
-        (crate::display::SCREEN.0, crate::display::SCREEN.1),
+        (frame.width as u32, frame.height as u32),
         shot.canvas,
         &shot.pal,
     );

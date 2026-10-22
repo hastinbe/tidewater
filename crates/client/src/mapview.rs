@@ -195,6 +195,44 @@ mod tests {
         );
     }
 
+    /// A widescreen view (`crate::widescreen`): the 864 pixel screen's view is 21 tiles across, and a pointer past the
+    /// old 640 pixel edge is over map, by the wide window's mapping of window points to screen pixels.
+    #[test]
+    fn a_wide_view_maps_the_pointer_past_the_old_edge() {
+        let mut v = MapView::new((656.0, 640.0));
+        v.rect = Some(ScreenRect {
+            x: 176,
+            y: 16,
+            w: 672,
+            h: 448,
+        });
+        v.end_frame();
+        assert_eq!(
+            v.geom((64, 64)),
+            ViewGeom {
+                pos: (10, 13),
+                tiles: (21, 14),
+                map: (64, 64)
+            }
+        );
+        // The wide window: 1728 x 960 physical pixels at scale 2, the screen 864 pixels across.
+        let mut w = crate::input::WindowGeom::new((1728, 960), 1.0);
+        w.screen = (864, 480);
+        let lb = w.letterbox();
+        assert_eq!((lb.scale, lb.offset), (2.0, (0, 0)));
+        // Window point (1700, 400) is screen pixel (850, 200): past 640, in the view (176 to 848 is the view).
+        let (sx, sy) = lb.screen_point((1690.0, 400.0), w.factor);
+        assert_eq!((sx, sy), (845.0, 200.0));
+        // The view's centre is screen pixel (512, 240).
+        assert_eq!(v.pointer_map((512.0, 240.0)), Some((656.0, 640.0)));
+        assert_eq!(v.pointer_map((sx, sy)), Some((656.0 + (845.0 - 512.0), 640.0 - 40.0)));
+        // The far right of the view (pixel 847) is 21 tiles from the left edge: map pixel 10 * 32 + 672 - 1.
+        assert_eq!(v.pointer_map((847.0, 240.0)).map(|p| p.0), Some(10.0 * 32.0 + 671.0));
+        // Through the 640 screen's mapping the same window point would have been clamped to the old edge.
+        let old = crate::input::WindowGeom::new((1728, 960), 1.0).letterbox();
+        assert!(old.screen_point((1690.0, 400.0), 1.0).0 > 639.0);
+    }
+
     #[test]
     fn the_pointer_uses_the_view_the_last_frame_drew() {
         let mut v = laid_out((640.0, 640.0));

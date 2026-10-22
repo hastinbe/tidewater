@@ -550,6 +550,34 @@ mod tests {
         assert_eq!(edge((629, 469), SCREEN, &v), (0, 0));
     }
 
+    /// The right edge is the canvas's, so a widescreen game scrolls at its own edge, not at pixel 630.
+    #[test]
+    fn the_right_edge_is_the_wide_canvases() {
+        const WIDE: (i32, i32) = (864, 480);
+        let v = ViewGeom {
+            pos: (50, 50),
+            tiles: (21, 14),
+            map: (128, 128),
+        };
+        assert_eq!(
+            edge((630, 240), WIDE, &v),
+            (0, 0),
+            "the old edge is inside the view now"
+        );
+        assert_eq!(edge((853, 240), WIDE, &v), (0, 0));
+        assert_eq!(edge((854, 240), WIDE, &v), (1, 0));
+        assert_eq!(edge((863, 470), WIDE, &v), (1, 1));
+        // Room to scroll is judged with the wider view.
+        let at_end = ViewGeom { pos: (107, 50), ..v };
+        assert_eq!(
+            edge((863, 240), WIDE, &at_end),
+            (0, 0),
+            "128 - 21 = 107 is the last position"
+        );
+        let before_end = ViewGeom { pos: (106, 50), ..v };
+        assert_eq!(edge((863, 240), WIDE, &before_end), (1, 0));
+    }
+
     #[test]
     fn north_west_at_full_speed() {
         let v = geom((50, 50), (128, 128));

@@ -652,6 +652,21 @@ mod tests {
         assert_eq!(tile_for_press(64, (500, 0)), (63, 0));
     }
 
+    /// A widescreen view (`crate::widescreen`) is 18 or 21 tiles across: the minimap's rectangle is that wide, and a press
+    /// centres the wider view on the pointer (clamped to the smaller range of positions).
+    #[test]
+    fn a_wide_view_has_a_wider_rectangle() {
+        for (tiles, wide) in [(18, 18), (21, 21)] {
+            let v = (tiles, VIEW_TILES);
+            assert_eq!(screen(view_rect(128, (50, 60), v)), (74, 86, wide, 14));
+            // The view's right edge on the map's: the rectangle ends where the minimap does (the map is 128 across).
+            let max = (128 - tiles, 128 - VIEW_TILES);
+            assert_eq!(view_for_press(128, (500, 100), v, max).0, max.0);
+            // Half the wider view goes left of the pointer.
+            assert_eq!(view_for_press(128, (100, 100), v, max).0, 76 - tiles / 2);
+        }
+    }
+
     #[test]
     fn view_rectangle_vectors() {
         let v = (VIEW_TILES, VIEW_TILES);

@@ -37,10 +37,11 @@ pub enum Id {
     MinimapPing,
     ShiftQueue,
     AutoReplay,
+    Widescreen,
 }
 
 /// How many options there are.
-pub const COUNT: usize = 16;
+pub const COUNT: usize = 17;
 
 /// Who decides an option in a game with other players.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,6 +96,9 @@ pub const SPEED_LEVELS: &[&str] = &["off", "1", "2", "3"];
 
 /// The values of `auto-replay`.
 pub const REPLAY_SAVING: &[&str] = &["off", "menu", "always"];
+
+/// The values of `widescreen`: the original screen, a 16:10 or 16:9 one, or one matching the window.
+pub const WIDESCREEN_MODES: &[&str] = &["off", "16:10", "16:9", "auto"];
 
 /// Every option. The order is the settings file's and the help text's.
 pub const REGISTRY: [Spec; COUNT] = [
@@ -226,6 +230,14 @@ pub const REGISTRY: [Spec; COUNT] = [
         scope: Scope::Client,
         description: "Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played",
     },
+    Spec {
+        id: Id::Widescreen,
+        name: "widescreen",
+        kind: Kind::Choice(WIDESCREEN_MODES),
+        default: 0,
+        scope: Scope::ClientLobby,
+        description: "A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3)",
+    },
 ];
 
 impl Id {
@@ -305,6 +317,17 @@ pub enum ReplaySaving {
     Menu,
     /// The game is recorded and written to the replays folder as it is played.
     Always,
+}
+
+/// How wide the game screen is (option `widescreen`, `crate::widescreen`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Widescreen {
+    /// The original 640 x 480.
+    Off,
+    Ratio16x10,
+    Ratio16x9,
+    /// The window's shape, up to 16:9.
+    Auto,
 }
 
 /// What the clock overlay shows (option `game-clock`).
@@ -407,6 +430,15 @@ impl ClientExtras {
             1 => ReplaySaving::Menu,
             2 => ReplaySaving::Always,
             _ => ReplaySaving::Off,
+        }
+    }
+
+    pub fn widescreen(&self) -> Widescreen {
+        match self.get(Id::Widescreen) {
+            1 => Widescreen::Ratio16x10,
+            2 => Widescreen::Ratio16x9,
+            3 => Widescreen::Auto,
+            _ => Widescreen::Off,
         }
     }
 

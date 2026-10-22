@@ -30,7 +30,7 @@ use crate::chat;
 use crate::cheats;
 pub use crate::chrome::Chrome;
 use crate::clock::FrameClock;
-use crate::compose::{self, Clip, Frame, Placed};
+use crate::compose::{Clip, Frame, Placed};
 use crate::frontend::{self, AppState, Flow, Front, FrontScreen, OutcomeDialog};
 use crate::game;
 use crate::gamemenu::{self, GameMenu, Stored};
@@ -76,6 +76,11 @@ pub trait Platform {
     /// focus, once a frame after the frame's keys are applied. `game_pointer`: the game runs and draws its own
     /// pointer, so the platform may lock the system's (`display::lock_wanted`); `keys` are the keys held.
     fn pointer(&mut self, keys: &Buttons<Key>, game_pointer: bool) -> (Option<(f32, f32)>, bool);
+    /// Whether there is no real window (a scripted run without one): the window it reports is then exactly the
+    /// screen, whatever width the game gave it.
+    fn headless(&self) -> bool {
+        false
+    }
 }
 
 /// The program's state.
@@ -104,6 +109,8 @@ pub struct Core {
     pub pictures: Pictures,
     pub layers: Stack,
     pub front_screen: FrontScreen,
+    /// The screen's size in pixels this frame: 640 x 480, or wider in a game with `widescreen` (`crate::widescreen`).
+    pub screen: (u32, u32),
 
     // The flow.
     pub states: Machine,
@@ -202,6 +209,7 @@ impl Core {
             pictures: Pictures::default(),
             layers: Stack::default(),
             front_screen: FrontScreen::default(),
+            screen: crate::display::SCREEN,
             states: Machine::default(),
             flow,
             front,
@@ -253,7 +261,10 @@ impl Core {
         }
         c.time.advance(elapsed);
         // 2. Input.
-        let window = platform.window();
+        let headless = platform.headless();
+        let mut window = platform.window();
+        c.screen = screen_size(c, window);
+        window = stamp_screen(window, c.screen, headless);
         if c.script.is_some() {
             script::drive(c, window);
         }
@@ -283,6 +294,12 @@ impl Core {
         }
         // 3. The flow's change of screen.
         run_transitions(c);
+        // A game starting or ending changes the screen's width.
+        let screen = screen_size(c, window);
+        if screen != c.screen {
+            c.screen = screen;
+            c.input.window = stamp_screen(c.input.window, screen, headless);
+        }
         // 4. The game cycles.
         c.time.accumulate();
         while c.time.expend() {
@@ -527,6 +544,29 @@ struct Placing {
     tint: f32,
 }
 
+/// The screen's size this frame (`crate::widescreen`): the game screen is as wide as the `widescreen` option says
+/// (as the game decides it, for a network game's lobby), 640 wide anywhere else. `window`: what `auto` matches.
+pub(crate) fn screen_size(c: &Core, window: Option<WindowGeom>) -> (u32, u32) {
+    let original = crate::display::SCREEN;
+    if c.states.get() != AppState::Game || c.hud.is_none() || c.sim.is_none() {
+        return original;
+    }
+    let area = window.map(|w| (w.safe.2, w.safe.3));
+    let width = crate::widescreen::width(game::extras(c).widescreen(), area, c.touch.blocks_widescreen());
+    (width, original.1)
+}
+
+/// The window with the screen's size set (`WindowGeom::screen`); a run without a window gets one exactly the screen's.
+fn stamp_screen(window: Option<WindowGeom>, screen: (u32, u32), headless: bool) -> Option<WindowGeom> {
+    window.map(|mut w| {
+        if headless {
+            w = WindowGeom::new(screen, w.factor);
+        }
+        w.screen = screen;
+        w
+    })
+}
+
 /// Composes the screen from the layers (`layers`, `compose`), in this order:
 ///
 /// | Order | Plane (`layers::Plane`) | Layers | Placed |
@@ -546,7 +586,7 @@ fn compose_screen(c: &mut Core) {
     let pictures = &c.pictures;
     // Outside a game the flow's screen clears the screen first (`frontend::camera_clear`).
     let front_clears = c.front_screen.clears;
-    let (center_x, center_y) = (compose::W as f64 / 2.0, compose::H as f64 / 2.0);
+    let (center_x, center_y) = (c.screen.0 as f64 / 2.0, c.screen.1 as f64 / 2.0);
     let mut map = Vec::new();
     let mut interface = Vec::new();
     let mut front = Vec::new();
@@ -616,7 +656,7 @@ fn compose_screen(c: &mut Core) {
     } else {
         map.iter().chain(&interface).chain(&front).collect()
     };
-    let mut frame = Frame::black();
+    let mut frame = Frame::black_sized(c.screen.0 as usize, c.screen.1 as usize);
     for l in order {
         let Some(pic) = pictures.get(l.picture) else { continue };
         frame.draw(&Placed {

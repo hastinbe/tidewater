@@ -26,6 +26,11 @@
 //!   without a thick uneven edge ([`Letterbox::fit_area`], [`sharp_steps`]). Desktop keeps whole numbers unless the
 //!   `scaling` extra says `sharp`. The safe area is the part of the window the system doesn't cover (a phone's rounded
 //!   corners, notch and home bar).
+//! - **Widescreen** (client-only, not part of the original; [`crate::widescreen`]). A game may have a screen wider than
+//!   640 pixels (the `widescreen` option). The [`Letterbox`] then carries the screen's size, so the scale, the black
+//!   border, the pointer's way back to screen pixels and its clamp to the screen all use it; the 640 × 480 pictures of
+//!   the menus and dialogs sit in the middle of it ([`Letterbox::flow_of`]). The window grows to hold the wider screen
+//!   at the scale it had (`shell`).
 
 /// The screen in its own pixels.
 pub const SCREEN: (u32, u32) = (640, 480);
@@ -41,7 +46,12 @@ pub const MAX_ZOOM: f32 = 8.0;
 /// The largest whole number of physical pixels per screen pixel whose 640 × 480 fits `(width, height)` physical
 /// pixels; at least 1.
 pub fn fit_scale(size: (u32, u32)) -> u32 {
-    (size.0 / SCREEN.0).min(size.1 / SCREEN.1).max(1)
+    fit_scale_of(size, SCREEN)
+}
+
+/// [`fit_scale`] for a screen of another size (a widescreen game's).
+pub fn fit_scale_of(size: (u32, u32), screen: (u32, u32)) -> u32 {
+    (size.0 / screen.0.max(1)).min(size.1 / screen.1.max(1)).max(1)
 }
 
 /// The default scale in physical pixels per screen pixel for a monitor of `size` physical pixels at `factor` physical
@@ -61,11 +71,13 @@ pub fn window_size(scale: u32) -> (u32, u32) {
 pub type Area = (u32, u32, u32, u32);
 
 /// Where the screen sits in a window: its scale and its top-left corner, in physical pixels. The scale is a whole
-/// number unless the letterbox was made by [`Letterbox::fit_area`] in the fractional mode.
+/// number unless the letterbox was made by [`Letterbox::fit_area`] in the fractional mode. The screen is 640 × 480
+/// unless a game has a wider one (`widescreen`); then `screen` is its size in screen pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Letterbox {
     pub scale: f32,
     pub offset: (u32, u32),
+    pub screen: (u32, u32),
 }
 
 impl Default for Letterbox {
@@ -75,30 +87,43 @@ impl Default for Letterbox {
 }
 
 impl Letterbox {
-    /// The screen in a window of `size` physical pixels: the largest whole scale that fits, centred.
+    /// The 640 × 480 screen in a window of `size` physical pixels: the largest whole scale that fits, centred.
     pub fn fit(size: (u32, u32)) -> Self {
-        let scale = fit_scale(size);
-        let (w, h) = window_size(scale);
+        Self::fit_screen(size, SCREEN)
+    }
+
+    /// A `screen` in a window of `size` physical pixels: the largest whole scale that fits, centred.
+    pub fn fit_screen(size: (u32, u32), screen: (u32, u32)) -> Self {
+        let scale = fit_scale_of(size, screen);
+        let (w, h) = (screen.0 * scale, screen.1 * scale);
         Self {
             scale: scale as f32,
             offset: (size.0.saturating_sub(w) / 2, size.1.saturating_sub(h) / 2),
+            screen,
         }
     }
 
-    /// The screen in the `safe` area of a window of `size` physical pixels, centred in it. `fractional` fits by a
-    /// fraction of the area ("sharp bilinear", module doc); otherwise by a whole number, as [`Letterbox::fit`] does for
-    /// the whole window. A fraction within a thousandth of a whole number is that whole number, so it draws crisply.
+    /// The 640 × 480 screen in the `safe` area of a window of `size` physical pixels, centred in it. `fractional` fits
+    /// by a fraction of the area ("sharp bilinear", module doc); otherwise by a whole number, as [`Letterbox::fit`]
+    /// does for the whole window. A fraction within a thousandth of a whole number is that whole number, so it draws
+    /// crisply.
     pub fn fit_area(size: (u32, u32), safe: Area, fractional: bool) -> Self {
+        Self::fit_area_screen(size, safe, fractional, SCREEN)
+    }
+
+    /// [`Letterbox::fit_area`] for a `screen` of another size.
+    pub fn fit_area_screen(size: (u32, u32), safe: Area, fractional: bool, screen: (u32, u32)) -> Self {
         let (sx, sy, sw, sh) = clip_area(safe, size);
         if !fractional {
-            let inner = Self::fit((sw, sh));
+            let inner = Self::fit_screen((sw, sh), screen);
             return Self {
                 scale: inner.scale,
                 offset: (sx + inner.offset.0, sy + inner.offset.1),
+                screen,
             };
         }
-        let raw = (sw as f32 / SCREEN.0 as f32)
-            .min(sh as f32 / SCREEN.1 as f32)
+        let raw = (sw as f32 / screen.0.max(1) as f32)
+            .min(sh as f32 / screen.1.max(1) as f32)
             .max(MIN_FRACTION);
         let scale = if (raw - raw.round()).abs() < 0.001 && raw.round() >= 1.0 {
             raw.round()
@@ -106,12 +131,13 @@ impl Letterbox {
             raw
         };
         let (w, h) = (
-            (SCREEN.0 as f32 * scale).round() as u32,
-            (SCREEN.1 as f32 * scale).round() as u32,
+            (screen.0 as f32 * scale).round() as u32,
+            (screen.1 as f32 * scale).round() as u32,
         );
         Self {
             scale,
             offset: (sx + sw.saturating_sub(w) / 2, sy + sh.saturating_sub(h) / 2),
+            screen,
         }
     }
 
@@ -134,11 +160,11 @@ impl Letterbox {
 
     /// The whole screen in physical window pixels.
     pub fn screen(&self) -> (u32, u32, u32, u32) {
-        self.rect(0, 0, SCREEN.0, SCREEN.1)
+        self.rect(0, 0, self.screen.0, self.screen.1)
     }
 
     /// A window point in logical points (`factor` physical pixels each) in screen pixels, not kept on the screen: a
-    /// point on the black border is outside 640 × 480.
+    /// point on the black border is outside the screen.
     pub fn screen_of(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
         let s = self.scale;
         let on = |p: f32, offset: u32| (p * factor - offset as f32) / s;
@@ -150,9 +176,26 @@ impl Letterbox {
     pub fn screen_point(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
         let (x, y) = self.screen_of(point, factor);
         (
-            x.clamp(0.0, SCREEN.0 as f32 - 0.001),
-            y.clamp(0.0, SCREEN.1 as f32 - 0.001),
+            x.clamp(0.0, self.screen.0 as f32 - 0.001),
+            y.clamp(0.0, self.screen.1 as f32 - 0.001),
         )
+    }
+
+    /// Where the 640 × 480 pictures of the menus, dialogs and flow screens sit on the screen: their top-left corner in
+    /// screen pixels, `(0, 0)` unless the screen is wider (`widescreen`), when they are centred with black beside them.
+    pub fn flow_origin(&self) -> (i32, i32) {
+        (
+            (self.screen.0 as i32 - SCREEN.0 as i32) / 2,
+            (self.screen.1 as i32 - SCREEN.1 as i32) / 2,
+        )
+    }
+
+    /// A window point in logical points in the pixels of the 640 × 480 pictures of the menus and dialogs
+    /// ([`Letterbox::flow_origin`] is their corner), not kept on the screen.
+    pub fn flow_of(&self, point: (f32, f32), factor: f32) -> (f32, f32) {
+        let (x, y) = self.screen_of(point, factor);
+        let o = self.flow_origin();
+        (x - o.0 as f32, y - o.1 as f32)
     }
 
     /// A window point in logical points (`factor` physical pixels each) kept on the screen, still in logical points:
@@ -164,8 +207,8 @@ impl Letterbox {
             p.clamp(lo, lo + (len as f32 - 0.001) * s / factor)
         };
         (
-            on(point.0, self.offset.0, SCREEN.0),
-            on(point.1, self.offset.1, SCREEN.1),
+            on(point.0, self.offset.0, self.screen.0),
+            on(point.1, self.offset.1, self.screen.1),
         )
     }
 
@@ -173,8 +216,8 @@ impl Letterbox {
     pub fn centre(&self, factor: f32) -> (f32, f32) {
         let s = self.scale;
         (
-            (self.offset.0 as f32 + SCREEN.0 as f32 * s / 2.0) / factor,
-            (self.offset.1 as f32 + SCREEN.1 as f32 * s / 2.0) / factor,
+            (self.offset.0 as f32 + self.screen.0 as f32 * s / 2.0) / factor,
+            (self.offset.1 as f32 + self.screen.1 as f32 * s / 2.0) / factor,
         )
     }
 }
@@ -272,7 +315,8 @@ mod tests {
             Letterbox::fit((1920, 1440)),
             Letterbox {
                 scale: 3.0,
-                offset: (0, 0)
+                offset: (0, 0),
+                screen: SCREEN,
             }
         );
         // Full screen on the Retina laptop: scale 4 (2560 × 1920), 232 px left and right, 22 above and below.
@@ -281,7 +325,8 @@ mod tests {
             lb,
             Letterbox {
                 scale: 4.0,
-                offset: (232, 22)
+                offset: (232, 22),
+                screen: SCREEN,
             }
         );
         assert_eq!(lb.screen(), (232, 22, 2560, 1920));
@@ -385,6 +430,68 @@ mod tests {
         assert!((x - 320.0).abs() < 1e-3);
         // Rectangles are rounded to whole physical pixels.
         assert_eq!(lb.rect(176, 16, 448, 448), (429, 39, 1092, 1092));
+    }
+
+    /// The widescreen game's 864 × 480 screen.
+    const WIDE: (u32, u32) = (864, 480);
+
+    #[test]
+    fn a_wide_screen_is_fitted_and_centred_by_its_own_size() {
+        // 864 × 480 at scale 2 is 1728 × 960: it needs a window that wide, and a 4:3 window of the 640 × 480 screen's
+        // scale 2 (1280 × 960) can only show it at scale 1.
+        assert_eq!(fit_scale_of((1728, 960), WIDE), 2);
+        assert_eq!(fit_scale_of((1280, 960), WIDE), 1);
+        assert_eq!(fit_scale_of((100, 100), WIDE), 1, "never smaller than 1");
+        assert_eq!(fit_scale_of((1280, 960), SCREEN), fit_scale((1280, 960)));
+        let lb = Letterbox::fit_screen((1920, 1080), WIDE);
+        assert_eq!((lb.scale, lb.offset, lb.screen), (2.0, (96, 60), WIDE));
+        assert_eq!(lb.screen(), (96, 60, 1728, 960));
+        // The 640 × 480 fit is the same call with the original size.
+        assert_eq!(
+            Letterbox::fit((1920, 1440)),
+            Letterbox::fit_screen((1920, 1440), SCREEN)
+        );
+        // The fractional fit fills the safe area by the wide screen's shape: 1920 / 864 = 2.22, 1080 / 480 = 2.25.
+        let sharp = Letterbox::fit_area_screen((1920, 1080), (0, 0, 1920, 1080), true, WIDE);
+        assert!((sharp.scale - 1920.0 / 864.0).abs() < 1e-6);
+        assert_eq!(sharp.screen(), (0, 6, 1920, 1067));
+        // The whole-number fit inside a safe area.
+        let whole = Letterbox::fit_area_screen((1920, 1080), (0, 0, 1920, 1080), false, WIDE);
+        assert_eq!(whole, lb);
+    }
+
+    #[test]
+    fn the_pointer_reaches_the_extra_width_and_stops_at_the_wide_edge() {
+        // A 1728 × 960 window at factor 1: scale 2, no border; screen pixel x is window point 2x.
+        let lb = Letterbox::fit_screen((1728, 960), WIDE);
+        assert_eq!(
+            lb.screen_point((1000.0, 400.0), 1.0),
+            (500.0, 200.0),
+            "past the old 640 edge"
+        );
+        let (x, _) = lb.screen_point((1727.0, 0.0), 1.0);
+        assert_eq!(x.floor(), 863.0);
+        let (x, _) = lb.screen_point((5000.0, 0.0), 1.0);
+        assert_eq!(x.floor(), 863.0, "the nearest edge of the wide screen, not of 640");
+        let (kx, _) = lb.keep_on_screen((5000.0, 0.0), 1.0);
+        assert_eq!(lb.screen_point((kx, 0.0), 1.0).0.floor(), 863.0);
+        assert_eq!(lb.centre(1.0), (864.0, 480.0));
+        assert_eq!(lb.screen_point(lb.centre(1.0), 1.0), (432.0, 240.0));
+    }
+
+    #[test]
+    fn menus_keep_their_640_pixels_in_the_middle_of_a_wide_screen() {
+        let lb = Letterbox::fit_screen((1728, 960), WIDE);
+        assert_eq!(lb.flow_origin(), (112, 0));
+        // The wide screen's middle is the menu picture's middle; its left edge is 112 pixels in.
+        assert_eq!(lb.flow_of(lb.centre(1.0), 1.0), (320.0, 240.0));
+        assert_eq!(lb.flow_of((224.0, 0.0), 1.0), (0.0, 0.0));
+        let (x, _) = lb.flow_of((0.0, 0.0), 1.0);
+        assert_eq!(x, -112.0, "the black beside the menu is outside its picture");
+        // On the original screen the two are the same.
+        let lb = Letterbox::fit((1280, 960));
+        assert_eq!(lb.flow_origin(), (0, 0));
+        assert_eq!(lb.flow_of((300.0, 200.0), 1.0), lb.screen_of((300.0, 200.0), 1.0));
     }
 
     #[test]

@@ -1,0 +1,25 @@
+# frame and sound fingerprints of the scripted scene `widescreen` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-1	156ed4086987e325
+frames	2-2	bc71e7769f1eb325
+frames	3-3	952f3194639fd80b
+shot	8	start	454ba482536b3862
+frames	4-8	454ba482536b3862
+frames	9-9	4a2aa26e25063fbe
+frames	10-10	130947e7e26f153c
+shot	11	box	3a9936f41b1ddc10
+sound	12	b18b87133dda1256	0.9882	Despawn
+frames	11-11	3a9936f41b1ddc10
+shot	15	selected	149dd0e1c40b728b
+frames	12-15	149dd0e1c40b728b
+frames	16-21	b76b811d7608d99f
+frames	22-27	a36a5629abd37b57
+frames	28-33	db7fdd8b73affc31
+frames	34-34	cf0fe39f0cff6b70
+frames	35-39	e11a22e023356206
+shot	56	scrolled	9ac603119e044afe
+frames	40-56	9ac603119e044afe
+frames	57-58	5f5eb9b408d5eb25
+frames	59-63	cbbd6d56e29d39b7
+shot	66	menu	7bf8323a081af5f1
+frames	64-66	7bf8323a081af5f1

@@ -554,6 +554,38 @@ impl<'w> Renderer<'w> {
         })
     }
 
+    /// Makes the picture's texture `size` pixels (a game with `widescreen` has a wider screen); the next `draw` gets a
+    /// picture of that size. Does nothing if it is the size already.
+    pub fn set_size(&mut self, size: (u32, u32)) -> Result<()> {
+        if size == self.size {
+            return Ok(());
+        }
+        // SAFETY: a live renderer.
+        let texture = unsafe {
+            sys::SDL_CreateTexture(
+                self.raw,
+                sys::SDL_PIXELFORMAT_RGBA32,
+                sys::SDL_TEXTUREACCESS_STREAMING,
+                size.0 as c_int,
+                size.1 as c_int,
+            )
+        };
+        if texture.is_null() {
+            return Err(error("SDL_CreateTexture"));
+        }
+        // SAFETY: a live texture; the old ones were made by this renderer and are not used again.
+        unsafe {
+            sys::SDL_SetTextureScaleMode(texture, sys::SDL_SCALEMODE_NEAREST);
+            sys::SDL_DestroyTexture(self.texture);
+            if let Some((t, _)) = self.sharp.take() {
+                sys::SDL_DestroyTexture(t);
+            }
+        }
+        self.texture = texture;
+        self.size = size;
+        Ok(())
+    }
+
     /// The window's drawable size in pixels.
     pub fn output_size(&self) -> (u32, u32) {
         let (mut w, mut h) = (0, 0);

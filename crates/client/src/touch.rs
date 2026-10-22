@@ -40,6 +40,8 @@ pub struct TouchState {
     pub emulate: bool,
     /// Touch is in use: the chrome shows and the pointer is the fingers'.
     pub active: bool,
+    /// The platform has no mouse to speak of (a phone or tablet): touch is always the main input.
+    pub touch_only: bool,
     gesture: Gesture,
     pub chrome: Chrome,
     emu: Emulator,
@@ -70,6 +72,13 @@ impl TouchState {
             active: emulate,
             ..Default::default()
         }
+    }
+
+    /// Whether touch is the main input right now, so the pillarbox holds the chrome and the `widescreen` option is
+    /// ignored (`crate::widescreen::width`): on a touch-only platform, with `--touch-emulation`, and while touch is in
+    /// use on a computer with a touch screen.
+    pub fn blocks_widescreen(&self) -> bool {
+        self.touch_only || self.emulate || self.active
     }
 
     /// The chrome's picture for a window, `None` while touch is not in use. Draw it over the picture; it changes only
@@ -257,7 +266,7 @@ pub fn draw_pulse(c: &mut Core) {
     let t = (age / PULSE_MS).clamp(0.0, 1.0);
     let radius = 4.0 + 26.0 * t;
     let strength = (1.0 - t) * 0.85;
-    let (width, height) = (crate::compose::W as i32, crate::compose::H as i32);
+    let (width, height) = (c.frame.width as i32, c.frame.height as i32);
     let reach = (radius + 2.0).ceil() as i32;
     for y in (cy as i32 - reach).max(0)..=(cy as i32 + reach).min(height - 1) {
         for x in (cx as i32 - reach).max(0)..=(cx as i32 + reach).min(width - 1) {
@@ -277,6 +286,36 @@ pub fn draw_pulse(c: &mut Core) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `widescreen` option is ignored where touch is the main input (`crate::widescreen`): the pillarbox holds the
+    /// chrome, so the screen stays 640 wide.
+    #[test]
+    fn touch_overrides_the_widescreen_option() {
+        use crate::extras::Widescreen;
+        let width = |t: &TouchState, mode| crate::widescreen::width(mode, Some((1920, 1080)), t.blocks_widescreen());
+        // A mouse and keyboard: the option stands.
+        let desktop = TouchState::new(false);
+        assert!(!desktop.blocks_widescreen());
+        assert_eq!(width(&desktop, Widescreen::Ratio16x9), 864);
+        assert_eq!(width(&desktop, Widescreen::Auto), 864);
+        // A phone or tablet.
+        let mut phone = TouchState::new(false);
+        phone.touch_only = true;
+        phone.active = true;
+        for mode in [Widescreen::Ratio16x10, Widescreen::Ratio16x9, Widescreen::Auto] {
+            assert_eq!(width(&phone, mode), 640, "{mode:?}");
+        }
+        // `--touch-emulation` forces it off, even before a finger has touched.
+        let emulated = TouchState::new(true);
+        assert!(emulated.blocks_widescreen());
+        assert_eq!(width(&emulated, Widescreen::Ratio16x9), 640);
+        // A computer with a touch screen: off while touch is in use, back once the mouse is used again.
+        let mut hybrid = TouchState::new(false);
+        hybrid.active = true;
+        assert_eq!(width(&hybrid, Widescreen::Ratio16x9), 640);
+        hybrid.active = false;
+        assert_eq!(width(&hybrid, Widescreen::Ratio16x9), 864);
+    }
 
     #[test]
     fn without_touch_the_pointer_is_left_alone() {

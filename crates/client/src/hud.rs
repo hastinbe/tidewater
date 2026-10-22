@@ -923,6 +923,24 @@ mod tests {
         assert!(!l.viewport.contains(624.0, 100.0));
     }
 
+    /// Widescreen (`crate::widescreen`): a wider canvas gives the view the extra width, whole tiles of it, and leaves the
+    /// interface where it was against the left edge.
+    #[test]
+    fn layout_of_a_wide_screen_only_widens_the_view_and_its_bars() {
+        let original = Layout::new((640, 480), &pieces());
+        for (width, tiles) in [(768, 18), (864, 21)] {
+            let l = Layout::new((width, 480), &pieces());
+            assert_eq!(l.viewport, Rect::new(176, 16, tiles * 32, 448), "{width}");
+            assert_eq!(l.viewport.w % 32, 0, "whole tiles");
+            assert_eq!(l.minimap, original.minimap);
+            assert_eq!(l.info, original.info);
+            assert_eq!(l.buttons, original.buttons);
+            assert_eq!(l.top, Rect::new(176, 0, tiles * 32, 16));
+            assert_eq!(l.bottom, Rect::new(176, 464, tiles * 32, 16));
+            assert_eq!(l.canvas, (width, 480));
+        }
+    }
+
     #[test]
     fn blit_skips_transparent_and_clips() {
         let mut dst = Picture {

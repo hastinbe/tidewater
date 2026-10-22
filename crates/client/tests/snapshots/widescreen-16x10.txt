@@ -1,0 +1,13 @@
+# frame and sound fingerprints of the scripted scene `widescreen-16x10` (hashes only)
+sound	2	3bb3724654d4194d	0.7516	Once
+frames	1-1	156ed4086987e325
+frames	2-2	558e554a2102a325
+frames	3-3	dd3be9c97af818f4
+shot	8	start	cd9218b81c064a10
+frames	4-8	cd9218b81c064a10
+frames	9-9	f31869a0b1152444
+frames	10-10	5e38f4c06518e894
+shot	11	box	38a5610a3010778d
+sound	12	f8787214968df8ae	0.9882	Despawn
+frames	11-11	38a5610a3010778d
+frames	12-14	d2be49377f410009

@@ -31,6 +31,7 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
 | `minimap-ping` | `--extra-minimap-ping` | on, off | C | off | Alt-click on the minimap pings that place on your allies' minimaps, and shows their pings on yours |
 | `shift-queue` | `--extra-shift-queue` | on, off | S | off | Hold Shift while giving a move, attack, attack-move, patrol, repair, harvest or build order to add it to the unit's order queue (up to 8) instead of replacing its order |
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | C | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
+| `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | C+L | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) |
 
 - **Default** is the value when nothing says otherwise. For a volume, 100 means "leave the sound as the game's own
   dialog sets it", so the original sound dialog keeps its look and meaning.
@@ -139,6 +140,14 @@ chooses it in the lobby and it travels with the game, saves and replays (see "Si
   `menu` records in memory only and adds a **Save Replay** button to the in-game menu that writes the game so far
   (and carries on writing), so a game you decide to keep after the fact is not lost. The default menu is unchanged
   while the option is off. A game started from a save, or with a `--demo-*` option, is not recorded, as before.
+- **Widescreen** (`widescreen`, C+L). Off by default. `16:10` makes the game screen 768 x 480, `16:9` 864 x 480 (853.3 rounded
+  to a whole tile) and `auto` the tile multiple nearest the window's shape, from 640 to 864. The screen stays 480 lines
+  high, so the interface art keeps its pixel size and the map view only gains width: 18 or 21 tiles across instead of
+  14, nothing zoomed out and nothing more shown above or below. Menus, briefings, videos, the score screen and the game
+  menu stay 640 x 480 in the middle with black beside them. The option is ignored on a phone or tablet, with
+  `--touch-emulation`, and while touch is in use, where the pillarbox holds the touch buttons. Because the wider view
+  is an edge, the lobby's value is used for everyone in a game with other players. The widths, the layout and the
+  pointer mapping are in `docs/design/client-core.md`, "Widescreen"; the code is `widescreen.rs`.
 
 ## Rebindable keys
 

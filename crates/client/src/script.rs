@@ -9,7 +9,7 @@
 
 use glam::Vec2;
 
-use crate::compose::{Frame, H, W};
+use crate::compose::Frame;
 use crate::core::Core;
 use crate::frontend::{AppState, Step};
 use crate::input::{Button, Key, KeyEvent, Touch, TouchPhase, Wheel, WindowGeom};
@@ -25,7 +25,7 @@ pub enum Cmd {
     UntilCycle(u32),
     /// Wait until the outcome dialog (victory or defeat) is up.
     UntilOutcome,
-    /// The pointer goes to this screen pixel (640 × 480).
+    /// The pointer goes to this screen pixel (the screen is 640 × 480, or wider in a game with `widescreen`).
     Move(f32, f32),
     Down(Button),
     Up(Button),
@@ -322,6 +322,24 @@ pub fn scenes() -> Vec<Scene> {
             cmds: extras_keys(),
             extras: &[("idle-worker", "on")],
             keys: "pause=ctrl+u\nidle-worker=ctrl+i\nbutton-move=j",
+        },
+        // Widescreen (`widescreen`, `docs/design/client-core.md`): the 864 x 480 game screen with the interface against
+        // the left edge, a selection box past the old right edge, the minimap's view rectangle, the edge scroll at the
+        // new edge, and the game menu in the middle with black beside it.
+        Scene {
+            name: "widescreen",
+            start: vec![play(0)],
+            cmds: widescreen(),
+            extras: &[("widescreen", "16:9"), ("health-bars", "always")],
+            keys: "",
+        },
+        // The 768 x 480 screen (16:10), the same start.
+        Scene {
+            name: "widescreen-16x10",
+            start: vec![play(0)],
+            cmds: widescreen_16x10(),
+            extras: &[("widescreen", "16:10")],
+            keys: "",
         },
         // Touch: a tap near a unit selects it; a long press orders; a drag boxes; a pinch zooms; two fingers pan; three
         // fingers tapping open the game menu (`gesture`, `docs/design/touch.md`).
@@ -1296,6 +1314,49 @@ fn extras_bars() -> Vec<Cmd> {
     v
 }
 
+/// A game on the 864 x 480 screen: the start, a selection box dragged past where the 640 screen ended, the view scrolled
+/// by the pointer at the new right edge, and the game menu.
+fn widescreen() -> Vec<Cmd> {
+    use Cmd::*;
+    let mut v = vec![Move(400.0, 240.0), Until(AppState::Game), Wait(5), Shot("start")];
+    v.extend([
+        Move(260.0, 225.0),
+        Down(Button::Left),
+        Wait(1),
+        Move(780.0, 360.0),
+        Wait(1),
+        Shot("box"),
+        Up(Button::Left),
+        Wait(3),
+        Shot("selected"),
+    ]);
+    // The pointer on the far right edge of the 864 pixels scrolls the view.
+    v.extend([Move(863.0, 240.0), Wait(40), Shot("scrolled")]);
+    v.extend([Move(500.0, 240.0), Wait(2)]);
+    v.extend(tap(Key::F(10)));
+    v.extend([Wait(4), Move(432.0, 200.0), Wait(2), Shot("menu")]);
+    v
+}
+
+/// The 768 x 480 screen: the start and a box over the view's whole width.
+fn widescreen_16x10() -> Vec<Cmd> {
+    use Cmd::*;
+    vec![
+        Move(400.0, 240.0),
+        Until(AppState::Game),
+        Wait(5),
+        Shot("start"),
+        Move(200.0, 30.0),
+        Down(Button::Left),
+        Wait(1),
+        Move(740.0, 440.0),
+        Wait(1),
+        Shot("box"),
+        Up(Button::Left),
+        Wait(2),
+    ]
+}
+
 pub fn scene(name: &str) -> Option<Scene> {
     scenes().into_iter().find(|s| s.name == name)
 }
@@ -1586,10 +1647,10 @@ pub fn record(run: &mut Run, frame: Option<&Frame>, output: &crate::audio::Outpu
     }
     if !out.windowed && out.pictures {
         for &name in &shots {
-            save_png(&out.dir.join(format!("{name}-composed.png")), &frame.rgba);
+            save_png(&out.dir.join(format!("{name}-composed.png")), frame);
         }
         if out.every > 0 && n % out.every == 0 {
-            save_png(&out.dir.join(format!("frame{n:05}.png")), &frame.rgba);
+            save_png(&out.dir.join(format!("frame{n:05}.png")), frame);
         }
     }
     if out.windowed {
@@ -1653,13 +1714,15 @@ pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usiz
     };
     let (_, cpu) = rec.pending.remove(i);
     let Some((w, h, gpu)) = shot else { return };
-    let lb = crate::display::Letterbox::fit((w as u32, h as u32));
+    // The screen is 640 x 480, or wider in a game with `widescreen`: the composed frame says.
+    let (fw, fh) = (cpu.width, cpu.height);
+    let lb = crate::display::Letterbox::fit_screen((w as u32, h as u32), (fw as u32, fh as u32));
     let (ox, oy) = (lb.offset.0 as usize, lb.offset.1 as usize);
-    let mut diff = vec![0u8; W * H * 4];
-    let mut gpu_screen = vec![0u8; W * H * 4];
+    let mut diff = vec![0u8; fw * fh * 4];
+    let mut gpu_screen = vec![0u8; fw * fh * 4];
     let mut differing = 0;
-    for y in 0..H {
-        for x in 0..W {
+    for y in 0..fh {
+        for x in 0..fw {
             let (gx, gy) = (ox + x, oy + y);
             let g = if gx < w && gy < h {
                 let at = (gy * w + gx) * 4;
@@ -1667,7 +1730,7 @@ pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usiz
             } else {
                 [0, 0, 0, 255]
             };
-            let i = (y * W + x) * 4;
+            let i = (y * fw + x) * 4;
             gpu_screen[i..i + 4].copy_from_slice(&g);
             let c = &cpu.rgba[i..i + 3];
             let same = c == &g[..3];
@@ -1681,17 +1744,17 @@ pub fn compare_shot(run: &mut Run, name: &'static str, shot: Option<(usize, usiz
     rec.compared.push((name, differing));
     // A window of another size (`TIDEWATER_SCRIPT_WINDOW`) also keeps the whole window: the chrome, the black bars,
     // the sharp fit.
-    if (w, h) != (W, H) {
+    if (w, h) != (fw, fh) {
         save_png_sized(&run.out.dir.join(format!("{name}-full.png")), (w, h), gpu);
     }
     for (suffix, rgba) in [("window", gpu_screen), ("composed", cpu.rgba), ("diff", diff)] {
-        save_png(&run.out.dir.join(format!("{name}-{suffix}.png")), &rgba);
+        save_png_sized(&run.out.dir.join(format!("{name}-{suffix}.png")), (fw, fh), &rgba);
     }
 }
 
-/// Saves a 640 × 480 RGBA picture as a PNG file (the `png` crate's encoder).
-fn save_png(path: &std::path::Path, rgba: &[u8]) {
-    save_png_sized(path, (W, H), rgba);
+/// Saves a frame as a PNG file (the `png` crate's encoder).
+fn save_png(path: &std::path::Path, frame: &Frame) {
+    save_png_sized(path, (frame.width, frame.height), &frame.rgba);
 }
 
 /// Saves an RGBA picture of any size as a PNG file.
