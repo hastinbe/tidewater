@@ -37,6 +37,9 @@
 - **Changes:** 2026-10-22, round 103 (oracle traces, `ERRATA-round103-traces.md` section 4; reviewed by a spec-review
   session, 2026-10-22): a Tidewater design choice, labelled as such: map ships are aligned to even tiles, since the
   original can't play a ship on an odd tile (OS1); flyers keep FL1. The kill-time group tidy is traced (V-G1).
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI10; reviewed by a spec-review
+  session, 2026-10-23): a released slot stays in every synced selection that holds it (traced; the rule lives in
+  `ui/selecting-and-commanding.md`). No rule changed here.
 
 ## Behaviour
 
@@ -191,7 +194,8 @@ The "remove" order runs at the unit's next step-done signal. It **releases the s
    effect in play; it is recorded for completeness.
 
 Before that, the unit is taken out of the local selection and the local remembered groups (interface only,
-`ui/selecting-and-commanding.md`).
+`ui/selecting-and-commanding.md`). The players' synced selections keep the slot: the release isn't a loss for them
+(`ui/selecting-and-commanding.md`, "What the synced selection holds"; traced, round 107: PI10a).
 
 The released slot is therefore the **first one reused**. The free list works last in, first out.
 

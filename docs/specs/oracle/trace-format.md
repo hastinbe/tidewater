@@ -77,6 +77,10 @@
   still version 2: `fog_countdown` covers a holy vision cast in a refresh cycle (the record shows 150; the comparer
   shows 0 only when nothing set the counter after the refresh in that cycle); one more vector (a comparer fix; no game
   rule and no format change).
+- **Changes:** 2026-10-23, round 107 (`ERRATA-round107-sweep.md` PI1; reviewed by a spec-review session, 2026-10-23),
+  still version 2: a `select`'s `units`, and the `groups` extra's `selection`, may name slots that hold no unit (the
+  synced selection keeps them, `ui/selecting-and-commanding.md`); a reader takes a `command` with no `tile` as tile
+  `[0, 0]`. No format change.
 
 ## Behaviour
 
@@ -229,8 +233,8 @@ and `kind`.
 
 | `kind` | Fields | Meaning |
 | --- | --- | --- |
-| `select` | `units` | Replaces the player's **synced selection** (`ui/selecting-and-commanding.md`, "Two selections") with these unit slots, in this order (at most 9) |
-| `command` | `command`, `tile`, `target` | Gives command number `command` (`orders/orders.md`, "Commands"; a spell by its spell order number, 38 to 56) to the units of the player's synced selection, as in `ui/selecting-and-commanding.md`, "Which units take part in a command": the list of handled commands, the selection filter and the formation offset. `tile` is `[x, y]`; `target` is a unit slot or `null` |
+| `select` | `units` | Replaces the player's **synced selection** (`ui/selecting-and-commanding.md`, "Two selections") with these unit slots, in this order (at most 9). A slot that holds no unit when the select runs is kept, not dropped (traced, round 107: PI1a) |
+| `command` | `command`, `tile`, `target` | Gives command number `command` (`orders/orders.md`, "Commands"; a spell by its spell order number, 38 to 56) to the units of the player's synced selection, as in `ui/selecting-and-commanding.md`, "Which units take part in a command": the list of handled commands, the selection filter and the formation offset. `tile` is `[x, y]`; `target` is a unit slot or `null`. A target slot that holds no unit is still the command's target (the command fails its target check: `orders/orders.md`, "A target slot with no unit"). The tracer writes a tile for every command; a reader takes a missing `tile` as `[0, 0]`, the tile the game sends for a command with no tile and no target (stop, stand ground) |
 | `build` | `type`, `tile` | The first unit of the player's synced selection, if it can build (a worker, or a tanker, which builds oil platforms; `economy/build-train.md`), is told to build the building of type `type` with its top-left tile at `tile` (`economy/build-train.md`, "Placing a building"). The site is checked when the command runs; on a failure a message is shown and nothing else happens |
 | `job` | `job`, `number` | The first unit of the player's synced selection starts a job (`economy/build-train.md`, "Starting a job", whose checks include that it is a completed building). `job` is `"train"` (`number` is a unit type), `"research"` (research a spell; an upgrade number), `"upgrade"` (an upgrade number) or `"upgrade building"` (a building type). A job kind outside these four is written as its number |
 | `cheat` | `cheats` | A cheat command, carried out as in `game/cheats.md`, "Carrying out a cheat command". `cheats` is the **whole new set** of cheat flags it carries, not only the ones it turns on ("Cheat commands") |
@@ -476,7 +480,8 @@ spec defines are left out.
 object keyed by player number (a decimal string, players 0 to 7), with an entry only for a player that has a nonempty
 group or a nonempty synced selection. Each entry is `{"groups": {...}, "selection": [...]}`: `groups` maps each
 nonempty group's number (a decimal string, 0 to 17) to its units' slots in group order, and `selection` lists the
-slots of the player's synced selection (`ui/selecting-and-commanding.md`, "Two selections") in order. Example
+slots of the player's synced selection (`ui/selecting-and-commanding.md`, "Two selections") in order, slots that hold
+no unit included (round 107). Example
 (`mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000`, n = 221): `{"0": {"groups": {"1": [1599, 1596,
 1597]}, "selection": [1595, 1594, 1593]}}`.
 

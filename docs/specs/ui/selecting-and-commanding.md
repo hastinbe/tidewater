@@ -31,6 +31,12 @@
 - **Changes:** 2026-10-22, round 103 (oracle trace, `ERRATA-round103-traces.md` section 2; reviewed by a spec-review
   session, 2026-10-22): the tidy at every kill is traced (V-G1 now a trace vector); the network-game open question
   is narrowed. No rule changed.
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI1 to PI3, PI10 and PI17;
+  reviewed by a spec-review session, 2026-10-23): the synced selection holds unit slots as the select names them,
+  empty ones included, and keeps a slot through its unit's release (traced); losing a unit from the selections is an
+  event at the loss, not a standing test (traced); a set takes a dying unit and stops at an empty slot (traced); a
+  recall of a group that was empty before its tidy changes nothing, while a recall whose tidy empties the group
+  empties the selection (traced; a group of inside units only is a gap-fill). Vectors PI1a to PI17b.
 
 ## Behaviour
 
@@ -48,10 +54,24 @@ rules" and "Classic rules" are the two rule sets of `core/timing-and-rng.md`, wh
 - **Local selection:** what the local player sees as selected. It has up to 9 places and is used by the panel, the
   sounds and the mouse rules below. The **primary unit** is the unit in its first filled place (the lowest filled
   place).
-- **Synced selection:** each player has a selection of up to 9 units that is part of the game state. Every change of
+- **Synced selection:** each player has a selection of up to 9 unit slots (`core/unit-slots.md`) that is part of
+  the game state. Every change of
   the local selection made by the rules below is **sent** to all players as a player command, unless a rule says it
   is not sent. When that command runs, it replaces the issuing player's synced selection. Commands from the mouse and
   keyboard act on the **issuing player's synced selection**, not on the local one.
+
+**What the synced selection holds** (traced, round 107: PI1a to PI1d, PI10a). The synced selection is a list of
+unit slots in the order the select command names them (the peer layer keeps the first 9 as sent; `net/lockstep.md`),
+whether or not a slot holds a unit when the command runs. A slot stays in it until a select, a recall or a loss
+("Losing a unit from the selection", below) takes it out:
+
+- An **empty slot** named by a select stays selected. If a unit is later created in that slot, that unit is selected
+  from then on, with nothing sent (PI1b).
+- When a selected unit's slot is **released** at the end of its death (`core/unit-slots.md`, "Death, corpses and
+  release"), the slot stays in the synced selection (PI10a). The release clears only the local selection.
+- An empty slot, or a slot whose unit isn't the player's own, takes no part in a command ("Which units take part in
+  a command"), ends a group set ("Control groups"), and isn't a unit the "first unit of the selection" commands can use
+  (build, job, cancel: they do nothing). So a selection whose first slot is empty sets an empty group (PI1d).
 
 **Setting the selection.** When a rule below selects units:
 
@@ -69,6 +89,13 @@ study; audit round 70, erratum 5; trace request T3: a framebuffer capture of a s
   Classic rules the place is left empty;
 - it is removed from the local selection, leaving its place empty;
 - if the local selection is then empty, placement mode and target mode end.
+
+**The loss is an event** (traced, round 107: PI2a, PI2b). These removals are made once, when the unit dies, is given
+order 25 or goes inside something. Nothing checks the selections again later. So a select that names a unit already
+dying or inside something keeps it selected: a peasant named while inside a gold mine stays in the synced selection
+while it stays inside (PI2a), and a unit named while dying stays selected as its slot after its release (PI10a). Such
+a unit leaves the selection only by its next loss, a select or a recall. (The Battle.net layer's select check, which
+leaves inside units out, is Battle.net only: `net/lockstep.md`.)
 
 ### Who may be selected
 
@@ -357,7 +384,10 @@ Under Classic rules the control-group keys do nothing. In placement or target mo
 Each player has **18 groups** of up to 9 units, as part of the game state. The keys use groups 0 to 9.
 
 - **Set (Ctrl+digit):** sends a set-group command. When it runs, the group is cleared and filled from the issuing
-  player's synced selection in order. Filling stops at the first unit that isn't that player's own.
+  player's synced selection in order. Filling stops at the first unit that isn't that player's own. An empty slot
+  (no unit, or a released one) counts as not the player's own, so a selection that starts with one sets an empty
+  group (traced: PI1d). A **dying** unit that is still the player's own is taken (traced: PI17a); the set makes no tidy,
+  so it leaves the group at the next kill's tidy or recall.
 - **Recall (digit):**
   - Locally, the group's units are selected with sound, without sending the selection. Only units that can be
     picked under the order test (not dying, dead or inside, not in orders 22, 25, 26) are taken. They must also be
@@ -367,6 +397,11 @@ Each player has **18 groups** of up to 9 units, as part of the game state. The k
     that are dead or dying, no longer the player's own, or (if the group has more than one entry) not group-selectable
     are removed. Each removal moves the group's last entry into the gap. Each remaining unit that isn't inside
     anything and isn't in order 22, 25 or 26 becomes part of the issuing player's synced selection.
+  - **An empty group** (traced, round 107: PI3a, PI17b). If the group is **empty before the tidy**, the recall changes
+    nothing: the synced selection stays as it was (PI3a). If the group held entries, the synced selection is replaced
+    by the units the tidy leaves, as above, so a recall whose tidy removes every entry **empties** the selection
+    (PI17b). Gap-fill (untraced; trace request): a group whose units all stay in it but are all inside something, or in
+    order 22, 25 or 26, also leaves the selection empty.
 - **Double press:** a recall of the same group within **500 ms** of the last set or sent recall of that group
   still selects the units locally (with sound), but centres the view on the group instead of sending the recall.
   The view's top-left tile becomes the members' average tile minus half the view size. Any other change of
@@ -483,6 +518,13 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
 | V-G1: `mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000` (oracle trace, Enhanced, generated map `R103-tests.pud`, extra `groups`): group 1 of player 0 set (turn record 26) from peasants A 1599, B 1598, C 1597, D 1596 in that order; three knights kill B, then A; group 1 recalled in turn record 470 | n = 221 (B starts dying, order 1): group 1 = A, D, C. n = 321 (A starts dying): C, D. Turn record 470: the synced selection is C, D (1597, 1596), in that order. A tidy only at the recall would give D, C. Each tidy is in the record where the unit starts dying |
 | V-G2: Enhanced; a group holds A, B, C, and B and C have both stopped being the player's own when another unit anywhere is killed (a constructed state; static study) | The kill's tidy removes B (C moves into its place) and goes on past it: the group is A, C. The next recall's tidy removes C: A |
 | V-G3: Enhanced; full unit table, the synced selection is footmen A (slot 7), B (slot 0), C (slot 12); Ctrl+1 (static study) | Group 1 holds A only |
+| PI1a, PI1b: `win-human3-input-groups-6990-7500` (oracle window of the round 107 person-input sweep, Enhanced campaign, extra `groups`): player 1's select at turn record n = 7018 names slot 1553, which holds no unit; a peasant is trained into slot 1553 later, the selection unchanged | From n = 7018 the synced selection is `[1553]`; at n = 7482 still `[1553]`, now the peasant |
+| PI1c, PI1d: `win-human3-input-groups-12000-12040`: select `[1546]` (empty) at turn record n = 12003; select `[1545, 1553, 1593, 1594, 1596]` (1545 empty) at n = 12018, then set group 1 at n = 12019 | Selection `[1546]`, then the five slots as sent; group 1 stays empty |
+| PI2a: `win-human4-input-groups-32000-32015`: peasant 1503, inside a gold mine (order 26), is named by player 1's select at turn record n = 32009 | The synced selection is `[1503]` from n = 32009 until the next select (n = 32012) |
+| PI2b: full input traces of human6, xhuman10, orc8 and xhuman12 (kept outside the repository; reproducible with `oracle/playscript.py`): the same case | The selection holds 1505 (human6, n = 39007), 1535 (xhuman10, n = 3034), 1597 (orc8, n = 18037), 1372 (xhuman12, n = 15028) |
+| PI3a: `win-human4-input-groups-33025-33045`: player 1 sets group 1 at turn record n = 33028 from a selection whose first unit isn't its own (an empty group), then recalls it at n = 33030 | The synced selection keeps its 8 slots |
+| PI10a: `win-human10-input-groups-47320-47326`: demolition-squad corpse 1409, selected while dying (n = 47045); its slot is released at n = 47324 | Slot 1409 stays in the synced selection |
+| PI17a, PI17b: `win-orc11-input-groups-30013-30020`: player 0 selects `[1578, 1422, 1568, 1589]` (1578 a dying peon, 1422 player 1's) at turn record n = 30015 and sets group 1 at n = 30016; recalls group 1 at n = 30018 | Group 1 = `[1578]` (the set stops at 1422). At the recall the tidy removes 1578: group 1 and the synced selection are empty |
 | Classic; any unit is killed | No control-group tidy (Classic rules have no control groups) |
 | Placement mode; left click on a site that fails the check (for example too close to a gold mine) | Error sound and the check's message; placement mode stays on; nothing sent |
 | Placement mode; right click on the panel | Placement mode ends; nothing sent |
@@ -525,6 +567,9 @@ Kilrogg, critter, 0x24, 0x25 and the unused types. Flag bit 25 is set only on th
   default, the rules above.
 - **Right-click, cast and build and the attacker record** rest on static study: no trace has one of them given to a
   unit with a recorded attacker.
+- **Recalling a group of inside units** (round 107, PI3; trace request). A recall of a group whose units are all
+  inside something (the tidy keeps them, none is taken) is untraced; the default empties the selection ("Control
+  groups", recall).
 - **Box selecting with Alt and a single enemy unit** would recall a remembered group containing an enemy. That can't
   happen, because only groups of own units are stored, but this isn't tested.
 

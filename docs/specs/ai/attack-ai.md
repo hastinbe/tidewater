@@ -82,6 +82,9 @@
   2026-10-22): "Sea patrol (6)", step 2: the neutral oil-patch fallback has no test besides completeness, so a patch
   under a platform or a platform's construction site counts (vector SW9a); the own-platform choice's "present" test is
   now written out (static study; unchanged behaviour). Closes round 104's held SW9 (its walk reading was wrong).
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PL1; reviewed by a spec-review
+  session, 2026-10-23): "Enemy search": the kind check makes an oil platform a sea target (`orders/orders.md`, "Checks
+  on an attack command"), so a land-only unit's post choice skips it (vectors PL1a, PL1b). No rule here changed.
 
 ## Behaviour
 
@@ -527,7 +530,8 @@ Used by the post choice and the attack goal. Over players 0 to 7 in order, skipp
 counts as allied (the alliance table; a player counts as allied with itself), and over each such player's units in list
 order, a unit is a candidate if all of these hold:
 
-- u can attack its kind (the attack order's kind check, `orders/orders.md`, "Checks on an attack command");
+- u can attack its kind (the attack order's kind check, `orders/orders.md`, "Checks on an attack command"; an oil
+  platform, finished or not, needs sea, so a land-only unit never takes one: PL1a, PL1b);
 - it isn't dying, gone or inside anything.
 
 There is **no** fog test, no detection test, no air-against-air test and no minimum-range test, and no score. The result
@@ -742,6 +746,15 @@ Unless stated, the map is 64 × 64, players 0 (human) and 1 (computer, land-atta
 | Input | Expected |
 | --- | --- |
 | **SW3a.** `sweep-orc9` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`) and the windowed trace `win-orc9-goals-aigoals-24200-24260` (`EXTRAS=goals,aigoals`), n = 24251: computer player 0's footmen 1448 at (80, 44) and 1450 at (32, 2) need a ferry. Transports 1455 at (53, 36) and 1456 at (52, 36) are docked (order 32); each one's target tile is its own tile and its destination (61, 24). The gather runs | 1448 and 1450 get 1455 as their transport (pending order 34, then order 34). 1455: pending order 31, target tile (49, 30) (pulled back, open water), destination (32, 2). 1456 finds no candidate and gets the smart move to the gold store: pending order 32, target tile (52, 36), unchanged otherwise. Reading the target tile instead of the destination makes 1456 the transport and gives it target tile (49, 31) |
+
+### Round-107 vectors (oil platform, traced)
+
+Windows of the round 107 person-input sweep (Enhanced campaign, `oracle/traces/`, extra `groups`).
+
+| Input | Expected |
+| --- | --- |
+| **PL1a.** `win-human4-input-groups-22150-22200`: computer grunt 1509 (player 0) chooses its post while an enemy oil platform (1488) is under construction at (45, 65) | n = 22187: post (67, 69); the platform isn't a candidate of the enemy search |
+| **PL1b.** `win-orc4-input-groups-22185-22192`: the same for computer unit 1555 (player 1) | n = 22190: goal (26, 34) |
 
 ## Open questions
 

@@ -98,6 +98,10 @@
 - **Changes:** 2026-10-16 (round 81 traces, `ERRATA-round81.md`, reviewed by a spec-review session,
   2026-10-16): "Splash on impact" notes that flames around a unit inside a building splash that building (traced). No
   rule changed.
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI19 and PI8; reviewed by a
+  spec-review session, 2026-10-23): "A kill": the killer's check of its records holds whatever its order, a spell
+  order included (a death coil's caster forgets its victim; traced, PI19a); a target forgotten at a kill of another
+  unit changes what an order-15 unit does next (`orders/orders.md`, PI8a). No rule changed here.
 
 ## Behaviour
 
@@ -551,7 +555,9 @@ target from then on; traced: `human13-subs-2000`, vectors below): it at once for
 attacking for its command) if that unit is now dying, gone or not detected by the attacker's player, and likewise
 forgets its recorded attacker if that unit is now dying, gone or not detected. The attacker's order doesn't change in
 that step. The victim is dying by then, so it is always forgotten when it is the target or the attacker. This applies
-to every kill: a missile's kill counts as the shooter's, and a splash can kill a unit other than the target, even one
+to every kill and whatever the killer's order, a spell order included: a death knight whose death coil kills the victim
+it was set to forgets it at once, though it is still in order 51 (traced, round 107: PI19a; `spells/spells.md`, "Death
+coil victims"). A missile's kill counts as the shooter's, and a splash can kill a unit other than the target, even one
 of the shooter's own, after which a target that is dying from someone else's kill is forgotten too (traced:
 `xhuman10-blizzard-600`, vectors below). Other units attacking the same target aren't touched; each forgets it on its
 own next logic run (`orders/orders.md`, "Arriving and losing the target"). Only the killer forgets the victim as its
@@ -827,6 +833,7 @@ Cannon smoke and launch slots:
 | V95 | `human13-splash-air-hits-1700` (oracle trace, Enhanced): destroyer 1431 fires small cannon (D = 35) at gryphon 1407 over the coast at tile (54, 94); footman 1398 is on the same tile and archer 1409 at (53, 94); every impact is at that tile | n = 949: hits in order footman 19, archer 4, gryphon 18 (draws 28010, 7680, 13875). The same order at n = 1069 (23, 5, 20) and n = 1189 (32, 7, 30; the footman dies); then archer and gryphon at n = 1309 and 1429. The ground unit on the impact tile is first and the air unit comes after the archer, in its tile's scan place |
 | V96 | `human05-ally-kill-hits-1000` (oracle trace, Enhanced, with a break on the step that adds the score): archer 1490 of player 1 kills peasant 1512 of allied computer player 0 at n = 947 | The score step is reached once, at n = 947, for owner 1 against a victim of owner 0: the ally's kill is credited |
 | V97 | A gryphon hammer with stored damage 255 (custom data) splashes a unit at its impact point; the draw has `r mod 129 = 128` (static study; combat audit erratum 5) | v = 255, h = 128, 128 + 128 = 256, kept to its low 8 bits: 0 damage, not 255 |
+| PI19a | `win-xhuman12-input-groups-40983-40990` (oracle window of the round 107 person-input sweep, Enhanced campaign): computer death knight 1446 (player 6) casts death coil at (36, 12); its coil missile kills paladin 1589 (33 HP), the victim set as its target at the launch | n = 40987: 1446 order 51, target null |
 | V98 | A catapult rock in flight whose shooter's slot is released and taken by a unit of another player before impact (constructed; not reachable in normal play; static study, combat audit erratum 3) | The new unit isn't hit by the splash; a kill made by the splash is credited to the new unit's owner; units hit record the new unit as their attacker |
 
 ## Open questions

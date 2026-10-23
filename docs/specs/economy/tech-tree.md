@@ -15,6 +15,10 @@
   `ERRATA-round90-traces.md`; reviewed by a spec-review session, 2026-10-21): "Converting units": in Enhanced a
   converted unit that isn't held loses its goal, and a computer player's mobile fighting unit gets a fresh first goal,
   which can make random draws; a held unit keeps its goal.
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI7 and PI18; reviewed by a
+  spec-review session, 2026-10-23): "Converting units": a unit aboard a transport is converted too (traced, PI7a); a
+  unit on patrol gets the conversion tile as the patrol end it returns to, in its order and in its remembered patrol
+  (traced, PI18a, PI18b).
 
 ## Behaviour
 
@@ -195,7 +199,9 @@ The refund is the job's full cost, gold, lumber and oil, as the upgrade data giv
 
 "The owner's X become Y" goes over all of that player's units:
 
-- A unit of type X that isn't dead, removed or inside something changes type in place. It keeps its position,
+- A unit of type X that isn't dead or removed changes type in place, a unit **aboard a transport** (order 36)
+  included (traced, round 107: PI7a). A unit inside a building, mine or platform is left out (untraced either way;
+  the rule before round 107). It keeps its position,
   orders and other state, except its goal (below). Its hit points go up by (Y's maximum − X's maximum), each maximum
   counted as at least 1. Its mana is set to Y's "magic" value in the unit data, or to **85** if Y can cast spells
   (unit flag bit 17), in which case its mana counter also starts at 40 (mana regeneration is in a later spec).
@@ -207,7 +213,11 @@ The refund is the job's full cost, gold, lumber and oil, as the upgrade data giv
   its post). A land unit's post is chosen as for a new unit, from the player's current base box, so its line walk can
   end off the map and make **2 draws** (x, then y). A human player's unit, a worker or a tanker is left with no goal
   and makes no draw. A **held** unit keeps its goal and its held mark. Nothing else changes: the unit's order, its
-  stored move goal and its target stay as they were. Units are converted, and so make their draws, in the order of the
+  stored move goal and its target stay as they were, with one exception: a unit on **patrol** (order 5) gets the tile
+  it stands on as the patrol end it returns to, both in its order and, in Enhanced mode, in its remembered patrol
+  (`orders/orders.md`, "What a patrol remembers"); the end it is heading for stays. So it turns round at the
+  conversion tile the next time it comes back (traced, round 107: PI18a, an archer becoming a ranger, and PI18b, an
+  axe thrower becoming a berserker). Units are converted, and so make their draws, in the order of the
   owner's unit list. **Classic mode:** the goal is left alone (static study).
 
   This covers every conversion: the ranger, berserker, paladin and ogre-mage upgrades below, and the mission-start
@@ -398,6 +408,9 @@ Default upgrade data unless stated.
 | **TC4.** `xhuman9-aigoals-goals-8630-8830` (oracle trace, Enhanced): computer player 5's axe throwers 1374, 1379 and 1382, trained in play, become berserkers at n = 8730 | Goal hold at (60, 9), (62, 9), (62, 9) before; hold at (59, 9) for all three after; order 2 and the stored move goal unchanged |
 | **TC5.** `orc13-aigoals-goals-17900-18200` (oracle trace, Enhanced): computer player 3's 20 held knights become paladins at n = 17997 | Every one keeps its goal (slot 1470: hold at (28, 115) before and after) |
 | **TC6.** Classic mode; as TC1 (static study) | The goal stays attack at (40, 40) |
+| **PI7a.** `win-human9-input-groups-6515-6520` (oracle window of the round 107 person-input sweep, Enhanced campaign): archers 1574 and 1575 are aboard a transport when the ranger upgrade finishes | n = 6519: both are rangers, hit points up by 10 |
+| **PI18a.** `win-xhuman3-input-groups-6533-6614` (same sweep): archer 1405 patrols between (27, 117) and (22, 124) and becomes a ranger at (23, 122) at n = 6535 | n = 6611: it turns round at (23, 122) (tile (23, 122), wait 3) instead of walking on toward (27, 117) |
+| **PI18b.** `win-xorc7-input-groups-6619-6626` (same sweep): axe thrower 1416 (player 5) patrols to (109, 47) (turn record n = 3017) and becomes a berserker at (110, 43) at n = 6539 | n = 6623: on its way back it steps to (110, 43), facing 4 |
 
 ## Open questions
 

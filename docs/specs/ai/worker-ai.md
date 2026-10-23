@@ -96,6 +96,9 @@
   session, 2026-10-22, see its "Review"): the spells a map's `ALOW` section gives a computer player are marked done at
   the game start (traced, SW7b). `ALOW` is a header section, read before the marks, so the open question "Game-start
   marks and the map's own sections" rested on a misplaced example and is closed. No rule changed.
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI6; reviewed by a spec-review
+  session, 2026-10-23): a dead worker's job is released only if its owner **at its death** is a computer player; a
+  worker rescued by a human player after taking a job leaves the count alone when it dies (traced, PI6a).
 
 ## Behaviour
 
@@ -340,6 +343,10 @@ So the list works like a wish list: each entry stands for one building, and a lo
   and a platform under construction, B = 3 and a loss starts nothing (traced: `orc3-orc03-platform-losses-9500`,
   vectors below).
 - When one of its workers dies, the worker's job is released as in step 1 (the matching count goes down by 1).
+  Whose worker it is is decided by its owner **at its death**: a worker that took a job as a computer player's unit and
+  was then rescued by a human player releases nothing when it dies, so the computer player's count stays as it is
+  (traced, round 107: PI6a). Gap-fill (untraced): the rescue itself changes no count (in PI6a the count was already back to 0
+  before the death, so the trace doesn't show the rescue's effect).
 
 ### Repair
 
@@ -714,6 +721,12 @@ An entry is marked done at the start of a game when either bit of its code is se
 | Input | Expected |
 | --- | --- |
 | **SW7b.** `mp-r99-tests-mp-r99-tests-fixed-aigoals-airesearch-aiworkers-5400` (oracle trace, Enhanced, committed in round 99; generated map `R99-tests.pud`): the map's `ALOW` section grants computer player 2 invisibility (spells-known word 128); player 2's build list has entry 32 with code 0x95 (invisibility). Computer player 3 has the same list and no grant | Setup record: player 2's done marks 0, 14 and **32**; player 3's none |
+
+### Round-107 vectors
+
+| Input | Expected |
+| --- | --- |
+| **PI6a.** `win-human8-input-groups-41676-41682` (oracle window of the round 107 person-input sweep, Enhanced campaign): peasant 1540 takes a repair job as a computer player's unit at n = 6633, is rescued to human player 6 at n = 7042, and dies | n = 41679: the computer player's repair count stays 0 (it doesn't drop below 0) |
 
 ## Open questions
 

@@ -15,6 +15,8 @@
 - **Changes:** 2026-10-16 (round 78, B-038 combat consolidation, `ERRATA-combat-consolidation.md`, reviewed; change C1,
   traced): the hasted attack loop is the script's loop, not the rate of fire: a hasted unit that isn't a flyer is held
   to its attack cooldown (`combat/damage.md`, "Attack timing (cooldown)").
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI15; reviewed by a spec-review
+  session, 2026-10-23): a trace vector for facing the unit's own tile (east, 2), the rule as written. No rule changed.
 
 ## Behaviour
 
@@ -236,6 +238,7 @@ instructions and signal "step done" only every two tiles.
 | Facing a tile: `human01-basics` n = 116, footman 1598 on (26, 10) (pixel (832, 320)) strikes grunt 1592, which has claimed (26, 11) (pixel (845, 365)) | dx = 0, dy = +1: facing 4 (south), not the pixel direction |
 | Facing a tile: (76, 78) → (78, 78); (87, 80) → (89, 78) | 2; 1 |
 | Facing a tile: (0, 0) → (3, 1); → (4, 1); → (−2, −5); → (−2, −6); (5, 5) → (5, 5) | 3; 2; 7; 0; 2 |
+| PI15a: `win-orc9-input-groups-6755-6760` (oracle window of the round 107 person-input sweep, Enhanced campaign): peon 1465 comes out of great hall 1477 onto (32, 93), the tree tile of its harvest command, so it faces its own tile (`economy/harvest.md`, "Facing a target") | n = 6758: facing 2 (east), whatever it faced before |
 | `orc09-naval-1500` (oracle trace), n = 270: destroyer 1497 (type 0x1F) at (66, 68) in order 9, facing 1; its target, destroyer 1506, at (66, 64), due north | Facing 2 at the strike decision |
 | `human12-7000` (oracle trace), n = 5988: destroyer 1417 (type 0x1E) at (18, 124) in order 16, facing 2; target zeppelin 1503 at (20, 120) (dx +2, dy −4: D = 1) | Facing 3 |
 | A battleship facing 0, target due south | Facing 2 |

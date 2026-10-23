@@ -93,6 +93,17 @@
   the cooldown (SW13b), and the killer goes idle without walking, out of reach too (V165, SW13c). The old text's "with
   no target" held only for the killer. The open question "The range test of a two-tile attacker out of reach" is
   closed as its default said (own-tile measure; traced, SW11b to SW11e). No other rule changed.
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md`; reviewed by a spec-review
+  session, 2026-10-23, see its "Review"): an oil platform is a sea target in the kind check (PL1); each walk step
+  forgets a recorded attacker in play that the unit's owner doesn't detect ("Walking orders", step 1, and "Terms";
+  PI14); an invisible unit that isn't a worker or tanker makes no target search and no reaction after step 1 of
+  "Reacting to an attacker" (PI4); a "new" out-of-range target in orders 15 and 16 includes the attacker seed and a
+  unit with no target (PI5, made explicit); an order-15 unit whose target it forgot at its kill of another unit goes
+  idle, not to 13 (PI8, one case); a command target naming an empty slot fails the target check, and a failed check
+  clears the target at once (PI11); with the skip mark, the walk keeps a dying or inside target out of reach (PI13); a
+  patrolling demolition unit heads for its new demolish target at once (PI16); a land unit's reach and range to a shore
+  building are measured to the shore corner goal in the order-12 switch and in orders 15 and 16 (PI20, made
+  explicit). Two open questions closed (one in part). Vectors in "Person-input sweep (round 107)".
 
 ## Behaviour
 
@@ -164,7 +175,7 @@ consolidation made explicit are listed under "Open questions".
 | Rule | Test |
 | --- | --- |
 | An order aimed at a unit loses its target ("Arriving and losing the target", and orders 14 to 16) | **Detected** only. A target that walks into fog stays the target |
-| The same check on the unit's attacker | An attacker that is alive but not **detected** is ignored by that run's target search and its seed ("Reacting to an attacker", step 2 on) and stays recorded; only a command forgets it ("Commands forget a stale attacker"). Step 1's kind check and the flee rule look at the record as it is, with no detection test, so a unit that can't hit an undetected attacker flees from it (traced: `human12-25000`, vectors V208 and V209) |
+| The same check on the unit's attacker | An attacker that is alive but not **detected** is ignored by that run's target search and its seed ("Reacting to an attacker", step 2 on) and stays recorded while the unit doesn't walk: a command forgets it ("Commands forget a stale attacker"), and so does the unit's next walk step ("Walking orders", step 1; traced, round 107: PI14a to PI14e). An idle unit keeps it (V190). Step 1's kind check and the flee rule look at the record as it is, with no detection test, so a unit that can't hit an undetected attacker flees from it (traced: `human12-25000`, vectors V208 and V209) |
 | Automatic target acquisition (the candidate skip list, and the attacker seed in "Choice") | **Detected** and **not hidden** |
 
 `economy/repair.md` and `orders/transports.md` use the same test: a lost target or attacker is one that is no longer
@@ -346,7 +357,13 @@ the order's logic doesn't. The walk runs only for a unit that isn't in reach of 
 that reach test ("How an update runs", step 2) is made **before** the walk, so none of the steps below, the target
 drop of step 2 included, is made for a unit already in reach. At each step boundary the walk, in this order:
 
-1. **Looks at the attacker, by order** (static study for the split; the traced cases are named below):
+1. **Looks at the attacker, by order** (static study for the split; the traced cases are named below). First, in
+   every order, the unit forgets its recorded attacker if that attacker is in play (not dying, dead, removed or inside
+   something) and isn't **detected** by the unit's owner (traced, round 107: units hit by a giant turtle that their
+   player doesn't detect, PI14a to PI14e). So a call for help, a blocked row (`movement/movement.md`, rows G and H) or
+   the reaction at the walk's end sees no attacker. A dying attacker is handled by order below; whether a walk step
+   also forgets an attacker that is inside something (which every player detects, `vision/fog.md`) or removed is still
+   open ("Open questions"). Then:
    - an order that **acquires** (4, 5, 7 and 12, and in Enhanced mode 10) runs the target search of "Automatic target
      acquisition". This is the move step's search, which the skip mark doesn't stop ("Order 12 with no route", step 3),
      and which heads the unit for a new target ("Attack-move: orders 4, 5 and (Enhanced) 10"). For order 7 (a
@@ -356,7 +373,8 @@ drop of step 2 included, is made for a unit already in reach. At each step bound
    - every other order only forgets a dying attacker. So a walking unit in any other order doesn't react: see
      "Walking orders react only when the walk has ended" below.
 2. **Drops a lost target.** If the order holds a target unit that is dying, gone, inside something or no longer
-   detected by the unit's player, the target is dropped and the walk **ends** at that step boundary: the order's
+   detected by the unit's player (one exception: a unit in order 12 with the skip mark keeps a dying or inside target,
+   "Order 12 with no route", step 3), the target is dropped and the walk **ends** at that step boundary: the order's
    logic runs in that update with no target. Orders 3 and 4 end there as on arrival ("Arriving and losing the
    target"; traced for order 3 with a dying target: `orc9-orc09-smart-target-2100` n = 1877, vector V240); orders 23
    and 24 follow `economy/harvest.md`. Traced for spell order 44 too (round 81:
@@ -423,9 +441,12 @@ their target either. The kind check uses the attacker type's can-target value fr
 this order: a target in the **air** layer needs air; a **submarine** attacker can hit only types that are sea units, oil
 platforms (the oil-source type) or shore buildings, all by the target type's own flags, not the layer it stands in; a
 target of a **transport** type standing on **shore water** (its own tile has the shore-water flag, the same test as a
-transport's wreck in `core/corpses.md`) can be hit by an attacker with either land or sea; any other target in the sea
-layer needs sea; and any other target needs land, first match wins. One check serves both the attack order and target
-acquisition ("Automatic target acquisition"), and the attacker seed passes it too (static study; the transport case is
+transport's wreck in `core/corpses.md`) can be hit by an attacker with either land or sea; a target of the **oil platform** type (the oil-source type of the
+submarine rule) needs sea, wherever it stands and whether or not it is finished (traced for a platform under
+construction, round 107: PL1a and PL1b in `ai/attack-ai.md`; a finished platform is the same type, untraced); any
+other target in the sea layer needs sea; and any other target needs land, first match wins. So a land-only unit (a
+footman, a grunt) can't hit a platform. One check serves the attack order, target acquisition ("Automatic target
+acquisition") and the computer's enemy search (`ai/attack-ai.md`, "Enemy search"), and the attacker seed passes it too (static study; the transport case is
 traced in acquisition: `orc12-30000` n = 26982, vector V217).
 
 Commands 2, 6, 23, 24, 27, 29 and the spell commands have their own handlers, covered by later specs (stop, harvest,
@@ -539,6 +560,13 @@ A player's attack command (8 or 9) on a **dying** unit ends the same way: it is 
 target fails the check, and the unit is left in order 2 with no target and a pending idle, as if told to stop. Its still
 animation restarts with wait 3 when the pending idle takes over, and it makes no look-around draw in that update (traced
 with the player's own dying unit: `orc02-dyingcmd-3760`, vector V185; static study gives the same for an enemy unit).
+
+**A target slot with no unit** (traced, round 107: PI11a). A command whose target names a unit slot that holds no unit
+(never used, or released at the end of a death; `core/unit-slots.md`) is still given and fails the same check, like a
+dead target: idle becomes the pending order. A failed check clears the unit's target **at once**: from the command on,
+the unit shows no target, while its current order goes on until the pending idle takes over at its next step done
+(PI11a: a peasant in order 23 told to repair an empty slot shows order 23 with no target until order 2 takes over with
+wait 3). This holds for every command that carries a target, repair (27) included.
 
 ### Holding and releasing workers
 
@@ -800,6 +828,14 @@ clear it isn't known. The countdown stops it from re-issuing every cycle when th
      and the mark is set again. Only if it finds none does the unit go idle at once. Either way the new order's logic
      then runs in the same update, sees the mark and skips its search (static study for these last steps; the idle case
      is traced: `xorc8-10000`, vector V203).
+     **A marked unit's held target out of reach** (traced, round 107: PI13a to PI13c). With the mark set, a unit in
+     order 12 whose held target is **dying** from another unit's kill, or **inside** something, and out of reach (the
+     reach test measures to that target where it is) takes the move step as above, and its search runs: a new target
+     it finds is switched to as usual (PI13a). The walk's step 2 then does **not** drop the held target. The walk goes on
+     toward it: the unit steps, or, with no route, order 12's fallback runs (steps 1 to 4; with nothing found the unit
+     is idle at once, wait 1: PI13b); on arrival the target is lost as usual. Without the mark the walk drops the
+     target at step 2 as in "Walking orders" (PI13c: idle through the lost-target path, wait 3). Gap-fill (untraced): a
+     held target that is no longer detected, or whose slot has been released, is dropped at step 2 even with the mark.
   4. If nothing is found, the unit goes idle at once, as above.
   Traced: `human5-10000`, vector V175. Each part is needed there: the facing, the same-update step, and a mark that
   skips the search in the take-over update's run and in the next update's run, and is then cleared.
@@ -826,7 +862,14 @@ target is lost:
    place), **2** (idle) for every other order, with the Enhanced resume for idle ("Resuming patrol and
    attack-move"). It takes over in the same update: still animation, wait **3**, target null. Order 15 thus ends
    the same way whether its target is lost or walks out of range ("Attacking without moving"; traced:
-   `human01-order15-lost-700` n = 469, vector V273).
+   `human01-order15-lost-700` n = 469, vector V273, where the unit killed its own target).
+   **One exception, traced once** (round 107, PI8a): an order-15 unit that forgot its target at its own kill of a
+   **different** unit (its missile or splash killed another unit, its own player's included, while the target was
+   dying from someone else's kill, so the killer's check of its records dropped the target; `combat/damage.md`, "A
+   kill") gets **2**, not 13, when it then finds the target lost. A unit that killed its own target still gets 13
+   (V273, PI8b). So a unit carries, from such a kill, whether its target was forgotten at a kill of another unit.
+   Gap-fill (untraced): that mark lasts until the unit's target is set again or the lost-target rule has used it; the
+   other attack orders give 2 either way.
 
 In **order 12** each run first runs the target search of "Automatic target acquisition". Only if the search finds
 nothing new does the lost-target rule above apply. So a chaser whose target died takes the best target in its box,
@@ -970,7 +1013,10 @@ Steps 4.2 and 4.4 rest on static study alone: they agree with the traces, but no
 
 These orders never move the unit. They differ in what happens when the target is valid and detected but **outside the
 attack range** (on either axis, measured as for arrival in `movement/movement.md`), whether it was out of range from
-the start or walked out:
+the start or walked out. For a unit that is neither a sea nor an air unit and a **shore building** target, that is
+measured to the shore corner goal ("A shore building as the target"): a unit that can't reach the corner goal is out of
+range, even next to the footprint. In order 16 it then drops the building and goes idle, its idle search takes the
+building again, and so on every 3 cycles without moving (traced, round 107: PI20b):
 
 | Order | Target valid, detected, in range | Target valid and detected, out of range |
 | --- | --- | --- |
@@ -986,7 +1032,13 @@ In order 16 the idle logic first runs 3 cycles after that take-over, and may pic
 in order 16 picks a **new** target that is out of range, the unit doesn't switch to it: the out-of-range rule above
 applies instead (idle in the same update, wait 3, attacker kept), and its idle logic, 3 cycles later, attacks as usual.
 Order 15 goes to order 13 in the same update by the same path (orders 15 and 16 share one logic; the out-of-range branch
-gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by `human01-order15-range-700` (vector V123). The
+gives 13 for order 15 and 2 otherwise). Both are traced; order 15's by `human01-order15-range-700` (vector V123).
+A **new** target here is any target the search gives other than the one the unit holds: the attacker seed counts,
+and so does any pick by a unit that holds no target (a killer that forgot its victim). So an order-15 unit not cooling
+down whose search gives its out-of-range attacker goes to 13 (wait 3); with the attacker still out of range, stand
+ground's search gives order 15 again and the unit alternates between 13 and 15 every 3 cycles (traced, round 107:
+PI5a, PI5b; a pick in range is taken, PI5c). For order 15 the cooling-down exception below is static study only (the
+round 107 vectors aren't cooling down). The
 logic runs at the step done that ends the attack cycle, after the cooldown frames, so a target that walks out of range
 is seen only then. While the unit is still **cooling down**, the cooling-down rule of "Automatic target acquisition"
 wins: the search takes the new target with no range test, and the unit restarts order 16 on it with the cooldown left as
@@ -1167,7 +1219,11 @@ unit in order 16 that is still cooling down, which keeps order 16 (below).
 
 In the cases below, **reach** (of the new target or the old one) and **strike reach** of the old target mean one test:
 the reach test of "How an update runs", step 2 (the arrival test with the attack range as radius, measured from the
-unit's own tile). For the old target it decides which search runs.
+unit's own tile). For the old target it decides which search runs. For a unit that is neither a sea nor an air unit
+and whose old target is a **shore building**, the arrival test measures to the shore corner goal ("A shore building
+as the target"), not to the footprint: a unit diagonal to the footprint but out of reach of the corner goal is out of
+reach of the old target, so a new target out of reach is the command case and the unit steps at once (traced, round
+107: PI20a).
 With the old target within reach, the order's own logic runs: its target search, then the cooldown test, which gives
 the cooling case below. Out of reach, the walk runs: the walk's target search gives the new target as a command and
 the walk steps at once (round 105, static study of the mechanism; it fits V109, V193, SW1a and SW11a, each checked
@@ -1260,7 +1316,10 @@ table; only transports use order 32, and they can't attack anyway.
   that isn't its current target, it is given command 19 on it (order 20, demolish at the unit). Whatever the search
   finds, nothing found included, **nothing else happens in that search step**, the reaction and its flee included;
   the rest of the run goes on as usual (in a walk: the walk's forget of a stale attacker, the target drop, the arrival
-  test and the step; static study, round 75). Without
+  test and the step; static study, round 75). That step heads at once for the new demolish target, as attack-move
+  heads for a new target ("Attack-move: orders 4, 5 and (Enhanced) 10"): toward the target with order 20's radius (1)
+  and the target's goal zone, though the order stays the patrol until order 20 takes over at the next step done
+  (traced for a patrol, round 107: PI16a; a remembered attack-move, order 10, by the same rule, untraced). Without
   a remembered order (or in Classic mode) it reacts as the other non-combat units do and flees, as far as "Fleeing",
   step 3, allows (round 71, `ERRATA-audit-orders.md`, S1). In Enhanced mode, with nothing remembered and no
   attacker, it acquires nothing (round 72, traced: V279). Traced in round 72 (`orc11-orc11-sapper-attack-move-goals-1500`): a goblin sapper on
@@ -1274,6 +1333,13 @@ table; only transports use order 32, and they can't attack anyway.
   and, round 84, for a tanker; order 12 traced for a worker; the other acquiring orders a labelled static
   gap-fill there); every other player's use the reaction ("Reacting to an attacker") when
   they have an attacker, and acquire nothing otherwise.
+- **Invisible units** (traced, round 107: PI4a, PI4b; the static reading of round 68). A unit under invisibility
+  (`spells/spells.md`) that isn't a worker or a tanker makes, after step 1 of "Reacting to an attacker" (the kind check
+  and its flee still come first), no target search and no reaction, in its order's logic and in the walk's step 1,
+  with or without an attacker. It keeps its order: in stand ground it stays in 13 with no target while an enemy stands
+  in range (PI4a); in order 16 the run goes on with no new target, so the unit goes idle as its target is lost
+  (PI4b). It does so until the spell ends or a command comes. Gap-fill (untraced): order 12's no-route fallback
+  search ("Order 12 with no route", step 1) still runs.
 
 **Vertical order.** The game keeps all units in a list sorted by **pixel y** (the vertical part of the pixel
 position defined in `movement/movement.md`):
@@ -1427,8 +1493,8 @@ the unit has an attacker:
    fails step 1 runs the flee rule and not its job choice. A **mage-type unit** (mage and death knight types, heroes included) runs the search: if the
    chosen target is one it may take (a non-combat unit or one that can't attack; "Special cases") and differs from its
    current target, it attacks it; otherwise it runs the reaction, and so flees from the attacker (traced:
-   `xorc01-death-coil-2500`, vector V172). An invisible mage-type unit does nothing more in that run after the
-   attacker check (static study only).
+   `xorc01-death-coil-2500`, vector V172). An invisible mage-type unit does nothing more in that run after step 1,
+   like every invisible unit that isn't a worker or tanker ("Special cases", "Invisible units"; traced, round 107).
 
 **The reaction**, used by the orders that react without acquiring (attack-move in Classic mode, demolish orders
 19 to 21) and by several other orders' logic: harvest (23), return goods (24), repair (27), follow (6) and board (34).
@@ -1977,6 +2043,36 @@ it draws at its first run.
 **Human04, whole trace.** Setup and n = 1 to 3000 hold 13772 draws: 142 creation draws (68 map units at setup and 3
 trained peons, 2 each), 12438 turn draws, 757 wander draws and 435 bob draws. The computer player makes none.
 
+### Person-input sweep (round 107)
+
+Every vector here comes from the round 107 person-input sweep: campaign missions captured with the human side
+scripted (Enhanced, `"rules": "enhanced"`). Each window (`win-<mission>-input-groups-<from>-<to>`, in
+`oracle/traces/`, extra `groups`) replays its gap from the map and is compared from its first record. "Full trace"
+means the mission's whole input capture, kept outside the repository and reproducible with `oracle/playscript.py`.
+PL1's vectors are in `ai/attack-ai.md`.
+
+| ID | Input | Expected | Source |
+| --- | --- | --- | --- |
+| PI4a | `win-human4-input-groups-51845-51860`: footman 1586, invisible, in order 13 (stand ground); enemy 1505 in range | n = 51853: order 13 kept, no target (no search) | Trace window |
+| PI4b | Full trace of xhuman7: troll destroyer 1435, invisible, in order 16 | n = 4526: order 2, no target; it doesn't take 1420 | Trace (outside the repository) |
+| PI5a | `win-human8-input-groups-15848-15858`: knight 1483 (player 6) in order 15, holding no target and not cooling down; its recorded attacker 1456 is out of range | n = 15853: order 13, no target, wait 3; then 13 and 15 alternate every 3 cycles | Trace window |
+| PI5b | `win-xhuman2-input-groups-8100-8108`: hero 1515 in order 15; its attacker 1529 out of range | n = 8104: order 13 | Trace window |
+| PI5c | `win-orc14-input-groups-5440-5447`: axe thrower 1441 in order 15; 1431 in range | n = 5444: order 15 on 1431 | Trace window |
+| PI8a | `win-human6-input-groups-57985-57991`: ballista 1480 (player 1) in order 15 on ogre 1585 from n = 57786; ranger 1525 kills 1585 at n = 57833; at n = 57844 a bolt of 1480 kills peasant 1582 (player 1) and 1480 forgets 1585 | n = 57989: order 2, animation 2, wait 3, no target | Trace window (one case) |
+| PI8b | `win-human6-input-groups-30045-30051`: ballista 1496 (player 1) in order 15 has killed its own target 1562 | n = 30049: order 13, animation 2, wait 3, no target | Trace window |
+| PI11a | `win-human10-input-groups-59005-59024`: peasant 1434 (player 6) in order 23 on 1595; turn record n = 59007 gives it command 27 (repair) on slot 1440, which holds no unit | n = 59007: order 23, target null. n = 59023: order 2, animation 2, wait 3 | Trace window |
+| PI13a | `win-orc3-input-groups-39485-39495`: destroyer 1594 (player 1), order 12 with the skip mark, on tanker 1520, which has gone into oil platform 1524 (order 26), out of reach | n = 39492: order 12 on tanker 1528, wait 1 | Trace window |
+| PI13b | `win-orc3-input-groups-39790-39800`: destroyer 1588 (player 1), order 12 with the skip mark, on tanker 1520, dying at (4, 34), out of reach, no route | n = 39797: order 2 at once, animation 2, wait 1, no target | Trace window |
+| PI13c | `win-orc3-input-groups-38215-38223`: destroyer 1599 without the mark, in order 12 on dying grunt 1548 | n = 38221: order 2, wait 3 | Trace window |
+| PI14a | `win-orc4-input-groups-35530-35537`: destroyer 1522 on patrol, hit by giant turtle 1493, which only player 0 detects; held archer 1503 nearby answers the call for help | n = 35535: archer 1503 wait 3 (a take-over); unit 1542 order 2 | Trace window |
+| PI14b | `win-orc4-input-groups-35740-35748`: tanker 1518 returning goods, hit by the same turtle | Matches to n = 35748 only with the rule | Trace window |
+| PI14c | `win-orc9-input-groups-37305-37312`: destroyer 1399 blocked on patrol at (74, 60), hit by a turtle; ranger 1445 answers each hit | Matches to n = 37312 only with the rule | Trace window |
+| PI14d | `win-human13-input-groups-1080-1090`: battleship 1426 in order 4, blocked by giant turtle 1439, which its player doesn't detect | n = 1088: order 4 kept (no row G stop) | Trace window |
+| PI14e | `win-human12-input-groups-12370-12376`: destroyer 1403 in order 4, the same case | n = 12375: stays at (40, 112), wait 15 | Trace window |
+| PI16a | `win-orc11-input-groups-15065-15072`: goblin sapper 1565 on a remembered patrol acquires archer 1558 at (115, 25) | n = 15070: steps to (113, 26), facing 0 (toward the archer, not the patrol end) | Trace window |
+| PI20a | `win-xorc3-input-groups-14550-14558`: computer grunt 1424 (player 2) in order 12 on shipyard 1413 (3 × 3 at (83, 71)) stands at (82, 74), diagonal to the footprint, out of reach of the corner goal; its search picks peon 1521 at (78, 68) | n = 14554: steps toward 1521: tile (81, 73), facing 7, animation 3, wait 1 | Trace window |
+| PI20b | `win-xorc8-input-groups-2047-2055`: axe thrower 1378 and ogre 1383 (player 5), just unloaded, in order 16 on refinery 1444 (player 2, 3 × 3 at (76, 72)), out of range of its corner goal | n = 2051: both order 2, wait 3, no target; order 16 on 1444 again at n = 2054 | Trace window |
+
 ## Open questions
 
 Carried over:
@@ -2039,7 +2135,10 @@ Carried over:
 
 Found by the consolidation (static study, 2026-10-14; the rules above are unchanged):
 
-- **The walk forgets a stale or undetected attacker.** "Terms" says an attacker that is alive but not **detected**
+- **The walk forgets a stale or undetected attacker.** **Closed in part in round 107:** a walk step forgets an
+  attacker in play that the unit's owner doesn't detect (traced, PI14a to PI14e; now in "Walking orders", step 1, and
+  "Terms"). Still open: whether it also forgets an attacker that is inside something or removed; the request below
+  still applies to that half. The earlier text follows. "Terms" says an attacker that is alive but not **detected**
   stays recorded, and only a command forgets it. The static study finds that at each step boundary of a walk
   ("Walking orders") a unit that can move also forgets an attacker that is dying, dead, removed, inside something or
   not detected by its owner, the same test a command makes. No vector separates the two readings: in V190
@@ -2057,7 +2156,8 @@ Found by the consolidation (static study, 2026-10-14; the rules above are unchan
   or orders 6, 23, 24 or 27, whose attacker goes inside or turns invisible while the unit walks.
 - **Search box of a waiting boarder** (round 97 review): **closed in round 100.** A non-computer unit waiting in
   order 34 searches the react range (human) box (traced, V288). The round-97 default (the attack range) is withdrawn.
-- **Invisible units acquire nothing.** "Reacting to an attacker", step 3, says an invisible mage-type unit does
+- **Invisible units acquire nothing.** **Closed in round 107:** traced (PI4a, PI4b); now in "Special cases",
+  "Invisible units". Order 12's no-route fallback search stays untraced. The earlier text: "Reacting to an attacker", step 3, says an invisible mage-type unit does
   nothing more in a run after the attacker check. The static study finds the same for every invisible unit that isn't
   a worker or tanker, in the order's logic and in the walk: after step 1 it makes no target search and no reaction. No
   vector has an invisible unit of another type. Round 68: switching the code to the static reading changes none of the
@@ -2229,3 +2329,4 @@ V001 to V054 (the first table) and V080 to V213 (the "Taking over" table), and t
 | 104 | A cooling unit switching out of reach stands only within strike reach of its old target; otherwise the command case and its step (traced, SW1); V109's cause is a blocked step; order 30's far walk keeps class and step size (SW6) | "Resulting order"; "Order 30's radius"; vector SW1a |
 | 105 | Order 12 makes the friendly-fire check only within reach of its target, by the own-tile reach test; out of reach it walks (traced for a battleship, SW11); reach and strike reach of the old target defined as that test, which explains SW1's cooling case | "Friendly-fire check (orders 12, 15 and 16)"; "Resulting order"; "Open questions"; vector SW11a |
 | 106 | Losing the target while cooling down: in reach the target is still shown, the killer goes idle without walking, and order 12 out of reach walks on to its strike goal before losing it (traced, SW13); the two-tile range-test question closed (own-tile measure, SW11b to SW11e) | "Losing the target while cooling down"; "Open questions"; vectors SW11b to SW11e, SW13a to SW13d |
+| 107 | Person-input sweep (traced): oil platform a sea target (PL1); the walk forgets an undetected attacker (PI14); invisible units search and react to nothing after step 1 (PI4); "new" out-of-range target in orders 15 and 16 made explicit (PI5); order 15 idle after forgetting its target at a kill of another unit (PI8, one case); empty target slot and the at-once clear of a failed check (PI11); the skip mark keeps a dying or inside target out of reach (PI13); a patrolling demolition unit heads for its target (PI16); shore-building reach in the switch and in orders 15 and 16 made explicit (PI20) | "Terms"; "Walking orders"; "Commands"; "Arriving and losing the target"; "Attacking without moving"; "Automatic target acquisition"; "Reacting to an attacker"; "Open questions"; vectors PI4a to PI20b |

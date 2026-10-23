@@ -98,6 +98,11 @@
 - **Changes:** 2026-10-22, round 104 (oracle sweep, `ERRATA-round104-sweep.md` SW2 and SW4; reviewed by a spec-review
   session, 2026-10-22): the eye of Kilrogg doesn't turn its caster (SW4a, SW4b); a whirlwind's last update doesn't
   move it and its slot is freed in the next cycle (SW2a).
+- **Changes:** 2026-10-23, round 107 (person-input sweep, `ERRATA-round107-sweep.md` PI19 and PI21; reviewed by a
+  spec-review session, 2026-10-23): a blizzard shard touches a wall on its final tile with damage 10 when it is
+  removed (traced through a wall break and a worker's choice, PI21a and PI21b; which shard breaks the wall is
+  bracketed, not pinned); a death coil caster whose coil kills the victim it was set to forgets it (`combat/damage.md`,
+  "A kill"; PI19a).
 
 ## Behaviour
 
@@ -347,7 +352,9 @@ missile's stored damage is then replaced by the victim's share. Each coil missil
 the moment it is created; it flies N = floor(D / 12) + 1 steps, landing on the step where the remaining distance goes
 below 0, and stays there; its share is applied at its impact, **16** cycles after the landing step. As each missile is
 launched, the caster's target becomes that victim, so after the launches the caster's target is the last victim, until
-the idle takes over (traced: `xorc01-death-coil-2500`, vectors below). On impact the share is applied to the victim
+the idle takes over (traced: `xorc01-death-coil-2500`, vectors below). A coil that kills the victim the caster holds as
+its target makes the caster forget it at once, as any killer does, though the caster is still in order 51
+(`combat/damage.md`, "A kill"; traced, round 107: PI19a). On impact the share is applied to the victim
 with the caster as the attacker. The caster then gains the total of the shares at once, capped at its maximum HP. With
 no candidates, the 100 mana is still spent.
 
@@ -581,7 +588,10 @@ takes it to or past its landing point; that last step may overshoot, and the pos
 splashes with damage **10**, and then, if the chain has repeats left and a slot is free, it starts the next shard of the
 chain in the lowest free effect slot (repeats − 1, 2 draws) and makes one more draw. The landed shard's own slot isn't
 free yet, so the next shard never reuses it. The landed shard then stays where it is, unmoving, for 4 more cycles, and
-is removed in its 5th update after landing (traced: `xhuman10-blizzard-600`, vectors below). A remaining distance of
+is removed in its 5th update after landing (traced: `xhuman10-blizzard-600`, vectors below). When it is removed it
+touches a wall on its final tile with damage **10**, as the fireball, the death-and-decay cloud and the whirlwind do
+(`movement/occupancy.md`, "Damaging a wall"). So a wall on a shard's landing tile is reached twice by each shard: by
+the landing splash and by the removal, each adding 2 to its counter (traced, round 107: PI21a and PI21b). A remaining distance of
 exactly 0 never happens: every shard starts 159, 170 or 181 px from its landing point and steps 12 px, and none of those
 is a multiple of 12 (round 81, static study and arithmetic; open question closed). A chain therefore lands
 **11 shards** on the same point. Damage per shard: 5 to 10 within 22 px, 1 or 2 from 23 to 42 px.
@@ -895,6 +905,8 @@ IDs S01 to S83 are the rows before round 80, unchanged apart from the ID column;
 | SW2a | `sweep-human14` (oracle sweep trace, Enhanced, kept outside the repository; reproducible with `oracle/sweep.py capture`; round 104), effect slot 3: a whirlwind (kind 12) cast by death knight 1503, first in its slot at n = 13617 | It moves every 3 cycles up to n = 16014; at n = 16017 (its last update, the lifetime reaching 0) it is still in slot 3, unmoved, at x 2394, y 3067; the slot is free from n = 16018. 2401 records in all |
 | SW4a | `sweep-orc12` (as SW2a), n = 32251: ogre-magi 1452 at (41, 115), 1480 at (81, 81) and 1547 at (94, 32) (type 0x0D, owner 3, a computer player), idle with mana 255, take order 48 (`ai/caster-ai.md`, try 4); facings 7, 0 and 1 | The casts keep facings 7, 0 and 1 through n = 32262; mana 255 to 185 at the strike. No turn toward the caster's own tile (that would give facing 2) |
 | SW4b | `sweep-xhuman12` (as SW2a), n = 28205: ogre-magi 1527 at (78, 33) and 1534 (type 0x0D, owner 0) cast the eye of Kilrogg | Facings 7 and 3 kept |
+| PI21a | Full input trace of xhuman4 (kept outside the repository; reproducible with `oracle/playscript.py`) with research-side map dumps at n = 3120, 3200 and 3470: human mage 1478 (player 1) casts blizzard at (87, 86) (turn record n = 3007); one chain lands its 11 shards (launched n = 3025 to 3285) on wall tile (89, 87) of the wall ring x 86 to 89, y 85 to 88 round tower 1454 | The wall is intact at n = 3120 and 3200 and rubble at 3470, and the ring's inside and outside are one region. With the landing splash and the removal touch (2 each) an intact wall becomes rubble at the 10th shard (launched n = 3258); the dumps bracket the break between n = 3200 and 3470, which a rule of 5 a shard would also fit |
+| PI21b | `win-xhuman4-input-groups-3465-3472` (oracle window of the same sweep): computer peon 1473 (player 6) comes out of great hall 1436 | n = 3469: it takes the repair job on tower 1454 (15 of 160 HP) at (87, 86), reachable through the broken wall, not a mining job |
 
 ## Open questions
 
