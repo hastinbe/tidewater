@@ -994,7 +994,7 @@ impl World {
     /// "Arriving and losing the target", orders 3, 4 and 10 on arrival: the unit forgets its attacker, and idle becomes
     /// its pending order (with the Enhanced resume) and takes over in the same update (still animation, wait 3); the idle
     /// logic first runs at the next step done.
-    fn arrive(&mut self, i: usize) {
+    pub(crate) fn arrive(&mut self, i: usize) {
         self.units[i].attacked_by = None;
         self.idle_now(i);
     }
@@ -1172,11 +1172,21 @@ impl World {
         s.can_target & bit != 0
     }
 
-    /// "Checks on an attack command": the attack order's kind check, by the attacker type's
-    /// can-target value, in this order. An air target needs air; a submarine hits only types flagged as sea units,
-    /// oil platforms or shore buildings; a transport on a shore tile can be hit with land or sea; an oil platform needs
-    /// sea; any other target in the sea layer needs sea; any other target needs land.
+    /// "Checks on an attack command": the kind check of the target searches (acquisition and the computer's enemy
+    /// search), by the attacker type's can-target value, in this order. An air target needs air; a submarine hits only
+    /// types flagged as sea units, oil platforms or shore buildings; a transport on a shore tile can be hit with land
+    /// or sea; an oil platform needs sea; any other target in the sea layer needs sea; any other target needs land.
     pub(crate) fn can_hit_kind(&self, u: &Unit, t: &Unit) -> bool {
+        self.kind_check(u, t, true)
+    }
+
+    /// The attack order's kind check: [`World::can_hit_kind`] without the oil-platform clause (round 108, PL2a): a unit
+    /// that can hit land keeps a platform as its target, one that can hit sea does too.
+    pub(crate) fn can_hit_kind_in_order(&self, u: &Unit, t: &Unit) -> bool {
+        self.kind_check(u, t, false)
+    }
+
+    fn kind_check(&self, u: &Unit, t: &Unit, platform_clause: bool) -> bool {
         let s = self.stats_of(u.kind);
         let tf = self.flags_of_unit(t);
         if t.layer == Layer::Air {
@@ -1189,8 +1199,8 @@ impl World {
             return s.can_target & 3 != 0;
         }
         // Round 107 (PL1a, PL1b): an oil platform, finished or not, needs sea wherever it stands, so a land-only unit
-        // never takes one.
-        if tf & flags::OIL_SOURCE != 0 {
+        // never takes one: in the target searches only (round 108, PL2).
+        if platform_clause && tf & flags::OIL_SOURCE != 0 {
             return s.can_target & 2 != 0;
         }
         if t.layer == Layer::Sea {
@@ -6107,6 +6117,145 @@ mod tests {
             assert!(w.marked_hold(i) && w.out_of_reach(i));
             w.units[ti].detected_by = 0;
             assert!(!w.marked_hold(i), "a target no longer detected is dropped");
+        }
+    }
+
+    /// Round 108 (orders spec vectors FB1, HA1 and PL2; attack-AI spec, CH1).
+    mod round_108 {
+        use super::*;
+
+        const FLYER: u8 = 0x2b;
+
+        fn arena(units: &[(u8, u8, (i32, i32))]) -> (World, Vec<UnitId>) {
+            let mut w = map();
+            w.stats.0[FLYER as usize] = w.stats.0[FOOTMAN as usize];
+            w.stats.0[FLYER as usize].flags = flags::AIR | flags::CAN_ATTACK;
+            let ids = units.iter().map(|&(k, o, t)| w.spawn(k, o, t, 0).unwrap()).collect();
+            w.players[1].controller = controller::NOBODY;
+            w.step(&[]);
+            (w, ids)
+        }
+
+        fn ready(w: &mut World, id: UnitId, o: Order) -> usize {
+            let i = at(w, id);
+            let u = &mut w.units[i];
+            (u.order, u.pending, u.commanded) = (o, None, false);
+            u.script.wait = 1;
+            i
+        }
+
+        /// PL2a, PL2b: the attack order's kind check has no oil-platform clause; the searches' check keeps it.
+        #[test]
+        fn the_attack_order_keeps_an_oil_platform_the_searches_skip() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FARM, 1, (8, 8))]);
+            w.stats.0[FARM as usize].flags |= flags::OIL_SOURCE;
+            let (f, p) = (at(&w, ids[0]), at(&w, ids[1]));
+            for (can_target, search, order) in [(1, false, true), (3, true, true)] {
+                w.stats.0[FOOTMAN as usize].can_target = can_target;
+                assert_eq!(w.can_hit_kind(&w.units[f], &w.units[p]), search, "search, {can_target}");
+                assert_eq!(
+                    w.can_hit_kind_in_order(&w.units[f], &w.units[p]),
+                    order,
+                    "order, {can_target}"
+                );
+            }
+        }
+
+        /// PL2a: a footman in order 9 on an oil platform keeps the target instead of going idle.
+        #[test]
+        fn a_footman_attack_order_on_a_platform_keeps_walking() {
+            let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FARM, 1, (12, 12))]);
+            w.stats.0[FARM as usize].flags |= flags::OIL_SOURCE;
+            let i = ready(&mut w, ids[0], Order::Chase { target: ids[1] });
+            w.attack_order(i, ids[1]);
+            assert_eq!(w.units[i].order, Order::Chase { target: ids[1] });
+            assert_ne!(w.units[i].tile, (5, 5), "it steps toward the platform");
+        }
+
+        /// CH1a, CH1b: the call for help tests the entries the halving search returns, by owner and column only. A
+        /// unit one row above the search's top row is answered when the list is out of order there, and not when the
+        /// list is exact.
+        #[test]
+        fn the_call_for_help_has_no_row_test() {
+            for (sorted, answers) in [(false, true), (true, false)] {
+                // The victim farm at (10, 12): R = 2, so the columns are 8 to 13 and the search's rows 7 to 15.
+                let (mut w, ids) = arena(&[
+                    (FARM, 0, (10, 12)),
+                    (FOOTMAN, 0, (20, 8)),
+                    (FOOTMAN, 0, (21, 8)),
+                    (ARCHER, 0, (9, 6)),
+                    (FOOTMAN, 1, (10, 18)),
+                ]);
+                let (victim, archer, attacker) = (ids[0], ids[3], ids[4]);
+                // List rows: 8, 6 (the archer), 8, 12 when out of order; 6, 8, 8, 12 when exact.
+                w.ylist = if sorted {
+                    vec![ids[3], ids[1], ids[2], ids[0], ids[4]]
+                } else {
+                    vec![ids[1], ids[3], ids[2], ids[0], ids[4]]
+                };
+                let vi = at(&w, victim);
+                w.call_for_help(vi, attacker);
+                let a = &w.units[at(&w, archer)];
+                let target = |o: Order| matches!(o, Order::Chase { target } if target == attacker);
+                assert_eq!(
+                    target(a.order) || a.pending.is_some_and(target),
+                    answers,
+                    "sorted {sorted}"
+                );
+            }
+        }
+
+        /// HA1a: in order 4 or 10 a unit already within the order's radius of a new target's goal has arrived: idle
+        /// replaces the pending order 12. A flyer has the +1; a land unit's radius 0 needs the goal tile itself.
+        #[test]
+        fn a_step_one_target_within_the_radius_ends_the_order_as_an_arrival() {
+            for (kind, target_at, arrives) in [(FLYER, (6, 5), true), (FLYER, (8, 5), false), (FOOTMAN, (6, 5), false)]
+            {
+                let (mut w, ids) = arena(&[(kind, 0, (5, 5)), (FOOTMAN, 1, target_at)]);
+                let order = Order::MoveAttack {
+                    goal: (5, 20),
+                    target: None,
+                };
+                let i = ready(&mut w, ids[0], order);
+                w.command(i, Order::Chase { target: ids[1] });
+                w.head_for(i, ids[1]);
+                let u = &w.units[i];
+                if arrives {
+                    assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3));
+                } else {
+                    assert_eq!(u.order, order, "{kind} {target_at:?}");
+                    assert_eq!(u.pending, Some(Order::Chase { target: ids[1] }));
+                }
+            }
+        }
+
+        /// FB1a, FB1b: order 12's fallback on a target out of strike reach (a shore building aimed at by its top-left
+        /// tile) is a plain pending take-over: attack animation, wait 3, no step, the mark set. Within reach it takes
+        /// over at once with the first animation step.
+        #[test]
+        fn the_fallback_out_of_strike_reach_is_a_plain_take_over() {
+            for shore in [true, false] {
+                let (mut w, ids) = arena(&[(FOOTMAN, 0, (5, 5)), (FARM, 1, (3, 6))]);
+                w.stats.0[FARM as usize].size = (3, 3);
+                if shore {
+                    w.stats.0[FARM as usize].flags |= flags::SHORE_BUILDING;
+                }
+                let (f, b) = (ids[0], ids[1]);
+                let bi = at(&w, b);
+                w.units[bi].size = (3, 3);
+                let i = ready(&mut w, f, Order::Chase { target: f });
+                w.chase_no_route(i);
+                let u = &w.units[i];
+                assert_eq!(u.order, Order::Chase { target: b }, "shore {shore}");
+                assert!(u.skip_search);
+                assert_eq!(u.script.anim, anim::ATTACK);
+                assert_eq!(u.pending, None);
+                if shore {
+                    assert_eq!(u.script.wait, 3, "plain take-over");
+                } else {
+                    assert_ne!(u.script.wait, 3, "within reach: the step ran");
+                }
+            }
         }
     }
 }

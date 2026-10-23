@@ -174,7 +174,9 @@ impl World {
         // transport-on-shore case.
         let owner = self.units[i].owner;
         let target_ok = (!self.target_lost(owner, target) || self.marked_hold(i))
-            && self.unit(target).is_some_and(|t| self.can_hit_kind(&self.units[i], t));
+            && self
+                .unit(target)
+                .is_some_and(|t| self.can_hit_kind_in_order(&self.units[i], t));
         // Orders spec, "Attack orders" (step 5): a target that fails the kind check gives a pending idle, by the common
         // path with the resume step, taken over in the same update as order 11's steps 4.3 and 4.4 do (round 68, code
         // Q3; static study only).
@@ -225,14 +227,28 @@ impl World {
     /// target search. With nothing found the unit goes idle at once. The take-over makes no turn and
     /// no strike decision; order 12's logic then runs once in the same update, skips its search because of the mark,
     /// and its strike decision turns the unit and starts the cooldown.
-    fn chase_no_route(&mut self, i: usize) {
+    pub(crate) fn chase_no_route(&mut self, i: usize) {
         // "Forgetting a dying attacker first": this search too.
         self.forget_dying_attacker(i);
         let Some(target) = self.search_in_range(i) else {
             return self.idle_at_once(i);
         };
-        // Step 2: order 12 as a command that takes over at once, as an immediate order (wait 1) whose animation's
-        // first step runs now; step 3's mark.
+        // Step 2, out of strike reach (round 108, traced: FB1a, FB1b): an ordinary pending take-over in this update,
+        // attack animation and wait 3, no animation step and no logic run; step 3's mark is set.
+        let in_reach = self
+            .unit(target)
+            .is_some_and(|t| self.within_strike_reach(&self.units[i], t));
+        if !in_reach {
+            self.command(i, Order::Chase { target });
+            if let Some(o) = self.units[i].pending.take() {
+                self.take_over(i, o);
+            }
+            self.units[i].skip_search = true;
+            self.restarts = self.restarts.wrapping_add(1);
+            return;
+        }
+        // Within strike reach: order 12 as a command that takes over at once, as an immediate order (wait 1) whose
+        // animation's first step runs now; step 3's mark.
         self.command(i, Order::Chase { target });
         if let Some(o) = self.units[i].pending.take() {
             self.immediately(i, o);
@@ -274,6 +290,13 @@ impl World {
         // (`orc5-40000`): with the target's goal zone too, not the 3 x 3 around its tile.
         // A shore building by its shore corner goal ([`World::target_goal`]).
         let g = self.target_walk(&self.units[i], t, 0);
+        // Orders spec, "Walking orders" step 3 (round 108, traced: HA1a): in order 4 or 10 a unit already within the
+        // order's radius (0, plus 1 for a sea or air unit) of the new target's goal has arrived: the attacker is
+        // forgotten and idle replaces the pending order 12, taking over in this update. Patrol is unchanged.
+        if matches!(self.units[i].order, Order::MoveAttack { .. } | Order::AttackMove { .. }) && self.at_goal(i, g) {
+            self.arrive(i);
+            return;
+        }
         // Orders spec, "No route": a unit that goes idle with no route keeps its attacker.
         self.walk(i, g);
     }

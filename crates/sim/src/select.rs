@@ -1464,6 +1464,29 @@ mod tests {
         assert_eq!(w.selection(0), vec![c]);
     }
 
+    /// GI1a (round 108, traced): recalling a group whose units are all inside something empties the selection, and the
+    /// group keeps its units; once the unit is outside the recall selects it.
+    #[test]
+    fn recalling_a_group_of_inside_units_empties_the_selection() {
+        let mut w = map();
+        let a = spawn(&mut w, FOOTMAN, 0, (1, 1));
+        let c = spawn(&mut w, FOOTMAN, 0, (3, 1));
+        w.selections[0].groups[1] = vec![a];
+        w.selections[0].groups[2] = vec![a, c];
+        let i = w.index(a).unwrap();
+        w.units[i].inside = true;
+        select(&mut w, &[c]);
+        w.step(&[Command::RecallGroup { player: 0, group: 1 }]);
+        assert!(w.selected_slots(0).is_empty());
+        assert_eq!(w.selections[0].groups[1], vec![a]);
+        // A group with a unit outside selects that unit.
+        w.step(&[Command::RecallGroup { player: 0, group: 2 }]);
+        assert_eq!(w.selection(0), vec![c]);
+        w.units[i].inside = false;
+        w.step(&[Command::RecallGroup { player: 0, group: 1 }]);
+        assert_eq!(w.selection(0), vec![a]);
+    }
+
     /// V-G2: after a removal the kill's pass goes on to the next entry; the recall's tidy checks the moved one.
     #[test]
     fn the_kill_tidy_does_not_recheck_the_moved_entry() {

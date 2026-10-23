@@ -1370,6 +1370,27 @@ mod tests {
         assert_eq!((u.order, u.pending, u.script.wait), (before, Some(Order::Idle), 1));
     }
 
+    /// RG1a (round 108, traced): row G's stand still is a pending order for a land unit: the order is unchanged in the
+    /// update, and the pending idle takes over at the next step done (animation still, wait 3).
+    #[test]
+    fn row_g_idle_takes_over_at_the_next_step_done() {
+        let mut w = field(10, 3);
+        let f = w.spawn(0, 0, (2, 1), 0).unwrap();
+        let foe = w.spawn(0, 1, (3, 1), 0).unwrap();
+        let i = stepping_into(&mut w, f, (3, 1), (3, 1));
+        w.units[i].attacked_by = Some(foe);
+        let before = w.units[i].order;
+        w.move_toward(i, Goal::tile((3, 1), 0));
+        assert_eq!((w.units[i].order, w.units[i].pending), (before, Some(Order::Idle)));
+        let fx = crate::anim::Effects {
+            step_done: true,
+            ..Default::default()
+        };
+        w.order(i, fx);
+        let u = &w.units[i];
+        assert_eq!((u.order, u.pending, u.script.wait), (Order::Idle, None, 3));
+    }
+
     /// Row G's pending idle goes through the resume rules: a remembered attack-move is given again,
     /// as a command.
     #[test]
