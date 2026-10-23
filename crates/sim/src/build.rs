@@ -393,7 +393,11 @@ impl World {
             // A building that stores gold or wood but doesn't accept the load (gold at a lumber mill) loses it, and
             // one that stores neither leaves it (B-040 audit, V68; the same table as entering, harvest V66).
             let stores = bf & (flags::GOLD_STORAGE | flags::WOOD_STORAGE) != 0;
-            if u.carrying && accepts {
+            // Classic mode only (`economy/build-train.md`, "Completion"; traced, C1a and C1b): delivery goes by the
+            // builder's gather mode, as for a Classic delivery on entering, so a gold or lumber builder gets a load at
+            // completion even with empty hands. Enhanced delivers only a carried load (V68). A tanker is left as it
+            // was: the spec traced the lumber case and names the gold case only.
+            if (u.carrying || (!tanker && !self.rules.enhanced)) && accepts {
                 self.deliver(k, b.owner, tanker);
             } else if !tanker && stores && !accepts {
                 self.units[k].carrying = false;
@@ -1067,6 +1071,36 @@ mod tests {
             let u = w.unit(p).unwrap();
             assert!(!u.inside, "let out");
             assert_eq!((u.carrying, w.players[0].gold), (!lost, gold), "stores {stores:#x}");
+        }
+    }
+
+    /// Round 106, C1a and C1b: a Classic-mode builder in lumber or gold mode gets a load at completion even with empty
+    /// hands; an Enhanced builder gets one only if it carries one (V68); neither is paid anything in no gather mode.
+    #[test]
+    fn a_classic_builder_delivers_by_its_gather_mode_with_empty_hands() {
+        for (enhanced, gather, stores, resource, paid) in [
+            (false, Gather::Lumber, flags::WOOD_STORAGE, 1, true),
+            (true, Gather::Lumber, flags::WOOD_STORAGE, 1, false),
+            (false, Gather::Gold, flags::GOLD_STORAGE, 0, true),
+            (true, Gather::Gold, flags::GOLD_STORAGE, 0, false),
+            (false, Gather::None, flags::WOOD_STORAGE, 1, false),
+            // A building that doesn't accept the mode's goods pays nothing either way.
+            (false, Gather::Gold, flags::WOOD_STORAGE, 0, false),
+        ] {
+            let (mut w, p) = town();
+            w.rules.enhanced = enhanced;
+            w.stats.0[FARM as usize].flags |= stores;
+            let i = w.index(p).unwrap();
+            w.units[i].gather = gather;
+            w.units[i].carrying = false;
+            w.raise(i, FARM, (2, 2));
+            let before = [w.players[0].gold, w.players[0].lumber];
+            run(&mut w, 12 * 3 + 2);
+            assert!(!w.unit(p).unwrap().inside, "let out");
+            let after = [w.players[0].gold, w.players[0].lumber];
+            let tag = format!("enhanced {enhanced}, {gather:?}, stores {stores:#x}");
+            assert_eq!(after[resource] > before[resource], paid, "{tag}");
+            assert_eq!(after[1 - resource], before[1 - resource], "{tag}");
         }
     }
 
