@@ -3391,7 +3391,12 @@ mod tests {
     #[test]
     fn order_12_out_of_reach_walks_on_after_a_cooldown_loss() {
         // (distance to the target, killer, cooling down at the lost run)
-        for (far, killer, cooling) in [(true, false, true), (false, false, true), (true, true, true), (true, false, false)] {
+        for (far, killer, cooling) in [
+            (true, false, true),
+            (false, false, true),
+            (true, true, true),
+            (true, false, false),
+        ] {
             let mut w = map();
             let f = w.spawn(FOOTMAN, 0, (5, 5), 0).unwrap();
             let g = w.spawn(FOOTMAN, 1, (5, if far { 14 } else { 6 }), 0).unwrap();
@@ -3416,7 +3421,11 @@ mod tests {
                 assert_eq!(u.order, Order::Idle, "{tag}: lost at once");
                 continue;
             }
-            assert_eq!((u.order, u.script.anim, u.script.wait), (order, anim::ATTACK, 15), "{tag}");
+            assert_eq!(
+                (u.order, u.script.anim, u.script.wait),
+                (order, anim::ATTACK, 15),
+                "{tag}"
+            );
             let walks_on = far && !killer;
             assert_eq!(w.walk_on.contains_key(&u.id), walks_on, "{tag}");
             // The target is shown through the cooldown only by a unit in reach.

@@ -1393,7 +1393,10 @@ mod tests {
         assert!(reveals(false, false));
         assert!(reveals(false, true), "a dying unit without the mark still sees");
         assert!(!reveals(true, false));
-        assert!(!reveals(true, true), "the polymorph victim in its death animation gives no sight");
+        assert!(
+            !reveals(true, true),
+            "the polymorph victim in its death animation gives no sight"
+        );
         // X7: inside a gold mine the mark changes nothing.
         let mut w = map();
         w.stats.0[0x5c] = tidewater_formats::udta::UnitStats {
