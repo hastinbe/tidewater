@@ -623,7 +623,8 @@ impl World {
         // tile is still step 1's, the unit's own stored tile, and the unit faces it as it does the search's aim.
         let face = self.come_out_face(i, next, Some(aim.unwrap_or(at)));
         let u = &mut self.units[i];
-        if let Some(f) = face.filter(|&f| f != tile) {
+        // Round 107 (PI15a): a unit facing its own tile faces east, whatever it faced before ("Facing a tile").
+        if let Some(f) = face {
             u.facing = crate::world::face_tile(tile, f);
         }
         let carrying = u.carrying;

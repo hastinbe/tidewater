@@ -515,6 +515,8 @@ fn a_load_clears_the_frozen_marks() {
 #[test]
 fn a_load_clears_the_computer_job_counts_and_keeps_the_jobs() {
     let mut a = battle();
+    // Round 107 (PI6a): only a computer player's worker releases a job.
+    a.players[1].controller = crate::ai::controller::COMPUTER;
     a.units[4].ai_job = crate::worker_ai::AiJob::Lumber;
     a.units[4].gather = crate::Gather::Lumber;
     a.ai[1].miners = 4;

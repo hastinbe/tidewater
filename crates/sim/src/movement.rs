@@ -255,6 +255,8 @@ impl World {
             | Order::Cast { target, .. }
             | Order::ReturnGoods { depot: target }
             | Order::Harvest { source: target, .. } => target,
+            // Round 107 (PI11a): command 27's target too, an empty slot included.
+            Order::Repair { target } => Some(target),
             o => crate::orders::target_of(o),
         };
         named.is_some_and(|t| self.target_lost(owner, t))
@@ -613,6 +615,14 @@ impl World {
                 // Static study only (V24): "stand still" becomes the pending order, so the resume rules of the orders
                 // spec apply.
                 self.give(i, Order::Idle);
+                // Round 107 (PI9a, traced): a transport landing (order 30) is the exception: the pending order takes
+                // over in the same update, so an idle transport docks at once.
+                if matches!(self.units[i].order, Order::Land { .. })
+                    && let Some(o) = self.units[i].pending.take()
+                {
+                    self.take_over(i, o);
+                    return;
+                }
                 1
             }
         };

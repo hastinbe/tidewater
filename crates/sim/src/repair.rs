@@ -33,7 +33,11 @@ impl World {
 
     /// Command 27: repair `target`, or just walk toward it if it can't be repaired ("The command").
     pub(crate) fn repair_command(&mut self, i: usize, target: UnitId) -> Option<Order> {
-        let t = self.unit(target)?;
+        // Round 107 (PI11a): a target slot with no unit still gives the command; it fails the target check and idle
+        // becomes pending, with no target shown from the command on.
+        let Some(t) = self.unit(target) else {
+            return Some(Order::Repair { target });
+        };
         let repairable = t.building || self.stats_of(t.kind).flags & flags::TRANSPORT != 0;
         Some(if repairable {
             Order::Repair { target }
@@ -153,6 +157,25 @@ mod tests {
         w.players[0].gold = 100;
         w.players[0].lumber = 100;
         (w, peasant, farm)
+    }
+
+    /// Round 107 (PI11a): a repair command on a slot that holds no unit is still given and fails the target check: the
+    /// worker shows no target from then on, and idle is pending.
+    #[test]
+    fn a_repair_command_on_an_empty_slot_leaves_a_pending_idle() {
+        let (mut w, peasant, farm) = site();
+        repair(&mut w, vec![peasant], farm);
+        for _ in 0..4 {
+            w.step(&[]);
+        }
+        assert_eq!(w.unit(peasant).unwrap().order, Order::Repair { target: farm });
+        repair(&mut w, vec![peasant], UnitId(u32::MAX));
+        assert_eq!(w.unit(peasant).unwrap().recorded_target(), None);
+        for _ in 0..40 {
+            w.step(&[]);
+        }
+        let u = w.unit(peasant).unwrap();
+        assert_eq!((u.order, u.recorded_target()), (Order::Idle, None));
     }
 
     #[test]

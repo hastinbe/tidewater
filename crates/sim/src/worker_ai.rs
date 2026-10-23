@@ -274,8 +274,13 @@ impl World {
 
     /// Step 1: undo the bookkeeping of the worker's job. Also run when a computer worker dies.
     pub(crate) fn release_job(&mut self, i: usize) {
-        let job = std::mem::take(&mut self.units[i].ai_job);
         let p = self.units[i].owner as usize;
+        // Round 107 (PI6a): whose worker it is is decided by its owner now. One that took a job as a computer player's
+        // unit and was then rescued by a human player releases nothing: no count goes down, and the job record stays.
+        if !self.computer_player(p as u8) {
+            return;
+        }
+        let job = std::mem::take(&mut self.units[i].ai_job);
         let Some(a) = self.ai.get_mut(p) else { return };
         match job {
             AiJob::None => {}
@@ -1044,6 +1049,20 @@ mod tests {
             .unwrap();
         assert_eq!(w.worker_choice(i), Choice::Wait);
         assert!((44..=59).contains(&w.units[i].script.wait));
+    }
+
+    /// Round 107 (PI6a): a worker rescued by a human player after taking a job releases nothing when it dies, and its
+    /// job record stays.
+    #[test]
+    fn a_rescued_workers_death_releases_no_count() {
+        let (mut w, _) = town();
+        let i = peasants(&mut w, 1)[0];
+        w.units[i].ai_job = AiJob::Repair;
+        w.units[i].owner = 0;
+        w.players[0].controller = controller::HUMAN;
+        w.release_job(i);
+        assert_eq!((w.ai[0].repairers, w.ai[1].repairers), (0, 0));
+        assert_eq!(w.units[i].ai_job, AiJob::Repair);
     }
 
     /// `ai/worker-ai.md`, "Counts after a load" (SL23 to SL25): the counts are 16-bit unsigned and wrap in both

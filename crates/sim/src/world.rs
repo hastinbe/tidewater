@@ -2052,6 +2052,12 @@ pub(crate) mod tests {
     use super::*;
     use tidewater_formats::tileset::{Palette, TileGroup};
 
+    /// Round 107 (PI15a): a unit facing its own tile faces east.
+    #[test]
+    fn facing_the_own_tile_is_east() {
+        assert_eq!(face_tile((5, 5), (5, 5)), 2);
+    }
+
     /// A tileset whose group 0 is ground and group 1 is water.
     pub(crate) fn tileset() -> Tileset {
         let g = |flags, code| TileGroup {

@@ -1438,6 +1438,18 @@ impl World {
             let tile = self.unit(best).expect("found by the search").tile;
             let o = self.demolish_command(i, Some(best), tile);
             self.command(i, o);
+            // Round 107 (PI16a): in a walking order (4, 5, Enhanced 10) the step heads at once for the new demolish
+            // target, as attack-move heads for a new target: its goal with order 20's radius (1) and its goal zone,
+            // while the order stays until order 20 takes over at the next step done.
+            if matches!(
+                self.units[i].order,
+                Order::AttackMove { .. } | Order::MoveAttack { .. } | Order::Patrol { .. }
+            ) && let Some(t) = self.unit(best)
+            {
+                let g = self.target_walk(&self.units[i], t, 1);
+                self.walk(i, g);
+                return true;
+            }
             return false;
         }
         // "Special cases": workers and tankers of every player never run the search; the others'
@@ -5393,8 +5405,8 @@ mod tests {
         }
 
         /// V278 (round 72, traced): an Enhanced demolition unit walking a remembered patrol whose search finds a unit
-        /// gets command 19 on it (order 20 pending, order 5 kept), and its patrol walk goes on in the same run: it
-        /// steps toward the patrol's end.
+        /// gets command 19 on it (order 20 pending, order 5 kept). Round 107 (PI16a, traced): the step of that run
+        /// heads for the new target, not the patrol's end.
         #[test]
         fn a_patrolling_demolition_unit_walks_on_after_its_command() {
             const SQUAD: u8 = DEMOLITION[0];
@@ -5420,7 +5432,7 @@ mod tests {
                 (u.order, u.pending, u.commanded),
                 (patrol, Some(Order::Demolish { at: Some(e), tile }), true)
             );
-            assert_eq!(u.tile, (5, 6), "steps on toward the patrol's end");
+            assert_eq!(u.tile, (6, 6), "steps toward the demolish target");
         }
 
         /// The follow with no target unit returns at once; with the follow pending on a target in an order it can't
