@@ -233,6 +233,13 @@
 //! mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100 far push-off picks (V50, V51; a landing far out whose ordinary
 //! route is empty plans again in the landing class) and mp-r103-air-mp-r103-air-pullback-fixed-goals-300 an air
 //! unit's goal pull-back (AP1). The odd-ships map has no row.
+//!
+//! Round 106 (generated maps `R106-sw11.pud`, `R106-sw11b.pud`, `R106-sw8b.pud`, `R106-sw6.pud` and `R106-sw58.pud`):
+//! mp-r106-sw11-mp-r106-sw11-fixed-game-goals-1500 and mp-r106-sw11b-mp-r106-sw11b-fixed-game-goals-1500 (a two-tile
+//! attacker's range test uses its own tile, SW11b to SW11e), mp-r106-sw8b-mp-r106-sw8-bodies-fixed-game-goals-vision-1500
+//! (bodies, SW8f to SW8h), mp-r106-sw6-mp-r106-sw6-fixed-game-goals-1600 and
+//! mp-r106-sw58-mp-r106-sw5-ruin-polymorph-fixed-game-goals-vision-5400 (a polymorph victim gives no refresh sight,
+//! SW12a, and a covered ruin, SW5).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -589,6 +596,12 @@ traces! {
     mp_r103_tests_mp_r103_groups_pushoff_fixed_goals_groups_1000: (mp, "mp-r103-tests-mp-r103-groups-pushoff-fixed-goals-groups-1000.jsonl.gz", &[], None),
     mp_r103_far_mp_r103_far_pushoff_fixed_goals_1100: (mp, "mp-r103-far-mp-r103-far-pushoff-fixed-goals-1100.jsonl.gz", &[], None),
     mp_r103_air_mp_r103_air_pullback_fixed_goals_300: (mp, "mp-r103-air-mp-r103-air-pullback-fixed-goals-300.jsonl.gz", &[], None),
+    // Round 106: the range test of a two-tile attacker, bodies, the SW6 case and the polymorph victim's sight (SW12a).
+    mp_r106_sw11_mp_r106_sw11_fixed_game_goals_1500: (mp, "mp-r106-sw11-mp-r106-sw11-fixed-game-goals-1500.jsonl.gz", &[], None),
+    mp_r106_sw11b_mp_r106_sw11b_fixed_game_goals_1500: (mp, "mp-r106-sw11b-mp-r106-sw11b-fixed-game-goals-1500.jsonl.gz", &[], None),
+    mp_r106_sw8b_mp_r106_sw8_bodies_fixed_game_goals_vision_1500: (mp, "mp-r106-sw8b-mp-r106-sw8-bodies-fixed-game-goals-vision-1500.jsonl.gz", &[], None),
+    mp_r106_sw6_mp_r106_sw6_fixed_game_goals_1600: (mp, "mp-r106-sw6-mp-r106-sw6-fixed-game-goals-1600.jsonl.gz", &[], None),
+    mp_r106_sw58_mp_r106_sw5_ruin_polymorph_fixed_game_goals_vision_5400: (mp, "mp-r106-sw58-mp-r106-sw5-ruin-polymorph-fixed-game-goals-vision-5400.jsonl.gz", &[], None),
     human1_human01_r101_hold_workers_goals_700: ("human1-human01-r101-hold-workers-goals-700.jsonl.gz", "Campaign\\Human\\Human01.pud", 0, &[], None),
     // Round 104 windowed traces (each starts mid-mission; the sweep fixes SW1 to SW8 and H1).
     win_orc9_goals_aigoals_24200_24260: ("win-orc9-goals-aigoals-24200-24260.jsonl.gz", "Campaign\\Orc\\Orc09.pud", 17, &[], None),

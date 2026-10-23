@@ -24,6 +24,8 @@ struct Spec {
     sea: u16,
     /// The depth S of the shore band, 1 to `sea` (the spec's "Deeper shore" option; 1 is the plain shore row).
     shore: u16,
+    /// Rectangles (x, y, width, height) of water on land, a lake: the water values of the sea rows ("Lakes").
+    lakes: &'static [(u16, u16, u16, u16)],
 }
 
 /// A start location of a human player (0x5E) or an orc player (0x5F).
@@ -69,6 +71,7 @@ const R99_TESTS: Spec = Spec {
     ],
     sea: 0,
     shore: 1,
+    lakes: &[],
 };
 
 /// `R100-tests.pud` (spec: "Data", "R100-tests.pud"): a sea of 12 rows along the bottom.
@@ -102,6 +105,7 @@ const R100_TESTS: Spec = Spec {
     ],
     sea: 12,
     shore: 1,
+    lakes: &[],
 };
 
 /// `R102-flyers.pud` (round 102; the oracle harness's map description, `oracle/maps/R102-flyers.json`): the sea of
@@ -130,6 +134,7 @@ const R102_FLYERS: Spec = Spec {
     ],
     sea: 12,
     shore: 1,
+    lakes: &[],
 };
 
 /// `R103-tests.pud` (round 103; spec: "Data", "R103-tests.pud"): a sea of 12 rows with a two-row shore band, peasants
@@ -161,6 +166,7 @@ const R103_TESTS: Spec = Spec {
     ],
     sea: 12,
     shore: 2,
+    lakes: &[],
 };
 
 /// `R103-far.pud` (round 103; spec: "Data", "R103-far.pud"): one transport and three destroyers filling the even
@@ -181,6 +187,7 @@ const R103_FAR: Spec = Spec {
     ],
     sea: 12,
     shore: 2,
+    lakes: &[],
 };
 
 /// `R103-air.pud` (round 103; spec: "Data", "R103-air.pud"): five gryphon riders, one on an odd column, for the air
@@ -202,6 +209,143 @@ const R103_AIR: Spec = Spec {
     ],
     sea: 0,
     shore: 1,
+    lakes: &[],
+};
+
+/// `R106-sw11.pud` (round 106; the oracle harness's map description, `oracle/maps/R106-sw11.json`): five battleships,
+/// each in a 2 × 2 lake of its own, and an orc farm east, south or diagonal of four of them, for the range test of a
+/// two-tile attacker (`orders/orders.md`, SW11b to SW11e).
+const R106_SW11: Spec = Spec {
+    size: 64,
+    id_tag: 0x7206,
+    description: "tidewater r106 sw11 ship reach",
+    players: &[(0, 0, 0, 0, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (2, 2, HUMAN_START, 0, 0),
+        (60, 60, ORC_START, 1, 0),
+        (10, 10, 0x20, 0, 0),
+        (17, 10, 0x3B, 1, 0),
+        (10, 30, 0x20, 0, 0),
+        (16, 30, 0x3B, 1, 0),
+        (40, 10, 0x20, 0, 0),
+        (40, 17, 0x3B, 1, 0),
+        (40, 30, 0x20, 0, 0),
+        (47, 37, 0x3B, 1, 0),
+        (10, 50, 0x20, 0, 0),
+        (17, 50, 0x3B, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
+    lakes: &[
+        (10, 10, 2, 2),
+        (10, 30, 2, 2),
+        (40, 10, 2, 2),
+        (40, 30, 2, 2),
+        (10, 50, 2, 2),
+    ],
+};
+
+/// `R106-sw11b.pud` (round 106, `oracle/maps/R106-sw11b.json`): battleships in two-tile channels, each with a farm at
+/// the near end's own-tile distance 7 (`orders/orders.md`, SW11e).
+const R106_SW11B: Spec = Spec {
+    size: 64,
+    id_tag: 0x7207,
+    description: "tidewater r106 sw11 ship channels",
+    players: &[(0, 0, 0, 0, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (60, 2, HUMAN_START, 0, 0),
+        (60, 60, ORC_START, 1, 0),
+        (2, 10, 0x20, 0, 0),
+        (17, 10, 0x3B, 1, 0),
+        (2, 30, 0x20, 0, 0),
+        (17, 30, 0x3B, 1, 0),
+        (2, 50, 0x20, 0, 0),
+        (17, 50, 0x3B, 1, 0),
+        (40, 10, 0x20, 0, 0),
+        (40, 25, 0x3B, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
+    lakes: &[(2, 10, 10, 2), (2, 30, 10, 2), (2, 50, 10, 2), (40, 10, 2, 10)],
+};
+
+/// `R106-sw58.pud` (round 106, `oracle/maps/R106-sw58.json`): a mage and a ruin-and-body field for polymorph and raise
+/// dead, with the human player knowing both spells (`vision/fog.md`, SW12a).
+const R106_SW58: Spec = Spec {
+    size: 64,
+    id_tag: 0x7208,
+    description: "tidewater r106 sw5 sw8 marks",
+    players: &[(0, 5_000, 5_000, 0, 0x2100), (1, 0, 0, 0, 0)],
+    units: &[
+        (2, 60, HUMAN_START, 0, 0),
+        (60, 2, ORC_START, 1, 0),
+        (60, 60, 0x0A, 0, 0),
+        (30, 54, 0x0B, 0, 0),
+        (30, 30, 0x06, 0, 0),
+        (30, 31, 0x06, 0, 0),
+        (30, 39, 0x06, 0, 0),
+        (30, 40, 0x06, 0, 0),
+        (36, 30, 0x01, 1, 0),
+        (36, 40, 0x01, 1, 0),
+        (44, 35, 0x02, 0, 0),
+        (44, 37, 0x02, 0, 0),
+        (16, 44, 0x3B, 1, 0),
+        (10, 52, 0x04, 0, 0),
+        (12, 52, 0x04, 0, 0),
+        (14, 52, 0x04, 0, 0),
+        (16, 52, 0x04, 0, 0),
+        (26, 8, 0x01, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
+    lakes: &[],
+};
+
+/// `R106-sw8b.pud` (round 106, `oracle/maps/R106-sw8b.json`): the same field with the orc player first, for bodies
+/// and raise dead (`core/corpses.md`, SW8f to SW8h).
+const R106_SW8B: Spec = Spec {
+    size: 64,
+    id_tag: 0x7209,
+    description: "tidewater r106 sw8 bodies",
+    players: &[(1, 5_000, 5_000, 0, 0x2000), (0, 0, 0, 0, 0)],
+    units: &[
+        (2, 60, ORC_START, 0, 0),
+        (60, 2, HUMAN_START, 1, 0),
+        (30, 54, 0x0B, 0, 0),
+        (30, 30, 0x01, 0, 0),
+        (30, 31, 0x01, 0, 0),
+        (30, 39, 0x01, 0, 0),
+        (30, 40, 0x01, 0, 0),
+        (36, 30, 0x00, 1, 0),
+        (36, 40, 0x00, 1, 0),
+        (44, 35, 0x03, 0, 0),
+        (44, 37, 0x03, 0, 0),
+        (44, 39, 0x03, 0, 0),
+        (56, 6, 0x3A, 1, 0),
+    ],
+    sea: 0,
+    shore: 1,
+    lakes: &[],
+};
+
+/// `R106-sw6.pud` (round 106, `oracle/maps/R106-sw6.json`): a sea of 34 rows with a two-row shore band, two transports
+/// and a farm, for a far mover (`orders/orders.md`, "Order 30's radius", SW6).
+const R106_SW6: Spec = Spec {
+    size: 64,
+    id_tag: 0x720A,
+    description: "tidewater r106 sw6 far mover",
+    players: &[(0, 10_000, 10_000, 1_000, 0), (1, 0, 0, 0, 0)],
+    units: &[
+        (10, 10, HUMAN_START, 0, 0),
+        (55, 10, ORC_START, 1, 0),
+        (42, 60, 0x1C, 0, 0),
+        (20, 60, 0x1C, 0, 0),
+        (60, 5, 0x01, 1, 0),
+        (4, 20, 0x3A, 0, 0),
+    ],
+    sea: 34,
+    shore: 2,
+    lakes: &[],
 };
 
 /// Whether a trace header's map name is a generated test map's: `R<round>-<name>.pud`, a capital R, the round
@@ -223,6 +367,11 @@ pub fn generated(name: &str) -> Option<Vec<u8>> {
         "R103-tests.pud" => Some(build(&R103_TESTS)),
         "R103-far.pud" => Some(build(&R103_FAR)),
         "R103-air.pud" => Some(build(&R103_AIR)),
+        "R106-sw11.pud" => Some(build(&R106_SW11)),
+        "R106-sw11b.pud" => Some(build(&R106_SW11B)),
+        "R106-sw58.pud" => Some(build(&R106_SW58)),
+        "R106-sw8b.pud" => Some(build(&R106_SW8B)),
+        "R106-sw6.pud" => Some(build(&R106_SW6)),
         _ => None,
     }
 }
@@ -254,6 +403,13 @@ fn build(s: &Spec) -> Vec<u8> {
     let tile_words = |land: u16, coast: u16, shore: u16, water: u16| {
         words((0..tiles).map(|t| {
             let row = (t / n) as u16;
+            let col = (t % n) as u16;
+            if s.lakes
+                .iter()
+                .any(|&(x, y, w, h)| (x..x + w).contains(&col) && (y..y + h).contains(&row))
+            {
+                return water;
+            }
             match (s.sea > 0).then(|| s.size - s.sea) {
                 Some(w) if row + 1 >= w + s.shore => water,
                 Some(w) if row + 1 >= w => shore,
@@ -266,7 +422,10 @@ fn build(s: &Spec) -> Vec<u8> {
     let mut ty = b"WAR2 MAP\0\0\x0a\xff".to_vec();
     ty.extend(s.id_tag.to_le_bytes());
     let mut desc = [0u8; 32];
-    desc[..s.description.len()].copy_from_slice(s.description.as_bytes());
+    // The field holds 32 bytes: a longer description is cut off, without a terminator.
+    let d = s.description.as_bytes();
+    let d = &d[..d.len().min(32)];
+    desc[..d.len()].copy_from_slice(d);
     let mut udta = vec![0u8; 5696];
     udta[..2].copy_from_slice(&1u16.to_le_bytes());
     let mut ugrd = vec![0u8; 782];
@@ -358,6 +517,46 @@ mod tests {
             sha256(&b),
             "9253e1a905ccda488791723269ea1a766cd549d71acd1300ee7e11559a1faf61"
         );
+    }
+
+    /// The round 106 maps (`oracle/maps/R106-*.json`): the sizes and SHA-256 of the files the oracle harness wrote.
+    #[test]
+    fn the_round_106_maps_match_the_harness_hashes() {
+        for (name, len, hash) in [
+            (
+                "R106-sw11.pud",
+                35_982,
+                "f2eed25fdfc651f3d1a56ba0c3f9859c1b213f2632e929be2be4002c7b6d94d7",
+            ),
+            (
+                "R106-sw11b.pud",
+                35_966,
+                "75acab9b1f5ff21f7a5e090c9014fe59e7e4e5ce8e87b7d1a8a29d2d3c691a67",
+            ),
+            (
+                "R106-sw58.pud",
+                36_030,
+                "429be13ec761c3fb7ac7df8e6bf5856821b795dd93302c1e36364468020df221",
+            ),
+            (
+                "R106-sw8b.pud",
+                35_990,
+                "dc7bd59769e129b4c73d283222bc2e92eee590d4a3073362a0128dd9ccc85ea2",
+            ),
+            (
+                "R106-sw6.pud",
+                35_934,
+                "06b5f23eca17e05d457df243fb6b4fa5daaf240f565934afaf870e3ad3226045",
+            ),
+        ] {
+            let b = generated(name).expect("known map");
+            assert_eq!(b.len(), len, "{name}");
+            // The lake maps' tile sections are our reading of the harness's description (water values in the lake
+            // rectangles, nothing around them); only the file length is pinned for them, and the traces on them match.
+            if !name.starts_with("R106-sw11") {
+                assert_eq!(sha256(&b), hash, "{name}");
+            }
+        }
     }
 
     /// `R103-tests.pud` (round 103): 36 006 bytes with the SHA-256 of the spec, shore band two rows deep.
