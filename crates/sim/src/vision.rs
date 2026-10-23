@@ -370,7 +370,13 @@ impl World {
     }
 
     /// Rule 1: unit `i` applies its sight in phase 4 of a fog refresh cycle, just before its own update.
+    ///
+    /// Round 106 (SW12a): a unit that carries the used mark and isn't inside something applies no sight, dying or not;
+    /// a unit inside something follows the inside rules, the gold-mine exception (X7) included.
     pub(crate) fn refresh_sight(&mut self, i: usize) {
+        if self.units[i].used && !self.units[i].inside {
+            return;
+        }
         self.apply_unit_sight(i);
     }
 
@@ -1369,6 +1375,43 @@ mod tests {
         // A non-worker inside something does not see.
         w.stats.0[FOOTMAN as usize].flags &= !flags::PEON;
         assert_eq!(w.sight_of(i), None);
+    }
+
+    /// Round 106, SW12a and X7: a unit with the used mark that isn't inside something applies no sight at a fog
+    /// refresh, dying or not; a worker inside a gold mine still sees from the mine whatever it carries.
+    #[test]
+    fn the_used_mark_stops_refresh_sight_unless_inside() {
+        let reveals = |used: bool, dying: bool| {
+            let mut w = map();
+            let id = w.spawn(FOOTMAN, 0, (20, 20), 0).unwrap();
+            let i = w.index(id).unwrap();
+            w.units[i].used = used;
+            w.units[i].dying = dying;
+            w.step(&[]);
+            touched(&w) > 0
+        };
+        assert!(reveals(false, false));
+        assert!(reveals(false, true), "a dying unit without the mark still sees");
+        assert!(!reveals(true, false));
+        assert!(!reveals(true, true), "the polymorph victim in its death animation gives no sight");
+        // X7: inside a gold mine the mark changes nothing.
+        let mut w = map();
+        w.stats.0[0x5c] = tidewater_formats::udta::UnitStats {
+            hit_points: 100,
+            size: (3, 3),
+            sight: 2,
+            flags: flags::BUILDING | flags::MINE,
+            ..Default::default()
+        };
+        w.stats.0[FOOTMAN as usize].flags |= flags::PEON;
+        let m = w.spawn(0x5c, 15, (20, 20), 0).unwrap();
+        let p = w.spawn(FOOTMAN, 0, (20, 19), 0).unwrap();
+        let i = w.index(p).unwrap();
+        w.units[i].inside = true;
+        w.units[i].used = true;
+        w.units[i].order = Order::Inside { building: Some(m) };
+        w.step(&[]);
+        assert_eq!(touched(&w), 21, "the mine's sight still applies");
     }
 
     /// Round 104, SW5a: a unit with the used mark is hidden from every player, dying or not.
