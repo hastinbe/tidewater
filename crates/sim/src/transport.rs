@@ -199,7 +199,15 @@ impl World {
         if Self::pulls_back(order) {
             self.pull_back_target_tile(i);
         }
-        order
+        // "Sailing aims at the target tile" (round 108, traced: TG1a, TG1b): a sailing transport with no target unit
+        // walks to the pulled-back target tile and arrives there; the destination stays kept for the rules that read it.
+        match order {
+            Order::Move { target: None, .. } => Order::Move {
+                goal: self.units[i].ship.target_tile,
+                target: None,
+            },
+            o => o,
+        }
     }
 
     /// "Pulled back from the transport's own area" (round 102, traced: V46 to V48): the command's pull-back of the
@@ -695,10 +703,12 @@ impl World {
         }
     }
 
-    /// Kills every passenger of a dying transport ("Passengers and the transport's death").
+    /// Kills every passenger of a dying transport, one at a time from the last place to the first ("Passengers and the
+    /// transport's death"; round 108, PD1a: the original's order isn't place 1 first, and last place first is the
+    /// spec's labelled default).
     pub(crate) fn kill_passengers(&mut self, i: usize) {
         let passengers = std::mem::take(&mut self.units[i].passengers);
-        for p in passengers.into_iter().flatten() {
+        for p in passengers.into_iter().rev().flatten() {
             if let Some(pi) = self.index(p)
                 && !self.units[pi].dying
             {
@@ -2394,5 +2404,62 @@ mod tests {
             // the seen bits differ; the computer player's run, which applies no sight, is unchanged.
             pinned(&prints, &[15390870322679765947, 14821420497745263775]);
         }
+    }
+
+    /// TG1a, TG1b (round 108, traced): a transport sailing in order 3 with no target unit walks to its pulled-back
+    /// target tile, not its destination, and arrives within one tile of it; the destination stays kept.
+    #[test]
+    fn a_sailing_transport_aims_at_its_pulled_back_target_tile() {
+        // Open water for x < 10 and x >= 20, land between; the east water is another sea region, so the smart move to
+        // (30, 10) is pulled back along the line to the first usable tile of the ship's own region.
+        let mut w = coast(|x| if (10..20).contains(&x) { bits::LAND } else { bits::WATER });
+        for n in 0..w.terrain.regions.len() {
+            if (n % 48) as i32 >= 20 {
+                w.terrain.regions[n] = SEA_REGION + 1;
+            }
+        }
+        let i = ship(&mut w, (4, 10), Order::Idle);
+        let order = smart(&mut w, i, (30, 10));
+        let ship_state = &w.units[i].ship;
+        assert_eq!(ship_state.dest, (30, 10));
+        assert_ne!(ship_state.target_tile, (30, 10), "the target tile is pulled back");
+        assert!(ship_state.target_tile.0 < 20, "{:?}", ship_state.target_tile);
+        assert_eq!(
+            order,
+            Order::Move {
+                goal: ship_state.target_tile,
+                target: None
+            }
+        );
+    }
+
+    /// PD1a (round 108, traced in part): the passengers of a sinking transport die from the last place to the first,
+    /// which shows in the control-group tidy at every kill.
+    #[test]
+    fn passengers_die_from_the_last_place_to_the_first() {
+        let mut w = sea(20);
+        let t = ship(&mut w, (30, 10), Order::Idle);
+        let tid = w.units[t].id;
+        w.stats.0[FOOTMAN as usize].rect_selectable = true;
+        let spawn = |w: &mut World, x: i32| {
+            let id = w.spawn(FOOTMAN, 0, (x, 4), 0).unwrap();
+            let i = w.index(id).unwrap();
+            w.units[i].inside = true;
+            id
+        };
+        let units: Vec<UnitId> = (0..8).map(|x| spawn(&mut w, x)).collect();
+        // Places 1 to 5 are units 2, 3, 4, 5, 0 (the replay's boarding order); the group holds the five among others.
+        let places = [units[2], units[3], units[4], units[5], units[0]];
+        let t = w.index(tid).unwrap();
+        for (slot, p) in places.iter().enumerate() {
+            w.units[t].passengers[slot] = Some(*p);
+        }
+        // Group: place 5, other, places 1 to 4, then two more others.
+        w.selections[0].groups[1] = vec![
+            units[0], units[1], units[2], units[3], units[4], units[5], units[6], units[7],
+        ];
+        w.kill(t);
+        // Place 5 dies first (swapped out by the tidy), place 1 last.
+        assert_eq!(w.selections[0].groups[1], vec![units[7], units[1], units[6]]);
     }
 }
