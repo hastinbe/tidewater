@@ -1467,10 +1467,8 @@ impl World {
         if computer_worker || (never_searches && attacker.is_none() && !valid) {
             return false;
         }
-        if attacker.is_some() || (non_combat && valid) {
-            if non_combat {
-                return self.react(i);
-            }
+        if non_combat && (attacker.is_some() || valid) {
+            return self.react(i);
         }
         if self.flags_of_unit(u) & flags::CAN_ATTACK == 0 {
             return false;
