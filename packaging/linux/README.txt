@@ -16,7 +16,7 @@ To import again later: ./tidewater --reimport
 
 Where things are kept
 ---------------------
-Imported game files, saved games and settings live in your own data folder, ~/.local/share/Tidewater (or under
+Imported game files, saved games and settings live in your own data folder, ~/.local/share/tidewater (or under
 $XDG_DATA_HOME). Nothing is written next to the program or into your game install. Delete that folder to remove them.
 
 A menu entry

@@ -198,11 +198,11 @@ The idle-worker key is F6. The keys can be rebound in a `[keys]` section of the 
 | `auto-replay` | `--extra-auto-replay VALUE` | off, menu, always | off | Record every game: `menu` keeps the recording so the game menu can save it, `always` also writes each game's replay to the replays folder of the data directory as it is played |
 | `widescreen` | `--extra-widescreen VALUE` | off, 16:10, 16:9, auto | off | A wider game screen, the extra width being map: 16:10, 16:9, or auto to match the window (ignored on touch devices; menus and videos stay 4:3) (C+L) |
 
-**C+L** marks an option that gives you an edge, so in a game with other players the lobby will set it for everyone
-instead of your own settings. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
+**C+L** marks an option that gives you an edge. It is meant to be set by the lobby for everyone in a game with other
+players; that is not built yet, so a network game uses each player's own setting. **S** marks an option that changes the simulation (rally points, the production queue, shift-queued orders,
 the selection limit and the extra speed levels): the flag or the setting starts a single-player game with it, and in a
 network game the host turns it on in the lobby's "Extras" box and everyone plays with the host's choice. The game is
-saved and recorded with it. 
+saved and recorded with it.
 ## Command-line reference
 
 ### `tidewater` (the game)

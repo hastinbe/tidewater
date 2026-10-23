@@ -115,9 +115,8 @@ never `/Applications`). Run it with `TIDEWATER_UPDATE_FEED=http://127.0.0.1:8765
 The relaunched copy starts with no arguments, so it uses the real per-user data folder: close it at once, and never test
 against a folder you care about. `TIDEWATER_DEBUG=1` shows the check's steps.
 
-## The update check needs a public repository
+## Where players start
 
-While the repository is private the API answers 404, so no update is offered (silently; `TIDEWATER_DEBUG=1` shows it), and
-release downloads need sign-in. Once it is public both work with no change.
-
-There is no landing page: the README and the GitHub releases page are where players start.
+The update check and the release downloads both need the repository to be public, because they call GitHub without
+signing in. A private repository answers 404: no update is offered (silently; `TIDEWATER_DEBUG=1` shows it) and downloads
+need sign-in. There is no landing page: the README and the GitHub releases page are where players start.
